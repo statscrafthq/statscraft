@@ -1,0 +1,9 @@
+[package]
+name = "statscraft-syntax"
+description = "StatsCraft command language: command splitting, parser and AST"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
