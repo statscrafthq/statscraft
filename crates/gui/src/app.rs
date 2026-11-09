@@ -16,13 +16,30 @@ use eframe::egui::{
 };
 use statscraft_data::Dataset;
 use statscraft_engine::live::{self, Action, Request, Response};
-use statscraft_engine::session::{CommandResult, Failure, Session};
+use statscraft_engine::session::{Done, Failure, RunResult, Session};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 
 /// A request from `statscraft --session gui` and where its reply goes.
 type Remote = (Request, mpsc::Sender<Response>);
+
+/// What to do when a run finishes.
+enum After {
+    Show,
+    Editor,
+    OpenData(PathBuf),
+    SaveData(PathBuf),
+    CloseDialog,
+    Remote(Remote),
+}
+
+/// A run on a worker thread, so a large file or a long run leaves the window responsive.
+struct Busy {
+    label: String,
+    after: After,
+    done: mpsc::Receiver<Done>,
+}
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
@@ -150,6 +167,8 @@ pub struct App {
     status: Result<String, String>,
     title: String,
     requests: mpsc::Receiver<Remote>,
+    busy: Option<Busy>,
+    ctx: egui::Context,
     /// The listener for `--session gui`; dropping it removes the endpoint file.
     server: Option<live::Server>,
 }
@@ -159,6 +178,7 @@ impl App {
     /// syntax editor.
     pub fn new(args: &[String], ctx: &egui::Context) -> Self {
         let (sender, requests) = mpsc::channel::<Remote>();
+        let app_ctx = ctx.clone();
         let ctx = ctx.clone();
         // the listener thread hands each request to the window and waits for the reply
         let server = live::serve(live::endpoint_file(), move |request| {
@@ -204,6 +224,8 @@ impl App {
             status,
             title: "StatsCraft".into(),
             requests,
+            busy: None,
+            ctx: app_ctx,
             server: server.ok(),
         };
         for arg in args {
@@ -217,37 +239,112 @@ impl App {
         app
     }
 
-    /// Runs syntax through the session. Tables go to the output; errors to the status bar and,
-    /// for the syntax editor, to the editor's error list.
-    fn run(&mut self, source: &str, lines: Option<(u32, u32)>, from_editor: bool) -> bool {
-        let result = self.session.run(source, lines);
-        self.show(result.map(|r| r.commands), from_editor)
+    /// Starts syntax on a worker thread; `finish` shows the result. One run at a time: requests
+    /// from the command line wait their turn, the window's own actions are turned away.
+    fn run(&mut self, source: &str, lines: Option<(u32, u32)>, after: After) {
+        if self.busy.is_some() {
+            self.status = Err("wait for the running command to finish".into());
+            return;
+        }
+        let check = matches!(&after, After::Remote((r, _)) if r.action == Action::Check);
+        let job = self.session.job(source, lines, check);
+        let label = match &after {
+            After::OpenData(path) => format!("Opening {}", path.display()),
+            _ => format!("Running {}", job.label()),
+        };
+        let (sender, done) = mpsc::channel();
+        let ctx = self.ctx.clone();
+        std::thread::spawn(move || {
+            let _ = sender.send(job.execute());
+            ctx.request_repaint();
+        });
+        self.busy = Some(Busy { label, after, done });
+    }
+
+    /// Takes a finished run off the worker thread, then the next request from the command line.
+    fn poll(&mut self) {
+        if let Some(busy) = &self.busy {
+            let result = match busy.done.try_recv() {
+                Ok(done) => self.session.apply(done),
+                Err(mpsc::TryRecvError::Empty) => return,
+                Err(mpsc::TryRecvError::Disconnected) => {
+                    Err(vec![Failure::plain("run", "the run stopped unexpectedly")])
+                }
+            };
+            let busy = self.busy.take().expect("checked above");
+            self.finish(busy.after, result);
+        }
+        while self.busy.is_none()
+            && let Ok(remote) = self.requests.try_recv()
+        {
+            self.answer(remote);
+        }
     }
 
     /// Answers `statscraft run --session gui` and the like. A run shows in the window like one
     /// of its own; describe and check change nothing.
-    fn answer(&mut self, request: &Request) -> Response {
-        if request.action != Action::Run {
-            return live::answer(&mut self.session, request);
+    fn answer(&mut self, (mut request, reply): Remote) {
+        if request.action == Action::Describe {
+            let _ = reply.send(live::describe(&self.session, request.json));
+            return;
         }
         request.enter_folder();
-        let mut result = self.session.run(&request.source, request.lines);
-        let reply = live::reply(&mut result, request);
-        // the data may have changed under an open cell editor
-        self.cell_edit = None;
-        self.field_edit = None;
-        self.show(result.map(|r| r.commands), false);
-        reply
+        let source = std::mem::take(&mut request.source);
+        let lines = request.lines;
+        self.run(&source, lines, After::Remote((request, reply)));
+    }
+
+    fn finish(&mut self, after: After, mut result: Result<RunResult, Vec<Failure>>) {
+        match after {
+            After::Remote((request, reply)) => {
+                let _ = reply.send(live::reply(&mut result, &request));
+                if request.action == Action::Check {
+                    self.status = match &result {
+                        Ok(r) => Ok(format!(
+                            "checked {} command(s) from the command line",
+                            r.commands.len()
+                        )),
+                        Err(errors) => Err(error_text(errors)),
+                    };
+                    return;
+                }
+                // the data may have changed under an open cell editor
+                self.cell_edit = None;
+                self.field_edit = None;
+                self.show(result, false);
+            }
+            After::Show => {
+                self.show(result, false);
+            }
+            After::Editor => {
+                self.show(result, true);
+            }
+            After::OpenData(path) => {
+                if self.show(result, false) {
+                    self.data_file = Some(path);
+                    self.selected = None;
+                    self.cell_edit = None;
+                    self.field_edit = None;
+                    self.tab = Tab::Data;
+                }
+            }
+            After::SaveData(path) => {
+                if self.show(result, false) {
+                    self.data_file = Some(path);
+                }
+            }
+            After::CloseDialog => {
+                if self.show(result, false) {
+                    self.dialog = None;
+                }
+            }
+        }
     }
 
     /// Puts the tables of a run in the output, or its errors in the status bar and, for the
     /// syntax editor, in the editor's error list.
-    fn show(
-        &mut self,
-        result: Result<Vec<CommandResult>, Vec<Failure>>,
-        from_editor: bool,
-    ) -> bool {
-        match result {
+    fn show(&mut self, result: Result<RunResult, Vec<Failure>>, from_editor: bool) -> bool {
+        match result.map(|r| r.commands) {
             Ok(outputs) => {
                 if from_editor {
                     self.syntax_errors.clear();
@@ -275,11 +372,7 @@ impl App {
                 true
             }
             Err(errors) => {
-                self.status = Err(errors
-                    .iter()
-                    .map(Failure::text)
-                    .collect::<Vec<_>>()
-                    .join("\n"));
+                self.status = Err(error_text(&errors));
                 if from_editor {
                     self.syntax_errors = errors;
                 }
@@ -290,20 +383,12 @@ impl App {
 
     fn open_data(&mut self, path: PathBuf) {
         let syntax = format!("GET FILE={}.", quote(&path.to_string_lossy()));
-        if self.run(&syntax, None, false) {
-            self.data_file = Some(path);
-            self.selected = None;
-            self.cell_edit = None;
-            self.field_edit = None;
-            self.tab = Tab::Data;
-        }
+        self.run(&syntax, None, After::OpenData(path));
     }
 
     fn save_data(&mut self, path: PathBuf) {
         let syntax = format!("SAVE OUTFILE={}.", quote(&path.to_string_lossy()));
-        if self.run(&syntax, None, false) {
-            self.data_file = Some(path);
-        }
+        self.run(&syntax, None, After::SaveData(path));
     }
 
     fn load_syntax(&mut self, path: PathBuf) {
@@ -488,6 +573,13 @@ impl App {
     }
 
     fn status_bar(&self, ui: &mut Ui) {
+        if let Some(busy) = &self.busy {
+            ui.horizontal(|ui| {
+                ui.spinner();
+                ui.label(&busy.label);
+            });
+            return;
+        }
         match &self.status {
             Ok(text) => ui.weak(text),
             Err(text) => ui.colored_label(ui.visuals().error_fg_color, text),
@@ -517,14 +609,9 @@ impl App {
                     ui.add(egui::Label::new(RichText::new(&entry.syntax).monospace()).wrap());
                     match &entry.result {
                         Ok(summary) => ui.weak(summary),
-                        Err(errors) => ui.colored_label(
-                            ui.visuals().error_fg_color,
-                            errors
-                                .iter()
-                                .map(Failure::text)
-                                .collect::<Vec<_>>()
-                                .join("\n"),
-                        ),
+                        Err(errors) => {
+                            ui.colored_label(ui.visuals().error_fg_color, error_text(errors))
+                        }
                     };
                     ui.add_space(4.0);
                 }
@@ -624,7 +711,7 @@ impl App {
             let data = self.session.dataset().expect("checked above");
             match edits::cell_edit(&data.variable_at(e.column), e.row, &e.text) {
                 Ok(syntax) => {
-                    self.run(&syntax, None, false);
+                    self.run(&syntax, None, After::Show);
                 }
                 Err(message) => self.status = Err(message),
             }
@@ -717,7 +804,7 @@ impl App {
             let data = self.session.dataset().expect("checked above");
             match edits::field_edit(&data.variable_at(e.row), Field::ALL[e.column], &e.text) {
                 Ok(Some(syntax)) => {
-                    self.run(&syntax, None, false);
+                    self.run(&syntax, None, After::Show);
                 }
                 Ok(None) => {}
                 Err(message) => self.status = Err(message),
@@ -836,12 +923,12 @@ impl App {
 
         if run_all {
             let source = self.syntax.clone();
-            self.run(&source, None, true);
+            self.run(&source, None, After::Editor);
         } else if run_selection {
             let lines = editor::selected_lines(&self.syntax, self.selection.0, self.selection.1);
             let lines = editor::whole_commands(&self.syntax, lines);
             let source = self.syntax.clone();
-            self.run(&source, Some(lines), true);
+            self.run(&source, Some(lines), After::Editor);
         }
     }
 
@@ -993,9 +1080,7 @@ impl App {
         }
         match (action, syntax) {
             (Some(DialogAction::Ok), Ok(text)) => {
-                if self.run(&text, None, false) {
-                    self.dialog = None;
-                }
+                self.run(&text, None, After::CloseDialog);
             }
             (Some(DialogAction::Paste), Ok(text)) => {
                 editor::append(&mut self.syntax, &text);
@@ -1016,9 +1101,7 @@ impl App {
 
 impl eframe::App for App {
     fn logic(&mut self, _ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        while let Ok((request, reply)) = self.requests.try_recv() {
-            let _ = reply.send(self.answer(&request));
-        }
+        self.poll();
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -1057,6 +1140,14 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         self.dialog_window(&ctx);
     }
+}
+
+fn error_text(errors: &[Failure]) -> String {
+    errors
+        .iter()
+        .map(Failure::text)
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 fn is_syntax_file(path: &Path) -> bool {

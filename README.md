@@ -48,6 +48,8 @@ The Analyze menu has dialogs for Frequencies, Descriptives, Crosstabs and Custom
 
 Syntax is the only command layer: every change and every result in the window comes from syntax run by the engine, exactly as `statscraft run` runs it. Opening a file runs `GET FILE`, editing a cell runs `IF ($CASENUM = n) var = value.`, editing a label runs `VARIABLE LABELS`, and so on. The log under the tabs lists every command with what it changed, and Copy syntax there gives a script that repeats the session.
 
+Opening a file and every run happen off the drawing thread: the status bar shows what is running and the window stays responsive. One run goes at a time; requests from the command line wait their turn.
+
 ### Driving the window from the command line or an AI agent
 
 While the window is open it is a live session named `gui`:
