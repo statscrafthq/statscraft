@@ -194,6 +194,8 @@ pub fn describe_output(dataset: &Dataset, json: bool) -> String {
 pub struct LogEntry {
     pub syntax: String,
     pub result: Result<String, Vec<Failure>>,
+    /// Taken back by `Session::undo`, so a script made from the log leaves it out.
+    pub undone: bool,
 }
 
 /// The active dataset kept between runs, and the log of every run.
@@ -201,6 +203,8 @@ pub struct LogEntry {
 pub struct Session {
     engine: Engine,
     pub log: Vec<LogEntry>,
+    /// The state before the last run that changed the dataset, and that run's log entry.
+    previous: Option<(Engine, usize)>,
 }
 
 /// A run taken from a session's current state. `execute` it on any thread, then hand the
@@ -222,7 +226,7 @@ impl Session {
     pub fn with_dataset(dataset: Option<Dataset>) -> Self {
         Self {
             engine: Engine::with_dataset(dataset),
-            log: Vec::new(),
+            ..Self::default()
         }
     }
 
@@ -270,10 +274,16 @@ impl Session {
             Ok((mut engine, result, summary)) => {
                 if !done.check {
                     engine.dry_run = false;
-                    self.engine = engine;
+                    let before = std::mem::replace(&mut self.engine, engine);
+                    if result.saved {
+                        // shortcut: one level, holding the changed columns twice; keep a
+                        // longer history when someone needs more than the last step back.
+                        self.previous = Some((before, self.log.len()));
+                    }
                     self.log.push(LogEntry {
                         syntax: done.syntax,
                         result: Ok(summary),
+                        undone: false,
                     });
                 }
                 Ok(result)
@@ -283,11 +293,29 @@ impl Session {
                     self.log.push(LogEntry {
                         syntax: done.syntax,
                         result: Err(errors.clone()),
+                        undone: false,
                     });
                 }
                 Err(errors)
             }
         }
+    }
+
+    /// The syntax of the run that `undo` would take back.
+    pub fn undoable(&self) -> Option<&str> {
+        self.previous
+            .as_ref()
+            .map(|(_, entry)| self.log[*entry].syntax.as_str())
+    }
+
+    /// Puts back the dataset from before the last run that changed it, once.
+    pub fn undo(&mut self) -> bool {
+        let Some((engine, entry)) = self.previous.take() else {
+            return false;
+        };
+        self.engine = engine;
+        self.log[entry].undone = true;
+        true
     }
 }
 
@@ -546,6 +574,20 @@ mod tests {
         session.run("SELECT IF age > 60.", None).unwrap();
         let summary = session.log[2].result.as_ref().unwrap();
         assert!(summary.contains(" and 6 more; cases: 200 to "), "{summary}");
+    }
+
+    #[test]
+    fn undo_takes_back_the_last_change_once() {
+        let mut session = survey();
+        session.run("COMPUTE x = 1.", None).unwrap();
+        session.run("FREQUENCIES gender.", None).unwrap();
+        // a run that changes nothing leaves the change before it to undo
+        assert_eq!(session.undoable(), Some("COMPUTE x = 1."));
+        assert!(session.undo());
+        assert!(session.dataset().unwrap().variable("x").is_err());
+        assert!(session.log[1].undone && !session.log[2].undone);
+        assert!(!session.undo());
+        assert_eq!(session.dataset().unwrap().variable_count(), 19);
     }
 
     #[test]

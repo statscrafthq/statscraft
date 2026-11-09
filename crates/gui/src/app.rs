@@ -11,7 +11,7 @@ use crate::syntax_text::quote;
 use crate::{editor, grid};
 use eframe::egui::{
     self, Align, Align2, Color32, ComboBox, FocusDirection, FontId, Key, Modifiers, Rect, RichText,
-    ScrollArea, Sense, Stroke, StrokeKind, TextEdit, TextFormat, TextStyle, Ui, UiBuilder, pos2,
+    ScrollArea, Sense, Stroke, StrokeKind, TextEdit, TextStyle, Ui, UiBuilder, pos2,
     text::LayoutJob, vec2,
 };
 use statscraft_data::Dataset;
@@ -174,6 +174,9 @@ pub struct App {
     syntax_errors: Vec<Failure>,
     selection: (usize, usize),
     show_help: bool,
+    wrap: bool,
+    /// The data file before the last change, which undo puts back too.
+    file_before_change: Option<PathBuf>,
     help_for: Option<(u32, usize)>,
     help_text: String,
     output: Vec<OutputItem>,
@@ -233,6 +236,8 @@ impl App {
             syntax_errors: Vec::new(),
             selection: (0, 0),
             show_help: true,
+            wrap: true,
+            file_before_change: None,
             help_for: None,
             help_text: String::new(),
             output: Vec::new(),
@@ -315,6 +320,17 @@ impl App {
     }
 
     fn finish(&mut self, after: After, mut result: Result<RunResult, Vec<Failure>>) {
+        let changed = matches!(&result, Ok(r) if r.saved);
+        let file = self.data_file.clone();
+        let loaded = matches!(&result, Ok(r) if r.commands.iter().any(|c| c.name == "GET"));
+        if changed && loaded && !matches!(after, After::OpenData(_)) {
+            // a GET typed or sent from the command line: Save must not write this data over
+            // the file that was open before
+            self.data_file = None;
+        }
+        if changed {
+            self.file_before_change = file;
+        }
         match after {
             After::Remote((request, reply)) => {
                 let _ = reply.send(live::reply(&mut result, &request));
@@ -358,6 +374,21 @@ impl App {
                     self.dialog = None;
                 }
             }
+        }
+    }
+
+    /// Puts back the dataset and the data file from before the last change.
+    fn undo(&mut self) {
+        if self.busy.is_some() {
+            return;
+        }
+        let syntax = self.session.undoable().unwrap_or_default().to_string();
+        if self.session.undo() {
+            self.data_file = self.file_before_change.take();
+            self.cell_edit = None;
+            self.field_edit = None;
+            let first = syntax.lines().next().unwrap_or_default();
+            self.status = Ok(format!("undone: {first}"));
         }
     }
 
@@ -493,6 +524,18 @@ impl App {
                     self.export_html();
                 }
             });
+            ui.menu_button("Edit", |ui| {
+                let undo = self.busy.is_none() && self.session.undoable().is_some();
+                let button = egui::Button::new("Undo last change").shortcut_text("Ctrl+Z");
+                let response = ui.add_enabled(undo, button);
+                let response = match self.session.undoable() {
+                    Some(syntax) => response.on_hover_text(syntax),
+                    None => response,
+                };
+                if response.clicked() {
+                    self.undo();
+                }
+            });
             ui.menu_button("View", |ui| {
                 ui.checkbox(&mut self.value_labels, "Value labels in Data View");
                 ui.checkbox(&mut self.show_log, "Log");
@@ -500,6 +543,7 @@ impl App {
                     &mut self.show_help,
                     "Command help in the syntax editor (F1)",
                 );
+                ui.checkbox(&mut self.wrap, "Wrap long lines in the syntax editor");
             });
             ui.menu_button("Analyze", |ui| {
                 for (label, dialog) in [
@@ -615,7 +659,7 @@ impl App {
                     .session
                     .log
                     .iter()
-                    .filter(|e| e.result.is_ok())
+                    .filter(|e| e.result.is_ok() && !e.undone)
                     .map(|e| e.syntax.as_str())
                     .collect();
                 ui.ctx().copy_text(text.join("\n") + "\n");
@@ -628,6 +672,7 @@ impl App {
                 for entry in &self.session.log {
                     ui.add(egui::Label::new(RichText::new(&entry.syntax).monospace()).wrap());
                     match &entry.result {
+                        Ok(summary) if entry.undone => ui.weak(format!("{summary}; undone")),
                         Ok(summary) => ui.weak(summary),
                         Err(errors) => {
                             ui.colored_label(ui.visuals().error_fg_color, error_text(errors))
@@ -952,39 +997,27 @@ impl App {
 
         let font = FontId::monospace(14.0);
         let error_lines: Vec<u32> = self.syntax_errors.iter().filter_map(|e| e.line).collect();
-        let line_count = self.syntax.split('\n').count().max(1);
-        let mut gutter = LayoutJob::default();
-        for line in 1..=line_count {
-            let error = error_lines.contains(&(line as u32));
-            let color = if error {
-                ui.visuals().error_fg_color
-            } else {
-                ui.visuals().weak_text_color()
-            };
-            let mark = if error { "!" } else { " " };
-            gutter.append(
-                &format!("{mark}{line:>4}\n"),
-                0.0,
-                TextFormat::simple(font.clone(), color),
-            );
-        }
-        let mut layouter = |ui: &Ui, text: &dyn egui::TextBuffer, _wrap: f32| {
+        let wrap = self.wrap;
+        let mut layouter = |ui: &Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
             let job = LayoutJob::simple(
                 text.as_str().to_owned(),
                 FontId::monospace(14.0),
                 ui.visuals().text_color(),
-                f32::INFINITY,
+                if wrap { wrap_width } else { f32::INFINITY },
             );
             ui.ctx().fonts_mut(|f| f.layout_job(job))
         };
+        let gutter = ui.ctx().fonts_mut(|f| f.glyph_width(&font, '0')) * 5.0 + 4.0;
+        let area = if wrap {
+            ScrollArea::vertical()
+        } else {
+            ScrollArea::both()
+        };
         egui::CentralPanel::default().show(ui, |ui| {
-            ScrollArea::both().auto_shrink(false).show(ui, |ui| {
+            area.auto_shrink(false).show(ui, |ui| {
                 ui.horizontal_top(|ui| {
-                    ui.add_space(2.0);
-                    ui.vertical(|ui| {
-                        ui.add_space(4.0);
-                        ui.label(gutter);
-                    });
+                    let left = ui.cursor().left();
+                    ui.add_space(gutter);
                     let output = TextEdit::multiline(&mut self.syntax)
                         .id_salt("syntax_editor")
                         .code_editor()
@@ -995,6 +1028,28 @@ impl App {
                         .hint_text("Type syntax here, for example FREQUENCIES VARIABLES=gender.")
                         .layouter(&mut layouter)
                         .show(ui);
+                    // a line number beside the first row of every line, which may wrap
+                    let mut line = 1;
+                    let mut starts_line = true;
+                    for row in &output.galley.rows {
+                        if starts_line {
+                            let error = error_lines.contains(&line);
+                            let color = if error {
+                                ui.visuals().error_fg_color
+                            } else {
+                                ui.visuals().weak_text_color()
+                            };
+                            ui.painter().text(
+                                pos2(left + gutter, output.galley_pos.y + row.pos.y),
+                                Align2::RIGHT_TOP,
+                                format!("{}{line}", if error { "!" } else { "" }),
+                                font.clone(),
+                                color,
+                            );
+                            line += 1;
+                        }
+                        starts_line = row.ends_with_newline;
+                    }
                     if let Some(range) = output.cursor_range {
                         self.selection = (range.secondary.index.into(), range.primary.index.into());
                     }
@@ -1210,6 +1265,12 @@ impl eframe::App for App {
             self.title = title;
         }
         self.grid_keys(ui);
+        // Ctrl+Z inside a text field is that field's own undo
+        if !ui.ctx().egui_wants_keyboard_input()
+            && ui.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Z))
+        {
+            self.undo();
+        }
         egui::Panel::top("menu").show(ui, |ui| {
             self.menu(ui);
             ui.add_space(2.0);
