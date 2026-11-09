@@ -435,7 +435,7 @@ pub(crate) fn chi_square_p(value: f64, df: f64) -> f64 {
 }
 
 /// ln Γ(x) for x > 0 (Lanczos, g = 7, nine terms; relative error near 1e-15).
-fn ln_gamma(x: f64) -> f64 {
+pub(crate) fn ln_gamma(x: f64) -> f64 {
     const G: [f64; 9] = [
         0.999_999_999_999_809_9,
         676.520_368_121_885_1,

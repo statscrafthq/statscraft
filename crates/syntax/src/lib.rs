@@ -37,8 +37,9 @@ mod tests_procedures;
 
 pub use ast::*;
 pub use ctables::{
-    AxisExpr, AxisVariable, Categories, CategoryItem, Ctables, CtablesTable, EmptyCells,
-    PercentBase, PercentOf, Statistic, Summary, SummaryFunction, VlabelsDisplay,
+    Adjust, AxisExpr, AxisVariable, Categories, CategoryItem, CompareKind, Comparetest, Ctables,
+    CtablesTable, EmptyCells, PercentBase, PercentOf, Sigtest, Statistic, Summary, SummaryFunction,
+    VlabelsDisplay,
 };
 pub use error::{Span, SyntaxError};
 pub use lexer::{Punct, Token, TokenKind};

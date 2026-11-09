@@ -48,6 +48,53 @@ pub struct CtablesTable {
     pub title: Option<String>,
     pub caption: Option<String>,
     pub corner: Option<String>,
+    pub sigtest: Option<Sigtest>,
+    /// `/COMPARETEST`s, at most one of each type; a later one of the same type replaces it.
+    pub comparetests: Vec<Comparetest>,
+}
+
+/// `/SIGTEST TYPE=CHISQUARE`: a chi-square test of independence for every subtable.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Sigtest {
+    pub alpha: f64,
+    /// `INCLUDEMRSETS`; it has no effect while tables cannot hold multiple response sets.
+    pub include_mrsets: bool,
+    /// `CATEGORIES=SUBTOTALS`; it has no effect while category lists cannot hold subtotals.
+    pub subtotals: bool,
+}
+
+/// `/COMPARETEST`: pairwise comparisons of the columns of every subtable.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Comparetest {
+    pub kind: CompareKind,
+    /// One or two significance levels, ascending.
+    pub alpha: Vec<f64>,
+    pub adjust: Adjust,
+    /// `INCLUDEMRSETS`; it has no effect while tables cannot hold multiple response sets.
+    pub include_mrsets: bool,
+    /// `MEANSVARIANCE=ALLCATS` (the default): the variance of a means test is pooled from all
+    /// tested categories; false pools it from the two categories compared.
+    pub pool_all: bool,
+    /// `CATEGORIES=SUBTOTALS`; it has no effect while category lists cannot hold subtotals.
+    pub subtotals: bool,
+    /// `SHOWSIG=YES`: the significance of every letter follows it in parentheses.
+    pub show_sig: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompareKind {
+    /// `TYPE=PROP`: column proportions, z-tests.
+    Proportions,
+    /// `TYPE=MEAN`: column means, t-tests.
+    Means,
+}
+
+/// `ADJUST=`: the correction of p-values for multiple comparisons.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Adjust {
+    Bonferroni,
+    BenjaminiHochberg,
+    None,
 }
 
 /// An axis of a table: variables combined by stacking (`+`) and nesting (`>`).
@@ -238,14 +285,12 @@ impl SummaryFunction {
 
 const SUMMARY_EXPECTED: &str = "a summary function such as COUNT, COLPCT.COUNT or MEAN";
 
-const UNSUPPORTED_SUBCOMMANDS: [&str; 9] = [
+const UNSUPPORTED_SUBCOMMANDS: [&str; 7] = [
     "MRSETS",
     "PCOMPUTE",
     "PPROPERTIES",
     "WEIGHT",
     "HIDESMALLCOUNTS",
-    "SIGTEST",
-    "COMPARETEST",
     "CRITERIA",
     "SMISSING",
 ];
@@ -465,6 +510,8 @@ fn table(p: &mut Parser) -> PResult<CtablesTable> {
         title: None,
         caption: None,
         corner: None,
+        sigtest: None,
+        comparetests: Vec::new(),
     })
 }
 
@@ -687,6 +734,137 @@ fn titles(p: &mut Parser, table: &mut CtablesTable) -> PResult<()> {
     Ok(())
 }
 
+fn yes_no(p: &mut Parser) -> PResult<bool> {
+    Ok(choice(p, &["NO", "YES"])? == 1)
+}
+
+/// A significance level: more than 0 and less than 1.
+fn alpha(p: &mut Parser) -> PResult<f64> {
+    let start = p.pos;
+    match p.number() {
+        Some(a) if a > 0.0 && a < 1.0 => Ok(a),
+        Some(_) => Err(SyntaxError::new(
+            p.span_from(start),
+            "a significance level must be more than 0 and less than 1, such as 0.05",
+        )),
+        None => Err(p.unexpected(&["a significance level such as 0.05"])),
+    }
+}
+
+fn sigtest(p: &mut Parser, start: usize) -> PResult<Sigtest> {
+    let mut spec = Sigtest {
+        alpha: 0.05,
+        include_mrsets: true,
+        subtotals: false,
+    };
+    let mut typed = false;
+    while !at_end_of_subcommand(p) {
+        if p.eat_keyword("TYPE") {
+            choice(p, &["CHISQUARE"])?;
+            typed = true;
+        } else if p.eat_keyword("ALPHA") {
+            equals(p)?;
+            spec.alpha = alpha(p)?;
+        } else if p.eat_keyword("INCLUDEMRSETS") {
+            spec.include_mrsets = yes_no(p)?;
+        } else if p.eat_keyword("CATEGORIES") {
+            spec.subtotals = choice(p, &["ALLVISIBLE", "SUBTOTALS"])? == 1;
+        } else {
+            return Err(p.unexpected(&["TYPE", "ALPHA", "INCLUDEMRSETS", "CATEGORIES"]));
+        }
+    }
+    if !typed {
+        return Err(SyntaxError::new(
+            p.span_from(start),
+            "/SIGTEST needs TYPE=CHISQUARE",
+        ));
+    }
+    Ok(spec)
+}
+
+fn comparetest(p: &mut Parser, start: usize) -> PResult<Comparetest> {
+    let mut spec = Comparetest {
+        kind: CompareKind::Proportions,
+        alpha: vec![0.05],
+        adjust: Adjust::Bonferroni,
+        include_mrsets: true,
+        pool_all: true,
+        subtotals: false,
+        show_sig: false,
+    };
+    let (mut typed, mut merge, mut merge_at) = (false, false, start);
+    while !at_end_of_subcommand(p) {
+        if p.eat_keyword("TYPE") {
+            spec.kind =
+                [CompareKind::Proportions, CompareKind::Means][choice(p, &["PROP", "MEAN"])?];
+            typed = true;
+        } else if p.eat_keyword("ALPHA") {
+            equals(p)?;
+            let mut levels = vec![alpha(p)?];
+            p.eat(Punct::Comma);
+            if matches!(p.peek(), Some(TokenKind::Number(_))) {
+                levels.push(alpha(p)?);
+            }
+            levels.sort_by(f64::total_cmp);
+            levels.dedup();
+            spec.alpha = levels;
+        } else if p.eat_keyword("ADJUST") {
+            spec.adjust = [Adjust::Bonferroni, Adjust::BenjaminiHochberg, Adjust::None]
+                [choice(p, &["BONFERRONI", "BH", "NONE"])?];
+        } else if p.eat_keyword("INCLUDEMRSETS") {
+            spec.include_mrsets = yes_no(p)?;
+        } else if p.eat_keyword("MEANSVARIANCE") {
+            spec.pool_all = choice(p, &["ALLCATS", "TESTEDCATS"])? == 0;
+        } else if p.eat_keyword("CATEGORIES") {
+            spec.subtotals = choice(p, &["ALLVISIBLE", "SUBTOTALS"])? == 1;
+        } else if p.at_keyword("MERGE") {
+            merge_at = p.pos;
+            p.pos += 1;
+            merge = yes_no(p)?;
+        } else if p.eat_keyword("STYLE") {
+            // the style of letters merged into the main table; without MERGE=YES it does nothing
+            choice(p, &["APA", "SIMPLE"])?;
+        } else if p.eat_keyword("SHOWSIG") {
+            spec.show_sig = yes_no(p)?;
+        } else if p.eat_keyword("ORIGIN") {
+            // a keyword kept for old syntax; it has no effect
+            choice(p, &["COLUMN"])?;
+        } else {
+            return Err(p.unexpected(&[
+                "TYPE",
+                "ALPHA",
+                "ADJUST",
+                "INCLUDEMRSETS",
+                "MEANSVARIANCE",
+                "CATEGORIES",
+                "MERGE",
+                "STYLE",
+                "SHOWSIG",
+            ]));
+        }
+    }
+    if !typed {
+        return Err(SyntaxError::new(
+            p.span_from(start),
+            "/COMPARETEST needs TYPE=PROP or TYPE=MEAN",
+        ));
+    }
+    // SHOWSIG=YES keeps the separate table, whatever MERGE says
+    if merge && !spec.show_sig {
+        let end = p.pos;
+        p.pos = merge_at + 3;
+        let error = not_supported(
+            p,
+            merge_at,
+            "COMPARETEST MERGE=YES (letters in the main table)",
+        )
+        .hint("leave out MERGE=YES to get the letters in a table of their own");
+        p.pos = end;
+        return Err(error);
+    }
+    Ok(spec)
+}
+
 pub(crate) fn ctables(p: &mut Parser) -> PResult<Command> {
     let mut command = Ctables {
         vlabels: Vec::new(),
@@ -735,6 +913,16 @@ pub(crate) fn ctables(p: &mut Parser) -> PResult<Command> {
         } else if p.eat_keyword("TITLES") {
             table_only(p, &command.tables, "TITLES")?;
             titles(p, command.tables.last_mut().expect("checked"))?;
+        } else if p.eat_keyword("SIGTEST") {
+            table_only(p, &command.tables, "SIGTEST")?;
+            let spec = sigtest(p, start)?;
+            command.tables.last_mut().expect("checked").sigtest = Some(spec);
+        } else if p.eat_keyword("COMPARETEST") {
+            table_only(p, &command.tables, "COMPARETEST")?;
+            let spec = comparetest(p, start)?;
+            let tests = &mut command.tables.last_mut().expect("checked").comparetests;
+            tests.retain(|t| t.kind != spec.kind);
+            tests.push(spec);
         } else if p.at_keyword("SMISSING")
             && matches!(p.peek_at(2), Some(TokenKind::Word(w)) if matches_keyword(w, "VARIABLE"))
         {

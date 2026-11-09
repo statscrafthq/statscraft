@@ -127,8 +127,11 @@ fn features_of_the_next_stage_are_named() {
     for (source, feature) in [
         ("CTABLES /TABLE $q5.", "multiple response set $q5"),
         ("CTABLES /TABLE a BY b BY c.", "layer axis"),
-        ("CTABLES /TABLE a /SIGTEST TYPE=CHISQUARE.", "SIGTEST"),
-        ("CTABLES /TABLE a /COMPARETEST TYPE=PROP.", "COMPARETEST"),
+        (
+            "CTABLES /TABLE a BY b /COMPARETEST TYPE=PROP MERGE=YES.",
+            "MERGE=YES",
+        ),
+        ("CTABLES /TABLE a /CRITERIA CILEVEL=90.", "CRITERIA"),
         ("CTABLES /MRSETS COUNTDUPLICATES=YES /TABLE a.", "MRSETS"),
         (
             "CTABLES /PCOMPUTE &x = EXPR([1] + [2]) /TABLE a.",
@@ -156,6 +159,80 @@ fn features_of_the_next_stage_are_named() {
             e.message
         );
     }
+}
+
+#[test]
+fn significance_tests_with_their_defaults() {
+    let c = one("CTABLES /TABLE a BY b /SIGTEST TYPE=CHISQUARE /COMPARETEST TYPE=PROP.");
+    let t = &c.tables[0];
+    assert_eq!(
+        t.sigtest,
+        Some(Sigtest {
+            alpha: 0.05,
+            include_mrsets: true,
+            subtotals: false
+        })
+    );
+    assert_eq!(
+        t.comparetests,
+        [Comparetest {
+            kind: CompareKind::Proportions,
+            alpha: vec![0.05],
+            adjust: Adjust::Bonferroni,
+            include_mrsets: true,
+            pool_all: true,
+            subtotals: false,
+            show_sig: false,
+        }]
+    );
+}
+
+#[test]
+fn significance_tests_with_every_keyword() {
+    let c = one("CTABLES /TABLE a BY b\n\
+         /SIGTEST TYPE=CHISQUARE ALPHA=0.01 INCLUDEMRSETS=NO CATEGORIES=SUBTOTALS\n\
+         /COMPARETEST TYPE=MEAN ALPHA=0.05, 0.01 ADJUST=BH INCLUDEMRSETS=NO MEANSVARIANCE=TESTEDCATS\n\
+         CATEGORIES=SUBTOTALS MERGE=YES STYLE=SIMPLE SHOWSIG=YES ORIGIN=COLUMN\n\
+         /COMPARETEST TYPE=PROP ADJUST=NONE /COMPARETEST TYPE=PROP ALPHA=0.1.");
+    let t = &c.tables[0];
+    let sigtest = t.sigtest.as_ref().unwrap();
+    assert!(sigtest.alpha == 0.01 && !sigtest.include_mrsets && sigtest.subtotals);
+    // the second PROP test replaces the first; SHOWSIG=YES keeps the separate table
+    assert_eq!(t.comparetests.len(), 2);
+    let mean = &t.comparetests[0];
+    assert_eq!(mean.kind, CompareKind::Means);
+    assert_eq!(mean.alpha, [0.01, 0.05]);
+    assert_eq!(mean.adjust, Adjust::BenjaminiHochberg);
+    assert!(!mean.include_mrsets && !mean.pool_all && mean.subtotals && mean.show_sig);
+    let prop = &t.comparetests[1];
+    assert_eq!(
+        (prop.alpha.as_slice(), prop.adjust),
+        (&[0.1][..], Adjust::Bonferroni)
+    );
+    // keywords may be shortened to three letters
+    let c = one("CTABLES /TABLE a BY b /COMPARETEST TYP=MEAN ADJ=NONE MEA=TESTEDCATS.");
+    assert_eq!(c.tables[0].comparetests[0].adjust, Adjust::None);
+}
+
+#[test]
+fn significance_test_mistakes_are_named() {
+    let e = err("CTABLES /TABLE a BY b /SIGTEST ALPHA=0.01.");
+    assert!(e.message.contains("needs TYPE=CHISQUARE"), "{e}");
+    let e = err("CTABLES /TABLE a BY b /COMPARETEST ALPHA=0.01.");
+    assert!(e.message.contains("TYPE=PROP or TYPE=MEAN"), "{e}");
+    let e = err("CTABLES /TABLE a BY b /COMPARETEST TYPE=PROP ALPHA=1.5.");
+    assert!(e.message.contains("more than 0 and less than 1"), "{e}");
+    let e = err("CTABLES /TABLE a BY b /SIGTEST TYPE=PROP.");
+    assert_eq!(e.expected, ["CHISQUARE"]);
+    let e = err("CTABLES /TABLE a BY b /COMPARETEST TYPE=MEAN ADJUST=HOLM.");
+    assert_eq!(e.expected, ["BONFERRONI", "BH", "NONE"]);
+    let e = err("CTABLES /SIGTEST TYPE=CHISQUARE /TABLE a BY b.");
+    assert!(e.message.contains("must follow a /TABLE"), "{e}");
+    // MERGE=YES points at itself
+    let source = "CTABLES /TABLE a BY b /COMPARETEST TYPE=PROP MERGE=YES STYLE=APA.";
+    let e = err(source);
+    let (from, to) = (e.span.column as usize - 1, e.span.end_column as usize - 1);
+    assert_eq!(&source[from..to], "MERGE=YES");
 }
 
 #[test]

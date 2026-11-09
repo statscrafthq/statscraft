@@ -236,7 +236,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20                    [TOTAL=NO|YES] [LABEL='text'] [POSITION=AFTER|BEFORE] [EMPTY=INCLUDE|EXCLUDE]]\n\
                  \x20       [/CATEGORIES VARIABLES=varlist [value, low THRU high, ...] [TOTAL=YES ...]]\n\
                  \x20       [/TITLES TITLE='text' CAPTION='text' CORNER='text']\n\
-                 \x20       [/TABLE ... another table with its own SLABELS, CATEGORIES and TITLES].\n\
+                 \x20       [/SIGTEST TYPE=CHISQUARE [ALPHA=0.05] [INCLUDEMRSETS=YES|NO] [CATEGORIES=ALLVISIBLE|SUBTOTALS]]\n\
+                 \x20       [/COMPARETEST TYPE=PROP|MEAN [ALPHA=0.05 [0.01]] [ADJUST=BONFERRONI|BH|NONE]\n\
+                 \x20                     [MEANSVARIANCE=ALLCATS|TESTEDCATS] [SHOWSIG=NO|YES] [INCLUDEMRSETS=YES|NO]\n\
+                 \x20                     [CATEGORIES=ALLVISIBLE|SUBTOTALS] [STYLE=APA|SIMPLE] [ORIGIN=COLUMN]]\n\
+                 \x20       [/TABLE ... another table with its own SLABELS, CATEGORIES, TITLES and tests].\n\
                  rows, columns: variables joined by + (stack) and > (nest), with parentheses. var [C] or var [S]\n\
                  makes a variable categorical or scale; otherwise SCALE is scale and the other levels categorical.\n\
                  A numeric variable of unknown level is scale with a currency, date or time format, a fraction, a\n\
@@ -252,7 +256,15 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  whose weight is zero, negative or missing is left out (also from U functions). MEDIAN and PTILE\n\
                  use the averaged empirical distribution. A count without cases is 0 unless EMPTY says otherwise.\n\
                  User-missing categories are left out unless MISSING=INCLUDE; system-missing ones always are.\n\
-                 Not supported yet: layers, multiple response sets, CLABELS other than AUTO, SIGTEST, COMPARETEST,\n\
+                 Tests run in every innermost subtable (innermost row by innermost column variable, for each\n\
+                 category of the outer ones), each in a table after the main one. SIGTEST: Pearson chi-square; empty\n\
+                 rows and columns are left out. COMPARETEST: two-sided pairwise z-tests of column proportions (PROP)\n\
+                 or t-tests of column means (MEAN: a scale variable with MEAN in the rows) in every row of a subtable.\n\
+                 The letter of the column with the smaller value appears in the column with the larger one: uppercase\n\
+                 below the smaller ALPHA, lowercase below the larger; a period marks a column left out (a proportion\n\
+                 of 0 or 1, or less than 2 cases). ADJUST defaults to BONFERRONI, MEANSVARIANCE to ALLCATS. With a\n\
+                 weight variable the tests round the weighted cell counts, column totals or category weights.\n\
+                 Not supported yet: layers, multiple response sets, CLABELS other than AUTO, COMPARETEST MERGE=YES,\n\
                  PCOMPUTE, HIDESMALLCOUNTS, effective base (E functions), subtotals and OTHERNM or MISSING in a list.",
         example: "CTABLES /TABLE q1 [COUNT, COLPCT.COUNT PCT8.1] BY gender /CATEGORIES VARIABLES=q1 TOTAL=YES.",
         parse: ctables::ctables,

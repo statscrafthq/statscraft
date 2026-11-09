@@ -7,6 +7,7 @@
 //! categories, and it adds to every cell it falls in, total categories included.
 
 mod format;
+mod sigtest;
 
 pub use format::format_value;
 
@@ -648,7 +649,8 @@ impl Engine {
                         })
                     })
             })
-            .collect()
+            .collect::<Result<Vec<Vec<Table>>, Error>>()
+            .map(|tables| tables.into_iter().flatten().collect())
     }
 
     fn display(&self, command: &Ctables, variable: &Variable) -> Result<VlabelsDisplay, Error> {
@@ -722,7 +724,7 @@ impl Engine {
         command: &Ctables,
         table: &CtablesTable,
         weights: Option<&[f64]>,
-    ) -> Result<Table, Error> {
+    ) -> Result<Vec<Table>, Error> {
         let rows = self.resolve(data, command, &table.rows)?;
         let columns = match &table.columns {
             Some(expr) => self.resolve(data, command, expr)?,
@@ -890,7 +892,7 @@ impl Engine {
             formats.push(cell_formats);
         }
 
-        Ok(Table {
+        let main = Table {
             title: table
                 .title
                 .clone()
@@ -901,7 +903,10 @@ impl Engine {
             rows: out_rows,
             formats,
             caption: table.caption.clone(),
-        })
+        };
+        let mut out = vec![main];
+        out.extend(sigtest::tables(table, &layout, &lists, &sections)?);
+        Ok(out)
     }
 }
 
