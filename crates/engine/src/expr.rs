@@ -512,6 +512,12 @@ impl Evaluator<'_> {
         if name.eq_ignore_ascii_case("$SYSMIS") {
             return Ok(Column::Number(vec![None; self.data.case_count()]));
         }
+        if name.eq_ignore_ascii_case("$CASENUM") {
+            let cases = 1..=self.data.case_count();
+            return Ok(Column::Number(
+                cases.map(|case| Some(case as f64)).collect(),
+            ));
+        }
         if name.starts_with('$') {
             let name = name.to_uppercase();
             return Err(Error(format!(

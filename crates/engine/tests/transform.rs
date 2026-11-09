@@ -697,8 +697,8 @@ fn errors_name_what_is_wrong() {
             "function CDF.NORMAL is not supported yet",
         ),
         (
-            "COMPUTE r = $CASENUM.",
-            "system variable $CASENUM is not supported yet",
+            "COMPUTE r = $JDATE.",
+            "system variable $JDATE is not supported yet",
         ),
         (
             "COMPUTE r = MOD(age).",
@@ -790,4 +790,26 @@ END IF.",
         (c[0], c[1], c[2], c[9]),
         (Some(1.0), Some(0.0), None, Some(0.0))
     );
+}
+
+// age is 49 59 75 in the first three cases and plan BASIC PREMIUM BASIC.
+#[test]
+fn casenum_counts_cases_from_one_so_one_case_can_be_changed() {
+    let engine = survey(
+        "COMPUTE n = $CASENUM.
+IF ($CASENUM = 2) age = 33.
+IF ($casenum = 3) plan = 'GOLD'.
+IF ($CASENUM = 1) monthly_spend = $SYSMIS.",
+    );
+    assert_eq!(
+        numbers(&engine, "n")[..3],
+        [Some(1.0), Some(2.0), Some(3.0)]
+    );
+    assert_eq!(number(&engine, "n", 200), Some(200.0));
+    let age: Vec<_> = (1..=3).map(|case| number(&engine, "age", case)).collect();
+    assert_eq!(age, [Some(49.0), Some(33.0), Some(75.0)]);
+    assert_eq!(text(&engine, "plan", 3), "GOLD");
+    assert_eq!(text(&engine, "plan", 1), "BASIC");
+    assert_eq!(number(&engine, "monthly_spend", 1), None);
+    assert_eq!(number(&engine, "monthly_spend", 2), Some(127.1));
 }
