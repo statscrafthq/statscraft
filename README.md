@@ -9,11 +9,23 @@ Status: early development. Licensed under MIT.
 ## What works today
 
 ```
-statscraft describe survey.sav           one line per variable
-statscraft describe survey.sav --json    full dictionary and counts as JSON
+statscraft describe survey.sav --json           dictionary and counts of a file
+statscraft run job.sps                          run a syntax file
+statscraft run -s work job.sps                  run it in a session: the dataset is kept between runs
+statscraft run -s work --lines 40-55 job.sps    run only the commands on those lines
+statscraft run -s work -e "FREQUENCIES age."    run syntax given on the command line
+statscraft check -s work job.sps                validate against the session without saving anything
+statscraft describe -s work --json              dictionary and counts of the session's dataset
+statscraft help FREQUENCIES                     syntax of one command; without a name, the list
 ```
 
-`describe` reads `.sav` and `.zsav` files and reports variables, labels, value labels, missing-value definitions, measure levels, multiple response sets, the weight variable, and per-variable counts of valid, system-missing and user-missing cases.
+Add `--json` to `run` and `check` for structured output: result tables, a summary of what changed in the dataset, and errors with line and column.
+
+A run is all or nothing: if one command fails, nothing is saved, so the same lines can be run again after the fix. A line range must cover whole commands.
+
+Commands executed so far: GET, SAVE, VARIABLE LABELS, VALUE LABELS, MISSING VALUES, VARIABLE LEVEL, FORMATS, FREQUENCIES (weighted when the file has a weight variable), EXECUTE. COMPUTE, IF, SELECT IF and RECODE are parsed and checked but not executed yet.
+
+Sessions are stored under `.statscraft/sessions/` in the current directory.
 
 ## Development
 

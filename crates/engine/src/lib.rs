@@ -1,0 +1,275 @@
+//! Executes parsed commands on a dataset and returns result tables.
+
+mod frequencies;
+
+use serde::Serialize;
+use statscraft_data::{Dataset, Description, Measure, MissingValues, Value};
+use statscraft_syntax as syntax;
+use statscraft_syntax::{Bound, Command, VarItem};
+
+#[derive(Debug)]
+pub struct Error(pub String);
+
+impl std::fmt::Display for Error {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+impl std::error::Error for Error {}
+
+impl From<statscraft_data::Error> for Error {
+    fn from(e: statscraft_data::Error) -> Self {
+        Self(e.to_string())
+    }
+}
+
+/// A result table: plain rows and columns, the same for every output format.
+#[derive(Debug, Serialize)]
+pub struct Table {
+    pub title: String,
+    pub columns: Vec<String>,
+    pub rows: Vec<Vec<Cell>>,
+}
+
+#[derive(Debug, Serialize, PartialEq)]
+#[serde(untagged)]
+pub enum Cell {
+    Text(String),
+    Number(f64),
+    Empty,
+}
+
+/// What a run changed in the dataset, so a caller need not diff dictionaries itself.
+#[derive(Debug, Default, Serialize, PartialEq)]
+pub struct Changes {
+    pub cases_before: Option<usize>,
+    pub cases_after: Option<usize>,
+    pub variables_added: Vec<String>,
+    pub variables_removed: Vec<String>,
+    pub variables_changed: Vec<String>,
+}
+
+impl Changes {
+    pub fn between(before: Option<&Description>, after: Option<&Description>) -> Self {
+        let vars = |d: Option<&Description>| -> Vec<(String, serde_json::Value)> {
+            d.map(|d| {
+                d.variables
+                    .iter()
+                    .map(|v| (v.name.clone(), serde_json::to_value(v).expect("plain data")))
+                    .collect()
+            })
+            .unwrap_or_default()
+        };
+        let (old, new) = (vars(before), vars(after));
+        let find = |list: &[(String, serde_json::Value)], name: &str| {
+            list.iter().find(|(n, _)| n == name).map(|(_, v)| v.clone())
+        };
+        let mut changes = Changes {
+            cases_before: before.map(|d| d.case_count),
+            cases_after: after.map(|d| d.case_count),
+            ..Changes::default()
+        };
+        for (name, value) in &new {
+            match find(&old, name) {
+                None => changes.variables_added.push(name.clone()),
+                Some(previous) if previous != *value => {
+                    changes.variables_changed.push(name.clone())
+                }
+                Some(_) => {}
+            }
+        }
+        for (name, _) in &old {
+            if find(&new, name).is_none() {
+                changes.variables_removed.push(name.clone());
+            }
+        }
+        changes
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.cases_before == self.cases_after
+            && self.variables_added.is_empty()
+            && self.variables_removed.is_empty()
+            && self.variables_changed.is_empty()
+    }
+}
+
+/// The state commands run against: at most one active dataset.
+#[derive(Default, Clone)]
+pub struct Engine {
+    dataset: Option<Dataset>,
+    /// When set, commands that write files are checked but not carried out.
+    pub dry_run: bool,
+}
+
+impl Engine {
+    pub fn with_dataset(dataset: Option<Dataset>) -> Self {
+        Self {
+            dataset,
+            dry_run: false,
+        }
+    }
+
+    pub fn dataset(&self) -> Option<&Dataset> {
+        self.dataset.as_ref()
+    }
+
+    fn active(&self) -> Result<&Dataset, Error> {
+        self.dataset
+            .as_ref()
+            .ok_or_else(|| Error("no active dataset: load one with GET FILE first".into()))
+    }
+
+    fn active_mut(&mut self) -> Result<&mut Dataset, Error> {
+        self.dataset
+            .as_mut()
+            .ok_or_else(|| Error("no active dataset: load one with GET FILE first".into()))
+    }
+
+    /// Variable names in dictionary order and spelling for a syntax variable list.
+    fn expand(&self, items: &[VarItem]) -> Result<Vec<String>, Error> {
+        let data = self.active()?;
+        let index = |name: &str| {
+            data.variable_index(name)
+                .ok_or_else(|| Error(format!("unknown variable {name}")))
+        };
+        let mut names = Vec::new();
+        for item in items {
+            let (first, last) = match item {
+                VarItem::All => (0, data.variable_count().saturating_sub(1)),
+                VarItem::Name(name) => (index(name)?, index(name)?),
+                VarItem::Range(a, b) => (index(a)?, index(b)?),
+            };
+            if first > last {
+                return Err(Error(format!(
+                    "in a TO list the first variable must come before the second in the file ({} TO {})",
+                    data.variable_at(first).name(),
+                    data.variable_at(last).name()
+                )));
+            }
+            names.extend((first..=last).map(|i| data.variable_at(i).name().to_string()));
+        }
+        Ok(names)
+    }
+
+    pub fn execute(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
+        match command {
+            Command::Get { file } => {
+                self.dataset = Some(Dataset::read_sav(file)?);
+            }
+            Command::Save {
+                outfile,
+                compression,
+            } => {
+                if matches!(compression, Some(syntax::Compression::Uncompressed)) {
+                    return Err(Error("SAVE /UNCOMPRESSED is not supported yet".into()));
+                }
+                let data = self.active()?;
+                if !self.dry_run {
+                    data.write_sav(outfile)?;
+                }
+            }
+            Command::VariableLabels(pairs) => {
+                for (name, label) in pairs {
+                    self.active_mut()?.set_variable_label(name, Some(label))?;
+                }
+            }
+            Command::ValueLabels(groups) => {
+                for group in groups {
+                    for name in self.expand(&group.vars)? {
+                        let labels = group
+                            .labels
+                            .iter()
+                            .map(|(v, l)| (value(v), l.clone()))
+                            .collect();
+                        self.active_mut()?.set_value_labels(&name, labels)?;
+                    }
+                }
+            }
+            Command::MissingValues(groups) => {
+                for (vars, values) in groups {
+                    for name in self.expand(vars)? {
+                        self.active_mut()?
+                            .set_missing_values(&name, missing(values)?)?;
+                    }
+                }
+            }
+            Command::VariableLevel(groups) => {
+                for (vars, level) in groups {
+                    let measure = match level {
+                        syntax::Level::Scale => Measure::Scale,
+                        syntax::Level::Ordinal => Measure::Ordinal,
+                        syntax::Level::Nominal => Measure::Nominal,
+                    };
+                    for name in self.expand(vars)? {
+                        self.active_mut()?.set_measure(&name, measure)?;
+                    }
+                }
+            }
+            Command::Formats(groups) => {
+                for (vars, format) in groups {
+                    let mut text = format!("{}{}", format.kind.name(), format.width);
+                    if format.decimals > 0 {
+                        text.push_str(&format!(".{}", format.decimals));
+                    }
+                    for name in self.expand(vars)? {
+                        self.active_mut()?.set_format(&name, &text)?;
+                    }
+                }
+            }
+            Command::Frequencies { variables } => {
+                let data = self.active()?;
+                return self
+                    .expand(variables)?
+                    .iter()
+                    .map(|name| frequencies::table(data, name))
+                    .collect();
+            }
+            Command::Execute => {}
+            Command::Compute { .. }
+            | Command::If { .. }
+            | Command::SelectIf(_)
+            | Command::Recode(_) => {
+                return Err(Error(
+                    "this transformation command is parsed but not executed yet".into(),
+                ));
+            }
+        }
+        Ok(Vec::new())
+    }
+}
+
+fn value(v: &syntax::Value) -> Value {
+    match v {
+        syntax::Value::Number(n) => Value::Number(*n),
+        syntax::Value::String(s) => Value::String(s.clone()),
+    }
+}
+
+fn missing(values: &[syntax::MissingValue]) -> Result<MissingValues, Error> {
+    let bound = |b: &Bound| match b {
+        Bound::Lowest => f64::MIN,
+        Bound::Highest => f64::MAX,
+        Bound::Number(n) => *n,
+    };
+    let (mut numbers, mut strings, mut range) = (Vec::new(), Vec::new(), None);
+    for v in values {
+        match v {
+            syntax::MissingValue::Value(syntax::Value::Number(n)) => numbers.push(*n),
+            syntax::MissingValue::Value(syntax::Value::String(s)) => strings.push(s.clone()),
+            syntax::MissingValue::Range(low, high) => range = Some((bound(low), bound(high))),
+        }
+    }
+    Ok(match (range, numbers.as_slice(), strings.is_empty()) {
+        (None, [], true) => MissingValues::None,
+        (None, _, true) => MissingValues::Numbers(numbers),
+        (None, [], false) => MissingValues::Strings(strings),
+        (Some((low, high)), extra, true) if extra.len() <= 1 => MissingValues::Range {
+            low,
+            high,
+            extra: extra.first().copied(),
+        },
+        _ => return Err(Error("unsupported combination of missing values".into())),
+    })
+}
