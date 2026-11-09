@@ -360,7 +360,7 @@ fn numeric_values() {
     let new = data.variable("double").unwrap();
     assert_eq!(
         (new.format(), new.measure(), new.label()),
-        ("F8.2", Measure::Scale, None)
+        ("F8.2", Measure::Unknown, None)
     );
     assert_eq!(new.numeric().unwrap().iter().collect::<Vec<_>>(), doubled);
     assert_eq!(data.describe().variables[19].n_system_missing, 1);

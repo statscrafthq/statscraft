@@ -246,7 +246,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  each with .COUNT, .VALIDN or .TOTALN (COLPCT.COUNT and so on).\n\
                  Scale: also MEAN MEDIAN MODE MINIMUM MAXIMUM RANGE SUM STDDEV VARIANCE SEMEAN PTILE n VALIDN TOTALN\n\
                  MISSING and the percentages with .SUM. A U prefix (UCOUNT, UMEAN) ignores the weight.\n\
-                 With a weight variable every case weight is rounded to a whole number, as the reference program does.\n\
+                 Weighted by the weight variable when one is set; fractional weights are not rounded.\n\
                  User-missing categories are left out unless MISSING=INCLUDE; system-missing ones always are.\n\
                  Not supported yet: layers, multiple response sets, CLABELS other than AUTO, SIGTEST, COMPARETEST,\n\
                  PCOMPUTE, HIDESMALLCOUNTS, effective base (E functions), subtotals and OTHERNM or MISSING in a list.",

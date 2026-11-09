@@ -124,7 +124,8 @@ impl Dataset {
                     Ok(())
                 }
             },
-            None => self.add_variable(name, "F8.2".to_string(), None, Measure::Scale, column),
+            // unknown, like the original: procedures that care (CTABLES) guess the level from the data
+            None => self.add_variable(name, "F8.2".to_string(), None, Measure::Unknown, column),
         }
     }
 

@@ -324,8 +324,9 @@ fn statistic(summary: &Summary, tally: &Tally) -> Option<f64> {
     result.filter(|v| v.is_finite())
 }
 
-/// The case weights: the weight variable rounded to a whole number, as the reference program
-/// does for this procedure; a missing or negative weight counts as zero.
+/// The case weights; a missing or negative weight counts as zero. Fractional survey weights are
+/// used as they are, as in FREQUENCIES and CROSSTABS. The reference program rounds every case
+/// weight to a whole number in this procedure only, which would drop cases weighted below 0.5.
 fn weights(data: &Dataset) -> Result<Option<Vec<f64>>, Error> {
     let Some(name) = data.weight_variable() else {
         return Ok(None);
@@ -336,7 +337,7 @@ fn weights(data: &Dataset) -> Result<Option<Vec<f64>>, Error> {
     Ok(Some(
         values
             .iter()
-            .map(|v| usable(v).unwrap_or(0.0).max(0.0).round())
+            .map(|v| usable(v).unwrap_or(0.0).max(0.0))
             .collect(),
     ))
 }

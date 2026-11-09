@@ -171,27 +171,33 @@ fn stacked_scale_variables_share_summary_columns() {
     );
 }
 
+// The weighted counts equal those of FREQUENCIES on the same file, which agree with the reference
+// program: Male 132.3074, Female 119.3866, Other 8.2401. Case weights are not rounded.
 #[test]
-fn weighted_counts_use_rounded_case_weights() {
+fn weighted_counts_use_the_case_weights_as_they_are() {
     let t = run(
         "survey_basic_phpwriter.sav",
-        "CTABLES /TABLE gender [COUNT, UCOUNT, COLPCT.COUNT] BY region.",
+        "CTABLES /TABLE gender [COUNT, UCOUNT].",
     );
-    assert_eq!(
-        numbers(&t, 0)[..3],
-        [Some(30.0), Some(23.0), Some(66.666667)]
-    );
-    // one case of weight 0.43: no weight, but the cell exists
-    assert_eq!(numbers(&t, 2)[3..6], [Some(0.0), Some(1.0), Some(0.0)]);
+    let close = |got: Option<f64>, want: f64| (got.unwrap() - want).abs() < 5e-5;
+    for (row, (weighted, cases)) in [(132.3074, 106.0), (119.3866, 88.0), (8.2401, 6.0)]
+        .into_iter()
+        .enumerate()
+    {
+        let cells = numbers(&t, row);
+        assert!(close(cells[0], weighted), "{cells:?}");
+        assert_eq!(cells[1], Some(cases));
+    }
 
+    // weighted mean and median differ from the unweighted ones
     let t = run(
         "survey_basic_phpwriter.sav",
-        "CTABLES /TABLE age [MEAN, MEDIAN, UMEAN, VALIDN] BY gender.",
+        "CTABLES /TABLE age [MEAN, UMEAN, VALIDN, UVALIDN] BY gender.",
     );
-    assert_eq!(
-        numbers(&t, 0)[..4],
-        [Some(51.530303), Some(52.0), Some(51.311321), Some(132.0)]
-    );
+    let cells = numbers(&t, 0);
+    assert!(close(cells[2], 132.3074), "{cells:?}");
+    assert_eq!(cells[3], Some(106.0));
+    assert_ne!(cells[0], cells[1]);
 }
 
 #[test]

@@ -145,7 +145,9 @@ impl Dataset {
             meta.variable_formats
                 .insert(name.clone(), def.format.clone());
             let measure = match def.measure {
-                Measure::Unknown => ambers::Measure::Unknown,
+                // a file has no "not decided yet": write the level the reference program writes
+                Measure::Unknown if def.width.is_some() => ambers::Measure::Nominal,
+                Measure::Unknown => ambers::Measure::Scale,
                 Measure::Nominal => ambers::Measure::Nominal,
                 Measure::Ordinal => ambers::Measure::Ordinal,
                 Measure::Scale => ambers::Measure::Scale,

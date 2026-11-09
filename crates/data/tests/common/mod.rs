@@ -83,6 +83,17 @@ pub fn assert_survives_write(data: &Dataset, file: &str) -> Dataset {
     };
     assert_eq!(after["compression"], compression, "{file}");
     before["compression"] = after["compression"].clone();
+    // a file cannot hold an undecided level: numeric variables are written as scale, strings as nominal
+    for variable in before["variables"].as_array_mut().unwrap() {
+        if variable["measure"] == "unknown" {
+            variable["measure"] = if variable["type"] == "string" {
+                "nominal"
+            } else {
+                "scale"
+            }
+            .into();
+        }
+    }
     assert_eq!(before, after, "{file}: dictionary");
     assert_eq!(cases(data), cases(&copy), "{file}: case values");
     assert!(copy.warnings().is_empty(), "{file}: {:?}", copy.warnings());
