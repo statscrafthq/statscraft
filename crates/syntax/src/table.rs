@@ -241,7 +241,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20       [/SIGTEST TYPE=CHISQUARE [ALPHA=0.05] [INCLUDEMRSETS=YES|NO] [CATEGORIES=ALLVISIBLE|SUBTOTALS]]\n\
                  \x20       [/COMPARETEST TYPE=PROP|MEAN [ALPHA=0.05 [0.01]] [ADJUST=BONFERRONI|BH|NONE]\n\
                  \x20                     [MEANSVARIANCE=ALLCATS|TESTEDCATS] [SHOWSIG=NO|YES] [INCLUDEMRSETS=YES|NO]\n\
-                 \x20                     [CATEGORIES=ALLVISIBLE|SUBTOTALS] [STYLE=APA|SIMPLE] [ORIGIN=COLUMN]]\n\
+                 \x20                     [CATEGORIES=ALLVISIBLE|SUBTOTALS] [MERGE=NO|YES [STYLE=APA|SIMPLE]]\n\
+                 \x20                     [ORIGIN=COLUMN]]\n\
                  \x20       [/TABLE ... another table with its own SLABELS, CATEGORIES, TITLES and tests].\n\
                  rows, columns: variables joined by + (stack) and > (nest), with parentheses. var [C] or var [S]\n\
                  makes a variable categorical or scale; otherwise SCALE is scale and the other levels categorical.\n\
@@ -268,6 +269,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  below the smaller ALPHA, lowercase below the larger; a period marks a column left out (a proportion\n\
                  of 0 or 1, or less than 2 cases). ADJUST defaults to BONFERRONI, MEANSVARIANCE to ALLCATS. With a\n\
                  weight variable the tests round the weighted cell counts, column totals or category weights.\n\
+                 MERGE=YES puts the letters in the main table instead, in a column after each compared category\n\
+                 (in the row of MEAN, or of COLPCT or COUNT, when the summaries are in the rows). STYLE=APA (the\n\
+                 default) gives letters that two columns share unless they differ significantly at the smaller\n\
+                 ALPHA; STYLE=SIMPLE gives the keys of the separate table. SHOWSIG=YES keeps the separate table.\n\
                  A multiple response set ($name, see MRSETS) stands where a categorical variable may. A case counts\n\
                  once in every category it has a response in; the set's total counts the cases with any response.\n\
                  A dichotomy set lists its variables in set order; /CATEGORIES may list them by name: [q5_3, q5_1].\n\
@@ -281,8 +286,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  cases two categories of a set share; the means test then pools the variance from the two categories\n\
                  compared. INCLUDEMRSETS=NO leaves sets out of the tests, and so does COUNTDUPLICATES=YES for a\n\
                  category set.\n\
-                 Not supported yet: layers, CLABELS other than AUTO, COMPARETEST MERGE=YES, PCOMPUTE,\n\
-                 HIDESMALLCOUNTS, effective base (E functions), subtotals and OTHERNM or MISSING in a list.",
+                 Not supported yet: layers, CLABELS other than AUTO, PCOMPUTE, HIDESMALLCOUNTS, effective base\n\
+                 (E functions), subtotals and OTHERNM or MISSING in a list.",
         example: "CTABLES /TABLE q1 [COUNT, COLPCT.COUNT PCT8.1] BY gender /CATEGORIES VARIABLES=q1 TOTAL=YES.",
         parse: ctables::ctables,
     },

@@ -126,10 +126,6 @@ fn per_table_and_global_subcommands() {
 fn features_of_the_next_stage_are_named() {
     for (source, feature) in [
         ("CTABLES /TABLE a BY b BY c.", "layer axis"),
-        (
-            "CTABLES /TABLE a BY b /COMPARETEST TYPE=PROP MERGE=YES.",
-            "MERGE=YES",
-        ),
         ("CTABLES /TABLE a /CRITERIA CILEVEL=90.", "CRITERIA"),
         (
             "CTABLES /PCOMPUTE &x = EXPR([1] + [2]) /TABLE a.",
@@ -181,6 +177,8 @@ fn significance_tests_with_their_defaults() {
             pool_all: true,
             subtotals: false,
             show_sig: false,
+            merge: false,
+            style: CompareStyle::Apa,
         }]
     );
 }
@@ -226,11 +224,19 @@ fn significance_test_mistakes_are_named() {
     assert_eq!(e.expected, ["BONFERRONI", "BH", "NONE"]);
     let e = err("CTABLES /SIGTEST TYPE=CHISQUARE /TABLE a BY b.");
     assert!(e.message.contains("must follow a /TABLE"), "{e}");
-    // MERGE=YES points at itself
-    let source = "CTABLES /TABLE a BY b /COMPARETEST TYPE=PROP MERGE=YES STYLE=APA.";
-    let e = err(source);
-    let (from, to) = (e.span.column as usize - 1, e.span.end_column as usize - 1);
-    assert_eq!(&source[from..to], "MERGE=YES");
+    let e = err("CTABLES /TABLE a BY b /COMPARETEST TYPE=PROP MERGE=YES STYLE=BOLD.");
+    assert_eq!(e.expected, ["APA", "SIMPLE"]);
+}
+
+#[test]
+fn merged_letters_default_to_apa_and_showsig_keeps_them_apart() {
+    let c = one("CTABLES /TABLE a BY b /COMPARETEST TYPE=PROP MERGE=YES.");
+    let test = &c.tables[0].comparetests[0];
+    assert!(test.merge && test.style == CompareStyle::Apa);
+    let c = one("CTABLES /TABLE a BY b /COMPARETEST TYPE=PROP MERGE=YES STYLE=SIMPLE.");
+    assert_eq!(c.tables[0].comparetests[0].style, CompareStyle::Simple);
+    let c = one("CTABLES /TABLE a BY b /COMPARETEST TYPE=PROP MERGE=YES SHOWSIG=YES.");
+    assert!(!c.tables[0].comparetests[0].merge);
 }
 
 #[test]

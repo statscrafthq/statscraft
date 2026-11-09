@@ -38,11 +38,24 @@
 //!   Where the manual is silent: a set category every case has, whose share is 1, is left out of
 //!   the chi-square like an empty one, and two columns whose shared weight leaves no variance
 //!   are not compared.
+//! - MERGE=YES (command reference COMPARETEST, Custom Tables manual "Merging Significance Results
+//!   into the Main Table" and the APA-style example) puts the letters into the main table. Our
+//!   table type has one value per cell, so each compared category gets a letters column after its
+//!   summary columns. SIMPLE heads it with the category's key, lowercase as in the manual's
+//!   figure, and lists the keys of the columns it is larger than. APA, the default, uses the
+//!   smaller ALPHA only and gives letters such that two columns share one exactly when they do not
+//!   differ significantly; the manual does not say how the letters are found, so we use the
+//!   insert-and-absorb construction of a compact letter display.
 
-use super::{CategoryList, Layout, MARGIN, Section, Term, TermVar, combinations, list_of};
+use super::{
+    CategoryList, Entry, Layout, MARGIN, Section, Slot, Term, TermVar, combinations, list_of,
+};
 use crate::crosstabs::{chi_square_p, gamma_q, ln_gamma};
 use crate::{Cell, Error, Table};
-use statscraft_syntax::{Adjust, CompareKind, Comparetest, CtablesTable, Sigtest, Statistic};
+use statscraft_syntax::{
+    Adjust, CompareKind, CompareStyle, Comparetest, CtablesTable, PercentBase, PercentOf, Sigtest,
+    Statistic,
+};
 use std::collections::HashMap;
 
 // ---- distributions ----
@@ -396,22 +409,29 @@ fn side_label(term: &Term, lists: &HashMap<String, CategoryList>, outer: &[usize
     parts.join(" > ")
 }
 
-/// The test tables of one CTABLES table, in the order of their subcommands' kinds: chi-square,
-/// then the comparisons.
-pub(super) fn tables(
-    table: &CtablesTable,
+/// The tests of one CTABLES table: the tables that follow the main one, in the order of their
+/// subcommands' kinds (chi-square, then the comparisons), and the comparisons to merge into the
+/// main table (MERGE=YES).
+#[allow(clippy::type_complexity)]
+pub(super) fn tables<'t>(
+    table: &'t CtablesTable,
     layout: &Layout,
     lists: &HashMap<String, CategoryList>,
     sections: &HashMap<(usize, usize), Section>,
-) -> Result<Vec<Table>, Error> {
-    let mut out = Vec::new();
+) -> Result<(Vec<Table>, Vec<(&'t Comparetest, Comparisons)>), Error> {
+    let (mut out, mut merged) = (Vec::new(), Vec::new());
     if let Some(spec) = &table.sigtest {
         out.push(chi_square_table(spec, layout, lists, sections)?);
     }
     for spec in &table.comparetests {
-        out.push(comparison_table(spec, layout, lists, sections)?);
+        let found = comparisons(spec, layout, lists, sections)?;
+        if spec.merge {
+            merged.push((spec, found));
+        } else {
+            out.push(comparison_table(spec, &found, layout, lists));
+        }
     }
-    Ok(out)
+    Ok((out, merged))
 }
 
 /// A section whose rows and columns are both categorical, without a scale variable.
@@ -576,6 +596,35 @@ struct Column {
     path: Vec<String>,
 }
 
+/// What one column shows in one row of comparisons.
+enum Outcome {
+    /// The column's section is not tested.
+    Skipped,
+    /// The column takes no part: a period.
+    Untested,
+    /// The significant columns with a smaller value, by position among the compared columns,
+    /// with their adjusted p-value and case (true for uppercase).
+    Marks(Vec<(usize, f64, bool)>),
+}
+
+/// One row of comparisons: a combination of the categories of a row term.
+struct Row {
+    term: usize,
+    combo: Vec<usize>,
+    /// By compared column.
+    outcomes: Vec<Outcome>,
+}
+
+/// The outcome of one COMPARETEST over a table.
+pub(super) struct Comparisons {
+    columns: Vec<Column>,
+    rows: Vec<Row>,
+    /// Some column is marked with a period.
+    dots: bool,
+    left_out: Vec<&'static str>,
+    with_sets: bool,
+}
+
 /// The outcome of one family of comparisons, by category position of the innermost column
 /// variable: whether it took part, and the significant smaller categories with their adjusted
 /// p-value and case (true for uppercase).
@@ -585,12 +634,13 @@ struct Family {
     marks: HashMap<usize, Vec<(usize, f64, bool)>>,
 }
 
-fn comparison_table(
+/// Runs one COMPARETEST over every row of every tested subtable.
+fn comparisons(
     spec: &Comparetest,
     layout: &Layout,
     lists: &HashMap<String, CategoryList>,
     sections: &HashMap<(usize, usize), Section>,
-) -> Result<Table, Error> {
+) -> Result<Comparisons, Error> {
     let means = spec.kind == CompareKind::Means;
     // which sections could be tested, and which of those leave out a set
     let suitable = |r: usize, c: usize| {
@@ -645,13 +695,13 @@ fn comparison_table(
             }
         }
     }
-    let letters: HashMap<(usize, &[usize]), String> = columns
+    let positions: HashMap<(usize, &[usize]), usize> = columns
         .iter()
         .enumerate()
-        .map(|(i, col)| ((col.term, &col.combo[..]), letter(i)))
+        .map(|(i, col)| ((col.term, &col.combo[..]), i))
         .collect();
 
-    let mut rows: Vec<(Vec<String>, Vec<Cell>)> = Vec::new();
+    let mut rows: Vec<Row> = Vec::new();
     let mut dots = false;
     for (r, term) in layout.rows.iter().enumerate() {
         if !(0..layout.columns.len()).any(|c| eligible(r, c)) {
@@ -668,10 +718,10 @@ fn comparison_table(
                 continue;
             }
             let mut families: HashMap<(usize, Vec<usize>), Family> = HashMap::new();
-            let mut cells = Vec::new();
+            let mut outcomes = Vec::new();
             for column in &columns {
                 if !eligible(r, column.term) {
-                    cells.push(Cell::Empty);
+                    outcomes.push(Outcome::Skipped);
                     continue;
                 }
                 let (outer, inner) = column.combo.split_at(column.combo.len() - 1);
@@ -685,32 +735,23 @@ fn comparison_table(
                         let set = set_sides(term, column_term).1;
                         compare(spec, section, &row_combo, outer, &inner_columns, set)
                     });
-                let text = if !family.tested[&inner[0]] {
+                outcomes.push(if !family.tested[&inner[0]] {
                     dots = true;
-                    ".".to_string()
+                    Outcome::Untested
                 } else {
                     let marks = family.marks.get(&inner[0]).map_or(&[][..], |m| &m[..]);
-                    let mut parts: Vec<String> = Vec::new();
-                    for &(smaller, p, upper) in marks {
+                    let marks = marks.iter().map(|&(smaller, p, upper)| {
                         let key = [outer, &[smaller][..]].concat();
-                        let mut text = letters[&(column.term, &key[..])].clone();
-                        if !upper {
-                            text = text.to_lowercase();
-                        }
-                        if spec.show_sig {
-                            text.push_str(&format!(" ({})", p_text(p)));
-                        }
-                        parts.push(text);
-                    }
-                    parts.join(" ")
-                };
-                cells.push(if text.is_empty() {
-                    Cell::Empty
-                } else {
-                    Cell::Text(text)
+                        (positions[&(column.term, &key[..])], p, upper)
+                    });
+                    Outcome::Marks(marks.collect())
                 });
             }
-            rows.push((path(term, lists, &row_combo), cells));
+            rows.push(Row {
+                term: r,
+                combo: row_combo,
+                outcomes,
+            });
         }
     }
     if rows.is_empty() || columns.is_empty() {
@@ -725,29 +766,77 @@ fn comparison_table(
             "/COMPARETEST TYPE=PROP needs a categorical variable in both the rows and the columns of one nesting, without a scale variable".into()
         }));
     }
+    Ok(Comparisons {
+        columns,
+        rows,
+        dots,
+        left_out,
+        with_sets,
+    })
+}
 
-    let row_headers = rows.iter().map(|(p, _)| p.len()).max().unwrap_or(0).max(1);
-    let levels = columns.iter().map(|c| c.path.len()).max().unwrap_or(0);
+/// The letters of one cell of a separate comparisons table or of a SIMPLE merged column.
+fn simple_letters(spec: &Comparetest, marks: &[(usize, f64, bool)], merged: bool) -> String {
+    let mut parts: Vec<String> = Vec::new();
+    for &(smaller, p, upper) in marks {
+        let mut text = letter(smaller);
+        // merged keys are lowercase like the column keys, unless two levels need both cases
+        if !upper || (merged && spec.alpha.len() == 1) {
+            text = text.to_lowercase();
+        }
+        if spec.show_sig {
+            text.push_str(&format!(" ({})", p_text(p)));
+        }
+        parts.push(text);
+    }
+    parts.join(" ")
+}
+
+fn comparison_table(
+    spec: &Comparetest,
+    found: &Comparisons,
+    layout: &Layout,
+    lists: &HashMap<String, CategoryList>,
+) -> Table {
+    let paths: Vec<Vec<String>> = found
+        .rows
+        .iter()
+        .map(|row| path(&layout.rows[row.term], lists, &row.combo))
+        .collect();
+    let row_headers = paths.iter().map(Vec::len).max().unwrap_or(0).max(1);
+    let levels = found
+        .columns
+        .iter()
+        .map(|c| c.path.len())
+        .max()
+        .unwrap_or(0);
     let mut header = vec![String::new(); row_headers];
     let mut column_groups = vec![vec![String::new(); levels]; row_headers];
-    for (i, column) in columns.iter().enumerate() {
+    for (i, column) in found.columns.iter().enumerate() {
         header.push(format!("({})", letter(i)));
         let mut groups = column.path.clone();
         groups.resize(levels, String::new());
         column_groups.push(groups);
     }
-    let table_rows = rows
-        .into_iter()
-        .map(|(path, cells)| {
-            let mut row: Vec<Cell> = (0..row_headers)
+    let table_rows = found
+        .rows
+        .iter()
+        .zip(paths)
+        .map(|(row, path)| {
+            let mut cells: Vec<Cell> = (0..row_headers)
                 .map(|i| path.get(i).map_or(Cell::Empty, |t| Cell::Text(t.clone())))
                 .collect();
-            row.extend(cells);
-            row
+            cells.extend(row.outcomes.iter().map(|outcome| match outcome {
+                Outcome::Skipped => Cell::Empty,
+                Outcome::Untested => Cell::Text(".".into()),
+                Outcome::Marks(marks) if marks.is_empty() => Cell::Empty,
+                Outcome::Marks(marks) => Cell::Text(simple_letters(spec, marks, false)),
+            }));
+            cells
         })
         .collect();
-    Ok(Table {
-        title: if means {
+    Table {
+        title: if spec.kind == CompareKind::Means {
             "Comparisons of Column Means".into()
         } else {
             "Comparisons of Column Proportions".into()
@@ -757,8 +846,199 @@ fn comparison_table(
         column_groups,
         rows: table_rows,
         formats: Vec::new(),
-        caption: Some(comparison_caption(spec, dots, &left_out, with_sets)),
-    })
+        caption: Some(comparison_caption(spec, found, None)),
+    }
+}
+
+/// The APA letters of one family of columns: columns that do not differ significantly share a
+/// letter. Starting from one group of all tested columns, every significant pair splits each
+/// group holding both into one without either; a group inside another is dropped. The groups,
+/// ordered by their first column, get the letters a, b, c and so on; a column shows the letters
+/// of its groups.
+fn apa_letters(members: &[usize], pairs: &[(usize, usize)]) -> HashMap<usize, String> {
+    let mut groups: Vec<Vec<usize>> = vec![members.to_vec()];
+    for &(a, b) in pairs {
+        let mut next: Vec<Vec<usize>> = Vec::new();
+        for group in groups {
+            if group.contains(&a) && group.contains(&b) {
+                next.push(group.iter().copied().filter(|&m| m != a).collect());
+                next.push(group.iter().copied().filter(|&m| m != b).collect());
+            } else {
+                next.push(group);
+            }
+        }
+        next.sort();
+        next.dedup();
+        let inside = |g: &Vec<usize>, h: &Vec<usize>| g != h && g.iter().all(|m| h.contains(m));
+        groups = next
+            .iter()
+            .filter(|g| !next.iter().any(|h| inside(g, h)))
+            .cloned()
+            .collect();
+    }
+    groups.sort();
+    let mut out: HashMap<usize, String> = members.iter().map(|&m| (m, String::new())).collect();
+    for (i, group) in groups.iter().enumerate() {
+        let key = letter(i).to_lowercase();
+        for m in group {
+            out.get_mut(m).expect("a member").push_str(&key);
+        }
+    }
+    out
+}
+
+/// The text of every column of one row of comparisons, as merged into the main table.
+fn merged_letters(spec: &Comparetest, found: &Comparisons, row: &Row) -> Vec<String> {
+    let mut texts: Vec<String> = row
+        .outcomes
+        .iter()
+        .map(|outcome| match outcome {
+            Outcome::Skipped => String::new(),
+            Outcome::Untested => ".".into(),
+            Outcome::Marks(marks) => match spec.style {
+                CompareStyle::Simple => simple_letters(spec, marks, true),
+                CompareStyle::Apa => String::new(),
+            },
+        })
+        .collect();
+    if spec.style == CompareStyle::Apa {
+        // a family is the columns of one category combination of the outer column variables
+        let mut families: HashMap<(usize, &[usize]), Vec<usize>> = HashMap::new();
+        for (i, column) in found.columns.iter().enumerate() {
+            if let Outcome::Marks(_) = row.outcomes[i] {
+                let outer = &column.combo[..column.combo.len() - 1];
+                families.entry((column.term, outer)).or_default().push(i);
+            }
+        }
+        for members in families.values() {
+            // only the smaller level counts in APA style
+            let pairs: Vec<(usize, usize)> = members
+                .iter()
+                .flat_map(|&i| match &row.outcomes[i] {
+                    Outcome::Marks(marks) => marks
+                        .iter()
+                        .filter(|m| m.2)
+                        .map(|m| (i, m.0))
+                        .collect::<Vec<_>>(),
+                    _ => Vec::new(),
+                })
+                .collect();
+            for (i, text) in apa_letters(members, &pairs) {
+                texts[i] = text;
+            }
+        }
+    }
+    texts
+}
+
+/// Puts the letters of a COMPARETEST with MERGE=YES into the main table: after the columns of
+/// every compared category comes a column with its letters, headed by the category's key in
+/// SIMPLE style. The letters stand in the rows of the compared summary.
+pub(super) fn merge(
+    main: &mut Table,
+    spec: &Comparetest,
+    found: &Comparisons,
+    row_entries: &[Entry],
+    column_entries: &[Entry],
+    slots: &[Slot],
+) {
+    let h = main.row_headers;
+    let positions: HashMap<(usize, &[usize]), usize> = found
+        .columns
+        .iter()
+        .enumerate()
+        .map(|(i, col)| ((col.term, &col.combo[..]), i))
+        .collect();
+    // the new columns: an old one, or the letters of a compared category
+    let mut order: Vec<Result<usize, usize>> = (0..h).map(Ok).collect();
+    for (e, entry) in column_entries.iter().enumerate() {
+        order.push(Ok(h + e));
+        let last = column_entries
+            .get(e + 1)
+            .is_none_or(|next| next.term != entry.term || next.combo != entry.combo);
+        if let (true, Some(&k)) = (last, positions.get(&(entry.term, &entry.combo[..]))) {
+            order.push(Err(k));
+        }
+    }
+    let old_path = |c: usize| {
+        let mut path = main.column_groups.get(c).cloned().unwrap_or_default();
+        path.push(main.columns[c].clone());
+        path
+    };
+    let key = |k: usize| match spec.style {
+        CompareStyle::Simple => format!("({})", letter(k).to_lowercase()),
+        CompareStyle::Apa => "Group".to_string(),
+    };
+    let paths: Vec<Vec<String>> = order
+        .iter()
+        .map(|source| match *source {
+            Ok(c) => old_path(c),
+            Err(k) => [&found.columns[k].path[..], &[key(k)][..]].concat(),
+        })
+        .collect();
+    let levels = paths.iter().map(Vec::len).max().unwrap_or(1);
+    let at = |path: &[String], i: usize| path.get(i).cloned().unwrap_or_default();
+    main.columns = paths.iter().map(|p| at(p, levels - 1)).collect();
+    main.column_groups = paths
+        .iter()
+        .map(|p| (0..levels - 1).map(|i| at(p, i)).collect())
+        .collect();
+
+    // the summary whose rows get the letters when the summaries are in the rows
+    let wanted = |s: &Slot| match spec.kind {
+        CompareKind::Means => s.function.statistic == Statistic::Mean,
+        CompareKind::Proportions => matches!(
+            s.function.statistic,
+            Statistic::Percent(PercentBase::Column, PercentOf::Count)
+        ),
+    };
+    let letter_slot = slots
+        .iter()
+        .position(|s| wanted(s) && !s.function.unweighted)
+        .or_else(|| {
+            slots
+                .iter()
+                .position(|s| s.function.statistic == Statistic::Count)
+        })
+        .unwrap_or(0);
+    let texts: HashMap<(usize, &[usize]), Vec<String>> = found
+        .rows
+        .iter()
+        .map(|row| ((row.term, &row.combo[..]), merged_letters(spec, found, row)))
+        .collect();
+    for (r, entry) in row_entries.iter().enumerate() {
+        let letters = texts
+            .get(&(entry.term, &entry.combo[..]))
+            .filter(|_| entry.slot.is_none_or(|s| s == letter_slot));
+        // every old column is used once, so its cell can be moved
+        let mut old_cells: Vec<Option<Cell>> = std::mem::take(&mut main.rows[r])
+            .into_iter()
+            .map(Some)
+            .collect();
+        let old_formats = std::mem::take(&mut main.formats[r]);
+        for source in &order {
+            match *source {
+                Ok(c) => {
+                    main.rows[r].push(old_cells[c].take().expect("each column once"));
+                    main.formats[r].push(old_formats[c].clone());
+                }
+                Err(k) => {
+                    let text = letters.map(|l| l[k].clone()).unwrap_or_default();
+                    main.rows[r].push(if text.is_empty() {
+                        Cell::Empty
+                    } else {
+                        Cell::Text(text)
+                    });
+                    main.formats[r].push(String::new());
+                }
+            }
+        }
+    }
+    let note = comparison_caption(spec, found, Some(spec.style));
+    main.caption = Some(match main.caption.take() {
+        Some(caption) => format!("{caption} {note}"),
+        None => note,
+    });
 }
 
 /// The comparisons of one row of one subtable.
@@ -840,12 +1120,14 @@ fn p_text(p: f64) -> String {
     }
 }
 
+/// The caption of a separate comparisons table (`merged` None) or of letters merged into the
+/// main table in a style.
 fn comparison_caption(
     spec: &Comparetest,
-    dots: bool,
-    left_out: &[&str],
-    with_sets: bool,
+    found: &Comparisons,
+    merged: Option<CompareStyle>,
 ) -> String {
+    let (dots, left_out, with_sets) = (found.dots, &found.left_out, found.with_sets);
     let means = spec.kind == CompareKind::Means;
     let (what, smaller) = if means {
         let pooled = if spec.pool_all {
@@ -863,10 +1145,20 @@ fn comparison_caption(
             "proportion",
         )
     };
-    let levels = match spec.alpha[..] {
-        [a] => format!("at the {a} level"),
-        [a, b] => format!("uppercase letters at the {a} level, lowercase at the {b} level"),
+    let levels = match (merged, &spec.alpha[..]) {
+        // APA style uses the smaller level only
+        (Some(CompareStyle::Apa), [a, ..]) | (_, [a]) => format!("at the {a} level"),
+        (_, [a, b]) => format!("uppercase letters at the {a} level, lowercase at the {b} level"),
         _ => unreachable!("one or two levels"),
+    };
+    let rule = match merged {
+        None => format!(
+            "For each significant pair the letter of the column with the smaller {smaller} appears in the column with the larger one."
+        ),
+        Some(CompareStyle::Simple) => format!(
+            [removed]
+        ),
+        Some(CompareStyle::Apa) => "Each compared column is followed by its Group letters; within a row of a subtable, two columns whose letters have none in common differ significantly.".to_string(),
     };
     let adjusted = match spec.adjust {
         Adjust::Bonferroni => {
@@ -877,9 +1169,7 @@ fn comparison_caption(
         }
         Adjust::None => "not adjusted for multiple comparisons",
     };
-    let mut caption = format!(
-        "{what}, {levels}. For each significant pair the letter of the column with the smaller {smaller} appears in the column with the larger one. Significance values are {adjusted}."
-    );
+    let mut caption = format!("{what}, {levels}. {rule} Significance values are {adjusted}.");
     if spec.show_sig {
         caption.push_str(" The adjusted significance follows each letter in parentheses.");
     }
@@ -1230,6 +1520,28 @@ mod tests {
             Some(true)
         );
         assert_eq!(significance(0.2, &[0.05], Adjust::None), None);
+    }
+
+    #[test]
+    fn apa_letters_by_insert_and_absorb() {
+        let letters = |members: &[usize], pairs: &[(usize, usize)]| {
+            let found = apa_letters(members, pairs);
+            members.iter().map(|m| found[m].clone()).collect::<Vec<_>>()
+        };
+        // no difference: one letter for all
+        assert_eq!(letters(&[0, 1, 2], &[]), ["a", "a", "a"]);
+        // the first and last differ, the middle one differs from neither
+        assert_eq!(letters(&[0, 1, 2], &[(0, 2)]), ["a", "ab", "b"]);
+        // every pair differs: the letters follow the order of the columns
+        assert_eq!(
+            letters(&[0, 1, 2], &[(1, 0), (2, 0), (2, 1)]),
+            ["a", "b", "c"]
+        );
+        // 0 differs from 2 and 3, 1 from 3: {0, 1}, {1, 2}, {2, 3}
+        assert_eq!(
+            letters(&[0, 1, 2, 3], &[(0, 2), (0, 3), (1, 3)]),
+            ["a", "ab", "bc", "c"]
+        );
     }
 
     #[test]

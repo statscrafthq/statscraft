@@ -82,6 +82,19 @@ pub struct Comparetest {
     pub subtotals: bool,
     /// `SHOWSIG=YES`: the significance of every letter follows it in parentheses.
     pub show_sig: bool,
+    /// `MERGE=YES`: the letters go into the main table instead of a table of their own.
+    /// SHOWSIG=YES turns it off, as the manual says.
+    pub merge: bool,
+    /// `STYLE=`: how merged letters are shown.
+    pub style: CompareStyle,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CompareStyle {
+    /// `STYLE=APA` (the default): values that do not differ share a letter.
+    Apa,
+    /// `STYLE=SIMPLE`: column keys, as in the separate table.
+    Simple,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -810,8 +823,10 @@ fn comparetest(p: &mut Parser, start: usize) -> PResult<Comparetest> {
         pool_all: true,
         subtotals: false,
         show_sig: false,
+        merge: false,
+        style: CompareStyle::Apa,
     };
-    let (mut typed, mut merge, mut merge_at) = (false, false, start);
+    let mut typed = false;
     while !at_end_of_subcommand(p) {
         if p.eat_keyword("TYPE") {
             spec.kind =
@@ -836,13 +851,11 @@ fn comparetest(p: &mut Parser, start: usize) -> PResult<Comparetest> {
             spec.pool_all = choice(p, &["ALLCATS", "TESTEDCATS"])? == 0;
         } else if p.eat_keyword("CATEGORIES") {
             spec.subtotals = choice(p, &["ALLVISIBLE", "SUBTOTALS"])? == 1;
-        } else if p.at_keyword("MERGE") {
-            merge_at = p.pos;
-            p.pos += 1;
-            merge = yes_no(p)?;
+        } else if p.eat_keyword("MERGE") {
+            spec.merge = yes_no(p)?;
         } else if p.eat_keyword("STYLE") {
             // the style of letters merged into the main table; without MERGE=YES it does nothing
-            choice(p, &["APA", "SIMPLE"])?;
+            spec.style = [CompareStyle::Apa, CompareStyle::Simple][choice(p, &["APA", "SIMPLE"])?];
         } else if p.eat_keyword("SHOWSIG") {
             spec.show_sig = yes_no(p)?;
         } else if p.eat_keyword("ORIGIN") {
@@ -869,18 +882,7 @@ fn comparetest(p: &mut Parser, start: usize) -> PResult<Comparetest> {
         ));
     }
     // SHOWSIG=YES keeps the separate table, whatever MERGE says
-    if merge && !spec.show_sig {
-        let end = p.pos;
-        p.pos = merge_at + 3;
-        let error = not_supported(
-            p,
-            merge_at,
-            "COMPARETEST MERGE=YES (letters in the main table)",
-        )
-        .hint("leave out MERGE=YES to get the letters in a table of their own");
-        p.pos = end;
-        return Err(error);
-    }
+    spec.merge &= !spec.show_sig;
     Ok(spec)
 }
 

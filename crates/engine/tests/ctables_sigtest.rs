@@ -953,6 +953,120 @@ fn sets_left_out_of_the_tests_are_named() {
     );
 }
 
+// ---- MERGE=YES: the letters in the main table ----
+
+/// The compared columns' letters of a main table with merged letters: every letters column, by
+/// row; and the number of columns of values in between. Letters columns are headed by a key
+/// such as "(a)" in SIMPLE style and by "Group" in APA style.
+fn merged(table: &Table) -> (Vec<Vec<String>>, usize) {
+    let letter_columns: Vec<usize> = (table.row_headers..table.columns.len())
+        .filter(|&c| table.columns[c] == "Group" || table.columns[c].starts_with('('))
+        .collect();
+    let rows = table
+        .rows
+        .iter()
+        .map(|row| letter_columns.iter().map(|&c| text(&row[c])).collect())
+        .collect();
+    (
+        rows,
+        table.columns.len() - table.row_headers - letter_columns.len(),
+    )
+}
+
+#[test]
+fn simple_merged_letters_repeat_the_separate_table_beside_each_column() {
+    let base = format!("{DERIVED}CTABLES /TABLE x BY gender > agegrp\n/COMPARETEST TYPE=PROP");
+    for (alpha, lowered) in [("ALPHA=0.01, 0.05", false), ("ALPHA=0.05", true)] {
+        let apart = run("survey_basic.sav", &format!("{base} {alpha}.")).unwrap();
+        let tables = run(
+            "survey_basic.sav",
+            &format!("{base} {alpha} MERGE=YES STYLE=SIMPLE."),
+        )
+        .unwrap();
+        assert_eq!(tables.len(), 1, "one table to deliver");
+        let main = &tables[0];
+        // a letters column follows the count of each of the nine compared columns
+        let (letters, values) = merged(main);
+        assert_eq!(values, 9);
+        assert_eq!(main.columns[main.row_headers + 1], "(a)");
+        assert_eq!(
+            main.column_groups[main.row_headers + 1],
+            ["Gender", "Male", "agegrp", "1.00"]
+        );
+        for (row, cells_merged) in letters.iter().enumerate() {
+            let separate: Vec<String> = cells(&apart[1], row)
+                .into_iter()
+                .map(|c| if lowered { c.to_lowercase() } else { c })
+                .collect();
+            assert_eq!(*cells_merged, separate, "{alpha} row {row}");
+        }
+        assert!(letters.iter().flatten().any(|c| !c.is_empty() && c != "."));
+        let caption = main.caption.as_ref().unwrap();
+        assert!(caption.contains("headed by its key"), "{caption}");
+    }
+}
+
+#[test]
+fn apa_letters_are_shared_exactly_by_columns_that_do_not_differ() {
+    let source =
+        format!("{DERIVED}CTABLES /TABLE gender > y BY agegrp /COMPARETEST TYPE=MEAN ALPHA=0.05");
+    for file in ["survey_basic.sav", "survey_basic_phpwriter.sav"] {
+        let apart = run(file, &format!("{source}.")).unwrap();
+        let tables = run(file, &format!("{source} MERGE=YES.")).unwrap();
+        assert_eq!(tables.len(), 1);
+        let (letters, _) = merged(&tables[0]);
+        let mut differences = 0;
+        for (row, groups) in letters.iter().enumerate() {
+            // from the separate table: which pairs differ, by the keys A, B, C
+            let marks = cells(&apart[1], row);
+            let differ = |j: usize, k: usize| {
+                let key = |i: usize| char::from(b'A' + i as u8);
+                marks[j].contains(key(k)) || marks[k].contains(key(j))
+            };
+            for j in 0..3 {
+                for k in j + 1..3 {
+                    if groups[j] == "." || groups[k] == "." {
+                        continue;
+                    }
+                    let shared = groups[j].chars().any(|c| groups[k].contains(c));
+                    assert_eq!(
+                        shared,
+                        !differ(j, k),
+                        "{file} row {row}: {groups:?} {marks:?}"
+                    );
+                    differences += usize::from(differ(j, k));
+                }
+            }
+        }
+        assert!(differences > 0, "{file}: some pair differs");
+    }
+}
+
+#[test]
+fn merged_letters_stand_in_the_row_of_the_compared_summary() {
+    let tables = run(
+        "survey_basic.sav",
+        &format!(
+            "{DERIVED}CTABLES /TABLE gender > y [COUNT, MEAN] BY agegrp /SLABELS POSITION=ROW\n\
+             /COMPARETEST TYPE=MEAN MERGE=YES STYLE=SIMPLE ALPHA=0.2."
+        ),
+    )
+    .unwrap();
+    let main = &tables[0];
+    // per gender a Count row, then a Mean row; letters only in the Mean rows
+    let (letters, values) = merged(main);
+    assert_eq!(values, 3);
+    for (row, cells) in letters.iter().enumerate() {
+        let label = text(&main.rows[row][main.row_headers - 1]);
+        if label == "Count" {
+            assert!(cells.iter().all(String::is_empty), "{cells:?}");
+        } else {
+            assert_eq!(label, "Mean");
+        }
+    }
+    assert!(letters.iter().flatten().any(|c| !c.is_empty()));
+}
+
 #[test]
 fn a_table_without_the_needed_variables_is_an_error() {
     let fails = |syntax: &str| run("survey_basic.sav", syntax).unwrap_err();

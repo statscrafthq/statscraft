@@ -956,7 +956,7 @@ impl Engine {
             formats.push(cell_formats);
         }
 
-        let main = Table {
+        let mut main = Table {
             title: table
                 .title
                 .clone()
@@ -968,8 +968,19 @@ impl Engine {
             formats,
             caption: table.caption.clone(),
         };
+        let (tests, merged) = sigtest::tables(table, &layout, &lists, &sections)?;
+        for (spec, found) in &merged {
+            sigtest::merge(
+                &mut main,
+                spec,
+                found,
+                &row_entries,
+                &column_entries,
+                &slots,
+            );
+        }
         let mut out = vec![main];
-        out.extend(sigtest::tables(table, &layout, &lists, &sections)?);
+        out.extend(tests);
         Ok(out)
     }
 }
