@@ -151,6 +151,17 @@ impl Engine {
         let in_place = group.into.is_empty();
         let source = data.variable(source)?;
         check_inputs(&source, group.mappings.iter().flat_map(|m| &m.inputs))?;
+        let width = source.string_width().unwrap_or(usize::MAX);
+        for input in group.mappings.iter().flat_map(|m| &m.inputs) {
+            if let RecodeInput::Value(Value::String(text)) = input
+                && text.trim_end_matches(' ').len() > width
+            {
+                return Err(Error(format!(
+                    "the value '{text}' is longer than {}, which has width {width}",
+                    source.name()
+                )));
+            }
+        }
 
         let is_string = |output: &RecodeOutput| match output {
             RecodeOutput::Value(Value::String(_)) => true,

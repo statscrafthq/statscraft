@@ -56,6 +56,15 @@ impl Input {
                 .collect()
         };
         let keys: Vec<Vec<Key>> = (0..self.data.case_count()).map(key).collect();
+        if self.table
+            && let Some(case) = (1..keys.len()).find(|&c| compare(&keys[c - 1], &keys[c]).is_eq())
+        {
+            return Err(Error(format!(
+                "{} holds the same key twice (cases {case} and {}); a table may hold each key once",
+                self.name,
+                case + 1
+            )));
+        }
         if let Some(case) = (1..keys.len()).find(|&c| compare(&keys[c - 1], &keys[c]).is_gt()) {
             let keys = by.join(" ");
             let fix = if self.name.ends_with('*') {
@@ -132,7 +141,6 @@ fn match_cases(
                     {
                         next[input] += 1;
                     }
-                    // a table key given twice: the first case counts, as in the reference program
                     let found = Some(next[input]).filter(|c| *c < keys[input].len() && matching(c));
                     groups.push((found, 1));
                 } else {
@@ -307,8 +315,12 @@ impl Engine {
                 fill_dictionary(&mut out, name, &inputs[later].data)?;
             }
         }
-        // the reference program leaves the result unweighted
-        out.set_weight_variable(None)?;
+        // ADD FILES keeps the weighting when every file is weighted by the same variable
+        let weight = |input: &Input| input.data.weight_variable().map(str::to_lowercase);
+        let weighted = add && inputs.iter().all(|i| weight(i) == weight(&inputs[0]));
+        if !weighted {
+            out.set_weight_variable(None)?;
+        }
 
         let mut result = Engine::with_dataset(Some(out));
         for subset in &merge.subsets {

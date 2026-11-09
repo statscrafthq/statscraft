@@ -88,6 +88,18 @@ fn weights_are_applied_when_the_file_has_a_weight_variable() {
     }
     let unweighted = run(&mut loaded("survey_basic.sav"), "FREQUENCIES gender.");
     assert_eq!(number(&unweighted[0].rows.last().unwrap()[3]), 200.0);
+    // a user-missing weight counts as 0, like a system-missing one
+    let tables = run(
+        &mut loaded("survey_basic_phpwriter.sav"),
+        "MISSING VALUES weight (LO THRU 1).\nFREQUENCIES gender.",
+    );
+    let total = number(&tables[0].rows.last().unwrap()[3]);
+    assert!(total > 0.0 && total < 259.9341, "{total}");
+    let tables = run(
+        &mut loaded("survey_basic_phpwriter.sav"),
+        "MISSING VALUES weight (LO THRU HI).\nFREQUENCIES gender.",
+    );
+    assert_eq!(number(&tables[0].rows.last().unwrap()[3]), 0.0);
 }
 
 #[test]

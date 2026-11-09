@@ -273,6 +273,10 @@ fn recode_errors_name_the_variable_and_the_fix() {
             "the output value 'ABCDEFGHIJKLM' needs 13 bytes but plan has width 10",
         ),
         (
+            "RECODE plan ('ABCDEFGHIJKLM'='X').",
+            "the value 'ABCDEFGHIJKLM' is longer than plan, which has width 10",
+        ),
+        (
             "RECODE gender age (1=2) INTO only_one.",
             "2 source variables (gender age) but 1 target variables after INTO (only_one); give one target per source",
         ),

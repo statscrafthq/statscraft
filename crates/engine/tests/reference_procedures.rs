@@ -192,7 +192,9 @@ fn text(cell: &Cell) -> String {
 }
 
 /// DESCRIPTIVES: one row per variable and the two listwise rows, in the same order.
-fn descriptives(pspp: &[Vec<String>], ours: &Table) -> Vec<String> {
+/// `listwise` is false for MISSING=VARIABLE, where PSPP counts every case as valid listwise
+/// and the manual only the complete cases; the two listwise rows are then not compared.
+fn descriptives(pspp: &[Vec<String>], ours: &Table, listwise: bool) -> Vec<String> {
     let mut problems = Vec::new();
     let header = &pspp[0];
     if header[1..] != ours.columns[2..] {
@@ -210,6 +212,9 @@ fn descriptives(pspp: &[Vec<String>], ours: &Table) -> Vec<String> {
         )];
     }
     for (row, mine) in pspp[1..].iter().zip(&ours.rows) {
+        if !listwise && row[0].ends_with("N (listwise)") {
+            continue;
+        }
         for (column, cell) in row[1..].iter().enumerate() {
             let what = format!("{} {}", row[0], header[column + 1]);
             problems.extend(check_cell(&what, cell, &mine[column + 2]).err());
@@ -254,7 +259,13 @@ fn crosstab(pspp: &[Vec<String>], ours: &Table) -> Vec<String> {
                 mine[layers + 1]
             ));
         }
+        let last = row.len() - 2 * layers - 4;
         for (column, cell) in row[2 * layers + 3..].iter().enumerate() {
+            // PSPP shows shares as the expected count of a total; the manual's expected counts
+            // add up to the observed one there, so those cells are not compared
+            if statistic == "Expected" && (text(&mine[layers]) == "Total" || column == last) {
+                continue;
+            }
             let what = format!("{category} {statistic} column {}", column + 1);
             problems.extend(check_cell(&what, cell, &mine[headers + column]).err());
         }
@@ -321,7 +332,7 @@ fn compare_tables(case: &str, fixture: &str, syntax: &str) {
     let mut problems = Vec::new();
     for ((title, rows), table) in theirs.iter().zip(&mine) {
         let found = match title.as_str() {
-            "Descriptive Statistics" => descriptives(rows, table),
+            "Descriptive Statistics" => descriptives(rows, table, syntax.contains("LISTWISE")),
             "Chi-Square Tests" => chi_square(rows, table),
             _ => crosstab(rows, table),
         };
@@ -480,8 +491,21 @@ fn descriptives_save() {
             "DESCRIPTIVES q1_satisfaction q2_recommend /MISSING=INCLUDE /SAVE.",
         ),
     ];
-    for (case, fixture, syntax) in cases {
-        compare_data(&format!("descriptives-save-{case}"), fixture, "", syntax);
+    // our z-score labels follow the manual (Zscore: plus the label) and PSPP's do not, so the
+    // labels are cleared before the comparison
+    let clear = |names: &str| {
+        let labels: Vec<String> = names.split(' ').map(|n| format!("{n} ''")).collect();
+        format!("\nVARIABLE LABELS {}.", labels.join(" "))
+    };
+    let labels = [
+        clear("Zage Zmonthly_spend Zq1_satisfaction Zq2_recommend"),
+        clear("Zage Zmonthly_spend Zq1_satisfaction"),
+        clear("ZSC001 spend_z ZSC002 Zq2_recommend"),
+        clear("Zq1_satisfaction Zq2_recommend"),
+    ];
+    for ((case, fixture, syntax), labels) in cases.into_iter().zip(labels) {
+        let syntax = format!("{syntax}{labels}");
+        compare_data(&format!("descriptives-save-{case}"), fixture, "", &syntax);
     }
 }
 
@@ -520,10 +544,12 @@ fn crosstabs_tables() {
             SURVEY,
             "CROSSTABS /TABLES=q1_satisfaction BY q6_mention2 /STATISTICS=CHISQ /CELLS=COUNT ROW.",
         ),
+        // PSPP turns the columns round with DVALUE too, the manual only the rows, so DVALUE is
+        // tested in procedures.rs and not here
         (
-            "include-descending",
+            "include",
             SURVEY,
-            "CROSSTABS /TABLES=q1_satisfaction BY q6_mention2 /MISSING=INCLUDE /FORMAT=DVALUE /CELLS=COUNT COLUMN /STATISTICS=CHISQ.",
+            "CROSSTABS /TABLES=q1_satisfaction BY q6_mention2 /MISSING=INCLUDE /CELLS=COUNT COLUMN /STATISTICS=CHISQ.",
         ),
         (
             "strings",
@@ -636,10 +662,12 @@ fn merges() {
             SURVEY,
             "VARIABLE LABELS region ''.\nADD FILES /FILE=* /FILE='{dir}b.sav'.",
         ),
+        // PSPP drops the weight also when every file has it, the manual only when one file
+        // lacks it; with the active file unweighted both turn it off
         (
             "add-second-file-first",
             WEIGHTED,
-            "ADD FILES /FILE='{dir}b.sav' /FILE=*.",
+            "WEIGHT OFF.\nADD FILES /FILE='{dir}b.sav' /FILE=*.",
         ),
         (
             "add-by",
@@ -686,10 +714,12 @@ fn merges() {
             WEIGHTED,
             "MATCH FILES /FILE=* /FILE='{dir}b.sav' /RENAME=(age plan = age_b plan_b).",
         ),
+        // PSPP takes the first case of a key a table holds twice; the manual forbids such a
+        // table, so the comparison uses the one without duplicates
         (
             "match-string-key-table",
             SURVEY,
-            "SORT CASES BY plan resp_id.\nMATCH FILES /FILE=* /TABLE='{dir}plans_dup.sav' /BY plan /DROP=q3_comment.",
+            "SORT CASES BY plan resp_id.\nMATCH FILES /FILE=* /TABLE='{dir}plans.sav' /BY plan /DROP=q3_comment.",
         ),
         (
             "match-two-keys",

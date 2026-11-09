@@ -4,9 +4,10 @@
 //! even when the dataset has no cases, and before a command changes anything.
 //!
 //! Missing values: a user-missing value of a numeric variable reads as missing. A missing
-//! operand makes the result missing, with the exceptions the reference program has:
-//! `0 * missing`, `0 / anything`, `MOD(0, missing)` and `0 ** missing` are 0, `missing ** 0` is 1,
-//! and AND / OR use three-valued logic. A string is never missing in an expression.
+//! operand makes the result missing, with the exceptions the language defines:
+//! `0 * missing`, `0 / missing` and `MOD(0, missing)` are 0, and AND / OR use three-valued
+//! logic. Dividing by 0 is missing, also 0 / 0. A string is never missing in an expression,
+//! except to MISSING.
 //!
 //! Strings: a string variable reads with its padding spaces, as wide as it is declared. LENGTH
 //! counts bytes (as widths do); SUBSTR, INDEX and CHAR.LENGTH count characters.
@@ -43,7 +44,7 @@ const FUNCTIONS: &[(&str, &str)] = &[
     ("CFVAR", "CFVAR(number, number, ...)"),
     ("NVALID", "NVALID(number, ...)"),
     ("NMISS", "NMISS(number, ...)"),
-    ("MISSING", "MISSING(number)"),
+    ("MISSING", "MISSING(variable)"),
     ("SYSMIS", "SYSMIS(number)"),
     ("VALUE", "VALUE(variable)"),
     ("ANY", "ANY(value, candidate, ...)"),
@@ -215,24 +216,30 @@ fn arithmetic(op: BinaryOp, a: Option<f64>, b: Option<f64>) -> Option<f64> {
         BinaryOp::Sub => Some(a? - b?),
         BinaryOp::Mul if a == zero || b == zero => zero,
         BinaryOp::Mul => Some(a? * b?),
-        BinaryOp::Div if a == zero => zero,
+        // dividing by 0 is a domain error, even 0 / 0
         BinaryOp::Div if b == zero => None,
+        BinaryOp::Div if a == zero => zero,
         BinaryOp::Div => Some(a? / b?),
-        _ if b == zero && a != zero => Some(1.0),
-        _ if a == zero => b.is_none_or(|b| b > 0.0).then_some(0.0),
+        // the manual's list of operations that survive a missing operand has no power
+        _ if a == zero => (b? > 0.0).then_some(0.0),
         // a negative base with a fractional exponent gives NaN, which `finite` turns to missing
         _ => Some(a?.powf(b?)),
     }
 }
 
 /// Rounds `x / multiple` half away from zero (`half` 0.5) or towards zero (`half` 0.0). A value
-/// that falls short of the next step by less than 2^(fuzzbits - 53) still reaches it, so that
-/// the error of earlier arithmetic does not turn 2.5 into 2.
+/// that falls short of the next step by less than its last `fuzzbits` bits (the step times
+/// 2^(fuzzbits - 53)) still reaches it, so that the error of earlier arithmetic does not turn
+/// 2.5 into 2. The slack grows with the size of the value; fuzzbits 0 rounds exactly.
 fn round(x: Option<f64>, multiple: Option<f64>, fuzzbits: Option<f64>, half: f64) -> Option<f64> {
     let (x, multiple) = (x?, multiple.filter(|m| *m != 0.0)?);
-    let adjustment = half + (fuzzbits? - 53.0).exp2();
     let steps = x / multiple;
-    Some(steps.signum() * (steps.abs() + adjustment).floor() * multiple)
+    let mut whole = (steps.abs() + half).floor();
+    let next = whole + 1.0;
+    if next - (steps.abs() + half) < next * (fuzzbits? - 53.0).exp2() {
+        whole = next;
+    }
+    Some(steps.signum() * whole * multiple)
 }
 
 fn modulo(a: Option<f64>, b: Option<f64>) -> Option<f64> {
@@ -439,7 +446,7 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
     (year, month, day)
 }
 
-/// The date value of a day: seconds from 1582-10-14. Day 0 to 31 and month 0 to 13 are
+/// The date value of a day: seconds from 1582-10-14. Day 0 to 31 and month 1 to 13 are
 /// accepted and carry into the neighbouring month or year.
 fn date(day: Option<f64>, month: Option<f64>, year: Option<f64>) -> Option<f64> {
     let whole = |v: Option<f64>| v.filter(|v| v.fract() == 0.0 && v.abs() < 1e6);
@@ -450,7 +457,7 @@ fn date(day: Option<f64>, month: Option<f64>, year: Option<f64>) -> Option<f64> 
     );
     // shortcut: a two-digit year is missing instead of being moved into a century window,
     // add the window when SET EPOCH is supported
-    if !(0..=31).contains(&day) || !(0..=13).contains(&month) || year < 1582 {
+    if !(0..=31).contains(&day) || !(1..=13).contains(&month) || year < 1582 {
         return None;
     }
     let days = days_from_civil(year, month, day) + DAYS_TO_1970;
@@ -697,9 +704,24 @@ impl Evaluator<'_> {
             ("NMISS", count @ 1..) => across(&numbers()?, cases, |valid| {
                 Some((count - valid.len()) as f64)
             }),
-            ("MISSING", 1) => {
-                Column::Number(number(0)?.iter().map(|v| boolean(v.is_none())).collect())
-            }
+            ("MISSING", 1) => match self.eval(&args[0])? {
+                Column::Number(values) => {
+                    Column::Number(values.iter().map(|v| boolean(v.is_none())).collect())
+                }
+                // MISSING is the one function that sees user-missing values of a string variable
+                Column::String(values) => {
+                    let variable = match &args[0] {
+                        Expr::Variable(name) => self.data.variable(name).ok(),
+                        _ => None,
+                    };
+                    let missing = |v: &String| {
+                        variable
+                            .as_ref()
+                            .is_some_and(|var| var.is_user_missing_str(v))
+                    };
+                    Column::Number(values.iter().map(|v| boolean(missing(v))).collect())
+                }
+            },
             ("SYSMIS", 1) => {
                 let mut values = number(0)?;
                 // a user-missing value of a variable is not system-missing

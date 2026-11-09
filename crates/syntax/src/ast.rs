@@ -93,7 +93,7 @@ pub struct Crosstabs {
     pub chisq: bool,
     /// `/MISSING=INCLUDE`: user-missing values form categories of their own.
     pub include: bool,
-    /// `/FORMAT=DVALUE`: categories in descending order.
+    /// `/FORMAT=DVALUE`: row categories in descending order.
     pub descending: bool,
 }
 

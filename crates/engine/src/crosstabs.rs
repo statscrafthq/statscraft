@@ -94,8 +94,8 @@ impl Block {
             (C::Column, _) => 100.0 * n / column_total,
             (C::Total, _) => 100.0 * n / self.total,
             (C::Expected, Some((i, j))) => self.expected(i, j),
-            // the reference program shows the share of all cases in the margins
-            (C::Expected, None) => n / self.total,
+            // the expected counts of a row or column add up to its observed count
+            (C::Expected, None) => n,
             (_, None) => return Cell::Empty,
             (C::Resid, Some((i, j))) => n - self.expected(i, j),
             (C::Sresid, Some((i, j))) => (n - self.expected(i, j)) / self.expected(i, j).sqrt(),
@@ -209,9 +209,10 @@ fn ordered(a: &Key, b: &Key, descending: bool) -> Ordering {
 }
 
 /// The blocks of one table: every combination of layer categories that occurs, the last layer
-/// variable outermost.
+/// variable outermost. `descending` orders the rows from the highest value; columns and layers
+/// stay ascending.
 fn blocks(keys: &[Vec<Option<Key>>], weights: Option<&[f64]>, descending: bool) -> Vec<Block> {
-    let order = |a: &Key, b: &Key| ordered(a, b, descending);
+    let order = |a: &Key, b: &Key| a.compare(b);
     let case_count = keys[0].len();
     let weight = |case: usize| weights.map_or(1.0, |w| w[case]);
     let cases: Vec<(Vec<&Key>, f64)> = (0..case_count)
@@ -221,8 +222,8 @@ fn blocks(keys: &[Vec<Option<Key>>], weights: Option<&[f64]>, descending: bool) 
             Some((values?, weight(case)))
         })
         .collect();
-    let distinct = |mut found: Vec<&Key>| {
-        found.sort_by(|a, b| order(a, b));
+    let distinct = |mut found: Vec<&Key>, descending: bool| {
+        found.sort_by(|a, b| ordered(a, b, descending));
         found.dedup();
         found.into_iter().cloned().collect::<Vec<Key>>()
     };
@@ -242,8 +243,8 @@ fn blocks(keys: &[Vec<Option<Key>>], weights: Option<&[f64]>, descending: bool) 
         .map(|layer| {
             let inside: Vec<&(Vec<&Key>, f64)> =
                 cases.iter().filter(|(v, _)| v[2..] == layer[..]).collect();
-            let rows = distinct(inside.iter().map(|(v, _)| v[0]).collect());
-            let columns = distinct(inside.iter().map(|(v, _)| v[1]).collect());
+            let rows = distinct(inside.iter().map(|(v, _)| v[0]).collect(), descending);
+            let columns = distinct(inside.iter().map(|(v, _)| v[1]).collect(), false);
             let mut counts = vec![vec![0.0; columns.len()]; rows.len()];
             for (values, w) in inside {
                 let i = rows
@@ -298,7 +299,6 @@ fn tables(data: &Dataset, names: &[String], command: &Crosstabs) -> Result<Vec<T
         .collect();
     let weights = case_weights(data)?;
     let blocks = blocks(&keys, weights.as_deref(), command.descending);
-    let order = |a: &Key, b: &Key| ordered(a, b, command.descending);
     let layer_variables = &variables[2..];
     let layer_cells = |block: &Block| -> Vec<Cell> {
         let pairs = layer_variables.iter().zip(&block.layer);
@@ -311,7 +311,7 @@ fn tables(data: &Dataset, names: &[String], command: &Crosstabs) -> Result<Vec<T
     if !command.cells.is_empty() && !blocks.is_empty() {
         // the columns of every layer; a layer without one of them leaves its cells blank
         let mut union: Vec<&Key> = blocks.iter().flat_map(|b| &b.columns).collect();
-        union.sort_by(|a, b| order(a, b));
+        union.sort_by(|a, b| a.compare(b));
         union.dedup();
         let mut columns: Vec<String> = layer_names().collect();
         columns.extend([variables[0].name().to_string(), "Statistic".into()]);

@@ -9,19 +9,10 @@ struct Row {
 }
 
 /// One frequency table. Cases are weighted by the weight variable when one is set; a case whose
-/// weight is missing, zero or negative is left out, as statistics packages do.
+/// weight is system- or user-missing, zero or negative is left out.
 pub fn table(data: &Dataset, name: &str) -> Result<Table, Error> {
     let variable = data.variable(name)?;
-    let weights: Option<Vec<f64>> = match data.weight_variable() {
-        Some(w) => Some(
-            data.variable(w)?
-                .numeric()?
-                .iter()
-                .map(|v| v.unwrap_or(0.0).max(0.0))
-                .collect(),
-        ),
-        None => None,
-    };
+    let weights = crate::descriptives::case_weights(data)?;
     let weight = |case: usize| weights.as_ref().map_or(1.0, |w| w[case]);
 
     let mut rows = match variable.values() {

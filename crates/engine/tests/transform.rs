@@ -116,12 +116,14 @@ COMPUTE log = LN(q2_recommend).",
     assert_eq!(number(&engine, "product", 3), None);
     assert_eq!(number(&engine, "ratio", 12), Some(0.0));
     assert_eq!(number(&engine, "sum", 12), None);
-    assert_eq!(number(&engine, "power", 12), Some(1.0));
+    // a power is not among the operations that survive a missing operand
+    assert_eq!(number(&engine, "power", 12), None);
     assert_eq!(number(&engine, "by_zero", 1), Some(49.0));
     assert_eq!(number(&engine, "by_zero", 2), None);
     assert_eq!(number(&engine, "zeros", 1), None);
     assert_eq!(number(&engine, "zeros", 2), Some(0.0));
-    assert_eq!(number(&engine, "zeros", 7), Some(0.0));
+    // case 7 is 0 / 0
+    assert_eq!(number(&engine, "zeros", 7), None);
     assert_eq!(number(&engine, "root", 1), None);
     assert_eq!(number(&engine, "root", 2), Some(3.0));
     assert_eq!(number(&engine, "root", 8), Some(0.0));
@@ -133,10 +135,13 @@ COMPUTE log = LN(q2_recommend).",
     assert_eq!(constant("0 ** 0"), None);
     assert_eq!(constant("0 ** -1"), None);
     assert_eq!(constant("(-8) ** 0.5"), None);
-    assert_eq!(constant("0 ** $SYSMIS"), Some(0.0));
-    assert_eq!(constant("$SYSMIS ** 0"), Some(1.0));
+    assert_eq!(constant("0 ** $SYSMIS"), None);
+    assert_eq!(constant("$SYSMIS ** 0"), None);
+    assert_eq!(constant("5 ** 0"), Some(1.0));
     assert_eq!(constant("0 * $SYSMIS"), Some(0.0));
-    assert_eq!(constant("0 / 0"), Some(0.0));
+    assert_eq!(constant("0 / $SYSMIS"), Some(0.0));
+    // a divisor of 0 is a domain error, also when the dividend is 0
+    assert_eq!(constant("0 / 0"), None);
     assert_eq!(constant("1 / 0"), None);
     assert_eq!(constant("10 ** 200 * 10 ** 200"), None);
 }
@@ -210,6 +215,19 @@ fn arithmetic_functions() {
     assert_eq!(constant("RND(0.4999)"), Some(0.0));
     assert_eq!(constant("RND(0.5 - 2 ** -40)"), Some(0.0));
     assert_eq!(constant("RND(0.5 - 2 ** -40, 1, 20)"), Some(1.0));
+    // the sum is 1.5 less 2^-49: 0 and 3 fuzz bits round down, 4 round up
+    let sum = "9.62 - 5.82 - 9.21 + 6.91";
+    assert_eq!(constant(&format!("RND({sum}, 1, 0)")), Some(1.0));
+    assert_eq!(constant(&format!("RND({sum}, 1, 3)")), Some(1.0));
+    assert_eq!(constant(&format!("RND({sum}, 1, 4)")), Some(2.0));
+    assert_eq!(constant(&format!("RND({sum})")), Some(2.0));
+    // in steps of 0.1 it falls 1.8e-14 short of 15 steps, which 4 fuzz bits cover (15 * 2^-49)
+    close(constant(&format!("TRUNC({sum}, 0.1, 0)")), 1.4);
+    close(constant(&format!("TRUNC({sum}, 0.1, 3)")), 1.4);
+    close(constant(&format!("TRUNC({sum}, 0.1, 4)")), 1.5);
+    close(constant(&format!("TRUNC({sum}, 0.1)")), 1.5);
+    // the fuzz is relative: a large value a few units short of a half still rounds up
+    assert_eq!(constant("RND(1000000.5 - 2 ** -32)"), Some(1_000_001.0));
     assert_eq!(constant("TRUNC(-1.99)"), Some(-1.0));
     assert_eq!(constant("TRUNC(1.99)"), Some(1.0));
     assert_eq!(constant("TRUNC(57, 10)"), Some(50.0));
@@ -299,6 +317,21 @@ COMPUTE raw = VALUE(q2_recommend).",
     assert_eq!(number(&engine, "no_spend", 1), Some(0.0));
     assert_eq!(number(&engine, "sum_missing", 3), Some(1.0));
     assert_eq!(number(&engine, "raw", 3), Some(99.0));
+
+    // MISSING also takes a string variable and sees its user-missing values, which every
+    // other part of an expression treats as valid
+    let first = text(&survey(""), "plan", 1);
+    let first = first.trim_end();
+    let engine = survey(&format!(
+        "MISSING VALUES plan ('{first}').
+COMPUTE missing = MISSING(plan).
+COMPUTE same = plan = '{first}'.
+COMPUTE literal = MISSING('{first}')."
+    ));
+    assert_eq!(number(&engine, "missing", 1), Some(1.0));
+    assert_eq!(number(&engine, "same", 1), Some(1.0));
+    assert_eq!(number(&engine, "literal", 1), Some(0.0));
+    assert_eq!(numbers(&engine, "missing"), numbers(&engine, "same"));
 }
 
 #[test]
@@ -505,6 +538,8 @@ COMPUTE same = DATE.DMY(d, m, y) = signup_date.",
     assert_eq!(constant("DATE.DMY(15, 13, 2000)"), Some(13_198_896_000.0));
     assert_eq!(constant("DATE.DMY(32, 1, 2000)"), None);
     assert_eq!(constant("DATE.DMY(1, 14, 2000)"), None);
+    assert_eq!(constant("DATE.DMY(1, 0, 2000)"), None);
+    assert_eq!(constant("DATE.MDY(0, 1, 2000)"), None);
     assert_eq!(constant("DATE.DMY(1.5, 1, 2000)"), None);
     assert_eq!(constant("XDATE.YEAR(86400)"), Some(1582.0));
     assert_eq!(constant("XDATE.YEAR(0)"), None);
@@ -694,8 +729,8 @@ fn errors_name_what_is_wrong() {
             "= cannot compare a number with a string: variable age is a number, 'x' is a string",
         ),
         (
-            "COMPUTE r = MISSING(plan).",
-            "argument 1 of MISSING must be a number, but variable plan is a string",
+            "COMPUTE r = SYSMIS(plan).",
+            "argument 1 of SYSMIS must be a number, but variable plan is a string",
         ),
         (
             "COMPUTE r = VALUE(age + 1).",

@@ -107,7 +107,7 @@ fn keywords<T: Copy>(
 ) -> PResult<Vec<T>> {
     let mut out = Vec::new();
     let mut any = false;
-    while !matches!(p.peek(), None | Some(TokenKind::Punct(Punct::Slash))) {
+    while !at_end(p) {
         let found = table.iter().find(|(name, _)| p.at_keyword(name));
         let Some((_, values)) = found else {
             return Err(on_unknown(p));
@@ -121,6 +121,11 @@ fn keywords<T: Copy>(
         return Err(on_unknown(p));
     }
     Ok(out)
+}
+
+/// True at the end of the command or of a subcommand.
+fn at_end(p: &Parser) -> bool {
+    matches!(p.peek(), None | Some(TokenKind::Punct(Punct::Slash)))
 }
 
 fn names<T>(table: &[(&'static str, T)]) -> Vec<&'static str> {
@@ -263,23 +268,36 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
             p.expect(Punct::Eq)?;
             command.tables.push(crosstabs_table(p)?);
         } else if p.eat_keyword("CELLS") {
-            p.eat(Punct::Eq);
-            let chosen = keywords(p, &CELLS, |p| {
-                keyword_error(p, "CROSSTABS /CELLS", &UNSUPPORTED_CELLS, &names(&CELLS))
-            })?;
+            // without keywords CELLS shows the counts and all three percentages
+            let chosen = if !p.eat(Punct::Eq) && at_end(p) {
+                vec![
+                    CrosstabsCell::Count,
+                    CrosstabsCell::Row,
+                    CrosstabsCell::Column,
+                    CrosstabsCell::Total,
+                ]
+            } else {
+                keywords(p, &CELLS, |p| {
+                    keyword_error(p, "CROSSTABS /CELLS", &UNSUPPORTED_CELLS, &names(&CELLS))
+                })?
+            };
             cells.get_or_insert_default().extend(chosen);
         } else if p.eat_keyword("STATISTICS") {
-            p.eat(Punct::Eq);
             const CHOICES: [(&str, &[bool]); 2] = [("CHISQ", &[true]), ("NONE", &[false])];
-            let chosen = keywords(p, &CHOICES, |p| {
-                keyword_error(
-                    p,
-                    "CROSSTABS /STATISTICS",
-                    &UNSUPPORTED_STATISTICS,
-                    &names(&CHOICES),
-                )
-            })?;
-            command.chisq = chosen.contains(&true);
+            // without keywords STATISTICS is the chi-square test
+            command.chisq = if !p.eat(Punct::Eq) && at_end(p) {
+                true
+            } else {
+                let chosen = keywords(p, &CHOICES, |p| {
+                    keyword_error(
+                        p,
+                        "CROSSTABS /STATISTICS",
+                        &UNSUPPORTED_STATISTICS,
+                        &names(&CHOICES),
+                    )
+                })?;
+                chosen.contains(&true)
+            };
         } else if p.eat_keyword("MISSING") {
             p.eat(Punct::Eq);
             const CHOICES: [(&str, &[bool]); 2] = [("TABLE", &[false]), ("INCLUDE", &[true])];

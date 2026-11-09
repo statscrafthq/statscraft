@@ -252,25 +252,23 @@ fn distinct(values: &[(f64, f64)]) -> Vec<(f64, f64)> {
     cells
 }
 
-/// The percentile at position (W + 1) * p / 100 of the cumulated weights, interpolated between
-/// neighbouring values. With weight 1 for every case the median is the middle value or the
-/// mean of the two middle values.
+/// The percentile by the averaged empirical distribution: the first value whose cumulated
+/// weight passes W * p / 100, or the mean of two neighbouring values when the cumulated weight
+/// below the second one equals W * p / 100 exactly. With weight 1 for every case the median is
+/// the middle value or the mean of the two middle values.
 fn percentile(values: &[(f64, f64)], p: f64) -> Option<f64> {
     let cells = distinct(values);
     let total: f64 = cells.iter().map(|(_, w)| w).sum();
-    let position = (total + 1.0) * p / 100.0;
+    let target = total * p / 100.0;
+    // cumulated weights carry rounding error, so "equal" allows for it
+    let slack = total * 1e-12;
     let mut below = 0.0;
     let mut previous: Option<f64> = None;
     for &(value, weight) in &cells {
-        if position < below + weight {
-            let Some(previous) = previous else {
-                return Some(value);
-            };
-            let step = position - below;
-            return Some(if step >= 1.0 {
-                value
-            } else {
-                previous + step.max(0.0) * (value - previous)
+        if target + slack < below + weight {
+            return Some(match previous {
+                Some(previous) if (target - below).abs() <= slack => (previous + value) / 2.0,
+                _ => value,
             });
         }
         below += weight;
@@ -342,30 +340,39 @@ fn weights(data: &Dataset) -> Result<Option<Vec<f64>>, Error> {
     ))
 }
 
-/// The measurement level of a variable whose level is unknown, guessed the way the reference
-/// program does: a numeric variable whose values are all whole numbers from 0 up, with fewer
-/// than 24 distinct ones, is categorical.
+/// Whether a variable whose level is unknown counts as scale, by the default rules for the
+/// measurement level, taken in order: a currency or a date or time format (but not MONTH or
+/// WKDAY) is scale; no valid value is categorical; a fraction or a negative value is scale;
+/// 24 or more distinct valid values, or none below 10, are scale; anything else is categorical.
+/// (The rule "none below 10000" is part of "none below 10".)
 fn guess_scale(variable: &Variable) -> bool {
     let Values::Numeric(values) = variable.values() else {
         return false;
     };
-    let mut seen: Vec<f64> = Vec::new();
-    for v in values
+    let format = variable.format().to_ascii_uppercase();
+    let kind = format.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.');
+    const SCALE_FORMATS: &[&str] = &[
+        "DOLLAR", "CCA", "CCB", "CCC", "CCD", "CCE", "DATE", "ADATE", "EDATE", "JDATE", "SDATE",
+        "QYR", "MOYR", "WKYR", "DATETIME", "YMDHMS", "TIME", "DTIME", "MTIME",
+    ];
+    if SCALE_FORMATS.contains(&kind) {
+        return true;
+    }
+    let valid: Vec<f64> = values
         .iter()
         .flatten()
         .filter(|v| !variable.is_user_missing(*v))
-    {
-        if v < 0.0 || v.fract() != 0.0 {
-            return true;
-        }
-        if !seen.contains(&v) {
-            seen.push(v);
-            if seen.len() >= 24 {
-                return true;
-            }
-        }
+        .collect();
+    if valid.is_empty() {
+        return false;
     }
-    false
+    if valid.iter().any(|v| *v < 0.0 || v.fract() != 0.0) {
+        return true;
+    }
+    let mut distinct = valid;
+    distinct.sort_by(f64::total_cmp);
+    distinct.dedup();
+    distinct.len() >= 24 || distinct[0] >= 10.0
 }
 
 /// The value of `key` as the variable's dictionary shows it: its value label, or the value in
@@ -458,23 +465,9 @@ fn categories(variable: &Variable, spec: Option<&Categories>) -> Result<Category
                                 "/CATEGORIES for {name}: ranges (THRU) work only for numeric variables"
                             )));
                         }
-                        let listed = |k: &Key| {
-                            items.iter().any(|i| matches!(i, CategoryItem::Value(v) if key(v).ok().as_ref() == Some(k)))
-                        };
-                        // a value in two ranges goes to the later one, as in the reference program
-                        let later = |k: &Key, this: *const CategoryItem| {
-                            let mut after = false;
-                            items.iter().any(|i| {
-                                if std::ptr::eq(i, this) {
-                                    after = true;
-                                    return false;
-                                }
-                                after && matches!(i, CategoryItem::Range(l, h) if in_range(k, l, h))
-                            })
-                        };
                         let mut found: Vec<Key> = seen
                             .iter()
-                            .filter(|k| in_range(k, low, high) && !listed(k) && !later(k, item))
+                            .filter(|k| in_range(k, low, high))
                             .cloned()
                             .collect();
                         found.sort_by(Key::compare);
@@ -482,7 +475,15 @@ fn categories(variable: &Variable, spec: Option<&Categories>) -> Result<Category
                     }
                 }
             }
-            wanted
+            // a value named twice, alone or in a range, takes the place of its last mention
+            let mut last: Vec<Key> = Vec::new();
+            for key in wanted.into_iter().rev() {
+                if !last.contains(&key) {
+                    last.push(key);
+                }
+            }
+            last.reverse();
+            last
         }
         None => {
             let include_missing = spec.is_some_and(|s| s.include_missing);
@@ -1033,6 +1034,10 @@ impl Section {
                 }
             }
             let weight = weights.map_or(1.0, |w| w[case]);
+            // a case that weighs nothing is left out, also from the unweighted counts
+            if weight <= 0.0 {
+                continue;
+            }
             let (valid, value) = match scale {
                 Some(scale) => {
                     let value = scale
@@ -1098,13 +1103,16 @@ impl Section {
                 .any(|(i, k)| decides(i) && self.totals[i] == Some(*k))
         };
         let empty = Tally::default();
+        let counting = matches!(
+            summary.function.statistic,
+            Statistic::Count | Statistic::Validn | Statistic::Totaln | Statistic::Missing
+        );
         let tally = match self.cells.get(key) {
             Some(tally) => tally,
-            // a cell without cases shows only where it is a plain combination of categories
-            None if self.has_scale || has_total(&|_| true) => {
-                return (Cell::Empty, format.clone());
-            }
-            None => &empty,
+            // without cases a count is 0 (EMPTY decides how it shows), as is a percentage of a
+            // plain combination of categories; other statistics have no value
+            None if counting || !(self.has_scale || has_total(&|_| true)) => &empty,
+            None => return (Cell::Empty, format.clone()),
         };
         if tally.cases == 0.0 {
             match &command.empty {

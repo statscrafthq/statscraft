@@ -246,3 +246,77 @@ fn errors_name_the_variable_and_the_fix() {
     let e = fails("CTABLES /TABLE plan [S].");
     assert!(e.contains("string variable"), "{e}");
 }
+
+#[test]
+fn percentiles_use_the_averaged_empirical_distribution() {
+    // values 1 to 4: a percentile that falls on a whole case is the mean of two neighbours
+    let t = run(
+        "survey_basic.sav",
+        "SELECT IF resp_id <= 1004.\nCOMPUTE x = resp_id - 1000.\n\
+         CTABLES /TABLE x [S] [PTILE 25, PTILE 30, MEDIAN, PTILE 75, PTILE 100].",
+    );
+    assert_eq!(numbers(&t, 0), [1.5, 2.0, 2.5, 3.5, 4.0].map(Some));
+
+    // weights 1, 1 and 0.5: the median is at 1.25 of 2.5, inside the second value
+    let t = run(
+        "survey_basic.sav",
+        "SELECT IF resp_id <= 1003.\nCOMPUTE x = resp_id - 1000.\nCOMPUTE w = 1.\n\
+         IF (x = 3) w = 0.5.\nWEIGHT BY w.\nCTABLES /TABLE x [S] [MEDIAN, PTILE 40].",
+    );
+    assert_eq!(numbers(&t, 0), [2.0, 1.5].map(Some));
+}
+
+#[test]
+fn a_case_without_weight_is_left_out_also_unweighted() {
+    let t = run(
+        "survey_basic.sav",
+        "COMPUTE w = 1.\nIF (gender = 1) w = 0.\nWEIGHT BY w.\nCTABLES /TABLE gender [COUNT, UCOUNT].",
+    );
+    assert_eq!(numbers(&t, 0), [0.0, 0.0].map(Some));
+    assert_eq!(numbers(&t, 1), [88.0, 88.0].map(Some));
+}
+
+#[test]
+fn a_count_without_cases_is_zero_also_beside_a_scale_variable() {
+    let t = run(
+        "survey_basic.sav",
+        "CTABLES /TABLE gender > monthly_spend [MEAN, COUNT] BY region.",
+    );
+    // nobody of the third gender lives in the North: no mean, a count of 0
+    assert_eq!(numbers(&t, 2)[..2], [None, Some(0.0)]);
+    let t = run(
+        "survey_basic.sav",
+        "CTABLES /FORMAT EMPTY=BLANK /TABLE gender > monthly_spend [MEAN, COUNT] BY region.",
+    );
+    assert_eq!(numbers(&t, 2)[..2], [None, None]);
+}
+
+#[test]
+fn the_level_of_new_variables_follows_the_default_rules() {
+    let t = run(
+        "survey_basic.sav",
+        "COMPUTE small = region.\nCOMPUTE big = region + 10.\nCOMPUTE day = region.\n\
+         FORMATS day (DATE11).\nCTABLES /TABLE small + big + day.",
+    );
+    // few whole numbers are categorical, unless none is below 10 or the format is a date
+    assert_eq!(t.rows.len(), 7);
+    assert_eq!(t.columns[2..], ["Count", "Mean"]);
+}
+
+#[test]
+fn a_value_named_twice_takes_its_last_place() {
+    let labels =
+        |t: &Table| -> Vec<String> { t.rows.iter().map(|r| text(&r[1]).to_string()).collect() };
+    let t = run(
+        "survey_basic.sav",
+        "CTABLES /TABLE region /CATEGORIES VARIABLES=region [1, 3, 1].",
+    );
+    assert_eq!(labels(&t), ["East", "North"]);
+    let t = run(
+        "survey_basic.sav",
+        "CTABLES /TABLE region /CATEGORIES VARIABLES=region [3, 1 THRU 5].",
+    );
+    let labels = labels(&t);
+    assert_eq!(labels.len(), 5);
+    assert_eq!((labels[0].as_str(), labels[2].as_str()), ("North", "East"));
+}

@@ -173,7 +173,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  output: a value, SYSMIS or COPY.\n\
                  The first matching (inputs = output) wins. A value or range also matches user-missing values.\n\
                  Without a match a variable keeps its value, and so does an existing INTO target; a new target becomes system-missing.\n\
-                 A string target of INTO must exist already.",
+                 A string target of INTO must exist already. A quoted value longer than its variable is an error.",
         example: "RECODE age (LOWEST THRU 29 = 1) (30 THRU 59 = 2) (60 THRU HIGHEST = 3) INTO age_group.",
         parse: commands::recode,
     },
@@ -239,6 +239,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20       [/TABLE ... another table with its own SLABELS, CATEGORIES and TITLES].\n\
                  rows, columns: variables joined by + (stack) and > (nest), with parentheses. var [C] or var [S]\n\
                  makes a variable categorical or scale; otherwise SCALE is scale and the other levels categorical.\n\
+                 A numeric variable of unknown level is scale with a currency, date or time format, a fraction, a\n\
+                 negative value, 24 or more distinct values, or no value below 10; else categorical.\n\
                  A summary list follows a scale variable or the innermost categorical variable of one axis:\n\
                  var [function ['label'] [format], ...], format F, PCT, COMMA or DOLLAR, such as PCT8.1.\n\
                  Default: COUNT for categorical tables, MEAN for a scale variable.\n\
@@ -246,7 +248,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  each with .COUNT, .VALIDN or .TOTALN (COLPCT.COUNT and so on).\n\
                  Scale: also MEAN MEDIAN MODE MINIMUM MAXIMUM RANGE SUM STDDEV VARIANCE SEMEAN PTILE n VALIDN TOTALN\n\
                  MISSING and the percentages with .SUM. A U prefix (UCOUNT, UMEAN) ignores the weight.\n\
-                 Weighted by the weight variable when one is set; fractional weights are not rounded.\n\
+                 Weighted by the weight variable when one is set; fractional weights are not rounded, and a case\n\
+                 whose weight is zero, negative or missing is left out (also from U functions). MEDIAN and PTILE\n\
+                 use the averaged empirical distribution. A count without cases is 0 unless EMPTY says otherwise.\n\
                  User-missing categories are left out unless MISSING=INCLUDE; system-missing ones always are.\n\
                  Not supported yet: layers, multiple response sets, CLABELS other than AUTO, SIGTEST, COMPARETEST,\n\
                  PCOMPUTE, HIDESMALLCOUNTS, effective base (E functions), subtotals and OTHERNM or MISSING in a list.",
@@ -261,9 +265,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  DEFAULT is MEAN STDDEV MINIMUM MAXIMUM; N is always shown. Weighted when a weight variable is set.\n\
                  MISSING=VARIABLE (the default) leaves out the missing values of each variable on its own;\n\
                  LISTWISE leaves out a case missing on any listed variable; INCLUDE counts user-missing values.\n\
-                 The row Valid N (listwise) holds all cases with VARIABLE and the complete cases with LISTWISE.\n\
-                 SAVE adds z-scores named Z plus the variable name (ZSC001, ZSC002, ... when that name is taken);\n\
-                 write var (name) in the list to choose the name.",
+                 The row Valid N (listwise) counts the cases valid on every listed variable. String variables get no\n\
+                 statistics; the table names them. var (name) in the list adds a z-score under that name; SAVE adds\n\
+                 one for every variable, named Z plus the variable name (ZSC001 to ZSC099, STDZ01 to STDZ09,\n\
+                 ZZZZ01 to ZZZZ09, ZQZQ01 to ZQZQ09 when that name is taken), labelled Zscore: plus the label.",
         example: "DESCRIPTIVES VARIABLES=age income (z_inc) /STATISTICS=DEFAULT SUM /SAVE.",
         parse: procedures::descriptives,
     },
@@ -274,8 +279,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20         [/CELLS=COUNT ROW COLUMN TOTAL EXPECTED RESID SRESID ASRESID ALL NONE]\n\
                  \x20         [/STATISTICS=CHISQ] [/MISSING=TABLE | INCLUDE] [/FORMAT=AVALUE | DVALUE].\n\
                  One table per pair of row and column variable; layer variables split it into blocks.\n\
-                 CELLS defaults to COUNT. Percentages are 0 to 100. In the Total row and column EXPECTED\n\
-                 holds the share of all cases, as the reference program shows it.\n\
+                 CELLS defaults to COUNT; CELLS alone is COUNT ROW COLUMN TOTAL. Percentages are 0 to 100.\n\
+                 STATISTICS alone is CHISQ. DVALUE orders the rows from the highest value; columns stay ascending.\n\
                  CHISQ: Pearson, likelihood ratio, linear-by-linear (numeric variables), and for a 2 x 2\n\
                  table Fisher's exact test and the continuity correction.\n\
                  MISSING=TABLE leaves out a case missing on any variable of the table; INCLUDE keeps\n\
@@ -292,7 +297,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  The first file that has a variable gives its format and measurement level; a later file\n\
                  fills in a label, value labels or missing values the earlier ones lack. A string variable\n\
                  takes its widest width; a variable that is numeric in one file and a string in another is\n\
-                 an error. BY interleaves files sorted by the key variables. The result has no weight variable.",
+                 an error. BY interleaves files sorted by the key variables. The result stays weighted only when\n\
+                 every file is weighted by the same variable.",
         example: "ADD FILES /FILE=* /FILE='wave2.sav' /RENAME=(q1_new = q1) /DROP=tmp.",
         parse: files::add_files,
     },
@@ -303,8 +309,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20           [/BY varlist] [/KEEP=varlist] [/DROP=varlist].\n\
                  With BY, cases with equal keys are joined; every file must be sorted by the keys (use\n\
                  SORT CASES). Without BY the n-th cases of the files are joined. A TABLE adds its variables\n\
-                 to the cases whose key it holds and adds no cases. A variable in several files takes its\n\
-                 value from the first file that has the case. The result has no weight variable.",
+                 to the cases whose key it holds and adds no cases; it may hold each key once. A variable in\n\
+                 several files takes its value from the first file that has the case. The result has no\n\
+                 weight variable.",
         example: "MATCH FILES /FILE=* /TABLE='regions.sav' /BY region.",
         parse: files::match_files,
     },

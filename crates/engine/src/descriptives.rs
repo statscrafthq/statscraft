@@ -47,10 +47,12 @@ fn summarize(cells: &[(f64, f64)]) -> Summary {
             .map(|(x, w)| w * (x - mean).powi(power))
             .sum::<f64>()
     };
-    let spread = sd.filter(|sd| *sd > 0.0);
-    let se_skewness =
-        (w > 2.0).then(|| (6.0 * w * (w - 1.0) / ((w - 2.0) * (w + 1.0) * (w + 3.0))).sqrt());
-    let se_kurtosis = (w > 3.0).then(|| {
+    // without spread neither skewness nor kurtosis nor their standard errors are computed
+    let spread = sd.filter(|sd| sd * sd >= 1e-20);
+    let se_skewness = spread
+        .filter(|_| w > 2.0)
+        .map(|_| (6.0 * w * (w - 1.0) / ((w - 2.0) * (w + 1.0) * (w + 3.0))).sqrt());
+    let se_kurtosis = spread.filter(|_| w > 3.0).map(|_| {
         let se_skewness = se_skewness.unwrap_or(0.0);
         (4.0 * (w * w - 1.0) * se_skewness * se_skewness / ((w - 3.0) * (w + 5.0))).sqrt()
     });
@@ -105,15 +107,27 @@ impl Engine {
             let names = self.expand(std::slice::from_ref(item))?;
             variables.extend(names.into_iter().map(|name| (name, z.clone())));
         }
+        // a string variable gets no statistics, and the table says so
+        let mut strings = Vec::new();
         let mut columns_of = Vec::new();
-        for (name, _) in &variables {
-            let variable = data.variable(name)?;
-            if variable.is_string() {
-                return Err(Error(format!(
-                    "DESCRIPTIVES needs numeric variables, {name} is a string variable; remove it from VARIABLES"
-                )));
+        variables.retain(|(name, _)| match data.variable(name) {
+            Ok(variable) if variable.is_string() => {
+                strings.push(name.clone());
+                false
             }
-            columns_of.push(variable);
+            _ => true,
+        });
+        for (name, _) in &variables {
+            columns_of.push(data.variable(name)?);
+        }
+        if variables.is_empty() {
+            let (names, verb) = match &strings[..] {
+                [one] => (one.clone(), "is a string variable"),
+                many => (many.join(" "), "are string variables"),
+            };
+            return Err(Error(format!(
+                "DESCRIPTIVES needs a numeric variable, but {names} {verb}"
+            )));
         }
         let weights = case_weights(data)?;
         let weight = |case: usize| weights.as_ref().map_or(1.0, |w| w[case]);
@@ -163,10 +177,9 @@ impl Engine {
         for stat in &command.statistics {
             headers.extend(columns(*stat, &empty).into_iter().map(|(header, _)| header));
         }
-        // with MISSING=VARIABLE the reference program reports every case as valid listwise
-        let valid_listwise = if command.listwise { listwise } else { total };
+        // the complete cases, whichever way the statistics treat missing values
         for (title, n) in [
-            ("Valid N (listwise)", valid_listwise),
+            ("Valid N (listwise)", listwise),
             ("Missing N (listwise)", total - listwise),
         ] {
             let mut row = vec![Cell::Text(title.into()), Cell::Empty, Cell::Number(n)];
@@ -179,13 +192,22 @@ impl Engine {
             column_groups: vec![Vec::new(); headers.len()],
             columns: headers.into_iter().map(String::from).collect(),
             rows,
+            caption: (!strings.is_empty())
+                .then(|| format!("No statistics for string variables: {}.", strings.join(" "))),
             ..Table::default()
         };
 
-        if command.save {
-            let names = self.z_names(&variables)?;
-            let zs: Vec<Vec<Option<f64>>> = (0..variables.len())
-                .map(|index| {
+        // SAVE gives every variable a z-score; without it only those with a name in parentheses
+        let scored: Vec<usize> = (0..variables.len())
+            .filter(|&index| command.save || variables[index].1.is_some())
+            .collect();
+        if !scored.is_empty() {
+            let chosen: Vec<(String, Option<String>)> =
+                scored.iter().map(|&i| variables[i].clone()).collect();
+            let names = self.z_names(&chosen)?;
+            let zs: Vec<Vec<Option<f64>>> = scored
+                .iter()
+                .map(|&index| {
                     let summary = &summaries[index];
                     let spread = summary.sd.filter(|sd| *sd > 0.0);
                     (0..data.case_count())
@@ -196,11 +218,17 @@ impl Engine {
                         .collect()
                 })
                 .collect();
-            let labels: Vec<String> = variables
+            let labels: Vec<String> = chosen
                 .iter()
-                .map(|(name, _)| {
-                    let variable = data.variable(name)?;
-                    Ok(format!("Z-score of {}", variable.label().unwrap_or(name)))
+                .zip(&names)
+                .map(|((name, given), z)| {
+                    let label = data.variable(name)?.label();
+                    let natural = given.is_some() || *z == format!("Z{name}");
+                    Ok(match label {
+                        Some(label) if natural => format!("Zscore: {label}"),
+                        Some(label) => format!("Zscore({name}) {label}"),
+                        None => format!("Zscore({name})"),
+                    })
                 })
                 .collect::<Result<_, Error>>()?;
             self.all_or_nothing(|engine| {
@@ -216,7 +244,8 @@ impl Engine {
     }
 
     /// The name of each z-score: the one written after the variable, else Z plus the name of
-    /// the variable, else the first free name of ZSC001 to ZSC999.
+    /// the variable, else the first free name of ZSC001 to ZSC099, STDZ01 to STDZ09, ZZZZ01 to
+    /// ZZZZ09 and ZQZQ01 to ZQZQ09.
     fn z_names(&self, variables: &[(String, Option<String>)]) -> Result<Vec<String>, Error> {
         let data = self.active()?;
         let mut taken: Vec<String> = Vec::new();
@@ -240,7 +269,11 @@ impl Engine {
                 Some(z) => z.clone(),
                 None => {
                     let natural = format!("Z{name}");
-                    let numbered = (1..1000).map(|i| format!("ZSC{i:03}"));
+                    let numbered = (1..100).map(|i| format!("ZSC{i:03}")).chain(
+                        ["STDZ", "ZZZZ", "ZQZQ"]
+                            .into_iter()
+                            .flat_map(|stem| (1..10).map(move |i| format!("{stem}{i:02}"))),
+                    );
                     let fits = natural.len() <= MAX_NAME_BYTES && free(&natural, &taken);
                     let mut candidates = std::iter::once(natural).filter(|_| fits).chain(numbered);
                     candidates

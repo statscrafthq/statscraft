@@ -126,12 +126,16 @@ fn arithmetic_and_missing_values() {
         "COMPUTE r = q1_satisfaction.",
         "COMPUTE r = q2_recommend - monthly_spend.",
         "COMPUTE r = q2_recommend * monthly_spend.\nCOMPUTE r2 = monthly_spend * q5_1.",
-        "COMPUTE r = q2_recommend / q5_1.\nCOMPUTE r2 = q5_1 / monthly_spend.\n\
-         COMPUTE r3 = q5_1 / q5_2.",
+        // PSPP makes 0 / 0 zero; the manual makes any divisor of 0 missing, so it is left out
+        "IF (q5_1 <> 0 OR MISSING(q5_1)) r = q2_recommend / q5_1.\nCOMPUTE r2 = q5_1 / monthly_spend.\n\
+         IF (q5_2 <> 0 OR MISSING(q5_2)) r3 = q5_1 / q5_2.",
         "COMPUTE r = age ** 2 - -3 / 4.\nCOMPUTE r2 = -age ** 2.\nCOMPUTE r3 = (2 ** 3) ** 2.",
-        "COMPUTE r = q5_1 ** q6_mention2.\nCOMPUTE r2 = q6_mention2 ** q5_1.\n\
+        // PSPP makes 0 ** missing zero and missing ** 0 one, which the manual does not, so
+        // missing operands of ** are left out
+        "IF (NOT MISSING(q6_mention2)) r = q5_1 ** q6_mention2.\n\
+         IF (NOT MISSING(q6_mention2)) r2 = q6_mention2 ** q5_1.\n\
          COMPUTE r3 = q5_1 ** q5_2.\nCOMPUTE r4 = (q5_1 - 2) ** 0.5.\n\
-         COMPUTE r5 = q5_1 ** (q5_2 - 1).\nCOMPUTE r6 = monthly_spend ** 0.",
+         COMPUTE r5 = q5_1 ** (q5_2 - 1).\nIF (NOT MISSING(monthly_spend)) r6 = monthly_spend ** 0.",
         "COMPUTE r = monthly_spend / 3 * 3.\nCOMPUTE r2 = -(age - 50) * (monthly_spend + 1).",
         "COMPUTE r = 10 ** 200 * 10 ** 200.\nCOMPUTE r2 = age / 7 + weight * 1e-3.",
         "COMPUTE r = $SYSMIS.\nCOMPUTE r2 = $SYSMIS + 1.",
@@ -165,15 +169,19 @@ fn arithmetic_functions() {
          COMPUTE r3 = LN(age - 50).\nCOMPUTE r4 = EXP(age * 20).",
         "COMPUTE r = RND(monthly_spend).\nCOMPUTE r2 = RND(monthly_spend / 7).\n\
          COMPUTE r3 = RND(-monthly_spend).\nCOMPUTE r4 = RND(age - 50.5).",
-        "COMPUTE r = RND(monthly_spend, 5).\nCOMPUTE r2 = RND(monthly_spend, 0.1).\n\
+        // PSPP's slack near a half does not grow with the value, so 188.45 in steps of 0.1 rounds
+        // down there and up here; steps of 0.25 divide the cents without landing near a half
+        "COMPUTE r = RND(monthly_spend, 5).\nCOMPUTE r2 = RND(monthly_spend, 0.25).\n\
          COMPUTE r3 = RND(monthly_spend, 0).\nCOMPUTE r4 = RND(monthly_spend, -2).\n\
          COMPUTE r5 = RND(age, q5_1).",
         "COMPUTE r = RND(0.5 - 2**-48).\nCOMPUTE r2 = RND(0.5 - 2**-46).\n\
          COMPUTE r3 = RND(-0.5 + 2**-48).\nCOMPUTE r4 = RND(2.5 - 2**-44, 1, 10).\n\
          COMPUTE r5 = RND(2.5 - 2**-44, 1, 2).\nCOMPUTE r6 = RND(q5_1 + 0.5 - 2**-49).",
+        // PSPP's slack does not grow with the value, so 278.21 * 100 (27820.999999999996) stays
+        // below 27821 there; quarters land exactly on whole numbers in both programs
         "COMPUTE r = TRUNC(monthly_spend).\nCOMPUTE r2 = TRUNC(-monthly_spend).\n\
-         COMPUTE r3 = TRUNC(monthly_spend, 10).\nCOMPUTE r4 = TRUNC(monthly_spend * 100).\n\
-         COMPUTE r5 = TRUNC(monthly_spend, 0.01).",
+         COMPUTE r3 = TRUNC(monthly_spend, 10).\nCOMPUTE r4 = TRUNC(monthly_spend * 4).\n\
+         COMPUTE r5 = TRUNC(monthly_spend, 0.25).",
         "COMPUTE r = TRUNC(1 - 2**-48).\nCOMPUTE r2 = TRUNC(1 - 2**-46).\n\
          COMPUTE r3 = TRUNC(-1 + 2**-48).\nCOMPUTE r4 = TRUNC(1 - 2**-46, 1, 8).\n\
          COMPUTE r5 = TRUNC(age / 3, 0).",
@@ -327,8 +335,9 @@ fn compute_if_and_select() {
 #[ignore = "needs STATSCRAFT_PSPP"]
 fn constants() {
     survey(&[
-        "COMPUTE r1 = 2 + 3 * 4 - 6 / 4.\nCOMPUTE r2 = 0 ** $SYSMIS.\nCOMPUTE r3 = $SYSMIS ** 0.\n\
-         COMPUTE r4 = 0 * $SYSMIS.\nCOMPUTE r5 = 0 / 0.\nCOMPUTE r6 = 1 / 0.\nCOMPUTE r7 = 0 ** -1.\n\
+        // 0 ** $SYSMIS, $SYSMIS ** 0 and 0 / 0 are left out: PSPP gives 0, 1 and 0, the manual missing
+        "COMPUTE r1 = 2 + 3 * 4 - 6 / 4.\n\
+         COMPUTE r4 = 0 * $SYSMIS.\nCOMPUTE r6 = 1 / 0.\nCOMPUTE r7 = 0 ** -1.\n\
          COMPUTE r8 = 3 >= 3 AND 2 <> 2.\nCOMPUTE r9 = 1 LT 2 OR $SYSMIS.\nCOMPUTE r10 = $SYSMIS = $SYSMIS.",
         "COMPUTE r1 = RND(2.5).\nCOMPUTE r2 = RND(-2.5).\nCOMPUTE r3 = RND(1.2345, 0.01).\n\
          COMPUTE r4 = RND(7, 5).\nCOMPUTE r5 = RND(0.49999999999999994).\nCOMPUTE r6 = RND(0.5 - 2 ** -40).\n\

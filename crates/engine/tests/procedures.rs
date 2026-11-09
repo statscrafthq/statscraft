@@ -150,9 +150,9 @@ fn descriptives_all_statistics() {
             Some(638.0),
         ],
     );
-    // with MISSING=VARIABLE the reference program counts every case as valid listwise
+    // also with MISSING=VARIABLE the row counts the cases valid on all three variables
     assert_eq!(texts(&table.rows[3])[0], "Valid N (listwise)");
-    assert_eq!(number(&table.rows[3][2]), 200.0);
+    assert_eq!(number(&table.rows[3][2]), 161.0);
     assert_eq!(texts(&table.rows[4])[0], "Missing N (listwise)");
     assert_eq!(number(&table.rows[4][2]), 39.0);
     assert_eq!(table.rows[4][3], Cell::Empty);
@@ -225,8 +225,29 @@ fn descriptives_edge_cases() {
             Some(21.0),
         ],
     );
-    assert_eq!(number(&rows[2][2]), 12.0);
+    // all_missing has no valid value, so no case is valid on both variables
+    assert_eq!(number(&rows[2][2]), 0.0);
     assert_eq!(number(&rows[3][2]), 12.0);
+
+    // without spread there is no skewness or kurtosis, and no standard error of either
+    let tables = run(
+        &mut survey(),
+        "COMPUTE same = 4.\nDESCRIPTIVES same /STATISTICS=SKEWNESS KURTOSIS.",
+    );
+    assert_row(
+        &tables[0].rows[0],
+        2,
+        &[Some(200.0), None, None, None, None],
+    );
+
+    // a string variable gets no statistics; the caption names it
+    let tables = run(&mut survey(), "DESCRIPTIVES age plan.");
+    assert_eq!(texts(&tables[0].rows[0])[0], "age");
+    assert_eq!(texts(&tables[0].rows[1])[0], "Valid N (listwise)");
+    assert_eq!(
+        tables[0].caption.as_deref(),
+        Some("No statistics for string variables: plan.")
+    );
 }
 
 #[test]
@@ -244,8 +265,15 @@ DESCRIPTIVES age /SAVE.",
         names[19..],
         ["ZSC001", "spend_z", "Zq1_satisfaction", "ZSC002"]
     );
+    // Zage is taken, so age gets the first name of the other series and its name in the label
     let z = data.variable("ZSC001").unwrap();
-    assert_eq!(z.label(), Some("Z-score of Age in years"));
+    assert_eq!(z.label(), Some("Zscore(age) Age in years"));
+    let label = |name: &str| data.variable(name).unwrap().label().map(str::to_string);
+    let q1_label = label("q1_satisfaction").unwrap();
+    assert_eq!(
+        label("Zq1_satisfaction"),
+        Some(format!("Zscore: {q1_label}"))
+    );
     assert_eq!(z.format(), "F8.2");
     let values: Vec<Option<f64>> = z.numeric().unwrap().iter().collect();
     assert!((values[0].unwrap() - (49.0 - 50.845) / 19.2270479237).abs() < 1e-9);
@@ -259,14 +287,34 @@ DESCRIPTIVES age /SAVE.",
     // case 8 answered 99, which is user-missing
     assert_eq!(q1[7], None);
     assert!((q1[0].unwrap() - (3.0 - 3.5642458101) / 1.1016106012).abs() < 1e-9);
+
+    // without SAVE only the variables with a name in parentheses get a z-score
+    let mut engine = survey();
+    run(&mut engine, "DESCRIPTIVES age (age_z) monthly_spend.");
+    let data = engine.dataset().unwrap();
+    let names: Vec<&str> = data.variable_names().collect();
+    assert_eq!(names[19..], ["age_z"]);
+    let z = data.variable("age_z").unwrap();
+    assert_eq!(z.label(), Some("Zscore: Age in years"));
+    let first = z.numeric().unwrap().get(0).unwrap();
+    assert!((first - (49.0 - 50.845) / 19.2270479237).abs() < 1e-9);
+
+    // the numbered names run ZSC001 to ZSC099, then STDZ01 to STDZ09
+    let mut engine = survey();
+    let mut taken = String::from("NUMERIC Zage");
+    for i in 1..100 {
+        taken.push_str(&format!(" ZSC{i:03}"));
+    }
+    run(&mut engine, &format!("{taken}.\nDESCRIPTIVES age /SAVE."));
+    assert!(engine.dataset().unwrap().variable("STDZ01").is_ok());
 }
 
 #[test]
 fn descriptives_errors() {
     let mut engine = survey();
     assert_eq!(
-        error(&mut engine, "DESCRIPTIVES age plan."),
-        "DESCRIPTIVES needs numeric variables, plan is a string variable; remove it from VARIABLES"
+        error(&mut engine, "DESCRIPTIVES plan."),
+        "DESCRIPTIVES needs a numeric variable, but plan is a string variable"
     );
     assert_eq!(
         error(&mut engine, "DESCRIPTIVES age (gender) /SAVE."),
@@ -307,8 +355,8 @@ fn crosstabs_cells_and_chi_square() {
         2,
         &[Some(7800.0 / 106.0), Some(2800.0 / 106.0), Some(100.0)],
     );
-    // the margins of EXPECTED hold shares, as in the reference program
-    assert_row(&table.rows[2], 2, &[Some(75.26), Some(30.74), Some(0.53)]);
+    // in the margins the expected counts add up to the observed count
+    assert_row(&table.rows[2], 2, &[Some(75.26), Some(30.74), Some(106.0)]);
     let adjusted = 2.74 / (75.26_f64 * (1.0 - 0.53) * (1.0 - 0.71)).sqrt();
     assert_row(&table.rows[3], 2, &[Some(adjusted), Some(-adjusted), None]);
     // the Total row has no residual line
@@ -316,6 +364,11 @@ fn crosstabs_cells_and_chi_square() {
     assert_eq!(last[last.len() - 3..], ["Count", "Row %", "Expected"]);
     assert_row(
         &table.rows[last.len() - 3],
+        2,
+        &[Some(142.0), Some(58.0), Some(200.0)],
+    );
+    assert_row(
+        &table.rows[last.len() - 1],
         2,
         &[Some(142.0), Some(58.0), Some(200.0)],
     );
@@ -357,11 +410,7 @@ fn crosstabs_two_by_two_weighted() {
     assert_row(
         &tables[0].rows[1],
         2,
-        &[
-            Some(110.1751938106),
-            Some(45.2220061894),
-            Some(0.5978330662),
-        ],
+        &[Some(110.1751938106), Some(45.2220061894), Some(155.3972)],
     );
     let tests = &tables[1];
     assert_eq!(tests.columns.len(), 6);
@@ -461,11 +510,21 @@ fn crosstabs_layers_and_several_tables() {
             "q5_1 by q5_2"
         ]
     );
+    // DVALUE turns the rows round and leaves the columns ascending
     assert_eq!(
         texts(&tables[1].rows[0])[0],
         "Other or prefer to self-describe"
     );
-    assert_eq!(tables[1].columns[2], "Selected");
+    assert_eq!(tables[1].columns[2..4], ["Not selected", "Selected"]);
+
+    // CELLS alone shows the count and the three percentages, STATISTICS alone the chi-square
+    let tables = run(&mut engine, "CROSSTABS gender BY q5_1 /CELLS /STATISTICS.");
+    let statistics: Vec<String> = tables[0].rows[..4]
+        .iter()
+        .map(|r| texts(r)[1].clone())
+        .collect();
+    assert_eq!(statistics, ["Count", "Row %", "Column %", "Total %"]);
+    assert_eq!(tables[1].title, "Chi-Square Tests: gender by q5_1");
 }
 
 #[test]
@@ -550,6 +609,16 @@ ADD FILES /FILE=* /FILE='{}' /KEEP=resp_id age gender q3_comment plan_long.",
         error(&mut engine, "ADD FILES /FILE=* /FILE=* /BY region."),
         "FILE=* is not sorted by region: case 4 has a lower key than case 3; sort the active dataset with SORT CASES BY region first"
     );
+
+    // files weighted by the same variable stay weighted; one unweighted file turns it off
+    let mut engine = weighted();
+    run(&mut engine, "ADD FILES /FILE=* /FILE=*.");
+    assert_eq!(engine.dataset().unwrap().weight_variable(), Some("weight"));
+    run(
+        &mut engine,
+        &format!("ADD FILES /FILE=* /FILE='{}'.", fixture("survey_basic.sav")),
+    );
+    assert_eq!(engine.dataset().unwrap().weight_variable(), None);
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -646,6 +715,32 @@ MATCH FILES /FILE=* /FILE='{}' /BY resp_id /KEEP=resp_id age extra.",
         format!(
             "the BY variable gender is not in TABLE='{}'; every file needs the key variables",
             path("lookup.sav")
+        )
+    );
+
+    // a table may not hold a key twice
+    let mut engine = survey();
+    run(
+        &mut engine,
+        &format!(
+            "GET FILE='{}'.\nADD FILES /FILE=* /FILE=* /BY region.\nSAVE OUTFILE='{}'.
+GET FILE='{}'.\nSORT CASES BY region.",
+            path("lookup.sav"),
+            path("twice.sav"),
+            fixture("survey_basic.sav")
+        ),
+    );
+    assert_eq!(
+        error(
+            &mut engine,
+            &format!(
+                "MATCH FILES /FILE=* /TABLE='{}' /BY region.",
+                path("twice.sav")
+            )
+        ),
+        format!(
+            "TABLE='{}' holds the same key twice (cases 1 and 2); a table may hold each key once",
+            path("twice.sav")
         )
     );
 

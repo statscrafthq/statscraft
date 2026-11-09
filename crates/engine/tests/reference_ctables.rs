@@ -318,11 +318,16 @@ fn totals() {
         "CTABLES /TABLE gender BY region /CATEGORIES VARIABLES=gender region TOTAL=YES.",
         "CTABLES /TABLE gender [COUNT, COLPCT.COUNT, ROWPCT.COUNT, TABLEPCT.COUNT] BY region\n\
          /CATEGORIES VARIABLES=gender region TOTAL=YES.",
+        // PSPP leaves a count of 0 blank in a total or beside a scale variable, where the manual
+        // shows 0, so the third gender, which has empty cells, is left out
         "CTABLES /TABLE gender > region [COUNT, COLPCT.COUNT, ROWPCT.COUNT, TABLEPCT.COUNT, SUBTABLEPCT.COUNT] BY q5_1\n\
-         /CATEGORIES VARIABLES=gender region q5_1 TOTAL=YES.",
+         /CATEGORIES VARIABLES=gender [1, 2] TOTAL=YES /CATEGORIES VARIABLES=region q5_1 TOTAL=YES.",
         "CTABLES /TABLE q1_satisfaction BY gender /CATEGORIES VARIABLES=q1_satisfaction MISSING=INCLUDE TOTAL=YES.",
         "CTABLES /TABLE region /CATEGORIES VARIABLES=region KEY=LABEL ORDER=D TOTAL=YES LABEL='All regions' POSITION=BEFORE.",
-        "CTABLES /TABLE gender > age [MEAN, COUNT, VALIDN] BY region /CATEGORIES VARIABLES=gender region TOTAL=YES.",
+        // PSPP leaves a count of 0 blank in a total or beside a scale variable, where the manual
+        // shows 0, so the third gender, which has empty cells, is left out
+        "CTABLES /TABLE gender > age [MEAN, COUNT, VALIDN] BY region /CATEGORIES VARIABLES=gender [1, 2] TOTAL=YES\n\
+         /CATEGORIES VARIABLES=region TOTAL=YES.",
         "CTABLES /TABLE age [MEAN] BY gender /CATEGORIES VARIABLES=gender TOTAL=YES LABEL='All'.",
         "CTABLES /TABLE q6_mention1 /CATEGORIES VARIABLES=q6_mention1 MISSING=INCLUDE TOTAL=YES.",
         "CTABLES /TABLE q6_mention1 [COUNT, COLPCT.COUNT, COLPCT.VALIDN] /CATEGORIES VARIABLES=q6_mention1 TOTAL=YES.",
@@ -347,10 +352,15 @@ fn scale_summaries() {
         "CTABLES /TABLE age [MEAN, COUNT] + monthly_spend [MEAN F8.1, VALIDN] BY gender.",
         "CTABLES /TABLE age [MEAN, MEAN 'Avg' F8.2, SUM] + monthly_spend [MEAN 'Avg', VALIDN] BY gender.",
         "CTABLES /TABLE q5_1 [S] [SUM, MEAN PCT8.1] + q5_2 [S] [SUM, MEAN PCT8.1] BY gender.",
-        "CTABLES /TABLE gender > monthly_spend [COUNT, COLPCT.COUNT, COLPCT.VALIDN, COLPCT.TOTALN, VALIDN, TOTALN, TABLEPCT.VALIDN] BY region.",
+        // PSPP leaves a count of 0 blank in a total or beside a scale variable, where the manual
+        // shows 0, so the third gender, which has empty cells, is left out
+        "CTABLES /TABLE gender > monthly_spend [COUNT, COLPCT.COUNT, COLPCT.VALIDN, COLPCT.TOTALN, VALIDN, TOTALN, TABLEPCT.VALIDN] BY region\n\
+         /CATEGORIES VARIABLES=gender [1, 2].",
         "CTABLES /TABLE monthly_spend [COLPCT.SUM, TABLEPCT.SUM, SUBTABLEPCT.SUM, ROWPCT.SUM] BY gender.",
         "CTABLES /TABLE q1_satisfaction [S] [MEAN, COUNT] BY gender.",
-        "CTABLES /TABLE region > monthly_spend [MEAN F8.2, UCOUNT, UMEAN F8.3] BY gender.",
+        // PSPP leaves a count of 0 blank in a total or beside a scale variable, where the manual
+        // shows 0, so the third gender, which has empty cells, is left out
+        "CTABLES /TABLE region > monthly_spend [MEAN F8.2, UCOUNT, UMEAN F8.3] BY gender /CATEGORIES VARIABLES=gender [1, 2].",
     ]);
 }
 
@@ -394,7 +404,10 @@ fn labels_titles_and_formats() {
          /CATEGORIES VARIABLES=q1_satisfaction MISSING=INCLUDE TOTAL=YES.",
         "CTABLES /FORMAT MISSING='x' EMPTY=BLANK /TABLE gender [COUNT, COLPCT.COUNT, ROWPCT.COUNT] BY region\n\
          /CATEGORIES VARIABLES=gender region TOTAL=YES.",
-        "CTABLES /FORMAT EMPTY='none' /TABLE gender > monthly_spend [MEAN, COUNT] BY region.",
+        // PSPP leaves a count of 0 blank in a total or beside a scale variable, where the manual
+        // shows 0, so the third gender, which has empty cells, is left out
+        "CTABLES /FORMAT EMPTY='none' /TABLE gender > monthly_spend [MEAN, COUNT] BY region /CATEGORIES VARIABLES=gender [1, 2].",
+        "CTABLES /FORMAT EMPTY='none' /TABLE gender BY region.",
         "CTABLES /TABLE monthly_spend [SUM COMMA12.2, MEAN DOLLAR10.2] BY gender.",
         "VARIABLE LABELS region 'Where they live'.\nCTABLES /TABLE region [COUNT, COLPCT.COUNT PCT5.0] BY gender.",
     ]);
@@ -430,7 +443,10 @@ fn weighted_tables() {
         "CTABLES /TABLE monthly_spend [MEAN F12.6, MEDIAN F12.6, VALIDN F12.4, TOTALN F12.4, MISSING F12.4, COUNT F12.4, UCOUNT, UVALIDN, UTOTALN, UMISSING] BY region.",
         "CTABLES /TABLE q1_satisfaction [COUNT, COLPCT.COUNT, COLPCT.VALIDN, UCOUNT] BY gender\n\
          /CATEGORIES VARIABLES=q1_satisfaction MISSING=INCLUDE TOTAL=YES.",
-        "CTABLES /TABLE gender > region [COUNT, ROWPCT.COUNT, SUBTABLEPCT.COUNT] BY q5_1 /CATEGORIES VARIABLES=region q5_1 TOTAL=YES.",
+        // PSPP leaves a count of 0 blank in a total or beside a scale variable, where the manual
+        // shows 0, so the third gender, which has empty cells, is left out
+        "CTABLES /TABLE gender > region [COUNT, ROWPCT.COUNT, SUBTABLEPCT.COUNT] BY q5_1 /CATEGORIES VARIABLES=region q5_1 TOTAL=YES\n\
+         /CATEGORIES VARIABLES=gender [1, 2].",
         "CTABLES /TABLE age + monthly_spend [MEAN, VALIDN] BY gender /CATEGORIES VARIABLES=gender TOTAL=YES.",
         "CTABLES /TABLE plan [COUNT F8.2, TABLEPCT.COUNT PCT8.2] BY q5_3.",
         "CTABLES /TABLE monthly_spend [ROWPCT.SUM, UCOLPCT.SUM, TABLEPCT.SUM] BY gender > q5_1.",
