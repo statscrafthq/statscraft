@@ -1,6 +1,7 @@
 //! RENAME VARIABLES, and what the commands that create or rename variables share.
 
 use crate::{Engine, Error};
+use statscraft_data::Dataset;
 use statscraft_syntax::VarItem;
 
 const MAX_NEW_NAMES: u64 = 10_000;
@@ -59,6 +60,24 @@ pub(crate) fn duplicate(names: &[String]) -> Option<&String> {
         .map(|i| &names[i])
 }
 
+/// `count` temporary names `@sc.<purpose>.<n>` that no variable of `data` and none of `reserved`
+/// has, ignoring case: users may name their own variables like that.
+pub(crate) fn unused_names(
+    data: &Dataset,
+    reserved: &[String],
+    purpose: &str,
+    count: usize,
+) -> Vec<String> {
+    (0..)
+        .map(|i| format!("@sc.{purpose}.{i}"))
+        .filter(|name| {
+            data.variable_index(name).is_none()
+                && !reserved.iter().any(|r| r.eq_ignore_ascii_case(name))
+        })
+        .take(count)
+        .collect()
+}
+
 impl Engine {
     /// Runs a command that changes the dataset in several steps. An error undoes all of them.
     pub(crate) fn all_or_nothing(
@@ -102,13 +121,13 @@ impl Engine {
         }
         // The dataset renames one variable at a time and refuses a name that is in use, so
         // names that swap have to pass through names nothing else uses.
-        let parked = |i: usize| format!("@sc.renaming.{i}");
+        let parked = unused_names(self.active()?, &new, "renaming", old.len());
         let data = self.active_mut()?;
-        for (i, name) in old.iter().enumerate() {
-            data.rename_variable(name, &parked(i))?;
+        for (name, parked) in old.iter().zip(&parked) {
+            data.rename_variable(name, parked)?;
         }
-        for (i, name) in new.iter().enumerate() {
-            data.rename_variable(&parked(i), name)?;
+        for (parked, name) in parked.iter().zip(&new) {
+            data.rename_variable(parked, name)?;
         }
         Ok(())
     }

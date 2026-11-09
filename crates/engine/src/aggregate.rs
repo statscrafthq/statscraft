@@ -1,6 +1,6 @@
 //! AGGREGATE: one value per break group for every target variable.
 
-use crate::variables::{Column, duplicate, new_names};
+use crate::variables::{Column, duplicate, new_names, unused_names};
 use crate::{Engine, Error};
 use statscraft_data::{Dataset, Values, Variable};
 use statscraft_syntax::{Aggregate, AggregateFunction as F, Aggregation};
@@ -354,9 +354,7 @@ impl Engine {
         out.select_cases(&starts_group)?;
         // A target may take the name of a variable that is about to go, so the targets are
         // added under names nothing else uses and renamed once the other variables are gone.
-        let parked: Vec<String> = (0..targets.len())
-            .map(|i| format!("@sc.aggregating.{i}"))
-            .collect();
+        let parked = unused_names(&out, &names, "aggregating", targets.len());
         for (target, parked) in targets.iter().zip(&parked) {
             add(&mut out, parked, target, None, data)?;
         }
