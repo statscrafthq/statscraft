@@ -30,12 +30,33 @@ impl From<statscraft_data::Error> for Error {
     }
 }
 
-/// A result table: plain rows and columns, the same for every output format.
+/// A result table, the same for every output format. The first `row_headers` columns label the
+/// rows; the remaining columns hold results. A column header can have several levels: `columns`
+/// holds the innermost label and `column_groups` the labels above it.
 #[derive(Debug, Serialize)]
 pub struct Table {
     pub title: String,
+    pub row_headers: usize,
     pub columns: Vec<String>,
+    /// For every column the labels above it, outermost first. Empty for a one-level header.
+    pub column_groups: Vec<Vec<String>>,
     pub rows: Vec<Vec<Cell>>,
+}
+
+impl Table {
+    /// The full header of every column, levels joined with " / ".
+    pub fn column_titles(&self) -> Vec<String> {
+        self.columns
+            .iter()
+            .enumerate()
+            .map(|(i, leaf)| {
+                let mut path = self.column_groups.get(i).cloned().unwrap_or_default();
+                path.push(leaf.clone());
+                path.retain(|level| !level.is_empty());
+                path.join(" / ")
+            })
+            .collect()
+    }
 }
 
 #[derive(Debug, Serialize, PartialEq)]

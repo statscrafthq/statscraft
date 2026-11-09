@@ -376,7 +376,7 @@ fn run(args: RunArgs, check_only: bool) -> Result<(), Vec<Failure>> {
 fn print_text(result: &RunResult, check_only: bool) {
     for table in result.commands.iter().flat_map(|c| &c.tables) {
         println!("### {}\n", table.title);
-        println!("| {} |", table.columns.join(" | "));
+        println!("| {} |", table.column_titles().join(" | "));
         println!("|{}", " --- |".repeat(table.columns.len()));
         for row in &table.rows {
             let cells: Vec<String> = row

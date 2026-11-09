@@ -139,6 +139,8 @@ pub fn table(data: &Dataset, name: &str) -> Result<Table, Error> {
             Some(label) => format!("{}: {label}", variable.name()),
             None => variable.name().to_string(),
         },
+        row_headers: 3,
+        column_groups: vec![Vec::new(); 7],
         columns: [
             "Category",
             "Value",
