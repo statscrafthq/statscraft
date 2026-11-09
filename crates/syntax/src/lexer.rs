@@ -212,7 +212,9 @@ impl<'a> Lexer<'a> {
             while self.chars.get(self.col).is_some_and(|&c| is_name_char(c)) {
                 self.col += 1;
             }
-        } else if let Ok(value) = self.text(start).parse() {
+        } else if let Ok(value) = self.text(start).parse::<f64>()
+            && value.is_finite()
+        {
             return Ok(TokenKind::Number(value));
         }
         let message = format!("invalid number {}", self.text(start));
