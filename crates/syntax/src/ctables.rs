@@ -257,6 +257,10 @@ fn statistic(name: &str) -> Option<Statistic> {
         let of = PERCENT_OF.iter().find(|(n, _)| *n == of)?.1;
         return Some(Statistic::Percent(base, of));
     }
+    // a percentage without its suffix counts cases: COLPCT is COLPCT.COUNT
+    if let Some((_, base)) = PERCENT_BASES.iter().find(|(n, _)| *n == upper) {
+        return Some(Statistic::Percent(*base, PercentOf::Count));
+    }
     SIMPLE_STATISTICS
         .iter()
         .find(|(n, _)| *n == upper)
@@ -395,7 +399,7 @@ fn summaries(p: &mut Parser) -> PResult<Vec<Summary>> {
             let mut error = SyntaxError::new(p.span(), format!("unknown summary function {upper}"));
             error.expected = vec![SUMMARY_EXPECTED.into()];
             return Err(error
-                .hint("percentages name their base: ROWPCT.COUNT, COLPCT.VALIDN, TABLEPCT.SUM"));
+                .hint("a percentage names its base and what it counts: COLPCT (the same as COLPCT.COUNT), COLPCT.VALIDN, TABLEPCT.SUM"));
         };
         p.pos += 1;
         let percentile = if function.statistic == Statistic::Ptile {

@@ -251,7 +251,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  var [function ['label'] [format], ...], format F, PCT, COMMA or DOLLAR, such as PCT8.1.\n\
                  Default: COUNT for categorical tables, MEAN for a scale variable.\n\
                  Categorical: COUNT, ROWPCT, COLPCT, TABLEPCT, SUBTABLEPCT, LAYERPCT, LAYERROWPCT, LAYERCOLPCT,\n\
-                 each with .COUNT, .VALIDN or .TOTALN (COLPCT.COUNT and so on).\n\
+                 each with .COUNT, .VALIDN or .TOTALN (COLPCT.COUNT and so on); COLPCT alone means COLPCT.COUNT.\n\
                  Scale: also MEAN MEDIAN MODE MINIMUM MAXIMUM RANGE SUM STDDEV VARIANCE SEMEAN PTILE n VALIDN TOTALN\n\
                  MISSING and the percentages with .SUM. A U prefix (UCOUNT, UMEAN) ignores the weight.\n\
                  Weighted by the weight variable when one is set; fractional weights are not rounded, and a case\n\

@@ -308,6 +308,8 @@ fn percentages() {
         "CTABLES /TABLE q1_satisfaction [COUNT, COLPCT.COUNT, COLPCT.VALIDN, COLPCT.TOTALN] BY gender\n\
          /CATEGORIES VARIABLES=q1_satisfaction TOTAL=YES MISSING=INCLUDE.",
         "CTABLES /TABLE region > gender [COUNT, ROWPCT.COUNT, COLPCT.COUNT, SUBTABLEPCT.COUNT] BY q5_1 > q5_2.",
+        // a percentage without its .COUNT suffix, commas left out
+        "CTABLES /TABLE gender [COUNT ROWPCT COLPCT TABLEPCT SUBTABLEPCT] BY region.",
     ]);
 }
 

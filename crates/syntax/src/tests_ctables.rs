@@ -234,9 +234,33 @@ fn significance_test_mistakes_are_named() {
 }
 
 #[test]
+fn a_percentage_without_a_suffix_counts_cases() {
+    // the manual's own examples write [COLPCT] and [COUNT COLPCT] without commas
+    let c = one("CTABLES /TABLE a [COUNT ROWPCT UCOLPCT, LAYERCOLPCT 'L' PCT5.1] BY b.");
+    let AxisExpr::Variable(v) = &c.tables[0].rows else {
+        panic!()
+    };
+    let s = v.summaries.as_ref().unwrap();
+    let names: Vec<String> = s.iter().map(|s| s.function.name()).collect();
+    assert_eq!(
+        names,
+        [
+            "COUNT",
+            "ROWPCT.COUNT",
+            "UCOLPCT.COUNT",
+            "LAYERCOLPCT.COUNT"
+        ]
+    );
+    assert_eq!(s[3].label.as_deref(), Some("L"));
+}
+
+#[test]
 fn mistakes_say_what_was_expected() {
-    let e = err("CTABLES /TABLE a [COLPCT].");
-    assert!(e.message.contains("unknown summary function COLPCT"), "{e}");
+    let e = err("CTABLES /TABLE a [COLPCT.CASES].");
+    assert!(
+        e.message.contains("unknown summary function COLPCT.CASES"),
+        "{e}"
+    );
     assert!(e.hint.unwrap().contains("COLPCT.VALIDN"));
     let e = err("CTABLES /SLABELS POSITION=ROW /TABLE a.");
     assert!(e.message.contains("must follow a /TABLE"), "{e}");
