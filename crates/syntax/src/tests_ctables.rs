@@ -143,7 +143,10 @@ fn features_of_the_next_stage_are_named() {
             "CTABLES /TABLE a /CATEGORIES VARIABLES=a [1, &x].",
             "computed category",
         ),
-        ("CTABLES /TABLE a /CLABELS ROWLABELS=OPPOSITE.", "CLABELS"),
+        (
+            "CTABLES /TABLE a /CLABELS ROWLABELS=LAYER.",
+            "category labels to the layers",
+        ),
     ] {
         let e = err(source);
         assert!(
@@ -239,6 +242,37 @@ fn merged_letters_default_to_apa_and_showsig_keeps_them_apart() {
 }
 
 #[test]
+fn summaries_after_a_parenthesis_go_to_every_innermost_variable() {
+    // the manual's equivalent forms: (SEX + HAPPY [COLPCT])[COUNT] is
+    // SEX [COUNT] + HAPPY [COUNT, COLPCT]
+    let grouped = one("CTABLES /TABLE (sex + happy [COLPCT]) [COUNT] BY x.");
+    let spelled = one("CTABLES /TABLE sex [COUNT] + happy [COUNT, COLPCT] BY x.");
+    assert_eq!(grouped.tables[0].rows, spelled.tables[0].rows);
+    // in a nesting only the innermost variable gets them
+    let nested = one("CTABLES /TABLE (a > b) [COUNT].");
+    let spelled = one("CTABLES /TABLE a > b [COUNT].");
+    assert_eq!(nested.tables[0].rows, spelled.tables[0].rows);
+}
+
+#[test]
+fn clabels_moves_the_labels_of_one_axis() {
+    let moved = |source: &str| one(source).tables[0].labels_moved;
+    assert_eq!(
+        moved("CTABLES /TABLE a + b /CLABELS ROWLABELS=OPPOSITE."),
+        LabelsMoved::RowsToColumns
+    );
+    assert_eq!(
+        moved("CTABLES /TABLE a BY b /CLABELS COLLABELS=OPPOSITE."),
+        LabelsMoved::ColumnsToRows
+    );
+    // a later CLABELS replaces an earlier one
+    assert_eq!(
+        moved("CTABLES /TABLE a BY b /CLABELS ROWLABELS=OPPOSITE /CLABELS AUTO."),
+        LabelsMoved::No
+    );
+}
+
+#[test]
 fn a_second_by_gives_the_layers() {
     let c = one("CTABLES /TABLE a BY b BY c > d + e /SLABELS POSITION=LAYER.");
     let t = &c.tables[0];
@@ -290,8 +324,8 @@ fn mistakes_say_what_was_expected() {
     assert!(e.message.contains("cannot be used for a summary"), "{e}");
     let e = err("CTABLES /TABLE a [PTILE].");
     assert!(e.expected[0].contains("percentile"), "{e}");
-    let e = err("CTABLES /TABLE (a + b) [COUNT].");
-    assert!(e.message.contains("follow a variable name"), "{e}");
+    let e = err("CTABLES /TABLE (a + b) [C].");
+    assert!(e.message.contains("follows a variable name"), "{e}");
     let e = err("CTABLES /VLABELS VARIABLES=a.");
     assert_eq!(e.expected, ["DISPLAY"]);
     assert!(

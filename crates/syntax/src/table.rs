@@ -234,6 +234,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20       [/MRSETS COUNTDUPLICATES=NO|YES]\n\
                  \x20       /TABLE rows [BY [columns] [BY layers]]\n\
                  \x20       [/SLABELS POSITION=COLUMN|ROW|LAYER VISIBLE=YES|NO]\n\
+                 \x20       [/CLABELS AUTO|ROWLABELS=OPPOSITE|COLLABELS=OPPOSITE]\n\
                  \x20       [/CATEGORIES VARIABLES=varlist [ORDER=A|D] [KEY=VALUE|LABEL] [MISSING=EXCLUDE|INCLUDE]\n\
                  \x20                    [TOTAL=NO|YES] [LABEL='text'] [POSITION=AFTER|BEFORE] [EMPTY=INCLUDE|EXCLUDE]]\n\
                  \x20       [/CATEGORIES VARIABLES=varlist [value, low THRU high, ...] [TOTAL=YES ...]]\n\
@@ -255,6 +256,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  SLABELS POSITION=LAYER makes every summary a layer of its own. Tests run in every layer.\n\
                  A summary list follows a scale variable or the innermost categorical variable of one axis:\n\
                  var [function ['label'] [format], ...], format F, PCT, COMMA or DOLLAR, such as PCT8.1.\n\
+                 After a parenthesis, (a + b > c) [COUNT], the summaries go to a and c, before their own ones.\n\
+                 CLABELS ROWLABELS=OPPOSITE moves the categories of the innermost row variables to the columns,\n\
+                 inside the column categories and outside the summary labels, and COLLABELS=OPPOSITE the other\n\
+                 way; the moved variable counts as the innermost one of its new axis, also for percentages.\n\
+                 Stacked variables whose labels move need the same categories with the same labels; tests are\n\
+                 not available then.\n\
                  Default: COUNT for categorical tables, MEAN for a scale variable.\n\
                  Categorical: COUNT, ROWPCT, COLPCT, TABLEPCT, SUBTABLEPCT, LAYERPCT, LAYERROWPCT, LAYERCOLPCT,\n\
                  each with .COUNT, .VALIDN or .TOTALN (COLPCT.COUNT and so on); COLPCT alone means COLPCT.COUNT.\n\
@@ -292,8 +299,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  cases two categories of a set share; the means test then pools the variance from the two categories\n\
                  compared. INCLUDEMRSETS=NO leaves sets out of the tests, and so does COUNTDUPLICATES=YES for a\n\
                  category set.\n\
-                 Not supported yet: CLABELS other than AUTO, PCOMPUTE, HIDESMALLCOUNTS, effective base (E\n\
-                 functions), subtotals and OTHERNM or MISSING in a list, an empty row axis (/TABLE BY columns).",
+                 Not supported yet: CLABELS ROWLABELS=LAYER or COLLABELS=LAYER, PCOMPUTE, HIDESMALLCOUNTS,\n\
+                 effective base (E functions), subtotals and OTHERNM or MISSING in a list, an empty row axis\n\
+                 (/TABLE BY columns).",
         example: "CTABLES /TABLE q1 [COUNT, COLPCT.COUNT PCT8.1] BY gender /CATEGORIES VARIABLES=q1 TOTAL=YES.",
         parse: ctables::ctables,
     },

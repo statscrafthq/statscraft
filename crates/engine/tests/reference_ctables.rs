@@ -500,6 +500,20 @@ fn weighted_tables() {
 
 #[test]
 #[ignore = "needs STATSCRAFT_PSPP"]
+fn moved_category_labels() {
+    // with column variables PSPP puts moved categories inside the summary labels, where the
+    // manual's Figure 26 has them outside, so these cases have no column variable or have the
+    // summaries in the rows
+    survey(&[
+        "CTABLES /TABLE (q5_1 + q5_2 + q5_3) [COUNT ROWPCT TABLEPCT] /CLABELS ROWLABELS=OPPOSITE.",
+        "CTABLES /TABLE (region > q5_1 + gender > q5_2) [COUNT ROWPCT COLPCT SUBTABLEPCT] /CLABELS ROWLABELS=OPPOSITE.",
+        "CTABLES /TABLE gender BY q5_1 + q5_2 [COUNT, COLPCT, ROWPCT] /CLABELS COLLABELS=OPPOSITE.",
+        "CTABLES /TABLE region > q5_1 [COUNT, ROWPCT] BY gender /SLABELS POSITION=ROW /CLABELS ROWLABELS=OPPOSITE.",
+    ]);
+}
+
+#[test]
+#[ignore = "needs STATSCRAFT_PSPP"]
 fn first_layer() {
     for syntax in [
         "CTABLES /TABLE gender [COUNT, COLPCT, ROWPCT, SUBTABLEPCT, LAYERPCT, LAYERROWPCT, LAYERCOLPCT, TABLEPCT] BY region BY q5_1.",

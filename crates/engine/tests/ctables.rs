@@ -179,6 +179,82 @@ fn tests_run_in_every_layer() {
     }
 }
 
+// CLABELS ROWLABELS=OPPOSITE and COLLABELS=OPPOSITE (CLABELS subcommand and Figure 26): the
+// categories of the innermost variable of one axis move to the other, where they count as its
+// innermost variable, also for the percentages (in Figure 26 the row percentages add up to 100
+// across the moved categories). So a moved table holds the numbers of a table that has that
+// variable nested innermost on the other axis, crossed with a constant.
+#[test]
+fn moved_category_labels_count_as_the_innermost_variable_of_the_other_axis() {
+    let summaries = "[COUNT, ROWPCT, COLPCT, SUBTABLEPCT, TABLEPCT]";
+    let moved = run(
+        "survey_basic.sav",
+        &format!("CTABLES /TABLE (q5_1 + q5_2) {summaries} BY gender /CLABELS ROWLABELS=OPPOSITE."),
+    );
+    assert_eq!(moved.rows.len(), 2);
+    assert_eq!(
+        moved.column_groups[1],
+        ["Gender", "Male", "Not selected"],
+        "the categories go inside the column categories, outside the summaries"
+    );
+    for (row, q5) in ["q5_1", "q5_2"].into_iter().enumerate() {
+        let nested = run(
+            "survey_basic.sav",
+            &format!("COMPUTE one = 1.\nCTABLES /TABLE one {summaries} BY gender > {q5}."),
+        );
+        assert_eq!(numbers(&moved, row), numbers(&nested, 0), "{q5}");
+    }
+
+    let moved = run(
+        "survey_basic.sav",
+        &format!(
+            "CTABLES /TABLE gender BY (q5_1 + q5_2) {summaries} /CLABELS COLLABELS=OPPOSITE /SLABELS POSITION=ROW."
+        ),
+    );
+    assert_eq!(moved.columns.len(), moved.row_headers + 2);
+    for (column, q5) in ["q5_1", "q5_2"].into_iter().enumerate() {
+        let nested = run(
+            "survey_basic.sav",
+            &format!(
+                "COMPUTE one = 1.\nCTABLES /TABLE gender > {q5} BY one {summaries} /SLABELS POSITION=ROW."
+            ),
+        );
+        assert_eq!(moved.rows.len(), nested.rows.len());
+        for row in 0..nested.rows.len() {
+            assert_eq!(
+                numbers(&moved, row)[column],
+                numbers(&nested, row)[0],
+                "{q5} {row}"
+            );
+        }
+    }
+}
+
+#[test]
+fn moving_labels_needs_the_same_categories_and_no_tests() {
+    let mut engine = Engine::default();
+    let source = format!("GET FILE='{}'.", fixture("survey_basic.sav"));
+    run_on(&mut engine, &source).unwrap();
+    let e = run_on(
+        &mut engine,
+        "CTABLES /TABLE q5_1 + region /CLABELS ROWLABELS=OPPOSITE.",
+    )
+    .unwrap_err();
+    assert!(
+        e.contains("q5_1 and region have different categories"),
+        "{e}"
+    );
+    let e = run_on(
+        &mut engine,
+        "CTABLES /TABLE q5_1 + q5_2 BY gender /CLABELS ROWLABELS=OPPOSITE /SIGTEST TYPE=CHISQUARE.",
+    )
+    .unwrap_err();
+    assert!(
+        e.contains("not available when category labels are moved"),
+        "{e}"
+    );
+}
+
 fn text(cell: &Cell) -> &str {
     match cell {
         Cell::Text(t) => t,

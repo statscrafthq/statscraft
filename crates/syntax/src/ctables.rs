@@ -50,6 +50,8 @@ pub struct CtablesTable {
     pub summaries_in_rows: bool,
     /// `/SLABELS POSITION=LAYER`: every summary is a layer of its own.
     pub summaries_in_layers: bool,
+    /// `/CLABELS ROWLABELS=OPPOSITE` or `COLLABELS=OPPOSITE`; a later CLABELS replaces it.
+    pub labels_moved: LabelsMoved,
     /// `/SLABELS VISIBLE`
     pub summary_labels: bool,
     pub categories: Vec<Categories>,
@@ -59,6 +61,17 @@ pub struct CtablesTable {
     pub sigtest: Option<Sigtest>,
     /// `/COMPARETEST`s, at most one of each type; a later one of the same type replaces it.
     pub comparetests: Vec<Comparetest>,
+}
+
+/// Where `/CLABELS` puts the category labels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LabelsMoved {
+    /// `AUTO`: under their variables.
+    No,
+    /// `ROWLABELS=OPPOSITE`: the categories of the innermost row variables become columns.
+    RowsToColumns,
+    /// `COLLABELS=OPPOSITE`: the categories of the innermost column variables become rows.
+    ColumnsToRows,
 }
 
 /// `/SIGTEST TYPE=CHISQUARE`: a chi-square test of independence for every subtable.
@@ -481,15 +494,37 @@ fn variable(p: &mut Parser) -> PResult<AxisExpr> {
     }))
 }
 
+/// Summaries after a parenthesis go to the innermost variable of every nesting inside it, before
+/// the summaries those variables have of their own.
+fn give(expr: &mut AxisExpr, list: &[Summary]) {
+    match expr {
+        AxisExpr::Variable(v) => {
+            let mut all = list.to_vec();
+            all.extend(v.summaries.take().unwrap_or_default());
+            v.summaries = Some(all);
+        }
+        AxisExpr::Stack(a, b) => {
+            give(a, list);
+            give(b, list);
+        }
+        AxisExpr::Nest(_, inner) => give(inner, list),
+    }
+}
+
 fn primary(p: &mut Parser) -> PResult<AxisExpr> {
     if p.eat(Punct::LParen) {
-        let inner = p.nested(stack)?;
+        let mut inner = p.nested(stack)?;
         p.expect(Punct::RParen)?;
         if p.at(Punct::LBracket) {
-            return Err(SyntaxError::new(
-                p.span(),
-                "summaries and [C] or [S] follow a variable name, not a parenthesis",
-            ));
+            let level = matches!(p.peek_at(1), Some(TokenKind::Word(w)) if w.eq_ignore_ascii_case("C") || w.eq_ignore_ascii_case("S"));
+            if level && p.peek_at(2) == Some(&TokenKind::Punct(Punct::RBracket)) {
+                return Err(SyntaxError::new(
+                    p.span(),
+                    "[C] or [S] follows a variable name, not a parenthesis",
+                ));
+            }
+            p.pos += 1;
+            give(&mut inner, &summaries(p)?);
         }
         return Ok(inner);
     }
@@ -544,6 +579,7 @@ fn table(p: &mut Parser) -> PResult<CtablesTable> {
         columns,
         layers,
         summaries_in_layers: false,
+        labels_moved: LabelsMoved::No,
         summaries_in_rows: false,
         summary_labels: true,
         categories: Vec::new(),
@@ -644,22 +680,28 @@ fn slabels(p: &mut Parser, table: &mut CtablesTable) -> PResult<()> {
     Ok(())
 }
 
-fn clabels(p: &mut Parser) -> PResult<()> {
+fn clabels(p: &mut Parser, table: &mut CtablesTable) -> PResult<()> {
     let start = p.pos;
-    if p.eat_keyword("AUTO") && at_end_of_subcommand(p) {
+    if p.eat_keyword("AUTO") {
+        table.labels_moved = LabelsMoved::No;
         return Ok(());
     }
-    if p.eat_keyword("ROWLABELS") || p.eat_keyword("COLLABELS") {
-        while !at_end_of_subcommand(p) {
-            p.pos += 1;
-        }
+    let moved = if p.eat_keyword("ROWLABELS") {
+        LabelsMoved::RowsToColumns
+    } else if p.eat_keyword("COLLABELS") {
+        LabelsMoved::ColumnsToRows
+    } else {
+        return Err(p.unexpected(&["AUTO", "ROWLABELS", "COLLABELS"]));
+    };
+    if choice(p, &["OPPOSITE", "LAYER"])? == 1 {
         return Err(not_supported(
             p,
             start,
-            "moving category labels with CLABELS",
+            "moving category labels to the layers",
         ));
     }
-    Err(p.unexpected(&["AUTO", "ROWLABELS", "COLLABELS"]))
+    table.labels_moved = moved;
+    Ok(())
 }
 
 fn category_items(p: &mut Parser) -> PResult<Vec<CategoryItem>> {
@@ -938,7 +980,7 @@ pub(crate) fn ctables(p: &mut Parser) -> PResult<Command> {
             slabels(p, command.tables.last_mut().expect("checked"))?;
         } else if p.eat_keyword("CLABELS") {
             table_only(p, &command.tables, "CLABELS")?;
-            clabels(p)?;
+            clabels(p, command.tables.last_mut().expect("checked"))?;
         } else if p.eat_keyword("CATEGORIES") {
             table_only(p, &command.tables, "CATEGORIES")?;
             let spec = categories(p)?;

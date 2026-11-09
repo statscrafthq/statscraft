@@ -29,7 +29,7 @@ use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Measure, Value as DataValue, Values, Variable};
 use statscraft_syntax::{
     AxisExpr, AxisVariable, Bound, Categories, CategoryItem, Ctables, CtablesTable, EmptyCells,
-    PercentBase, PercentOf, Statistic, Summary, SummaryFunction, Value as SyntaxValue,
+    LabelsMoved, PercentBase, PercentOf, Statistic, Summary, SummaryFunction, Value as SyntaxValue,
     VlabelsDisplay,
 };
 use std::collections::HashMap;
@@ -650,6 +650,123 @@ struct Entry {
     combo: Vec<usize>,
     slot: Option<usize>,
     path: Vec<String>,
+    /// Where the label of the innermost category is in `path`.
+    inner_at: Option<usize>,
+    /// `path` ends with the label of the summary.
+    labelled: bool,
+}
+
+/// A row or a column as the table shows it. When /CLABELS moves the categories of one axis to
+/// the other, a line of the axis they leave stands for one entry per moved category, and a line
+/// of the axis they join shows one moved category of an entry.
+struct Line {
+    path: Vec<String>,
+    /// Indices into the entries of the axis: one, or one per moved category (None where the
+    /// term lacks that category).
+    entries: Vec<Option<usize>>,
+    /// The moved category a line of the joined axis shows.
+    moved: Option<usize>,
+}
+
+impl Line {
+    /// The lines of entries whose labels stay where they are.
+    fn plain(entries: &[Entry]) -> Vec<Line> {
+        (0..entries.len())
+            .map(|i| Line {
+                path: entries[i].path.clone(),
+                entries: vec![Some(i)],
+                moved: None,
+            })
+            .collect()
+    }
+
+    /// The entry this line shows beside a line of the other axis.
+    fn entry(&self, other: &Line) -> Option<usize> {
+        match other.moved {
+            Some(k) => self.entries[k],
+            None => self.entries[0],
+        }
+    }
+}
+
+/// Moves the categories of the innermost categorical variable of every term of `from` to `to`
+/// (/CLABELS ROWLABELS=OPPOSITE or COLLABELS=OPPOSITE). Each moved category goes inside the
+/// categories of a `to` line, just outside its summary label. Every term of `from` must have a
+/// categorical variable, and their innermost ones the same categories with the same labels.
+fn move_labels(
+    from: &[Entry],
+    to: &[Entry],
+    terms: &[Term],
+    lists: &HashMap<String, CategoryList>,
+) -> Result<(Vec<Line>, Vec<Line>), Error> {
+    let mut labels: Option<(String, Vec<String>)> = None;
+    for term in terms {
+        let Some(inner) = term.iter().rfind(|v| !v.scale) else {
+            return Err(Error(
+                "/CLABELS: every variable whose category labels move must be categorical".into(),
+            ));
+        };
+        let these: Vec<String> = list_of(lists, inner)
+            .categories
+            .iter()
+            .map(|c| c.label.clone())
+            .collect();
+        match &labels {
+            None => labels = Some((inner.name().to_string(), these)),
+            Some((first, known)) if *known != these => {
+                return Err(Error(format!(
+                    "/CLABELS: {first} and {} have different categories; moving category labels needs the same categories with the same labels in every variable",
+                    inner.name()
+                )));
+            }
+            Some(_) => {}
+        }
+    }
+    let labels = labels.map(|(_, l)| l).unwrap_or_default();
+
+    let mut lines: Vec<Line> = Vec::new();
+    let mut keys: Vec<(usize, Vec<usize>, Option<usize>)> = Vec::new();
+    for (i, entry) in from.iter().enumerate() {
+        let at = entry.inner_at.expect("a categorical variable");
+        let inner = entry.combo.len() - 1;
+        let key = (entry.term, entry.combo[..inner].to_vec(), entry.slot);
+        let line = match keys.iter().position(|k| *k == key) {
+            Some(line) => line,
+            None => {
+                let mut path = entry.path.clone();
+                path.remove(at);
+                keys.push(key);
+                lines.push(Line {
+                    path,
+                    entries: vec![None; labels.len()],
+                    moved: None,
+                });
+                lines.len() - 1
+            }
+        };
+        lines[line].entries[entry.combo[inner]] = Some(i);
+    }
+
+    let mut joined = Vec::new();
+    let mut start = 0;
+    while start < to.len() {
+        let same = |e: &Entry| e.term == to[start].term && e.combo == to[start].combo;
+        let end = start + to[start..].iter().take_while(|e| same(e)).count();
+        for (k, label) in labels.iter().enumerate() {
+            for (i, entry) in to.iter().enumerate().take(end).skip(start) {
+                let mut path = entry.path.clone();
+                let at = path.len() - usize::from(entry.labelled);
+                path.insert(at, label.clone());
+                joined.push(Line {
+                    path,
+                    entries: vec![Some(i)],
+                    moved: Some(k),
+                });
+            }
+        }
+        start = end;
+    }
+    Ok((lines, joined))
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -884,16 +1001,19 @@ impl Engine {
                 for combo in combinations(&cats) {
                     let mut path = Vec::new();
                     let mut c = 0;
+                    let mut inner_at = None;
                     for var in term {
                         path.extend(var.label.clone());
                         if !var.scale {
+                            inner_at = Some(path.len());
                             path.push(cats[c].categories[combo[c]].label.clone());
                             c += 1;
                         }
                     }
                     for slot in &term_slots {
                         let mut path = path.clone();
-                        if let (Some(s), true) = (slot, table.summary_labels) {
+                        let labelled = slot.is_some() && table.summary_labels;
+                        if let (Some(s), true) = (slot, labelled) {
                             path.push(slots[*s].label.clone());
                         }
                         out.push(Entry {
@@ -901,6 +1021,8 @@ impl Engine {
                             combo: combo.clone(),
                             slot: *slot,
                             path,
+                            inner_at,
+                            labelled,
                         });
                     }
                 }
@@ -930,20 +1052,38 @@ impl Engine {
                         &lists,
                         summaries,
                         variable,
-                        tested,
+                        (tested, table.labels_moved),
                     )?;
                     sections.insert((r, c, l), section);
                 }
             }
         }
 
-        let row_headers = row_entries
+        // the rows and columns as shown, with category labels moved by /CLABELS
+        let (row_lines, column_lines) = match table.labels_moved {
+            LabelsMoved::No => (Line::plain(&row_entries), Line::plain(&column_entries)),
+            LabelsMoved::RowsToColumns => {
+                move_labels(&row_entries, &column_entries, &layout.rows, &lists)?
+            }
+            LabelsMoved::ColumnsToRows => {
+                let (columns, rows) =
+                    move_labels(&column_entries, &row_entries, &layout.columns, &lists)?;
+                (rows, columns)
+            }
+        };
+        if table.labels_moved != LabelsMoved::No && tested {
+            return Err(Error(
+                "/CLABELS: significance tests are not available when category labels are moved; leave out CLABELS or the tests".into(),
+            ));
+        }
+
+        let row_headers = row_lines
             .iter()
             .map(|e| e.path.len())
             .max()
             .unwrap_or(0)
             .max(1);
-        let levels = column_entries
+        let levels = column_lines
             .iter()
             .map(|e| e.path.len())
             .max()
@@ -952,9 +1092,9 @@ impl Engine {
         let level = |path: &[String], i: usize| path.get(i).cloned().unwrap_or_default();
         let mut columns = vec![String::new(); row_headers];
         let mut column_groups = vec![vec![String::new(); levels - 1]; row_headers];
-        for entry in &column_entries {
-            columns.push(level(&entry.path, levels - 1));
-            column_groups.push((0..levels - 1).map(|i| level(&entry.path, i)).collect());
+        for line in &column_lines {
+            columns.push(level(&line.path, levels - 1));
+            column_groups.push((0..levels - 1).map(|i| level(&line.path, i)).collect());
         }
         if let Some(corner) = &table.corner {
             match column_groups[0].first_mut() {
@@ -970,15 +1110,22 @@ impl Engine {
         for layer in &layer_entries {
             let mut out_rows = Vec::new();
             let mut formats = Vec::new();
-            for row in &row_entries {
+            for row_line in &row_lines {
                 let mut cells: Vec<Cell> = (0..row_headers)
-                    .map(|i| match row.path.get(i) {
+                    .map(|i| match row_line.path.get(i) {
                         Some(text) => Cell::Text(text.clone()),
                         None => Cell::Empty,
                     })
                     .collect();
                 let mut cell_formats = vec![String::new(); row_headers];
-                for column in &column_entries {
+                for column_line in &column_lines {
+                    let picked = row_line.entry(column_line).zip(column_line.entry(row_line));
+                    let Some((r, c)) = picked else {
+                        cells.push(Cell::Empty);
+                        cell_formats.push(String::new());
+                        continue;
+                    };
+                    let (row, column) = (&row_entries[r], &column_entries[c]);
                     let section = &sections[&(row.term, column.term, layer.term)];
                     let slot = row.slot.or(column.slot).or(layer.slot).unwrap_or(0);
                     let key = [&row.combo[..], &column.combo, &layer.combo].concat();
@@ -1174,7 +1321,7 @@ impl Section {
         lists: &HashMap<String, CategoryList>,
         summaries: &[(usize, Summary, String)],
         summary_variable: &TermVar<'a>,
-        margins: bool,
+        (margins, moved): (bool, LabelsMoved),
     ) -> Result<Section, Error> {
         let [nr, nc, _] = terms.map(|term| term.iter().filter(|v| !v.scale).count());
         // the categorical variables of the rows, then the columns, then the layers
@@ -1186,19 +1333,37 @@ impl Section {
         let lists: Vec<&CategoryList> = cats.iter().map(|v| list_of(lists, v)).collect();
         let scale = terms.iter().flat_map(|t| t.iter()).find(|v| v.scale);
 
+        // the axis of every variable and whether it is the innermost of its axis; a variable
+        // whose labels /CLABELS moves counts as the innermost of the axis it joins
+        let mut axis: Vec<Axis> = (0..cats.len())
+            .map(|i| match i {
+                i if i < nr => Axis::Rows,
+                i if i < nr + nc => Axis::Columns,
+                _ => Axis::Layers,
+            })
+            .collect();
+        let (from, to) = match moved {
+            LabelsMoved::RowsToColumns => (nr.checked_sub(1), Axis::Columns),
+            LabelsMoved::ColumnsToRows => ((nc > 0).then(|| nr + nc - 1), Axis::Rows),
+            LabelsMoved::No => (None, Axis::Rows),
+        };
+        if let Some(m) = from {
+            axis[m] = to;
+        }
+        let innermost = |i: usize| {
+            let last = (0..cats.len()).rfind(|&j| axis[j] == axis[i] && Some(j) != from);
+            match (from, axis[i]) {
+                (Some(m), a) if a == to => i == m,
+                (_, Axis::Layers) => false,
+                _ => Some(i) == last,
+            }
+        };
         // which variables decide each area, in PercentBase order; a layer variable decides
         // every area but the table's, as an outer variable does
-        let is_row = |i: usize| i < nr;
-        let is_column = |i: usize| (nr..nr + nc).contains(&i);
-        let is_layer = |i: usize| i >= nr + nc;
-        let outer = |i: usize| {
-            is_layer(i)
-                || if is_row(i) {
-                    i + 1 < nr
-                } else {
-                    i + 1 < nr + nc
-                }
-        };
+        let is_row = |i: usize| axis[i] == Axis::Rows;
+        let is_column = |i: usize| axis[i] == Axis::Columns;
+        let is_layer = |i: usize| axis[i] == Axis::Layers;
+        let outer = |i: usize| !innermost(i);
         let decides = |f: &dyn Fn(usize) -> bool| (0..cats.len()).map(f).collect::<Vec<bool>>();
         let areas = [
             decides(&|i| is_row(i) || outer(i)),
