@@ -1,30 +1,276 @@
-//! Dataset and dictionary model, and reading `.sav` / `.zsav` files.
+//! Dataset and dictionary model, with reading and writing of `.sav` / `.zsav` files.
 
-use arrow::array::{Array, Float64Array, RecordBatch, StringArray};
-use arrow::datatypes::DataType;
-use serde::Serialize;
+mod edit;
+mod sav;
+
+use arrow::array::{Array, ArrayRef, AsArray, Float64Array, StringViewArray};
+use serde::{Serialize, Serializer};
 use serde_json::{Map, Number, Value as Json};
-use std::path::Path;
+use std::sync::Arc;
 
-/// A dataset held in memory.
+/// A dataset held in memory: one Arrow column per variable plus the dictionary.
+///
+/// Every column is either Float64 (null = system-missing) or a UTF-8 string column. Date and
+/// time variables are Float64 too: seconds since 1582-10-14 00:00:00 (dates, datetimes) or
+/// seconds (durations), with the display format in the dictionary.
+///
+/// Cloning is cheap: columns and dictionary are reference counted. Changing a clone copies the
+/// dictionary at most, and no column that the change does not replace.
+#[derive(Clone)]
 pub struct Dataset {
-    // shortcut: columns stay in the Arrow form the reader returns (date variables arrive as
-    // Arrow temporal types, not as the stored numbers); replace with our own numeric columns
-    // when transformations need date arithmetic (stage E3).
-    batch: RecordBatch,
-    meta: ambers::SavMetadata,
+    columns: Vec<ArrayRef>,
+    case_count: usize,
+    dict: Arc<Dictionary>,
+}
+
+#[derive(Clone)]
+struct Dictionary {
+    encoding: String,
+    compression: &'static str,
+    file_label: Option<String>,
+    weight_variable: Option<String>,
+    variables: Vec<VariableDef>,
+    multiple_response_sets: Vec<MultipleResponseSet>,
+    warnings: Vec<String>,
+    /// Document lines of the file, carried through to the next write.
+    documents: Vec<String>,
+}
+
+#[derive(Clone)]
+struct VariableDef {
+    name: String,
+    label: Option<String>,
+    format: String,
+    /// Width in bytes of a string variable, `None` for a numeric one.
+    width: Option<usize>,
+    measure: Measure,
+    value_labels: Vec<(Value, String)>,
+    missing: MissingValues,
+    extras: sav::VariableExtras,
 }
 
 #[derive(Debug)]
-pub struct Error(String);
+pub enum Error {
+    /// Reading or writing a file failed; the message starts with the path.
+    File(String),
+    UnknownVariable(String),
+    DuplicateName(String),
+    InvalidName(String),
+    /// The named variable is not of the type the request needs.
+    WrongType {
+        variable: String,
+        expected: &'static str,
+    },
+    /// A value vector or case mask does not have one entry per case.
+    LengthMismatch {
+        expected: usize,
+        actual: usize,
+    },
+    /// Any other request the dataset cannot honour; the message says why.
+    Invalid(String),
+}
 
 impl std::fmt::Display for Error {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(&self.0)
+        match self {
+            Error::File(message) | Error::Invalid(message) => f.write_str(message),
+            Error::UnknownVariable(name) => write!(f, "unknown variable: {name}"),
+            Error::DuplicateName(name) => write!(f, "variable name already in use: {name}"),
+            Error::InvalidName(name) => write!(f, "invalid variable name: {name}"),
+            Error::WrongType { variable, expected } => {
+                write!(f, "{variable} is not a {expected} variable")
+            }
+            Error::LengthMismatch { expected, actual } => {
+                write!(f, "expected {expected} values, got {actual}")
+            }
+        }
     }
 }
 
 impl std::error::Error for Error {}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Measure {
+    Unknown,
+    Nominal,
+    Ordinal,
+    Scale,
+}
+
+impl Measure {
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Measure::Unknown => "unknown",
+            Measure::Nominal => "nominal",
+            Measure::Ordinal => "ordinal",
+            Measure::Scale => "scale",
+        }
+    }
+}
+
+/// A data value as it appears in the dictionary: the key of a value label.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Value {
+    Number(f64),
+    /// Right-trimmed text.
+    String(String),
+}
+
+/// The user-missing definition of one variable.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub enum MissingValues {
+    #[default]
+    None,
+    /// One to three discrete numbers.
+    Numbers(Vec<f64>),
+    /// An inclusive range, optionally with one discrete number outside it.
+    Range {
+        low: f64,
+        high: f64,
+        extra: Option<f64>,
+    },
+    /// One to three discrete strings, right-trimmed, at most 8 bytes each.
+    Strings(Vec<String>),
+}
+
+impl MissingValues {
+    fn contains_number(&self, value: f64) -> bool {
+        match self {
+            MissingValues::Numbers(discrete) => discrete.contains(&value),
+            MissingValues::Range { low, high, extra } => {
+                (*low <= value && value <= *high) || *extra == Some(value)
+            }
+            _ => false,
+        }
+    }
+
+    fn contains_str(&self, value: &str) -> bool {
+        let value = value.trim_end_matches(' ');
+        matches!(self, MissingValues::Strings(discrete) if discrete.iter().any(|d| d == value))
+    }
+}
+
+/// Read access to one variable: its dictionary entry and its values.
+#[derive(Clone, Copy)]
+pub struct Variable<'a> {
+    def: &'a VariableDef,
+    column: &'a ArrayRef,
+}
+
+impl<'a> Variable<'a> {
+    pub fn name(&self) -> &'a str {
+        &self.def.name
+    }
+
+    pub fn label(&self) -> Option<&'a str> {
+        self.def.label.as_deref()
+    }
+
+    /// Display format, for example "F8.2", "DATE11" or "A10".
+    pub fn format(&self) -> &'a str {
+        &self.def.format
+    }
+
+    pub fn measure(&self) -> Measure {
+        self.def.measure
+    }
+
+    /// Value labels in file order.
+    pub fn value_labels(&self) -> &'a [(Value, String)] {
+        &self.def.value_labels
+    }
+
+    pub fn missing_values(&self) -> &'a MissingValues {
+        &self.def.missing
+    }
+
+    pub fn is_string(&self) -> bool {
+        self.def.width.is_some()
+    }
+
+    /// Width in bytes of a string variable, `None` for a numeric one.
+    pub fn string_width(&self) -> Option<usize> {
+        self.def.width
+    }
+
+    pub fn values(&self) -> Values<'a> {
+        match self.def.width {
+            None => Values::Numeric(NumericValues(self.column.as_primitive())),
+            Some(_) => Values::String(StringValues(self.column.as_string_view())),
+        }
+    }
+
+    pub fn numeric(&self) -> Result<NumericValues<'a>, Error> {
+        match self.values() {
+            Values::Numeric(values) => Ok(values),
+            Values::String(_) => Err(self.def.wrong_type("numeric")),
+        }
+    }
+
+    pub fn string(&self) -> Result<StringValues<'a>, Error> {
+        match self.values() {
+            Values::String(values) => Ok(values),
+            Values::Numeric(_) => Err(self.def.wrong_type("string")),
+        }
+    }
+
+    /// True when `value` is one of the variable's user-missing numbers or lies in its range.
+    pub fn is_user_missing(&self, value: f64) -> bool {
+        self.def.missing.contains_number(value)
+    }
+
+    /// True when `value`, right-trimmed, is one of the variable's user-missing strings.
+    pub fn is_user_missing_str(&self, value: &str) -> bool {
+        self.def.missing.contains_str(value)
+    }
+}
+
+impl VariableDef {
+    fn wrong_type(&self, expected: &'static str) -> Error {
+        Error::WrongType {
+            variable: self.name.clone(),
+            expected,
+        }
+    }
+}
+
+/// The values of one variable, one per case.
+#[derive(Clone, Copy)]
+pub enum Values<'a> {
+    Numeric(NumericValues<'a>),
+    String(StringValues<'a>),
+}
+
+/// Values of a numeric variable; `None` is system-missing.
+#[derive(Clone, Copy)]
+pub struct NumericValues<'a>(&'a Float64Array);
+
+impl<'a> NumericValues<'a> {
+    /// Panics when `case` is out of range.
+    pub fn get(&self, case: usize) -> Option<f64> {
+        self.0.is_valid(case).then(|| self.0.value(case))
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = Option<f64>> + 'a {
+        self.0.iter()
+    }
+}
+
+/// Values of a string variable, without the padding spaces.
+#[derive(Clone, Copy)]
+pub struct StringValues<'a>(&'a StringViewArray);
+
+impl<'a> StringValues<'a> {
+    /// Panics when `case` is out of range.
+    pub fn get(&self, case: usize) -> &'a str {
+        self.0.value(case).trim_end_matches(' ')
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = &'a str> + 'a {
+        let values = *self;
+        (0..self.0.len()).map(move |case| values.get(case))
+    }
+}
 
 /// What `statscraft describe` reports: the dictionary plus basic counts.
 #[derive(Serialize)]
@@ -58,162 +304,185 @@ pub struct VariableDescription {
     pub n_user_missing: usize,
 }
 
-#[derive(Serialize)]
+#[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct MultipleResponseSet {
+    /// With the leading "$".
     pub name: String,
+    /// "dichotomy" or "category".
     #[serde(rename = "type")]
     pub kind: &'static str,
     pub label: String,
-    pub counted_value: Option<Json>,
+    /// The counted value of a dichotomy set, as the file states it.
+    #[serde(serialize_with = "text_or_number")]
+    pub counted_value: Option<String>,
     pub variables: Vec<String>,
 }
 
 impl Dataset {
-    pub fn read_sav(path: impl AsRef<Path>) -> Result<Self, Error> {
-        let path = path.as_ref();
-        let (batch, meta) =
-            ambers::read_sav(path).map_err(|e| Error(format!("{}: {e}", path.display())))?;
-        Ok(Self { batch, meta })
+    pub fn case_count(&self) -> usize {
+        self.case_count
+    }
+
+    pub fn variable_count(&self) -> usize {
+        self.columns.len()
+    }
+
+    pub fn variable_names(&self) -> impl Iterator<Item = &str> {
+        self.dict.variables.iter().map(|v| v.name.as_str())
+    }
+
+    /// Position of a variable: an exact name match wins, otherwise case is ignored.
+    pub fn variable_index(&self, name: &str) -> Option<usize> {
+        // shortcut: linear scan per lookup, add a name index when datasets with thousands of
+        // variables make lookups show up in a profile
+        let variables = &self.dict.variables;
+        variables
+            .iter()
+            .position(|v| v.name == name)
+            .or_else(|| variables.iter().position(|v| same_name(&v.name, name)))
+    }
+
+    /// Looks a variable up like `variable_index` does.
+    pub fn variable(&self, name: &str) -> Result<Variable<'_>, Error> {
+        self.index_of(name).map(|index| self.variable_at(index))
+    }
+
+    /// Panics when `index` is out of range.
+    pub fn variable_at(&self, index: usize) -> Variable<'_> {
+        Variable {
+            def: &self.dict.variables[index],
+            column: &self.columns[index],
+        }
+    }
+
+    pub fn variables(&self) -> impl Iterator<Item = Variable<'_>> {
+        (0..self.columns.len()).map(|index| self.variable_at(index))
+    }
+
+    pub fn weight_variable(&self) -> Option<&str> {
+        self.dict.weight_variable.as_deref()
+    }
+
+    pub fn multiple_response_sets(&self) -> &[MultipleResponseSet] {
+        &self.dict.multiple_response_sets
+    }
+
+    pub fn file_label(&self) -> Option<&str> {
+        self.dict.file_label.as_deref()
+    }
+
+    /// What the reader found wrong with the file this dataset was loaded from, for example
+    /// date values it could not represent and turned into system-missing.
+    pub fn warnings(&self) -> &[String] {
+        &self.dict.warnings
+    }
+
+    fn index_of(&self, name: &str) -> Result<usize, Error> {
+        self.variable_index(name)
+            .ok_or_else(|| Error::UnknownVariable(name.to_string()))
     }
 
     pub fn describe(&self) -> Description {
-        let m = &self.meta;
-        let variables = m
-            .variable_names
-            .iter()
-            .enumerate()
-            .map(|(i, name)| self.describe_variable(i, name))
-            .collect();
-        let multiple_response_sets = m
-            .mr_sets
-            .values()
-            .map(|s| MultipleResponseSet {
-                // the reader strips the "$" that set names carry in syntax
-                name: format!("${}", s.name),
-                kind: match s.mr_type {
-                    ambers::MrType::MultipleDichotomy => "dichotomy",
-                    ambers::MrType::MultipleCategory => "category",
-                },
-                label: s.label.clone(),
-                counted_value: s.counted_value.as_deref().map(text_or_number),
-                variables: s.variables.clone(),
-            })
-            .collect();
+        let dict = &*self.dict;
         Description {
-            encoding: m.file_encoding.clone(),
-            compression: match m.compression {
-                ambers::Compression::None => "none",
-                ambers::Compression::Bytecode => "bytecode",
-                ambers::Compression::Zlib => "zlib",
-            },
-            case_count: self.batch.num_rows(),
-            variable_count: self.batch.num_columns(),
-            file_label: non_empty(m.file_label.trim_end()),
-            weight_variable: m.weight_variable.clone(),
-            variables,
-            multiple_response_sets,
+            encoding: dict.encoding.clone(),
+            compression: dict.compression,
+            case_count: self.case_count,
+            variable_count: self.columns.len(),
+            file_label: dict.file_label.clone(),
+            weight_variable: dict.weight_variable.clone(),
+            variables: self.variables().map(describe_variable).collect(),
+            multiple_response_sets: dict.multiple_response_sets.clone(),
         }
     }
+}
 
-    fn describe_variable(&self, index: usize, name: &str) -> VariableDescription {
-        let m = &self.meta;
-        let column = self.batch.column(index);
-        let format = m.variable_formats.get(name).cloned().unwrap_or_default();
-        let is_string = format.starts_with('A') && !format.starts_with("ADATE");
-
-        let mut missing_values = Vec::new();
-        let mut missing_range = None;
-        for spec in m.variable_missing_values.get(name).into_iter().flatten() {
-            match spec {
-                ambers::MissingSpec::Value(v) => missing_values.push(number(*v)),
-                ambers::MissingSpec::Range { lo, hi } => missing_range = Some([*lo, *hi]),
-                ambers::MissingSpec::StringValue(s) => {
-                    missing_values.push(Json::from(s.trim_end()))
-                }
-            }
+fn describe_variable(variable: Variable<'_>) -> VariableDescription {
+    let def = variable.def;
+    let (mut missing_values, mut missing_range) = (Vec::new(), None);
+    match &def.missing {
+        MissingValues::None => {}
+        MissingValues::Numbers(discrete) => missing_values.extend(discrete.iter().map(number)),
+        MissingValues::Range { low, high, extra } => {
+            missing_values.extend(extra.iter().map(number));
+            missing_range = Some([*low, *high]);
         }
-
-        let n_system_missing = if is_string { 0 } else { column.null_count() };
-        let n_user_missing = count_user_missing(column, &missing_values, missing_range);
-        let value_labels = m
-            .variable_value_labels
-            .get(name)
-            .into_iter()
-            .flatten()
+        MissingValues::Strings(discrete) => {
+            missing_values.extend(discrete.iter().map(|s| Json::from(s.as_str())))
+        }
+    }
+    let (n_system_missing, n_user_missing) = match variable.values() {
+        Values::Numeric(values) => (
+            values.0.null_count(),
+            values
+                .iter()
+                .flatten()
+                .filter(|v| def.missing.contains_number(*v))
+                .count(),
+        ),
+        Values::String(values) => (
+            0,
+            values
+                .iter()
+                .filter(|v| def.missing.contains_str(v))
+                .count(),
+        ),
+    };
+    VariableDescription {
+        name: def.name.clone(),
+        kind: if def.width.is_some() {
+            "string"
+        } else {
+            "numeric"
+        },
+        width: def.width,
+        label: def.label.clone(),
+        format: def.format.clone(),
+        measure: def.measure.as_str(),
+        value_labels: def
+            .value_labels
+            .iter()
             .map(|(value, label)| {
                 let key = match value {
-                    ambers::Value::Numeric(v) => number(*v).to_string(),
-                    ambers::Value::String(s) => s.trim_end().to_string(),
+                    Value::Number(v) => number(v).to_string(),
+                    Value::String(s) => s.clone(),
                 };
                 (key, Json::from(label.as_str()))
             })
-            .collect();
-
-        VariableDescription {
-            name: name.to_string(),
-            kind: if is_string { "string" } else { "numeric" },
-            // the declared width is in the format (A10); the reader's storage width is padded
-            width: is_string.then(|| format[1..].parse().unwrap_or(0)),
-            label: m.variable_labels.get(name).and_then(|l| non_empty(l)),
-            format,
-            measure: match m.variable_measures.get(name) {
-                Some(ambers::Measure::Nominal) => "nominal",
-                Some(ambers::Measure::Ordinal) => "ordinal",
-                Some(ambers::Measure::Scale) => "scale",
-                _ => "unknown",
-            },
-            value_labels,
-            missing_values,
-            missing_range,
-            n_valid: column.len() - n_system_missing - n_user_missing,
-            n_system_missing,
-            n_user_missing,
-        }
+            .collect(),
+        missing_values,
+        missing_range,
+        n_valid: variable.column.len() - n_system_missing - n_user_missing,
+        n_system_missing,
+        n_user_missing,
     }
 }
 
-fn count_user_missing(column: &dyn Array, discrete: &[Json], range: Option<[f64; 2]>) -> usize {
-    if discrete.is_empty() && range.is_none() {
-        return 0;
-    }
-    match column.data_type() {
-        DataType::Float64 => {
-            let values = column.as_any().downcast_ref::<Float64Array>().unwrap();
-            let discrete: Vec<f64> = discrete.iter().filter_map(Json::as_f64).collect();
-            values
-                .iter()
-                .flatten()
-                .filter(|v| {
-                    discrete.contains(v) || range.is_some_and(|[lo, hi]| lo <= *v && *v <= hi)
-                })
-                .count()
-        }
-        DataType::Utf8 => {
-            let values = column.as_any().downcast_ref::<StringArray>().unwrap();
-            values
-                .iter()
-                .flatten()
-                .filter(|v| discrete.iter().any(|d| d.as_str() == Some(v.trim_end())))
-                .count()
-        }
-        // shortcut: user-missing values of date/time variables are not counted, see `Dataset::batch`
-        _ => 0,
-    }
+/// Variable names are case-insensitive.
+fn same_name(a: &str, b: &str) -> bool {
+    a.chars()
+        .flat_map(char::to_lowercase)
+        .eq(b.chars().flat_map(char::to_lowercase))
 }
 
 /// Whole numbers print as integers ("1", not "1.0"), like the values a user types.
-fn number(v: f64) -> Json {
+fn number(v: &f64) -> Json {
     if v.fract() == 0.0 && v.abs() < 9.0e15 {
-        Json::from(v as i64)
+        Json::from(*v as i64)
     } else {
-        Number::from_f64(v).map_or(Json::Null, Json::Number)
+        Number::from_f64(*v).map_or(Json::Null, Json::Number)
     }
 }
 
-fn text_or_number(s: &str) -> Json {
-    s.trim()
-        .parse::<f64>()
-        .map_or_else(|_| Json::from(s), number)
+fn text_or_number<S: Serializer>(value: &Option<String>, serializer: S) -> Result<S::Ok, S::Error> {
+    value
+        .as_deref()
+        .map(|s| {
+            s.trim()
+                .parse::<f64>()
+                .map_or_else(|_| Json::from(s), |v| number(&v))
+        })
+        .serialize(serializer)
 }
 
 fn non_empty(s: &str) -> Option<String> {
