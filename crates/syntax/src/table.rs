@@ -2,6 +2,7 @@
 
 use crate::ast::Command;
 use crate::commands;
+use crate::data_commands;
 use crate::lexer::{Punct, Token, TokenKind};
 use crate::parser::{PResult, Parser};
 
@@ -85,6 +86,61 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: commands::execute,
     },
     CommandSpec {
+        name: "COUNT",
+        summary: "Count, per case, how many variables hold one of the listed values.",
+        syntax: "COUNT target = varlist (values) [varlist (values) ...] [/ target = ...].\n\
+                 values: values, low THRU high (with LOWEST or HIGHEST), MISSING, SYSMIS.\n\
+                 A value or range counts user-missing values too; a string variable takes quoted values only.",
+        example: "COUNT channels = q5_1 TO q5_5 (1) / unanswered = q1 q2 (MISSING).",
+        parse: data_commands::count,
+    },
+    CommandSpec {
+        name: "SORT CASES",
+        summary: "Sort the cases by the values of variables.",
+        syntax: "SORT CASES [BY] varlist [(A | D)] [varlist [(A | D)] ...].\n\
+                 A is ascending (the default), D descending; a direction covers the variables before it.\n\
+                 System-missing sorts lowest. Cases with equal keys keep their order.",
+        example: "SORT CASES BY region (A) age (D).",
+        parse: data_commands::sort_cases,
+    },
+    CommandSpec {
+        name: "RENAME VARIABLES",
+        summary: "Change the names of variables.",
+        syntax: "RENAME VARIABLES (oldlist = newlist) [(oldlist = newlist) ...].\n\
+                 RENAME VARIABLES old = new [old = new ...].\n\
+                 All renames happen at once, so (a b = b a) swaps two names. new1 TO new3 counts up.",
+        example: "RENAME VARIABLES (q1 q2 = satisfaction recommend) (v1 TO v3 = item1 TO item3).",
+        parse: data_commands::rename_variables,
+    },
+    CommandSpec {
+        name: "DELETE VARIABLES",
+        summary: "Remove variables from the dataset.",
+        syntax: "DELETE VARIABLES varlist.",
+        example: "DELETE VARIABLES tmp1 tmp2 q7_1 TO q7_9.",
+        parse: data_commands::delete_variables,
+    },
+    CommandSpec {
+        name: "WEIGHT",
+        summary: "Weight the cases by a variable, or turn weighting off.",
+        syntax: "WEIGHT BY var.\n\
+                 WEIGHT OFF.",
+        example: "WEIGHT BY weight.",
+        parse: data_commands::weight,
+    },
+    CommandSpec {
+        name: "AGGREGATE",
+        summary: "Aggregate groups of cases into new variables or a new dataset.",
+        syntax: "AGGREGATE /OUTFILE=* | 'path' [MODE=ADDVARIABLES | REPLACE] [/BREAK=varlist [(A | D)] ...]\n\
+                 \x20         /target ['label'] [target ...] = function(varlist) [/target ...].\n\
+                 OUTFILE=* replaces the active dataset with one case per break group (break variables, then\n\
+                 targets); with MODE=ADDVARIABLES it keeps the cases and adds the targets to each of them.\n\
+                 OUTFILE='path' writes the aggregated dataset to a file and leaves the active dataset alone.\n\
+                 functions: SUM MEAN SD MEDIAN MIN MAX FIRST LAST N NU NMISS NUMISS; N and NU also without (varlist).\n\
+                 Missing values are skipped. With a weight variable SUM, MEAN, SD, MEDIAN, N and NMISS are weighted.",
+        example: "AGGREGATE /OUTFILE=* MODE=ADDVARIABLES /BREAK=region /region_mean = MEAN(income) /region_n = N.",
+        parse: data_commands::aggregate,
+    },
+    CommandSpec {
         name: "COMPUTE",
         summary: "Assign the value of an expression to a variable.",
         syntax: "COMPUTE target = expression.",
@@ -111,7 +167,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "Map values of variables to new values.",
         syntax: "RECODE varlist (inputs = output) [(inputs = output) ...] [INTO newvars] [/ varlist ...].\n\
                  inputs: values, low THRU high (with LOWEST or HIGHEST), MISSING, SYSMIS, ELSE.\n\
-                 output: a value, SYSMIS or COPY.",
+                 output: a value, SYSMIS or COPY.\n\
+                 The first matching (inputs = output) wins. A value or range also matches user-missing values.\n\
+                 Without a match a variable keeps its value; with INTO the target becomes system-missing or blank.\n\
+                 A string target of INTO must exist already.",
         example: "RECODE age (LOWEST THRU 29 = 1) (30 THRU 59 = 2) (60 THRU HIGHEST = 3) INTO age_group.",
         parse: commands::recode,
     },
@@ -123,7 +182,6 @@ static UNSUPPORTED: &[&str] = &[
     "ADD DOCUMENT",
     "ADD FILES",
     "ADD VALUE LABELS",
-    "AGGREGATE",
     "ALTER TYPE",
     "ANOVA",
     "APPLY DICTIONARY",
@@ -136,7 +194,6 @@ static UNSUPPORTED: &[&str] = &[
     "CLEAR TRANSFORMATIONS",
     "CLUSTER",
     "CORRELATIONS",
-    "COUNT",
     "CROSSTABS",
     "CTABLES",
     "DATA LIST",
@@ -148,7 +205,6 @@ static UNSUPPORTED: &[&str] = &[
     "DATASET NAME",
     "DATE",
     "DEFINE",
-    "DELETE VARIABLES",
     "DESCRIPTIVES",
     "DISCRIMINANT",
     "DISPLAY",
@@ -219,7 +275,6 @@ static UNSUPPORTED: &[&str] = &[
     "RECORD TYPE",
     "REGRESSION",
     "RELIABILITY",
-    "RENAME VARIABLES",
     "REPEATING DATA",
     "REPORT",
     "REREAD",
@@ -228,7 +283,6 @@ static UNSUPPORTED: &[&str] = &[
     "SAVE TRANSLATE",
     "SET",
     "SHOW",
-    "SORT CASES",
     "SORT VARIABLES",
     "SPLIT FILE",
     "STRING",
@@ -246,7 +300,6 @@ static UNSUPPORTED: &[&str] = &[
     "VARIABLE WIDTH",
     "VARSTOCASES",
     "VECTOR",
-    "WEIGHT",
     "WRITE",
     "WRITE FORMATS",
     "XSAVE",
@@ -412,7 +465,7 @@ pub fn help(command: Option<&str>) -> Option<String> {
     let Some(command) = command else {
         let mut text = String::from("Supported commands:\n");
         for spec in COMMANDS {
-            text.push_str(&format!("  {:<16}{}\n", spec.name, spec.summary));
+            text.push_str(&format!("  {:<18}{}\n", spec.name, spec.summary));
         }
         text.push_str(GENERAL_HELP);
         return Some(text);

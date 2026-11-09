@@ -380,7 +380,7 @@ fn unknown_command_gets_a_did_you_mean_hint() {
 fn real_but_unsupported_commands_say_so() {
     for (source, name) in [
         ("CROSSTABS /TABLES=a BY b.", "CROSSTABS"),
-        ("sort cases by a.", "SORT CASES"),
+        ("split file by a.", "SPLIT FILE"),
         ("T-TEST GROUPS=g(1, 2) /VARIABLES=a.", "T-TEST"),
         ("TITLE Don't panic.", "TITLE"),
         ("DESC a b.", "DESCRIPTIVES"),
@@ -1081,11 +1081,12 @@ fn help_for_one_command() {
 #[test]
 fn help_lists_every_command() {
     let overview = help(None).unwrap();
-    assert_eq!(command_names().len(), 13);
+    assert_eq!(command_names().len(), 19);
     for spec in table::COMMANDS {
         assert!(overview.contains(spec.name) && overview.contains(spec.summary));
     }
-    assert!(overview.contains("  SELECT IF       Keep only the cases"));
+    assert!(overview.contains("  SELECT IF         Keep only the cases"));
+    assert!(overview.contains("  RENAME VARIABLES  Change the names"));
     assert!(overview.contains("General rules:"));
 }
 
@@ -1167,10 +1168,8 @@ fn realistic_script_names_and_line_ranges() {
     assert_eq!(layout(SURVEY_SCRIPT), rows(&expected));
 
     let (parsed, errors) = parse(SURVEY_SCRIPT);
-    assert_eq!(parsed.len(), 13);
-    assert_eq!(errors.len(), 1);
-    assert_eq!(errors[0].message, "command SORT CASES is not supported yet");
-    assert_eq!(at(&errors[0]), (33, 1));
+    assert_eq!(parsed.len(), 14);
+    assert!(errors.is_empty(), "{errors:?}");
     assert_eq!((parsed[8].first_line, parsed[8].last_line), (24, 29));
 
     let commands = split_commands(SURVEY_SCRIPT).unwrap();

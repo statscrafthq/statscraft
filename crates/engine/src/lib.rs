@@ -1,6 +1,10 @@
 //! Executes parsed commands on a dataset and returns result tables.
 
+mod aggregate;
 mod frequencies;
+mod recode;
+mod sort;
+mod variables;
 
 use serde::Serialize;
 use statscraft_data::{Dataset, Description, Measure, MissingValues, Value};
@@ -227,10 +231,23 @@ impl Engine {
                     .collect();
             }
             Command::Execute => {}
-            Command::Compute { .. }
-            | Command::If { .. }
-            | Command::SelectIf(_)
-            | Command::Recode(_) => {
+            Command::Recode(groups) => self.all_or_nothing(|engine| engine.recode(groups))?,
+            Command::Count(counts) => self.all_or_nothing(|engine| engine.count(counts))?,
+            Command::SortCases(keys) => self.sort_cases(keys)?,
+            Command::RenameVariables(groups) => {
+                self.all_or_nothing(|engine| engine.rename_variables(groups))?
+            }
+            Command::DeleteVariables(vars) => {
+                let names = self.expand(vars)?;
+                let names: Vec<&str> = names.iter().map(String::as_str).collect();
+                self.active_mut()?.delete_variables(&names)?;
+            }
+            Command::Weight(variable) => {
+                self.active_mut()?
+                    .set_weight_variable(variable.as_deref())?;
+            }
+            Command::Aggregate(command) => self.aggregate(command)?,
+            Command::Compute { .. } | Command::If { .. } | Command::SelectIf(_) => {
                 return Err(Error(
                     "this transformation command is parsed but not executed yet".into(),
                 ));

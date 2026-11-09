@@ -519,6 +519,44 @@ fn select_cases() {
 }
 
 #[test]
+fn reorder_cases() {
+    let mut data = survey();
+    let before = common::cases(&data);
+    let reversed: Vec<usize> = (0..200).rev().collect();
+
+    data.reorder_cases(&reversed).unwrap();
+    assert_eq!((data.case_count(), data.variable_count()), (200, 19));
+    let ids = data.variable("resp_id").unwrap().numeric().unwrap();
+    assert_eq!((ids.get(0), ids.get(199)), (Some(1200.0), Some(1001.0)));
+    let plans = data.variable("plan").unwrap().string().unwrap();
+    assert_eq!((plans.get(199), plans.get(198)), ("BASIC", "PREMIUM"));
+    // every column moved together: reversing again restores the file
+    data.reorder_cases(&reversed).unwrap();
+    assert_eq!(common::cases(&data), before);
+    common::assert_survives_write(&data, "reordered.sav");
+
+    let mut repeated = reversed.clone();
+    repeated[0] = 5;
+    assert_error!(
+        data.reorder_cases(&repeated),
+        Error::Invalid(_),
+        "case order must name every case once: 5 is repeated or out of range"
+    );
+    repeated[0] = 200;
+    assert_error!(
+        data.reorder_cases(&repeated),
+        Error::Invalid(_),
+        "case order must name every case once: 200 is repeated or out of range"
+    );
+    assert_error!(
+        data.reorder_cases(&reversed[..10]),
+        Error::LengthMismatch { .. },
+        "expected 200 values, got 10"
+    );
+    assert_eq!(common::cases(&data), before);
+}
+
+#[test]
 fn rename_variable() {
     let mut data = survey();
     data.rename_variable("Q5_2", "kanal_telefon").unwrap();
@@ -550,6 +588,43 @@ fn rename_variable() {
         "unknown variable: nope"
     );
     assert_eq!(names(&data)[2], "age");
+}
+
+#[test]
+fn keep_variables() {
+    let mut data = survey();
+    data.keep_variables(&["Q5_2", "plan", "gender", "q5_1"])
+        .unwrap();
+    assert_eq!(names(&data), ["q5_2", "plan", "gender", "q5_1"]);
+    assert_eq!(data.case_count(), 200);
+    // columns moved with their dictionary entries
+    let plan = data.variable("plan").unwrap();
+    assert_eq!(plan.string().unwrap().get(1), "PREMIUM");
+    assert_eq!(plan.string_width(), Some(10));
+    let gender = data.variable("gender").unwrap();
+    assert_eq!(gender.numeric().unwrap().get(3), Some(3.0));
+    assert_eq!(gender.value_labels().len(), 3);
+    assert_eq!(data.multiple_response_sets().len(), 1);
+    assert_eq!(data.multiple_response_sets()[0].variables, ["q5_1", "q5_2"]);
+    assert_eq!(data.weight_variable(), None);
+    common::assert_survives_write(&data, "kept.sav");
+
+    assert_error!(
+        data.keep_variables(&["plan", "nope"]),
+        Error::UnknownVariable(_),
+        "unknown variable: nope"
+    );
+    assert_error!(
+        data.keep_variables(&["plan", "PLAN"]),
+        Error::DuplicateName(_),
+        "variable name already in use: PLAN"
+    );
+    assert_error!(
+        data.keep_variables(&[]),
+        Error::Invalid(_),
+        "cannot delete every variable"
+    );
+    assert_eq!(data.variable_count(), 4);
 }
 
 #[test]

@@ -22,6 +22,14 @@ pub enum Command {
         variables: Vec<VarItem>,
     },
     Execute,
+    Count(Vec<Count>),
+    SortCases(Vec<SortKey>),
+    /// (old names, new names) groups. All groups rename at the same moment, so names may swap.
+    RenameVariables(Vec<(Vec<VarItem>, Vec<VarItem>)>),
+    DeleteVariables(Vec<VarItem>),
+    /// `WEIGHT BY var`; None is `WEIGHT OFF`.
+    Weight(Option<String>),
+    Aggregate(Aggregate),
     Compute {
         target: String,
         expr: Expr,
@@ -218,6 +226,57 @@ pub enum RecodeOutput {
     Value(Value),
     Sysmis,
     Copy,
+}
+
+/// One target of COUNT: `target = varlist (values) [varlist (values) ...]`. The values are
+/// never `RecodeInput::Else`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Count {
+    pub target: String,
+    pub criteria: Vec<(Vec<VarItem>, Vec<RecodeInput>)>,
+}
+
+/// `varlist [(A|D)]` of SORT CASES and of AGGREGATE /BREAK.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SortKey {
+    pub vars: Vec<VarItem>,
+    pub descending: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Aggregate {
+    /// None is `OUTFILE=*`, the active dataset.
+    pub outfile: Option<String>,
+    /// `MODE=ADDVARIABLES`: keep the cases and add the results to each of them.
+    pub add_variables: bool,
+    pub breaks: Vec<SortKey>,
+    pub aggregations: Vec<Aggregation>,
+}
+
+/// `targets = FUNCTION(sources)`
+#[derive(Debug, Clone, PartialEq)]
+pub struct Aggregation {
+    /// New variable names (`a1 TO a3` counts up), each with the label written after it.
+    pub targets: Vec<(VarItem, Option<String>)>,
+    pub function: AggregateFunction,
+    /// Empty for `N` and `NU` without arguments.
+    pub sources: Vec<VarItem>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum AggregateFunction {
+    Sum,
+    Mean,
+    Sd,
+    Median,
+    Min,
+    Max,
+    First,
+    Last,
+    N,
+    Nu,
+    Nmiss,
+    Numiss,
 }
 
 /// An expression. Nothing is evaluated and function names are not checked.

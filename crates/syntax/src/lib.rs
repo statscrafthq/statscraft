@@ -16,6 +16,7 @@
 
 mod ast;
 mod commands;
+mod data_commands;
 mod error;
 mod expr;
 mod lexer;
@@ -24,6 +25,8 @@ mod split;
 mod table;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_data;
 
 pub use ast::*;
 pub use error::{Span, SyntaxError};

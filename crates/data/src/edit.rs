@@ -5,7 +5,7 @@ use crate::{
     Dataset, Dictionary, Error, Measure, MissingValues, Value, VariableDef, non_empty, same_name,
     sav,
 };
-use arrow::array::{ArrayRef, BooleanArray, Float64Array, StringViewArray};
+use arrow::array::{ArrayRef, BooleanArray, Float64Array, StringViewArray, UInt64Array};
 use std::sync::Arc;
 
 const RESERVED_WORDS: [&str; 13] = [
@@ -187,6 +187,31 @@ impl Dataset {
         Ok(())
     }
 
+    /// Puts the cases in a new order: old case `order[i]` becomes case `i`. `order` must name
+    /// every case exactly once.
+    pub fn reorder_cases(&mut self, order: &[usize]) -> Result<(), Error> {
+        self.check_length(order.len())?;
+        let mut seen = vec![false; order.len()];
+        for &case in order {
+            match seen.get_mut(case) {
+                Some(seen) if !*seen => *seen = true,
+                _ => {
+                    return Err(Error::Invalid(format!(
+                        "case order must name every case once: {case} is repeated or out of range"
+                    )));
+                }
+            }
+        }
+        let indices = UInt64Array::from_iter_values(order.iter().map(|&case| case as u64));
+        let taken: Result<Vec<_>, _> = self
+            .columns
+            .iter()
+            .map(|column| arrow::compute::take(column, &indices, None))
+            .collect();
+        self.columns = taken.map_err(|e| Error::Invalid(e.to_string()))?;
+        Ok(())
+    }
+
     /// Multiple response sets and the weight designation follow the new name.
     pub fn rename_variable(&mut self, name: &str, new_name: &str) -> Result<(), Error> {
         let index = self.index_of(name)?;
@@ -222,6 +247,33 @@ impl Dataset {
         dict.variables.retain(|_| *kept.next().unwrap());
         let mut kept = keep.iter();
         self.columns.retain(|_| *kept.next().unwrap());
+        drop_dangling_references(dict);
+        Ok(())
+    }
+
+    /// Keeps only the named variables, in the order given. Each name may occur once and at
+    /// least one is needed. References to the other variables end as in `delete_variables`.
+    pub fn keep_variables(&mut self, names: &[&str]) -> Result<(), Error> {
+        let mut indices = Vec::with_capacity(names.len());
+        for name in names {
+            let index = self.index_of(name)?;
+            if indices.contains(&index) {
+                return Err(Error::DuplicateName(name.to_string()));
+            }
+            indices.push(index);
+        }
+        if indices.is_empty() {
+            return Err(Error::Invalid("cannot delete every variable".to_string()));
+        }
+        let dict = Arc::make_mut(&mut self.dict);
+        dict.variables = indices
+            .iter()
+            .map(|&index| dict.variables[index].clone())
+            .collect();
+        self.columns = indices
+            .iter()
+            .map(|&index| self.columns[index].clone())
+            .collect();
         drop_dangling_references(dict);
         Ok(())
     }
