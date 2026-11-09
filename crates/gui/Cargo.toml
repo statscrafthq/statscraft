@@ -3,6 +3,7 @@ name = "statscraft-gui"
 description = "StatsCraft desktop window: data editor, syntax, output and dialogs over the engine"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 
