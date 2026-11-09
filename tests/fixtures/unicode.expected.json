@@ -1,0 +1,152 @@
+{
+ "encoding": "UTF-8",
+ "compression": "none",
+ "case_count": 20,
+ "variable_count": 6,
+ "file_label": "Unicode fixture: õäöü šž ß Я Ω 日本 😀",
+ "variables": [
+  {
+   "name": "id",
+   "type": "numeric",
+   "label": "Vastaja järjekorranumber (õ ä ö ü š ž)",
+   "format": "F4.0",
+   "measure": "nominal",
+   "value_labels": {},
+   "missing_values": [],
+   "missing_range": null,
+   "n_system_missing": 0
+  },
+  {
+   "name": "keel",
+   "type": "numeric",
+   "label": "Küsitluse keel / Sprache der Befragung / Язык опроса",
+   "format": "F1.0",
+   "measure": "nominal",
+   "value_labels": {
+    "1": "Eesti keel (õäöü šž)",
+    "2": "Deutsch (Größe, Straße)",
+    "3": "Русский",
+    "4": "Ελληνικά",
+    "5": "日本語",
+    "6": "Emoji 😀"
+   },
+   "missing_values": [],
+   "missing_range": null,
+   "n_system_missing": 0
+  },
+  {
+   "name": "linn_õäöü",
+   "type": "string",
+   "width": 29,
+   "label": "Linn / Stadt / Город / Πόλη / 都市",
+   "format": "A29",
+   "measure": "nominal",
+   "value_labels": {},
+   "missing_values": [],
+   "missing_range": null,
+   "n_system_missing": 0
+  },
+  {
+   "name": "tervitus",
+   "type": "string",
+   "width": 44,
+   "label": "Tervitus vastaja emakeeles 👋",
+   "format": "A44",
+   "measure": "nominal",
+   "value_labels": {},
+   "missing_values": [],
+   "missing_range": null,
+   "n_system_missing": 0
+  },
+  {
+   "name": "оценка",
+   "type": "numeric",
+   "label": "Общая оценка / Συνολική βαθμολογία / 総合評価",
+   "format": "F1.0",
+   "measure": "ordinal",
+   "value_labels": {
+    "1": "😞 Halb / schlecht / плохо",
+    "2": "😐 Keskmine / mittel / средне",
+    "3": "😀 Hea / gut / хорошо",
+    "9": "Ei tea / weiß nicht / не знаю"
+   },
+   "missing_values": [
+    9
+   ],
+   "missing_range": null,
+   "n_system_missing": 0
+  },
+  {
+   "name": "コメント",
+   "type": "string",
+   "width": 52,
+   "label": "Vaba kommentaar / Freitext / Комментарий / Σχόλιο / コメント",
+   "format": "A52",
+   "measure": "nominal",
+   "value_labels": {},
+   "missing_values": [],
+   "missing_range": null,
+   "n_system_missing": 0
+  }
+ ],
+ "multiple_response_sets": [],
+ "weight_variable": null,
+ "cases_sample": [
+  [
+   1,
+   1,
+   "Tõrva",
+   "Доброе утро, друзья",
+   3,
+   "Очень доволен обслуживанием"
+  ],
+  [
+   2,
+   2,
+   "Jõgeva",
+   "你好，世界",
+   9,
+   ""
+  ],
+  [
+   3,
+   3,
+   "Šiauliai",
+   "Grüß Gott, schöne Grüße aus Österreich",
+   2,
+   ""
+  ],
+  [
+   4,
+   4,
+   "Žagarė",
+   "こんにちは、お元気ですか",
+   3,
+   "Väga hea teenindus, aitäh! 😀"
+  ],
+  [
+   5,
+   5,
+   "Zürich",
+   "Hello 😀👍",
+   9,
+   "とても満足しています 🎉"
+  ],
+  [
+   19,
+   1,
+   "東京",
+   "こんにちは、お元気ですか",
+   1,
+   "Šokolaad ja žürii: täpitähed õäöü ÕÄÖÜ"
+  ],
+  [
+   20,
+   2,
+   "北京",
+   "こんにちは、お元気ですか",
+   3,
+   "Väga hea teenindus, aitäh! 😀"
+  ]
+ ]
+}

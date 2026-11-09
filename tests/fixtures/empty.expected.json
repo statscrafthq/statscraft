@@ -1,0 +1,61 @@
+{
+ "encoding": "UTF-8",
+ "compression": "none",
+ "case_count": 0,
+ "variable_count": 4,
+ "variables": [
+  {
+   "name": "id",
+   "type": "numeric",
+   "label": "Respondent ID",
+   "format": "F8.0",
+   "measure": "nominal",
+   "value_labels": {},
+   "missing_values": [],
+   "missing_range": null,
+   "n_system_missing": 0
+  },
+  {
+   "name": "score",
+   "type": "numeric",
+   "label": "Satisfaction score",
+   "format": "F5.1",
+   "measure": "scale",
+   "value_labels": {
+    "0": "Lowest",
+    "10": "Highest"
+   },
+   "missing_values": [
+    99
+   ],
+   "missing_range": null,
+   "n_system_missing": 0
+  },
+  {
+   "name": "name",
+   "type": "string",
+   "width": 1,
+   "label": "Customer name",
+   "format": "A1",
+   "measure": "nominal",
+   "value_labels": {},
+   "missing_values": [],
+   "missing_range": null,
+   "n_system_missing": 0
+  },
+  {
+   "name": "visit_date",
+   "type": "numeric",
+   "label": "Date of last visit",
+   "format": "DATE11",
+   "measure": "scale",
+   "value_labels": {},
+   "missing_values": [],
+   "missing_range": null,
+   "n_system_missing": 0
+  }
+ ],
+ "multiple_response_sets": [],
+ "weight_variable": null,
+ "cases_sample": []
+}

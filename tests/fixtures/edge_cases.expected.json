@@ -1,0 +1,272 @@
+{
+ "encoding": "UTF-8",
+ "compression": "bytecode",
+ "case_count": 12,
+ "variable_count": 12,
+ "file_label": "StatsCraft edge cases",
+ "variables": [
+  {
+   "name": "case_id",
+   "type": "numeric",
+   "label": "Case number",
+   "format": "F4.0",
+   "measure": "nominal",
+   "value_labels": {},
+   "missing_values": [],
+   "missing_range": null,
+   "n_system_missing": 0
+  },
+  {
+   "name": "this_variable_name_is_exactly_sixty_four_bytes_longxxxxxxxxxxxxx",
+   "type": "numeric",
+   "label": "Variable with a 64-character name",
+   "format": "F2.0",
+   "measure": "scale",
+   "value_labels": {},
+   "missing_values": [],
+   "missing_range": null,
+   "n_system_missing": 0
+  },
+  {
+   "name": "this_variable_name_is_a_second_long_one",
+   "type": "numeric",
+   "label": "Long name sharing its first 8 bytes with another",
+   "format": "F2.0",
+   "measure": "scale",
+   "value_labels": {},
+   "missing_values": [],
+   "missing_range": null,
+   "n_system_missing": 0
+  },
+  {
+   "name": "very_long_text",
+   "type": "string",
+   "width": 1200,
+   "label": "Very long string (width 1200)",
+   "format": "A1200",
+   "measure": "nominal",
+   "value_labels": {},
+   "missing_values": [],
+   "missing_range": null,
+   "n_system_missing": 0
+  },
+  {
+   "name": "all_missing",
+   "type": "numeric",
+   "label": "Numeric variable where every case is system-missing",
+   "format": "F8.2",
+   "measure": "scale",
+   "value_labels": {},
+   "missing_values": [],
+   "missing_range": null,
+   "n_system_missing": 12
+  },
+  {
+   "name": "empty_text",
+   "type": "string",
+   "width": 1,
+   "label": "String variable where every case is empty",
+   "format": "A1",
+   "measure": "nominal",
+   "value_labels": {},
+   "missing_values": [],
+   "missing_range": null,
+   "n_system_missing": 0
+  },
+  {
+   "name": "extreme_numbers",
+   "type": "numeric",
+   "label": "Very large, very small and negative numbers",
+   "format": "E16.8",
+   "measure": "scale",
+   "value_labels": {},
+   "missing_values": [],
+   "missing_range": null,
+   "n_system_missing": 0
+  },
+  {
+   "name": "three_missing",
+   "type": "numeric",
+   "label": "Exactly three discrete missing values",
+   "format": "F2.0",
+   "measure": "ordinal",
+   "value_labels": {
+    "1": "Low",
+    "5": "High",
+    "97": "Not asked",
+    "98": "Don't know",
+    "99": "Refused"
+   },
+   "missing_values": [
+    97,
+    98,
+    99
+   ],
+   "missing_range": null,
+   "n_system_missing": 1
+  },
+  {
+   "name": "range_plus_one",
+   "type": "numeric",
+   "label": "Missing range plus one discrete missing value",
+   "format": "F3.0",
+   "measure": "scale",
+   "value_labels": {
+    "-1": "Not applicable",
+    "99": "Refused"
+   },
+   "missing_values": [
+    -1
+   ],
+   "missing_range": [
+    90,
+    99
+   ],
+   "n_system_missing": 1
+  },
+  {
+   "name": "no_label",
+   "type": "numeric",
+   "label": null,
+   "format": "F8.2",
+   "measure": "scale",
+   "value_labels": {},
+   "missing_values": [],
+   "missing_range": null,
+   "n_system_missing": 0
+  },
+  {
+   "name": "country_code",
+   "type": "string",
+   "width": 2,
+   "label": "Short string (8 bytes or less) with value labels",
+   "format": "A2",
+   "measure": "nominal",
+   "value_labels": {
+    "EE": "Estonia",
+    "DE": "Germany",
+    "FI": "Finland"
+   },
+   "missing_values": [],
+   "missing_range": null,
+   "n_system_missing": 0
+  },
+  {
+   "name": "plan_name",
+   "type": "string",
+   "width": 10,
+   "label": "Long string (more than 8 bytes) with value labels",
+   "format": "A10",
+   "measure": "nominal",
+   "value_labels": {
+    "BASIC": "Basic plan",
+    "ENTERPRISE": "Enterprise plan"
+   },
+   "missing_values": [],
+   "missing_range": null,
+   "n_system_missing": 0
+  }
+ ],
+ "multiple_response_sets": [],
+ "weight_variable": null,
+ "cases_sample": [
+  [
+   1,
+   1,
+   12,
+   "The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very lo",
+   null,
+   "",
+   9.99e+307,
+   97,
+   0,
+   -4.0,
+   "EE",
+   "BASIC"
+  ],
+  [
+   2,
+   2,
+   11,
+   "The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and ke",
+   null,
+   "",
+   -9.99e+307,
+   98,
+   -1,
+   -2.5,
+   "DE",
+   "ENTERPRISE"
+  ],
+  [
+   3,
+   3,
+   10,
+   "The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote.",
+   null,
+   "",
+   1e-300,
+   99,
+   90,
+   -1.0,
+   "FI",
+   "PLUS"
+  ],
+  [
+   4,
+   4,
+   9,
+   "The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a",
+   null,
+   "",
+   5e-324,
+   1,
+   99,
+   0.5,
+   "",
+   "BASIC"
+  ],
+  [
+   5,
+   5,
+   8,
+   "",
+   null,
+   "",
+   -1000000000000000.0,
+   null,
+   null,
+   2.0,
+   "EE",
+   "ENTERPRISE"
+  ],
+  [
+   11,
+   11,
+   2,
+   "The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very long answer about the service and kept on typing. The respondent wrote a very l",
+   null,
+   "",
+   0.30000000000000004,
+   2,
+   -1,
+   11.0,
+   "EE",
+   "ENTERPRISE"
+  ],
+  [
+   12,
+   12,
+   1,
+   "õõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõõ",
+   null,
+   "",
+   -123456789.12345679,
+   3,
+   8,
+   12.5,
+   "DE",
+   "PLUS"
+  ]
+ ]
+}
