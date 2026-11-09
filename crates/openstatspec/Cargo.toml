@@ -1,6 +1,6 @@
 [package]
 name = "statscraft-openstatspec"
-description = "OpenStatSpec driver: the reference program syntax frontend to the transformation plan, canonical JSON and hashes"
+description = "OpenStatSpec driver: syntax frontend to the transformation plan, canonical JSON and hashes"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
