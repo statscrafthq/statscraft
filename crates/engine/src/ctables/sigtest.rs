@@ -409,22 +409,26 @@ fn side_label(term: &Term, lists: &HashMap<String, CategoryList>, outer: &[usize
     parts.join(" > ")
 }
 
-/// The tests of one CTABLES table: the tables that follow the main one, in the order of their
-/// subcommands' kinds (chi-square, then the comparisons), and the comparisons to merge into the
-/// main table (MERGE=YES).
+/// The sections of one layer term, by row term and column term.
+pub(super) type Sections<'s> = HashMap<(usize, usize), &'s Section>;
+
+/// The tests of one layer of a CTABLES table (`layer` holds its categories): the tables that
+/// follow the main one, in the order of their subcommands' kinds (chi-square, then the
+/// comparisons), and the comparisons to merge into the main table (MERGE=YES).
 #[allow(clippy::type_complexity)]
 pub(super) fn tables<'t>(
     table: &'t CtablesTable,
     layout: &Layout,
     lists: &HashMap<String, CategoryList>,
-    sections: &HashMap<(usize, usize), Section>,
+    sections: &Sections,
+    layer: &[usize],
 ) -> Result<(Vec<Table>, Vec<(&'t Comparetest, Comparisons)>), Error> {
     let (mut out, mut merged) = (Vec::new(), Vec::new());
     if let Some(spec) = &table.sigtest {
-        out.push(chi_square_table(spec, layout, lists, sections)?);
+        out.push(chi_square_table(spec, layout, lists, sections, layer)?);
     }
     for spec in &table.comparetests {
-        let found = comparisons(spec, layout, lists, sections)?;
+        let found = comparisons(spec, layout, lists, sections, layer)?;
         if spec.merge {
             merged.push((spec, found));
         } else {
@@ -474,14 +478,15 @@ fn chi_square_table(
     spec: &Sigtest,
     layout: &Layout,
     lists: &HashMap<String, CategoryList>,
-    sections: &HashMap<(usize, usize), Section>,
+    sections: &Sections,
+    layer: &[usize],
 ) -> Result<Table, Error> {
     let mut rows = Vec::new();
     let (mut untested, mut with_sets) = (false, false);
     let mut left_out = Vec::new();
     for (r, row_term) in layout.rows.iter().enumerate() {
         for (c, column_term) in layout.columns.iter().enumerate() {
-            let section = &sections[&(r, c)];
+            let section = sections[&(r, c)];
             if !categorical_section(row_term, column_term, section) {
                 continue;
             }
@@ -504,7 +509,7 @@ fn chi_square_table(
                 for column_outer in combinations(&column_lists[..nc - 1]) {
                     // whole cases: weighted counts are rounded for the test
                     let at = |i: usize, j: usize| {
-                        let key = [&row_outer[..], &[i][..], &column_outer[..], &[j][..]].concat();
+                        let key = [&row_outer[..], &[i], &column_outer, &[j], layer].concat();
                         count_at(section, &key).round()
                     };
                     let counts: Vec<Vec<f64>> = inner_rows
@@ -639,13 +644,14 @@ fn comparisons(
     spec: &Comparetest,
     layout: &Layout,
     lists: &HashMap<String, CategoryList>,
-    sections: &HashMap<(usize, usize), Section>,
+    sections: &Sections,
+    layer: &[usize],
 ) -> Result<Comparisons, Error> {
     let means = spec.kind == CompareKind::Means;
     // which sections could be tested, and which of those leave out a set
     let suitable = |r: usize, c: usize| {
         let (row, column) = (&layout.rows[r], &layout.columns[c]);
-        let section = &sections[&(r, c)];
+        let section = sections[&(r, c)];
         if !means {
             return categorical_section(row, column, section);
         }
@@ -728,12 +734,17 @@ fn comparisons(
                 let family = families
                     .entry((column.term, outer.to_vec()))
                     .or_insert_with(|| {
-                        let section = &sections[&(r, column.term)];
+                        let section = sections[&(r, column.term)];
                         let column_term = &layout.columns[column.term];
                         let column_lists = category_lists(column_term, lists);
                         let inner_columns = proper(column_lists[column_lists.len() - 1]);
                         let set = set_sides(term, column_term).1;
-                        compare(spec, section, &row_combo, outer, &inner_columns, set)
+                        let at = Place {
+                            row: &row_combo,
+                            column_outer: outer,
+                            layer,
+                        };
+                        compare(spec, section, at, &inner_columns, set)
                     });
                 outcomes.push(if !family.tested[&inner[0]] {
                     dots = true;
@@ -1041,21 +1052,32 @@ pub(super) fn merge(
     });
 }
 
+/// Where a row of comparisons lies: its row categories, the categories of the outer column
+/// variables of its subtable, and its layer.
+#[derive(Clone, Copy)]
+struct Place<'p> {
+    row: &'p [usize],
+    column_outer: &'p [usize],
+    layer: &'p [usize],
+}
+
 /// The comparisons of one row of one subtable.
 fn compare(
     spec: &Comparetest,
     section: &Section,
-    row_combo: &[usize],
-    column_outer: &[usize],
+    at: Place,
     inner_columns: &[usize],
     set: bool,
 ) -> Family {
-    let key = |row: &[usize], j: usize| [row, column_outer, &[j][..]].concat();
+    let (row_combo, column_outer, layer) = (at.row, at.column_outer, at.layer);
+    let key = |row: &[usize], j: usize| [row, column_outer, &[j], layer].concat();
     // the cases two categories of a set in the columns share
     let shared_by = |row: &[usize], j: usize, k: usize, valid: bool| {
         let (a, b) = (inner_columns[j], inner_columns[k]);
         let pair = [a.min(b), a.max(b)];
-        let tally = section.pairs.get(&[row, column_outer, &pair[..]].concat());
+        let tally = section
+            .pairs
+            .get(&[row, column_outer, layer, &pair[..]].concat());
         tally.map_or(0.0, |t| if valid { t.valid } else { t.count })
     };
     let (pairs, tested) = match spec.kind {

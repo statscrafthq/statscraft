@@ -20,9 +20,163 @@ fn run_on(engine: &mut Engine, source: &str) -> Result<Vec<Table>, String> {
 }
 
 fn run(file: &str, source: &str) -> Table {
+    run_all(file, source).remove(0)
+}
+
+fn run_all(file: &str, source: &str) -> Vec<Table> {
     let mut engine = Engine::default();
     let source = format!("GET FILE='{}'.\n{source}", fixture(file));
-    run_on(&mut engine, &source).unwrap().remove(0)
+    run_on(&mut engine, &source).unwrap()
+}
+
+fn all_numbers(t: &Table) -> Vec<Vec<Option<f64>>> {
+    (0..t.rows.len()).map(|r| numbers(t, r)).collect()
+}
+
+// Layers (Command Syntax Reference, CTABLES, TABLE subcommand and the summary functions table;
+// Custom Tables manual, "Layers" and "Percentages"): `rows BY columns BY layers` gives a table for
+// every layer category, nested layers a table for every combination, stacked layers one for every
+// category of each. Within a layer every percentage but TABLEPCT is taken as if the layer were
+// the whole table: LAYERPCT is the percentage of the layer, LAYERROWPCT and LAYERCOLPCT run across
+// the subtables of the layer. TABLEPCT is of the whole table, all layers together.
+const LAYERED: &str = "[COUNT, COLPCT, ROWPCT, SUBTABLEPCT, LAYERPCT, LAYERROWPCT, LAYERCOLPCT]";
+
+#[test]
+fn a_layer_is_the_table_of_its_cases() {
+    for file in ["survey_basic.sav", "survey_basic_phpwriter.sav"] {
+        let layers = run_all(
+            file,
+            &format!("CTABLES /TABLE q5_2 > gender {LAYERED} BY region BY q5_1."),
+        );
+        assert_eq!(layers.len(), 2);
+        for (k, layer) in layers.iter().enumerate() {
+            let alone = run(
+                file,
+                &format!(
+                    "SELECT IF q5_1 = {k}.\nCTABLES /TABLE q5_2 > gender {LAYERED} BY region."
+                ),
+            );
+            assert_eq!(all_numbers(layer), all_numbers(&alone), "{file} layer {k}");
+            assert_eq!(
+                (&layer.columns, &layer.rows.len()),
+                (&alone.columns, &alone.rows.len())
+            );
+        }
+        let label = ["Not selected", "Selected"];
+        for (layer, label) in layers.iter().zip(label) {
+            assert!(
+                layer.title.starts_with("Custom Tables (Q5. "),
+                "{}",
+                layer.title
+            );
+            assert!(
+                layer.title.ends_with(&format!("Phone: {label})")),
+                "{}",
+                layer.title
+            );
+        }
+    }
+}
+
+#[test]
+fn table_percentages_run_over_all_layers_and_a_total_layer_is_the_whole_table() {
+    let tables = run_all(
+        "survey_basic.sav",
+        "CTABLES /TABLE gender [TABLEPCT, LAYERPCT, COLPCT] BY region BY q5_1 > q5_2\n\
+         /CATEGORIES VARIABLES=q5_2 TOTAL=YES.",
+    );
+    // two categories of q5_1 by two of q5_2 and its total
+    assert_eq!(tables.len(), 6);
+    assert!(
+        tables[2].title.ends_with("Email: Total)"),
+        "{}",
+        tables[2].title
+    );
+    let sum = |picked: &[usize], column: usize| -> f64 {
+        picked
+            .iter()
+            .flat_map(|&t| (0..3).map(move |r| (t, r)))
+            .map(|(t, r)| {
+                numbers(&tables[t], r)
+                    .iter()
+                    .skip(column)
+                    .step_by(3)
+                    .flatten()
+                    .sum::<f64>()
+            })
+            .sum()
+    };
+    // TABLEPCT adds up to 100 over the four layers of plain categories, LAYERPCT in each (the
+    // cells are rounded to 6 decimals)
+    assert!((sum(&[0, 1, 3, 4], 0) - 100.0).abs() < 1e-4);
+    for t in [0, 1, 2, 3, 4, 5] {
+        assert!((sum(&[t], 1) - 100.0).abs() < 1e-4, "layer {t}");
+    }
+    // the total of q5_2 within q5_1 = 0 is the layer q5_1 = 0 of a table without q5_2
+    let outer = run_all(
+        "survey_basic.sav",
+        "CTABLES /TABLE gender [TABLEPCT, LAYERPCT, COLPCT] BY region BY q5_1.",
+    );
+    assert_eq!(all_numbers(&tables[2]), all_numbers(&outer[0]));
+    assert_eq!(all_numbers(&tables[5]), all_numbers(&outer[1]));
+}
+
+#[test]
+fn stacked_layers_and_summaries_in_the_layers() {
+    let tables = run_all(
+        "survey_basic.sav",
+        "CTABLES /TABLE gender BY region BY q5_1 + q5_2.",
+    );
+    assert_eq!(tables.len(), 4);
+    assert!(
+        tables[2].title.contains("Email: Not selected"),
+        "{}",
+        tables[2].title
+    );
+    // SLABELS POSITION=LAYER: a table for every summary, in the layers' order
+    let plain = run(
+        "survey_basic.sav",
+        "CTABLES /TABLE gender [COUNT, COLPCT] BY region.",
+    );
+    let tables = run_all(
+        "survey_basic.sav",
+        "CTABLES /TABLE gender [COUNT, COLPCT] BY region /SLABELS POSITION=LAYER.",
+    );
+    assert_eq!(tables.len(), 2);
+    assert_eq!(tables[1].title, "Custom Tables (Column %)");
+    for (s, table) in tables.iter().enumerate() {
+        assert_eq!(table.columns.len(), 2 + 5);
+        for r in 0..3 {
+            let every: Vec<Option<f64>> =
+                numbers(&plain, r).into_iter().skip(s).step_by(2).collect();
+            assert_eq!(numbers(table, r), every, "summary {s} row {r}");
+        }
+    }
+}
+
+#[test]
+fn tests_run_in_every_layer() {
+    let tables = run_all(
+        "survey_basic.sav",
+        "CTABLES /TABLE gender BY region BY q5_1 /SIGTEST TYPE=CHISQUARE.",
+    );
+    let titles: Vec<&str> = tables.iter().map(|t| t.title.as_str()).collect();
+    assert_eq!(titles.len(), 4, "{titles:?}");
+    assert!(titles[1].starts_with("Pearson Chi-Square Tests (Q5. "));
+    for k in 0..2 {
+        let alone = run_all(
+            "survey_basic.sav",
+            &format!(
+                "SELECT IF q5_1 = {k}.\nCTABLES /TABLE gender BY region /SIGTEST TYPE=CHISQUARE."
+            ),
+        );
+        // chi-square, df and significance
+        assert_eq!(
+            tables[2 * k + 1].rows[0][2..5],
+            alone[1].rows[0][2..5],
+            "layer {k}"
+        );
+    }
 }
 
 fn text(cell: &Cell) -> &str {

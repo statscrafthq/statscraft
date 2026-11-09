@@ -11,6 +11,13 @@
 //! not shown) still counts in TOTALN and the .TOTALN percentages: in the totals of that
 //! variable and in every area the variable does not decide. A case whose valid value is left
 //! out by an explicit category list is not in the table at all.
+//!
+//! Layers, the third axis after a second BY, are a dimension of the sections like the rows and
+//! the columns. Our result table has two dimensions, so every layer entry (a combination of the
+//! categories of a layer term, and a summary with SLABELS POSITION=LAYER) becomes a table of its
+//! own whose title names the layer, followed by its tests; the manual's pivot table shows one
+//! layer at a time in the same way. A layer variable decides every percentage area except the
+//! table's, so TABLEPCT spans all layers and LAYERPCT is the table percentage of one layer.
 
 mod format;
 mod mrsets;
@@ -649,11 +656,14 @@ struct Entry {
 enum Axis {
     Rows,
     Columns,
+    Layers,
 }
 
 struct Layout<'a> {
     rows: Vec<Term<'a>>,
     columns: Vec<Term<'a>>,
+    /// One empty term when the table has no layers.
+    layers: Vec<Term<'a>>,
 }
 
 impl<'a> Layout<'a> {
@@ -661,6 +671,7 @@ impl<'a> Layout<'a> {
         match axis {
             Axis::Rows => &self.rows,
             Axis::Columns => &self.columns,
+            Axis::Layers => &self.layers,
         }
     }
 
@@ -789,12 +800,25 @@ impl Engine {
             Some(expr) => self.resolve(data, command, expr)?,
             None => vec![Vec::new()],
         };
-        let summary_axis = check_summaries(&rows, &columns)?;
-        let layout = Layout { rows, columns };
+        let layers = match &table.layers {
+            Some(expr) => self.resolve(data, command, expr)?,
+            None => vec![Vec::new()],
+        };
+        let summary_axis = check_summaries([&rows, &columns, &layers])?;
+        let layout = Layout {
+            rows,
+            columns,
+            layers,
+        };
 
         // categories of every categorical variable, by name
         let mut lists: HashMap<String, CategoryList> = HashMap::new();
-        for var in layout.rows.iter().chain(&layout.columns).flatten() {
+        let all_terms = layout
+            .rows
+            .iter()
+            .chain(&layout.columns)
+            .chain(&layout.layers);
+        for var in all_terms.flatten() {
             let name = var.key();
             if var.scale || lists.contains_key(&name) {
                 continue;
@@ -838,7 +862,9 @@ impl Engine {
             term_summaries.push((indexed, variable));
         }
 
-        let label_axis = if table.summaries_in_rows {
+        let label_axis = if table.summaries_in_layers {
+            Axis::Layers
+        } else if table.summaries_in_rows {
             Axis::Rows
         } else {
             Axis::Columns
@@ -883,27 +909,31 @@ impl Engine {
         };
         let row_entries = entries(Axis::Rows);
         let column_entries = entries(Axis::Columns);
+        let layer_entries = entries(Axis::Layers);
 
         // gather the cases of every section
-        let mut sections: HashMap<(usize, usize), Section> = HashMap::new();
+        let mut sections: HashMap<(usize, usize, usize), Section> = HashMap::new();
         let tested = table.sigtest.is_some() || !table.comparetests.is_empty();
         for (r, row_term) in layout.rows.iter().enumerate() {
             for (c, column_term) in layout.columns.iter().enumerate() {
-                let summary_term = match summary_axis {
-                    Axis::Rows => r,
-                    Axis::Columns => c,
-                };
-                let (summaries, variable) = &term_summaries[summary_term];
-                let section = Section::gather(
-                    data,
-                    weights,
-                    [row_term, column_term],
-                    &lists,
-                    summaries,
-                    variable,
-                    tested,
-                )?;
-                sections.insert((r, c), section);
+                for (l, layer_term) in layout.layers.iter().enumerate() {
+                    let summary_term = match summary_axis {
+                        Axis::Rows => r,
+                        Axis::Columns => c,
+                        Axis::Layers => l,
+                    };
+                    let (summaries, variable) = &term_summaries[summary_term];
+                    let section = Section::gather(
+                        data,
+                        weights,
+                        [row_term, column_term, layer_term],
+                        &lists,
+                        summaries,
+                        variable,
+                        tested,
+                    )?;
+                    sections.insert((r, c, l), section);
+                }
             }
         }
 
@@ -933,63 +963,119 @@ impl Engine {
             }
         }
 
-        let mut out_rows = Vec::new();
-        let mut formats = Vec::new();
-        for row in &row_entries {
-            let mut cells: Vec<Cell> = (0..row_headers)
-                .map(|i| match row.path.get(i) {
-                    Some(text) => Cell::Text(text.clone()),
-                    None => Cell::Empty,
-                })
-                .collect();
-            let mut cell_formats = vec![String::new(); row_headers];
-            for column in &column_entries {
-                let section = &sections[&(row.term, column.term)];
-                let slot = row.slot.or(column.slot).unwrap_or(0);
-                let mut key = row.combo.clone();
-                key.extend(&column.combo);
-                let (cell, format) = section.cell(&key, slot, command);
-                cells.push(cell);
-                cell_formats.push(format);
+        // one table for every layer, each followed by its tests
+        let title = table.title.as_deref().unwrap_or("Custom Tables");
+        let mut out = Vec::new();
+        let mut tested_layers: Vec<(usize, &[usize])> = Vec::new();
+        for layer in &layer_entries {
+            let mut out_rows = Vec::new();
+            let mut formats = Vec::new();
+            for row in &row_entries {
+                let mut cells: Vec<Cell> = (0..row_headers)
+                    .map(|i| match row.path.get(i) {
+                        Some(text) => Cell::Text(text.clone()),
+                        None => Cell::Empty,
+                    })
+                    .collect();
+                let mut cell_formats = vec![String::new(); row_headers];
+                for column in &column_entries {
+                    let section = &sections[&(row.term, column.term, layer.term)];
+                    let slot = row.slot.or(column.slot).or(layer.slot).unwrap_or(0);
+                    let key = [&row.combo[..], &column.combo, &layer.combo].concat();
+                    let (cell, format) = section.cell(&key, slot, command);
+                    cells.push(cell);
+                    cell_formats.push(format);
+                }
+                out_rows.push(cells);
+                formats.push(cell_formats);
             }
-            out_rows.push(cells);
-            formats.push(cell_formats);
-        }
-
-        let mut main = Table {
-            title: table
-                .title
-                .clone()
-                .unwrap_or_else(|| "Custom Tables".into()),
-            row_headers,
-            columns,
-            column_groups,
-            rows: out_rows,
-            formats,
-            caption: table.caption.clone(),
-        };
-        let (tests, merged) = sigtest::tables(table, &layout, &lists, &sections)?;
-        for (spec, found) in &merged {
-            sigtest::merge(
-                &mut main,
-                spec,
-                found,
-                &row_entries,
-                &column_entries,
+            let layer_title = |title: &str| match layer_name(
+                &layout.layers[layer.term],
+                &lists,
+                layer,
                 &slots,
-            );
+                table.summary_labels,
+            ) {
+                Some(name) => format!("{title} ({name})"),
+                None => title.to_string(),
+            };
+            let mut main = Table {
+                title: layer_title(title),
+                row_headers,
+                columns: columns.clone(),
+                column_groups: column_groups.clone(),
+                rows: out_rows,
+                formats,
+                caption: table.caption.clone(),
+            };
+            // the tests do not depend on the summary of a layer, so they run once per category
+            let tests = if tested_layers.contains(&(layer.term, &layer.combo[..])) {
+                Vec::new()
+            } else {
+                tested_layers.push((layer.term, &layer.combo));
+                let in_layer: HashMap<(usize, usize), &Section> = sections
+                    .iter()
+                    .filter(|((_, _, l), _)| *l == layer.term)
+                    .map(|((r, c, _), section)| ((*r, *c), section))
+                    .collect();
+                let (tests, merged) =
+                    sigtest::tables(table, &layout, &lists, &in_layer, &layer.combo)?;
+                for (spec, found) in &merged {
+                    sigtest::merge(
+                        &mut main,
+                        spec,
+                        found,
+                        &row_entries,
+                        &column_entries,
+                        &slots,
+                    );
+                }
+                tests
+            };
+            out.push(main);
+            out.extend(tests.into_iter().map(|mut test| {
+                test.title = layer_title(&test.title);
+                test
+            }));
         }
-        let mut out = vec![main];
-        out.extend(tests);
         Ok(out)
     }
 }
 
+/// The layer of a table in words, such as "Gender: Male, Region: North", for its title; None
+/// when the table has no layers.
+fn layer_name(
+    term: &Term,
+    lists: &HashMap<String, CategoryList>,
+    layer: &Entry,
+    slots: &[Slot],
+    summary_labels: bool,
+) -> Option<String> {
+    let mut parts = Vec::new();
+    let mut c = 0;
+    for var in term {
+        if var.scale {
+            parts.extend(var.label.clone());
+            continue;
+        }
+        let category = &list_of(lists, var).categories[layer.combo[c]].label;
+        c += 1;
+        parts.push(match &var.label {
+            Some(label) => format!("{label}: {category}"),
+            None => category.clone(),
+        });
+    }
+    if let (Some(s), true) = (layer.slot, summary_labels) {
+        parts.push(slots[s].label.clone());
+    }
+    (!parts.is_empty()).then(|| parts.join(", "))
+}
+
 /// Which axis carries the summaries: the one with a scale variable or with summaries written
 /// in the syntax. Also checks where summaries may appear.
-fn check_summaries(rows: &[Term], columns: &[Term]) -> Result<Axis, Error> {
-    let mut found: [Option<String>; 2] = [None, None];
-    for (axis, terms) in [rows, columns].iter().enumerate() {
+fn check_summaries(axes: [&[Term]; 3]) -> Result<Axis, Error> {
+    let mut found: [Option<String>; 3] = [None, None, None];
+    for (axis, terms) in axes.iter().enumerate() {
         for term in terms.iter() {
             let scales: Vec<&TermVar> = term.iter().filter(|v| v.scale).collect();
             if scales.len() > 1 {
@@ -1037,16 +1123,23 @@ fn check_summaries(rows: &[Term], columns: &[Term]) -> Result<Axis, Error> {
             }
         }
     }
-    match found {
-        [Some(row), Some(column)] => Err(Error(format!(
-            "/TABLE: summaries may appear on one axis only, but the rows have {row} and the columns have {column} (a scale variable always has a summary)"
+    const NAMES: [&str; 3] = ["rows", "columns", "layers"];
+    let with: Vec<(usize, &String)> = (0..3)
+        .filter_map(|a| found[a].as_ref().map(|name| (a, name)))
+        .collect();
+    match with[..] {
+        [(a, first), (b, second), ..] => Err(Error(format!(
+            "/TABLE: summaries may appear on one axis only, but the {} have {first} and the {} have {second} (a scale variable always has a summary)",
+            NAMES[a], NAMES[b]
         ))),
-        [_, Some(_)] => Ok(Axis::Columns),
+        [(1, _)] => Ok(Axis::Columns),
+        [(2, _)] => Ok(Axis::Layers),
         _ => Ok(Axis::Rows),
     }
 }
 
-/// The gathered cases of one row term crossed with one column term.
+/// The gathered cases of one row term crossed with one column term and one layer term. A key
+/// lists the categories of the rows, then the columns, then the layers.
 struct Section {
     /// For every categorical variable: true when its category of a cell decides the area of
     /// each kind of percentage. Index by `area`.
@@ -1059,7 +1152,8 @@ struct Section {
     cells: HashMap<Vec<usize>, Tally>,
     denominators: [HashMap<Vec<usize>, Tally>; 7],
     /// For the tests, when the innermost column variable is a set: the cases two of its
-    /// categories share, by the categories of the other variables and the two categories.
+    /// categories share, by the categories of the other variables (rows, outer columns,
+    /// layers) and then the two categories.
     pairs: HashMap<Vec<usize>, Tally>,
     summaries: Vec<(usize, Summary, String)>,
     has_scale: bool,
@@ -1076,37 +1170,44 @@ impl Section {
     fn gather<'a>(
         data: &Dataset,
         weights: Option<&[f64]>,
-        [row_term, column_term]: [&[TermVar<'a>]; 2],
+        terms: [&[TermVar<'a>]; 3],
         lists: &HashMap<String, CategoryList>,
         summaries: &[(usize, Summary, String)],
         summary_variable: &TermVar<'a>,
         margins: bool,
     ) -> Result<Section, Error> {
-        let row_cats: Vec<&TermVar> = row_term.iter().filter(|v| !v.scale).collect();
-        let column_cats: Vec<&TermVar> = column_term.iter().filter(|v| !v.scale).collect();
-        let (nr, nc) = (row_cats.len(), column_cats.len());
-        let cats: Vec<&TermVar> = row_cats.into_iter().chain(column_cats).collect();
+        let [nr, nc, _] = terms.map(|term| term.iter().filter(|v| !v.scale).count());
+        // the categorical variables of the rows, then the columns, then the layers
+        let cats: Vec<&TermVar> = terms
+            .iter()
+            .flat_map(|t| t.iter())
+            .filter(|v| !v.scale)
+            .collect();
         let lists: Vec<&CategoryList> = cats.iter().map(|v| list_of(lists, v)).collect();
-        let scale = row_term.iter().chain(column_term).find(|v| v.scale);
+        let scale = terms.iter().flat_map(|t| t.iter()).find(|v| v.scale);
 
-        // which variables decide each area, in PercentBase order
+        // which variables decide each area, in PercentBase order; a layer variable decides
+        // every area but the table's, as an outer variable does
         let is_row = |i: usize| i < nr;
+        let is_column = |i: usize| (nr..nr + nc).contains(&i);
+        let is_layer = |i: usize| i >= nr + nc;
         let outer = |i: usize| {
-            if is_row(i) {
-                i + 1 < nr
-            } else {
-                i + 1 < nr + nc
-            }
+            is_layer(i)
+                || if is_row(i) {
+                    i + 1 < nr
+                } else {
+                    i + 1 < nr + nc
+                }
         };
         let decides = |f: &dyn Fn(usize) -> bool| (0..cats.len()).map(f).collect::<Vec<bool>>();
         let areas = [
             decides(&|i| is_row(i) || outer(i)),
-            decides(&|i| !is_row(i) || outer(i)),
+            decides(&|i| is_column(i) || outer(i)),
             decides(&|_| false),
             decides(&outer),
-            decides(&|_| false),
-            decides(&is_row),
-            decides(&|i| !is_row(i)),
+            decides(&is_layer),
+            decides(&|i| is_row(i) || is_layer(i)),
+            decides(&|i| is_column(i) || is_layer(i)),
         ];
 
         let summary_list = summary_variable_list(&cats, &lists, summary_variable);
@@ -1216,11 +1317,14 @@ impl Section {
                     total_only,
                 );
             }
-            // the cases two categories of a set in the innermost column share
+            // the cases two categories of a set in the innermost column share, by the
+            // categories of the other variables
             let inner_set = nc > 0 && cats[nr + nc - 1].set.is_some();
             if margins && inner_set && !total_only {
                 let inner = indices(&choices[nr + nc - 1]);
-                let shared: Vec<Vec<usize>> = mrsets::product(&parts[..nr + nc - 1]);
+                let mut others = parts.clone();
+                others.remove(nr + nc - 1);
+                let shared: Vec<Vec<usize>> = mrsets::product(&others);
                 for (n, &a) in inner.iter().enumerate() {
                     for &b in &inner[n + 1..] {
                         let pair = [a.min(b), a.max(b)];
@@ -1246,11 +1350,6 @@ impl Section {
         let Some((_, summary, format)) = self.summaries.iter().find(|(s, ..)| *s == slot) else {
             return (Cell::Empty, String::new());
         };
-        let has_total = |decides: &dyn Fn(usize) -> bool| {
-            key.iter()
-                .enumerate()
-                .any(|(i, k)| decides(i) && self.totals[i] == Some(*k))
-        };
         let empty = Tally::default();
         let counting = matches!(
             summary.function.statistic,
@@ -1262,9 +1361,9 @@ impl Section {
         );
         let tally = match self.cells.get(key) {
             Some(tally) => tally,
-            // without cases a count is 0 (EMPTY decides how it shows), as is a percentage of a
-            // plain combination of categories; other statistics have no value
-            None if counting || !(self.has_scale || has_total(&|_| true)) => &empty,
+            // without cases a count is 0 (EMPTY decides how it shows), as is a percentage
+            // beside categorical variables only; other statistics have no value
+            None if counting || !self.has_scale => &empty,
             None => return (Cell::Empty, format.clone()),
         };
         if tally.cases == 0.0 {

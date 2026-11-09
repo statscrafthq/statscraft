@@ -260,6 +260,35 @@ fn check_rejected(fixture: &str, syntax: &str, fragment: &str) {
     }
 }
 
+/// A layered table. PSPP writes only its first layer, with a "Layer: category" line above the
+/// header that names one of its layer categories or summaries, so that table is compared with
+/// our first one, whose title names them all.
+fn check_first_layer(fixture: &str, syntax: &str) {
+    let (theirs, messages) = run_pspp(fixture, syntax);
+    let ours = run_ours(fixture, syntax).unwrap_or_else(|e| panic!("{e}\n{syntax}"));
+    let mut pspp = theirs
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| panic!("no table from PSPP:\n{messages}"));
+    let mine = our_grid(&ours[0]);
+    assert!(mine.title.starts_with(&format!("{} (", pspp.title)));
+    while let Some(layer) = pspp.rows[0][0].strip_prefix("Layer: ") {
+        assert!(
+            mine.title.contains(&format!(" {layer}")),
+            "{} is not layer {layer}",
+            mine.title
+        );
+        pspp.rows.remove(0);
+    }
+    pspp.title = mine.title.clone();
+    assert!(
+        mine == pspp,
+        "tables differ for:\n{syntax}\n--- ours\n{}\n--- PSPP\n{}",
+        show(&mine),
+        show(&pspp)
+    );
+}
+
 fn survey(cases: &[&str]) {
     for syntax in cases {
         check("survey_basic.sav", syntax);
@@ -467,6 +496,27 @@ fn weighted_tables() {
         "CTABLES /TABLE plan [COUNT F8.2, TABLEPCT.COUNT PCT8.2] BY q5_3.",
         "CTABLES /TABLE monthly_spend [ROWPCT.SUM, UCOLPCT.SUM, TABLEPCT.SUM] BY gender > q5_1.",
     ]);
+}
+
+#[test]
+#[ignore = "needs STATSCRAFT_PSPP"]
+fn first_layer() {
+    for syntax in [
+        "CTABLES /TABLE gender [COUNT, COLPCT, ROWPCT, SUBTABLEPCT, LAYERPCT, LAYERROWPCT, LAYERCOLPCT, TABLEPCT] BY region BY q5_1.",
+        // an explicit list puts the other category first
+        "CTABLES /TABLE q5_2 > gender [COUNT, COLPCT, LAYERPCT, LAYERCOLPCT, TABLEPCT] BY region BY q5_1\n\
+         /CATEGORIES VARIABLES=q5_1 [1, 0].",
+        "CTABLES /TABLE gender [COUNT, COLPCT] BY region BY q5_1 /SLABELS POSITION=LAYER.",
+        "CTABLES /TABLE gender [COUNT, COLPCT] BY BY q5_1.",
+        // PSPP leaves a count of 0 blank beside a scale variable, where the manual shows 0, so
+        // the third gender, which has empty cells, is left out
+        "CTABLES /TABLE age [MEAN, COUNT, MEDIAN] BY gender BY q5_1 /CATEGORIES VARIABLES=gender [1, 2].",
+    ] {
+        check_first_layer("survey_basic.sav", syntax);
+    }
+    let weighted = "COMPUTE w = RND(weight * 3).\nWEIGHT BY w.\n\
+                    CTABLES /TABLE gender [COUNT, COLPCT, LAYERPCT, TABLEPCT] BY region BY q5_1.";
+    check_first_layer("survey_basic_phpwriter.sav", weighted);
 }
 
 #[test]

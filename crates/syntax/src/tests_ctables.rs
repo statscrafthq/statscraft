@@ -125,7 +125,6 @@ fn per_table_and_global_subcommands() {
 #[test]
 fn features_of_the_next_stage_are_named() {
     for (source, feature) in [
-        ("CTABLES /TABLE a BY b BY c.", "layer axis"),
         ("CTABLES /TABLE a /CRITERIA CILEVEL=90.", "CRITERIA"),
         (
             "CTABLES /PCOMPUTE &x = EXPR([1] + [2]) /TABLE a.",
@@ -237,6 +236,23 @@ fn merged_letters_default_to_apa_and_showsig_keeps_them_apart() {
     assert_eq!(c.tables[0].comparetests[0].style, CompareStyle::Simple);
     let c = one("CTABLES /TABLE a BY b /COMPARETEST TYPE=PROP MERGE=YES SHOWSIG=YES.");
     assert!(!c.tables[0].comparetests[0].merge);
+}
+
+#[test]
+fn a_second_by_gives_the_layers() {
+    let c = one("CTABLES /TABLE a BY b BY c > d + e /SLABELS POSITION=LAYER.");
+    let t = &c.tables[0];
+    assert_eq!(t.columns, Some(var("b")));
+    assert!(matches!(t.layers, Some(AxisExpr::Stack(..))));
+    assert!(t.summaries_in_layers && !t.summaries_in_rows);
+    // the columns may be left out between the two BYs
+    let c = one("CTABLES /TABLE a BY BY c.");
+    assert_eq!(
+        (&c.tables[0].columns, &c.tables[0].layers),
+        (&None, &Some(var("c")))
+    );
+    let e = err("CTABLES /TABLE a BY b BY c BY d.");
+    assert!(!e.expected.contains(&"BY".to_string()), "{e:?}");
 }
 
 #[test]

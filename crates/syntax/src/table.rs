@@ -232,8 +232,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "CTABLES [/FORMAT EMPTY=ZERO|BLANK|'text' MISSING='text']\n\
                  \x20       [/VLABELS VARIABLES=varlist DISPLAY=DEFAULT|NAME|LABEL|BOTH|NONE]\n\
                  \x20       [/MRSETS COUNTDUPLICATES=NO|YES]\n\
-                 \x20       /TABLE rows [BY columns]\n\
-                 \x20       [/SLABELS POSITION=COLUMN|ROW VISIBLE=YES|NO]\n\
+                 \x20       /TABLE rows [BY [columns] [BY layers]]\n\
+                 \x20       [/SLABELS POSITION=COLUMN|ROW|LAYER VISIBLE=YES|NO]\n\
                  \x20       [/CATEGORIES VARIABLES=varlist [ORDER=A|D] [KEY=VALUE|LABEL] [MISSING=EXCLUDE|INCLUDE]\n\
                  \x20                    [TOTAL=NO|YES] [LABEL='text'] [POSITION=AFTER|BEFORE] [EMPTY=INCLUDE|EXCLUDE]]\n\
                  \x20       [/CATEGORIES VARIABLES=varlist [value, low THRU high, ...] [TOTAL=YES ...]]\n\
@@ -248,6 +248,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  makes a variable categorical or scale; otherwise SCALE is scale and the other levels categorical.\n\
                  A numeric variable of unknown level is scale with a currency, date or time format, a fraction, a\n\
                  negative value, 24 or more distinct values, or no value below 10; else categorical.\n\
+                 Layers (rows BY columns BY layers, or rows BY BY layers) give a table for every layer category,\n\
+                 for every combination of nested layer variables and every category of stacked ones; its title\n\
+                 names the layer. Within a layer the percentages are of that layer (LAYERPCT: of all its cells;\n\
+                 LAYERROWPCT and LAYERCOLPCT: across its subtables), except TABLEPCT, which spans all layers.\n\
+                 SLABELS POSITION=LAYER makes every summary a layer of its own. Tests run in every layer.\n\
                  A summary list follows a scale variable or the innermost categorical variable of one axis:\n\
                  var [function ['label'] [format], ...], format F, PCT, COMMA or DOLLAR, such as PCT8.1.\n\
                  Default: COUNT for categorical tables, MEAN for a scale variable.\n\
@@ -287,8 +292,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  cases two categories of a set share; the means test then pools the variance from the two categories\n\
                  compared. INCLUDEMRSETS=NO leaves sets out of the tests, and so does COUNTDUPLICATES=YES for a\n\
                  category set.\n\
-                 Not supported yet: layers, CLABELS other than AUTO, PCOMPUTE, HIDESMALLCOUNTS, effective base\n\
-                 (E functions), subtotals and OTHERNM or MISSING in a list.",
+                 Not supported yet: CLABELS other than AUTO, PCOMPUTE, HIDESMALLCOUNTS, effective base (E\n\
+                 functions), subtotals and OTHERNM or MISSING in a list, an empty row axis (/TABLE BY columns).",
         example: "CTABLES /TABLE q1 [COUNT, COLPCT.COUNT PCT8.1] BY gender /CATEGORIES VARIABLES=q1 TOTAL=YES.",
         parse: ctables::ctables,
     },

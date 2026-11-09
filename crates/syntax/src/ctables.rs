@@ -43,8 +43,13 @@ pub enum EmptyCells {
 pub struct CtablesTable {
     pub rows: AxisExpr,
     pub columns: Option<AxisExpr>,
+    /// The third dimension after a second BY: one layer, a table of its own, for every
+    /// combination of its categories.
+    pub layers: Option<AxisExpr>,
     /// `/SLABELS POSITION=ROW`: the summaries are listed in the rows instead of the columns.
     pub summaries_in_rows: bool,
+    /// `/SLABELS POSITION=LAYER`: every summary is a layer of its own.
+    pub summaries_in_layers: bool,
     /// `/SLABELS VISIBLE`
     pub summary_labels: bool,
     pub categories: Vec<Categories>,
@@ -514,22 +519,31 @@ fn stack(p: &mut Parser) -> PResult<AxisExpr> {
 
 fn table(p: &mut Parser) -> PResult<CtablesTable> {
     let rows = stack(p)?;
-    let columns = if p.eat_word("BY") {
-        Some(stack(p)?)
-    } else {
-        None
-    };
-    if p.at_keyword("BY") {
-        let start = p.pos;
-        p.pos += 1;
-        return Err(not_supported(p, start, "a layer axis (a second BY)"));
+    let mut columns = None;
+    let mut layers = None;
+    if p.eat_word("BY") {
+        // `rows BY BY layers` leaves the columns empty
+        if !p.at_keyword("BY") {
+            columns = Some(stack(p)?);
+        }
+        if p.eat_word("BY") {
+            layers = Some(stack(p)?);
+        }
     }
     if !at_end_of_subcommand(p) {
-        return Err(p.unexpected(&["'+'", "'>'", "BY", "'/'", "end of command"]));
+        let by = layers.is_none().then_some("BY");
+        let expected: Vec<&str> = ["'+'", "'>'"]
+            .into_iter()
+            .chain(by)
+            .chain(["'/'", "end of command"])
+            .collect();
+        return Err(p.unexpected(&expected));
     }
     Ok(CtablesTable {
         rows,
         columns,
+        layers,
+        summaries_in_layers: false,
         summaries_in_rows: false,
         summary_labels: true,
         categories: Vec::new(),
@@ -618,12 +632,9 @@ fn format_subcommand(p: &mut Parser, command: &mut Ctables) -> PResult<()> {
 fn slabels(p: &mut Parser, table: &mut CtablesTable) -> PResult<()> {
     while !at_end_of_subcommand(p) {
         if p.eat_keyword("POSITION") {
-            let start = p.pos + 1;
-            match choice(p, &["COLUMN", "ROW", "LAYER"])? {
-                0 => table.summaries_in_rows = false,
-                1 => table.summaries_in_rows = true,
-                _ => return Err(not_supported(p, start, "SLABELS POSITION=LAYER")),
-            }
+            let position = choice(p, &["COLUMN", "ROW", "LAYER"])?;
+            table.summaries_in_rows = position == 1;
+            table.summaries_in_layers = position == 2;
         } else if p.eat_keyword("VISIBLE") {
             table.summary_labels = choice(p, &["YES", "NO"])? == 0;
         } else {
