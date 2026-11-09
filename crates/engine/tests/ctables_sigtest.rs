@@ -59,6 +59,10 @@ struct Case {
     region: f64,
     q1: Option<f64>,
     weight: f64,
+    /// The channels q5_1 to q5_5 holding 1: the categories of the dichotomy set $q5.
+    q5: Vec<usize>,
+    /// The distinct values of q6_mention1 to 3: the categories of the category set $q6.
+    q6: Vec<f64>,
 }
 
 /// The cases of a fixture; the weight is 1 when the file has no weight variable.
@@ -81,14 +85,23 @@ fn cases(file: &str) -> Vec<Case> {
         column("q1_satisfaction"),
         column("weight"),
     );
+    let q5: Vec<Vec<Option<f64>>> = (1..=5).map(|k| column(&format!("q5_{k}"))).collect();
+    let q6: Vec<Vec<Option<f64>>> = (1..=3).map(|k| column(&format!("q6_mention{k}"))).collect();
     (0..data.case_count())
-        .map(|i| Case {
-            resp_id: ids[i].unwrap(),
-            gender: gender[i].unwrap(),
-            age: age[i].unwrap(),
-            region: region[i].unwrap(),
-            q1: q1[i],
-            weight: if weighted { weight[i].unwrap() } else { 1.0 },
+        .map(|i| {
+            let mut mentions: Vec<f64> = q6.iter().filter_map(|v| v[i]).collect();
+            mentions.sort_by(f64::total_cmp);
+            mentions.dedup();
+            Case {
+                resp_id: ids[i].unwrap(),
+                gender: gender[i].unwrap(),
+                age: age[i].unwrap(),
+                region: region[i].unwrap(),
+                q1: q1[i],
+                weight: if weighted { weight[i].unwrap() } else { 1.0 },
+                q5: (0..5).filter(|&k| q5[k][i] == Some(1.0)).collect(),
+                q6: mentions,
+            }
         })
         .collect()
 }
@@ -600,6 +613,344 @@ fn stacked_columns_continue_the_letters_and_compare_only_within_their_variable()
             assert!(!cell.contains(['D', 'E', 'F']), "{cell}");
         }
     }
+}
+
+// ---- multiple response sets ----
+//
+// The CTABLES chapter of the algorithms reference gives each test a variant for a multiple
+// response set, whose categories can share cases: the margins count every case once; the
+// chi-square divides each term by 1 minus the share of the set's category and keeps all the set's
+// categories in df ((R - 1)C, R(C - 1) or RC); the column proportions and column means tests take
+// the rounded weight two columns share off the variance factor (2 w_jk / (w_j w_k)), the means
+// test also off df, and always pools the variance from the two categories compared.
+
+const SETS: &str = "MRSETS /MDGROUP NAME=$q5 VARIABLES=q5_1 TO q5_5 VALUE=1\n\
+                    /MCGROUP NAME=$q6 VARIABLES=q6_mention1 TO q6_mention3.\n";
+
+/// Variables that depend on the first channel of $q5, computed the same way in `Case`.
+const SET_DERIVED: &str = "COMPUTE z = (q5_1 + MOD(resp_id, 3) >= 2).\n\
+                           COMPUTE ym = MOD(resp_id, 7) + 4 * q5_1.\n";
+
+impl Case {
+    fn z(&self) -> f64 {
+        let first = f64::from(u8::from(self.q5.contains(&0)));
+        f64::from(u8::from(first + self.resp_id % 3.0 >= 2.0))
+    }
+    fn ym(&self) -> f64 {
+        self.resp_id % 7.0 + 4.0 * f64::from(u8::from(self.q5.contains(&0)))
+    }
+}
+
+/// The categories of a case on one side of a table, by position.
+type Side = fn(&Case) -> Vec<usize>;
+
+fn gender_side(c: &Case) -> Vec<usize> {
+    vec![c.gender as usize - 1]
+}
+
+fn q5_side(c: &Case) -> Vec<usize> {
+    c.q5.clone()
+}
+
+fn q6_side(c: &Case) -> Vec<usize> {
+    c.q6.iter().map(|v| *v as usize - 1).collect()
+}
+
+/// The upper tail of the chi-square distribution with an even df: e^(-x/2) times the sum of
+/// (x/2)^k / k! for k below df / 2.
+fn chi_square_p_even(x: f64, df: f64) -> f64 {
+    assert!((df as u32).is_multiple_of(2));
+    let half = x / 2.0;
+    let (mut term, mut sum) = (1.0, 1.0);
+    for k in 1..df as u32 / 2 {
+        term *= half / f64::from(k);
+        sum += term;
+    }
+    (-half).exp() * sum
+}
+
+/// The chi-square statistic and df of a table whose sides may be sets, from the raw values.
+fn set_chi_square(
+    all: &[Case],
+    rows: (Side, usize, bool),
+    columns: (Side, usize, bool),
+) -> (f64, f64) {
+    let weight = |pick: &dyn Fn(&Case) -> bool| -> f64 {
+        all.iter()
+            .filter(|c| pick(c))
+            .map(|c| c.weight)
+            .sum::<f64>()
+            .round()
+    };
+    let (row_of, column_of) = (rows.0, columns.0);
+    let total = weight(&|c| !row_of(c).is_empty() && !column_of(c).is_empty());
+    let r: Vec<f64> = (0..rows.1)
+        .map(|i| weight(&|c| row_of(c).contains(&i) && !column_of(c).is_empty()))
+        .collect();
+    let k: Vec<f64> = (0..columns.1)
+        .map(|j| weight(&|c| column_of(c).contains(&j) && !row_of(c).is_empty()))
+        .collect();
+    let kept = |m: &[f64], set: bool| -> Vec<usize> {
+        (0..m.len())
+            .filter(|&i| m[i] > 0.0 && !(set && m[i] >= total))
+            .collect()
+    };
+    let (kr, kc) = (kept(&r, rows.2), kept(&k, columns.2));
+    let mut value = 0.0;
+    for &i in &kr {
+        for &j in &kc {
+            let f = weight(&|c| row_of(c).contains(&i) && column_of(c).contains(&j));
+            let e = r[i] * k[j] / total;
+            let mut divisor = e;
+            if rows.2 {
+                divisor *= 1.0 - r[i] / total;
+            }
+            if columns.2 {
+                divisor *= 1.0 - k[j] / total;
+            }
+            value += (f - e).powi(2) / divisor;
+        }
+    }
+    let free = |n: usize, set: bool| (if set { n } else { n - 1 }) as f64;
+    (value, free(kr.len(), rows.2) * free(kc.len(), columns.2))
+}
+
+#[test]
+fn chi_square_with_sets_uses_the_variant_for_multiple_responses() {
+    for file in ["survey_basic.sav", "survey_basic_phpwriter.sav"] {
+        let all = cases(file);
+        for (syntax, rows, columns) in [
+            (
+                "$q5 BY gender",
+                (q5_side as Side, 5, true),
+                (gender_side as Side, 3, false),
+            ),
+            (
+                "gender BY $q5",
+                (gender_side as Side, 3, false),
+                (q5_side as Side, 5, true),
+            ),
+            (
+                "$q5 BY $q6",
+                (q5_side as Side, 5, true),
+                (q6_side as Side, 6, true),
+            ),
+        ] {
+            let tables = run(
+                file,
+                &format!("{SETS}CTABLES /TABLE {syntax} /SIGTEST TYPE=CHISQUARE."),
+            )
+            .unwrap();
+            let row = &tables[1].rows[0];
+            let (value, df) = set_chi_square(&all, rows, columns);
+            let got = number(&row[2]);
+            assert!(
+                (got - value).abs() < 1e-9 * value,
+                "{file} {syntax}: {got} vs {value}"
+            );
+            assert_eq!(number(&row[3]), df, "{file} {syntax}");
+            let p = chi_square_p_even(value, df);
+            assert!((number(&row[4]) - p).abs() < 1e-9, "{file} {syntax}: p {p}");
+            assert!(
+                tables[1]
+                    .caption
+                    .as_ref()
+                    .unwrap()
+                    .contains("multiple response set")
+            );
+        }
+    }
+}
+
+/// The proportions family of one row against the columns of a side that may be a set:
+/// `in_row` picks the row's cases, `in_subtable` the cases with any row category.
+fn set_proportion_family(
+    all: &[Case],
+    in_row: &dyn Fn(&Case) -> bool,
+    in_subtable: &dyn Fn(&Case) -> bool,
+    columns: Side,
+    n: usize,
+) -> Family {
+    let weight = |pick: &dyn Fn(&Case) -> bool| -> f64 {
+        all.iter().filter(|c| pick(c)).map(|c| c.weight).sum()
+    };
+    let counts: Vec<f64> = (0..n)
+        .map(|j| weight(&|c| in_row(c) && columns(c).contains(&j)))
+        .collect();
+    let totals: Vec<f64> = (0..n)
+        .map(|j| weight(&|c| in_subtable(c) && columns(c).contains(&j)))
+        .collect();
+    let shares: Vec<f64> = counts.iter().zip(&totals).map(|(f, c)| f / c).collect();
+    let tested: Vec<bool> = (0..n)
+        .map(|j| totals[j] >= 2.0 && shares[j] > 0.0 && shares[j] < 1.0)
+        .collect();
+    let mut pairs = Vec::new();
+    for j in 0..n {
+        for k in j + 1..n {
+            if tested[j] && tested[k] {
+                let (nj, nk) = (totals[j].round(), totals[k].round());
+                let both = weight(&|c| {
+                    in_subtable(c) && columns(c).contains(&j) && columns(c).contains(&k)
+                })
+                .round();
+                let pooled = (nj * shares[j] + nk * shares[k]) / (nj + nk);
+                let factor = 1.0 / nj + 1.0 / nk - 2.0 * both / (nj * nk);
+                let se = (pooled * (1.0 - pooled) * factor).sqrt();
+                pairs.push((j, k, normal_p((shares[j] - shares[k]) / se)));
+            }
+        }
+    }
+    (shares, tested, pairs)
+}
+
+#[test]
+fn column_proportions_with_a_set_in_the_columns_or_the_rows() {
+    for file in ["survey_basic.sav", "survey_basic_phpwriter.sav"] {
+        let all = cases(file);
+        // a set in the columns: its columns share cases
+        let tables = run(
+            file,
+            &format!("{SETS}CTABLES /TABLE gender BY $q5 /COMPARETEST TYPE=PROP ADJUST=NONE."),
+        )
+        .unwrap();
+        for g in 0..3 {
+            let in_row = |c: &Case| c.gender as usize == g + 1;
+            let (s, t, p) = set_proportion_family(&all, &in_row, &|_| true, q5_side, 5);
+            let want = letters(&s, &t, &p, &[0.05], Mode::Unadjusted, 0, false);
+            assert_eq!(cells(&tables[1], g), want, "{file} gender {g}");
+        }
+        // z depends on q5_1, so its first column differs from the others
+        let tables = run(
+            file,
+            &format!("{SETS}{SET_DERIVED}CTABLES /TABLE z BY $q5 /COMPARETEST TYPE=PROP."),
+        )
+        .unwrap();
+        let mut marks = 0;
+        for (row, z) in [0.0, 1.0].into_iter().enumerate() {
+            let in_row = |c: &Case| c.z() == z;
+            let (s, t, p) = set_proportion_family(&all, &in_row, &|_| true, q5_side, 5);
+            let want = letters(&s, &t, &p, &[0.05], Mode::Bonferroni, 0, false);
+            assert_eq!(cells(&tables[1], row), want, "{file} z {z}");
+            marks += want.iter().filter(|w| !w.is_empty() && *w != ".").count();
+        }
+        // a set in the rows: a column total counts each case with any response once
+        let tables = run(
+            file,
+            &format!("{SETS}CTABLES /TABLE $q5 BY gender /COMPARETEST TYPE=PROP ADJUST=NONE."),
+        )
+        .unwrap();
+        for i in 0..5 {
+            let in_row = |c: &Case| c.q5.contains(&i);
+            let any = |c: &Case| !c.q5.is_empty();
+            let (s, t, p) = set_proportion_family(&all, &in_row, &any, gender_side, 3);
+            let want = letters(&s, &t, &p, &[0.05], Mode::Unadjusted, 0, false);
+            assert_eq!(cells(&tables[1], i), want, "{file} channel {i}");
+        }
+        assert!(marks > 0, "{file}: some pair is significant");
+    }
+}
+
+#[test]
+fn column_means_over_a_set_pool_by_pair_and_take_off_the_shared_cases() {
+    for file in ["survey_basic.sav", "survey_basic_phpwriter.sav"] {
+        let all = cases(file);
+        // ALLCATS is the default, but a set always pools from the two categories compared
+        let tables = run(
+            file,
+            &format!(
+                "{SETS}{SET_DERIVED}CTABLES /TABLE ym [S] BY $q5 /COMPARETEST TYPE=MEAN ADJUST=NONE."
+            ),
+        )
+        .unwrap();
+        let members =
+            |j: usize| -> Vec<&Case> { all.iter().filter(|c| c.q5.contains(&j)).collect() };
+        let stats: Vec<(f64, f64, f64)> = (0..5)
+            .map(|j| {
+                let m = members(j);
+                let w: f64 = m.iter().map(|c| c.weight).sum();
+                let mean = m.iter().map(|c| c.weight * c.ym()).sum::<f64>() / w;
+                let ss: f64 = m.iter().map(|c| c.weight * (c.ym() - mean).powi(2)).sum();
+                (w, mean, ss / (w - 1.0))
+            })
+            .collect();
+        let n = |j: usize| stats[j].0.round();
+        let mut pairs = Vec::new();
+        for j in 0..5 {
+            for k in j + 1..5 {
+                let both: f64 = all
+                    .iter()
+                    .filter(|c| c.q5.contains(&j) && c.q5.contains(&k))
+                    .map(|c| c.weight)
+                    .sum::<f64>()
+                    .round();
+                let df = n(j) + n(k) - 2.0;
+                let variance = ((n(j) - 1.0) * stats[j].2 + (n(k) - 1.0) * stats[k].2) / df;
+                let factor = 1.0 / n(j) + 1.0 / n(k) - 2.0 * both / (n(j) * n(k));
+                let t = (stats[j].1 - stats[k].1) / (variance * factor).sqrt();
+                pairs.push((j, k, t_p(t, df - both)));
+            }
+        }
+        let means: Vec<f64> = stats.iter().map(|s| s.1).collect();
+        let want = letters(
+            &means,
+            &[true; 5],
+            &pairs,
+            &[0.05],
+            Mode::Unadjusted,
+            0,
+            false,
+        );
+        assert_eq!(cells(&tables[1], 0), want, "{file}");
+        assert!(
+            want.iter().any(|w| !w.is_empty()),
+            "{file}: some pair is significant"
+        );
+    }
+}
+
+#[test]
+fn sets_left_out_of_the_tests_are_named() {
+    // INCLUDEMRSETS=NO: a stacked set is left out and the caption says so
+    let tables = run(
+        "survey_basic.sav",
+        &format!(
+            "{SETS}CTABLES /TABLE gender BY region + $q5 /SIGTEST TYPE=CHISQUARE INCLUDEMRSETS=NO."
+        ),
+    )
+    .unwrap();
+    assert_eq!(tables[1].rows.len(), 1, "only gender by region");
+    assert!(
+        tables[1]
+            .caption
+            .as_ref()
+            .unwrap()
+            .contains("INCLUDEMRSETS=NO")
+    );
+    let e = run(
+        "survey_basic.sav",
+        &format!("{SETS}CTABLES /TABLE gender BY $q5 /COMPARETEST TYPE=PROP INCLUDEMRSETS=NO."),
+    )
+    .unwrap_err();
+    assert!(
+        e.contains("nothing is left to test") && e.contains("INCLUDEMRSETS=NO"),
+        "{e}"
+    );
+    // COUNTDUPLICATES=YES leaves out a category set, not a dichotomy set
+    let tables = run(
+        "survey_basic.sav",
+        &format!(
+            "{SETS}CTABLES /MRSETS COUNTDUPLICATES=YES /TABLE gender BY $q5 + $q6 /SIGTEST TYPE=CHISQUARE."
+        ),
+    )
+    .unwrap();
+    assert_eq!(tables[1].rows.len(), 1, "only gender by $q5");
+    assert!(
+        tables[1]
+            .caption
+            .as_ref()
+            .unwrap()
+            .contains("COUNTDUPLICATES=YES")
+    );
 }
 
 #[test]

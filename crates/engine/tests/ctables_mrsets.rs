@@ -680,23 +680,3 @@ fn mistakes_with_sets_name_the_rule() {
         assert_eq!(error(&mut engine, source), message, "{source}");
     }
 }
-
-#[test]
-fn significance_tests_on_a_set_are_named_as_not_supported_yet() {
-    let mut engine = Engine::default();
-    let source = format!(
-        "GET FILE='{}'.\nCTABLES /TABLE $q5 BY gender /COMPARETEST TYPE=PROP.",
-        env!("CARGO_MANIFEST_DIR").to_string() + "/../../tests/fixtures/survey_basic_phpwriter.sav"
-    );
-    let (commands, errors) = statscraft_syntax::parse(&source);
-    assert!(errors.is_empty(), "{errors:?}");
-    engine.execute(&commands[0].command).unwrap();
-    let error = engine
-        .execute(&commands[1].command)
-        .unwrap_err()
-        .to_string();
-    assert!(
-        error.contains("multiple response set") && error.contains("not supported yet"),
-        "{error}"
-    );
-}

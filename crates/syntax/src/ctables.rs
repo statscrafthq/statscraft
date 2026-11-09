@@ -60,7 +60,7 @@ pub struct CtablesTable {
 #[derive(Debug, Clone, PartialEq)]
 pub struct Sigtest {
     pub alpha: f64,
-    /// `INCLUDEMRSETS`; it has no effect while tables cannot hold multiple response sets.
+    /// `INCLUDEMRSETS=YES` (the default): multiple response sets are tested too.
     pub include_mrsets: bool,
     /// `CATEGORIES=SUBTOTALS`; it has no effect while category lists cannot hold subtotals.
     pub subtotals: bool,
@@ -73,7 +73,7 @@ pub struct Comparetest {
     /// One or two significance levels, ascending.
     pub alpha: Vec<f64>,
     pub adjust: Adjust,
-    /// `INCLUDEMRSETS`; it has no effect while tables cannot hold multiple response sets.
+    /// `INCLUDEMRSETS=YES` (the default): multiple response sets are tested too.
     pub include_mrsets: bool,
     /// `MEANSVARIANCE=ALLCATS` (the default): the variance of a means test is pooled from all
     /// tested categories; false pools it from the two categories compared.

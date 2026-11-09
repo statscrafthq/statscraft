@@ -277,9 +277,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  area's count) and base.COUNT.RESPONSES (count over the area's responses). A case without any\n\
                  response counts only in TOTALN and the .TOTALN percentages. COUNTDUPLICATES=YES counts a value that\n\
                  a case gives in two variables of a category set twice in the responses; counts never do.\n\
-                 Not supported yet: layers, CLABELS other than AUTO, COMPARETEST MERGE=YES, significance tests on\n\
-                 multiple response sets, PCOMPUTE, HIDESMALLCOUNTS, effective base (E functions), subtotals and OTHERNM\n\
-                 or MISSING in a list.",
+                 Tests on sets (INCLUDEMRSETS=YES, the default) count each case once in the margins and allow for the\n\
+                 cases two categories of a set share; the means test then pools the variance from the two categories\n\
+                 compared. INCLUDEMRSETS=NO leaves sets out of the tests, and so does COUNTDUPLICATES=YES for a\n\
+                 category set.\n\
+                 Not supported yet: layers, CLABELS other than AUTO, COMPARETEST MERGE=YES, PCOMPUTE,\n\
+                 HIDESMALLCOUNTS, effective base (E functions), subtotals and OTHERNM or MISSING in a list.",
         example: "CTABLES /TABLE q1 [COUNT, COLPCT.COUNT PCT8.1] BY gender /CATEGORIES VARIABLES=q1 TOTAL=YES.",
         parse: ctables::ctables,
     },

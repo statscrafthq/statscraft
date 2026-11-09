@@ -26,8 +26,20 @@
 //! - Every column of the table gets a letter. For a significant pair the letter of the column
 //!   with the smaller proportion or mean goes into the column with the larger one: uppercase when
 //!   significant at the smaller of two ALPHA levels (or at the only one), lowercase at the larger.
+//! - Multiple response sets (algorithms reference, the set variants of each test; SIGTEST and
+//!   COMPARETEST INCLUDEMRSETS): a case can be in several categories of a set, so margins and
+//!   column totals count each case once. Chi-square divides each term by 1 minus the share of the
+//!   set's category in the subtable (by both shares with sets on both sides), and a set side keeps
+//!   all its categories in df: (R - 1)C, R(C - 1) or RC. Column proportions and means with a set
+//!   in the columns take the rounded weight two columns share, w_jk, off the variance factor
+//!   1/w_j + 1/w_k as 2 w_jk / (w_j w_k); the means test also takes it off df and always pools
+//!   the variance from the two categories compared. INCLUDEMRSETS=NO leaves sets out of the
+//!   tests; so does COUNTDUPLICATES=YES for a category set (the manual names category sets).
+//!   Where the manual is silent: a set category every case has, whose share is 1, is left out of
+//!   the chi-square like an empty one, and two columns whose shared weight leaves no variance
+//!   are not compared.
 
-use super::{CategoryList, Layout, Section, Term, combinations, list_of};
+use super::{CategoryList, Layout, MARGIN, Section, Term, TermVar, combinations, list_of};
 use crate::crosstabs::{chi_square_p, gamma_q, ln_gamma};
 use crate::{Cell, Error, Table};
 use statscraft_syntax::{Adjust, CompareKind, Comparetest, CtablesTable, Sigtest, Statistic};
@@ -110,33 +122,48 @@ pub(crate) struct ChiSquare {
 /// Pearson's chi-square test of independence of a table of counts. Rows and columns without
 /// cases are left out; None when fewer than two rows or two columns remain.
 pub(crate) fn pearson(counts: &[Vec<f64>]) -> Option<ChiSquare> {
-    let rows: Vec<&Vec<f64>> = counts
-        .iter()
-        .filter(|r| r.iter().sum::<f64>() > 0.0)
+    let rows: Vec<f64> = counts.iter().map(|r| r.iter().sum()).collect();
+    let columns: Vec<f64> = (0..counts.first()?.len())
+        .map(|j| counts.iter().map(|r| r[j]).sum())
         .collect();
-    let columns: Vec<usize> = (0..counts.first()?.len())
-        .filter(|&j| rows.iter().map(|r| r[j]).sum::<f64>() > 0.0)
-        .collect();
-    if rows.len() < 2 || columns.len() < 2 {
+    let total = rows.iter().sum();
+    pearson_margins(counts, &rows, &columns, total, (false, false))
+}
+
+/// Pearson's chi-square test from the cell counts, the row and column margins and the total
+/// count of a subtable. `sets` tells which side is a multiple response set, whose margins count
+/// each case once although a case can be in several of its categories. A set side divides each
+/// term by 1 minus the share of the case's category in the total and keeps all its categories in
+/// the degrees of freedom: (R - 1)C, R(C - 1) or RC. Rows and columns without cases are left out,
+/// and so is a category of a set that every case has, which is not free to vary; None when
+/// fewer than two rows or two columns remain.
+pub(crate) fn pearson_margins(
+    counts: &[Vec<f64>],
+    rows: &[f64],
+    columns: &[f64],
+    total: f64,
+    sets: (bool, bool),
+) -> Option<ChiSquare> {
+    let kept = |margins: &[f64], set: bool| -> Vec<usize> {
+        (0..margins.len())
+            .filter(|&i| margins[i] > 0.0 && !(set && margins[i] >= total))
+            .collect()
+    };
+    let (kept_rows, kept_columns) = (kept(rows, sets.0), kept(columns, sets.1));
+    if kept_rows.len() < 2 || kept_columns.len() < 2 {
         return None;
     }
-    let row_totals: Vec<f64> = rows
-        .iter()
-        .map(|r| columns.iter().map(|&j| r[j]).sum())
-        .collect();
-    let column_totals: Vec<f64> = columns
-        .iter()
-        .map(|&j| rows.iter().map(|r| r[j]).sum())
-        .collect();
-    let total: f64 = row_totals.iter().sum();
+    let share = |margin: f64, set: bool| if set { 1.0 - margin / total } else { 1.0 };
     let mut value = 0.0;
-    for (row, row_total) in rows.iter().zip(&row_totals) {
-        for (&j, column_total) in columns.iter().zip(&column_totals) {
-            let expected = row_total * column_total / total;
-            value += (row[j] - expected).powi(2) / expected;
+    for &i in &kept_rows {
+        for &j in &kept_columns {
+            let expected = rows[i] * columns[j] / total;
+            value += (counts[i][j] - expected).powi(2)
+                / (expected * share(rows[i], sets.0) * share(columns[j], sets.1));
         }
     }
-    let df = ((rows.len() - 1) * (columns.len() - 1)) as f64;
+    let free = |n: usize, set: bool| if set { n } else { n - 1 };
+    let df = (free(kept_rows.len(), sets.0) * free(kept_columns.len(), sets.1)) as f64;
     Some(ChiSquare {
         value,
         df,
@@ -157,9 +184,19 @@ fn pair(j: usize, k: usize, value_j: f64, value_k: f64, p: f64) -> Pair {
     Pair { larger, smaller, p }
 }
 
+/// The weight of the cases two columns of a set share, by column positions; 0 for a
+/// categorical variable, whose columns share no case.
+pub(crate) type Shared<'s> = &'s dyn Fn(usize, usize) -> f64;
+
 /// Column proportions test of one row: `counts[j]` is the weighted count of the row in column j,
 /// `totals[j]` the weighted total of column j. Returns the pairs and which columns took part.
-pub(crate) fn proportions(counts: &[f64], totals: &[f64]) -> (Vec<Pair>, Vec<bool>) {
+/// Two columns of a set that share cases are not independent: the shared weight, rounded,
+/// takes 2 n_jk / (n_j n_k) off the variance factor 1/n_j + 1/n_k.
+pub(crate) fn proportions(
+    counts: &[f64],
+    totals: &[f64],
+    shared: Shared,
+) -> (Vec<Pair>, Vec<bool>) {
     let share = |j: usize| counts[j] / totals[j];
     let tested: Vec<bool> = (0..counts.len())
         .map(|j| totals[j] >= 2.0 && share(j) > 0.0 && share(j) < 1.0)
@@ -171,9 +208,13 @@ pub(crate) fn proportions(counts: &[f64], totals: &[f64]) -> (Vec<Pair>, Vec<boo
                 continue;
             }
             let (nj, nk) = (totals[j].round(), totals[k].round());
+            let factor = 1.0 / nj + 1.0 / nk - 2.0 * shared(j, k).round() / (nj * nk);
+            // columns of a set that hold the same cases cannot be compared
+            if factor <= 0.0 {
+                continue;
+            }
             let pooled = (nj * share(j) + nk * share(k)) / (nj + nk);
-            let z =
-                (share(j) - share(k)) / (pooled * (1.0 - pooled) * (1.0 / nj + 1.0 / nk)).sqrt();
+            let z = (share(j) - share(k)) / (pooled * (1.0 - pooled) * factor).sqrt();
             pairs.push(pair(j, k, share(j), share(k), normal_p(z)));
         }
     }
@@ -201,8 +242,17 @@ pub(crate) fn group(values: &[(f64, f64)]) -> Group {
 }
 
 /// Column means test of one subtable. `pool_all` pools the variance from every category taking
-/// part, else from the two compared. Returns the pairs and which categories took part.
-pub(crate) fn means(groups: &[Group], pool_all: bool) -> (Vec<Pair>, Vec<bool>) {
+/// part, else from the two compared. Returns the pairs and which categories took part. The
+/// categories of a set (`shared` is Some) always pool from the two compared; the weight two of
+/// them share, rounded, takes 2 w_ij / (w_i w_j) off the factor 1/w_i + 1/w_j and w_ij off the
+/// degrees of freedom.
+pub(crate) fn means(
+    groups: &[Group],
+    pool_all: bool,
+    shared: Option<Shared>,
+) -> (Vec<Pair>, Vec<bool>) {
+    let pool_all = pool_all && shared.is_none();
+    let shared = |i: usize, j: usize| shared.map_or(0.0, |f| f(i, j).round());
     let tested: Vec<bool> = groups.iter().map(|g| g.weight >= 2.0).collect();
     let n = |g: &Group| g.weight.round();
     let chosen: Vec<usize> = (0..groups.len()).filter(|&i| tested[i]).collect();
@@ -217,18 +267,21 @@ pub(crate) fn means(groups: &[Group], pool_all: bool) -> (Vec<Pair>, Vec<bool>) 
     for (a, &i) in chosen.iter().enumerate() {
         for &j in &chosen[a + 1..] {
             let (gi, gj) = (&groups[i], &groups[j]);
+            let both = shared(i, j);
             let (variance, df) = if pool_all {
                 (pooled, df_all)
             } else {
                 let df = n(gi) + n(gj) - 2.0;
                 let joint = (n(gi) - 1.0) * gi.variance + (n(gj) - 1.0) * gj.variance;
-                (joint / df, df)
+                (joint / df, df - both)
             };
-            // without spread the test is undefined, and the comparison is not counted
-            if variance.is_nan() || variance <= 0.0 {
+            let factor = 1.0 / n(gi) + 1.0 / n(gj) - 2.0 * both / (n(gi) * n(gj));
+            // without spread, or between categories of a set that hold the same cases, the test
+            // is undefined, and the comparison is not counted
+            if variance.is_nan() || variance <= 0.0 || factor <= 0.0 || df <= 0.0 {
                 continue;
             }
-            let t = (gi.mean - gj.mean) / (variance * (1.0 / n(gi) + 1.0 / n(gj))).sqrt();
+            let t = (gi.mean - gj.mean) / (variance * factor).sqrt();
             pairs.push(pair(i, j, gi.mean, gj.mean, t_p(t, df)));
         }
     }
@@ -351,20 +404,6 @@ pub(super) fn tables(
     lists: &HashMap<String, CategoryList>,
     sections: &HashMap<(usize, usize), Section>,
 ) -> Result<Vec<Table>, Error> {
-    let tested = table.sigtest.is_some() || !table.comparetests.is_empty();
-    let set_in_table = layout
-        .rows
-        .iter()
-        .chain(&layout.columns)
-        .flat_map(|term| term.iter())
-        .find(|var| var.set.is_some());
-    if let (true, Some(var)) = (tested, set_in_table) {
-        return Err(Error(format!(
-            "significance tests on a multiple response set ({}) are not supported yet; \
-             leave out SIGTEST and COMPARETEST or the set",
-            var.variable.name()
-        )));
-    }
     let mut out = Vec::new();
     if let Some(spec) = &table.sigtest {
         out.push(chi_square_table(spec, layout, lists, sections)?);
@@ -380,6 +419,37 @@ fn categorical_section(row: &Term, column: &Term, section: &Section) -> bool {
     !section.has_scale && row.iter().any(|v| !v.scale) && column.iter().any(|v| !v.scale)
 }
 
+/// The innermost categorical variable of a term, the one a test compares.
+fn tested_variable<'t, 'a>(term: &'t Term<'a>) -> Option<&'t TermVar<'a>> {
+    term.iter().rfind(|v| !v.scale)
+}
+
+/// Why the tests leave out a multiple response set: INCLUDEMRSETS=NO, or a category set whose
+/// responses count duplicates. None for a categorical variable and a set that is tested.
+fn set_left_out(term: &Term, include: bool) -> Option<&'static str> {
+    let set = tested_variable(term)?.set.as_ref()?;
+    if !include {
+        Some("INCLUDEMRSETS=NO leaves out the multiple response sets.")
+    } else if set.count_duplicates && set.counted.is_none() {
+        Some(
+            "A multiple category set is left out because /MRSETS COUNTDUPLICATES=YES counts duplicate responses.",
+        )
+    } else {
+        None
+    }
+}
+
+/// Which sides of a section are multiple response sets: the innermost row and column variable.
+fn set_sides(row: &Term, column: &Term) -> (bool, bool) {
+    let is_set = |term: &Term| tested_variable(term).is_some_and(|v| v.set.is_some());
+    (is_set(row), is_set(column))
+}
+
+/// The cell count at a key, 0 without cases.
+fn count_at(section: &Section, key: &[usize]) -> f64 {
+    section.cells.get(key).map_or(0.0, |t| t.count)
+}
+
 fn chi_square_table(
     spec: &Sigtest,
     layout: &Layout,
@@ -387,13 +457,22 @@ fn chi_square_table(
     sections: &HashMap<(usize, usize), Section>,
 ) -> Result<Table, Error> {
     let mut rows = Vec::new();
-    let mut untested = false;
+    let (mut untested, mut with_sets) = (false, false);
+    let mut left_out = Vec::new();
     for (r, row_term) in layout.rows.iter().enumerate() {
         for (c, column_term) in layout.columns.iter().enumerate() {
             let section = &sections[&(r, c)];
             if !categorical_section(row_term, column_term, section) {
                 continue;
             }
+            let why = set_left_out(row_term, spec.include_mrsets)
+                .or(set_left_out(column_term, spec.include_mrsets));
+            if let Some(why) = why {
+                left_out.push(why);
+                continue;
+            }
+            let sets = set_sides(row_term, column_term);
+            with_sets |= sets.0 || sets.1;
             let (row_lists, column_lists) = (
                 category_lists(row_term, lists),
                 category_lists(column_term, lists),
@@ -403,26 +482,36 @@ fn chi_square_table(
             let inner_columns = proper(column_lists[nc - 1]);
             for row_outer in combinations(&row_lists[..nr - 1]) {
                 for column_outer in combinations(&column_lists[..nc - 1]) {
+                    // whole cases: weighted counts are rounded for the test
+                    let at = |i: usize, j: usize| {
+                        let key = [&row_outer[..], &[i][..], &column_outer[..], &[j][..]].concat();
+                        count_at(section, &key).round()
+                    };
                     let counts: Vec<Vec<f64>> = inner_rows
                         .iter()
-                        .map(|&i| {
-                            inner_columns
-                                .iter()
-                                .map(|&j| {
-                                    let key =
-                                        [&row_outer[..], &[i][..], &column_outer[..], &[j][..]]
-                                            .concat();
-                                    // whole cases: weighted cell counts are rounded for the test
-                                    section.cells.get(&key).map_or(0.0, |t| t.count.round())
-                                })
-                                .collect()
-                        })
+                        .map(|&i| inner_columns.iter().map(|&j| at(i, j)).collect())
                         .collect();
                     let mut cells = vec![
                         Cell::Text(side_label(row_term, lists, &row_outer)),
                         Cell::Text(side_label(column_term, lists, &column_outer)),
                     ];
-                    match pearson(&counts) {
+                    let test = if sets == (false, false) {
+                        pearson(&counts)
+                    } else {
+                        // a set counts a case in several categories, so the margins count cases
+                        let row_margins: Vec<f64> =
+                            inner_rows.iter().map(|&i| at(i, MARGIN)).collect();
+                        let column_margins: Vec<f64> =
+                            inner_columns.iter().map(|&j| at(MARGIN, j)).collect();
+                        pearson_margins(
+                            &counts,
+                            &row_margins,
+                            &column_margins,
+                            at(MARGIN, MARGIN),
+                            sets,
+                        )
+                    };
+                    match test {
                         Some(test) => {
                             let mark = if test.p < spec.alpha { "*" } else { "" };
                             cells.extend([
@@ -442,7 +531,12 @@ fn chi_square_table(
             }
         }
     }
+    left_out.sort();
+    left_out.dedup();
     if rows.is_empty() {
+        if let Some(why) = left_out.first() {
+            return Err(Error(format!("/SIGTEST: nothing is left to test. {why}")));
+        }
         return Err(Error(
             "/SIGTEST: the chi-square test needs a categorical variable in both the rows and the columns of one nesting, without a scale variable".into(),
         ));
@@ -451,8 +545,15 @@ fn chi_square_table(
         "Pearson chi-square test of independence in every subtable; rows and columns without cases are left out. * The statistic is significant at the {} level.",
         spec.alpha
     );
+    if with_sets {
+        caption.push_str(" With a multiple response set the margins count cases, each term is divided by 1 minus the share of the set's category, and the set keeps all its categories in df; a category every case has is left out.");
+    }
     if untested {
         caption.push_str(" A subtable with fewer than two nonempty rows or columns is not tested.");
+    }
+    for why in left_out {
+        caption.push(' ');
+        caption.push_str(why);
     }
     let columns: Vec<String> = ["Rows", "Columns", "Chi-Square", "df", "Sig.", "Significant"]
         .map(String::from)
@@ -491,8 +592,8 @@ fn comparison_table(
     sections: &HashMap<(usize, usize), Section>,
 ) -> Result<Table, Error> {
     let means = spec.kind == CompareKind::Means;
-    // which sections are tested
-    let eligible = |r: usize, c: usize| {
+    // which sections could be tested, and which of those leave out a set
+    let suitable = |r: usize, c: usize| {
         let (row, column) = (&layout.rows[r], &layout.columns[c]);
         let section = &sections[&(r, c)];
         if !means {
@@ -504,6 +605,27 @@ fn comparison_table(
             .any(|(_, s, _)| s.function.statistic == Statistic::Mean && !s.function.unweighted);
         row.iter().any(|v| v.scale) && has_mean && column.iter().any(|v| !v.scale)
     };
+    let why_left_out = |r: usize, c: usize| {
+        let row = (!means)
+            .then(|| set_left_out(&layout.rows[r], spec.include_mrsets))
+            .flatten();
+        row.or(set_left_out(&layout.columns[c], spec.include_mrsets))
+    };
+    let eligible = |r: usize, c: usize| suitable(r, c) && why_left_out(r, c).is_none();
+    let mut left_out: Vec<&str> = (0..layout.rows.len())
+        .flat_map(|r| (0..layout.columns.len()).map(move |c| (r, c)))
+        .filter(|&(r, c)| suitable(r, c))
+        .filter_map(|(r, c)| why_left_out(r, c))
+        .collect();
+    left_out.sort();
+    left_out.dedup();
+    let with_sets = (0..layout.rows.len())
+        .flat_map(|r| (0..layout.columns.len()).map(move |c| (r, c)))
+        .filter(|&(r, c)| eligible(r, c))
+        .any(|(r, c)| {
+            let sides = set_sides(&layout.rows[r], &layout.columns[c]);
+            sides.1 || (!means && sides.0)
+        });
 
     // the columns of the table and their letters
     let mut columns: Vec<Column> = Vec::new();
@@ -557,9 +679,11 @@ fn comparison_table(
                     .entry((column.term, outer.to_vec()))
                     .or_insert_with(|| {
                         let section = &sections[&(r, column.term)];
-                        let column_lists = category_lists(&layout.columns[column.term], lists);
+                        let column_term = &layout.columns[column.term];
+                        let column_lists = category_lists(column_term, lists);
                         let inner_columns = proper(column_lists[column_lists.len() - 1]);
-                        compare(spec, section, &row_lists, &row_combo, outer, &inner_columns)
+                        let set = set_sides(term, column_term).1;
+                        compare(spec, section, &row_combo, outer, &inner_columns, set)
                     });
                 let text = if !family.tested[&inner[0]] {
                     dots = true;
@@ -590,6 +714,11 @@ fn comparison_table(
         }
     }
     if rows.is_empty() || columns.is_empty() {
+        if let Some(why) = left_out.first() {
+            return Err(Error(format!(
+                "/COMPARETEST: nothing is left to test. {why}"
+            )));
+        }
         return Err(Error(if means {
             "/COMPARETEST TYPE=MEAN needs a scale variable summarized by MEAN in the rows and a categorical variable in the columns".into()
         } else {
@@ -628,7 +757,7 @@ fn comparison_table(
         column_groups,
         rows: table_rows,
         formats: Vec::new(),
-        caption: Some(comparison_caption(spec, dots)),
+        caption: Some(comparison_caption(spec, dots, &left_out, with_sets)),
     })
 }
 
@@ -636,29 +765,33 @@ fn comparison_table(
 fn compare(
     spec: &Comparetest,
     section: &Section,
-    row_lists: &[&CategoryList],
     row_combo: &[usize],
     column_outer: &[usize],
     inner_columns: &[usize],
+    set: bool,
 ) -> Family {
     let key = |row: &[usize], j: usize| [row, column_outer, &[j][..]].concat();
+    // the cases two categories of a set in the columns share
+    let shared_by = |row: &[usize], j: usize, k: usize, valid: bool| {
+        let (a, b) = (inner_columns[j], inner_columns[k]);
+        let pair = [a.min(b), a.max(b)];
+        let tally = section.pairs.get(&[row, column_outer, &pair[..]].concat());
+        tally.map_or(0.0, |t| if valid { t.valid } else { t.count })
+    };
     let (pairs, tested) = match spec.kind {
         CompareKind::Proportions => {
             let (outer_rows, _) = row_combo.split_at(row_combo.len() - 1);
-            let count =
-                |row: &[usize], j: usize| section.cells.get(&key(row, j)).map_or(0.0, |t| t.count);
-            let inner_rows = proper(row_lists[row_lists.len() - 1]);
-            let counts: Vec<f64> = inner_columns.iter().map(|&j| count(row_combo, j)).collect();
+            // a column total counts each case once, also when the rows are a set
+            let margin = [outer_rows, &[MARGIN][..]].concat();
+            let counts: Vec<f64> = inner_columns
+                .iter()
+                .map(|&j| count_at(section, &key(row_combo, j)))
+                .collect();
             let totals: Vec<f64> = inner_columns
                 .iter()
-                .map(|&j| {
-                    inner_rows
-                        .iter()
-                        .map(|&i| count(&[outer_rows, &[i][..]].concat(), j))
-                        .sum()
-                })
+                .map(|&j| count_at(section, &key(&margin, j)))
                 .collect();
-            proportions(&counts, &totals)
+            proportions(&counts, &totals, &|j, k| shared_by(&margin, j, k, false))
         }
         CompareKind::Means => {
             let groups: Vec<Group> = inner_columns
@@ -672,7 +805,8 @@ fn compare(
                     )
                 })
                 .collect();
-            means(&groups, spec.pool_all)
+            let shared = |j: usize, k: usize| shared_by(row_combo, j, k, true);
+            means(&groups, spec.pool_all, set.then_some(&shared as Shared))
         }
     };
     let adjusted = adjust(
@@ -706,7 +840,12 @@ fn p_text(p: f64) -> String {
     }
 }
 
-fn comparison_caption(spec: &Comparetest, dots: bool) -> String {
+fn comparison_caption(
+    spec: &Comparetest,
+    dots: bool,
+    left_out: &[&str],
+    with_sets: bool,
+) -> String {
     let means = spec.kind == CompareKind::Means;
     let (what, smaller) = if means {
         let pooled = if spec.pool_all {
@@ -751,6 +890,17 @@ fn comparison_caption(spec: &Comparetest, dots: bool) -> String {
             " A period marks a column that is not compared in its row: its proportion is 0 or 1, or its total weighs less than 2."
         });
     }
+    if with_sets {
+        caption.push_str(if means {
+            " Categories of a multiple response set share cases: the shared weight reduces the standard error and the degrees of freedom, and the variance is pooled from the two categories compared."
+        } else {
+            " Columns of a multiple response set share cases: the shared weight reduces the standard error, and column totals count each case once."
+        });
+    }
+    for why in left_out {
+        caption.push(' ');
+        caption.push_str(why);
+    }
     caption
 }
 
@@ -760,6 +910,8 @@ mod tests {
     //! the normal and t distributions.
 
     use super::*;
+
+    const NONE_SHARED: Shared = &|_, _| 0.0;
 
     fn close(a: f64, b: f64, tolerance: f64) -> bool {
         (a - b).abs() <= tolerance * b.abs().max(1e-300)
@@ -892,7 +1044,7 @@ mod tests {
     fn proportions_pool_the_two_columns() {
         // 30 of 50 against 20 of 50: pooled 0.5, z = 0.2 / sqrt(0.25 (1/50 + 1/50)) = 2, the
         // same as the square root of the chi-square of the 2 x 2 table [[30, 20], [20, 30]] = 4.
-        let (pairs, tested) = proportions(&[30.0, 20.0], &[50.0, 50.0]);
+        let (pairs, tested) = proportions(&[30.0, 20.0], &[50.0, 50.0], NONE_SHARED);
         assert_eq!(tested, [true, true]);
         assert_eq!((pairs[0].larger, pairs[0].smaller), (0, 1));
         assert!(close(pairs[0].p, normal_p(2.0), 1e-14));
@@ -908,7 +1060,7 @@ mod tests {
         let (p1, p2): (f64, f64) = (12.4 / 20.4, 6.2 / 19.6);
         let pooled = (p1 + p2) / 2.0;
         let z = (p1 - p2) / (pooled * (1.0 - pooled) * 0.1).sqrt();
-        let (pairs, _) = proportions(&[12.4, 6.2], &[20.4, 19.6]);
+        let (pairs, _) = proportions(&[12.4, 6.2], &[20.4, 19.6], NONE_SHARED);
         assert!(close(pairs[0].p, normal_p(z), 1e-13));
         assert!(close(z, 1.849_1, 1e-4), "{z}");
     }
@@ -916,9 +1068,71 @@ mod tests {
     #[test]
     fn proportions_leave_out_zero_one_and_small_columns() {
         // column 1 is all of its total, column 2 none, column 3 weighs 1.5 in total
-        let (pairs, tested) = proportions(&[3.0, 10.0, 0.0, 1.0], &[6.0, 10.0, 8.0, 1.5]);
+        let (pairs, tested) =
+            proportions(&[3.0, 10.0, 0.0, 1.0], &[6.0, 10.0, 8.0, 1.5], NONE_SHARED);
         assert_eq!(tested, [true, false, false, false]);
         assert!(pairs.is_empty());
+    }
+
+    #[test]
+    fn proportions_of_a_set_take_the_shared_cases_off_the_variance() {
+        // 30 of 50 against 20 of 50 with 10 cases in both columns: the factor 1/50 + 1/50
+        // becomes 1/50 + 1/50 - 2 * 10 / 2500 = 0.032; the pooled proportion is 0.5, so
+        // z = 0.2 / sqrt(0.25 * 0.032)
+        let (pairs, _) = proportions(&[30.0, 20.0], &[50.0, 50.0], &|_, _| 10.0);
+        let z = 0.2 / (0.25_f64 * 0.032).sqrt();
+        assert!(close(pairs[0].p, normal_p(z), 1e-13));
+        // two columns that hold the same cases are not compared
+        let (pairs, tested) = proportions(&[30.0, 20.0], &[50.0, 50.0], &|_, _| 50.0);
+        assert!(pairs.is_empty() && tested == [true, true]);
+    }
+
+    #[test]
+    fn pearson_with_a_set_on_one_or_both_sides() {
+        // rows: 2 categories of a plain variable with 40 and 60 cases (W = 100); columns: 2
+        // categories of a set held by 50 and 30 of them. Counts [[25, 10], [25, 20]].
+        let f = [vec![25.0, 10.0], vec![25.0, 20.0]];
+        let (r, c, w) = ([40.0, 60.0], [50.0, 30.0], 100.0);
+        let mut by_hand = 0.0;
+        for i in 0..2 {
+            for j in 0..2 {
+                let e: f64 = r[i] * c[j] / w;
+                by_hand += (f[i][j] - e).powi(2) / (e * (1.0 - c[j] / w));
+            }
+        }
+        let test = pearson_margins(&f, &r, &c, w, (false, true)).unwrap();
+        assert!(close(test.value, by_hand, 1e-14));
+        assert_eq!(test.df, 2.0);
+        // with a set on both sides every term is divided by both shares and df is R C
+        let both = pearson_margins(&f, &r, &c, w, (true, true)).unwrap();
+        assert_eq!(both.df, 4.0);
+        let e00 = 40.0 * 50.0 / 100.0;
+        let first = (25.0_f64 - e00).powi(2) / (e00 * 0.6 * 0.5);
+        assert!(both.value > first);
+        // a set category every case has is left out
+        let full = pearson_margins(&f, &r, &[50.0, 100.0], w, (false, true));
+        assert_eq!(full, None);
+        // without sets the margins give the plain test
+        let plain = pearson(&[vec![10.0, 20.0], vec![30.0, 40.0]]).unwrap();
+        let margins = pearson_margins(
+            &[vec![10.0, 20.0], vec![30.0, 40.0]],
+            &[30.0, 70.0],
+            &[40.0, 60.0],
+            100.0,
+            (false, false),
+        );
+        assert_eq!(margins, Some(plain));
+    }
+
+    #[test]
+    fn means_of_a_set_pool_by_pair_and_take_off_the_shared_weight() {
+        // A = {1, 2, 3}, C = {2, 4, 6} with one case in both: pooled from the pair (2 + 8) / 4,
+        // factor 1/3 + 1/3 - 2/9 = 4/9, df 3 + 3 - 1 - 2 = 3, even when ALLCATS is asked for
+        let a = group(&[(1.0, 1.0), (2.0, 1.0), (3.0, 1.0)]);
+        let c = group(&[(2.0, 1.0), (4.0, 1.0), (6.0, 1.0)]);
+        let (pairs, _) = means(&[a, c], true, Some(&|_, _| 1.0));
+        let t = 2.0 / (2.5_f64 * 4.0 / 9.0).sqrt();
+        assert!(close(pairs[0].p, t_closed_form(t, 3), 1e-10));
     }
 
     #[test]
@@ -930,7 +1144,7 @@ mod tests {
         let b = group(&[(4.0, 1.0), (5.0, 1.0), (6.0, 1.0)]);
         let c = group(&[(2.0, 1.0), (4.0, 1.0), (6.0, 1.0)]);
         assert_eq!((a.mean, a.variance, c.variance), (2.0, 1.0, 4.0));
-        let (pairs, tested) = means(&[a, b, c], true);
+        let (pairs, tested) = means(&[a, b, c], true, None);
         assert_eq!(tested, [true, true, true]);
         assert_eq!(pairs.len(), 3);
         assert_eq!((pairs[0].larger, pairs[0].smaller), (1, 0));
@@ -949,7 +1163,7 @@ mod tests {
         // A against C: pooled (2 * 1 + 2 * 4) / 4 = 2.5 with df 4, t = -2 / sqrt(2.5 * 2/3)
         let a = group(&[(1.0, 1.0), (2.0, 1.0), (3.0, 1.0)]);
         let c = group(&[(2.0, 1.0), (4.0, 1.0), (6.0, 1.0)]);
-        let (pairs, _) = means(&[a, c], false);
+        let (pairs, _) = means(&[a, c], false, None);
         let t = 2.0 / (2.5_f64 * 2.0 / 3.0).sqrt();
         assert!(close(pairs[0].p, t_closed_form(t, 4), 1e-10));
     }
@@ -965,7 +1179,7 @@ mod tests {
         assert!(close(a.variance, 0.875, 1e-14) && close(b.variance, 2.2 / 1.2, 1e-14));
         let pooled: f64 = (3.0 * 0.875 + 2.2 / 1.2) / 4.0;
         let t = 4.0 / (pooled * 0.75).sqrt();
-        let (pairs, _) = means(&[a, b], true);
+        let (pairs, _) = means(&[a, b], true, None);
         assert!(close(pairs[0].p, t_closed_form(t, 4), 1e-10));
     }
 
@@ -974,11 +1188,11 @@ mod tests {
         let one = group(&[(3.0, 1.0)]);
         let flat = group(&[(2.0, 1.0), (2.0, 1.0)]);
         let also_flat = group(&[(5.0, 1.0), (5.0, 1.0)]);
-        let (pairs, tested) = means(&[one, flat, also_flat], true);
+        let (pairs, tested) = means(&[one, flat, also_flat], true, None);
         assert_eq!(tested, [false, true, true]);
         assert!(pairs.is_empty(), "no spread at all: no comparison");
         let empty = group(&[]);
-        assert_eq!(means(&[empty, flat], false).1, [false, true]);
+        assert_eq!(means(&[empty, flat], false, None).1, [false, true]);
     }
 
     #[test]

@@ -886,6 +886,7 @@ impl Engine {
 
         // gather the cases of every section
         let mut sections: HashMap<(usize, usize), Section> = HashMap::new();
+        let tested = table.sigtest.is_some() || !table.comparetests.is_empty();
         for (r, row_term) in layout.rows.iter().enumerate() {
             for (c, column_term) in layout.columns.iter().enumerate() {
                 let summary_term = match summary_axis {
@@ -896,11 +897,11 @@ impl Engine {
                 let section = Section::gather(
                     data,
                     weights,
-                    row_term,
-                    column_term,
+                    [row_term, column_term],
                     &lists,
                     summaries,
                     variable,
+                    tested,
                 )?;
                 sections.insert((r, c), section);
             }
@@ -1041,11 +1042,20 @@ struct Section {
     areas: [Vec<bool>; 7],
     /// The total category of each categorical variable.
     totals: Vec<Option<usize>>,
+    /// The cells by category index, totals included. For the significance tests the innermost
+    /// row and column variables also have the index MARGIN: every case of the other
+    /// categories once, whatever its categories of that variable.
     cells: HashMap<Vec<usize>, Tally>,
     denominators: [HashMap<Vec<usize>, Tally>; 7],
+    /// For the tests, when the innermost column variable is a set: the cases two of its
+    /// categories share, by the categories of the other variables and the two categories.
+    pairs: HashMap<Vec<usize>, Tally>,
     summaries: Vec<(usize, Summary, String)>,
     has_scale: bool,
 }
+
+/// The category index of a margin cell, see `Section::cells`.
+const MARGIN: usize = usize::MAX;
 
 fn area(base: PercentBase) -> usize {
     base as usize
@@ -1055,11 +1065,11 @@ impl Section {
     fn gather<'a>(
         data: &Dataset,
         weights: Option<&[f64]>,
-        row_term: &[TermVar<'a>],
-        column_term: &[TermVar<'a>],
+        [row_term, column_term]: [&[TermVar<'a>]; 2],
         lists: &HashMap<String, CategoryList>,
         summaries: &[(usize, Summary, String)],
         summary_variable: &TermVar<'a>,
+        margins: bool,
     ) -> Result<Section, Error> {
         let row_cats: Vec<&TermVar> = row_term.iter().filter(|v| !v.scale).collect();
         let column_cats: Vec<&TermVar> = column_term.iter().filter(|v| !v.scale).collect();
@@ -1094,6 +1104,7 @@ impl Section {
             totals: lists.iter().map(|l| l.total()).collect(),
             cells: HashMap::new(),
             denominators: Default::default(),
+            pairs: HashMap::new(),
             summaries: summaries.to_vec(),
             has_scale: scale.is_some(),
         };
@@ -1163,9 +1174,20 @@ impl Section {
                     part
                 })
                 .collect();
+            let mut parts = parts;
+            if margins {
+                for i in [nr.checked_sub(1), (nc > 0).then(|| nr + nc - 1)]
+                    .into_iter()
+                    .flatten()
+                {
+                    parts[i].push(MARGIN);
+                }
+            }
             for target in mrsets::product(&parts) {
-                let of = summary_list
-                    .and_then(|(i, _)| (section.totals[i] != Some(target[i])).then_some(target[i]));
+                let of = summary_list.and_then(|(i, _)| {
+                    (target[i] != MARGIN && section.totals[i] != Some(target[i]))
+                        .then_some(target[i])
+                });
                 section.cells.entry(target).or_default().add_case(
                     weight,
                     judge(of),
@@ -1173,6 +1195,27 @@ impl Section {
                     keep_values,
                     total_only,
                 );
+            }
+            // the cases two categories of a set in the innermost column share
+            let inner_set = nc > 0 && cats[nr + nc - 1].set.is_some();
+            if margins && inner_set && !total_only {
+                let inner = indices(&choices[nr + nc - 1]);
+                let shared: Vec<Vec<usize>> = mrsets::product(&parts[..nr + nc - 1]);
+                for (n, &a) in inner.iter().enumerate() {
+                    for &b in &inner[n + 1..] {
+                        let pair = [a.min(b), a.max(b)];
+                        for prefix in &shared {
+                            let key = [&prefix[..], &pair[..]].concat();
+                            section.pairs.entry(key).or_default().add_case(
+                                weight,
+                                (value.is_some(), 1.0),
+                                value,
+                                false,
+                                false,
+                            );
+                        }
+                    }
+                }
             }
         }
         Ok(section)
