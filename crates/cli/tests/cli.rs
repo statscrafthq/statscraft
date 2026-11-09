@@ -189,3 +189,54 @@ fn help_comes_from_the_command_table() {
     assert!(!dir.run(&["help", "nonsense"]).status.success());
     assert!(dir.ok(&["--version"]).starts_with("statscraft "));
 }
+
+#[test]
+fn transformations_run_in_a_session_and_are_summarised() {
+    let dir = Workdir::new("transform");
+    dir.ok(&["run", "-s", "t1", "-e", &get_fixture("survey_basic.sav")]);
+    let syntax = "COMPUTE channels = SUM(q5_1 TO q5_5).
+DO IF (age < 30).
+COMPUTE age_group = 1.
+ELSE.
+COMPUTE age_group = 2.
+END IF.
+STRING tier (A8).
+IF (plan = 'BASIC') tier = 'low'.
+SELECT IF q1_satisfaction > 3.";
+    let report = dir.json(&["run", "-s", "t1", "--json", "-e", syntax]);
+    let changes = &report["changes"];
+    assert_eq!(
+        changes["variables_added"],
+        serde_json::json!(["channels", "age_group", "tier"])
+    );
+    assert_eq!(
+        (
+            changes["cases_before"].as_u64(),
+            changes["cases_after"].as_u64()
+        ),
+        (Some(200), Some(103))
+    );
+    assert_eq!(report["saved"], true);
+    // the next run sees the new variables
+    let report = dir.json(&[
+        "run",
+        "-s",
+        "t1",
+        "--json",
+        "-e",
+        "COMPUTE twice = channels * 2.",
+    ]);
+    assert_eq!(report["dataset"], serde_json::json!([103, 23]));
+
+    let open = dir.run(&[
+        "run",
+        "-s",
+        "t1",
+        "-e",
+        "DO IF (age < 30).\nCOMPUTE young = 1.",
+    ]);
+    assert!(!open.status.success());
+    assert!(String::from_utf8_lossy(&open.stderr).contains("DO IF without END IF"));
+    let description = dir.json(&["describe", "-s", "t1", "--json"]);
+    assert_eq!(description["variable_count"], 23);
+}

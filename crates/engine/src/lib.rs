@@ -1,9 +1,11 @@
 //! Executes parsed commands on a dataset and returns result tables.
 
 mod aggregate;
+mod expr;
 mod frequencies;
 mod recode;
 mod sort;
+mod transform;
 mod variables;
 
 use serde::Serialize;
@@ -105,13 +107,15 @@ pub struct Engine {
     dataset: Option<Dataset>,
     /// When set, commands that write files are checked but not carried out.
     pub dry_run: bool,
+    /// The open DO IF blocks, innermost last. See `Engine::active_cases`.
+    blocks: Vec<transform::Block>,
 }
 
 impl Engine {
     pub fn with_dataset(dataset: Option<Dataset>) -> Self {
         Self {
             dataset,
-            dry_run: false,
+            ..Self::default()
         }
     }
 
@@ -158,6 +162,7 @@ impl Engine {
     }
 
     pub fn execute(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
+        self.check_block(command)?;
         match command {
             Command::Get { file } => {
                 self.dataset = Some(Dataset::read_sav(file)?);
@@ -247,11 +252,23 @@ impl Engine {
                     .set_weight_variable(variable.as_deref())?;
             }
             Command::Aggregate(command) => self.aggregate(command)?,
-            Command::Compute { .. } | Command::If { .. } | Command::SelectIf(_) => {
-                return Err(Error(
-                    "this transformation command is parsed but not executed yet".into(),
-                ));
+            Command::Compute { target, expr } => self.assign(target, expr, None)?,
+            Command::If {
+                condition,
+                target,
+                expr,
+            } => self.assign(target, expr, Some(condition))?,
+            Command::SelectIf(condition) => self.select_if(condition)?,
+            Command::String(groups) => {
+                self.declare(groups.iter().map(|(names, f)| (&names[..], Some(f))))?
             }
+            Command::Numeric(groups) => {
+                self.declare(groups.iter().map(|(names, f)| (&names[..], f.as_ref())))?
+            }
+            Command::DoIf(condition) => self.do_if(condition)?,
+            Command::ElseIf(condition) => self.next_branch(Some(condition))?,
+            Command::Else => self.next_branch(None)?,
+            Command::EndIf => self.end_if()?,
         }
         Ok(Vec::new())
     }

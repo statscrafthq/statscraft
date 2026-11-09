@@ -1081,7 +1081,7 @@ fn help_for_one_command() {
 #[test]
 fn help_lists_every_command() {
     let overview = help(None).unwrap();
-    assert_eq!(command_names().len(), 19);
+    assert_eq!(command_names().len(), 25);
     for spec in table::COMMANDS {
         assert!(overview.contains(spec.name) && overview.contains(spec.summary));
     }
@@ -1182,4 +1182,70 @@ fn realistic_script_names_and_line_ranges() {
             .message
             .ends_with("command RECODE, which occupies lines 24-29")
     );
+}
+
+// Declarations and DO IF
+
+#[test]
+fn string_and_numeric() {
+    let a = |width| Format {
+        kind: FormatType::A,
+        width,
+        decimals: 0,
+    };
+    let names = |list: &[&str]| -> Vec<String> { list.iter().map(|n| n.to_string()).collect() };
+    assert_eq!(
+        one("STRING code1, code2 (A8) / memo (a40)."),
+        Command::String(vec![
+            (names(&["code1", "code2"]), a(8)),
+            (names(&["memo"]), a(40))
+        ])
+    );
+    let f51 = Format {
+        kind: FormatType::F,
+        width: 5,
+        decimals: 1,
+    };
+    assert_eq!(
+        one("NUMERIC score (F5.1) / flag other."),
+        Command::Numeric(vec![
+            (names(&["score"]), Some(f51)),
+            (names(&["flag", "other"]), None)
+        ])
+    );
+    assert_eq!(err("STRING memo.").expected, ["'('"]);
+    assert_eq!(
+        err("STRING memo (F8.2).").message,
+        "STRING needs an A format such as A20"
+    );
+    assert_eq!(
+        err("NUMERIC score (A8).").message,
+        "NUMERIC needs a numeric format such as F8.2"
+    );
+    assert_eq!(err("NUMERIC score (F5.1) extra").expected[0], "'/'");
+    assert!(err("STRING a TO c (A8).").message.contains("reserved word"));
+}
+
+#[test]
+fn do_if_block_commands() {
+    let source = "DO IF (age < 18).\nELSE IF age < 65.\nELSE.\nEND IF.\ndo if a.\nend if.";
+    let names: Vec<String> = layout(source).into_iter().map(|row| row.0).collect();
+    assert_eq!(
+        names,
+        ["DO IF", "ELSE IF", "ELSE", "END IF", "DO IF", "END IF"]
+    );
+    let (parsed, errors) = parse(source);
+    assert_eq!(errors, []);
+    match (&parsed[0].command, &parsed[1].command) {
+        (Command::DoIf(first), Command::ElseIf(second)) => {
+            assert_eq!(show(first), "(age < 18)");
+            assert_eq!(show(second), "(age < 65)");
+        }
+        other => panic!("{other:?}"),
+    }
+    assert_eq!(parsed[2].command, Command::Else);
+    assert_eq!(parsed[3].command, Command::EndIf);
+    assert_eq!(err("DO IF.").expected[0], "a value");
+    assert_eq!(err("ELSE age < 3.").expected, ["end of command"]);
+    assert_eq!(err("END IF age.").expected, ["end of command"]);
 }

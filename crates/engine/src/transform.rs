@@ -1,0 +1,241 @@
+//! The transformation commands that work with expressions: COMPUTE, IF, SELECT IF, STRING,
+//! NUMERIC and the DO IF block. Each one changes the dataset when it runs.
+
+use crate::expr::{Column, Evaluator};
+use crate::{Engine, Error};
+use statscraft_data::Values;
+use statscraft_syntax::{Command, Expr, Format, FormatType};
+
+/// One open DO IF block.
+#[derive(Clone)]
+pub(crate) struct Block {
+    /// The cases of the branch that is open now.
+    active: Vec<bool>,
+    /// The cases a later branch can still take: every condition so far was false for them.
+    pending: Vec<bool>,
+    else_seen: bool,
+}
+
+/// A string value cut to the width of its variable, as an assignment does.
+fn fit(mut value: String, width: usize) -> String {
+    let mut end = width.min(value.len());
+    while !value.is_char_boundary(end) {
+        end -= 1;
+    }
+    value.truncate(end);
+    value
+}
+
+impl Engine {
+    /// The cases the open DO IF branch applies to: one entry per case, true where a command
+    /// may change the case. None outside DO IF, where every case is active. A command that is
+    /// allowed inside DO IF must leave the other cases as they are.
+    pub fn active_cases(&self) -> Option<&[bool]> {
+        self.blocks.last().map(|block| block.active.as_slice())
+    }
+
+    /// To be called when a run ends. An open DO IF block is an error, because the block is not
+    /// kept between runs.
+    pub fn finish(&self) -> Result<(), Error> {
+        if self.blocks.is_empty() {
+            return Ok(());
+        }
+        Err(Error(
+            "DO IF without END IF: close the block with END IF in the same run".into(),
+        ))
+    }
+
+    /// Inside DO IF only the commands that honour `active_cases` may run.
+    pub(crate) fn check_block(&self, command: &Command) -> Result<(), Error> {
+        let allowed = matches!(
+            command,
+            Command::Compute { .. }
+                | Command::If { .. }
+                | Command::Recode(_)
+                | Command::Count(_)
+                | Command::DoIf(_)
+                | Command::ElseIf(_)
+                | Command::Else
+                | Command::EndIf
+        );
+        if self.blocks.is_empty() || allowed {
+            return Ok(());
+        }
+        Err(Error(
+            "this command cannot be used between DO IF and END IF; only COMPUTE, IF, RECODE, \
+             COUNT and nested DO IF can"
+                .into(),
+        ))
+    }
+
+    fn evaluator<'a>(&'a self, active: Option<&'a [bool]>) -> Result<Evaluator<'a>, Error> {
+        let data = self.active()?;
+        Ok(Evaluator { data, active })
+    }
+
+    /// COMPUTE, or IF when there is a condition.
+    pub(crate) fn assign(
+        &mut self,
+        target: &str,
+        expr: &Expr,
+        condition: Option<&Expr>,
+    ) -> Result<(), Error> {
+        // the cases that get the value: those of the open DO IF branch where the condition holds
+        let mut chosen = self.active_cases().map(<[bool]>::to_vec);
+        if let Some(condition) = condition {
+            let truth = self.evaluator(chosen.as_deref())?.condition(condition)?;
+            let holds = truth.iter().enumerate().map(|(case, truth)| {
+                *truth == Some(true) && chosen.as_ref().is_none_or(|chosen| chosen[case])
+            });
+            chosen = Some(holds.collect());
+        }
+        let value = self.evaluator(chosen.as_deref())?.eval(expr)?;
+        let chosen = |case: usize| chosen.as_ref().is_none_or(|chosen| chosen[case]);
+
+        let data = self.active_mut()?;
+        let existing = data.variable(target).ok();
+        let width = existing.and_then(|variable| variable.string_width());
+        let merged = match (existing.map(|variable| variable.values()), value) {
+            (None, Column::Number(new)) => {
+                let values = new.into_iter().enumerate();
+                Column::Number(values.map(|(case, v)| v.filter(|_| chosen(case))).collect())
+            }
+            (Some(Values::Numeric(old)), Column::Number(new)) => {
+                let values = new.into_iter().enumerate();
+                let merge = |(case, v)| if chosen(case) { v } else { old.get(case) };
+                Column::Number(values.map(merge).collect())
+            }
+            (Some(Values::String(old)), Column::String(new)) => {
+                let width = width.unwrap_or(0);
+                let merge = |(case, v): (usize, String)| match chosen(case) {
+                    true => fit(v, width),
+                    false => old.get(case).to_string(),
+                };
+                Column::String(new.into_iter().enumerate().map(merge).collect())
+            }
+            (None, Column::String(_)) => {
+                return Err(Error(format!(
+                    "the expression gives a string, but {target} does not exist: declare it \
+                     first, for example STRING {target} (A20)"
+                )));
+            }
+            (Some(Values::String(_)), Column::Number(_)) => {
+                return Err(Error(format!(
+                    "{target} is a string variable, but the expression gives a number; \
+                     convert it with STRING(number, F8.2)"
+                )));
+            }
+            (Some(Values::Numeric(_)), Column::String(_)) => {
+                return Err(Error(format!(
+                    "{target} is a numeric variable, but the expression gives a string; \
+                     convert it with NUMBER(string, F8.2)"
+                )));
+            }
+        };
+        match merged {
+            Column::Number(values) => data.set_numeric_values(target, values)?,
+            Column::String(values) => data.set_string_values(target, width.unwrap_or(0), values)?,
+        }
+        Ok(())
+    }
+
+    pub(crate) fn select_if(&mut self, condition: &Expr) -> Result<(), Error> {
+        let truth = self.evaluator(None)?.condition(condition)?;
+        let keep: Vec<bool> = truth.iter().map(|truth| *truth == Some(true)).collect();
+        Ok(self.active_mut()?.select_cases(&keep)?)
+    }
+
+    /// STRING and NUMERIC: new variables, empty or system-missing. Nothing is added when one
+    /// of the names cannot be.
+    pub(crate) fn declare<'a>(
+        &mut self,
+        groups: impl Iterator<Item = (&'a [String], Option<&'a Format>)>,
+    ) -> Result<(), Error> {
+        let mut data = self.active()?.clone();
+        let cases = data.case_count();
+        for (names, format) in groups {
+            for name in names {
+                if data.variable_index(name).is_some() {
+                    return Err(Error(format!("variable {name} already exists")));
+                }
+                if format.is_some_and(|format| format.kind == FormatType::A) {
+                    let width = format.map_or(0, |format| usize::from(format.width));
+                    data.set_string_values(name, width, vec![String::new(); cases])?;
+                    continue;
+                }
+                data.set_numeric_values(name, vec![None; cases])?;
+                if let Some(format) = format {
+                    let mut text = format!("{}{}", format.kind.name(), format.width);
+                    if format.decimals > 0 {
+                        text.push_str(&format!(".{}", format.decimals));
+                    }
+                    data.set_format(name, &text)?;
+                }
+            }
+        }
+        self.dataset = Some(data);
+        Ok(())
+    }
+
+    pub(crate) fn do_if(&mut self, condition: &Expr) -> Result<(), Error> {
+        let cases = self.active()?.case_count();
+        let pending = match self.active_cases() {
+            Some(outer) => outer.to_vec(),
+            None => vec![true; cases],
+        };
+        // DO IF is the first branch of a block in which every case of the outer branch is pending
+        self.blocks.push(Block {
+            active: Vec::new(),
+            pending,
+            else_seen: false,
+        });
+        let result = self.next_branch(Some(condition));
+        if result.is_err() {
+            self.blocks.pop();
+        }
+        result
+    }
+
+    /// ELSE IF, or ELSE when there is no condition. A case whose condition is missing leaves
+    /// the pending cases without entering the branch, so no later branch runs for it.
+    pub(crate) fn next_branch(&mut self, condition: Option<&Expr>) -> Result<(), Error> {
+        let name = if condition.is_some() {
+            "ELSE IF"
+        } else {
+            "ELSE"
+        };
+        let Some(block) = self.blocks.last() else {
+            return Err(Error(format!("{name} without DO IF")));
+        };
+        if block.else_seen {
+            return Err(Error(format!(
+                "{name} after ELSE: ELSE must be the last branch of its DO IF block"
+            )));
+        }
+        let pending = &block.pending;
+        let truth = match condition {
+            Some(condition) => self.evaluator(Some(pending))?.condition(condition)?,
+            None => vec![Some(true); pending.len()],
+        };
+        let branch = |wanted: bool| -> Vec<bool> {
+            let cases = pending.iter().zip(&truth);
+            cases
+                .map(|(pending, truth)| *pending && *truth == Some(wanted))
+                .collect()
+        };
+        let next = Block {
+            active: branch(true),
+            pending: branch(false),
+            else_seen: condition.is_none(),
+        };
+        *self.blocks.last_mut().expect("checked above") = next;
+        Ok(())
+    }
+
+    pub(crate) fn end_if(&mut self) -> Result<(), Error> {
+        let closed = self.blocks.pop();
+        closed
+            .map(|_| ())
+            .ok_or_else(|| Error("END IF without DO IF".into()))
+    }
+}

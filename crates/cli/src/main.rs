@@ -336,6 +336,10 @@ fn run(args: RunArgs, check_only: bool) -> Result<(), Vec<Failure>> {
         });
     }
 
+    engine
+        .finish()
+        .map_err(|e| vec![Failure::plain("run", e.to_string())])?;
+
     let after = engine.dataset().map(Dataset::describe);
     let changes = Changes::between(before.as_ref(), after.as_ref());
     let mut saved = false;

@@ -23,7 +23,7 @@ Add `--json` to `run` and `check` for structured output: result tables, a summar
 
 A run is all or nothing: if one command fails, nothing is saved, so the same lines can be run again after the fix. A line range must cover whole commands.
 
-Commands executed so far: GET, SAVE, VARIABLE LABELS, VALUE LABELS, MISSING VALUES, VARIABLE LEVEL, FORMATS, FREQUENCIES (weighted when the file has a weight variable), EXECUTE, RECODE, COUNT, SORT CASES, RENAME VARIABLES, DELETE VARIABLES, WEIGHT, AGGREGATE. COMPUTE, IF and SELECT IF are parsed and checked but not executed yet.
+Commands executed so far: GET, SAVE, VARIABLE LABELS, VALUE LABELS, MISSING VALUES, VARIABLE LEVEL, FORMATS, FREQUENCIES (weighted when the file has a weight variable), EXECUTE, COMPUTE, IF, SELECT IF, STRING, NUMERIC, DO IF / ELSE IF / ELSE / END IF, RECODE, COUNT, SORT CASES, RENAME VARIABLES, DELETE VARIABLES, WEIGHT and AGGREGATE. Expressions follow the missing-value rules of the language and cover arithmetic, statistical, missing-value, string and date functions.
 
 Sessions are stored under `.statscraft/sessions/` in the current directory.
 

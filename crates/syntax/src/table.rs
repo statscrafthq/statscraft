@@ -174,6 +174,54 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         example: "RECODE age (LOWEST THRU 29 = 1) (30 THRU 59 = 2) (60 THRU HIGHEST = 3) INTO age_group.",
         parse: commands::recode,
     },
+    CommandSpec {
+        name: "STRING",
+        summary: "Declare new string variables, filled with empty strings.",
+        syntax: "STRING names (Awidth) [/ names (Awidth) ...].\n\
+                 A string variable must exist before COMPUTE or IF can assign text to it.",
+        example: "STRING full_name (A40) / code1 code2 (A8).",
+        parse: commands::string,
+    },
+    CommandSpec {
+        name: "NUMERIC",
+        summary: "Declare new numeric variables, filled with system-missing.",
+        syntax: "NUMERIC names [(format)] [/ names [(format)] ...].\n\
+                 Without a format the variables get F8.2.",
+        example: "NUMERIC score1 score2 (F5.1) / flag.",
+        parse: commands::numeric,
+    },
+    CommandSpec {
+        name: "DO IF",
+        summary: "Start a block of transformations that run only where a condition holds.",
+        syntax: "DO IF (condition).\n\
+                 Followed by COMPUTE, IF, RECODE or nested DO IF commands, then optional\n\
+                 ELSE IF (condition). and ELSE. branches, then END IF.\n\
+                 For each case the first branch whose condition is true runs. After a missing\n\
+                 condition no later branch runs for that case.",
+        example: "DO IF (age < 18).",
+        parse: commands::do_if,
+    },
+    CommandSpec {
+        name: "ELSE IF",
+        summary: "Start the next conditional branch of a DO IF block.",
+        syntax: "ELSE IF (condition).",
+        example: "ELSE IF (age < 65).",
+        parse: commands::else_if,
+    },
+    CommandSpec {
+        name: "ELSE",
+        summary: "Start the branch of a DO IF block for the cases no condition matched.",
+        syntax: "ELSE.",
+        example: "ELSE.",
+        parse: commands::else_command,
+    },
+    CommandSpec {
+        name: "END IF",
+        summary: "End a DO IF block.",
+        syntax: "END IF.",
+        example: "END IF.",
+        parse: commands::end_if,
+    },
 ];
 
 /// Commands of the language that have no parser yet. They get "not supported yet" instead of
@@ -208,18 +256,14 @@ static UNSUPPORTED: &[&str] = &[
     "DESCRIPTIVES",
     "DISCRIMINANT",
     "DISPLAY",
-    "DO IF",
     "DO REPEAT",
     "DOCUMENT",
     "DROP DOCUMENTS",
     "ECHO",
-    "ELSE",
-    "ELSE IF",
     "END CASE",
     "END DATA",
     "END FILE",
     "END FILE TYPE",
-    "END IF",
     "END INPUT PROGRAM",
     "END LOOP",
     "END MATRIX",
@@ -257,7 +301,6 @@ static UNSUPPORTED: &[&str] = &[
     "NEW FILE",
     "NONPAR CORR",
     "NPAR TESTS",
-    "NUMERIC",
     "ONEWAY",
     "OUTPUT CLOSE",
     "OUTPUT EXPORT",
@@ -285,7 +328,6 @@ static UNSUPPORTED: &[&str] = &[
     "SHOW",
     "SORT VARIABLES",
     "SPLIT FILE",
-    "STRING",
     "SUBTITLE",
     "SYSFILE INFO",
     "T-TEST",

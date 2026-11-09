@@ -41,6 +41,14 @@ pub enum Command {
     },
     SelectIf(Expr),
     Recode(Vec<Recode>),
+    /// `STRING names (A20) / ...`: new string variables, each group with its A format.
+    String(Vec<(Vec<String>, Format)>),
+    /// `NUMERIC names [(F8.2)] / ...`: new numeric variables; None leaves the default format.
+    Numeric(Vec<(Vec<String>, Option<Format>)>),
+    DoIf(Expr),
+    ElseIf(Expr),
+    Else,
+    EndIf,
 }
 
 #[derive(Debug, Clone, PartialEq)]

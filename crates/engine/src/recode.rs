@@ -88,9 +88,8 @@ fn fitted(text: &str, width: usize) -> &str {
 
 impl Engine {
     /// The cases a transformation may write to; None is every case.
-    // DO IF hooks in here: return its mask of currently active cases.
     fn case_mask(&self) -> Option<&[bool]> {
-        None
+        self.active_cases()
     }
 
     /// Existing variables in dictionary spelling, new names as written.

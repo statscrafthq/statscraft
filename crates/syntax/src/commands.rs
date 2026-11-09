@@ -335,3 +335,90 @@ pub(crate) fn recode(p: &mut Parser) -> PResult<Command> {
     p.finish(&["'('", "INTO", "'/'"])?;
     Ok(Command::Recode(groups))
 }
+
+/// `(F8.2)`
+fn format_in_parens(p: &mut Parser) -> PResult<Format> {
+    let example = "a format such as F8.2 or A20";
+    p.expect(Punct::LParen)?;
+    let Some(TokenKind::Word(word)) = p.peek() else {
+        return Err(p.unexpected(&[example]));
+    };
+    let parsed = format(word).map_err(|message| {
+        let mut error = SyntaxError::new(p.span(), message);
+        error.expected = vec![example.to_string()];
+        error
+    })?;
+    p.pos += 1;
+    p.expect(Punct::RParen)?;
+    Ok(parsed)
+}
+
+/// `names [(format)] [/ names [(format)] ...]` for the commands that declare new variables.
+/// `string` says which kind of format the command takes; only a numeric one may be left out.
+fn declarations(p: &mut Parser, string: bool) -> PResult<Vec<(Vec<String>, Option<Format>)>> {
+    let mut groups = Vec::new();
+    loop {
+        let mut names = vec![p.name("a new variable name")?];
+        while p.eat(Punct::Comma) || matches!(p.peek(), Some(TokenKind::Word(_))) {
+            names.push(p.name("a new variable name")?);
+        }
+        let start = p.pos;
+        let format = if string || p.at(Punct::LParen) {
+            Some(format_in_parens(p)?)
+        } else {
+            None
+        };
+        let fits = |f: &Format| match string {
+            true => f.kind == FormatType::A,
+            false => !matches!(f.kind, FormatType::A | FormatType::Ahex),
+        };
+        if !format.as_ref().is_none_or(fits) {
+            let message = if string {
+                "STRING needs an A format such as A20"
+            } else {
+                "NUMERIC needs a numeric format such as F8.2"
+            };
+            return Err(SyntaxError::new(p.span_from(start), message));
+        }
+        groups.push((names, format));
+        if !p.eat(Punct::Slash) {
+            break;
+        }
+    }
+    p.finish(&["'/'"])?;
+    Ok(groups)
+}
+
+pub(crate) fn string(p: &mut Parser) -> PResult<Command> {
+    let groups = declarations(p, true)?;
+    let with_format = |(names, format): (_, Option<Format>)| format.map(|f| (names, f));
+    Ok(Command::String(
+        groups.into_iter().filter_map(with_format).collect(),
+    ))
+}
+
+pub(crate) fn numeric(p: &mut Parser) -> PResult<Command> {
+    declarations(p, false).map(Command::Numeric)
+}
+
+pub(crate) fn do_if(p: &mut Parser) -> PResult<Command> {
+    let condition = p.expr()?;
+    p.finish(&["an operator"])?;
+    Ok(Command::DoIf(condition))
+}
+
+pub(crate) fn else_if(p: &mut Parser) -> PResult<Command> {
+    let condition = p.expr()?;
+    p.finish(&["an operator"])?;
+    Ok(Command::ElseIf(condition))
+}
+
+pub(crate) fn else_command(p: &mut Parser) -> PResult<Command> {
+    p.finish(&[])?;
+    Ok(Command::Else)
+}
+
+pub(crate) fn end_if(p: &mut Parser) -> PResult<Command> {
+    p.finish(&[])?;
+    Ok(Command::EndIf)
+}
