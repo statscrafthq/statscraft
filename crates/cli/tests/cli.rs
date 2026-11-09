@@ -91,12 +91,109 @@ fn a_session_keeps_the_dataset_between_runs() {
     let description = dir.json(&["describe", "-s", "t1", "--json"]);
     assert_eq!(label_of(&description, "age"), "Age at interview");
 
+    let session = dir.0.join(".statscraft/sessions/t1/data.zsav");
+    let modified = std::fs::metadata(&session).unwrap().modified().unwrap();
     let third = dir.json(&["run", "-s", "t1", "--json", "-e", "FREQUENCIES gender."]);
     assert_eq!(
         third["saved"], false,
         "a run that changes nothing does not rewrite the session"
     );
+    assert_eq!(
+        std::fs::metadata(&session).unwrap().modified().unwrap(),
+        modified
+    );
     assert_eq!(third["commands"][0]["tables"][0]["rows"][0][3], 106.0);
+}
+
+fn numbers(data: &statscraft_data::Dataset, name: &str) -> Vec<Option<f64>> {
+    data.variable(name)
+        .unwrap()
+        .numeric()
+        .unwrap()
+        .iter()
+        .collect()
+}
+
+#[test]
+fn session_value_changes_survive_a_separate_run() {
+    let dir = Workdir::new("session-values");
+    dir.ok(&["run", "-s", "t1", "-e", &get_fixture("survey_basic.sav")]);
+    let session = dir.0.join(".statscraft/sessions/t1/data.zsav");
+    let before = statscraft_data::Dataset::read_sav(&session).unwrap();
+    for (syntax, name) in [
+        ("COMPUTE age = age + 100.", "age"),
+        ("COMPUTE plan = 'PLUS'.", "plan"),
+    ] {
+        let report = dir.json(&["run", "-s", "t1", "--json", "-e", syntax]);
+        assert_eq!(report["saved"], true, "{syntax}");
+        let changes = &report["changes"];
+        assert_eq!(changes["variables_changed"], serde_json::json!([name]));
+        assert_eq!(changes["variables_added"], serde_json::json!([]));
+        assert_eq!(changes["variables_removed"], serde_json::json!([]));
+    }
+    dir.ok(&["run", "-s", "t1", "-e", "SAVE OUTFILE='reloaded.sav'."]);
+    let after = statscraft_data::Dataset::read_sav(dir.0.join("reloaded.sav")).unwrap();
+    let plus_100: Vec<_> = numbers(&before, "age")
+        .into_iter()
+        .map(|v| v.map(|v| v + 100.0))
+        .collect();
+    assert_eq!(numbers(&after, "age"), plus_100);
+    let plan = after.variable("plan").unwrap();
+    assert!(plan.string().unwrap().iter().all(|v| v == "PLUS"));
+
+    let modified = std::fs::metadata(&session).unwrap().modified().unwrap();
+    let same = "COMPUTE age = age.\nCOMPUTE plan = plan.";
+    let unchanged = dir.json(&["run", "-s", "t1", "--json", "-e", same]);
+    assert_eq!(unchanged["saved"], false);
+    assert_eq!(
+        unchanged["changes"]["variables_changed"],
+        serde_json::json!([])
+    );
+    assert_eq!(
+        std::fs::metadata(&session).unwrap().modified().unwrap(),
+        modified
+    );
+}
+
+#[test]
+fn session_case_order_survives_a_separate_run() {
+    let dir = Workdir::new("session-order");
+    dir.ok(&["run", "-s", "t1", "-e", &get_fixture("survey_basic.sav")]);
+    let sort = "SORT CASES BY resp_id (D).";
+    let report = dir.json(&["run", "-s", "t1", "--json", "-e", sort]);
+    assert_eq!(report["saved"], true);
+    let changed = report["changes"]["variables_changed"].as_array().unwrap();
+    assert!(changed.contains(&serde_json::json!("resp_id")));
+    dir.ok(&["run", "-s", "t1", "-e", "SAVE OUTFILE='reloaded.sav'."]);
+    let after = statscraft_data::Dataset::read_sav(dir.0.join("reloaded.sav")).unwrap();
+    let descending: Vec<_> = (1001..=1200).rev().map(|id| Some(f64::from(id))).collect();
+    assert_eq!(numbers(&after, "resp_id"), descending);
+
+    let unchanged = dir.json(&["run", "-s", "t1", "--json", "-e", sort]);
+    assert_eq!(unchanged["saved"], false);
+    assert_eq!(
+        unchanged["changes"]["variables_changed"],
+        serde_json::json!([])
+    );
+}
+
+#[test]
+fn session_weight_changes_survive_a_separate_run() {
+    let dir = Workdir::new("session-weight");
+    dir.ok(&["run", "-s", "t1", "-e", &get_fixture("survey_basic.sav")]);
+    for (syntax, expected) in [
+        ("WEIGHT BY weight.", serde_json::json!("weight")),
+        ("WEIGHT OFF.", serde_json::Value::Null),
+    ] {
+        let report = dir.json(&["run", "-s", "t1", "--json", "-e", syntax]);
+        assert_eq!(report["saved"], true, "{syntax}");
+        assert_eq!(
+            report["changes"]["variables_changed"],
+            serde_json::json!([])
+        );
+        let description = dir.json(&["describe", "-s", "t1", "--json"]);
+        assert_eq!(description["weight_variable"], expected, "{syntax}");
+    }
 }
 
 #[test]
@@ -134,41 +231,49 @@ fn a_line_range_runs_only_the_commands_inside_it() {
 fn a_failing_run_saves_nothing() {
     let dir = Workdir::new("atomic");
     dir.ok(&["run", "-s", "t1", "-e", &get_fixture("survey_basic.sav")]);
+    let session = dir.0.join(".statscraft/sessions/t1/data.zsav");
+    let bytes = std::fs::read(&session).unwrap();
     let out = dir.run(&[
         "run",
         "-s",
         "t1",
         "--json",
         "-e",
-        "VARIABLE LABELS age 'Changed'.\nFREQUENCIES no_such_variable.",
+        "VARIABLE LABELS age 'Changed'.\nCOMPUTE age = age + 100.\nWEIGHT BY weight.\n\
+         FREQUENCIES no_such_variable.",
     ]);
     assert!(!out.status.success());
     let report: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
     assert_eq!(report["ok"], false);
-    assert_eq!(report["errors"][0]["line"], 2);
+    assert_eq!(report["errors"][0]["line"], 4);
     assert_eq!(report["errors"][0]["command"], "FREQUENCIES");
     let description = dir.json(&["describe", "-s", "t1", "--json"]);
     assert_ne!(label_of(&description, "age"), "Changed");
+    assert_eq!(std::fs::read(&session).unwrap(), bytes);
 }
 
 #[test]
 fn check_reports_problems_without_changing_the_session() {
     let dir = Workdir::new("check");
     dir.ok(&["run", "-s", "t1", "-e", &get_fixture("survey_basic.sav")]);
+    let session = dir.0.join(".statscraft/sessions/t1/data.zsav");
+    let bytes = std::fs::read(&session).unwrap();
     assert!(
         dir.ok(&[
             "check",
             "-s",
             "t1",
             "-e",
-            "VARIABLE LABELS age 'Checked only'."
+            "VARIABLE LABELS age 'Checked only'.\nCOMPUTE age = age + 100.\n\
+             COMPUTE plan = 'PLUS'.\nWEIGHT BY weight."
         ])
-        .contains("checked 1 command")
+        .contains("checked 4 command")
     );
     assert_ne!(
         label_of(&dir.json(&["describe", "-s", "t1", "--json"]), "age"),
         "Checked only"
     );
+    assert_eq!(std::fs::read(&session).unwrap(), bytes);
 
     let syntax_error = dir.run(&["check", "-e", "FREQUENCEIS gender."]);
     assert!(!syntax_error.status.success());

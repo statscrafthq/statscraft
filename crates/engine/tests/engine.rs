@@ -93,7 +93,7 @@ fn weights_are_applied_when_the_file_has_a_weight_variable() {
 #[test]
 fn dictionary_commands_change_the_dataset_and_are_summarised() {
     let mut engine = loaded("survey_basic.sav");
-    let before = engine.dataset().unwrap().describe();
+    let before = engine.dataset().unwrap().clone();
     run(
         &mut engine,
         "VARIABLE LABELS age 'Age at interview'.
@@ -109,7 +109,7 @@ FORMATS monthly_spend (F10.1).",
     );
     assert_eq!(data.variable("gender").unwrap().value_labels().len(), 2);
     assert_eq!(data.variable("monthly_spend").unwrap().format(), "F10.1");
-    let changes = Changes::between(Some(&before), Some(&data.describe()));
+    let changes = Changes::between(Some(&before), Some(data));
     assert_eq!(
         changes.variables_changed,
         ["gender", "age", "q2_recommend", "monthly_spend"]

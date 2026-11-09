@@ -25,7 +25,7 @@ const DATE_RANGE: std::ops::Range<f64> = -49_916_217_600.0..265_621_680_000.0;
 const MAX_DURATION: f64 = 9.0e12;
 
 /// Display properties the model does not interpret, kept so that writing gives them back.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq)]
 pub(crate) struct VariableExtras {
     display_width: Option<u32>,
     alignment: Option<ambers::Alignment>,

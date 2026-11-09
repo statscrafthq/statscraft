@@ -307,7 +307,7 @@ fn run(args: RunArgs, check_only: bool) -> Result<(), Vec<Failure>> {
         Some(name) => load_session(name)?,
         None => None,
     };
-    let before = loaded.as_ref().map(Dataset::describe);
+    let before = loaded.clone();
     let mut engine = Engine::with_dataset(loaded);
     // shortcut: check runs the commands on a copy (file writes skipped) instead of a separate
     // validation pass, so it costs as much as a run; add a validation pass if that gets slow.
@@ -341,11 +341,12 @@ fn run(args: RunArgs, check_only: bool) -> Result<(), Vec<Failure>> {
         .map_err(|e| vec![Failure::plain("run", e.to_string())])?;
 
     let after = engine.dataset().map(Dataset::describe);
-    let changes = Changes::between(before.as_ref(), after.as_ref());
+    let changes = Changes::between(before.as_ref(), engine.dataset());
     let mut saved = false;
     if let (false, Some(name), Some(dataset)) = (check_only, &args.session, engine.dataset()) {
         let path = session_file(name)?;
-        if !changes.is_empty() || !path.exists() {
+        // compare whole datasets: a weight change shows in no variable
+        if before.as_ref() != Some(dataset) || !path.exists() {
             let fail = |m: String| vec![Failure::plain("session", m)];
             std::fs::create_dir_all(path.parent().expect("session path has a parent"))
                 .map_err(|e| fail(e.to_string()))?;

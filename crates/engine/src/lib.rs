@@ -14,7 +14,7 @@ mod variables;
 
 pub use ctables::format_value;
 use serde::Serialize;
-use statscraft_data::{Dataset, Description, Measure, MissingValues, Value};
+use statscraft_data::{Dataset, Measure, MissingValues, Value};
 use statscraft_syntax as syntax;
 use statscraft_syntax::{Bound, Command, VarItem};
 
@@ -90,37 +90,27 @@ pub struct Changes {
 }
 
 impl Changes {
-    pub fn between(before: Option<&Description>, after: Option<&Description>) -> Self {
-        let vars = |d: Option<&Description>| -> Vec<(String, serde_json::Value)> {
-            d.map(|d| {
-                d.variables
-                    .iter()
-                    .map(|v| (v.name.clone(), serde_json::to_value(v).expect("plain data")))
-                    .collect()
-            })
-            .unwrap_or_default()
-        };
-        let (old, new) = (vars(before), vars(after));
-        let find = |list: &[(String, serde_json::Value)], name: &str| {
-            list.iter().find(|(n, _)| n == name).map(|(_, v)| v.clone())
-        };
+    /// A variable counts as changed when its dictionary entry or any of its values differ, in
+    /// case order, so COMPUTE and SORT CASES show up even when the summary stays the same.
+    pub fn between(before: Option<&Dataset>, after: Option<&Dataset>) -> Self {
         let mut changes = Changes {
-            cases_before: before.map(|d| d.case_count),
-            cases_after: after.map(|d| d.case_count),
+            cases_before: before.map(Dataset::case_count),
+            cases_after: after.map(Dataset::case_count),
             ..Changes::default()
         };
-        for (name, value) in &new {
-            match find(&old, name) {
-                None => changes.variables_added.push(name.clone()),
-                Some(previous) if previous != *value => {
-                    changes.variables_changed.push(name.clone())
+        for variable in after.into_iter().flat_map(Dataset::variables) {
+            let name = variable.name();
+            match before.and_then(|d| d.variables().find(|v| v.name() == name)) {
+                None => changes.variables_added.push(name.to_string()),
+                Some(previous) if previous != variable => {
+                    changes.variables_changed.push(name.to_string())
                 }
                 Some(_) => {}
             }
         }
-        for (name, _) in &old {
-            if find(&new, name).is_none() {
-                changes.variables_removed.push(name.clone());
+        for name in before.into_iter().flat_map(Dataset::variable_names) {
+            if !after.is_some_and(|d| d.variable_names().any(|n| n == name)) {
+                changes.variables_removed.push(name.to_string());
             }
         }
         changes

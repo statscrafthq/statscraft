@@ -16,14 +16,14 @@ use std::sync::Arc;
 ///
 /// Cloning is cheap: columns and dictionary are reference counted. Changing a clone copies the
 /// dictionary at most, and no column that the change does not replace.
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 pub struct Dataset {
     columns: Vec<ArrayRef>,
     case_count: usize,
     dict: Arc<Dictionary>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct Dictionary {
     encoding: String,
     compression: &'static str,
@@ -36,7 +36,7 @@ struct Dictionary {
     documents: Vec<String>,
 }
 
-#[derive(Clone)]
+#[derive(Clone, PartialEq)]
 struct VariableDef {
     name: String,
     label: Option<String>,
@@ -151,7 +151,7 @@ impl MissingValues {
 }
 
 /// Read access to one variable: its dictionary entry and its values.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq)]
 pub struct Variable<'a> {
     def: &'a VariableDef,
     column: &'a ArrayRef,
