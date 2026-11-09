@@ -48,6 +48,23 @@ The Analyze menu has dialogs for Frequencies, Descriptives, Crosstabs and Custom
 
 Syntax is the only command layer: every change and every result in the window comes from syntax run by the engine, exactly as `statscraft run` runs it. Opening a file runs `GET FILE`, editing a cell runs `IF ($CASENUM = n) var = value.`, editing a label runs `VARIABLE LABELS`, and so on. The log under the tabs lists every command with what it changed, and Copy syntax there gives a script that repeats the session.
 
+### Driving the window from the command line or an AI agent
+
+While the window is open it is a live session named `gui`:
+
+```
+statscraft run -s gui -e "GET FILE='survey.sav'."         the window opens the file
+statscraft run -s gui --json job.sps                      runs job.sps in the window
+statscraft check -s gui -e "COMPUTE x = age / 10."       validates against the window's data
+statscraft describe -s gui --json                        dictionary of the window's dataset
+```
+
+The window runs the syntax exactly as its own Run button does: the tables appear in Output, the commands in the log, and the data grid shows the result. The command line prints what it prints for a file session, with `"session": "gui"`; `saved` is true when the run changed the window's dataset (nothing is written to disk unless the syntax says SAVE). Relative paths in the syntax are read from the folder where `statscraft` was started, and the window stays in that folder.
+
+So an AI agent with a shell can work in the open window: start `statscraft-gui`, then tell the agent to use `statscraft run -s gui --json` for every step and `statscraft help COMMAND` for the syntax. The person watching sees each table appear and can keep working in the window between the agent's runs.
+
+How it connects: on start the window listens on a random TCP port of 127.0.0.1 and writes the address and a random token to `statscraft/gui.json` in `$XDG_RUNTIME_DIR` on Linux or `%LOCALAPPDATA%` on Windows (`~/.config` otherwise), readable only by the user. A request without the token is refused, and the command line sends the token only to a local address. When no window is open, `-s gui` fails with "no StatsCraft window is running". With several windows open, the one started last answers.
+
 The window uses system fonts (Segoe UI and Consolas on Windows, DejaVu, Noto or Liberation on Linux); set `STATSCRAFT_FONT` or `STATSCRAFT_MONO_FONT` to a .ttf file to choose others.
 
 ## Development

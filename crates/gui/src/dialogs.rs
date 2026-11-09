@@ -477,7 +477,7 @@ pub fn label_command(name: &str, label: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session::Session;
+    use statscraft_engine::session::Session;
 
     fn v(names: &[&str]) -> Vec<String> {
         names.iter().map(|n| n.to_string()).collect()
@@ -493,10 +493,10 @@ mod tests {
         session
             .run(&format!("GET FILE={}.", quote(&file)), None)
             .unwrap();
-        let outputs = session
+        let result = session
             .run(syntax, None)
             .unwrap_or_else(|e| panic!("{syntax}\n{e:?}"));
-        outputs.iter().map(|o| o.tables.len()).sum()
+        result.commands.iter().map(|o| o.tables.len()).sum()
     }
 
     #[test]

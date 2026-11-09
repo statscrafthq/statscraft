@@ -8,7 +8,6 @@ mod edits;
 mod fonts;
 mod grid;
 mod output;
-mod session;
 mod syntax_text;
 
 use eframe::egui;
@@ -35,7 +34,7 @@ fn main() -> ExitCode {
         options,
         Box::new(move |cc| {
             cc.egui_ctx.set_fonts(fonts);
-            Ok(Box::new(app::App::new(&args)))
+            Ok(Box::new(app::App::new(&args, &cc.egui_ctx)))
         }),
     );
     match result {

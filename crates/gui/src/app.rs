@@ -7,7 +7,6 @@ use crate::dialogs::{
 };
 use crate::edits::{self, Field};
 use crate::output::{self, OutputItem};
-use crate::session::{RunError, Session};
 use crate::syntax_text::quote;
 use crate::{editor, grid};
 use eframe::egui::{
@@ -16,8 +15,14 @@ use eframe::egui::{
     text::LayoutJob, vec2,
 };
 use statscraft_data::Dataset;
+use statscraft_engine::live::{self, Action, Request, Response};
+use statscraft_engine::session::{CommandResult, Failure, Session};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc;
+
+/// A request from `statscraft --session gui` and where its reply goes.
+type Remote = (Request, mpsc::Sender<Response>);
 
 #[derive(Clone, Copy, PartialEq)]
 enum Tab {
@@ -131,7 +136,7 @@ pub struct App {
     field_edit: Option<CellEdit>,
     syntax: String,
     syntax_file: Option<PathBuf>,
-    syntax_errors: Vec<RunError>,
+    syntax_errors: Vec<Failure>,
     selection: (usize, usize),
     show_help: bool,
     help_for: Option<(u32, usize)>,
@@ -144,12 +149,35 @@ pub struct App {
     filter: String,
     status: Result<String, String>,
     title: String,
+    requests: mpsc::Receiver<Remote>,
+    /// The listener for `--session gui`; dropping it removes the endpoint file.
+    server: Option<live::Server>,
 }
 
 impl App {
     /// Arguments: data files (.sav, .zsav) are opened, syntax files (.sps) loaded into the
     /// syntax editor.
-    pub fn new(args: &[String]) -> Self {
+    pub fn new(args: &[String], ctx: &egui::Context) -> Self {
+        let (sender, requests) = mpsc::channel::<Remote>();
+        let ctx = ctx.clone();
+        // the listener thread hands each request to the window and waits for the reply
+        let server = live::serve(live::endpoint_file(), move |request| {
+            let (reply, answer) = mpsc::channel();
+            sender
+                .send((request, reply))
+                .map_err(|_| vec![Failure::plain("session", "the window is closing")])?;
+            ctx.request_repaint();
+            answer.recv().unwrap_or_else(|_| {
+                Err(vec![Failure::plain(
+                    "session",
+                    "the window closed during the run",
+                )])
+            })
+        });
+        let status = match &server {
+            Ok(_) => Ok("Ready".into()),
+            Err(e) => Err(format!("the command line cannot reach this window: {e}")),
+        };
         let mut app = App {
             session: Session::default(),
             tab: Tab::Data,
@@ -173,8 +201,10 @@ impl App {
             dialog: None,
             picked: Vec::new(),
             filter: String::new(),
-            status: Ok("Ready".into()),
+            status,
             title: "StatsCraft".into(),
+            requests,
+            server: server.ok(),
         };
         for arg in args {
             let path = PathBuf::from(arg);
@@ -190,7 +220,34 @@ impl App {
     /// Runs syntax through the session. Tables go to the output; errors to the status bar and,
     /// for the syntax editor, to the editor's error list.
     fn run(&mut self, source: &str, lines: Option<(u32, u32)>, from_editor: bool) -> bool {
-        match self.session.run(source, lines) {
+        let result = self.session.run(source, lines);
+        self.show(result.map(|r| r.commands), from_editor)
+    }
+
+    /// Answers `statscraft run --session gui` and the like. A run shows in the window like one
+    /// of its own; describe and check change nothing.
+    fn answer(&mut self, request: &Request) -> Response {
+        if request.action != Action::Run {
+            return live::answer(&mut self.session, request);
+        }
+        request.enter_folder();
+        let mut result = self.session.run(&request.source, request.lines);
+        let reply = live::reply(&mut result, request);
+        // the data may have changed under an open cell editor
+        self.cell_edit = None;
+        self.field_edit = None;
+        self.show(result.map(|r| r.commands), false);
+        reply
+    }
+
+    /// Puts the tables of a run in the output, or its errors in the status bar and, for the
+    /// syntax editor, in the editor's error list.
+    fn show(
+        &mut self,
+        result: Result<Vec<CommandResult>, Vec<Failure>>,
+        from_editor: bool,
+    ) -> bool {
+        match result {
             Ok(outputs) => {
                 if from_editor {
                     self.syntax_errors.clear();
@@ -220,7 +277,7 @@ impl App {
             Err(errors) => {
                 self.status = Err(errors
                     .iter()
-                    .map(RunError::text)
+                    .map(Failure::text)
                     .collect::<Vec<_>>()
                     .join("\n"));
                 if from_editor {
@@ -464,7 +521,7 @@ impl App {
                             ui.visuals().error_fg_color,
                             errors
                                 .iter()
-                                .map(RunError::text)
+                                .map(Failure::text)
                                 .collect::<Vec<_>>()
                                 .join("\n"),
                         ),
@@ -958,6 +1015,17 @@ impl App {
 }
 
 impl eframe::App for App {
+    fn logic(&mut self, _ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        while let Ok((request, reply)) = self.requests.try_recv() {
+            let _ = reply.send(self.answer(&request));
+        }
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        // removes the endpoint file, so the command line says at once that no window runs
+        self.server = None;
+    }
+
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let title = match self.data_file.as_ref().and_then(|p| p.file_name()) {
             Some(name) => format!("{} - StatsCraft", name.to_string_lossy()),

@@ -1,8 +1,7 @@
 use clap::{Args, Parser, Subcommand};
-use serde::Serialize;
 use statscraft_data::Dataset;
-use statscraft_engine::{Cell, Changes, Engine, Table, format_value};
-use statscraft_syntax::{Command, RawCommand, SyntaxError};
+use statscraft_engine::live::{self, Action, Request};
+use statscraft_engine::session::{Failure, Session, describe_output};
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -25,7 +24,7 @@ enum Cmd {
     Describe {
         /// A .sav or .zsav file
         file: Option<String>,
-        /// Describe the dataset of this session instead of a file
+        /// Describe the dataset of this session instead of a file; gui is the running window
         #[arg(short, long)]
         session: Option<String>,
         #[arg(long)]
@@ -46,7 +45,8 @@ struct RunArgs {
     /// Syntax text given directly
     #[arg(short = 'e', long = "execute", conflicts_with = "file")]
     text: Option<String>,
-    /// Session name: the dataset is loaded from and saved to .statscraft/sessions/<name>
+    /// Session name: the dataset is loaded from and saved to .statscraft/sessions/<name>.
+    /// The name gui sends the syntax to the running statscraft-gui window instead
     #[arg(short, long)]
     session: Option<String>,
     /// Run only the commands inside this inclusive line range, for example 40-55
@@ -54,89 +54,6 @@ struct RunArgs {
     lines: Option<String>,
     #[arg(long)]
     json: bool,
-}
-
-#[derive(Serialize)]
-struct Failure {
-    kind: &'static str,
-    message: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    command: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    line: Option<u32>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    column: Option<u32>,
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    expected: Vec<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    hint: Option<String>,
-}
-
-impl Failure {
-    fn plain(kind: &'static str, message: impl Into<String>) -> Self {
-        Self {
-            kind,
-            message: message.into(),
-            command: None,
-            line: None,
-            column: None,
-            expected: vec![],
-            hint: None,
-        }
-    }
-
-    fn syntax(e: SyntaxError) -> Self {
-        Self {
-            kind: "syntax",
-            message: e.message,
-            command: None,
-            line: Some(e.span.line),
-            column: Some(e.span.column),
-            expected: e.expected,
-            hint: e.hint,
-        }
-    }
-
-    fn text(&self) -> String {
-        let mut s = String::new();
-        if let (Some(line), Some(column)) = (self.line, self.column) {
-            s.push_str(&format!("line {line}, column {column}: "));
-        } else if let Some(line) = self.line {
-            s.push_str(&format!("line {line}: "));
-        }
-        if let Some(command) = &self.command {
-            s.push_str(&format!("{command}: "));
-        }
-        s.push_str(&self.message);
-        if !self.expected.is_empty() {
-            s.push_str(&format!("; expected: {}", self.expected.join(", ")));
-        }
-        if let Some(hint) = &self.hint {
-            s.push_str(&format!("; hint: {hint}"));
-        }
-        s
-    }
-}
-
-#[derive(Serialize)]
-struct CommandResult {
-    name: String,
-    first_line: u32,
-    last_line: u32,
-    tables: Vec<Table>,
-}
-
-#[derive(Serialize)]
-struct RunResult {
-    ok: bool,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    session: Option<String>,
-    commands: Vec<CommandResult>,
-    changes: Changes,
-    /// Cases and variables of the active dataset after the run.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    dataset: Option<[usize; 2]>,
-    saved: bool,
 }
 
 fn main() -> ExitCode {
@@ -197,6 +114,16 @@ fn load_session(name: &str) -> Result<Option<Dataset>, Vec<Failure>> {
 
 fn describe(file: Option<String>, session: Option<String>, json: bool) -> Result<(), Vec<Failure>> {
     let dataset = match (file, session) {
+        (None, Some(name)) if name == live::SESSION => {
+            return remote(Request {
+                token: String::new(),
+                action: Action::Describe,
+                source: String::new(),
+                lines: None,
+                json,
+                cwd: None,
+            });
+        }
         (Some(file), None) => {
             Dataset::read_sav(&file).map_err(|e| vec![Failure::plain("file", e.to_string())])?
         }
@@ -213,22 +140,13 @@ fn describe(file: Option<String>, session: Option<String>, json: bool) -> Result
             )]);
         }
     };
-    let d = dataset.describe();
-    if json {
-        println!("{}", serde_json::to_string_pretty(&d).expect("plain data"));
-        return Ok(());
-    }
-    println!("{} cases, {} variables", d.case_count, d.variable_count);
-    for v in &d.variables {
-        println!(
-            "{}\t{}\t{}\tvalid {}\t{}",
-            v.name,
-            v.format,
-            v.measure,
-            v.n_valid,
-            v.label.as_deref().unwrap_or("")
-        );
-    }
+    print!("{}", describe_output(&dataset, json));
+    Ok(())
+}
+
+/// Sends the request to the running window and prints its reply.
+fn remote(request: Request) -> Result<(), Vec<Failure>> {
+    print!("{}", live::send(&live::endpoint_file(), request)?);
     Ok(())
 }
 
@@ -281,154 +199,46 @@ fn parse_lines(spec: &str) -> Result<(u32, u32), Vec<Failure>> {
 
 fn run(args: RunArgs, check_only: bool) -> Result<(), Vec<Failure>> {
     let source = read_source(&args)?;
-    let all = statscraft_syntax::split_commands(&source).map_err(|e| vec![Failure::syntax(e)])?;
-    let selected: &[RawCommand] = match &args.lines {
-        Some(spec) => {
-            let (first, last) = parse_lines(spec)?;
-            statscraft_syntax::select_lines(&all, first, last)
-                .map_err(|e| vec![Failure::syntax(e)])?
-        }
-        None => &all,
-    };
-
-    let mut commands: Vec<(&RawCommand, Command)> = Vec::new();
-    let mut failures = Vec::new();
-    for raw in selected {
-        match statscraft_syntax::parse_command(raw) {
-            Ok(command) => commands.push((raw, command)),
-            Err(e) => failures.push(Failure::syntax(e)),
-        }
+    let lines = args.lines.as_deref().map(parse_lines).transpose()?;
+    if args.session.as_deref() == Some(live::SESSION) {
+        return remote(Request {
+            token: String::new(),
+            action: if check_only {
+                Action::Check
+            } else {
+                Action::Run
+            },
+            source,
+            lines,
+            json: args.json,
+            cwd: std::env::current_dir().ok(),
+        });
     }
-    if !failures.is_empty() {
-        return Err(failures);
-    }
-
     let loaded = match &args.session {
         Some(name) => load_session(name)?,
         None => None,
     };
-    let before = loaded.clone();
-    let mut engine = Engine::with_dataset(loaded);
+    let mut session = Session::with_dataset(loaded);
     // shortcut: check runs the commands on a copy (file writes skipped) instead of a separate
     // validation pass, so it costs as much as a run; add a validation pass if that gets slow.
-    engine.dry_run = check_only;
-
-    let mut results = Vec::new();
-    for (raw, command) in &commands {
-        // A failing command aborts the whole run and nothing is saved, so the same range can be
-        // run again after the fix.
-        let tables = engine.execute(command).map_err(|e| {
-            vec![Failure {
-                kind: "run",
-                message: e.to_string(),
-                command: Some(raw.name.clone()),
-                line: Some(raw.first_line),
-                column: None,
-                expected: vec![],
-                hint: None,
-            }]
-        })?;
-        results.push(CommandResult {
-            name: raw.name.clone(),
-            first_line: raw.first_line,
-            last_line: raw.last_line,
-            tables,
-        });
-    }
-
-    engine
-        .finish()
-        .map_err(|e| vec![Failure::plain("run", e.to_string())])?;
-
-    let after = engine.dataset().map(Dataset::describe);
-    let changes = Changes::between(before.as_ref(), engine.dataset());
-    let mut saved = false;
-    if let (false, Some(name), Some(dataset)) = (check_only, &args.session, engine.dataset()) {
+    let mut result = if check_only {
+        session.check(&source, lines)
+    } else {
+        session.run(&source, lines)
+    }?;
+    result.session = args.session.clone();
+    // a run is all or nothing: a failure above returned before anything was saved
+    let changed = std::mem::take(&mut result.saved);
+    if let (false, Some(name), Some(dataset)) = (check_only, &args.session, session.dataset()) {
         let path = session_file(name)?;
-        // compare whole datasets: a weight change shows in no variable
-        if before.as_ref() != Some(dataset) || !path.exists() {
+        if changed || !path.exists() {
             let fail = |m: String| vec![Failure::plain("session", m)];
             std::fs::create_dir_all(path.parent().expect("session path has a parent"))
                 .map_err(|e| fail(e.to_string()))?;
             dataset.write_sav(&path).map_err(|e| fail(e.to_string()))?;
-            saved = true;
+            result.saved = true;
         }
     }
-
-    let result = RunResult {
-        ok: true,
-        session: args.session.clone(),
-        commands: results,
-        changes,
-        dataset: after.as_ref().map(|d| [d.case_count, d.variable_count]),
-        saved,
-    };
-    if args.json {
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&result).expect("plain data")
-        );
-    } else {
-        print_text(&result, check_only);
-    }
+    print!("{}", result.output(args.json, check_only));
     Ok(())
-}
-
-fn print_text(result: &RunResult, check_only: bool) {
-    for table in result.commands.iter().flat_map(|c| &c.tables) {
-        println!("### {}\n", table.title);
-        println!("| {} |", table.column_titles().join(" | "));
-        println!("|{}", " --- |".repeat(table.columns.len()));
-        for (r, row) in table.rows.iter().enumerate() {
-            let format = |c: usize| {
-                table
-                    .formats
-                    .get(r)
-                    .and_then(|f| f.get(c))
-                    .filter(|f| !f.is_empty())
-            };
-            let cells: Vec<String> = row
-                .iter()
-                .enumerate()
-                .map(|(c, cell)| match (cell, format(c)) {
-                    (Cell::Text(t), _) => t.replace('|', "\\|"),
-                    (Cell::Number(n), Some(format)) => format_value(*n, format, true),
-                    (Cell::Number(n), None) if n.fract() == 0.0 => format!("{n:.0}"),
-                    (Cell::Number(n), None) => format!("{n:.2}"),
-                    (Cell::Empty, _) => String::new(),
-                })
-                .collect();
-            println!("| {} |", cells.join(" | "));
-        }
-        if let Some(caption) = &table.caption {
-            println!("\n{caption}");
-        }
-        println!();
-    }
-    let c = &result.changes;
-    let list = |title: &str, names: &[String]| {
-        if !names.is_empty() {
-            println!("{title}: {}", names.join(", "));
-        }
-    };
-    if let (None, Some([cases, variables])) = (c.cases_before, result.dataset) {
-        println!("dataset loaded: {cases} cases, {variables} variables");
-    } else {
-        list("variables added", &c.variables_added);
-    }
-    list("variables changed", &c.variables_changed);
-    list("variables removed", &c.variables_removed);
-    if c.cases_before.is_some() && c.cases_before != c.cases_after {
-        println!(
-            "cases: {} -> {}",
-            c.cases_before.map_or("none".into(), |n| n.to_string()),
-            c.cases_after.map_or("none".into(), |n| n.to_string())
-        );
-    }
-    let verb = if check_only { "checked" } else { "ran" };
-    println!(
-        "{verb} {} command(s){}",
-        result.commands.len(),
-        if result.saved { ", session saved" } else { "" }
-    );
 }

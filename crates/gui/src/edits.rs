@@ -389,7 +389,7 @@ pub fn field_edit(variable: &Variable, field: Field, text: &str) -> Result<Optio
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::session::Session;
+    use statscraft_engine::session::Session;
 
     fn survey() -> Session {
         let mut session = Session::default();
