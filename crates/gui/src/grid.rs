@@ -1,6 +1,44 @@
-//! Which part of a large grid is visible, so only those cells are drawn.
+//! Which part of a large grid is visible, so only those cells are drawn, and where the keyboard
+//! moves the selected cell.
 
+use eframe::egui::Key;
 use std::ops::Range;
+
+/// Where `key` moves the selected cell `at` in a grid of (rows, columns); `page` is the number
+/// of rows in view. With `ctrl`, Home and End go to the first and the last cell. Tab moves right
+/// and on to the next row, Shift+Tab back.
+pub fn moved(
+    key: Key,
+    ctrl: bool,
+    shift: bool,
+    at: (usize, usize),
+    (rows, columns): (usize, usize),
+    page: usize,
+) -> (usize, usize) {
+    let (last_row, last_column) = (rows.saturating_sub(1), columns.saturating_sub(1));
+    // the data may have shrunk since the cell was selected
+    let (r, c) = (at.0.min(last_row), at.1.min(last_column));
+    match key {
+        Key::ArrowUp => (r.saturating_sub(1), c),
+        Key::ArrowDown => ((r + 1).min(last_row), c),
+        Key::ArrowLeft => (r, c.saturating_sub(1)),
+        Key::ArrowRight => (r, (c + 1).min(last_column)),
+        Key::PageUp => (r.saturating_sub(page), c),
+        Key::PageDown => ((r + page).min(last_row), c),
+        Key::Home if ctrl => (0, 0),
+        Key::End if ctrl => (last_row, last_column),
+        Key::Home => (r, 0),
+        Key::End => (r, last_column),
+        Key::Tab if shift => match (r, c) {
+            (0, 0) => (0, 0),
+            (r, 0) => (r - 1, last_column),
+            (r, c) => (r, c - 1),
+        },
+        Key::Tab if c < last_column => (r, c + 1),
+        Key::Tab if r < last_row => (r + 1, 0),
+        _ => (r, c),
+    }
+}
 
 /// Left edge of every column, plus the total width as the last entry.
 pub fn offsets(widths: &[f32]) -> Vec<f32> {
@@ -64,6 +102,29 @@ mod tests {
         assert_eq!(visible_columns(&[0.0], 0.0, 100.0), 0..0);
         let wide = super::offsets(&[90.0; 500]);
         assert_eq!(visible_columns(&wide, 9_000.0, 10_000.0), 100..112);
+    }
+
+    #[test]
+    fn keys_move_the_selection_within_the_grid() {
+        let size = (100, 5);
+        let go = |key, ctrl, shift, at| moved(key, ctrl, shift, at, size, 20);
+        assert_eq!(go(Key::ArrowDown, false, false, (3, 2)), (4, 2));
+        assert_eq!(go(Key::ArrowUp, false, false, (0, 2)), (0, 2));
+        assert_eq!(go(Key::ArrowRight, false, false, (3, 4)), (3, 4));
+        assert_eq!(go(Key::ArrowLeft, false, false, (3, 0)), (3, 0));
+        assert_eq!(go(Key::PageDown, false, false, (90, 1)), (99, 1));
+        assert_eq!(go(Key::PageUp, false, false, (30, 1)), (10, 1));
+        assert_eq!(go(Key::Home, false, false, (30, 3)), (30, 0));
+        assert_eq!(go(Key::End, false, false, (30, 1)), (30, 4));
+        assert_eq!(go(Key::Home, true, false, (30, 3)), (0, 0));
+        assert_eq!(go(Key::End, true, false, (30, 1)), (99, 4));
+        assert_eq!(go(Key::Tab, false, false, (30, 3)), (30, 4));
+        assert_eq!(go(Key::Tab, false, false, (30, 4)), (31, 0));
+        assert_eq!(go(Key::Tab, false, false, (99, 4)), (99, 4));
+        assert_eq!(go(Key::Tab, false, true, (31, 0)), (30, 4));
+        assert_eq!(go(Key::Tab, false, true, (0, 0)), (0, 0));
+        // a selection left outside a grid that shrank comes back inside
+        assert_eq!(go(Key::ArrowUp, false, false, (500, 9)), (98, 4));
     }
 
     #[test]

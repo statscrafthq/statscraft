@@ -10,8 +10,8 @@ use crate::output::{self, OutputItem};
 use crate::syntax_text::quote;
 use crate::{editor, grid};
 use eframe::egui::{
-    self, Align, Align2, Color32, ComboBox, FontId, Key, Modifiers, Rect, RichText, ScrollArea,
-    Sense, Stroke, StrokeKind, TextEdit, TextFormat, TextStyle, Ui, UiBuilder, pos2,
+    self, Align, Align2, Color32, ComboBox, FocusDirection, FontId, Key, Modifiers, Rect, RichText,
+    ScrollArea, Sense, Stroke, StrokeKind, TextEdit, TextFormat, TextStyle, Ui, UiBuilder, pos2,
     text::LayoutJob, vec2,
 };
 use statscraft_data::Dataset;
@@ -139,7 +139,22 @@ struct CellEdit {
 struct GridEvents {
     clicked: Option<(usize, usize)>,
     double_clicked: Option<(usize, usize)>,
+    /// Rows in view, for Page Up and Page Down.
+    page: usize,
 }
+
+/// The keys that move the selected cell of the Data View.
+const GRID_KEYS: [Key; 9] = [
+    Key::ArrowUp,
+    Key::ArrowDown,
+    Key::ArrowLeft,
+    Key::ArrowRight,
+    Key::PageUp,
+    Key::PageDown,
+    Key::Home,
+    Key::End,
+    Key::Tab,
+];
 
 pub struct App {
     session: Session,
@@ -148,6 +163,9 @@ pub struct App {
     value_labels: bool,
     show_log: bool,
     selected: Option<(usize, usize)>,
+    /// Scroll the selected cell into view on the next frame.
+    follow: bool,
+    page: usize,
     cell_edit: Option<CellEdit>,
     variable_selected: Option<(usize, usize)>,
     field_edit: Option<CellEdit>,
@@ -205,6 +223,8 @@ impl App {
             value_labels: true,
             show_log: true,
             selected: None,
+            follow: false,
+            page: 20,
             cell_edit: None,
             variable_selected: None,
             field_edit: None,
@@ -633,7 +653,7 @@ impl App {
         ui.horizontal(|ui| {
             ui.checkbox(&mut self.value_labels, "Show value labels");
             ui.weak(
-                "Double-click a cell to change it. The change runs as syntax and shows in the log.",
+                "Double-click a cell or press Enter to change it; arrows, Tab and Page keys move. The change runs as syntax and shows in the log.",
             );
         });
         let data = self.session.dataset().expect("checked above");
@@ -679,6 +699,7 @@ impl App {
             &widths,
             data.case_count(),
             self.selected,
+            std::mem::take(&mut self.follow),
             &cell,
             edit.as_ref().map(|e| (e.row, e.column)),
             &mut |ui, rect| {
@@ -687,34 +708,102 @@ impl App {
                 }
             },
         );
+        self.page = events.page.max(1);
         if let Some(at) = events.clicked {
             self.selected = Some(at);
         }
-        if let Some((row, column)) = events.double_clicked {
-            let text = edits::edit_text(&data.variable_at(column), row);
-            self.selected = Some((row, column));
-            self.cell_edit = Some(CellEdit {
-                row,
-                column,
-                original: text.clone(),
-                text,
-                started: false,
-            });
+        if let Some(at) = events.double_clicked {
+            self.edit_cell(at);
         }
         if cancel {
             self.cell_edit = None;
         }
-        if commit && let Some(e) = self.cell_edit.take() {
-            if e.text == e.original {
-                return;
-            }
-            let data = self.session.dataset().expect("checked above");
-            match edits::cell_edit(&data.variable_at(e.column), e.row, &e.text) {
-                Ok(syntax) => {
-                    self.run(&syntax, None, After::Show);
+        if commit {
+            self.commit_cell();
+        }
+    }
+
+    fn edit_cell(&mut self, (row, column): (usize, usize)) {
+        let Some(data) = self.session.dataset() else {
+            return;
+        };
+        let text = edits::edit_text(&data.variable_at(column), row);
+        self.selected = Some((row, column));
+        self.cell_edit = Some(CellEdit {
+            row,
+            column,
+            original: text.clone(),
+            text,
+            started: false,
+        });
+    }
+
+    fn commit_cell(&mut self) {
+        let (Some(e), Some(data)) = (self.cell_edit.take(), self.session.dataset()) else {
+            return;
+        };
+        if e.text == e.original {
+            return;
+        }
+        match edits::cell_edit(&data.variable_at(e.column), e.row, &e.text) {
+            Ok(syntax) => self.run(&syntax, None, After::Show),
+            Err(message) => self.status = Err(message),
+        }
+    }
+
+    /// The keyboard in the Data View, read before any widget sees the keys: arrows, Page Up
+    /// and Down, Home and End (with Ctrl the first and last cell), Tab and Shift+Tab, Enter to
+    /// edit. While a cell is edited, Tab and the up and down arrows commit it and move on;
+    /// Enter commits and Escape cancels in the editor itself.
+    fn grid_keys(&mut self, ui: &mut Ui) {
+        let Some(data) = self.session.dataset() else {
+            return;
+        };
+        let (rows, columns) = (data.case_count(), data.variable_count());
+        let editing = self.cell_edit.is_some();
+        if self.tab != Tab::Data
+            || self.dialog.is_some()
+            || rows == 0
+            || columns == 0
+            || (!editing && ui.ctx().egui_wants_keyboard_input())
+        {
+            return;
+        }
+        let keys: &[Key] = if editing {
+            &[Key::Tab, Key::ArrowUp, Key::ArrowDown]
+        } else {
+            &GRID_KEYS
+        };
+        let mut moves = Vec::new();
+        let mut enter = false;
+        ui.input_mut(|i| {
+            for &key in keys {
+                if i.consume_key(Modifiers::COMMAND, key) {
+                    moves.push((key, true, false));
+                } else if i.consume_key(Modifiers::SHIFT, key) {
+                    moves.push((key, false, true));
+                } else if i.consume_key(Modifiers::NONE, key) {
+                    moves.push((key, false, false));
                 }
-                Err(message) => self.status = Err(message),
             }
+            enter = !editing && i.consume_key(Modifiers::NONE, Key::Enter);
+        });
+        if moves.is_empty() && !enter {
+            return;
+        }
+        // no egui focus traversal with these keys: the grid has them
+        ui.memory_mut(|m| m.move_focus(FocusDirection::None));
+        if editing {
+            self.commit_cell();
+        }
+        let mut at = self.selected.unwrap_or((0, 0));
+        for (key, ctrl, shift) in moves {
+            at = grid::moved(key, ctrl, shift, at, (rows, columns), self.page);
+        }
+        self.selected = Some(at);
+        self.follow = true;
+        if enter {
+            self.edit_cell(at);
         }
     }
 
@@ -742,6 +831,7 @@ impl App {
             &widths,
             data.variable_count(),
             self.variable_selected,
+            false,
             &cell,
             edit.as_ref().map(|e| (e.row, e.column)),
             &mut |ui, rect| {
@@ -1119,6 +1209,7 @@ impl eframe::App for App {
                 .send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.title = title;
         }
+        self.grid_keys(ui);
         egui::Panel::top("menu").show(ui, |ui| {
             self.menu(ui);
             ui.add_space(2.0);
@@ -1191,6 +1282,7 @@ fn paint_grid(
     widths: &[f32],
     rows: usize,
     selected: Option<(usize, usize)>,
+    follow: bool,
     cell: &dyn Fn(usize, usize) -> (String, bool),
     editing: Option<(usize, usize)>,
     editor: &mut dyn FnMut(&mut Ui, Rect),
@@ -1276,6 +1368,14 @@ fn paint_grid(
             {
                 let stroke = Stroke::new(2.0, visuals.selection.stroke.color);
                 painter.rect_stroke(cell_rect(r, c), 0.0, stroke, StrokeKind::Inside);
+            }
+            events.page = visible_rows.len().saturating_sub(1);
+            if follow && let Some((r, c)) = selected {
+                // room for the header row and the row numbers, which cover the grid's top left
+                let rect = cell_rect(r, c);
+                let room =
+                    Rect::from_min_max(rect.min - vec2(number_width, header_height), rect.max);
+                ui.scroll_to_rect(room, None);
             }
             if let Some((r, c)) = editing
                 && visible_rows.contains(&r)

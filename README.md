@@ -39,7 +39,7 @@ cargo run -p statscraft-gui -- survey.sav job.sps     open a data file and a syn
 
 `statscraft-gui` is a desktop window over the same engine, in four tabs:
 
-- **Data**: the cases in a grid that draws only the visible cells, with value labels on or off. Double-click a cell to change it.
+- **Data**: the cases in a grid that draws only the visible cells, with value labels on or off. Double-click a cell or press Enter to change it; Enter commits, Escape cancels. Arrows, Page Up and Down, Home and End move the selection, Ctrl+Home and Ctrl+End go to the first and last cell, and Tab and Shift+Tab move to the next and previous cell, committing an edit on the way.
 - **Variables**: one row per variable with name, type, format, width, decimals, label, value labels, missing values and measure. Double-click to change a field.
 - **Syntax**: an editor with line numbers. Run all, or Run selection (Ctrl+Enter) for the commands on the selected lines. Errors show at their line and column, and the help panel (F1) follows the command under the cursor.
 - **Output**: every result table with its multi-level header, an outline, Copy (tab-separated, for a spreadsheet) and Export as HTML.
