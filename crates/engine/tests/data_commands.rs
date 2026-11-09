@@ -141,7 +141,7 @@ RECODE q2_recommend (8 THRU 7=1) INTO i.",
 }
 
 #[test]
-fn recode_in_place_keeps_unmatched_values_and_into_clears_them() {
+fn unmatched_values_stay_unchanged_in_place_and_in_an_existing_target() {
     let mut engine = survey();
     assert_eq!(show(&engine, "region", 12), "2 4 4 3 2 3 2 5 4 2 2 2");
     run(&mut engine, "RECODE region (1,2=10) (3 THRU 4=20).");
@@ -152,15 +152,40 @@ fn recode_in_place_keeps_unmatched_values_and_into_clears_them() {
     let region = engine.dataset().unwrap().variable("region").unwrap();
     assert_eq!((region.format(), region.value_labels().len()), ("F1.0", 5));
 
-    // gender is 1 1 2 3 2 2 2 2 2 1 1 2: the other cases lose their age
+    // gender is 1 1 2 3 2 2 2 2 2 1 1 2: an existing target keeps its value where nothing matches
+    let ages = show(&engine, "age", 12);
     run(&mut engine, "RECODE gender (1=100) INTO age.");
-    assert_eq!(show(&engine, "age", 12), "100 100 . . . . . . . 100 100 .");
+    let expected: Vec<String> = ages
+        .split(' ')
+        .zip("1 1 2 3 2 2 2 2 2 1 1 2".split(' '))
+        .map(|(age, gender)| {
+            if gender == "1" {
+                "100".into()
+            } else {
+                age.to_string()
+            }
+        })
+        .collect();
+    assert_eq!(show(&engine, "age", 12), expected.join(" "));
 
     // the second variable is recoded from what the first one just wrote
-    assert_eq!(show(&engine, "q5_1", 12), "1 0 0 1 1 0 0 0 0 0 0 0");
+    let recoded = |source: &str, target: &str| -> String {
+        source
+            .split(' ')
+            .zip(target.split(' '))
+            .map(|(s, t)| if s == "1" { "2" } else { t })
+            .collect::<Vec<_>>()
+            .join(" ")
+    };
+    let (q5_1, q5_2, q5_3) = (
+        show(&engine, "q5_1", 12),
+        show(&engine, "q5_2", 12),
+        show(&engine, "q5_3", 12),
+    );
     run(&mut engine, "RECODE q5_1 q5_2 (1=2) INTO q5_2 q5_3.");
-    assert_eq!(show(&engine, "q5_2", 12), "2 . . 2 2 . . . . . . .");
-    assert_eq!(show(&engine, "q5_3", 12), ". . . . . . . . . . . .");
+    let new_q5_2 = recoded(&q5_1, &q5_2);
+    assert_eq!(show(&engine, "q5_2", 12), new_q5_2);
+    assert_eq!(show(&engine, "q5_3", 12), recoded(&new_q5_2, &q5_3));
 
     run(
         &mut engine,
@@ -197,8 +222,9 @@ RECODE plan ('B'=1) ('PP'=2) INTO plan_number.",
     );
     assert_eq!(show(&engine, "plan", 9), "M|M|F|?|F|F|F|F|F");
 
-    // COPY cuts a longer value to the width of the target; without a match the target is blank
+    // COPY cuts a longer value to the width of the target; without a match the target keeps its value
     let mut engine = survey();
+    let comments = show(&engine, "q3_comment", 5);
     run(
         &mut engine,
         "RECODE q3_comment (''='none') (ELSE=COPY) INTO plan.
@@ -208,7 +234,9 @@ RECODE plan ('none'='x') INTO q3_comment.",
         show(&engine, "plan", 5),
         "Please add|Please add|none|The mobile|The suppor"
     );
-    assert_eq!(show(&engine, "q3_comment", 5), "||x||");
+    let mut expected: Vec<&str> = comments.split('|').collect();
+    expected[2] = "x";
+    assert_eq!(show(&engine, "q3_comment", 5), expected.join("|"));
 }
 
 #[test]

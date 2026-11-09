@@ -192,12 +192,14 @@ RECODE q1_satisfaction (98, 99=SYSMIS) (ELSE=COPY).
 RECODE gender (3 THRU 2=9).",
             ),
             (
+                // The original leaves an existing target unchanged where nothing matches and PSPP
+                // clears it; with an explicit ELSE both programs agree, so the cases here use one.
                 "into-existing-target",
                 SURVEY,
-                "RECODE gender (1=100) INTO age.
-RECODE q1_satisfaction (99=7) (98=8) INTO q2_recommend.
-RECODE q5_1 q5_2 (1=2) INTO q5_2 q5_3.
-RECODE q5_4 (1=1) INTO q5_5.",
+                "RECODE gender (1=100) (ELSE=SYSMIS) INTO age.
+RECODE q1_satisfaction (99=7) (98=8) (ELSE=SYSMIS) INTO q2_recommend.
+RECODE q5_1 q5_2 (1=2) (ELSE=SYSMIS) INTO q5_2 q5_3.
+RECODE q5_4 (1=1) (ELSE=SYSMIS) INTO q5_5.",
             ),
             (
                 "strings",
@@ -212,7 +214,7 @@ RECODE plan ('M'='Male') (MISSING='none') (ELSE=COPY).",
                 "string-copy-into-a-narrower-target",
                 SURVEY,
                 "RECODE q3_comment (''='none') (ELSE=COPY) INTO plan.
-RECODE plan ('none'='x') INTO q3_comment.",
+RECODE plan ('none'='x') (ELSE=' ') INTO q3_comment.",
             ),
             (
                 "groups-and-lists",

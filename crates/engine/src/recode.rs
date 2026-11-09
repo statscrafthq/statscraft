@@ -200,8 +200,9 @@ impl Engine {
                             Some(RecodeOutput::Value(Value::Number(n))) => Some(*n),
                             Some(RecodeOutput::Copy) => copy(case),
                             None if in_place => copy(case),
-                            // without a match INTO clears the target even when it existed
-                            // before, as the reference program does
+                            // without a match an existing target keeps its value and a new one
+                            // stays system-missing (PSPP clears an existing target instead)
+                            None => old.and_then(|values| values.get(case)),
                             _ => None,
                         };
                         assign(mask, case, new, || old.and_then(|values| values.get(case)))
@@ -237,6 +238,7 @@ impl Engine {
                         Some(RecodeOutput::Value(Value::String(text))) => text.as_str(),
                         Some(RecodeOutput::Copy) => copy(case),
                         None if in_place => copy(case),
+                        None => old.get(case),
                         _ => "",
                     };
                     assign(mask, case, new, || old.get(case)).to_string()

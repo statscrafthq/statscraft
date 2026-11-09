@@ -172,7 +172,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  inputs: values, low THRU high (with LOWEST or HIGHEST), MISSING, SYSMIS, ELSE.\n\
                  output: a value, SYSMIS or COPY.\n\
                  The first matching (inputs = output) wins. A value or range also matches user-missing values.\n\
-                 Without a match a variable keeps its value; with INTO the target becomes system-missing or blank.\n\
+                 Without a match a variable keeps its value, and so does an existing INTO target; a new target becomes system-missing.\n\
                  A string target of INTO must exist already.",
         example: "RECODE age (LOWEST THRU 29 = 1) (30 THRU 59 = 2) (60 THRU HIGHEST = 3) INTO age_group.",
         parse: commands::recode,
