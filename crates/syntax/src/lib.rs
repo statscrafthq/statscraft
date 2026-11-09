@@ -16,6 +16,7 @@
 
 mod ast;
 mod commands;
+mod ctables;
 mod data_commands;
 mod error;
 mod expr;
@@ -26,9 +27,15 @@ mod table;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_ctables;
+#[cfg(test)]
 mod tests_data;
 
 pub use ast::*;
+pub use ctables::{
+    AxisExpr, AxisVariable, Categories, CategoryItem, Ctables, CtablesTable, EmptyCells,
+    PercentBase, PercentOf, Statistic, Summary, SummaryFunction, VlabelsDisplay,
+};
 pub use error::{Span, SyntaxError};
 pub use lexer::{Punct, Token, TokenKind};
 pub use split::{RawCommand, select_lines, split_commands};

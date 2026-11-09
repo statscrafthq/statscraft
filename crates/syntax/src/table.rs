@@ -2,6 +2,7 @@
 
 use crate::ast::Command;
 use crate::commands;
+use crate::ctables;
 use crate::data_commands;
 use crate::lexer::{Punct, Token, TokenKind};
 use crate::parser::{PResult, Parser};
@@ -222,6 +223,34 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         example: "END IF.",
         parse: commands::end_if,
     },
+    CommandSpec {
+        name: "CTABLES",
+        summary: "Custom tables: counts, percentages and statistics by categories.",
+        syntax: "CTABLES [/FORMAT EMPTY=ZERO|BLANK|'text' MISSING='text']\n\
+                 \x20       [/VLABELS VARIABLES=varlist DISPLAY=DEFAULT|NAME|LABEL|BOTH|NONE]\n\
+                 \x20       /TABLE rows [BY columns]\n\
+                 \x20       [/SLABELS POSITION=COLUMN|ROW VISIBLE=YES|NO]\n\
+                 \x20       [/CATEGORIES VARIABLES=varlist [ORDER=A|D] [KEY=VALUE|LABEL] [MISSING=EXCLUDE|INCLUDE]\n\
+                 \x20                    [TOTAL=NO|YES] [LABEL='text'] [POSITION=AFTER|BEFORE] [EMPTY=INCLUDE|EXCLUDE]]\n\
+                 \x20       [/CATEGORIES VARIABLES=varlist [value, low THRU high, ...] [TOTAL=YES ...]]\n\
+                 \x20       [/TITLES TITLE='text' CAPTION='text' CORNER='text']\n\
+                 \x20       [/TABLE ... another table with its own SLABELS, CATEGORIES and TITLES].\n\
+                 rows, columns: variables joined by + (stack) and > (nest), with parentheses. var [C] or var [S]\n\
+                 makes a variable categorical or scale; otherwise SCALE is scale and the other levels categorical.\n\
+                 A summary list follows a scale variable or the innermost categorical variable of one axis:\n\
+                 var [function ['label'] [format], ...], format F, PCT, COMMA or DOLLAR, such as PCT8.1.\n\
+                 Default: COUNT for categorical tables, MEAN for a scale variable.\n\
+                 Categorical: COUNT, ROWPCT, COLPCT, TABLEPCT, SUBTABLEPCT, LAYERPCT, LAYERROWPCT, LAYERCOLPCT,\n\
+                 each with .COUNT, .VALIDN or .TOTALN (COLPCT.COUNT and so on).\n\
+                 Scale: also MEAN MEDIAN MODE MINIMUM MAXIMUM RANGE SUM STDDEV VARIANCE SEMEAN PTILE n VALIDN TOTALN\n\
+                 MISSING and the percentages with .SUM. A U prefix (UCOUNT, UMEAN) ignores the weight.\n\
+                 With a weight variable every case weight is rounded to a whole number, as the reference program does.\n\
+                 User-missing categories are left out unless MISSING=INCLUDE; system-missing ones always are.\n\
+                 Not supported yet: layers, multiple response sets, CLABELS other than AUTO, SIGTEST, COMPARETEST,\n\
+                 PCOMPUTE, HIDESMALLCOUNTS, effective base (E functions), subtotals and OTHERNM or MISSING in a list.",
+        example: "CTABLES /TABLE q1 [COUNT, COLPCT.COUNT PCT8.1] BY gender /CATEGORIES VARIABLES=q1 TOTAL=YES.",
+        parse: ctables::ctables,
+    },
 ];
 
 /// Commands of the language that have no parser yet. They get "not supported yet" instead of
@@ -243,7 +272,6 @@ static UNSUPPORTED: &[&str] = &[
     "CLUSTER",
     "CORRELATIONS",
     "CROSSTABS",
-    "CTABLES",
     "DATA LIST",
     "DATASET ACTIVATE",
     "DATASET CLOSE",

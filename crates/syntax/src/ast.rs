@@ -49,6 +49,7 @@ pub enum Command {
     ElseIf(Expr),
     Else,
     EndIf,
+    Ctables(crate::ctables::Ctables),
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -165,7 +165,7 @@ pub(crate) fn variable_level(p: &mut Parser) -> PResult<Command> {
 }
 
 /// `F8.2`, `A20`, `DATE11`: type letters, a width and optional decimals.
-fn format(text: &str) -> Result<Format, String> {
+pub(crate) fn format(text: &str) -> Result<Format, String> {
     let digits = text.find(|c: char| !c.is_ascii_alphabetic());
     let (name, size) = text.split_at(digits.unwrap_or(text.len()));
     let kind = FormatType::from_name(name)

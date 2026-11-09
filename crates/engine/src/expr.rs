@@ -377,7 +377,7 @@ fn round_digits(working: &str, places: usize, decimals: usize) -> String {
 
 /// A number in F format: right-aligned, no zero before the decimal point, fewer decimals when
 /// the width is too small, then scientific notation, then asterisks.
-fn format_number(value: Option<f64>, width: usize, decimals: usize) -> String {
+pub(crate) fn format_number(value: Option<f64>, width: usize, decimals: usize) -> String {
     let Some(value) = value else {
         return format!("{:>width$}", format!(".{:decimals$}", ""));
     };

@@ -1,6 +1,7 @@
 //! Executes parsed commands on a dataset and returns result tables.
 
 mod aggregate;
+mod ctables;
 mod expr;
 mod frequencies;
 mod recode;
@@ -8,6 +9,7 @@ mod sort;
 mod transform;
 mod variables;
 
+pub use ctables::format_value;
 use serde::Serialize;
 use statscraft_data::{Dataset, Description, Measure, MissingValues, Value};
 use statscraft_syntax as syntax;
@@ -33,7 +35,7 @@ impl From<statscraft_data::Error> for Error {
 /// A result table, the same for every output format. The first `row_headers` columns label the
 /// rows; the remaining columns hold results. A column header can have several levels: `columns`
 /// holds the innermost label and `column_groups` the labels above it.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Default, Serialize)]
 pub struct Table {
     pub title: String,
     pub row_headers: usize,
@@ -41,6 +43,13 @@ pub struct Table {
     /// For every column the labels above it, outermost first. Empty for a one-level header.
     pub column_groups: Vec<Vec<String>>,
     pub rows: Vec<Vec<Cell>>,
+    /// The display format of every cell, in the shape of `rows`, such as "PCT40.1"; empty
+    /// strings where there is none. Empty when the table sets no formats. Numbers in `rows`
+    /// stay raw; `format_value` shows them.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub formats: Vec<Vec<String>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub caption: Option<String>,
 }
 
 impl Table {
@@ -290,6 +299,7 @@ impl Engine {
             Command::ElseIf(condition) => self.next_branch(Some(condition))?,
             Command::Else => self.next_branch(None)?,
             Command::EndIf => self.end_if()?,
+            Command::Ctables(command) => return self.ctables(command),
         }
         Ok(Vec::new())
     }

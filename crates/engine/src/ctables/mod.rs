@@ -1,0 +1,1156 @@
+//! CTABLES: custom tables of counts, percentages and statistics.
+//!
+//! An axis expression is first multiplied out into terms: `(a + b) > c` becomes the stacked
+//! terms `a > c` and `b > c`. Every pair of a row term and a column term is a section of the
+//! table; its cells are the combinations of the categories of its categorical variables. A
+//! case belongs to a section when every categorical variable of the section has one of its
+//! categories, and it adds to every cell it falls in, total categories included.
+
+mod format;
+
+pub use format::format_value;
+
+use crate::{Cell, Engine, Error, Table};
+use statscraft_data::{Dataset, Measure, Value as DataValue, Values, Variable};
+use statscraft_syntax::{
+    AxisExpr, AxisVariable, Bound, Categories, CategoryItem, Ctables, CtablesTable, EmptyCells,
+    PercentBase, PercentOf, Statistic, Summary, SummaryFunction, Value as SyntaxValue,
+    VlabelsDisplay,
+};
+use std::collections::HashMap;
+
+/// A category value: a number or a right-trimmed string.
+#[derive(Clone, Debug, PartialEq)]
+enum Key {
+    Number(f64),
+    Text(String),
+}
+
+impl Key {
+    fn compare(&self, other: &Key) -> std::cmp::Ordering {
+        match (self, other) {
+            (Key::Number(a), Key::Number(b)) => a.total_cmp(b),
+            (Key::Text(a), Key::Text(b)) => a.cmp(b),
+            (Key::Number(_), Key::Text(_)) => std::cmp::Ordering::Less,
+            (Key::Text(_), Key::Number(_)) => std::cmp::Ordering::Greater,
+        }
+    }
+
+    fn of(value: &DataValue) -> Key {
+        match value {
+            DataValue::Number(n) => Key::Number(*n),
+            DataValue::String(s) => Key::Text(s.trim_end().to_string()),
+        }
+    }
+}
+
+struct Category {
+    /// None for the total.
+    key: Option<Key>,
+    label: String,
+    /// A user-missing value, listed because of MISSING=INCLUDE or an explicit list.
+    missing: bool,
+}
+
+/// The categories of one categorical variable, in display order.
+struct CategoryList {
+    categories: Vec<Category>,
+    numbers: HashMap<u64, usize>,
+    texts: HashMap<String, usize>,
+}
+
+impl CategoryList {
+    fn find(&self, variable: &Variable, case: usize) -> Option<usize> {
+        match variable.values() {
+            Values::Numeric(values) => {
+                let v = values.get(case)?;
+                self.numbers.get(&(v + 0.0).to_bits()).copied()
+            }
+            Values::String(values) => self.texts.get(values.get(case)).copied(),
+        }
+    }
+
+    fn total(&self) -> Option<usize> {
+        self.categories.iter().position(|c| c.key.is_none())
+    }
+}
+
+/// One variable of a term, resolved against the dictionary.
+struct TermVar<'a> {
+    variable: Variable<'a>,
+    syntax: &'a AxisVariable,
+    scale: bool,
+    /// The header label, None for VLABELS DISPLAY=NONE.
+    label: Option<String>,
+}
+
+type Term<'a> = Vec<TermVar<'a>>;
+
+/// A summary as it is listed in the table: function, percentile and label. Summaries of
+/// stacked terms that agree on these share a row or column.
+#[derive(Clone, PartialEq)]
+struct Slot {
+    function: SummaryFunction,
+    percentile: Option<f64>,
+    label: String,
+}
+
+fn expand(expr: &AxisExpr) -> Vec<Vec<&AxisVariable>> {
+    match expr {
+        AxisExpr::Variable(v) => vec![vec![v]],
+        AxisExpr::Stack(a, b) => {
+            let mut terms = expand(a);
+            terms.extend(expand(b));
+            terms
+        }
+        AxisExpr::Nest(a, b) => {
+            let inner = expand(b);
+            let mut terms = Vec::new();
+            for outer in expand(a) {
+                for tail in &inner {
+                    terms.push(outer.iter().chain(tail).copied().collect());
+                }
+            }
+            terms
+        }
+    }
+}
+
+fn percent_label(base: PercentBase, of: PercentOf) -> String {
+    let base = match base {
+        PercentBase::Row => "Row",
+        PercentBase::Column => "Column",
+        PercentBase::Table => "Table",
+        PercentBase::Subtable => "Subtable",
+        PercentBase::Layer => "Layer",
+        PercentBase::LayerRow => "Layer Row",
+        PercentBase::LayerColumn => "Layer Column",
+    };
+    match of {
+        PercentOf::Count => format!("{base} %"),
+        PercentOf::Validn => format!("{base} Valid N %"),
+        PercentOf::Totaln => format!("{base} Total N %"),
+        PercentOf::Sum => format!("{base} Sum %"),
+    }
+}
+
+fn default_label(function: SummaryFunction, percentile: Option<f64>) -> String {
+    let label = match function.statistic {
+        Statistic::Count => "Count".into(),
+        Statistic::Percent(base, of) => percent_label(base, of),
+        Statistic::Mean => "Mean".into(),
+        Statistic::Median => "Median".into(),
+        Statistic::Mode => "Mode".into(),
+        Statistic::Minimum => "Minimum".into(),
+        Statistic::Maximum => "Maximum".into(),
+        Statistic::Range => "Range".into(),
+        Statistic::Sum => "Sum".into(),
+        Statistic::Stddev => "Std Deviation".into(),
+        Statistic::Variance => "Variance".into(),
+        Statistic::Semean => "Std Error of Mean".into(),
+        Statistic::Ptile => format!("Percentile {}", percentile.unwrap_or(50.0)),
+        Statistic::Validn => "Valid N".into(),
+        Statistic::Totaln => "Total N".into(),
+        Statistic::Missing => "Missing".into(),
+    };
+    if function.unweighted {
+        format!("Unweighted {label}")
+    } else {
+        label
+    }
+}
+
+/// Functions that need the values of a scale variable.
+fn scale_only(function: SummaryFunction) -> bool {
+    !matches!(
+        function.statistic,
+        Statistic::Count
+            | Statistic::Percent(_, PercentOf::Count | PercentOf::Validn | PercentOf::Totaln)
+    )
+}
+
+fn default_format(summary: &Summary, variable: &Variable) -> String {
+    if let Some(f) = summary.format {
+        let mut text = format!("{}{}", f.kind.name(), f.width);
+        if f.decimals > 0 {
+            text.push_str(&format!(".{}", f.decimals));
+        }
+        return text;
+    }
+    match summary.function.statistic {
+        Statistic::Count | Statistic::Validn | Statistic::Totaln => "F40.0".into(),
+        Statistic::Percent(..) => "PCT40.1".into(),
+        _ => variable.format().to_string(),
+    }
+}
+
+fn slot(summary: &Summary) -> Slot {
+    Slot {
+        function: summary.function,
+        percentile: summary.percentile,
+        label: summary
+            .label
+            .clone()
+            .unwrap_or_else(|| default_label(summary.function, summary.percentile)),
+    }
+}
+
+/// What a cell or a percentage area has gathered. `values` holds the valid (value, weight)
+/// pairs of the summary variable when it is a scale variable.
+#[derive(Default)]
+struct Tally {
+    cases: f64,
+    count: f64,
+    valid_cases: f64,
+    valid: f64,
+    sum: f64,
+    unweighted_sum: f64,
+    values: Vec<(f64, f64)>,
+}
+
+impl Tally {
+    fn add(&mut self, weight: f64, valid: bool, value: Option<f64>, keep_values: bool) {
+        self.cases += 1.0;
+        self.count += weight;
+        if valid {
+            self.valid_cases += 1.0;
+            self.valid += weight;
+        }
+        if let Some(x) = value {
+            self.sum += weight * x;
+            self.unweighted_sum += x;
+            if keep_values {
+                self.values.push((x, weight));
+            }
+        }
+    }
+
+    /// The numerator or denominator of a percentage.
+    fn base(&self, of: PercentOf, unweighted: bool) -> f64 {
+        match (of, unweighted) {
+            (PercentOf::Count | PercentOf::Totaln, false) => self.count,
+            (PercentOf::Count | PercentOf::Totaln, true) => self.cases,
+            (PercentOf::Validn, false) => self.valid,
+            (PercentOf::Validn, true) => self.valid_cases,
+            (PercentOf::Sum, false) => self.sum,
+            (PercentOf::Sum, true) => self.unweighted_sum,
+        }
+    }
+}
+
+/// Sorted distinct values with their summed weights, leaving out values that weigh nothing.
+fn distinct(values: &[(f64, f64)]) -> Vec<(f64, f64)> {
+    let mut cells: Vec<(f64, f64)> = values.iter().copied().filter(|(_, w)| *w > 0.0).collect();
+    cells.sort_by(|a, b| a.0.total_cmp(&b.0));
+    cells.dedup_by(|next, kept| {
+        let same = next.0 == kept.0;
+        if same {
+            kept.1 += next.1;
+        }
+        same
+    });
+    cells
+}
+
+/// The percentile at position (W + 1) * p / 100 of the cumulated weights, interpolated between
+/// neighbouring values. With weight 1 for every case the median is the middle value or the
+/// mean of the two middle values.
+fn percentile(values: &[(f64, f64)], p: f64) -> Option<f64> {
+    let cells = distinct(values);
+    let total: f64 = cells.iter().map(|(_, w)| w).sum();
+    let position = (total + 1.0) * p / 100.0;
+    let mut below = 0.0;
+    let mut previous: Option<f64> = None;
+    for &(value, weight) in &cells {
+        if position < below + weight {
+            let Some(previous) = previous else {
+                return Some(value);
+            };
+            let step = position - below;
+            return Some(if step >= 1.0 {
+                value
+            } else {
+                previous + step.max(0.0) * (value - previous)
+            });
+        }
+        below += weight;
+        previous = Some(value);
+    }
+    previous
+}
+
+fn statistic(summary: &Summary, tally: &Tally) -> Option<f64> {
+    let unweighted = summary.function.unweighted;
+    let values: Vec<(f64, f64)> = tally
+        .values
+        .iter()
+        .map(|&(x, w)| (x, if unweighted { 1.0 } else { w }))
+        .collect();
+    // The mean is updated case by case, as the reference program does: the last digit of a
+    // mean that sits on a rounding half depends on it.
+    let (mut total, mut running, mut squares) = (0.0, 0.0, 0.0);
+    for &(x, w) in values.iter().filter(|(_, w)| *w > 0.0) {
+        total += w;
+        let delta = x - running;
+        running += delta * (w / total);
+        squares += w * delta * (x - running);
+    }
+    let mean = (total > 0.0).then_some(running);
+    let variance = || (total > 1.0).then(|| squares / (total - 1.0));
+    let counted = || values.iter().filter(|(_, w)| *w > 0.0).map(|(x, _)| *x);
+    let count = tally.base(PercentOf::Count, unweighted);
+    let valid = tally.base(PercentOf::Validn, unweighted);
+    let result = match summary.function.statistic {
+        Statistic::Count | Statistic::Totaln => Some(count),
+        Statistic::Validn => Some(valid),
+        Statistic::Missing => Some(count - valid),
+        Statistic::Mean => mean,
+        Statistic::Sum => (!values.is_empty()).then(|| values.iter().map(|(x, w)| x * w).sum()),
+        Statistic::Minimum => counted().reduce(f64::min),
+        Statistic::Maximum => counted().reduce(f64::max),
+        Statistic::Range => Some(counted().reduce(f64::max)? - counted().reduce(f64::min)?),
+        Statistic::Variance => variance(),
+        Statistic::Stddev => variance().map(f64::sqrt),
+        Statistic::Semean => variance().map(|v| (v / total).sqrt()),
+        Statistic::Median => percentile(&values, 50.0),
+        Statistic::Ptile => percentile(&values, summary.percentile.unwrap_or(50.0)),
+        Statistic::Mode => {
+            let cells = distinct(&values);
+            let most = cells.iter().map(|(_, w)| *w).fold(0.0, f64::max);
+            cells.iter().find(|(_, w)| *w == most).map(|(x, _)| *x)
+        }
+        Statistic::Percent(..) => unreachable!("percentages need their area"),
+    };
+    result.filter(|v| v.is_finite())
+}
+
+/// The case weights: the weight variable rounded to a whole number, as the reference program
+/// does for this procedure; a missing or negative weight counts as zero.
+fn weights(data: &Dataset) -> Result<Option<Vec<f64>>, Error> {
+    let Some(name) = data.weight_variable() else {
+        return Ok(None);
+    };
+    let variable = data.variable(name)?;
+    let values = variable.numeric()?;
+    let usable = |v: Option<f64>| v.filter(|v| !variable.is_user_missing(*v));
+    Ok(Some(
+        values
+            .iter()
+            .map(|v| usable(v).unwrap_or(0.0).max(0.0).round())
+            .collect(),
+    ))
+}
+
+/// The measurement level of a variable whose level is unknown, guessed the way the reference
+/// program does: a numeric variable whose values are all whole numbers from 0 up, with fewer
+/// than 24 distinct ones, is categorical.
+fn guess_scale(variable: &Variable) -> bool {
+    let Values::Numeric(values) = variable.values() else {
+        return false;
+    };
+    let mut seen: Vec<f64> = Vec::new();
+    for v in values
+        .iter()
+        .flatten()
+        .filter(|v| !variable.is_user_missing(*v))
+    {
+        if v < 0.0 || v.fract() != 0.0 {
+            return true;
+        }
+        if !seen.contains(&v) {
+            seen.push(v);
+            if seen.len() >= 24 {
+                return true;
+            }
+        }
+    }
+    false
+}
+
+/// The value of `key` as the variable's dictionary shows it: its value label, or the value in
+/// the variable's format.
+fn category_label(variable: &Variable, key: &Key) -> String {
+    let label = variable
+        .value_labels()
+        .iter()
+        .find(|(v, _)| Key::of(v) == *key)
+        .map(|(_, l)| l.clone());
+    label.unwrap_or_else(|| match key {
+        Key::Number(n) => format_value(*n, variable.format(), false),
+        Key::Text(s) => s.clone(),
+    })
+}
+
+fn in_range(key: &Key, low: &Bound, high: &Bound) -> bool {
+    let Key::Number(v) = key else {
+        return false;
+    };
+    let above = match low {
+        Bound::Lowest => true,
+        Bound::Highest => false,
+        Bound::Number(n) => v >= n,
+    };
+    let below = match high {
+        Bound::Highest => true,
+        Bound::Lowest => false,
+        Bound::Number(n) => v <= n,
+    };
+    above && below
+}
+
+fn categories(variable: &Variable, spec: Option<&Categories>) -> Result<CategoryList, Error> {
+    let name = variable.name();
+    let mut seen: Vec<Key> = Vec::new();
+    let mut counts: HashMap<String, usize> = HashMap::new();
+    let id = |key: &Key| format!("{key:?}");
+    let mut note = |key: Key, seen: &mut Vec<Key>| {
+        let entry = counts.entry(id(&key)).or_insert(0);
+        if *entry == 0 {
+            seen.push(key);
+        }
+        *entry += 1;
+    };
+    match variable.values() {
+        Values::Numeric(values) => {
+            for v in values.iter().flatten() {
+                note(Key::Number(v + 0.0), &mut seen);
+            }
+        }
+        Values::String(values) => {
+            for v in values.iter() {
+                note(Key::Text(v.to_string()), &mut seen);
+            }
+        }
+    }
+    let in_data = seen.len();
+    for (value, _) in variable.value_labels() {
+        let key = Key::of(value);
+        if !seen.contains(&key) {
+            seen.push(key);
+        }
+    }
+    let is_missing = |key: &Key| match key {
+        Key::Number(n) => variable.is_user_missing(*n),
+        Key::Text(s) => variable.is_user_missing_str(s),
+    };
+    let exclude_empty = spec.is_some_and(|s| s.exclude_empty);
+
+    let keys: Vec<Key> = match spec.and_then(|s| s.values.as_ref()) {
+        Some(items) => {
+            let mut wanted: Vec<Key> = Vec::new();
+            for item in items {
+                let key = |v: &SyntaxValue| match (v, variable.is_string()) {
+                    (SyntaxValue::Number(n), false) => Ok(Key::Number(*n + 0.0)),
+                    (SyntaxValue::String(s), true) => Ok(Key::Text(s.trim_end().to_string())),
+                    (_, true) => Err(Error(format!(
+                        "/CATEGORIES for {name}: {name} is a string variable, so its values are written in quotes"
+                    ))),
+                    (_, false) => Err(Error(format!(
+                        "/CATEGORIES for {name}: {name} is numeric, so its values are numbers, not quoted strings"
+                    ))),
+                };
+                match item {
+                    CategoryItem::Value(v) => wanted.push(key(v)?),
+                    CategoryItem::Range(low, high) => {
+                        if variable.is_string() {
+                            return Err(Error(format!(
+                                "/CATEGORIES for {name}: ranges (THRU) work only for numeric variables"
+                            )));
+                        }
+                        let listed = |k: &Key| {
+                            items.iter().any(|i| matches!(i, CategoryItem::Value(v) if key(v).ok().as_ref() == Some(k)))
+                        };
+                        // a value in two ranges goes to the later one, as in the reference program
+                        let later = |k: &Key, this: *const CategoryItem| {
+                            let mut after = false;
+                            items.iter().any(|i| {
+                                if std::ptr::eq(i, this) {
+                                    after = true;
+                                    return false;
+                                }
+                                after && matches!(i, CategoryItem::Range(l, h) if in_range(k, l, h))
+                            })
+                        };
+                        let mut found: Vec<Key> = seen
+                            .iter()
+                            .filter(|k| in_range(k, low, high) && !listed(k) && !later(k, item))
+                            .cloned()
+                            .collect();
+                        found.sort_by(Key::compare);
+                        wanted.extend(found);
+                    }
+                }
+            }
+            wanted
+        }
+        None => {
+            let include_missing = spec.is_some_and(|s| s.include_missing);
+            let mut keys: Vec<Key> = seen
+                .iter()
+                .enumerate()
+                .filter(|(i, k)| {
+                    (*i < in_data || !exclude_empty) && (include_missing || !is_missing(k))
+                })
+                .map(|(_, k)| k.clone())
+                .collect();
+            if spec.is_some_and(|s| s.by_label) {
+                keys.sort_by_cached_key(|k| category_label(variable, k));
+            } else {
+                keys.sort_by(Key::compare);
+            }
+            if spec.is_some_and(|s| s.descending) {
+                keys.reverse();
+            }
+            keys
+        }
+    };
+
+    let mut list = CategoryList {
+        categories: Vec::new(),
+        numbers: HashMap::new(),
+        texts: HashMap::new(),
+    };
+    for key in keys {
+        if exclude_empty && !counts.contains_key(&id(&key)) {
+            continue;
+        }
+        let index = list.categories.len();
+        let duplicate = match &key {
+            Key::Number(n) => list.numbers.insert(n.to_bits(), index).is_some(),
+            Key::Text(s) => list.texts.insert(s.clone(), index).is_some(),
+        };
+        if duplicate {
+            return Err(Error(format!(
+                "/CATEGORIES for {name}: the value {} is listed twice",
+                category_label(variable, &key)
+            )));
+        }
+        list.categories.push(Category {
+            label: category_label(variable, &key),
+            missing: is_missing(&key),
+            key: Some(key),
+        });
+    }
+    if let Some(spec) = spec.filter(|s| s.total) {
+        let total = Category {
+            key: None,
+            label: spec.total_label.clone().unwrap_or_else(|| "Total".into()),
+            missing: false,
+        };
+        if spec.total_before {
+            list.categories.insert(0, total);
+            list.numbers.values_mut().for_each(|i| *i += 1);
+            list.texts.values_mut().for_each(|i| *i += 1);
+        } else {
+            list.categories.push(total);
+        }
+    }
+    Ok(list)
+}
+
+fn list_of<'l>(lists: &'l HashMap<String, CategoryList>, var: &TermVar) -> &'l CategoryList {
+    &lists[&var.variable.name().to_lowercase()]
+}
+
+/// Every combination of the categories of the lists, the first list varying slowest.
+fn combinations(lists: &[&CategoryList]) -> Vec<Vec<usize>> {
+    let mut combos = vec![Vec::new()];
+    for list in lists {
+        combos = combos
+            .into_iter()
+            .flat_map(|combo| {
+                (0..list.categories.len()).map(move |i| {
+                    let mut next = combo.clone();
+                    next.push(i);
+                    next
+                })
+            })
+            .collect();
+    }
+    combos
+}
+
+/// One row or one column of the table.
+struct Entry {
+    term: usize,
+    /// A category index for every categorical variable of the term.
+    combo: Vec<usize>,
+    slot: Option<usize>,
+    path: Vec<String>,
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Axis {
+    Rows,
+    Columns,
+}
+
+struct Layout<'a> {
+    rows: Vec<Term<'a>>,
+    columns: Vec<Term<'a>>,
+}
+
+impl<'a> Layout<'a> {
+    fn terms(&self, axis: Axis) -> &[Term<'a>] {
+        match axis {
+            Axis::Rows => &self.rows,
+            Axis::Columns => &self.columns,
+        }
+    }
+
+    /// The summaries of a term on the summary axis and the variable they summarize.
+    fn summaries(&self, term: &Term<'a>) -> (Vec<Summary>, Variable<'a>) {
+        let default = |statistic| {
+            vec![Summary {
+                function: SummaryFunction {
+                    statistic,
+                    unweighted: false,
+                },
+                percentile: None,
+                label: None,
+                format: None,
+            }]
+        };
+        if let Some(scale) = term.iter().find(|v| v.scale) {
+            let list = scale.syntax.summaries.clone();
+            return (
+                list.unwrap_or_else(|| default(Statistic::Mean)),
+                scale.variable,
+            );
+        }
+        let innermost = term.last().expect("a term has a variable");
+        let list = innermost.syntax.summaries.clone();
+        (
+            list.unwrap_or_else(|| default(Statistic::Count)),
+            innermost.variable,
+        )
+    }
+}
+
+impl Engine {
+    pub(crate) fn ctables(&self, command: &Ctables) -> Result<Vec<Table>, Error> {
+        let data = self.active()?;
+        let weights = weights(data)?;
+        let many = command.tables.len() > 1;
+        command
+            .tables
+            .iter()
+            .enumerate()
+            .map(|(i, table)| {
+                self.ctable(data, command, table, weights.as_deref())
+                    .map_err(|Error(message)| {
+                        Error(if many {
+                            format!("table {}: {message}", i + 1)
+                        } else {
+                            message
+                        })
+                    })
+            })
+            .collect()
+    }
+
+    fn display(&self, command: &Ctables, variable: &Variable) -> Result<VlabelsDisplay, Error> {
+        let mut display = VlabelsDisplay::Default;
+        for (vars, choice) in &command.vlabels {
+            let names = self
+                .expand(vars)
+                .map_err(|Error(m)| Error(format!("/VLABELS: {m}")))?;
+            if names
+                .iter()
+                .any(|n| n.eq_ignore_ascii_case(variable.name()))
+            {
+                display = *choice;
+            }
+        }
+        Ok(display)
+    }
+
+    fn resolve<'a>(
+        &self,
+        data: &'a Dataset,
+        command: &Ctables,
+        expr: &'a AxisExpr,
+    ) -> Result<Vec<Term<'a>>, Error> {
+        expand(expr)
+            .into_iter()
+            .map(|term| {
+                let resolved = term
+                    .into_iter()
+                    .map(|syntax| {
+                        let variable = data.variable(&syntax.name).map_err(|_| {
+                            Error(format!("/TABLE: unknown variable {}", syntax.name))
+                        })?;
+                        let scale = syntax.scale.unwrap_or_else(|| match variable.measure() {
+                            Measure::Scale => true,
+                            Measure::Unknown => guess_scale(&variable),
+                            _ => false,
+                        });
+                        if scale && variable.is_string() {
+                            return Err(Error(format!(
+                                "/TABLE: {} is a string variable, so it cannot be a scale variable; remove [S]",
+                                variable.name()
+                            )));
+                        }
+                        let name = variable.name().to_string();
+                        let label = match self.display(command, &variable)? {
+                            VlabelsDisplay::None => None,
+                            VlabelsDisplay::Name => Some(name),
+                            VlabelsDisplay::Both => Some(match variable.label() {
+                                Some(label) => format!("{name} {label}"),
+                                None => name,
+                            }),
+                            _ => Some(variable.label().map_or(name, str::to_string)),
+                        };
+                        Ok(TermVar {
+                            variable,
+                            syntax,
+                            scale,
+                            label,
+                        })
+                    })
+                    .collect::<Result<Term, Error>>()?;
+                Ok(resolved)
+            })
+            .collect()
+    }
+
+    fn ctable(
+        &self,
+        data: &Dataset,
+        command: &Ctables,
+        table: &CtablesTable,
+        weights: Option<&[f64]>,
+    ) -> Result<Table, Error> {
+        let rows = self.resolve(data, command, &table.rows)?;
+        let columns = match &table.columns {
+            Some(expr) => self.resolve(data, command, expr)?,
+            None => vec![Vec::new()],
+        };
+        let summary_axis = check_summaries(&rows, &columns)?;
+        let layout = Layout { rows, columns };
+
+        // categories of every categorical variable, by name
+        let mut lists: HashMap<String, CategoryList> = HashMap::new();
+        for var in layout.rows.iter().chain(&layout.columns).flatten() {
+            let name = var.variable.name().to_lowercase();
+            if var.scale || lists.contains_key(&name) {
+                continue;
+            }
+            let mut spec = None;
+            for categories in &table.categories {
+                let names = self
+                    .expand(&categories.vars)
+                    .map_err(|Error(m)| Error(format!("/CATEGORIES: {m}")))?;
+                if names.iter().any(|n| n.to_lowercase() == name) {
+                    spec = Some(categories);
+                }
+            }
+            lists.insert(name, categories(&var.variable, spec)?);
+        }
+        let list_of = |var: &TermVar| list_of(&lists, var);
+
+        // the summaries of each term on the summary axis, and the slots they fill
+        let summary_terms = layout.terms(summary_axis);
+        let mut slots: Vec<Slot> = Vec::new();
+        let mut term_summaries = Vec::new();
+        for term in summary_terms {
+            let (list, variable) = layout.summaries(term);
+            let mut indexed = Vec::new();
+            for summary in list {
+                let s = slot(&summary);
+                let index = match slots.iter().position(|known| *known == s) {
+                    Some(index) => index,
+                    None => {
+                        slots.push(s);
+                        slots.len() - 1
+                    }
+                };
+                let format = default_format(&summary, &variable);
+                indexed.push((index, summary, format));
+            }
+            term_summaries.push((indexed, variable));
+        }
+
+        let label_axis = if table.summaries_in_rows {
+            Axis::Rows
+        } else {
+            Axis::Columns
+        };
+        let entries = |axis: Axis| -> Vec<Entry> {
+            let mut out = Vec::new();
+            for (t, term) in layout.terms(axis).iter().enumerate() {
+                let cats: Vec<&CategoryList> =
+                    term.iter().filter(|v| !v.scale).map(list_of).collect();
+                let term_slots: Vec<Option<usize>> = if axis != label_axis {
+                    vec![None]
+                } else if axis == summary_axis {
+                    term_summaries[t].0.iter().map(|(i, ..)| Some(*i)).collect()
+                } else {
+                    (0..slots.len()).map(Some).collect()
+                };
+                for combo in combinations(&cats) {
+                    let mut path = Vec::new();
+                    let mut c = 0;
+                    for var in term {
+                        path.extend(var.label.clone());
+                        if !var.scale {
+                            path.push(cats[c].categories[combo[c]].label.clone());
+                            c += 1;
+                        }
+                    }
+                    for slot in &term_slots {
+                        let mut path = path.clone();
+                        if let (Some(s), true) = (slot, table.summary_labels) {
+                            path.push(slots[*s].label.clone());
+                        }
+                        out.push(Entry {
+                            term: t,
+                            combo: combo.clone(),
+                            slot: *slot,
+                            path,
+                        });
+                    }
+                }
+            }
+            out
+        };
+        let row_entries = entries(Axis::Rows);
+        let column_entries = entries(Axis::Columns);
+
+        // gather the cases of every section
+        let mut sections: HashMap<(usize, usize), Section> = HashMap::new();
+        for (r, row_term) in layout.rows.iter().enumerate() {
+            for (c, column_term) in layout.columns.iter().enumerate() {
+                let summary_term = match summary_axis {
+                    Axis::Rows => r,
+                    Axis::Columns => c,
+                };
+                let (summaries, variable) = &term_summaries[summary_term];
+                let section = Section::gather(
+                    data,
+                    weights,
+                    row_term,
+                    column_term,
+                    &lists,
+                    summaries,
+                    *variable,
+                )?;
+                sections.insert((r, c), section);
+            }
+        }
+
+        let row_headers = row_entries
+            .iter()
+            .map(|e| e.path.len())
+            .max()
+            .unwrap_or(0)
+            .max(1);
+        let levels = column_entries
+            .iter()
+            .map(|e| e.path.len())
+            .max()
+            .unwrap_or(0)
+            .max(1);
+        let level = |path: &[String], i: usize| path.get(i).cloned().unwrap_or_default();
+        let mut columns = vec![String::new(); row_headers];
+        let mut column_groups = vec![vec![String::new(); levels - 1]; row_headers];
+        for entry in &column_entries {
+            columns.push(level(&entry.path, levels - 1));
+            column_groups.push((0..levels - 1).map(|i| level(&entry.path, i)).collect());
+        }
+        if let Some(corner) = &table.corner {
+            match column_groups[0].first_mut() {
+                Some(top) => *top = corner.clone(),
+                None => columns[0] = corner.clone(),
+            }
+        }
+
+        let mut out_rows = Vec::new();
+        let mut formats = Vec::new();
+        for row in &row_entries {
+            let mut cells: Vec<Cell> = (0..row_headers)
+                .map(|i| match row.path.get(i) {
+                    Some(text) => Cell::Text(text.clone()),
+                    None => Cell::Empty,
+                })
+                .collect();
+            let mut cell_formats = vec![String::new(); row_headers];
+            for column in &column_entries {
+                let section = &sections[&(row.term, column.term)];
+                let slot = row.slot.or(column.slot).unwrap_or(0);
+                let mut key = row.combo.clone();
+                key.extend(&column.combo);
+                let (cell, format) = section.cell(&key, slot, command);
+                cells.push(cell);
+                cell_formats.push(format);
+            }
+            out_rows.push(cells);
+            formats.push(cell_formats);
+        }
+
+        Ok(Table {
+            title: table
+                .title
+                .clone()
+                .unwrap_or_else(|| "Custom Tables".into()),
+            row_headers,
+            columns,
+            column_groups,
+            rows: out_rows,
+            formats,
+            caption: table.caption.clone(),
+        })
+    }
+}
+
+/// Which axis carries the summaries: the one with a scale variable or with summaries written
+/// in the syntax. Also checks where summaries may appear.
+fn check_summaries(rows: &[Term], columns: &[Term]) -> Result<Axis, Error> {
+    let mut found: [Option<String>; 2] = [None, None];
+    for (axis, terms) in [rows, columns].iter().enumerate() {
+        for term in terms.iter() {
+            let scales: Vec<&TermVar> = term.iter().filter(|v| v.scale).collect();
+            if scales.len() > 1 {
+                return Err(Error(format!(
+                    "/TABLE: {} and {} are both scale variables in one nesting; a cell summarizes one scale variable, so stack them with + instead",
+                    scales[0].variable.name(),
+                    scales[1].variable.name()
+                )));
+            }
+            let innermost = term.iter().rposition(|v| !v.scale);
+            for (i, var) in term.iter().enumerate() {
+                let name = var.variable.name();
+                if var.scale {
+                    found[axis] = Some(name.to_string());
+                }
+                let Some(summaries) = &var.syntax.summaries else {
+                    continue;
+                };
+                found[axis] = Some(name.to_string());
+                if var.scale {
+                    continue;
+                }
+                if !scales.is_empty() {
+                    return Err(Error(format!(
+                        "/TABLE: {name} has summaries, but the scale variable {} in the same nesting is the one summarized; move the summaries to it",
+                        scales[0].variable.name()
+                    )));
+                }
+                if Some(i) != innermost {
+                    return Err(Error(format!(
+                        "/TABLE: summaries may follow only the innermost categorical variable of a nesting, and {name} is an outer one"
+                    )));
+                }
+                if let Some(s) = summaries.iter().find(|s| scale_only(s.function)) {
+                    return Err(Error(format!(
+                        "/TABLE: summary function {} applies only to scale variables, and {name} is categorical; write {name} [S] to treat it as scale",
+                        s.function.name()
+                    )));
+                }
+            }
+        }
+    }
+    match found {
+        [Some(row), Some(column)] => Err(Error(format!(
+            "/TABLE: summaries may appear on one axis only, but the rows have {row} and the columns have {column} (a scale variable always has a summary)"
+        ))),
+        [_, Some(_)] => Ok(Axis::Columns),
+        _ => Ok(Axis::Rows),
+    }
+}
+
+/// The gathered cases of one row term crossed with one column term.
+struct Section {
+    /// For every categorical variable: true when its category of a cell decides the area of
+    /// each kind of percentage. Index by `area`.
+    areas: [Vec<bool>; 7],
+    /// The total category of each categorical variable.
+    totals: Vec<Option<usize>>,
+    cells: HashMap<Vec<usize>, Tally>,
+    denominators: [HashMap<Vec<usize>, Tally>; 7],
+    summaries: Vec<(usize, Summary, String)>,
+    has_scale: bool,
+}
+
+fn area(base: PercentBase) -> usize {
+    base as usize
+}
+
+impl Section {
+    fn gather<'a>(
+        data: &Dataset,
+        weights: Option<&[f64]>,
+        row_term: &[TermVar<'a>],
+        column_term: &[TermVar<'a>],
+        lists: &HashMap<String, CategoryList>,
+        summaries: &[(usize, Summary, String)],
+        summary_variable: Variable<'a>,
+    ) -> Result<Section, Error> {
+        let row_cats: Vec<&TermVar> = row_term.iter().filter(|v| !v.scale).collect();
+        let column_cats: Vec<&TermVar> = column_term.iter().filter(|v| !v.scale).collect();
+        let (nr, nc) = (row_cats.len(), column_cats.len());
+        let cats: Vec<&TermVar> = row_cats.into_iter().chain(column_cats).collect();
+        let lists: Vec<&CategoryList> = cats.iter().map(|v| list_of(lists, v)).collect();
+        let scale = row_term.iter().chain(column_term).find(|v| v.scale);
+
+        // which variables decide each area, in PercentBase order
+        let is_row = |i: usize| i < nr;
+        let outer = |i: usize| {
+            if is_row(i) {
+                i + 1 < nr
+            } else {
+                i + 1 < nr + nc
+            }
+        };
+        let decides = |f: &dyn Fn(usize) -> bool| (0..cats.len()).map(f).collect::<Vec<bool>>();
+        let areas = [
+            decides(&|i| is_row(i) || outer(i)),
+            decides(&|i| !is_row(i) || outer(i)),
+            decides(&|_| false),
+            decides(&outer),
+            decides(&|_| false),
+            decides(&is_row),
+            decides(&|i| !is_row(i)),
+        ];
+
+        let summary_list = summary_variable_list(&cats, &lists, summary_variable);
+        let mut section = Section {
+            areas,
+            totals: lists.iter().map(|l| l.total()).collect(),
+            cells: HashMap::new(),
+            denominators: Default::default(),
+            summaries: summaries.to_vec(),
+            has_scale: scale.is_some(),
+        };
+        let keep_values = scale.is_some();
+        'cases: for case in 0..data.case_count() {
+            let mut key = Vec::with_capacity(cats.len());
+            for (var, list) in cats.iter().zip(&lists) {
+                match list.find(&var.variable, case) {
+                    Some(index) => key.push(index),
+                    None => continue 'cases,
+                }
+            }
+            let weight = weights.map_or(1.0, |w| w[case]);
+            let (valid, value) = match scale {
+                Some(scale) => {
+                    let value = scale
+                        .variable
+                        .numeric()?
+                        .get(case)
+                        .filter(|v| !scale.variable.is_user_missing(*v));
+                    (value.is_some(), value)
+                }
+                None => {
+                    let valid = summary_list
+                        .map(|(i, list)| !list.categories[key[i]].missing)
+                        .unwrap_or(true);
+                    (valid, None)
+                }
+            };
+            for (a, decides) in section.areas.iter().enumerate() {
+                let area_key: Vec<usize> = key
+                    .iter()
+                    .zip(decides)
+                    .filter(|(_, d)| **d)
+                    .map(|(k, _)| *k)
+                    .collect();
+                section.denominators[a]
+                    .entry(area_key)
+                    .or_default()
+                    .add(weight, valid, value, false);
+            }
+            // the case also counts in every total of its categories
+            let mut targets = vec![key];
+            for (i, total) in section.totals.iter().enumerate() {
+                if let Some(total) = total {
+                    let more: Vec<Vec<usize>> = targets
+                        .iter()
+                        .map(|t| {
+                            let mut t = t.clone();
+                            t[i] = *total;
+                            t
+                        })
+                        .collect();
+                    targets.extend(more);
+                }
+            }
+            for target in targets {
+                section
+                    .cells
+                    .entry(target)
+                    .or_default()
+                    .add(weight, valid, value, keep_values);
+            }
+        }
+        Ok(section)
+    }
+
+    /// The cell at `key` for the summary in `slot`, with its display format.
+    fn cell(&self, key: &[usize], slot: usize, command: &Ctables) -> (Cell, String) {
+        let Some((_, summary, format)) = self.summaries.iter().find(|(s, ..)| *s == slot) else {
+            return (Cell::Empty, String::new());
+        };
+        let has_total = |decides: &dyn Fn(usize) -> bool| {
+            key.iter()
+                .enumerate()
+                .any(|(i, k)| decides(i) && self.totals[i] == Some(*k))
+        };
+        let empty = Tally::default();
+        let tally = match self.cells.get(key) {
+            Some(tally) => tally,
+            // a cell without cases shows only where it is a plain combination of categories
+            None if self.has_scale || has_total(&|_| true) => {
+                return (Cell::Empty, format.clone());
+            }
+            None => &empty,
+        };
+        if tally.cases == 0.0 {
+            match &command.empty {
+                EmptyCells::Zero => {}
+                EmptyCells::Blank => return (Cell::Empty, format.clone()),
+                EmptyCells::Text(text) => return (Cell::Text(text.clone()), format.clone()),
+            }
+        }
+        let value = match summary.function.statistic {
+            Statistic::Percent(base, of) => {
+                let decides = &self.areas[area(base)];
+                if has_total(&|i| decides[i]) {
+                    None
+                } else {
+                    let area_key: Vec<usize> = key
+                        .iter()
+                        .zip(decides)
+                        .filter(|(_, d)| **d)
+                        .map(|(k, _)| *k)
+                        .collect();
+                    let unweighted = summary.function.unweighted;
+                    let whole = self.denominators[area(base)]
+                        .get(&area_key)
+                        .map_or(0.0, |t| t.base(of, unweighted));
+                    let part = tally.base(of, unweighted);
+                    (whole != 0.0).then(|| 100.0 * part / whole)
+                }
+            }
+            _ => statistic(summary, tally),
+        };
+        let cell = match (value, &command.missing) {
+            (Some(v), _) => Cell::Number(v),
+            (None, Some(text)) => Cell::Text(text.clone()),
+            (None, None) => Cell::Empty,
+        };
+        (cell, format.clone())
+    }
+}
+
+/// The position and categories of the categorical summary variable among the section's
+/// categorical variables, for telling valid cases from cases with a missing category.
+fn summary_variable_list<'l>(
+    cats: &[&TermVar],
+    lists: &[&'l CategoryList],
+    summary_variable: Variable,
+) -> Option<(usize, &'l CategoryList)> {
+    cats.iter()
+        .position(|v| v.variable.name() == summary_variable.name())
+        .map(|i| (i, lists[i]))
+}

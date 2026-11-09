@@ -37,6 +37,8 @@ pub enum Punct {
     Or,
     /// `~`
     Not,
+    LBracket,
+    RBracket,
 }
 
 impl Punct {
@@ -59,6 +61,8 @@ impl Punct {
             Punct::And => "&",
             Punct::Or => "|",
             Punct::Not => "~",
+            Punct::LBracket => "[",
+            Punct::RBracket => "]",
         }
     }
 }
@@ -247,6 +251,8 @@ impl<'a> Lexer<'a> {
             ('&', _) => (Punct::And, 1),
             ('|', _) => (Punct::Or, 1),
             ('~', _) => (Punct::Not, 1),
+            ('[', _) => (Punct::LBracket, 1),
+            (']', _) => (Punct::RBracket, 1),
             _ => {
                 let start = self.col;
                 self.col += 1;

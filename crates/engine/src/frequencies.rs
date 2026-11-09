@@ -153,6 +153,7 @@ pub fn table(data: &Dataset, name: &str) -> Result<Table, Error> {
         .map(String::from)
         .to_vec(),
         rows: out,
+        ..Table::default()
     })
 }
 

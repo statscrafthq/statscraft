@@ -1,7 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 use serde::Serialize;
 use statscraft_data::Dataset;
-use statscraft_engine::{Cell, Changes, Engine, Table};
+use statscraft_engine::{Cell, Changes, Engine, Table, format_value};
 use statscraft_syntax::{Command, RawCommand, SyntaxError};
 use std::io::Read;
 use std::path::PathBuf;
@@ -378,17 +378,29 @@ fn print_text(result: &RunResult, check_only: bool) {
         println!("### {}\n", table.title);
         println!("| {} |", table.column_titles().join(" | "));
         println!("|{}", " --- |".repeat(table.columns.len()));
-        for row in &table.rows {
+        for (r, row) in table.rows.iter().enumerate() {
+            let format = |c: usize| {
+                table
+                    .formats
+                    .get(r)
+                    .and_then(|f| f.get(c))
+                    .filter(|f| !f.is_empty())
+            };
             let cells: Vec<String> = row
                 .iter()
-                .map(|cell| match cell {
-                    Cell::Text(t) => t.replace('|', "\\|"),
-                    Cell::Number(n) if n.fract() == 0.0 => format!("{n:.0}"),
-                    Cell::Number(n) => format!("{n:.2}"),
-                    Cell::Empty => String::new(),
+                .enumerate()
+                .map(|(c, cell)| match (cell, format(c)) {
+                    (Cell::Text(t), _) => t.replace('|', "\\|"),
+                    (Cell::Number(n), Some(format)) => format_value(*n, format, true),
+                    (Cell::Number(n), None) if n.fract() == 0.0 => format!("{n:.0}"),
+                    (Cell::Number(n), None) => format!("{n:.2}"),
+                    (Cell::Empty, _) => String::new(),
                 })
                 .collect();
             println!("| {} |", cells.join(" | "));
+        }
+        if let Some(caption) = &table.caption {
+            println!("\n{caption}");
         }
         println!();
     }
