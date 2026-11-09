@@ -241,3 +241,91 @@ fn aggregate_errors() {
         ["'/'", "end of command"]
     );
 }
+
+#[test]
+fn mrsets_subcommands_in_order() {
+    let source = "MRSETS /MDGROUP NAME=$ch LABEL='Channels' CATEGORYLABELS=VARLABELS\n\
+                  VARIABLES=q5_1 TO q5_5 VALUE=1 LABEL='Last wins'\n\
+                  /MCGROUP NAME=$prov VARIABLES=m1 m2, m3\n\
+                  /MDGROUP VALUE='yes' VARIABLES=s1 s2 NAME=$s\n\
+                  /DELETE NAME=[$a, $b] /DISPLAY NAME=ALL /DELETE NAME=ALL /DISPLAY NAME=[$ch].";
+    let group = |name: &str, label: Option<&str>, variables, value| {
+        Mrsets::Define(MrsetsGroup {
+            name: name.into(),
+            label: label.map(str::to_string),
+            variables,
+            value,
+        })
+    };
+    assert_eq!(
+        one(source),
+        Command::Mrsets(vec![
+            group(
+                "$ch",
+                Some("Last wins"),
+                vec![range("q5_1", "q5_5")],
+                Some(Value::Number(1.0))
+            ),
+            group("$prov", None, vec![var("m1"), var("m2"), var("m3")], None),
+            group(
+                "$s",
+                None,
+                vec![var("s1"), var("s2")],
+                Some(Value::String("yes".into()))
+            ),
+            Mrsets::Delete(Some(vec!["$a".into(), "$b".into()])),
+            Mrsets::Display(None),
+            Mrsets::Delete(None),
+            Mrsets::Display(Some(vec!["$ch".into()])),
+        ])
+    );
+    // the first slash may be left out
+    assert!(matches!(
+        one("MRSETS DISPLAY NAME=ALL."),
+        Command::Mrsets(list) if list == [Mrsets::Display(None)]
+    ));
+}
+
+#[test]
+fn mrsets_mistakes() {
+    for (source, message) in [
+        (
+            "MRSETS /MDGROUP NAME=ch VARIABLES=a b VALUE=1.",
+            "set name ch does not start with $",
+        ),
+        (
+            "MRSETS /MDGROUP NAME=$ch VARIABLES=a b.",
+            "/MDGROUP needs VALUE=",
+        ),
+        (
+            "MRSETS /MCGROUP NAME=$ch.",
+            "/MCGROUP needs VARIABLES=varlist",
+        ),
+        (
+            "MRSETS /MCGROUP VARIABLES=a b.",
+            "/MCGROUP needs NAME=$name",
+        ),
+        (
+            "MRSETS /MCGROUP NAME=$ch VARIABLES=a b VALUE=1.",
+            "unexpected word VALUE",
+        ),
+        ("MRSETS /DISPLAY NAME=$ch.", "unexpected word $ch"),
+        (
+            "MRSETS /DELETE NAME=[x].",
+            "set name x does not start with $",
+        ),
+        ("MRSETS.", "unexpected end of command"),
+        (
+            "MRSETS /MDGROUP NAME=$ch CATEGORYLABELS=COUNTEDVALUES VARIABLES=a b VALUE=1.",
+            "CATEGORYLABELS=COUNTEDVALUES in MRSETS is not supported yet",
+        ),
+        (
+            "MRSETS /MDGROUP NAME=$ch LABELSOURCE=VARLABEL VARIABLES=a b VALUE=1.",
+            "LABELSOURCE=VARLABEL in MRSETS is not supported yet",
+        ),
+    ] {
+        let e = err(source);
+        assert!(e.message.starts_with(message), "{source}: {}", e.message);
+    }
+    assert!(help(Some("MRSETS")).unwrap().contains("MCGROUP"));
+}

@@ -4,9 +4,11 @@
 //! terms `a > c` and `b > c`. Every pair of a row term and a column term is a section of the
 //! table; its cells are the combinations of the categories of its categorical variables. A
 //! case belongs to a section when every categorical variable of the section has one of its
-//! categories, and it adds to every cell it falls in, total categories included.
+//! categories, and it adds to every cell it falls in, total categories included. A multiple
+//! response set can give a case several categories or none (see `mrsets`).
 
 mod format;
+mod mrsets;
 mod sigtest;
 
 pub use format::format_value;
@@ -78,11 +80,27 @@ impl CategoryList {
 
 /// One variable of a term, resolved against the dictionary.
 struct TermVar<'a> {
+    /// For a multiple response set its first variable.
     variable: Variable<'a>,
     syntax: &'a AxisVariable,
     scale: bool,
     /// The header label, None for VLABELS DISPLAY=NONE.
     label: Option<String>,
+    set: Option<mrsets::Set<'a>>,
+}
+
+impl TermVar<'_> {
+    /// The variable or set name.
+    fn name(&self) -> &str {
+        self.set
+            .as_ref()
+            .map_or(self.variable.name(), |set| set.name)
+    }
+
+    /// The name that identifies the variable or set in a table.
+    fn key(&self) -> String {
+        self.name().to_lowercase()
+    }
 }
 
 type Term<'a> = Vec<TermVar<'a>>;
@@ -132,6 +150,9 @@ fn percent_label(base: PercentBase, of: PercentOf) -> String {
         PercentOf::Validn => format!("{base} Valid N %"),
         PercentOf::Totaln => format!("{base} Total N %"),
         PercentOf::Sum => format!("{base} Sum %"),
+        PercentOf::Responses => format!("{base} Responses %"),
+        PercentOf::ResponsesCount => format!("{base} Responses % (Base: Count)"),
+        PercentOf::CountResponses => format!("{base} Count % (Base: Responses)"),
     }
 }
 
@@ -153,6 +174,7 @@ fn default_label(function: SummaryFunction, percentile: Option<f64>) -> String {
         Statistic::Validn => "Valid N".into(),
         Statistic::Totaln => "Total N".into(),
         Statistic::Missing => "Missing".into(),
+        Statistic::Responses => "Responses".into(),
     };
     if function.unweighted {
         format!("Unweighted {label}")
@@ -179,7 +201,9 @@ fn default_format(summary: &Summary, variable: &Variable) -> String {
         return text;
     }
     match summary.function.statistic {
-        Statistic::Count | Statistic::Validn | Statistic::Totaln => "F40.0".into(),
+        Statistic::Count | Statistic::Validn | Statistic::Totaln | Statistic::Responses => {
+            "F40.0".into()
+        }
         Statistic::Percent(..) => "PCT40.1".into(),
         _ => variable.format().to_string(),
     }
@@ -207,6 +231,11 @@ struct Tally {
     sum: f64,
     unweighted_sum: f64,
     values: Vec<(f64, f64)>,
+    responses: f64,
+    unweighted_responses: f64,
+    /// Cases without a response in a multiple response set: they count in TOTALN only.
+    total_only: f64,
+    total_only_cases: f64,
 }
 
 impl Tally {
@@ -229,12 +258,19 @@ impl Tally {
     /// The numerator or denominator of a percentage.
     fn base(&self, of: PercentOf, unweighted: bool) -> f64 {
         match (of, unweighted) {
-            (PercentOf::Count | PercentOf::Totaln, false) => self.count,
-            (PercentOf::Count | PercentOf::Totaln, true) => self.cases,
+            (PercentOf::Count, false) => self.count,
+            (PercentOf::Count, true) => self.cases,
+            (PercentOf::Totaln, false) => self.count + self.total_only,
+            (PercentOf::Totaln, true) => self.cases + self.total_only_cases,
             (PercentOf::Validn, false) => self.valid,
             (PercentOf::Validn, true) => self.valid_cases,
             (PercentOf::Sum, false) => self.sum,
             (PercentOf::Sum, true) => self.unweighted_sum,
+            (PercentOf::Responses, false) => self.responses,
+            (PercentOf::Responses, true) => self.unweighted_responses,
+            (PercentOf::ResponsesCount | PercentOf::CountResponses, _) => {
+                unreachable!("mrsets::parts splits these")
+            }
         }
     }
 }
@@ -300,7 +336,9 @@ fn statistic(summary: &Summary, tally: &Tally) -> Option<f64> {
     let count = tally.base(PercentOf::Count, unweighted);
     let valid = tally.base(PercentOf::Validn, unweighted);
     let result = match summary.function.statistic {
-        Statistic::Count | Statistic::Totaln => Some(count),
+        Statistic::Count => Some(count),
+        Statistic::Totaln => Some(tally.base(PercentOf::Totaln, unweighted)),
+        Statistic::Responses => Some(tally.base(PercentOf::Responses, unweighted)),
         Statistic::Validn => Some(valid),
         Statistic::Missing => Some(count - valid),
         Statistic::Mean => mean,
@@ -376,16 +414,16 @@ fn guess_scale(variable: &Variable) -> bool {
     distinct.len() >= 24 || distinct[0] >= 10.0
 }
 
-/// The value of `key` as the variable's dictionary shows it: its value label, or the value in
-/// the variable's format.
-fn category_label(variable: &Variable, key: &Key) -> String {
-    let label = variable
-        .value_labels()
+/// The value of `key` as the dictionary shows it: the value label of the first variable that
+/// has one, or the value in the format of the first variable.
+fn category_label(variables: &[Variable], key: &Key) -> String {
+    let label = variables
         .iter()
+        .flat_map(|variable| variable.value_labels())
         .find(|(v, _)| Key::of(v) == *key)
         .map(|(_, l)| l.clone());
     label.unwrap_or_else(|| match key {
-        Key::Number(n) => format_value(*n, variable.format(), false),
+        Key::Number(n) => format_value(*n, variables[0].format(), false),
         Key::Text(s) => s.clone(),
     })
 }
@@ -407,8 +445,13 @@ fn in_range(key: &Key, low: &Bound, high: &Bound) -> bool {
     above && below
 }
 
-fn categories(variable: &Variable, spec: Option<&Categories>) -> Result<CategoryList, Error> {
-    let name = variable.name();
+/// The categories of a variable, or of the values of the variables of a category set together.
+fn categories(
+    name: &str,
+    variables: &[Variable],
+    spec: Option<&Categories>,
+) -> Result<CategoryList, Error> {
+    let variable = &variables[0];
     let mut seen: Vec<Key> = Vec::new();
     let mut counts: HashMap<String, usize> = HashMap::new();
     let id = |key: &Key| format!("{key:?}");
@@ -419,28 +462,33 @@ fn categories(variable: &Variable, spec: Option<&Categories>) -> Result<Category
         }
         *entry += 1;
     };
-    match variable.values() {
-        Values::Numeric(values) => {
-            for v in values.iter().flatten() {
-                note(Key::Number(v + 0.0), &mut seen);
+    for variable in variables {
+        match variable.values() {
+            Values::Numeric(values) => {
+                for v in values.iter().flatten() {
+                    note(Key::Number(v + 0.0), &mut seen);
+                }
             }
-        }
-        Values::String(values) => {
-            for v in values.iter() {
-                note(Key::Text(v.to_string()), &mut seen);
+            Values::String(values) => {
+                for v in values.iter() {
+                    note(Key::Text(v.to_string()), &mut seen);
+                }
             }
         }
     }
     let in_data = seen.len();
-    for (value, _) in variable.value_labels() {
+    for (value, _) in variables.iter().flat_map(|v| v.value_labels()) {
         let key = Key::of(value);
         if !seen.contains(&key) {
             seen.push(key);
         }
     }
-    let is_missing = |key: &Key| match key {
-        Key::Number(n) => variable.is_user_missing(*n),
-        Key::Text(s) => variable.is_user_missing_str(s),
+    // a value that is user-missing for any variable of a set is a missing category
+    let is_missing = |key: &Key| {
+        variables.iter().any(|variable| match key {
+            Key::Number(n) => variable.is_user_missing(*n),
+            Key::Text(s) => variable.is_user_missing_str(s),
+        })
     };
     let exclude_empty = spec.is_some_and(|s| s.exclude_empty);
 
@@ -460,6 +508,11 @@ fn categories(variable: &Variable, spec: Option<&Categories>) -> Result<Category
                 };
                 match item {
                     CategoryItem::Value(v) => wanted.push(key(v)?),
+                    CategoryItem::Name(n) => {
+                        return Err(Error(format!(
+                            "/CATEGORIES for {name}: {n} is a name, but only a multiple dichotomy set lists its categories by name"
+                        )));
+                    }
                     CategoryItem::Range(low, high) => {
                         if variable.is_string() {
                             return Err(Error(format!(
@@ -497,7 +550,7 @@ fn categories(variable: &Variable, spec: Option<&Categories>) -> Result<Category
                 .map(|(_, k)| k.clone())
                 .collect();
             if spec.is_some_and(|s| s.by_label) {
-                keys.sort_by_cached_key(|k| category_label(variable, k));
+                keys.sort_by_cached_key(|k| category_label(variables, k));
             } else {
                 keys.sort_by(Key::compare);
             }
@@ -525,15 +578,21 @@ fn categories(variable: &Variable, spec: Option<&Categories>) -> Result<Category
         if duplicate {
             return Err(Error(format!(
                 "/CATEGORIES for {name}: the value {} is listed twice",
-                category_label(variable, &key)
+                category_label(variables, &key)
             )));
         }
         list.categories.push(Category {
-            label: category_label(variable, &key),
+            label: category_label(variables, &key),
             missing: is_missing(&key),
             key: Some(key),
         });
     }
+    add_total(&mut list, spec);
+    Ok(list)
+}
+
+/// The total category that /CATEGORIES asks for.
+fn add_total(list: &mut CategoryList, spec: Option<&Categories>) {
     if let Some(spec) = spec.filter(|s| s.total) {
         let total = Category {
             key: None,
@@ -548,11 +607,10 @@ fn categories(variable: &Variable, spec: Option<&Categories>) -> Result<Category
             list.categories.push(total);
         }
     }
-    Ok(list)
 }
 
 fn list_of<'l>(lists: &'l HashMap<String, CategoryList>, var: &TermVar) -> &'l CategoryList {
-    &lists[&var.variable.name().to_lowercase()]
+    &lists[&var.key()]
 }
 
 /// Every combination of the categories of the lists, the first list varying slowest.
@@ -602,7 +660,7 @@ impl<'a> Layout<'a> {
     }
 
     /// The summaries of a term on the summary axis and the variable they summarize.
-    fn summaries(&self, term: &Term<'a>) -> (Vec<Summary>, Variable<'a>) {
+    fn summaries<'t>(&self, term: &'t Term<'a>) -> (Vec<Summary>, &'t TermVar<'a>) {
         let default = |statistic| {
             vec![Summary {
                 function: SummaryFunction {
@@ -616,17 +674,12 @@ impl<'a> Layout<'a> {
         };
         if let Some(scale) = term.iter().find(|v| v.scale) {
             let list = scale.syntax.summaries.clone();
-            return (
-                list.unwrap_or_else(|| default(Statistic::Mean)),
-                scale.variable,
-            );
+            return (list.unwrap_or_else(|| default(Statistic::Mean)), scale);
         }
         let innermost = term.last().expect("a term has a variable");
-        let list = innermost.syntax.summaries.clone();
-        (
-            list.unwrap_or_else(|| default(Statistic::Count)),
-            innermost.variable,
-        )
+        let source = mrsets::summary_set(term).unwrap_or(innermost);
+        let list = source.syntax.summaries.clone();
+        (list.unwrap_or_else(|| default(Statistic::Count)), source)
     }
 }
 
@@ -653,16 +706,13 @@ impl Engine {
             .map(|tables| tables.into_iter().flatten().collect())
     }
 
-    fn display(&self, command: &Ctables, variable: &Variable) -> Result<VlabelsDisplay, Error> {
+    fn display(&self, command: &Ctables, name: &str) -> Result<VlabelsDisplay, Error> {
         let mut display = VlabelsDisplay::Default;
         for (vars, choice) in &command.vlabels {
             let names = self
-                .expand(vars)
+                .names_with_sets(vars)
                 .map_err(|Error(m)| Error(format!("/VLABELS: {m}")))?;
-            if names
-                .iter()
-                .any(|n| n.eq_ignore_ascii_case(variable.name()))
-            {
+            if names.iter().any(|n| n.eq_ignore_ascii_case(name)) {
                 display = *choice;
             }
         }
@@ -681,6 +731,9 @@ impl Engine {
                 let resolved = term
                     .into_iter()
                     .map(|syntax| {
+                        if syntax.name.starts_with('$') {
+                            return self.set_term(data, command, syntax);
+                        }
                         let variable = data.variable(&syntax.name).map_err(|_| {
                             Error(format!("/TABLE: unknown variable {}", syntax.name))
                         })?;
@@ -696,7 +749,7 @@ impl Engine {
                             )));
                         }
                         let name = variable.name().to_string();
-                        let label = match self.display(command, &variable)? {
+                        let label = match self.display(command, variable.name())? {
                             VlabelsDisplay::None => None,
                             VlabelsDisplay::Name => Some(name),
                             VlabelsDisplay::Both => Some(match variable.label() {
@@ -710,6 +763,7 @@ impl Engine {
                             syntax,
                             scale,
                             label,
+                            set: None,
                         })
                     })
                     .collect::<Result<Term, Error>>()?;
@@ -736,20 +790,24 @@ impl Engine {
         // categories of every categorical variable, by name
         let mut lists: HashMap<String, CategoryList> = HashMap::new();
         for var in layout.rows.iter().chain(&layout.columns).flatten() {
-            let name = var.variable.name().to_lowercase();
+            let name = var.key();
             if var.scale || lists.contains_key(&name) {
                 continue;
             }
             let mut spec = None;
             for categories in &table.categories {
                 let names = self
-                    .expand(&categories.vars)
+                    .names_with_sets(&categories.vars)
                     .map_err(|Error(m)| Error(format!("/CATEGORIES: {m}")))?;
                 if names.iter().any(|n| n.to_lowercase() == name) {
                     spec = Some(categories);
                 }
             }
-            lists.insert(name, categories(&var.variable, spec)?);
+            let list = match &var.set {
+                Some(set) => mrsets::set_categories(set, spec)?,
+                None => categories(var.variable.name(), &[var.variable], spec)?,
+            };
+            lists.insert(name, list);
         }
         let list_of = |var: &TermVar| list_of(&lists, var);
 
@@ -769,7 +827,7 @@ impl Engine {
                         slots.len() - 1
                     }
                 };
-                let format = default_format(&summary, &variable);
+                let format = default_format(&summary, &variable.variable);
                 indexed.push((index, summary, format));
             }
             term_summaries.push((indexed, variable));
@@ -837,7 +895,7 @@ impl Engine {
                     column_term,
                     &lists,
                     summaries,
-                    *variable,
+                    variable,
                 )?;
                 sections.insert((r, c), section);
             }
@@ -920,13 +978,13 @@ fn check_summaries(rows: &[Term], columns: &[Term]) -> Result<Axis, Error> {
             if scales.len() > 1 {
                 return Err(Error(format!(
                     "/TABLE: {} and {} are both scale variables in one nesting; a cell summarizes one scale variable, so stack them with + instead",
-                    scales[0].variable.name(),
-                    scales[1].variable.name()
+                    scales[0].name(),
+                    scales[1].name()
                 )));
             }
             let innermost = term.iter().rposition(|v| !v.scale);
             for (i, var) in term.iter().enumerate() {
-                let name = var.variable.name();
+                let name = var.name();
                 if var.scale {
                     found[axis] = Some(name.to_string());
                 }
@@ -934,21 +992,26 @@ fn check_summaries(rows: &[Term], columns: &[Term]) -> Result<Axis, Error> {
                     continue;
                 };
                 found[axis] = Some(name.to_string());
+                mrsets::check_functions(var, summaries)?;
                 if var.scale {
                     continue;
                 }
                 if !scales.is_empty() {
                     return Err(Error(format!(
                         "/TABLE: {name} has summaries, but the scale variable {} in the same nesting is the one summarized; move the summaries to it",
-                        scales[0].variable.name()
+                        scales[0].name()
                     )));
                 }
-                if Some(i) != innermost {
+                let set_carries = mrsets::summary_set(term).is_some_and(|s| std::ptr::eq(s, var));
+                if Some(i) != innermost && !set_carries {
                     return Err(Error(format!(
-                        "/TABLE: summaries may follow only the innermost categorical variable of a nesting, and {name} is an outer one"
+                        "/TABLE: summaries may follow only the innermost categorical variable of a nesting, or a multiple response set with no other set or summaries inside it, and {name} is an outer one"
                     )));
                 }
-                if let Some(s) = summaries.iter().find(|s| scale_only(s.function)) {
+                if let Some(s) = summaries
+                    .iter()
+                    .find(|s| scale_only(s.function) && !mrsets::counts_responses(s.function))
+                {
                     return Err(Error(format!(
                         "/TABLE: summary function {} applies only to scale variables, and {name} is categorical; write {name} [S] to treat it as scale",
                         s.function.name()
@@ -991,7 +1054,7 @@ impl Section {
         column_term: &[TermVar<'a>],
         lists: &HashMap<String, CategoryList>,
         summaries: &[(usize, Summary, String)],
-        summary_variable: Variable<'a>,
+        summary_variable: &TermVar<'a>,
     ) -> Result<Section, Error> {
         let row_cats: Vec<&TermVar> = row_term.iter().filter(|v| !v.scale).collect();
         let column_cats: Vec<&TermVar> = column_term.iter().filter(|v| !v.scale).collect();
@@ -1031,10 +1094,11 @@ impl Section {
         };
         let keep_values = scale.is_some();
         'cases: for case in 0..data.case_count() {
-            let mut key = Vec::with_capacity(cats.len());
+            // the categories of the case: one per variable, any number for a set
+            let mut choices = Vec::with_capacity(cats.len());
             for (var, list) in cats.iter().zip(&lists) {
-                match list.find(&var.variable, case) {
-                    Some(index) => key.push(index),
+                match mrsets::choice(var, list, case) {
+                    Some(choice) => choices.push(choice),
                     None => continue 'cases,
                 }
             }
@@ -1043,55 +1107,67 @@ impl Section {
             if weight <= 0.0 {
                 continue;
             }
-            let (valid, value) = match scale {
-                Some(scale) => {
-                    let value = scale
-                        .variable
-                        .numeric()?
-                        .get(case)
-                        .filter(|v| !scale.variable.is_user_missing(*v));
-                    (value.is_some(), value)
-                }
-                None => {
-                    let valid = summary_list
-                        .map(|(i, list)| !list.categories[key[i]].missing)
-                        .unwrap_or(true);
-                    (valid, None)
-                }
+            let value = match scale {
+                Some(scale) => scale
+                    .variable
+                    .numeric()?
+                    .get(case)
+                    .filter(|v| !scale.variable.is_user_missing(*v)),
+                None => None,
             };
+            // whether the case is valid, and its responses, in one category of the summary
+            // variable, or in all of them for None
+            let judge = |of: Option<usize>| match (scale, summary_list) {
+                (Some(_), _) => (value.is_some(), 1.0),
+                (None, Some((i, list))) => choices[i]
+                    .iter()
+                    .filter(|(c, _)| of.is_none_or(|of| *c == of))
+                    .fold((false, 0.0), |(valid, sum), (c, responses)| {
+                        (valid || !list.categories[*c].missing, sum + responses)
+                    }),
+                (None, None) => (true, 1.0),
+            };
+            let total_only = choices.iter().any(Vec::is_empty);
+            let indices = |choice: &mrsets::Choice| choice.iter().map(|(c, _)| *c).collect();
+            // every area of the case once
             for (a, decides) in section.areas.iter().enumerate() {
-                let area_key: Vec<usize> = key
+                let parts: Vec<Vec<usize>> = choices
                     .iter()
                     .zip(decides)
                     .filter(|(_, d)| **d)
-                    .map(|(k, _)| *k)
+                    .map(|(choice, _)| indices(choice))
                     .collect();
-                section.denominators[a]
-                    .entry(area_key)
-                    .or_default()
-                    .add(weight, valid, value, false);
-            }
-            // the case also counts in every total of its categories
-            let mut targets = vec![key];
-            for (i, total) in section.totals.iter().enumerate() {
-                if let Some(total) = total {
-                    let more: Vec<Vec<usize>> = targets
-                        .iter()
-                        .map(|t| {
-                            let mut t = t.clone();
-                            t[i] = *total;
-                            t
-                        })
-                        .collect();
-                    targets.extend(more);
+                let at = summary_list
+                    .filter(|(i, _)| decides[*i])
+                    .map(|(i, _)| decides[..i].iter().filter(|d| **d).count());
+                for area_key in mrsets::product(&parts) {
+                    let stats = judge(at.map(|at| area_key[at]));
+                    section.denominators[a]
+                        .entry(area_key)
+                        .or_default()
+                        .add_case(weight, stats, value, false, total_only);
                 }
             }
-            for target in targets {
-                section
-                    .cells
-                    .entry(target)
-                    .or_default()
-                    .add(weight, valid, value, keep_values);
+            // the cells of the categories, and of the totals in their place
+            let parts: Vec<Vec<usize>> = choices
+                .iter()
+                .zip(&section.totals)
+                .map(|(choice, total)| {
+                    let mut part: Vec<usize> = indices(choice);
+                    part.extend(*total);
+                    part
+                })
+                .collect();
+            for target in mrsets::product(&parts) {
+                let of = summary_list
+                    .and_then(|(i, _)| (section.totals[i] != Some(target[i])).then_some(target[i]));
+                section.cells.entry(target).or_default().add_case(
+                    weight,
+                    judge(of),
+                    value,
+                    keep_values,
+                    total_only,
+                );
             }
         }
         Ok(section)
@@ -1110,7 +1186,11 @@ impl Section {
         let empty = Tally::default();
         let counting = matches!(
             summary.function.statistic,
-            Statistic::Count | Statistic::Validn | Statistic::Totaln | Statistic::Missing
+            Statistic::Count
+                | Statistic::Validn
+                | Statistic::Totaln
+                | Statistic::Missing
+                | Statistic::Responses
         );
         let tally = match self.cells.get(key) {
             Some(tally) => tally,
@@ -1139,10 +1219,11 @@ impl Section {
                         .map(|(k, _)| *k)
                         .collect();
                     let unweighted = summary.function.unweighted;
+                    let (numerator, denominator) = mrsets::parts(of);
                     let whole = self.denominators[area(base)]
                         .get(&area_key)
-                        .map_or(0.0, |t| t.base(of, unweighted));
-                    let part = tally.base(of, unweighted);
+                        .map_or(0.0, |t| t.base(denominator, unweighted));
+                    let part = tally.base(numerator, unweighted);
                     (whole != 0.0).then(|| 100.0 * part / whole)
                 }
             }
@@ -1162,9 +1243,9 @@ impl Section {
 fn summary_variable_list<'l>(
     cats: &[&TermVar],
     lists: &[&'l CategoryList],
-    summary_variable: Variable,
+    summary_variable: &TermVar,
 ) -> Option<(usize, &'l CategoryList)> {
     cats.iter()
-        .position(|v| v.variable.name() == summary_variable.name())
+        .position(|v| v.key() == summary_variable.key())
         .map(|i| (i, lists[i]))
 }

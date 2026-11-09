@@ -22,6 +22,7 @@ mod error;
 mod expr;
 mod files;
 mod lexer;
+mod mrsets;
 mod parser;
 mod procedures;
 mod split;
@@ -43,6 +44,7 @@ pub use ctables::{
 };
 pub use error::{Span, SyntaxError};
 pub use lexer::{Punct, Token, TokenKind};
+pub use mrsets::{Mrsets, MrsetsGroup};
 pub use split::{RawCommand, select_lines, split_commands};
 pub use table::{command_names, help};
 

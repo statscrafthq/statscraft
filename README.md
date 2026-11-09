@@ -27,6 +27,8 @@ Commands executed so far: GET, SAVE, VARIABLE LABELS, VALUE LABELS, MISSING VALU
 
 [removed]
 
+MRSETS defines multiple response sets (dichotomy and category sets, saved with the data file), and CTABLES tabulates them like categorical variables, with counts of cases or of responses and percentages based on either.
+
 Sessions are stored under `.statscraft/sessions/` in the current directory.
 
 ## Development

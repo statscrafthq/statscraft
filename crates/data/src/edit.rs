@@ -2,8 +2,8 @@
 //! and changes nothing.
 
 use crate::{
-    Dataset, Dictionary, Error, Measure, MissingValues, Value, VariableDef, non_empty, same_name,
-    sav,
+    Dataset, Dictionary, Error, Measure, MissingValues, MultipleResponseSet, Value, VariableDef,
+    non_empty, same_name, sav,
 };
 use arrow::array::{ArrayRef, AsArray, BooleanArray, Float64Array, StringViewArray, UInt64Array};
 use std::sync::Arc;
@@ -347,6 +347,103 @@ impl Dataset {
             None => None,
         };
         Arc::make_mut(&mut self.dict).weight_variable = weight;
+        Ok(())
+    }
+
+    /// Adds a multiple response set, or replaces the set of the same name (names compare
+    /// without regard to case). The name is "$" followed by a valid variable name. The set
+    /// has at least two different variables of one type; they are stored as the dictionary
+    /// spells them. A dichotomy set has a counted value, a whole number for numeric variables
+    /// or a text no wider than the narrowest string variable; a category set has none.
+    pub fn set_multiple_response_set(&mut self, set: MultipleResponseSet) -> Result<(), Error> {
+        let invalid = |why: String| Err(Error::Invalid(format!("{}: {why}", set.name)));
+        let rest = set.name.strip_prefix('$').unwrap_or("");
+        if !set.name.starts_with('$')
+            || set.name.len() > MAX_NAME_BYTES
+            || check_name(rest).is_err()
+        {
+            return Err(Error::Invalid(format!(
+                "invalid name of a multiple response set: {} (a set name is $ followed by a variable name)",
+                set.name
+            )));
+        }
+        if !matches!(set.kind, "dichotomy" | "category") {
+            return invalid(format!("unknown kind of set {}", set.kind));
+        }
+        if set.variables.len() < 2 {
+            return invalid("a set needs at least two variables".into());
+        }
+        let mut defs: Vec<&VariableDef> = Vec::with_capacity(set.variables.len());
+        for name in &set.variables {
+            let def = &self.dict.variables[self.index_of(name)?];
+            if defs.iter().any(|d| d.name == def.name) {
+                return invalid(format!("{} is listed twice", def.name));
+            }
+            if def.width.is_some() != defs.first().unwrap_or(&def).width.is_some() {
+                return invalid(format!(
+                    "{} and {} differ in type; the variables of a set are all numeric or all strings",
+                    defs[0].name, def.name
+                ));
+            }
+            defs.push(def);
+        }
+        let variables = defs.iter().map(|d| d.name.clone()).collect();
+        let narrowest = defs.iter().filter_map(|d| d.width).min();
+        let counted_value = match (set.kind, &set.counted_value, narrowest) {
+            ("category", None, _) => None,
+            ("category", Some(_), _) => {
+                return invalid("a category set has no counted value".into());
+            }
+            (_, None, _) => return invalid("a dichotomy set needs a counted value".into()),
+            (_, Some(text), None) => match text.trim().parse::<f64>() {
+                Ok(v) if v.fract() == 0.0 && v.abs() < 9.0e15 => Some((v as i64).to_string()),
+                _ => {
+                    return invalid(format!(
+                        "the counted value of numeric variables must be a whole number, not {text}"
+                    ));
+                }
+            },
+            (_, Some(text), Some(narrowest)) => {
+                let text = text.trim_end_matches(' ');
+                if text.len() > narrowest {
+                    return invalid(format!(
+                        "the counted value '{text}' is wider than {narrowest} bytes, the width of the narrowest variable"
+                    ));
+                }
+                Some(text.to_string())
+            }
+        };
+        let set = MultipleResponseSet {
+            variables,
+            counted_value,
+            ..set
+        };
+        let sets = &mut Arc::make_mut(&mut self.dict).multiple_response_sets;
+        match sets
+            .iter_mut()
+            .find(|known| same_name(&known.name, &set.name))
+        {
+            Some(known) => *known = set,
+            None => sets.push(set),
+        }
+        Ok(())
+    }
+
+    /// Removes the named multiple response sets (names compare without regard to case). An
+    /// unknown name is an error and removes nothing.
+    pub fn delete_multiple_response_sets(&mut self, names: &[&str]) -> Result<(), Error> {
+        let sets = &self.dict.multiple_response_sets;
+        if let Some(name) = names
+            .iter()
+            .find(|name| !sets.iter().any(|set| same_name(&set.name, name)))
+        {
+            return Err(Error::Invalid(format!(
+                "unknown multiple response set {name}"
+            )));
+        }
+        Arc::make_mut(&mut self.dict)
+            .multiple_response_sets
+            .retain(|set| !names.iter().any(|name| same_name(&set.name, name)));
         Ok(())
     }
 

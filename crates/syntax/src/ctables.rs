@@ -16,6 +16,9 @@ pub struct Ctables {
     /// `/FORMAT MISSING=`: the text of a statistic that cannot be computed. None leaves the
     /// cell empty.
     pub missing: Option<String>,
+    /// `/MRSETS COUNTDUPLICATES=YES`: a category set counts a value as often as a case gives
+    /// it in RESPONSES and the percentages based on responses.
+    pub count_duplicates: bool,
     pub tables: Vec<CtablesTable>,
 }
 
@@ -148,6 +151,8 @@ pub enum Statistic {
     Validn,
     Totaln,
     Missing,
+    /// The number of responses to a multiple response set.
+    Responses,
 }
 
 /// The area a percentage is taken of: `COLPCT` and the like.
@@ -169,13 +174,20 @@ pub enum PercentOf {
     Validn,
     Totaln,
     Sum,
+    /// `.RESPONSES`: responses of a multiple response set over the responses of the area.
+    Responses,
+    /// `.RESPONSES.COUNT`: responses over the count of cases of the area.
+    ResponsesCount,
+    /// `.COUNT.RESPONSES`: the count of cases over the responses of the area.
+    CountResponses,
 }
 
 /// One `/CATEGORIES` subcommand.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Categories {
     pub vars: Vec<VarItem>,
-    /// An explicit list `[value, low THRU high, ...]`; None lists the values found.
+    /// An explicit list `[value, low THRU high, ...]`, or variable names for a multiple
+    /// dichotomy set; None lists the values found.
     pub values: Option<Vec<CategoryItem>>,
     pub descending: bool,
     /// `KEY=LABEL`: sort by value label instead of value.
@@ -193,9 +205,11 @@ pub struct Categories {
 pub enum CategoryItem {
     Value(Value),
     Range(Bound, Bound),
+    /// A variable of a multiple dichotomy set.
+    Name(String),
 }
 
-const SIMPLE_STATISTICS: [(&str, Statistic); 17] = [
+const SIMPLE_STATISTICS: [(&str, Statistic); 18] = [
     ("COUNT", Statistic::Count),
     ("MEAN", Statistic::Mean),
     ("MEDIAN", Statistic::Median),
@@ -211,6 +225,7 @@ const SIMPLE_STATISTICS: [(&str, Statistic); 17] = [
     ("VALIDN", Statistic::Validn),
     ("TOTALN", Statistic::Totaln),
     ("MISSING", Statistic::Missing),
+    ("RESPONSES", Statistic::Responses),
     ("MIN", Statistic::Minimum),
     ("MAX", Statistic::Maximum),
 ];
@@ -225,11 +240,14 @@ const PERCENT_BASES: [(&str, PercentBase); 7] = [
     ("LAYERCOLPCT", PercentBase::LayerColumn),
 ];
 
-const PERCENT_OF: [(&str, PercentOf); 4] = [
+const PERCENT_OF: [(&str, PercentOf); 7] = [
     ("COUNT", PercentOf::Count),
     ("VALIDN", PercentOf::Validn),
     ("TOTALN", PercentOf::Totaln),
     ("SUM", PercentOf::Sum),
+    ("RESPONSES", PercentOf::Responses),
+    ("RESPONSES.COUNT", PercentOf::ResponsesCount),
+    ("COUNT.RESPONSES", PercentOf::CountResponses),
 ];
 
 fn statistic(name: &str) -> Option<Statistic> {
@@ -285,8 +303,7 @@ impl SummaryFunction {
 
 const SUMMARY_EXPECTED: &str = "a summary function such as COUNT, COLPCT.COUNT or MEAN";
 
-const UNSUPPORTED_SUBCOMMANDS: [&str; 7] = [
-    "MRSETS",
+const UNSUPPORTED_SUBCOMMANDS: [&str; 6] = [
     "PCOMPUTE",
     "PPROPERTIES",
     "WEIGHT",
@@ -295,7 +312,7 @@ const UNSUPPORTED_SUBCOMMANDS: [&str; 7] = [
     "SMISSING",
 ];
 
-fn at_end_of_subcommand(p: &Parser) -> bool {
+pub(crate) fn at_end_of_subcommand(p: &Parser) -> bool {
     matches!(p.peek(), None | Some(TokenKind::Punct(Punct::Slash)))
 }
 
@@ -312,7 +329,7 @@ fn equals(p: &mut Parser) -> PResult<()> {
 }
 
 /// One of `choices` after `=`; returns its index.
-fn choice(p: &mut Parser, choices: &[&str]) -> PResult<usize> {
+pub(crate) fn choice(p: &mut Parser, choices: &[&str]) -> PResult<usize> {
     equals(p)?;
     match choices.iter().position(|c| p.at_keyword(c)) {
         Some(i) => {
@@ -417,15 +434,7 @@ fn summaries(p: &mut Parser) -> PResult<Vec<Summary>> {
 }
 
 fn variable(p: &mut Parser) -> PResult<AxisExpr> {
-    let start = p.pos;
     let name = p.name("a variable name")?;
-    if name.starts_with('$') {
-        return Err(not_supported(
-            p,
-            start,
-            &format!("the multiple response set {name}"),
-        ));
-    }
     let mut scale = None;
     if p.at(Punct::LBracket) {
         let level = match p.peek_at(1) {
@@ -516,7 +525,7 @@ fn table(p: &mut Parser) -> PResult<CtablesTable> {
 }
 
 /// A variable list that ends before the next `KEYWORD=`.
-fn var_list(p: &mut Parser) -> PResult<Vec<VarItem>> {
+pub(crate) fn var_list(p: &mut Parser) -> PResult<Vec<VarItem>> {
     let mut items = Vec::new();
     while matches!(p.peek(), Some(TokenKind::Word(_)))
         && p.peek_at(1) != Some(&TokenKind::Punct(Punct::Eq))
@@ -648,6 +657,12 @@ fn category_items(p: &mut Parser) -> PResult<Vec<CategoryItem>> {
         if let Some(TokenKind::Punct(Punct::And)) = p.peek() {
             p.pos += 1;
             return Err(not_supported(p, start, "a computed category (&name)"));
+        }
+        if matches!(p.peek(), Some(TokenKind::Word(w)) if !w.eq_ignore_ascii_case("LO") && !matches_keyword(w, "LOWEST"))
+        {
+            items.push(CategoryItem::Name(p.name("a variable name")?));
+            p.eat(Punct::Comma);
+            continue;
         }
         items.push(match p.value_or_range()? {
             Some(MissingValue::Value(value)) => CategoryItem::Value(value),
@@ -870,6 +885,7 @@ pub(crate) fn ctables(p: &mut Parser) -> PResult<Command> {
         vlabels: Vec::new(),
         empty: EmptyCells::Zero,
         missing: None,
+        count_duplicates: false,
         tables: Vec::new(),
     };
     let mut first = true;
@@ -895,6 +911,11 @@ pub(crate) fn ctables(p: &mut Parser) -> PResult<Command> {
             command.vlabels.push(vlabels(p)?);
         } else if p.eat_keyword("FORMAT") {
             format_subcommand(p, &mut command)?;
+        } else if p.eat_keyword("MRSETS") {
+            if !p.eat_keyword("COUNTDUPLICATES") {
+                return Err(p.unexpected(&["COUNTDUPLICATES"]));
+            }
+            command.count_duplicates = choice(p, &["NO", "YES"])? == 1;
         } else if p.eat_keyword("SLABELS") {
             table_only(p, &command.tables, "SLABELS")?;
             slabels(p, command.tables.last_mut().expect("checked"))?;

@@ -7,6 +7,7 @@ mod descriptives;
 mod expr;
 mod frequencies;
 mod merge;
+mod mrsets;
 mod recode;
 mod sort;
 mod transform;
@@ -293,6 +294,7 @@ impl Engine {
             Command::Else => self.next_branch(None)?,
             Command::EndIf => self.end_if()?,
             Command::Ctables(command) => return self.ctables(command),
+            Command::Mrsets(subcommands) => return self.mrsets(subcommands),
             Command::Descriptives(command) => return self.descriptives(command),
             Command::Crosstabs(command) => return self.crosstabs(command),
             Command::AddFiles(merge) => self.merge_files(merge, true)?,

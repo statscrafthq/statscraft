@@ -50,6 +50,7 @@ pub enum Command {
     Else,
     EndIf,
     Ctables(crate::ctables::Ctables),
+    Mrsets(Vec<crate::mrsets::Mrsets>),
     Descriptives(Descriptives),
     Crosstabs(Crosstabs),
     AddFiles(Merge),

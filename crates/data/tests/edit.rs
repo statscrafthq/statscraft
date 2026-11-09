@@ -3,7 +3,7 @@
 mod common;
 
 use common::fixture;
-use statscraft_data::{Dataset, Error, Measure, MissingValues, Value, Values};
+use statscraft_data::{Dataset, Error, Measure, MissingValues, MultipleResponseSet, Value, Values};
 
 /// 200 cases, 19 variables, sets `$q5` and `$q6`, weight variable `weight`.
 fn survey() -> Dataset {
@@ -713,4 +713,136 @@ fn weight_variable() {
         "unknown variable: nope"
     );
     assert_eq!(data.weight_variable(), Some("monthly_spend"));
+}
+
+fn set(
+    name: &str,
+    kind: &'static str,
+    counted: Option<&str>,
+    variables: &[&str],
+) -> MultipleResponseSet {
+    MultipleResponseSet {
+        name: name.into(),
+        kind,
+        label: "Label".into(),
+        counted_value: counted.map(str::to_string),
+        variables: variables.iter().map(|v| v.to_string()).collect(),
+    }
+}
+
+#[test]
+fn multiple_response_sets_are_added_replaced_and_deleted() {
+    let mut data = fixture("survey_basic.sav");
+    assert!(data.multiple_response_sets().is_empty());
+    data.set_multiple_response_set(set("$ch", "dichotomy", Some("1.0"), &["Q5_1", "q5_2"]))
+        .unwrap();
+    data.set_multiple_response_set(set(
+        "$prov",
+        "category",
+        None,
+        &["q6_mention1", "q6_mention2"],
+    ))
+    .unwrap();
+    let sets = data.multiple_response_sets();
+    // names as the dictionary spells them, the counted value as a plain whole number
+    assert_eq!(sets[0].variables, ["q5_1", "q5_2"]);
+    assert_eq!(sets[0].counted_value.as_deref(), Some("1"));
+    assert_eq!(sets[1].counted_value, None);
+
+    // the same name in other case replaces the set in its place
+    data.set_multiple_response_set(set(
+        "$CH",
+        "dichotomy",
+        Some("0"),
+        &["q5_3", "q5_4", "q5_5"],
+    ))
+    .unwrap();
+    let sets = data.multiple_response_sets();
+    assert_eq!((sets.len(), sets[0].name.as_str()), (2, "$CH"));
+    assert_eq!(sets[0].variables, ["q5_3", "q5_4", "q5_5"]);
+
+    let copy = common::assert_survives_write(&data, "sets.sav");
+    assert_eq!(copy.multiple_response_sets(), data.multiple_response_sets());
+
+    assert_error!(
+        data.delete_multiple_response_sets(&["$prov", "$nope"]),
+        Error::Invalid(_),
+        "unknown multiple response set $nope"
+    );
+    assert_eq!(data.multiple_response_sets().len(), 2);
+    data.delete_multiple_response_sets(&["$PROV"]).unwrap();
+    assert_eq!(data.multiple_response_sets()[0].name, "$CH");
+}
+
+#[test]
+fn a_string_set_counts_a_text_that_fits_the_narrowest_variable() {
+    let mut data = fixture("survey_basic.sav");
+    data.set_string_values("short", 3, vec!["yes".into(); 200])
+        .unwrap();
+    data.set_multiple_response_set(set("$s", "dichotomy", Some("yes  "), &["plan", "short"]))
+        .unwrap();
+    assert_eq!(
+        data.multiple_response_sets()[0].counted_value.as_deref(),
+        Some("yes")
+    );
+    assert_error!(
+        data.set_multiple_response_set(set("$s", "dichotomy", Some("four"), &["plan", "short"])),
+        Error::Invalid(_),
+        "$s: the counted value 'four' is wider than 3 bytes, the width of the narrowest variable"
+    );
+}
+
+#[test]
+fn invalid_multiple_response_sets_change_nothing() {
+    let mut data = fixture("survey_basic.sav");
+    for (bad, message) in [
+        (
+            set("q5", "dichotomy", Some("1"), &["q5_1", "q5_2"]),
+            "invalid name of a multiple response set: q5 (a set name is $ followed by a variable name)",
+        ),
+        (
+            set("$1x", "category", None, &["q5_1", "q5_2"]),
+            "invalid name of a multiple response set: $1x (a set name is $ followed by a variable name)",
+        ),
+        (
+            set("$x", "category", None, &["q5_1"]),
+            "$x: a set needs at least two variables",
+        ),
+        (
+            set("$x", "category", None, &["q5_1", "Q5_1"]),
+            "$x: q5_1 is listed twice",
+        ),
+        (
+            set("$x", "category", None, &["q5_1", "plan"]),
+            "$x: q5_1 and plan differ in type; the variables of a set are all numeric or all strings",
+        ),
+        (
+            set("$x", "dichotomy", None, &["q5_1", "q5_2"]),
+            "$x: a dichotomy set needs a counted value",
+        ),
+        (
+            set("$x", "category", Some("1"), &["q5_1", "q5_2"]),
+            "$x: a category set has no counted value",
+        ),
+        (
+            set("$x", "dichotomy", Some("1.5"), &["q5_1", "q5_2"]),
+            "$x: the counted value of numeric variables must be a whole number, not 1.5",
+        ),
+        (
+            set("$x", "dichotomy", Some("yes"), &["q5_1", "q5_2"]),
+            "$x: the counted value of numeric variables must be a whole number, not yes",
+        ),
+    ] {
+        assert_error!(
+            data.set_multiple_response_set(bad),
+            Error::Invalid(_),
+            message
+        );
+    }
+    assert_error!(
+        data.set_multiple_response_set(set("$x", "category", None, &["q5_1", "nope"])),
+        Error::UnknownVariable(_),
+        "unknown variable: nope"
+    );
+    assert!(data.multiple_response_sets().is_empty());
 }

@@ -125,14 +125,12 @@ fn per_table_and_global_subcommands() {
 #[test]
 fn features_of_the_next_stage_are_named() {
     for (source, feature) in [
-        ("CTABLES /TABLE $q5.", "multiple response set $q5"),
         ("CTABLES /TABLE a BY b BY c.", "layer axis"),
         (
             "CTABLES /TABLE a BY b /COMPARETEST TYPE=PROP MERGE=YES.",
             "MERGE=YES",
         ),
         ("CTABLES /TABLE a /CRITERIA CILEVEL=90.", "CRITERIA"),
-        ("CTABLES /MRSETS COUNTDUPLICATES=YES /TABLE a.", "MRSETS"),
         (
             "CTABLES /PCOMPUTE &x = EXPR([1] + [2]) /TABLE a.",
             "PCOMPUTE",
@@ -261,4 +259,68 @@ fn mistakes_say_what_was_expected() {
 fn help_lists_the_summary_functions() {
     let text = help(Some("CTABLES")).unwrap();
     assert!(text.contains("COLPCT.COUNT") && text.contains("PTILE"));
+}
+
+#[test]
+fn multiple_response_sets_stand_like_variables() {
+    let c = one("CTABLES /MRSETS COUNTDUPLICATES=YES\n\
+         /TABLE $q5 [COUNT, RESPONSES, COLPCT.RESPONSES, ROWPCT.RESPONSES.COUNT, UCOLPCT.COUNT.RESPONSES] BY gender\n\
+         /CATEGORIES VARIABLES=$q5 [q5_3, q5_1] TOTAL=YES.");
+    assert!(c.count_duplicates);
+    assert_eq!(c.tables[0].columns, Some(var("gender")));
+    let AxisExpr::Variable(v) = &c.tables[0].rows else {
+        panic!()
+    };
+    assert_eq!(v.name, "$q5");
+    let functions: Vec<SummaryFunction> = v
+        .summaries
+        .as_ref()
+        .unwrap()
+        .iter()
+        .map(|s| s.function)
+        .collect();
+    let f = |statistic, unweighted| SummaryFunction {
+        statistic,
+        unweighted,
+    };
+    assert_eq!(
+        functions,
+        [
+            f(Statistic::Count, false),
+            f(Statistic::Responses, false),
+            f(
+                Statistic::Percent(PercentBase::Column, PercentOf::Responses),
+                false
+            ),
+            f(
+                Statistic::Percent(PercentBase::Row, PercentOf::ResponsesCount),
+                false
+            ),
+            f(
+                Statistic::Percent(PercentBase::Column, PercentOf::CountResponses),
+                true
+            ),
+        ]
+    );
+    assert_eq!(functions[3].name(), "ROWPCT.RESPONSES.COUNT");
+    assert_eq!(functions[4].name(), "UCOLPCT.COUNT.RESPONSES");
+    let categories = &c.tables[0].categories[0];
+    assert_eq!(categories.vars, [VarItem::Name("$q5".into())]);
+    assert_eq!(
+        categories.values,
+        Some(vec![
+            CategoryItem::Name("q5_3".into()),
+            CategoryItem::Name("q5_1".into())
+        ])
+    );
+    // a word that starts a range is still a range
+    let c = one("CTABLES /TABLE a /CATEGORIES VARIABLES=a [LO THRU 2, 5].");
+    assert_eq!(
+        c.tables[0].categories[0].values.as_ref().unwrap()[0],
+        CategoryItem::Range(Bound::Lowest, Bound::Number(2.0))
+    );
+    assert_eq!(
+        err("CTABLES /MRSETS DUPLICATES=YES /TABLE a.").expected,
+        ["COUNTDUPLICATES"]
+    );
 }

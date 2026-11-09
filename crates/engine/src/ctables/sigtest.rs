@@ -351,6 +351,20 @@ pub(super) fn tables(
     lists: &HashMap<String, CategoryList>,
     sections: &HashMap<(usize, usize), Section>,
 ) -> Result<Vec<Table>, Error> {
+    let tested = table.sigtest.is_some() || !table.comparetests.is_empty();
+    let set_in_table = layout
+        .rows
+        .iter()
+        .chain(&layout.columns)
+        .flat_map(|term| term.iter())
+        .find(|var| var.set.is_some());
+    if let (true, Some(var)) = (tested, set_in_table) {
+        return Err(Error(format!(
+            "significance tests on a multiple response set ({}) are not supported yet; \
+             leave out SIGTEST and COMPARETEST or the set",
+            var.variable.name()
+        )));
+    }
     let mut out = Vec::new();
     if let Some(spec) = &table.sigtest {
         out.push(chi_square_table(spec, layout, lists, sections)?);

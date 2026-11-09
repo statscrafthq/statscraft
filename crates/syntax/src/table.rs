@@ -6,6 +6,7 @@ use crate::ctables;
 use crate::data_commands;
 use crate::files;
 use crate::lexer::{Punct, Token, TokenKind};
+use crate::mrsets;
 use crate::parser::{PResult, Parser};
 use crate::procedures;
 
@@ -230,6 +231,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "Custom tables: counts, percentages and statistics by categories.",
         syntax: "CTABLES [/FORMAT EMPTY=ZERO|BLANK|'text' MISSING='text']\n\
                  \x20       [/VLABELS VARIABLES=varlist DISPLAY=DEFAULT|NAME|LABEL|BOTH|NONE]\n\
+                 \x20       [/MRSETS COUNTDUPLICATES=NO|YES]\n\
                  \x20       /TABLE rows [BY columns]\n\
                  \x20       [/SLABELS POSITION=COLUMN|ROW VISIBLE=YES|NO]\n\
                  \x20       [/CATEGORIES VARIABLES=varlist [ORDER=A|D] [KEY=VALUE|LABEL] [MISSING=EXCLUDE|INCLUDE]\n\
@@ -264,10 +266,38 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  below the smaller ALPHA, lowercase below the larger; a period marks a column left out (a proportion\n\
                  of 0 or 1, or less than 2 cases). ADJUST defaults to BONFERRONI, MEANSVARIANCE to ALLCATS. With a\n\
                  weight variable the tests round the weighted cell counts, column totals or category weights.\n\
-                 Not supported yet: layers, multiple response sets, CLABELS other than AUTO, COMPARETEST MERGE=YES,\n\
-                 PCOMPUTE, HIDESMALLCOUNTS, effective base (E functions), subtotals and OTHERNM or MISSING in a list.",
+                 A multiple response set ($name, see MRSETS) stands where a categorical variable may. A case counts\n\
+                 once in every category it has a response in; the set's total counts the cases with any response.\n\
+                 A dichotomy set lists its variables in set order; /CATEGORIES may list them by name: [q5_3, q5_1].\n\
+                 A set may carry the summaries even with categorical variables nested inside it; of two nested sets\n\
+                 only the inner one may. Sets also have RESPONSES and, for every percentage base above,\n\
+                 base.RESPONSES (responses over the area's responses), base.RESPONSES.COUNT (responses over the\n\
+                 area's count) and base.COUNT.RESPONSES (count over the area's responses). A case without any\n\
+                 response counts only in TOTALN and the .TOTALN percentages. COUNTDUPLICATES=YES counts a value that\n\
+                 a case gives in two variables of a category set twice in the responses; counts never do.\n\
+                 Not supported yet: layers, CLABELS other than AUTO, COMPARETEST MERGE=YES, significance tests on\n\
+                 multiple response sets, PCOMPUTE, HIDESMALLCOUNTS, effective base (E functions), subtotals and OTHERNM\n\
+                 or MISSING in a list.",
         example: "CTABLES /TABLE q1 [COUNT, COLPCT.COUNT PCT8.1] BY gender /CATEGORIES VARIABLES=q1 TOTAL=YES.",
         parse: ctables::ctables,
+    },
+    CommandSpec {
+        name: "MRSETS",
+        summary: "Define, delete and list multiple response sets.",
+        syntax: "MRSETS [/]MDGROUP NAME=$name [LABEL='text'] [CATEGORYLABELS=VARLABELS] VARIABLES=varlist VALUE=value\n\
+                 \x20      /MCGROUP NAME=$name [LABEL='text'] VARIABLES=varlist\n\
+                 \x20      /DELETE NAME=[$name ...] | ALL\n\
+                 \x20      /DISPLAY NAME=[$name ...] | ALL.\n\
+                 Subcommands run in the order written and may repeat. A set name starts with $; defining an\n\
+                 existing name replaces that set. A set has at least two variables, all numeric or all strings.\n\
+                 MDGROUP (dichotomies): every variable is one category, labelled with its variable label or name; a\n\
+                 case has a response in it when the variable holds VALUE, a whole number or, for strings, a quoted\n\
+                 text no wider than the narrowest variable. MCGROUP (categories): the values of the variables are\n\
+                 the categories, labelled with the value labels of the first variable that has one.\n\
+                 DISPLAY lists the sets in a table. Sets are saved with the data file and used by CTABLES.\n\
+                 Not supported yet: CATEGORYLABELS=COUNTEDVALUES and LABELSOURCE=VARLABEL.",
+        example: "MRSETS /MDGROUP NAME=$channels LABEL='Contact channels' VARIABLES=q5_1 TO q5_5 VALUE=1 /DISPLAY NAME=ALL.",
+        parse: mrsets::mrsets,
     },
     CommandSpec {
         name: "DESCRIPTIVES",
@@ -395,7 +425,6 @@ static UNSUPPORTED: &[&str] = &[
     "MATRIX",
     "MATRIX DATA",
     "MEANS",
-    "MRSETS",
     "MULT RESPONSE",
     "N OF CASES",
     "NEW FILE",
