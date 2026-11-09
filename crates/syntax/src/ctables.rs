@@ -21,7 +21,114 @@ pub struct Ctables {
     pub count_duplicates: bool,
     /// `/HIDESMALLCOUNTS COUNT=n`: counts below n show as "<n".
     pub hide_small_counts: Option<u32>,
+    /// `/PCOMPUTE`s in source order; of two with one name the later counts.
+    pub pcomputes: Vec<Pcompute>,
+    /// `/PPROPERTIES` in source order; they add up, a later setting replacing an earlier one.
+    pub pproperties: Vec<Pproperties>,
     pub tables: Vec<CtablesTable>,
+}
+
+/// `/PCOMPUTE &name = EXPR(expression)`: a category computed from other categories.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Pcompute {
+    /// Without the "&".
+    pub name: String,
+    pub expr: PcomputeExpr,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum PcomputeExpr {
+    /// `[value]`: the summary of that category.
+    Category(Value),
+    /// `[low THRU high]`: the sum of the summaries of the categories in the range.
+    Range(Bound, Bound),
+    /// `TOTAL`: the summary of the total.
+    Total,
+    Number(f64),
+    Negate(Box<PcomputeExpr>),
+    Binary(PcomputeOp, Box<PcomputeExpr>, Box<PcomputeExpr>),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PcomputeOp {
+    Add,
+    Subtract,
+    Multiply,
+    Divide,
+    Power,
+}
+
+impl PcomputeOp {
+    fn precedence(self) -> u8 {
+        match self {
+            PcomputeOp::Add | PcomputeOp::Subtract => 1,
+            PcomputeOp::Multiply | PcomputeOp::Divide => 2,
+            PcomputeOp::Power => 3,
+        }
+    }
+
+    fn symbol(self) -> &'static str {
+        match self {
+            PcomputeOp::Add => "+",
+            PcomputeOp::Subtract => "-",
+            PcomputeOp::Multiply => "*",
+            PcomputeOp::Divide => "/",
+            PcomputeOp::Power => "**",
+        }
+    }
+}
+
+/// The expression as written, with the parentheses it needs: the default label of a computed
+/// category.
+impl std::fmt::Display for PcomputeExpr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let bound = |b: &Bound| match b {
+            Bound::Lowest => "LO".to_string(),
+            Bound::Highest => "HI".to_string(),
+            Bound::Number(n) => n.to_string(),
+        };
+        match self {
+            PcomputeExpr::Category(Value::Number(n)) => write!(f, "[{n}]"),
+            PcomputeExpr::Category(Value::String(s)) => write!(f, "['{s}']"),
+            PcomputeExpr::Range(low, high) => write!(f, "[{} THRU {}]", bound(low), bound(high)),
+            PcomputeExpr::Total => f.write_str("TOTAL"),
+            PcomputeExpr::Number(n) => write!(f, "{n}"),
+            PcomputeExpr::Negate(inner) => match **inner {
+                PcomputeExpr::Binary(..) => write!(f, "-({inner})"),
+                _ => write!(f, "-{inner}"),
+            },
+            PcomputeExpr::Binary(op, left, right) => {
+                let side = |e: &PcomputeExpr, right: bool| match e {
+                    PcomputeExpr::Binary(inner, ..)
+                        if inner.precedence() < op.precedence()
+                            || (right && inner.precedence() == op.precedence()) =>
+                    {
+                        format!("({e})")
+                    }
+                    _ => e.to_string(),
+                };
+                write!(
+                    f,
+                    "{} {} {}",
+                    side(left, false),
+                    op.symbol(),
+                    side(right, true)
+                )
+            }
+        }
+    }
+}
+
+/// `/PPROPERTIES &name ... LABEL='text' FORMAT=function format ... HIDESOURCECATS=NO|YES`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Pproperties {
+    /// Without the "&".
+    pub names: Vec<String>,
+    pub label: Option<String>,
+    /// The display format of a summary in the computed categories.
+    pub formats: Vec<(SummaryFunction, Format)>,
+    /// `HIDESOURCECATS=YES`: the categories the expressions use are not shown.
+    pub hide_sources: Option<bool>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -240,6 +347,8 @@ pub enum CategoryItem {
     Range(Bound, Bound),
     /// A variable of a multiple dichotomy set.
     Name(String),
+    /// `&name`: a category computed by /PCOMPUTE, without the "&".
+    Computed(String),
 }
 
 const SIMPLE_STATISTICS: [(&str, Statistic); 18] = [
@@ -340,8 +449,151 @@ impl SummaryFunction {
 
 const SUMMARY_EXPECTED: &str = "a summary function such as COUNT, COLPCT.COUNT or MEAN";
 
-const UNSUPPORTED_SUBCOMMANDS: [&str; 5] =
-    ["PCOMPUTE", "PPROPERTIES", "WEIGHT", "CRITERIA", "SMISSING"];
+const UNSUPPORTED_SUBCOMMANDS: [&str; 3] = ["WEIGHT", "CRITERIA", "SMISSING"];
+
+/// `&name` of a computed category; returns the name without the "&".
+fn computed_name(p: &mut Parser) -> PResult<String> {
+    if !p.eat(Punct::And) {
+        return Err(p.unexpected(&["a computed category name such as &diff"]));
+    }
+    p.name("a computed category name")
+}
+
+/// `&name = EXPR(expression)` of /PCOMPUTE.
+fn pcompute(p: &mut Parser) -> PResult<Pcompute> {
+    let name = computed_name(p)?;
+    equals(p)?;
+    if !p.eat_word("EXPR") {
+        return Err(p.unexpected(&["EXPR"]));
+    }
+    p.expect(Punct::LParen)?;
+    let expr = p.nested(pcompute_sum)?;
+    p.expect(Punct::RParen)?;
+    Ok(Pcompute { name, expr })
+}
+
+fn binary(op: PcomputeOp, left: PcomputeExpr, right: PcomputeExpr) -> PcomputeExpr {
+    PcomputeExpr::Binary(op, Box::new(left), Box::new(right))
+}
+
+fn pcompute_sum(p: &mut Parser) -> PResult<PcomputeExpr> {
+    let mut expr = pcompute_product(p)?;
+    loop {
+        let op = if p.eat(Punct::Plus) {
+            PcomputeOp::Add
+        } else if p.eat(Punct::Minus) {
+            PcomputeOp::Subtract
+        } else {
+            return Ok(expr);
+        };
+        expr = binary(op, expr, pcompute_product(p)?);
+    }
+}
+
+fn pcompute_product(p: &mut Parser) -> PResult<PcomputeExpr> {
+    let mut expr = pcompute_power(p)?;
+    loop {
+        let op = if p.eat(Punct::Star) {
+            PcomputeOp::Multiply
+        } else if p.eat(Punct::Slash) {
+            PcomputeOp::Divide
+        } else {
+            return Ok(expr);
+        };
+        expr = binary(op, expr, pcompute_power(p)?);
+    }
+}
+
+fn pcompute_power(p: &mut Parser) -> PResult<PcomputeExpr> {
+    let base = pcompute_unary(p)?;
+    if p.eat(Punct::Pow) {
+        // right to left, as in 2 ** 3 ** 2
+        return Ok(binary(PcomputeOp::Power, base, pcompute_power(p)?));
+    }
+    Ok(base)
+}
+
+fn pcompute_unary(p: &mut Parser) -> PResult<PcomputeExpr> {
+    if let Some(TokenKind::Number(n)) = p.peek() {
+        let n = *n;
+        p.pos += 1;
+        return Ok(PcomputeExpr::Number(n));
+    }
+    if p.eat(Punct::Minus) {
+        return Ok(PcomputeExpr::Negate(Box::new(pcompute_unary(p)?)));
+    }
+    if p.eat(Punct::LParen) {
+        let inner = p.nested(pcompute_sum)?;
+        p.expect(Punct::RParen)?;
+        return Ok(inner);
+    }
+    if p.eat_word("TOTAL") {
+        return Ok(PcomputeExpr::Total);
+    }
+    let start = p.pos;
+    if p.at_keyword("SUBTOTAL") {
+        p.pos += 1;
+        return Err(not_supported(p, start, "SUBTOTAL in a computed category"));
+    }
+    if !p.eat(Punct::LBracket) {
+        return Err(p.unexpected(&["'['", "a number", "TOTAL", "'('"]));
+    }
+    if p.at_keyword("MISSING") || p.at_keyword("OTHERNM") {
+        p.pos += 1;
+        return Err(not_supported(
+            p,
+            start,
+            "MISSING or OTHERNM in a computed category",
+        ));
+    }
+    let expr = match p.value_or_range()? {
+        Some(MissingValue::Value(value)) => PcomputeExpr::Category(value),
+        Some(MissingValue::Range(low, high)) => PcomputeExpr::Range(low, high),
+        None => return Err(p.unexpected(&["a value", "a range"])),
+    };
+    p.expect(Punct::RBracket)?;
+    Ok(expr)
+}
+
+/// `&name ... LABEL='text' FORMAT=function format ... HIDESOURCECATS=NO|YES` of /PPROPERTIES.
+fn pproperties(p: &mut Parser) -> PResult<Pproperties> {
+    let mut spec = Pproperties {
+        names: vec![computed_name(p)?],
+        label: None,
+        formats: Vec::new(),
+        hide_sources: None,
+    };
+    while p.at(Punct::And) {
+        spec.names.push(computed_name(p)?);
+    }
+    while !at_end_of_subcommand(p) {
+        if p.eat_keyword("LABEL") {
+            equals(p)?;
+            spec.label = Some(p.string("a quoted label")?);
+        } else if p.eat_keyword("FORMAT") {
+            equals(p)?;
+            while let Some(TokenKind::Word(word)) = p.peek() {
+                let Some(function) = SummaryFunction::parse(word) else {
+                    break;
+                };
+                p.pos += 1;
+                let Some(TokenKind::Word(format)) = p.peek() else {
+                    return Err(p.unexpected(&["a format such as F8.2"]));
+                };
+                let format = summary_format(p, &format.clone())?;
+                spec.formats.push((function, format));
+            }
+            if spec.formats.is_empty() {
+                return Err(p.unexpected(&["a summary function and a format, such as COUNT F8.2"]));
+            }
+        } else if p.eat_keyword("HIDESOURCECATS") {
+            spec.hide_sources = Some(yes_no(p)?);
+        } else {
+            return Err(p.unexpected(&["LABEL", "FORMAT", "HIDESOURCECATS"]));
+        }
+    }
+    Ok(spec)
+}
 
 /// `/HIDESMALLCOUNTS [COUNT=n]`, with the keyword already matched: a whole number from 2 on,
 /// 5 when left out.
@@ -738,9 +990,10 @@ fn category_items(p: &mut Parser) -> PResult<Vec<CategoryItem>> {
                 &format!("{word} in a category list"),
             ));
         }
-        if let Some(TokenKind::Punct(Punct::And)) = p.peek() {
-            p.pos += 1;
-            return Err(not_supported(p, start, "a computed category (&name)"));
+        if p.eat(Punct::And) {
+            items.push(CategoryItem::Computed(p.name("a computed category name")?));
+            p.eat(Punct::Comma);
+            continue;
         }
         if matches!(p.peek(), Some(TokenKind::Word(w)) if !w.eq_ignore_ascii_case("LO") && !matches_keyword(w, "LOWEST"))
         {
@@ -960,6 +1213,8 @@ pub(crate) fn ctables(p: &mut Parser) -> PResult<Command> {
         missing: None,
         count_duplicates: false,
         hide_small_counts: None,
+        pcomputes: Vec::new(),
+        pproperties: Vec::new(),
         tables: Vec::new(),
     };
     let mut first = true;
@@ -985,6 +1240,10 @@ pub(crate) fn ctables(p: &mut Parser) -> PResult<Command> {
             command.vlabels.push(vlabels(p)?);
         } else if p.eat_keyword("FORMAT") {
             format_subcommand(p, &mut command)?;
+        } else if p.eat_keyword("PCOMPUTE") {
+            command.pcomputes.push(pcompute(p)?);
+        } else if p.eat_keyword("PPROPERTIES") {
+            command.pproperties.push(pproperties(p)?);
         } else if p.eat_keyword("HIDESMALLCOUNTS") {
             command.hide_small_counts = Some(hide_small_counts(p)?);
         } else if p.eat_keyword("MRSETS") {

@@ -516,6 +516,25 @@ fn moved_category_labels() {
 
 #[test]
 #[ignore = "needs STATSCRAFT_PSPP"]
+fn computed_categories() {
+    // PSPP leaves out a computed category beside a scale variable and refuses a range unless the
+    // list holds it as written, where the manual computes every summary and totals the listed
+    // categories in a range, so those are checked in ctables.rs
+    survey(&[
+        "CTABLES /PCOMPUTE &x=EXPR([2]-[1]) /PPROPERTIES &x LABEL='Female - Male'\n\
+         /TABLE gender /CATEGORIES VARIABLES=gender [1, 2, &x].",
+        "CTABLES /PCOMPUTE &x=EXPR([2]/[1]) /PPROPERTIES &x LABEL='Female / Male' FORMAT=COUNT F8.3\n\
+         /TABLE gender /CATEGORIES VARIABLES=gender [1, 2, &x].",
+        "CTABLES /PCOMPUTE &top=EXPR([4] + [5]) /PPROPERTIES &top LABEL='Top two'\n\
+         /TABLE q1_satisfaction [COUNT, COLPCT] BY gender\n\
+         /CATEGORIES VARIABLES=q1_satisfaction [1, 2, 3, 4, 5, &top] TOTAL=YES.",
+        "CTABLES /PCOMPUTE &share=EXPR([1] / TOTAL * 100) /PPROPERTIES &share LABEL='Share' HIDESOURCECATS=YES\n\
+         /TABLE region BY gender /CATEGORIES VARIABLES=region [1, 2, 3, &share] TOTAL=YES.",
+    ]);
+}
+
+#[test]
+#[ignore = "needs STATSCRAFT_PSPP"]
 fn first_layer() {
     for syntax in [
         "CTABLES /TABLE gender [COUNT, COLPCT, ROWPCT, SUBTABLEPCT, LAYERPCT, LAYERROWPCT, LAYERCOLPCT, TABLEPCT] BY region BY q5_1.",

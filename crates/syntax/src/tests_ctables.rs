@@ -127,17 +127,17 @@ fn features_of_the_next_stage_are_named() {
     for (source, feature) in [
         ("CTABLES /TABLE a /CRITERIA CILEVEL=90.", "CRITERIA"),
         (
-            "CTABLES /PCOMPUTE &x = EXPR([1] + [2]) /TABLE a.",
-            "PCOMPUTE",
+            "CTABLES /PCOMPUTE &x = EXPR(SUBTOTAL[1] + [2]) /TABLE a.",
+            "SUBTOTAL in a computed category",
+        ),
+        (
+            "CTABLES /PCOMPUTE &x = EXPR([OTHERNM]) /TABLE a.",
+            "OTHERNM in a computed category",
         ),
         ("CTABLES /TABLE a [ECOUNT].", "ECOUNT"),
         (
             "CTABLES /TABLE a /CATEGORIES VARIABLES=a [1, SUBTOTAL='s'].",
             "SUBTOTAL",
-        ),
-        (
-            "CTABLES /TABLE a /CATEGORIES VARIABLES=a [1, &x].",
-            "computed category",
         ),
         (
             "CTABLES /TABLE a /CLABELS ROWLABELS=LAYER.",
@@ -248,6 +248,41 @@ fn summaries_after_a_parenthesis_go_to_every_innermost_variable() {
     let nested = one("CTABLES /TABLE (a > b) [COUNT].");
     let spelled = one("CTABLES /TABLE a > b [COUNT].");
     assert_eq!(nested.tables[0].rows, spelled.tables[0].rows);
+}
+
+#[test]
+fn computed_categories_and_their_properties() {
+    let c = one(
+        "CTABLES /PCOMPUTE &x = EXPR(([1] + [2]) * 0.8 - [3 THRU HI] / TOTAL ** 2)\n\
+         /PCOMPUTE &y = EXPR(-['a'])\n\
+         /PPROPERTIES &x &y LABEL='Both' FORMAT=COUNT F8.3 COLPCT PCT5.1 HIDESOURCECATS=YES\n\
+         /TABLE a /CATEGORIES VARIABLES=a [1, 2, &x, 3].",
+    );
+    assert_eq!(c.pcomputes.len(), 2);
+    assert_eq!(c.pcomputes[0].name, "x");
+    // the text keeps the parentheses that matter and no others
+    assert_eq!(
+        c.pcomputes[0].expr.to_string(),
+        "([1] + [2]) * 0.8 - [3 THRU HI] / TOTAL ** 2"
+    );
+    assert_eq!(c.pcomputes[1].expr.to_string(), "-['a']");
+    let props = &c.pproperties[0];
+    assert_eq!(props.names, ["x", "y"]);
+    assert_eq!(props.label.as_deref(), Some("Both"));
+    assert_eq!(props.formats.len(), 2);
+    assert_eq!(props.formats[1].0.name(), "COLPCT.COUNT");
+    assert_eq!(props.hide_sources, Some(true));
+    assert_eq!(
+        c.tables[0].categories[0].values.as_ref().unwrap()[2],
+        CategoryItem::Computed("x".into())
+    );
+    // a - b - c is (a - b) - c
+    let c = one("CTABLES /PCOMPUTE &d = EXPR([1] - [2] - [3]) /TABLE a.");
+    assert_eq!(c.pcomputes[0].expr.to_string(), "[1] - [2] - [3]");
+    let c = one("CTABLES /PCOMPUTE &d = EXPR([1] - ([2] - [3])) /TABLE a.");
+    assert_eq!(c.pcomputes[0].expr.to_string(), "[1] - ([2] - [3])");
+    let e = err("CTABLES /PCOMPUTE x = EXPR([1]) /TABLE a.");
+    assert!(e.expected[0].contains("&diff"), "{e:?}");
 }
 
 #[test]

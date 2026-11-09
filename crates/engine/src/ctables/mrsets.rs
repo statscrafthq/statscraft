@@ -149,7 +149,7 @@ pub(super) fn set_categories(set: &Set, spec: Option<&Categories>) -> Result<Cat
                 set.name
             )));
         }
-        return categories(set.name, &set.variables, spec);
+        return categories(set.name, &set.variables, spec, None);
     };
     let label = |v: &Variable| v.label().unwrap_or(v.name()).to_string();
     let mut order: Vec<usize> = match spec.and_then(|s| s.values.as_ref()) {
@@ -209,6 +209,8 @@ pub(super) fn set_categories(set: &Set, spec: Option<&Categories>) -> Result<Cat
             key: Some(Key::Text(v.name().to_string())),
             label: label(v),
             missing: false,
+            computed: None,
+            hidden: false,
         });
     }
     add_total(&mut list, spec);

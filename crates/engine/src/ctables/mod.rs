@@ -21,6 +21,7 @@
 
 mod format;
 mod mrsets;
+mod pcompute;
 mod sigtest;
 
 pub use format::format_value;
@@ -29,8 +30,8 @@ use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Measure, Value as DataValue, Values, Variable};
 use statscraft_syntax::{
     AxisExpr, AxisVariable, Bound, Categories, CategoryItem, Ctables, CtablesTable, EmptyCells,
-    LabelsMoved, PercentBase, PercentOf, Statistic, Summary, SummaryFunction, Value as SyntaxValue,
-    VlabelsDisplay,
+    Format, LabelsMoved, PercentBase, PercentOf, Statistic, Summary, SummaryFunction,
+    Value as SyntaxValue, VlabelsDisplay,
 };
 use std::collections::HashMap;
 
@@ -60,11 +61,15 @@ impl Key {
 }
 
 struct Category {
-    /// None for the total.
+    /// None for the total and a computed category.
     key: Option<Key>,
     label: String,
     /// A user-missing value, listed because of MISSING=INCLUDE or an explicit list.
     missing: bool,
+    /// A category computed by /PCOMPUTE.
+    computed: Option<pcompute::Computed>,
+    /// Not shown: a source of a computed category with HIDESOURCECATS=YES.
+    hidden: bool,
 }
 
 /// The categories of one categorical variable, in display order.
@@ -86,7 +91,9 @@ impl CategoryList {
     }
 
     fn total(&self) -> Option<usize> {
-        self.categories.iter().position(|c| c.key.is_none())
+        self.categories
+            .iter()
+            .position(|c| c.key.is_none() && c.computed.is_none())
     }
 }
 
@@ -204,13 +211,18 @@ fn scale_only(function: SummaryFunction) -> bool {
     )
 }
 
+/// A format as the cells name it, such as "PCT8.1".
+fn format_text(f: &Format) -> String {
+    let mut text = format!("{}{}", f.kind.name(), f.width);
+    if f.decimals > 0 {
+        text.push_str(&format!(".{}", f.decimals));
+    }
+    text
+}
+
 fn default_format(summary: &Summary, variable: &Variable) -> String {
-    if let Some(f) = summary.format {
-        let mut text = format!("{}{}", f.kind.name(), f.width);
-        if f.decimals > 0 {
-            text.push_str(&format!(".{}", f.decimals));
-        }
-        return text;
+    if let Some(f) = &summary.format {
+        return format_text(f);
     }
     match summary.function.statistic {
         Statistic::Count | Statistic::Validn | Statistic::Totaln | Statistic::Responses => {
@@ -457,11 +469,20 @@ fn in_range(key: &Key, low: &Bound, high: &Bound) -> bool {
     above && below
 }
 
+/// An item of a category list: a value, or a computed category by name.
+#[derive(PartialEq)]
+enum Wanted {
+    Value(Key),
+    Computed(String),
+}
+
 /// The categories of a variable, or of the values of the variables of a category set together.
+/// `command` holds the computed categories; None for a set, which has none.
 fn categories(
     name: &str,
     variables: &[Variable],
     spec: Option<&Categories>,
+    command: Option<&Ctables>,
 ) -> Result<CategoryList, Error> {
     let variable = &variables[0];
     let mut seen: Vec<Key> = Vec::new();
@@ -504,9 +525,9 @@ fn categories(
     };
     let exclude_empty = spec.is_some_and(|s| s.exclude_empty);
 
-    let keys: Vec<Key> = match spec.and_then(|s| s.values.as_ref()) {
+    let keys: Vec<Wanted> = match spec.and_then(|s| s.values.as_ref()) {
         Some(items) => {
-            let mut wanted: Vec<Key> = Vec::new();
+            let mut wanted: Vec<Wanted> = Vec::new();
             for item in items {
                 let key = |v: &SyntaxValue| match (v, variable.is_string()) {
                     (SyntaxValue::Number(n), false) => Ok(Key::Number(*n + 0.0)),
@@ -519,7 +540,13 @@ fn categories(
                     ))),
                 };
                 match item {
-                    CategoryItem::Value(v) => wanted.push(key(v)?),
+                    CategoryItem::Value(v) => wanted.push(Wanted::Value(key(v)?)),
+                    CategoryItem::Computed(n) if command.is_none() => {
+                        return Err(Error(format!(
+                            "/CATEGORIES for {name}: &{n} is a computed category, and those work for categorical variables, not multiple response sets"
+                        )));
+                    }
+                    CategoryItem::Computed(n) => wanted.push(Wanted::Computed(n.clone())),
                     CategoryItem::Name(n) => {
                         return Err(Error(format!(
                             "/CATEGORIES for {name}: {n} is a name, but only a multiple dichotomy set lists its categories by name"
@@ -537,12 +564,12 @@ fn categories(
                             .cloned()
                             .collect();
                         found.sort_by(Key::compare);
-                        wanted.extend(found);
+                        wanted.extend(found.into_iter().map(Wanted::Value));
                     }
                 }
             }
             // a value named twice, alone or in a range, takes the place of its last mention
-            let mut last: Vec<Key> = Vec::new();
+            let mut last: Vec<Wanted> = Vec::new();
             for key in wanted.into_iter().rev() {
                 if !last.contains(&key) {
                     last.push(key);
@@ -569,7 +596,7 @@ fn categories(
             if spec.is_some_and(|s| s.descending) {
                 keys.reverse();
             }
-            keys
+            keys.into_iter().map(Wanted::Value).collect()
         }
     };
 
@@ -578,7 +605,16 @@ fn categories(
         numbers: HashMap::new(),
         texts: HashMap::new(),
     };
-    for key in keys {
+    let mut computed = Vec::new();
+    for wanted in keys {
+        let key = match wanted {
+            Wanted::Value(key) => key,
+            Wanted::Computed(n) => {
+                list.categories.push(pcompute::placeholder());
+                computed.push(n);
+                continue;
+            }
+        };
         if exclude_empty && !counts.contains_key(&id(&key)) {
             continue;
         }
@@ -597,9 +633,14 @@ fn categories(
             label: category_label(variables, &key),
             missing: is_missing(&key),
             key: Some(key),
+            computed: None,
+            hidden: false,
         });
     }
     add_total(&mut list, spec);
+    if let Some(command) = command.filter(|_| !computed.is_empty()) {
+        pcompute::resolve(name, !variable.is_string(), &mut list, &computed, command)?;
+    }
     Ok(list)
 }
 
@@ -610,6 +651,8 @@ fn add_total(list: &mut CategoryList, spec: Option<&Categories>) {
             key: None,
             label: spec.total_label.clone().unwrap_or_else(|| "Total".into()),
             missing: false,
+            computed: None,
+            hidden: false,
         };
         if spec.total_before {
             list.categories.insert(0, total);
@@ -709,6 +752,7 @@ fn move_labels(
         let these: Vec<String> = list_of(lists, inner)
             .categories
             .iter()
+            .filter(|c| !c.hidden)
             .map(|c| c.label.clone())
             .collect();
         match &labels {
@@ -744,7 +788,19 @@ fn move_labels(
                 lines.len() - 1
             }
         };
-        lines[line].entries[entry.combo[inner]] = Some(i);
+        // the position among the shown categories
+        let list = list_of(
+            lists,
+            terms[entry.term]
+                .iter()
+                .rfind(|v| !v.scale)
+                .expect("checked"),
+        );
+        let shown = list.categories[..entry.combo[inner]]
+            .iter()
+            .filter(|c| !c.hidden)
+            .count();
+        lines[line].entries[shown] = Some(i);
     }
 
     let mut joined = Vec::new();
@@ -951,7 +1007,7 @@ impl Engine {
             }
             let list = match &var.set {
                 Some(set) => mrsets::set_categories(set, spec)?,
-                None => categories(var.variable.name(), &[var.variable], spec)?,
+                None => categories(var.variable.name(), &[var.variable], spec, Some(command))?,
             };
             lists.insert(name, list);
         }
@@ -999,6 +1055,13 @@ impl Engine {
                     (0..slots.len()).map(Some).collect()
                 };
                 for combo in combinations(&cats) {
+                    if combo
+                        .iter()
+                        .zip(&cats)
+                        .any(|(&k, l)| l.categories[k].hidden)
+                    {
+                        continue;
+                    }
                     let mut path = Vec::new();
                     let mut c = 0;
                     let mut inner_at = None;
@@ -1074,6 +1137,12 @@ impl Engine {
         if table.labels_moved != LabelsMoved::No && tested {
             return Err(Error(
                 "/CLABELS: significance tests are not available when category labels are moved; leave out CLABELS or the tests".into(),
+            ));
+        }
+        let hides = lists.values().flat_map(|l| &l.categories).any(|c| c.hidden);
+        if hides && tested {
+            return Err(Error(
+                "/PPROPERTIES: HIDESOURCECATS=YES cannot go with significance tests; leave out one of them".into(),
             ));
         }
 
@@ -1293,6 +1362,8 @@ struct Section {
     areas: [Vec<bool>; 7],
     /// The total category of each categorical variable.
     totals: Vec<Option<usize>>,
+    /// The computed categories of each categorical variable, by category index.
+    computed: Vec<Vec<(usize, pcompute::Computed)>>,
     /// The cells by category index, totals included. For the significance tests the innermost
     /// row and column variables also have the index MARGIN: every case of the other
     /// categories once, whatever its categories of that variable.
@@ -1379,6 +1450,15 @@ impl Section {
         let mut section = Section {
             areas,
             totals: lists.iter().map(|l| l.total()).collect(),
+            computed: lists
+                .iter()
+                .map(|l| {
+                    let found = l.categories.iter().enumerate();
+                    found
+                        .filter_map(|(i, c)| c.computed.clone().map(|c| (i, c)))
+                        .collect()
+                })
+                .collect(),
             cells: HashMap::new(),
             denominators: Default::default(),
             pairs: HashMap::new(),
@@ -1510,12 +1590,25 @@ impl Section {
         Ok(section)
     }
 
-    /// The cell at `key` for the summary in `slot`, with its display format.
-    fn cell(&self, key: &[usize], slot: usize, command: &Ctables) -> (Cell, String) {
-        let Some((_, summary, format)) = self.summaries.iter().find(|(s, ..)| *s == slot) else {
-            return (Cell::Empty, String::new());
-        };
-        let empty = Tally::default();
+    /// The first computed category of a key, by position in the key.
+    fn computed_at(&self, key: &[usize]) -> Option<(usize, &pcompute::Computed)> {
+        key.iter().enumerate().find_map(|(i, k)| {
+            self.computed[i]
+                .iter()
+                .find(|(c, _)| c == k)
+                .map(|(_, computed)| (i, computed))
+        })
+    }
+
+    /// The tally of a cell; for a cell without cases an empty one where a count is 0 (EMPTY
+    /// decides how it shows), as is a percentage beside categorical variables only. Other
+    /// statistics have no value there.
+    fn tally<'t>(
+        &'t self,
+        key: &[usize],
+        summary: &Summary,
+        empty: &'t Tally,
+    ) -> Option<&'t Tally> {
         let counting = matches!(
             summary.function.statistic,
             Statistic::Count
@@ -1524,12 +1617,34 @@ impl Section {
                 | Statistic::Missing
                 | Statistic::Responses
         );
-        let tally = match self.cells.get(key) {
-            Some(tally) => tally,
-            // without cases a count is 0 (EMPTY decides how it shows), as is a percentage
-            // beside categorical variables only; other statistics have no value
-            None if counting || !self.has_scale => &empty,
-            None => return (Cell::Empty, format.clone()),
+        match self.cells.get(key) {
+            Some(tally) => Some(tally),
+            None if counting || !self.has_scale => Some(empty),
+            None => None,
+        }
+    }
+
+    /// The cell at `key` for the summary in `slot`, with its display format.
+    fn cell(&self, key: &[usize], slot: usize, command: &Ctables) -> (Cell, String) {
+        let Some((_, summary, format)) = self.summaries.iter().find(|(s, ..)| *s == slot) else {
+            return (Cell::Empty, String::new());
+        };
+        if let Some((_, computed)) = self.computed_at(key) {
+            let format = computed
+                .formats
+                .iter()
+                .find(|(f, _)| *f == summary.function)
+                .map_or_else(|| format.clone(), |(_, f)| f.clone());
+            let cell = match (self.value(key, summary), &command.missing) {
+                (Some(v), _) => Cell::Number(v),
+                (None, Some(text)) => Cell::Text(text.clone()),
+                (None, None) => Cell::Empty,
+            };
+            return (cell, format);
+        }
+        let empty = Tally::default();
+        let Some(tally) = self.tally(key, summary, &empty) else {
+            return (Cell::Empty, format.clone());
         };
         if tally.cases == 0.0 {
             match &command.empty {
@@ -1538,7 +1653,36 @@ impl Section {
                 EmptyCells::Text(text) => return (Cell::Text(text.clone()), format.clone()),
             }
         }
-        let value = match summary.function.statistic {
+        let value = self.value(key, summary);
+        // HIDESMALLCOUNTS hides the summaries shown in the count format, weighted or not
+        let count_format = matches!(
+            summary.function.statistic,
+            Statistic::Count | Statistic::Validn | Statistic::Totaln | Statistic::Responses
+        );
+        let cell = match (value, &command.missing, command.hide_small_counts) {
+            (Some(v), _, Some(n)) if count_format && v < f64::from(n) => {
+                Cell::Text(format!("<{n}"))
+            }
+            (Some(v), ..) => Cell::Number(v),
+            (None, Some(text), _) => Cell::Text(text.clone()),
+            (None, None, _) => Cell::Empty,
+        };
+        (cell, format.clone())
+    }
+
+    /// The value of a summary in a cell. A computed category takes it from the same summary in
+    /// the categories its expression uses.
+    fn value(&self, key: &[usize], summary: &Summary) -> Option<f64> {
+        if let Some((i, computed)) = self.computed_at(key) {
+            return computed.calc.eval(&|k| {
+                let mut at = key.to_vec();
+                at[i] = k;
+                self.value(&at, summary)
+            });
+        }
+        let empty = Tally::default();
+        let tally = self.tally(key, summary, &empty)?;
+        match summary.function.statistic {
             Statistic::Percent(base, of) => {
                 // a total of a deciding variable is the area of all its categories
                 let area_key: Vec<usize> = key
@@ -1556,21 +1700,7 @@ impl Section {
                 (whole != 0.0).then(|| 100.0 * part / whole)
             }
             _ => statistic(summary, tally),
-        };
-        // HIDESMALLCOUNTS hides the summaries shown in the count format, weighted or not
-        let count_format = matches!(
-            summary.function.statistic,
-            Statistic::Count | Statistic::Validn | Statistic::Totaln | Statistic::Responses
-        );
-        let cell = match (value, &command.missing, command.hide_small_counts) {
-            (Some(v), _, Some(n)) if count_format && v < f64::from(n) => {
-                Cell::Text(format!("<{n}"))
-            }
-            (Some(v), ..) => Cell::Number(v),
-            (None, Some(text), _) => Cell::Text(text.clone()),
-            (None, None, _) => Cell::Empty,
-        };
-        (cell, format.clone())
+        }
     }
 }
 

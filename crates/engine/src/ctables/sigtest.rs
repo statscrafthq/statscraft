@@ -353,6 +353,18 @@ pub(crate) fn letter(index: usize) -> String {
 
 // ---- the result tables ----
 
+/// Every combination of categories that tests take part in: computed categories do not.
+fn tested_combinations(lists: &[&CategoryList]) -> Vec<Vec<usize>> {
+    let mut all = combinations(lists);
+    all.retain(|combo| {
+        combo
+            .iter()
+            .zip(lists)
+            .all(|(&k, list)| list.categories[k].computed.is_none())
+    });
+    all
+}
+
 /// The categories of the categorical variables of a term, outermost first.
 fn category_lists<'l>(
     term: &Term,
@@ -505,8 +517,8 @@ fn chi_square_table(
             let (nr, nc) = (row_lists.len(), column_lists.len());
             let inner_rows = proper(row_lists[nr - 1]);
             let inner_columns = proper(column_lists[nc - 1]);
-            for row_outer in combinations(&row_lists[..nr - 1]) {
-                for column_outer in combinations(&column_lists[..nc - 1]) {
+            for row_outer in tested_combinations(&row_lists[..nr - 1]) {
+                for column_outer in tested_combinations(&column_lists[..nc - 1]) {
                     // whole cases: weighted counts are rounded for the test
                     let at = |i: usize, j: usize| {
                         let key = [&row_outer[..], &[i], &column_outer, &[j], layer].concat();
@@ -691,7 +703,7 @@ fn comparisons(
             continue;
         }
         let inner = term_lists.len() - 1;
-        for combo in combinations(&term_lists) {
+        for combo in tested_combinations(&term_lists) {
             if term_lists[inner].categories[combo[inner]].key.is_some() {
                 columns.push(Column {
                     term: c,
@@ -714,7 +726,7 @@ fn comparisons(
             continue;
         }
         let row_lists = category_lists(term, lists);
-        for row_combo in combinations(&row_lists) {
+        for row_combo in tested_combinations(&row_lists) {
             // in the proportions test a row is a category of the innermost row variable
             if !means
                 && row_lists[row_lists.len() - 1].categories[row_combo[row_combo.len() - 1]]

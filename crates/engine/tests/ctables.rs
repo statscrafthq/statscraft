@@ -262,6 +262,138 @@ fn small_counts_show_as_less_than_the_cutoff() {
     }
 }
 
+// Computed categories (Command Syntax Reference, PCOMPUTE and PPROPERTIES): for every summary the
+// value of &name is its expression over the same summary of the categories it names; a range
+// adds up the listed categories in it, TOTAL is the total. Totals and tests leave computed
+// categories out. HIDESOURCECATS=YES hides the categories used, which still count.
+#[test]
+fn computed_categories_combine_the_summaries_of_their_categories() {
+    let data = Dataset::read_sav(fixture("survey_basic.sav")).unwrap();
+    let (gender, q1) = (raw(&data, "gender"), raw(&data, "q1_satisfaction"));
+    let t = run(
+        "survey_basic.sav",
+        "CTABLES /PCOMPUTE &top = EXPR([4] + [5])\n\
+         /PCOMPUTE &net = EXPR([4 THRU 5] - [1 THRU 2])\n\
+         /PCOMPUTE &ratio = EXPR(([5] - [1]) / TOTAL * 100)\n\
+         /PPROPERTIES &top LABEL='Top two' FORMAT=COUNT F8.1 COLPCT PCT8.2\n\
+         /TABLE q1_satisfaction [COUNT, COLPCT] BY gender\n\
+         /CATEGORIES VARIABLES=q1_satisfaction [1, 2, 3, 4, 5, &top, &net, &ratio] TOTAL=YES.",
+    );
+    let labels: Vec<&str> = t.rows.iter().map(|r| text(&r[1])).collect();
+    assert_eq!(
+        labels[5..],
+        [
+            "Top two",
+            "[4 THRU 5] - [1 THRU 2]",
+            "([5] - [1]) / TOTAL * 100",
+            "Total"
+        ]
+    );
+    for g in 0..3 {
+        let count = |k: f64| {
+            (0..data.case_count())
+                .filter(|&i| gender[i] == Some(g as f64 + 1.0) && q1[i] == Some(k))
+                .count() as f64
+        };
+        let total: f64 = (1..=5).map(|k| count(f64::from(k))).sum();
+        let pct = |n: f64| ((100.0 * n / total) * 1e6).round() / 1e6;
+        let column = |row: usize| numbers(&t, row)[2 * g..2 * g + 2].to_vec();
+        let top = count(4.0) + count(5.0);
+        assert_eq!(column(5), [Some(top), Some(pct(top))], "gender {g}");
+        let net = top - count(1.0) - count(2.0);
+        let net_pct = pct(top) - pct(count(1.0)) - pct(count(2.0));
+        assert_eq!(column(6)[0], Some(net));
+        assert!((column(6)[1].unwrap() - net_pct).abs() < 1e-5);
+        // the total counts the categories, not the computed ones
+        assert_eq!(column(8)[0], Some(total));
+        let ratio = (count(5.0) - count(1.0)) / total * 100.0;
+        assert!((column(7)[0].unwrap() - ratio).abs() < 1e-5);
+    }
+    assert_eq!(
+        (t.formats[5][2].as_str(), t.formats[5][3].as_str()),
+        ("F8.1", "PCT8.2")
+    );
+    assert_eq!(t.formats[6][2], "F40.0");
+
+    // beside a scale variable: the difference of the means
+    let t = run(
+        "survey_basic.sav",
+        "CTABLES /PCOMPUTE &d = EXPR([2] - [1]) /TABLE age [MEAN, COUNT] BY gender\n\
+         /CATEGORIES VARIABLES=gender [1, 2, &d].",
+    );
+    let row = numbers(&t, 0);
+    assert!((row[4].unwrap() - (row[2].unwrap() - row[0].unwrap())).abs() < 1e-5);
+    assert_eq!(row[5], Some(row[3].unwrap() - row[1].unwrap()));
+}
+
+#[test]
+fn hidden_sources_still_count_and_tests_leave_computed_categories_out() {
+    let shown = run(
+        "survey_basic.sav",
+        "CTABLES /TABLE region BY gender /CATEGORIES VARIABLES=region TOTAL=YES.",
+    );
+    let t = run(
+        "survey_basic.sav",
+        "CTABLES /PCOMPUTE &north = EXPR([1] / TOTAL * 100)\n\
+         /PPROPERTIES &north LABEL='North share' HIDESOURCECATS=YES\n\
+         /TABLE region BY gender /CATEGORIES VARIABLES=region [1, 2, 3, 4, 5, &north] TOTAL=YES.",
+    );
+    // North and the total are hidden; the share uses them
+    let labels: Vec<&str> = t.rows.iter().map(|r| text(&r[1])).collect();
+    assert_eq!(labels, ["South", "East", "West", "Central", "North share"]);
+    for g in 0..3 {
+        let share = numbers(&shown, 0)[g].unwrap() / numbers(&shown, 5)[g].unwrap() * 100.0;
+        assert!((numbers(&t, 4)[g].unwrap() - share).abs() < 1e-5);
+    }
+    let chi_square = |pcompute: &str, item: &str| {
+        let tables = run_all(
+            "survey_basic.sav",
+            &format!(
+                "CTABLES {pcompute}/TABLE q1_satisfaction BY gender /SIGTEST TYPE=CHISQUARE\n\
+                 /CATEGORIES VARIABLES=q1_satisfaction [1, 2, 3, 4, 5{item}]."
+            ),
+        );
+        format!("{:?}", &tables[1].rows[..])
+    };
+    assert_eq!(
+        chi_square("", ""),
+        chi_square("/PCOMPUTE &top = EXPR([4] + [5]) ", ", &top")
+    );
+}
+
+#[test]
+fn computed_category_mistakes_are_named() {
+    let mut engine = Engine::default();
+    let source = format!("GET FILE='{}'.", fixture("survey_basic.sav"));
+    run_on(&mut engine, &source).unwrap();
+    for (syntax, message) in [
+        (
+            "CTABLES /TABLE gender /CATEGORIES VARIABLES=gender [1, 2, &x].",
+            "&x is not defined by a /PCOMPUTE subcommand",
+        ),
+        (
+            "CTABLES /PCOMPUTE &x = EXPR([3] - [1]) /TABLE gender /CATEGORIES VARIABLES=gender [1, 2, &x].",
+            "the category [3] is not in the explicit category list of gender",
+        ),
+        (
+            "CTABLES /PCOMPUTE &x = EXPR([1] / TOTAL) /TABLE gender /CATEGORIES VARIABLES=gender [1, 2, &x].",
+            "TOTAL needs TOTAL=YES for gender",
+        ),
+        (
+            "CTABLES /PCOMPUTE &x = EXPR(['a']) /TABLE gender /CATEGORIES VARIABLES=gender [1, &x].",
+            "gender is numeric",
+        ),
+        (
+            "CTABLES /PCOMPUTE &x = EXPR([1]) /PPROPERTIES &x HIDESOURCECATS=YES\n\
+             /TABLE gender BY region /CATEGORIES VARIABLES=gender [1, 2, &x] /SIGTEST TYPE=CHISQUARE.",
+            "HIDESOURCECATS=YES cannot go with significance tests",
+        ),
+    ] {
+        let e = run_on(&mut engine, syntax).unwrap_err();
+        assert!(e.contains(message), "{syntax}: {e}");
+    }
+}
+
 #[test]
 fn moving_labels_needs_the_same_categories_and_no_tests() {
     let mut engine = Engine::default();
