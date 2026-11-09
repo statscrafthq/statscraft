@@ -258,6 +258,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  whose weight is zero, negative or missing is left out (also from U functions). MEDIAN and PTILE\n\
                  use the averaged empirical distribution. A count without cases is 0 unless EMPTY says otherwise.\n\
                  User-missing categories are left out unless MISSING=INCLUDE; system-missing ones always are.\n\
+                 A case whose missing value is left out still counts in TOTALN and the .TOTALN percentages; a\n\
+                 case whose valid value an explicit category list leaves out is not in the table at all.\n\
                  Tests run in every innermost subtable (innermost row by innermost column variable, for each\n\
                  category of the outer ones), each in a table after the main one. SIGTEST: Pearson chi-square; empty\n\
                  rows and columns are left out. COMPARETEST: two-sided pairwise z-tests of column proportions (PROP)\n\

@@ -224,11 +224,25 @@ fn holds(variable: &Variable, case: usize, key: &Key) -> bool {
     }
 }
 
+/// True when the variable is system-missing or user-missing in `case`.
+fn is_missing(variable: &Variable, case: usize) -> bool {
+    match variable.values() {
+        Values::Numeric(values) => values.get(case).is_none_or(|x| variable.is_user_missing(x)),
+        Values::String(values) => variable.is_user_missing_str(values.get(case)),
+    }
+}
+
 /// The categories of `case` for one categorical variable of a section, or None when the case
-/// is not in the section.
+/// is not in the section. Empty when the case counts in TOTALN only.
 pub(super) fn choice(var: &TermVar, list: &CategoryList, case: usize) -> Option<Choice> {
     let Some(set) = &var.set else {
-        return list.find(&var.variable, case).map(|i| vec![(i, 1.0)]);
+        return match list.find(&var.variable, case) {
+            Some(i) => Some(vec![(i, 1.0)]),
+            // a missing value the table does not show counts in TOTALN only; a valid value
+            // left out by an explicit list leaves the case out of the table
+            None if is_missing(&var.variable, case) => Some(Vec::new()),
+            None => None,
+        };
     };
     let mut found: Choice = Vec::new();
     // a response in a left-out category, and a missing value
@@ -245,15 +259,8 @@ pub(super) fn choice(var: &TermVar, list: &CategoryList, case: usize) -> Option<
                 Some(_) => {}
                 None => found.push((index, 1.0)),
             },
-            None if set.counted.is_some() => hidden = true,
-            None => match v.values() {
-                Values::Numeric(values) => match values.get(case) {
-                    Some(x) if !v.is_user_missing(x) => hidden = true,
-                    _ => missing = true,
-                },
-                Values::String(values) if v.is_user_missing_str(values.get(case)) => missing = true,
-                Values::String(_) => hidden = true,
-            },
+            None if set.counted.is_none() && is_missing(v, case) => missing = true,
+            None => hidden = true,
         }
     }
     // without a response the case counts in TOTALN, unless all it gave is left out (a

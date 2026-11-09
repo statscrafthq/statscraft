@@ -320,3 +320,110 @@ fn a_value_named_twice_takes_its_last_place() {
     assert_eq!(labels.len(), 5);
     assert_eq!((labels[0].as_str(), labels[2].as_str()), ("North", "East"));
 }
+
+/// The raw values of a numeric variable; None for system-missing, user-missing codes kept.
+fn raw(data: &Dataset, name: &str) -> Vec<Option<f64>> {
+    data.variable(name)
+        .unwrap()
+        .numeric()
+        .unwrap()
+        .iter()
+        .collect()
+}
+
+fn percent(part: usize, whole: usize) -> Option<f64> {
+    Some((100.0 * part as f64 / whole as f64 * 1e6).round() / 1e6)
+}
+
+// Missing values in summaries (Command Syntax Reference, CTABLES, Table 31, page 491): a case whose
+// value is user-missing and not shown, or system-missing, counts in TOTALN and the .TOTALN
+// percentages but not in COUNT; a case whose valid value an explicit list leaves out is not in the
+// table at all, not even in TOTALN.
+#[test]
+fn hidden_missing_values_count_in_totaln_but_values_left_out_do_not() {
+    let data = Dataset::read_sav(fixture("survey_basic.sav")).unwrap();
+    let (gender, q1) = (raw(&data, "gender"), raw(&data, "q1_satisfaction"));
+    let n = data.case_count();
+    let count = |f: &dyn Fn(usize) -> bool| (0..n).filter(|&i| f(i)).count();
+    let shown = |i: usize| q1[i].is_some_and(|v| v <= 3.0);
+    let in_table = |i: usize| shown(i) || q1[i].is_some_and(|v| v >= 98.0);
+    assert!(
+        count(&|i| in_table(i) && !shown(i)) > 0,
+        "the fixture has hidden missing values"
+    );
+
+    let t = run(
+        "survey_basic.sav",
+        "CTABLES /TABLE q1_satisfaction [COUNT, COLPCT, COLPCT.TOTALN, TABLEPCT.TOTALN] BY gender\n\
+         /CATEGORIES VARIABLES=q1_satisfaction [1, 2, 3] TOTAL=YES.",
+    );
+    let all = count(&in_table);
+    for (row, k) in [1.0, 2.0, 3.0].into_iter().enumerate() {
+        for g in 0..3 {
+            let is_g = |i: usize| gender[i] == Some(g as f64 + 1.0);
+            let cell = count(&|i| is_g(i) && q1[i] == Some(k));
+            let expected = [
+                Some(cell as f64),
+                percent(cell, count(&|i| is_g(i) && shown(i))),
+                percent(cell, count(&|i| is_g(i) && in_table(i))),
+                percent(cell, all),
+            ];
+            assert_eq!(
+                numbers(&t, row)[g * 4..g * 4 + 4],
+                expected,
+                "row {row} gender {g}"
+            );
+        }
+    }
+    // the total row counts the shown values; its Total N, the base of the .TOTALN
+    // percentages, holds the hidden missing ones as well
+    for g in 0..3 {
+        let is_g = |i: usize| gender[i] == Some(g as f64 + 1.0);
+        let (valid, total) = (
+            count(&|i| is_g(i) && shown(i)),
+            count(&|i| is_g(i) && in_table(i)),
+        );
+        let expected = [
+            Some(valid as f64),
+            Some(100.0),
+            Some(100.0),
+            percent(total, all),
+        ];
+        assert_eq!(
+            numbers(&t, 3)[g * 4..g * 4 + 4],
+            expected,
+            "total, gender {g}"
+        );
+    }
+
+    // TOTALN of a scale variable in the total of the categorical variable
+    let t = run(
+        "survey_basic.sav",
+        "CTABLES /TABLE age [COUNT, TOTALN, VALIDN] BY q1_satisfaction\n\
+         /CATEGORIES VARIABLES=q1_satisfaction [1, 2, 3] TOTAL=YES.",
+    );
+    let (valid, total) = (count(&shown) as f64, all as f64);
+    assert_eq!(numbers(&t, 0)[9..], [Some(valid), Some(total), Some(valid)]);
+
+    // system-missing values of a categorical variable in the columns count in the row's TOTALN
+    let q6 = raw(&data, "q6_mention1");
+    let t = run(
+        "survey_basic.sav",
+        "CTABLES /TABLE gender [COUNT, ROWPCT.TOTALN] BY q6_mention1 [C]\n\
+         /CATEGORIES VARIABLES=q6_mention1 TOTAL=YES.",
+    );
+    for g in 0..3 {
+        let is_g = |i: usize| gender[i] == Some(g as f64 + 1.0);
+        let row = numbers(&t, g);
+        for k in 0..6 {
+            let cell = count(&|i| is_g(i) && q6[i] == Some(k as f64 + 1.0));
+            assert_eq!(
+                row[k * 2 + 1],
+                percent(cell, count(&is_g)),
+                "gender {g} q6 {k}"
+            );
+        }
+        let valid = count(&|i| is_g(i) && q6[i].is_some());
+        assert_eq!(row[12..], [Some(valid as f64), Some(100.0)]);
+    }
+}

@@ -6,6 +6,11 @@
 //! case belongs to a section when every categorical variable of the section has one of its
 //! categories, and it adds to every cell it falls in, total categories included. A multiple
 //! response set can give a case several categories or none (see `mrsets`).
+//!
+//! A case whose value of a categorical variable is missing (system-missing, or user-missing and
+//! not shown) still counts in TOTALN and the .TOTALN percentages: in the totals of that
+//! variable and in every area the variable does not decide. A case whose valid value is left
+//! out by an explicit category list is not in the table at all.
 
 mod format;
 mod mrsets;

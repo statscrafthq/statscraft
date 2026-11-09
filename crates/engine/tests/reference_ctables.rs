@@ -300,7 +300,9 @@ fn percentages() {
         "CTABLES /TABLE gender [COUNT, ROWPCT.COUNT, COLPCT.COUNT, TABLEPCT.COUNT].",
         "CTABLES /TABLE gender [COUNT, COLPCT.COUNT] BY region.",
         "CTABLES /TABLE gender BY region [COLPCT.COUNT].",
-        "CTABLES /TABLE gender [COUNT, ROWPCT.COUNT, ROWPCT.VALIDN, ROWPCT.TOTALN] BY q1_satisfaction.",
+        // PSPP leaves cases with a hidden missing column value out of ROWPCT.TOTALN, where the
+        // manual counts them, so that function is checked in ctables.rs instead
+        "CTABLES /TABLE gender [COUNT, ROWPCT.COUNT, ROWPCT.VALIDN] BY q1_satisfaction.",
         "CTABLES /TABLE gender BY region > q5_1 [ROWPCT.COUNT, COLPCT.COUNT].",
         "CTABLES /TABLE gender [COUNT, TABLEPCT.COUNT, LAYERPCT.COUNT, LAYERROWPCT.COUNT, LAYERCOLPCT.COUNT, SUBTABLEPCT.VALIDN, ROWPCT.TOTALN] + region [TABLEPCT.COUNT] BY q5_1.",
         "CTABLES /TABLE gender [COUNT, TABLEPCT.COUNT, TABLEPCT.VALIDN, TABLEPCT.TOTALN] BY q1_satisfaction\n\
