@@ -6,6 +6,8 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+mod plan;
+
 #[derive(Parser)]
 #[command(
     name = "statscraft",
@@ -36,6 +38,8 @@ enum Cmd {
     Check(RunArgs),
     /// Show the syntax of a command, or list all commands
     Help { command: Vec<String> },
+    /// Lower bounded syntax to an OpenStatSpec transformation plan (JSON)
+    Plan(plan::PlanArgs),
 }
 
 #[derive(Args)]
@@ -67,6 +71,7 @@ fn main() -> ExitCode {
         Cmd::Run(args) => (args.json, run(args, false)),
         Cmd::Check(args) => (args.json, run(args, true)),
         Cmd::Help { command } => (false, help(&command.join(" "))),
+        Cmd::Plan(args) => return plan::run(args),
     };
     match outcome {
         Ok(()) => ExitCode::SUCCESS,

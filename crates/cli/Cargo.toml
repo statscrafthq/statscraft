@@ -11,6 +11,7 @@ repository.workspace = true
 statscraft-data = { path = "../data" }
 statscraft-engine = { path = "../engine" }
 statscraft-syntax = { path = "../syntax" }
+statscraft-openstatspec = { path = "../openstatspec" }
 serde_json = "1"
 clap = { version = "4.6.7", features = ["derive"] }
 serde = { version = "1.0.229", features = ["derive"] }
