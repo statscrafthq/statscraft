@@ -130,10 +130,6 @@ fn features_of_the_next_stage_are_named() {
             "CTABLES /PCOMPUTE &x = EXPR([1] + [2]) /TABLE a.",
             "PCOMPUTE",
         ),
-        (
-            "CTABLES /HIDESMALLCOUNTS COUNT=5 /TABLE a.",
-            "HIDESMALLCOUNTS",
-        ),
         ("CTABLES /TABLE a [ECOUNT].", "ECOUNT"),
         (
             "CTABLES /TABLE a /CATEGORIES VARIABLES=a [1, SUBTOTAL='s'].",
@@ -252,6 +248,21 @@ fn summaries_after_a_parenthesis_go_to_every_innermost_variable() {
     let nested = one("CTABLES /TABLE (a > b) [COUNT].");
     let spelled = one("CTABLES /TABLE a > b [COUNT].");
     assert_eq!(nested.tables[0].rows, spelled.tables[0].rows);
+}
+
+#[test]
+fn hidesmallcounts_takes_a_whole_number_from_two() {
+    let hide = |source: &str| one(source).hide_small_counts;
+    assert_eq!(
+        hide("CTABLES /HIDESMALLCOUNTS COUNT=10 /TABLE a."),
+        Some(10)
+    );
+    assert_eq!(hide("CTABLES /HIDESMALLCOUNTS /TABLE a."), Some(5));
+    assert_eq!(hide("CTABLES /TABLE a."), None);
+    for bad in ["1", "2.5"] {
+        let e = err(&format!("CTABLES /HIDESMALLCOUNTS COUNT={bad} /TABLE a."));
+        assert!(e.message.contains("whole number of 2 or more"), "{e}");
+    }
 }
 
 #[test]

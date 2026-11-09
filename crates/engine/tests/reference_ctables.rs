@@ -452,6 +452,8 @@ fn labels_titles_and_formats() {
         "CTABLES /FORMAT EMPTY='none' /TABLE gender > monthly_spend [MEAN, COUNT] BY region /CATEGORIES VARIABLES=gender [1, 2].",
         "CTABLES /FORMAT EMPTY='none' /TABLE gender BY region.",
         "CTABLES /TABLE monthly_spend [SUM COMMA12.2, MEAN DOLLAR10.2] BY gender.",
+        "CTABLES /HIDESMALLCOUNTS COUNT=10 /TABLE gender [COUNT, COLPCT] BY region.",
+        "CTABLES /HIDESMALLCOUNTS /TABLE gender > q5_1 [COUNT, ROWPCT] BY region.",
         "VARIABLE LABELS region 'Where they live'.\nCTABLES /TABLE region [COUNT, COLPCT.COUNT PCT5.0] BY gender.",
     ]);
 }

@@ -1557,10 +1557,18 @@ impl Section {
             }
             _ => statistic(summary, tally),
         };
-        let cell = match (value, &command.missing) {
-            (Some(v), _) => Cell::Number(v),
-            (None, Some(text)) => Cell::Text(text.clone()),
-            (None, None) => Cell::Empty,
+        // HIDESMALLCOUNTS hides the summaries shown in the count format, weighted or not
+        let count_format = matches!(
+            summary.function.statistic,
+            Statistic::Count | Statistic::Validn | Statistic::Totaln | Statistic::Responses
+        );
+        let cell = match (value, &command.missing, command.hide_small_counts) {
+            (Some(v), _, Some(n)) if count_format && v < f64::from(n) => {
+                Cell::Text(format!("<{n}"))
+            }
+            (Some(v), ..) => Cell::Number(v),
+            (None, Some(text), _) => Cell::Text(text.clone()),
+            (None, None, _) => Cell::Empty,
         };
         (cell, format.clone())
     }

@@ -19,6 +19,8 @@ pub struct Ctables {
     /// `/MRSETS COUNTDUPLICATES=YES`: a category set counts a value as often as a case gives
     /// it in RESPONSES and the percentages based on responses.
     pub count_duplicates: bool,
+    /// `/HIDESMALLCOUNTS COUNT=n`: counts below n show as "<n".
+    pub hide_small_counts: Option<u32>,
     pub tables: Vec<CtablesTable>,
 }
 
@@ -338,14 +340,26 @@ impl SummaryFunction {
 
 const SUMMARY_EXPECTED: &str = "a summary function such as COUNT, COLPCT.COUNT or MEAN";
 
-const UNSUPPORTED_SUBCOMMANDS: [&str; 6] = [
-    "PCOMPUTE",
-    "PPROPERTIES",
-    "WEIGHT",
-    "HIDESMALLCOUNTS",
-    "CRITERIA",
-    "SMISSING",
-];
+const UNSUPPORTED_SUBCOMMANDS: [&str; 5] =
+    ["PCOMPUTE", "PPROPERTIES", "WEIGHT", "CRITERIA", "SMISSING"];
+
+/// `/HIDESMALLCOUNTS [COUNT=n]`, with the keyword already matched: a whole number from 2 on,
+/// 5 when left out.
+fn hide_small_counts(p: &mut Parser) -> PResult<u32> {
+    if !p.eat_keyword("COUNT") {
+        return Ok(5);
+    }
+    equals(p)?;
+    let start = p.pos;
+    match p.number() {
+        Some(n) if n >= 2.0 && n.fract() == 0.0 && n <= f64::from(u32::MAX) => Ok(n as u32),
+        Some(_) => Err(SyntaxError::new(
+            p.span_from(start),
+            "HIDESMALLCOUNTS COUNT must be a whole number of 2 or more",
+        )),
+        None => Err(p.unexpected(&["a whole number of 2 or more"])),
+    }
+}
 
 pub(crate) fn at_end_of_subcommand(p: &Parser) -> bool {
     matches!(p.peek(), None | Some(TokenKind::Punct(Punct::Slash)))
@@ -945,6 +959,7 @@ pub(crate) fn ctables(p: &mut Parser) -> PResult<Command> {
         empty: EmptyCells::Zero,
         missing: None,
         count_duplicates: false,
+        hide_small_counts: None,
         tables: Vec::new(),
     };
     let mut first = true;
@@ -970,6 +985,8 @@ pub(crate) fn ctables(p: &mut Parser) -> PResult<Command> {
             command.vlabels.push(vlabels(p)?);
         } else if p.eat_keyword("FORMAT") {
             format_subcommand(p, &mut command)?;
+        } else if p.eat_keyword("HIDESMALLCOUNTS") {
+            command.hide_small_counts = Some(hide_small_counts(p)?);
         } else if p.eat_keyword("MRSETS") {
             if !p.eat_keyword("COUNTDUPLICATES") {
                 return Err(p.unexpected(&["COUNTDUPLICATES"]));

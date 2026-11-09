@@ -230,6 +230,38 @@ fn moved_category_labels_count_as_the_innermost_variable_of_the_other_axis() {
     }
 }
 
+// HIDESMALLCOUNTS (Command Syntax Reference, CTABLES): a count below the cutoff shows as "<n",
+// one equal to it stays; with weights the weighted value decides. We hide every summary shown in
+// the count format (COUNT, VALIDN, TOTALN, RESPONSES and their unweighted forms), and nothing else.
+#[test]
+fn small_counts_show_as_less_than_the_cutoff() {
+    let summaries = "[COUNT, UCOUNT, COLPCT, ROWPCT]";
+    for file in ["survey_basic.sav", "survey_basic_phpwriter.sav"] {
+        let shown = run(
+            file,
+            &format!("CTABLES /TABLE gender {summaries} BY region."),
+        );
+        let hidden = run(
+            file,
+            &format!("CTABLES /HIDESMALLCOUNTS COUNT=10 /TABLE gender {summaries} BY region."),
+        );
+        let mut hid = 0;
+        for (row, (all, some)) in shown.rows.iter().zip(&hidden.rows).enumerate() {
+            for c in shown.row_headers..all.len() {
+                let counted = (c - shown.row_headers) % 4 < 2;
+                match (&all[c], &some[c]) {
+                    (Cell::Number(v), Cell::Text(t)) if counted && *v < 10.0 => {
+                        assert_eq!(t, "<10");
+                        hid += 1;
+                    }
+                    (a, b) => assert_eq!(a, b, "{file} row {row} column {c}"),
+                }
+            }
+        }
+        assert!(hid > 0, "{file}: some count is small");
+    }
+}
+
 #[test]
 fn moving_labels_needs_the_same_categories_and_no_tests() {
     let mut engine = Engine::default();

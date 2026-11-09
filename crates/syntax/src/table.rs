@@ -232,6 +232,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "CTABLES [/FORMAT EMPTY=ZERO|BLANK|'text' MISSING='text']\n\
                  \x20       [/VLABELS VARIABLES=varlist DISPLAY=DEFAULT|NAME|LABEL|BOTH|NONE]\n\
                  \x20       [/MRSETS COUNTDUPLICATES=NO|YES]\n\
+                 \x20       [/HIDESMALLCOUNTS [COUNT=5]]\n\
                  \x20       /TABLE rows [BY [columns] [BY layers]]\n\
                  \x20       [/SLABELS POSITION=COLUMN|ROW|LAYER VISIBLE=YES|NO]\n\
                  \x20       [/CLABELS AUTO|ROWLABELS=OPPOSITE|COLLABELS=OPPOSITE]\n\
@@ -271,6 +272,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  whose weight is zero, negative or missing is left out (also from U functions). MEDIAN and PTILE\n\
                  use the averaged empirical distribution. A count without cases is 0 unless EMPTY says otherwise.\n\
                  A total has percentages too: the base of a total row or column takes in every category totaled.\n\
+                 HIDESMALLCOUNTS COUNT=n (n a whole number from 2, default 5) shows every COUNT, VALIDN, TOTALN or\n\
+                 RESPONSES below n, weighted or with U, as <n in all tables of the command.\n\
                  User-missing categories are left out unless MISSING=INCLUDE; system-missing ones always are.\n\
                  A case whose missing value is left out still counts in TOTALN and the .TOTALN percentages; a\n\
                  case whose valid value an explicit category list leaves out is not in the table at all.\n\
@@ -299,9 +302,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  cases two categories of a set share; the means test then pools the variance from the two categories\n\
                  compared. INCLUDEMRSETS=NO leaves sets out of the tests, and so does COUNTDUPLICATES=YES for a\n\
                  category set.\n\
-                 Not supported yet: CLABELS ROWLABELS=LAYER or COLLABELS=LAYER, PCOMPUTE, HIDESMALLCOUNTS,\n\
-                 effective base (E functions), subtotals and OTHERNM or MISSING in a list, an empty row axis\n\
-                 (/TABLE BY columns).",
+                 Not supported yet: CLABELS ROWLABELS=LAYER or COLLABELS=LAYER, PCOMPUTE, effective base (E\n\
+                 functions), subtotals and OTHERNM or MISSING in a list, an empty row axis (/TABLE BY columns).",
         example: "CTABLES /TABLE q1 [COUNT, COLPCT.COUNT PCT8.1] BY gender /CATEGORIES VARIABLES=q1 TOTAL=YES.",
         parse: ctables::ctables,
     },
