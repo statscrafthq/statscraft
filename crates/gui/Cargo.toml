@@ -1,0 +1,16 @@
+[package]
+name = "statscraft-gui"
+description = "StatsCraft desktop window: data editor, syntax, output and dialogs over the engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+statscraft-data = { path = "../data" }
+statscraft-engine = { path = "../engine" }
+statscraft-syntax = { path = "../syntax" }
+# glow instead of the default wgpu keeps the build small. No default_fonts: the bundled fonts are
+# not under MIT or Apache, so fonts.rs loads system fonts at startup.
+eframe = { version = "0.37.0", default-features = false, features = ["glow", "accesskit", "clipboard", "wayland", "x11"] }
+rfd = "0.18.0"

@@ -31,6 +31,25 @@ MRSETS defines multiple response sets (dichotomy and category sets, saved with t
 
 Sessions are stored under `.statscraft/sessions/` in the current directory.
 
+## The window
+
+```
+cargo run -p statscraft-gui -- survey.sav job.sps     open a data file and a syntax file
+```
+
+`statscraft-gui` is a desktop window over the same engine, in four tabs:
+
+- **Data**: the cases in a grid that draws only the visible cells, with value labels on or off. Double-click a cell to change it.
+- **Variables**: one row per variable with name, type, format, width, decimals, label, value labels, missing values and measure. Double-click to change a field.
+- **Syntax**: an editor with line numbers. Run all, or Run selection (Ctrl+Enter) for the commands on the selected lines. Errors show at their line and column, and the help panel (F1) follows the command under the cursor.
+- **Output**: every result table with its multi-level header, an outline, Copy (tab-separated, for a spreadsheet) and Export as HTML.
+
+The Analyze menu has dialogs for Frequencies, Descriptives, Crosstabs and Custom Tables (rows, columns, means, percentages, totals and significance tests); the Transform menu has Compute and Recode. A dialog shows the syntax it builds: OK runs it, Paste puts it in the syntax editor.
+
+Syntax is the only command layer: every change and every result in the window comes from syntax run by the engine, exactly as `statscraft run` runs it. Opening a file runs `GET FILE`, editing a cell runs `IF ($CASENUM = n) var = value.`, editing a label runs `VARIABLE LABELS`, and so on. The log under the tabs lists every command with what it changed, and Copy syntax there gives a script that repeats the session.
+
+The window uses system fonts (Segoe UI and Consolas on Windows, DejaVu, Noto or Liberation on Linux); set `STATSCRAFT_FONT` or `STATSCRAFT_MONO_FONT` to a .ttf file to choose others.
+
 ## Development
 
 ```
