@@ -69,6 +69,10 @@ How it connects: on start the window listens on a random TCP port of 127.0.0.1 a
 
 The window uses system fonts (Segoe UI and Consolas on Windows, DejaVu, Noto or Liberation on Linux); set `STATSCRAFT_FONT` or `STATSCRAFT_MONO_FONT` to a .ttf file to choose others.
 
+## Getting a build for Windows or Linux
+
+The workflow **Release build** builds `statscraft` and `statscraft-gui` for x86_64 Windows and Linux. It runs only when started by hand: on GitHub open Actions, choose Release build, then Run workflow (or `gh workflow run release.yml`). When it finishes, the run page lists two artifacts, `statscraft-windows-x86_64.zip` and `statscraft-linux-x86_64.zip`, each with both programs, this README and the license. There is no installer yet: unzip and start `statscraft-gui.exe`. The window opens without a console; `statscraft.exe` is the command line and runs in a terminal.
+
 ## Development
 
 ```

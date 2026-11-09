@@ -1,0 +1,34 @@
+name: Release build
+
+# Manual only: Actions > Release build > Run workflow. Each platform gives one zip with
+# statscraft (command line) and statscraft-gui (window).
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          - os: windows-latest
+            platform: windows-x86_64
+            exe: .exe
+          - os: ubuntu-latest
+            platform: linux-x86_64
+            exe: ""
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v7
+      - run: cargo build --release --locked -p statscraft -p statscraft-gui
+      - name: Package
+        shell: bash
+        run: |
+          dir=statscraft-${{ matrix.platform }}
+          mkdir "$dir"
+          cp target/release/statscraft${{ matrix.exe }} target/release/statscraft-gui${{ matrix.exe }} README.md LICENSE "$dir/"
+          if [ "$RUNNER_OS" = Windows ]; then 7z a "$dir.zip" "$dir"; else zip -r "$dir.zip" "$dir"; fi
+      # archive: false uploads the zip as it is, which keeps the executable bit on Linux
+      - uses: actions/upload-artifact@v7
+        with:
+          path: statscraft-${{ matrix.platform }}.zip
+          archive: false
