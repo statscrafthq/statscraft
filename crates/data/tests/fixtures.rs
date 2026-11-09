@@ -1,12 +1,10 @@
-//! `describe` must agree with the ground truth stored next to every fixture.
+//! `describe` and the case values must agree with the ground truth stored next to every fixture.
 
+mod common;
+
+use common::{file_name, fixture, fixture_files, fixtures, sidecar};
 use serde_json::Value as Json;
-use statscraft_data::Dataset;
-use std::{fs, path::PathBuf};
-
-fn fixtures() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures")
-}
+use statscraft_data::{Dataset, Values};
 
 /// Every key the sidecar states must have the same value in our description.
 fn assert_covers(file: &str, at: &str, expected: &Json, actual: &Json) {
@@ -33,28 +31,57 @@ fn assert_covers(file: &str, at: &str, expected: &Json, actual: &Json) {
 
 #[test]
 fn describe_matches_every_fixture() {
-    let mut checked = 0;
-    for entry in fs::read_dir(fixtures()).unwrap() {
-        let path = entry.unwrap().path();
-        let name = path.file_name().unwrap().to_str().unwrap().to_string();
-        if !name.ends_with(".sav") && !name.ends_with(".zsav") {
-            continue;
-        }
-        let sidecar = format!(
-            "{}.expected.json",
-            name.strip_suffix(".sav").unwrap_or(&name)
-        );
-        let mut expected: Json =
-            serde_json::from_str(&fs::read_to_string(path.with_file_name(sidecar)).unwrap())
-                .unwrap();
-        // case values are checked once the engine exposes them (stage E3)
+    for path in fixture_files() {
+        let name = file_name(&path);
+        let mut expected = sidecar(&path);
+        // case values are not part of the description, `case_values_match_every_fixture` has them
         expected.as_object_mut().unwrap().remove("cases_sample");
 
         let actual = serde_json::to_value(Dataset::read_sav(&path).unwrap().describe()).unwrap();
         assert_covers(&name, "", &expected, &actual);
-        checked += 1;
     }
-    assert_eq!(checked, 7, "fixture count changed, update this number");
+}
+
+#[test]
+fn case_values_match_every_fixture() {
+    for path in fixture_files() {
+        let name = file_name(&path);
+        let expected = sidecar(&path);
+        let sample = expected["cases_sample"].as_array().unwrap();
+        let data = Dataset::read_sav(&path).unwrap();
+        assert!(data.warnings().is_empty(), "{name}");
+
+        // the sample holds the first 5 and the last 2 cases
+        let n = data.case_count();
+        let cases: Vec<usize> = (0..n.min(5)).chain(n.saturating_sub(2).max(5)..n).collect();
+        assert_eq!(sample.len(), cases.len(), "{name}: sample size");
+        for (row, case) in sample.iter().zip(cases) {
+            let row = row.as_array().unwrap();
+            assert_eq!(row.len(), data.variable_count(), "{name}: case {case}");
+            for (want, variable) in row.iter().zip(data.variables()) {
+                let at = format!("{name}: case {case}, {}", variable.name());
+                match variable.values() {
+                    Values::Numeric(values) => {
+                        assert!(want.is_number() || want.is_null(), "{at}");
+                        assert_eq!(values.get(case), want.as_f64(), "{at}");
+                    }
+                    Values::String(values) => {
+                        let want = want.as_str().unwrap_or_else(|| panic!("{at}: not text"));
+                        assert_eq!(values.get(case), want.trim_end(), "{at}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn date_variables_are_numbers() {
+    let data = fixture("survey_basic.sav");
+    let signup = data.variable("signup_date").unwrap();
+    assert_eq!(signup.format(), "DATE11");
+    // 2023-11-01 as seconds since 1582-10-14
+    assert_eq!(signup.numeric().unwrap().get(0), Some(13_918_176_000.0));
 }
 
 #[test]
