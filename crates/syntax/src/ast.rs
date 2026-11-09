@@ -50,6 +50,89 @@ pub enum Command {
     Else,
     EndIf,
     Ctables(crate::ctables::Ctables),
+    Descriptives(Descriptives),
+    Crosstabs(Crosstabs),
+    AddFiles(Merge),
+    MatchFiles(Merge),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Descriptives {
+    /// Each variable item with the z-score name written after it, as in `age (zage)`.
+    pub variables: Vec<(VarItem, Option<String>)>,
+    /// In display order, without duplicates. N is always shown and not listed.
+    pub statistics: Vec<DescriptiveStatistic>,
+    /// `/MISSING=LISTWISE`: only cases valid on every variable count.
+    pub listwise: bool,
+    /// `/MISSING=INCLUDE`: user-missing values count as valid.
+    pub include: bool,
+    /// `/SAVE`: add a z-score variable per variable.
+    pub save: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum DescriptiveStatistic {
+    Mean,
+    SeMean,
+    StdDev,
+    Variance,
+    Kurtosis,
+    Skewness,
+    Range,
+    Min,
+    Max,
+    Sum,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Crosstabs {
+    /// One entry per `/TABLES`, each a list of dimensions: rows, columns, then layers.
+    pub tables: Vec<Vec<Vec<VarItem>>>,
+    /// In display order, without duplicates. Empty for `/CELLS=NONE`.
+    pub cells: Vec<CrosstabsCell>,
+    pub chisq: bool,
+    /// `/MISSING=INCLUDE`: user-missing values form categories of their own.
+    pub include: bool,
+    /// `/FORMAT=DVALUE`: categories in descending order.
+    pub descending: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum CrosstabsCell {
+    Count,
+    Row,
+    Column,
+    Total,
+    Expected,
+    Resid,
+    Sresid,
+    Asresid,
+}
+
+/// ADD FILES and MATCH FILES.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Merge {
+    pub inputs: Vec<MergeInput>,
+    /// Empty when there is no `/BY`.
+    pub by: Vec<VarItem>,
+    /// `/KEEP` and `/DROP` in the order written, applied to the result.
+    pub subsets: Vec<Subset>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MergeInput {
+    /// None is `*`, the active dataset.
+    pub file: Option<String>,
+    /// `/TABLE` of MATCH FILES: a lookup file that adds variables but no cases.
+    pub table: bool,
+    /// `/RENAME` groups, as in RENAME VARIABLES.
+    pub rename: Vec<(Vec<VarItem>, Vec<VarItem>)>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Subset {
+    Keep(Vec<VarItem>),
+    Drop(Vec<VarItem>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

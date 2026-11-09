@@ -1,0 +1,612 @@
+//! CROSSTABS: contingency tables, their cell statistics and chi-square tests.
+
+use crate::descriptives::case_weights;
+use crate::{Cell, Engine, Error, Table};
+use statscraft_data::{Dataset, Value, Values, Variable};
+use statscraft_syntax::{Crosstabs, CrosstabsCell as C};
+use std::cmp::Ordering;
+
+/// A category: the value of a case.
+#[derive(Clone, PartialEq)]
+enum Key {
+    Number(f64),
+    Text(String),
+}
+
+impl Key {
+    fn compare(&self, other: &Key) -> Ordering {
+        match (self, other) {
+            (Key::Number(a), Key::Number(b)) => a.total_cmp(b),
+            (Key::Text(a), Key::Text(b)) => a.cmp(b),
+            // the values of one variable all have its type
+            _ => Ordering::Equal,
+        }
+    }
+}
+
+/// The category of every case, None where the value is missing.
+fn categories(variable: &Variable, include: bool) -> Vec<Option<Key>> {
+    match variable.values() {
+        Values::Numeric(values) => values
+            .iter()
+            .map(|v| {
+                v.filter(|v| include || !variable.is_user_missing(*v))
+                    .map(Key::Number)
+            })
+            .collect(),
+        Values::String(values) => values
+            .iter()
+            .map(|v| (include || !variable.is_user_missing_str(v)).then(|| Key::Text(v.into())))
+            .collect(),
+    }
+}
+
+/// The value label of a category, else its value.
+fn label(variable: &Variable, key: &Key) -> String {
+    let labelled = variable
+        .value_labels()
+        .iter()
+        .find(|(value, _)| match (value, key) {
+            (Value::Number(a), Key::Number(b)) => a == b,
+            (Value::String(a), Key::Text(b)) => a == b,
+            _ => false,
+        });
+    match (labelled, key) {
+        (Some((_, label)), _) => label.clone(),
+        (None, Key::Number(n)) => n.to_string(),
+        (None, Key::Text(text)) => text.clone(),
+    }
+}
+
+/// One layer of a table: the categories that occur in it and the weighted counts.
+struct Block {
+    layer: Vec<Key>,
+    rows: Vec<Key>,
+    columns: Vec<Key>,
+    counts: Vec<Vec<f64>>,
+    row_totals: Vec<f64>,
+    column_totals: Vec<f64>,
+    total: f64,
+}
+
+impl Block {
+    /// The count of a cell; None stands for the Total row or column.
+    fn count(&self, row: Option<usize>, column: Option<usize>) -> f64 {
+        match (row, column) {
+            (Some(i), Some(j)) => self.counts[i][j],
+            (Some(i), None) => self.row_totals[i],
+            (None, Some(j)) => self.column_totals[j],
+            (None, None) => self.total,
+        }
+    }
+
+    fn expected(&self, i: usize, j: usize) -> f64 {
+        self.row_totals[i] * self.column_totals[j] / self.total
+    }
+
+    fn cell(&self, statistic: C, row: Option<usize>, column: Option<usize>) -> Cell {
+        let n = self.count(row, column);
+        let row_total = row.map_or(self.total, |i| self.row_totals[i]);
+        let column_total = column.map_or(self.total, |j| self.column_totals[j]);
+        let value = match (statistic, row.zip(column)) {
+            (C::Count, _) => n,
+            (C::Row, _) => 100.0 * n / row_total,
+            (C::Column, _) => 100.0 * n / column_total,
+            (C::Total, _) => 100.0 * n / self.total,
+            (C::Expected, Some((i, j))) => self.expected(i, j),
+            // the reference program shows the share of all cases in the margins
+            (C::Expected, None) => n / self.total,
+            (_, None) => return Cell::Empty,
+            (C::Resid, Some((i, j))) => n - self.expected(i, j),
+            (C::Sresid, Some((i, j))) => (n - self.expected(i, j)) / self.expected(i, j).sqrt(),
+            (C::Asresid, Some((i, j))) => {
+                let share = (1.0 - row_total / self.total) * (1.0 - column_total / self.total);
+                (n - self.expected(i, j)) / (self.expected(i, j) * share).sqrt()
+            }
+        };
+        if value.is_finite() {
+            Cell::Number(value)
+        } else {
+            Cell::Empty
+        }
+    }
+
+    /// Rows of the chi-square table: name, value, df, asymptotic, exact two- and one-sided
+    /// significance. Nothing but the case count when the table has one row or column.
+    fn tests(&self, numeric: bool) -> Vec<(&'static str, [Option<f64>; 5])> {
+        let (r, c) = (self.rows.len(), self.columns.len());
+        let n_row = (
+            "N of Valid Cases",
+            [Some(self.total), None, None, None, None],
+        );
+        if r < 2 || c < 2 {
+            return vec![n_row];
+        }
+        let cells = || (0..r).flat_map(move |i| (0..c).map(move |j| (i, j)));
+        let df = ((r - 1) * (c - 1)) as f64;
+        let asymptotic = |name, value: f64, df: f64| {
+            (
+                name,
+                [
+                    Some(value),
+                    Some(df),
+                    Some(chi_square_p(value, df)),
+                    None,
+                    None,
+                ],
+            )
+        };
+        let pearson: f64 = cells()
+            .map(|(i, j)| (self.counts[i][j] - self.expected(i, j)).powi(2) / self.expected(i, j))
+            .sum();
+        let ratio: f64 = 2.0
+            * cells()
+                .filter(|&(i, j)| self.counts[i][j] > 0.0)
+                .map(|(i, j)| self.counts[i][j] * (self.counts[i][j] / self.expected(i, j)).ln())
+                .sum::<f64>();
+        let mut rows = vec![
+            asymptotic("Pearson Chi-Square", pearson, df),
+            asymptotic("Likelihood Ratio", ratio, df),
+        ];
+        if (r, c) == (2, 2) {
+            let rounded = |i: usize, j: usize| self.counts[i][j].round() as u64;
+            let (two, one) = fisher(rounded(0, 0), rounded(0, 1), rounded(1, 0), rounded(1, 1));
+            rows.push((
+                "Fisher's Exact Test",
+                [None, None, None, Some(two), Some(one)],
+            ));
+            let yates: f64 = cells()
+                .map(|(i, j)| {
+                    let gap = ((self.counts[i][j] - self.expected(i, j)).abs() - 0.5).max(0.0);
+                    gap * gap / self.expected(i, j)
+                })
+                .sum();
+            rows.push(asymptotic("Continuity Correction", yates, 1.0));
+        }
+        if numeric {
+            let score = |key: &Key| match key {
+                Key::Number(n) => *n,
+                Key::Text(_) => 0.0,
+            };
+            let mean = |keys: &[Key], totals: &[f64]| {
+                keys.iter()
+                    .zip(totals)
+                    .map(|(k, n)| score(k) * n)
+                    .sum::<f64>()
+                    / self.total
+            };
+            let (mx, my) = (
+                mean(&self.rows, &self.row_totals),
+                mean(&self.columns, &self.column_totals),
+            );
+            let (mut sxx, mut syy, mut sxy) = (0.0, 0.0, 0.0);
+            for (i, j) in cells() {
+                let (dx, dy) = (score(&self.rows[i]) - mx, score(&self.columns[j]) - my);
+                let n = self.counts[i][j];
+                sxx += n * dx * dx;
+                syy += n * dy * dy;
+                sxy += n * dx * dy;
+            }
+            let r = sxy / (sxx * syy).sqrt();
+            rows.push(asymptotic(
+                "Linear-by-Linear Association",
+                (self.total - 1.0) * r * r,
+                1.0,
+            ));
+        }
+        rows.push(n_row);
+        rows
+    }
+}
+
+fn ordered(a: &Key, b: &Key, descending: bool) -> Ordering {
+    let ordering = a.compare(b);
+    if descending {
+        ordering.reverse()
+    } else {
+        ordering
+    }
+}
+
+/// The blocks of one table: every combination of layer categories that occurs, the last layer
+/// variable outermost.
+fn blocks(keys: &[Vec<Option<Key>>], weights: Option<&[f64]>, descending: bool) -> Vec<Block> {
+    let order = |a: &Key, b: &Key| ordered(a, b, descending);
+    let case_count = keys[0].len();
+    let weight = |case: usize| weights.map_or(1.0, |w| w[case]);
+    let cases: Vec<(Vec<&Key>, f64)> = (0..case_count)
+        .filter(|&case| weight(case) > 0.0)
+        .filter_map(|case| {
+            let values: Option<Vec<&Key>> = keys.iter().map(|k| k[case].as_ref()).collect();
+            Some((values?, weight(case)))
+        })
+        .collect();
+    let distinct = |mut found: Vec<&Key>| {
+        found.sort_by(|a, b| order(a, b));
+        found.dedup();
+        found.into_iter().cloned().collect::<Vec<Key>>()
+    };
+    let mut layers: Vec<Vec<&Key>> = cases.iter().map(|(v, _)| v[2..].to_vec()).collect();
+    let outermost_first = |a: &Vec<&Key>, b: &Vec<&Key>| {
+        let pairs = a.iter().rev().zip(b.iter().rev());
+        pairs
+            .map(|(x, y)| order(x, y))
+            .find(|o| o.is_ne())
+            .unwrap_or(Ordering::Equal)
+    };
+    layers.sort_by(outermost_first);
+    layers.dedup();
+
+    layers
+        .into_iter()
+        .map(|layer| {
+            let inside: Vec<&(Vec<&Key>, f64)> =
+                cases.iter().filter(|(v, _)| v[2..] == layer[..]).collect();
+            let rows = distinct(inside.iter().map(|(v, _)| v[0]).collect());
+            let columns = distinct(inside.iter().map(|(v, _)| v[1]).collect());
+            let mut counts = vec![vec![0.0; columns.len()]; rows.len()];
+            for (values, w) in inside {
+                let i = rows
+                    .iter()
+                    .position(|k| k == values[0])
+                    .expect("listed above");
+                let j = columns
+                    .iter()
+                    .position(|k| k == values[1])
+                    .expect("listed above");
+                counts[i][j] += w;
+            }
+            let row_totals: Vec<f64> = counts.iter().map(|row| row.iter().sum()).collect();
+            let column_totals: Vec<f64> = (0..columns.len())
+                .map(|j| counts.iter().map(|row| row[j]).sum())
+                .collect();
+            Block {
+                layer: layer.into_iter().cloned().collect(),
+                total: row_totals.iter().sum(),
+                rows,
+                columns,
+                counts,
+                row_totals,
+                column_totals,
+            }
+        })
+        .collect()
+}
+
+fn cell_name(statistic: C) -> &'static str {
+    match statistic {
+        C::Count => "Count",
+        C::Row => "Row %",
+        C::Column => "Column %",
+        C::Total => "Total %",
+        C::Expected => "Expected",
+        C::Resid => "Residual",
+        C::Sresid => "Std. Residual",
+        C::Asresid => "Adjusted Residual",
+    }
+}
+
+/// The tables of one combination of variables: rows, columns, then layers.
+fn tables(data: &Dataset, names: &[String], command: &Crosstabs) -> Result<Vec<Table>, Error> {
+    let variables: Vec<Variable> = names
+        .iter()
+        .map(|name| data.variable(name))
+        .collect::<Result<_, _>>()?;
+    let keys: Vec<Vec<Option<Key>>> = variables
+        .iter()
+        .map(|v| categories(v, command.include))
+        .collect();
+    let weights = case_weights(data)?;
+    let blocks = blocks(&keys, weights.as_deref(), command.descending);
+    let order = |a: &Key, b: &Key| ordered(a, b, command.descending);
+    let layer_variables = &variables[2..];
+    let layer_cells = |block: &Block| -> Vec<Cell> {
+        let pairs = layer_variables.iter().zip(&block.layer);
+        pairs.map(|(v, k)| Cell::Text(label(v, k))).collect()
+    };
+    let layer_names = || layer_variables.iter().map(|v| v.name().to_string());
+    let title = names.join(" by ");
+    let mut out = Vec::new();
+
+    if !command.cells.is_empty() && !blocks.is_empty() {
+        // the columns of every layer; a layer without one of them leaves its cells blank
+        let mut union: Vec<&Key> = blocks.iter().flat_map(|b| &b.columns).collect();
+        union.sort_by(|a, b| order(a, b));
+        union.dedup();
+        let mut columns: Vec<String> = layer_names().collect();
+        columns.extend([variables[0].name().to_string(), "Statistic".into()]);
+        let headers = columns.len();
+        columns.extend(union.iter().map(|k| label(&variables[1], k)));
+        columns.push("Total".into());
+        let mut column_groups = vec![Vec::new(); columns.len()];
+        for group in &mut column_groups[headers..columns.len() - 1] {
+            group.push(variables[1].name().to_string());
+        }
+        let mut rows = Vec::new();
+        for block in &blocks {
+            let own: Vec<Option<usize>> = union
+                .iter()
+                .map(|k| block.columns.iter().position(|c| c == *k))
+                .collect();
+            let row_indices = (0..block.rows.len()).map(Some).chain([None]);
+            for i in row_indices {
+                for &statistic in &command.cells {
+                    // residuals have no Total row; the reference program leaves out the line
+                    if i.is_none() && matches!(statistic, C::Resid | C::Sresid | C::Asresid) {
+                        continue;
+                    }
+                    let mut row = layer_cells(block);
+                    row.push(Cell::Text(match i {
+                        Some(i) => label(&variables[0], &block.rows[i]),
+                        None => "Total".into(),
+                    }));
+                    row.push(Cell::Text(cell_name(statistic).into()));
+                    row.extend(own.iter().map(|j| match j {
+                        Some(j) => block.cell(statistic, i, Some(*j)),
+                        None => Cell::Empty,
+                    }));
+                    row.push(block.cell(statistic, i, None));
+                    rows.push(row);
+                }
+            }
+        }
+        out.push(Table {
+            title: title.clone(),
+            row_headers: headers,
+            columns,
+            column_groups,
+            rows,
+            ..Table::default()
+        });
+    }
+
+    if command.chisq {
+        let numeric = !variables[0].is_string() && !variables[1].is_string();
+        let tests: Vec<_> = blocks.iter().map(|b| (b, b.tests(numeric))).collect();
+        let exact = blocks
+            .iter()
+            .any(|b| (b.rows.len(), b.columns.len()) == (2, 2));
+        let mut columns: Vec<String> = layer_names().collect();
+        let headers = columns.len() + 1;
+        columns
+            .extend(["Statistic", "Value", "df", "Asymptotic Sig. (2-tailed)"].map(String::from));
+        if exact {
+            columns.extend(["Exact Sig. (2-tailed)", "Exact Sig. (1-tailed)"].map(String::from));
+        }
+        let mut rows = Vec::new();
+        for (block, block_tests) in tests {
+            for (name, values) in block_tests {
+                let mut row = layer_cells(block);
+                row.push(Cell::Text(name.into()));
+                let shown = if exact { 5 } else { 3 };
+                row.extend(values[..shown].iter().map(|v| match v {
+                    Some(v) if v.is_finite() => Cell::Number(*v),
+                    _ => Cell::Empty,
+                }));
+                rows.push(row);
+            }
+        }
+        out.push(Table {
+            title: format!("Chi-Square Tests: {title}"),
+            row_headers: headers,
+            column_groups: vec![Vec::new(); columns.len()],
+            columns,
+            rows,
+            ..Table::default()
+        });
+    }
+    Ok(out)
+}
+
+impl Engine {
+    pub(crate) fn crosstabs(&self, command: &Crosstabs) -> Result<Vec<Table>, Error> {
+        let data = self.active()?;
+        let mut out = Vec::new();
+        for dimensions in &command.tables {
+            let lists: Vec<Vec<String>> = dimensions
+                .iter()
+                .map(|items| self.expand(items))
+                .collect::<Result<_, _>>()?;
+            // every combination, the first dimension outermost
+            let mut combinations: Vec<Vec<String>> = vec![Vec::new()];
+            for list in &lists {
+                combinations = combinations
+                    .iter()
+                    .flat_map(|prefix| {
+                        list.iter().map(move |name| {
+                            let mut next = prefix.clone();
+                            next.push(name.clone());
+                            next
+                        })
+                    })
+                    .collect();
+            }
+            for names in combinations {
+                out.extend(tables(data, &names, command)?);
+            }
+        }
+        Ok(out)
+    }
+}
+
+/// The significance of a chi-square value: the probability of a larger one.
+pub(crate) fn chi_square_p(value: f64, df: f64) -> f64 {
+    gamma_q(df / 2.0, value / 2.0)
+}
+
+/// ln Γ(x) for x > 0 (Lanczos, g = 7, nine terms; relative error near 1e-15).
+fn ln_gamma(x: f64) -> f64 {
+    const G: [f64; 9] = [
+        0.999_999_999_999_809_9,
+        676.520_368_121_885_1,
+        -1_259.139_216_722_402_8,
+        771.323_428_777_653_1,
+        -176.615_029_162_140_6,
+        12.507_343_278_686_905,
+        -0.138_571_095_265_720_12,
+        9.984_369_578_019_572e-6,
+        1.505_632_735_149_311_6e-7,
+    ];
+    if x < 0.5 {
+        // reflection keeps the series in its accurate range
+        return (std::f64::consts::PI / (std::f64::consts::PI * x).sin()).ln() - ln_gamma(1.0 - x);
+    }
+    let x = x - 1.0;
+    let t = x + 7.5;
+    let sum = G[1..]
+        .iter()
+        .enumerate()
+        .fold(G[0], |sum, (i, g)| sum + g / (x + i as f64 + 1.0));
+    0.5 * (2.0 * std::f64::consts::PI).ln() + (x + 0.5) * t.ln() - t + sum.ln()
+}
+
+/// The regularized upper incomplete gamma function Q(a, x) = Γ(a, x) / Γ(a): a power series
+/// below x = a + 1, a continued fraction above.
+pub(crate) fn gamma_q(a: f64, x: f64) -> f64 {
+    const EPSILON: f64 = 1e-16;
+    const TINY: f64 = 1e-300;
+    if x.is_nan() || a <= 0.0 {
+        return f64::NAN;
+    }
+    if x <= 0.0 {
+        return 1.0;
+    }
+    let front = (-x + a * x.ln() - ln_gamma(a)).exp();
+    if x < a + 1.0 {
+        let (mut term, mut sum, mut ap) = (1.0 / a, 1.0 / a, a);
+        for _ in 0..10_000 {
+            ap += 1.0;
+            term *= x / ap;
+            sum += term;
+            if term.abs() < sum.abs() * EPSILON {
+                break;
+            }
+        }
+        return (1.0 - sum * front).max(0.0);
+    }
+    // modified Lentz evaluation
+    let mut b = x + 1.0 - a;
+    let mut c = 1.0 / TINY;
+    let mut d = 1.0 / b;
+    let mut h = d;
+    for i in 1..10_000 {
+        let an = -(i as f64) * (i as f64 - a);
+        b += 2.0;
+        d = an * d + b;
+        if d.abs() < TINY {
+            d = TINY;
+        }
+        c = b + an / c;
+        if c.abs() < TINY {
+            c = TINY;
+        }
+        d = 1.0 / d;
+        let step = d * c;
+        h *= step;
+        if (step - 1.0).abs() < EPSILON {
+            break;
+        }
+    }
+    (front * h).min(1.0)
+}
+
+/// Fisher's exact test of the 2 x 2 table [[a, b], [c, d]]: the two-sided significance (the
+/// tables no more likely than the observed one) and the one-sided one (the smaller tail).
+pub(crate) fn fisher(a: u64, b: u64, c: u64, d: u64) -> (f64, f64) {
+    let n = (a + b + c + d) as usize;
+    let mut ln_factorial = vec![0.0; n + 1];
+    for k in 1..=n {
+        ln_factorial[k] = ln_factorial[k - 1] + (k as f64).ln();
+    }
+    let f = |k: u64| ln_factorial[k as usize];
+    let (row1, row2, column1, column2) = (a + b, c + d, a + c, b + d);
+    let fixed = f(row1) + f(row2) + f(column1) + f(column2) - f(n as u64);
+    let p = |x: u64| (fixed - f(x) - f(row1 - x) - f(column1 - x) - f(row2 + x - column1)).exp();
+    let low = column1.saturating_sub(row2);
+    let high = row1.min(column1);
+    let observed = p(a);
+    let (mut two, mut left, mut right) = (0.0, 0.0, 0.0);
+    for x in low..=high {
+        let px = p(x);
+        // relative slack: tables as likely as the observed one may differ in the last bits
+        if px <= observed * (1.0 + 1e-7) {
+            two += px;
+        }
+        if x <= a {
+            left += px;
+        }
+        if x >= a {
+            right += px;
+        }
+    }
+    (two.min(1.0), left.min(right).min(1.0))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn close(a: f64, b: f64, tolerance: f64) -> bool {
+        (a - b).abs() <= tolerance * b.abs().max(1e-300)
+    }
+
+    #[test]
+    fn ln_gamma_known_values() {
+        assert!(ln_gamma(1.0).abs() < 1e-14 && ln_gamma(2.0).abs() < 1e-14);
+        assert!(close(
+            ln_gamma(0.5),
+            std::f64::consts::PI.sqrt().ln(),
+            1e-14
+        ));
+        assert!(close(ln_gamma(10.0), 362_880.0_f64.ln(), 1e-14));
+        assert!(close(ln_gamma(100.5), 361.435_540_467_777_6, 1e-13));
+        assert!(close(ln_gamma(0.1), 2.252_712_651_734_206, 1e-13));
+    }
+
+    #[test]
+    fn chi_square_significance_known_values() {
+        // upper tail probabilities of the chi-square distribution, computed with 30 digits elsewhere
+        let cases = [
+            (3.841_458_820_694_124, 1.0, 0.05),
+            (6.634_896_601_021_214, 1.0, 0.01),
+            (1.0, 1.0, 0.317_310_507_862_914),
+            (2.0, 2.0, (-1.0_f64).exp()),
+            (10.0, 2.0, (-5.0_f64).exp()),
+            (11.070_497_693_516_35, 5.0, 0.05),
+            (20.0, 20.0, 0.457_929_714_471_852_6),
+            (0.5, 10.0, 0.999_993_388_289_439),
+            (150.0, 100.0, 0.000_903_932_042_354_009_1),
+            (31.410_432_844_230_92, 20.0, 0.05),
+        ];
+        for (value, df, expected) in cases {
+            let p = chi_square_p(value, df);
+            assert!(close(p, expected, 1e-11), "{value} {df}: {p} vs {expected}");
+        }
+        assert_eq!(chi_square_p(0.0, 3.0), 1.0);
+        assert!(chi_square_p(1e4, 1.0) < 1e-300);
+    }
+
+    #[test]
+    fn gamma_q_both_branches_agree_with_closed_forms() {
+        // Q(1, x) = exp(-x) and Q(0.5, x) = erfc(sqrt(x))
+        for x in [0.1, 0.9, 1.9, 2.1, 7.0, 40.0] {
+            assert!(close(gamma_q(1.0, x), (-x).exp(), 1e-13), "{x}");
+        }
+        assert!(close(gamma_q(0.5, 1.0), 0.157_299_207_050_285_13, 1e-12));
+        assert!(close(gamma_q(0.5, 0.25), 0.479_500_122_186_953_5, 1e-12));
+        assert!(gamma_q(2.0, f64::NAN).is_nan());
+    }
+
+    #[test]
+    fn fisher_exact_known_values() {
+        // tea tasting: [[3, 1], [1, 3]]
+        let (two, one) = fisher(3, 1, 1, 3);
+        assert!(close(two, 34.0 / 70.0, 1e-12) && close(one, 17.0 / 70.0, 1e-12));
+        let (two, one) = fisher(88, 54, 32, 26);
+        assert!(close(two, 0.427_256_673_786_149, 1e-9), "{two}");
+        assert!(close(one, 0.231_650_963_988_766_8, 1e-9), "{one}");
+        let (two, one) = fisher(2, 1, 2, 1);
+        assert!(close(two, 1.0, 1e-12) && close(one, 0.8, 1e-12));
+        assert_eq!(fisher(0, 0, 0, 5), (1.0, 1.0));
+    }
+}

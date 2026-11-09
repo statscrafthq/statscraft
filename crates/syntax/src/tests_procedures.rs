@@ -1,0 +1,200 @@
+//! Parser tests of DESCRIPTIVES, CROSSTABS, ADD FILES and MATCH FILES.
+
+use super::*;
+
+fn one(source: &str) -> Command {
+    let (mut parsed, errors) = parse(source);
+    assert!(errors.is_empty(), "{source}: {errors:?}");
+    assert_eq!(parsed.len(), 1, "{source}");
+    parsed.remove(0).command
+}
+
+fn err(source: &str) -> SyntaxError {
+    let (_, mut errors) = parse(source);
+    assert_eq!(errors.len(), 1, "{source}: {errors:?}");
+    errors.remove(0)
+}
+
+fn var(name: &str) -> VarItem {
+    VarItem::Name(name.to_string())
+}
+
+#[test]
+fn descriptives() {
+    use DescriptiveStatistic as S;
+    assert_eq!(
+        one("DESCRIPTIVES age income."),
+        Command::Descriptives(Descriptives {
+            variables: vec![(var("age"), None), (var("income"), None)],
+            statistics: vec![S::Mean, S::StdDev, S::Min, S::Max],
+            listwise: false,
+            include: false,
+            save: false,
+        })
+    );
+    assert_eq!(
+        one(
+            "DESCRIPTIVES /VAR=a TO c, d (zd) /STAT=SUM MEAN kurtosis sekurt\n /MISSING=LISTWISE INCLUDE /SAVE."
+        ),
+        Command::Descriptives(Descriptives {
+            variables: vec![
+                (VarItem::Range("a".into(), "c".into()), None),
+                (var("d"), Some("zd".into()))
+            ],
+            statistics: vec![S::Mean, S::Kurtosis, S::Sum],
+            listwise: true,
+            include: true,
+            save: true,
+        })
+    );
+    let Command::Descriptives(d) = one("DESCRIPTIVES x /STATISTICS=DEFAULT VARIANCE ALL.") else {
+        panic!()
+    };
+    assert_eq!(d.statistics.len(), 10);
+
+    assert!(
+        err("DESCRIPTIVES x /SORT=MEAN (A).")
+            .message
+            .contains("SORT of DESCRIPTIVES is not supported yet")
+    );
+    let e = err("DESCRIPTIVES x /STATISTICS=PHI.");
+    assert!(e.message.contains("unexpected word PHI"), "{e}");
+    assert!(e.expected.contains(&"SEMEAN".to_string()));
+    assert!(
+        err("DESCRIPTIVES a TO c (z).")
+            .message
+            .contains("single variable")
+    );
+    assert!(
+        err("DESCRIPTIVES /STATISTICS=MEAN.")
+            .expected
+            .contains(&"VARIABLES=varlist".to_string())
+    );
+    assert!(
+        err("DESCRIPTIVES x /MISSING=NONE.")
+            .expected
+            .contains(&"LISTWISE".to_string())
+    );
+}
+
+#[test]
+fn crosstabs() {
+    use CrosstabsCell as C;
+    assert_eq!(
+        one("CROSSTABS a b BY c."),
+        Command::Crosstabs(Crosstabs {
+            tables: vec![vec![vec![var("a"), var("b")], vec![var("c")]]],
+            cells: vec![C::Count],
+            chisq: false,
+            include: false,
+            descending: false,
+        })
+    );
+    assert_eq!(
+        one(
+            "CROSSTABS /TABLES=a BY c BY d /TABLES=x BY y\n /CELLS=SRESID count ROW /STAT=CHISQ /MISSING=INCLUDE /FORMAT=DVALUE."
+        ),
+        Command::Crosstabs(Crosstabs {
+            tables: vec![
+                vec![vec![var("a")], vec![var("c")], vec![var("d")]],
+                vec![vec![var("x")], vec![var("y")]]
+            ],
+            cells: vec![C::Count, C::Row, C::Sresid],
+            chisq: true,
+            include: true,
+            descending: true,
+        })
+    );
+    let Command::Crosstabs(c) = one("CROSSTABS a BY b /CELLS=NONE.") else {
+        panic!()
+    };
+    assert!(c.cells.is_empty());
+
+    let e = err("CROSSTABS a BY b /STATISTICS=CHISQ PHI.");
+    assert_eq!(
+        e.message,
+        "PHI in CROSSTABS /STATISTICS is not supported yet"
+    );
+    assert_eq!(e.expected, ["CHISQ", "NONE"]);
+    assert!(
+        err("CROSSTABS a BY b /MISSING=REPORT.")
+            .message
+            .contains("REPORT in CROSSTABS /MISSING")
+    );
+    assert!(
+        err("CROSSTABS a BY b /CELLS=BPROP.")
+            .message
+            .contains("not supported yet")
+    );
+    assert!(
+        err("CROSSTABS a BY b /CELLS=BOGUS.")
+            .message
+            .contains("unexpected word BOGUS")
+    );
+    assert!(
+        err("CROSSTABS a BY b /WRITE=CELLS.")
+            .message
+            .contains("WRITE of CROSSTABS is not supported yet")
+    );
+    assert_eq!(err("CROSSTABS a b.").expected, ["BY"]);
+    assert_eq!(err("CROSSTABS /TABLES=a.").expected, ["BY"]);
+}
+
+#[test]
+fn add_and_match_files() {
+    assert_eq!(
+        one("ADD FILES /FILE=* /RENAME=(a b = c d) x=y /FILE='b.sav' /BY id /KEEP=id c /DROP=d."),
+        Command::AddFiles(Merge {
+            inputs: vec![
+                MergeInput {
+                    file: None,
+                    table: false,
+                    rename: vec![
+                        (vec![var("a"), var("b")], vec![var("c"), var("d")]),
+                        (vec![var("x")], vec![var("y")])
+                    ],
+                },
+                MergeInput {
+                    file: Some("b.sav".into()),
+                    table: false,
+                    rename: vec![],
+                },
+            ],
+            by: vec![var("id")],
+            subsets: vec![
+                Subset::Keep(vec![var("id"), var("c")]),
+                Subset::Drop(vec![var("d")])
+            ],
+        })
+    );
+    let Command::MatchFiles(m) = one("MATCH FILES FILE=* /TABLE='t.sav' /BY k.") else {
+        panic!()
+    };
+    assert!(m.inputs[1].table && !m.inputs[0].table);
+
+    assert!(
+        err("ADD FILES /FILE=* /TABLE='t.sav'.")
+            .message
+            .contains("unknown subcommand TABLE")
+    );
+    assert!(
+        err("MATCH FILES /FILE=* /TABLE='t.sav'.")
+            .message
+            .contains("needs /BY")
+    );
+    assert!(
+        err("MATCH FILES /FILE=* /FILE='b.sav' /IN=src.")
+            .message
+            .contains("IN of MATCH FILES is not supported yet")
+    );
+    assert!(
+        err("MATCH FILES /RENAME=(a=b) /FILE=*.")
+            .message
+            .contains("must follow")
+    );
+    assert!(
+        err("MATCH FILES /TABLE='t.sav' /BY k.")
+            .expected
+            .contains(&"/FILE='path' or /FILE=*".to_string())
+    );
+}

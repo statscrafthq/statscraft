@@ -5,7 +5,7 @@ use crate::{
     Dataset, Dictionary, Error, Measure, MissingValues, Value, VariableDef, non_empty, same_name,
     sav,
 };
-use arrow::array::{ArrayRef, BooleanArray, Float64Array, StringViewArray, UInt64Array};
+use arrow::array::{ArrayRef, AsArray, BooleanArray, Float64Array, StringViewArray, UInt64Array};
 use std::sync::Arc;
 
 const RESERVED_WORDS: [&str; 13] = [
@@ -212,6 +212,61 @@ impl Dataset {
         Ok(())
     }
 
+    /// Builds a new list of cases: entry `i` names the old case that becomes case `i`, or is
+    /// `None` for a blank case (system-missing, empty strings). Cases may repeat or drop out.
+    pub fn take_cases(&mut self, cases: &[Option<usize>]) -> Result<(), Error> {
+        self.columns = self
+            .columns
+            .iter()
+            .map(|column| taken(column, cases))
+            .collect::<Result<_, _>>()?;
+        self.case_count = cases.len();
+        Ok(())
+    }
+
+    /// Adds variable `name` of `from`, with its whole dictionary entry, after the existing
+    /// variables. Its values come from the cases of `from` that `cases` names, one entry per
+    /// case of this dataset; `None` gives a blank value.
+    pub fn copy_variable(
+        &mut self,
+        from: &Dataset,
+        name: &str,
+        cases: &[Option<usize>],
+    ) -> Result<(), Error> {
+        self.check_length(cases.len())?;
+        let index = from.index_of(name)?;
+        let def = from.dict.variables[index].clone();
+        if self.variable_index(&def.name).is_some() {
+            return Err(Error::DuplicateName(def.name));
+        }
+        let column = taken(&from.columns[index], cases)?;
+        Arc::make_mut(&mut self.dict).variables.push(def);
+        self.columns.push(column);
+        Ok(())
+    }
+
+    /// Changes the width of a string variable; its format becomes A`width`. Every value must
+    /// fit in the new width.
+    pub fn set_string_width(&mut self, name: &str, width: usize) -> Result<(), Error> {
+        let index = self.index_of(name)?;
+        let variable = self.variable_at(index);
+        let values = variable.string()?;
+        if !(1..=MAX_STRING_WIDTH).contains(&width) {
+            return Err(Error::Invalid(format!(
+                "string width must be 1 to {MAX_STRING_WIDTH}, got {width}"
+            )));
+        }
+        if let Some(value) = values.iter().find(|v| v.len() > width) {
+            return Err(Error::Invalid(format!(
+                "{name}: value does not fit in {width} bytes: {value}"
+            )));
+        }
+        let def = &mut Arc::make_mut(&mut self.dict).variables[index];
+        def.width = Some(width);
+        def.format = format!("A{width}");
+        Ok(())
+    }
+
     /// Multiple response sets and the weight designation follow the new name.
     pub fn rename_variable(&mut self, name: &str, new_name: &str) -> Result<(), Error> {
         let index = self.index_of(name)?;
@@ -330,6 +385,25 @@ impl Dataset {
         self.columns.push(column);
         Ok(())
     }
+}
+
+/// The values of `column` at `cases`; `None` is a blank value. String columns hold no nulls,
+/// so a blank string is an empty one.
+fn taken(column: &ArrayRef, cases: &[Option<usize>]) -> Result<ArrayRef, Error> {
+    if let Some(&case) = cases.iter().flatten().find(|&&case| case >= column.len()) {
+        return Err(Error::Invalid(format!(
+            "case {case} is out of range: there are {} cases",
+            column.len()
+        )));
+    }
+    if let Some(strings) = column.as_string_view_opt() {
+        let values = cases
+            .iter()
+            .map(|case| case.map_or("", |c| strings.value(c)));
+        return Ok(Arc::new(StringViewArray::from_iter_values(values)));
+    }
+    let indices = UInt64Array::from_iter(cases.iter().map(|case| case.map(|c| c as u64)));
+    arrow::compute::take(column, &indices, None).map_err(|e| Error::Invalid(e.to_string()))
 }
 
 fn drop_dangling_references(dict: &mut Dictionary) {

@@ -4,8 +4,10 @@ use crate::ast::Command;
 use crate::commands;
 use crate::ctables;
 use crate::data_commands;
+use crate::files;
 use crate::lexer::{Punct, Token, TokenKind};
 use crate::parser::{PResult, Parser};
+use crate::procedures;
 
 pub(crate) struct CommandSpec {
     pub name: &'static str,
@@ -251,13 +253,67 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         example: "CTABLES /TABLE q1 [COUNT, COLPCT.COUNT PCT8.1] BY gender /CATEGORIES VARIABLES=q1 TOTAL=YES.",
         parse: ctables::ctables,
     },
+    CommandSpec {
+        name: "DESCRIPTIVES",
+        summary: "Summary statistics of numeric variables, optionally saved as z-scores.",
+        syntax: "DESCRIPTIVES [/]VARIABLES=varlist [/STATISTICS=stat ...] [/MISSING=VARIABLE | LISTWISE [INCLUDE]] [/SAVE].\n\
+                 stat: MEAN SEMEAN STDDEV VARIANCE KURTOSIS SKEWNESS RANGE MINIMUM MAXIMUM SUM DEFAULT ALL.\n\
+                 DEFAULT is MEAN STDDEV MINIMUM MAXIMUM; N is always shown. Weighted when a weight variable is set.\n\
+                 MISSING=VARIABLE (the default) leaves out the missing values of each variable on its own;\n\
+                 LISTWISE leaves out a case missing on any listed variable; INCLUDE counts user-missing values.\n\
+                 The row Valid N (listwise) holds all cases with VARIABLE and the complete cases with LISTWISE.\n\
+                 SAVE adds z-scores named Z plus the variable name (ZSC001, ZSC002, ... when that name is taken);\n\
+                 write var (name) in the list to choose the name.",
+        example: "DESCRIPTIVES VARIABLES=age income (z_inc) /STATISTICS=DEFAULT SUM /SAVE.",
+        parse: procedures::descriptives,
+    },
+    CommandSpec {
+        name: "CROSSTABS",
+        summary: "Contingency tables with percentages, residuals and chi-square tests.",
+        syntax: "CROSSTABS [/]TABLES=rowvars BY colvars [BY layervars ...] [/TABLES=...]\n\
+                 \x20         [/CELLS=COUNT ROW COLUMN TOTAL EXPECTED RESID SRESID ASRESID ALL NONE]\n\
+                 \x20         [/STATISTICS=CHISQ] [/MISSING=TABLE | INCLUDE] [/FORMAT=AVALUE | DVALUE].\n\
+                 One table per pair of row and column variable; layer variables split it into blocks.\n\
+                 CELLS defaults to COUNT. Percentages are 0 to 100. In the Total row and column EXPECTED\n\
+                 holds the share of all cases, as the reference program shows it.\n\
+                 CHISQ: Pearson, likelihood ratio, linear-by-linear (numeric variables), and for a 2 x 2\n\
+                 table Fisher's exact test and the continuity correction.\n\
+                 MISSING=TABLE leaves out a case missing on any variable of the table; INCLUDE keeps\n\
+                 user-missing values as categories. Weighted counts are not rounded (Fisher's test rounds them).",
+        example: "CROSSTABS /TABLES=region BY gender /CELLS=COUNT ROW /STATISTICS=CHISQ.",
+        parse: procedures::crosstabs,
+    },
+    CommandSpec {
+        name: "ADD FILES",
+        summary: "Append the cases of several data files, matching variables by name.",
+        syntax: "ADD FILES /FILE=* | 'path' [/RENAME=(old = new) ...] /FILE=... [/BY varlist]\n\
+                 \x20         [/KEEP=varlist] [/DROP=varlist].\n\
+                 FILE=* is the active dataset. A variable missing from a file is blank in its cases.\n\
+                 The first file that has a variable gives its format and measurement level; a later file\n\
+                 fills in a label, value labels or missing values the earlier ones lack. A string variable\n\
+                 takes its widest width; a variable that is numeric in one file and a string in another is\n\
+                 an error. BY interleaves files sorted by the key variables. The result has no weight variable.",
+        example: "ADD FILES /FILE=* /FILE='wave2.sav' /RENAME=(q1_new = q1) /DROP=tmp.",
+        parse: files::add_files,
+    },
+    CommandSpec {
+        name: "MATCH FILES",
+        summary: "Combine the variables of several data files case by case or by key.",
+        syntax: "MATCH FILES /FILE=* | 'path' [/RENAME=(old = new) ...] [/TABLE='path' ...] /FILE=...\n\
+                 \x20           [/BY varlist] [/KEEP=varlist] [/DROP=varlist].\n\
+                 With BY, cases with equal keys are joined; every file must be sorted by the keys (use\n\
+                 SORT CASES). Without BY the n-th cases of the files are joined. A TABLE adds its variables\n\
+                 to the cases whose key it holds and adds no cases. A variable in several files takes its\n\
+                 value from the first file that has the case. The result has no weight variable.",
+        example: "MATCH FILES /FILE=* /TABLE='regions.sav' /BY region.",
+        parse: files::match_files,
+    },
 ];
 
 /// Commands of the language that have no parser yet. They get "not supported yet" instead of
 /// "unknown command", and their bodies are not tokenised.
 static UNSUPPORTED: &[&str] = &[
     "ADD DOCUMENT",
-    "ADD FILES",
     "ADD VALUE LABELS",
     "ALTER TYPE",
     "ANOVA",
@@ -271,7 +327,6 @@ static UNSUPPORTED: &[&str] = &[
     "CLEAR TRANSFORMATIONS",
     "CLUSTER",
     "CORRELATIONS",
-    "CROSSTABS",
     "DATA LIST",
     "DATASET ACTIVATE",
     "DATASET CLOSE",
@@ -281,7 +336,6 @@ static UNSUPPORTED: &[&str] = &[
     "DATASET NAME",
     "DATE",
     "DEFINE",
-    "DESCRIPTIVES",
     "DISCRIMINANT",
     "DISPLAY",
     "DO REPEAT",
@@ -319,7 +373,6 @@ static UNSUPPORTED: &[&str] = &[
     "LIST",
     "LOGISTIC REGRESSION",
     "LOOP",
-    "MATCH FILES",
     "MATRIX",
     "MATRIX DATA",
     "MEANS",

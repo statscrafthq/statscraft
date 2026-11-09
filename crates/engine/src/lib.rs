@@ -1,9 +1,12 @@
 //! Executes parsed commands on a dataset and returns result tables.
 
 mod aggregate;
+mod crosstabs;
 mod ctables;
+mod descriptives;
 mod expr;
 mod frequencies;
+mod merge;
 mod recode;
 mod sort;
 mod transform;
@@ -300,6 +303,10 @@ impl Engine {
             Command::Else => self.next_branch(None)?,
             Command::EndIf => self.end_if()?,
             Command::Ctables(command) => return self.ctables(command),
+            Command::Descriptives(command) => return self.descriptives(command),
+            Command::Crosstabs(command) => return self.crosstabs(command),
+            Command::AddFiles(merge) => self.merge_files(merge, true)?,
+            Command::MatchFiles(merge) => self.merge_files(merge, false)?,
         }
         Ok(Vec::new())
     }

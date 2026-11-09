@@ -62,7 +62,7 @@ fn pick<T: PartialOrd>(function: F, mut values: impl Iterator<Item = T>) -> Opti
 
 /// SUM, MEAN, SD and MEDIAN of the valid (value, weight) pairs of one group. A result too
 /// large for a number is system-missing.
-fn statistic(function: F, cells: &[(f64, f64)]) -> Option<f64> {
+pub(crate) fn statistic(function: F, cells: &[(f64, f64)]) -> Option<f64> {
     let total: f64 = cells.iter().map(|(_, w)| w).sum();
     let sum: f64 = cells.iter().map(|(x, w)| x * w).sum();
     let result = match function {

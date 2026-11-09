@@ -20,8 +20,10 @@ mod ctables;
 mod data_commands;
 mod error;
 mod expr;
+mod files;
 mod lexer;
 mod parser;
+mod procedures;
 mod split;
 mod table;
 #[cfg(test)]
@@ -30,6 +32,8 @@ mod tests;
 mod tests_ctables;
 #[cfg(test)]
 mod tests_data;
+#[cfg(test)]
+mod tests_procedures;
 
 pub use ast::*;
 pub use ctables::{

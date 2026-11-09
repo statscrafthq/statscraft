@@ -23,7 +23,7 @@ Add `--json` to `run` and `check` for structured output: result tables, a summar
 
 A run is all or nothing: if one command fails, nothing is saved, so the same lines can be run again after the fix. A line range must cover whole commands.
 
-Commands executed so far: GET, SAVE, VARIABLE LABELS, VALUE LABELS, MISSING VALUES, VARIABLE LEVEL, FORMATS, FREQUENCIES (weighted when the file has a weight variable), EXECUTE, COMPUTE, IF, SELECT IF, STRING, NUMERIC, DO IF / ELSE IF / ELSE / END IF, RECODE, COUNT, SORT CASES, RENAME VARIABLES, DELETE VARIABLES, WEIGHT and AGGREGATE. Expressions follow the missing-value rules of the language and cover arithmetic, statistical, missing-value, string and date functions.
+Commands executed so far: GET, SAVE, VARIABLE LABELS, VALUE LABELS, MISSING VALUES, VARIABLE LEVEL, FORMATS, FREQUENCIES (weighted when the file has a weight variable), EXECUTE, COMPUTE, IF, SELECT IF, STRING, NUMERIC, DO IF / ELSE IF / ELSE / END IF, RECODE, COUNT, SORT CASES, RENAME VARIABLES, DELETE VARIABLES, WEIGHT and AGGREGATE. DESCRIPTIVES (with z-scores through /SAVE) and CROSSTABS (cell percentages, residuals and chi-square tests) run weighted when a weight variable is set, and ADD FILES and MATCH FILES combine the active dataset with saved files. Expressions follow the missing-value rules of the language and cover arithmetic, statistical, missing-value, string and date functions.
 
 CTABLES makes custom tables: stacked and nested rows and columns, counts, row, column, table and subtable percentages, totals, category order and lists, and means, medians and other statistics of scale variables, weighted when the file has a weight variable (`statscraft help CTABLES` lists what is supported).
 
