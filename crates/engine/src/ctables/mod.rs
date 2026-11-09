@@ -1156,19 +1156,28 @@ impl Section {
             };
             let total_only = choices.iter().any(Vec::is_empty);
             let indices = |choice: &mrsets::Choice| choice.iter().map(|(c, _)| *c).collect();
-            // every area of the case once
+            // every area of the case once; the total of a deciding variable is an area too,
+            // the one of a total row or column
             for (a, decides) in section.areas.iter().enumerate() {
                 let parts: Vec<Vec<usize>> = choices
                     .iter()
                     .zip(decides)
-                    .filter(|(_, d)| **d)
-                    .map(|(choice, _)| indices(choice))
+                    .zip(&section.totals)
+                    .filter(|((_, d), _)| **d)
+                    .map(|((choice, _), total)| {
+                        let mut part: Vec<usize> = indices(choice);
+                        part.extend(*total);
+                        part
+                    })
                     .collect();
                 let at = summary_list
                     .filter(|(i, _)| decides[*i])
-                    .map(|(i, _)| decides[..i].iter().filter(|d| **d).count());
+                    .map(|(i, _)| (i, decides[..i].iter().filter(|d| **d).count()));
                 for area_key in mrsets::product(&parts) {
-                    let stats = judge(at.map(|at| area_key[at]));
+                    let of = at.and_then(|(i, at)| {
+                        (section.totals[i] != Some(area_key[at])).then_some(area_key[at])
+                    });
+                    let stats = judge(of);
                     section.denominators[a]
                         .entry(area_key)
                         .or_default()
@@ -1267,24 +1276,20 @@ impl Section {
         }
         let value = match summary.function.statistic {
             Statistic::Percent(base, of) => {
-                let decides = &self.areas[area(base)];
-                if has_total(&|i| decides[i]) {
-                    None
-                } else {
-                    let area_key: Vec<usize> = key
-                        .iter()
-                        .zip(decides)
-                        .filter(|(_, d)| **d)
-                        .map(|(k, _)| *k)
-                        .collect();
-                    let unweighted = summary.function.unweighted;
-                    let (numerator, denominator) = mrsets::parts(of);
-                    let whole = self.denominators[area(base)]
-                        .get(&area_key)
-                        .map_or(0.0, |t| t.base(denominator, unweighted));
-                    let part = tally.base(numerator, unweighted);
-                    (whole != 0.0).then(|| 100.0 * part / whole)
-                }
+                // a total of a deciding variable is the area of all its categories
+                let area_key: Vec<usize> = key
+                    .iter()
+                    .zip(&self.areas[area(base)])
+                    .filter(|(_, d)| **d)
+                    .map(|(k, _)| *k)
+                    .collect();
+                let unweighted = summary.function.unweighted;
+                let (numerator, denominator) = mrsets::parts(of);
+                let whole = self.denominators[area(base)]
+                    .get(&area_key)
+                    .map_or(0.0, |t| t.base(denominator, unweighted));
+                let part = tally.base(numerator, unweighted);
+                (whole != 0.0).then(|| 100.0 * part / whole)
             }
             _ => statistic(summary, tally),
         };

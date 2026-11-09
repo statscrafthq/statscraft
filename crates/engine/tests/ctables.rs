@@ -97,12 +97,16 @@ fn totals_and_percentages() {
     assert_eq!(t.rows.len(), 4);
     assert_eq!(text(&t.rows[3][1]), "Total");
     assert_eq!(t.column_groups.last().unwrap()[1], "Total");
-    // Male: North count, column %, row %, ..., Total count, column % (none), row %
+    // Male: North count, column %, row %, ..., Total count, column %, row %. A total column has
+    // column percentages and a total row has row percentages (the manual's Figure 25 shows the
+    // column percentages of a Total column): their base is every category of the totaled
+    // variable.
     let male = numbers(&t, 0);
     assert_eq!(&male[..3], [Some(23.0), Some(67.647059), Some(21.698113)]);
-    assert_eq!(&male[15..], [Some(106.0), None, Some(100.0)]);
+    assert_eq!(&male[15..], [Some(106.0), Some(53.0), Some(100.0)]);
     let total = numbers(&t, 3);
-    assert_eq!(&total[..3], [Some(34.0), Some(100.0), None]);
+    assert_eq!(&total[..3], [Some(34.0), Some(100.0), Some(17.0)]);
+    assert_eq!(&total[15..], [Some(200.0), Some(100.0), Some(100.0)]);
     assert_eq!(total[15], Some(200.0));
     assert_eq!(t.formats[0][3], "PCT40.1");
     assert_eq!(format_value(67.647059, &t.formats[0][3], false), "67.6%");
@@ -319,6 +323,28 @@ fn a_value_named_twice_takes_its_last_place() {
     let labels = labels(&t);
     assert_eq!(labels.len(), 5);
     assert_eq!((labels[0].as_str(), labels[2].as_str()), ("North", "East"));
+}
+
+// The total of a variable is the area of all its categories, so the Total block of an outer
+// variable holds the same numbers as the table without that variable, percentages included.
+#[test]
+fn the_total_of_an_outer_variable_is_the_table_without_it() {
+    let summaries = "[COUNT, COLPCT, ROWPCT, SUBTABLEPCT, TABLEPCT, LAYERCOLPCT]";
+    let nested = run(
+        "survey_basic.sav",
+        &format!(
+            "CTABLES /TABLE region > gender {summaries} BY q5_1\n\
+             /CATEGORIES VARIABLES=region q5_1 TOTAL=YES."
+        ),
+    );
+    let flat = run(
+        "survey_basic.sav",
+        &format!("CTABLES /TABLE gender {summaries} BY q5_1 /CATEGORIES VARIABLES=q5_1 TOTAL=YES."),
+    );
+    assert_eq!(nested.rows.len(), 18);
+    for g in 0..3 {
+        assert_eq!(numbers(&nested, 15 + g), numbers(&flat, g), "gender {g}");
+    }
 }
 
 /// The raw values of a numeric variable; None for system-missing, user-missing codes kept.

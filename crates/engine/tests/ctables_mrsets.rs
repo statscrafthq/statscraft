@@ -411,13 +411,18 @@ fn a_set_crossed_with_a_variable_agrees_with_a_count_of_the_raw_values() {
         let mut expected = Vec::new();
         for column in 0..4 {
             let n = count[row][column];
-            // a percentage whose area a total decides stays empty, as for plain variables
-            let column_pct = (column < 3).then(|| 100.0 * n / count[5][column]);
-            let response_pct =
-                (column < 3).then(|| 100.0 * responses[row][column] / responses[5][column]);
-            // the set decides the row area, so a row holds only the cases of its category
-            let row_pct = (row < 5).then(|| 100.0 * n / count[row][3]);
-            expected.extend([Some(n), column_pct, row_pct, response_pct, row_pct]);
+            // the total column is the area of all genders
+            let column_pct = Some(100.0 * n / count[5][column]);
+            let response_pct = Some(100.0 * responses[row][column] / responses[5][column]);
+            // the set decides the row area, so a row holds only the cases of its category; the
+            // total row's area is every case with a response, and its Total N every case
+            let row_pct = Some(100.0 * n / count[row][3]);
+            let row_totaln = if row < 5 {
+                row_pct
+            } else {
+                Some(100.0 * all_cases[column] / all_cases[3])
+            };
+            expected.extend([Some(n), column_pct, row_pct, response_pct, row_totaln]);
         }
         let actual = numbers(&t, row);
         assert_eq!(actual.len(), expected.len());

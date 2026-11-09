@@ -258,6 +258,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Weighted by the weight variable when one is set; fractional weights are not rounded, and a case\n\
                  whose weight is zero, negative or missing is left out (also from U functions). MEDIAN and PTILE\n\
                  use the averaged empirical distribution. A count without cases is 0 unless EMPTY says otherwise.\n\
+                 A total has percentages too: the base of a total row or column takes in every category totaled.\n\
                  User-missing categories are left out unless MISSING=INCLUDE; system-missing ones always are.\n\
                  A case whose missing value is left out still counts in TOTALN and the .TOTALN percentages; a\n\
                  case whose valid value an explicit category list leaves out is not in the table at all.\n\

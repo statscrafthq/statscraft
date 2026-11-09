@@ -320,12 +320,19 @@ fn percentages() {
 fn totals() {
     survey(&[
         "CTABLES /TABLE gender BY region /CATEGORIES VARIABLES=gender region TOTAL=YES.",
-        "CTABLES /TABLE gender [COUNT, COLPCT.COUNT, ROWPCT.COUNT, TABLEPCT.COUNT] BY region\n\
+        // PSPP leaves a percentage blank in the total of a variable that decides its base, where
+        // the manual shows it (Figure 25: column percentages in a Total column), so these cases
+        // keep only percentages whose base no totaled variable decides; ctables.rs checks the rest
+        "CTABLES /TABLE gender [COUNT, TABLEPCT.COUNT] BY region\n\
          /CATEGORIES VARIABLES=gender region TOTAL=YES.",
+        "CTABLES /TABLE gender [COUNT, COLPCT.COUNT] BY region /CATEGORIES VARIABLES=gender TOTAL=YES.",
+        "CTABLES /TABLE gender [COUNT, ROWPCT.COUNT] BY region /CATEGORIES VARIABLES=region TOTAL=YES.",
         // PSPP leaves a count of 0 blank in a total or beside a scale variable, where the manual
         // shows 0, so the third gender, which has empty cells, is left out
-        "CTABLES /TABLE gender > region [COUNT, COLPCT.COUNT, ROWPCT.COUNT, TABLEPCT.COUNT, SUBTABLEPCT.COUNT] BY q5_1\n\
+        "CTABLES /TABLE gender > region [COUNT, TABLEPCT.COUNT] BY q5_1\n\
          /CATEGORIES VARIABLES=gender [1, 2] TOTAL=YES /CATEGORIES VARIABLES=region q5_1 TOTAL=YES.",
+        "CTABLES /TABLE gender > region [COUNT, COLPCT.COUNT, SUBTABLEPCT.COUNT] BY q5_1\n\
+         /CATEGORIES VARIABLES=gender [1, 2] /CATEGORIES VARIABLES=region TOTAL=YES.",
         "CTABLES /TABLE q1_satisfaction BY gender /CATEGORIES VARIABLES=q1_satisfaction MISSING=INCLUDE TOTAL=YES.",
         "CTABLES /TABLE region /CATEGORIES VARIABLES=region KEY=LABEL ORDER=D TOTAL=YES LABEL='All regions' POSITION=BEFORE.",
         // PSPP leaves a count of 0 blank in a total or beside a scale variable, where the manual
@@ -406,8 +413,11 @@ fn labels_titles_and_formats() {
         "CTABLES /TABLE gender BY region /TITLES TITLE='My title' CAPTION='My caption' CORNER='Corner text'.",
         "CTABLES /TABLE q1_satisfaction [COUNT 'N' F8.2, COLPCT.VALIDN 'Valid col pct' PCT8.3, TABLEPCT.COUNT] BY gender\n\
          /CATEGORIES VARIABLES=q1_satisfaction MISSING=INCLUDE TOTAL=YES.",
-        "CTABLES /FORMAT MISSING='x' EMPTY=BLANK /TABLE gender [COUNT, COLPCT.COUNT, ROWPCT.COUNT] BY region\n\
-         /CATEGORIES VARIABLES=gender region TOTAL=YES.",
+        // PSPP leaves column percentages blank in the Total column, where the manual shows them
+        // (Figure 25), so only row percentages go with the total of region
+        "CTABLES /FORMAT MISSING='x' EMPTY=BLANK /TABLE gender [COUNT, ROWPCT.COUNT] BY region\n\
+         /CATEGORIES VARIABLES=region TOTAL=YES.",
+        "CTABLES /FORMAT MISSING='x' /TABLE gender > age [MEAN, STDDEV] BY region.",
         // PSPP leaves a count of 0 blank in a total or beside a scale variable, where the manual
         // shows 0, so the third gender, which has empty cells, is left out
         "CTABLES /FORMAT EMPTY='none' /TABLE gender > monthly_spend [MEAN, COUNT] BY region /CATEGORIES VARIABLES=gender [1, 2].",
@@ -428,7 +438,7 @@ fn derived_variables() {
         "RECODE q2_recommend (0 THRU 6=1) (7, 8=2) (9, 10=3) INTO nps.\n\
          VALUE LABELS nps 1 'Detractor' 2 'Passive' 3 'Promoter'.\n\
          VARIABLE LEVEL nps (NOMINAL).\n\
-         CTABLES /TABLE region BY nps [ROWPCT.COUNT] /CATEGORIES VARIABLES=region TOTAL=YES.",
+         CTABLES /TABLE region BY nps [COLPCT.COUNT] /CATEGORIES VARIABLES=region TOTAL=YES.",
         "COMPUTE channels = SUM(q5_1 TO q5_5).\nVARIABLE LEVEL channels (SCALE).\n\
          CTABLES /TABLE region > channels [MEAN F8.2, MEDIAN, MAXIMUM] BY gender.",
         "COMPUTE spend_k = monthly_spend / 1000.\nFORMATS spend_k (F8.3).\nVARIABLE LEVEL spend_k (SCALE).\n\
@@ -441,7 +451,9 @@ fn derived_variables() {
 fn weighted_tables() {
     weighted(&[
         "CTABLES /TABLE gender BY region.",
-        "CTABLES /TABLE gender [COUNT, COLPCT.COUNT, UCOUNT] BY region /CATEGORIES VARIABLES=gender region TOTAL=YES.",
+        // PSPP leaves a percentage blank in the total of a variable that decides its base, where
+        // the manual shows it, so the totals here go with percentages of other bases
+        "CTABLES /TABLE gender [COUNT, COLPCT.COUNT, UCOUNT] BY region /CATEGORIES VARIABLES=gender TOTAL=YES.",
         "CTABLES /TABLE gender [COUNT F12.4, COLPCT.COUNT PCT12.4, UCOLPCT.COUNT PCT12.4, ROWPCT.COUNT PCT12.4] BY region.",
         "CTABLES /TABLE age [MEAN F12.6, MEDIAN F12.6, MODE F12.6, STDDEV F12.6, VARIANCE F12.6, SEMEAN F12.6, SUM F12.4, UMEDIAN F12.6, USTDDEV F12.6, USEMEAN F12.6, UMODE F12.4] BY gender.",
         "CTABLES /TABLE monthly_spend [MEAN F12.6, MEDIAN F12.6, VALIDN F12.4, TOTALN F12.4, MISSING F12.4, COUNT F12.4, UCOUNT, UVALIDN, UTOTALN, UMISSING] BY region.",
@@ -449,7 +461,7 @@ fn weighted_tables() {
          /CATEGORIES VARIABLES=q1_satisfaction MISSING=INCLUDE TOTAL=YES.",
         // PSPP leaves a count of 0 blank in a total or beside a scale variable, where the manual
         // shows 0, so the third gender, which has empty cells, is left out
-        "CTABLES /TABLE gender > region [COUNT, ROWPCT.COUNT, SUBTABLEPCT.COUNT] BY q5_1 /CATEGORIES VARIABLES=region q5_1 TOTAL=YES\n\
+        "CTABLES /TABLE gender > region [COUNT, SUBTABLEPCT.COUNT] BY q5_1 /CATEGORIES VARIABLES=region q5_1 TOTAL=YES\n\
          /CATEGORIES VARIABLES=gender [1, 2].",
         "CTABLES /TABLE age + monthly_spend [MEAN, VALIDN] BY gender /CATEGORIES VARIABLES=gender TOTAL=YES.",
         "CTABLES /TABLE plan [COUNT F8.2, TABLEPCT.COUNT PCT8.2] BY q5_3.",
