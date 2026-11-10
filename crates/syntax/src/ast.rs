@@ -56,6 +56,7 @@ pub enum Command {
     Means(Means),
     TTest(TTest),
     Oneway(Oneway),
+    Correlations(Correlations),
     AddFiles(Merge),
     MatchFiles(Merge),
 }
@@ -244,6 +245,33 @@ pub enum Posthoc {
     Scheffe,
     GamesHowell,
     T2,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Correlations {
+    /// One entry per variable list: the variables, and the list after WITH.
+    pub lists: Vec<(Vec<VarItem>, Option<Vec<VarItem>>)>,
+    /// `/PRINT=ONETAIL`
+    pub one_tailed: bool,
+    /// `/PRINT=NOSIG`: mark significant coefficients with asterisks.
+    pub flag: bool,
+    pub layout: CorrelationsLayout,
+    /// `/STATISTICS=DESCRIPTIVES`
+    pub descriptives: bool,
+    /// `/STATISTICS=XPROD`: cross-products and covariances.
+    pub xprod: bool,
+    /// `/MISSING=LISTWISE`
+    pub listwise: bool,
+    /// `/MISSING=INCLUDE`
+    pub include: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CorrelationsLayout {
+    Full,
+    Lower,
+    /// The lower triangle without the diagonal.
+    LowerNoDiagonal,
 }
 
 /// ADD FILES and MATCH FILES.

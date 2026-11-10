@@ -1091,3 +1091,68 @@ fn oneway_tables() {
         ],
     );
 }
+
+#[test]
+#[ignore = "needs PSPP: set STATSCRAFT_PSPP"]
+fn correlations_tables() {
+    run_statistics(
+        "correlations",
+        &[
+            (
+                "square",
+                SURVEY,
+                "CORRELATIONS /VARIABLES=age monthly_spend q1_satisfaction.",
+            ),
+            (
+                "square-weighted-all",
+                WEIGHTED,
+                "CORRELATIONS /VARIABLES=age monthly_spend q1_satisfaction /STATISTICS=ALL.",
+            ),
+            (
+                "with",
+                SURVEY,
+                "CORRELATIONS /VARIABLES=age WITH monthly_spend q2_recommend.",
+            ),
+            (
+                "listwise",
+                SURVEY,
+                "CORRELATIONS /VARIABLES=age monthly_spend q2_recommend /MISSING=LISTWISE.",
+            ),
+            (
+                "one-tailed-weighted",
+                WEIGHTED,
+                "CORRELATIONS /VARIABLES=q5_1 TO q5_5 /PRINT=ONETAIL.",
+            ),
+            (
+                "include",
+                SURVEY,
+                "CORRELATIONS /VARIABLES=q1_satisfaction q2_recommend age /MISSING=INCLUDE.",
+            ),
+            (
+                "two-lists",
+                WEIGHTED,
+                "CORRELATIONS /VARIABLES=age monthly_spend /q5_1 q5_2 WITH q1_satisfaction.",
+            ),
+            (
+                "listwise-xprod-weighted",
+                WEIGHTED,
+                "CORRELATIONS /VARIABLES=age monthly_spend q1_satisfaction /MISSING=LISTWISE /STATISTICS=XPROD.",
+            ),
+            // PSPP adds negative weights into the sums (the manual treats them as 0) and
+            // makes every coefficient NaN with a missing weight, so only zero weights here
+            (
+                "unusable-weights",
+                WEIGHTED,
+                "RECODE weight (LO THRU 0.6 = 0).\nCORRELATIONS /VARIABLES=age monthly_spend q2_recommend /STATISTICS=XPROD.",
+            ),
+            // with LISTWISE PSPP computes the descriptives from the complete cases, as the
+            // Algorithms manual says; the Command Syntax Reference keeps them variable by
+            // variable, which we follow, so the comparison uses the default PAIRWISE
+            (
+                "descriptives",
+                SURVEY,
+                "CORRELATIONS /VARIABLES=age monthly_spend q1_satisfaction q2_recommend /STATISTICS=DESCRIPTIVES.",
+            ),
+        ],
+    );
+}

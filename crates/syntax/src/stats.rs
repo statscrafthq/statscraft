@@ -2,8 +2,8 @@
 //! CORRELATIONS.
 
 use crate::ast::{
-    Command, Means, MeansCell as M, MeansMissing, Oneway, Posthoc, Standardizer, TTest,
-    TTestGroups, TTestPairs, VarItem,
+    Command, Correlations, CorrelationsLayout, Means, MeansCell as M, MeansMissing, Oneway,
+    Posthoc, Standardizer, TTest, TTestGroups, TTestPairs, VarItem,
 };
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
@@ -526,4 +526,113 @@ pub(crate) fn oneway(p: &mut Parser) -> PResult<Command> {
     }
     p.finish(&["'/'"])?;
     Ok(Command::Oneway(command))
+}
+
+/// `list [WITH list]`
+fn correlation_list(p: &mut Parser) -> PResult<(Vec<VarItem>, Option<Vec<VarItem>>)> {
+    let rows = variables(p)?;
+    let columns = if p.eat_word("WITH") {
+        Some(variables(p)?)
+    } else {
+        None
+    };
+    Ok((rows, columns))
+}
+
+const CORRELATIONS_SUBCOMMANDS: [&str; 6] = [
+    "VARIABLES",
+    "MISSING",
+    "PRINT",
+    "STATISTICS",
+    "MATRIX",
+    "CI",
+];
+
+pub(crate) fn correlations(p: &mut Parser) -> PResult<Command> {
+    let mut command = Correlations {
+        lists: Vec::new(),
+        one_tailed: false,
+        flag: false,
+        layout: CorrelationsLayout::Full,
+        descriptives: false,
+        xprod: false,
+        listwise: false,
+        include: false,
+    };
+    p.eat(Punct::Slash);
+    let mut more = true;
+    if !p.at_keyword("VARIABLES") {
+        command.lists.push(correlation_list(p)?);
+        more = p.eat(Punct::Slash);
+    }
+    while more {
+        if p.eat_keyword("VARIABLES") {
+            p.expect(Punct::Eq)?;
+            command.lists.push(correlation_list(p)?);
+        } else if p.eat_keyword("MISSING") {
+            p.eat(Punct::Eq);
+            const CHOICES: [(&str, &[u8]); 4] = [
+                ("PAIRWISE", &[0]),
+                ("LISTWISE", &[1]),
+                ("INCLUDE", &[2]),
+                ("EXCLUDE", &[3]),
+            ];
+            for choice in keywords(p, &CHOICES, |p| p.unexpected(&names(&CHOICES)))? {
+                match choice {
+                    0 => command.listwise = false,
+                    1 => command.listwise = true,
+                    2 => command.include = true,
+                    _ => command.include = false,
+                }
+            }
+        } else if p.eat_keyword("PRINT") {
+            p.eat(Punct::Eq);
+            const CHOICES: [(&str, &[u8]); 7] = [
+                ("TWOTAIL", &[0]),
+                ("ONETAIL", &[1]),
+                ("SIG", &[2]),
+                ("NOSIG", &[3]),
+                ("FULL", &[4]),
+                ("LOWER", &[5]),
+                ("LNODIAG", &[6]),
+            ];
+            let chosen = keywords(p, &CHOICES, |p| {
+                keyword_error(p, "CORRELATIONS /PRINT", &["NOMATRIX"], &names(&CHOICES))
+            })?;
+            for choice in chosen {
+                match choice {
+                    0 => command.one_tailed = false,
+                    1 => command.one_tailed = true,
+                    2 => command.flag = false,
+                    3 => command.flag = true,
+                    4 => command.layout = CorrelationsLayout::Full,
+                    5 => command.layout = CorrelationsLayout::Lower,
+                    _ => command.layout = CorrelationsLayout::LowerNoDiagonal,
+                }
+            }
+        } else if p.eat_keyword("STATISTICS") {
+            p.eat(Punct::Eq);
+            const CHOICES: [(&str, &[u8]); 3] =
+                [("DESCRIPTIVES", &[1]), ("XPROD", &[2]), ("ALL", &[1, 2])];
+            for choice in keywords(p, &CHOICES, |p| p.unexpected(&names(&CHOICES)))? {
+                match choice {
+                    1 => command.descriptives = true,
+                    _ => command.xprod = true,
+                }
+            }
+        } else if !at_subcommand(p, &CORRELATIONS_SUBCOMMANDS)
+            && matches!(p.peek(), Some(TokenKind::Word(_)))
+        {
+            // another variable list after a slash, without the VARIABLES keyword
+            command.lists.push(correlation_list(p)?);
+        } else {
+            return Err(p.subcommand_error("CORRELATIONS", &["MATRIX", "CI"]));
+        }
+        more = p.eat(Punct::Slash);
+    }
+    p.finish(&["'/'", "WITH"])?;
+    if command.lists.is_empty() {
+        return Err(p.unexpected(&["VARIABLES=varlist"]));
+    }
+    Ok(Command::Correlations(command))
 }

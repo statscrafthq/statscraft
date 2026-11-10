@@ -28,7 +28,8 @@ Commands executed so far: GET, SAVE, VARIABLE LABELS, VALUE LABELS, MISSING VALU
 MEANS reports means, counts, medians and other statistics of dependent variables within nested groups of control variables, with an optional analysis of variance and test of linearity.
 T-TEST runs one-sample, independent-samples (with Levene's test and both variance assumptions) and paired-samples t tests, with Cohen's d, Hedges' correction and Glass's delta and their confidence intervals.
 ONEWAY gives the one-way analysis of variance with descriptives, Levene's test, the Welch and Brown-Forsythe tests, contrasts and the LSD, Bonferroni, Sidak, Tukey, Scheffe, Games-Howell and Tamhane post hoc comparisons.
-MEANS, T-TEST and ONEWAY run weighted when a weight variable is set. A command that does something differently from what was asked without failing (a skipped string variable, a reversed range) reports a warning, shown with the output and in the JSON as `warnings` per command.
+CORRELATIONS gives Pearson correlations in square or rectangular matrices with one- or two-tailed significance, case counts, cross-products and covariances, pairwise or listwise.
+These four run weighted when a weight variable is set. A command that does something differently from what was asked without failing (a skipped string variable, a reversed range) reports a warning, shown with the output and in the JSON as `warnings` per command.
 
 [removed]
 

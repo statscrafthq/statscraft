@@ -316,3 +316,30 @@ fn oneway() {
             .contains("EFFECTS")
     );
 }
+
+#[test]
+fn correlations() {
+    let Command::Correlations(c) = one(
+        "CORRELATIONS /VARIABLES=a b WITH c /d e /PRINT=ONETAIL NOSIG LOWER /STATISTICS=XPROD /MISSING=LISTWISE.",
+    ) else {
+        panic!()
+    };
+    assert_eq!(
+        c.lists,
+        [
+            (vec![var("a"), var("b")], Some(vec![var("c")])),
+            (vec![var("d"), var("e")], None)
+        ]
+    );
+    assert!(c.one_tailed && c.flag && c.xprod && c.listwise && !c.descriptives);
+    assert_eq!(c.layout, CorrelationsLayout::Lower);
+    let Command::Correlations(c) = one("CORRELATIONS a b c.") else {
+        panic!()
+    };
+    assert_eq!(c.lists.len(), 1);
+    assert!(
+        err("CORRELATIONS a b /MATRIX=OUT(*).")
+            .message
+            .contains("MATRIX of CORRELATIONS is not supported yet")
+    );
+}

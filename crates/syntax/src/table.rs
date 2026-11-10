@@ -417,6 +417,20 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: stats::oneway,
     },
     CommandSpec {
+        name: "CORRELATIONS",
+        summary: "Pearson correlations with significance and case counts.",
+        syntax: "CORRELATIONS [/VARIABLES=]varlist [WITH varlist] [/varlist ...]\n\
+                 \x20            [/PRINT=TWOTAIL | ONETAIL  SIG | NOSIG  FULL | LOWER | LNODIAG]\n\
+                 \x20            [/STATISTICS=DESCRIPTIVES XPROD ALL] [/MISSING=PAIRWISE | LISTWISE [INCLUDE]].\n\
+                 A list alone gives a square matrix, WITH a rectangular one (left variables in rows). NOSIG marks\n\
+                 coefficients significant at 0.05 with * and at 0.01 with **. XPROD adds cross-products and\n\
+                 covariances; DESCRIPTIVES a table of means, standard deviations and counts. PAIRWISE (default)\n\
+                 uses the cases valid on both variables of a pair; LISTWISE the cases valid on every variable\n\
+                 of every list. Weighted when a weight variable is set.",
+        example: "CORRELATIONS /VARIABLES=age income WITH satisfaction /PRINT=ONETAIL NOSIG.",
+        parse: stats::correlations,
+    },
+    CommandSpec {
         name: "ADD FILES",
         summary: "Append the cases of several data files, matching variables by name.",
         syntax: "ADD FILES /FILE=* | 'path' [/RENAME=(old = new) ...] /FILE=... [/BY varlist]\n\
@@ -461,7 +475,6 @@ static UNSUPPORTED: &[&str] = &[
     "CD",
     "CLEAR TRANSFORMATIONS",
     "CLUSTER",
-    "CORRELATIONS",
     "DATA LIST",
     "DATASET ACTIVATE",
     "DATASET CLOSE",

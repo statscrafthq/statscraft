@@ -376,3 +376,72 @@ fn oneway_contrast_warnings() {
         ]
     );
 }
+
+#[test]
+fn correlations_pairwise_weighted() {
+    let tables = run(
+        &mut weighted(),
+        "CORRELATIONS /VARIABLES=age monthly_spend q1_satisfaction /STATISTICS=ALL.",
+    );
+    let descriptives = &tables[0];
+    near(number(&descriptives.rows[1][2]), 114.040_370_014, 10);
+    let correlations = &tables[1];
+    let labels: Vec<&str> = correlations.rows[..5].iter().map(|r| text(&r[1])).collect();
+    assert_eq!(
+        labels,
+        [
+            "Pearson Correlation",
+            "Sig. (2-tailed)",
+            "Sum of Squares and Cross-products",
+            "Covariance",
+            "N"
+        ]
+    );
+    assert_eq!(number(&correlations.rows[0][2]), 1.0);
+    assert_eq!(correlations.rows[1][2], Cell::Empty);
+    near(number(&correlations.rows[1][3]), 0.561, 3);
+    near(number(&correlations.rows[2][3]), 19_439.397_277_621_7, 10);
+    near(number(&correlations.rows[3][3]), 83.494_675_235_3, 10);
+    near(number(&correlations.rows[9][4]), 206.6982, 4);
+}
+
+#[test]
+fn correlations_listwise_one_tailed_lower_and_flags() {
+    let tables = run(
+        &mut survey(),
+        "CORRELATIONS /VARIABLES=age monthly_spend q1_satisfaction /MISSING=LISTWISE /PRINT=ONETAIL NOSIG LNODIAG.",
+    );
+    let table = &tables[0];
+    // no N rows: listwise N is the caption
+    assert_eq!(table.rows.len(), 6);
+    assert_eq!(text(&table.rows[1][1]), "Sig. (1-tailed)");
+    let caption = table.caption.as_deref().unwrap();
+    assert!(caption.ends_with("Listwise N = 161."), "{caption}");
+    // the diagonal and the upper triangle are empty
+    assert_eq!(table.rows[0][2], Cell::Empty);
+    assert_eq!(table.rows[2][3], Cell::Empty);
+    assert!(!matches!(table.rows[2][2], Cell::Empty));
+    let tables = run(
+        &mut survey(),
+        "COMPUTE twice = age * 2 + 1.\nCORRELATIONS /VARIABLES=age WITH twice /PRINT=NOSIG.",
+    );
+    assert_eq!(text(&tables[0].rows[0][2]), "1.000**");
+    assert!(
+        tables[0]
+            .caption
+            .as_deref()
+            .unwrap()
+            .starts_with("* significant")
+    );
+}
+
+#[test]
+fn string_variables_are_refused() {
+    let (commands, _) = parse("T-TEST /TESTVAL=1 /VARIABLES=plan.");
+    let error = survey().execute(&commands[0].command).unwrap_err();
+    assert!(error.0.contains("plan is a string variable"), "{error}");
+    let (commands, _) = parse("ONEWAY age BY plan.");
+    assert!(survey().execute(&commands[0].command).is_err());
+    let (commands, _) = parse("CORRELATIONS age plan.");
+    assert!(survey().execute(&commands[0].command).is_err());
+}

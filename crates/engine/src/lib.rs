@@ -1,6 +1,7 @@
 //! Executes parsed commands on a dataset and returns result tables.
 
 mod aggregate;
+mod correlations;
 mod crosstabs;
 mod ctables;
 mod descriptives;
@@ -330,6 +331,7 @@ impl Engine {
             Command::Means(command) => return self.means(command),
             Command::TTest(command) => return self.t_test(command),
             Command::Oneway(command) => return self.oneway(command),
+            Command::Correlations(command) => return self.correlations(command),
             Command::AddFiles(merge) => self.merge_files(merge, true)?,
             Command::MatchFiles(merge) => self.merge_files(merge, false)?,
         }
