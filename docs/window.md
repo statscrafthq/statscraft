@@ -19,7 +19,7 @@ The menus have dialogs that build syntax:
 [removed]
 - **Transform**: Compute, Recode, Count Values within Cases, Rank Cases (every RANK function with new names or the default ones, ranks within groups, from the smallest or the largest value, ties, the proportion formula, user-missing values) and Automatic Recode (AUTORECODE into new variables, from the largest value, one scheme for all, blank strings as missing, a table of the values).
 
-A dialog shows the syntax it builds: OK runs it, Paste puts it in the syntax editor. Options left at their defaults add nothing to the syntax. Warnings of a run appear under its command in the log, and the status bar says how many there were.
+A dialog shows the syntax it builds: OK runs it, Paste puts it in the syntax editor. Options left at their defaults add nothing to the syntax. Warnings of a run appear under its command in the log, and the status bar says how many there were. At its right the status bar names the split, filter and weight in force, such as `Split by region (layered)`, `Filter: filter_$` and `Weight: weight`; a click on one opens Split File, Select Cases or Weight Cases.
 
 Syntax is the only command layer: every change and every result in the window comes from syntax run by the engine, exactly as `statscraft run` runs it. Opening a file runs `GET FILE`, editing a cell runs `IF ($CASENUM = n) var = value.`, editing a label runs `VARIABLE LABELS`, and so on. The log under the tabs lists every command with what it changed, and Copy syntax there gives a script that repeats the session. Macros defined by one Run (DEFINE, or INCLUDE of a macro library) stay defined for the later ones while the window is open, with the macro settings of SET.
 

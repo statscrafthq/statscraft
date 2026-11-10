@@ -1004,7 +1004,7 @@ impl App {
         });
     }
 
-    fn status_bar(&self, ui: &mut Ui) {
+    fn status_bar(&mut self, ui: &mut Ui) {
         if let Some(busy) = &self.busy {
             ui.horizontal(|ui| {
                 ui.spinner();
@@ -1013,13 +1013,40 @@ impl App {
             return;
         }
         ui.horizontal(|ui| {
-            match &self.status {
-                Ok(text) => ui.weak(text),
-                Err(text) => ui.colored_label(ui.visuals().error_fg_color, text),
-            };
+            // the split, filter and weight in force, each opening its dialog
+            let mut open = None;
+            if let Some(data) = self.session.dataset() {
+                ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
+                    for (text, dialog) in data_states(data).into_iter().rev() {
+                        if ui.link(text).on_hover_text("Change it").clicked() {
+                            open = Some(dialog);
+                        }
+                    }
+                    self.status_line(ui);
+                });
+            } else {
+                self.status_line(ui);
+            }
+            if let Some(dialog) = open {
+                self.open_dialog(dialog);
+            }
+        });
+    }
+
+    /// The result of the last run and its warnings.
+    fn status_line(&self, ui: &mut Ui) {
+        ui.with_layout(egui::Layout::left_to_right(Align::Center), |ui| {
             if let Some(note) = warning_note(self.warnings) {
                 ui.colored_label(ui.visuals().warn_fg_color, note);
             }
+            // a long message is cut at the links of the split, filter and weight
+            let text = match &self.status {
+                Ok(text) => RichText::new(text).color(ui.visuals().weak_text_color()),
+                Err(text) => RichText::new(text).color(ui.visuals().error_fg_color),
+            };
+            let full = text.text().to_string();
+            ui.add(egui::Label::new(text).truncate())
+                .on_hover_text(full);
         });
     }
 
@@ -1887,6 +1914,32 @@ fn warning_note(warnings: usize) -> Option<String> {
         1 => Some("1 warning, see the log".into()),
         n => Some(format!("{n} warnings, see the log")),
     }
+}
+
+/// The split, filter and weight in force, as the status bar names them, each with the dialog
+/// that changes it.
+fn data_states(data: &Dataset) -> Vec<(String, Dialog)> {
+    let mut states = Vec::new();
+    if let Some(split) = data.split_file() {
+        let how = if split.layered { "layered" } else { "separate" };
+        states.push((
+            format!("Split by {} ({how})", split.variables.join(" ")),
+            Dialog::SplitFile(SplitFile::current(Some(split))),
+        ));
+    }
+    if let Some(name) = data.filter_variable() {
+        states.push((
+            format!("Filter: {name}"),
+            Dialog::SelectCases(Default::default()),
+        ));
+    }
+    if let Some(name) = data.weight_variable() {
+        states.push((
+            format!("Weight: {name}"),
+            Dialog::WeightCases(WeightCases::current(Some(name))),
+        ));
+    }
+    states
 }
 
 /// Whether the dataset has a string variable of that name.
@@ -3449,5 +3502,41 @@ mod tests {
         let warnings = &session.log.last().unwrap().warnings;
         assert_eq!(warnings.len(), 1, "{warnings:?}");
         assert!(warnings[0].contains("plan"));
+    }
+
+    #[test]
+    fn the_status_bar_names_the_split_filter_and_weight_with_their_dialogs() {
+        let mut session = open("survey_basic.sav");
+        let states = |session: &Session| -> Vec<(String, &'static str)> {
+            data_states(session.dataset().unwrap())
+                .into_iter()
+                .map(|(text, dialog)| (text, dialog.title()))
+                .collect()
+        };
+        assert!(states(&session).is_empty());
+        run_in(
+            &mut session,
+            "SORT CASES BY region gender.\nSPLIT FILE SEPARATE BY region gender.\n\
+             COMPUTE filter_$ = (age >= 40).\nFILTER BY filter_$.\nWEIGHT BY weight.",
+        );
+        let states = states(&session);
+        assert_eq!(
+            states,
+            [
+                (
+                    "Split by region gender (separate)".to_string(),
+                    "Split File"
+                ),
+                ("Filter: filter_$".to_string(), "Select Cases"),
+                ("Weight: weight".to_string(), "Weight Cases"),
+            ]
+        );
+        run_in(&mut session, "SPLIT FILE BY region.");
+        let (text, dialog) = data_states(session.dataset().unwrap()).remove(0);
+        assert_eq!(text, "Split by region (layered)");
+        let Dialog::SplitFile(d) = dialog else {
+            panic!("not the Split File dialog")
+        };
+        assert_eq!((d.mode, d.variables), (SplitMode::Layered, v(&["region"])));
     }
 }
