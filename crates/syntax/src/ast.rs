@@ -5,11 +5,15 @@
 pub enum Command {
     Get {
         file: String,
+        /// `/KEEP`, `/DROP` and `/RENAME` in the order written.
+        options: Vec<FileOption>,
     },
     Save {
         outfile: String,
         /// None when the command does not say.
         compression: Option<Compression>,
+        /// `/KEEP`, `/DROP` and `/RENAME` in the order written; the active dataset stays as is.
+        options: Vec<FileOption>,
     },
     /// (variable, label) pairs in source order.
     VariableLabels(Vec<(String, String)>),
@@ -118,6 +122,60 @@ pub enum Command {
     Use(Option<UseRange>),
     Display(Display),
     List(List),
+    /// Like VALUE LABELS, but the other labels of the variables stay.
+    AddValueLabels(Vec<ValueLabels>),
+    FileLabel(String),
+    /// DOCUMENT or ADD DOCUMENT: the lines to add.
+    AddDocument(Vec<String>),
+    DropDocuments,
+    /// VARIABLE ROLE: each role in lower case (input, target, both, none, partition, split).
+    VariableRole(Vec<(String, Vec<VarItem>)>),
+    /// VARIABLE ALIGNMENT: left, right or center.
+    VariableAlignment(Vec<(Vec<VarItem>, String)>),
+    /// VARIABLE ATTRIBUTE, or DATAFILE ATTRIBUTE when `variables` is None.
+    Attribute(Vec<AttributeChange>),
+    AlterType(Vec<AlterType>),
+    ApplyDictionary(ApplyDictionary),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AttributeChange {
+    pub variables: Option<Vec<VarItem>>,
+    /// name, 1-based array index, value
+    pub set: Vec<(String, Option<usize>, String)>,
+    /// name, 1-based array index (None: the whole attribute)
+    pub delete: Vec<(String, Option<usize>)>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct AlterType {
+    pub vars: Vec<VarItem>,
+    /// `(F = A8)`: only variables of this format type, and of this width when given.
+    pub only: Option<(FormatType, Option<u16>)>,
+    pub to: AlterTarget,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum AlterTarget {
+    Format(Format),
+    /// AMIN [+ n[%]]: the narrowest string width that holds every value, plus n bytes or n percent.
+    Amin {
+        plus: f64,
+        percent: bool,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ApplyDictionary {
+    /// None is `*`, the active dataset.
+    pub from: Option<String>,
+    pub source: Option<Vec<VarItem>>,
+    pub target: Option<Vec<VarItem>>,
+    pub newvars: bool,
+    /// FILEINFO keywords in upper case, each with REPLACE or MERGE when given.
+    pub fileinfo: Vec<(String, Option<String>)>,
+    /// VARINFO keywords; None applies the defaults.
+    pub varinfo: Option<Vec<(String, Option<String>)>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -610,6 +668,15 @@ pub struct MergeInput {
     pub table: bool,
     /// `/RENAME` groups, as in RENAME VARIABLES.
     pub rename: Vec<(Vec<VarItem>, Vec<VarItem>)>,
+}
+
+/// A subcommand of GET and SAVE that changes which variables the file holds.
+#[derive(Debug, Clone, PartialEq)]
+pub enum FileOption {
+    Keep(Vec<VarItem>),
+    Drop(Vec<VarItem>),
+    /// Groups as in RENAME VARIABLES.
+    Rename(Vec<(Vec<VarItem>, Vec<VarItem>)>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

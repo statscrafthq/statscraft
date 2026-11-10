@@ -204,16 +204,10 @@ fn aggregate_errors() {
     assert_eq!((error.span.line, error.span.column), (1, 36));
     assert!(error.expected.contains(&"MEDIAN".to_string()));
 
-    for (source, subcommand) in [
-        (
-            "AGGREGATE /OUTFILE=* /PRESORTED /BREAK=g /m = MEAN(a).",
-            "PRESORTED",
-        ),
-        (
-            "AGGREGATE /OUTFILE=* /MISSING=COLUMNWISE /m = MEAN(a).",
-            "MISSING",
-        ),
-    ] {
+    for (source, subcommand) in [(
+        "AGGREGATE /OUTFILE=* /MISSING=COLUMNWISE /m = MEAN(a).",
+        "MISSING",
+    )] {
         assert_eq!(
             err(source).message,
             format!("subcommand {subcommand} of AGGREGATE is not supported yet")

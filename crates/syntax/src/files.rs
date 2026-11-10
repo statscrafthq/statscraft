@@ -8,7 +8,7 @@ use crate::parser::{PResult, Parser};
 const UNSUPPORTED: [&str; 5] = ["IN", "FIRST", "LAST", "MAP", "SORT"];
 
 /// `(oldlist = newlist) ...` or `old = new ...`, up to the next '/'.
-fn renames(p: &mut Parser) -> PResult<Vec<(Vec<VarItem>, Vec<VarItem>)>> {
+pub(crate) fn renames(p: &mut Parser) -> PResult<Vec<(Vec<VarItem>, Vec<VarItem>)>> {
     let mut groups = Vec::new();
     while !matches!(p.peek(), None | Some(TokenKind::Punct(Punct::Slash))) {
         if p.eat(Punct::LParen) {

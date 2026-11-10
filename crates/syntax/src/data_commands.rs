@@ -243,8 +243,12 @@ fn aggregate_body(
         let bare = matches!(p.peek_at(1), None | Some(TokenKind::Punct(Punct::Slash)));
         let columnwise =
             matches!(p.peek_at(2), Some(TokenKind::Word(w)) if matches_keyword(w, "COLUMNWISE"));
-        if (bare && (p.at_keyword("PRESORTED") || p.at_keyword("DOCUMENT")))
-            || (assigns && columnwise && p.at_keyword("MISSING"))
+        // PRESORTED only promises sorted cases: groups by the break values come out the same
+        if bare && p.at_keyword("PRESORTED") {
+            p.pos += 1;
+            continue;
+        }
+        if (bare && p.at_keyword("DOCUMENT")) || (assigns && columnwise && p.at_keyword("MISSING"))
         {
             return Err(p.subcommand_error("AGGREGATE", &AGGREGATE_SUBCOMMANDS));
         }

@@ -5,6 +5,7 @@ use crate::commands;
 use crate::ctables;
 use crate::data_commands;
 use crate::data_list;
+use crate::dictionary;
 use crate::examine;
 use crate::files;
 use crate::lexer::{Punct, Token, TokenKind};
@@ -54,14 +55,17 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "GET",
         summary: "Read a data file and make it the active dataset.",
-        syntax: "GET FILE='path'.",
+        syntax: "GET FILE='path' [/KEEP=varlist] [/DROP=varlist] [/RENAME=(old = new) ...].\n\
+                 KEEP, DROP and RENAME work in the order written, as in ADD FILES.",
         example: "GET FILE='survey.sav'.",
         parse: commands::get,
     },
     CommandSpec {
         name: "SAVE",
         summary: "Write the active dataset to a data file.",
-        syntax: "SAVE OUTFILE='path' [/COMPRESSED | /UNCOMPRESSED | /ZCOMPRESSED].",
+        syntax: "SAVE OUTFILE='path' [/COMPRESSED | /UNCOMPRESSED | /ZCOMPRESSED] [/KEEP=varlist] [/DROP=varlist]\n\
+                 \x20    [/RENAME=(old = new) ...].\n\
+                 KEEP, DROP and RENAME shape the saved file only; the active dataset stays as it is.",
         example: "SAVE OUTFILE='survey_clean.sav' /COMPRESSED.",
         parse: commands::save,
     },
@@ -908,23 +912,122 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         example: "LIST VARIABLES=id age /CASES=FROM 1 TO 10 /FORMAT=NUMBERED.",
         parse: session_commands::list,
     },
+    CommandSpec {
+        name: "ADD VALUE LABELS",
+        summary: "Add or change value labels, keeping the other labels of the variables.",
+        syntax: "ADD VALUE LABELS varlist value 'label' [value 'label' ...] [/ varlist ...].\n\
+                 Values are numbers or quoted strings; a label may be joined from pieces with +.",
+        example: "ADD VALUE LABELS q1 TO q5 9 'No answer' / plan 'x' 'Unknown'.",
+        parse: dictionary::add_value_labels,
+    },
+    CommandSpec {
+        name: "FILE LABEL",
+        summary: "Set the label of the data file.",
+        syntax: "FILE LABEL text.\n\
+                 The text needs no quotes; a label that starts with a quote is read as a quoted string.",
+        example: "FILE LABEL Survey wave 2, cleaned.",
+        parse: dictionary::file_label,
+    },
+    CommandSpec {
+        name: "DOCUMENT",
+        summary: "Add free text to the documents of the data file.",
+        syntax: "DOCUMENT text.\n\
+                 The text may run over several lines and hold blank lines; a period at the end of a\n\
+                 line ends it. Every line becomes a line of the documents.",
+        example: "DOCUMENT Weights were trimmed at 5.",
+        parse: dictionary::document,
+    },
+    CommandSpec {
+        name: "ADD DOCUMENT",
+        summary: "Add quoted lines to the documents of the data file.",
+        syntax: "ADD DOCUMENT 'line' ['line' ...].\n\
+                 Each string is one line; an empty string gives a blank line.",
+        example: "ADD DOCUMENT 'Cleaned on 10 November.' 'Outliers removed.'",
+        parse: dictionary::add_document,
+    },
+    CommandSpec {
+        name: "DROP DOCUMENTS",
+        summary: "Remove the documents of the data file.",
+        syntax: "DROP DOCUMENTS.",
+        example: "DROP DOCUMENTS.",
+        parse: dictionary::drop_documents,
+    },
+    CommandSpec {
+        name: "VARIABLE ROLE",
+        summary: "Set the role of variables for dialogs.",
+        syntax: "VARIABLE ROLE /INPUT varlist /TARGET varlist /BOTH varlist /NONE varlist\n\
+                 \x20             /PARTITION varlist /SPLIT varlist.\n\
+                 At least one subcommand; a variable named twice keeps its last role.",
+        example: "VARIABLE ROLE /INPUT age income /TARGET satisfaction /NONE id.",
+        parse: dictionary::variable_role,
+    },
+    CommandSpec {
+        name: "VARIABLE ALIGNMENT",
+        summary: "Set the alignment of variables in the data grid.",
+        syntax: "VARIABLE ALIGNMENT varlist (LEFT | RIGHT | CENTER) [[/] varlist (...) ...].",
+        example: "VARIABLE ALIGNMENT id (LEFT) / q1 TO q5 (CENTER).",
+        parse: dictionary::variable_alignment,
+    },
+    CommandSpec {
+        name: "VARIABLE ATTRIBUTE",
+        summary: "Set or delete custom attributes of variables.",
+        syntax: "VARIABLE ATTRIBUTE VARIABLES=varlist ATTRIBUTE=name('value') [name[n]('value') ...]\n\
+                 \x20                  [DELETE=name [name[n] ...]] [/VARIABLES=...].\n\
+                 name[n] is element n of an attribute array (from 1); DELETE=name[n] removes it and moves\n\
+                 the later elements up, DELETE=name removes the whole attribute. Values are always quoted.",
+        example: "VARIABLE ATTRIBUTE VARIABLES=q1 q2 ATTRIBUTE=Source('wave 2') Note[2]('checked').",
+        parse: dictionary::variable_attribute,
+    },
+    CommandSpec {
+        name: "DATAFILE ATTRIBUTE",
+        summary: "Set or delete custom attributes of the data file.",
+        syntax: "DATAFILE ATTRIBUTE ATTRIBUTE=name('value') [name[n]('value') ...] [DELETE=name ...].\n\
+                 As VARIABLE ATTRIBUTE, for the file.",
+        example: "DATAFILE ATTRIBUTE ATTRIBUTE=Version('2') Revised[1]('2026-11-10').",
+        parse: dictionary::datafile_attribute,
+    },
+    CommandSpec {
+        name: "ALTER TYPE",
+        summary: "Change the type, string width or format of variables.",
+        syntax: "ALTER TYPE varlist ([input =] format | AMIN [+ n]) [varlist (...) ...] [/PRINT ...].\n\
+                 A string variable may get another width (A20); values longer than it are cut. A numeric\n\
+                 variable may get another numeric format, or become a string holding its formatted\n\
+                 values; a string may become numeric with an F, COMMA or DOT format, a value that is no\n\
+                 number becoming system-missing. A type change drops value labels and missing values.\n\
+                 input = (A=, F=, A10=) limits the change to variables of that type and width.\n\
+                 AMIN gives a string variable the width of its longest value, plus n bytes.\n\
+                 /PRINT is accepted; no report is shown.",
+        example: "ALTER TYPE comment (A500) code (A=AMIN).",
+        parse: dictionary::alter_type,
+    },
+    CommandSpec {
+        name: "APPLY DICTIONARY",
+        summary: "Copy dictionary information from a data file or dataset to the active dataset.",
+        syntax: "APPLY DICTIONARY FROM 'file' | dataset | * [/SOURCE VARIABLES=varlist]\n\
+                 \x20                [/TARGET VARIABLES=varlist] [/NEWVARS]\n\
+                 \x20                [/FILEINFO [ATTRIBUTES[=REPLACE | MERGE]] [DOCUMENTS[=...]] [FILELABEL]\n\
+                 \x20                           [MRSETS[=...]] [VARSETS[=...]] [WEIGHT] [ALL]]\n\
+                 \x20                [/VARINFO [ALIGNMENT] [ATTRIBUTES[=...]] [FORMATS] [LEVEL] [MISSING]\n\
+                 \x20                          [ROLE] [VALLABELS[=REPLACE | MERGE]] [VARLABEL] [WIDTH] [ALL]].\n\
+                 Variables match by name and type; with a different type only the label is copied.\n\
+                 Without VARINFO everything but attributes is copied, value labels replacing; without\n\
+                 FILEINFO only the weight. SOURCE with one variable and TARGET copies that variable's\n\
+                 information to every target of the same type. Empty information in the source does\n\
+                 not overwrite the active dataset's. NEWVARS is not supported yet.",
+        example: "APPLY DICTIONARY FROM 'template.sav' /FILEINFO VARSETS=MERGE MRSETS.",
+        parse: dictionary::apply_dictionary,
+    },
 ];
 
 /// Commands of the language that have no parser yet. They get "not supported yet" instead of
 /// "unknown command", and their bodies are not tokenised.
 static UNSUPPORTED: &[&str] = &[
-    "ADD DOCUMENT",
-    "ADD VALUE LABELS",
-    "ALTER TYPE",
     "ANOVA",
-    "APPLY DICTIONARY",
     "CASESTOVARS",
     "CLEAR TRANSFORMATIONS",
     "CLUSTER",
     "DATE",
     "DISCRIMINANT",
-    "DOCUMENT",
-    "DROP DOCUMENTS",
     "ECHO",
     "END CASE",
     "END DATA",
@@ -937,7 +1040,6 @@ static UNSUPPORTED: &[&str] = &[
     "EXPORT",
     "FACTOR",
     "FILE HANDLE",
-    "FILE LABEL",
     "FILE TYPE",
     "FINISH",
     "FLIP",
@@ -980,9 +1082,6 @@ static UNSUPPORTED: &[&str] = &[
     "TITLE",
     "UNIANOVA",
     "UPDATE",
-    "VARIABLE ALIGNMENT",
-    "VARIABLE ATTRIBUTE",
-    "VARIABLE ROLE",
     "VARSTOCASES",
     "WRITE",
     "WRITE FORMATS",

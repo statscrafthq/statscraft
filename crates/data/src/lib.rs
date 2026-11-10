@@ -1,7 +1,10 @@
 //! Dataset and dictionary model, with reading and writing of `.sav` / `.zsav` files.
 
 mod edit;
+mod retype;
 mod sav;
+
+pub use retype::{NewValues, cut_to};
 
 use arrow::array::{Array, ArrayRef, AsArray, Float64Array, StringViewArray};
 use serde::{Serialize, Serializer};

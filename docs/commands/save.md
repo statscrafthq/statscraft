@@ -7,8 +7,11 @@ Write the active dataset to a data file.
 ## Syntax
 
 ```text
-SAVE OUTFILE='path' [/COMPRESSED | /UNCOMPRESSED | /ZCOMPRESSED].
+SAVE OUTFILE='path' [/COMPRESSED | /UNCOMPRESSED | /ZCOMPRESSED] [/KEEP=varlist] [/DROP=varlist]
+     [/RENAME=(old = new) ...].
 ```
+
+KEEP, DROP and RENAME shape the saved file only; the active dataset stays as it is.
 
 ## Example
 

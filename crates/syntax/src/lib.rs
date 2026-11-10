@@ -19,6 +19,7 @@ mod commands;
 mod ctables;
 mod data_commands;
 mod data_list;
+mod dictionary;
 mod encoding;
 mod error;
 mod examine;

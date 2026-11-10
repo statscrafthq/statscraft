@@ -185,6 +185,15 @@ impl Engine {
             .is_some_and(|a| a.eq_ignore_ascii_case(name))
     }
 
+    /// An open dataset by name: the active one or another named one with data.
+    pub(crate) fn named_dataset(&self, name: &str) -> Option<&Dataset> {
+        if self.is_active_name(name) {
+            return self.dataset.as_ref();
+        }
+        self.find_dataset(name)
+            .and_then(|i| self.session.datasets[i].1.as_ref())
+    }
+
     /// The named datasets other than the active one, and the name of the active one.
     pub fn named_datasets(&self) -> (&[(String, Option<Dataset>)], Option<&str>) {
         (&self.session.datasets, self.session.active_name.as_deref())
@@ -243,6 +252,15 @@ impl Engine {
             Command::Use(range) => self.use_cases(range.as_ref())?,
             Command::Display(display) => return self.display_command(display),
             Command::List(_) => return self.procedure(command),
+            Command::AddValueLabels(_)
+            | Command::FileLabel(_)
+            | Command::AddDocument(_)
+            | Command::DropDocuments
+            | Command::VariableRole(_)
+            | Command::VariableAlignment(_)
+            | Command::Attribute(_)
+            | Command::AlterType(_)
+            | Command::ApplyDictionary(_) => self.execute_dictionary(command)?,
             _ => return Err(Error("this command cannot run in the engine yet".into())),
         }
         Ok(Vec::new())

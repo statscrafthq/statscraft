@@ -1,7 +1,7 @@
 //! One parser per supported command. Each receives the tokens after the command name.
 
 use crate::ast::{
-    Command, Compression, Format, FormatType, Level, MissingValue, Recode, RecodeInput,
+    Command, Compression, FileOption, Format, FormatType, Level, MissingValue, Recode, RecodeInput,
     RecodeMapping, RecodeOutput, ValueLabels, VarItem,
 };
 use crate::error::SyntaxError;
@@ -41,19 +41,44 @@ fn file_path(p: &mut Parser, keyword: &str) -> PResult<String> {
     p.string("a quoted file path")
 }
 
+/// `/KEEP=varlist`, `/DROP=varlist` or `/RENAME=(old = new)`, with the parser after the slash.
+fn file_option(p: &mut Parser) -> PResult<Option<FileOption>> {
+    Ok(Some(if p.eat_keyword("KEEP") {
+        p.eat(Punct::Eq);
+        FileOption::Keep(p.var_list()?)
+    } else if p.eat_keyword("DROP") {
+        p.eat(Punct::Eq);
+        FileOption::Drop(p.var_list()?)
+    } else if p.eat_keyword("RENAME") {
+        p.eat(Punct::Eq);
+        FileOption::Rename(crate::files::renames(p)?)
+    } else {
+        return Ok(None);
+    }))
+}
+
 pub(crate) fn get(p: &mut Parser) -> PResult<Command> {
     let file = file_path(p, "FILE")?;
-    if p.eat(Punct::Slash) {
-        return Err(p.subcommand_error("GET", &FILE_SUBCOMMANDS));
+    let mut options = Vec::new();
+    while p.eat(Punct::Slash) {
+        match file_option(p)? {
+            Some(option) => options.push(option),
+            None => return Err(p.subcommand_error("GET", &FILE_SUBCOMMANDS)),
+        }
     }
-    p.finish(&[])?;
-    Ok(Command::Get { file })
+    p.finish(&["'/'"])?;
+    Ok(Command::Get { file, options })
 }
 
 pub(crate) fn save(p: &mut Parser) -> PResult<Command> {
     let outfile = file_path(p, "OUTFILE")?;
     let mut compression = None;
+    let mut options = Vec::new();
     while p.eat(Punct::Slash) {
+        if let Some(option) = file_option(p)? {
+            options.push(option);
+            continue;
+        }
         compression = Some(if p.eat_keyword("COMPRESSED") {
             Compression::Compressed
         } else if p.eat_keyword("UNCOMPRESSED") {
@@ -68,6 +93,7 @@ pub(crate) fn save(p: &mut Parser) -> PResult<Command> {
     Ok(Command::Save {
         outfile,
         compression,
+        options,
     })
 }
 

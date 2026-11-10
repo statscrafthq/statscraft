@@ -506,6 +506,7 @@ fn parse_collects_one_error_per_bad_command() {
 fn get_file() {
     let expected = |file: &str| Command::Get {
         file: file.to_string(),
+        options: vec![],
     };
     assert_eq!(
         one("GET FILE='data/survey.sav'."),
@@ -520,10 +521,13 @@ fn get_file() {
     assert_eq!(error.message, "unexpected word survey.sav");
     assert_eq!(error.expected, ["a quoted file path"]);
     assert_eq!(err("GET.").expected, ["FILE"]);
-    let error = err("GET FILE='a.sav' /KEEP=x.");
-    assert_eq!(error.message, "subcommand KEEP of GET is not supported yet");
+    let error = err("GET FILE='a.sav' /MAP.");
+    assert_eq!(error.message, "subcommand MAP of GET is not supported yet");
     assert_eq!(at(&error), (1, 19));
-    assert_eq!(err("GET FILE='a.sav' extra.").expected, ["end of command"]);
+    assert_eq!(
+        err("GET FILE='a.sav' extra.").expected,
+        ["'/'", "end of command"]
+    );
 }
 
 #[test]
@@ -531,6 +535,7 @@ fn save_outfile() {
     let expected = |outfile: &str, compression| Command::Save {
         outfile: outfile.to_string(),
         compression,
+        options: vec![],
     };
     assert_eq!(one("SAVE OUTFILE='out.sav'."), expected("out.sav", None));
     assert_eq!(
@@ -547,8 +552,8 @@ fn save_outfile() {
     );
 
     assert_eq!(
-        err("SAVE OUTFILE='a.sav' /DROP=x.").message,
-        "subcommand DROP of SAVE is not supported yet"
+        err("SAVE OUTFILE='a.sav' /MAP.").message,
+        "subcommand MAP of SAVE is not supported yet"
     );
     assert_eq!(
         err("SAVE OUTFILE='a.sav' /FAST.").message,
@@ -1116,7 +1121,7 @@ fn command_names_resolve_from_their_words() {
 #[test]
 fn help_lists_every_command() {
     let overview = help(None).unwrap();
-    assert_eq!(command_names().len(), 71);
+    assert_eq!(command_names().len(), 82);
     for spec in table::COMMANDS {
         assert!(overview.contains(spec.name) && overview.contains(spec.summary));
     }

@@ -7,6 +7,7 @@ mod crosstabs;
 mod ctables;
 mod data_list;
 mod descriptives;
+mod dictionary;
 mod dist;
 mod examine;
 mod expr;
@@ -398,8 +399,8 @@ impl Engine {
             ));
         }
         match command {
-            Command::Get { file } => {
-                let data = Dataset::read_sav(self.path(file))?;
+            Command::Get { file, options } => {
+                let data = self.file_options(Dataset::read_sav(self.path(file))?, options)?;
                 self.park_active();
                 self.dataset = Some(data);
                 self.scratch_assigned.clear();
@@ -409,12 +410,13 @@ impl Engine {
             Command::Save {
                 outfile,
                 compression,
+                options,
             } => {
                 if matches!(compression, Some(syntax::Compression::Uncompressed)) {
                     return Err(Error("SAVE /UNCOMPRESSED is not supported yet".into()));
                 }
                 self.begin_pass()?;
-                let data = self.active()?;
+                let data = self.file_options(self.active()?.clone(), options)?;
                 if !self.dry_run {
                     data.write_sav(self.path(outfile))?;
                 }
