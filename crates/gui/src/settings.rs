@@ -21,6 +21,8 @@ pub struct Settings {
     /// The grids, the syntax text and the output follow the system's theme; otherwise they
     /// stay light like paper.
     pub paper_follows_system: bool,
+    /// Widths of the Variable View's columns, when they were changed.
+    pub variable_widths: Vec<f32>,
 }
 
 impl Settings {
@@ -56,7 +58,8 @@ impl Settings {
     }
 
     /// Reads the lines `size W H`, `position X Y`, `folder PATH`, `recent PATH`,
-    /// `updates on|off`, `update-checked SECONDS` and `paper system`; anything else is skipped.
+    /// `updates on|off`, `update-checked SECONDS`, `paper system` and `variable_widths W ...`;
+    /// anything else is skipped.
     pub fn parse(text: &str) -> Self {
         let mut settings = Self::default();
         let pair = |rest: &str| {
@@ -72,6 +75,10 @@ impl Settings {
                 "size" => settings.size = pair(rest),
                 "position" => settings.position = pair(rest),
                 "paper" => settings.paper_follows_system = rest == "system",
+                "variable_widths" => {
+                    let widths = rest.split_whitespace().map(str::parse::<f32>);
+                    settings.variable_widths = widths.collect::<Result<_, _>>().unwrap_or_default();
+                }
                 "folder" if !rest.is_empty() => settings.folder = Some(PathBuf::from(rest)),
                 "recent" if !rest.is_empty() && settings.recent.len() < RECENT => {
                     settings.recent.push(PathBuf::from(rest))
@@ -97,6 +104,10 @@ impl Settings {
         }
         if self.paper_follows_system {
             text.push_str("paper system\n");
+        }
+        if !self.variable_widths.is_empty() {
+            let widths: Vec<String> = self.variable_widths.iter().map(f32::to_string).collect();
+            text.push_str(&format!("variable_widths {}\n", widths.join(" ")));
         }
         for file in &self.recent {
             text.push_str(&format!("recent {}\n", file.display()));
@@ -141,6 +152,7 @@ mod tests {
             updates: Some(false),
             update_checked: Some(1_790_000_000),
             paper_follows_system: true,
+            variable_widths: vec![150.0, 80.5],
         };
         for i in 0..12 {
             settings.add_recent(Path::new(&format!("/data/f{i}.sav")));

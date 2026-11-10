@@ -236,6 +236,8 @@ struct CellEdit {
 struct GridEvents {
     clicked: Option<(usize, usize)>,
     double_clicked: Option<(usize, usize)>,
+    /// A column border dragged: the column, its new width, and whether the drag ended.
+    resized: Option<(usize, f32, bool)>,
     /// Rows in view, for Page Up and Page Down.
     page: usize,
 }
@@ -264,6 +266,8 @@ pub struct App {
     follow: bool,
     page: usize,
     cell_edit: Option<CellEdit>,
+    /// A Data View column being dragged to a new width, until its VARIABLE WIDTH has run.
+    data_resize: Option<(usize, f32)>,
     variable_selected: Option<(usize, usize)>,
     field_edit: Option<CellEdit>,
     syntax: String,
@@ -331,6 +335,7 @@ impl App {
             follow: false,
             page: 20,
             cell_edit: None,
+            data_resize: None,
             variable_selected: None,
             field_edit: None,
             syntax: String::new(),
@@ -424,6 +429,7 @@ impl App {
     }
 
     fn finish(&mut self, after: After, mut result: Result<RunResult, Vec<Failure>>) {
+        self.data_resize = None;
         let changed = matches!(&result, Ok(r) if r.saved);
         let file = self.data_file.clone();
         let loaded = matches!(&result, Ok(r) if r.commands.iter().any(|c| c.name == "GET"));
@@ -1011,9 +1017,12 @@ impl App {
         let data = self.session.dataset().expect("checked above");
         let char_width = TextStyle::Body.resolve(ui.style()).size * 0.6;
         let labels = self.value_labels;
-        let widths: Vec<f32> = data
+        let mut widths: Vec<f32> = data
             .variables()
             .map(|v| {
+                if let Some(chars) = v.display_width() {
+                    return grid::width_of(chars, char_width);
+                }
                 let width = v
                     .format()
                     .trim_start_matches(|c: char| c.is_ascii_alphabetic());
@@ -1029,6 +1038,11 @@ impl App {
                 grid::column_width(v.name(), width, char_width)
             })
             .collect();
+        if let Some((c, width)) = self.data_resize
+            && c < widths.len()
+        {
+            widths[c] = width;
+        }
         let headers: Vec<String> = data.variable_names().map(str::to_string).collect();
         // numbers align right, value labels and strings left
         let cell = |r: usize, c: usize| {
@@ -1063,6 +1077,18 @@ impl App {
         self.page = events.page.max(1);
         if let Some(at) = events.clicked {
             self.selected = Some(at);
+        }
+        if let Some((c, width, done)) = events.resized {
+            self.data_resize = Some((c, width));
+            if done {
+                let data = self.session.dataset().expect("checked above");
+                let name = data.variable_at(c).name().to_string();
+                self.run(
+                    &grid::width_command(&name, width, char_width),
+                    None,
+                    After::Show,
+                );
+            }
         }
         if let Some(at) = events.double_clicked {
             self.edit_cell(at);
@@ -1167,7 +1193,10 @@ impl App {
         paper(ui, !self.settings.paper_follows_system);
         let data = self.session.dataset().expect("checked above");
         let headers: Vec<String> = Field::ALL.iter().map(|f| f.title().to_string()).collect();
-        let widths = [150.0, 80.0, 90.0, 60.0, 72.0, 260.0, 300.0, 170.0, 100.0];
+        let mut widths = vec![150.0, 80.0, 90.0, 60.0, 72.0, 260.0, 300.0, 170.0, 100.0];
+        if self.settings.variable_widths.len() == widths.len() {
+            widths.clone_from(&self.settings.variable_widths);
+        }
         let cell = |r: usize, c: usize| {
             let field = Field::ALL[c];
             let text = edits::field_text(&data.variable_at(r), field);
@@ -1211,6 +1240,13 @@ impl App {
                 }
             },
         );
+        if let Some((c, width, done)) = events.resized {
+            widths[c] = width;
+            self.settings.variable_widths = widths;
+            if done {
+                let _ = self.settings.save();
+            }
+        }
         if let Some(at) = events.clicked {
             self.variable_selected = Some(at);
             // a text edit commits when it loses focus; the measure list just closes
@@ -1712,6 +1748,9 @@ fn cell_editor(ui: &mut Ui, rect: Rect, edit: &mut CellEdit) -> (bool, bool) {
     (response.lost_focus(), false)
 }
 
+/// The narrowest a dragged column gets.
+const MIN_COLUMN: f32 = 20.0;
+
 /// Draws only the visible cells of a large grid, with a header row and row numbers that stay
 /// in view, and reports clicks by (row, column).
 #[allow(clippy::too_many_arguments)]
@@ -1762,26 +1801,20 @@ fn paint_grid(
             let cell_rect = |r: usize, c: usize| {
                 Rect::from_min_max(pos2(x(c), y(r)), pos2(x(c + 1), y(r) + row_height))
             };
+            // a right-aligned text too wide for its cell shows its start, so a number cut
+            // short never reads as a different number
             let text_in =
                 |painter: &egui::Painter, rect: Rect, text: String, right: bool, color: Color32| {
                     let painter = painter.with_clip_rect(rect.shrink(1.0).intersect(clip));
-                    if right {
-                        painter.text(
-                            rect.right_center() - vec2(6.0, 0.0),
-                            Align2::RIGHT_CENTER,
-                            text,
-                            font.clone(),
-                            color,
-                        );
+                    let galley = painter.layout_no_wrap(text, font.clone(), color);
+                    let width = galley.size().x;
+                    let x = if right && width <= rect.width() - 12.0 {
+                        rect.right() - 6.0 - width
                     } else {
-                        painter.text(
-                            rect.left_center() + vec2(6.0, 0.0),
-                            Align2::LEFT_CENTER,
-                            text,
-                            font.clone(),
-                            color,
-                        );
-                    }
+                        rect.left() + 6.0
+                    };
+                    let y = rect.center().y - galley.size().y / 2.0;
+                    painter.galley(pos2(x, y), galley, color);
                 };
 
             let (left, right) = (x(visible_columns.start), x(visible_columns.end));
@@ -1842,6 +1875,25 @@ fn paint_grid(
                     visuals.strong_text_color(),
                 );
                 painter.vline(x(c + 1), rect.y_range(), line);
+                // drag a column's right border in the header to change its width
+                let border = Rect::from_center_size(
+                    pos2(x(c + 1), rect.center().y),
+                    vec2(8.0, header_height),
+                );
+                let handle = ui.interact(
+                    border,
+                    ui.make_persistent_id((id, "resize", c)),
+                    Sense::drag(),
+                );
+                if handle.hovered() || handle.dragged() {
+                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeColumn);
+                }
+                if let Some(pointer) = handle.interact_pointer_pos()
+                    && (handle.dragged() || handle.drag_stopped())
+                {
+                    let width = (pointer.x - x(c)).max(MIN_COLUMN);
+                    events.resized = Some((c, width, handle.drag_stopped()));
+                }
             }
             painter.hline(clip.x_range(), top + header_height, line);
             let numbers = Rect::from_min_max(

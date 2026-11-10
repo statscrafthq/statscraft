@@ -74,6 +74,24 @@ pub fn column_width(name: &str, format_width: usize, char_width: f32) -> f32 {
     (chars * char_width + 16.0).clamp(64.0, 260.0)
 }
 
+/// Room beside the text of a column, in points.
+const PADDING: f32 = 12.0;
+
+/// Width in points of a column `chars` characters wide: the display width of a variable.
+pub fn width_of(chars: u32, char_width: f32) -> f32 {
+    chars as f32 * char_width + PADDING
+}
+
+/// The display width in characters that a column dragged to `width` points stands for.
+pub fn chars_of(width: f32, char_width: f32) -> u32 {
+    ((width - PADDING) / char_width).round().max(1.0) as u32
+}
+
+/// The syntax that gives a variable the width of a dragged column.
+pub fn width_command(name: &str, width: f32, char_width: f32) -> String {
+    format!("VARIABLE WIDTH {name} ({}).", chars_of(width, char_width))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -125,6 +143,17 @@ mod tests {
         assert_eq!(go(Key::Tab, false, true, (0, 0)), (0, 0));
         // a selection left outside a grid that shrank comes back inside
         assert_eq!(go(Key::ArrowUp, false, false, (500, 9)), (98, 4));
+    }
+
+    #[test]
+    fn a_dragged_column_becomes_a_display_width() {
+        assert_eq!(width_of(10, 8.0), 92.0);
+        assert_eq!(chars_of(92.0, 8.0), 10);
+        assert_eq!(chars_of(95.9, 8.0), 10);
+        assert_eq!(chars_of(96.1, 8.0), 11);
+        // never narrower than one character
+        assert_eq!(chars_of(2.0, 8.0), 1);
+        assert_eq!(width_command("q1", 140.0, 8.0), "VARIABLE WIDTH q1 (16).");
     }
 
     #[test]
