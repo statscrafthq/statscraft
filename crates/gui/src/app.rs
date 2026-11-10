@@ -549,6 +549,20 @@ impl App {
         self.run(&syntax, None, After::OpenData(path));
     }
 
+    /// Files dropped on the window from the file manager.
+    fn open_dropped(&mut self, paths: Vec<PathBuf>) {
+        let drop = dropped(paths);
+        if let Some(path) = drop.syntax {
+            self.load_syntax(path);
+        }
+        if let Some(path) = drop.data {
+            self.open_data(path);
+        }
+        if let Some(note) = drop.note {
+            self.status = Err(note);
+        }
+    }
+
     fn save_data(&mut self, path: PathBuf) {
         let syntax = format!("SAVE OUTFILE={}.", quote(&path.to_string_lossy()));
         self.run(&syntax, None, After::SaveData(path));
@@ -1486,6 +1500,33 @@ impl eframe::App for App {
         if let Some(outer) = outer {
             self.settings.position = Some([outer.min.x, outer.min.y]);
         }
+        let (files, hovering) = ui.input(|i| {
+            let files: Vec<PathBuf> = i
+                .raw
+                .dropped_files
+                .iter()
+                .map(|f| f.path().to_path_buf())
+                .collect();
+            (files, !i.raw.hovered_files.is_empty())
+        });
+        if !files.is_empty() {
+            self.open_dropped(files);
+        }
+        if hovering {
+            let painter = ui.ctx().layer_painter(egui::LayerId::new(
+                egui::Order::Foreground,
+                egui::Id::unique("drop files"),
+            ));
+            let screen = ui.ctx().content_rect();
+            painter.rect_filled(screen, 0.0, Color32::from_black_alpha(160));
+            painter.text(
+                screen.center(),
+                Align2::CENTER_CENTER,
+                "Drop .sav, .zsav or .sps files to open them",
+                FontId::proportional(20.0),
+                Color32::WHITE,
+            );
+        }
         self.grid_keys(ui);
         // Ctrl+Z inside a text field is that field's own undo
         if !ui.ctx().egui_wants_keyboard_input()
@@ -1562,6 +1603,62 @@ fn file_dialog(folder: &Option<PathBuf>) -> rfd::FileDialog {
 fn is_syntax_file(path: &Path) -> bool {
     path.extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("sps"))
+}
+
+fn is_data_file(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("sav") || e.eq_ignore_ascii_case("zsav"))
+}
+
+/// What a drop of files from the file manager opens: one data file, one syntax file, and a
+/// note naming the files left alone.
+#[derive(Debug, Default, PartialEq)]
+struct Dropped {
+    data: Option<PathBuf>,
+    syntax: Option<PathBuf>,
+    note: Option<String>,
+}
+
+fn dropped(paths: Vec<PathBuf>) -> Dropped {
+    let mut drop = Dropped::default();
+    let (mut extra, mut other) = (Vec::new(), Vec::new());
+    for path in paths {
+        let slot = if is_data_file(&path) {
+            &mut drop.data
+        } else if is_syntax_file(&path) {
+            &mut drop.syntax
+        } else {
+            other.push(path);
+            continue;
+        };
+        if slot.is_none() {
+            *slot = Some(path);
+        } else {
+            extra.push(path);
+        }
+    }
+    let name = |p: &PathBuf| {
+        p.file_name().map_or_else(
+            || p.display().to_string(),
+            |n| n.to_string_lossy().into_owned(),
+        )
+    };
+    let mut reasons = Vec::new();
+    if !extra.is_empty() {
+        reasons.push("one data file and one syntax file open at a time");
+    }
+    if !other.is_empty() {
+        reasons.push("StatsCraft opens .sav, .zsav and .sps files");
+    }
+    if !reasons.is_empty() {
+        let names: Vec<String> = extra.iter().chain(&other).map(name).collect();
+        drop.note = Some(format!(
+            "not opened: {} ({})",
+            names.join(", "),
+            reasons.join("; ")
+        ));
+    }
+    drop
 }
 
 /// A text editor over one grid cell. Returns (commit, cancel): Enter or leaving the cell
@@ -2845,6 +2942,29 @@ fn t_test_options(ui: &mut Ui, d: &mut TTest) {
 mod tests {
     use super::*;
     use crate::dialogs::testing::{open, run_in, v};
+
+    #[test]
+    fn dropped_files_open_one_data_file_and_one_syntax_file() {
+        let paths = |names: &[&str]| names.iter().map(PathBuf::from).collect::<Vec<_>>();
+        let drop = dropped(paths(&["/d/a.SAV", "/d/job.sps"]));
+        assert_eq!(drop.data, Some(PathBuf::from("/d/a.SAV")));
+        assert_eq!(drop.syntax, Some(PathBuf::from("/d/job.sps")));
+        assert_eq!(drop.note, None);
+        let drop = dropped(paths(&["/d/b.zsav", "/d/c.sav", "/d/notes.txt"]));
+        assert_eq!(drop.data, Some(PathBuf::from("/d/b.zsav")));
+        assert_eq!(drop.syntax, None);
+        assert_eq!(
+            drop.note.unwrap(),
+            "not opened: c.sav, notes.txt (one data file and one syntax file open at a time; \
+             StatsCraft opens .sav, .zsav and .sps files)"
+        );
+        let drop = dropped(paths(&["/d/table.csv"]));
+        assert_eq!(drop.data, None);
+        assert_eq!(
+            drop.note.unwrap(),
+            "not opened: table.csv (StatsCraft opens .sav, .zsav and .sps files)"
+        );
+    }
 
     #[test]
     fn subtotal_categories_are_the_valid_values_in_order() {
