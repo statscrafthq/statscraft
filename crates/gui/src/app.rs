@@ -15,7 +15,8 @@ use crate::dialogs::{
     RecodeRule, Subtotal, is_set, label_command,
 };
 use crate::edits::{self, Field};
-use crate::output::{self, OutputItem};
+use crate::output;
+use crate::output_view::{self, OutputView};
 use crate::syntax_text::{number, quote};
 use crate::{editor, grid};
 use eframe::egui::{
@@ -26,7 +27,7 @@ use eframe::egui::{
 use statscraft_data::{Dataset, Value, Values};
 use statscraft_engine::live::{self, Action, Request, Response};
 use statscraft_engine::session::{Done, Failure, RunResult, Session};
-use std::collections::{BTreeSet, HashMap};
+use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 
@@ -39,7 +40,8 @@ enum After {
     Editor,
     OpenData(PathBuf),
     SaveData(PathBuf),
-    CloseDialog,
+    /// With the dialog's title, for the output.
+    CloseDialog(&'static str),
     Remote(Remote),
 }
 
@@ -272,9 +274,7 @@ pub struct App {
     file_before_change: Option<PathBuf>,
     help_for: Option<(u32, usize)>,
     help_text: String,
-    output: Vec<OutputItem>,
-    table_widths: HashMap<(usize, usize), Vec<f32>>,
-    scroll_to: Option<(usize, usize)>,
+    output: OutputView,
     dialog: Option<Dialog>,
     picked: Vec<String>,
     filter: String,
@@ -335,9 +335,7 @@ impl App {
             file_before_change: None,
             help_for: None,
             help_text: String::new(),
-            output: Vec::new(),
-            table_widths: HashMap::new(),
-            scroll_to: None,
+            output: OutputView::default(),
             dialog: None,
             picked: Vec::new(),
             filter: String::new(),
@@ -444,16 +442,16 @@ impl App {
                 // the data may have changed under an open cell editor
                 self.cell_edit = None;
                 self.field_edit = None;
-                self.show(result, false);
+                self.show(result, "command line", false);
             }
             After::Show => {
-                self.show(result, false);
+                self.show(result, "window", false);
             }
             After::Editor => {
-                self.show(result, true);
+                self.show(result, "syntax editor", true);
             }
             After::OpenData(path) => {
-                if self.show(result, false) {
+                if self.show(result, "open file", false) {
                     self.data_file = Some(path);
                     self.selected = None;
                     self.cell_edit = None;
@@ -462,12 +460,12 @@ impl App {
                 }
             }
             After::SaveData(path) => {
-                if self.show(result, false) {
+                if self.show(result, "save file", false) {
                     self.data_file = Some(path);
                 }
             }
-            After::CloseDialog => {
-                if self.show(result, false) {
+            After::CloseDialog(title) => {
+                if self.show(result, title, false) {
                     self.dialog = None;
                 }
             }
@@ -491,14 +489,19 @@ impl App {
 
     /// Puts the tables of a run in the output, or its errors in the status bar and, for the
     /// syntax editor, in the editor's error list.
-    fn show(&mut self, result: Result<RunResult, Vec<Failure>>, from_editor: bool) -> bool {
+    fn show(
+        &mut self,
+        result: Result<RunResult, Vec<Failure>>,
+        origin: &str,
+        from_editor: bool,
+    ) -> bool {
         match result.map(|r| r.commands) {
             Ok(outputs) => {
                 if from_editor {
                     self.syntax_errors.clear();
                 }
-                let first_new = self.output.len();
-                for out in outputs.into_iter().filter(|o| !o.tables.is_empty()) {
+                let mut commands = Vec::new();
+                for out in outputs {
                     let heading = match (from_editor, out.first_line == out.last_line) {
                         (false, _) => out.name,
                         (true, true) => format!("{}, line {}", out.name, out.first_line),
@@ -506,14 +509,10 @@ impl App {
                             format!("{}, lines {}-{}", out.name, out.first_line, out.last_line)
                         }
                     };
-                    self.output.push(OutputItem {
-                        heading,
-                        tables: out.tables,
-                    });
+                    commands.push((heading, out.tables));
                 }
-                if self.output.len() > first_new {
+                if self.output.add_run(origin, commands) {
                     self.tab = Tab::Output;
-                    self.scroll_to = Some((first_new, 0));
                 }
                 let last = self.session.log.last();
                 let summary = last.and_then(|e| e.result.as_ref().ok());
@@ -623,15 +622,15 @@ impl App {
                     )
                     .clicked()
                 {
-                    self.export_html();
+                    self.export_html(false);
                 }
                 ui.add_enabled_ui(!self.output.is_empty(), |ui| {
                     ui.menu_button("Export output as Excel", |ui| {
                         if ui.button("One sheet per table...").clicked() {
-                            self.export_xlsx(false);
+                            self.export_xlsx(false, false);
                         }
                         if ui.button("All tables on one sheet...").clicked() {
-                            self.export_xlsx(true);
+                            self.export_xlsx(true, false);
                         }
                     });
                 });
@@ -798,24 +797,30 @@ impl App {
         }
     }
 
-    fn export_html(&mut self) {
+    /// Exports the whole output, or with `selected` only the selected tables.
+    fn export_html(&mut self, selected: bool) {
         if let Some(path) = rfd::FileDialog::new()
             .add_filter("Web page", &["html"])
             .save_file()
         {
-            self.status = match std::fs::write(&path, output::html(&self.output)) {
+            let chosen = &self.output.selected;
+            let page = output::html(&self.output.runs, |id| !selected || chosen.contains(&id));
+            self.status = match std::fs::write(&path, page) {
                 Ok(()) => Ok(format!("output exported to {}", path.display())),
                 Err(e) => Err(format!("{}: {e}", path.display())),
             };
         }
     }
 
-    fn export_xlsx(&mut self, one_sheet: bool) {
+    fn export_xlsx(&mut self, one_sheet: bool, selected: bool) {
         if let Some(path) = rfd::FileDialog::new()
             .add_filter("Excel workbook", &["xlsx"])
             .save_file()
         {
-            let tables = self.output.iter().flat_map(|item| &item.tables);
+            let chosen = &self.output.selected;
+            let tables = output::tables(&self.output.runs)
+                .filter(|t| !selected || chosen.contains(&t.id))
+                .map(|t| &t.table);
             self.status = match statscraft_export::write_xlsx(&path, tables, one_sheet) {
                 Ok(()) => Ok(format!("output exported to {}", path.display())),
                 Err(e) => Err(format!("{}: {e}", path.display())),
@@ -1297,87 +1302,6 @@ impl App {
         }
     }
 
-    fn output_view(&mut self, ui: &mut Ui) {
-        if self.output.is_empty() {
-            ui.add_space(40.0);
-            ui.vertical_centered(|ui| {
-                ui.heading("No output yet");
-                ui.label("Results of FREQUENCIES, CROSSTABS, CTABLES and the other procedures appear here.");
-            });
-            return;
-        }
-        egui::Panel::left("outline")
-            .resizable(true)
-            .default_size(220.0)
-            .show(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.strong("Outline");
-                    if ui.small_button("Export HTML...").clicked() {
-                        self.export_html();
-                    }
-                    if ui.small_button("Clear").clicked() {
-                        self.output.clear();
-                        self.table_widths.clear();
-                    }
-                });
-                ScrollArea::vertical().auto_shrink(false).show(ui, |ui| {
-                    for (i, item) in self.output.iter().enumerate() {
-                        if ui
-                            .selectable_label(false, RichText::new(&item.heading).strong())
-                            .clicked()
-                        {
-                            self.scroll_to = Some((i, 0));
-                        }
-                        for (t, table) in item.tables.iter().enumerate() {
-                            ui.horizontal(|ui| {
-                                ui.add_space(12.0);
-                                if ui.selectable_label(false, &table.title).clicked() {
-                                    self.scroll_to = Some((i, t));
-                                }
-                            });
-                        }
-                    }
-                });
-            });
-        egui::CentralPanel::default().show(ui, |ui| {
-            ScrollArea::both().auto_shrink(false).show(ui, |ui| {
-                for (i, item) in self.output.iter().enumerate() {
-                    ui.add_space(8.0);
-                    ui.label(RichText::new(&item.heading).weak().size(13.0));
-                    for (t, table) in item.tables.iter().enumerate() {
-                        let top = ui.cursor().min;
-                        ui.horizontal(|ui| {
-                            ui.label(RichText::new(&table.title).strong().size(15.0));
-                            if ui
-                                .small_button("Copy")
-                                .on_hover_text("Copy as tab-separated text, for a spreadsheet")
-                                .clicked()
-                            {
-                                ui.ctx().copy_text(output::tsv(table));
-                            }
-                        });
-                        let widths = self
-                            .table_widths
-                            .entry((i, t))
-                            .or_insert_with(|| measure_table(ui, table));
-                        paint_table(ui, table, widths);
-                        if let Some(caption) = &table.caption {
-                            ui.add(egui::Label::new(RichText::new(caption).weak()).wrap());
-                        }
-                        if self.scroll_to == Some((i, t)) {
-                            ui.scroll_to_rect(
-                                Rect::from_min_size(top, vec2(1.0, 40.0)),
-                                Some(Align::TOP),
-                            );
-                            self.scroll_to = None;
-                        }
-                        ui.add_space(14.0);
-                    }
-                }
-            });
-        });
-    }
-
     fn dialog_window(&mut self, ctx: &egui::Context) {
         let Some(dialog) = self.dialog.as_mut() else {
             return;
@@ -1453,7 +1377,8 @@ impl App {
         }
         match (action, syntax) {
             (Some(DialogAction::Ok), Ok(text)) => {
-                self.run(&text, None, After::CloseDialog);
+                let title = self.dialog.as_ref().map_or("dialog", Dialog::title);
+                self.run(&text, None, After::CloseDialog(title));
             }
             (Some(DialogAction::Paste), Ok(text)) => {
                 editor::append(&mut self.syntax, &text);
@@ -1515,7 +1440,17 @@ impl eframe::App for App {
             Tab::Data => self.data_view(ui),
             Tab::Variables => self.variable_view(ui),
             Tab::Syntax => self.syntax_view(ui),
-            Tab::Output => self.output_view(ui),
+            Tab::Output => {
+                let request = self.output.ui(ui);
+                match request {
+                    Some(output_view::Request::ExportHtml) => self.export_html(true),
+                    Some(output_view::Request::ExportXlsx { one_sheet }) => {
+                        self.export_xlsx(one_sheet, true)
+                    }
+                    Some(output_view::Request::Status(status)) => self.status = status,
+                    None => {}
+                }
+            }
         });
         let ctx = ui.ctx().clone();
         self.dialog_window(&ctx);
@@ -1752,127 +1687,6 @@ fn paint_grid(
             }
         });
     events
-}
-
-/// Column widths of a result table, wide enough for every cell and spanning header.
-fn measure_table(ui: &Ui, table: &statscraft_engine::Table) -> Vec<f32> {
-    let font = TextStyle::Body.resolve(ui.style());
-    let width = |text: String| {
-        ui.ctx().fonts_mut(|f| {
-            f.layout_no_wrap(text, font.clone(), Color32::WHITE)
-                .size()
-                .x
-        }) + 16.0
-    };
-    let mut widths = vec![24.0f32; table.columns.len()];
-    for r in 0..table.rows.len() {
-        for (c, w) in widths.iter_mut().enumerate().take(table.rows[r].len()) {
-            *w = w.max(width(output::cell_text(table, r, c)));
-        }
-    }
-    for level in output::header_rows(table) {
-        for cell in level {
-            let span = cell.first..cell.first + cell.span;
-            let have: f32 = widths[span.clone()].iter().sum();
-            let need = width(cell.label.clone());
-            if need > have {
-                let extra = (need - have) / cell.span as f32;
-                widths[span].iter_mut().for_each(|w| *w += extra);
-            }
-        }
-    }
-    widths
-}
-
-fn paint_table(ui: &mut Ui, table: &statscraft_engine::Table, widths: &[f32]) {
-    let font = TextStyle::Body.resolve(ui.style());
-    let row_height = font.size + 10.0;
-    let headers = output::header_rows(table);
-    let height = (headers.len() + table.rows.len()) as f32 * row_height;
-    let (rect, _) = ui.allocate_exact_size(vec2(widths.iter().sum(), height), Sense::hover());
-    if !ui.is_rect_visible(rect) {
-        return;
-    }
-    let painter = ui.painter_at(rect.expand(1.0));
-    let visuals = ui.visuals();
-    let line = Stroke::new(1.0, visuals.widgets.noninteractive.bg_stroke.color);
-    let offsets = grid::offsets(widths);
-    let x = |c: usize| rect.left() + offsets[c];
-    let mut y = rect.top();
-    let header_fill = visuals.widgets.noninteractive.weak_bg_fill;
-    let header_left = x(table.row_headers);
-    painter.rect_filled(
-        Rect::from_min_max(
-            pos2(header_left, y),
-            pos2(rect.right(), y + headers.len() as f32 * row_height),
-        ),
-        0.0,
-        header_fill,
-    );
-    for level in &headers {
-        for cell in level {
-            let span = Rect::from_min_max(
-                pos2(x(cell.first), y),
-                pos2(x(cell.first + cell.span), y + row_height),
-            );
-            painter.text(
-                span.center(),
-                Align2::CENTER_CENTER,
-                &cell.label,
-                font.clone(),
-                visuals.strong_text_color(),
-            );
-            if cell.first >= table.row_headers && !cell.label.is_empty() {
-                painter.hline(span.shrink2(vec2(4.0, 0.0)).x_range(), span.bottom(), line);
-            }
-        }
-        y += row_height;
-    }
-    painter.hline(rect.x_range(), y, Stroke::new(1.5, visuals.text_color()));
-    let body_top = y;
-    let clip = ui.clip_rect();
-    let rows = grid::visible_rows(
-        clip.top() - body_top,
-        clip.bottom() - body_top,
-        row_height,
-        table.rows.len(),
-    );
-    for r in rows {
-        let y = body_top + r as f32 * row_height;
-        if r % 2 == 1 {
-            painter.rect_filled(
-                Rect::from_min_max(pos2(rect.left(), y), pos2(rect.right(), y + row_height)),
-                0.0,
-                visuals.faint_bg_color,
-            );
-        }
-        for c in 0..table.rows[r].len().min(widths.len()) {
-            let text = output::cell_text(table, r, c);
-            let cell = Rect::from_min_max(pos2(x(c), y), pos2(x(c + 1), y + row_height));
-            if c < table.row_headers {
-                painter.text(
-                    cell.left_center() + vec2(8.0, 0.0),
-                    Align2::LEFT_CENTER,
-                    text,
-                    font.clone(),
-                    visuals.text_color(),
-                );
-            } else {
-                painter.text(
-                    cell.right_center() - vec2(8.0, 0.0),
-                    Align2::RIGHT_CENTER,
-                    text,
-                    font.clone(),
-                    visuals.text_color(),
-                );
-            }
-        }
-    }
-    painter.hline(
-        rect.x_range(),
-        rect.bottom(),
-        Stroke::new(1.5, visuals.text_color()),
-    );
 }
 
 /// The dataset's variables, filtered by name or label, and with `sets` its multiple response

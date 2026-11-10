@@ -16,6 +16,8 @@ statscraft-syntax = { path = "../syntax" }
 # not under MIT or Apache, so fonts.rs loads system fonts at startup.
 eframe = { version = "0.37.0", default-features = false, features = ["glow", "accesskit", "clipboard", "wayland", "x11"] }
 rfd = "0.18.0"
+# rich text (HTML) on the clipboard, which egui cannot put there; already built for eframe
+arboard = { version = "3.7.0", default-features = false }
 
 # Embeds icons/statscraft.ico in the Windows executable (build.rs). Without default features it
 # does not pull in toml, which only reads resource settings from Cargo.toml.

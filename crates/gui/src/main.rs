@@ -10,6 +10,7 @@ mod edits;
 mod fonts;
 mod grid;
 mod output;
+mod output_view;
 mod syntax_text;
 
 use eframe::egui;

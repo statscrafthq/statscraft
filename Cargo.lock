@@ -3948,6 +3948,7 @@ dependencies = [
 name = "statscraft-gui"
 version = "0.0.0"
 dependencies = [
+ "arboard",
  "eframe",
  "rfd",
  "statscraft-data",
