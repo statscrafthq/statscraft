@@ -189,10 +189,13 @@ fn or_list(names: &[&str]) -> String {
 
 /// Parses the body of one command from `split_commands`.
 pub fn parse_command(raw: &RawCommand) -> Result<Command, SyntaxError> {
-    parse_raw(raw).map_err(|error| match &raw.origin {
-        Some(origin) if error.hint.is_none() => error.hint(format!("in {origin}")),
-        _ => error,
-    })
+    let error = |error| split::multiline_hint(&raw.tokens, error);
+    parse_raw(raw)
+        .map_err(error)
+        .map_err(|error| match &raw.origin {
+            Some(origin) if error.hint.is_none() => error.hint(format!("in {origin}")),
+            _ => error,
+        })
 }
 
 fn parse_raw(raw: &RawCommand) -> Result<Command, SyntaxError> {

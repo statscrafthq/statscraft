@@ -308,12 +308,10 @@ impl Engine {
                         );
                     }
                 }
-                "MNEST" | "MITERATE" => {
-                    if value.parse::<u32>().map_or(true, |n| n == 0) {
-                        return Err(Error(format!(
-                            "SET {name} takes a whole number from 1, got {value}"
-                        )));
-                    }
+                "MNEST" | "MITERATE" if value.parse::<u32>().map_or(true, |n| n == 0) => {
+                    return Err(Error(format!(
+                        "SET {name} takes a whole number from 1, got {value}"
+                    )));
                 }
                 _ => {}
             }

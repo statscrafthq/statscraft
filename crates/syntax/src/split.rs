@@ -187,7 +187,7 @@ fn build(lines: &[(u32, &str)], end: Span) -> Option<Result<RawCommand, SyntaxEr
                 }
             }
             if let Some(error) = lex_error {
-                return Some(Err(error));
+                return Some(Err(multiline_hint(&tokens, error)));
             }
             spec.name.to_string()
         }
@@ -314,6 +314,26 @@ pub(crate) fn command_end(
         }
     }
     (lines.len(), None, kind)
+}
+
+/// An error after a string that runs over several lines gets a hint: a closing quote left out
+/// makes the string run on and the error show up later.
+pub(crate) fn multiline_hint(tokens: &[Token], error: SyntaxError) -> SyntaxError {
+    let before = |t: &&Token| (t.span.line, t.span.column) < (error.span.line, error.span.column);
+    let long = tokens
+        .iter()
+        .filter(before)
+        .find(|t| matches!(t.kind, TokenKind::Str(_)) && t.span.end_line > t.span.line);
+    match long {
+        Some(t) => {
+            let line = t.span.line;
+            error.hint(format!(
+                "the string that starts on line {line} runs over several lines; \
+                 if it was meant to end on line {line}, its closing quote is missing"
+            ))
+        }
+        None => error,
+    }
 }
 
 /// Every command of the source, or the error that prevented tokenising it. Macros are

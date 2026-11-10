@@ -219,7 +219,7 @@ impl Engine {
                         decimals: 0,
                     }
                 }
-                AlterTarget::Format(format) => format.clone(),
+                AlterTarget::Format(format) => *format,
             };
             let mut text = format!("{}{}", format.kind.name(), format.width);
             if format.decimals > 0 {
@@ -448,12 +448,11 @@ impl Engine {
                 .map(|e| e.1.as_deref())
                 .or_else(|| all.then_some(None))
         };
-        if file_wants("WEIGHT").is_some() || fileinfo.is_empty() {
-            if let Some(weight) = source.weight_variable()
-                && data.variable_index(weight).is_some()
-            {
-                data.set_weight_variable(Some(weight))?;
-            }
+        if (file_wants("WEIGHT").is_some() || fileinfo.is_empty())
+            && let Some(weight) = source.weight_variable()
+            && data.variable_index(weight).is_some()
+        {
+            data.set_weight_variable(Some(weight))?;
         }
         if let Some(mode) = file_wants("ATTRIBUTES")
             && !source.attributes().is_empty()

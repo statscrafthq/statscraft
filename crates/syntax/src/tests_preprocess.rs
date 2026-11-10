@@ -369,6 +369,19 @@ fn insert_and_include_read_files_relative_to_the_including_file() {
 }
 
 #[test]
+fn an_error_after_a_string_over_lines_points_at_a_missing_quote() {
+    let (_, errors) = parse("VALUE LABELS q1 1 'one\n2 'two 'x'.");
+    assert_eq!(errors.len(), 1);
+    assert_eq!(
+        errors[0].hint.as_deref(),
+        Some(
+            "the string that starts on line 1 runs over several lines; \
+             if it was meant to end on line 1, its closing quote is missing"
+        )
+    );
+}
+
+#[test]
 fn a_quote_in_free_text_or_an_unknown_command_stays_on_its_line() {
     let source = "TITLE Don't panic.\nBOGUS it's 'open.\nEXECUTE.";
     assert_eq!(

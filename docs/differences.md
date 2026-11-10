@@ -29,6 +29,9 @@ These are accepted where the documented syntax refuses them. Results on document
 - COUNT and RECODE accept MISSING for string variables.
 - CTABLES accepts MIN and MAX for MINIMUM and MAXIMUM, and a format before the label in a summary list.
 - COUNT is allowed inside DO IF.
+- A quoted string may run on over line breaks, blank lines included, until its closing quote; the breaks stay in the text. Survey tools write labels that way. An error after such a string says where it started, since a missing quote also makes a string run on.
+- PRESERVE and RESTORE accept words after them (`PRESERVE LOCALE.`) and ignore them with a warning. INCLUDE accepts the file name without FILE=. DISPLAY accepts `FILE LABEL`.
+- CTABLES /TITLES takes several quoted lines after TITLE, CAPTION and CORNER, as its subcommand diagram shows.
 
 ## Choices where the documentation is silent
 
@@ -46,11 +49,18 @@ These are accepted where the documented syntax refuses them. Results on document
 - A data pass in which a case reads a value an earlier case left (a scratch variable it has not assigned, or LAG) runs case by case from the first such command to the end of the pass; a command that is not a transformation in between ends that part. TEMPORARY lasts until the end of a run at most.
 - DATA LIST: a blank line of LIST data is a case of missing values; a lone period is system-missing; with given delimiters a string keeps the blanks before it; two-digit years fall in the 100 years from 69 years back. SAMPLE uses the same random seed in every session.
 - Multiple response sets: in a category set a value that is user-missing in any of its variables is a missing category, and an empty string counts as a value.
+- Macros: a body that ends with a period ends the calling command only when the call is the last thing in it; in the middle of a command (a title macro inside CTABLES) that period is dropped. Macro expressions compare as numbers when both sides are numbers and else as text with case. A macro variable that was never set stands for its own name. Expansion lines carry the line number of the call, and errors in them name the macro.
+- Syntax files: one that is valid UTF-8 is read as UTF-8, any other in the system's legacy code page (on Windows its ANSI code page; elsewhere the locale's character set, else windows-1252) unless `--encoding` names one. INSERT and INCLUDE paths are relative to the folder of the file that holds them, or to the folder of the last CD.
+- BEGIN PROGRAM blocks are skipped with a warning; the run goes on.
+- DATASET ACTIVATE warns when the dataset it replaces has no name, since that one is closed. A command-line session keeps its named datasets between runs.
+- SET FORMAT applies to new numeric variables of the commands after it that do not read a file. Settings that only change how output looks are accepted with a warning.
+- DOCUMENT and ADD DOCUMENT add `(Entered YYYY-MM-DD)` after their lines. ALTER TYPE from string to number reads F, COMMA and DOT values; a type change drops value labels and missing values. AGGREGATE /PRESORTED is accepted; groups are formed by value either way.
+- GET DATA /TYPE=TXT: without DELIMITERS a tab or a comma separates values; a qualified value may hold line breaks; DATETIME values read as a date and a time of day in the usual orders; a format without width takes the width of the longest value (strings) or F8.2.
 
 ## Not supported yet
 
 - **Commands.** The list of commands of the language that StatsCraft recognises but does not run is at the end of [the command index](commands/README.md#not-supported-yet). That list is generated from the program, so it is always current. A script that uses one stops at that line, and nothing is changed.
-- **Subcommands.** Every command page lists what it accepts. Notably: FREQUENCIES takes only VARIABLES; ONEWAY has no POLYNOMIAL, RANGES, EFFECTS or WALLER; NONPAR CORR has no MATRIX or CI; EXAMINE computes the normality tests but draws no plots (no STEMLEAF, BOXPLOT, HISTOGRAM or SPREADLEVEL).
+- **Subcommands.** Every command page lists what it accepts. Notably: FREQUENCIES takes only VARIABLES; ONEWAY has no POLYNOMIAL, RANGES, EFFECTS or WALLER; NONPAR CORR has no MATRIX or CI; EXAMINE computes the normality tests but draws no plots (STEMLEAF, BOXPLOT and HISTOGRAM are accepted with a warning, SPREADLEVEL is refused); macro arguments with !NOEXPAND are expanded anyway; USE takes case numbers only with /PERMANENT; APPLY DICTIONARY has no NEWVARS; GET DATA reads text only (no XLS, XLSX or ODBC); SET BLANKS, EPOCH, SEED and similar are kept but not followed yet.
 - **Transformations.** RANK, LEAVE, PRINT, WRITE, END CASE and input programs are not supported; DATA LIST reads only F, N, E, COMMA, DOT, DOLLAR, PCT, A, DATE, ADATE, EDATE and SDATE and UTF-8 files; commands such as VALUE LABELS cannot stand inside LOOP; AUTORECODE has no templates.
 - **Charts.** No command draws charts yet.
 - **Data files.** StatsCraft reads and writes .sav and .zsav files. Portable (.por) files and spreadsheets cannot be read yet; text files are read with DATA LIST. An old .sav file that does not state its code page is read as Western European (windows-1252); there is no way to choose another encoding yet.
