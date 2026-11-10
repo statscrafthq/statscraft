@@ -4,6 +4,7 @@ use crate::ast::Command;
 use crate::commands;
 use crate::ctables;
 use crate::data_commands;
+use crate::examine;
 use crate::files;
 use crate::lexer::{Punct, Token, TokenKind};
 use crate::mrsets;
@@ -493,6 +494,32 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: stats::nonpar_corr,
     },
     CommandSpec {
+        name: "EXAMINE",
+        summary: "Descriptives, percentiles, M-estimators, extreme values and normality tests, by factor cells.",
+        syntax: "EXAMINE [VARIABLES=]deps [BY factor [BY factor] [factor ...]] [/TOTAL | NOTOTAL] [/ID=var]\n\
+                 \x20       [/PERCENTILES[(list)][=HAVERAGE | WAVERAGE | ROUND | EMPIRICAL | AEMPIRICAL | NONE]]\n\
+                 \x20       [/STATISTICS=DESCRIPTIVES EXTREME[(n)] ALL NONE] [/CINTERVAL=95]\n\
+                 \x20       [/MESTIMATORS[=HUBER[(c)] TUKEY[(c)] HAMPEL[(a,b,c)] ANDREW[(c)] ALL NONE]]\n\
+                 \x20       [/PLOT=NPPLOT | NONE] [/COMPARE=GROUPS | VARIABLES]\n\
+                 \x20       [/MISSING=LISTWISE | PAIRWISE  EXCLUDE | INCLUDE  NOREPORT | REPORT].\n\
+                 Each dependent is analysed over all cases (unless NOTOTAL) and in every cell of each factor term,\n\
+                 two factors crossed with BY. Descriptives (the default): mean with its confidence interval (CINTERVAL,\n\
+                 50 to 99.99), 5% trimmed mean, median, variance, standard deviation, minimum, maximum, range,\n\
+                 interquartile range, skewness and kurtosis with standard errors. PERCENTILES alone gives 5 10 25 50\n\
+                 75 90 95 by HAVERAGE, with Tukey's hinges when 25, 50 or 75 is listed; the method also gives the median\n\
+                 and the interquartile range. MESTIMATORS alone gives all four (Huber 1.339, Tukey 4.685, Hampel\n\
+                 1.7 3.4 8.5, Andrews 1.34 times pi), each started at the median and scaled by the median absolute\n\
+                 deviation. EXTREME lists the n highest and lowest values by case number or by the ID variable.\n\
+                 NPPLOT gives the Tests of Normality table (Kolmogorov-Smirnov with the Lilliefors significance and\n\
+                 Shapiro-Wilk, whose significance is shown for 3 to 50 cases); the plots themselves are not drawn.\n\
+                 LISTWISE (default) leaves out a case missing on any dependent or factor, PAIRWISE only from the\n\
+                 analyses of that variable. INCLUDE makes user-missing values of the dependents valid, REPORT makes\n\
+                 missing values of the factors categories. Weighted when a weight variable is set (Shapiro-Wilk rounds\n\
+                 the weights). COMPARE changes nothing. Not supported yet: STEMLEAF, BOXPLOT, HISTOGRAM, SPREADLEVEL.",
+        example: "EXAMINE VARIABLES=income BY region /PERCENTILES(25,50,75)=HAVERAGE /STATISTICS=ALL /MESTIMATORS /PLOT=NPPLOT.",
+        parse: examine::examine,
+    },
+    CommandSpec {
         name: "ADD FILES",
         summary: "Append the cases of several data files, matching variables by name.",
         syntax: "ADD FILES /FILE=* | 'path' [/RENAME=(old = new) ...] /FILE=... [/BY varlist]\n\
@@ -561,7 +588,6 @@ static UNSUPPORTED: &[&str] = &[
     "END MATRIX",
     "END REPEAT",
     "ERASE",
-    "EXAMINE",
     "EXPORT",
     "FACTOR",
     "FILE HANDLE",

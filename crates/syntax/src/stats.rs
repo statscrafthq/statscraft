@@ -12,7 +12,7 @@ use crate::procedures::{at_end, keyword_error, keywords, names};
 use crate::table::matches_keyword;
 
 /// A variable list that ends at BY, WITH, a parenthesis or the end of a subcommand.
-fn variables(p: &mut Parser) -> PResult<Vec<VarItem>> {
+pub(crate) fn variables(p: &mut Parser) -> PResult<Vec<VarItem>> {
     let mut items = Vec::new();
     while let Some(TokenKind::Word(w)) = p.peek() {
         if w.eq_ignore_ascii_case("BY") || w.eq_ignore_ascii_case("WITH") {

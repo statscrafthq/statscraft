@@ -34,6 +34,7 @@ ONEWAY gives the one-way analysis of variance with descriptives, Levene's test, 
 CORRELATIONS gives Pearson correlations in square or rectangular matrices with one- or two-tailed significance, case counts, cross-products and covariances, pairwise or listwise.
 These four run weighted when a weight variable is set.
 NONPAR CORR gives Spearman's rho and Kendall's tau-b with one- or two-tailed significance, pairwise or listwise per variable list; a weight repeats each case as often as its weight rounded to a whole number.
+EXAMINE describes dependent variables over all cases and within the cells of one or two crossed factors: descriptives with the confidence interval of the mean and the 5% trimmed mean, percentiles by five methods with Tukey's hinges, Huber, Tukey, Hampel and Andrews M-estimators, extreme values labelled by an ID variable, and the Kolmogorov-Smirnov (Lilliefors) and Shapiro-Wilk tests of normality, weighted when a weight variable is set; plots are not drawn yet.
 A command that does something differently from what was asked without failing (a skipped string variable, a reversed range) reports a warning, shown with the output and in the JSON as `warnings` per command.
 
 [removed]

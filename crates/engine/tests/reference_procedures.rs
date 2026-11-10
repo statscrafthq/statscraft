@@ -1,4 +1,4 @@
-//! DESCRIPTIVES, CROSSTABS, MEANS, T-TEST, ONEWAY, CORRELATIONS, ADD FILES and MATCH FILES
+//! DESCRIPTIVES, CROSSTABS, MEANS, T-TEST, ONEWAY, CORRELATIONS, EXAMINE, ADD FILES and MATCH FILES
 //! compared with GNU PSPP, run as a black
 //! box on the same files and the same syntax. Ignored by default because they need PSPP:
 //!
@@ -1155,4 +1155,112 @@ fn correlations_tables() {
             ),
         ],
     );
+}
+
+/// Runs EXAMINE in both programs and pairs the n-th table of a title in PSPP's output with the
+/// n-th of ours (the two order the tables differently). PSPP has no M-estimators and no
+/// Kolmogorov-Smirnov test, and its Shapiro-Wilk uses Royston's coefficients instead of the
+/// manual's, so those are checked in examine.rs; its default /STATISTICS shows no Descriptives
+/// (the manual's default does), so every case asks for the tables it compares.
+fn compare_examine(case: &str, fixture: &str, syntax: &str) {
+    let Some((program, dir)) = setup(case, fixture) else {
+        return;
+    };
+    let syntax = format!("GET FILE='{{dir}}data.sav'.\n{PRECISE}\n{syntax}\n");
+    let output = pspp(case, &program, &dir, &syntax);
+    let theirs = pspp_tables(&output);
+    let mine = ours(case, &dir, &syntax);
+    let mut problems = Vec::new();
+    let titles = [
+        "Case Processing Summary",
+        "Descriptives",
+        "Percentiles",
+        "Extreme Values",
+    ];
+    for title in titles {
+        let pspp_tables: Vec<_> = theirs.iter().filter(|(t, _)| t == title).collect();
+        let our_tables: Vec<_> = mine.iter().filter(|t| t.title == title).collect();
+        assert_eq!(
+            pspp_tables.len(),
+            our_tables.len(),
+            "{case}: {title}: PSPP made {}, we {}\n{output}",
+            pspp_tables.len(),
+            our_tables.len()
+        );
+        for ((_, rows), table) in pspp_tables.into_iter().zip(our_tables) {
+            let first = table.row_headers;
+            let values = table.columns.len() - first;
+            let header_rows = match title {
+                "Case Processing Summary" => 3,
+                "Percentiles" => 2,
+                _ => 1,
+            };
+            // with weights below 1 PSPP does not follow the manual's depths of Tukey's hinges
+            // (an independent computation of the manual agrees with ours), so a weighted
+            // case leaves their rows out
+            let hinge = "Tukey's Hinges";
+            let skip =
+                |row: &[Cell]| fixture == WEIGHTED && row.contains(&Cell::Text(hinge.into()));
+            let rows: Vec<Vec<String>> = rows
+                .iter()
+                .filter(|row| fixture != WEIGHTED || !row.iter().any(|c| c == hinge))
+                .cloned()
+                .collect();
+            let table = Table {
+                title: table.title.clone(),
+                row_headers: first,
+                columns: table.columns.clone(),
+                rows: table.rows.iter().filter(|r| !skip(r)).cloned().collect(),
+                ..Table::default()
+            };
+            let found = positional(&rows, &table, &straight(header_rows, first, values));
+            problems.extend(found.into_iter().map(|p| format!("{title}: {p}")));
+        }
+    }
+    assert!(
+        problems.is_empty(),
+        "{case}: {} differences (files kept in {})\n{}",
+        problems.len(),
+        dir.display(),
+        problems[..problems.len().min(25)].join("\n")
+    );
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+#[ignore = "needs PSPP: set STATSCRAFT_PSPP"]
+fn examine_tables() {
+    let mut cases: Vec<(String, &str, String)> = vec![
+        // PSPP gives NaN bounds for any /CINTERVAL, so other levels are checked in examine.rs
+        ("descriptives".into(), SURVEY, "EXAMINE VARIABLES=age /STATISTICS=DESCRIPTIVES.".into()),
+        ("descriptives-weighted".into(), WEIGHTED, "EXAMINE VARIABLES=monthly_spend /STATISTICS=DESCRIPTIVES.".into()),
+        ("pairwise".into(), SURVEY, "EXAMINE age monthly_spend q2_recommend /MISSING=PAIRWISE /STATISTICS=DESCRIPTIVES.".into()),
+        ("by-factor".into(), SURVEY, "EXAMINE monthly_spend BY region /STATISTICS=DESCRIPTIVES /PERCENTILES.".into()),
+        ("by-factor-weighted".into(), WEIGHTED, "EXAMINE age monthly_spend BY region /MISSING=PAIRWISE /STATISTICS=DESCRIPTIVES /PERCENTILES.".into()),
+        ("two-factors".into(), SURVEY, "EXAMINE age BY region BY q5_1 /STATISTICS=DESCRIPTIVES /PERCENTILES(25,50,75) /NOTOTAL.".into()),
+        ("two-factors-weighted".into(), WEIGHTED, "EXAMINE monthly_spend BY q5_2 BY q5_1 /STATISTICS=DESCRIPTIVES /PERCENTILES(10,50,90).".into()),
+        ("extremes-id".into(), SURVEY, "EXAMINE age monthly_spend BY gender /MISSING=PAIRWISE /STATISTICS=EXTREME(3) /ID=resp_id.".into()),
+        ("extremes-ties".into(), WEIGHTED, "EXAMINE q2_recommend /STATISTICS=EXTREME.".into()),
+        ("include".into(), SURVEY, "EXAMINE q1_satisfaction q2_recommend /MISSING=PAIRWISE INCLUDE /STATISTICS=DESCRIPTIVES /PERCENTILES.".into()),
+        // listwise, the manual leaves a case missing on a factor out of the total as well,
+        // PSPP keeps it there; NOTOTAL compares the cells, where both leave it out
+        ("listwise-factor-missing".into(), SURVEY, "EXAMINE age BY q6_mention1 /STATISTICS=DESCRIPTIVES /PERCENTILES(25,50,75) /NOTOTAL.".into()),
+        // PSPP still sees cases weighted 0 in the minimum and maximum, which the manual leaves
+        // out, so this case compares the percentiles only
+        ("report".into(), SURVEY, "EXAMINE age BY q1_satisfaction /MISSING=REPORT /STATISTICS=DESCRIPTIVES /NOTOTAL.".into()),
+        ("unusable-weights".into(), WEIGHTED, "RECODE weight (LO THRU 0.6 = 0).\nEXAMINE age BY region /STATISTICS=NONE /PERCENTILES.".into()),
+    ];
+    let percents = "(1,5,10,25,33.3,50,66.7,75,90,95,99)";
+    for method in ["HAVERAGE", "WAVERAGE", "ROUND", "EMPIRICAL", "AEMPIRICAL"] {
+        for (fixture, suffix) in [(SURVEY, ""), (WEIGHTED, "-weighted")] {
+            cases.push((
+                format!("percentiles-{}{suffix}", method.to_lowercase()),
+                fixture,
+                format!("EXAMINE age monthly_spend /MISSING=PAIRWISE /PERCENTILES{percents}={method} /STATISTICS=NONE."),
+            ));
+        }
+    }
+    for (case, fixture, syntax) in &cases {
+        compare_examine(&format!("examine-{case}"), fixture, syntax);
+    }
 }

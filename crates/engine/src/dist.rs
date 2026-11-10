@@ -243,6 +243,28 @@ fn bracket(f: &impl Fn(f64) -> f64, start: f64) -> f64 {
     high
 }
 
+/// The standard normal quantile: the x with Φ(x) = p, for 0 < p < 1. Solved on the lower half
+/// by `erfc`, which keeps its relative precision far in the tail (1 - p is exact above one
+/// half), in a narrow bracket around the rational start of Abramowitz and Stegun 26.2.23 (error
+/// below 4.5e-4), comparing logarithms so the equation stays well scaled.
+pub(crate) fn normal_quantile(p: f64) -> f64 {
+    if p > 0.5 {
+        return -normal_quantile(1.0 - p);
+    }
+    if p == 0.5 {
+        return 0.0;
+    }
+    let t = (-2.0 * p.ln()).sqrt();
+    let start = -(t
+        - (2.515517 + 0.802853 * t + 0.010328 * t * t)
+            / (1.0 + 1.432788 * t + 0.189269 * t * t + 0.001308 * t * t * t));
+    solve(
+        |x| (erfc(-x / std::f64::consts::SQRT_2) / 2.0 / p).ln(),
+        start - 1e-3,
+        (start + 1e-3).min(0.0),
+    )
+}
+
 /// The value of Student's t with `df` degrees of freedom exceeded with probability `upper`
 /// (at most 1/2).
 pub(crate) fn t_quantile(upper: f64, df: f64) -> f64 {
@@ -566,6 +588,24 @@ mod tests {
         // so their rounding limits the quantile to about 1e-13
         let got = t_quantile(0.025, 199.0);
         assert!(close(got, 1.971_956_544_251_751_9, 1e-13), "{got}");
+    }
+
+    #[test]
+    fn normal_quantile_known_values() {
+        for (p, x) in [
+            (0.975, 1.959_963_984_540_054),
+            (0.95, 1.644_853_626_951_472_2),
+            (0.01, -2.326_347_874_040_840_8),
+            (1e-10, -6.361_340_902_404_056),
+            (0.5, 0.0),
+        ] {
+            let got = normal_quantile(p);
+            assert!((got - x).abs() <= 1e-14 * x.abs().max(1.0), "{p}: {got}");
+        }
+        for i in 1..1000 {
+            let p = f64::from(i) / 1000.0;
+            assert!((normal_cdf(normal_quantile(p)) - p).abs() < 1e-15, "{p}");
+        }
     }
 
     #[test]

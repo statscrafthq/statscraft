@@ -1,4 +1,4 @@
-//! Parser tests of DESCRIPTIVES, CROSSTABS, MEANS, T-TEST, ONEWAY, CORRELATIONS, ADD FILES and
+//! Parser tests of DESCRIPTIVES, CROSSTABS, MEANS, T-TEST, ONEWAY, CORRELATIONS, EXAMINE, ADD FILES and
 //! MATCH FILES.
 
 use super::*;
@@ -417,4 +417,86 @@ fn nonpar_corr() {
             .message
             .contains("CI of NONPAR CORR is not supported yet")
     );
+}
+
+#[test]
+fn examine_defaults_and_factor_terms() {
+    let Command::Examine(e) = one("EXAMINE VARIABLES=a b BY f, g BY h.") else {
+        panic!()
+    };
+    assert_eq!(e.dependents, [var("a"), var("b")]);
+    assert_eq!(e.factors, [vec![var("f")], vec![var("g"), var("h")]]);
+    assert!(e.total && e.descriptives && !e.normality && !e.pairwise && !e.include && !e.report);
+    assert_eq!((e.percentiles, e.extreme, e.cinterval), (None, None, 95.0));
+    assert_eq!(e.method, PercentileMethod::Haverage);
+    assert!(e.mestimators.is_empty() && e.id.is_none());
+    let Command::Examine(e) = one("EXAMINE a /PERCENTILES /MESTIMATORS /NOTOTAL /ID=name.") else {
+        panic!()
+    };
+    assert_eq!(
+        e.percentiles,
+        Some(vec![5.0, 10.0, 25.0, 50.0, 75.0, 90.0, 95.0])
+    );
+    use MEstimator as M;
+    assert_eq!(
+        e.mestimators,
+        [
+            M::Huber(1.339),
+            M::Tukey(4.685),
+            M::Hampel(1.7, 3.4, 8.5),
+            M::Andrew(1.34)
+        ]
+    );
+    assert!(!e.total);
+    assert_eq!(e.id.as_deref(), Some("name"));
+}
+
+#[test]
+fn examine_subcommands() {
+    let Command::Examine(e) = one(
+        "EXAMINE VARIABLES=a /PERCENTILES(90, 2.5, 50)=WAVERAGE /STATISTICS=EXTREME(3)\n\
+         /CINTERVAL 90 /MESTIMATORS=ANDREW(2) HUBER(1.5) /PLOT=NPPLOT /COMPARE=VARIABLES\n\
+         /MISSING=PAIRWISE INCLUDE REPORT.",
+    ) else {
+        panic!()
+    };
+    assert_eq!(e.percentiles, Some(vec![2.5, 50.0, 90.0]));
+    assert_eq!(e.method, PercentileMethod::Waverage);
+    assert!(!e.descriptives && e.normality && e.pairwise && e.include && e.report);
+    assert_eq!((e.extreme, e.cinterval), (Some(3), 90.0));
+    assert_eq!(
+        e.mestimators,
+        [MEstimator::Huber(1.5), MEstimator::Andrew(2.0)]
+    );
+    let Command::Examine(e) = one(
+        "EXAMINE a /STATISTICS=ALL /PERCENTILES=AEMPIRICAL /MESTIMATORS=HAMPEL(2,4,8) ALL NONE TUKEY.",
+    ) else {
+        panic!()
+    };
+    assert!(e.descriptives);
+    assert_eq!(e.extreme, Some(5));
+    assert_eq!(e.method, PercentileMethod::Aempirical);
+    assert_eq!(e.mestimators, [MEstimator::Tukey(4.685)]);
+    let Command::Examine(e) = one("EXAMINE a /PERCENTILES NONE /STATISTICS NONE /PLOT NONE.")
+    else {
+        panic!()
+    };
+    assert!(e.percentiles.is_none() && !e.descriptives && e.extreme.is_none());
+}
+
+#[test]
+fn examine_errors() {
+    let message = |source: &str| err(source).message;
+    assert!(
+        message("EXAMINE a /PLOT=BOXPLOT.")
+            .contains("BOXPLOT in EXAMINE /PLOT is not supported yet")
+    );
+    assert!(message("EXAMINE a /PLOT=SPREADLEVEL(0).").contains("not supported yet"));
+    assert!(message("EXAMINE a BY f BY g BY h.").contains("more than two crossed factors"));
+    assert!(message("EXAMINE a /PERCENTILES(0, 50).").contains("between 0 and 100"));
+    assert!(message("EXAMINE a /MESTIMATORS=HAMPEL(3,2,8).").contains("0 < a <= b <= c"));
+    assert!(message("EXAMINE a /MESTIMATORS=HUBER(1,2).").contains("takes 1 constant"));
+    assert!(message("EXAMINE a /STATISTICS=EXTREME(0).").contains("positive whole number"));
+    assert!(message("EXAMINE a /FOO.").contains("unknown subcommand FOO of EXAMINE"));
+    assert_eq!(err("EXAMINE /ID=x.").expected, ["VARIABLES=dependents"]);
 }

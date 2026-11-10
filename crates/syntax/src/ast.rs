@@ -58,6 +58,7 @@ pub enum Command {
     Oneway(Oneway),
     Correlations(Correlations),
     NonparCorr(NonparCorr),
+    Examine(Examine),
     AddFiles(Merge),
     MatchFiles(Merge),
 }
@@ -320,6 +321,54 @@ pub struct NonparCorr {
     pub listwise: bool,
     /// `/MISSING=INCLUDE`
     pub include: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Examine {
+    pub dependents: Vec<VarItem>,
+    /// The factor terms after BY: one variable, or two crossed with BY.
+    pub factors: Vec<Vec<VarItem>>,
+    /// `/TOTAL` (the default): also every dependent over all cases when there are factors.
+    pub total: bool,
+    /// `/ID=var`: labels the extreme cases instead of the case number.
+    pub id: Option<String>,
+    /// `/PERCENTILES`: the percentiles to show, None without the table.
+    pub percentiles: Option<Vec<f64>>,
+    /// The method of every percentile, the median and the interquartile range.
+    pub method: PercentileMethod,
+    /// `/STATISTICS=DESCRIPTIVES` (the default)
+    pub descriptives: bool,
+    /// `/STATISTICS=EXTREME(n)`: the n highest and lowest values.
+    pub extreme: Option<usize>,
+    /// `/CINTERVAL`, in percent as written.
+    pub cinterval: f64,
+    pub mestimators: Vec<MEstimator>,
+    /// `/PLOT=NPPLOT`: the tests of normality.
+    pub normality: bool,
+    /// `/MISSING=PAIRWISE`: each dependent and factor on its own instead of listwise.
+    pub pairwise: bool,
+    /// `/MISSING=INCLUDE`: user-missing values of the dependents are valid.
+    pub include: bool,
+    /// `/MISSING=REPORT`: missing values of the factors form categories.
+    pub report: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PercentileMethod {
+    Haverage,
+    Waverage,
+    Round,
+    Empirical,
+    Aempirical,
+}
+
+/// An M-estimator with its constants as written (Andrews' c is still to be multiplied by pi).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum MEstimator {
+    Huber(f64),
+    Tukey(f64),
+    Hampel(f64, f64, f64),
+    Andrew(f64),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

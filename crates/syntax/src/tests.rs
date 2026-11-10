@@ -383,7 +383,7 @@ fn real_but_unsupported_commands_say_so() {
         ("split file by a.", "SPLIT FILE"),
         ("NPAR TESTS /WILCOXON=a WITH b.", "NPAR TESTS"),
         ("TITLE Don't panic.", "TITLE"),
-        ("EXAM a b.", "EXAMINE"),
+        ("RELI /VARIABLES=a b.", "RELIABILITY"),
     ] {
         let error = err(source);
         assert_eq!(
@@ -1082,7 +1082,7 @@ fn help_for_one_command() {
 #[test]
 fn help_lists_every_command() {
     let overview = help(None).unwrap();
-    assert_eq!(command_names().len(), 36);
+    assert_eq!(command_names().len(), 37);
     for spec in table::COMMANDS {
         assert!(overview.contains(spec.name) && overview.contains(spec.summary));
     }

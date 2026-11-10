@@ -6,6 +6,7 @@ mod crosstabs;
 mod ctables;
 mod descriptives;
 mod dist;
+mod examine;
 mod expr;
 mod frequencies;
 pub mod live;
@@ -398,6 +399,7 @@ impl Engine {
             Command::Oneway(command) => return self.oneway(command),
             Command::Correlations(command) => return self.correlations(command),
             Command::NonparCorr(command) => return self.nonpar_corr(command),
+            Command::Examine(command) => return self.examine(command),
             Command::AddFiles(merge) => self.merge_files(merge, true)?,
             Command::MatchFiles(merge) => self.merge_files(merge, false)?,
         }

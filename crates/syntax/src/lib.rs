@@ -19,6 +19,7 @@ mod commands;
 mod ctables;
 mod data_commands;
 mod error;
+mod examine;
 mod expr;
 mod files;
 mod lexer;
