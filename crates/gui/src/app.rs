@@ -2,8 +2,8 @@
 //! with syntax built by the plain modules.
 
 use crate::analyze_dialogs::{
-    Correlations, MEANS_CELLS, Means, ONEWAY_STATISTICS, Oneway, POST_HOC_TESTS, STANDARDIZERS,
-    TTest, TTestKind,
+    Correlations, DUNNETT_SIDES, EQUAL_VARIANCE_TESTS, Explore, ExploreMissing, MEANS_CELLS, Means,
+    ONEWAY_STATISTICS, Oneway, POST_HOC_TESTS, STANDARDIZERS, TTest, TTestKind,
 };
 use crate::data_dialogs::{
     AGGREGATE_FUNCTIONS, Aggregate, AggregateTo, Aggregated, MergeFiles, Mrsets, SelectCases,
@@ -70,6 +70,7 @@ struct RuleDraft {
 enum Dialog {
     Frequencies(Frequencies),
     Descriptives(Descriptives),
+    Explore(Explore),
     Crosstabs(Crosstabs),
     CustomTables(CustomTables),
     Compute(Compute, String),
@@ -94,6 +95,7 @@ impl Dialog {
         match self {
             Dialog::Frequencies(_) => "Frequencies",
             Dialog::Descriptives(_) => "Descriptives",
+            Dialog::Explore(_) => "Explore",
             Dialog::Crosstabs(_) => "Crosstabs",
             Dialog::CustomTables(_) => "Custom Tables",
             Dialog::Compute(..) => "Compute Variable",
@@ -116,6 +118,7 @@ impl Dialog {
         *self = match self {
             Dialog::Frequencies(_) => Dialog::Frequencies(Default::default()),
             Dialog::Descriptives(_) => Dialog::Descriptives(Default::default()),
+            Dialog::Explore(_) => Dialog::Explore(Default::default()),
             Dialog::Crosstabs(_) => Dialog::Crosstabs(Default::default()),
             Dialog::CustomTables(_) => Dialog::CustomTables(Default::default()),
             Dialog::Compute(..) => Dialog::Compute(Default::default(), String::new()),
@@ -143,6 +146,7 @@ impl Dialog {
         match self {
             Dialog::Frequencies(d) => d.syntax(),
             Dialog::Descriptives(d) => d.syntax(),
+            Dialog::Explore(d) => d.syntax(),
             Dialog::Crosstabs(d) => d.syntax(),
             Dialog::CustomTables(d) => d.syntax(),
             Dialog::Compute(d, label) => {
@@ -679,15 +683,25 @@ impl App {
                 });
             });
             ui.menu_button("Analyze", |ui| {
-                for (label, dialog) in [
-                    ("Frequencies...", Dialog::Frequencies(Default::default())),
-                    ("Descriptives...", Dialog::Descriptives(Default::default())),
-                    ("Crosstabs...", Dialog::Crosstabs(Default::default())),
-                    ("Custom Tables...", Dialog::CustomTables(Default::default())),
-                ] {
-                    if ui.add_enabled(has_data, egui::Button::new(label)).clicked() {
-                        self.open_dialog(dialog);
-                    }
+                ui.add_enabled_ui(has_data, |ui| {
+                    ui.menu_button("Descriptive Statistics", |ui| {
+                        for (label, dialog) in [
+                            ("Frequencies...", Dialog::Frequencies(Default::default())),
+                            ("Descriptives...", Dialog::Descriptives(Default::default())),
+                            ("Explore...", Dialog::Explore(Default::default())),
+                            ("Crosstabs...", Dialog::Crosstabs(Default::default())),
+                        ] {
+                            if ui.button(label).clicked() {
+                                self.open_dialog(dialog);
+                            }
+                        }
+                    });
+                });
+                if ui
+                    .add_enabled(has_data, egui::Button::new("Custom Tables..."))
+                    .clicked()
+                {
+                    self.open_dialog(Dialog::CustomTables(Default::default()));
                 }
                 ui.add_enabled_ui(has_data, |ui| {
                     ui.menu_button("Compare Means", |ui| {
@@ -2019,6 +2033,39 @@ fn dialog_body(ui: &mut Ui, data: &Dataset, dialog: &mut Dialog, picked: &mut Ve
             );
             ui.checkbox(&mut d.save_z_scores, "Save z-scores as new variables");
         }
+        Dialog::Explore(d) => {
+            target_list(ui, "Dependent variables", &mut d.dependents, picked);
+            target_list(ui, "Factors (each on its own)", &mut d.factors, picked);
+            target_one(ui, "Label cases by", &mut d.id, picked);
+            ui.add_space(6.0);
+            ui.strong("Statistics");
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut d.descriptives, "Descriptives, mean interval at");
+                ui.add_enabled(
+                    d.descriptives,
+                    TextEdit::singleline(&mut d.confidence).desired_width(50.0),
+                );
+                ui.label("%");
+            });
+            ui.checkbox(
+                &mut d.mestimators,
+                "M-estimators (Huber, Tukey, Hampel, Andrews)",
+            );
+            ui.checkbox(&mut d.outliers, "Five highest and lowest values");
+            ui.checkbox(
+                &mut d.percentiles,
+                "Percentiles 5 to 95, with Tukey's hinges",
+            );
+            ui.checkbox(
+                &mut d.normality,
+                "Tests of normality (Kolmogorov-Smirnov, Shapiro-Wilk)",
+            );
+            ui.add_space(6.0);
+            ui.strong("Missing values");
+            for missing in ExploreMissing::ALL {
+                ui.radio_value(&mut d.missing, missing, missing.label());
+            }
+        }
         Dialog::Crosstabs(d) => {
             target_list(ui, "Rows", &mut d.rows, picked);
             target_list(ui, "Columns", &mut d.columns, picked);
@@ -2204,6 +2251,22 @@ fn dialog_body(ui: &mut Ui, data: &Dataset, dialog: &mut Dialog, picked: &mut Ve
             ui.add_space(6.0);
             ui.strong("Statistics");
             checkboxes(ui, &MEANS_CELLS, &mut d.cells);
+            let controls: Vec<String> = d.layers.iter().flatten().cloned().collect();
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut d.npct_within, "Percent of cases");
+                ui.checkbox(&mut d.spct_within, "Percent of sum, within");
+                ComboBox::new("within", "")
+                    .selected_text(if d.within.is_empty() {
+                        "a control variable"
+                    } else {
+                        &d.within
+                    })
+                    .show_ui(ui, |ui| {
+                        for name in &controls {
+                            ui.selectable_value(&mut d.within, name.clone(), name);
+                        }
+                    });
+            });
             ui.checkbox(&mut d.anova, "Analysis of variance and eta (Layer 1)");
             ui.checkbox(&mut d.linearity, "Test for linearity");
         }
@@ -2268,7 +2331,24 @@ fn dialog_body(ui: &mut Ui, data: &Dataset, dialog: &mut Dialog, picked: &mut Ve
             target_one(ui, "Factor", &mut d.factor, picked);
             ui.add_space(6.0);
             egui::CollapsingHeader::new("Post hoc comparisons").show(ui, |ui| {
-                checkboxes(ui, &POST_HOC_TESTS, &mut d.post_hoc);
+                let (equal, unequal) = POST_HOC_TESTS.split_at(EQUAL_VARIANCE_TESTS);
+                let (equal_flags, unequal_flags) = d.post_hoc.split_at_mut(EQUAL_VARIANCE_TESTS);
+                ui.weak("Equal variances assumed");
+                checkboxes(ui, equal, equal_flags);
+                ui.horizontal(|ui| {
+                    ui.checkbox(&mut d.dunnett, "Dunnett, control group");
+                    ui.add_enabled_ui(d.dunnett, |ui| {
+                        ui.radio_value(&mut d.dunnett_first, true, "first");
+                        ui.radio_value(&mut d.dunnett_first, false, "last");
+                        ComboBox::new("dunnett_side", "")
+                            .selected_text(DUNNETT_SIDES[d.dunnett_side].1)
+                            .show_index(ui, &mut d.dunnett_side, DUNNETT_SIDES.len(), |i| {
+                                DUNNETT_SIDES[i].1
+                            });
+                    });
+                });
+                ui.weak("Equal variances not assumed");
+                checkboxes(ui, unequal, unequal_flags);
                 field(ui, "Significance level", &mut d.alpha, 60.0);
             });
             egui::CollapsingHeader::new("Options").show(ui, |ui| {
@@ -2283,14 +2363,27 @@ fn dialog_body(ui: &mut Ui, data: &Dataset, dialog: &mut Dialog, picked: &mut Ve
         Dialog::Correlations(d) => {
             target_list(ui, "Variables", &mut d.variables, picked);
             ui.add_space(6.0);
-            ui.strong("Pearson correlations");
+            ui.strong("Coefficients");
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut d.pearson, "Pearson");
+                ui.checkbox(&mut d.kendall, "Kendall's tau-b");
+                ui.checkbox(&mut d.spearman, "Spearman");
+            });
             ui.horizontal(|ui| {
                 ui.radio_value(&mut d.one_tailed, false, "Two-tailed test");
                 ui.radio_value(&mut d.one_tailed, true, "One-tailed test");
             });
             ui.checkbox(&mut d.flag, "Mark significant correlations with stars");
-            ui.checkbox(&mut d.descriptives, "Means and standard deviations");
-            ui.checkbox(&mut d.cross_products, "Cross-products and covariances");
+            ui.add_enabled_ui(d.pearson, |ui| {
+                ui.checkbox(
+                    &mut d.descriptives,
+                    "Means and standard deviations (Pearson)",
+                );
+                ui.checkbox(
+                    &mut d.cross_products,
+                    "Cross-products and covariances (Pearson)",
+                );
+            });
             ui.checkbox(
                 &mut d.listwise,
                 "Leave out a case missing on any listed variable",
