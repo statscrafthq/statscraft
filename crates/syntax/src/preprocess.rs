@@ -474,7 +474,10 @@ impl Pre {
             };
             code.get(k).map(|t| crate::macros::unquote(&t.text))
         };
-        let Some(file) = setting("FILE") else {
+        // FILE may be left out, as the command's parser allows: the path then follows the name
+        let bare = code.get(1).filter(|t| t.kind == Kind::Str);
+        let Some(file) = setting("FILE").or_else(|| bare.map(|t| crate::macros::unquote(&t.text)))
+        else {
             return;
         };
         let batch = include || setting("SYNTAX").is_some_and(|s| s.eq_ignore_ascii_case("BATCH"));

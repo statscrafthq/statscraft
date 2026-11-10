@@ -404,6 +404,11 @@ fn insert_and_include_read_files_relative_to_the_including_file() {
     // CD changes the folder later relative names start from
     let raw = split_commands_in("CD 'lib'.\nINSERT FILE='more.sps'.", Some(&dir)).unwrap();
     assert_eq!(raw.len(), 3);
+    // without FILE=, as the command allows, the file is read and its macros serve later lines
+    let raw = split_commands_in("include \"lib/defs.sps\".\n!freq a b.", Some(&dir)).unwrap();
+    assert_eq!(raw.last().unwrap().name, "FREQUENCIES");
+    let raw = split_commands_in("INSERT 'lib/defs.sps' ERROR=STOP.\n!freq a.", Some(&dir)).unwrap();
+    assert_eq!(raw.last().unwrap().name, "FREQUENCIES");
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
