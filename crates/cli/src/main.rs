@@ -8,6 +8,7 @@ use std::process::ExitCode;
 
 mod db;
 mod plan;
+mod update;
 
 #[derive(Parser)]
 #[command(
@@ -49,6 +50,15 @@ enum Cmd {
     Plan(plan::PlanArgs),
     /// Store datasets in an OpenStatSpec SQLite database and read them back
     Db(db::DbArgs),
+    /// Update this installation to the latest published release
+    Update {
+        /// Only check: exit code 0 when up to date, 10 when a newer release exists
+        #[arg(long)]
+        check: bool,
+        /// With --check, print the result as JSON
+        #[arg(long, requires = "check")]
+        json: bool,
+    },
 }
 
 #[derive(Args)]
@@ -93,6 +103,10 @@ fn main() -> ExitCode {
         Cmd::Help { command } => (false, help(&command.join(" "))),
         Cmd::Plan(args) => return plan::run(args),
         Cmd::Db(args) => return db::run(args),
+        Cmd::Update { check, json } => match update::run(check, json) {
+            Ok(code) => return code,
+            Err(failures) => (json, Err(failures)),
+        },
     };
     match outcome {
         Ok(()) => ExitCode::SUCCESS,

@@ -13,6 +13,7 @@ mod output;
 mod output_view;
 mod settings;
 mod syntax_text;
+mod updates;
 
 use eframe::egui;
 use std::process::ExitCode;

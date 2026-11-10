@@ -19,6 +19,7 @@ use crate::output;
 use crate::output_view::{self, OutputView};
 use crate::settings::Settings;
 use crate::syntax_text::{number, quote};
+use crate::updates::Updates;
 use crate::{editor, grid};
 use eframe::egui::{
     self, Align, Align2, Color32, ComboBox, FocusDirection, FontId, Key, Modifiers, Rect, RichText,
@@ -276,8 +277,10 @@ pub struct App {
     help_for: Option<(u32, usize)>,
     help_text: String,
     output: OutputView,
-    /// Window size and position, the last folder and the recent files, kept between starts.
+    /// Window size and position, the last folder, the recent files and the update check, kept
+    /// between starts.
     settings: Settings,
+    updates: Updates,
     dialog: Option<Dialog>,
     picked: Vec<String>,
     filter: String,
@@ -295,7 +298,7 @@ pub struct App {
 impl App {
     /// Arguments: data files (.sav, .zsav) are opened, syntax files (.sps) loaded into the
     /// syntax editor.
-    pub fn new(args: &[String], ctx: &egui::Context, settings: Settings) -> Self {
+    pub fn new(args: &[String], ctx: &egui::Context, mut settings: Settings) -> Self {
         let (sender, requests) = mpsc::channel::<Remote>();
         let app_ctx = ctx.clone();
         let ctx = ctx.clone();
@@ -317,6 +320,7 @@ impl App {
             Ok(_) => Ok("Ready".into()),
             Err(e) => Err(format!("the command line cannot reach this window: {e}")),
         };
+        let updates = Updates::new(&app_ctx, &mut settings);
         let mut app = App {
             session: Session::default(),
             tab: Tab::Data,
@@ -340,6 +344,7 @@ impl App {
             help_text: String::new(),
             output: OutputView::default(),
             settings,
+            updates,
             dialog: None,
             picked: Vec::new(),
             filter: String::new(),
@@ -801,6 +806,7 @@ impl App {
                     ));
                 }
             });
+            self.updates.menu(ui, &mut self.settings);
         });
     }
 
@@ -1453,6 +1459,7 @@ impl App {
 impl eframe::App for App {
     fn logic(&mut self, _ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll();
+        self.updates.poll();
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -1491,6 +1498,9 @@ impl eframe::App for App {
             ui.add_space(2.0);
             self.tabs(ui);
         });
+        if self.updates.visible() {
+            egui::Panel::top("update").show(ui, |ui| self.updates.bar(ui));
+        }
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
         if self.show_log {
             egui::Panel::bottom("log")

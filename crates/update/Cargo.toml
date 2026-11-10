@@ -1,0 +1,20 @@
+[package]
+name = "statscraft-update"
+description = "StatsCraft update check and update download, shared by the command line and the window"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# MIT OR Apache-2.0. Only the rustls feature: rustls (Apache-2.0 OR ISC OR MIT) on ring
+# (Apache-2.0 AND ISC), the same as the database TLS, with the webpki-roots CA list
+# (CDLA-Permissive-2.0). No gzip and no json feature: serde_json below reads the replies.
+ureq = { version = "3.5.1", default-features = false, features = ["rustls"] }
+# MIT OR Apache-2.0
+semver = "1.0.28"
+# MIT OR Apache-2.0
+sha2 = "0.10.9"
+serde = { version = "1.0.229", features = ["derive"] }
+serde_json = "1"

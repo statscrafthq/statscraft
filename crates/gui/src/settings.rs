@@ -1,5 +1,6 @@
 //! What the window remembers between starts: its size and position, the folder of the last
-//! file dialog and the recent files. Kept in the user's config folder as lines of text.
+//! file dialog, the recent files and the update check. Kept in the user's config folder as
+//! lines of text.
 
 use std::path::{Path, PathBuf};
 
@@ -13,6 +14,10 @@ pub struct Settings {
     pub folder: Option<PathBuf>,
     /// Data and syntax files, the most recent first.
     pub recent: Vec<PathBuf>,
+    /// Automatic update checks on or off; `None` until the window has said that they exist.
+    pub updates: Option<bool>,
+    /// When updates were last checked, in seconds since 1970.
+    pub update_checked: Option<u64>,
 }
 
 impl Settings {
@@ -47,8 +52,8 @@ impl Settings {
         std::fs::write(file, self.text())
     }
 
-    /// Reads the lines `size W H`, `position X Y`, `folder PATH` and `recent PATH`; anything
-    /// else is skipped.
+    /// Reads the lines `size W H`, `position X Y`, `folder PATH`, `recent PATH`,
+    /// `updates on|off` and `update-checked SECONDS`; anything else is skipped.
     pub fn parse(text: &str) -> Self {
         let mut settings = Self::default();
         let pair = |rest: &str| {
@@ -67,6 +72,8 @@ impl Settings {
                 "recent" if !rest.is_empty() && settings.recent.len() < RECENT => {
                     settings.recent.push(PathBuf::from(rest))
                 }
+                "updates" if rest == "on" || rest == "off" => settings.updates = Some(rest == "on"),
+                "update-checked" => settings.update_checked = rest.parse().ok(),
                 _ => {}
             }
         }
@@ -86,6 +93,12 @@ impl Settings {
         }
         for file in &self.recent {
             text.push_str(&format!("recent {}\n", file.display()));
+        }
+        if let Some(on) = self.updates {
+            text.push_str(if on { "updates on\n" } else { "updates off\n" });
+        }
+        if let Some(time) = self.update_checked {
+            text.push_str(&format!("update-checked {time}\n"));
         }
         text
     }
@@ -118,6 +131,8 @@ mod tests {
             position: Some([-10.0, 40.0]),
             folder: Some(PathBuf::from("/data/my surveys")),
             recent: Vec::new(),
+            updates: Some(false),
+            update_checked: Some(1_790_000_000),
         };
         for i in 0..12 {
             settings.add_recent(Path::new(&format!("/data/f{i}.sav")));
@@ -130,7 +145,9 @@ mod tests {
         assert_eq!(settings.recent[1], absolute("/data/f11.sav"));
         assert_eq!(Settings::parse(&settings.text()), settings);
         // broken or unknown lines are skipped
-        let read = Settings::parse("size 10\nposition a b\ncolour red\nfolder \nrecent /x.sps\n");
+        let read = Settings::parse(
+            "size 10\nposition a b\ncolour red\nfolder \nrecent /x.sps\nupdates maybe\n",
+        );
         assert_eq!(
             read,
             Settings {
