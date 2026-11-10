@@ -33,6 +33,10 @@ use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 
+const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
+/// The documentation online, in the repository.
+const DOCS: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/tree/main/docs");
+
 /// A request from `statscraft --session gui` and where its reply goes.
 type Remote = (Request, mpsc::Sender<Response>);
 
@@ -290,6 +294,8 @@ pub struct App {
     /// The full help of a command, from F1.
     help_window: Option<String>,
     completion: Option<Completion>,
+    /// The About window is open.
+    about: bool,
     editor_id: Option<egui::Id>,
     output: OutputView,
     /// Window size and position, the last folder, the recent files and the update check, kept
@@ -358,6 +364,7 @@ impl App {
             source: String::new(),
             help_window: None,
             completion: None,
+            about: false,
             editor_id: None,
             output: OutputView::default(),
             settings,
@@ -845,7 +852,16 @@ impl App {
                     ));
                 }
             });
-            self.updates.menu(ui, &mut self.settings);
+            ui.menu_button("Help", |ui| {
+                if ui.button("Documentation").on_hover_text(DOCS).clicked() {
+                    ui.ctx().open_url(egui::OpenUrl::new_tab(DOCS));
+                }
+                if ui.button("About StatsCraft").clicked() {
+                    self.about = true;
+                }
+                ui.separator();
+                self.updates.menu_items(ui, &mut self.settings);
+            });
         });
     }
 
@@ -1792,6 +1808,18 @@ impl eframe::App for App {
         });
         let ctx = ui.ctx().clone();
         self.dialog_window(&ctx);
+        egui::Window::new("About StatsCraft")
+            .open(&mut self.about)
+            .collapsible(false)
+            .resizable(false)
+            .show(&ctx, |ui| {
+                ui.heading("StatsCraft");
+                ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
+                ui.label("Statistics with a command language, on .sav data files.");
+                ui.label("License: MIT");
+                ui.hyperlink_to("Source code", REPOSITORY);
+                ui.hyperlink_to("Documentation", DOCS);
+            });
     }
 }
 

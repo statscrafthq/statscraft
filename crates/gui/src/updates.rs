@@ -245,26 +245,23 @@ impl Updates {
     }
 
     /// The Help menu.
-    pub fn menu(&mut self, ui: &mut Ui, settings: &mut Settings) {
-        ui.menu_button("Help", |ui| {
-            let busy = matches!(self.bar, Bar::Checking | Bar::Downloading(_));
-            if ui
-                .add_enabled(!busy, egui::Button::new("Check for updates"))
-                .clicked()
-            {
-                self.check(true);
-            }
-            let mut on = settings.updates != Some(false);
-            if ui
-                .checkbox(&mut on, "Check for updates automatically")
-                .changed()
-            {
-                settings.updates = Some(on);
-                let _ = settings.save();
-            }
-            ui.separator();
-            ui.weak(format!("StatsCraft {}", current()));
-        });
+    /// The update items of the Help menu.
+    pub fn menu_items(&mut self, ui: &mut Ui, settings: &mut Settings) {
+        let busy = matches!(self.bar, Bar::Checking | Bar::Downloading(_));
+        if ui
+            .add_enabled(!busy, egui::Button::new("Check for updates"))
+            .clicked()
+        {
+            self.check(true);
+        }
+        let mut on = settings.updates != Some(false);
+        if ui
+            .checkbox(&mut on, "Check for updates automatically")
+            .changed()
+        {
+            settings.updates = Some(on);
+            let _ = settings.save();
+        }
     }
 }
 
