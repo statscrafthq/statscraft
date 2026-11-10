@@ -9,6 +9,7 @@ One page per supported command, generated from the same table that the parser an
 | Command | What it does |
 |---|---|
 | [GET](get.md) | Read a data file and make it the active dataset. |
+| [GET DATA](get-data.md) | Read a text data file, delimited or in fixed columns, as the active dataset. |
 | [SAVE](save.md) | Write the active dataset to a data file. |
 | [ADD FILES](add-files.md) | Append the cases of several data files, matching variables by name. |
 | [MATCH FILES](match-files.md) | Combine the variables of several data files case by case or by key. |
@@ -23,6 +24,17 @@ One page per supported command, generated from the same table that the parser an
 | [SORT CASES](sort-cases.md) | Sort the cases by the values of variables. |
 | [WEIGHT](weight.md) | Weight the cases by a variable, or turn weighting off. |
 | [AGGREGATE](aggregate.md) | Aggregate groups of cases into new variables or a new dataset. |
+| [ADD VALUE LABELS](add-value-labels.md) | Add or change value labels, keeping the other labels of the variables. |
+| [FILE LABEL](file-label.md) | Set the label of the data file. |
+| [DOCUMENT](document.md) | Add free text to the documents of the data file. |
+| [ADD DOCUMENT](add-document.md) | Add quoted lines to the documents of the data file. |
+| [DROP DOCUMENTS](drop-documents.md) | Remove the documents of the data file. |
+| [VARIABLE ROLE](variable-role.md) | Set the role of variables for dialogs. |
+| [VARIABLE ALIGNMENT](variable-alignment.md) | Set the alignment of variables in the data grid. |
+| [VARIABLE ATTRIBUTE](variable-attribute.md) | Set or delete custom attributes of variables. |
+| [DATAFILE ATTRIBUTE](datafile-attribute.md) | Set or delete custom attributes of the data file. |
+| [ALTER TYPE](alter-type.md) | Change the type, string width or format of variables. |
+| [APPLY DICTIONARY](apply-dictionary.md) | Copy dictionary information from a data file or dataset to the active dataset. |
 | [DATA LIST](data-list.md) | Define text data, inline or in a file, and read it as the new active dataset. |
 | [BEGIN DATA](begin-data.md) | Inline data for the DATA LIST before it, up to a line that holds END DATA. |
 [removed]
@@ -119,4 +131,4 @@ One page per supported command, generated from the same table that the parser an
 
 These commands of the language are recognised, but StatsCraft does not run them yet. A script that uses one stops with the error "command ... is not supported yet" at its line, and nothing is changed.
 
-ADD DOCUMENT, ADD VALUE LABELS, ALTER TYPE, ANOVA, APPLY DICTIONARY, CACHE, CASESTOVARS, CD, CLEAR TRANSFORMATIONS, CLUSTER, DATASET ACTIVATE, DATASET CLOSE, DATASET COPY, DATASET DECLARE, DATASET DISPLAY, DATASET NAME, DATE, DEFINE, DISCRIMINANT, DISPLAY, DOCUMENT, DROP DOCUMENTS, ECHO, END CASE, END DATA, END FILE, END FILE TYPE, END INPUT PROGRAM, END MATRIX, END REPEAT, ERASE, EXPORT, FACTOR, FILE HANDLE, FILE LABEL, FILE TYPE, FINISH, FLIP, GET DATA, GET TRANSLATE, GLM, GRAPH, HOST, IMPORT, INCLUDE, INPUT PROGRAM, INSERT, LEAVE, LIST, LOGISTIC REGRESSION, MATRIX, MATRIX DATA, MULT RESPONSE, NEW FILE, NPAR TESTS, OUTPUT CLOSE, OUTPUT EXPORT, OUTPUT NEW, OUTPUT SAVE, PARTIAL CORR, PERMISSIONS, PRESERVE, PRINT, PRINT EJECT, PRINT FORMATS, PRINT SPACE, QUICK CLUSTER, RANK, RECORD TYPE, REGRESSION, RELIABILITY, REPEATING DATA, REPORT, REREAD, RESTORE, SAVE TRANSLATE, SET, SHOW, SORT VARIABLES, SUBTITLE, SYSFILE INFO, TITLE, UNIANOVA, UPDATE, USE, VARIABLE ALIGNMENT, VARIABLE ATTRIBUTE, VARIABLE ROLE, VARSTOCASES, WRITE, WRITE FORMATS, XSAVE
+ANOVA, CASESTOVARS, CLEAR TRANSFORMATIONS, CLUSTER, DATE, DISCRIMINANT, ECHO, END CASE, END DATA, END FILE, END FILE TYPE, END INPUT PROGRAM, END MATRIX, END REPEAT, ERASE, EXPORT, FACTOR, FILE HANDLE, FILE TYPE, FINISH, FLIP, GET TRANSLATE, GLM, GRAPH, HOST, IMPORT, INPUT PROGRAM, LEAVE, LOGISTIC REGRESSION, MATRIX, MATRIX DATA, MULT RESPONSE, NEW FILE, NPAR TESTS, OUTPUT CLOSE, OUTPUT EXPORT, OUTPUT NEW, OUTPUT SAVE, PARTIAL CORR, PERMISSIONS, PRINT, PRINT EJECT, PRINT FORMATS, PRINT SPACE, QUICK CLUSTER, RANK, RECORD TYPE, REGRESSION, RELIABILITY, REPEATING DATA, REPORT, REREAD, SAVE TRANSLATE, SORT VARIABLES, STAR JOIN, SUBTITLE, SYSFILE INFO, TITLE, TREE, UNIANOVA, UPDATE, VARSTOCASES, WRITE, WRITE FORMATS, XSAVE
