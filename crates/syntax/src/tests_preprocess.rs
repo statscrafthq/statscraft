@@ -253,6 +253,45 @@ fn offexpand_and_mexpand_stop_expansion() {
 }
 
 #[test]
+fn arguments_are_expanded_when_the_macro_is_called_unless_noexpand() {
+    let source = "DEFINE !seven () 7 !ENDDEFINE.\n\
+                  DEFINE !plain (a = !TOKENS(1)) !a !ENDDEFINE.\n\
+                  DEFINE !kept (a = !NOEXPAND !TOKENS(1)) !a !ENDDEFINE.\n\
+                  DEFINE !len (a = !TOKENS(1)) !LENGTH(!a) !ENDDEFINE.\n\
+                  DEFINE !lenkept (a = !NOEXPAND !TOKENS(1)) !LENGTH(!a) !ENDDEFINE.\n\
+                  TITLE !plain a=!seven.\n\
+                  TITLE !kept a=!seven.\n\
+                  TITLE !len a=!seven.\n\
+                  TITLE !lenkept a=!seven.";
+    let lines: Vec<String> = expanded(source).into_iter().skip(5).collect();
+    // functions see the expanded value; a !NOEXPAND one stays a macro name to the end
+    assert_eq!(
+        lines,
+        [
+            "6: TITLE 7.",
+            "7: TITLE !seven.",
+            "8: TITLE 1.",
+            "9: TITLE 6."
+        ]
+    );
+    // a variable list kept in a macro, its body ending with a period, passed to a macro that
+    // walks it with !HEAD and !TAIL
+    let source = "DEFINE !vars () a b c.\n!ENDDEFINE.\n\
+                  DEFINE !sum (!POSITIONAL !CMDEND) !LET !s = !HEAD(!1) !LET !r = !TAIL(!1)\n\
+                  !DO !i = 1 !TO 10 !IF (!r = !NULL) !THEN !BREAK !IFEND\n\
+                  !LET !s = !CONCAT(!s, ' + ', !HEAD(!r)) !LET !r = !TAIL(!r) !DOEND !s !ENDDEFINE.\n\
+                  COMPUTE t = !sum !vars.";
+    assert_eq!(
+        expanded(source).last().unwrap(),
+        "6: COMPUTE t = A + B + C."
+    );
+    // the syntax chart writes !POSITIONAL=, the examples leave the = out
+    let source = "DEFINE !two (!POSITIONAL = !TOKENS(1) / !POSITIONAL !TOKENS(1)) !2 !1 !ENDDEFINE.\n\
+                  TITLE !two a b.";
+    assert_eq!(expanded(source).last().unwrap(), "2: TITLE b a.");
+}
+
+#[test]
 fn mprint_shows_the_expanded_command() {
     let source = "DEFINE !v () a b !ENDDEFINE.\nSET MPRINT=YES.\nFREQUENCIES VARIABLES=!v.";
     let raw = split_commands(source).unwrap();

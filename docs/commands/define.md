@@ -12,7 +12,7 @@ DEFINE name ([argument [/ argument ...]])
 
 body !ENDDEFINE.
 
-argument: !POSITIONAL or keyword =, then one of !TOKENS(n), !CHAREND('c'), !ENCLOSE('a', 'b'), !CMDEND, optionally with !DEFAULT(value) and !NOEXPAND.
+argument: !POSITIONAL or keyword =, then one of !TOKENS(n), !CHAREND('c'), !ENCLOSE('a', 'b'), !CMDEND, optionally with !DEFAULT(value) and !NOEXPAND (the value is not scanned for macro calls when the expansion is).
 
 DEFINE and !ENDDEFINE are written in full; the name may start with !.
 

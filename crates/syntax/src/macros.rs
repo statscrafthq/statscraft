@@ -11,7 +11,9 @@
 //!   in any order). Each takes `!TOKENS(n)`, `!CHAREND('c')`, `!ENCLOSE('a', 'b')` or
 //!   `!CMDEND`; an argument that the call leaves out gets its `!DEFAULT(...)` or nothing. The
 //!   end of the calling command ends every argument. Tokens of the call that no argument takes
-//!   stay in the command after the expansion.
+//!   stay in the command after the expansion. Macro calls in a value are expanded when the
+//!   macro is called, unless the argument is marked `!NOEXPAND`; a period that ends such an
+//!   expansion is dropped, since the value stands inside a command.
 //! - Outside quotes the body is read in upper case. In the body `!LET`, `!IF ... !THEN ...
 //!   [!ELSE ...] !IFEND`, `!DO !var = a !TO b [!BY c] ... !DOEND`, `!DO !var !IN (list) ...
 //!   !DOEND`, `!BREAK`, `!OFFEXPAND`/`!ONEXPAND` and the functions `!LENGTH`, `!CONCAT`,
@@ -20,8 +22,9 @@
 //!   calls unless `!EVAL` asks for it.
 //! - Expressions compare their unquoted operands, as numbers when both are numbers and else as
 //!   text, case sensitive; `0` is false and anything else true.
-//! - The expansion is scanned again for macro calls, up to 50 levels deep. A loop stops with an
-//!   error after 1000 rounds.
+//! - The expansion is scanned again for macro calls, up to SET MNEST levels deep (50), except
+//!   the values of arguments marked `!NOEXPAND`. A loop stops with an error after SET MITERATE
+//!   rounds (1000).
 //! - A body that ends with a period ends the calling command when the call is the last thing
 //!   in it. In the middle of a command that last period is dropped, so a macro that holds a
 //!   title (`'text'.`) can stand inside a subcommand.
@@ -244,6 +247,8 @@ struct Param {
     positional: bool,
     default: String,
     kind: ArgKind,
+    /// !NOEXPAND: the value is not scanned for macro calls.
+    noexpand: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -286,6 +291,10 @@ pub(crate) fn define(tokens: &[Tok]) -> MResult<Macro> {
                     "positional arguments must come before keyword ones",
                 );
             }
+            // the syntax chart writes `!POSITIONAL=`; the examples leave the = out
+            if at(k).is_some_and(|t| t.is("=")) {
+                k += 1;
+            }
             ((positional_count(&params) + 1).to_string(), true)
         } else if first.kind == Kind::Id && at(k + 1).is_some_and(|t| t.is("=")) {
             k += 2;
@@ -296,7 +305,7 @@ pub(crate) fn define(tokens: &[Tok]) -> MResult<Macro> {
                 "expected !POSITIONAL or an argument name and =",
             );
         };
-        let (mut default, mut kind) = (String::new(), None);
+        let (mut default, mut kind, mut noexpand) = (String::new(), None, false);
         loop {
             let Some(t) = at(k) else {
                 return fail(Some(first), "the argument list is not closed with )");
@@ -344,7 +353,7 @@ pub(crate) fn define(tokens: &[Tok]) -> MResult<Macro> {
                 continue;
             }
             if t.keyword("NOEXPAND") {
-                // shortcut: arguments are always scanned for macro calls; honour !NOEXPAND when a file needs it
+                noexpand = true;
                 k += 1;
                 continue;
             }
@@ -406,6 +415,7 @@ pub(crate) fn define(tokens: &[Tok]) -> MResult<Macro> {
             positional,
             default,
             kind,
+            noexpand,
         });
         if at(k).is_some_and(|t| t.is("/")) {
             k += 1;
@@ -472,6 +482,8 @@ enum Flow {
 struct Env<'a> {
     args: &'a HashMap<String, String>,
     vars: HashMap<String, String>,
+    /// The arguments marked !NOEXPAND, as `!NAME`.
+    literal: Vec<String>,
 }
 
 /// Where a command ends inside `tokens` from `from`: at a period that ends a line, else at the
@@ -537,7 +549,7 @@ impl Macros {
             }
             let definition = &self.defined[&t.upper()];
             let end = command_end(tokens, i + 1);
-            let (args, next) = self.arguments(definition, tokens, i + 1, end)?;
+            let (args, next) = self.arguments(definition, tokens, i + 1, end, depth)?;
             let text = self
                 .call(definition, &args, depth)
                 .map_err(|(_, message)| {
@@ -572,6 +584,7 @@ impl Macros {
         tokens: &[Tok],
         from: usize,
         end: usize,
+        depth: usize,
     ) -> MResult<(HashMap<String, String>, usize)> {
         let code: Vec<usize> = (from..end)
             .filter(|&i| tokens[i].kind != Kind::Newline)
@@ -627,9 +640,24 @@ impl Macros {
             values.insert(format!("!{}", param.name), value);
         }
         for param in &definition.params {
-            values
+            let value = values
                 .entry(format!("!{}", param.name))
                 .or_insert_with(|| param.default.clone());
+            // macro calls in a value are expanded when the macro is called, unless !NOEXPAND;
+            // the value stands inside a command, so a period that ends the expansion is dropped
+            if param.noexpand {
+                continue;
+            }
+            let call = &tokens[from - 1];
+            let expanded = self
+                .expand(&tokenize(value, true), depth + 1)
+                .map_err(|(_, message)| (Some((call.line, call.column)), message))?;
+            if let Some(text) = expanded {
+                *value = collapse(&text).replace('\n', " ");
+                if value.ends_with('.') {
+                    value.pop();
+                }
+            }
         }
         let positional: Vec<String> = (1..)
             .map_while(|n| values.get(&format!("!{n}")).cloned())
@@ -648,9 +676,11 @@ impl Macros {
         args: &HashMap<String, String>,
         depth: usize,
     ) -> MResult<String> {
+        let literal = definition.params.iter().filter(|p| p.noexpand);
         let mut env = Env {
             args,
             vars: HashMap::new(),
+            literal: literal.map(|p| format!("!{}", p.name)).collect(),
         };
         let mut out = String::new();
         self.run(&definition.body, &mut env, &mut out)?;
@@ -801,7 +831,11 @@ impl Macros {
                 _ => {
                     let space = t.space;
                     let mut k = i;
-                    let value = self.operand(tokens, &mut k, env)?;
+                    let mut value = self.operand(tokens, &mut k, env)?;
+                    if env.literal.contains(&t.text) && !value.is_empty() {
+                        // a !NOEXPAND argument stays as it is when the expansion is scanned again
+                        value = format!("!OFFEXPAND {value} !ONEXPAND");
+                    }
                     push_value(out, space, &value);
                     i = k;
                 }

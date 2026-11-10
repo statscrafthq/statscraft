@@ -765,7 +765,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  body\n\
                  !ENDDEFINE.\n\
                  argument: !POSITIONAL or keyword =, then one of !TOKENS(n), !CHAREND('c'),\n\
-                 !ENCLOSE('a', 'b'), !CMDEND, optionally with !DEFAULT(value) and !NOEXPAND.\n\
+                 !ENCLOSE('a', 'b'), !CMDEND, optionally with !DEFAULT(value) and !NOEXPAND (the value is\n\
+                 not scanned for macro calls when the expansion is).\n\
                  DEFINE and !ENDDEFINE are written in full; the name may start with !.\n\
                  A call is the macro name followed by its arguments, anywhere in a command outside quotes:\n\
                  positional values first, in order, then keyword = value in any order. !TOKENS takes the\n\
