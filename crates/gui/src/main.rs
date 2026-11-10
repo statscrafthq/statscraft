@@ -28,7 +28,8 @@ fn main() -> ExitCode {
         viewport: egui::ViewportBuilder::default()
             .with_title("StatsCraft")
             .with_inner_size([1280.0, 820.0])
-            .with_min_inner_size([720.0, 480.0]),
+            .with_min_inner_size([720.0, 480.0])
+            .with_icon(icon()),
         ..Default::default()
     };
     let result = eframe::run_native(
@@ -45,5 +46,19 @@ fn main() -> ExitCode {
             eprintln!("statscraft-gui: {e}");
             ExitCode::FAILURE
         }
+    }
+}
+
+/// The window icon. On Windows the executable also carries it, from build.rs.
+fn icon() -> egui::IconData {
+    eframe::icon_data::from_png_bytes(include_bytes!("../icons/statscraft-256.png"))
+        .expect("the bundled icon is a valid PNG")
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn icon_decodes() {
+        assert_eq!(super::icon().width, 256);
     }
 }
