@@ -1,7 +1,10 @@
 //! The updater against a tiny HTTP server in the test, so no test calls GitHub.
 
 use sha2::{Digest, Sha256};
-use statscraft_update::{Client, Done, Install, Release};
+use statscraft_update::{Client, Release};
+// only the tarball tests use these, and they need tar, so they run on Unix only
+#[cfg(unix)]
+use statscraft_update::{Done, Install};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
