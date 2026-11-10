@@ -19,15 +19,15 @@
 //! - Kolmogorov-Smirnov with the Lilliefors significance of Dallal and Wilkinson above the
 //!   critical value of 0.1, interpolated down to the critical value of 0.2, which the manual does
 //!   not give; it is taken from the published table of Molin and Abdi (100,000 samples per size).
-//! - Shapiro-Wilk with the manual's coefficients, on the series expanded by weights rounded to
-//!   whole numbers (3 to 5000 cases, 3 to 50 with non-integer weights); the manual leaves 3 and 4
-//!   cases out of its formula, which take the exact published coefficients. Its significance is
-//!   interpolated in the percentage points of Shapiro and Wilk (1965), which exist for 3 to 50
-//!   cases only, so above 50 the significance is empty with a warning.
+//! - Shapiro-Wilk on the series expanded by weights rounded to whole numbers, for 3 to 5000
+//!   cases (3 to 50 with non-integer weights), as the manual says. W and its significance follow
+//!   Royston (1992, AS R94 1995), not the manual's coefficient formula and table: that table ends
+//!   at 50 cases, below the 5000 the manual itself allows, and its coefficients drift from the
+//!   exact ones as n grows (W of 0.92 where the standard algorithm gives 0.95 at 181 cases).
 
 use crate::crosstabs::{Key, categories, label};
 use crate::descriptives::{case_weights, number, summarize};
-use crate::dist::{ln_gamma, normal_cdf, normal_quantile, t_quantile};
+use crate::dist::{erfc, normal_cdf, normal_quantile, t_quantile};
 use crate::means::is_valid;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Values, Variable};
@@ -312,206 +312,72 @@ pub(crate) fn lilliefors(d: f64, n: f64) -> Cell {
     Cell::Text(">0.200".into())
 }
 
-/// Percentage points of W for 3 to 50 cases at the levels of `SW_LEVELS` (Shapiro and Wilk,
-/// 1965, table 6).
-const SW_POINTS: [[f64; 9]; 48] = [
-    [
-        0.753, 0.756, 0.767, 0.789, 0.959, 0.998, 0.999, 1.000, 1.000,
-    ],
-    [
-        0.687, 0.707, 0.748, 0.792, 0.935, 0.987, 0.992, 0.996, 0.997,
-    ],
-    [
-        0.686, 0.715, 0.762, 0.806, 0.927, 0.979, 0.986, 0.991, 0.993,
-    ],
-    [
-        0.713, 0.743, 0.788, 0.826, 0.927, 0.974, 0.981, 0.986, 0.989,
-    ],
-    [
-        0.730, 0.760, 0.803, 0.838, 0.928, 0.972, 0.979, 0.985, 0.988,
-    ],
-    [
-        0.749, 0.778, 0.818, 0.851, 0.932, 0.972, 0.978, 0.984, 0.987,
-    ],
-    [
-        0.764, 0.791, 0.829, 0.859, 0.935, 0.972, 0.978, 0.984, 0.986,
-    ],
-    [
-        0.781, 0.806, 0.842, 0.869, 0.938, 0.972, 0.978, 0.983, 0.986,
-    ],
-    [
-        0.792, 0.817, 0.850, 0.876, 0.940, 0.973, 0.979, 0.984, 0.986,
-    ],
-    [
-        0.805, 0.828, 0.859, 0.883, 0.943, 0.973, 0.979, 0.984, 0.986,
-    ],
-    [
-        0.814, 0.837, 0.866, 0.889, 0.945, 0.974, 0.979, 0.984, 0.986,
-    ],
-    [
-        0.825, 0.846, 0.874, 0.895, 0.947, 0.975, 0.980, 0.984, 0.986,
-    ],
-    [
-        0.835, 0.855, 0.881, 0.901, 0.950, 0.975, 0.980, 0.984, 0.987,
-    ],
-    [
-        0.844, 0.863, 0.887, 0.906, 0.952, 0.976, 0.981, 0.985, 0.987,
-    ],
-    [
-        0.851, 0.869, 0.892, 0.910, 0.954, 0.977, 0.981, 0.985, 0.987,
-    ],
-    [
-        0.858, 0.874, 0.897, 0.914, 0.956, 0.978, 0.982, 0.986, 0.988,
-    ],
-    [
-        0.863, 0.879, 0.901, 0.917, 0.957, 0.978, 0.982, 0.986, 0.988,
-    ],
-    [
-        0.868, 0.884, 0.905, 0.920, 0.959, 0.979, 0.983, 0.986, 0.988,
-    ],
-    [
-        0.873, 0.888, 0.908, 0.923, 0.960, 0.980, 0.983, 0.987, 0.989,
-    ],
-    [
-        0.878, 0.892, 0.911, 0.926, 0.961, 0.980, 0.984, 0.987, 0.989,
-    ],
-    [
-        0.881, 0.895, 0.914, 0.928, 0.962, 0.981, 0.984, 0.987, 0.989,
-    ],
-    [
-        0.884, 0.898, 0.916, 0.930, 0.963, 0.981, 0.984, 0.987, 0.989,
-    ],
-    [
-        0.888, 0.901, 0.918, 0.931, 0.964, 0.981, 0.985, 0.988, 0.989,
-    ],
-    [
-        0.891, 0.904, 0.920, 0.933, 0.965, 0.982, 0.985, 0.988, 0.989,
-    ],
-    [
-        0.894, 0.906, 0.923, 0.935, 0.965, 0.982, 0.985, 0.988, 0.990,
-    ],
-    [
-        0.896, 0.908, 0.924, 0.936, 0.966, 0.982, 0.985, 0.988, 0.990,
-    ],
-    [
-        0.898, 0.910, 0.926, 0.937, 0.966, 0.982, 0.985, 0.988, 0.990,
-    ],
-    [
-        0.900, 0.912, 0.927, 0.939, 0.967, 0.983, 0.985, 0.988, 0.990,
-    ],
-    [
-        0.902, 0.914, 0.929, 0.940, 0.967, 0.983, 0.986, 0.988, 0.990,
-    ],
-    [
-        0.904, 0.915, 0.930, 0.941, 0.968, 0.983, 0.986, 0.988, 0.990,
-    ],
-    [
-        0.906, 0.917, 0.931, 0.942, 0.968, 0.983, 0.986, 0.989, 0.990,
-    ],
-    [
-        0.908, 0.919, 0.933, 0.943, 0.969, 0.983, 0.986, 0.989, 0.990,
-    ],
-    [
-        0.910, 0.920, 0.934, 0.944, 0.969, 0.984, 0.986, 0.989, 0.990,
-    ],
-    [
-        0.912, 0.922, 0.935, 0.945, 0.970, 0.984, 0.986, 0.989, 0.990,
-    ],
-    [
-        0.914, 0.924, 0.936, 0.946, 0.970, 0.984, 0.987, 0.989, 0.990,
-    ],
-    [
-        0.916, 0.925, 0.938, 0.947, 0.971, 0.984, 0.987, 0.989, 0.990,
-    ],
-    [
-        0.917, 0.927, 0.939, 0.948, 0.971, 0.984, 0.987, 0.989, 0.991,
-    ],
-    [
-        0.919, 0.928, 0.940, 0.949, 0.972, 0.985, 0.987, 0.989, 0.991,
-    ],
-    [
-        0.920, 0.929, 0.941, 0.950, 0.972, 0.985, 0.987, 0.989, 0.991,
-    ],
-    [
-        0.922, 0.930, 0.942, 0.951, 0.972, 0.985, 0.987, 0.989, 0.991,
-    ],
-    [
-        0.923, 0.932, 0.943, 0.951, 0.973, 0.985, 0.987, 0.990, 0.991,
-    ],
-    [
-        0.924, 0.933, 0.944, 0.952, 0.973, 0.985, 0.987, 0.990, 0.991,
-    ],
-    [
-        0.926, 0.934, 0.945, 0.953, 0.973, 0.985, 0.988, 0.990, 0.991,
-    ],
-    [
-        0.927, 0.935, 0.945, 0.953, 0.974, 0.985, 0.988, 0.990, 0.991,
-    ],
-    [
-        0.928, 0.936, 0.946, 0.954, 0.974, 0.985, 0.988, 0.990, 0.991,
-    ],
-    [
-        0.929, 0.937, 0.947, 0.954, 0.974, 0.985, 0.988, 0.990, 0.991,
-    ],
-    [
-        0.929, 0.937, 0.947, 0.955, 0.974, 0.985, 0.988, 0.990, 0.991,
-    ],
-    [
-        0.930, 0.938, 0.947, 0.955, 0.974, 0.985, 0.988, 0.990, 0.991,
-    ],
-];
-
-const SW_LEVELS: [f64; 9] = [0.01, 0.02, 0.05, 0.10, 0.50, 0.90, 0.95, 0.98, 0.99];
-
-/// The significance of W for `n` cases (3 to 50) by linear interpolation in the table.
-pub(crate) fn shapiro_wilk_p(w: f64, n: usize) -> Cell {
-    let points = &SW_POINTS[n - 3];
-    if w < points[0] {
-        return Cell::Text("<0.010".into());
-    }
-    if w > points[8] {
-        return Cell::Text(">0.990".into());
-    }
-    // the first interval that holds w; equal neighbouring points give the lower level
-    let j = (0..8).find(|&j| w <= points[j + 1]).unwrap_or(7);
-    let span = points[j + 1] - points[j];
-    let share = if span > 0.0 {
-        (w - points[j]) / span
-    } else {
-        0.0
-    };
-    Cell::Number(SW_LEVELS[j] + share * (SW_LEVELS[j + 1] - SW_LEVELS[j]))
-}
-
-/// The coefficients a_n/2+1 .. a_n of W for `n` cases (the others are their negatives).
+/// The coefficients a_n/2+1 .. a_n of W for `n` cases (the others are their negatives), by
+/// Royston's approximation (1992; Applied Statistics algorithm AS R94, 1995).
 pub(crate) fn shapiro_wilk_coefficients(n: usize) -> Vec<f64> {
-    match n {
-        3 => return vec![0.0, std::f64::consts::FRAC_1_SQRT_2],
-        4 => return vec![0.1677, 0.6872],
-        _ => {}
+    if n == 3 {
+        return vec![0.0, std::f64::consts::FRAC_1_SQRT_2];
     }
     let nf = n as f64;
-    let beta = nf.log10();
-    let alpha = 0.314195 + 0.063336 * beta - 0.010895 * beta * beta;
     let m: Vec<f64> = (1..=n)
-        .map(|i| normal_quantile((i as f64 - alpha) / (nf - 2.0 * alpha + 1.0)))
+        .map(|i| normal_quantile((i as f64 - 0.375) / (nf + 0.25)))
         .collect();
-    let ln_ratio = if n <= 20 {
-        ln_gamma(nf / 2.0) - ln_gamma((nf + 1.0) / 2.0)
+    let sum: f64 = m.iter().map(|v| v * v).sum();
+    let u = 1.0 / nf.sqrt();
+    let poly = |c: [f64; 5]| c.iter().rev().fold(0.0, |acc, c| (acc + c) * u);
+    let last = m[n - 1] / sum.sqrt() + poly([0.221157, -0.147981, -2.071190, 4.434685, -2.706056]);
+    let mut a: Vec<f64> = Vec::new();
+    if n > 5 {
+        let next =
+            m[n - 2] / sum.sqrt() + poly([0.042981, -0.293762, -1.752461, 5.682633, -3.582633]);
+        let rest = (sum - 2.0 * m[n - 1].powi(2) - 2.0 * m[n - 2].powi(2))
+            / (1.0 - 2.0 * last * last - 2.0 * next * next);
+        a.extend(m[n / 2..n - 2].iter().map(|v| v / rest.sqrt()));
+        a.extend([next, last]);
     } else {
-        ln_gamma((nf + 1.0) / 2.0) - ln_gamma(nf / 2.0 + 1.0)
-    };
-    let extreme = ln_ratio.exp() / std::f64::consts::SQRT_2;
-    let inner: f64 = m[1..n - 1].iter().map(|v| v * v).sum();
-    let scale = ((1.0 - 2.0 * extreme) / inner).sqrt();
-    let mut a: Vec<f64> = m[n / 2..].iter().map(|v| v * scale).collect();
-    *a.last_mut().expect("n >= 5") = extreme.sqrt();
+        let rest = (sum - 2.0 * m[n - 1].powi(2)) / (1.0 - 2.0 * last * last);
+        a.extend(m[n / 2..n - 1].iter().map(|v| v / rest.sqrt()));
+        a.push(last);
+    }
     a
 }
 
-/// W of the series with weights rounded to whole numbers; None outside its range or without
-/// spread. Also the number of cases of the series.
-pub(crate) fn shapiro_wilk(dist: &Distribution) -> (Option<f64>, f64) {
+/// The significance of W for `n` cases (Royston, 1992 and 1995): exact for 3 cases, otherwise
+/// a normal approximation of a transformation of 1 - W.
+pub(crate) fn shapiro_wilk_p(w: f64, n: usize) -> f64 {
+    if n == 3 {
+        let p = 6.0 / std::f64::consts::PI * (w.sqrt().asin() - 0.75f64.sqrt().asin());
+        return p.clamp(0.0, 1.0);
+    }
+    let nf = n as f64;
+    let poly = |c: &[f64], x: f64| c.iter().rev().fold(0.0, |acc, c| acc * x + c);
+    let y = (1.0 - w).ln();
+    let (z, mean, sd) = if n <= 11 {
+        let gamma = poly(&[-2.273, 0.459], nf);
+        if y >= gamma {
+            return 0.0;
+        }
+        (
+            -(gamma - y).ln(),
+            poly(&[0.5440, -0.39978, 0.025054, -6.714e-4], nf),
+            poly(&[1.3822, -0.77857, 0.062767, -0.0020322], nf).exp(),
+        )
+    } else {
+        let x = nf.ln();
+        (
+            y,
+            poly(&[-1.5861, -0.31082, -0.083751, 0.0038915], x),
+            poly(&[-0.4803, -0.082676, 0.0030302], x).exp(),
+        )
+    };
+    // the upper tail, by erfc so that small significances keep their precision
+    erfc((z - mean) / sd / std::f64::consts::SQRT_2) / 2.0
+}
+
+/// W and its significance for the series with weights rounded to whole numbers, None outside
+/// its range (3 to 5000 cases, 3 to 50 with non-integer weights) or without spread. Also the
+/// number of cases of the series.
+pub(crate) fn shapiro_wilk(dist: &Distribution) -> (Option<(f64, f64)>, f64) {
     let rounded: Vec<f64> = dist.weights.iter().map(|c| c.round()).collect();
     let n: f64 = rounded.iter().sum();
     let whole = dist.weights.iter().all(|c| c.fract() == 0.0);
@@ -536,7 +402,8 @@ pub(crate) fn shapiro_wilk(dist: &Distribution) -> (Option<f64>, f64) {
     let linear: f64 = (0..half)
         .map(|i| upper[half - 1 - i] * (x[count - 1 - i] - x[i]))
         .sum();
-    (Some(linear * linear / ss), n)
+    let w = (linear * linear / ss).min(1.0);
+    (Some((w, shapiro_wilk_p(w, count))), n)
 }
 
 /// A number with up to six decimals and no trailing zeros, as in "95" or "97.5".
@@ -689,7 +556,6 @@ impl Engine {
         }
         models.extend(terms.iter().cloned());
         let mut out = Vec::new();
-        let mut beyond_table = false;
         for model in &models {
             let factors: Vec<Variable> = model
                 .iter()
@@ -777,14 +643,8 @@ impl Engine {
                 out.push(tables.extremes(&used, n));
             }
             if command.normality {
-                out.push(tables.normality(&used, &mut beyond_table));
+                out.push(tables.normality(&used));
             }
-        }
-        if beyond_table {
-            warnings.push(
-                "the significance of Shapiro-Wilk is shown for 3 to 50 cases only, where the published table of its distribution ends"
-                    .into(),
-            );
         }
         for warning in warnings {
             self.warn(warning);
@@ -1078,7 +938,7 @@ impl Tables<'_> {
         }
     }
 
-    fn normality(&self, results: &[&CellResult], beyond_table: &mut bool) -> Table {
+    fn normality(&self, results: &[&CellResult]) -> Table {
         let mut rows = Vec::new();
         for r in results {
             let dist = Distribution::new(&r.pairs);
@@ -1092,16 +952,12 @@ impl Tables<'_> {
                 }
                 None => row.extend([Cell::Empty, Cell::Number(s.n), Cell::Empty]),
             }
-            let (w, n) = shapiro_wilk(&dist);
-            let significance = match w {
-                Some(w) if n <= 50.0 => shapiro_wilk_p(w, n as usize),
-                Some(_) => {
-                    *beyond_table = true;
-                    Cell::Empty
-                }
-                None => Cell::Empty,
-            };
-            row.extend([number(w), Cell::Number(n), significance]);
+            let (test, n) = shapiro_wilk(&dist);
+            row.extend([
+                number(test.map(|t| t.0)),
+                Cell::Number(n),
+                number(test.map(|t| t.1)),
+            ]);
             rows.push(row);
         }
         let values: Vec<(&str, Vec<String>)> = ["Kolmogorov-Smirnov", "Shapiro-Wilk"]
@@ -1116,7 +972,7 @@ impl Tables<'_> {
             column_groups,
             rows,
             caption: Some(
-                "Kolmogorov-Smirnov with the Lilliefors significance (Dallal and Wilkinson); a significance shown as >0.200 has 0.2 as its lower bound. Shapiro-Wilk significance interpolated in the table of Shapiro and Wilk (1965)."
+                "Kolmogorov-Smirnov with the Lilliefors significance (Dallal and Wilkinson); a significance shown as >0.200 has 0.2 as its lower bound. Shapiro-Wilk by Royston's algorithm (AS R94)."
                     .into(),
             ),
             ..Table::default()
@@ -1175,40 +1031,41 @@ mod tests {
     #[test]
     fn shapiro_wilk_coefficients_near_the_published_ones() {
         // exact coefficients of Shapiro and Wilk (1965), largest first
-        let published: [(usize, &[f64], f64); 3] = [
-            (10, &[0.5739, 0.3291, 0.2141, 0.1224, 0.0399], 5e-3),
-            (20, &[0.4734, 0.3211, 0.2565, 0.2085, 0.1686], 4e-3),
-            (50, &[0.3751, 0.2574, 0.2260, 0.2032, 0.1847], 3e-4),
+        let published: [(usize, &[f64]); 4] = [
+            (4, &[0.6872, 0.1677]),
+            (5, &[0.6646, 0.2413, 0.0]),
+            (10, &[0.5739, 0.3291, 0.2141, 0.1224, 0.0399]),
+            (20, &[0.4734, 0.3211, 0.2565, 0.2085, 0.1686]),
         ];
-        for (n, exact, tolerance) in published {
+        for (n, exact) in published {
             let a = shapiro_wilk_coefficients(n);
-            let sum: f64 = 2.0 * a.iter().map(|v| v * v).sum::<f64>();
+            let middle = if n % 2 == 1 { a[0] * a[0] } else { 0.0 };
+            let sum: f64 = 2.0 * a.iter().map(|v| v * v).sum::<f64>() - middle;
             assert!((sum - 1.0).abs() < 1e-12, "{n}: {sum}");
             for (i, e) in exact.iter().enumerate() {
                 let got = a[a.len() - 1 - i];
-                assert!((got - e).abs() < tolerance, "{n} {i}: {got} vs {e}");
+                assert!((got - e).abs() < 2e-3, "{n} {i}: {got} vs {e}");
             }
         }
     }
 
     #[test]
-    fn shapiro_wilk_table_and_significance() {
-        for row in &SW_POINTS {
-            assert!(row.windows(2).all(|w| w[0] <= w[1]), "{row:?}");
+    fn shapiro_wilk_significance() {
+        // three cases: exact, 0 at the smallest possible W and 1 at W = 1
+        assert_eq!(shapiro_wilk_p(0.75, 3), 0.0);
+        assert!((shapiro_wilk_p(1.0, 3) - 1.0).abs() < 1e-12);
+        let p = shapiro_wilk_p(0.9, 3);
+        let exact =
+            6.0 / std::f64::consts::PI * (0.9f64.sqrt().asin() - std::f64::consts::PI / 3.0);
+        assert!((p - exact).abs() < 1e-15);
+        // the significance falls as W falls, in both approximations
+        for n in [4, 7, 11, 12, 50, 1000] {
+            let ps: Vec<f64> = [0.7, 0.8, 0.9, 0.95, 0.99]
+                .iter()
+                .map(|&w| shapiro_wilk_p(w, n))
+                .collect();
+            assert!(ps.windows(2).all(|p| p[0] <= p[1]), "{n}: {ps:?}");
         }
-        assert_eq!(
-            SW_POINTS[50 - 3],
-            [
-                0.930, 0.938, 0.947, 0.955, 0.974, 0.985, 0.988, 0.990, 0.991
-            ]
-        );
-        assert_eq!(shapiro_wilk_p(0.959, 3), Cell::Number(0.5));
-        assert_eq!(shapiro_wilk_p(0.77, 10), Cell::Text("<0.010".into()));
-        assert_eq!(shapiro_wilk_p(0.99, 10), Cell::Text(">0.990".into()));
-        let Cell::Number(p) = shapiro_wilk_p(0.8555, 10) else {
-            panic!()
-        };
-        assert!((p - 0.075).abs() < 1e-12);
     }
 
     #[test]

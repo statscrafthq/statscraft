@@ -1159,9 +1159,9 @@ fn correlations_tables() {
 
 /// Runs EXAMINE in both programs and pairs the n-th table of a title in PSPP's output with the
 /// n-th of ours (the two order the tables differently). PSPP has no M-estimators and no
-/// Kolmogorov-Smirnov test, and its Shapiro-Wilk uses Royston's coefficients instead of the
-/// manual's, so those are checked in examine.rs; its default /STATISTICS shows no Descriptives
-/// (the manual's default does), so every case asks for the tables it compares.
+/// Kolmogorov-Smirnov test, so those are checked in examine.rs; its Tests of Normality hold
+/// Shapiro-Wilk alone, compared with our last three columns. Its default /STATISTICS shows no
+/// Descriptives (the manual's default does), so every case asks for the tables it compares.
 fn compare_examine(case: &str, fixture: &str, syntax: &str) {
     let Some((program, dir)) = setup(case, fixture) else {
         return;
@@ -1176,6 +1176,7 @@ fn compare_examine(case: &str, fixture: &str, syntax: &str) {
         "Descriptives",
         "Percentiles",
         "Extreme Values",
+        "Tests of Normality",
     ];
     for title in titles {
         let pspp_tables: Vec<_> = theirs.iter().filter(|(t, _)| t == title).collect();
@@ -1192,7 +1193,7 @@ fn compare_examine(case: &str, fixture: &str, syntax: &str) {
             let values = table.columns.len() - first;
             let header_rows = match title {
                 "Case Processing Summary" => 3,
-                "Percentiles" => 2,
+                "Percentiles" | "Tests of Normality" => 2,
                 _ => 1,
             };
             // with weights below 1 PSPP does not follow the manual's depths of Tukey's hinges
@@ -1213,7 +1214,14 @@ fn compare_examine(case: &str, fixture: &str, syntax: &str) {
                 rows: table.rows.iter().filter(|r| !skip(r)).cloned().collect(),
                 ..Table::default()
             };
-            let found = positional(&rows, &table, &straight(header_rows, first, values));
+            let layout = match title {
+                "Tests of Normality" => Layout {
+                    header_rows,
+                    columns: (0..3).map(|c| (first + c, first + 3 + c)).collect(),
+                },
+                _ => straight(header_rows, first, values),
+            };
+            let found = positional(&rows, &table, &layout);
             problems.extend(found.into_iter().map(|p| format!("{title}: {p}")));
         }
     }
@@ -1247,6 +1255,15 @@ fn examine_tables() {
         ("listwise-factor-missing".into(), SURVEY, "EXAMINE age BY q6_mention1 /STATISTICS=DESCRIPTIVES /PERCENTILES(25,50,75) /NOTOTAL.".into()),
         // PSPP still sees cases weighted 0 in the minimum and maximum, which the manual leaves
         // out, so this case compares the percentiles only
+        // Shapiro-Wilk: one dependent per command, as PSPP shows only the first of several in
+        // the total; groups of 3 to 11 cases use Royston's small-sample approximation
+        ("normality".into(), SURVEY, "EXAMINE age /STATISTICS=NONE /PLOT=NPPLOT.\nEXAMINE monthly_spend BY gender /STATISTICS=NONE /PLOT=NPPLOT /NOTOTAL.".into()),
+        ("normality-small".into(), SURVEY, "SELECT IF resp_id <= 1030.\nEXAMINE age /STATISTICS=NONE /PLOT=NPPLOT.\nEXAMINE monthly_spend /STATISTICS=NONE /PLOT=NPPLOT.".into()),
+        // PSPP's Shapiro-Wilk is wrong for 3 to 5 cases (W far above 1 for 4, NaN for 5, 0.925
+        // for 3 where the exact W is 0.983), so those are checked in examine.rs against SciPy
+        ("normality-integer-weights".into(), WEIGHTED, "COMPUTE w2 = RND(weight * 3).\nWEIGHT BY w2.\nEXAMINE age BY region /STATISTICS=NONE /PLOT=NPPLOT /NOTOTAL.".into()),
+        // with non-integer weights PSPP does not round them and expand the series as the manual
+        // says (it prints W above 1), so only whole weights are compared here
         ("report".into(), SURVEY, "EXAMINE age BY q1_satisfaction /MISSING=REPORT /STATISTICS=DESCRIPTIVES /NOTOTAL.".into()),
         ("unusable-weights".into(), WEIGHTED, "RECODE weight (LO THRU 0.6 = 0).\nEXAMINE age BY region /STATISTICS=NONE /PERCENTILES.".into()),
     ];

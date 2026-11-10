@@ -511,11 +511,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  1.7 3.4 8.5, Andrews 1.34 times pi), each started at the median and scaled by the median absolute\n\
                  deviation. EXTREME lists the n highest and lowest values by case number or by the ID variable.\n\
                  NPPLOT gives the Tests of Normality table (Kolmogorov-Smirnov with the Lilliefors significance and\n\
-                 Shapiro-Wilk, whose significance is shown for 3 to 50 cases); the plots themselves are not drawn.\n\
+                 Shapiro-Wilk by Royston's algorithm, 3 to 5000 cases); the plots themselves are not drawn.\n\
                  LISTWISE (default) leaves out a case missing on any dependent or factor, PAIRWISE only from the\n\
                  analyses of that variable. INCLUDE makes user-missing values of the dependents valid, REPORT makes\n\
                  missing values of the factors categories. Weighted when a weight variable is set (Shapiro-Wilk rounds\n\
-                 the weights). COMPARE changes nothing. Not supported yet: STEMLEAF, BOXPLOT, HISTOGRAM, SPREADLEVEL.",
+                 the weights and takes 3 to 50 cases with non-integer weights). COMPARE changes nothing.\n\
+                 Not supported yet: STEMLEAF, BOXPLOT, HISTOGRAM, SPREADLEVEL.",
         example: "EXAMINE VARIABLES=income BY region /PERCENTILES(25,50,75)=HAVERAGE /STATISTICS=ALL /MESTIMATORS /PLOT=NPPLOT.",
         parse: examine::examine,
     },

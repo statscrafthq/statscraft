@@ -1,10 +1,12 @@
 //! EXAMINE on the survey fixtures. The descriptives, percentiles, extreme values and case counts
 //! agree with the reference program (`reference_procedures.rs`). The expected numbers here are
 //! for what that program does not compute as the Algorithms manual says (the confidence interval
-//! at another level, the M-estimators, Kolmogorov-Smirnov with the Lilliefors significance and
-//! Shapiro-Wilk with the manual's coefficients); they come from an independent implementation of
-//! the manual's formulas in a general statistics library, which read the published tables of
-//! Shapiro and Wilk (1965) and of Molin and Abdi from their source documents.
+//! at another level, the M-estimators, Kolmogorov-Smirnov with the Lilliefors significance); they
+//! come from an independent implementation of the manual's formulas in a general statistics
+//! library, which read the published table of Molin and Abdi from its source document.
+//! Shapiro-Wilk follows Royston's algorithm (AS R94); its values here are ours, which the
+//! reference program confirms to ten decimals in `reference_procedures.rs` and SciPy to its
+//! single precision.
 
 use statscraft_engine::{Cell, Engine, Table};
 use statscraft_syntax::parse;
@@ -180,15 +182,15 @@ fn examine_interval_robust_estimates_and_normality() {
     close(&age[0], 0.11202064920319454);
     close(&age[1], 30.0);
     assert_eq!(text(&age[2]), ">0.200");
-    close(&age[3], 0.9344286299803317);
+    close(&age[3], 0.939703856064351);
     close(&age[4], 30.0);
-    close(&age[5], 0.08095262491804889);
+    close(&age[5], 0.08930372374887008);
     let spend = row("monthly_spend");
     close(&spend[0], 0.12970452896705892);
     close(&spend[1], 28.0);
     assert_eq!(text(&spend[2]), ">0.200");
-    close(&spend[3], 0.945868144624035);
-    close(&spend[5], 0.23157526165379982);
+    close(&spend[3], 0.9490669841087788);
+    close(&spend[5], 0.1877046750694561);
     assert_eq!(
         engine.warnings(),
         [
@@ -247,23 +249,23 @@ fn examine_weighted_robust_estimates_and_normality() {
     close(&age[1], 42.6138);
     close(&age[2], 0.06624611500901828);
     // the weights are rounded to whole numbers and the series expanded
-    close(&age[3], 0.9127685291807337);
+    close(&age[3], 0.9248927348671178);
     close(&age[4], 43.0);
-    assert_eq!(text(&age[5]), "<0.010");
+    close(&age[5], 0.0078014985613992305);
 }
 
 #[test]
-fn examine_normality_beyond_the_shapiro_wilk_table() {
+fn examine_normality_of_large_samples() {
     let mut engine = loaded("survey_basic.sav");
     let tables = run(&mut engine, "EXAMINE age /STATISTICS=NONE /PLOT=NPPLOT.");
     let normality = all(&tables, "Tests of Normality")[0];
     let age = NORMALITY.map(|c| cell(normality, &["age"], c).clone());
     close(&age[0], 0.08496926166739543);
     close(&age[2], 0.0012973263191633254);
-    close(&age[3], 0.9252040047431841);
+    close(&age[3], 0.9517290887761443);
     close(&age[4], 200.0);
-    assert_eq!(age[5], Cell::Empty);
-    assert!(engine.warnings()[1].contains("Shapiro-Wilk is shown for 3 to 50 cases only"));
+    let Cell::Number(p) = age[5] else { panic!() };
+    assert!((p - 2.7796452849009893e-06).abs() < 1e-17);
     // non-integer weights allow Shapiro-Wilk up to 50 cases only
     let mut engine = loaded("survey_basic_phpwriter.sav");
     let tables = run(
@@ -281,7 +283,8 @@ fn examine_normality_beyond_the_shapiro_wilk_table() {
 
 #[test]
 fn examine_shapiro_wilk_published_example() {
-    // the weights of eleven men from Shapiro and Wilk (1965): W = 0.79, below the 1% point
+    // the weights of eleven men from Shapiro and Wilk (1965), who give W = 0.79 by their exact
+    // coefficients (0.786 by the approximation in the Algorithms manual); Royston's gives 0.789
     let mut engine = loaded("survey_basic.sav");
     let tables = run(
         &mut engine,
@@ -295,8 +298,8 @@ fn examine_shapiro_wilk_published_example() {
     let x = NORMALITY.map(|c| cell(normality, &["x"], c).clone());
     close(&x[0], 0.25921535714887756);
     close(&x[2], 0.037407621800030794);
-    close(&x[3], 0.7858518956849019);
-    assert_eq!(text(&x[5]), "<0.010");
+    close(&x[3], 0.7888146948353868);
+    close(&x[5], 0.006703814056502814);
     let descriptives = all(&tables, "Descriptives")[0];
     close(
         cell(descriptives, &["x", "5% Trimmed Mean"], "Statistic"),
@@ -311,6 +314,34 @@ fn examine_shapiro_wilk_published_example() {
     ];
     for (column, value) in ESTIMATORS.iter().zip(values) {
         close(cell(robust, &["x"], column), value);
+    }
+}
+
+#[test]
+fn examine_shapiro_wilk_of_three_to_five_cases() {
+    // the ages 49 59 75, then 36 and 68 added; SciPy's single precision gives the same to 1e-6,
+    // and 3 cases have the exact W = (75 - 49)^2 / 2 / 344
+    for (last, w, p) in [
+        (1003, 338.0 / 344.0, 0.7470303510341707),
+        (1004, 0.9970488548278809, 0.9900332093238831),
+        (1005, 0.9763565839144167, 0.9142531247124788),
+    ] {
+        let mut engine = loaded("survey_basic.sav");
+        let tables = run(
+            &mut engine,
+            &format!("SELECT IF resp_id <= {last}.\nEXAMINE age /STATISTICS=NONE /PLOT=NPPLOT."),
+        );
+        let normality = all(&tables, "Tests of Normality")[0];
+        let tolerance = if last == 1004 { 1e-6 } else { 1e-12 };
+        for (column, expected) in [(NORMALITY[3], w), (NORMALITY[5], p)] {
+            let Cell::Number(got) = cell(normality, &["age"], column) else {
+                panic!()
+            };
+            assert!(
+                (got - expected).abs() < tolerance,
+                "{last}: {got} vs {expected}"
+            );
+        }
     }
 }
 
