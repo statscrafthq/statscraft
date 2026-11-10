@@ -230,9 +230,33 @@ fn check_table(sheet: &Sheet, table: &Table, top: u32) -> u32 {
     assert_eq!(title.value, Value::Text(table.title.clone()));
     assert!(title.bold, "the title is bold");
     let headers = header_rows(table);
+    // above a row label column all header levels are one merged cell holding its labels
+    for c in 0..table.row_headers {
+        let label: Vec<&str> = headers
+            .iter()
+            .flatten()
+            .filter(|cell| cell.first == c && !cell.label.is_empty())
+            .map(|cell| cell.label.as_str())
+            .collect();
+        let expected = match label.join(" ") {
+            text if text.is_empty() => Value::Blank,
+            text => Value::Text(text),
+        };
+        let (first, last) = (top + 1, top + headers.len() as u32);
+        assert_eq!(
+            sheet.at(first, c).value,
+            expected,
+            "header {}",
+            a1(first, c)
+        );
+        if last > first {
+            let range = format!("{}:{}", a1(first, c), a1(last, c));
+            assert!(sheet.merges.contains(&range), "{range} is merged");
+        }
+    }
     for (level, cells) in headers.iter().enumerate() {
         let row = top + 1 + level as u32;
-        for cell in cells {
+        for cell in cells.iter().filter(|cell| cell.first >= table.row_headers) {
             let x = sheet.at(row, cell.first);
             let expected = match cell.label.as_str() {
                 "" => Value::Blank,

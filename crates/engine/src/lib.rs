@@ -81,7 +81,7 @@ impl Table {
 }
 
 /// One header cell spanning `span` columns from `first`.
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct HeaderCell {
     pub first: usize,
     pub span: usize,

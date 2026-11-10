@@ -70,13 +70,31 @@ fn put_table(
     sheet.write_string_with_format(top, 0, &table.title, &Format::new().set_bold())?;
     let mut row = top + 1;
     let mut spans = Vec::new();
-    for cells in header_rows(table) {
-        for cell in cells {
+    let headers = header_rows(table);
+    // above each row label column the header levels form one cell holding its label, if any
+    let depth = headers.len() as u32;
+    for c in 0..table.row_headers {
+        let label: Vec<&str> = headers
+            .iter()
+            .flatten()
+            .filter(|cell| cell.first == c && !cell.label.is_empty())
+            .map(|cell| cell.label.as_str())
+            .collect();
+        let label = label.join(" ");
+        if depth > 1 {
+            sheet.merge_range(row, c as u16, row + depth - 1, c as u16, &label, &header)?;
+        } else {
+            sheet.write_string_with_format(row, c as u16, &label, &header)?;
+        }
+        fit(widths, c, &label);
+    }
+    for cells in &headers {
+        for cell in cells.iter().filter(|cell| cell.first >= table.row_headers) {
             let column = cell.first as u16;
             if cell.span > 1 {
                 let last = column + cell.span as u16 - 1;
                 sheet.merge_range(row, column, row, last, &cell.label, &header)?;
-                spans.push(cell);
+                spans.push(cell.clone());
             } else {
                 sheet.write_string_with_format(row, column, &cell.label, &header)?;
                 fit(widths, cell.first, &cell.label);
