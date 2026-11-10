@@ -1481,6 +1481,8 @@ impl App {
         let mut hovered_command = None;
         egui::CentralPanel::default().show(ui, |ui| {
             paper(ui, light);
+            // the text fills the tab however tall the window is
+            let height = ui.available_height();
             area.auto_shrink(false).show(ui, |ui| {
                 ui.horizontal_top(|ui| {
                     let left = ui.cursor().left();
@@ -1490,7 +1492,8 @@ impl App {
                         .code_editor()
                         .lock_focus(true)
                         .desired_width(f32::INFINITY)
-                        .desired_rows(30)
+                        .desired_rows(4)
+                        .min_size(vec2(0.0, height))
                         .margin(vec2(6.0, 4.0))
                         .hint_text("Type syntax here, for example FREQUENCIES VARIABLES=gender.")
                         .layouter(&mut layouter)
