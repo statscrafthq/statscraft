@@ -281,6 +281,9 @@ pub struct AxisVariable {
     pub scale: Option<bool>,
     /// The summaries in brackets after the variable, None when there are none.
     pub summaries: Option<Vec<Summary>>,
+    /// `TOTALS [...]` inside the brackets: the summaries of the variable's totals and subtotals,
+    /// None when they are the same as the categories'.
+    pub total_summaries: Option<Vec<Summary>>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -801,10 +804,29 @@ fn summary_format(p: &mut Parser, word: &str) -> PResult<Format> {
     Ok(parsed)
 }
 
-/// The summaries inside `[...]`, with the parser just after the `[`.
-fn summaries(p: &mut Parser) -> PResult<Vec<Summary>> {
+/// The summaries inside `[...]`, with the parser just after the `[`, and those of a
+/// `TOTALS [...]` inside them (not in a TOTALS list itself).
+fn summaries(p: &mut Parser, inside_totals: bool) -> PResult<(Vec<Summary>, Option<Vec<Summary>>)> {
     let mut list = Vec::new();
+    let mut totals: Option<Vec<Summary>> = None;
     loop {
+        if matches!(p.peek(), Some(TokenKind::Word(w)) if w.eq_ignore_ascii_case("TOTALS"))
+            && p.peek_at(1) == Some(&TokenKind::Punct(Punct::LBracket))
+        {
+            if inside_totals || totals.is_some() {
+                return Err(SyntaxError::new(
+                    p.span(),
+                    "a summary list has at most one TOTALS [...], and not inside another",
+                ));
+            }
+            p.pos += 2;
+            totals = Some(summaries(p, true)?.0);
+            p.eat(Punct::Comma);
+            if p.eat(Punct::RBracket) {
+                return Ok((list, totals));
+            }
+            continue;
+        }
         let Some(TokenKind::Word(word)) = p.peek() else {
             return Err(p.unexpected(&[SUMMARY_EXPECTED]));
         };
@@ -846,7 +868,7 @@ fn summaries(p: &mut Parser) -> PResult<Vec<Summary>> {
         });
         p.eat(Punct::Comma);
         if p.eat(Punct::RBracket) {
-            return Ok(list);
+            return Ok((list, totals));
         }
     }
 }
@@ -865,32 +887,43 @@ fn variable(p: &mut Parser) -> PResult<AxisExpr> {
             p.pos += 3;
         }
     }
-    let summaries = if p.eat(Punct::LBracket) {
-        Some(summaries(p)?)
+    let (summaries, total_summaries) = if p.eat(Punct::LBracket) {
+        let (list, totals) = summaries(p, false)?;
+        // a list of totals alone leaves the categories their default
+        ((!list.is_empty()).then_some(list), totals)
     } else {
-        None
+        (None, None)
     };
     Ok(AxisExpr::Variable(AxisVariable {
         name,
         scale,
         summaries,
+        total_summaries,
     }))
 }
 
 /// Summaries after a parenthesis go to the innermost variable of every nesting inside it, before
 /// the summaries those variables have of their own.
-fn give(expr: &mut AxisExpr, list: &[Summary]) {
+fn give(expr: &mut AxisExpr, given: &(Vec<Summary>, Option<Vec<Summary>>)) {
+    let (list, totals) = given;
     match expr {
         AxisExpr::Variable(v) => {
-            let mut all = list.to_vec();
-            all.extend(v.summaries.take().unwrap_or_default());
-            v.summaries = Some(all);
+            if !list.is_empty() {
+                let mut all = list.clone();
+                all.extend(v.summaries.take().unwrap_or_default());
+                v.summaries = Some(all);
+            }
+            if let Some(totals) = totals {
+                let mut all = totals.clone();
+                all.extend(v.total_summaries.take().unwrap_or_default());
+                v.total_summaries = Some(all);
+            }
         }
         AxisExpr::Stack(a, b) => {
-            give(a, list);
-            give(b, list);
+            give(a, given);
+            give(b, given);
         }
-        AxisExpr::Nest(_, inner) => give(inner, list),
+        AxisExpr::Nest(_, inner) => give(inner, given),
     }
 }
 
@@ -907,7 +940,7 @@ fn primary(p: &mut Parser) -> PResult<AxisExpr> {
                 ));
             }
             p.pos += 1;
-            give(&mut inner, &summaries(p)?);
+            give(&mut inner, &summaries(p, false)?);
         }
         return Ok(inner);
     }

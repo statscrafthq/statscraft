@@ -768,9 +768,45 @@ fn categories(
     add_total(&mut list, spec);
     add_subtotals(&mut list, spec);
     if let Some(command) = command.filter(|_| !computed.is_empty()) {
-        pcompute::resolve(name, !variable.is_string(), &mut list, &computed, command)?;
+        let written = spec.and_then(|s| s.values.as_deref()).unwrap_or_default();
+        let item_labels: Vec<String> = written
+            .iter()
+            .map(|item| item_label(variables, item))
+            .collect();
+        pcompute::resolve(
+            name,
+            !variable.is_string(),
+            &mut list,
+            &computed,
+            command,
+            &item_labels,
+        )?;
     }
     Ok(list)
+}
+
+/// The label of an item of an explicit category list, for `)LABEL[n]`: a value's label, a range
+/// as `low THRU high` with the labels of its ends, a subtotal's label, and the keywords and
+/// names as written.
+fn item_label(variables: &[Variable], item: &CategoryItem) -> String {
+    let number = |n: f64| category_label(variables, &Key::Number(n + 0.0));
+    let bound = |b: &Bound| match b {
+        Bound::Lowest => "LOWEST".to_string(),
+        Bound::Highest => "HIGHEST".to_string(),
+        Bound::Number(n) => number(*n),
+    };
+    match item {
+        CategoryItem::Value(SyntaxValue::Number(n)) => number(*n),
+        CategoryItem::Value(SyntaxValue::String(s)) => {
+            category_label(variables, &Key::Text(s.trim_end().to_string()))
+        }
+        CategoryItem::Range(low, high) => format!("{} THRU {}", bound(low), bound(high)),
+        CategoryItem::Name(n) => n.clone(),
+        CategoryItem::Computed(n) => format!("&{n}"),
+        CategoryItem::Subtotal { label, .. } => label.clone().unwrap_or_else(|| "Subtotal".into()),
+        CategoryItem::Missing => "MISSING".into(),
+        CategoryItem::OtherNm => "OTHERNM".into(),
+    }
 }
 
 /// The total category that /CATEGORIES asks for.
@@ -1138,8 +1174,12 @@ impl<'a> Layout<'a> {
         }
     }
 
-    /// The summaries of a term on the summary axis and the variable they summarize.
-    fn summaries<'t>(&self, term: &'t Term<'a>) -> (Vec<Summary>, &'t TermVar<'a>) {
+    /// The summaries of a term on the summary axis, those of its totals and subtotals when
+    /// TOTALS gives them, and the variable they summarize.
+    fn summaries<'t>(
+        &self,
+        term: &'t Term<'a>,
+    ) -> (Vec<Summary>, Option<Vec<Summary>>, &'t TermVar<'a>) {
         let default = |statistic| {
             vec![Summary {
                 function: SummaryFunction {
@@ -1154,12 +1194,21 @@ impl<'a> Layout<'a> {
         };
         if let Some(scale) = term.iter().find(|v| v.scale) {
             let list = scale.syntax.summaries.clone();
-            return (list.unwrap_or_else(|| default(Statistic::Mean)), scale);
+            return (
+                list.unwrap_or_else(|| default(Statistic::Mean)),
+                None,
+                scale,
+            );
         }
         let innermost = term.last().expect("a term has a variable");
         let source = mrsets::summary_set(term).unwrap_or(innermost);
         let list = source.syntax.summaries.clone();
-        (list.unwrap_or_else(|| default(Statistic::Count)), source)
+        let totals = source.syntax.total_summaries.clone();
+        (
+            list.unwrap_or_else(|| default(Statistic::Count)),
+            totals,
+            source,
+        )
     }
 }
 
@@ -1323,21 +1372,26 @@ impl Engine {
         let mut slots: Vec<Slot> = Vec::new();
         let mut term_summaries = Vec::new();
         for term in summary_terms {
-            let (list, variable) = layout.summaries(term);
-            let mut indexed = Vec::new();
-            for summary in list {
-                let s = slot(&summary);
-                let index = match slots.iter().position(|known| *known == s) {
-                    Some(index) => index,
-                    None => {
-                        slots.push(s);
-                        slots.len() - 1
-                    }
-                };
-                let format = default_format(&summary, &variable.variable);
-                indexed.push((index, summary, format));
-            }
-            term_summaries.push((indexed, variable));
+            let (list, totals, variable) = layout.summaries(term);
+            let mut index = |list: Vec<Summary>| -> Vec<Indexed> {
+                let mut indexed = Vec::new();
+                for summary in list {
+                    let s = slot(&summary);
+                    let index = match slots.iter().position(|known| *known == s) {
+                        Some(index) => index,
+                        None => {
+                            slots.push(s);
+                            slots.len() - 1
+                        }
+                    };
+                    let format = default_format(&summary, &variable.variable);
+                    indexed.push((index, summary, format));
+                }
+                indexed
+            };
+            let indexed = index(list);
+            let totals = totals.map(&mut index);
+            term_summaries.push((indexed, totals, variable));
         }
 
         let label_axis = if table.summaries_in_layers {
@@ -1355,7 +1409,15 @@ impl Engine {
                 let term_slots: Vec<Option<usize>> = if axis != label_axis {
                     vec![None]
                 } else if axis == summary_axis {
-                    term_summaries[t].0.iter().map(|(i, ..)| Some(*i)).collect()
+                    // the categories' summaries, then those only the totals have
+                    let (list, totals, _) = &term_summaries[t];
+                    let mut found: Vec<Option<usize>> = Vec::new();
+                    for (i, ..) in list.iter().chain(totals.iter().flatten()) {
+                        if !found.contains(&Some(*i)) {
+                            found.push(Some(*i));
+                        }
+                    }
+                    found
                 } else {
                     (0..slots.len()).map(Some).collect()
                 };
@@ -1440,7 +1502,7 @@ impl Engine {
                         Axis::Columns => c,
                         Axis::Layers => l,
                     };
-                    let (summaries, variable) = &term_summaries[summary_term];
+                    let (summaries, totals, variable) = &term_summaries[summary_term];
                     let terms = [&row_term[..], &column_term[..], &layer_term[..]];
                     let group = listwise
                         .get(&categorical(&terms))
@@ -1450,7 +1512,7 @@ impl Engine {
                         weights,
                         [row_term, column_term, layer_term],
                         &lists,
-                        summaries,
+                        (summaries, totals.as_deref()),
                         variable,
                         (tested, table.labels_moved, command.weight.is_some(), group),
                     )?;
@@ -1704,9 +1766,25 @@ fn check_summaries(axes: [&[Term]; 3]) -> Result<Axis, Error> {
                 if var.scale {
                     found[axis] = Some(name.to_string());
                 }
-                let Some(summaries) = &var.syntax.summaries else {
+                if let Some(totals) = &var.syntax.total_summaries {
+                    if var.scale {
+                        return Err(Error(format!(
+                            "/TABLE: TOTALS gives the summaries of the totals and subtotals of a categorical variable, and {name} is a scale variable"
+                        )));
+                    }
+                    mrsets::check_functions(var, totals)?;
+                    let measured = totals.iter().find(|s| scale_only(s.function));
+                    if let Some(s) = measured.filter(|_| var.variable.is_string()) {
+                        return Err(Error(format!(
+                            "/TABLE: TOTALS [{}] needs the numbers of {name}, which is a string variable",
+                            s.function.name()
+                        )));
+                    }
+                }
+                if var.syntax.summaries.is_none() && var.syntax.total_summaries.is_none() {
                     continue;
-                };
+                }
+                let summaries = var.syntax.summaries.as_deref().unwrap_or_default();
                 found[axis] = Some(name.to_string());
                 mrsets::check_functions(var, summaries)?;
                 if var.scale {
@@ -1778,13 +1856,19 @@ struct Section {
     /// categories share, by the categories of the other variables (rows, outer columns,
     /// layers) and then the two categories.
     pairs: HashMap<Vec<usize>, Tally>,
-    summaries: Vec<(usize, Summary, String)>,
+    summaries: Vec<Indexed>,
+    /// TOTALS: the summaries of the totals and subtotals of the summary variable, with its
+    /// position among the categorical variables and which of its categories they are.
+    total_summaries: Option<(Vec<Indexed>, usize, Vec<bool>)>,
     has_scale: bool,
     /// The weights are effective base weights (/WEIGHT).
     effective: bool,
     /// The confidence level of .LCL and .UCL, in percent.
     level: f64,
 }
+
+/// A summary with the slot it fills and its display format.
+type Indexed = (usize, Summary, String);
 
 /// The category index of a margin cell, see `Section::cells`.
 const MARGIN: usize = usize::MAX;
@@ -1799,7 +1883,7 @@ impl Section {
         weights: Option<&[f64]>,
         terms: [&[TermVar<'a>]; 3],
         lists: &HashMap<String, CategoryList>,
-        summaries: &[(usize, Summary, String)],
+        (summaries, total_summaries): (&[Indexed], Option<&[Indexed]>),
         summary_variable: &TermVar<'a>,
         (margins, moved, effective, listwise): (bool, LabelsMoved, bool, &[Variable]),
     ) -> Result<Section, Error> {
@@ -1875,11 +1959,22 @@ impl Section {
             denominators: Default::default(),
             pairs: HashMap::new(),
             summaries: summaries.to_vec(),
+            total_summaries: total_summaries.zip(summary_list).map(|(t, (i, list))| {
+                let total = list.total();
+                let marks = (0..list.categories.len())
+                    .map(|k| list.categories[k].subtotal.is_some() || Some(k) == total)
+                    .collect();
+                (t.to_vec(), i, marks)
+            }),
             has_scale: scale.is_some(),
             effective,
             level: 95.0,
         };
-        let keep_values = scale.is_some();
+        // TOTALS may ask for a mean or median of a categorical variable's own values
+        let own_values = scale.is_none()
+            && summary_variable.set.is_none()
+            && total_summaries.is_some_and(|t| t.iter().any(|(_, s, _)| scale_only(s.function)));
+        let keep_values = scale.is_some() || own_values;
         'cases: for case in 0..data.case_count() {
             // the categories of the case: one per variable, any number for a set
             let mut choices = Vec::with_capacity(cats.len());
@@ -1894,12 +1989,13 @@ impl Section {
             if weight <= 0.0 {
                 continue;
             }
-            let mut value = match scale {
-                Some(scale) => scale
+            let measured = scale.or(own_values.then_some(summary_variable));
+            let mut value = match measured {
+                Some(measured) => measured
                     .variable
                     .numeric()?
                     .get(case)
-                    .filter(|v| !scale.variable.is_user_missing(*v)),
+                    .filter(|v| !measured.variable.is_user_missing(*v)),
                 None => None,
             };
             for other in listwise {
@@ -2059,7 +2155,13 @@ impl Section {
 
     /// The cell at `key` for the summary in `slot`, with its display format.
     fn cell(&self, key: &[usize], slot: usize, command: &Ctables) -> (Cell, String) {
-        let Some((_, summary, format)) = self.summaries.iter().find(|(s, ..)| *s == slot) else {
+        let list = match &self.total_summaries {
+            Some((totals, i, marks)) if key.get(*i).is_some_and(|&k| k != MARGIN && marks[k]) => {
+                totals
+            }
+            _ => &self.summaries,
+        };
+        let Some((_, summary, format)) = list.iter().find(|(s, ..)| *s == slot) else {
             return (Cell::Empty, String::new());
         };
         if let Some((_, computed)) = self.computed_at(key) {

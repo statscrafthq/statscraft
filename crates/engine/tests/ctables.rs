@@ -1357,3 +1357,79 @@ fn confidence_limits_and_standard_errors_from_the_raw_values() {
     .unwrap_err();
     assert!(e.contains("multiple response sets do not have"), "{e}");
 }
+
+// TOTALS (Command Syntax Reference, CTABLES, "Specifying Summaries"): the totals and subtotals of
+// the variable that carries the summaries show the TOTALS functions, its categories the others;
+// the summary columns are both lists, the categories' first. A function of scale variables in
+// TOTALS summarizes the categorical variable's own values. Expected values are the counts of the
+// fixture worked out by hand (and the same as the reference program's).
+#[test]
+fn totals_have_summaries_of_their_own() {
+    let t = run(
+        "survey_basic.sav",
+        "CTABLES /TABLE q1_satisfaction [COUNT TOTALS [MEAN, STDDEV, VALIDN]]\n\
+         /CATEGORIES VARIABLES=q1_satisfaction [1, 2, SUBTOTAL='Low', 3, 4, 5, SUBTOTAL='High'] TOTAL=YES.",
+    );
+    assert_eq!(
+        t.columns[2..],
+        ["Count", "Mean", "Std Deviation", "Valid N"]
+    );
+    assert_eq!(numbers(&t, 0), [Some(8.0), None, None, None]);
+    // Low: 8 cases of 1 and 24 of 2
+    let low_sd = ((6.0f64 / 31.0).sqrt() * 1e6).round() / 1e6;
+    assert_eq!(numbers(&t, 2), [None, Some(1.75), Some(low_sd), Some(32.0)]);
+    assert_eq!(text(&t.rows[6][1]), "High");
+    assert_eq!(numbers(&t, 7)[3], Some(179.0));
+    // the total of gender in each region: the mean and median of the gender codes
+    let t = run(
+        "survey_basic.sav",
+        "CTABLES /TABLE gender [COUNT, COLPCT TOTALS [COUNT, MEAN, MEDIAN 'Med']] BY region\n\
+         /CATEGORIES VARIABLES=gender TOTAL=YES.",
+    );
+    assert_eq!(t.columns[2..6], ["Count", "Column %", "Mean", "Med"]);
+    let north_mean = ((45.0f64 / 34.0) * 1e6).round() / 1e6;
+    assert_eq!(
+        numbers(&t, 3)[..4],
+        [Some(34.0), None, Some(north_mean), Some(1.0)]
+    );
+    assert_eq!(
+        numbers(&t, 0)[..4],
+        [Some(23.0), Some(67.647059), None, None]
+    );
+    // East: 15 men, 13 women and 2 others, so the median lies between 1 and 2
+    assert_eq!(numbers(&t, 3)[11], Some(1.5));
+
+    let fails = |source: &str| {
+        let source = format!("GET FILE='{}'.\n{source}", fixture("survey_basic.sav"));
+        run_on(&mut Engine::default(), &source).unwrap_err()
+    };
+    let e = fails("CTABLES /TABLE age [MEAN TOTALS [COUNT]] BY gender.");
+    assert!(e.contains("age is a scale variable"), "{e}");
+    let e =
+        fails("CTABLES /TABLE plan [COUNT TOTALS [MEAN]] /CATEGORIES VARIABLES=plan TOTAL=YES.");
+    assert!(e.contains("string variable"), "{e}");
+}
+
+// )LABEL[n] in a computed category's label (PPROPERTIES): the label of the nth category written
+// in the list, a range as its two ends.
+#[test]
+fn computed_labels_name_listed_categories() {
+    let t = run(
+        "survey_basic.sav",
+        "CTABLES /PCOMPUTE &x = EXPR([1] + [2])\n\
+         /PPROPERTIES &x LABEL=\")LABEL[1] and )LABEL[2], then )LABEL[4] ()LABEL[3])\"\n\
+         /TABLE region /CATEGORIES VARIABLES=region [1, 2, SUBTOTAL='Sub', 3 THRU 5, &x].",
+    );
+    assert_eq!(
+        text(&t.rows[6][1]),
+        "North and South, then East THRU Central (Sub)"
+    );
+    assert_eq!(numbers(&t, 6), [Some(81.0)]);
+    let source = format!(
+        "GET FILE='{}'.\nCTABLES /PCOMPUTE &x = EXPR([1]) /PPROPERTIES &x LABEL=')LABEL[4]'\n\
+         /TABLE region /CATEGORIES VARIABLES=region [1, 2, &x].",
+        fixture("survey_basic.sav")
+    );
+    let e = run_on(&mut Engine::default(), &source).unwrap_err();
+    assert!(e.contains(")LABEL[4] names item 4"), "{e}");
+}

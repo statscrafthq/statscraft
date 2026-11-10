@@ -22,6 +22,7 @@ fn var(name: &str) -> AxisExpr {
         name: name.into(),
         scale: None,
         summaries: None,
+        total_summaries: None,
     })
 }
 
@@ -81,6 +82,43 @@ fn summaries_with_labels_formats_and_levels() {
         panic!()
     };
     assert_eq!(age.scale, Some(true));
+}
+
+#[test]
+fn totals_in_a_summary_list() {
+    let c = one("CTABLES /TABLE q1 [COUNT TOTALS [MEAN 'Avg', VALIDN], COLPCT] BY g.");
+    let Some(AxisExpr::Variable(v)) = &c.tables[0].rows else {
+        panic!()
+    };
+    let names = |list: &[Summary]| -> Vec<String> {
+        list.iter().map(|s| s.function.name()).collect::<Vec<_>>()
+    };
+    assert_eq!(
+        names(v.summaries.as_ref().unwrap()),
+        ["COUNT", "COLPCT.COUNT"]
+    );
+    let totals = v.total_summaries.as_ref().unwrap();
+    assert_eq!(names(totals), ["MEAN", "VALIDN"]);
+    assert_eq!(totals[0].label.as_deref(), Some("Avg"));
+    // after a parenthesis the totals go to every variable, before their own
+    let c = one("CTABLES /TABLE (a + b [TOTALS [MAXIMUM]]) [TOTALS [MEAN]].");
+    let Some(AxisExpr::Stack(a, b)) = &c.tables[0].rows else {
+        panic!()
+    };
+    let (AxisExpr::Variable(a), AxisExpr::Variable(b)) = (&**a, &**b) else {
+        panic!()
+    };
+    assert_eq!(a.summaries, None);
+    assert_eq!(names(a.total_summaries.as_ref().unwrap()), ["MEAN"]);
+    assert_eq!(
+        names(b.total_summaries.as_ref().unwrap()),
+        ["MEAN", "MAXIMUM"]
+    );
+    assert!(
+        err("CTABLES /TABLE a [COUNT TOTALS [MEAN TOTALS [COUNT]]].")
+            .message
+            .contains("at most one TOTALS")
+    );
 }
 
 #[test]

@@ -643,3 +643,40 @@ fn subtotals() {
          /CATEGORIES VARIABLES=q1_satisfaction [1, 2, HSUBTOTAL='Low', 3, 4, 5, HSUBTOTAL='High', &x].",
     ]);
 }
+
+#[test]
+#[ignore = "needs STATSCRAFT_PSPP"]
+fn totals_summaries() {
+    survey(&[
+        "CTABLES /TABLE gender [COUNT, COLPCT TOTALS [COUNT, MEAN F8.4, MEDIAN 'Med' F8.3]] BY region\n\
+         /CATEGORIES VARIABLES=gender TOTAL=YES.",
+        "CTABLES /TABLE q1_satisfaction [COUNT TOTALS [MEAN F8.5, STDDEV F8.5, VALIDN]]\n\
+         /CATEGORIES VARIABLES=q1_satisfaction [1, 2, SUBTOTAL='Low', 3, 4, 5, SUBTOTAL='High'] TOTAL=YES.",
+        "CTABLES /TABLE region [COUNT TOTALS [COUNT, MINIMUM, MAXIMUM, MODE]] BY gender\n\
+         /CATEGORIES VARIABLES=region TOTAL=YES.",
+        // PSPP stops on PTILE in TOTALS (an assertion on the percentile), so MEDIAN stands in
+        "CTABLES /TABLE gender > q1_satisfaction [COUNT, ROWPCT TOTALS [MEAN F8.4, MEDIAN F8.2]]\n\
+         /CATEGORIES VARIABLES=q1_satisfaction TOTAL=YES.",
+        "CTABLES /TABLE q5_1 BY q1_satisfaction [COUNT TOTALS [MEAN F8.4, SEMEAN F8.5, VARIANCE F8.5]]\n\
+         /CATEGORIES VARIABLES=q1_satisfaction TOTAL=YES /SLABELS POSITION=ROW.",
+        // totals given after a parenthesis go to every variable in it
+        "CTABLES /TABLE (gender + region) [COUNT TOTALS [SUM F8.0, RANGE F8.0]]\n\
+         /CATEGORIES VARIABLES=gender region TOTAL=YES.",
+    ]);
+    weighted(&[
+        "CTABLES /TABLE q1_satisfaction [COUNT, COLPCT TOTALS [COUNT, MEAN F8.4, MEDIAN F8.2]] BY gender\n\
+         /CATEGORIES VARIABLES=q1_satisfaction [1, 2, 3, SUBTOTAL='Up to 3', 4, 5] TOTAL=YES.",
+    ]);
+}
+
+#[test]
+#[ignore = "needs STATSCRAFT_PSPP"]
+fn item_labels_of_computed_categories() {
+    survey(&[
+        "CTABLES /PCOMPUTE &x = EXPR([1] + [2])\n\
+         /PPROPERTIES &x LABEL=\")LABEL[1] and )LABEL[2], then )LABEL[4]\"\n\
+         /TABLE region /CATEGORIES VARIABLES=region [1, 2, SUBTOTAL='Sub', 3 THRU 5, &x].",
+        "CTABLES /PCOMPUTE &d = EXPR([2] - [1]) /PPROPERTIES &d LABEL=\")LABEL[2] - )LABEL[1]\"\n\
+         /TABLE gender [COUNT, COLPCT] BY q5_1 /CATEGORIES VARIABLES=gender [1, 2, &d] TOTAL=YES.",
+    ]);
+}

@@ -265,6 +265,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  A summary list follows a scale variable or the innermost categorical variable of one axis:\n\
                  var [function ['label'] [format], ...], format F, PCT, COMMA or DOLLAR, such as PCT8.1.\n\
                  After a parenthesis, (a + b > c) [COUNT], the summaries go to a and c, before their own ones.\n\
+                 TOTALS [function ...] inside the list gives the totals and subtotals of that categorical\n\
+                 variable their own summaries (the columns hold both lists); a function of scale variables there,\n\
+                 such as MEAN or MEDIAN, summarizes the variable's own values: var [COUNT TOTALS [MEAN]].\n\
                  CLABELS ROWLABELS=OPPOSITE moves the categories of the innermost row variables to the columns,\n\
                  inside the column categories and outside the summary labels, and COLLABELS=OPPOSITE the other\n\
                  way; the moved variable counts as the innermost one of its new axis, also for percentages.\n\
@@ -311,7 +314,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  high] (the sum of the listed categories in the range), TOTAL (needs TOTAL=YES), numbers, + - * /\n\
                  ** and parentheses, SUBTOTAL (the only subtotal) or SUBTOTAL[n] (the nth), [OTHERNM] and\n\
                  [MISSING] (the sums of those categories). Every category it names must be listed. PPROPERTIES gives its label (else\n\
-                 the expression), a format per summary, and HIDESOURCECATS=YES to hide the categories it uses\n\
+                 the expression; )LABEL[n] in it is the label of the nth item of the list as written, a range as\n\
+                 'low THRU high'), a format per summary, and HIDESOURCECATS=YES to hide the categories it uses\n\
                  (not with tests). Totals and tests leave computed categories out.\n\
                  HIDESMALLCOUNTS COUNT=n (n a whole number from 2, default 5) shows every COUNT, VALIDN, TOTALN or\n\
                  RESPONSES below n, weighted or with U, as <n in all tables of the command.\n\
@@ -344,8 +348,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Tests on sets (INCLUDEMRSETS=YES, the default) count each case once in the margins and allow for the\n\
                  cases two categories of a set share; the means test then pools the variance from the two categories\n\
                  compared. INCLUDEMRSETS=NO leaves sets out of the tests, and so does COUNTDUPLICATES=YES for a\n\
-                 category set.\n\
-                 Not supported yet: )LABEL[n] in a computed category's label.",
+                 category set.",
         example: "CTABLES /TABLE q1 [COUNT, COLPCT.COUNT PCT8.1] BY gender /CATEGORIES VARIABLES=q1 TOTAL=YES.",
         parse: ctables::ctables,
     },

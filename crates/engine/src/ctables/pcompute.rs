@@ -13,7 +13,8 @@
 //! - Every category the expression names must be in the explicit list; the place of `&name` in
 //!   the list is its place in the table. Totals do not count computed categories, and there are
 //!   no tests on them.
-//! - PPROPERTIES gives the label (else the expression is the label), a display format per
+//! - PPROPERTIES gives the label (else the expression is the label), in which `)LABEL[n]` stands
+//!   for the label of the nth item of the category list as written, a display format per
 //!   summary, and HIDESOURCECATS=YES, which hides the categories and the total the expression uses
 //!   (they are still computed); it cannot go with tests.
 
@@ -95,6 +96,7 @@ pub(super) fn resolve(
     list: &mut CategoryList,
     names: &[String],
     command: &Ctables,
+    item_labels: &[String],
 ) -> Result<(), Error> {
     let places: Vec<usize> = (0..list.categories.len())
         .filter(|&i| list.categories[i].computed.is_some())
@@ -127,13 +129,51 @@ pub(super) fn resolve(
             calc.sources(&mut hide);
         }
         let category = &mut list.categories[place];
-        category.label = label.unwrap_or_else(|| pcompute.expr.to_string());
+        category.label = match label {
+            Some(label) => item_references(&label, item_labels).map_err(|n| {
+                Error(format!(
+                    "/PPROPERTIES &{name}: )LABEL[{n}] names item {n} of the category list of {variable}, which has {}",
+                    item_labels.len()
+                ))
+            })?,
+            None => pcompute.expr.to_string(),
+        };
         category.computed = Some(Computed { calc, formats });
     }
     for k in hide {
         list.categories[k].hidden = true;
     }
     Ok(())
+}
+
+/// The label with every `)LABEL[n]` replaced by the label of the nth item of the category list;
+/// Err(n) for an item the list does not have.
+fn item_references(label: &str, items: &[String]) -> Result<String, usize> {
+    const MARK: &str = ")LABEL[";
+    let mut out = String::new();
+    let mut rest = label;
+    while let Some(at) = rest.find(MARK) {
+        out.push_str(&rest[..at]);
+        let after = &rest[at + MARK.len()..];
+        let digits = after.bytes().take_while(u8::is_ascii_digit).count();
+        match (
+            after[..digits].parse::<usize>(),
+            after[digits..].starts_with(']'),
+        ) {
+            (Ok(n), true) => {
+                let item = n.checked_sub(1).and_then(|i| items.get(i)).ok_or(n)?;
+                out.push_str(item);
+                rest = &after[digits + 1..];
+            }
+            // not a reference: keep the text as written
+            _ => {
+                out.push_str(MARK);
+                rest = after;
+            }
+        }
+    }
+    out.push_str(rest);
+    Ok(out)
 }
 
 /// The expression with its categories resolved against the list.
