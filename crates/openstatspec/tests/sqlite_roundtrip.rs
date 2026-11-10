@@ -3,9 +3,11 @@
 //! the compression inside a .sav file: the catalog keeps "sav" or "zsav" only, so a sav
 //! dataset comes back as "bytecode" (what StatsCraft writes) and a zsav one as "zlib".
 
+mod common;
+
+use common::{differences, via_sav};
 use rusqlite::Connection;
-use serde_json::Value;
-use statscraft_data::{Dataset, Values};
+use statscraft_data::Dataset;
 use statscraft_openstatspec::sqlite::{prepare, read_dataset, write_dataset};
 use std::path::{Path, PathBuf};
 
@@ -18,52 +20,6 @@ fn fixtures() -> Vec<PathBuf> {
         .collect();
     files.sort();
     files
-}
-
-/// Compares everything the model holds except the compression, which is checked apart.
-pub fn assert_same(a: &Dataset, b: &Dataset, what: &str) {
-    let describe = |d: &Dataset| {
-        let mut v = serde_json::to_value(d.describe()).unwrap();
-        v["compression"] = Value::Null;
-        v
-    };
-    assert_eq!(describe(a), describe(b), "{what}: describe");
-    assert_eq!(a.documents(), b.documents(), "{what}: documents");
-    assert_eq!(a.encoding(), b.encoding(), "{what}: encoding");
-    for (x, y) in a.variables().zip(b.variables()) {
-        let name = x.name();
-        assert_eq!(
-            x.display_width(),
-            y.display_width(),
-            "{what}: {name} display width"
-        );
-        assert_eq!(x.alignment(), y.alignment(), "{what}: {name} alignment");
-        assert_eq!(x.role(), y.role(), "{what}: {name} role");
-        assert_eq!(x.attributes(), y.attributes(), "{what}: {name} attributes");
-        assert_eq!(
-            x.value_labels(),
-            y.value_labels(),
-            "{what}: {name} value labels"
-        );
-        assert_eq!(
-            x.missing_values(),
-            y.missing_values(),
-            "{what}: {name} missing"
-        );
-        match (x.values(), y.values()) {
-            (Values::Numeric(p), Values::Numeric(q)) => {
-                let bits = |v: Option<f64>| v.map(f64::to_bits);
-                assert!(
-                    p.iter().map(bits).eq(q.iter().map(bits)),
-                    "{what}: {name} values"
-                );
-            }
-            (Values::String(p), Values::String(q)) => {
-                assert!(p.iter().eq(q.iter()), "{what}: {name} values")
-            }
-            _ => panic!("{what}: {name} changed storage kind"),
-        }
-    }
 }
 
 #[test]
@@ -79,22 +35,23 @@ fn every_fixture_round_trips_through_sqlite_and_back_to_sav() {
         prepare(&mut conn, true).unwrap();
         write_dataset(&mut conn, &original, "fixture").unwrap();
         let back = read_dataset(&mut conn, "fixture", false).unwrap();
-        assert_same(&original, &back, &what);
+        assert_eq!(
+            differences(&original, &back),
+            Vec::<String>::new(),
+            "{what}"
+        );
         let zsav = what.ends_with(".zsav");
         assert_eq!(back.compression(), if zsav { "zlib" } else { "bytecode" });
 
         // The sav writer writes the default role "input" where the source gave none, with or
         // without SQLite in between, so the sav leg compares against a direct write.
-        let reread = |d: &Dataset, file: &str| {
-            let out = scratch.join(file);
-            d.write_sav(&out).unwrap();
-            let again = Dataset::read_sav(&out).unwrap();
-            std::fs::remove_file(&out).unwrap();
-            again
-        };
-        let direct = reread(&original, &format!("direct-{what}"));
-        let via = reread(&back, &what);
-        assert_same(&direct, &via, &format!("{what} via sav"));
+        let direct = via_sav(&original, &scratch, &format!("direct-{what}"));
+        let via = via_sav(&back, &scratch, &what);
+        assert_eq!(
+            differences(&direct, &via),
+            Vec::<String>::new(),
+            "{what} via sav"
+        );
         assert_eq!(direct.compression(), via.compression());
         println!("{what}: identical after SQLite and after SQLite plus sav");
     }

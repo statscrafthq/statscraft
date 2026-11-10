@@ -3,39 +3,13 @@
 //! through OPENSTATSPEC_DIR or as `openStatSpec/specification` beside an ancestor of this
 //! crate; without it the tests skip with a message (CI has no checkout).
 
+mod common;
+
+use common::{cases, load, with_spec};
 use serde_json::Value;
 use statscraft_openstatspec::{canonical_json, compile_request, validate_plan};
 use std::collections::HashMap;
-use std::path::{Path, PathBuf};
-
-fn spec_dir() -> Option<PathBuf> {
-    if let Some(dir) = std::env::var_os("OPENSTATSPEC_DIR") {
-        return Some(dir.into());
-    }
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .map(|a| a.join("openStatSpec/specification"))
-        .find(|p| p.join("conformance").is_dir())
-}
-
-fn with_spec(test: impl FnOnce(&Path)) {
-    match spec_dir() {
-        Some(dir) => test(&dir.join("conformance")),
-        None => eprintln!(
-            "skipped: OpenStatSpec specification not found; set OPENSTATSPEC_DIR to its folder"
-        ),
-    }
-}
-
-fn load(dir: &Path, name: &str) -> Value {
-    let path = dir.join(name);
-    let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{path:?}: {e}"));
-    serde_json::from_str(&text).unwrap()
-}
-
-fn cases(manifest: &Value) -> &Vec<Value> {
-    manifest["cases"].as_array().expect("cases")
-}
+use std::path::Path;
 
 /// Plan cases by id: the plan and its expected hash.
 fn plan_cases(dir: &Path, name: &str) -> HashMap<String, (Value, Value)> {
