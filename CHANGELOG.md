@@ -7,6 +7,7 @@ The first version for people who want to try StatsCraft and tell us what breaks.
 ### What it does
 
 - Reads and writes .sav and .zsav files, including labels, missing values, multiple response sets, dates and old encodings.
+- Macros (DEFINE with every argument kind, !LET, !IF, !DO and the string functions), INCLUDE and INSERT, syntax files in old encodings, SET, DATASET and the dictionary commands, GET DATA for text files.
 - Runs syntax compatible with the reference program: transformations (COMPUTE, IF, RECODE, COUNT, DO IF, SELECT IF, DO REPEAT, LOOP, VECTOR, AGGREGATE, AUTORECODE, file merging, SPLIT FILE, FILTER, TEMPORARY and more) and procedures (FREQUENCIES, DESCRIPTIVES, CROSSTABS, CTABLES, MEANS, T-TEST, ONEWAY, CORRELATIONS, NONPAR CORR, EXAMINE).
 - Custom tables: stacking, nesting, layers, totals and subtotals, percentages, multiple response sets, significance tests with column letters, effective base.
 - Desktop window: data and variable views, syntax editor, output view, dialogs that write syntax, Excel and HTML export.
