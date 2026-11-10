@@ -1,4 +1,4 @@
-use arrow::datatypes::{DataType, Schema, TimeUnit};
+use arrow::datatypes::{DataType, Schema};
 use encoding_rs::Encoding;
 use indexmap::IndexMap;
 
@@ -285,24 +285,6 @@ impl SavMetadata {
                     "F1.0".to_string(),
                     "f64",
                     Measure::Nominal,
-                    Alignment::Right,
-                ),
-                DataType::Date32 => (
-                    "DATE11".to_string(),
-                    "Date32",
-                    Measure::Scale,
-                    Alignment::Right,
-                ),
-                DataType::Timestamp(TimeUnit::Microsecond, _) => (
-                    "DATETIME23.2".to_string(),
-                    "Timestamp[us]",
-                    Measure::Scale,
-                    Alignment::Right,
-                ),
-                DataType::Duration(TimeUnit::Microsecond) => (
-                    "TIME11.2".to_string(),
-                    "Duration[us]",
-                    Measure::Scale,
                     Alignment::Right,
                 ),
                 DataType::Utf8 | DataType::Utf8View | DataType::LargeUtf8 => (

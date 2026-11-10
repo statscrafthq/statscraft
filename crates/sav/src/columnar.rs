@@ -4,27 +4,20 @@
 //! directly from decompressed slots into pre-allocated Arrow column builders.
 //!
 //! **Performance rule:** The hot paths (`push_raw_chunk`) must stay minimal —
-//! only Float64 + String. Temporal conversion happens in `finish()` as a
-//! post-processing step. Never add new ColBuilder variants or match arms to
-//! the hot loops; it causes icache pressure that slows ALL columns.
+//! only Float64 + String. Date and time variables stay the stored numbers.
+//! Never add new ColBuilder variants or match arms to the hot loops; it causes
+//! icache pressure that slows ALL columns.
 
 use std::sync::Arc;
 
-use arrow::array::{
-    Array, ArrayRef, Date32Array, DurationMicrosecondArray, Float64Array, Float64Builder,
-    StringViewBuilder, TimestampMicrosecondArray,
-};
-use arrow::buffer::{BooleanBuffer, NullBuffer};
+use arrow::array::{ArrayRef, Float64Builder, StringViewBuilder};
 use arrow::datatypes::{Field, Schema};
 use arrow::record_batch::RecordBatch;
 use encoding_rs::Encoding;
 use rayon::prelude::*;
 
 use crate::arrow_convert;
-use crate::constants::{
-    MICROS_PER_SECOND, SECONDS_PER_DAY, the reference program_EPOCH_OFFSET_DAYS, the reference program_EPOCH_OFFSET_SECONDS,
-    TemporalKind, VarType, is_sysmis,
-};
+use crate::constants::{VarType, is_sysmis};
 use crate::dictionary::ResolvedDictionary;
 use crate::encoding;
 use crate::error::Result;
@@ -79,22 +72,16 @@ enum ColBuilder {
 
 /// Builds an Arrow RecordBatch by pushing values directly from decompressed
 /// slots into columnar builders, skipping the `CellValue` intermediate.
-///
-/// Temporal columns (DATE, DATETIME, TIME) are read as Float64 in the hot path,
-/// then converted to proper Arrow temporal types in `finish()`.
 pub struct ColumnarBatchBuilder {
     mappings: Vec<ColumnMapping>,
     builders: Vec<ColBuilder>,
     file_encoding: &'static Encoding,
-    /// The output schema (with temporal types for date/time columns).
+    /// The output schema.
     schema: Arc<Schema>,
     rows_appended: usize,
     /// Reusable byte buffer for string assembly (avoids per-string allocation).
     /// Used only in the sequential path; parallel paths use thread-local buffers.
     string_buf: Vec<u8>,
-    /// Column indices that need temporal conversion in finish().
-    /// Empty for files with no date/time columns — zero overhead.
-    temporal_columns: Vec<(usize, TemporalKind)>,
 }
 
 impl ColumnarBatchBuilder {
@@ -111,9 +98,7 @@ impl ColumnarBatchBuilder {
         let mut mappings = Vec::with_capacity(vars.len());
         let mut builders = Vec::with_capacity(vars.len());
         let mut fields = Vec::with_capacity(vars.len());
-        let mut temporal_columns = Vec::new();
-
-        for (col_idx, var) in vars.iter().enumerate() {
+        for var in &vars {
             // Pre-compute VLS segment layout
             let vls_layout = if var.n_segments > 1 {
                 let width = match &var.var_type {
@@ -146,20 +131,11 @@ impl ColumnarBatchBuilder {
                 vls_layout,
             });
 
-            // Output schema uses temporal types; builders always use Float64.
             let output_type = arrow_convert::var_to_arrow_type(var);
             fields.push(Field::new(&var.long_name, output_type, true));
 
             match &var.var_type {
                 VarType::Numeric => {
-                    // Record temporal columns for post-processing in finish()
-                    if let Some(kind) = var
-                        .print_format
-                        .as_ref()
-                        .and_then(|f| f.format_type.temporal_kind())
-                    {
-                        temporal_columns.push((col_idx, kind));
-                    }
                     // ALL numerics use Float64Builder — keeps hot path minimal
                     builders.push(ColBuilder::Float64(Float64Builder::with_capacity(capacity)));
                 }
@@ -187,7 +163,6 @@ impl ColumnarBatchBuilder {
             schema: Arc::new(Schema::new(fields)),
             rows_appended: 0,
             string_buf: Vec::with_capacity(1024),
-            temporal_columns,
         }
     }
 
@@ -344,14 +319,8 @@ impl ColumnarBatchBuilder {
     }
 
     /// Finish building and return the RecordBatch.
-    ///
-    /// Temporal columns are converted from Float64 to their proper Arrow types
-    /// here, outside the hot path. This keeps the read loops fast for all columns.
-    /// Finish the batch. Also returns how many date/time values were outside
-    /// the representable range and were therefore set to null.
-    pub fn finish_with_stats(self) -> Result<(RecordBatch, usize)> {
-        let mut out_of_range = 0usize;
-        let mut columns: Vec<ArrayRef> = self
+    pub fn finish(self) -> Result<RecordBatch> {
+        let columns: Vec<ArrayRef> = self
             .builders
             .into_iter()
             .map(|b| -> ArrayRef {
@@ -361,21 +330,7 @@ impl ColumnarBatchBuilder {
                 }
             })
             .collect();
-
-        // Post-process: convert temporal Float64 columns to proper Arrow types.
-        // This is O(n) per temporal column, typically 0-5 columns out of hundreds.
-        for &(col_idx, kind) in &self.temporal_columns {
-            let float_arr = columns[col_idx]
-                .as_any()
-                .downcast_ref::<Float64Array>()
-                .expect("temporal column should be Float64Array");
-            let (converted, nulled) = convert_float64_to_temporal(float_arr, kind);
-            columns[col_idx] = converted;
-            out_of_range += nulled;
-        }
-
-        let batch = RecordBatch::try_new(self.schema, columns)?;
-        Ok((batch, out_of_range))
+        Ok(RecordBatch::try_new(self.schema, columns)?)
     }
 
     /// Number of rows appended so far.
@@ -456,98 +411,6 @@ fn process_string_rows(
             file_encoding,
         );
     }
-}
-
-// ---------------------------------------------------------------------------
-// Temporal post-processing (runs in finish(), NOT in hot path)
-// ---------------------------------------------------------------------------
-
-/// Representable range for dates and timestamps: years 1..=9999. the reference program cannot
-/// store dates outside it, and Polars (chrono), pandas and Excel all fail on
-/// values far beyond it. Anything outside, and any non-finite value, becomes
-/// null and is counted so the caller can report it; nothing is silently kept
-/// as a saturated garbage value.
-const DATE_MIN_DAYS: f64 = -719_162.0; // 0001-01-01 relative to 1970-01-01
-const DATE_MAX_DAYS: f64 = 2_932_896.0; // 9999-12-31
-const TS_MIN_US: f64 = -62_135_596_800_000_000.0; // 0001-01-01T00:00:00
-const TS_MAX_US: f64 = 253_402_300_799_999_999.0; // 9999-12-31T23:59:59.999999
-const DURATION_MAX_US: f64 = 9.0e18; // well inside i64; never saturates
-
-/// Convert a Float64Array of SAV numeric values to the appropriate Arrow
-/// temporal type. Returns the array and the number of source-valid values
-/// that were outside the representable range and set to null. When nothing is
-/// out of range the source null bitmap is reused as is.
-#[inline(never)]
-fn convert_float64_to_temporal(arr: &Float64Array, kind: TemporalKind) -> (ArrayRef, usize) {
-    let src_nulls = arr.nulls().cloned();
-    let values = arr.values();
-    let n = values.len();
-    let mut valid = vec![true; n];
-    let mut out_of_range = 0usize;
-    let src_is_valid = |i: usize| src_nulls.as_ref().is_none_or(|nb| nb.is_valid(i));
-
-    macro_rules! convert {
-        ($t:ty, $lo:expr, $hi:expr, $f:expr) => {{
-            let mut out: Vec<$t> = Vec::with_capacity(n);
-            for (i, &v) in values.iter().enumerate() {
-                let x: f64 = $f(v);
-                if x.is_finite() && ($lo..=$hi).contains(&x) {
-                    out.push(x as $t);
-                } else {
-                    out.push(0);
-                    valid[i] = false;
-                    if src_is_valid(i) {
-                        out_of_range += 1;
-                    }
-                }
-            }
-            out
-        }};
-    }
-
-    let (array, _): (ArrayRef, ()) = match kind {
-        TemporalKind::Date => {
-            let out = convert!(i32, DATE_MIN_DAYS, DATE_MAX_DAYS, |v: f64| v
-                / SECONDS_PER_DAY
-                - the reference program_EPOCH_OFFSET_DAYS as f64);
-            let nulls = merge_nulls(src_nulls, valid, out_of_range);
-            (Arc::new(Date32Array::new(out.into(), nulls)), ())
-        }
-        TemporalKind::Timestamp => {
-            let out = convert!(i64, TS_MIN_US, TS_MAX_US, |v: f64| (v
-                - the reference program_EPOCH_OFFSET_SECONDS)
-                * MICROS_PER_SECOND);
-            let nulls = merge_nulls(src_nulls, valid, out_of_range);
-            (
-                Arc::new(TimestampMicrosecondArray::new(out.into(), nulls)),
-                (),
-            )
-        }
-        TemporalKind::Duration => {
-            let out = convert!(i64, -DURATION_MAX_US, DURATION_MAX_US, |v: f64| v
-                * MICROS_PER_SECOND);
-            let nulls = merge_nulls(src_nulls, valid, out_of_range);
-            (
-                Arc::new(DurationMicrosecondArray::new(out.into(), nulls)),
-                (),
-            )
-        }
-    };
-    (array, out_of_range)
-}
-
-/// Source nulls unioned with the out-of-range mask; the source bitmap is
-/// reused untouched when no value was out of range (the common case).
-fn merge_nulls(
-    src: Option<NullBuffer>,
-    valid: Vec<bool>,
-    out_of_range: usize,
-) -> Option<NullBuffer> {
-    if out_of_range == 0 {
-        return src;
-    }
-    let mask = NullBuffer::new(BooleanBuffer::from(valid));
-    NullBuffer::union(src.as_ref(), Some(&mask))
 }
 
 // ---------------------------------------------------------------------------

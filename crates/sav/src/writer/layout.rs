@@ -2,7 +2,7 @@
 
 use std::collections::HashSet;
 
-use arrow::datatypes::{DataType, TimeUnit};
+use arrow::datatypes::DataType;
 use arrow::record_batch::RecordBatch;
 use indexmap::IndexMap;
 
@@ -19,7 +19,6 @@ use crate::variable::MissingValues;
 pub(super) struct WriteVariable {
     pub(super) long_name: String,
     pub(super) short_name: String,
-    pub(super) format: SavFormat,
     pub(super) var_type: VarType,
     pub(super) label: Option<String>,
     #[allow(dead_code)]
@@ -167,6 +166,25 @@ pub(crate) fn validate_write_inputs(
 ) -> Result<()> {
     for field in schema.fields() {
         let name = field.name();
+
+        // dates and times are written as the stored numbers (Float64 with a date format)
+        if !matches!(
+            field.data_type(),
+            DataType::Float64
+                | DataType::Int64
+                | DataType::Int32
+                | DataType::Int16
+                | DataType::Int8
+                | DataType::Boolean
+                | DataType::Utf8
+                | DataType::Utf8View
+                | DataType::LargeUtf8
+        ) {
+            return Err(SavError::WriteError(format!(
+                "variable '{name}': column type {} cannot be written",
+                field.data_type()
+            )));
+        }
 
         // Check missing value type compatibility
         if let Some(specs) = meta.variable_missing_values.get(name.as_str()) {
@@ -373,7 +391,6 @@ pub(super) fn compute_layout(batch: &RecordBatch, meta: &SavMetadata) -> Result<
         write_vars.push(WriteVariable {
             long_name: name.clone(),
             short_name: short_name.clone(),
-            format: format.clone(),
             var_type: var_type.clone(),
             label,
             missing_values: missing_values.clone(),
@@ -553,21 +570,6 @@ pub(super) fn infer_format(dt: &DataType) -> SavFormat {
             format_type: FormatType::F,
             width: 1,
             decimals: 0,
-        },
-        DataType::Date32 => SavFormat {
-            format_type: FormatType::Date,
-            width: 11,
-            decimals: 0,
-        },
-        DataType::Timestamp(TimeUnit::Microsecond, _) => SavFormat {
-            format_type: FormatType::DateTime,
-            width: 23,
-            decimals: 2,
-        },
-        DataType::Duration(TimeUnit::Microsecond) => SavFormat {
-            format_type: FormatType::Time,
-            width: 11,
-            decimals: 2,
         },
         DataType::Utf8 | DataType::Utf8View | DataType::LargeUtf8 => SavFormat {
             format_type: FormatType::A,

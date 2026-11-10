@@ -207,32 +207,6 @@ pub enum VarType {
     String(usize), // width in bytes
 }
 
-// -- Temporal conversion constants --
-
-/// Days from the reference program epoch (1582-10-14) to Unix epoch (1970-01-01).
-/// 12,219,379,200 seconds / 86,400 seconds-per-day = 141,428 days.
-pub const the reference program_EPOCH_OFFSET_DAYS: i64 = 141_428;
-
-/// Seconds from the reference program epoch (1582-10-14) to Unix epoch (1970-01-01).
-pub const the reference program_EPOCH_OFFSET_SECONDS: f64 = 12_219_379_200.0;
-
-/// Microseconds per second.
-pub const MICROS_PER_SECOND: f64 = 1_000_000.0;
-
-/// Seconds per day.
-pub const SECONDS_PER_DAY: f64 = 86_400.0;
-
-/// The Arrow temporal type category for a SAV date/time format.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum TemporalKind {
-    /// Date-only → Arrow Date32 (days since Unix epoch).
-    Date,
-    /// Date+time → Arrow Timestamp(Microsecond, None).
-    Timestamp,
-    /// Elapsed time → Arrow Duration(Microsecond).
-    Duration,
-}
-
 /// SAV print/write format type codes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
@@ -410,30 +384,7 @@ impl FormatType {
         matches!(self, FormatType::A | FormatType::Ahex)
     }
 
-    /// Returns the temporal kind if this format should produce an Arrow temporal type.
-    /// Returns None for non-temporal formats and for Wkday/Month (integer codes).
-    pub fn temporal_kind(&self) -> Option<TemporalKind> {
-        match self {
-            FormatType::Date
-            | FormatType::ADate
-            | FormatType::JDate
-            | FormatType::EDate
-            | FormatType::SDate
-            | FormatType::Moyr
-            | FormatType::Qyr
-            | FormatType::Wkyr => Some(TemporalKind::Date),
-
-            FormatType::DateTime | FormatType::YmDhms => Some(TemporalKind::Timestamp),
-
-            FormatType::Time | FormatType::DTime | FormatType::MTime => {
-                Some(TemporalKind::Duration)
-            }
-
-            _ => None,
-        }
-    }
-
-    /// Whether this format type is a date/time type (no decimals in display).
+    /// Whether this format type is a date or time type.
     pub fn is_date_time(&self) -> bool {
         matches!(
             self,
@@ -527,8 +478,16 @@ impl SavFormat {
 
     /// Render as a human-readable SAV format string like "F8.2" or "A50".
     pub fn to_sav_string(&self) -> String {
-        if self.format_type.is_string() || self.format_type.is_date_time() {
-            // String and date/time formats: no decimal suffix
+        // only time formats can show fractions of a second (TIME11.2, DATETIME23.2)
+        let fraction = matches!(
+            self.format_type,
+            FormatType::Time
+                | FormatType::DTime
+                | FormatType::DateTime
+                | FormatType::MTime
+                | FormatType::YmDhms
+        ) && self.decimals > 0;
+        if self.format_type.is_string() || (self.format_type.is_date_time() && !fraction) {
             format!("{}{}", self.format_type.prefix(), self.width)
         } else {
             format!(
@@ -594,80 +553,24 @@ mod tests {
     }
 
     #[test]
+    fn time_formats_keep_their_decimals() {
+        for (text, back) in [
+            ("DATETIME23.2", "DATETIME23.2"),
+            ("TIME11.2", "TIME11.2"),
+            ("DTIME14.3", "DTIME14.3"),
+            ("DATETIME20", "DATETIME20"),
+            ("DATE11.2", "DATE11"),
+        ] {
+            assert_eq!(SavFormat::from_string(text).unwrap().to_sav_string(), back);
+        }
+    }
+
+    #[test]
     fn test_compression_from_i32() {
         assert_eq!(Compression::from_i32(0), Some(Compression::None));
         assert_eq!(Compression::from_i32(1), Some(Compression::Bytecode));
         assert_eq!(Compression::from_i32(2), Some(Compression::Zlib));
         assert_eq!(Compression::from_i32(99), None);
-    }
-
-    #[test]
-    fn test_temporal_kind() {
-        // Date-only formats
-        assert_eq!(FormatType::Date.temporal_kind(), Some(TemporalKind::Date));
-        assert_eq!(FormatType::ADate.temporal_kind(), Some(TemporalKind::Date));
-        assert_eq!(FormatType::JDate.temporal_kind(), Some(TemporalKind::Date));
-        assert_eq!(FormatType::EDate.temporal_kind(), Some(TemporalKind::Date));
-        assert_eq!(FormatType::SDate.temporal_kind(), Some(TemporalKind::Date));
-        assert_eq!(FormatType::Moyr.temporal_kind(), Some(TemporalKind::Date));
-        assert_eq!(FormatType::Qyr.temporal_kind(), Some(TemporalKind::Date));
-        assert_eq!(FormatType::Wkyr.temporal_kind(), Some(TemporalKind::Date));
-
-        // Timestamp formats
-        assert_eq!(
-            FormatType::DateTime.temporal_kind(),
-            Some(TemporalKind::Timestamp)
-        );
-        assert_eq!(
-            FormatType::YmDhms.temporal_kind(),
-            Some(TemporalKind::Timestamp)
-        );
-
-        // Duration formats
-        assert_eq!(
-            FormatType::Time.temporal_kind(),
-            Some(TemporalKind::Duration)
-        );
-        assert_eq!(
-            FormatType::DTime.temporal_kind(),
-            Some(TemporalKind::Duration)
-        );
-        assert_eq!(
-            FormatType::MTime.temporal_kind(),
-            Some(TemporalKind::Duration)
-        );
-
-        // Non-temporal: Wkday, Month, plain numeric
-        assert_eq!(FormatType::Wkday.temporal_kind(), None);
-        assert_eq!(FormatType::Month.temporal_kind(), None);
-        assert_eq!(FormatType::F.temporal_kind(), None);
-        assert_eq!(FormatType::A.temporal_kind(), None);
-        assert_eq!(FormatType::Comma.temporal_kind(), None);
-    }
-
-    #[test]
-    fn test_temporal_conversions() {
-        // 1970-01-01 00:00:00 in the reference program seconds = 12,219,379,200
-        let sav_unix_epoch = the reference program_EPOCH_OFFSET_SECONDS;
-
-        // Date32: days since unix epoch → should be 0
-        let days = (sav_unix_epoch / SECONDS_PER_DAY - the reference program_EPOCH_OFFSET_DAYS as f64) as i32;
-        assert_eq!(days, 0);
-
-        // Timestamp: microseconds since unix epoch → should be 0
-        let micros = ((sav_unix_epoch - the reference program_EPOCH_OFFSET_SECONDS) * MICROS_PER_SECOND) as i64;
-        assert_eq!(micros, 0);
-
-        // Duration: 3600 the reference program seconds = 1 hour = 3,600,000,000 microseconds
-        let dur_micros = (3600.0 * MICROS_PER_SECOND) as i64;
-        assert_eq!(dur_micros, 3_600_000_000);
-
-        // 2024-01-01: 19723 days after Unix epoch
-        // In the reference program: (141428 + 19723) days * 86400 = the reference program seconds
-        let days_2024 = the reference program_EPOCH_OFFSET_DAYS + 19723;
-        let sav_2024 = days_2024 as f64 * SECONDS_PER_DAY;
-        let date32_2024 = (sav_2024 / SECONDS_PER_DAY - the reference program_EPOCH_OFFSET_DAYS as f64) as i32;
-        assert_eq!(date32_2024, 19723); // 19723 days from 1970-01-01 to 2024-01-01
     }
 
     #[test]

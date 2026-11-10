@@ -3,9 +3,8 @@
 use std::io::{Seek, SeekFrom, Write};
 
 use arrow::array::{
-    Array, BooleanArray, Date32Array, DurationMicrosecondArray, Float64Array, Int8Array,
-    Int16Array, Int32Array, Int64Array, LargeStringArray, StringViewArray,
-    TimestampMicrosecondArray,
+    Array, BooleanArray, Float64Array, Int8Array, Int16Array, Int32Array, Int64Array,
+    LargeStringArray, StringViewArray,
 };
 use arrow::datatypes::DataType;
 use arrow::record_batch::RecordBatch;
@@ -39,49 +38,6 @@ fn get_string_value(col: &dyn Array, row: usize) -> &str {
                 .map(|a| a.value(row))
         })
         .unwrap_or("")
-}
-
-/// Convert temporal Arrow arrays back to the reference program float values.
-/// Returns a new Float64Array with the reference program epoch-based seconds.
-fn temporal_to_sav_float(arr: &dyn Array, kind: TemporalKind) -> Float64Array {
-    match kind {
-        TemporalKind::Date => {
-            let date_arr = arr.as_any().downcast_ref::<Date32Array>().unwrap();
-            let null_buf = date_arr.nulls().cloned();
-            let values: Vec<f64> = date_arr
-                .values()
-                .iter()
-                .map(|&d| (d as f64 + the reference program_EPOCH_OFFSET_DAYS as f64) * SECONDS_PER_DAY)
-                .collect();
-            Float64Array::new(values.into(), null_buf)
-        }
-        TemporalKind::Timestamp => {
-            let ts_arr = arr
-                .as_any()
-                .downcast_ref::<TimestampMicrosecondArray>()
-                .unwrap();
-            let null_buf = ts_arr.nulls().cloned();
-            let values: Vec<f64> = ts_arr
-                .values()
-                .iter()
-                .map(|&us| (us as f64 / MICROS_PER_SECOND) + the reference program_EPOCH_OFFSET_SECONDS)
-                .collect();
-            Float64Array::new(values.into(), null_buf)
-        }
-        TemporalKind::Duration => {
-            let dur_arr = arr
-                .as_any()
-                .downcast_ref::<DurationMicrosecondArray>()
-                .unwrap();
-            let null_buf = dur_arr.nulls().cloned();
-            let values: Vec<f64> = dur_arr
-                .values()
-                .iter()
-                .map(|&us| us as f64 / MICROS_PER_SECOND)
-                .collect();
-            Float64Array::new(values.into(), null_buf)
-        }
-    }
 }
 
 /// Get a numeric f64 value from various Arrow numeric types.
@@ -123,23 +79,6 @@ fn get_numeric_f64(arr: &dyn Array, row: usize) -> Option<f64> {
 // Shared row-building helpers (used by all three data writers)
 // ---------------------------------------------------------------------------
 
-/// Pre-convert temporal Arrow columns to the reference program Float64 values.
-fn preconvert_temporal_columns(
-    batch: &RecordBatch,
-    layout: &CaseLayout,
-) -> Vec<Option<Float64Array>> {
-    let mut temporal_arrays = Vec::with_capacity(layout.write_vars.len());
-    for var in &layout.write_vars {
-        let col = batch.column(var.col_index);
-        if let Some(kind) = var.format.format_type.temporal_kind() {
-            temporal_arrays.push(Some(temporal_to_sav_float(col.as_ref(), kind)));
-        } else {
-            temporal_arrays.push(None);
-        }
-    }
-    temporal_arrays
-}
-
 /// Fill a pre-allocated row buffer with data from one row of the RecordBatch.
 /// `row_buf` must be pre-filled with spaces (0x20) before calling.
 fn fill_row_buffer(
@@ -147,15 +86,10 @@ fn fill_row_buffer(
     row: usize,
     batch: &RecordBatch,
     layout: &CaseLayout,
-    temporal_arrays: &[Option<Float64Array>],
 ) {
     let mut slot_offset = 0;
-    for (var_idx, var) in layout.write_vars.iter().enumerate() {
-        let col: &dyn Array = if let Some(ref arr) = temporal_arrays[var_idx] {
-            arr
-        } else {
-            batch.column(var.col_index).as_ref()
-        };
+    for var in &layout.write_vars {
+        let col: &dyn Array = batch.column(var.col_index).as_ref();
 
         match &var.var_type {
             VarType::Numeric => {
@@ -226,7 +160,6 @@ fn fill_rows_parallel(
     row_bytes: usize,
     batch: &RecordBatch,
     layout: &CaseLayout,
-    temporal_arrays: &[Option<Float64Array>],
 ) {
     use rayon::prelude::*;
 
@@ -240,7 +173,6 @@ fn fill_rows_parallel(
                 start_row + chunk_idx,
                 batch,
                 layout,
-                temporal_arrays,
             );
         });
 }
@@ -253,13 +185,12 @@ fn fill_rows_sequential(
     row_bytes: usize,
     batch: &RecordBatch,
     layout: &CaseLayout,
-    temporal_arrays: &[Option<Float64Array>],
 ) {
     for i in 0..nrows {
         let offset = i * row_bytes;
         let row_buf = &mut big_buf[offset..offset + row_bytes];
         row_buf.fill(b' ');
-        fill_row_buffer(row_buf, start_row + i, batch, layout, temporal_arrays);
+        fill_row_buffer(row_buf, start_row + i, batch, layout);
     }
 }
 
@@ -272,7 +203,6 @@ fn fill_rows(
     row_bytes: usize,
     batch: &RecordBatch,
     layout: &CaseLayout,
-    temporal_arrays: &[Option<Float64Array>],
 ) {
     if nrows >= MIN_PARALLEL_ROWS {
         fill_rows_parallel(
@@ -282,7 +212,6 @@ fn fill_rows(
             row_bytes,
             batch,
             layout,
-            temporal_arrays,
         );
     } else {
         fill_rows_sequential(
@@ -292,7 +221,6 @@ fn fill_rows(
             row_bytes,
             batch,
             layout,
-            temporal_arrays,
         );
     }
 }
@@ -304,7 +232,6 @@ pub(super) fn write_data_uncompressed<W: Write>(
 ) -> Result<()> {
     let nrows = batch.num_rows();
     let row_bytes = layout.slots_per_row * 8;
-    let temporal_arrays = preconvert_temporal_columns(batch, layout);
 
     let chunk_rows = CHUNK_ROWS.min(nrows);
     let mut big_buf = vec![0u8; chunk_rows * row_bytes];
@@ -320,7 +247,6 @@ pub(super) fn write_data_uncompressed<W: Write>(
             row_bytes,
             batch,
             layout,
-            &temporal_arrays,
         );
         w.write_all(buf_slice)?;
         row += this_chunk;
@@ -339,7 +265,6 @@ pub(super) fn write_data_bytecode<W: Write>(
 ) -> Result<()> {
     let nrows = batch.num_rows();
     let row_bytes = layout.slots_per_row * 8;
-    let temporal_arrays = preconvert_temporal_columns(batch, layout);
     let mut encoder = BytecodeEncoder::new(DEFAULT_BIAS);
 
     let chunk_rows = CHUNK_ROWS.min(nrows);
@@ -356,7 +281,6 @@ pub(super) fn write_data_bytecode<W: Write>(
             row_bytes,
             batch,
             layout,
-            &temporal_arrays,
         );
 
         // Encode rows sequentially from pre-filled buffer
@@ -414,7 +338,6 @@ pub(super) fn write_data_zsav<W: Write + Seek>(
 
     let nrows = batch.num_rows();
     let row_bytes = layout.slots_per_row * 8;
-    let temporal_arrays = preconvert_temporal_columns(batch, layout);
 
     // Write zheader placeholder (will backpatch later)
     let zheader_offset = w.stream_position().map_err(SavError::Io)? as i64;
@@ -436,7 +359,6 @@ pub(super) fn write_data_zsav<W: Write + Seek>(
             row_bytes,
             batch,
             layout,
-            &temporal_arrays,
         );
 
         for r in 0..this_chunk {

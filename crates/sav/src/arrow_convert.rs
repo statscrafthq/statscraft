@@ -1,24 +1,14 @@
-use arrow::datatypes::{DataType, Field, Schema, TimeUnit};
+use arrow::datatypes::{DataType, Field, Schema};
 
-use crate::constants::{TemporalKind, VarType};
+use crate::constants::VarType;
 use crate::dictionary::ResolvedDictionary;
 use crate::variable::VariableRecord;
 
-/// Determine the Arrow DataType for a resolved SAV variable.
+/// Determine the Arrow DataType for a resolved variable. Date and time variables are Float64
+/// too: the stored number, with the meaning given by the format.
 pub fn var_to_arrow_type(var: &VariableRecord) -> DataType {
     match &var.var_type {
-        VarType::Numeric => {
-            match var
-                .print_format
-                .as_ref()
-                .and_then(|f| f.format_type.temporal_kind())
-            {
-                Some(TemporalKind::Date) => DataType::Date32,
-                Some(TemporalKind::Timestamp) => DataType::Timestamp(TimeUnit::Microsecond, None),
-                Some(TemporalKind::Duration) => DataType::Duration(TimeUnit::Microsecond),
-                None => DataType::Float64,
-            }
-        }
+        VarType::Numeric => DataType::Float64,
         VarType::String(_) => DataType::Utf8View,
     }
 }

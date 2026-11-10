@@ -17,7 +17,7 @@ use std::path::Path;
 use crate::constants::*;
 use crate::error::Result;
 use crate::metadata::SavMetadata;
-use arrow::datatypes::{DataType, TimeUnit};
+use arrow::datatypes::DataType;
 use arrow::record_batch::RecordBatch;
 
 // ---------------------------------------------------------------------------
@@ -70,13 +70,6 @@ fn fill_defaults_from_schema(meta: &mut SavMetadata, schema: &arrow::datatypes::
                 ("F8.0", Measure::Scale, Alignment::Right)
             }
             DataType::Boolean => ("F1.0", Measure::Nominal, Alignment::Right),
-            DataType::Date32 => ("DATE11", Measure::Scale, Alignment::Right),
-            DataType::Timestamp(TimeUnit::Microsecond, _) => {
-                ("DATETIME23.2", Measure::Scale, Alignment::Right)
-            }
-            DataType::Duration(TimeUnit::Microsecond) => {
-                ("TIME11.2", Measure::Scale, Alignment::Right)
-            }
             DataType::Utf8 | DataType::Utf8View | DataType::LargeUtf8 => {
                 ("A255", Measure::Nominal, Alignment::Left)
             }

@@ -50,9 +50,6 @@ pub struct SavScanner<R: Read + Seek> {
     /// to cap buffer sizes so a header can never make us allocate more than
     /// the file could possibly contain.
     data_len: usize,
-    /// Date/time values outside the representable range that were set to null
-    /// (reported once as a finding when the data is exhausted).
-    temporal_out_of_range: usize,
 }
 
 impl<R: Read + Seek> SavScanner<R> {
@@ -134,7 +131,6 @@ impl<R: Read + Seek> SavScanner<R> {
             state,
             eof: false,
             data_len,
-            temporal_out_of_range: 0,
         })
     }
 
@@ -218,17 +214,10 @@ impl<R: Read + Seek> SavScanner<R> {
     }
 
     /// Called once when the data section is exhausted: record findings in the
-    /// metadata (out-of-range date/time values set to null; header case count
-    /// that disagrees with the rows actually read). The header value is only a hint, so this is a warning, not an
+    /// metadata (a header case count that disagrees with the rows actually
+    /// read). The header value is only a hint, so this is a warning, not an
     /// error. Skipped when a row limit was set (a mismatch is then expected).
     fn note_end_of_data_findings(&mut self) {
-        if self.temporal_out_of_range > 0 {
-            self.dict.metadata.warnings.push(format!(
-                "{} date/time values were outside the representable range (years 1-9999) and were set to null",
-                self.temporal_out_of_range
-            ));
-            self.temporal_out_of_range = 0;
-        }
         if self.row_limit.is_some() {
             return;
         }
@@ -511,9 +500,7 @@ impl<R: Read + Seek> SavScanner<R> {
         }
 
         if builder.len() > 0 {
-            let (batch, nulled) = builder.finish_with_stats()?;
-            self.temporal_out_of_range += nulled;
-            Ok(Some(batch))
+            Ok(Some(builder.finish()?))
         } else {
             Ok(None)
         }

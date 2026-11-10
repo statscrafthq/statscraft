@@ -584,42 +584,49 @@ fn huge_declared_case_count_reads_quickly() {
 }
 
 #[test]
-fn temporal_out_of_range_becomes_null_with_finding() {
-    use arrow::array::{Date32Builder, Float64Builder};
+fn date_values_are_kept_as_stored_numbers() {
+    use arrow::array::{Array, AsArray, Date32Builder, Float64Builder};
+    use arrow::datatypes::Float64Type;
     let schema = Arc::new(Schema::new(vec![
-        Field::new("d", DataType::Date32, true),
+        Field::new("d", DataType::Float64, true),
         Field::new("x", DataType::Float64, true),
     ]));
-    let mut d = Date32Builder::new();
+    let mut d = Float64Builder::new();
     let mut x = Float64Builder::new();
     for i in 0..5 {
-        d.append_value(19_723 + i); // 2024-01-01 ..
+        d.append_value(13_918_176_000.0 + i as f64 * 86_400.0);
         x.append_value(i as f64);
     }
     let batch =
         RecordBatch::try_new(schema, vec![Arc::new(d.finish()), Arc::new(x.finish())]).unwrap();
-    let meta = SavMetadata::from_arrow_schema(batch.schema().as_ref());
+    let mut meta = SavMetadata::from_arrow_schema(batch.schema().as_ref());
+    meta.variable_formats.insert("d".into(), "DATE11".into());
     let mut cursor = Cursor::new(Vec::new());
     write_sav_to_writer(&mut cursor, &batch, &meta, Compression::None, None).unwrap();
     let mut bytes = cursor.into_inner();
 
-    let (clean, clean_meta) = read_sav_from_reader(Cursor::new(bytes.clone())).unwrap();
-    assert!(clean_meta.warnings.is_empty());
-    assert_eq!(clean.column(0).null_count(), 0);
-
     // Column "d" is slot 0; rows are 2 slots wide (uncompressed).
     let start = layout(&bytes).data_start;
-    put_f64(&mut bytes, start + 16, 1e300); // row 1: absurd seconds
-    put_f64(&mut bytes, start + 3 * 16, f64::NAN); // row 3: not a number
+    put_f64(&mut bytes, start + 16, 1e300); // far outside any calendar
+    put_f64(&mut bytes, start + 3 * 16, 0.5); // half a second after the epoch
     let (batch, meta) = read_sav_from_reader(Cursor::new(bytes)).unwrap();
-    let d = batch.column(0);
-    assert_eq!(d.null_count(), 2);
-    assert!(d.is_null(1) && d.is_null(3));
-    assert_eq!(d.slice(0, 1).as_ref(), clean.column(0).slice(0, 1).as_ref());
-    assert_eq!(meta.warnings.len(), 1, "{:?}", meta.warnings);
-    assert!(
-        meta.warnings[0].starts_with("2 date/time values were outside the representable range")
-    );
+    assert!(meta.warnings.is_empty(), "{:?}", meta.warnings);
+    assert_eq!(meta.variable_formats["d"], "DATE11");
+    let d = batch.column(0).as_primitive::<Float64Type>();
+    assert_eq!(d.null_count(), 0);
+    assert_eq!(d.value(0), 13_918_176_000.0);
+    assert_eq!(d.value(1), 1e300);
+    assert_eq!(d.value(3), 0.5);
+
+    // Arrow date types are not accepted: dates are written as the stored numbers
+    let schema = Arc::new(Schema::new(vec![Field::new("d", DataType::Date32, true)]));
+    let mut dates = Date32Builder::new();
+    dates.append_value(19_723);
+    let batch = RecordBatch::try_new(schema, vec![Arc::new(dates.finish())]).unwrap();
+    let meta = SavMetadata::from_arrow_schema(batch.schema().as_ref());
+    let mut cursor = Cursor::new(Vec::new());
+    let error = write_sav_to_writer(&mut cursor, &batch, &meta, Compression::None, None);
+    assert!(matches!(error, Err(SavError::WriteError(_))));
 }
 
 #[test]

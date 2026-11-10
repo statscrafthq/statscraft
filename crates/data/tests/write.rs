@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::{assert_survives_write, cases, file_name, fixture, fixture_files, scratch};
+use common::{assert_survives_write, file_name, fixture, fixture_files, scratch};
 use statscraft_data::{Dataset, Error, Measure, MissingValues, Value};
 
 #[test]
@@ -97,73 +97,31 @@ fn a_clone_keeps_the_state_before_an_edit() {
     assert_survives_write(&edited, "no_cases.sav");
 }
 
-/// Limit of ambers 0.4.7: it carries a date variable as whole days (Arrow Date32), so a date
-/// value with a time of day cannot be stored. `write_sav` refuses instead of dropping the time.
+/// Date and time variables are written and read as the stored numbers, so every value comes
+/// back bit for bit: a time of day in a date variable, fractions of a second, dates outside the
+/// years 1 to 9999 and durations of any length.
 #[test]
-fn a_date_with_a_time_of_day_is_refused() {
+fn date_and_time_values_survive_exactly() {
     let mut data = fixture("survey_basic.sav");
-    let noon = vec![Some(13_918_176_000.0 + 12.0 * 3600.0); 200];
-    data.set_numeric_values("signup_date", noon).unwrap();
-    let path = scratch("date_with_time.sav");
-    let error = data.write_sav(&path).unwrap_err();
-    assert!(matches!(error, Error::Invalid(_)), "{error}");
-    assert_eq!(
-        error.to_string(),
-        "signup_date: 13918219200 cannot be saved exactly as DATE11"
-    );
-    assert!(!path.exists());
-
-    // the same number is fine once the format has room for the time
-    data.set_format("signup_date", "DATETIME20").unwrap();
-    assert_survives_write(&data, "date_with_time.sav");
-}
-
-/// Limits of ambers 0.4.7: its reader cuts datetimes and durations down to whole microseconds
-/// (a duration of 1.001 seconds comes back as 1.000999, like about 2% of all values with
-/// milliseconds), and turns dates outside the years 1 to 9999 into system-missing. `write_sav`
-/// refuses every value that would not come back bit for bit.
-#[test]
-fn values_the_file_cannot_hold_exactly_are_refused() {
-    let mut data = fixture("survey_basic.sav");
-    let path = scratch("refused.sav");
     for (format, value) in [
+        ("DATE11", 13_918_176_000.0 + 12.0 * 3600.0),
+        ("DATE11", -1.0e11),
+        ("DATE11", 0.5),
+        ("ADATE10", 1.0e15),
         ("TIME12", 1.001),
         ("TIME12", 1.0 / 3.0),
-        ("DATETIME20", 13_918_176_000.094),
-        ("DATETIME20", 1.0e12),
-        ("DATE11", -1.0e11),
         ("TIME12", 1.0e13),
+        ("DTIME14.3", -0.000_001),
+        ("DATETIME20", 13_918_176_000.094),
+        ("DATETIME23.2", 1.0e12 + 0.25),
         ("TIME12", f64::NAN),
     ] {
         data.set_numeric_values("x", vec![Some(value); 200])
             .unwrap();
         data.set_format("x", format).unwrap();
-        let error = data.write_sav(&path).unwrap_err();
-        assert!(matches!(error, Error::Invalid(_)), "{format} {value}");
-        assert!(!path.exists(), "{format} {value}");
+        let copy = assert_survives_write(&data, "dates.sav");
+        assert_eq!(copy.variable("x").unwrap().format(), format);
     }
-    // without a date or time format a number is written as it is
-    data.set_numeric_values("x", vec![Some(1.0 / 3.0); 200])
-        .unwrap();
-    data.set_format("x", "F8.2").unwrap();
-    assert_survives_write(&data, "refused.sav");
-}
-
-/// Limit of ambers 0.4.7: its reader reports date and time formats without their decimals, so
-/// "DATETIME23.2" is written correctly but comes back as "DATETIME23".
-#[test]
-fn decimals_of_a_date_format_are_lost_on_reading() {
-    let mut data = fixture("survey_basic.sav");
-    data.set_numeric_values("seen_at", vec![Some(13_918_176_000.25); 200])
-        .unwrap();
-    data.set_format("seen_at", "datetime23.2").unwrap();
-    assert_eq!(data.variable("seen_at").unwrap().format(), "DATETIME23.2");
-
-    let path = scratch("date_decimals.sav");
-    data.write_sav(&path).unwrap();
-    let copy = Dataset::read_sav(&path).unwrap();
-    assert_eq!(copy.variable("seen_at").unwrap().format(), "DATETIME23");
-    assert_eq!(cases(&data), cases(&copy));
 }
 
 #[test]
@@ -173,10 +131,13 @@ fn a_failed_write_keeps_the_existing_file() {
     data.write_sav(&path).unwrap();
     let before = std::fs::read(&path).unwrap();
 
-    data.set_numeric_values("signup_date", vec![Some(0.5); 200])
-        .unwrap();
+    // the partial file cannot be created where a directory of that name is in the way
+    let partial = scratch(&format!("kept.sav.{}.partial", std::process::id()));
+    std::fs::create_dir_all(&partial).unwrap();
+    data.delete_variables(&["age"]).unwrap();
     assert!(data.write_sav(&path).is_err());
     assert_eq!(std::fs::read(&path).unwrap(), before);
+    std::fs::remove_dir(&partial).unwrap();
 
     let unwritable = scratch("no_such_directory/x.sav");
     let error = fixture("empty.sav").write_sav(unwritable).unwrap_err();
