@@ -11,6 +11,7 @@ mod fonts;
 mod grid;
 mod output;
 mod output_view;
+mod settings;
 mod syntax_text;
 
 use eframe::egui;
@@ -25,12 +26,17 @@ fn main() -> ExitCode {
         }
     };
     let args: Vec<String> = std::env::args().skip(1).collect();
+    let settings = settings::Settings::load();
+    let mut viewport = egui::ViewportBuilder::default()
+        .with_title("StatsCraft")
+        .with_inner_size(settings.size.unwrap_or([1280.0, 820.0]))
+        .with_min_inner_size([720.0, 480.0])
+        .with_icon(icon());
+    if let Some(position) = settings.position {
+        viewport = viewport.with_position(position);
+    }
     let options = eframe::NativeOptions {
-        viewport: egui::ViewportBuilder::default()
-            .with_title("StatsCraft")
-            .with_inner_size([1280.0, 820.0])
-            .with_min_inner_size([720.0, 480.0])
-            .with_icon(icon()),
+        viewport,
         ..Default::default()
     };
     let result = eframe::run_native(
@@ -38,7 +44,7 @@ fn main() -> ExitCode {
         options,
         Box::new(move |cc| {
             cc.egui_ctx.set_fonts(fonts);
-            Ok(Box::new(app::App::new(&args, &cc.egui_ctx)))
+            Ok(Box::new(app::App::new(&args, &cc.egui_ctx, settings)))
         }),
     );
     match result {

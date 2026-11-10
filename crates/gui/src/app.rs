@@ -17,6 +17,7 @@ use crate::dialogs::{
 use crate::edits::{self, Field};
 use crate::output;
 use crate::output_view::{self, OutputView};
+use crate::settings::Settings;
 use crate::syntax_text::{number, quote};
 use crate::{editor, grid};
 use eframe::egui::{
@@ -275,6 +276,8 @@ pub struct App {
     help_for: Option<(u32, usize)>,
     help_text: String,
     output: OutputView,
+    /// Window size and position, the last folder and the recent files, kept between starts.
+    settings: Settings,
     dialog: Option<Dialog>,
     picked: Vec<String>,
     filter: String,
@@ -292,7 +295,7 @@ pub struct App {
 impl App {
     /// Arguments: data files (.sav, .zsav) are opened, syntax files (.sps) loaded into the
     /// syntax editor.
-    pub fn new(args: &[String], ctx: &egui::Context) -> Self {
+    pub fn new(args: &[String], ctx: &egui::Context, settings: Settings) -> Self {
         let (sender, requests) = mpsc::channel::<Remote>();
         let app_ctx = ctx.clone();
         let ctx = ctx.clone();
@@ -336,6 +339,7 @@ impl App {
             help_for: None,
             help_text: String::new(),
             output: OutputView::default(),
+            settings,
             dialog: None,
             picked: Vec::new(),
             filter: String::new(),
@@ -452,6 +456,7 @@ impl App {
             }
             After::OpenData(path) => {
                 if self.show(result, "open file", false) {
+                    self.add_recent(&path);
                     self.data_file = Some(path);
                     self.selected = None;
                     self.cell_edit = None;
@@ -461,6 +466,7 @@ impl App {
             }
             After::SaveData(path) => {
                 if self.show(result, "save file", false) {
+                    self.add_recent(&path);
                     self.data_file = Some(path);
                 }
             }
@@ -546,6 +552,7 @@ impl App {
     fn load_syntax(&mut self, path: PathBuf) {
         match std::fs::read_to_string(&path) {
             Ok(text) => {
+                self.add_recent(&path);
                 self.syntax = text;
                 self.syntax_file = Some(path);
                 self.syntax_errors.clear();
@@ -558,6 +565,7 @@ impl App {
     fn save_syntax(&mut self, path: PathBuf) {
         match std::fs::write(&path, &self.syntax) {
             Ok(()) => {
+                self.add_recent(&path);
                 self.status = Ok(format!("syntax saved to {}", path.display()));
                 self.syntax_file = Some(path);
             }
@@ -570,7 +578,8 @@ impl App {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
                 if ui.button("Open data...").clicked()
-                    && let Some(path) = rfd::FileDialog::new()
+                    && let Some(path) = self
+                        .file_dialog()
                         .add_filter("Data files", &["sav", "zsav"])
                         .pick_file()
                 {
@@ -599,12 +608,35 @@ impl App {
                     self.tab = Tab::Syntax;
                 }
                 if ui.button("Open syntax...").clicked()
-                    && let Some(path) = rfd::FileDialog::new()
+                    && let Some(path) = self
+                        .file_dialog()
                         .add_filter("Syntax", &["sps"])
                         .pick_file()
                 {
                     self.load_syntax(path);
                 }
+                let recent = self.settings.recent.clone();
+                ui.add_enabled_ui(!recent.is_empty(), |ui| {
+                    ui.menu_button("Recent files", |ui| {
+                        for path in recent {
+                            let name = path.file_name().map_or_else(
+                                || path.display().to_string(),
+                                |n| n.to_string_lossy().into_owned(),
+                            );
+                            if ui
+                                .button(name)
+                                .on_hover_text(path.display().to_string())
+                                .clicked()
+                            {
+                                if is_syntax_file(&path) {
+                                    self.load_syntax(path);
+                                } else {
+                                    self.open_data(path);
+                                }
+                            }
+                        }
+                    });
+                });
                 if ui.button("Save syntax").clicked() {
                     match self.syntax_file.clone() {
                         Some(path) => self.save_syntax(path),
@@ -772,6 +804,20 @@ impl App {
         });
     }
 
+    /// A file dialog that opens in the folder of the last one.
+    fn file_dialog(&self) -> rfd::FileDialog {
+        file_dialog(&self.settings.folder)
+    }
+
+    /// Puts a file opened or saved first in the recent files, and keeps its folder for the
+    /// next file dialog.
+    fn add_recent(&mut self, path: &Path) {
+        self.settings.remember_folder(path);
+        self.settings.add_recent(path);
+        // the window works on without them
+        let _ = self.settings.save();
+    }
+
     fn open_dialog(&mut self, dialog: Dialog) {
         self.dialog = Some(dialog);
         self.picked.clear();
@@ -779,7 +825,8 @@ impl App {
     }
 
     fn save_data_as(&mut self) {
-        if let Some(path) = rfd::FileDialog::new()
+        if let Some(path) = self
+            .file_dialog()
             .add_filter("Data file", &["sav"])
             .add_filter("Compressed data file", &["zsav"])
             .save_file()
@@ -789,7 +836,8 @@ impl App {
     }
 
     fn save_syntax_as(&mut self) {
-        if let Some(path) = rfd::FileDialog::new()
+        if let Some(path) = self
+            .file_dialog()
             .add_filter("Syntax", &["sps"])
             .save_file()
         {
@@ -799,10 +847,12 @@ impl App {
 
     /// Exports the whole output, or with `selected` only the selected tables.
     fn export_html(&mut self, selected: bool) {
-        if let Some(path) = rfd::FileDialog::new()
+        if let Some(path) = self
+            .file_dialog()
             .add_filter("Web page", &["html"])
             .save_file()
         {
+            self.settings.remember_folder(&path);
             let chosen = &self.output.selected;
             let page = output::html(&self.output.runs, |id| !selected || chosen.contains(&id));
             self.status = match std::fs::write(&path, page) {
@@ -813,10 +863,12 @@ impl App {
     }
 
     fn export_xlsx(&mut self, one_sheet: bool, selected: bool) {
-        if let Some(path) = rfd::FileDialog::new()
+        if let Some(path) = self
+            .file_dialog()
             .add_filter("Excel workbook", &["xlsx"])
             .save_file()
         {
+            self.settings.remember_folder(&path);
             let chosen = &self.output.selected;
             let tables = output::tables(&self.output.runs)
                 .filter(|t| !selected || chosen.contains(&t.id))
@@ -1333,7 +1385,8 @@ impl App {
                         .max_height(height)
                         .show(ui, |ui| {
                             ui.vertical(|ui| {
-                                dialog_body(ui, data, dialog, &mut self.picked);
+                                let folder = &mut self.settings.folder;
+                                dialog_body(ui, data, dialog, &mut self.picked, folder);
                             });
                         });
                 });
@@ -1405,6 +1458,7 @@ impl eframe::App for App {
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
         // removes the endpoint file, so the command line says at once that no window runs
         self.server = None;
+        let _ = self.settings.save();
     }
 
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
@@ -1416,6 +1470,14 @@ impl eframe::App for App {
             ui.ctx()
                 .send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.title = title;
+        }
+        // the size and position to open with next time (no position under Wayland)
+        let (outer, inner) = ui.input(|i| (i.viewport().outer_rect, i.viewport().inner_rect));
+        if let Some(inner) = inner {
+            self.settings.size = Some([inner.width(), inner.height()]);
+        }
+        if let Some(outer) = outer {
+            self.settings.position = Some([outer.min.x, outer.min.y]);
         }
         self.grid_keys(ui);
         // Ctrl+Z inside a text field is that field's own undo
@@ -1477,6 +1539,14 @@ fn error_text(errors: &[Failure]) -> String {
         .map(Failure::text)
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// A file dialog that opens in `folder` when there is one.
+fn file_dialog(folder: &Option<PathBuf>) -> rfd::FileDialog {
+    match folder {
+        Some(folder) => rfd::FileDialog::new().set_directory(folder),
+        None => rfd::FileDialog::new(),
+    }
 }
 
 fn is_syntax_file(path: &Path) -> bool {
@@ -1853,7 +1923,13 @@ fn checkboxes(ui: &mut Ui, options: &[(&str, &str)], flags: &mut [bool]) {
         });
 }
 
-fn dialog_body(ui: &mut Ui, data: &Dataset, dialog: &mut Dialog, picked: &mut Vec<String>) {
+fn dialog_body(
+    ui: &mut Ui,
+    data: &Dataset,
+    dialog: &mut Dialog,
+    picked: &mut Vec<String>,
+    folder: &mut Option<PathBuf>,
+) {
     match dialog {
         Dialog::Frequencies(d) => target_list(ui, "Variables", &mut d.variables, picked),
         Dialog::Descriptives(d) => {
@@ -2431,10 +2507,11 @@ fn dialog_body(ui: &mut Ui, data: &Dataset, dialog: &mut Dialog, picked: &mut Ve
                 if d.to == AggregateTo::File {
                     ui.add(TextEdit::singleline(&mut d.path).desired_width(220.0));
                     if ui.button("Browse...").clicked()
-                        && let Some(path) = rfd::FileDialog::new()
+                        && let Some(path) = file_dialog(folder)
                             .add_filter("Data file", &["sav"])
                             .save_file()
                     {
+                        *folder = path.parent().map(Path::to_path_buf);
                         d.path = path.to_string_lossy().into_owned();
                     }
                 }
@@ -2448,10 +2525,11 @@ fn dialog_body(ui: &mut Ui, data: &Dataset, dialog: &mut Dialog, picked: &mut Ve
                     "File with the cases to add"
                 });
                 if ui.button("Browse...").clicked()
-                    && let Some(path) = rfd::FileDialog::new()
+                    && let Some(path) = file_dialog(folder)
                         .add_filter("Data file", &["sav", "zsav"])
                         .pick_file()
                 {
+                    *folder = path.parent().map(Path::to_path_buf);
                     d.path = path.to_string_lossy().into_owned();
                 }
             });
