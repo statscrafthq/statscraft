@@ -15,9 +15,9 @@ File, Export output as HTML saves the whole output as one web page; File, Export
 
 The menus have dialogs that build syntax:
 
-- **Data**: Define Multiple Response Sets (dichotomy or category sets, counted value, labels, deleting sets), Sort Cases, Select Cases (SELECT IF, which deletes the other cases), Weight Cases, Aggregate (into every case, a new dataset of one case per group, or a file) and Merge Files with Add Cases and Add Variables (with keys, or a lookup table).
+- **Data**: Define Multiple Response Sets (dichotomy or category sets, counted value, labels, deleting sets), Sort Cases, Split File (groups compared in the same tables or in tables of their own, sorting the cases first, or off), Select Cases (a filter that leaves the other cases out of analyses: `COMPUTE filter_$ = (condition).` and `FILTER BY filter_$.`; SELECT IF, which deletes them; or all cases again with `FILTER OFF.` and `USE ALL.`), Weight Cases, Aggregate (into every case, a new dataset of one case per group, or a file) and Merge Files with Add Cases and Add Variables (with keys, or a lookup table).
 [removed]
-- **Transform**: Compute, Recode and Count Values within Cases.
+- **Transform**: Compute, Recode, Count Values within Cases, Rank Cases (every RANK function with new names or the default ones, ranks within groups, from the smallest or the largest value, ties, the proportion formula, user-missing values) and Automatic Recode (AUTORECODE into new variables, from the largest value, one scheme for all, blank strings as missing, a table of the values).
 
 A dialog shows the syntax it builds: OK runs it, Paste puts it in the syntax editor. Options left at their defaults add nothing to the syntax. Warnings of a run appear under its command in the log, and the status bar says how many there were.
 

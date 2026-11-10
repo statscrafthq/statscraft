@@ -6,13 +6,14 @@ use crate::analyze_dialogs::{
     ONEWAY_STATISTICS, Oneway, POST_HOC_TESTS, STANDARDIZERS, TTest, TTestKind,
 };
 use crate::data_dialogs::{
-    AGGREGATE_FUNCTIONS, Aggregate, AggregateTo, Aggregated, MergeFiles, Mrsets, SelectCases,
-    SortCases, WeightCases,
+    AGGREGATE_FUNCTIONS, Aggregate, AggregateTo, Aggregated, FILTER_VARIABLE, MergeFiles, Mrsets,
+    SelectCases, SelectMode, SortCases, SplitFile, SplitMode, WeightCases,
 };
 use crate::dialogs::{
-    Adjust, CROSSTABS_CELLS, Categories, Compute, Count, Crosstabs, CustomTables,
-    DESCRIPTIVES_STATISTICS, Descriptives, FREQUENCIES_STATISTICS, Frequencies, Letters, NewValue,
-    OldValue, Recode, RecodeRule, Subtotal, is_set, label_command,
+    Adjust, Autorecode, CROSSTABS_CELLS, Categories, Compute, Count, Crosstabs, CustomTables,
+    DESCRIPTIVES_STATISTICS, Descriptives, FREQUENCIES_ORDERS, FREQUENCIES_STATISTICS, Frequencies,
+    Letters, NewValue, OldValue, RANK_FRACTIONS, RANK_FUNCTIONS, RANK_TIES, Rank, Recode,
+    RecodeRule, Subtotal, is_set, label_command,
 };
 use crate::edits::{self, Field};
 use crate::output;
@@ -96,12 +97,15 @@ enum Dialog {
     Recode(Recode, RuleDraft),
     /// With the label of the new variable and the value being put together.
     Count(Count, String, RuleDraft),
+    Rank(Rank),
+    Autorecode(Autorecode),
     Means(Means),
     TTest(TTest),
     Oneway(Oneway),
     Correlations(Correlations),
     Mrsets(Mrsets),
     SortCases(SortCases),
+    SplitFile(SplitFile),
     SelectCases(SelectCases),
     WeightCases(WeightCases),
     /// With the function chosen for the next aggregated variables.
@@ -120,12 +124,15 @@ impl Dialog {
             Dialog::Compute(..) => "Compute Variable",
             Dialog::Recode(..) => "Recode",
             Dialog::Count(..) => "Count Values within Cases",
+            Dialog::Rank(_) => "Rank Cases",
+            Dialog::Autorecode(_) => "Automatic Recode",
             Dialog::Means(_) => "Means",
             Dialog::TTest(d) => d.title(),
             Dialog::Oneway(_) => "One-Way ANOVA",
             Dialog::Correlations(_) => "Bivariate Correlations",
             Dialog::Mrsets(_) => "Define Multiple Response Sets",
             Dialog::SortCases(_) => "Sort Cases",
+            Dialog::SplitFile(_) => "Split File",
             Dialog::SelectCases(_) => "Select Cases",
             Dialog::WeightCases(_) => "Weight Cases",
             Dialog::Aggregate(..) => "Aggregate",
@@ -147,12 +154,15 @@ impl Dialog {
             Dialog::Count(..) => {
                 Dialog::Count(Default::default(), String::new(), Default::default())
             }
+            Dialog::Rank(_) => Dialog::Rank(Default::default()),
+            Dialog::Autorecode(_) => Dialog::Autorecode(Default::default()),
             Dialog::Means(_) => Dialog::Means(Default::default()),
             Dialog::TTest(d) => Dialog::TTest(TTest::new(d.kind)),
             Dialog::Oneway(_) => Dialog::Oneway(Default::default()),
             Dialog::Correlations(_) => Dialog::Correlations(Default::default()),
             Dialog::Mrsets(_) => Dialog::Mrsets(Default::default()),
             Dialog::SortCases(_) => Dialog::SortCases(Default::default()),
+            Dialog::SplitFile(_) => Dialog::SplitFile(Default::default()),
             Dialog::SelectCases(_) => Dialog::SelectCases(Default::default()),
             Dialog::WeightCases(_) => Dialog::WeightCases(Default::default()),
             Dialog::Aggregate(..) => Dialog::Aggregate(Default::default(), 0),
@@ -201,6 +211,19 @@ impl Dialog {
                 }
                 Ok(text)
             }
+            Dialog::Rank(d) => match d.variables.iter().find(|n| is_string(data, n)) {
+                Some(name) => Err(format!(
+                    "{name} is a string; Automatic Recode makes it a number to rank"
+                )),
+                None => d.syntax(),
+            },
+            Dialog::Autorecode(d) => {
+                let strings = d.variables.iter().filter(|n| is_string(data, n)).count();
+                if d.group && strings > 0 && strings < d.variables.len() {
+                    return Err("one scheme needs all numeric or all string variables".into());
+                }
+                d.syntax()
+            }
             Dialog::Means(d) => d.syntax(),
             Dialog::TTest(d) => d.syntax(is_string(data, &d.grouping)),
             Dialog::Oneway(d) => d.syntax(),
@@ -213,6 +236,7 @@ impl Dialog {
                 d.syntax(strings > 0)
             }
             Dialog::SortCases(d) => d.syntax(),
+            Dialog::SplitFile(d) => d.syntax(),
             Dialog::SelectCases(d) => d.syntax(),
             Dialog::WeightCases(d) => d.syntax(),
             Dialog::Aggregate(d, _) => d.syntax(),
@@ -743,17 +767,16 @@ impl App {
                 }
             });
             ui.menu_button("Data", |ui| {
-                let weight = self
-                    .session
-                    .dataset()
-                    .and_then(|d| d.weight_variable())
-                    .map(str::to_string);
+                let data = self.session.dataset();
+                let weight = data.and_then(|d| d.weight_variable()).map(str::to_string);
+                let split = SplitFile::current(data.and_then(|d| d.split_file()));
                 for (label, dialog) in [
                     (
                         "Define Multiple Response Sets...",
                         Dialog::Mrsets(Default::default()),
                     ),
                     ("Sort Cases...", Dialog::SortCases(Default::default())),
+                    ("Split File...", Dialog::SplitFile(split)),
                     ("Select Cases...", Dialog::SelectCases(Default::default())),
                     (
                         "Weight Cases...",
@@ -853,6 +876,18 @@ impl App {
                         String::new(),
                         Default::default(),
                     ));
+                }
+                ui.separator();
+                for (label, dialog) in [
+                    ("Rank Cases...", Dialog::Rank(Default::default())),
+                    (
+                        "Automatic Recode...",
+                        Dialog::Autorecode(Default::default()),
+                    ),
+                ] {
+                    if ui.add_enabled(has_data, egui::Button::new(label)).clicked() {
+                        self.open_dialog(dialog);
+                    }
                 }
             });
             ui.menu_button("Help", |ui| {
@@ -2308,6 +2343,16 @@ fn field(ui: &mut Ui, label: &str, text: &mut String, width: f32) {
     });
 }
 
+/// A list to choose one of `options` by its label, with a label in front, on one line.
+fn choice(ui: &mut Ui, label: &str, options: &[(&str, &str)], index: &mut usize) {
+    ui.horizontal(|ui| {
+        ui.label(label);
+        ComboBox::new(label, "")
+            .selected_text(options[*index].1)
+            .show_index(ui, index, options.len(), |i| options[i].1);
+    });
+}
+
 fn checkboxes(ui: &mut Ui, options: &[(&str, &str)], flags: &mut [bool]) {
     egui::Grid::new(ui.next_auto_id())
         .num_columns(2)
@@ -2333,9 +2378,24 @@ fn dialog_body(
             target_list(ui, "Variables", &mut d.variables, picked);
             ui.add_space(6.0);
             ui.checkbox(&mut d.tables, "Display frequency tables");
+            ui.add_enabled_ui(d.tables, |ui| {
+                choice(ui, "Order rows by", &FREQUENCIES_ORDERS, &mut d.order);
+                field(
+                    ui,
+                    "Leave out tables with more values than",
+                    &mut d.limit,
+                    50.0,
+                );
+            });
+            ui.add_space(6.0);
             ui.strong("Statistics");
             checkboxes(ui, &FREQUENCIES_STATISTICS, &mut d.statistics);
+            ui.add_space(6.0);
+            ui.strong("Percentile values");
             ui.checkbox(&mut d.quartiles, "Quartiles");
+            field(ui, "Cut points for equal groups:", &mut d.ntiles, 50.0);
+            field(ui, "Percentiles:", &mut d.percentiles, 180.0);
+            ui.weak("For example 10 90 or 2.5, 97.5.");
         }
         Dialog::Descriptives(d) => {
             target_list(ui, "Variables", &mut d.variables, picked);
@@ -2818,26 +2878,66 @@ fn dialog_body(
             }
             ui.weak("Cases with equal keys keep their order.");
         }
-        Dialog::SelectCases(d) => {
-            ui.strong("Keep the cases where");
-            ui.add(
-                TextEdit::multiline(&mut d.condition)
-                    .desired_width(360.0)
-                    .desired_rows(3)
-                    .hint_text("age >= 18 AND gender = 2"),
+        Dialog::SplitFile(d) => {
+            ui.radio_value(&mut d.mode, SplitMode::Off, "Analyze all cases together");
+            ui.radio_value(
+                &mut d.mode,
+                SplitMode::Layered,
+                "Compare groups in the same tables",
             );
-            if ui.button("Add picked variables to the condition").clicked() {
-                for name in picked.drain(..) {
-                    if !d.condition.is_empty() && !d.condition.ends_with(' ') {
-                        d.condition.push(' ');
-                    }
-                    d.condition.push_str(&name);
+            ui.radio_value(
+                &mut d.mode,
+                SplitMode::Separate,
+                "Tables of their own for each group",
+            );
+            if d.mode != SplitMode::Off {
+                target_list(ui, "Groups based on", &mut d.variables, picked);
+                ui.checkbox(&mut d.sort, "Sort the cases by these variables first");
+                if !d.sort {
+                    ui.weak("A group is a run of adjacent cases with the same values.");
                 }
             }
-            ui.colored_label(
-                ui.visuals().warn_fg_color,
-                "The other cases are deleted from the dataset. Edit, Undo last change brings them back.",
+            ui.weak(match data.split_file() {
+                Some(split) => format!("Now split by {}.", split.variables.join(" ")),
+                None => "Now not split.".to_string(),
+            });
+        }
+        Dialog::SelectCases(d) => {
+            ui.radio_value(&mut d.mode, SelectMode::All, "All cases");
+            ui.radio_value(
+                &mut d.mode,
+                SelectMode::Filter,
+                format!("Filter: leave the other cases out of analyses ({FILTER_VARIABLE})"),
             );
+            ui.radio_value(&mut d.mode, SelectMode::Delete, "Delete the other cases");
+            if d.mode != SelectMode::All {
+                ui.add_space(6.0);
+                ui.strong("Keep the cases where");
+                ui.add(
+                    TextEdit::multiline(&mut d.condition)
+                        .desired_width(360.0)
+                        .desired_rows(3)
+                        .hint_text("age >= 18 AND gender = 2"),
+                );
+                if ui.button("Add picked variables to the condition").clicked() {
+                    for name in picked.drain(..) {
+                        if !d.condition.is_empty() && !d.condition.ends_with(' ') {
+                            d.condition.push(' ');
+                        }
+                        d.condition.push_str(&name);
+                    }
+                }
+            }
+            if d.mode == SelectMode::Delete {
+                ui.colored_label(
+                    ui.visuals().warn_fg_color,
+                    "The other cases are deleted from the dataset. Edit, Undo last change brings them back.",
+                );
+            }
+            ui.weak(match data.filter_variable() {
+                Some(name) => format!("Now filtered by {name}."),
+                None => "Now no filter.".to_string(),
+            });
         }
         Dialog::WeightCases(d) => {
             ui.radio_value(&mut d.on, false, "Do not weight cases");
@@ -2953,6 +3053,59 @@ fn dialog_body(
             } else {
                 ui.weak("Variables are matched by name; a variable missing from a file is blank.");
             }
+        }
+        Dialog::Rank(d) => {
+            target_list(ui, "Variables", &mut d.variables, picked);
+            target_list(ui, "Rank within groups of", &mut d.by, picked);
+            ui.horizontal(|ui| {
+                ui.label("Rank 1 goes to the");
+                ui.radio_value(&mut d.descending, false, "smallest value");
+                ui.radio_value(&mut d.descending, true, "largest value");
+            });
+            ui.add_space(6.0);
+            ui.strong("New variables");
+            ui.weak("New names, one per variable; empty for names made from the variable.");
+            egui::Grid::new("rank functions")
+                .num_columns(2)
+                .show(ui, |ui| {
+                    for (i, (_, label)) in RANK_FUNCTIONS.iter().enumerate() {
+                        ui.checkbox(&mut d.functions[i], *label);
+                        ui.add_enabled(
+                            d.functions[i],
+                            TextEdit::singleline(&mut d.into[i]).desired_width(200.0),
+                        );
+                        ui.end_row();
+                    }
+                    ui.horizontal(|ui| {
+                        ui.checkbox(&mut d.ntiles, "Percentile groups:");
+                        ui.add_enabled(
+                            d.ntiles,
+                            TextEdit::singleline(&mut d.groups).desired_width(32.0),
+                        );
+                    });
+                    ui.add_enabled(
+                        d.ntiles,
+                        TextEdit::singleline(&mut d.into[7]).desired_width(200.0),
+                    );
+                    ui.end_row();
+                });
+            ui.add_space(6.0);
+            choice(ui, "Ties get the", &RANK_TIES, &mut d.ties);
+            let fraction = d.uses_fraction();
+            ui.add_enabled_ui(fraction, |ui| {
+                choice(ui, "Proportion formula", &RANK_FRACTIONS, &mut d.fraction);
+            });
+            ui.checkbox(&mut d.include_missing, "Rank user-missing values too");
+            ui.checkbox(&mut d.print, "Table of the new variables");
+        }
+        Dialog::Autorecode(d) => {
+            target_list(ui, "Variables", &mut d.variables, picked);
+            field(ui, "New names, one per variable:", &mut d.into, 220.0);
+            ui.add_space(6.0);
+            ui.checkbox(&mut d.descending, "Number from the largest value");
+            ui.checkbox(&mut d.group, "One scheme for all the variables");
+            ui.checkbox(&mut d.blank_missing, "Blank strings become a missing value");
+            ui.checkbox(&mut d.print, "Table of old and new values");
         }
         Dialog::Recode(d, draft) => {
             target_list(ui, "Variables", &mut d.variables, picked);

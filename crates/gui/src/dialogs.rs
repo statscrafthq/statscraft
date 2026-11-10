@@ -1,7 +1,7 @@
 //! The state of every Analyze and Transform dialog and the syntax it builds. A dialog never
 //! touches data: OK runs the syntax, Paste puts it in the syntax editor.
 
-use crate::syntax_text::{names, probability, quote, value};
+use crate::syntax_text::{names, number, probability, quote, value};
 
 /// Keyword and label of every statistic Frequencies offers, in the order shown.
 pub const FREQUENCIES_STATISTICS: [(&str, &str); 9] = [
@@ -16,13 +16,29 @@ pub const FREQUENCIES_STATISTICS: [(&str, &str); 9] = [
     ("SUM", "Sum"),
 ];
 
+/// Keyword and label of every order of the rows of a frequency table, the default first.
+pub const FREQUENCIES_ORDERS: [(&str, &str); 4] = [
+    ("AVALUE", "Ascending values"),
+    ("DVALUE", "Descending values"),
+    ("AFREQ", "Ascending counts"),
+    ("DFREQ", "Descending counts"),
+];
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct Frequencies {
     pub variables: Vec<String>,
     /// One flag per entry of `FREQUENCIES_STATISTICS`.
     pub statistics: [bool; 9],
     pub quartiles: bool,
+    /// Cut points for this many equal groups (NTILES); empty for none.
+    pub ntiles: String,
+    /// Percentiles (PERCENTILES), separated by blanks or commas; empty for none.
+    pub percentiles: String,
     pub tables: bool,
+    /// Index into `FREQUENCIES_ORDERS`.
+    pub order: usize,
+    /// No table for a variable with more values than this (LIMIT); empty for no limit.
+    pub limit: String,
 }
 
 impl Default for Frequencies {
@@ -31,8 +47,24 @@ impl Default for Frequencies {
             variables: Vec::new(),
             statistics: [false; 9],
             quartiles: false,
+            ntiles: String::new(),
+            percentiles: String::new(),
             tables: true,
+            order: 0,
+            limit: String::new(),
         }
+    }
+}
+
+/// A whole number of at least `least` the user typed, or None for an empty field.
+fn whole(text: &str, least: u32, what: &str) -> Result<Option<u32>, String> {
+    let text = text.trim();
+    if text.is_empty() {
+        return Ok(None);
+    }
+    match text.parse::<u32>() {
+        Ok(n) if n >= least => Ok(Some(n)),
+        _ => Err(format!("{what} must be a whole number of at least {least}")),
     }
 }
 
@@ -42,8 +74,19 @@ impl Frequencies {
             "FREQUENCIES VARIABLES={}",
             names(&self.variables, "Variables")?
         );
+        let mut format = Vec::new();
         if !self.tables {
-            text.push_str("\n  /FORMAT=NOTABLE");
+            format.push("NOTABLE".to_string());
+        } else {
+            if let Some(n) = whole(&self.limit, 1, "the most values of a table")? {
+                format.push(format!("LIMIT({n})"));
+            }
+            if self.order > 0 {
+                format.push(FREQUENCIES_ORDERS[self.order].0.to_string());
+            }
+        }
+        if !format.is_empty() {
+            text.push_str(&format!("\n  /FORMAT={}", format.join(" ")));
         }
         let statistics: Vec<&str> = FREQUENCIES_STATISTICS
             .iter()
@@ -55,6 +98,25 @@ impl Frequencies {
         }
         if self.quartiles {
             text.push_str("\n  /NTILES=4");
+        }
+        if let Some(n) = whole(&self.ntiles, 2, "the number of equal groups")? {
+            text.push_str(&format!("\n  /NTILES={n}"));
+        }
+        let percentiles = self
+            .percentiles
+            .split([' ', ',', ';'])
+            .filter(|p| !p.trim().is_empty())
+            .map(|p| {
+                p.trim()
+                    .parse::<f64>()
+                    .ok()
+                    .filter(|p| (0.0..=100.0).contains(p))
+                    .map(number)
+                    .ok_or_else(|| format!("the percentile {p:?} is not a number from 0 to 100"))
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if !percentiles.is_empty() {
+            text.push_str(&format!("\n  /PERCENTILES={}", percentiles.join(" ")));
         }
         text.push('.');
         Ok(text)
@@ -770,6 +832,193 @@ impl Count {
     }
 }
 
+/// Keyword and label of every RANK function but NTILES, in the order shown.
+pub const RANK_FUNCTIONS: [(&str, &str); 7] = [
+    ("RANK", "Rank"),
+    ("RFRACTION", "Fractional rank"),
+    ("PERCENT", "Fractional rank as %"),
+    ("PROPORTION", "Proportion estimate"),
+    ("N", "Sum of case weights"),
+    ("SAVAGE", "Savage score"),
+    ("NORMAL", "Normal score"),
+];
+
+/// Keyword and label of every way RANK handles ties, the default first.
+pub const RANK_TIES: [(&str, &str); 4] = [
+    ("MEAN", "Mean rank"),
+    ("LOW", "Lowest rank"),
+    ("HIGH", "Highest rank"),
+    ("CONDENSE", "Consecutive ranks"),
+];
+
+/// Keyword and label of every proportion formula, the default first.
+pub const RANK_FRACTIONS: [(&str, &str); 4] = [
+    ("BLOM", "Blom"),
+    ("TUKEY", "Tukey"),
+    ("RANKIT", "Rankit"),
+    ("VW", "Van der Waerden"),
+];
+
+/// RANK: ranks and related scores of numeric variables, as new variables.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Rank {
+    pub variables: Vec<String>,
+    /// Rank 1 goes to the largest value (D) instead of the smallest.
+    pub descending: bool,
+    /// Ranks within the groups of these variables.
+    pub by: Vec<String>,
+    /// One flag per entry of `RANK_FUNCTIONS`.
+    pub functions: [bool; 7],
+    /// Percentile groups (NTILES), with their number.
+    pub ntiles: bool,
+    pub groups: String,
+    /// New names per function, `RANK_FUNCTIONS` and then NTILES, separated by blanks; empty
+    /// for the default names.
+    pub into: [String; 8],
+    /// Index into `RANK_TIES`.
+    pub ties: usize,
+    /// Index into `RANK_FRACTIONS`.
+    pub fraction: usize,
+    /// The summary table of the new variables.
+    pub print: bool,
+    /// User-missing values are ranked too.
+    pub include_missing: bool,
+}
+
+impl Default for Rank {
+    fn default() -> Self {
+        Self {
+            variables: Vec::new(),
+            descending: false,
+            by: Vec::new(),
+            functions: [true, false, false, false, false, false, false],
+            ntiles: false,
+            groups: "4".into(),
+            into: Default::default(),
+            ties: 0,
+            fraction: 0,
+            print: true,
+            include_missing: false,
+        }
+    }
+}
+
+impl Rank {
+    /// Whether a chosen function uses the proportion formula: PROPORTION or NORMAL.
+    pub fn uses_fraction(&self) -> bool {
+        self.functions[3] || self.functions[6]
+    }
+
+    pub fn syntax(&self) -> Result<String, String> {
+        let mut text = format!("RANK VARIABLES={}", names(&self.variables, "Variables")?);
+        if self.descending {
+            text.push_str(" (D)");
+        }
+        if !self.by.is_empty() {
+            text.push_str(&format!(" BY {}", self.by.join(" ")));
+        }
+        let mut functions: Vec<(String, &str, &String)> = RANK_FUNCTIONS
+            .iter()
+            .zip(self.functions)
+            .zip(&self.into)
+            .filter(|((_, on), _)| *on)
+            .map(|(((keyword, label), _), into)| (keyword.to_string(), *label, into))
+            .collect();
+        if self.ntiles {
+            let groups = whole(&self.groups, 2, "the number of groups")?
+                .ok_or("give the number of percentile groups")?;
+            functions.push((
+                format!("NTILES({groups})"),
+                "Percentile groups",
+                &self.into[7],
+            ));
+        }
+        if functions.is_empty() {
+            return Err("choose at least one function".into());
+        }
+        // RANK alone with its default names is what RANK does without a function
+        let only_rank = functions.len() == 1 && self.functions[0] && self.into[0].trim().is_empty();
+        for (keyword, label, into) in functions.iter().filter(|_| !only_rank) {
+            let into: Vec<&str> = into.split_whitespace().collect();
+            if into.len() > self.variables.len() {
+                return Err(format!(
+                    "{label}: {} new names for {} variables",
+                    into.len(),
+                    self.variables.len()
+                ));
+            }
+            text.push_str(&format!("\n  /{keyword}"));
+            if !into.is_empty() {
+                text.push_str(&format!(" INTO {}", into.join(" ")));
+            }
+        }
+        if self.ties > 0 {
+            text.push_str(&format!("\n  /TIES={}", RANK_TIES[self.ties].0));
+        }
+        if self.fraction > 0 && self.uses_fraction() {
+            text.push_str(&format!(
+                "\n  /FRACTION={}",
+                RANK_FRACTIONS[self.fraction].0
+            ));
+        }
+        if !self.print {
+            text.push_str("\n  /PRINT=NO");
+        }
+        if self.include_missing {
+            text.push_str("\n  /MISSING=INCLUDE");
+        }
+        text.push('.');
+        Ok(text)
+    }
+}
+
+/// AUTORECODE: the values of each variable as consecutive whole numbers in a new variable,
+/// labelled with the old values.
+#[derive(Default, Clone, PartialEq, Debug)]
+pub struct Autorecode {
+    pub variables: Vec<String>,
+    /// New names separated by blanks, one per variable.
+    pub into: String,
+    /// The largest value gets 1.
+    pub descending: bool,
+    /// One scheme for all the variables.
+    pub group: bool,
+    /// Blank strings become a missing value.
+    pub blank_missing: bool,
+    /// A table of old and new values.
+    pub print: bool,
+}
+
+impl Autorecode {
+    pub fn syntax(&self) -> Result<String, String> {
+        let variables = names(&self.variables, "Variables")?;
+        let into: Vec<&str> = self.into.split_whitespace().collect();
+        if into.len() != self.variables.len() {
+            return Err(format!(
+                "give one new name per variable: {} variables, {} names",
+                self.variables.len(),
+                into.len()
+            ));
+        }
+        let mut text = format!(
+            "AUTORECODE VARIABLES={variables}\n  /INTO {}",
+            into.join(" ")
+        );
+        for (on, subcommand) in [
+            (self.blank_missing, "BLANK=MISSING"),
+            (self.group, "GROUP"),
+            (self.descending, "DESCENDING"),
+            (self.print, "PRINT"),
+        ] {
+            if on {
+                text.push_str(&format!("\n  /{subcommand}"));
+            }
+        }
+        text.push('.');
+        Ok(text)
+    }
+}
+
 /// A variable label for a new variable made by Compute or Recode, as its own command.
 pub fn label_command(name: &str, label: &str) -> Option<String> {
     let label = label.trim();
@@ -840,6 +1089,176 @@ mod tests {
             "FREQUENCIES VARIABLES=gender region\n  /FORMAT=NOTABLE\n  /STATISTICS=MEDIAN\n  /NTILES=4."
         );
         assert_eq!(runs(&syntax), 1);
+
+        // the order and the limit apply only with tables
+        d.order = 3;
+        d.limit = "5".into();
+        assert!(d.syntax().unwrap().contains("/FORMAT=NOTABLE\n"));
+        d.tables = true;
+        d.ntiles = " 10 ".into();
+        d.percentiles = "5, 95 2.5".into();
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "FREQUENCIES VARIABLES=gender region\n  /FORMAT=LIMIT(5) DFREQ\n  \
+             /STATISTICS=MEDIAN\n  /NTILES=4\n  /NTILES=10\n  /PERCENTILES=5 95 2.5."
+        );
+        assert_eq!(runs(&syntax), 3);
+        d.order = 1;
+        d.limit.clear();
+        d.quartiles = false;
+        d.ntiles.clear();
+        d.percentiles.clear();
+        d.statistics = [false; 9];
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "FREQUENCIES VARIABLES=gender region\n  /FORMAT=DVALUE."
+        );
+        assert_eq!(runs(&syntax), 2);
+
+        for (field, text, error) in [
+            (
+                0,
+                "0",
+                "the most values of a table must be a whole number of at least 1",
+            ),
+            (
+                1,
+                "1",
+                "the number of equal groups must be a whole number of at least 2",
+            ),
+            (
+                2,
+                "101",
+                "the percentile \"101\" is not a number from 0 to 100",
+            ),
+        ] {
+            let mut bad = d.clone();
+            *[&mut bad.limit, &mut bad.ntiles, &mut bad.percentiles][field] = text.into();
+            assert_eq!(bad.syntax().unwrap_err(), error);
+        }
+    }
+
+    #[test]
+    fn rank() {
+        let mut d = Rank::default();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "add at least one variable to Variables"
+        );
+        d.variables = v(&["age"]);
+        let syntax = d.syntax().unwrap();
+        assert_eq!(syntax, "RANK VARIABLES=age.");
+        let mut session = open("survey_basic.sav");
+        assert_eq!(run_in(&mut session, &syntax), 1);
+        assert!(session.dataset().unwrap().variable("Rage").is_ok());
+
+        d.variables = v(&["age", "monthly_spend"]);
+        d.descending = true;
+        d.by = v(&["region"]);
+        d.into[0] = "age_rank".into();
+        d.functions[6] = true;
+        d.ntiles = true;
+        d.groups = "5".into();
+        d.into[7] = "age_q spend_q".into();
+        d.ties = 3;
+        d.fraction = 2;
+        d.print = false;
+        d.include_missing = true;
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "RANK VARIABLES=age monthly_spend (D) BY region\n  /RANK INTO age_rank\n  \
+             /NORMAL\n  /NTILES(5) INTO age_q spend_q\n  /TIES=CONDENSE\n  /FRACTION=RANKIT\n  \
+             /PRINT=NO\n  /MISSING=INCLUDE."
+        );
+        assert_eq!(run_in(&mut session, &syntax), 0);
+        let data = session.dataset().unwrap();
+        for name in ["age_rank", "age_q", "spend_q"] {
+            assert!(data.variable(name).is_ok(), "{name}");
+        }
+        let groups: Vec<f64> = data
+            .variable("age_q")
+            .unwrap()
+            .numeric()
+            .unwrap()
+            .iter()
+            .flatten()
+            .collect();
+        assert!(groups.iter().all(|g| (1.0..=5.0).contains(g)));
+
+        // the formula only goes with a function that uses it
+        let mut plain = Rank {
+            variables: v(&["age"]),
+            fraction: 1,
+            ..Default::default()
+        };
+        plain.functions[4] = true;
+        let syntax = plain.syntax().unwrap();
+        assert_eq!(syntax, "RANK VARIABLES=age\n  /RANK\n  /N.");
+        runs(&syntax);
+        plain.functions[3] = true;
+        assert!(plain.syntax().unwrap().ends_with("/FRACTION=TUKEY."));
+        runs(&plain.syntax().unwrap());
+
+        d.functions = [false; 7];
+        d.ntiles = false;
+        assert_eq!(d.syntax().unwrap_err(), "choose at least one function");
+        d.ntiles = true;
+        d.groups = "1".into();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "the number of groups must be a whole number of at least 2"
+        );
+        d.groups = " ".into();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "give the number of percentile groups"
+        );
+        d.groups = "4".into();
+        d.into[7] = "a b c".into();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "Percentile groups: 3 new names for 2 variables"
+        );
+    }
+
+    #[test]
+    fn autorecode() {
+        let mut d = Autorecode::default();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "add at least one variable to Variables"
+        );
+        d.variables = v(&["plan"]);
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "give one new name per variable: 1 variables, 0 names"
+        );
+        d.into = " plan_code ".into();
+        let syntax = d.syntax().unwrap();
+        assert_eq!(syntax, "AUTORECODE VARIABLES=plan\n  /INTO plan_code.");
+        let mut session = open("survey_basic.sav");
+        assert_eq!(run_in(&mut session, &syntax), 0);
+        let data = session.dataset().unwrap();
+        let code = data.variable("plan_code").unwrap();
+        assert!(!code.is_string() && !code.value_labels().is_empty());
+
+        d.variables = v(&["q5_1", "q5_2"]);
+        d.into = "c1 c2".into();
+        d.blank_missing = true;
+        d.group = true;
+        d.descending = true;
+        d.print = true;
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "AUTORECODE VARIABLES=q5_1 q5_2\n  /INTO c1 c2\n  /BLANK=MISSING\n  /GROUP\n  \
+             /DESCENDING\n  /PRINT."
+        );
+        assert!(run_in(&mut session, &syntax) >= 1);
+        assert!(session.dataset().unwrap().variable("c2").is_ok());
     }
 
     #[test]

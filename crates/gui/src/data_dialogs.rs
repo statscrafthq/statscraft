@@ -1,5 +1,5 @@
-//! The Data menu dialogs: multiple response sets, sorting, selecting and weighting cases,
-//! aggregating, and merging files.
+//! The Data menu dialogs: multiple response sets, sorting, splitting, selecting and weighting
+//! cases, aggregating, and merging files.
 
 use crate::syntax_text::{names, quote, value};
 
@@ -123,18 +123,110 @@ impl SortCases {
     }
 }
 
-/// SELECT IF: keeps the cases where the condition holds and deletes the others.
+/// What Select Cases does with the cases.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub enum SelectMode {
+    /// Every case is used again: FILTER OFF and USE ALL.
+    All,
+    /// The other cases stay in the dataset but are left out of procedures: FILTER BY a
+    /// variable computed from the condition.
+    #[default]
+    Filter,
+    /// The other cases are deleted: SELECT IF.
+    Delete,
+}
+
+/// The variable the filter is computed into, the name the usual workflow uses.
+pub const FILTER_VARIABLE: &str = "filter_$";
+
 #[derive(Default, Clone, PartialEq, Debug)]
 pub struct SelectCases {
+    pub mode: SelectMode,
     pub condition: String,
 }
 
 impl SelectCases {
     pub fn syntax(&self) -> Result<String, String> {
-        match crate::dialogs::clause(&self.condition) {
-            "" => Err("give the condition the kept cases meet".into()),
-            condition => Ok(format!("SELECT IF {condition}.")),
+        if self.mode == SelectMode::All {
+            return Ok("FILTER OFF.\nUSE ALL.".into());
         }
+        let condition = match crate::dialogs::clause(&self.condition) {
+            "" => return Err("give the condition the kept cases meet".into()),
+            condition => condition,
+        };
+        Ok(match self.mode {
+            SelectMode::Delete => format!("SELECT IF {condition}."),
+            _ => {
+                format!("COMPUTE {FILTER_VARIABLE} = ({condition}).\nFILTER BY {FILTER_VARIABLE}.")
+            }
+        })
+    }
+}
+
+/// SPLIT FILE: how the split groups show, or OFF.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub enum SplitMode {
+    Off,
+    /// The groups share each table (the default of SPLIT FILE BY).
+    #[default]
+    Layered,
+    /// Every group has tables of its own.
+    Separate,
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct SplitFile {
+    pub mode: SplitMode,
+    pub variables: Vec<String>,
+    /// Sort the cases by the split variables first, as the groups must be adjacent.
+    pub sort: bool,
+}
+
+impl Default for SplitFile {
+    fn default() -> Self {
+        Self {
+            mode: SplitMode::Layered,
+            variables: Vec::new(),
+            sort: true,
+        }
+    }
+}
+
+impl SplitFile {
+    /// The dialog as it opens: showing the split in use, if any.
+    pub fn current(split: Option<&statscraft_data::SplitFile>) -> Self {
+        match split {
+            Some(split) => Self {
+                mode: if split.layered {
+                    SplitMode::Layered
+                } else {
+                    SplitMode::Separate
+                },
+                variables: split.variables.clone(),
+                sort: true,
+            },
+            None => Self {
+                mode: SplitMode::Off,
+                ..Default::default()
+            },
+        }
+    }
+
+    pub fn syntax(&self) -> Result<String, String> {
+        let separate = match self.mode {
+            SplitMode::Off => return Ok("SPLIT FILE OFF.".into()),
+            SplitMode::Layered => "",
+            SplitMode::Separate => " SEPARATE",
+        };
+        let variables = names(&self.variables, "Groups based on")?;
+        if self.variables.len() > 8 {
+            return Err("split by at most eight variables".into());
+        }
+        let sort = match self.sort {
+            true => format!("SORT CASES BY {variables}.\n"),
+            false => String::new(),
+        };
+        Ok(format!("{sort}SPLIT FILE{separate} BY {variables}."))
     }
 }
 
@@ -457,18 +549,87 @@ mod tests {
     #[test]
     fn select_cases() {
         let mut d = SelectCases::default();
+        assert_eq!(d.mode, SelectMode::Filter);
         assert_eq!(
             d.syntax().unwrap_err(),
             "give the condition the kept cases meet"
         );
         d.condition = " age >= 40. ".into();
         let syntax = d.syntax().unwrap();
-        assert_eq!(syntax, "SELECT IF age >= 40.");
+        assert_eq!(
+            syntax,
+            "COMPUTE filter_$ = (age >= 40).\nFILTER BY filter_$."
+        );
         let mut session = open("survey_basic.sav");
         let before = session.dataset().unwrap().case_count();
+        assert_eq!(run_in(&mut session, &syntax), 0);
+        let data = session.dataset().unwrap();
+        assert_eq!(data.filter_variable(), Some(FILTER_VARIABLE));
+        assert_eq!(data.case_count(), before);
+        let kept: f64 = data
+            .variable(FILTER_VARIABLE)
+            .unwrap()
+            .numeric()
+            .unwrap()
+            .iter()
+            .flatten()
+            .sum();
+        assert!(kept > 0.0 && kept < before as f64);
+
+        d.mode = SelectMode::All;
+        let syntax = d.syntax().unwrap();
+        assert_eq!(syntax, "FILTER OFF.\nUSE ALL.");
+        run_in(&mut session, &syntax);
+        assert_eq!(session.dataset().unwrap().filter_variable(), None);
+
+        d.mode = SelectMode::Delete;
+        let syntax = d.syntax().unwrap();
+        assert_eq!(syntax, "SELECT IF age >= 40.");
         run_in(&mut session, &syntax);
         let after = session.dataset().unwrap().case_count();
         assert!(after > 0 && after < before);
+        d.condition.clear();
+        assert!(d.syntax().is_err());
+    }
+
+    #[test]
+    fn split_file() {
+        let mut d = SplitFile::current(None);
+        assert_eq!(d.syntax().unwrap(), "SPLIT FILE OFF.");
+        d.mode = SplitMode::Layered;
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "add at least one variable to Groups based on"
+        );
+        d.variables = v(&["region"]);
+        let syntax = d.syntax().unwrap();
+        assert_eq!(syntax, "SORT CASES BY region.\nSPLIT FILE BY region.");
+        let mut session = open("survey_basic.sav");
+        let one = run_in(&mut session, "FREQUENCIES VARIABLES=gender.");
+        run_in(&mut session, &syntax);
+        let split = session.dataset().unwrap().split_file().cloned().unwrap();
+        assert!(split.layered);
+        assert_eq!(SplitFile::current(Some(&split)), d);
+        // layered: the groups share the table
+        assert_eq!(run_in(&mut session, "FREQUENCIES VARIABLES=gender."), one);
+
+        d.mode = SplitMode::Separate;
+        d.sort = false;
+        d.variables = v(&["region", "gender"]);
+        let syntax = d.syntax().unwrap();
+        assert_eq!(syntax, "SPLIT FILE SEPARATE BY region gender.");
+        run_in(&mut session, "SORT CASES BY region gender.");
+        run_in(&mut session, &syntax);
+        let split = session.dataset().unwrap().split_file().unwrap();
+        assert!(!split.layered && split.variables.len() == 2);
+        assert!(run_in(&mut session, "FREQUENCIES VARIABLES=age.") > one);
+
+        d.mode = SplitMode::Off;
+        run_in(&mut session, &d.syntax().unwrap());
+        assert!(session.dataset().unwrap().split_file().is_none());
+        d.mode = SplitMode::Layered;
+        d.variables = (1..=9).map(|i| format!("v{i}")).collect();
+        assert_eq!(d.syntax().unwrap_err(), "split by at most eight variables");
     }
 
     #[test]
