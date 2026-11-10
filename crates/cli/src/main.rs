@@ -30,6 +30,7 @@ enum Cmd {
         /// Describe the dataset of this session instead of a file; gui is the running window
         #[arg(short, long)]
         session: Option<String>,
+        /// Print the result as JSON
         #[arg(long)]
         json: bool,
     },
@@ -64,6 +65,7 @@ struct RunArgs {
     /// Run only the commands inside this inclusive line range, for example 40-55
     #[arg(long, value_name = "FIRST-LAST")]
     lines: Option<String>,
+    /// Print tables, changes, warnings and errors as JSON
     #[arg(long)]
     json: bool,
 }
