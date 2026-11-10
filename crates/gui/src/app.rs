@@ -1484,6 +1484,8 @@ impl App {
                     let output = TextEdit::multiline(&mut self.syntax)
                         .id_salt("syntax_editor")
                         .code_editor()
+                        // no frame: the paper behind it sets the text apart
+                        .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(6, 4)))
                         .lock_focus(true)
                         .desired_width(f32::INFINITY)
                         .desired_rows(4)
