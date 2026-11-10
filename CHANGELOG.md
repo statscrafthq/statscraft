@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0 (pre-release)
+## 0.1.0 (2026-11-10, early release)
 
 The first version for people who want to try StatsCraft and tell us what breaks. Expect rough edges; please report them (Issues, Bug report).
 
