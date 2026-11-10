@@ -272,6 +272,9 @@ struct Completion {
 struct GridEvents {
     clicked: Option<(usize, usize)>,
     double_clicked: Option<(usize, usize)>,
+    /// A click on a row number or a column header.
+    row_clicked: Option<usize>,
+    column_clicked: Option<usize>,
     /// A column border dragged: the column, its new width, and whether the drag ended.
     resized: Option<(usize, f32, bool)>,
     /// Rows in view, for Page Up and Page Down.
@@ -297,15 +300,22 @@ pub struct App {
     data_file: Option<PathBuf>,
     value_labels: bool,
     show_log: bool,
-    selected: Option<(usize, usize)>,
+    selected: Option<grid::Selection>,
     /// Scroll the selected cell into view on the next frame.
     follow: bool,
     page: usize,
     cell_edit: Option<CellEdit>,
     /// A Data View column being dragged to a new width, until its VARIABLE WIDTH has run.
     data_resize: Option<(usize, f32)>,
-    variable_selected: Option<(usize, usize)>,
+    variable_selected: Option<grid::Selection>,
+    variable_follow: bool,
     field_edit: Option<CellEdit>,
+    /// The text of the find bar over the grids, while it is open.
+    find: Option<String>,
+    /// Put the keyboard in the find bar on the next frame.
+    find_focus: bool,
+    /// Variables to delete once the user says yes.
+    confirm_delete: Option<Vec<String>>,
     syntax: String,
     syntax_file: Option<PathBuf>,
     syntax_errors: Vec<Failure>,
@@ -381,7 +391,11 @@ impl App {
             cell_edit: None,
             data_resize: None,
             variable_selected: None,
+            variable_follow: false,
             field_edit: None,
+            find: None,
+            find_focus: false,
+            confirm_delete: None,
             syntax: String::new(),
             syntax_file: None,
             syntax_errors: Vec::new(),
@@ -1103,7 +1117,10 @@ impl App {
         if self.session.dataset().is_none() {
             return Self::no_data(ui);
         }
-        ui.checkbox(&mut self.value_labels, "Show value labels");
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut self.value_labels, "Show value labels");
+            self.find_bar(ui);
+        });
         paper(ui, !self.settings.paper_follows_system);
         let data = self.session.dataset().expect("checked above");
         let char_width = TextStyle::Body.resolve(ui.style()).size * 0.6;
@@ -1155,7 +1172,7 @@ impl App {
             &headers,
             &widths,
             data.case_count(),
-            self.selected,
+            self.selected.as_ref(),
             std::mem::take(&mut self.follow),
             &cell,
             edit.as_ref().map(|e| (e.row, e.column)),
@@ -1166,9 +1183,8 @@ impl App {
             },
         );
         self.page = events.page.max(1);
-        if let Some(at) = events.clicked {
-            self.selected = Some(at);
-        }
+        let modifiers = ui.input(|i| i.modifiers);
+        select(&mut self.selected, &events, modifiers);
         if let Some((c, width, done)) = events.resized {
             self.data_resize = Some((c, width));
             if done {
@@ -1197,7 +1213,7 @@ impl App {
             return;
         };
         let text = edits::edit_text(&data.variable_at(column), row);
-        self.selected = Some((row, column));
+        self.selected = Some(grid::Selection::cell((row, column)));
         self.cell_edit = Some(CellEdit {
             row,
             column,
@@ -1220,18 +1236,29 @@ impl App {
         }
     }
 
-    /// The keyboard in the Data View, read before any widget sees the keys: arrows, Page Up
-    /// and Down, Home and End (with Ctrl the first and last cell), Tab and Shift+Tab, Enter to
-    /// edit. While a cell is edited, Tab and the up and down arrows commit it and move on;
-    /// Enter commits and Escape cancels in the editor itself.
+    /// The keyboard in the Data View and the Variable View, read before any widget sees the
+    /// keys: arrows, Page Up and Down, Home and End, with Ctrl to the edges, with Shift to
+    /// extend the selection; Tab and Shift+Tab; Enter to edit; Ctrl+C copies the selection and,
+    /// in the Variable View, Delete deletes the selected variables. While a Data View cell is
+    /// edited, Tab and the up and down arrows commit it and move on; Enter commits and Escape
+    /// cancels in the editor itself.
     fn grid_keys(&mut self, ui: &mut Ui) {
         let Some(data) = self.session.dataset() else {
             return;
         };
-        let (rows, columns) = (data.case_count(), data.variable_count());
-        let editing = self.cell_edit.is_some();
-        if self.tab != Tab::Data
-            || self.dialog.is_some()
+        let variables = self.tab == Tab::Variables;
+        let (rows, columns, editing) = match self.tab {
+            Tab::Data => (
+                data.case_count(),
+                data.variable_count(),
+                self.cell_edit.is_some(),
+            ),
+            Tab::Variables => (data.variable_count(), Field::ALL.len(), false),
+            _ => return,
+        };
+        if self.dialog.is_some()
+            || self.confirm_delete.is_some()
+            || (variables && self.field_edit.is_some())
             || rows == 0
             || columns == 0
             || (!editing && ui.ctx().egui_wants_keyboard_input())
@@ -1244,10 +1271,13 @@ impl App {
             &GRID_KEYS
         };
         let mut moves = Vec::new();
-        let mut enter = false;
+        let (mut enter, mut copy, mut delete) = (false, false, false);
         ui.input_mut(|i| {
             for &key in keys {
-                if i.consume_key(Modifiers::COMMAND, key) {
+                // the most modifiers first: a shortcut matches with extra Shift too
+                if i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, key) {
+                    moves.push((key, true, true));
+                } else if i.consume_key(Modifiers::COMMAND, key) {
                     moves.push((key, true, false));
                 } else if i.consume_key(Modifiers::SHIFT, key) {
                     moves.push((key, false, true));
@@ -1256,7 +1286,15 @@ impl App {
                 }
             }
             enter = !editing && i.consume_key(Modifiers::NONE, Key::Enter);
+            copy = !editing && i.events.iter().any(|e| matches!(e, egui::Event::Copy));
+            delete = variables && i.consume_key(Modifiers::NONE, Key::Delete);
         });
+        if copy {
+            self.copy_selection(ui.ctx());
+        }
+        if delete {
+            self.ask_delete();
+        }
         if moves.is_empty() && !enter {
             return;
         }
@@ -1265,20 +1303,213 @@ impl App {
         if editing {
             self.commit_cell();
         }
-        let mut at = self.selected.unwrap_or((0, 0));
+        let (selection, follow) = if variables {
+            (&mut self.variable_selected, &mut self.variable_follow)
+        } else {
+            (&mut self.selected, &mut self.follow)
+        };
+        let s = selection.get_or_insert_with(Default::default);
         for (key, ctrl, shift) in moves {
-            at = grid::moved(key, ctrl, shift, at, (rows, columns), self.page);
+            let tab = key == Key::Tab;
+            let at = grid::moved(
+                key,
+                ctrl,
+                shift && tab,
+                s.cursor,
+                (rows, columns),
+                self.page,
+            );
+            if shift && !tab {
+                s.extend_to(at);
+            } else {
+                *s = grid::Selection::cell(at);
+            }
         }
-        self.selected = Some(at);
-        self.follow = true;
-        if enter {
+        *follow = true;
+        let at = s.cursor;
+        if enter && variables {
+            self.edit_field(at);
+        } else if enter {
             self.edit_cell(at);
+        }
+    }
+
+    /// Ctrl+F opens the find bar, F3 goes to the next match.
+    fn find_keys(&mut self, ui: &mut Ui) {
+        if !matches!(self.tab, Tab::Data | Tab::Variables) || self.dialog.is_some() {
+            return;
+        }
+        let (open, next) = ui.input_mut(|i| {
+            (
+                i.consume_key(Modifiers::COMMAND, Key::F),
+                i.consume_key(Modifiers::NONE, Key::F3),
+            )
+        });
+        if open {
+            self.find.get_or_insert_with(String::new);
+            self.find_focus = true;
+        }
+        if next {
+            self.find_next(false);
+        }
+    }
+
+    /// The find bar, while it is open: typing goes to the first match from the current
+    /// variable, Enter to the next one, Escape closes it.
+    fn find_bar(&mut self, ui: &mut Ui) {
+        let Some(text) = self.find.as_mut() else {
+            return;
+        };
+        let response = ui.add(
+            TextEdit::singleline(text)
+                .hint_text("Find a variable by name or label")
+                .desired_width(260.0),
+        );
+        if std::mem::take(&mut self.find_focus) {
+            response.request_focus();
+        }
+        let (enter, escape) = ui.input(|i| (i.key_pressed(Key::Enter), i.key_pressed(Key::Escape)));
+        if response.changed() {
+            self.find_next(true);
+        }
+        if response.lost_focus() && enter {
+            self.find_next(false);
+            response.request_focus();
+        }
+        if (response.lost_focus() || response.has_focus()) && escape {
+            self.find = None;
+        }
+    }
+
+    /// Goes to the next variable that matches the find text: its row in the Variable View, its
+    /// column in the Data View. `here` counts the current variable as a match too.
+    fn find_next(&mut self, here: bool) {
+        let (Some(needle), Some(data)) = (self.find.clone(), self.session.dataset()) else {
+            return;
+        };
+        let items: Vec<(String, String)> = data
+            .variables()
+            .map(|v| {
+                (
+                    v.name().to_string(),
+                    v.label().unwrap_or_default().to_string(),
+                )
+            })
+            .collect();
+        let variables = self.tab == Tab::Variables;
+        let cursor = if variables {
+            self.variable_selected.as_ref().map(|s| s.cursor.0)
+        } else {
+            self.selected.as_ref().map(|s| s.cursor.1)
+        };
+        let after = if here {
+            cursor.and_then(|c| c.checked_sub(1))
+        } else {
+            cursor
+        };
+        match grid::find(&items, &needle, after) {
+            Some(i) if variables => {
+                self.variable_selected = Some(grid::Selection::cell((i, 0)));
+                self.variable_follow = true;
+            }
+            Some(i) => {
+                let row = self.selected.as_ref().map_or(0, |s| s.cursor.0);
+                self.selected = Some(grid::Selection::cell((row, i)));
+                self.follow = true;
+            }
+            None if needle.trim().is_empty() => {}
+            None => self.status = Err(format!("no variable name or label holds {needle:?}")),
+        }
+    }
+
+    /// Puts the selection of the grid in view on the clipboard as tab-separated text.
+    fn copy_selection(&mut self, ctx: &egui::Context) {
+        let Some(data) = self.session.dataset() else {
+            return;
+        };
+        let text = if self.tab == Tab::Variables {
+            let Some(s) = &self.variable_selected else {
+                return;
+            };
+            let headers: Vec<String> = Field::ALL.iter().map(|f| f.title().to_string()).collect();
+            let span = s.span((data.variable_count(), Field::ALL.len()));
+            grid::copy_text(&headers, &span, |r, c| {
+                edits::field_text(&data.variable_at(r), Field::ALL[c])
+            })
+        } else {
+            let Some(s) = &self.selected else {
+                return;
+            };
+            let headers: Vec<String> = data.variable_names().map(str::to_string).collect();
+            let span = s.span((data.case_count(), data.variable_count()));
+            let labels = self.value_labels;
+            grid::copy_text(&headers, &span, |r, c| {
+                edits::cell_text(&data.variable_at(c), r, labels)
+            })
+        };
+        let lines = text.lines().count().saturating_sub(1);
+        ctx.copy_text(text);
+        self.status = Ok(format!("{lines} row(s) copied with their headers"));
+    }
+
+    /// Asks before deleting the variables whose rows are selected in the Variable View.
+    fn ask_delete(&mut self) {
+        let (Some(s), Some(data)) = (&self.variable_selected, self.session.dataset()) else {
+            return;
+        };
+        if s.rows.is_empty() {
+            self.status = Err("select variables by their row numbers to delete them".into());
+            return;
+        }
+        let names = s
+            .rows
+            .iter()
+            .filter(|&&r| r < data.variable_count())
+            .map(|&r| data.variable_at(r).name().to_string())
+            .collect();
+        self.confirm_delete = Some(names);
+    }
+
+    /// The question before variables are deleted.
+    fn delete_window(&mut self, ctx: &egui::Context) {
+        let Some(names) = &self.confirm_delete else {
+            return;
+        };
+        let mut answer = None;
+        egui::Window::new("Delete variables")
+            .collapsible(false)
+            .resizable(false)
+            .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+            .show(ctx, |ui| {
+                ui.set_max_width(420.0);
+                ui.label(format!("Delete {}?", edits::listed(names)));
+                ui.weak("Edit, Undo last change brings them back.");
+                ui.horizontal(|ui| {
+                    if ui.button("Delete").clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
+                        answer = Some(true);
+                    }
+                    if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
+                        answer = Some(false);
+                    }
+                });
+            });
+        match answer {
+            Some(true) => {
+                let names = self.confirm_delete.take().unwrap_or_default();
+                self.variable_selected = None;
+                self.run(&edits::delete_variables(&names), None, After::Show);
+            }
+            Some(false) => self.confirm_delete = None,
+            None => {}
         }
     }
 
     fn variable_view(&mut self, ui: &mut Ui) {
         if self.session.dataset().is_none() {
             return Self::no_data(ui);
+        }
+        if self.find.is_some() {
+            ui.horizontal(|ui| self.find_bar(ui));
         }
         paper(ui, !self.settings.paper_follows_system);
         let data = self.session.dataset().expect("checked above");
@@ -1305,8 +1536,8 @@ impl App {
             &headers,
             &widths,
             data.variable_count(),
-            self.variable_selected,
-            false,
+            self.variable_selected.as_ref(),
+            std::mem::take(&mut self.variable_follow),
             &cell,
             edit.as_ref().map(|e| (e.row, e.column)),
             &mut |ui, rect| {
@@ -1340,8 +1571,9 @@ impl App {
                 let _ = self.settings.save();
             }
         }
+        let modifiers = ui.input(|i| i.modifiers);
+        select(&mut self.variable_selected, &events, modifiers);
         if let Some(at) = events.clicked {
-            self.variable_selected = Some(at);
             // a text edit commits when it loses focus; a list just closes
             let list = |e: &CellEdit| Field::ALL[e.column].choices().is_some();
             if self
@@ -1352,22 +1584,8 @@ impl App {
                 self.field_edit = None;
             }
         }
-        if let Some((row, column)) = events.double_clicked {
-            let variable = data.variable_at(row);
-            let field = Field::ALL[column];
-            self.variable_selected = Some((row, column));
-            if field.editable(variable.is_string()) {
-                let text = edits::field_text(&variable, field);
-                self.field_edit = Some(CellEdit {
-                    row,
-                    column,
-                    original: text.clone(),
-                    text,
-                    started: false,
-                });
-            } else {
-                self.status = Err(format!("{} cannot be changed here yet", field.title()));
-            }
+        if let Some(at) = events.double_clicked {
+            self.edit_field(at);
         }
         if cancel {
             self.field_edit = None;
@@ -1381,6 +1599,28 @@ impl App {
                 Ok(None) => {}
                 Err(message) => self.status = Err(message),
             }
+        }
+    }
+
+    /// Starts editing a cell of the Variable View.
+    fn edit_field(&mut self, (row, column): (usize, usize)) {
+        let Some(data) = self.session.dataset() else {
+            return;
+        };
+        let variable = data.variable_at(row);
+        let field = Field::ALL[column];
+        self.variable_selected = Some(grid::Selection::cell((row, column)));
+        if field.editable(variable.is_string()) {
+            let text = edits::field_text(&variable, field);
+            self.field_edit = Some(CellEdit {
+                row,
+                column,
+                original: text.clone(),
+                text,
+                started: false,
+            });
+        } else {
+            self.status = Err(format!("{} cannot be changed here yet", field.title()));
         }
     }
 
@@ -1839,6 +2079,7 @@ impl eframe::App for App {
                 Color32::WHITE,
             );
         }
+        self.find_keys(ui);
         self.grid_keys(ui);
         // Ctrl+Z inside a text field is that field's own undo
         if !ui.ctx().egui_wants_keyboard_input()
@@ -1887,6 +2128,7 @@ impl eframe::App for App {
         });
         let ctx = ui.ctx().clone();
         self.dialog_window(&ctx);
+        self.delete_window(&ctx);
         egui::Window::new("About StatsCraft")
             .open(&mut self.about)
             .collapsible(false)
@@ -2069,6 +2311,28 @@ fn dropped(paths: Vec<PathBuf>) -> Dropped {
     drop
 }
 
+/// A click in a grid changes its selection: a cell (with Shift the block to it), a row number
+/// or a column header (with Shift a range, with Ctrl one more or one less).
+fn select(selection: &mut Option<grid::Selection>, events: &GridEvents, modifiers: Modifiers) {
+    let (shift, ctrl) = (modifiers.shift, modifiers.command);
+    if let Some(at) = events.clicked {
+        match selection {
+            Some(s) if shift => s.extend_to(at),
+            _ => *selection = Some(grid::Selection::cell(at)),
+        }
+    }
+    if let Some(r) = events.row_clicked {
+        selection
+            .get_or_insert_with(Default::default)
+            .click_row(r, shift, ctrl);
+    }
+    if let Some(c) = events.column_clicked {
+        selection
+            .get_or_insert_with(Default::default)
+            .click_column(c, shift, ctrl);
+    }
+}
+
 /// A text editor over one grid cell. Returns (commit, cancel): Enter or leaving the cell
 /// commits, Escape cancels.
 fn cell_editor(ui: &mut Ui, rect: Rect, edit: &mut CellEdit) -> (bool, bool) {
@@ -2107,7 +2371,7 @@ fn paint_grid(
     headers: &[String],
     widths: &[f32],
     rows: usize,
-    selected: Option<(usize, usize)>,
+    selected: Option<&grid::Selection>,
     follow: bool,
     cell: &dyn Fn(usize, usize) -> (String, bool),
     editing: Option<(usize, usize)>,
@@ -2165,12 +2429,18 @@ fn paint_grid(
                 };
 
             let (left, right) = (x(visible_columns.start), x(visible_columns.end));
+            // a selection of more than one cell is shaded, the cursor framed
+            let wide = selected.filter(|s| s.is_wide());
+            let marked = visuals.selection.bg_fill.gamma_multiply(0.3);
             for r in visible_rows.clone() {
                 if r % 2 == 1 {
                     let band = Rect::from_min_max(pos2(left, y(r)), pos2(right, y(r) + row_height));
                     painter.rect_filled(band, 0.0, visuals.faint_bg_color);
                 }
                 for c in visible_columns.clone() {
+                    if wide.is_some_and(|s| s.contains(r, c)) {
+                        painter.rect_filled(cell_rect(r, c), 0.0, marked);
+                    }
                     let (text, right) = cell(r, c);
                     if !text.is_empty() {
                         text_in(&painter, cell_rect(r, c), text, right, visuals.text_color());
@@ -2182,7 +2452,7 @@ fn paint_grid(
             for c in visible_columns.clone() {
                 painter.vline(x(c + 1), clip.top()..=bottom, line);
             }
-            if let Some((r, c)) = selected
+            if let Some((r, c)) = selected.map(|s| s.cursor)
                 && visible_rows.contains(&r)
                 && visible_columns.contains(&c)
             {
@@ -2190,7 +2460,7 @@ fn paint_grid(
                 painter.rect_stroke(cell_rect(r, c), 0.0, stroke, StrokeKind::Inside);
             }
             events.page = visible_rows.len().saturating_sub(1);
-            if follow && let Some((r, c)) = selected {
+            if follow && let Some((r, c)) = selected.map(|s| s.cursor) {
                 // room for the header row and the row numbers, which cover the grid's top left
                 let rect = cell_rect(r, c);
                 let room =
@@ -2214,6 +2484,9 @@ fn paint_grid(
             painter.rect_filled(header, 0.0, header_fill);
             for c in visible_columns.clone() {
                 let rect = Rect::from_min_max(pos2(x(c), top), pos2(x(c + 1), top + header_height));
+                if selected.is_some_and(|s| s.columns.contains(&c)) {
+                    painter.rect_filled(rect, 0.0, visuals.selection.bg_fill);
+                }
                 text_in(
                     &painter,
                     rect,
@@ -2254,6 +2527,9 @@ fn paint_grid(
                     pos2(side + number_width, y(r) + row_height),
                 );
                 if rect.bottom() > top + header_height {
+                    if selected.is_some_and(|s| s.rows.contains(&r)) {
+                        painter.rect_filled(rect, 0.0, visuals.selection.bg_fill);
+                    }
                     text_in(
                         &painter,
                         rect,
@@ -2278,6 +2554,14 @@ fn paint_grid(
                     .partition_point(|&o| o <= at.x - number_width)
                     .saturating_sub(1);
                 let r = ((at.y - header_height) / row_height) as usize;
+                let header = at.y <= viewport.min.y + header_height;
+                let numbers = at.x <= viewport.min.x + number_width;
+                if response.clicked() && header && !numbers && c < widths.len() {
+                    events.column_clicked = Some(c);
+                }
+                if response.clicked() && numbers && !header && at.y > header_height && r < rows {
+                    events.row_clicked = Some(r);
+                }
                 if inside && r < rows && c < widths.len() {
                     if response.double_clicked() {
                         events.double_clicked = Some((r, c));

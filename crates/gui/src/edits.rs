@@ -338,6 +338,22 @@ fn missing_item(item: &str) -> Result<String, String> {
     }
 }
 
+/// The syntax that deletes variables.
+pub fn delete_variables(names: &[String]) -> String {
+    format!("DELETE VARIABLES {}.", names.join(" "))
+}
+
+/// Names for a question: `age`, `age and region`, `age, region and q1`, or for many the count
+/// and the first few.
+pub fn listed(names: &[String]) -> String {
+    match names {
+        [] => "nothing".into(),
+        [one] => one.clone(),
+        [first @ .., last] if names.len() <= 6 => format!("{} and {last}", first.join(", ")),
+        _ => format!("{} variables ({}, ...)", names.len(), names[..4].join(", ")),
+    }
+}
+
 /// The syntax for an edit of a Variable View cell, or None when the text did not change.
 pub fn field_edit(variable: &Variable, field: Field, text: &str) -> Result<Option<String>, String> {
     if text == field_text(variable, field) {
@@ -549,6 +565,29 @@ mod tests {
         });
         let error = with(&session, "age", |v| cell_edit(v, 0, "old")).unwrap_err();
         assert_eq!(error, "\"old\" is not a number");
+    }
+
+    #[test]
+    fn selected_variables_are_deleted_by_syntax() {
+        let names = |list: &[&str]| list.iter().map(|n| n.to_string()).collect::<Vec<_>>();
+        assert_eq!(listed(&names(&["age"])), "age");
+        assert_eq!(listed(&names(&["age", "region"])), "age and region");
+        assert_eq!(listed(&names(&["a", "b", "c"])), "a, b and c");
+        assert_eq!(
+            listed(&names(&["a", "b", "c", "d", "e", "f", "g"])),
+            "7 variables (a, b, c, d, ...)"
+        );
+        let mut session = survey();
+        let count = session.dataset().unwrap().variable_count();
+        let syntax = delete_variables(&names(&["q5_1", "plan"]));
+        assert_eq!(syntax, "DELETE VARIABLES q5_1 plan.");
+        session.run(&syntax, None).unwrap();
+        let data = session.dataset().unwrap();
+        assert_eq!(data.variable_count(), count - 2);
+        assert!(data.variable("plan").is_err());
+        // the one-step undo brings them back
+        assert!(session.undo());
+        assert!(session.dataset().unwrap().variable("plan").is_ok());
     }
 
     #[test]

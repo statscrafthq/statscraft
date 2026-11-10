@@ -1,12 +1,156 @@
-//! Which part of a large grid is visible, so only those cells are drawn, and where the keyboard
-//! moves the selected cell.
+//! Which part of a large grid is visible, so only those cells are drawn, where the keyboard
+//! moves the selected cell, what is selected, and the text a selection copies.
 
 use eframe::egui::Key;
+use std::collections::BTreeSet;
 use std::ops::Range;
 
+/// What is selected in a grid: a block of cells between the anchor and the cursor, or whole
+/// rows picked by their numbers, or whole columns picked by their headers. The cursor is the
+/// cell the keyboard moves and Enter edits.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct Selection {
+    pub cursor: (usize, usize),
+    pub anchor: (usize, usize),
+    pub rows: BTreeSet<usize>,
+    pub columns: BTreeSet<usize>,
+}
+
+impl Selection {
+    /// One cell.
+    pub fn cell(at: (usize, usize)) -> Self {
+        Self {
+            cursor: at,
+            anchor: at,
+            ..Default::default()
+        }
+    }
+
+    /// The block from the anchor to `at` (Shift+click, Shift+arrow).
+    pub fn extend_to(&mut self, at: (usize, usize)) {
+        self.cursor = at;
+        self.rows.clear();
+        self.columns.clear();
+    }
+
+    /// A click on a row number: that row alone, with Shift the rows from the anchor's to it,
+    /// with Ctrl that row added or taken out.
+    pub fn click_row(&mut self, row: usize, shift: bool, ctrl: bool) {
+        let rows_before = std::mem::take(&mut self.rows);
+        self.columns.clear();
+        if shift {
+            let from = self.anchor.0;
+            self.rows = (from.min(row)..=from.max(row)).collect();
+        } else if ctrl && !rows_before.is_empty() {
+            self.rows = rows_before;
+            if !self.rows.remove(&row) {
+                self.rows.insert(row);
+            }
+            self.anchor = (row, 0);
+        } else {
+            self.rows.insert(row);
+            self.anchor = (row, 0);
+        }
+        self.cursor = (row, self.cursor.1);
+    }
+
+    /// A click on a column header, as `click_row` for columns.
+    pub fn click_column(&mut self, column: usize, shift: bool, ctrl: bool) {
+        let columns_before = std::mem::take(&mut self.columns);
+        self.rows.clear();
+        if shift {
+            let from = self.anchor.1;
+            self.columns = (from.min(column)..=from.max(column)).collect();
+        } else if ctrl && !columns_before.is_empty() {
+            self.columns = columns_before;
+            if !self.columns.remove(&column) {
+                self.columns.insert(column);
+            }
+            self.anchor = (0, column);
+        } else {
+            self.columns.insert(column);
+            self.anchor = (0, column);
+        }
+        self.cursor = (self.cursor.0, column);
+    }
+
+    fn block(&self) -> (Range<usize>, Range<usize>) {
+        let (a, c) = (self.anchor, self.cursor);
+        (
+            a.0.min(c.0)..a.0.max(c.0) + 1,
+            a.1.min(c.1)..a.1.max(c.1) + 1,
+        )
+    }
+
+    pub fn contains(&self, row: usize, column: usize) -> bool {
+        if !self.rows.is_empty() {
+            return self.rows.contains(&row);
+        }
+        if !self.columns.is_empty() {
+            return self.columns.contains(&column);
+        }
+        let (rows, columns) = self.block();
+        rows.contains(&row) && columns.contains(&column)
+    }
+
+    /// More than the cursor's cell is selected.
+    pub fn is_wide(&self) -> bool {
+        !self.rows.is_empty() || !self.columns.is_empty() || self.anchor != self.cursor
+    }
+
+    /// The selected rows and columns of a grid of (rows, columns), in order.
+    pub fn span(&self, (rows, columns): (usize, usize)) -> (Vec<usize>, Vec<usize>) {
+        if !self.rows.is_empty() {
+            let picked = self.rows.iter().copied().filter(|&r| r < rows).collect();
+            return (picked, (0..columns).collect());
+        }
+        if !self.columns.is_empty() {
+            let picked = self.columns.iter().copied().filter(|&c| c < columns);
+            return ((0..rows).collect(), picked.collect());
+        }
+        let (r, c) = self.block();
+        (
+            r.filter(|&r| r < rows).collect(),
+            c.filter(|&c| c < columns).collect(),
+        )
+    }
+}
+
+/// The selected part of a grid as tab-separated text with a header row, for a spreadsheet or
+/// a text editor. Tabs and line breaks in a cell become blanks.
+pub fn copy_text(
+    headers: &[String],
+    (rows, columns): &(Vec<usize>, Vec<usize>),
+    cell: impl Fn(usize, usize) -> String,
+) -> String {
+    let clean = |text: &str| text.replace(['\t', '\n', '\r'], " ");
+    let line = |texts: Vec<String>| texts.join("\t") + "\n";
+    let mut out = line(columns.iter().map(|&c| clean(&headers[c])).collect());
+    for &r in rows {
+        out.push_str(&line(columns.iter().map(|&c| clean(&cell(r, c))).collect()));
+    }
+    out
+}
+
+/// The next variable after `after` (or the first, from the start) whose name or label holds
+/// `needle`, ignoring case, wrapping around at the end. `items` holds name and label.
+pub fn find(items: &[(String, String)], needle: &str, after: Option<usize>) -> Option<usize> {
+    let needle = needle.trim().to_lowercase();
+    if needle.is_empty() || items.is_empty() {
+        return None;
+    }
+    let start = after.map_or(0, |a| a + 1);
+    (0..items.len())
+        .map(|i| (start + i) % items.len())
+        .find(|&i| {
+            let (name, label) = &items[i];
+            name.to_lowercase().contains(&needle) || label.to_lowercase().contains(&needle)
+        })
+}
+
 /// Where `key` moves the selected cell `at` in a grid of (rows, columns); `page` is the number
-/// of rows in view. With `ctrl`, Home and End go to the first and the last cell. Tab moves right
-/// and on to the next row, Shift+Tab back.
+/// of rows in view. With `ctrl`, the arrows go to the first or last row or column, Home and End
+/// to the first and the last cell. Tab moves right and on to the next row, Shift+Tab back.
 pub fn moved(
     key: Key,
     ctrl: bool,
@@ -19,6 +163,10 @@ pub fn moved(
     // the data may have shrunk since the cell was selected
     let (r, c) = (at.0.min(last_row), at.1.min(last_column));
     match key {
+        Key::ArrowUp if ctrl => (0, c),
+        Key::ArrowDown if ctrl => (last_row, c),
+        Key::ArrowLeft if ctrl => (r, 0),
+        Key::ArrowRight if ctrl => (r, last_column),
         Key::ArrowUp => (r.saturating_sub(1), c),
         Key::ArrowDown => ((r + 1).min(last_row), c),
         Key::ArrowLeft => (r, c.saturating_sub(1)),
@@ -143,6 +291,100 @@ mod tests {
         assert_eq!(go(Key::Tab, false, true, (0, 0)), (0, 0));
         // a selection left outside a grid that shrank comes back inside
         assert_eq!(go(Key::ArrowUp, false, false, (500, 9)), (98, 4));
+        // Ctrl with an arrow goes to the edge
+        assert_eq!(go(Key::ArrowDown, true, false, (3, 2)), (99, 2));
+        assert_eq!(go(Key::ArrowUp, true, false, (30, 2)), (0, 2));
+        assert_eq!(go(Key::ArrowRight, true, false, (3, 1)), (3, 4));
+        assert_eq!(go(Key::ArrowLeft, true, false, (3, 3)), (3, 0));
+    }
+
+    #[test]
+    fn a_block_grows_from_its_anchor() {
+        let mut s = Selection::cell((2, 1));
+        assert!(!s.is_wide() && s.contains(2, 1) && !s.contains(2, 2));
+        // Shift+arrows or Shift+click: the block between the anchor and the cursor
+        s.extend_to((4, 3));
+        assert!(s.is_wide());
+        assert!(s.contains(3, 2) && s.contains(4, 3) && !s.contains(5, 3) && !s.contains(1, 1));
+        assert_eq!(s.span((100, 10)), (vec![2, 3, 4], vec![1, 2, 3]));
+        // up and to the left of the anchor too
+        s.extend_to((0, 0));
+        assert_eq!(s.span((100, 10)), (vec![0, 1, 2], vec![0, 1]));
+        // a grid that shrank keeps only what is still there
+        assert_eq!(s.span((1, 1)), (vec![0], vec![0]));
+    }
+
+    #[test]
+    fn row_numbers_and_headers_select_whole_rows_and_columns() {
+        let mut s = Selection::cell((5, 2));
+        s.click_row(3, false, false);
+        assert_eq!(s.rows, BTreeSet::from([3]));
+        assert!(s.contains(3, 9) && !s.contains(5, 2));
+        assert_eq!(s.cursor, (3, 2));
+        // Shift: a range from the row clicked first
+        s.click_row(6, true, false);
+        assert_eq!(s.rows, BTreeSet::from([3, 4, 5, 6]));
+        s.click_row(1, true, false);
+        assert_eq!(s.rows, BTreeSet::from([1, 2, 3]));
+        // Ctrl: one row more, or one less
+        s.click_row(8, false, true);
+        s.click_row(2, false, true);
+        assert_eq!(s.rows, BTreeSet::from([1, 3, 8]));
+        assert_eq!(s.span((5, 3)), (vec![1, 3], vec![0, 1, 2]));
+        // a plain click starts again
+        s.click_row(0, false, false);
+        assert_eq!(s.rows, BTreeSet::from([0]));
+
+        s.click_column(4, false, false);
+        assert!(s.rows.is_empty() && s.columns == BTreeSet::from([4]));
+        s.click_column(2, true, false);
+        assert_eq!(s.columns, BTreeSet::from([2, 3, 4]));
+        s.click_column(3, false, true);
+        assert_eq!(s.span((2, 9)), (vec![0, 1], vec![2, 4]));
+        assert!(s.contains(1, 4) && !s.contains(1, 3));
+        // a cell click or Shift+arrow ends the whole rows or columns
+        s.extend_to((1, 1));
+        assert!(s.columns.is_empty());
+    }
+
+    #[test]
+    fn a_selection_copies_as_tab_separated_text_with_its_headers() {
+        let headers: Vec<String> = ["Name", "Label", "Measure"].map(String::from).to_vec();
+        let cell = |r: usize, c: usize| match c {
+            1 if r == 1 => "two\twords\nand a line".to_string(),
+            _ => format!("r{r}c{c}"),
+        };
+        let mut s = Selection::cell((0, 0));
+        s.extend_to((1, 1));
+        assert_eq!(
+            copy_text(&headers, &s.span((5, 3)), cell),
+            "Name\tLabel\nr0c0\tr0c1\nr1c0\ttwo words and a line\n"
+        );
+        s.click_column(2, false, false);
+        assert_eq!(
+            copy_text(&headers, &s.span((2, 3)), cell),
+            "Measure\nr0c2\nr1c2\n"
+        );
+    }
+
+    #[test]
+    fn find_goes_from_match_to_match_by_name_or_label() {
+        let items: Vec<(String, String)> = [
+            ("resp_id", "Respondent"),
+            ("age", "Age in years"),
+            ("q1", "Satisfaction"),
+            ("q2", "Recommend to a friend"),
+        ]
+        .map(|(n, l)| (n.to_string(), l.to_string()))
+        .to_vec();
+        assert_eq!(find(&items, "AGE", None), Some(1));
+        assert_eq!(find(&items, "re", None), Some(0));
+        assert_eq!(find(&items, "re", Some(0)), Some(3));
+        // past the last match it starts again from the top
+        assert_eq!(find(&items, "re", Some(3)), Some(0));
+        assert_eq!(find(&items, "satis", Some(2)), Some(2));
+        assert_eq!(find(&items, "nothing", None), None);
+        assert_eq!(find(&items, "  ", None), None);
     }
 
     #[test]
