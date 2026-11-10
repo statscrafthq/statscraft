@@ -1058,7 +1058,6 @@ impl App {
     fn log(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
             ui.strong("Log");
-            ui.weak("every command the window ran, in order");
             if ui.small_button("Copy syntax").clicked() {
                 let text: Vec<&str> = self
                     .session
@@ -1103,12 +1102,7 @@ impl App {
         if self.session.dataset().is_none() {
             return Self::no_data(ui);
         }
-        ui.horizontal(|ui| {
-            ui.checkbox(&mut self.value_labels, "Show value labels");
-            ui.weak(
-                "Double-click a cell or press Enter to change it; arrows, Tab and Page keys move. The change runs as syntax and shows in the log.",
-            );
-        });
+        ui.checkbox(&mut self.value_labels, "Show value labels");
         paper(ui, !self.settings.paper_follows_system);
         let data = self.session.dataset().expect("checked above");
         let char_width = TextStyle::Body.resolve(ui.style()).size * 0.6;
@@ -1285,7 +1279,6 @@ impl App {
         if self.session.dataset().is_none() {
             return Self::no_data(ui);
         }
-        ui.weak("Double-click a cell to change it. Value labels are written as 1 = Yes; 2 = No, missing values as 98, 99 or LO THRU -1, 9.");
         paper(ui, !self.settings.paper_follows_system);
         let data = self.session.dataset().expect("checked above");
         let headers: Vec<String> = Field::ALL.iter().map(|f| f.title().to_string()).collect();

@@ -295,14 +295,14 @@ impl OutputView {
             if ui.button("Clear output").clicked() {
                 self.clear();
             }
-            let count = self.selected.len();
-            if count > 0 {
-                ui.weak(match count {
-                    1 => "1 table selected".to_string(),
-                    n => format!("{n} tables selected"),
-                });
-            } else {
-                ui.weak("Click a table to select it, Ctrl+click for more");
+            match self.selected.len() {
+                0 => {}
+                1 => {
+                    ui.weak("1 table selected");
+                }
+                n => {
+                    ui.weak(format!("{n} tables selected"));
+                }
             }
         });
         // Ctrl as it was at the click, which may have ended within the same frame
