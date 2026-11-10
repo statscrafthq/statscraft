@@ -9,3 +9,10 @@ edition = "2024"
 rust-version = "1.95"
 license = "MIT"
 repository = "https://github.com/statscrafthq/statscraft"
+
+# Keep debug builds small: line tables are enough for backtraces, and dependencies need none.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
