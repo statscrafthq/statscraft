@@ -13,6 +13,12 @@ StatsCraft runs syntax compatible with the reference program syntax. Its behavio
 - **Expressions**: `0 ** missing`, `missing ** 0` and `0 / 0` are missing; MISSING() sees user-missing strings; month 0 in a date is invalid; RND and TRUNC allow for rounding error relative to the size of the value.
 - **ADD FILES** keeps the weight when every file is weighted by the same variable. **MATCH FILES** fails when a TABLE file holds a key twice.
 - **ONEWAY**: Games-Howell uses separate variances.
+- **LOOP**: when the index passes its last value, the index variable holds the counter (one step past the last value), and a zero-trip loop leaves the first value in it.
+- **$CASENUM** counts every case read in the data pass, also those a later SELECT IF drops.
+- **N OF CASES** limits the active dataset at the next data pass after GET too, after SELECT IF and SAMPLE.
+- **SORT CASES** turns SPLIT FILE off, with a warning.
+- **AUTORECODE /BLANK=MISSING** gives a blank string a user-missing code after the valid ones.
+- **DATA LIST**: the measurement level of the variables read follows the documented rules for unknown levels (the values decide, not the format).
 - **MEANS, CORRELATIONS, EXAMINE**: undefined skewness and kurtosis are left empty; the CORRELATIONS listwise descriptives, the EXAMINE hinges with small weights, percentiles of small groups, CINTERVAL, listwise totals and the default descriptives table follow the documentation.
 
 ## Syntax StatsCraft accepts beyond the documentation
@@ -36,13 +42,17 @@ These are accepted where the documented syntax refuses them. Results on document
 - EXAMINE: Shapiro-Wilk uses Royston's algorithm for 3 to 5000 cases; the Lilliefors significance comes from a published table and shows ">0.200" beyond it; M-estimators start from the median, and a cell is empty when the absolute deviation is 0; percentiles below the first or above the last value take the minimum or maximum.
 - CTABLES significance tests: column letters run across the whole table (A, B, ... then AA), so no two column groups share a letter; the Total of an outer variable is a subtable of its own and is tested; a period marks every column left out of a comparison; ADJUST defaults to BONFERRONI and MEANSVARIANCE to ALLCATS; significant means p below alpha (Benjamini-Hochberg: at most alpha); a repeated COMPARETEST of the same type replaces the earlier one; the means test needs MEAN, UMEAN alone does not qualify.
 - CTABLES layers give one table per layer category or combination, named in the title. A subtotal stays shown under EMPTY=EXCLUDE. KEY=function sorts categories without a value last and keeps value order for ties. Computed categories are left out of totals and tests.
+- SPLIT FILE LAYERED merges the tables of the groups into one, the split variables as the outermost row labels; a column that only some groups have is empty in the others. SEPARATE names the group in each title. AUTORECODE recodes every case, also those a filter leaves out, and its new variables are nominal.
+- A data pass in which a case reads a value an earlier case left (a scratch variable it has not assigned, or LAG) runs case by case from the first such command to the end of the pass; a command that is not a transformation in between ends that part. TEMPORARY lasts until the end of a run at most.
+- DATA LIST: a blank line of LIST data is a case of missing values; a lone period is system-missing; with given delimiters a string keeps the blanks before it; two-digit years fall in the 100 years from 69 years back. SAMPLE uses the same random seed in every session.
 - Multiple response sets: in a category set a value that is user-missing in any of its variables is a missing category, and an empty string counts as a value.
 
 ## Not supported yet
 
 - **Commands.** The list of commands of the language that StatsCraft recognises but does not run is at the end of [the command index](commands/README.md#not-supported-yet). That list is generated from the program, so it is always current. A script that uses one stops at that line, and nothing is changed.
 - **Subcommands.** Every command page lists what it accepts. Notably: FREQUENCIES takes only VARIABLES; ONEWAY has no POLYNOMIAL, RANGES, EFFECTS or WALLER; NONPAR CORR has no MATRIX or CI; EXAMINE computes the normality tests but draws no plots (no STEMLEAF, BOXPLOT, HISTOGRAM or SPREADLEVEL).
+- **Transformations.** RANK, LEAVE, PRINT, WRITE, END CASE and input programs are not supported; DATA LIST reads only F, N, E, COMMA, DOT, DOLLAR, PCT, A, DATE, ADATE, EDATE and SDATE and UTF-8 files; commands such as VALUE LABELS cannot stand inside LOOP; AUTORECODE has no templates.
 - **Charts.** No command draws charts yet.
-- **Data files.** StatsCraft reads and writes .sav and .zsav files. Portable (.por) files, spreadsheets and text files cannot be read yet. An old .sav file that does not state its code page is read as Western European (windows-1252); there is no way to choose another encoding yet.
+- **Data files.** StatsCraft reads and writes .sav and .zsav files. Portable (.por) files and spreadsheets cannot be read yet; text files are read with DATA LIST. An old .sav file that does not state its code page is read as Western European (windows-1252); there is no way to choose another encoding yet.
 - **Output.** Tables come out as Markdown, JSON, HTML (from the window) and Excel workbooks.
 - **Installer.** The Windows installer is not signed yet, and there are no packages for macOS or for ARM processors.
