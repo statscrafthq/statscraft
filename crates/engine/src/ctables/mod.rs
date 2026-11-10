@@ -1244,7 +1244,10 @@ impl Engine {
         table: &CtablesTable,
         weights: Option<&[f64]>,
     ) -> Result<Vec<Table>, Error> {
-        let rows = self.resolve(data, command, &table.rows)?;
+        let rows = match &table.rows {
+            Some(expr) => self.resolve(data, command, expr)?,
+            None => vec![Vec::new()],
+        };
         let columns = match &table.columns {
             Some(expr) => self.resolve(data, command, expr)?,
             None => vec![Vec::new()],
@@ -1409,7 +1412,9 @@ impl Engine {
             }
         }
 
-        // the rows and columns as shown, with category labels moved by /CLABELS
+        // the rows and columns as shown, with category labels moved by /CLABELS; labels moved
+        // to the layers make a layer of every moved category, named here
+        let mut moved_layers: Vec<String> = Vec::new();
         let (row_lines, column_lines) = match table.labels_moved {
             LabelsMoved::No => (Line::plain(&row_entries), Line::plain(&column_entries)),
             LabelsMoved::RowsToColumns => {
@@ -1419,6 +1424,16 @@ impl Engine {
                 let (columns, rows) =
                     move_labels(&column_entries, &row_entries, &layout.columns, &lists)?;
                 (rows, columns)
+            }
+            LabelsMoved::RowsToLayers => {
+                let (rows, _) = move_labels(&row_entries, &[], &layout.rows, &lists)?;
+                moved_layers = moved_names(&layout.rows, &lists);
+                (rows, Line::plain(&column_entries))
+            }
+            LabelsMoved::ColumnsToLayers => {
+                let (columns, _) = move_labels(&column_entries, &[], &layout.columns, &lists)?;
+                moved_layers = moved_names(&layout.columns, &lists);
+                (Line::plain(&row_entries), columns)
             }
         };
         if table.labels_moved != LabelsMoved::No && tested {
@@ -1441,12 +1456,14 @@ impl Engine {
             ));
         }
 
+        // without row labels (/TABLE BY columns) there is no row header column, unless the
+        // corner needs one
         let row_headers = row_lines
             .iter()
             .map(|e| e.path.len())
             .max()
             .unwrap_or(0)
-            .max(1);
+            .max(usize::from(table.corner.is_some()));
         let levels = column_lines
             .iter()
             .map(|e| e.path.len())
@@ -1471,7 +1488,14 @@ impl Engine {
         let title = table.title.as_deref().unwrap_or("Custom Tables");
         let mut out = Vec::new();
         let mut tested_layers: Vec<(usize, &[usize])> = Vec::new();
-        for layer in &layer_entries {
+        let layers = layer_entries.iter().flat_map(|layer| {
+            let moved: Vec<Option<usize>> = match moved_layers.len() {
+                0 => vec![None],
+                n => (0..n).map(Some).collect(),
+            };
+            moved.into_iter().map(move |k| (layer, k))
+        });
+        for (layer, moved) in layers {
             let mut out_rows = Vec::new();
             let mut formats = Vec::new();
             for row_line in &row_lines {
@@ -1483,7 +1507,12 @@ impl Engine {
                     .collect();
                 let mut cell_formats = vec![String::new(); row_headers];
                 for column_line in &column_lines {
-                    let picked = row_line.entry(column_line).zip(column_line.entry(row_line));
+                    let (r, c) = (row_line.entry(column_line), column_line.entry(row_line));
+                    let picked = match (table.labels_moved, moved) {
+                        (LabelsMoved::RowsToLayers, Some(k)) => row_line.entries[k].zip(c),
+                        (LabelsMoved::ColumnsToLayers, Some(k)) => r.zip(column_line.entries[k]),
+                        _ => r.zip(c),
+                    };
                     let Some((r, c)) = picked else {
                         cells.push(Cell::Empty);
                         cell_formats.push(String::new());
@@ -1500,15 +1529,20 @@ impl Engine {
                 out_rows.push(cells);
                 formats.push(cell_formats);
             }
-            let layer_title = |title: &str| match layer_name(
+            let name = layer_name(
                 &layout.layers[layer.term],
                 &lists,
                 layer,
                 &slots,
                 table.summary_labels,
-            ) {
-                Some(name) => format!("{title} ({name})"),
-                None => title.to_string(),
+            );
+            let parts: Vec<String> = name
+                .into_iter()
+                .chain(moved.map(|k| moved_layers[k].clone()))
+                .collect();
+            let layer_title = |title: &str| match parts.is_empty() {
+                true => title.to_string(),
+                false => format!("{title} ({})", parts.join(", ")),
             };
             let mut main = Table {
                 title: layer_title(title),
@@ -1551,6 +1585,25 @@ impl Engine {
         }
         Ok(out)
     }
+}
+
+/// The names of the layers that /CLABELS ROWLABELS=LAYER or COLLABELS=LAYER makes of the shown
+/// categories of the innermost categorical variables of `terms` (which `move_labels` has found
+/// alike): "Gender: Male" for one variable, the category alone for stacked ones.
+fn moved_names(terms: &[Term], lists: &HashMap<String, CategoryList>) -> Vec<String> {
+    let Some(inner) = terms.first().and_then(|t| t.iter().rfind(|v| !v.scale)) else {
+        return Vec::new();
+    };
+    let label = inner.label.as_ref().filter(|_| terms.len() == 1);
+    list_of(lists, inner)
+        .categories
+        .iter()
+        .filter(|c| !c.hidden)
+        .map(|c| match label {
+            Some(label) => format!("{label}: {}", c.label),
+            None => c.label.clone(),
+        })
+        .collect()
 }
 
 /// The layer of a table in words, such as "Gender: Male, Region: North", for its title; None
@@ -1645,7 +1698,15 @@ fn check_summaries(axes: [&[Term]; 3]) -> Result<Axis, Error> {
         ))),
         [(1, _)] => Ok(Axis::Columns),
         [(2, _)] => Ok(Axis::Layers),
-        _ => Ok(Axis::Rows),
+        [(0, _)] => Ok(Axis::Rows),
+        // the first axis with a variable: /TABLE BY columns has none in the rows
+        _ => Ok(
+            match axes.map(|terms| terms.iter().any(|t| !t.is_empty())) {
+                [true, ..] => Axis::Rows,
+                [false, true, _] => Axis::Columns,
+                _ => Axis::Layers,
+            },
+        ),
     }
 }
 
@@ -1713,6 +1774,8 @@ impl Section {
         let (from, to) = match moved {
             LabelsMoved::RowsToColumns => (nr.checked_sub(1), Axis::Columns),
             LabelsMoved::ColumnsToRows => ((nc > 0).then(|| nr + nc - 1), Axis::Rows),
+            LabelsMoved::RowsToLayers => (nr.checked_sub(1), Axis::Layers),
+            LabelsMoved::ColumnsToLayers => ((nc > 0).then(|| nr + nc - 1), Axis::Layers),
             LabelsMoved::No => (None, Axis::Rows),
         };
         if let Some(m) = from {
@@ -1721,8 +1784,9 @@ impl Section {
         let innermost = |i: usize| {
             let last = (0..cats.len()).rfind(|&j| axis[j] == axis[i] && Some(j) != from);
             match (from, axis[i]) {
-                (Some(m), a) if a == to => i == m,
+                // a layer variable, also one moved there, is an outer one
                 (_, Axis::Layers) => false,
+                (Some(m), a) if a == to => i == m,
                 _ => Some(i) == last,
             }
         };

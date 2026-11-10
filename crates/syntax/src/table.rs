@@ -237,9 +237,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20       [/HIDESMALLCOUNTS [COUNT=5]] [/WEIGHT VARIABLE=varname]\n\
                  \x20       [/PCOMPUTE &name=EXPR(expression)]\n\
                  \x20       [/PPROPERTIES &name ... [LABEL='text'] [FORMAT=function format ...] [HIDESOURCECATS=NO|YES]]\n\
-                 \x20       /TABLE rows [BY [columns] [BY layers]]\n\
+                 \x20       /TABLE [rows] [BY [columns] [BY layers]]\n\
                  \x20       [/SLABELS POSITION=COLUMN|ROW|LAYER VISIBLE=YES|NO]\n\
-                 \x20       [/CLABELS AUTO|ROWLABELS=OPPOSITE|COLLABELS=OPPOSITE]\n\
+                 \x20       [/CLABELS AUTO|ROWLABELS=OPPOSITE|LAYER|COLLABELS=OPPOSITE|LAYER]\n\
                  \x20       [/CATEGORIES VARIABLES=varlist [ORDER=A|D] [KEY=VALUE|LABEL|function[(var[, n])]]\n\
                  \x20                    [MISSING=EXCLUDE|INCLUDE]\n\
                  \x20                    [TOTAL=NO|YES] [LABEL='text'] [POSITION=AFTER|BEFORE] [EMPTY=INCLUDE|EXCLUDE]]\n\
@@ -256,7 +256,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  makes a variable categorical or scale; otherwise SCALE is scale and the other levels categorical.\n\
                  A numeric variable of unknown level is scale with a currency, date or time format, a fraction, a\n\
                  negative value, 24 or more distinct values, or no value below 10; else categorical.\n\
-                 Layers (rows BY columns BY layers, or rows BY BY layers) give a table for every layer category,\n\
+                 /TABLE BY columns leaves the rows empty: one row without a label. Layers (rows BY columns BY\n\
+                 layers, or rows BY BY layers) give a table for every layer category,\n\
                  for every combination of nested layer variables and every category of stacked ones; its title\n\
                  names the layer. Within a layer the percentages are of that layer (LAYERPCT: of all its cells;\n\
                  LAYERROWPCT and LAYERCOLPCT: across its subtables), except TABLEPCT, which spans all layers.\n\
@@ -267,6 +268,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  CLABELS ROWLABELS=OPPOSITE moves the categories of the innermost row variables to the columns,\n\
                  inside the column categories and outside the summary labels, and COLLABELS=OPPOSITE the other\n\
                  way; the moved variable counts as the innermost one of its new axis, also for percentages.\n\
+                 ROWLABELS=LAYER or COLLABELS=LAYER makes a layer of every category instead; the moved variable\n\
+                 then counts as a layer variable.\n\
                  Stacked variables whose labels move need the same categories with the same labels; tests are\n\
                  not available then.\n\
                  Default: COUNT for categorical tables, MEAN for a scale variable.\n\
@@ -333,8 +336,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  cases two categories of a set share; the means test then pools the variance from the two categories\n\
                  compared. INCLUDEMRSETS=NO leaves sets out of the tests, and so does COUNTDUPLICATES=YES for a\n\
                  category set.\n\
-                 Not supported yet: CLABELS ROWLABELS=LAYER or COLLABELS=LAYER,\n\
-                 )LABEL[n] in a computed category's label, an empty row axis (/TABLE BY columns).",
+                 Not supported yet: )LABEL[n] in a computed category's label.",
         example: "CTABLES /TABLE q1 [COUNT, COLPCT.COUNT PCT8.1] BY gender /CATEGORIES VARIABLES=q1 TOTAL=YES.",
         parse: ctables::ctables,
     },

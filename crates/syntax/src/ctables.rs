@@ -164,7 +164,8 @@ pub enum EmptyCells {
 /// One `/TABLE` with the subcommands that follow it.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CtablesTable {
-    pub rows: AxisExpr,
+    /// None for `/TABLE BY columns`.
+    pub rows: Option<AxisExpr>,
     pub columns: Option<AxisExpr>,
     /// The third dimension after a second BY: one layer, a table of its own, for every
     /// combination of its categories.
@@ -195,6 +196,10 @@ pub enum LabelsMoved {
     RowsToColumns,
     /// `COLLABELS=OPPOSITE`: the categories of the innermost column variables become rows.
     ColumnsToRows,
+    /// `ROWLABELS=LAYER`: the categories of the innermost row variables become layers.
+    RowsToLayers,
+    /// `COLLABELS=LAYER`: the categories of the innermost column variables become layers.
+    ColumnsToLayers,
 }
 
 /// `/SIGTEST TYPE=CHISQUARE`: a chi-square test of independence for every subtable.
@@ -879,7 +884,12 @@ fn stack(p: &mut Parser) -> PResult<AxisExpr> {
 }
 
 fn table(p: &mut Parser) -> PResult<CtablesTable> {
-    let rows = stack(p)?;
+    // `/TABLE BY columns` leaves the rows empty
+    let rows = if p.at_keyword("BY") {
+        None
+    } else {
+        Some(stack(p)?)
+    };
     let mut columns = None;
     let mut layers = None;
     if p.eat_word("BY") {
@@ -1007,26 +1017,24 @@ fn slabels(p: &mut Parser, table: &mut CtablesTable) -> PResult<()> {
 }
 
 fn clabels(p: &mut Parser, table: &mut CtablesTable) -> PResult<()> {
-    let start = p.pos;
     if p.eat_keyword("AUTO") {
         table.labels_moved = LabelsMoved::No;
         return Ok(());
     }
-    let moved = if p.eat_keyword("ROWLABELS") {
-        LabelsMoved::RowsToColumns
+    let rows = if p.eat_keyword("ROWLABELS") {
+        true
     } else if p.eat_keyword("COLLABELS") {
-        LabelsMoved::ColumnsToRows
+        false
     } else {
         return Err(p.unexpected(&["AUTO", "ROWLABELS", "COLLABELS"]));
     };
-    if choice(p, &["OPPOSITE", "LAYER"])? == 1 {
-        return Err(not_supported(
-            p,
-            start,
-            "moving category labels to the layers",
-        ));
-    }
-    table.labels_moved = moved;
+    let layer = choice(p, &["OPPOSITE", "LAYER"])? == 1;
+    table.labels_moved = match (rows, layer) {
+        (true, false) => LabelsMoved::RowsToColumns,
+        (false, false) => LabelsMoved::ColumnsToRows,
+        (true, true) => LabelsMoved::RowsToLayers,
+        (false, true) => LabelsMoved::ColumnsToLayers,
+    };
     Ok(())
 }
 

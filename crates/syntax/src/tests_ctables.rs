@@ -31,10 +31,10 @@ fn nesting_binds_tighter_than_stacking() {
     let t = &c.tables[0];
     assert_eq!(
         t.rows,
-        AxisExpr::Stack(
+        Some(AxisExpr::Stack(
             Box::new(var("a")),
             Box::new(AxisExpr::Nest(Box::new(var("b")), Box::new(var("c"))))
-        )
+        ))
     );
     assert_eq!(
         t.columns,
@@ -51,7 +51,7 @@ fn summaries_with_labels_formats_and_levels() {
     let c = one(
         "CTABLES /TABLE q1 [C] [COUNT 'N' F8.0, COLPCT.VALIDN PCT8.1, UMEAN, PTILE 25 'Q1'] BY age [S].",
     );
-    let AxisExpr::Variable(v) = &c.tables[0].rows else {
+    let Some(AxisExpr::Variable(v)) = &c.tables[0].rows else {
         panic!()
     };
     assert_eq!(v.scale, Some(false));
@@ -127,10 +127,7 @@ fn per_table_and_global_subcommands() {
 fn features_of_the_next_stage_are_named() {
     for (source, feature) in [
         ("CTABLES /TABLE a /CRITERIA CILEVEL=90.", "CRITERIA"),
-        (
-            "CTABLES /TABLE a /CLABELS ROWLABELS=LAYER.",
-            "category labels to the layers",
-        ),
+        ("CTABLES /SMISSING LISTWISE /TABLE a.", "SMISSING"),
     ] {
         let e = err(source);
         assert!(
@@ -327,7 +324,7 @@ fn a_second_by_gives_the_layers() {
 fn a_percentage_without_a_suffix_counts_cases() {
     // the manual's own examples write [COLPCT] and [COUNT COLPCT] without commas
     let c = one("CTABLES /TABLE a [COUNT ROWPCT UCOLPCT, LAYERCOLPCT 'L' PCT5.1] BY b.");
-    let AxisExpr::Variable(v) = &c.tables[0].rows else {
+    let Some(AxisExpr::Variable(v)) = &c.tables[0].rows else {
         panic!()
     };
     let s = v.summaries.as_ref().unwrap();
@@ -382,7 +379,7 @@ fn multiple_response_sets_stand_like_variables() {
          /CATEGORIES VARIABLES=$q5 [q5_3, q5_1] TOTAL=YES.");
     assert!(c.count_duplicates);
     assert_eq!(c.tables[0].columns, Some(var("gender")));
-    let AxisExpr::Variable(v) = &c.tables[0].rows else {
+    let Some(AxisExpr::Variable(v)) = &c.tables[0].rows else {
         panic!()
     };
     assert_eq!(v.name, "$q5");
@@ -514,7 +511,7 @@ fn othernm_missing_and_a_summary_as_the_sort_key() {
 fn an_effective_base_weight_and_the_e_functions() {
     let c = one("CTABLES /WEIGHT VARIABLE=w /TABLE a [ECOUNT, EVALIDN, ETOTALN, COUNT].");
     assert_eq!(c.weight.as_deref(), Some("w"));
-    let Some(AxisExpr::Variable(a)) = Some(&c.tables[0].rows) else {
+    let Some(AxisExpr::Variable(a)) = &c.tables[0].rows else {
         panic!()
     };
     let functions: Vec<Statistic> = a
@@ -550,4 +547,17 @@ fn an_effective_base_weight_and_the_e_functions() {
         "{}",
         e.message
     );
+}
+
+#[test]
+fn labels_to_the_layers_and_an_empty_row_axis() {
+    let c = one(
+        "CTABLES /TABLE a BY b /CLABELS ROWLABELS=LAYER /TABLE BY b /TABLE BY BY c /CLABELS COLLABELS=LAYER.",
+    );
+    assert_eq!(c.tables[0].labels_moved, LabelsMoved::RowsToLayers);
+    assert_eq!(c.tables[1].rows, None);
+    assert!(c.tables[1].columns.is_some() && c.tables[1].layers.is_none());
+    assert!(c.tables[2].rows.is_none() && c.tables[2].columns.is_none());
+    assert!(c.tables[2].layers.is_some());
+    assert_eq!(c.tables[2].labels_moved, LabelsMoved::ColumnsToLayers);
 }

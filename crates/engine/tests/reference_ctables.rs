@@ -274,7 +274,7 @@ fn check_first_layer(fixture: &str, syntax: &str) {
     assert!(mine.title.starts_with(&format!("{} (", pspp.title)));
     while let Some(layer) = pspp.rows[0][0].strip_prefix("Layer: ") {
         assert!(
-            mine.title.contains(&format!(" {layer}")),
+            mine.title.contains(&format!(" {layer}")) || mine.title.contains(&format!("({layer}")),
             "{} is not layer {layer}",
             mine.title
         );
@@ -597,6 +597,24 @@ fn othernm_and_missing_in_a_list() {
 // shows the weighted count as ECOUNT, where the manual weights every summary by the effective base
 // weight and makes ECOUNT the effective base (w^2 / q). ctables.rs and ctables_sigtest.rs check
 // them against the raw values.
+
+#[test]
+#[ignore = "needs STATSCRAFT_PSPP"]
+fn labels_in_the_layers_and_an_empty_row_axis() {
+    survey(&[
+        "CTABLES /TABLE BY region.",
+        "CTABLES /TABLE BY region [COUNT, ROWPCT] /CATEGORIES VARIABLES=region TOTAL=YES.",
+        "CTABLES /TABLE BY gender > region [COUNT, ROWPCT].",
+    ]);
+    for syntax in [
+        "CTABLES /TABLE BY BY region.",
+        "CTABLES /TABLE gender [COUNT, COLPCT, ROWPCT] BY region /CLABELS ROWLABELS=LAYER.",
+        "CTABLES /TABLE gender BY region [COUNT, COLPCT, ROWPCT] /CLABELS COLLABELS=LAYER.",
+        "CTABLES /TABLE q5_1 + q5_2 [COUNT, COLPCT] BY gender /CLABELS ROWLABELS=LAYER.",
+    ] {
+        check_first_layer("survey_basic.sav", syntax);
+    }
+}
 
 #[test]
 #[ignore = "needs STATSCRAFT_PSPP"]

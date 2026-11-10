@@ -969,3 +969,76 @@ fn effective_base_summaries_from_the_raw_weights() {
     .unwrap_err();
     assert!(e.contains("must be numeric"), "{e}");
 }
+
+// CLABELS ROWLABELS=LAYER and COLLABELS=LAYER (CLABELS subcommand, page 492): the categories of
+// the innermost row (column) variable become layers. The moved variable then counts as a layer
+// variable, so every layer is the table of its category, as when the variable stands in the
+// layers itself; the reference program agrees on the first layer (reference_ctables.rs).
+#[test]
+fn category_labels_moved_to_the_layers_are_layers_of_their_own() {
+    let file = "survey_basic.sav";
+    let summaries = "[COUNT, COLPCT, ROWPCT, TABLEPCT]";
+    let moved = run_all(
+        file,
+        &format!("CTABLES /TABLE gender {summaries} BY region /CLABELS ROWLABELS=LAYER."),
+    );
+    let layered = run_all(
+        file,
+        &format!("CTABLES /TABLE BY region {summaries} BY gender."),
+    );
+    assert_eq!(moved.len(), 3);
+    for (m, l) in moved.iter().zip(&layered) {
+        assert_eq!(all_numbers(m), all_numbers(l));
+        assert_eq!(m.title, l.title);
+        assert_eq!(m.rows.len(), 1);
+    }
+    assert_eq!(moved[1].title, "Custom Tables (Gender: Female)");
+
+    let moved = run_all(
+        file,
+        &format!("CTABLES /TABLE gender BY region {summaries} /CLABELS COLLABELS=LAYER."),
+    );
+    let layered = run_all(
+        file,
+        &format!("CTABLES /TABLE gender {summaries} BY BY region."),
+    );
+    assert_eq!(moved.len(), 5);
+    for (m, l) in moved.iter().zip(&layered) {
+        assert_eq!(all_numbers(m), all_numbers(l));
+        assert_eq!(m.title, l.title);
+    }
+
+    // stacked variables with the same categories share the layers, named by the category
+    let stacked = run_all(
+        file,
+        "CTABLES /TABLE q5_1 + q5_2 [COUNT] BY gender /CLABELS ROWLABELS=LAYER.",
+    );
+    let plain = run(file, "CTABLES /TABLE q5_1 + q5_2 [COUNT] BY gender.");
+    assert_eq!(stacked.len(), 2);
+    assert_eq!(stacked[0].title, "Custom Tables (Not selected)");
+    for (k, layer) in stacked.iter().enumerate() {
+        assert_eq!(layer.rows.len(), 2);
+        // q5_1's and q5_2's rows of category k in the plain table
+        assert_eq!(numbers(layer, 0), numbers(&plain, k));
+        assert_eq!(numbers(layer, 1), numbers(&plain, 2 + k));
+    }
+}
+
+// An empty row axis (TABLE subcommand, Figure 28: /TABLE BY HAPPY): the categories and their
+// summaries are in the columns, in one row without a row label.
+#[test]
+fn a_table_without_rows_has_its_categories_in_the_columns() {
+    let file = "survey_basic.sav";
+    let across = run(file, "CTABLES /TABLE BY region [COUNT, ROWPCT].");
+    let down = run(file, "CTABLES /TABLE region [COUNT, COLPCT].");
+    assert_eq!(across.row_headers, 0);
+    assert_eq!(across.rows.len(), 1);
+    let flat: Vec<Option<f64>> = all_numbers(&down).into_iter().flatten().collect();
+    assert_eq!(numbers(&across, 0), flat);
+    // with layers only, a single cell per layer
+    let layers = run_all(file, "CTABLES /TABLE BY BY region.");
+    assert_eq!(layers.len(), 5);
+    let counts: Vec<Option<f64>> = layers.iter().flat_map(|t| numbers(t, 0)).collect();
+    let column: Vec<Option<f64>> = all_numbers(&down).iter().map(|r| r[0]).collect();
+    assert_eq!(counts, column);
+}
