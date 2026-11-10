@@ -962,3 +962,36 @@ VARIABLE LEVEL a1 a2 (NOMINAL).",
         ],
     );
 }
+
+/// RANK. The weights of the weighted survey are all positive: PSPP ranks a case of weight 0,
+/// which ours leaves out like the other procedures. A weighted N is shown with decimals in
+/// ours, so those cases set the same format in both programs.
+#[test]
+#[ignore = "needs PSPP: set STATSCRAFT_PSPP"]
+fn rank() {
+    let all = "/RANK /RFRACTION /PERCENT /PROPORTION /N /NTILES(4) /SAVAGE /NORMAL";
+    let cases = [
+        ("all-functions", SURVEY, format!("RANK age monthly_spend q2_recommend {all}.")),
+        (
+            "all-functions-weighted",
+            WEIGHTED,
+            format!("RANK age monthly_spend q2_recommend {all}.\nFORMATS Nage Nmonthly Nq2_reco (F6.0)."),
+        ),
+        ("ties-low", SURVEY, "RANK q2_recommend /RANK INTO r /NTILES(5) INTO q /PERCENT INTO p /TIES=LOW.".into()),
+        ("ties-high-weighted", WEIGHTED, "RANK q1_satisfaction /RANK /RFRACTION /SAVAGE /NORMAL /TIES=HIGH.".into()),
+        ("ties-condense", SURVEY, "RANK q1_satisfaction age /RANK /NTILES(3) /PROPORTION /TIES=CONDENSE.".into()),
+        ("descending-by", SURVEY, "RANK age (D) monthly_spend (A) q2_recommend BY region /RANK /NORMAL.".into()),
+        ("by-two-weighted", WEIGHTED, "RANK monthly_spend q1_satisfaction BY gender region /PERCENT /SAVAGE /NTILES(2).".into()),
+        ("fractions", SURVEY, "RANK monthly_spend /NORMAL INTO n1 /PROPORTION INTO p1 /FRACTION=RANKIT.\nRANK monthly_spend /NORMAL INTO n2 /PROPORTION INTO p2 /FRACTION=TUKEY.\nRANK monthly_spend age /NORMAL INTO n3 n4 /PROPORTION /FRACTION=VW.".into()),
+        ("fractions-weighted", WEIGHTED, "RANK age /NORMAL /PROPORTION /FRACTION=RANKIT /TIES=LOW.".into()),
+        ("include", SURVEY, "RANK q1_satisfaction q2_recommend /RANK /SAVAGE /MISSING=INCLUDE.".into()),
+        ("missing-by", SURVEY, "RANK age BY q6_mention1 /RANK /N.".into()),
+        ("default-names", SURVEY, "COMPUTE Rage = 1.\nCOMPUTE RAN001 = 2.\nVARIABLE LEVEL Rage RAN001 (SCALE).\nRANK age age /RANK /RFRACTION /PRINT=NO.".into()),
+        ("abbreviations", SURVEY, "RANK VAR=age monthly_spend /RFR /PER /PRO INTO a b /NTI(3) /TIE=CON /FRA=TUK /PRI=NO.".into()),
+        ("split", SURVEY, "SORT CASES BY gender.\nSPLIT FILE BY gender.\nRANK age /RANK /NTILES(4) /SAVAGE.".into()),
+        ("savage-weighted-ties", WEIGHTED, "RANK q2_recommend region /SAVAGE /RANK.".into()),
+    ];
+    for (case, fixture, commands) in &cases {
+        compare(&format!("rank-{case}"), fixture, commands, &[]);
+    }
+}

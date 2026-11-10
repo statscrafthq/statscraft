@@ -67,6 +67,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "BREAK",
             "VECTOR",
             "AUTORECODE",
+            "RANK",
         ],
     ),
     (

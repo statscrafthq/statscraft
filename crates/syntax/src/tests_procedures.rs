@@ -611,3 +611,79 @@ fn frequencies_errors() {
         "unexpected '('"
     );
 }
+
+fn rank_of(source: &str) -> Rank {
+    match one(source) {
+        Command::Rank(r) => r,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn rank_variables_functions_and_options() {
+    let r = rank_of("RANK salary.");
+    assert_eq!(r.variables, [(var("salary"), false)]);
+    assert_eq!(r.functions, [(RankFunction::Rank, vec![])]);
+    assert!(r.print && !r.include && r.fraction.is_none());
+    assert_eq!(r.ties, RankTies::Mean);
+    // A or D applies back to the previous A or D
+    let r = rank_of("RANK VARIABLES=a b (D) c (A) d BY g h.");
+    assert_eq!(
+        r.variables,
+        [
+            (var("a"), true),
+            (var("b"), true),
+            (var("c"), false),
+            (var("d"), false)
+        ]
+    );
+    assert_eq!(r.by, [var("g"), var("h")]);
+    let r = rank_of(
+        "RANK x /NORMAL INTO xn /SAVAGE /NTILES(4) INTO q1, q2 /N /TIES=CONDENSE /FRACTION=VW\n /PRINT=NO /MISSING=INCLUDE.",
+    );
+    assert_eq!(
+        r.functions,
+        [
+            (RankFunction::Normal, vec!["xn".to_string()]),
+            (RankFunction::Savage, vec![]),
+            (
+                RankFunction::Ntiles(4),
+                vec!["q1".to_string(), "q2".to_string()]
+            ),
+            (RankFunction::N, vec![]),
+        ]
+    );
+    assert_eq!(r.ties, RankTies::Condense);
+    assert_eq!(r.fraction, Some(RankFraction::Vw));
+    assert!(!r.print && r.include);
+    // three-letter abbreviations
+    let r = rank_of("RAN VAR=x /RFR /PER /PRO /TIE=HIG /FRA=RANKIT /PRI=YES /MIS=EXC.");
+    assert_eq!(
+        r.functions.iter().map(|f| f.0).collect::<Vec<_>>(),
+        [
+            RankFunction::Rfraction,
+            RankFunction::Percent,
+            RankFunction::Proportion
+        ]
+    );
+    assert_eq!(r.ties, RankTies::High);
+    assert_eq!(r.fraction, Some(RankFraction::Rankit));
+}
+
+#[test]
+fn rank_errors() {
+    let message = |source: &str| err(source).message;
+    assert!(message("RANK x /RANK /RANK.").contains("given twice"));
+    assert!(message("RANK x /NTILES(2) /NTILES(3).").contains("given twice"));
+    assert!(message("RANK x /NTILES.").contains("NTILES(4)"));
+    assert!(message("RANK x /NTILES(0).").contains("NTILES(4)"));
+    assert!(message("RANK x /FRACTION=BLOM /FRACTION=VW.").contains("given twice"));
+    assert_eq!(err("RANK x (B).").expected, ["A", "D"]);
+    assert_eq!(
+        err("RANK x /TIES=MEDIAN.").expected,
+        ["MEAN", "LOW", "HIGH", "CONDENSE"]
+    );
+    assert_eq!(err("RANK x /RANK INTO.").expected, ["a new variable name"]);
+    assert!(message("RANK x /FOO.").contains("unknown subcommand FOO of RANK"));
+    assert_eq!(err("RANK.").expected, ["a variable name"]);
+}

@@ -63,6 +63,7 @@ pub enum Command {
     Correlations(Correlations),
     NonparCorr(NonparCorr),
     Examine(Examine),
+    Rank(Rank),
     AddFiles(Merge),
     MatchFiles(Merge),
     DataList(DataList),
@@ -429,6 +430,53 @@ pub enum Grouping {
     Width(f64),
     /// The groups lie between these ascending boundaries.
     Boundaries(Vec<f64>),
+}
+
+/// RANK.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Rank {
+    /// Each variable item with its direction: true for descending (D).
+    pub variables: Vec<(VarItem, bool)>,
+    /// The variables after BY: ranks are computed within each combination of their values.
+    pub by: Vec<VarItem>,
+    /// The function subcommands in the order written, each with the names after INTO.
+    pub functions: Vec<(RankFunction, Vec<String>)>,
+    pub ties: RankTies,
+    /// `/FRACTION`; None when it is not given (Blom's formula).
+    pub fraction: Option<RankFraction>,
+    /// `/PRINT=YES` (the default): the table of the new variables.
+    pub print: bool,
+    /// `/MISSING=INCLUDE`: user-missing values are ranked.
+    pub include: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RankFunction {
+    Rank,
+    Rfraction,
+    Percent,
+    Proportion,
+    N,
+    /// The number of groups.
+    Ntiles(u32),
+    Savage,
+    Normal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RankTies {
+    Mean,
+    Low,
+    High,
+    Condense,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RankFraction {
+    Blom,
+    Rankit,
+    Tukey,
+    Vw,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -21,6 +21,7 @@ mod mrsets;
 mod nonpar_corr;
 mod oneway;
 mod pass;
+mod rank;
 mod recode;
 mod rows;
 pub mod session;
@@ -496,6 +497,7 @@ impl Engine {
             | Command::Correlations(_)
             | Command::NonparCorr(_)
             | Command::Examine(_)
+            | Command::Rank(_)
             | Command::Aggregate(_) => return self.procedure(command),
             Command::Execute => {
                 self.begin_pass()?;
@@ -643,6 +645,7 @@ impl Engine {
             Command::Correlations(command) => self.correlations(command),
             Command::NonparCorr(command) => self.nonpar_corr(command),
             Command::Examine(command) => self.examine(command),
+            Command::Rank(command) => self.rank(command),
             Command::Aggregate(command) => self.aggregate(command).map(|()| Vec::new()),
             Command::List(list) => self.list(list),
             _ => unreachable!("only procedures come here"),

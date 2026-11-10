@@ -34,6 +34,7 @@ mod mrsets;
 mod parser;
 mod preprocess;
 mod procedures;
+mod rank;
 mod selection;
 mod session_commands;
 mod split;
