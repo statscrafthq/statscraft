@@ -1169,34 +1169,47 @@ fn load(db: &mut dyn Db, name: &str) -> Result<(Dataset, Vec<String>, String)> {
         select += &format!(", {}", dialect.quote(&v.physical));
     }
     select += &format!(" FROM {} ORDER BY {ordinal}", dialect.quote(&table));
-    let mut numbers: Vec<Vec<Option<f64>>> = vec![vec![]; variables.len()];
-    let mut strings: Vec<Vec<String>> = vec![vec![]; variables.len()];
-    let rows = db.query(&select, &[])?;
-    for (k, row) in rows.iter().enumerate() {
-        let ordinal = k as i64 + 1;
-        if row[0].int()? != ordinal {
+    // the columns grow row by row as the rows stream in; the catalog's case count sizes them
+    // (bounded, in case the catalog is wrong)
+    let reserve = (cases.max(0) as usize).min(1 << 24);
+    let column = |string: bool, wanted: bool| if string == wanted { reserve } else { 0 };
+    let mut numbers: Vec<Vec<Option<f64>>> = variables
+        .iter()
+        .map(|v| Vec::with_capacity(column(v.string_width.is_some(), false)))
+        .collect();
+    let mut strings: Vec<Vec<String>> = variables
+        .iter()
+        .map(|v| Vec::with_capacity(column(v.string_width.is_some(), true)))
+        .collect();
+    let mut count = 0i64;
+    db.query_each(&select, &[], &mut |row| {
+        count += 1;
+        let mut cells = row.into_iter();
+        if cells.next().map(|c| c.int()) != Some(Ok(count)) {
             return Err(DbError::new(
                 "data_invalid",
-                format!("{table}: __case_ordinal does not run 1, 2, 3, ... at case {ordinal}"),
+                format!("{table}: __case_ordinal does not run 1, 2, 3, ... at case {count}"),
             ));
         }
-        for (i, v) in variables.iter().enumerate() {
+        for ((i, v), cell) in variables.iter().enumerate().zip(cells) {
             let invalid = |e: DbError| {
                 DbError::new(
                     "data_invalid",
-                    format!("{table}.{} case {ordinal}: {}", v.physical, e.message),
+                    format!("{table}.{} case {count}: {}", v.physical, e.message),
                 )
             };
-            match v.string_width {
-                None => numbers[i].push(row[i + 1].opt_real().map_err(invalid)?),
-                Some(_) => strings[i].push(row[i + 1].text().map_err(invalid)?),
+            match (v.string_width, cell) {
+                (None, cell) => numbers[i].push(cell.opt_real().map_err(invalid)?),
+                (Some(_), Sql::Text(text)) => strings[i].push(text),
+                (Some(_), cell) => return Err(invalid(cell.text().unwrap_err())),
             }
         }
-    }
-    if rows.len() as i64 != cases {
+        Ok(())
+    })?;
+    if count != cases {
         return Err(DbError::new(
             "data_invalid",
-            format!("{table} has {} rows, the catalog says {cases}", rows.len()),
+            format!("{table} has {count} rows, the catalog says {cases}"),
         ));
     }
 

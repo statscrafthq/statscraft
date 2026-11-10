@@ -235,6 +235,16 @@ pub trait Db {
         }
         Ok(())
     }
+    /// Runs a query and hands each row to `f` as it arrives, without holding the result. The
+    /// default reads the whole result first.
+    fn query_each(
+        &mut self,
+        sql: &str,
+        params: &[Sql],
+        f: &mut dyn FnMut(Vec<Sql>) -> Result<()>,
+    ) -> Result<()> {
+        self.query(sql, params)?.into_iter().try_for_each(f)
+    }
 }
 
 /// Replaces each `?` outside string literals with `fill(n)` for the n-th placeholder, from 1.

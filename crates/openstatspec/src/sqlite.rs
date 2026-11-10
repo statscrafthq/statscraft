@@ -68,10 +68,25 @@ impl Db for SqliteDb {
     }
 
     fn query(&mut self, sql: &str, params: &[Sql]) -> Result<Vec<Vec<Sql>>> {
+        let mut rows = vec![];
+        self.query_each(sql, params, &mut |row| {
+            rows.push(row);
+            Ok(())
+        })?;
+        Ok(rows)
+    }
+
+    fn query_each(
+        &mut self,
+        sql: &str,
+        params: &[Sql],
+        f: &mut dyn FnMut(Vec<Sql>) -> Result<()>,
+    ) -> Result<()> {
         let mut statement = self.conn.prepare_cached(sql)?;
         let n = statement.column_count();
-        let rows = statement.query_map(params_from_iter(params.iter().map(param)), |r| {
-            (0..n)
+        let mut rows = statement.query(params_from_iter(params.iter().map(param)))?;
+        while let Some(r) = rows.next()? {
+            let row = (0..n)
                 .map(|i| {
                     Ok(match r.get_ref(i)? {
                         ValueRef::Null => Sql::Null,
@@ -81,9 +96,10 @@ impl Db for SqliteDb {
                         ValueRef::Blob(_) => Sql::Null,
                     })
                 })
-                .collect()
-        })?;
-        Ok(rows.collect::<std::result::Result<_, _>>()?)
+                .collect::<rusqlite::Result<_>>()?;
+            f(row)?;
+        }
+        Ok(())
     }
 
     fn batch(&mut self, sql: &str) -> Result<()> {

@@ -672,6 +672,14 @@ impl Db for FailAt<'_> {
     fn insert_rows(&mut self, table: &str, rows: &mut dyn Iterator<Item = Vec<Sql>>) -> Result<()> {
         self.inner.insert_rows(table, rows)
     }
+    fn query_each(
+        &mut self,
+        sql: &str,
+        params: &[Sql],
+        f: &mut dyn FnMut(Vec<Sql>) -> Result<()>,
+    ) -> Result<()> {
+        self.inner.query_each(sql, params, f)
+    }
 }
 
 /// On Dolt: commits the working set as the provisioning commit and returns the context an

@@ -323,11 +323,31 @@ impl Db for MyDb {
     }
 
     fn query(&mut self, sql: &str, values: &[Sql]) -> Result<Vec<Vec<Sql>>> {
+        let mut rows = vec![];
+        self.query_each(sql, values, &mut |row| {
+            rows.push(row);
+            Ok(())
+        })?;
+        Ok(rows)
+    }
+
+    /// The rows come off the connection one by one; the client buffers no result.
+    fn query_each(
+        &mut self,
+        sql: &str,
+        values: &[Sql],
+        f: &mut dyn FnMut(Vec<Sql>) -> Result<()>,
+    ) -> Result<()> {
         check_params(self.dialect, values)?;
-        let rows: Vec<mysql::Row> = self.conn.exec(sql, params(values))?;
-        rows.into_iter()
-            .map(|row| row.unwrap().into_iter().map(from_value).collect())
-            .collect()
+        for row in self.conn.exec_iter(sql, params(values))? {
+            let row = row?
+                .unwrap()
+                .into_iter()
+                .map(from_value)
+                .collect::<Result<_>>()?;
+            f(row)?;
+        }
+        Ok(())
     }
 
     fn batch(&mut self, sql: &str) -> Result<()> {

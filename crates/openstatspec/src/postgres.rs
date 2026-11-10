@@ -9,6 +9,7 @@ use bytes::{BufMut, BytesMut};
 use postgres::binary_copy::BinaryCopyInWriter;
 use postgres::config::SslMode;
 use postgres::error::SqlState;
+use postgres::fallible_iterator::FallibleIterator;
 use postgres::types::{FromSql, IsNull, ToSql, Type, to_sql_checked};
 use postgres::{Client, NoTls, Statement};
 use rustls::client::WebPkiServerVerifier;
@@ -221,17 +222,30 @@ impl Db for PgDb {
     }
 
     fn query(&mut self, sql: &str, params: &[Sql]) -> Result<Vec<Vec<Sql>>> {
+        let mut rows = vec![];
+        self.query_each(sql, params, &mut |row| {
+            rows.push(row);
+            Ok(())
+        })?;
+        Ok(rows)
+    }
+
+    /// The rows come off the connection one by one; the client buffers no result.
+    fn query_each(
+        &mut self,
+        sql: &str,
+        params: &[Sql],
+        f: &mut dyn FnMut(Vec<Sql>) -> Result<()>,
+    ) -> Result<()> {
         let statement = self.statement(sql)?;
-        let refs: Vec<&(dyn ToSql + Sync)> = params.iter().map(|p| p as _).collect();
-        self.client
-            .query(&statement, &refs)?
-            .iter()
-            .map(|row| {
-                (0..row.len())
-                    .map(|i| Ok(row.try_get::<_, Sql>(i)?))
-                    .collect()
-            })
-            .collect()
+        let mut rows = self.client.query_raw(&statement, params)?;
+        while let Some(row) = rows.next()? {
+            let row = (0..row.len())
+                .map(|i| row.try_get::<_, Sql>(i))
+                .collect::<std::result::Result<_, _>>()?;
+            f(row)?;
+        }
+        Ok(())
     }
 
     fn batch(&mut self, sql: &str) -> Result<()> {
