@@ -316,6 +316,8 @@ pub struct App {
     find_focus: bool,
     /// Variables to delete once the user says yes.
     confirm_delete: Option<Vec<String>>,
+    /// The Type and Format dialog of a variable.
+    format_dialog: Option<edits::FormatChoice>,
     syntax: String,
     syntax_file: Option<PathBuf>,
     syntax_errors: Vec<Failure>,
@@ -396,6 +398,7 @@ impl App {
             find: None,
             find_focus: false,
             confirm_delete: None,
+            format_dialog: None,
             syntax: String::new(),
             syntax_file: None,
             syntax_errors: Vec::new(),
@@ -1258,6 +1261,7 @@ impl App {
         };
         if self.dialog.is_some()
             || self.confirm_delete.is_some()
+            || self.format_dialog.is_some()
             || (variables && self.field_edit.is_some())
             || rows == 0
             || columns == 0
@@ -1470,6 +1474,82 @@ impl App {
         self.confirm_delete = Some(names);
     }
 
+    /// The Type and Format dialog: a format from a list, its width and decimals.
+    fn format_window(&mut self, ctx: &egui::Context) {
+        let Some(d) = self.format_dialog.as_mut() else {
+            return;
+        };
+        let mut answer = None;
+        let syntax = d.syntax();
+        egui::Window::new(format!("Type and format of {}", d.name))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+            .show(ctx, |ui| {
+                ui.set_max_width(440.0);
+                egui::Grid::new("format grid")
+                    .num_columns(2)
+                    .show(ui, |ui| {
+                        ui.label("Format");
+                        let before = d.kind;
+                        ComboBox::new("format kind", "")
+                            .selected_text(edits::FORMAT_KINDS[d.kind].label)
+                            .height(400.0)
+                            .show_index(ui, &mut d.kind, edits::FORMAT_KINDS.len(), |i| {
+                                edits::FORMAT_KINDS[i].label
+                            });
+                        if d.kind != before {
+                            d.fit();
+                        }
+                        ui.end_row();
+                        ui.label("Width");
+                        ui.add(TextEdit::singleline(&mut d.width).desired_width(60.0));
+                        ui.end_row();
+                        let decimals = edits::FORMAT_KINDS[d.kind].decimals;
+                        ui.label("Decimals");
+                        ui.add_enabled(
+                            decimals,
+                            TextEdit::singleline(&mut d.decimals).desired_width(60.0),
+                        );
+                        ui.end_row();
+                    });
+                if d.changes_type() {
+                    ui.colored_label(
+                        ui.visuals().warn_fg_color,
+                        "A new type drops the value labels and missing values.",
+                    );
+                }
+                ui.separator();
+                match &syntax {
+                    Ok(text) => {
+                        ui.label(RichText::new(text).monospace());
+                    }
+                    Err(message) => {
+                        ui.colored_label(ui.visuals().warn_fg_color, message);
+                    }
+                }
+                ui.horizontal(|ui| {
+                    if ui
+                        .add_enabled(syntax.is_ok(), egui::Button::new("OK"))
+                        .clicked()
+                    {
+                        answer = Some(true);
+                    }
+                    if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
+                        answer = Some(false);
+                    }
+                });
+            });
+        match (answer, syntax) {
+            (Some(true), Ok(text)) => {
+                self.format_dialog = None;
+                self.run(&text, None, After::Show);
+            }
+            (Some(false), _) => self.format_dialog = None,
+            _ => {}
+        }
+    }
+
     /// The question before variables are deleted.
     fn delete_window(&mut self, ctx: &egui::Context) {
         let Some(names) = &self.confirm_delete else {
@@ -1610,6 +1690,10 @@ impl App {
         let variable = data.variable_at(row);
         let field = Field::ALL[column];
         self.variable_selected = Some(grid::Selection::cell((row, column)));
+        if matches!(field, Field::Type | Field::Format) {
+            self.format_dialog = Some(edits::FormatChoice::of(&variable));
+            return;
+        }
         if field.editable(variable.is_string()) {
             let text = edits::field_text(&variable, field);
             self.field_edit = Some(CellEdit {
@@ -2129,6 +2213,7 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         self.dialog_window(&ctx);
         self.delete_window(&ctx);
+        self.format_window(&ctx);
         egui::Window::new("About StatsCraft")
             .open(&mut self.about)
             .collapsible(false)

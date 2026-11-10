@@ -272,10 +272,10 @@ pub fn field_text(variable: &Variable, field: Field) -> String {
     let (_, width, decimals) = split_format(variable.format());
     match field {
         Field::Name => variable.name().to_string(),
-        Field::Type => if variable.is_string() {
-            "String"
-        } else {
-            "Numeric"
+        Field::Type => match variable.is_string() {
+            true => "String",
+            false if date_kind(variable.format()).is_some() || is_time(variable.format()) => "Date",
+            false => "Numeric",
         }
         .into(),
         Field::Format => variable.format().to_string(),
@@ -335,6 +335,177 @@ fn missing_item(item: &str) -> Result<String, String> {
             bound(&item[at + 6..])?
         )),
         None => value(item, false),
+    }
+}
+
+/// A display format the Type and Format dialog offers: keyword, label, the narrowest and
+/// widest width, and whether it takes decimals.
+pub struct FormatKind {
+    pub keyword: &'static str,
+    pub label: &'static str,
+    pub min: usize,
+    pub max: usize,
+    pub decimals: bool,
+}
+
+const fn kind(
+    keyword: &'static str,
+    label: &'static str,
+    min: usize,
+    decimals: bool,
+) -> FormatKind {
+    FormatKind {
+        keyword,
+        label,
+        min,
+        max: 40,
+        decimals,
+    }
+}
+
+/// The formats of the dialog: numbers, dates and times, and strings (last). The narrowest
+/// widths are those a format needs to show its values.
+pub const FORMAT_KINDS: [FormatKind; 23] = [
+    kind("F", "Numeric", 1, true),
+    kind("COMMA", "Comma (1,234.5)", 1, true),
+    kind("DOT", "Dot (1.234,5)", 1, true),
+    kind("DOLLAR", "Dollar ($1,234.50)", 2, true),
+    kind("PCT", "Percent (12.5%)", 1, true),
+    kind("E", "Scientific (1.2E+03)", 6, true),
+    kind("N", "Leading zeros (00123)", 1, false),
+    kind("DATE", "Date dd-mmm-yyyy", 9, false),
+    kind("ADATE", "Date mm/dd/yyyy", 8, false),
+    kind("EDATE", "Date dd.mm.yyyy", 8, false),
+    kind("SDATE", "Date yyyy/mm/dd", 8, false),
+    kind("JDATE", "Day of the year yyyyddd", 5, false),
+    kind("QYR", "Quarter and year", 6, false),
+    kind("MOYR", "Month and year", 6, false),
+    kind("WKYR", "Week and year", 8, false),
+    kind("WKDAY", "Day of the week", 2, false),
+    kind("MONTH", "Month", 3, false),
+    kind("DATETIME", "Date and time", 17, true),
+    kind("YMDHMS", "Date and time yyyy-mm-dd", 16, false),
+    kind("TIME", "Time hh:mm:ss", 5, true),
+    kind("MTIME", "Minutes mm:ss", 5, true),
+    kind("DTIME", "Days and time", 8, false),
+    FormatKind {
+        keyword: "A",
+        label: "String",
+        min: 1,
+        max: 32_767,
+        decimals: false,
+    },
+];
+
+/// The index of the string format in `FORMAT_KINDS`.
+const STRING_KIND: usize = FORMAT_KINDS.len() - 1;
+
+/// Whether a format shows a date, a time or a part of one: the formats from DATE to DTIME.
+fn is_time(format: &str) -> bool {
+    let (keyword, ..) = split_format(format);
+    FORMAT_KINDS[7..STRING_KIND]
+        .iter()
+        .any(|k| k.keyword == keyword)
+}
+
+/// The Type and Format dialog of one variable.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FormatChoice {
+    pub name: String,
+    /// The variable is a string now.
+    pub string: bool,
+    /// Its format now, such as F8.2.
+    pub current: String,
+    /// Index into `FORMAT_KINDS`.
+    pub kind: usize,
+    pub width: String,
+    pub decimals: String,
+}
+
+impl FormatChoice {
+    /// The dialog as it opens, showing the variable's format. A format the dialog does not
+    /// offer shows as Numeric.
+    pub fn of(variable: &Variable) -> Self {
+        let (keyword, width, decimals) = split_format(variable.format());
+        let kind = FORMAT_KINDS
+            .iter()
+            .position(|k| k.keyword == keyword)
+            .unwrap_or(if variable.is_string() { STRING_KIND } else { 0 });
+        let width = variable.string_width().unwrap_or(width);
+        Self {
+            name: variable.name().to_string(),
+            string: variable.is_string(),
+            current: variable.format().to_string(),
+            kind,
+            width: width.to_string(),
+            decimals: decimals.to_string(),
+        }
+    }
+
+    /// After another format is chosen: the width within its limits, no decimals where it takes
+    /// none.
+    pub fn fit(&mut self) {
+        let kind = &FORMAT_KINDS[self.kind];
+        let width = self.width.trim().parse().unwrap_or(kind.min);
+        self.width = width.clamp(kind.min, kind.max).to_string();
+        if !kind.decimals {
+            self.decimals = "0".into();
+        }
+    }
+
+    /// Whether the choice changes the variable's type, which drops its value labels and
+    /// missing values.
+    pub fn changes_type(&self) -> bool {
+        self.string != (self.kind == STRING_KIND)
+    }
+
+    /// FORMATS for another numeric format, ALTER TYPE for a new type or string width.
+    pub fn syntax(&self) -> Result<String, String> {
+        let kind = &FORMAT_KINDS[self.kind];
+        let width: usize = self
+            .width
+            .trim()
+            .parse()
+            .map_err(|_| "the width must be a whole number".to_string())?;
+        if width < kind.min || width > kind.max {
+            return Err(format!(
+                "{} takes a width from {} to {}",
+                kind.label, kind.min, kind.max
+            ));
+        }
+        let decimals: usize = match self.decimals.trim() {
+            "" => 0,
+            text => text
+                .parse()
+                .map_err(|_| "the decimals must be a whole number".to_string())?,
+        };
+        if decimals > 0 && !kind.decimals {
+            return Err(format!("{} takes no decimals", kind.label));
+        }
+        if decimals > 16 || (decimals > 0 && decimals >= width) {
+            return Err("the decimals must be fewer than the width, at most 16".into());
+        }
+        let format = match decimals {
+            0 => format!("{}{width}", kind.keyword),
+            d => format!("{}{width}.{d}", kind.keyword),
+        };
+        let name = &self.name;
+        // F8 and F8.0 are the same format
+        if split_format(&format) == split_format(&self.current) {
+            return Err("choose another format, width or decimals".into());
+        }
+        if self.string && self.kind != STRING_KIND && !["F", "COMMA", "DOT"].contains(&kind.keyword)
+        {
+            return Err(
+                "a string becomes a number as Numeric, Comma or Dot; choose another format after"
+                    .into(),
+            );
+        }
+        Ok(if self.string || self.kind == STRING_KIND {
+            format!("ALTER TYPE {name} ({format}).")
+        } else {
+            format!("FORMATS {name} ({format}).")
+        })
     }
 }
 
@@ -568,6 +739,96 @@ mod tests {
     }
 
     #[test]
+    fn the_type_and_format_dialog_runs_formats_or_alter_type() {
+        let mut session = survey();
+        let index = |keyword: &str| FORMAT_KINDS.iter().position(|k| k.keyword == keyword);
+        let choice = |s: &Session, name: &str| with(s, name, FormatChoice::of);
+
+        let mut d = choice(&session, "monthly_spend");
+        assert_eq!(
+            (d.kind, d.width.as_str(), d.decimals.as_str()),
+            (0, "8", "2")
+        );
+        assert!(!d.changes_type());
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "choose another format, width or decimals"
+        );
+        d.kind = index("COMMA").unwrap();
+        d.width = "10".into();
+        let syntax = d.syntax().unwrap();
+        assert_eq!(syntax, "FORMATS monthly_spend (COMMA10.2).");
+        session.run(&syntax, None).unwrap();
+        with(&session, "monthly_spend", |v| {
+            assert_eq!(v.format(), "COMMA10.2")
+        });
+
+        // a date format: the width grows to what it needs, decimals go
+        let mut d = choice(&session, "age");
+        d.kind = index("DATE").unwrap();
+        d.decimals = "2".into();
+        d.fit();
+        assert_eq!((d.width.as_str(), d.decimals.as_str()), ("9", "0"));
+        let syntax = d.syntax().unwrap();
+        assert_eq!(syntax, "FORMATS age (DATE9).");
+        session.run(&syntax, None).unwrap();
+
+        // a string gets another width, a number becomes a string and back
+        let mut d = choice(&session, "plan");
+        assert_eq!((d.kind, d.width.as_str()), (STRING_KIND, "10"));
+        d.width = "20".into();
+        let syntax = d.syntax().unwrap();
+        assert_eq!(syntax, "ALTER TYPE plan (A20).");
+        session.run(&syntax, None).unwrap();
+        with(&session, "plan", |v| assert_eq!(v.string_width(), Some(20)));
+        d = choice(&session, "plan");
+        d.kind = index("DOLLAR").unwrap();
+        assert!(d.changes_type());
+        assert!(
+            d.syntax()
+                .unwrap_err()
+                .starts_with("a string becomes a number")
+        );
+        d.kind = 0;
+        d.fit();
+        let syntax = d.syntax().unwrap();
+        assert_eq!(syntax, "ALTER TYPE plan (F20).");
+        session.run(&syntax, None).unwrap();
+        with(&session, "plan", |v| assert!(!v.is_string()));
+        let mut d = choice(&session, "q1_satisfaction");
+        d.kind = STRING_KIND;
+        d.fit();
+        let syntax = d.syntax().unwrap();
+        assert_eq!(syntax, "ALTER TYPE q1_satisfaction (A2).");
+        session.run(&syntax, None).unwrap();
+        with(&session, "q1_satisfaction", |v| assert!(v.is_string()));
+
+        // what cannot be
+        let mut d = choice(&session, "weight");
+        d.kind = index("E").unwrap();
+        d.width = "4".into();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "Scientific (1.2E+03) takes a width from 6 to 40"
+        );
+        d.kind = index("N").unwrap();
+        d.width = "8".into();
+        d.decimals = "1".into();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "Leading zeros (00123) takes no decimals"
+        );
+        d.kind = 0;
+        d.decimals = "8".into();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "the decimals must be fewer than the width, at most 16"
+        );
+        d.width = "wide".into();
+        assert_eq!(d.syntax().unwrap_err(), "the width must be a whole number");
+    }
+
+    #[test]
     fn selected_variables_are_deleted_by_syntax() {
         let names = |list: &[&str]| list.iter().map(|n| n.to_string()).collect::<Vec<_>>();
         assert_eq!(listed(&names(&["age"])), "age");
@@ -615,6 +876,7 @@ mod tests {
             assert_eq!(field_text(v, Field::Columns), "")
         });
         assert_eq!(row("plan")[9], "Left");
+        assert_eq!(row("signup_date")[1], "Date");
         assert_eq!(row("monthly_spend")[4], "2");
         let plan = row("plan");
         assert_eq!(plan[..4], ["plan", "String", "A10", "10"]);
