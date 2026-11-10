@@ -1,12 +1,14 @@
 //! MySQL, MariaDB and Dolt connections: the catalog lives in the dedicated database the URL
 //! names. The product is decided by positive identity on the connection, never by the
 //! protocol, so a MySQL connection refuses Dolt and a Dolt connection refuses MySQL.
-//! Plain TCP, no TLS.
+//! Plain TCP, or TLS through rustls.
 
 use crate::catalog::prepare;
-use crate::db::{DOLT, Db, DbError, Dialect, Limits, MARIADB, MYSQL, Result, Sql, placeholders};
+use crate::db::{
+    DOLT, Db, DbError, Dialect, Limits, MARIADB, MYSQL, Result, Sql, placeholders, take_params, tls,
+};
 use mysql::prelude::Queryable;
-use mysql::{Conn, Opts, OptsBuilder, Params, Value};
+use mysql::{Conn, Opts, OptsBuilder, Params, SslOpts, Value};
 
 impl From<mysql::Error> for DbError {
     fn from(e: mysql::Error) -> Self {
@@ -53,8 +55,12 @@ fn dolt_claimed(version: &str) -> bool {
 }
 
 /// Opens the connection and reads `VERSION()` and `@@version_comment`; nothing is written.
+/// `ssl-mode` (`DISABLED`, `REQUIRED`, `VERIFY_CA`, `VERIFY_IDENTITY`) and `ssl-ca` (a PEM file
+/// of trusted CAs) select TLS, as [`crate::db::tls`] describes.
 fn connect(url: &str, password: Option<&str>) -> Result<(MyDb, String, String)> {
-    let opts = Opts::from_url(url)
+    let (url, [mode, ca]) = take_params(url, ["ssl-mode", "ssl-ca"]);
+    let tls = tls(mode.as_deref(), ca)?;
+    let opts = Opts::from_url(&url)
         .map_err(|_| DbError::new("database_unavailable", "the MySQL URL is not valid"))?;
     let Some(database) = opts.get_db_name().map(str::to_string) else {
         return Err(DbError::new(
@@ -65,6 +71,14 @@ fn connect(url: &str, password: Option<&str>) -> Result<(MyDb, String, String)> 
     let mut builder = OptsBuilder::from_opts(opts.clone());
     if let (None, Some(password)) = (opts.get_pass(), password) {
         builder = builder.pass(Some(password));
+    }
+    if let Some(tls) = tls {
+        // the client library trusts its bundled roots besides the CA file; a local socket
+        // would skip TLS
+        let ssl = SslOpts::default()
+            .with_root_cert_path(tls.ca)
+            .with_danger_skip_domain_validation(!tls.verify_host);
+        builder = builder.ssl_opts(Some(ssl)).prefer_socket(false);
     }
     let opts = Opts::from(builder);
     let conn =

@@ -20,13 +20,16 @@ pub struct Target {
     /// OpenStatSpec SQLite database file
     #[arg(long, value_name = "DB")]
     pub sqlite: Option<PathBuf>,
-    /// PostgreSQL: postgres://user@host:port/database[?schema=NAME], schema default openstatspec
+    /// PostgreSQL: postgres://user@host:port/database[?schema=NAME], schema default openstatspec;
+    /// TLS with &sslmode=verify-full|verify-ca|require and &sslrootcert=CA.pem
     #[arg(long, value_name = "URL", conflicts_with = "sqlite")]
     pub postgres: Option<String>,
-    /// MySQL or MariaDB: mysql://user@host:port/database, a database dedicated to the catalog
+    /// MySQL or MariaDB: mysql://user@host:port/database, a database dedicated to the catalog;
+    /// TLS with ?ssl-mode=VERIFY_IDENTITY|VERIFY_CA|REQUIRED and &ssl-ca=CA.pem
     #[arg(long, value_name = "URL", conflicts_with_all = ["sqlite", "postgres"])]
     pub mysql: Option<String>,
-    /// Dolt sql-server: mysql://user@host:port/database, a database dedicated to the catalog
+    /// Dolt sql-server: mysql://user@host:port/database, a database dedicated to the catalog;
+    /// TLS as for --mysql
     #[arg(long, value_name = "URL", conflicts_with_all = ["sqlite", "postgres", "mysql"])]
     pub dolt: Option<String>,
 }
@@ -71,7 +74,9 @@ MariaDB or Dolt database. On Dolt, `db export` leaves its changes in the working
 never commits, and `db import` writes nothing at all. Export \
 creates the catalog in a new or empty one and refuses one holding anything else. Each dataset is one table data_<name> with __case_ordinal and one column per \
 variable; the dictionary lives in the catalog tables. A URL without a password takes it from \
-the STATSCRAFT_DB_PASSWORD environment variable; passwords are never printed.")]
+the STATSCRAFT_DB_PASSWORD environment variable; passwords are never printed. Connections are \
+plain TCP unless the URL asks for TLS; TLS always verifies the server certificate against the \
+CA file or the bundled Mozilla roots, and the host name unless the mode is verify-ca.")]
 pub struct DbArgs {
     #[command(subcommand)]
     command: DbCmd,

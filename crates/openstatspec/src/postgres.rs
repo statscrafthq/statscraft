@@ -1,14 +1,26 @@
 //! PostgreSQL connections: the catalog lives in one dedicated schema, fixed as the only
-//! schema on the connection's search path. Plain TCP, no TLS.
+//! schema on the connection's search path. Plain TCP, or TLS through rustls.
 
 use crate::catalog::prepare;
-use crate::db::{Db, DbError, Dialect, Limits, POSTGRESQL, Result, Sql, placeholders};
+use crate::db::{
+    Db, DbError, Dialect, Limits, POSTGRESQL, Result, Sql, Tls, placeholders, take_params, tls,
+};
 use bytes::{BufMut, BytesMut};
+use postgres::config::SslMode;
 use postgres::error::SqlState;
 use postgres::types::{FromSql, IsNull, ToSql, Type, to_sql_checked};
 use postgres::{Client, NoTls, Statement};
+use rustls::client::WebPkiServerVerifier;
+use rustls::client::danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier};
+use rustls::pki_types::pem::PemObject;
+use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
+use rustls::{
+    CertificateError, ClientConfig, DigitallySignedStruct, RootCertStore, SignatureScheme,
+};
 use std::collections::HashMap;
 use std::error::Error;
+use std::sync::Arc;
+use tokio_postgres_rustls::MakeRustlsConnect;
 
 /// The catalog schema when the URL names none.
 pub const DEFAULT_SCHEMA: &str = "openstatspec";
@@ -37,47 +49,121 @@ pub struct PgDb {
     statements: HashMap<String, Statement>,
 }
 
-/// Splits the `schema` query parameter off a postgres:// URL; the client library does not
-/// know it.
-fn split_schema(url: &str) -> (String, String) {
-    let Some((base, query)) = url.split_once('?') else {
-        return (url.to_string(), DEFAULT_SCHEMA.to_string());
-    };
-    let mut schema = DEFAULT_SCHEMA.to_string();
-    let rest: Vec<&str> = query
-        .split('&')
-        .filter(|p| match p.strip_prefix("schema=") {
-            Some(s) => {
-                schema = s.to_string();
-                false
+/// The certificate chain is checked, the host name is not (`sslmode=verify-ca`).
+#[derive(Debug)]
+struct AnyHostName(Arc<WebPkiServerVerifier>);
+
+impl ServerCertVerifier for AnyHostName {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        server_name: &ServerName<'_>,
+        ocsp: &[u8],
+        now: UnixTime,
+    ) -> std::result::Result<ServerCertVerified, rustls::Error> {
+        // webpki checks the chain first, so a name error means the chain is trusted
+        match self
+            .0
+            .verify_server_cert(end_entity, intermediates, server_name, ocsp, now)
+        {
+            Err(rustls::Error::InvalidCertificate(
+                CertificateError::NotValidForName | CertificateError::NotValidForNameContext { .. },
+            )) => Ok(ServerCertVerified::assertion()),
+            other => other,
+        }
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> std::result::Result<HandshakeSignatureValid, rustls::Error> {
+        self.0.verify_tls12_signature(message, cert, dss)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> std::result::Result<HandshakeSignatureValid, rustls::Error> {
+        self.0.verify_tls13_signature(message, cert, dss)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.0.supported_verify_schemes()
+    }
+}
+
+/// The rustls client of a TLS setting, on the pure-Rust ring provider.
+fn tls_config(tls: &Tls) -> Result<ClientConfig> {
+    let failed = |e: String| DbError::new("database_unavailable", format!("TLS: {e}"));
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let mut roots = RootCertStore::empty();
+    match &tls.ca {
+        Some(path) => {
+            let certs = CertificateDer::pem_file_iter(path)
+                .map_err(|e| failed(format!("{}: {e}", path.display())))?;
+            for cert in certs {
+                let cert = cert.map_err(|e| failed(format!("{}: {e}", path.display())))?;
+                roots.add(cert).map_err(|e| failed(e.to_string()))?;
             }
-            None => true,
-        })
-        .collect();
-    let url = if rest.is_empty() {
-        base.to_string()
+            if roots.is_empty() {
+                return Err(failed(format!("{} holds no certificate", path.display())));
+            }
+        }
+        None => roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned()),
+    }
+    let verifier = WebPkiServerVerifier::builder_with_provider(Arc::new(roots), provider.clone())
+        .build()
+        .map_err(|e| failed(e.to_string()))?;
+    let builder = ClientConfig::builder_with_provider(provider)
+        .with_safe_default_protocol_versions()
+        .map_err(|e| failed(e.to_string()))?;
+    Ok(if tls.verify_host {
+        builder.with_webpki_verifier(verifier).with_no_client_auth()
     } else {
-        format!("{base}?{}", rest.join("&"))
-    };
-    (url, schema)
+        builder
+            .dangerous()
+            .with_custom_certificate_verifier(Arc::new(AnyHostName(verifier)))
+            .with_no_client_auth()
+    })
 }
 
 /// Connects to a `postgres://user[:password]@host[:port]/database[?schema=NAME]` URL and
 /// verifies the catalog in schema NAME (default `openstatspec`), or installs it into a missing
 /// or empty schema when `create` is set. `password` is used when the URL has none. Server
 /// versions outside 17.x and 18.x and servers whose encoding is not UTF8 are refused before
-/// anything is read or written.
+/// anything is read or written. `sslmode` (`disable`, `require`, `verify-ca`, `verify-full`)
+/// and `sslrootcert` (a PEM file of trusted CAs) select TLS, as [`crate::db::tls`] describes.
 pub fn open(url: &str, password: Option<&str>, create: bool) -> Result<PgDb> {
-    let (url, schema) = split_schema(url);
+    let (url, [schema, mode, ca]) = take_params(url, ["schema", "sslmode", "sslrootcert"]);
+    let schema = schema.unwrap_or_else(|| DEFAULT_SCHEMA.to_string());
+    let tls = tls(mode.as_deref(), ca)?;
     let mut config: postgres::Config = url
         .parse()
         .map_err(|_| DbError::new("database_unavailable", "the PostgreSQL URL is not valid"))?;
     if let (None, Some(password)) = (config.get_password(), password) {
         config.password(password);
     }
-    let client = config
-        .connect(NoTls)
-        .map_err(|e| DbError::new("database_unavailable", e.to_string()))?;
+    let client = match &tls {
+        None => config.ssl_mode(SslMode::Disable).connect(NoTls),
+        Some(tls) => config
+            .ssl_mode(SslMode::Require)
+            .connect(MakeRustlsConnect::new(tls_config(tls)?)),
+    }
+    .map_err(|e| {
+        // the cause of a refused certificate is in the source chain
+        let mut message = e.to_string();
+        let mut source = e.source();
+        while let Some(cause) = source {
+            message += &format!(": {cause}");
+            source = cause.source();
+        }
+        DbError::new("database_unavailable", message)
+    })?;
     let mut db = PgDb {
         client,
         schema,
@@ -287,18 +373,6 @@ mod tests {
         assert_eq!(
             numbered("SELECT ?, '?', x ~ '^a?$' FROM t WHERE y = ?"),
             "SELECT $1, '?', x ~ '^a?$' FROM t WHERE y = $2"
-        );
-    }
-
-    #[test]
-    fn the_schema_parameter_is_taken_off_the_url() {
-        assert_eq!(
-            split_schema("postgres://u@h/db?schema=s1&connect_timeout=5"),
-            ("postgres://u@h/db?connect_timeout=5".into(), "s1".into())
-        );
-        assert_eq!(
-            split_schema("postgres://u@h/db"),
-            ("postgres://u@h/db".into(), DEFAULT_SCHEMA.into())
         );
     }
 }

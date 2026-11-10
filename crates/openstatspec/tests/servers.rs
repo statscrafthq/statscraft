@@ -649,3 +649,143 @@ fn dolt_and_mysql_refuse_each_other() {
         }
     }
 }
+
+// ---------------------------------------------------------------- TLS
+
+/// STATSCRAFT_TLS_DIR holds `ca.crt`, the CA that signed the servers' certificate for the host
+/// name `localhost` only, and `wrong-ca.crt`, another CA.
+fn tls_files() -> Option<(String, String)> {
+    let dir = std::path::PathBuf::from(server("STATSCRAFT_TLS_DIR")?);
+    let file = |name: &str| dir.join(name).display().to_string();
+    Some((file("ca.crt"), file("wrong-ca.crt")))
+}
+
+fn with_query(url: &str, params: &str) -> String {
+    let sep = if url.contains('?') { '&' } else { '?' };
+    format!("{url}{sep}{params}")
+}
+
+/// Opens `url` in each TLS mode with the right CA, a wrong one and none, and checks which are
+/// accepted; `encrypted` tells whether an accepted session runs over TLS. `url` names the host
+/// 127.0.0.1, which the certificate does not hold; the cases with `localhost` use the name it
+/// does hold. `names` are the mode parameter, the CA parameter and the modes require,
+/// verify-ca, verify-full and prefer.
+fn check_tls<D: Db>(
+    url: &str,
+    open: impl Fn(&str) -> statscraft_openstatspec::db::Result<D>,
+    encrypted: impl Fn(&mut D) -> bool,
+    names: [&str; 6],
+) {
+    let Some((ca, wrong)) = tls_files() else {
+        return;
+    };
+    let [mode, ca_file, require, verify_ca, verify_full, prefer] = names;
+    let local = url.replace("@127.0.0.1:", "@localhost:");
+    let ip = url.to_string();
+    let cases = [
+        // the right CA and the host name in the certificate
+        (&local, verify_full, Some(&ca), true),
+        (&local, require, Some(&ca), true),
+        (&local, verify_ca, Some(&ca), true),
+        // a CA file alone verifies everything
+        (&local, "", Some(&ca), true),
+        // the right CA, a host name the certificate does not hold
+        (&ip, verify_full, Some(&ca), false),
+        (&ip, require, Some(&ca), false),
+        (&ip, "", Some(&ca), false),
+        (&ip, verify_ca, Some(&ca), true),
+        // a wrong CA, in every mode
+        (&local, verify_full, Some(&wrong), false),
+        (&local, require, Some(&wrong), false),
+        (&local, verify_ca, Some(&wrong), false),
+        (&ip, verify_ca, Some(&wrong), false),
+        // the bundled roots do not hold the test CA
+        (&local, verify_full, None, false),
+        // a mode that falls back to plain TCP
+        (&local, prefer, Some(&ca), false),
+    ];
+    for (base, m, file, accepted) in cases {
+        let mut params = vec![];
+        if !m.is_empty() {
+            params.push(format!("{mode}={m}"));
+        }
+        if let Some(file) = file {
+            params.push(format!("{ca_file}={file}"));
+        }
+        let target = with_query(base, &params.join("&"));
+        let shown = target.replace(base.split('@').next().unwrap(), "...");
+        match open(&target) {
+            Ok(mut db) => {
+                assert!(accepted, "{shown} was accepted");
+                assert!(encrypted(&mut db), "{shown} is not encrypted");
+            }
+            Err(e) => {
+                assert!(!accepted, "{shown}: {e}");
+                assert_eq!(e.code, "database_unavailable", "{shown}: {e}");
+            }
+        }
+    }
+}
+
+#[test]
+#[ignore = "needs STATSCRAFT_PG_URL and STATSCRAFT_TLS_DIR"]
+fn postgres_tls_verifies_the_certificate_chain_and_host_name() {
+    let Some(pg) = Postgres::get() else { return };
+    let schema = fresh_name();
+    check_tls(
+        &pg.url(&schema),
+        |url| postgres::open(url, None, true),
+        |db| {
+            let sql = "SELECT ssl FROM pg_stat_ssl WHERE pid = pg_backend_pid()";
+            query(db, sql, &[])[0][0] == 1
+        },
+        [
+            "sslmode",
+            "sslrootcert",
+            "require",
+            "verify-ca",
+            "verify-full",
+            "prefer",
+        ],
+    );
+    // a dataset round trip over TLS
+    if let Some((ca, _)) = tls_files() {
+        let url = pg.url(&schema).replace("@127.0.0.1:", "@localhost:");
+        let url = format!("{url}&sslmode=verify-full&sslrootcert={ca}");
+        let mut db = postgres::open(&url, None, false).unwrap();
+        assert_values_round_trip(&mut db, &numbers(&FINITE), "tls");
+    }
+}
+
+#[test]
+#[ignore = "needs STATSCRAFT_MARIADB_URL, STATSCRAFT_DOLT_URL and STATSCRAFT_TLS_DIR"]
+fn mysql_family_tls_verifies_the_certificate_chain_and_host_name() {
+    let names = [
+        "ssl-mode",
+        "ssl-ca",
+        "REQUIRED",
+        "VERIFY_CA",
+        "VERIFY_IDENTITY",
+        "PREFERRED",
+    ];
+    // Dolt shows an empty Ssl_cipher even over TLS; that it refuses a wrong CA shows the
+    // handshake
+    let cipher = |db: &mut my::MyDb| {
+        let rows = query(db, "SHOW SESSION STATUS LIKE 'Ssl_cipher'", &[]);
+        db.dialect().profile == "dolt" || rows[0][1].as_str().is_some_and(|c| !c.is_empty())
+    };
+    for server in mysql_family() {
+        let url = server.new_database();
+        check_tls(&url, |u| my::open(u, None, true), cipher, names);
+        if let Some((ca, _)) = tls_files() {
+            let url = url.replace("@127.0.0.1:", "@localhost:");
+            let url = format!("{url}?ssl-mode=VERIFY_IDENTITY&ssl-ca={ca}");
+            let mut db = my::open(&url, None, false).unwrap();
+            assert_values_round_trip(&mut db, &numbers(&[1.5, 5e-324]), "tls");
+        }
+    }
+    for server in dolts() {
+        let url = server.new_database();
+        check_tls(&url, |u| my::open_dolt(u, None, true), cipher, names);
+    }
+}

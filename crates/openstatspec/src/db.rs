@@ -240,6 +240,72 @@ pub(crate) fn placeholders(sql: &str, mut fill: impl FnMut(usize) -> String) -> 
     out
 }
 
+/// Takes the query parameters `names` off a URL; the client libraries do not know them. Returns
+/// the rest of the URL and the value of each name, the last one where a name repeats.
+pub(crate) fn take_params<const N: usize>(
+    url: &str,
+    names: [&str; N],
+) -> (String, [Option<String>; N]) {
+    let mut values = [const { None }; N];
+    let Some((base, query)) = url.split_once('?') else {
+        return (url.to_string(), values);
+    };
+    let rest: Vec<&str> = query
+        .split('&')
+        .filter(|pair| {
+            let (key, value) = pair.split_once('=').unwrap_or((pair, ""));
+            match names.iter().position(|n| *n == key) {
+                Some(i) => {
+                    values[i] = Some(value.to_string());
+                    false
+                }
+                None => true,
+            }
+        })
+        .collect();
+    let url = if rest.is_empty() {
+        base.to_string()
+    } else {
+        format!("{base}?{}", rest.join("&"))
+    };
+    (url, values)
+}
+
+/// A TLS connection. The certificate chain is always verified: against the CA file when one is
+/// given, otherwise against the bundled Mozilla roots.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Tls {
+    /// The certificate must also name the host of the URL.
+    pub verify_host: bool,
+    pub ca: Option<std::path::PathBuf>,
+}
+
+/// The TLS setting of the URL parameters `mode` and `ca` (`sslmode` and `sslrootcert` for
+/// PostgreSQL, `ssl-mode` and `ssl-ca` for MySQL). No mode and no CA file is plain TCP; a CA
+/// file alone means full verification. `require` verifies like `verify-full`: StatsCraft never
+/// makes an unverified TLS connection. Modes that fall back to plain TCP are refused.
+pub(crate) fn tls(mode: Option<&str>, ca: Option<String>) -> Result<Option<Tls>> {
+    let ca = ca.filter(|c| !c.is_empty()).map(Into::into);
+    let mode = mode.map(|m| m.to_ascii_lowercase().replace('_', "-"));
+    let verify_host = match mode.as_deref() {
+        None if ca.is_none() => return Ok(None),
+        Some("disable" | "disabled") if ca.is_none() => return Ok(None),
+        None | Some("require" | "required" | "verify-full" | "verify-identity") => true,
+        Some("verify-ca") => false,
+        Some(other) => {
+            return Err(DbError::new(
+                "database_unavailable",
+                format!(
+                    "TLS mode {other:?}: use disable, require, verify-ca or verify-full \
+                     (MySQL: DISABLED, REQUIRED, VERIFY_CA, VERIFY_IDENTITY), with a CA file \
+                     only when TLS is on"
+                ),
+            ));
+        }
+    };
+    Ok(Some(Tls { verify_host, ca }))
+}
+
 /// The first row of a query, if any.
 pub(crate) fn first(db: &mut dyn Db, sql: &str, params: &[Sql]) -> Result<Option<Vec<Sql>>> {
     Ok(db.query(sql, params)?.into_iter().next())
@@ -516,7 +582,12 @@ pub fn capabilities() -> Value {
             "openstatspec-in-place-transformation-v0.1",
             "openstatspec-in-place-transformation-v0.2",
         ],
-        "transport": "plain TCP without TLS",
+        "transport": {
+            "default": "plain TCP",
+            "tls": "rustls, TLS 1.2 and 1.3; the certificate chain is always verified, against \
+                the given CA file or the bundled Mozilla roots; the host name too unless the mode \
+                is verify-ca; modes that fall back to plain TCP are refused",
+        },
         "profiles": {
             "sqlite": {
                 "claimed_versions": ">=3.24.0,<4.0.0",
@@ -612,6 +683,50 @@ mod tests {
         assert_eq!(id.len(), 36);
         assert_eq!(&id[14..15], "7");
         assert!(matches!(&id[19..20], "8" | "9" | "a" | "b"));
+    }
+
+    #[test]
+    fn url_parameters_of_our_own_are_taken_off() {
+        assert_eq!(
+            take_params(
+                "postgres://u@h/db?schema=s1&connect_timeout=5&sslmode=verify-ca",
+                ["schema", "sslmode"]
+            ),
+            (
+                "postgres://u@h/db?connect_timeout=5".into(),
+                [Some("s1".into()), Some("verify-ca".into())]
+            )
+        );
+        assert_eq!(
+            take_params("mysql://u@h/db", ["ssl-ca"]),
+            ("mysql://u@h/db".into(), [None])
+        );
+    }
+
+    #[test]
+    fn tls_is_off_without_parameters_and_always_verified_when_on() {
+        let full = |ca: Option<&str>| {
+            Some(Tls {
+                verify_host: true,
+                ca: ca.map(Into::into),
+            })
+        };
+        assert_eq!(tls(None, None), Ok(None));
+        assert_eq!(tls(Some("DISABLED"), None), Ok(None));
+        assert_eq!(tls(Some("require"), None), Ok(full(None)));
+        assert_eq!(tls(Some("VERIFY_IDENTITY"), None), Ok(full(None)));
+        assert_eq!(tls(None, Some("ca.pem".into())), Ok(full(Some("ca.pem"))));
+        assert_eq!(
+            tls(Some("VERIFY_CA"), Some("ca.pem".into())),
+            Ok(Some(Tls {
+                verify_host: false,
+                ca: Some("ca.pem".into())
+            }))
+        );
+        for refused in ["prefer", "PREFERRED", "allow", "verify", "disable"] {
+            let ca = (refused == "disable").then(|| "ca.pem".to_string());
+            assert!(tls(Some(refused), ca).is_err(), "{refused}");
+        }
     }
 
     #[test]

@@ -16,7 +16,13 @@ serde = { version = "1", features = ["derive"] }
 postgres = "0.19.14"
 # MIT; the buffer type of the postgres parameter trait
 bytes = "1"
-# MIT OR Apache-2.0; synchronous, with the pure-Rust deflate backend and no TLS
-mysql = { version = "28.0.4", default-features = false, features = ["minimal-rust"] }
+# MIT OR Apache-2.0; synchronous, with the pure-Rust deflate backend and rustls on ring
+mysql = { version = "28.0.4", default-features = false, features = ["minimal-rust", "rustls-tls-ring"] }
+# TLS without a system library. rustls: Apache-2.0 OR ISC OR MIT; its ring provider: Apache-2.0
+# AND ISC; tokio-postgres-rustls: MIT; webpki-roots (the Mozilla roots, also pulled in by
+# mysql): CDLA-Permissive-2.0
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
+tokio-postgres-rustls = { version = "0.14", features = ["ring"] }
+webpki-roots = "1"
 serde_json = "1"
 sha2 = "0.10"

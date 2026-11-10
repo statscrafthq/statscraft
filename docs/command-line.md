@@ -448,6 +448,22 @@ MySQL, MariaDB and Dolt commit DDL implicitly, so `export` creates the table fir
 
 The product is decided by what the server says about itself, not by the protocol: `--mysql` refuses a Dolt server and `--dolt` refuses MySQL and MariaDB. On Dolt, StatsCraft never commits, branches, merges or resets. `db export` leaves its changes in the working set for you to commit; `db import` and the input schema of `plan` write nothing at all (OpenStatSpec's Database I/O Execution Policy v1, which `db capabilities` declares), so allowed losses are reported in the output instead of in the catalog. `plan --apply` on Dolt needs `--expected-branch` and `--expected-head`: the session must be on that branch at that commit with a clean working set, and the branch must still point at that commit when the apply completes; the audit row records both, and the changes stay uncommitted. The session's branch is the database's default branch, or the one named as `db/branch` in the URL.
 
-A URL without a password takes it from the `STATSCRAFT_DB_PASSWORD` environment variable. Passwords are never printed. Connections use plain TCP without TLS.
+A URL without a password takes it from the `STATSCRAFT_DB_PASSWORD` environment variable. Passwords are never printed.
+
+Connections use plain TCP unless the URL asks for TLS. TLS always verifies the server's certificate chain, against the CA file when one is given and otherwise against the bundled Mozilla root certificates, and also the host name unless the mode says otherwise. StatsCraft never makes an unverified TLS connection, and refuses the modes that fall back to plain TCP (`prefer`, `allow`, `PREFERRED`).
+
+```
+statscraft db export survey.sav --postgres "postgres://analyst@db.example.org/study?sslmode=verify-full"
+statscraft db export survey.sav --postgres "postgres://analyst@10.0.0.5/study?sslmode=verify-ca&sslrootcert=/etc/ssl/study-ca.pem"
+statscraft db export survey.sav --mysql "mysql://analyst@db.example.org/study?ssl-mode=VERIFY_IDENTITY&ssl-ca=/etc/ssl/study-ca.pem"
+```
+
+| PostgreSQL `sslmode` | MySQL, MariaDB, Dolt `ssl-mode` | Connection |
+|---|---|---|
+| not given, `disable` | not given, `DISABLED` | plain TCP |
+| `verify-full`, `require` | `VERIFY_IDENTITY`, `REQUIRED` | TLS; the certificate chain and the host name are checked |
+| `verify-ca` | `VERIFY_CA` | TLS; the certificate chain is checked, the host name is not |
+
+`sslrootcert=FILE` (PostgreSQL) or `ssl-ca=FILE` (MySQL, MariaDB, Dolt) names a PEM file of the CA certificates to trust, for a server whose certificate comes from a private CA; a CA file without a mode means `verify-full`. With a CA file, PostgreSQL trusts only that file; the MySQL client trusts the bundled roots as well. Note that `require` and `REQUIRED` check more than in the PostgreSQL and MySQL command line clients, where they encrypt without checking the certificate.
 
 `plan --name DATASET` with a database option takes the input schema from that dataset; with `--apply` it then applies the plan to the same table in one transaction: direct UPDATEs, `ALTER TABLE ... ADD COLUMN` for new variables, catalog updates and one audit row in `transformation_apply` (plan and source hashes, actor, operation count). Nothing is copied, and on any error nothing changes. `--actor` names who applies the plan (default `$USER`).
