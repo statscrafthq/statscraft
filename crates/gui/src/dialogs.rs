@@ -201,6 +201,120 @@ impl Letters {
     }
 }
 
+/// A subtotal over some categories of a variable, which are given as syntax literals.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct Subtotal {
+    pub label: String,
+    pub values: Vec<String>,
+}
+
+/// The categories of one variable in Custom Tables: their order, totals and subtotals.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Categories {
+    pub variable: String,
+    pub descending: bool,
+    /// What the categories are sorted by: empty for their values, LABEL, COUNT or MEAN(var).
+    /// Not with subtotals, which list the categories in their own order.
+    pub key: String,
+    pub total: bool,
+    pub total_label: String,
+    /// Totals and subtotals before the categories they sum instead of after.
+    pub before: bool,
+    pub subtotals: Vec<Subtotal>,
+    /// Show the subtotals in place of the categories they sum.
+    pub hide_sources: bool,
+    /// Show the user-missing values as categories.
+    pub missing: bool,
+    /// With subtotals: show the categories that no subtotal names.
+    pub other: bool,
+}
+
+impl Categories {
+    pub fn new(variable: &str, total: bool) -> Self {
+        Self {
+            variable: variable.to_string(),
+            descending: false,
+            key: String::new(),
+            total,
+            total_label: String::new(),
+            before: false,
+            subtotals: Vec::new(),
+            hide_sources: false,
+            missing: false,
+            other: true,
+        }
+    }
+
+    /// The /CATEGORIES subcommand, or nothing when every choice is the default.
+    pub fn syntax(&self) -> Result<String, String> {
+        let mut text = String::new();
+        if self.subtotals.is_empty() {
+            if self.descending {
+                text.push_str(" ORDER=D");
+            }
+            if !self.key.is_empty() {
+                text.push_str(&format!(" KEY={}", self.key));
+            }
+            if self.missing {
+                text.push_str(" MISSING=INCLUDE");
+            }
+        } else {
+            let keyword = if self.hide_sources {
+                "HSUBTOTAL"
+            } else {
+                "SUBTOTAL"
+            };
+            // the categories no subtotal names stay outside every subtotal: after the last one,
+            // or before the first when a subtotal sums the categories after it
+            let rest: Vec<String> = [(self.other, "OTHERNM"), (self.missing, "MISSING")]
+                .into_iter()
+                .filter(|(on, _)| *on)
+                .map(|(_, item)| item.to_string())
+                .collect();
+            let mut items = Vec::new();
+            if self.before {
+                items.extend(rest.iter().cloned());
+            }
+            for subtotal in &self.subtotals {
+                if subtotal.values.is_empty() {
+                    return Err("a subtotal needs at least one category".into());
+                }
+                let label = match subtotal.label.trim() {
+                    "" => "Subtotal",
+                    label => label,
+                };
+                let item = format!("{keyword}={}", quote(label));
+                if self.before {
+                    items.push(item);
+                    items.extend(subtotal.values.iter().cloned());
+                } else {
+                    items.extend(subtotal.values.iter().cloned());
+                    items.push(item);
+                }
+            }
+            if !self.before {
+                items.extend(rest);
+            }
+            text.push_str(&format!(" [{}]", items.join(", ")));
+        }
+        if self.total {
+            text.push_str(" TOTAL=YES");
+            let label = self.total_label.trim();
+            if !label.is_empty() && label != "Total" {
+                text.push_str(&format!(" LABEL={}", quote(label)));
+            }
+        }
+        if self.before && (self.total || !self.subtotals.is_empty()) {
+            text.push_str(" POSITION=BEFORE");
+        }
+        Ok(if text.is_empty() {
+            text
+        } else {
+            format!("\n  /CATEGORIES VARIABLES={}{text}", self.variable)
+        })
+    }
+}
+
 /// A simple custom table: categorical variables and multiple response sets ($name) stacked in
 /// the rows and the columns, scale variables whose means are shown in the rows, and stacked
 /// layer variables that give a table for each of their categories.
@@ -211,6 +325,12 @@ pub struct CustomTables {
     pub scale_rows: Vec<String>,
     pub layers: Vec<String>,
     pub count: bool,
+    /// The effective base (ECOUNT), which differs from the count with an effective base weight.
+    pub effective_count: bool,
+    /// The weight variable of the effective base (/WEIGHT VARIABLE); empty for none.
+    pub effective_weight: String,
+    /// The categories of the variables that have their own settings; the others follow `totals`.
+    pub categories: Vec<Categories>,
     pub column_percent: bool,
     pub row_percent: bool,
     pub mean: bool,
@@ -233,6 +353,9 @@ impl Default for CustomTables {
             scale_rows: Vec::new(),
             layers: Vec::new(),
             count: true,
+            effective_count: false,
+            effective_weight: String::new(),
+            categories: Vec::new(),
             column_percent: false,
             row_percent: false,
             mean: true,
@@ -257,6 +380,7 @@ impl CustomTables {
         let mut summaries = Vec::new();
         for (on, function) in [
             (self.count, "COUNT"),
+            (self.effective_count, "ECOUNT"),
             (self.column_percent, "COLPCT.COUNT PCT40.1"),
             (self.row_percent, "ROWPCT.COUNT PCT40.1"),
         ] {
@@ -265,7 +389,10 @@ impl CustomTables {
             }
         }
         if !self.rows.is_empty() && summaries.is_empty() {
-            return Err("choose count, column percentage or row percentage for the rows".into());
+            return Err(
+                "choose count, effective count, column percentage or row percentage for the rows"
+                    .into(),
+            );
         }
         if !self.scale_rows.is_empty() && !self.mean {
             return Err("variables under Means need the Mean statistic".into());
@@ -298,6 +425,10 @@ impl CustomTables {
                 text.push_str(&format!(" COUNT={below}"));
             }
         }
+        let weight = self.effective_weight.trim();
+        if !weight.is_empty() {
+            text.push_str(&format!("\n  /WEIGHT VARIABLE={weight}"));
+        }
         text.push_str(&format!("\n  /TABLE {}", rows.join(" + ")));
         let stack = |names: &[String]| {
             names
@@ -315,17 +446,32 @@ impl CustomTables {
         if !self.layers.is_empty() {
             text.push_str(&format!(" BY {}", stack(&self.layers)));
         }
+        let own = |name: &str| self.categories.iter().any(|c| c.variable == name);
         let categorical: Vec<&str> = self
             .rows
             .iter()
             .chain(&self.columns)
             .map(String::as_str)
+            .filter(|name| !own(name))
             .collect();
         if self.totals && !categorical.is_empty() {
             text.push_str(&format!(
                 "\n  /CATEGORIES VARIABLES={} TOTAL=YES",
                 categorical.join(" ")
             ));
+        }
+        for categories in &self.categories {
+            // settings of a variable taken out of the table again are left out
+            let name = categories.variable.as_str();
+            if self
+                .rows
+                .iter()
+                .chain(&self.columns)
+                .chain(&self.layers)
+                .any(|n| n == name)
+            {
+                text.push_str(&categories.syntax()?);
+            }
         }
         let tests = self.chi_square || self.compare_proportions || self.compare_means;
         if tests {
@@ -722,7 +868,7 @@ mod tests {
         d.row_percent = false;
         assert_eq!(
             d.syntax().unwrap_err(),
-            "choose count, column percentage or row percentage for the rows"
+            "choose count, effective count, column percentage or row percentage for the rows"
         );
     }
 
@@ -854,6 +1000,138 @@ mod tests {
             d.syntax().unwrap_err(),
             "a multiple response set has no mean; put it in Rows"
         );
+    }
+
+    #[test]
+    fn custom_tables_category_order_and_totals() {
+        let mut d = CustomTables {
+            rows: v(&["region"]),
+            columns: v(&["gender"]),
+            scale_rows: v(&["age"]),
+            totals: true,
+            ..Default::default()
+        };
+        // settings left at their defaults add nothing, and take the variable out of TOTAL=YES
+        d.categories = vec![Categories::new("region", false)];
+        assert_eq!(
+            d.syntax().unwrap(),
+            "CTABLES\n  /TABLE region [C] [COUNT] + age [S] [MEAN] BY gender [C]\n  \
+             /CATEGORIES VARIABLES=gender TOTAL=YES."
+        );
+        let region = &mut d.categories[0];
+        region.descending = true;
+        region.key = "COUNT".into();
+        region.missing = true;
+        region.total = true;
+        region.total_label = "All regions".into();
+        region.before = true;
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "CTABLES\n  /TABLE region [C] [COUNT] + age [S] [MEAN] BY gender [C]\n  \
+             /CATEGORIES VARIABLES=gender TOTAL=YES\n  \
+             /CATEGORIES VARIABLES=region ORDER=D KEY=COUNT MISSING=INCLUDE TOTAL=YES \
+             LABEL='All regions' POSITION=BEFORE."
+        );
+        assert_eq!(runs(&syntax), 1);
+        d.categories[0].key = "MEAN(age)".into();
+        d.categories[0].total_label = "Total".into();
+        let syntax = d.syntax().unwrap();
+        assert!(syntax.ends_with(
+            "/CATEGORIES VARIABLES=region ORDER=D KEY=MEAN(age) MISSING=INCLUDE TOTAL=YES \
+             POSITION=BEFORE."
+        ));
+        assert_eq!(runs(&syntax), 1);
+        d.categories[0].key = "LABEL".into();
+        assert_eq!(runs(&d.syntax().unwrap()), 1);
+        // a variable taken out of the table again keeps its settings but adds nothing
+        d.rows = v(&["q1_satisfaction"]);
+        assert!(!d.syntax().unwrap().contains("VARIABLES=region"));
+    }
+
+    #[test]
+    fn custom_tables_subtotals() {
+        let subtotal = |label: &str, values: &[&str]| Subtotal {
+            label: label.into(),
+            values: v(values),
+        };
+        let mut categories = Categories::new("q1_satisfaction", true);
+        categories.subtotals = vec![subtotal("Unhappy", &["1", "2"]), subtotal("", &["4", "5"])];
+        let mut d = CustomTables {
+            rows: v(&["q1_satisfaction"]),
+            columns: v(&["gender"]),
+            column_percent: true,
+            categories: vec![categories],
+            ..Default::default()
+        };
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "CTABLES\n  /TABLE q1_satisfaction [C] [COUNT, COLPCT.COUNT PCT40.1] BY gender [C]\n  \
+             /CATEGORIES VARIABLES=q1_satisfaction [1, 2, SUBTOTAL='Unhappy', 4, 5, \
+             SUBTOTAL='Subtotal', OTHERNM] TOTAL=YES."
+        );
+        assert_eq!(runs(&syntax), 1);
+        // order and sorting do not apply to an explicit list
+        let q1 = &mut d.categories[0];
+        q1.descending = true;
+        q1.key = "COUNT".into();
+        q1.hide_sources = true;
+        q1.missing = true;
+        q1.other = false;
+        q1.before = true;
+        let syntax = d.syntax().unwrap();
+        assert!(syntax.ends_with(
+            "/CATEGORIES VARIABLES=q1_satisfaction [MISSING, HSUBTOTAL='Unhappy', 1, 2, \
+             HSUBTOTAL='Subtotal', 4, 5] TOTAL=YES POSITION=BEFORE."
+        ));
+        assert_eq!(runs(&syntax), 1);
+        // a test compares the subtotals in place of the categories they hide
+        d.compare_proportions = true;
+        assert_eq!(runs(&d.syntax().unwrap()), 2);
+        d.categories[0].subtotals.push(Subtotal::default());
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "a subtotal needs at least one category"
+        );
+
+        // string values are listed as quoted literals
+        let mut plan = Categories::new("plan", false);
+        plan.subtotals = vec![subtotal("Paid", &["'PLUS'", "'PREMIUM'"])];
+        let d = CustomTables {
+            rows: v(&["plan"]),
+            categories: vec![plan],
+            ..Default::default()
+        };
+        let syntax = d.syntax().unwrap();
+        assert!(syntax.ends_with(
+            "/CATEGORIES VARIABLES=plan ['PLUS', 'PREMIUM', SUBTOTAL='Paid', OTHERNM]."
+        ));
+        assert_eq!(runs(&syntax), 1);
+    }
+
+    #[test]
+    fn custom_tables_effective_base() {
+        let mut d = CustomTables {
+            rows: v(&["region"]),
+            columns: v(&["gender"]),
+            effective_count: true,
+            effective_weight: "weight".into(),
+            chi_square: true,
+            ..Default::default()
+        };
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "CTABLES\n  /WEIGHT VARIABLE=weight\n  /TABLE region [C] [COUNT, ECOUNT] BY gender [C]\n  \
+             /SIGTEST TYPE=CHISQUARE ALPHA=0.05."
+        );
+        assert_eq!(runs(&syntax), 2);
+        d.count = false;
+        d.effective_weight.clear();
+        let syntax = d.syntax().unwrap();
+        assert!(syntax.starts_with("CTABLES\n  /TABLE region [C] [ECOUNT] BY gender [C]"));
+        assert_eq!(runs(&syntax), 2);
     }
 
     #[test]

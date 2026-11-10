@@ -10,22 +10,23 @@ use crate::data_dialogs::{
     SortCases, WeightCases,
 };
 use crate::dialogs::{
-    Adjust, CROSSTABS_CELLS, Compute, Count, Crosstabs, CustomTables, DESCRIPTIVES_STATISTICS,
-    Descriptives, Frequencies, Letters, NewValue, OldValue, Recode, RecodeRule, label_command,
+    Adjust, CROSSTABS_CELLS, Categories, Compute, Count, Crosstabs, CustomTables,
+    DESCRIPTIVES_STATISTICS, Descriptives, Frequencies, Letters, NewValue, OldValue, Recode,
+    RecodeRule, Subtotal, is_set, label_command,
 };
 use crate::edits::{self, Field};
 use crate::output::{self, OutputItem};
-use crate::syntax_text::quote;
+use crate::syntax_text::{number, quote};
 use crate::{editor, grid};
 use eframe::egui::{
     self, Align, Align2, Color32, ComboBox, FocusDirection, FontId, Key, Modifiers, Rect, RichText,
     ScrollArea, Sense, Stroke, StrokeKind, TextEdit, TextStyle, Ui, UiBuilder, pos2,
     text::LayoutJob, vec2,
 };
-use statscraft_data::Dataset;
+use statscraft_data::{Dataset, Value, Values};
 use statscraft_engine::live::{self, Action, Request, Response};
 use statscraft_engine::session::{Done, Failure, RunResult, Session};
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 
@@ -57,6 +58,16 @@ enum Tab {
     Output,
 }
 
+/// The categories panel of Custom Tables: the variable shown, its categories as (syntax
+/// literal, shown text), and the subtotal being put together.
+#[derive(Default)]
+struct CategoryDraft {
+    variable: String,
+    categories: Vec<(String, String)>,
+    label: String,
+    chosen: Vec<String>,
+}
+
 /// The rule being put together in the Recode dialog.
 #[derive(Default)]
 struct RuleDraft {
@@ -72,7 +83,7 @@ enum Dialog {
     Descriptives(Descriptives),
     Explore(Explore),
     Crosstabs(Crosstabs),
-    CustomTables(CustomTables),
+    CustomTables(CustomTables, CategoryDraft),
     Compute(Compute, String),
     Recode(Recode, RuleDraft),
     /// With the label of the new variable and the value being put together.
@@ -97,7 +108,7 @@ impl Dialog {
             Dialog::Descriptives(_) => "Descriptives",
             Dialog::Explore(_) => "Explore",
             Dialog::Crosstabs(_) => "Crosstabs",
-            Dialog::CustomTables(_) => "Custom Tables",
+            Dialog::CustomTables(..) => "Custom Tables",
             Dialog::Compute(..) => "Compute Variable",
             Dialog::Recode(..) => "Recode",
             Dialog::Count(..) => "Count Values within Cases",
@@ -120,7 +131,9 @@ impl Dialog {
             Dialog::Descriptives(_) => Dialog::Descriptives(Default::default()),
             Dialog::Explore(_) => Dialog::Explore(Default::default()),
             Dialog::Crosstabs(_) => Dialog::Crosstabs(Default::default()),
-            Dialog::CustomTables(_) => Dialog::CustomTables(Default::default()),
+            Dialog::CustomTables(..) => {
+                Dialog::CustomTables(Default::default(), Default::default())
+            }
             Dialog::Compute(..) => Dialog::Compute(Default::default(), String::new()),
             Dialog::Recode(..) => Dialog::Recode(Default::default(), Default::default()),
             Dialog::Count(..) => {
@@ -148,7 +161,7 @@ impl Dialog {
             Dialog::Descriptives(d) => d.syntax(),
             Dialog::Explore(d) => d.syntax(),
             Dialog::Crosstabs(d) => d.syntax(),
-            Dialog::CustomTables(d) => d.syntax(),
+            Dialog::CustomTables(d, _) => d.syntax(),
             Dialog::Compute(d, label) => {
                 let mut text = d.syntax()?;
                 if let Some(label) = label_command(&d.target, label) {
@@ -701,7 +714,7 @@ impl App {
                     .add_enabled(has_data, egui::Button::new("Custom Tables..."))
                     .clicked()
                 {
-                    self.open_dialog(Dialog::CustomTables(Default::default()));
+                    self.open_dialog(Dialog::CustomTables(Default::default(), Default::default()));
                 }
                 ui.add_enabled_ui(has_data, |ui| {
                     ui.menu_button("Compare Means", |ui| {
@@ -1385,13 +1398,20 @@ impl App {
                 ui.horizontal_top(|ui| {
                     ui.vertical(|ui| {
                         ui.set_width(230.0);
-                        let sets = matches!(dialog, Dialog::CustomTables(_));
+                        let sets = matches!(dialog, Dialog::CustomTables(..));
                         variable_picker(ui, data, sets, &mut self.filter, &mut self.picked);
                     });
                     ui.add_space(12.0);
-                    ui.vertical(|ui| {
-                        dialog_body(ui, data, dialog, &mut self.picked);
-                    });
+                    // a long dialog scrolls, so OK stays in reach on a small screen
+                    let height = (ctx.content_rect().height() - 260.0).max(240.0);
+                    ScrollArea::vertical()
+                        .id_salt("dialog_body")
+                        .max_height(height)
+                        .show(ui, |ui| {
+                            ui.vertical(|ui| {
+                                dialog_body(ui, data, dialog, &mut self.picked);
+                            });
+                        });
                 });
                 ui.separator();
                 ui.weak("Syntax");
@@ -2075,7 +2095,7 @@ fn dialog_body(ui: &mut Ui, data: &Dataset, dialog: &mut Dialog, picked: &mut Ve
             checkboxes(ui, &CROSSTABS_CELLS, &mut d.cells);
             ui.checkbox(&mut d.chi_square, "Chi-square tests");
         }
-        Dialog::CustomTables(d) => {
+        Dialog::CustomTables(d, draft) => {
             target_list(ui, "Rows (categories or sets)", &mut d.rows, picked);
             target_list(ui, "Columns (categories or sets)", &mut d.columns, picked);
             target_list(
@@ -2094,6 +2114,8 @@ fn dialog_body(ui: &mut Ui, data: &Dataset, dialog: &mut Dialog, picked: &mut Ve
             ui.strong("Summaries");
             ui.horizontal_wrapped(|ui| {
                 ui.checkbox(&mut d.count, "Count");
+                ui.checkbox(&mut d.effective_count, "Effective count")
+                    .on_hover_text("The effective base of the weighted count");
                 ui.checkbox(&mut d.column_percent, "Column %");
                 ui.checkbox(&mut d.row_percent, "Row %");
                 ui.checkbox(&mut d.mean, "Mean");
@@ -2106,6 +2128,9 @@ fn dialog_body(ui: &mut Ui, data: &Dataset, dialog: &mut Dialog, picked: &mut Ve
                     TextEdit::singleline(&mut d.small_count).desired_width(40.0),
                 );
             });
+            target_one(ui, "Effective base weight", &mut d.effective_weight, picked);
+            egui::CollapsingHeader::new("Categories, totals and subtotals")
+                .show(ui, |ui| categories_panel(ui, data, d, draft));
             ui.strong("Significance tests (need column variables)");
             ui.checkbox(&mut d.chi_square, "Chi-square test of independence");
             ui.checkbox(&mut d.compare_proportions, "Compare column proportions");
@@ -2690,6 +2715,210 @@ fn dialog_body(ui: &mut Ui, data: &Dataset, dialog: &mut Dialog, picked: &mut Ve
     }
 }
 
+/// The categories of one variable of Custom Tables: order, totals, subtotals, missing values.
+fn categories_panel(ui: &mut Ui, data: &Dataset, d: &mut CustomTables, draft: &mut CategoryDraft) {
+    let mut names: Vec<String> = Vec::new();
+    for name in d.rows.iter().chain(&d.columns).chain(&d.layers) {
+        if !names.contains(name) {
+            names.push(name.clone());
+        }
+    }
+    if names.is_empty() {
+        ui.weak("Add variables to Rows, Columns or Layers first.");
+        return;
+    }
+    if !names.contains(&draft.variable) {
+        *draft = CategoryDraft::default();
+        draft.variable = names[0].clone();
+        draft.categories = categories(data, &draft.variable);
+    }
+    ComboBox::new("category_variable", "")
+        .selected_text(&draft.variable)
+        .show_ui(ui, |ui| {
+            for name in &names {
+                if ui.selectable_label(&draft.variable == name, name).clicked() {
+                    *draft = CategoryDraft::default();
+                    draft.variable = name.clone();
+                    draft.categories = categories(data, name);
+                }
+            }
+        });
+    let Some(i) = d
+        .categories
+        .iter()
+        .position(|c| c.variable == draft.variable)
+    else {
+        if ui.button("Set the categories of this variable").clicked() {
+            d.categories
+                .push(Categories::new(&draft.variable, d.totals));
+        }
+        ui.weak("Until then it follows Totals under Summaries.");
+        return;
+    };
+    let scale = d.scale_rows.clone();
+    let c = &mut d.categories[i];
+    let listed = !c.subtotals.is_empty();
+    ui.add_enabled_ui(!listed, |ui| {
+        ui.horizontal(|ui| {
+            ui.label("Sort by");
+            let key_label = |key: &str| match key {
+                "" => "Value".to_string(),
+                "LABEL" => "Label".to_string(),
+                "COUNT" => "Count".to_string(),
+                other => format!("Mean of {}", &other[5..other.len() - 1]),
+            };
+            ComboBox::new("category_key", "")
+                .selected_text(key_label(&c.key))
+                .show_ui(ui, |ui| {
+                    let keys = ["", "LABEL", "COUNT"].map(String::from).into_iter();
+                    for key in keys.chain(scale.iter().map(|s| format!("MEAN({s})"))) {
+                        let text = key_label(&key);
+                        ui.selectable_value(&mut c.key, key, text);
+                    }
+                });
+            ui.radio_value(&mut c.descending, false, "ascending");
+            ui.radio_value(&mut c.descending, true, "descending");
+        });
+    });
+    if listed {
+        ui.weak("With subtotals the categories keep their value order.");
+    }
+    ui.horizontal(|ui| {
+        ui.checkbox(&mut c.total, "Total, labelled");
+        ui.add_enabled(
+            c.total,
+            TextEdit::singleline(&mut c.total_label)
+                .desired_width(120.0)
+                .hint_text("Total"),
+        );
+    });
+    ui.horizontal(|ui| {
+        ui.label("Totals and subtotals");
+        ui.radio_value(&mut c.before, false, "after");
+        ui.radio_value(&mut c.before, true, "before");
+        ui.label("their categories");
+    });
+    ui.checkbox(&mut c.missing, "Show user-missing values as categories");
+    if is_set(&c.variable) {
+        ui.weak("Subtotals are for variables, not sets.");
+    } else {
+        ui.strong("Subtotals");
+        let mut remove = None;
+        for (s, subtotal) in c.subtotals.iter().enumerate() {
+            ui.horizontal(|ui| {
+                let label = match subtotal.label.trim() {
+                    "" => "Subtotal",
+                    label => label,
+                };
+                ui.label(format!("{label}: {}", subtotal.values.join(", ")));
+                if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
+                    remove = Some(s);
+                }
+            });
+        }
+        if let Some(s) = remove {
+            c.subtotals.remove(s);
+        }
+        let used: Vec<&String> = c.subtotals.iter().flat_map(|s| &s.values).collect();
+        let free: Vec<&(String, String)> = draft
+            .categories
+            .iter()
+            .filter(|(literal, _)| !used.contains(&literal))
+            .collect();
+        // shortcut: the first 200 categories only; a variable with more is not one to subtotal
+        ui.horizontal_wrapped(|ui| {
+            for (literal, shown) in free.into_iter().take(200) {
+                let mut on = draft.chosen.contains(literal);
+                if ui.checkbox(&mut on, shown).changed() {
+                    if on {
+                        draft.chosen.push(literal.clone());
+                    } else {
+                        draft.chosen.retain(|l| l != literal);
+                    }
+                }
+            }
+        });
+        ui.horizontal(|ui| {
+            ui.add(
+                TextEdit::singleline(&mut draft.label)
+                    .desired_width(140.0)
+                    .hint_text("Subtotal label"),
+            );
+            if ui
+                .add_enabled(!draft.chosen.is_empty(), egui::Button::new("Add subtotal"))
+                .clicked()
+            {
+                // the categories in their value order
+                let values = draft
+                    .categories
+                    .iter()
+                    .map(|(literal, _)| literal)
+                    .filter(|l| draft.chosen.contains(l))
+                    .cloned()
+                    .collect();
+                c.subtotals.push(Subtotal {
+                    label: std::mem::take(&mut draft.label),
+                    values,
+                });
+                draft.chosen.clear();
+            }
+        });
+        ui.add_enabled_ui(listed, |ui| {
+            ui.checkbox(&mut c.hide_sources, "Hide the categories a subtotal sums");
+            ui.checkbox(&mut c.other, "Show the categories outside the subtotals");
+        });
+    }
+    if ui.button("Back to the defaults").clicked() {
+        d.categories.remove(i);
+    }
+}
+
+/// The valid categories of a variable, labelled or in the data, in ascending order, as
+/// (syntax literal, shown text).
+fn categories(data: &Dataset, name: &str) -> Vec<(String, String)> {
+    let Ok(v) = data.variable(name) else {
+        return Vec::new();
+    };
+    let shown =
+        |literal: String, value: Value| match v.value_labels().iter().find(|(k, _)| *k == value) {
+            Some((_, label)) => (literal.clone(), format!("{literal}  {label}")),
+            None => (literal.clone(), literal),
+        };
+    let labelled = v.value_labels().iter().map(|(k, _)| k.clone());
+    match v.values() {
+        Values::Numeric(values) => {
+            let mut numbers: Vec<f64> = labelled
+                .filter_map(|k| match k {
+                    Value::Number(n) => Some(n),
+                    Value::String(_) => None,
+                })
+                .chain(values.iter().flatten())
+                .filter(|n| !v.is_user_missing(*n))
+                .collect();
+            numbers.sort_by(f64::total_cmp);
+            numbers.dedup();
+            numbers
+                .into_iter()
+                .map(|n| shown(number(n), Value::Number(n)))
+                .collect()
+        }
+        Values::String(values) => {
+            let texts: BTreeSet<String> = labelled
+                .filter_map(|k| match k {
+                    Value::String(s) => Some(s),
+                    Value::Number(_) => None,
+                })
+                .chain(values.iter().map(str::to_string))
+                .filter(|s| !s.is_empty() && !v.is_user_missing_str(s))
+                .collect();
+            texts
+                .into_iter()
+                .map(|s| shown(quote(&s), Value::String(s)))
+                .collect()
+        }
+    }
+}
+
 /// The options the three t tests share.
 fn t_test_options(ui: &mut Ui, d: &mut TTest) {
     ui.add_space(6.0);
@@ -2714,6 +2943,21 @@ fn t_test_options(ui: &mut Ui, d: &mut TTest) {
 mod tests {
     use super::*;
     use crate::dialogs::testing::{open, run_in, v};
+
+    #[test]
+    fn subtotal_categories_are_the_valid_values_in_order() {
+        let session = open("survey_basic.sav");
+        let data = session.dataset().unwrap();
+        let q1 = categories(data, "q1_satisfaction");
+        let literals: Vec<&str> = q1.iter().map(|(l, _)| l.as_str()).collect();
+        // 98 and 99 are user-missing
+        assert_eq!(literals, ["1", "2", "3", "4", "5"]);
+        assert_eq!(q1[0].1, "1  Very dissatisfied");
+        let plan = categories(data, "plan");
+        let literals: Vec<&str> = plan.iter().map(|(l, _)| l.as_str()).collect();
+        assert_eq!(literals, ["'BASIC'", "'ENTERPRISE'", "'PLUS'", "'PREMIUM'"]);
+        assert!(categories(data, "nonesuch").is_empty());
+    }
 
     #[test]
     fn warnings_of_a_run_reach_the_log_and_the_status_note() {
