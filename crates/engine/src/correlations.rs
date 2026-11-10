@@ -22,13 +22,13 @@ use statscraft_data::{Values, Variable};
 use statscraft_syntax::{Correlations, CorrelationsLayout};
 
 /// Sums of one pair of variables over their common cases.
-struct Pair {
+pub(crate) struct Pair {
     w: f64,
     cross: f64,
-    r: f64,
+    pub r: f64,
 }
 
-fn pair(x: &[(f64, f64, f64)]) -> Pair {
+pub(crate) fn pair(x: &[(f64, f64, f64)]) -> Pair {
     let w: f64 = x.iter().map(|p| p.2).sum();
     let mx = x.iter().map(|p| p.0 * p.2).sum::<f64>() / w;
     let my = x.iter().map(|p| p.1 * p.2).sum::<f64>() / w;

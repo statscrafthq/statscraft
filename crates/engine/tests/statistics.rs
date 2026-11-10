@@ -1,4 +1,4 @@
-//! MEANS, T-TEST, ONEWAY and CORRELATIONS on the survey fixtures. Expected numbers come from two
+//! MEANS, T-TEST, ONEWAY, CORRELATIONS and NONPAR CORR on the survey fixtures. Expected numbers come from two
 //! sources: the reference program, printed with ten decimals where it follows the manuals
 //! (`reference_procedures.rs` repeats those comparisons on many more cases), and an independent
 //! computation of the manual's formulas in a general statistics library for what that program
@@ -444,4 +444,144 @@ fn string_variables_are_refused() {
     assert!(survey().execute(&commands[0].command).is_err());
     let (commands, _) = parse("CORRELATIONS age plan.");
     assert!(survey().execute(&commands[0].command).is_err());
+    let (commands, _) = parse("NONPAR CORR age plan.");
+    assert!(survey().execute(&commands[0].command).is_err());
+}
+
+/// Coefficient, significance and N of row variable `i` and column `j` in a NONPAR CORR block
+/// that starts at row `block` (three statistic rows per variable).
+fn rank_cell(table: &Table, block: usize, i: usize, j: usize) -> [Cell; 3] {
+    let row = |k: usize| table.rows[block + 3 * i + k][3 + j].clone();
+    [row(0), row(1), row(2)]
+}
+
+// Rank correlations: R's cor() of average ranks (rho) and with method "kendall" (tau-b);
+// significances from the manual's formulas computed in R; weighted data repeated
+// round(weight) times.
+#[test]
+fn nonpar_corr_pairwise_both_coefficients() {
+    let tables = run(
+        &mut survey(),
+        "NONPAR CORR /VARIABLES=age monthly_spend q1_satisfaction q2_recommend /PRINT=BOTH.",
+    );
+    let table = &tables[0];
+    assert_eq!(table.rows.len(), 24);
+    assert_eq!(text(&table.rows[0][0]), "Kendall's tau_b");
+    assert_eq!(text(&table.rows[12][0]), "Spearman's rho");
+    assert_eq!(text(&table.rows[1][2]), "Sig. (2-tailed)");
+    let expected = [
+        (
+            0,
+            [
+                0.0789618982605368,
+                0.182482700978464,
+                -0.0365908239847991,
+                0.5018312660273193,
+            ],
+        ),
+        (
+            12,
+            [
+                0.106386470670086,
+                0.179210463903539,
+                -0.0530696300049373,
+                0.4842242439449533,
+            ],
+        ),
+    ];
+    for (block, values) in expected {
+        let [r, sig, n] = rank_cell(table, block, 1, 2);
+        near(number(&r), values[0], 13);
+        near(number(&sig), values[1], 12);
+        assert_eq!(number(&n), 161.0);
+        let [r, sig, n] = rank_cell(table, block, 0, 3);
+        near(number(&r), values[2], 13);
+        near(number(&sig), values[3], 12);
+        assert_eq!(number(&n), 176.0);
+        // the diagonal: 1 without a significance
+        let [r, sig, _] = rank_cell(table, block, 2, 2);
+        assert_eq!((number(&r), sig), (1.0, Cell::Empty));
+    }
+}
+
+#[test]
+fn nonpar_corr_listwise_include_and_weights() {
+    let tables = run(
+        &mut survey(),
+        "NONPAR CORR /VARIABLES=age monthly_spend q1_satisfaction q2_recommend /PRINT=BOTH /MISSING=LISTWISE INCLUDE.",
+    );
+    let table = &tables[0];
+    assert_eq!(table.rows.len(), 16);
+    assert_eq!(table.caption.as_deref(), Some("Listwise N = 181."));
+    let cell =
+        |block: usize, i: usize, j: usize, k: usize| number(&table.rows[block + 2 * i + k][3 + j]);
+    near(cell(0, 2, 3, 0), 0.00419133471368308, 13);
+    near(cell(0, 2, 3, 1), 0.942048263476441, 12);
+    near(cell(8, 2, 3, 0), 0.00508521085800225, 13);
+    near(cell(8, 2, 3, 1), 0.945832625525696, 12);
+    near(cell(0, 0, 2, 0), 0.0672129456920739, 13);
+    near(cell(8, 0, 2, 1), 0.2113201412163491, 12);
+    let tables = run(
+        &mut weighted(),
+        "NONPAR CORR /VARIABLES=age monthly_spend q1_satisfaction q2_recommend /PRINT=BOTH ONETAIL.",
+    );
+    let table = &tables[0];
+    assert_eq!(text(&table.rows[1][2]), "Sig. (1-tailed)");
+    let expected = [
+        (
+            0,
+            [
+                0.1136075364132749,
+                0.0432193787396817,
+                0.0286224732276349,
+                0.5160567803509514,
+            ],
+        ),
+        (
+            12,
+            [
+                0.1426714876297558,
+                0.0433367446076042,
+                0.0447013968550983,
+                0.4934238881575562,
+            ],
+        ),
+    ];
+    for (block, values) in expected {
+        let [r, sig, n] = rank_cell(table, block, 2, 3);
+        near(number(&r), values[0], 13);
+        near(number(&sig), values[1] / 2.0, 12);
+        assert_eq!(number(&n), 201.0);
+        let [r, sig, n] = rank_cell(table, block, 0, 1);
+        near(number(&r), values[2], 13);
+        near(number(&sig), values[3] / 2.0, 12);
+        assert_eq!(number(&n), 237.0);
+    }
+}
+
+#[test]
+fn nonpar_corr_flags_layout_and_constant_variables() {
+    let tables = run(
+        &mut survey(),
+        "COMPUTE twice = age * 2 + 1.\nCOMPUTE same = 4.\n\
+         NONPAR CORR /VARIABLES=age WITH twice same /PRINT=KENDALL NOSIG\n\
+         /age monthly_spend q1_satisfaction /PRINT=LNODIAG.",
+    );
+    assert_eq!(tables.len(), 2);
+    let table = &tables[0];
+    assert_eq!(table.columns[3..], ["twice", "same"]);
+    assert_eq!(text(&table.rows[0][0]), "Kendall's tau_b");
+    assert_eq!(text(&table.rows[0][3]), "1.000**");
+    // a constant variable has no coefficient
+    assert_eq!(table.rows[0][4], Cell::Empty);
+    assert_eq!(table.rows[1][4], Cell::Empty);
+    assert_eq!(number(&table.rows[2][4]), 200.0);
+    let caption = table.caption.as_deref().unwrap();
+    assert!(caption.starts_with("* significant"), "{caption}");
+    // the later PRINT keeps KENDALL: the diagonal and the upper triangle are empty
+    let table = &tables[1];
+    assert_eq!(table.rows.len(), 9);
+    assert_eq!(table.rows[0][3], Cell::Empty);
+    assert_eq!(table.rows[3][5], Cell::Empty);
+    assert!(!matches!(table.rows[3][3], Cell::Empty));
 }

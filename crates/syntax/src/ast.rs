@@ -57,6 +57,7 @@ pub enum Command {
     TTest(TTest),
     Oneway(Oneway),
     Correlations(Correlations),
+    NonparCorr(NonparCorr),
     AddFiles(Merge),
     MatchFiles(Merge),
 }
@@ -261,6 +262,25 @@ pub struct Correlations {
     /// `/STATISTICS=XPROD`: cross-products and covariances.
     pub xprod: bool,
     /// `/MISSING=LISTWISE`
+    pub listwise: bool,
+    /// `/MISSING=INCLUDE`
+    pub include: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct NonparCorr {
+    /// One entry per variable list: the variables, and the list after WITH.
+    pub lists: Vec<(Vec<VarItem>, Option<Vec<VarItem>>)>,
+    /// Spearman's rho: `/PRINT=SPEARMAN` (the default) or BOTH.
+    pub spearman: bool,
+    /// Kendall's tau-b: `/PRINT=KENDALL` or BOTH.
+    pub kendall: bool,
+    /// `/PRINT=ONETAIL`
+    pub one_tailed: bool,
+    /// `/PRINT=NOSIG`: mark significant coefficients with asterisks.
+    pub flag: bool,
+    pub layout: CorrelationsLayout,
+    /// `/MISSING=LISTWISE`: per variable list.
     pub listwise: bool,
     /// `/MISSING=INCLUDE`
     pub include: bool,

@@ -1,9 +1,9 @@
-//! Parsers of the procedures that compare means and correlate: MEANS, T-TEST, ONEWAY and
-//! CORRELATIONS.
+//! Parsers of the procedures that compare means and correlate: MEANS, T-TEST, ONEWAY,
+//! CORRELATIONS and NONPAR CORR.
 
 use crate::ast::{
-    Command, Correlations, CorrelationsLayout, Means, MeansCell as M, MeansMissing, Oneway,
-    Posthoc, Standardizer, TTest, TTestGroups, TTestPairs, VarItem,
+    Command, Correlations, CorrelationsLayout, Means, MeansCell as M, MeansMissing, NonparCorr,
+    Oneway, Posthoc, Standardizer, TTest, TTestGroups, TTestPairs, VarItem,
 };
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
@@ -635,4 +635,88 @@ pub(crate) fn correlations(p: &mut Parser) -> PResult<Command> {
         return Err(p.unexpected(&["VARIABLES=varlist"]));
     }
     Ok(Command::Correlations(command))
+}
+
+const NONPAR_CORR_SUBCOMMANDS: [&str; 6] =
+    ["VARIABLES", "PRINT", "MISSING", "SAMPLE", "MATRIX", "CI"];
+
+pub(crate) fn nonpar_corr(p: &mut Parser) -> PResult<Command> {
+    let mut command = NonparCorr {
+        lists: Vec::new(),
+        spearman: true,
+        kendall: false,
+        one_tailed: false,
+        flag: false,
+        layout: CorrelationsLayout::Full,
+        listwise: false,
+        include: false,
+    };
+    p.eat(Punct::Slash);
+    let mut more = true;
+    if !p.at_keyword("VARIABLES") {
+        command.lists.push(correlation_list(p)?);
+        more = p.eat(Punct::Slash);
+    }
+    while more {
+        if p.eat_keyword("VARIABLES") {
+            p.expect(Punct::Eq)?;
+            command.lists.push(correlation_list(p)?);
+        } else if p.eat_keyword("MISSING") {
+            p.eat(Punct::Eq);
+            const CHOICES: [(&str, &[u8]); 3] =
+                [("PAIRWISE", &[0]), ("LISTWISE", &[1]), ("INCLUDE", &[2])];
+            for choice in keywords(p, &CHOICES, |p| p.unexpected(&names(&CHOICES)))? {
+                match choice {
+                    0 => command.listwise = false,
+                    1 => command.listwise = true,
+                    _ => command.include = true,
+                }
+            }
+        } else if p.eat_keyword("PRINT") {
+            p.eat(Punct::Eq);
+            const CHOICES: [(&str, &[u8]); 11] = [
+                ("TWOTAIL", &[0]),
+                ("ONETAIL", &[1]),
+                ("SIG", &[2]),
+                ("NOSIG", &[3]),
+                ("SPEARMAN", &[4]),
+                ("KENDALL", &[5]),
+                ("BOTH", &[6]),
+                ("FULL", &[7]),
+                ("LOWER", &[8]),
+                ("LNODIAG", &[9]),
+                // the table is suppressed only together with /CI; without it FULL applies
+                ("NOMATRIX", &[7]),
+            ];
+            for choice in keywords(p, &CHOICES, |p| p.unexpected(&names(&CHOICES)))? {
+                match choice {
+                    0 => command.one_tailed = false,
+                    1 => command.one_tailed = true,
+                    2 => command.flag = false,
+                    3 => command.flag = true,
+                    4 => (command.spearman, command.kendall) = (true, false),
+                    5 => (command.spearman, command.kendall) = (false, true),
+                    6 => (command.spearman, command.kendall) = (true, true),
+                    7 => command.layout = CorrelationsLayout::Full,
+                    8 => command.layout = CorrelationsLayout::Lower,
+                    _ => command.layout = CorrelationsLayout::LowerNoDiagonal,
+                }
+            }
+        } else if p.eat_keyword("SAMPLE") {
+            // sampling applies only when the cases do not fit in memory, which they always do
+        } else if !at_subcommand(p, &NONPAR_CORR_SUBCOMMANDS)
+            && matches!(p.peek(), Some(TokenKind::Word(_)))
+        {
+            // another variable list after a slash, without the VARIABLES keyword
+            command.lists.push(correlation_list(p)?);
+        } else {
+            return Err(p.subcommand_error("NONPAR CORR", &["MATRIX", "CI"]));
+        }
+        more = p.eat(Punct::Slash);
+    }
+    p.finish(&["'/'", "WITH"])?;
+    if command.lists.is_empty() {
+        return Err(p.unexpected(&["VARIABLES=varlist"]));
+    }
+    Ok(Command::NonparCorr(command))
 }

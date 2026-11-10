@@ -467,6 +467,22 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: stats::correlations,
     },
     CommandSpec {
+        name: "NONPAR CORR",
+        summary: "Spearman's rho and Kendall's tau-b rank correlations with significance.",
+        syntax: "NONPAR CORR [/VARIABLES=]varlist [WITH varlist] [/varlist ...]\n\
+                 \x20           [/PRINT=SPEARMAN | KENDALL | BOTH  TWOTAIL | ONETAIL  SIG | NOSIG\n\
+                 \x20                   FULL | LOWER | LNODIAG] [/MISSING=PAIRWISE | LISTWISE [INCLUDE]] [/SAMPLE].\n\
+                 A list alone gives a square matrix, WITH a rectangular one (left variables in rows). Ties get\n\
+                 their average rank; rho is tested with t on N - 2 df, tau-b with the normal approximation and\n\
+                 the tie-corrected variance. NOSIG marks coefficients significant at 0.05 with * and at 0.01\n\
+                 with **. PAIRWISE (default) uses the cases valid on both variables of a pair; LISTWISE the\n\
+                 cases valid on every variable of the list, each list on its own. A weight variable repeats\n\
+                 each case as often as its weight rounded to a whole number. SAMPLE changes nothing.\n\
+                 Not supported yet: MATRIX, CI.",
+        example: "NONPAR CORR /VARIABLES=satisfaction recommend WITH age /PRINT=BOTH NOSIG.",
+        parse: stats::nonpar_corr,
+    },
+    CommandSpec {
         name: "ADD FILES",
         summary: "Append the cases of several data files, matching variables by name.",
         syntax: "ADD FILES /FILE=* | 'path' [/RENAME=(old = new) ...] /FILE=... [/BY varlist]\n\
@@ -562,7 +578,6 @@ static UNSUPPORTED: &[&str] = &[
     "MULT RESPONSE",
     "N OF CASES",
     "NEW FILE",
-    "NONPAR CORR",
     "NPAR TESTS",
     "OUTPUT CLOSE",
     "OUTPUT EXPORT",

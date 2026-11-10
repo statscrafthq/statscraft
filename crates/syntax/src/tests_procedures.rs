@@ -343,3 +343,34 @@ fn correlations() {
             .contains("MATRIX of CORRELATIONS is not supported yet")
     );
 }
+
+#[test]
+fn nonpar_corr() {
+    let Command::NonparCorr(c) = one(
+        "NONPAR CORR /VARIABLES=a b WITH c /d e /PRINT=BOTH ONETAIL NOSIG LOWER /MISSING=LISTWISE INCLUDE /SAMPLE.",
+    ) else {
+        panic!()
+    };
+    assert_eq!(
+        c.lists,
+        [
+            (vec![var("a"), var("b")], Some(vec![var("c")])),
+            (vec![var("d"), var("e")], None)
+        ]
+    );
+    assert!(c.spearman && c.kendall && c.one_tailed && c.flag && c.listwise && c.include);
+    assert_eq!(c.layout, CorrelationsLayout::Lower);
+    let Command::NonparCorr(c) = one("NONPAR CORR a b c /PRINT=KENDALL.") else {
+        panic!()
+    };
+    assert!(!c.spearman && c.kendall && !c.listwise && !c.flag);
+    let Command::NonparCorr(c) = one("NONPAR CORR a b.") else {
+        panic!()
+    };
+    assert!(c.spearman && !c.kendall);
+    assert!(
+        err("NONPAR CORR a b /CI METHOD(FHP).")
+            .message
+            .contains("CI of NONPAR CORR is not supported yet")
+    );
+}

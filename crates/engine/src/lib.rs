@@ -12,6 +12,7 @@ pub mod live;
 mod means;
 mod merge;
 mod mrsets;
+mod nonpar_corr;
 mod oneway;
 mod recode;
 pub mod session;
@@ -396,6 +397,7 @@ impl Engine {
             Command::TTest(command) => return self.t_test(command),
             Command::Oneway(command) => return self.oneway(command),
             Command::Correlations(command) => return self.correlations(command),
+            Command::NonparCorr(command) => return self.nonpar_corr(command),
             Command::AddFiles(merge) => self.merge_files(merge, true)?,
             Command::MatchFiles(merge) => self.merge_files(merge, false)?,
         }
