@@ -136,6 +136,44 @@ pub enum Command {
     Attribute(Vec<AttributeChange>),
     AlterType(Vec<AlterType>),
     ApplyDictionary(ApplyDictionary),
+    GetData(GetData),
+}
+
+/// GET DATA /TYPE=TXT.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetData {
+    pub file: String,
+    pub encoding: Option<String>,
+    /// ARRANGEMENT=FIXED; else DELIMITED.
+    pub fixed: bool,
+    /// FIRSTCASE: the 1-based line of the first case.
+    pub first_case: u32,
+    /// DELCASE=VARIABLES n: n values make a case, across lines; None is DELCASE=LINE.
+    pub values_per_case: Option<u32>,
+    /// FIXCASE: lines per case of fixed data.
+    pub lines_per_case: u32,
+    /// None when DELIMITERS is not given.
+    pub delimiters: Option<Vec<char>>,
+    pub qualifier: Option<char>,
+    /// IMPORTCASE=FIRST n
+    pub first_cases: Option<u64>,
+    /// MULTIPLESPACES IGNORE=YES
+    pub ignore_multiple_spaces: bool,
+    /// LEADINGSPACES IGNORE=YES
+    pub ignore_leading_spaces: bool,
+    pub variables: Vec<GetDataVariable>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetDataVariable {
+    pub name: String,
+    /// Fixed data: the 1-based record and the 0-based first and last column.
+    pub record: u32,
+    pub columns: Option<(u32, u32)>,
+    /// None is AUTO. A width of 0 means none was given.
+    pub format: Option<Format>,
+    /// Format X: read past the values and keep no variable.
+    pub skip: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

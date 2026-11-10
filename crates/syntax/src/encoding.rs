@@ -18,6 +18,12 @@ pub fn encoding_for(name: &str) -> Option<&'static Encoding> {
     if name.eq_ignore_ascii_case("utf8") {
         return Some(encoding_rs::UTF_8);
     }
+    if name.eq_ignore_ascii_case("utf16") || name.eq_ignore_ascii_case("utf16le") {
+        return Some(encoding_rs::UTF_16LE);
+    }
+    if name.eq_ignore_ascii_case("utf16be") {
+        return Some(encoding_rs::UTF_16BE);
+    }
     if let Ok(page) = name.parse::<u32>() {
         return code_page(page);
     }

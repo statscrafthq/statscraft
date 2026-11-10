@@ -8,6 +8,7 @@ use crate::data_list;
 use crate::dictionary;
 use crate::examine;
 use crate::files;
+use crate::get_data;
 use crate::lexer::{Punct, Token, TokenKind};
 use crate::loops;
 use crate::mrsets;
@@ -1017,6 +1018,26 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         example: "APPLY DICTIONARY FROM 'template.sav' /FILEINFO VARSETS=MERGE MRSETS.",
         parse: dictionary::apply_dictionary,
     },
+    CommandSpec {
+        name: "GET DATA",
+        summary: "Read a text data file, delimited or in fixed columns, as the active dataset.",
+        syntax: "GET DATA /TYPE=TXT /FILE='path' [/ENCODING='name'] [/ARRANGEMENT=DELIMITED | FIXED]\n\
+                 \x20        [/FIRSTCASE=n] [/DELCASE=LINE | VARIABLES n] [/FIXCASE=n] [/DELIMITERS=\"chars\"]\n\
+                 \x20        [/QUALIFIER=\"c\"] [/IMPORTCASE=ALL | FIRST n] [/MULTIPLESPACES IGNORE=NO | YES]\n\
+                 \x20        [/LEADINGSPACES IGNORE=NO | YES]\n\
+                 \x20        /VARIABLES=name format [name format ...].\n\
+                 FIXED: /VARIABLES=[/record] name first-last format ..., columns counted from 0.\n\
+                 format: F, A, DATE, ADATE, SDATE, DATETIME, DOLLAR, COMMA and the other input formats, with\n\
+                 or without a width; AUTO reads a number when every value is one, else a string as wide as the\n\
+                 longest value; X skips the field. DELIMITERS: \\t is a tab, \\\\ a backslash; two delimiters\n\
+                 in a row leave a value empty. Default delimiters: tab and comma. A value between\n\
+                 qualifiers may hold delimiters and line breaks; a doubled qualifier is one. SET DECIMAL=COMMA\n\
+                 reads a comma as the decimal mark. ENCODING as for INSERT; a byte order mark wins.\n\
+                 Other types (XLS, XLSX, ODBC) are not supported yet.",
+        example: "GET DATA /TYPE=TXT /FILE='wave2.csv' /DELIMITERS=\",\" /QUALIFIER='\"' /FIRSTCASE=2\n\
+                  \x20 /VARIABLES=id F5 name A20 born SDATE10.",
+        parse: get_data::get_data,
+    },
 ];
 
 /// Commands of the language that have no parser yet. They get "not supported yet" instead of
@@ -1043,7 +1064,6 @@ static UNSUPPORTED: &[&str] = &[
     "FILE TYPE",
     "FINISH",
     "FLIP",
-    "GET DATA",
     "GET TRANSLATE",
     "GLM",
     "GRAPH",

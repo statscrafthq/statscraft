@@ -12,6 +12,7 @@ mod dist;
 mod examine;
 mod expr;
 mod frequencies;
+mod get_data;
 pub mod live;
 mod loops;
 mod means;

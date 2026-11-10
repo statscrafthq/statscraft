@@ -138,6 +138,7 @@ impl Engine {
                 | Command::MatchFiles(_)
                 | Command::Dataset(_)
                 | Command::Set(_)
+                | Command::GetData(_)
         );
         let Some(format) = self.new_variable_format().filter(|_| !reads_file) else {
             return Ok(());
@@ -252,6 +253,7 @@ impl Engine {
             Command::Use(range) => self.use_cases(range.as_ref())?,
             Command::Display(display) => return self.display_command(display),
             Command::List(_) => return self.procedure(command),
+            Command::GetData(get) => self.get_data(get)?,
             Command::AddValueLabels(_)
             | Command::FileLabel(_)
             | Command::AddDocument(_)

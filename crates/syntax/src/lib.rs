@@ -25,6 +25,7 @@ mod error;
 mod examine;
 mod expr;
 mod files;
+mod get_data;
 mod lexer;
 mod loops;
 mod macros;

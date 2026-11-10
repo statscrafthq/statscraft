@@ -302,7 +302,11 @@ fn read(
 }
 
 /// A number in one of the numeric input formats; None for a blank field.
-fn number(text: &str, kind: FormatType, decimals: u8) -> Result<Option<f64>, &'static str> {
+pub(crate) fn number(
+    text: &str,
+    kind: FormatType,
+    decimals: u8,
+) -> Result<Option<f64>, &'static str> {
     let text = text.trim();
     // a lone period is the system-missing value, as values are shown
     if text.is_empty() || text == "." {
@@ -391,7 +395,7 @@ fn month(text: &str) -> Option<f64> {
 
 /// A date in DATE (day month year), ADATE (month day year), EDATE (day month year) or SDATE
 /// (year month day) form. Blanks, dashes, slashes, periods and commas separate the parts.
-fn date(text: &str, kind: FormatType) -> Result<Option<f64>, &'static str> {
+pub(crate) fn date(text: &str, kind: FormatType) -> Result<Option<f64>, &'static str> {
     let parts: Vec<&str> = text
         .split([' ', '-', '/', '.', ','])
         .filter(|p| !p.is_empty())

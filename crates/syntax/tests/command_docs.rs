@@ -10,6 +10,7 @@ const AREAS: &[(&str, &[&str])] = &[
         "Data files and dictionary",
         &[
             "GET",
+            "GET DATA",
             "SAVE",
             "ADD FILES",
             "MATCH FILES",
