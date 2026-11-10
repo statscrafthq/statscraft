@@ -13,6 +13,8 @@ pub struct OutputTable {
 /// The tables of one command.
 pub struct OutputItem {
     pub heading: String,
+    /// The syntax that made the tables, as it was written.
+    pub syntax: String,
     pub tables: Vec<OutputTable>,
 }
 
@@ -27,6 +29,24 @@ pub fn tables(runs: &[OutputRun]) -> impl Iterator<Item = &OutputTable> {
     runs.iter()
         .flat_map(|run| &run.items)
         .flat_map(|item| &item.tables)
+}
+
+/// The command that made the table with that id.
+pub fn item_of(runs: &[OutputRun], id: u64) -> Option<&OutputItem> {
+    runs.iter()
+        .flat_map(|run| &run.items)
+        .find(|item| item.tables.iter().any(|t| t.id == id))
+}
+
+/// Lines `first` to `last` (from 1, inclusive) of a source: the syntax of one command.
+pub fn source_lines(source: &str, first: u32, last: u32) -> String {
+    let count = last.saturating_sub(first) as usize + 1;
+    let lines: Vec<&str> = source
+        .lines()
+        .skip(first.saturating_sub(1) as usize)
+        .take(count)
+        .collect();
+    lines.join("\n")
 }
 
 /// Keeps the tables `keep` takes, and the commands and runs that still have one.
@@ -387,6 +407,7 @@ mod tests {
                 label: s("Run 1"),
                 items: vec![OutputItem {
                     heading: s("CTABLES & more"),
+                    syntax: s("CTABLES /TABLE a BY b."),
                     tables: vec![t(1), t(2)],
                 }],
             },
@@ -395,10 +416,12 @@ mod tests {
                 items: vec![
                     OutputItem {
                         heading: s("FREQUENCIES"),
+                        syntax: s("FREQUENCIES x."),
                         tables: vec![t(3)],
                     },
                     OutputItem {
                         heading: s("CROSSTABS"),
+                        syntax: s("CROSSTABS a BY b."),
                         tables: vec![t(4)],
                     },
                 ],
@@ -419,6 +442,21 @@ mod tests {
         assert_eq!(page.matches("<table>").count(), 1);
         assert!(page.contains("<h2>CROSSTABS</h2>") && !page.contains("FREQUENCIES"));
         assert!(clipboard_html(&[&table()]).starts_with("<!doctype html>"));
+    }
+
+    #[test]
+    fn every_command_keeps_the_syntax_that_made_it() {
+        let source = "GET FILE='a.sav'.\r\nFREQUENCIES\n  /VARIABLES=x.\nfre y.";
+        assert_eq!(source_lines(source, 2, 3), "FREQUENCIES\n  /VARIABLES=x.");
+        assert_eq!(source_lines(source, 4, 4), "fre y.");
+        assert_eq!(source_lines(source, 1, 1), "GET FILE='a.sav'.");
+        let output = runs();
+        assert_eq!(
+            item_of(&output, 2).unwrap().syntax,
+            "CTABLES /TABLE a BY b."
+        );
+        assert_eq!(item_of(&output, 4).unwrap().syntax, "CROSSTABS a BY b.");
+        assert!(item_of(&output, 9).is_none());
     }
 
     #[test]

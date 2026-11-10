@@ -33,6 +33,10 @@ pub enum Request {
         one_sheet: bool,
     },
     Status(Result<String, String>),
+    /// Put the syntax in the syntax editor.
+    Paste(String),
+    /// Run the syntax again.
+    Run(String),
 }
 
 /// The context menu of a table.
@@ -95,6 +99,8 @@ pub struct OutputView {
     clipboard: Option<arboard::Clipboard>,
     /// The tables on light paper whatever the system theme.
     pub light_paper: bool,
+    /// A table of the command whose syntax shows under the navigator.
+    syntax_of: Option<u64>,
 }
 
 impl OutputView {
@@ -103,9 +109,10 @@ impl OutputView {
     }
 
     /// Adds the tables of one run, with a heading per command; returns whether there were any.
-    pub fn add_run(&mut self, origin: &str, commands: Vec<(String, Vec<Table>)>) -> bool {
+    /// Each command comes with its heading and the syntax that made it.
+    pub fn add_run(&mut self, origin: &str, commands: Vec<(String, String, Vec<Table>)>) -> bool {
         let mut items = Vec::new();
-        for (heading, tables) in commands {
+        for (heading, syntax, tables) in commands {
             if tables.is_empty() {
                 continue;
             }
@@ -119,7 +126,11 @@ impl OutputView {
                     }
                 })
                 .collect();
-            items.push(OutputItem { heading, tables });
+            items.push(OutputItem {
+                heading,
+                syntax,
+                tables,
+            });
         }
         let Some(first) = items.first().map(|item: &OutputItem| item.tables[0].id) else {
             return false;
@@ -188,6 +199,7 @@ impl OutputView {
     /// Selects the tables, or with Ctrl adds them to the selection (or takes them out when all
     /// are in it already).
     fn pick(&mut self, ids: &[u64], ctrl: bool) {
+        self.syntax_of = ids.first().copied();
         if !ctrl {
             self.selected.clear();
             self.selected.extend(ids);
@@ -294,13 +306,50 @@ impl OutputView {
             .resizable(true)
             .default_size(240.0)
             .max_size(480.0)
-            .show(ui, |ui| self.navigator(ui, ctrl));
+            .show(ui, |ui| {
+                if let Some(r) = self.item_syntax(ui) {
+                    request = Some(r);
+                }
+                self.navigator(ui, ctrl);
+            });
         egui::CentralPanel::default().show(ui, |ui| {
             crate::app::paper(ui, self.light_paper);
             if let Some(r) = self.tables(ui, ctrl) {
                 request = Some(r);
             }
         });
+        request
+    }
+
+    /// The syntax of the command picked last, under the navigator, to copy, paste or run again.
+    fn item_syntax(&mut self, ui: &mut Ui) -> Option<Request> {
+        let item = output::item_of(&self.runs, self.syntax_of?)?;
+        let mut request = None;
+        egui::Panel::bottom("item_syntax")
+            .resizable(true)
+            .default_size(150.0)
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.weak("Syntax");
+                    if ui.small_button("Copy").clicked() {
+                        ui.ctx().copy_text(item.syntax.clone());
+                        request = Some(Request::Status(Ok("syntax copied".into())));
+                    }
+                    if ui
+                        .small_button("Paste")
+                        .on_hover_text("Put it in the syntax editor")
+                        .clicked()
+                    {
+                        request = Some(Request::Paste(item.syntax.clone()));
+                    }
+                    if ui.small_button("Run again").clicked() {
+                        request = Some(Request::Run(item.syntax.clone()));
+                    }
+                });
+                ScrollArea::both().auto_shrink(false).show(ui, |ui| {
+                    ui.add(egui::Label::new(RichText::new(&item.syntax).monospace()).extend());
+                });
+            });
         request
     }
 
@@ -342,7 +391,12 @@ impl OutputView {
                             ui.horizontal(|ui| {
                                 ui.add_space(10.0);
                                 let heading = RichText::new(&run.items[i].heading).strong();
-                                if ui.selectable_label(all, heading).clicked() {
+                                let row = ui.selectable_label(all, heading);
+                                let syntax = &run.items[i].syntax;
+                                let row = row.on_hover_ui(|ui| {
+                                    ui.label(RichText::new(syntax).monospace());
+                                });
+                                if row.clicked() {
                                     picked = Some(ids);
                                 }
                             });

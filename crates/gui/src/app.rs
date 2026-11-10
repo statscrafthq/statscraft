@@ -285,6 +285,8 @@ pub struct App {
     wrap: bool,
     /// The data file before the last change, which undo puts back too.
     file_before_change: Option<PathBuf>,
+    /// The syntax of the run going on or done last, for the syntax of its output.
+    source: String,
     /// The full help of a command, from F1.
     help_window: Option<String>,
     completion: Option<Completion>,
@@ -353,6 +355,7 @@ impl App {
             selection: (0, 0),
             wrap: true,
             file_before_change: None,
+            source: String::new(),
             help_window: None,
             completion: None,
             editor_id: None,
@@ -391,6 +394,7 @@ impl App {
         self.warnings = 0;
         let check = matches!(&after, After::Remote((r, _)) if r.action == Action::Check);
         let job = self.session.job(source, lines, check);
+        self.source = source.to_string();
         let label = match &after {
             After::OpenData(path) => format!("Opening {}", path.display()),
             _ => format!("Running {}", job.label()),
@@ -535,7 +539,8 @@ impl App {
                             format!("{}, lines {}-{}", out.name, out.first_line, out.last_line)
                         }
                     };
-                    commands.push((heading, out.tables));
+                    let syntax = output::source_lines(&self.source, out.first_line, out.last_line);
+                    commands.push((heading, syntax, out.tables));
                 }
                 if self.output.add_run(origin, commands) {
                     self.tab = Tab::Output;
@@ -1774,6 +1779,13 @@ impl eframe::App for App {
                         self.export_xlsx(one_sheet, true)
                     }
                     Some(output_view::Request::Status(status)) => self.status = status,
+                    Some(output_view::Request::Paste(syntax)) => {
+                        editor::append(&mut self.syntax, &syntax);
+                        self.tab = Tab::Syntax;
+                    }
+                    Some(output_view::Request::Run(syntax)) => {
+                        self.run(&syntax, None, After::Show);
+                    }
                     None => {}
                 }
             }
