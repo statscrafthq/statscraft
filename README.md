@@ -76,7 +76,13 @@ cargo run -p statscraft-gui -- survey.sav job.sps     open a data file and a syn
 - **Syntax**: an editor with line numbers. Run all, or Run selection (Ctrl+Enter) for the commands on the selected lines. Errors show at their line and column, and the help panel (F1) follows the command under the cursor.
 - **Output**: every result table with its multi-level header, an outline, Copy (tab-separated, for a spreadsheet) and Export as HTML.
 
-The Analyze menu has dialogs for Frequencies, Descriptives, Crosstabs and Custom Tables (rows, columns, means, percentages, totals and significance tests); the Transform menu has Compute and Recode. A dialog shows the syntax it builds: OK runs it, Paste puts it in the syntax editor.
+The menus have dialogs that build syntax:
+
+- **Data**: Define Multiple Response Sets (dichotomy or category sets, counted value, labels, deleting sets), Sort Cases, Select Cases (SELECT IF, which deletes the other cases), Weight Cases, Aggregate (into every case, a new dataset of one case per group, or a file) and Merge Files with Add Cases and Add Variables (with keys, or a lookup table).
+[removed]
+- **Transform**: Compute, Recode and Count Values within Cases.
+
+A dialog shows the syntax it builds: OK runs it, Paste puts it in the syntax editor. Options left at their defaults add nothing to the syntax. Warnings of a run appear under its command in the log, and the status bar says how many there were.
 
 Syntax is the only command layer: every change and every result in the window comes from syntax run by the engine, exactly as `statscraft run` runs it. Opening a file runs `GET FILE`, editing a cell runs `IF ($CASENUM = n) var = value.`, editing a label runs `VARIABLE LABELS`, and so on. The log under the tabs lists every command with what it changed, and Copy syntax there gives a script that repeats the session.
 
