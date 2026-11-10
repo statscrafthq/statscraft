@@ -329,10 +329,16 @@ pub(crate) fn studentized_range_cdf(q: f64, k: f64, df: f64) -> f64 {
     if q <= 0.0 {
         return 0.0;
     }
+    over_scale(df, |s| normal_range_cdf(q * s, k))
+}
+
+/// E[f(s)] for s = chi / sqrt(df), the scale of a statistic studentized with `df` degrees of
+/// freedom; f(1) above 50000 df, where s is 1 to a few parts in 1e3 and the integral to 1e-10.
+fn over_scale(df: f64, f: impl Fn(f64) -> f64) -> f64 {
     if df > 50_000.0 {
-        return normal_range_cdf(q, k);
+        return f(1.0);
     }
-    // the density of s = chi / sqrt(df), integrated where it is not negligible
+    // the density of s, integrated where it is not negligible
     let half = df / 2.0;
     let log_density = |s: f64| {
         std::f64::consts::LN_2 + half * half.ln() - ln_gamma(half) + (df - 1.0) * s.ln()
@@ -354,7 +360,7 @@ pub(crate) fn studentized_range_cdf(q: f64, k: f64, df: f64) -> f64 {
         if s <= 0.0 {
             0.0
         } else {
-            log_density(s).exp() * normal_range_cdf(q * s, k)
+            log_density(s).exp() * f(s)
         }
     };
     integrate(outer, low, high, 16).clamp(0.0, 1.0)
@@ -364,6 +370,59 @@ pub(crate) fn studentized_range_cdf(q: f64, k: f64, df: f64) -> f64 {
 /// probability `upper`.
 pub(crate) fn studentized_range_quantile(upper: f64, k: f64, df: f64) -> f64 {
     let f = |q: f64| studentized_range_cdf(q, k, df) - (1.0 - upper);
+    solve(f, 0.0, bracket(&f, 4.0))
+}
+
+/// The distribution function of the studentized maximum modulus of `r` independent standard
+/// normals with `df` degrees of freedom: P(max |z_i| / s < m).
+pub(crate) fn maximum_modulus_cdf(m: f64, r: f64, df: f64) -> f64 {
+    if m <= 0.0 {
+        return 0.0;
+    }
+    over_scale(df, |s| (2.0 * normal_cdf(m * s) - 1.0).max(0.0).powf(r))
+}
+
+/// The value of the studentized maximum modulus of `r` normals with `df` degrees of freedom
+/// exceeded with probability `upper`.
+pub(crate) fn maximum_modulus_quantile(upper: f64, r: f64, df: f64) -> f64 {
+    let f = |m: f64| maximum_modulus_cdf(m, r, df) - (1.0 - upper);
+    solve(f, 0.0, bracket(&f, 4.0))
+}
+
+/// Dunnett's many-to-one distribution: P(max T_i < d), or P(max |T_i| < d) when `two_sided`,
+/// for t statistics with `df` degrees of freedom whose normal parts have the product
+/// correlations lambda_i lambda_j. Each z_i = lambda_i z0 + sqrt(1 - lambda_i^2) e_i with
+/// independent standard normals, so the probability is a double integral over z0 and the scale.
+pub(crate) fn dunnett_cdf(d: f64, lambdas: &[f64], df: f64, two_sided: bool) -> f64 {
+    if two_sided && d <= 0.0 {
+        return 0.0;
+    }
+    let density = |z: f64| (-z * z / 2.0).exp() / (2.0 * std::f64::consts::PI).sqrt();
+    let given_scale = |s: f64| {
+        let x = d * s;
+        let inner = |z: f64| {
+            let product: f64 = lambdas
+                .iter()
+                .map(|&l| {
+                    let c = (1.0 - l * l).sqrt();
+                    let upper = normal_cdf((x - l * z) / c);
+                    if two_sided {
+                        (upper - normal_cdf((-x - l * z) / c)).max(0.0)
+                    } else {
+                        upper
+                    }
+                })
+                .product();
+            density(z) * product
+        };
+        integrate(inner, -8.5, 8.5, 24)
+    };
+    over_scale(df, given_scale)
+}
+
+/// The value of Dunnett's statistic (see `dunnett_cdf`) exceeded with probability `upper`.
+pub(crate) fn dunnett_quantile(upper: f64, lambdas: &[f64], df: f64, two_sided: bool) -> f64 {
+    let f = |d: f64| dunnett_cdf(d, lambdas, df, two_sided) - (1.0 - upper);
     solve(f, 0.0, bracket(&f, 4.0))
 }
 
@@ -531,5 +590,74 @@ mod tests {
         let delta = noncentral_t_parameter(2.5, 30.0, 0.975);
         assert!((noncentral_t_cdf(2.5, 30.0, delta) - 0.975).abs() < 1e-12);
         assert!(close(hedges_j(10.0), HEDGES_10, 1e-13));
+    }
+
+    // Studentized maximum modulus and Dunnett's distribution: R's integrate() of the same
+    // integrals at a relative tolerance of 1e-13 (cross-checked with mvtnorm's pmvt to 1e-8),
+    // and the critical values of Dunnett's published tables to their two decimals.
+    const REFERENCE_SMM: [(f64, f64, f64, f64); 5] = [
+        (2.5, 3.0, 10.0, 0.913_685_721_036_227_25),
+        (3.0, 10.0, 20.0, 0.936_095_528_946_572_22),
+        (2.0, 1.0, 5.0, 0.898_060_521_170_141_9),
+        (3.5, 6.0, 3.0, 0.860_426_876_678_561_99),
+        (2.9, 45.0, 120.0, 0.824_155_097_138_753_01),
+    ];
+    const REFERENCE_QSMM: [(f64, f64, f64); 3] = [
+        (10.0, 20.0, 3.113_968_958_470_938_5),
+        (3.0, 10.0, 2.828_855_230_224_835_5),
+        (6.0, 60.0, 2.716_088_737_385_315_3),
+    ];
+
+    #[test]
+    fn maximum_modulus_known_values() {
+        for (m, r, df, p) in REFERENCE_SMM {
+            let got = maximum_modulus_cdf(m, r, df);
+            assert!((got - p).abs() < 1e-10, "{m} {r} {df}: {got} vs {p}");
+        }
+        for (r, df, m) in REFERENCE_QSMM {
+            let got = maximum_modulus_quantile(0.05, r, df);
+            assert!(close(got, m, 1e-9), "{r} {df}: {got} vs {m}");
+        }
+        // one modulus is |t|
+        assert!((maximum_modulus_cdf(2.0, 1.0, 5.0) - (1.0 - t_p(2.0, 5.0))).abs() < 1e-10);
+    }
+
+    #[test]
+    fn dunnett_known_values() {
+        let equal = [0.5f64.sqrt(); 3];
+        let unequal = [
+            0.674_199_862_463_242_04,
+            0.745_355_992_499_929_9,
+            0.804_399_666_539_843_74,
+        ];
+        let cases = [
+            (2.5, &equal, 10.0, true, 0.923_464_387_108_830_16),
+            (2.0, &equal, 10.0, false, 0.914_481_751_627_406_52),
+            (2.3, &unequal, 45.0, true, 0.934_436_573_826_292_08),
+            (1.9, &unequal, 45.0, false, 0.924_430_925_307_719_75),
+        ];
+        for (d, lambdas, df, two, p) in cases {
+            let got = dunnett_cdf(d, lambdas, df, two);
+            assert!((got - p).abs() < 1e-10, "{d} {df} {two}: {got} vs {p}");
+        }
+        // with correlations 1/2 the k statistics all lie below 0 with probability 1 / (k + 1)
+        for k in 1..=6 {
+            let got = dunnett_cdf(0.0, &vec![0.5f64.sqrt(); k], 7.0, false);
+            assert!((got - 1.0 / (k as f64 + 1.0)).abs() < 1e-10, "{k}: {got}");
+        }
+        // Dunnett's tables, equal groups, infinite df: two-sided then one-sided, 2 to 5 groups
+        let table = [(2.21, 1.92), (2.35, 2.06), (2.44, 2.16), (2.51, 2.23)];
+        for (p, (two, one)) in table.into_iter().enumerate() {
+            let lambdas = vec![0.5f64.sqrt(); p + 2];
+            let got = dunnett_quantile(0.05, &lambdas, 1e9, true);
+            assert!((got - two).abs() <= 0.005, "{p}: {got}");
+            let got = dunnett_quantile(0.05, &lambdas, 1e9, false);
+            assert!((got - one).abs() <= 0.005, "{p}: {got}");
+        }
+        // 10 df, three groups: 2.76 and 2.34 in the tables, 2.758996978 and 2.337559070 in R
+        let got = dunnett_quantile(0.05, &equal, 10.0, true);
+        assert!(close(got, 2.758_996_978_373_59, 1e-9), "{got}");
+        let got = dunnett_quantile(0.05, &equal, 10.0, false);
+        assert!(close(got, 2.337_559_069_576_3, 1e-9), "{got}");
     }
 }

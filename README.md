@@ -30,7 +30,7 @@ Commands executed so far: GET, SAVE, VARIABLE LABELS, VALUE LABELS, MISSING VALU
 
 MEANS reports means, counts, medians and other statistics of dependent variables within nested groups of control variables, with an optional analysis of variance and test of linearity.
 T-TEST runs one-sample, independent-samples (with Levene's test and both variance assumptions) and paired-samples t tests, with Cohen's d, Hedges' correction and Glass's delta and their confidence intervals.
-ONEWAY gives the one-way analysis of variance with descriptives, Levene's test, the Welch and Brown-Forsythe tests, contrasts and the LSD, Bonferroni, Sidak, Tukey, Scheffe, Games-Howell and Tamhane post hoc comparisons.
+ONEWAY gives the one-way analysis of variance with descriptives, Levene's test, the Welch and Brown-Forsythe tests, contrasts and the LSD, Bonferroni, Sidak, Tukey, Scheffe, Hochberg GT2, Gabriel, Games-Howell, Tamhane T2, Dunnett T3, Dunnett C and Dunnett many-to-one post hoc comparisons, and homogeneous subsets by the Student-Newman-Keuls, Tukey, Tukey b, Duncan, Scheffe, GT2, Gabriel and Ryan-Einot-Gabriel-Welsch F and range tests.
 CORRELATIONS gives Pearson correlations in square or rectangular matrices with one- or two-tailed significance, case counts, cross-products and covariances, pairwise or listwise.
 These four run weighted when a weight variable is set.
 NONPAR CORR gives Spearman's rho and Kendall's tau-b with one- or two-tailed significance, pairwise or listwise per variable list; a weight repeats each case as often as its weight rounded to a whole number.

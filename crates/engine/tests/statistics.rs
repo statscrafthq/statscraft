@@ -322,7 +322,8 @@ fn oneway_tables_weighted() {
             "ANOVA",
             "Contrast Coefficients",
             "Contrast Tests",
-            "Multiple Comparisons: age"
+            "Multiple Comparisons: age",
+            "Homogeneous Subsets: age"
         ]
     );
     let descriptives = &tables[0];
@@ -358,6 +359,328 @@ fn oneway_robust_tests_and_separate_variance_comparisons() {
     let games_howell = &comparisons.rows[20];
     assert_eq!(text(&games_howell[0]), "Games-Howell");
     near(number(&games_howell[5]), 0.307_121_930_382_999, 9);
+}
+
+// GT2, Gabriel and T3: the manual's formulas in R, the studentized maximum modulus by
+// integrate() to 1e-13; Dunnett's C with R's ptukey inverted to 1e-13.
+#[test]
+fn oneway_maximum_modulus_and_dunnett_c_comparisons() {
+    let tables = run(
+        &mut survey(),
+        "ONEWAY age BY region /POSTHOC=GT2 GABRIEL T3 C.",
+    );
+    let table = titled(&tables, "Multiple Comparisons");
+    assert_eq!(table.rows.len(), 80);
+    // (row within a block of 20, mean difference, pooled and separate standard errors)
+    let pairs = [
+        (0, -8.04630788485607, 4.28334077681653, 4.15341678705107),
+        (2, -11.7756497948016, 4.36616538250091, 4.38888978583132),
+        (5, 4.3404255319149, 4.44594731510282, 4.45412529311948),
+        (10, -8.06976744186046, 4.52579710832026, 4.67447480173158),
+        (15, 4.93933265925177, 4.03562092665536, 4.12604527891637),
+    ];
+    // per test and pair: significance and half width of the interval
+    let expected: [(&str, [(f64, f64); 5]); 4] = [
+        (
+            "Hochberg",
+            [
+                (0.466964353719703, 12.1223275845923),
+                (0.0731224414059589, 12.3567303684205),
+                (0.98070599499219, 12.5825220512973),
+                (0.541767051641856, 12.8085057872127),
+                (0.915934445730122, 11.4212530427036),
+            ],
+        ),
+        (
+            "Gabriel",
+            [
+                (0.462278637089227, 12.0829778129381),
+                (0.0721835146673095, 12.3355379420137),
+                (0.979835703075646, 12.5046589612592),
+                (0.536066727245728, 12.7572190903347),
+                (0.915864677412957, 11.419630334126),
+            ],
+        ),
+        (
+            "Dunnett T3",
+            [
+                (0.429670727621453, 11.9638867581345),
+                (0.0848650046716329, 12.641771269444),
+                (0.979361505977354, 12.8975211616958),
+                (0.590068760912715, 13.5143570973154),
+                (0.924100288104395, 11.8471444308118),
+            ],
+        ),
+        (
+            "Dunnett C",
+            [
+                (f64::NAN, 11.8933455187),
+                (f64::NAN, 12.5809617259),
+                (f64::NAN, 12.8268056895),
+                (f64::NAN, 13.4668889672),
+                (f64::NAN, 11.7440320895),
+            ],
+        ),
+    ];
+    for (t, (name, values)) in expected.iter().enumerate() {
+        assert_eq!(text(&table.rows[20 * t][0]), *name);
+        for ((row, diff, pooled, separate), (sig, half)) in pairs.iter().zip(values) {
+            let row = &table.rows[20 * t + row];
+            near(number(&row[3]), *diff, 12);
+            let se = if t < 2 { pooled } else { separate };
+            near(number(&row[4]), *se, 12);
+            if sig.is_nan() {
+                assert_eq!(row[5], Cell::Empty);
+            } else {
+                near(number(&row[5]), *sig, 9);
+            }
+            near(number(&row[6]), diff - half, 8);
+            near(number(&row[7]), diff + half, 8);
+        }
+    }
+}
+
+// Dunnett: significances from R's multcomp (glht with a Dunnett contrast, single-step
+// adjustment, good to a few units in 1e-7); critical values from the double integral over the scale
+// and the shared normal done again with R's integrate() to 1e-10.
+#[test]
+fn oneway_dunnett_two_and_one_sided() {
+    let tables = run(
+        &mut survey(),
+        "ONEWAY age BY region /POSTHOC=DUNNETT DUNNETTL(2) DUNNETTR(1) DUNNETT(6).",
+    );
+    let table = titled(&tables, "Multiple Comparisons");
+    assert_eq!(table.rows.len(), 12);
+    // (test, group, control, difference, standard error, significance)
+    let expected = [
+        (
+            "Dunnett t (2-sided)",
+            "North",
+            "Central",
+            -6.83631713555,
+            4.30283928253,
+            0.330592383867,
+        ),
+        (
+            "",
+            "South",
+            "Central",
+            1.20999074931,
+            3.94586420530,
+            0.994697399094,
+        ),
+        (
+            "",
+            "East",
+            "Central",
+            -3.13043478261,
+            4.46473573794,
+            0.899569520612,
+        ),
+        (
+            "",
+            "West",
+            "Central",
+            4.93933265925,
+            4.03562092666,
+            0.566466117956,
+        ),
+        (
+            "Dunnett t (<control)",
+            "North",
+            "South",
+            -8.04630788486,
+            4.28334077682,
+            0.0975640896945,
+        ),
+        (
+            "",
+            "East",
+            "South",
+            -4.34042553191,
+            4.44594731510,
+            0.3993564227007,
+        ),
+        (
+            "",
+            "West",
+            "South",
+            3.72934190995,
+            4.01482485082,
+            0.9787787427192,
+        ),
+        (
+            "",
+            "Central",
+            "South",
+            -1.20999074931,
+            3.94586420530,
+            0.7048201291919,
+        ),
+        (
+            "Dunnett t (>control)",
+            "South",
+            "North",
+            8.04630788486,
+            4.28334077682,
+            0.0908293336653,
+        ),
+        (
+            "",
+            "East",
+            "North",
+            3.70588235294,
+            4.76560899501,
+            0.4600040870144,
+        ),
+        (
+            "",
+            "West",
+            "North",
+            11.77564979480,
+            4.36616538250,
+            0.0130367779047,
+        ),
+        (
+            "",
+            "Central",
+            "North",
+            6.83631713555,
+            4.30283928253,
+            0.1551811427868,
+        ),
+    ];
+    let critical = [2.4725107092, 2.18937619991, 2.16016121226];
+    for (r, (test, group, control, diff, se, sig)) in expected.into_iter().enumerate() {
+        let row = &table.rows[r];
+        assert_eq!(
+            [text(&row[0]), text(&row[1]), text(&row[2])],
+            [test, group, control]
+        );
+        near(number(&row[3]), diff, 10);
+        near(number(&row[4]), se, 10);
+        near(number(&row[5]), sig, 6);
+        let half = critical[r / 4] * se;
+        match r / 4 {
+            0 => {
+                near(number(&row[6]), diff - half, 8);
+                near(number(&row[7]), diff + half, 8);
+            }
+            // one-sided intervals are open on one side
+            1 => {
+                assert_eq!(row[6], Cell::Empty);
+                near(number(&row[7]), diff + half, 8);
+            }
+            _ => {
+                near(number(&row[6]), diff - half, 8);
+                assert_eq!(row[7], Cell::Empty);
+            }
+        }
+    }
+    let mut engine = survey();
+    run(&mut engine, "ONEWAY age BY region /POSTHOC=DUNNETT(6).");
+    assert_eq!(
+        engine.warnings(),
+        ["no Dunnett t (2-sided) test for age: there are only 5 groups"]
+    );
+}
+
+// Homogeneous subsets: the manual's step-down rules implemented again in R with its ptukey,
+// pf and integrate (for the studentized maximum modulus). The weighted y2 gives different
+// subsets for different tests.
+#[test]
+fn oneway_homogeneous_subsets_weighted() {
+    let tables = run(
+        &mut weighted(),
+        "COMPUTE y2 = region * 0.25 + age / 20 + (region = 3) * 0.4.\n\
+         ONEWAY y2 BY region /POSTHOC=SNK BTUKEY DUNCAN TUKEY SCHEFFE GT2 GABRIEL FREGW QREGW.",
+    );
+    let table = titled(&tables, "Homogeneous Subsets: y2");
+    assert_eq!(table.columns[2..], ["N", "1", "2", "3"]);
+    assert_eq!(table.column_groups[3], ["Subset for alpha = 0.05"]);
+    assert!(table.caption.as_deref().unwrap().contains("harmonic mean"));
+    // nine tests of five groups and a Sig. row each
+    assert_eq!(table.rows.len(), 54);
+    let mean = |row: usize, subset: usize| match &table.rows[row][3 + subset] {
+        Cell::Number(n) => Some(*n),
+        _ => None,
+    };
+    // the subsets of each test as (first, last) positions of the means in ascending order, and
+    // their significances
+    let expected = [
+        (
+            "Student-Newman-Keuls",
+            [(0, 0), (1, 1), (2, 4)],
+            [Some(1.0), Some(1.0), Some(0.287603880627057)],
+        ),
+        ("Tukey B", [(0, 0), (1, 2), (2, 4)], [None, None, None]),
+        (
+            "Duncan",
+            [(0, 0), (1, 1), (2, 4)],
+            [Some(1.0), Some(1.0), Some(0.155964385009173)],
+        ),
+        (
+            "Tukey HSD",
+            [(0, 0), (1, 2), (2, 4)],
+            [Some(1.0), Some(0.160728620877921), Some(0.556506553087587)],
+        ),
+        (
+            "Scheffe",
+            [(0, 0), (1, 2), (2, 4)],
+            [Some(1.0), Some(0.278492129552933), Some(0.684268631752953)],
+        ),
+        (
+            "Hochberg",
+            [(0, 0), (1, 2), (2, 4)],
+            [Some(1.0), Some(0.218376700971119), Some(0.753334969738544)],
+        ),
+        (
+            "Gabriel",
+            [(0, 0), (1, 2), (2, 4)],
+            [Some(1.0), Some(0.218376700971119), Some(0.753334969738544)],
+        ),
+        (
+            "Ryan-Einot-Gabriel-Welsch F",
+            [(0, 0), (1, 2), (2, 4)],
+            [
+                Some(1.0),
+                Some(0.0846484868876268),
+                Some(0.5166919922932013),
+            ],
+        ),
+        (
+            "Ryan-Einot-Gabriel-Welsch Range",
+            [(0, 0), (1, 2), (2, 4)],
+            [Some(1.0), Some(0.138855253393862), Some(0.588094134722658)],
+        ),
+    ];
+    let means = [
+        2.4270000360491,
+        3.15641609444022,
+        3.58181954576465,
+        3.79355148656282,
+        3.86588672600676,
+    ];
+    for (t, (name, sets, sigs)) in expected.iter().enumerate() {
+        let first = 6 * t;
+        assert_eq!(text(&table.rows[first][0]), *name);
+        assert_eq!(text(&table.rows[first + 2][1]), "East");
+        for (s, &(a, b)) in sets.iter().enumerate() {
+            for (position, &m) in means.iter().enumerate() {
+                match mean(first + position, s) {
+                    Some(got) if a <= position && position <= b => near(got, m, 13),
+                    None if !(a <= position && position <= b) => {}
+                    other => panic!("{name} subset {s} position {position}: {other:?}"),
+                }
+            }
+            match sigs[s] {
+                // R's ptukey is good to about 1e-10
+                Some(sig) => near(number(&table.rows[first + 5][3 + s]), sig, 9),
+                None => assert_eq!(table.rows[first + 5][3 + s], Cell::Empty),
+            }
+        }
+    }
+    assert_eq!(text(&table.rows[5][1]), "Sig.");
 }
 
 #[test]

@@ -444,11 +444,16 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "ONEWAY deps BY factor [/STATISTICS=DESCRIPTIVES HOMOGENEITY WELCH BROWNFORSYTHE ALL NONE]\n\
                  \x20      [/CONTRAST=coefficients] [/POSTHOC=test ... [ALPHA(0.05)]]\n\
                  \x20      [/MISSING=ANALYSIS | LISTWISE [INCLUDE | EXCLUDE]] [/CRITERIA=CILEVEL(0.95)].\n\
-                 test: LSD BONFERRONI SIDAK TUKEY SCHEFFE GH T2. Every value of the factor is a group.\n\
-                 CONTRAST gives one coefficient per group in ascending order (n*c repeats c n times); it is\n\
-                 tested with pooled and separate variances. HOMOGENEITY is Levene's test based on the mean.\n\
-                 Multiple Comparisons show every ordered pair of groups. Weighted when a weight variable is set.\n\
-                 Not supported yet: POLYNOMIAL, RANGES, EFFECTS, homogeneous subsets and the other post hoc tests.",
+                 test: LSD BONFERRONI SIDAK TUKEY SCHEFFE GT2 GABRIEL GH T2 T3 C (pairwise comparisons),\n\
+                 DUNNETT DUNNETTL DUNNETTR [(refcat)] (each group against the reference group, by default the last;\n\
+                 L: smaller, R: larger), SNK BTUKEY DUNCAN FREGW QREGW (homogeneous subsets only); TUKEY SCHEFFE\n\
+                 GT2 GABRIEL give both. DUNCAN and the Dunnett keywords are written in full. Every value of the\n\
+                 factor is a group. CONTRAST gives one coefficient per group in ascending order (n*c repeats c n\n\
+                 times); it is tested with pooled and separate variances. HOMOGENEITY is Levene's test based on\n\
+                 the mean. Multiple Comparisons show every ordered pair of groups (Dunnett C has no significance).\n\
+                 Homogeneous subsets use the harmonic mean of the group sizes (the R-E-G-W tests the sizes\n\
+                 themselves); Tukey B shows no significance. Weighted when a weight variable is set.\n\
+                 Not supported yet: POLYNOMIAL, RANGES, EFFECTS, WALLER.",
         example: "ONEWAY income BY region /STATISTICS=DESCRIPTIVES HOMOGENEITY WELCH /POSTHOC=TUKEY GH.",
         parse: stats::oneway,
     },

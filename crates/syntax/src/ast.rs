@@ -246,6 +246,33 @@ pub enum Posthoc {
     Scheffe,
     GamesHowell,
     T2,
+    Snk,
+    /// `BTUKEY`: Tukey's b.
+    TukeyB,
+    Duncan,
+    /// Hochberg's GT2.
+    Gt2,
+    Gabriel,
+    /// Ryan-Einot-Gabriel-Welsch with the F test.
+    Fregw,
+    /// Ryan-Einot-Gabriel-Welsch with the studentized range.
+    Qregw,
+    /// Dunnett's T3.
+    T3,
+    /// Dunnett's C.
+    C,
+    /// `DUNNETT(refcat)`, `DUNNETTL` and `DUNNETTR`: each group against the reference group,
+    /// the 1-based position among the groups in ascending order (None: the last).
+    Dunnett(Option<u32>, DunnettSide),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DunnettSide {
+    Both,
+    /// `DUNNETTL`: is a group's mean smaller than the reference group's?
+    Less,
+    /// `DUNNETTR`: is it larger?
+    Greater,
 }
 
 #[derive(Debug, Clone, PartialEq)]

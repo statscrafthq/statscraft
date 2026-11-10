@@ -9,18 +9,33 @@
 //!   LISTWISE cases missing on any variable named.
 //! - Contrast coefficients go to the groups in ascending order; a list of the wrong length is
 //!   not tested and coefficients that do not sum to 0 are tested with a warning.
-//! - Post hoc tests compare every ordered pair of groups. LSD, Bonferroni, Sidak, Scheffe and
-//!   Tukey use the pooled variance; Games-Howell and Tamhane's T2 the separate variances with
-//!   Satterthwaite's df.
+//! - Pairwise post hoc tests compare every ordered pair of groups. LSD, Bonferroni, Sidak,
+//!   Scheffe, Tukey, Hochberg's GT2 and Gabriel use the pooled variance; Games-Howell, Tamhane's
+//!   T2, Dunnett's T3 and Dunnett's C the separate variances with Satterthwaite's df. GT2 and T3
+//!   take the studentized maximum modulus of k(k-1)/2 values, Gabriel the same with the standard
+//!   error s (1/sqrt(2 n_i) + 1/sqrt(2 n_j)), C a critical value averaged from the studentized
+//!   ranges of k groups with n_i - 1 df (it has no significance).
+//! - Dunnett's tests compare each group with the reference group (by default the last) using the
+//!   pooled variance and the maximum of the correlated t statistics (two-sided, or one-sided for
+//!   DUNNETTL and DUNNETTR, whose intervals are open on one side).
+//! - Range tests (SNK, Tukey, Tukey's b, Duncan, Scheffe, GT2, Gabriel and the R-E-G-W F and Q
+//!   tests) give homogeneous subsets: the means in ascending order are tested step down, from the
+//!   whole range to smaller ones as long as the enclosing ranges were significant, and every
+//!   range found not significant is a subset. They use the harmonic mean of the group sizes,
+//!   except the R-E-G-W tests, which use the group sizes and the level 1 - (1 - alpha)^(r/k) for
+//!   ranges of r < k - 1 means. A subset's significance is the smallest alpha at which its range
+//!   would be significant; Tukey's b averages two critical values and has none.
 
 use crate::descriptives::{case_weights, number};
 use crate::dist::{
-    f_p, f_quantile, studentized_range_cdf, studentized_range_quantile, t_p, t_quantile,
+    dunnett_cdf, dunnett_quantile, f_p, f_quantile, maximum_modulus_cdf, maximum_modulus_quantile,
+    studentized_range_cdf, studentized_range_quantile, t_p, t_quantile,
 };
 use crate::means::is_valid;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Value as Stored, Values, Variable};
-use statscraft_syntax::{Oneway, Posthoc};
+use statscraft_syntax::{DunnettSide, Oneway, Posthoc};
+use std::f64::consts::SQRT_2;
 
 /// The statistics of one group.
 #[derive(Clone, Copy)]
@@ -65,7 +80,180 @@ fn test_name(test: Posthoc) -> &'static str {
         Posthoc::Scheffe => "Scheffe",
         Posthoc::GamesHowell => "Games-Howell",
         Posthoc::T2 => "Tamhane",
+        Posthoc::Snk => "Student-Newman-Keuls",
+        Posthoc::TukeyB => "Tukey B",
+        Posthoc::Duncan => "Duncan",
+        Posthoc::Gt2 => "Hochberg",
+        Posthoc::Gabriel => "Gabriel",
+        Posthoc::Fregw => "Ryan-Einot-Gabriel-Welsch F",
+        Posthoc::Qregw => "Ryan-Einot-Gabriel-Welsch Range",
+        Posthoc::T3 => "Dunnett T3",
+        Posthoc::C => "Dunnett C",
+        Posthoc::Dunnett(_, DunnettSide::Both) => "Dunnett t (2-sided)",
+        Posthoc::Dunnett(_, DunnettSide::Less) => "Dunnett t (<control)",
+        Posthoc::Dunnett(_, DunnettSide::Greater) => "Dunnett t (>control)",
     }
+}
+
+/// Tests that give only homogeneous subsets.
+fn range_only(test: Posthoc) -> bool {
+    matches!(
+        test,
+        Posthoc::Snk | Posthoc::TukeyB | Posthoc::Duncan | Posthoc::Fregw | Posthoc::Qregw
+    )
+}
+
+/// Tests that give homogeneous subsets, alone or with pairwise comparisons.
+fn range_test(test: Posthoc) -> bool {
+    range_only(test)
+        || matches!(
+            test,
+            Posthoc::Tukey | Posthoc::Scheffe | Posthoc::Gt2 | Posthoc::Gabriel
+        )
+}
+
+/// A homogeneous subset: the first and last positions of its means in ascending order, and its
+/// significance.
+type Subset = (usize, usize, Option<f64>);
+
+/// The homogeneous subsets of a range test over the groups sorted by mean, each as the
+/// positions `first..=last` with its significance.
+fn subsets(test: Posthoc, sorted: &[Group], within: f64, df: f64, alpha: f64) -> Vec<Subset> {
+    let k = sorted.len();
+    let kf = k as f64;
+    let s = within.sqrt();
+    let harmonic = kf / sorted.iter().map(|g| 1.0 / g.w).sum::<f64>();
+    let pairs = kf * (kf - 1.0) / 2.0;
+    // the significance of the range of means i..=j, None for Tukey's b, and whether the range
+    // is significant
+    let test_range = |i: usize, j: usize| -> (Option<f64>, bool) {
+        let r = (j - i + 1) as f64;
+        let range = sorted[j].mean - sorted[i].mean;
+        let q = range * harmonic.sqrt() / s;
+        // the R-E-G-W level 1 - (1 - alpha)^(r/k), solved for alpha
+        let regw = |p: f64| {
+            if r < kf - 1.0 {
+                1.0 - (1.0 - p).powf(kf / r)
+            } else {
+                p
+            }
+        };
+        let sig = match test {
+            Posthoc::Snk => 1.0 - studentized_range_cdf(q, r, df),
+            Posthoc::Tukey => 1.0 - studentized_range_cdf(q, kf, df),
+            // the level 1 - (1 - alpha)^(r-1), solved for alpha
+            Posthoc::Duncan => {
+                let p = 1.0 - studentized_range_cdf(q, r, df);
+                1.0 - (1.0 - p).powf(1.0 / (r - 1.0))
+            }
+            Posthoc::Scheffe => {
+                let f = range * range * harmonic / (2.0 * (kf - 1.0) * within);
+                f_p(f, kf - 1.0, df)
+            }
+            // Gabriel's s (1/sqrt(2 n) + 1/sqrt(2 n)) M with the harmonic n is GT2's
+            Posthoc::Gt2 | Posthoc::Gabriel => 1.0 - maximum_modulus_cdf(q / SQRT_2, pairs, df),
+            Posthoc::Qregw => {
+                let mut largest: f64 = 0.0;
+                for a in i..=j {
+                    for b in a + 1..=j {
+                        let n = sorted[a].w.min(sorted[b].w);
+                        largest = largest.max((sorted[b].mean - sorted[a].mean) * n.sqrt() / s);
+                    }
+                }
+                regw(1.0 - studentized_range_cdf(largest, r, df))
+            }
+            Posthoc::Fregw => {
+                let part = &sorted[i..=j];
+                let w: f64 = part.iter().map(|g| g.w).sum();
+                let sum: f64 = part.iter().map(|g| g.w * g.mean).sum();
+                let squares: f64 = part.iter().map(|g| g.w * g.mean * g.mean).sum();
+                let f = (squares - sum * sum / w) / ((r - 1.0) * within);
+                regw(f_p(f, r - 1.0, df))
+            }
+            Posthoc::TukeyB => {
+                let critical = (studentized_range_quantile(alpha, r, df)
+                    + studentized_range_quantile(alpha, kf, df))
+                    / 2.0;
+                return (None, q > critical);
+            }
+            _ => unreachable!("not a range test"),
+        };
+        let sig = sig.clamp(0.0, 1.0);
+        (Some(sig), sig < alpha)
+    };
+    // step down: a range inside one found not significant is not tested
+    let mut alike = vec![vec![false; k]; k];
+    let mut found = Vec::new();
+    for r in (2..=k).rev() {
+        for i in 0..=k - r {
+            let j = i + r - 1;
+            if (i > 0 && alike[i - 1][j]) || (j + 1 < k && alike[i][j + 1]) {
+                alike[i][j] = true;
+                continue;
+            }
+            let (sig, significant) = test_range(i, j);
+            if !significant {
+                alike[i][j] = true;
+                found.push((i, j, sig));
+            }
+        }
+    }
+    // a mean that differs from all others is a subset of its own
+    let alone = test != Posthoc::TukeyB;
+    for i in 0..k {
+        if !found.iter().any(|&(a, b, _)| a <= i && i <= b) {
+            found.push((i, i, alone.then_some(1.0)));
+        }
+    }
+    found.sort_by_key(|&(a, b, _)| (a, b));
+    found
+}
+
+/// Dunnett's comparisons of each group with the reference group `control`: the position of
+/// the group with its mean difference, standard error, significance and interval.
+fn dunnett(
+    side: DunnettSide,
+    groups: &[Group],
+    control: usize,
+    within: f64,
+    df: f64,
+    alpha: f64,
+) -> Vec<(usize, [f64; 5])> {
+    let c = &groups[control];
+    let others: Vec<usize> = (0..groups.len()).filter(|&i| i != control).collect();
+    let lambdas: Vec<f64> = others
+        .iter()
+        .map(|&i| (groups[i].w / (c.w + groups[i].w)).sqrt())
+        .collect();
+    let two_sided = side == DunnettSide::Both;
+    let critical = dunnett_quantile(alpha, &lambdas, df, two_sided);
+    others
+        .iter()
+        .map(|&i| {
+            let diff = groups[i].mean - c.mean;
+            let se = (within * (1.0 / groups[i].w + 1.0 / c.w)).sqrt();
+            let t = diff / se;
+            let half = critical * se;
+            let (p, low, high) = match side {
+                DunnettSide::Both => (
+                    1.0 - dunnett_cdf(t.abs(), &lambdas, df, true),
+                    diff - half,
+                    diff + half,
+                ),
+                DunnettSide::Less => (
+                    1.0 - dunnett_cdf(-t, &lambdas, df, false),
+                    f64::NEG_INFINITY,
+                    diff + half,
+                ),
+                DunnettSide::Greater => (
+                    1.0 - dunnett_cdf(t, &lambdas, df, false),
+                    diff - half,
+                    f64::INFINITY,
+                ),
+            };
+            (i, [diff, se, p.clamp(0.0, 1.0), low, high])
+        })
+        .collect()
 }
 
 fn ci_title(ci: f64) -> String {
@@ -89,6 +277,9 @@ fn simple(title: String, columns: &[&str], rows: Vec<Vec<Cell>>) -> Table {
 }
 
 /// Mean difference, standard error, significance and interval of one pair by one test.
+/// `ranges` holds, for Dunnett's C, the studentized ranges of k groups with n_a - 1 and n_b - 1
+/// df exceeded with probability alpha.
+#[allow(clippy::too_many_arguments)]
 fn compare(
     test: Posthoc,
     a: &Group,
@@ -97,6 +288,7 @@ fn compare(
     within: f64,
     df: f64,
     alpha: f64,
+    ranges: (f64, f64),
 ) -> [f64; 5] {
     let diff = a.mean - b.mean;
     let pairs = k * (k - 1.0) / 2.0;
@@ -142,6 +334,28 @@ fn compare(
             let level = 1.0 - (1.0 - alpha).powf(1.0 / pairs);
             (separate, p, t_quantile(level / 2.0, welch_df) * separate)
         }
+        Posthoc::Gt2 => {
+            let p = 1.0 - maximum_modulus_cdf(diff.abs() / pooled, pairs, df);
+            let critical = maximum_modulus_quantile(alpha, pairs, df);
+            (pooled, p, critical * pooled)
+        }
+        Posthoc::Gabriel => {
+            let scale = within.sqrt() * (1.0 / (2.0 * a.w).sqrt() + 1.0 / (2.0 * b.w).sqrt());
+            let p = 1.0 - maximum_modulus_cdf(diff.abs() / scale, pairs, df);
+            let critical = maximum_modulus_quantile(alpha, pairs, df);
+            (pooled, p, critical * scale)
+        }
+        Posthoc::T3 => {
+            let p = 1.0 - maximum_modulus_cdf(diff.abs() / separate, pairs, welch_df);
+            let critical = maximum_modulus_quantile(alpha, pairs, welch_df);
+            (separate, p, critical * separate)
+        }
+        Posthoc::C => {
+            let [va, vb] = separate_parts;
+            let critical = (ranges.0 * va + ranges.1 * vb) / SQRT_2 / (va + vb);
+            (separate, f64::NAN, critical * separate)
+        }
+        _ => unreachable!("not a pairwise test"),
     };
     [diff, se, p.clamp(0.0, 1.0), diff - half, diff + half]
 }
@@ -198,7 +412,7 @@ impl Engine {
         let alpha = 1.0 - command.ci;
         let (mut descriptives, mut levene, mut anova, mut robust, mut contrast_rows) =
             (Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new());
-        let mut comparisons = Vec::new();
+        let (mut comparisons, mut subset_tables) = (Vec::new(), Vec::new());
         for dependent in &dependents {
             let cases: Vec<usize> = usable
                 .iter()
@@ -418,21 +632,68 @@ impl Engine {
                     ]);
                 }
             }
-            if !command.posthoc.is_empty() && k >= 2.0 {
+            let pairwise: Vec<Posthoc> = command
+                .posthoc
+                .iter()
+                .copied()
+                .filter(|&t| !range_only(t))
+                .collect();
+            let groups: Vec<Group> = present.iter().map(|(_, g)| *g).collect();
+            if !pairwise.is_empty() && k >= 2.0 {
                 let mut rows = Vec::new();
-                for &test in &command.posthoc {
+                for &test in &pairwise {
+                    if let Posthoc::Dunnett(reference, side) = test {
+                        let control = reference.map_or(groups.len() - 1, |r| r as usize - 1);
+                        if control >= groups.len() {
+                            warnings.push(format!(
+                                "no {} test for {}: there are only {} groups",
+                                test_name(test),
+                                dependent.name(),
+                                groups.len()
+                            ));
+                            continue;
+                        }
+                        let found =
+                            dunnett(side, &groups, control, ms_within, df_within, command.alpha);
+                        for (n, (i, values)) in found.into_iter().enumerate() {
+                            let mut row = vec![
+                                Cell::Text(if n == 0 {
+                                    test_name(test).into()
+                                } else {
+                                    String::new()
+                                }),
+                                Cell::Text(label(&factor, present[i].0)),
+                                Cell::Text(label(&factor, present[control].0)),
+                            ];
+                            row.extend(values.map(|v| number(Some(v))));
+                            rows.push(row);
+                        }
+                        continue;
+                    }
+                    // Dunnett's C takes the studentized range of each group's own df
+                    let ranges: Vec<f64> = groups
+                        .iter()
+                        .map(|g| {
+                            if test == Posthoc::C {
+                                studentized_range_quantile(command.alpha, k, g.w - 1.0)
+                            } else {
+                                f64::NAN
+                            }
+                        })
+                        .collect();
                     // each unordered pair once; the reverse direction mirrors it
                     let mut found = vec![vec![[f64::NAN; 5]; present.len()]; present.len()];
                     for i in 0..present.len() {
                         for j in i + 1..present.len() {
                             let r = compare(
                                 test,
-                                &present[i].1,
-                                &present[j].1,
+                                &groups[i],
+                                &groups[j],
                                 k,
                                 ms_within,
                                 df_within,
                                 command.alpha,
+                                (ranges[i], ranges[j]),
                             );
                             found[i][j] = r;
                             found[j][i] = [-r[0], r[1], r[2], -r[4], -r[3]];
@@ -480,6 +741,71 @@ impl Engine {
                 table.column_groups[7] = vec![interval];
                 table.row_headers = 3;
                 comparisons.push(table);
+            }
+            let ranged: Vec<Posthoc> = command
+                .posthoc
+                .iter()
+                .copied()
+                .filter(|&t| range_test(t))
+                .collect();
+            if !ranged.is_empty() && k >= 2.0 {
+                let mut order: Vec<usize> = (0..groups.len()).collect();
+                order.sort_by(|&a, &b| groups[a].mean.total_cmp(&groups[b].mean));
+                let sorted: Vec<Group> = order.iter().map(|&i| groups[i]).collect();
+                let found: Vec<(Posthoc, Vec<Subset>)> = ranged
+                    .iter()
+                    .map(|&t| (t, subsets(t, &sorted, ms_within, df_within, command.alpha)))
+                    .collect();
+                let width = found.iter().map(|(_, s)| s.len()).max().unwrap_or(0);
+                let mut rows = Vec::new();
+                for (test, sets) in &found {
+                    for (position, &i) in order.iter().enumerate() {
+                        let mut row = vec![
+                            Cell::Text(if position == 0 {
+                                test_name(*test).into()
+                            } else {
+                                String::new()
+                            }),
+                            Cell::Text(label(&factor, present[i].0)),
+                            Cell::Number(groups[i].w),
+                        ];
+                        row.extend((0..width).map(|s| match sets.get(s) {
+                            Some(&(a, b, _)) if a <= position && position <= b => {
+                                Cell::Number(groups[i].mean)
+                            }
+                            _ => Cell::Empty,
+                        }));
+                        rows.push(row);
+                    }
+                    let mut row = vec![Cell::Empty, Cell::Text("Sig.".into()), Cell::Empty];
+                    row.extend((0..width).map(|s| number(sets.get(s).and_then(|set| set.2))));
+                    rows.push(row);
+                }
+                let mut columns = vec![String::new(), factor.name().to_string(), "N".into()];
+                columns.extend((1..=width).map(|s| s.to_string()));
+                let mut column_groups = vec![Vec::new(); 3];
+                column_groups.extend(vec![
+                    vec![format!("Subset for alpha = {}", command.alpha)];
+                    width
+                ]);
+                let harmonic = k / groups.iter().map(|g| 1.0 / g.w).sum::<f64>();
+                let mut caption =
+                    String::from("Means for groups in homogeneous subsets are displayed.");
+                if groups.iter().any(|g| g.w != groups[0].w) {
+                    caption.push_str(&format!(
+                        " The group sizes are unequal: the harmonic mean of the group sizes, {}, is used, except by the Ryan-Einot-Gabriel-Welsch tests.",
+                        (harmonic * 1000.0).round() / 1000.0
+                    ));
+                }
+                subset_tables.push(Table {
+                    title: format!("Homogeneous Subsets: {}", dependent.name()),
+                    row_headers: 2,
+                    columns,
+                    column_groups,
+                    rows,
+                    caption: Some(caption),
+                    ..Table::default()
+                });
             }
         }
         let mut out = Vec::new();
@@ -569,6 +895,7 @@ impl Engine {
             out.last_mut().expect("pushed").row_headers = 3;
         }
         out.extend(comparisons);
+        out.extend(subset_tables);
         for warning in warnings {
             self.warn(warning);
         }

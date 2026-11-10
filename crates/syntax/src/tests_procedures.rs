@@ -300,10 +300,46 @@ fn oneway() {
     );
     assert_eq!(o.alpha, 0.01);
     assert!(o.descriptives && o.homogeneity && o.welch && o.brown_forsythe && o.listwise);
+    let Command::Oneway(o) = one(
+        "ONEWAY a BY g /POSTHOC=SNK BTUK DUNCAN GT2 GAB FREGW QREGW T3 C DUNNETT DUNNETTL(2) DUNNETTR ALPHA=.1.",
+    ) else {
+        panic!()
+    };
+    use DunnettSide as D;
+    assert_eq!(
+        o.posthoc,
+        [
+            Posthoc::Snk,
+            Posthoc::TukeyB,
+            Posthoc::Duncan,
+            Posthoc::Gt2,
+            Posthoc::Gabriel,
+            Posthoc::Fregw,
+            Posthoc::Qregw,
+            Posthoc::T3,
+            Posthoc::C,
+            Posthoc::Dunnett(None, D::Both),
+            Posthoc::Dunnett(Some(2), D::Less),
+            Posthoc::Dunnett(None, D::Greater),
+        ]
+    );
+    assert_eq!(o.alpha, 0.1);
+    // DUNCAN and the Dunnett keywords must be spelled out
+    assert!(err("ONEWAY a BY g /POSTHOC=DUNC.").message.contains("DUNC"));
     assert!(
-        err("ONEWAY a BY g /POSTHOC=SNK.")
+        err("ONEWAY a BY g /POSTHOC=DUNNET.")
             .message
-            .contains("SNK in ONEWAY /POSTHOC is not supported yet")
+            .contains("DUNNET")
+    );
+    assert!(
+        err("ONEWAY a BY g /POSTHOC=DUNNETT(0).")
+            .message
+            .contains("reference category")
+    );
+    assert!(
+        err("ONEWAY a BY g /POSTHOC=WALLER(100).")
+            .message
+            .contains("WALLER in ONEWAY /POSTHOC is not supported yet")
     );
     assert!(
         err("ONEWAY a BY g /POLYNOMIAL=2.")

@@ -2,8 +2,8 @@
 //! CORRELATIONS and NONPAR CORR.
 
 use crate::ast::{
-    Command, Correlations, CorrelationsLayout, Means, MeansCell as M, MeansMissing, NonparCorr,
-    Oneway, Posthoc, Standardizer, TTest, TTestGroups, TTestPairs, VarItem,
+    Command, Correlations, CorrelationsLayout, DunnettSide, Means, MeansCell as M, MeansMissing,
+    NonparCorr, Oneway, Posthoc, Standardizer, TTest, TTestGroups, TTestPairs, VarItem,
 };
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
@@ -371,7 +371,7 @@ pub(crate) fn t_test(p: &mut Parser) -> PResult<Command> {
 
 const ONEWAY_UNSUPPORTED: [&str; 6] = ["POLYNOMIAL", "RANGES", "PLOT", "MATRIX", "TEMPLATE", "ES"];
 
-const POSTHOCS: [(&str, &[Posthoc]); 7] = [
+const POSTHOCS: [(&str, &[Posthoc]); 19] = [
     ("LSD", &[Posthoc::Lsd]),
     ("BONFERRONI", &[Posthoc::Bonferroni]),
     ("SIDAK", &[Posthoc::Sidak]),
@@ -379,12 +379,24 @@ const POSTHOCS: [(&str, &[Posthoc]); 7] = [
     ("SCHEFFE", &[Posthoc::Scheffe]),
     ("GH", &[Posthoc::GamesHowell]),
     ("T2", &[Posthoc::T2]),
+    ("SNK", &[Posthoc::Snk]),
+    ("BTUKEY", &[Posthoc::TukeyB]),
+    ("DUNCAN", &[Posthoc::Duncan]),
+    ("GT2", &[Posthoc::Gt2]),
+    ("GABRIEL", &[Posthoc::Gabriel]),
+    ("FREGW", &[Posthoc::Fregw]),
+    ("QREGW", &[Posthoc::Qregw]),
+    ("T3", &[Posthoc::T3]),
+    ("C", &[Posthoc::C]),
+    ("DUNNETT", &[Posthoc::Dunnett(None, DunnettSide::Both)]),
+    ("DUNNETTL", &[Posthoc::Dunnett(None, DunnettSide::Less)]),
+    ("DUNNETTR", &[Posthoc::Dunnett(None, DunnettSide::Greater)]),
 ];
 
-const UNSUPPORTED_POSTHOCS: [&str; 13] = [
-    "SNK", "BTUKEY", "DUNCAN", "DUNNETT", "DUNNETTL", "DUNNETTR", "GT2", "GABRIEL", "FREGW",
-    "QREGW", "T3", "C", "WALLER",
-];
+/// Post hoc keywords that may not be shortened.
+const FULL_POSTHOCS: [&str; 4] = ["DUNCAN", "DUNNETT", "DUNNETTL", "DUNNETTR"];
+
+const UNSUPPORTED_POSTHOCS: [&str; 1] = ["WALLER"];
 
 pub(crate) fn oneway(p: &mut Parser) -> PResult<Command> {
     p.eat(Punct::Slash);
@@ -423,8 +435,11 @@ pub(crate) fn oneway(p: &mut Parser) -> PResult<Command> {
                     command.alpha = level(p, "ALPHA")?;
                     continue;
                 }
+                let shortened = |w: &str, name: &str| {
+                    name.len() > 2 && !FULL_POSTHOCS.contains(&name) && matches_keyword(w, name)
+                };
                 let found = POSTHOCS.iter().find(|(name, _)| {
-                    matches!(p.peek(), Some(TokenKind::Word(w)) if w.eq_ignore_ascii_case(name) || (name.len() > 2 && matches_keyword(w, name)))
+                    matches!(p.peek(), Some(TokenKind::Word(w)) if w.eq_ignore_ascii_case(name) || shortened(w, name))
                 });
                 let Some((_, tests)) = found else {
                     let mut supported = names(&POSTHOCS);
@@ -437,7 +452,20 @@ pub(crate) fn oneway(p: &mut Parser) -> PResult<Command> {
                     ));
                 };
                 p.pos += 1;
-                chosen.extend_from_slice(tests);
+                let mut test = tests[0];
+                if let Posthoc::Dunnett(_, side) = test
+                    && p.eat(Punct::LParen)
+                {
+                    let start = p.pos;
+                    let category = p.number().filter(|n| *n >= 1.0 && n.fract() == 0.0);
+                    let Some(category) = category else {
+                        let message = "the reference category is a whole number of at least 1";
+                        return Err(SyntaxError::new(p.span_from(start), message));
+                    };
+                    p.expect(Punct::RParen)?;
+                    test = Posthoc::Dunnett(Some(category as u32), side);
+                }
+                chosen.push(test);
                 p.eat(Punct::Comma);
             }
             if chosen.is_empty() {
