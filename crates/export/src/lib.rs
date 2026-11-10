@@ -84,15 +84,15 @@ fn put_table(
         }
         row += 1;
     }
+    let body_top = row;
     for (r, cells) in table.rows.iter().enumerate() {
         for (c, cell) in cells.iter().enumerate() {
             let column = c as u16;
             let shown = cell_text(table, r, c);
             fit(widths, c, &shown);
             match cell {
-                _ if c < table.row_headers => {
-                    sheet.write_string_with_format(row, column, &shown, &row_header)?
-                }
+                // row labels are written below, merged over the rows that repeat them
+                _ if c < table.row_headers => continue,
                 Cell::Number(n) if n.is_finite() => {
                     let format = table.formats.get(r).and_then(|f| f.get(c));
                     let number = border
@@ -106,6 +106,7 @@ fn put_table(
         }
         row += 1;
     }
+    put_row_labels(sheet, table, body_top, &row_header)?;
     // a merged label longer than its columns widens each of them by an equal share
     for cell in spans {
         let columns = cell.first..cell.first + cell.span;
@@ -119,6 +120,48 @@ fn put_table(
         row += 1;
     }
     Ok(row)
+}
+
+/// Writes the row label columns, merging a label down over the rows that repeat it under the
+/// same outer labels, so a nested variable's label appears once beside its categories.
+fn put_row_labels(
+    sheet: &mut Worksheet,
+    table: &Table,
+    top: u32,
+    format: &Format,
+) -> Result<(), XlsxError> {
+    let labels: Vec<Vec<String>> = (0..table.rows.len())
+        .map(|r| {
+            (0..table.row_headers)
+                .map(|c| cell_text(table, r, c))
+                .collect()
+        })
+        .collect();
+    for c in 0..table.row_headers {
+        let mut first = 0;
+        while first < labels.len() {
+            let same = |r: usize| labels[r][..=c] == labels[first][..=c];
+            let last = (first..labels.len())
+                .take_while(|&r| same(r))
+                .last()
+                .unwrap_or(first);
+            let (from, to, column) = (top + first as u32, top + last as u32, c as u16);
+            if last > first && !labels[first][c].is_empty() {
+                sheet.merge_range(from, column, to, column, &labels[first][c], format)?;
+            } else {
+                for r in first..=last {
+                    sheet.write_string_with_format(
+                        top + r as u32,
+                        column,
+                        &labels[r][c],
+                        format,
+                    )?;
+                }
+            }
+            first = last + 1;
+        }
+    }
+    Ok(())
 }
 
 fn set_widths(sheet: &mut Worksheet, widths: &[usize]) -> Result<(), XlsxError> {

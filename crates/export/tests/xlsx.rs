@@ -256,6 +256,26 @@ fn check_table(sheet: &Sheet, table: &Table, top: u32) -> u32 {
         for (c, cell) in cells.iter().enumerate() {
             let x = sheet.at(row, c);
             let at = a1(row, c);
+            if c < table.row_headers {
+                // a label repeated under the same outer labels is written once, merged down
+                let label = |r: usize| -> Vec<String> {
+                    (0..=c)
+                        .map(|k| statscraft_engine::cell_text(table, r, k))
+                        .collect()
+                };
+                let continues = r > 0 && label(r) == label(r - 1) && !label(r)[c].is_empty();
+                if continues {
+                    assert_eq!(x.value, Value::Blank, "{at} is inside a merged label");
+                    continue;
+                }
+                let span = (r..table.rows.len())
+                    .take_while(|&k| label(k) == label(r))
+                    .count();
+                if span > 1 && !label(r)[c].is_empty() {
+                    let range = format!("{at}:{}", a1(row + span as u32 - 1, c));
+                    assert!(sheet.merges.contains(&range), "{range} is merged");
+                }
+            }
             match cell {
                 Cell::Number(n) if c >= table.row_headers => {
                     assert_eq!(x.value, Value::Number(*n), "{at}");
