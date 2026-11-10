@@ -507,7 +507,7 @@ impl OutputView {
                         let stroke = Stroke::new(2.0, ui.visuals().selection.stroke.color);
                         let frame = rect.expand(4.0);
                         ui.painter()
-                            .rect_stroke(frame, 2.0, stroke, StrokeKind::Outside);
+                            .rect_stroke(frame, 0.0, stroke, StrokeKind::Outside);
                     }
                     let response = ui.interact(
                         rect,

@@ -367,6 +367,7 @@ impl App {
             Ok(_) => Ok("Ready".into()),
             Err(e) => Err(format!("the command line cannot reach this window: {e}")),
         };
+        app_ctx.all_styles_mut(|style| square(&mut style.visuals));
         let updates = Updates::new(&app_ctx, &mut settings);
         let mut app = App {
             session: Session::default(),
@@ -1904,10 +1905,28 @@ impl eframe::App for App {
 pub(crate) fn paper(ui: &mut Ui, light: bool) {
     if light {
         ui.style_mut().visuals = egui::Visuals::light();
+        square(&mut ui.style_mut().visuals);
     }
     let sheet = ui.available_rect_before_wrap();
     ui.painter()
         .rect_filled(sheet, 0.0, ui.visuals().extreme_bg_color);
+}
+
+/// Square corners for every control, menu and window, to match the square grids.
+pub(crate) fn square(visuals: &mut egui::Visuals) {
+    let none = egui::CornerRadius::ZERO;
+    let widgets = &mut visuals.widgets;
+    for state in [
+        &mut widgets.noninteractive,
+        &mut widgets.inactive,
+        &mut widgets.hovered,
+        &mut widgets.active,
+        &mut widgets.open,
+    ] {
+        state.corner_radius = none;
+    }
+    visuals.menu_corner_radius = none;
+    visuals.window_corner_radius = none;
 }
 
 /// The summary and syntax of a command, in the completion list and over a command name.
