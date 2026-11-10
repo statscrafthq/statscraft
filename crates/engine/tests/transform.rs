@@ -691,7 +691,10 @@ fn errors_name_what_is_wrong() {
             "unknown variable nowhere",
         ),
         ("COMPUTE r = FOO(age).", "unknown function FOO"),
-        ("COMPUTE r = LAG(age).", "function LAG is not supported yet"),
+        (
+            "COMPUTE r = LNGAMMA(age).",
+            "function LNGAMMA is not supported yet",
+        ),
         (
             "COMPUTE r = CDF.NORMAL(age, 0, 1).",
             "function CDF.NORMAL is not supported yet",

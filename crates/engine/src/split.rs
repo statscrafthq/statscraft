@@ -75,8 +75,12 @@ impl Engine {
         self.temporary.is_some()
     }
 
-    /// The start of a command that reads the data: the pending N OF CASES takes effect.
+    /// The start of a command that reads the data: the transformations kept for the
+    /// case-by-case pass run, scratch variables are gone and the pending N OF CASES takes
+    /// effect.
     pub(crate) fn begin_pass(&mut self) -> Result<(), Error> {
+        self.flush()?;
+        self.drop_scratch()?;
         if let (Some(limit), Some(data)) = (self.case_limit.take(), self.dataset.as_mut())
             && data.case_count() > limit
         {
@@ -153,6 +157,10 @@ impl Engine {
         for block in &mut self.blocks {
             block.retain(keep);
         }
+        for mask in self.scratch_assigned.values_mut() {
+            let mut kept = keep.iter();
+            mask.retain(|_| *kept.next().unwrap_or(&true));
+        }
         Ok(self.active_mut()?.select_cases(keep)?)
     }
 
@@ -223,6 +231,7 @@ impl Engine {
             return self.run_procedure(command);
         };
         let full = self.dataset.take().expect("checked by groups");
+        let earlier = std::mem::take(&mut self.warnings);
         let split = full.split_file().filter(|_| use_split).cloned();
         let mut results: Vec<(Vec<String>, Vec<Table>)> = Vec::new();
         let mut afters: Vec<Dataset> = Vec::new();
@@ -249,7 +258,8 @@ impl Engine {
             afters.push(self.dataset.take().expect("procedures keep a dataset"));
         }
         self.case_numbers = None;
-        self.warnings = warnings;
+        self.warnings = earlier;
+        self.warnings.extend(warnings);
         if results.is_empty() && !errors.is_empty() {
             self.dataset = Some(full);
             return Err(Error(errors.swap_remove(0)));

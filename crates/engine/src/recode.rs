@@ -276,6 +276,10 @@ impl Engine {
             let values = self.counted(count)?;
             self.active_mut()?
                 .set_numeric_values(&count.target, values)?;
+            if crate::rows::is_scratch(&count.target) {
+                let active = self.active_cases().map(<[bool]>::to_vec);
+                self.mark_assigned(&count.target, active.as_deref());
+            }
         }
         Ok(())
     }

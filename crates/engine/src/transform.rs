@@ -17,6 +17,15 @@ pub(crate) struct Block {
 }
 
 impl Block {
+    /// The block for the cases of `cases` only.
+    pub(crate) fn slice(&self, cases: std::ops::Range<usize>) -> Block {
+        Block {
+            active: self.active[cases.clone()].to_vec(),
+            pending: self.pending[cases].to_vec(),
+            else_seen: self.else_seen,
+        }
+    }
+
     /// Keeps the entries of the cases whose `keep` entry is true.
     pub(crate) fn retain(&mut self, keep: &[bool]) {
         for mask in [&mut self.active, &mut self.pending] {
@@ -48,7 +57,11 @@ impl Engine {
     /// kept between runs. The end of a run ends the data pass: N OF CASES takes effect and
     /// TEMPORARY changes are undone.
     pub fn finish(&mut self) -> Result<(), Error> {
-        if !self.blocks.is_empty() {
+        let open = match self.pending {
+            Some(_) => self.pending_depth > 0,
+            None => !self.blocks.is_empty(),
+        };
+        if open {
             return Err(Error(
                 "DO IF without END IF: close the block with END IF in the same run".into(),
             ));
@@ -72,7 +85,11 @@ impl Engine {
                 | Command::Else
                 | Command::EndIf
         );
-        if self.blocks.is_empty() || allowed {
+        let open = match self.pending {
+            Some(_) => self.pending_depth > 0,
+            None => !self.blocks.is_empty(),
+        };
+        if !open || allowed {
             return Ok(());
         }
         Err(Error(
@@ -84,7 +101,12 @@ impl Engine {
 
     fn evaluator<'a>(&'a self, active: Option<&'a [bool]>) -> Result<Evaluator<'a>, Error> {
         let data = self.active()?;
-        Ok(Evaluator { data, active })
+        Ok(Evaluator {
+            data,
+            active,
+            first_case: self.row.as_ref().map_or(0, |row| row.case),
+            previous: self.row.as_ref().map_or(&[], |row| &row.previous[..]),
+        })
     }
 
     /// COMPUTE, or IF when there is a condition.
@@ -94,6 +116,19 @@ impl Engine {
         expr: &Expr,
         condition: Option<&Expr>,
     ) -> Result<(), Error> {
+        // a new scratch variable is 0 until a case gives it a value; any other new variable
+        // that its own expression reads is system-missing there
+        if self.active()?.variable_index(target).is_none() {
+            let (mut names, mut ranges) = (Vec::new(), Vec::new());
+            crate::rows::expr_names(expr, &mut names, &mut ranges);
+            let scratch = crate::rows::is_scratch(target);
+            if scratch || names.iter().any(|n| n.eq_ignore_ascii_case(target)) {
+                let cases = self.active()?.case_count();
+                let start = scratch.then_some(0.0);
+                self.active_mut()?
+                    .set_numeric_values(target, vec![start; cases])?;
+            }
+        }
         // the cases that get the value: those of the open DO IF branch where the condition holds
         let mut chosen = self.active_cases().map(<[bool]>::to_vec);
         if let Some(condition) = condition {
@@ -104,6 +139,9 @@ impl Engine {
             chosen = Some(holds.collect());
         }
         let value = self.evaluator(chosen.as_deref())?.eval(expr)?;
+        if crate::rows::is_scratch(target) {
+            self.mark_assigned(target, chosen.as_deref());
+        }
         let chosen = |case: usize| chosen.as_ref().is_none_or(|chosen| chosen[case]);
 
         let data = self.active_mut()?;
@@ -156,7 +194,13 @@ impl Engine {
     pub(crate) fn select_if(&mut self, condition: &Expr) -> Result<(), Error> {
         let truth = self.evaluator(None)?.condition(condition)?;
         let keep: Vec<bool> = truth.iter().map(|truth| *truth == Some(true)).collect();
-        Ok(self.active_mut()?.select_cases(&keep)?)
+        if let Some(row) = self.row.as_mut()
+            && keep == [false]
+        {
+            let data = self.dataset.as_ref().expect("checked above");
+            row.dropped = Some(crate::rows::scratch_values(data, 0));
+        }
+        self.select_kept(&keep)
     }
 
     /// STRING and NUMERIC: new variables, empty or system-missing. Nothing is added when one
@@ -170,6 +214,10 @@ impl Engine {
         for (names, format) in groups {
             for name in names {
                 if data.variable_index(name).is_some() {
+                    // case by case, a scratch variable arrives with the value of the case before
+                    if self.row.is_some() && crate::rows::is_scratch(name) {
+                        continue;
+                    }
                     return Err(Error(format!("variable {name} already exists")));
                 }
                 if format.is_some_and(|format| format.kind == FormatType::A) {
@@ -177,7 +225,9 @@ impl Engine {
                     data.set_string_values(name, width, vec![String::new(); cases])?;
                     continue;
                 }
-                data.set_numeric_values(name, vec![None; cases])?;
+                // a scratch variable starts at 0, any other at system-missing
+                let start = crate::rows::is_scratch(name).then_some(0.0);
+                data.set_numeric_values(name, vec![start; cases])?;
                 if let Some(format) = format {
                     let mut text = format!("{}{}", format.kind.name(), format.width);
                     if format.decimals > 0 {

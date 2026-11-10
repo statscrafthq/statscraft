@@ -18,6 +18,7 @@ mod nonpar_corr;
 mod oneway;
 mod pass;
 mod recode;
+mod rows;
 pub mod session;
 mod sort;
 mod split;
@@ -51,7 +52,7 @@ impl From<statscraft_data::Error> for Error {
 /// A result table, the same for every output format. The first `row_headers` columns label the
 /// rows; the remaining columns hold results. A column header can have several levels: `columns`
 /// holds the innermost label and `column_groups` the labels above it.
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Default, Clone, Serialize, Deserialize)]
 pub struct Table {
     pub title: String,
     pub row_headers: usize,
@@ -222,6 +223,16 @@ pub struct Engine {
     /// While a procedure runs on a split group or the filtered cases: the case number in the
     /// whole dataset (0-based) of each case it sees.
     case_numbers: Option<Vec<usize>>,
+    /// Per scratch variable (lower case): the cases that gave it a value in this pass.
+    scratch_assigned: std::collections::HashMap<String, Vec<bool>>,
+    /// The transformations kept to run case by case at the end of the pass, and how many
+    /// DO IF blocks are open after them.
+    pending: Option<Vec<Command>>,
+    pending_depth: usize,
+    /// Set in an engine that runs one case of a case-by-case pass.
+    row: Option<Box<rows::Row>>,
+    /// Tables of the case-by-case pass, shown with the command that ended it.
+    flushed: Vec<Table>,
 }
 
 impl Engine {
@@ -279,7 +290,23 @@ impl Engine {
                     data.variable_at(last).name()
                 )));
             }
-            names.extend((first..=last).map(|i| data.variable_at(i).name().to_string()));
+            let in_range = (first..=last).map(|i| data.variable_at(i).name());
+            let scratch = in_range.clone().filter(|n| rows::is_scratch(n)).count();
+            match item {
+                VarItem::All => names.extend(
+                    in_range
+                        .filter(|n| !rows::is_scratch(n))
+                        .map(str::to_string),
+                ),
+                _ if scratch > 0 && scratch <= last - first => {
+                    return Err(Error(format!(
+                        "a TO list cannot hold scratch and other variables at once ({} TO {})",
+                        data.variable_at(first).name(),
+                        data.variable_at(last).name()
+                    )));
+                }
+                _ => names.extend(in_range.map(str::to_string)),
+            }
         }
         Ok(names)
     }
@@ -287,6 +314,58 @@ impl Engine {
     pub fn execute(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
         self.warnings.clear();
         self.check_block(command)?;
+        if self.row.is_none() {
+            let transformation = matches!(
+                command,
+                Command::Compute { .. }
+                    | Command::If { .. }
+                    | Command::SelectIf(_)
+                    | Command::Recode(_)
+                    | Command::Count(_)
+                    | Command::String(_)
+                    | Command::Numeric(_)
+                    | Command::DoIf(_)
+                    | Command::ElseIf(_)
+                    | Command::Else
+                    | Command::EndIf
+            );
+            if self.pending.is_none() && transformation && self.needs_rows(command)? {
+                self.pending = Some(Vec::new());
+                self.pending_depth = self.blocks.len();
+            }
+            if self.pending.is_some() {
+                if transformation {
+                    match command {
+                        Command::DoIf(_) => self.pending_depth += 1,
+                        Command::EndIf if self.pending_depth == 0 => {
+                            return Err(Error("END IF without DO IF".into()));
+                        }
+                        Command::EndIf => self.pending_depth -= 1,
+                        _ => {}
+                    }
+                    self.pending
+                        .as_mut()
+                        .expect("checked")
+                        .push(command.clone());
+                    return Ok(Vec::new());
+                }
+                if self.pending_depth > 0 {
+                    return Err(Error(
+                        "this command cannot follow, inside DO IF, a transformation that runs case \
+                         by case (LAG, or a scratch variable carried from case to case)"
+                            .into(),
+                    ));
+                }
+                self.flush()?;
+            }
+        }
+        let tables = self.execute_command(command)?;
+        let mut out = std::mem::take(&mut self.flushed);
+        out.extend(tables);
+        Ok(out)
+    }
+
+    fn execute_command(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
         if self.pending_data.is_some() && !matches!(command, Command::BeginData(_)) {
             return Err(Error(
                 "the DATA LIST before this command has no data yet: put BEGIN DATA, the data \
@@ -297,6 +376,7 @@ impl Engine {
         match command {
             Command::Get { file } => {
                 self.dataset = Some(Dataset::read_sav(file)?);
+                self.scratch_assigned.clear();
                 self.temporary = None;
                 self.case_limit = None;
             }
@@ -316,12 +396,14 @@ impl Engine {
                 self.end_pass(before.as_ref());
             }
             Command::VariableLabels(pairs) => {
+                no_scratch(pairs.iter().map(|(n, _)| n), "VARIABLE LABELS")?;
                 for (name, label) in pairs {
                     self.active_mut()?.set_variable_label(name, Some(label))?;
                 }
             }
             Command::ValueLabels(groups) => {
                 for group in groups {
+                    no_scratch(&self.expand(&group.vars)?, "VALUE LABELS")?;
                     for name in self.expand(&group.vars)? {
                         let labels = group
                             .labels
@@ -334,6 +416,7 @@ impl Engine {
             }
             Command::MissingValues(groups) => {
                 for (vars, values) in groups {
+                    no_scratch(&self.expand(vars)?, "MISSING VALUES")?;
                     for name in self.expand(vars)? {
                         self.active_mut()?
                             .set_missing_values(&name, missing(values)?)?;
@@ -410,6 +493,7 @@ impl Engine {
                 self.active_mut()?.delete_variables(&names)?;
             }
             Command::Weight(variable) => {
+                no_scratch(variable, "WEIGHT")?;
                 self.active_mut()?
                     .set_weight_variable(variable.as_deref())?;
             }
@@ -442,6 +526,7 @@ impl Engine {
                 self.merge_files(merge, false)?
             }
             Command::DataList(list) => {
+                self.scratch_assigned.clear();
                 self.temporary = None;
                 self.case_limit = None;
                 self.data_list(list)?
@@ -451,6 +536,7 @@ impl Engine {
                 let split = match split {
                     Some(split) => {
                         let variables = self.expand(&split.variables)?;
+                        no_scratch(&variables, "SPLIT FILE")?;
                         if variables.len() > 8 {
                             return Err(Error("SPLIT FILE takes at most eight variables".into()));
                         }
@@ -467,10 +553,14 @@ impl Engine {
                 if *bare {
                     self.warn("FILTER without BY or OFF turns the filter off");
                 }
+                no_scratch(variable, "FILTER")?;
                 self.active_mut()?
                     .set_filter_variable(variable.as_deref())?;
             }
-            Command::Temporary => self.temporary(),
+            Command::Temporary => {
+                self.drop_scratch()?;
+                self.temporary()
+            }
             Command::NOfCases(n) => {
                 let n = usize::try_from(*n).unwrap_or(usize::MAX);
                 self.case_limit = Some(self.case_limit.map_or(n, |limit| limit.min(n)));
@@ -511,6 +601,16 @@ impl Engine {
             )));
         }
         Ok(())
+    }
+}
+
+/// Scratch variables have no dictionary entries of their own and no part in procedures.
+fn no_scratch<'a>(names: impl IntoIterator<Item = &'a String>, command: &str) -> Result<(), Error> {
+    match names.into_iter().find(|n| rows::is_scratch(n)) {
+        Some(name) => Err(Error(format!(
+            "{command} cannot name the scratch variable {name}"
+        ))),
+        None => Ok(()),
     }
 }
 

@@ -47,6 +47,7 @@ const FUNCTIONS: &[(&str, &str)] = &[
     ("MISSING", "MISSING(variable)"),
     ("SYSMIS", "SYSMIS(number)"),
     ("VALUE", "VALUE(variable)"),
+    ("LAG", "LAG(variable [, n])"),
     ("ANY", "ANY(value, candidate, ...)"),
     ("RANGE", "RANGE(value, low, high [, low, high ...])"),
     ("CONCAT", "CONCAT(string, ...)"),
@@ -90,7 +91,6 @@ const UNSUPPORTED: &[&str] = &[
     "SIN",
     "TAN",
     "MEDIAN",
-    "LAG",
     "LNGAMMA",
     "NORMAL",
     "UNIFORM",
@@ -131,6 +131,10 @@ pub(crate) struct Evaluator<'a> {
     /// The cases the result is used for; None means all. A value that is an error (an operand
     /// of AND that is not 0 or 1) is reported only for these cases.
     pub active: Option<&'a [bool]>,
+    /// The number of cases before the first one here, for $CASENUM.
+    pub first_case: usize,
+    /// The cases before the first one here as they ended the pass, the latest last, for LAG.
+    pub previous: &'a [Dataset],
 }
 
 fn finite(value: f64) -> Option<f64> {
@@ -513,7 +517,8 @@ impl Evaluator<'_> {
             return Ok(Column::Number(vec![None; self.data.case_count()]));
         }
         if name.eq_ignore_ascii_case("$CASENUM") {
-            let cases = 1..=self.data.case_count();
+            let first = self.first_case + 1;
+            let cases = first..first + self.data.case_count();
             return Ok(Column::Number(
                 cases.map(|case| Some(case as f64)).collect(),
             ));
@@ -646,6 +651,62 @@ impl Evaluator<'_> {
         Ok(expanded)
     }
 
+    /// LAG(variable, n): the value n cases back, as that case ended the pass; system-missing
+    /// (also for a user-missing value) or blank for the first n cases.
+    fn lag(&self, args: &[Expr]) -> Result<Column, Error> {
+        let usage =
+            "LAG needs a variable and an optional whole number of cases, as LAG(x) or LAG(x, 2)";
+        let (Some(Expr::Variable(name)), true) = (args.first(), args.len() <= 2) else {
+            return Err(Error(usage.into()));
+        };
+        let n = match args.get(1) {
+            None => 1,
+            Some(Expr::Number(n)) if n.fract() == 0.0 && *n >= 1.0 && *n <= 1e6 => *n as usize,
+            Some(_) => return Err(Error(usage.into())),
+        };
+        let variable = self
+            .data
+            .variable(name)
+            .map_err(|_| Error(format!("unknown variable {name}")))?;
+        let cases = self.data.case_count();
+        // the value of case `case - n`: from the cases here, else from those before
+        let back = |case: usize| -> Option<(&Dataset, usize)> {
+            match case.checked_sub(n) {
+                Some(earlier) => Some((self.data, earlier)),
+                None => {
+                    let index = self.previous.len().checked_sub(n - case)?;
+                    Some((&self.previous[index], 0))
+                }
+            }
+        };
+        Ok(match variable.values() {
+            Values::Numeric(_) => Column::Number(
+                (0..cases)
+                    .map(|case| {
+                        let (data, at) = back(case)?;
+                        // a user-missing value reads as missing, as in any expression
+                        let value = data.variable(name).ok()?.numeric().ok()?.get(at)?;
+                        (!variable.is_user_missing(value)).then_some(value)
+                    })
+                    .collect(),
+            ),
+            Values::String(_) => {
+                let width = variable.string_width().unwrap_or(0);
+                Column::String(
+                    (0..cases)
+                        .map(|case| {
+                            let text = back(case).and_then(|(data, at)| {
+                                Some(data.variable(name).ok()?.string().ok()?.get(at).to_string())
+                            });
+                            let text = text.unwrap_or_default();
+                            format!("{text}{:1$}", "", width.saturating_sub(text.len()))
+                        })
+                        .collect(),
+                )
+            }
+        })
+    }
+
     fn call(&self, name: &str, args: &[Expr]) -> Result<Column, Error> {
         let upper = name.to_uppercase();
         // `MEAN.2`: the suffix is the number of valid arguments the result needs
@@ -660,6 +721,9 @@ impl Evaluator<'_> {
                 (upper.as_str(), needed.map_or(0, |(_, n)| *n))
             }
         };
+        if upper == "LAG" {
+            return self.lag(args);
+        }
         let args = &self.expand(args)?[..];
         let cases = self.data.case_count();
         let argument = |i: usize| format!("argument {} of {function}", i + 1);

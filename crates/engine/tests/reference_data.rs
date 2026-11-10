@@ -622,3 +622,85 @@ DATA LIST FILE='{dir}input.txt' FREE /a (F2) b (A3) c.",
         &[("input.txt", "10 Ann   123\n20 Bob   45.6\n30 Cy     -7\n")],
     );
 }
+
+#[test]
+#[ignore = "needs PSPP: set STATSCRAFT_PSPP"]
+fn scratch_and_lag() {
+    compare_all(
+        "scratch",
+        &[
+            (
+                "running-sum",
+                SURVEY,
+                "COMPUTE #sum = #sum + age.
+COMPUTE total = #sum.
+COMPUTE #t = age * 2.
+COMPUTE twice = #t.",
+            ),
+            (
+                "fill-down",
+                SURVEY,
+                "DO IF NOT MISSING(monthly_spend).
+COMPUTE #last = monthly_spend.
+END IF.
+COMPUTE filled = #last.
+NUMERIC #n.
+STRING #s (A8).
+IF (plan <> '') #s = plan.
+COMPUTE #n = #n + 1.
+STRING lastplan (A8).
+COMPUTE lastplan = #s.
+COMPUTE n = #n.",
+            ),
+            (
+                "group-counter",
+                SURVEY,
+                "SORT CASES BY region.
+DO IF $CASENUM = 1.
+COMPUTE #seq = 1.
+ELSE IF region <> LAG(region).
+COMPUTE #seq = 1.
+ELSE.
+COMPUTE #seq = #seq + 1.
+END IF.
+COMPUTE seq = #seq.",
+            ),
+            (
+                "lag-fill",
+                SURVEY,
+                "IF MISSING(monthly_spend) monthly_spend = LAG(monthly_spend).
+COMPUTE prev2 = LAG(age, 2).
+STRING prevplan (A10).
+COMPUTE prevplan = LAG(plan).
+COMPUTE prevq1 = LAG(q1_satisfaction).",
+            ),
+            (
+                // $CASENUM is not compared: PSPP numbers only the cases that SELECT IF keeps,
+                // also later in the pass, where the manual counts every case read
+                "lag-after-select",
+                SURVEY,
+                "COMPUTE id = resp_id.
+SELECT IF MOD(id, 3) <> 0.
+COMPUTE lagid = LAG(id).
+COMPUTE #k = #k + 1.
+COMPUTE k = #k.",
+            ),
+            (
+                "lag-sees-later-changes",
+                SURVEY,
+                "COMPUTE lagvar = LAG(age).
+COMPUTE age = age * 2.",
+            ),
+            (
+                "across-a-dictionary-command",
+                SURVEY,
+                "COMPUTE #c = #c + 1.
+VARIABLE LABELS age 'Age'.
+COMPUTE c = #c.
+EXECUTE.
+COMPUTE #d = 5.
+COMPUTE d = #d.",
+            ),
+        ],
+    );
+}

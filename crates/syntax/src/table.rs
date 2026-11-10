@@ -937,5 +937,7 @@ General rules:
   Strings use single or double quotes; double the quote character to include it.
   Comments: a command starting with * or COMMENT, or /* text */ inside a line.
   Expressions: + - * / **, = <> < > <= >= (or EQ NE LT GT LE GE), AND OR NOT (or & | ~),
-  functions such as MEAN(a, b) or SUM(q1 TO q5).
+  functions such as MEAN(a, b) or SUM(q1 TO q5); LAG(var [, n]) is the value n cases back.
+  Scratch variables start with #: they begin at 0 or blank, keep their value from case to case,
+  are never saved and are gone when the next procedure starts. $CASENUM is the case number.
 ";

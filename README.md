@@ -24,6 +24,8 @@ DATA LIST reads text data in fixed columns, freefield (FREE) or one case per lin
 
 SPLIT FILE runs every procedure per group of adjacent cases, LAYERED in one table or SEPARATE, FILTER leaves cases out of procedures without deleting them, TEMPORARY makes the changes after it last until the next procedure, N OF CASES keeps the first cases and SAMPLE a random sample; split and filter stay with the session's dataset.
 
+Scratch variables (`#name`) start at 0 or blank, keep their value from case to case and are gone at the next procedure; LAG gives a variable's value in an earlier case as that case ended the data pass, and a pass that needs earlier cases runs case by case.
+
 ## Documentation
 
 - [Getting started](docs/getting-started.md): install, open a file, run syntax, the window in five minutes.

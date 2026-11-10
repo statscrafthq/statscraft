@@ -24,6 +24,12 @@ One page per supported command, generated from the same table that the parser an
 | [AGGREGATE](aggregate.md) | Aggregate groups of cases into new variables or a new dataset. |
 | [DATA LIST](data-list.md) | Define text data, inline or in a file, and read it as the new active dataset. |
 | [BEGIN DATA](begin-data.md) | Inline data for the DATA LIST before it, up to a line that holds END DATA. |
+[removed]
+| [FILTER](filter.md) | Leave out of procedures the cases whose filter value is 0 or missing. |
+| [TEMPORARY](temporary.md) | Make the changes that follow last only until the next procedure. |
+| [N OF CASES](n-of-cases.md) | Keep only the first n cases from the next data pass on. |
+| [N](n.md) | Short for N OF CASES. |
+| [SAMPLE](sample.md) | Keep a random sample of the cases. |
 
 ## Transformations
 
@@ -72,11 +78,13 @@ One page per supported command, generated from the same table that the parser an
   Strings use single or double quotes; double the quote character to include it.
   Comments: a command starting with * or COMMENT, or /* text */ inside a line.
   Expressions: + - * / **, = <> < > <= >= (or EQ NE LT GT LE GE), AND OR NOT (or & | ~),
-  functions such as MEAN(a, b) or SUM(q1 TO q5).
+  functions such as MEAN(a, b) or SUM(q1 TO q5); LAG(var [, n]) is the value n cases back.
+  Scratch variables start with #: they begin at 0 or blank, keep their value from case to case,
+  are never saved and are gone when the next procedure starts. $CASENUM is the case number.
 ```
 
 ## Not supported yet
 
 These commands of the language are recognised, but StatsCraft does not run them yet. A script that uses one stops with the error "command ... is not supported yet" at its line, and nothing is changed.
 
-ADD DOCUMENT, ADD VALUE LABELS, ALTER TYPE, ANOVA, APPLY DICTIONARY, AUTORECODE, BREAK, CACHE, CASESTOVARS, CD, CLEAR TRANSFORMATIONS, CLUSTER, DATASET ACTIVATE, DATASET CLOSE, DATASET COPY, DATASET DECLARE, DATASET DISPLAY, DATASET NAME, DATE, DEFINE, DISCRIMINANT, DISPLAY, DO REPEAT, DOCUMENT, DROP DOCUMENTS, ECHO, END CASE, END DATA, END FILE, END FILE TYPE, END INPUT PROGRAM, END LOOP, END MATRIX, END REPEAT, ERASE, EXPORT, FACTOR, FILE HANDLE, FILE LABEL, FILE TYPE, FILTER, FINISH, FLIP, GET DATA, GET TRANSLATE, GLM, GRAPH, HOST, IMPORT, INCLUDE, INPUT PROGRAM, INSERT, LEAVE, LIST, LOGISTIC REGRESSION, LOOP, MATRIX, MATRIX DATA, MULT RESPONSE, N OF CASES, NEW FILE, NPAR TESTS, OUTPUT CLOSE, OUTPUT EXPORT, OUTPUT NEW, OUTPUT SAVE, PARTIAL CORR, PERMISSIONS, PRESERVE, PRINT, PRINT EJECT, PRINT FORMATS, PRINT SPACE, QUICK CLUSTER, RANK, RECORD TYPE, REGRESSION, RELIABILITY, REPEATING DATA, REPORT, REREAD, RESTORE, SAMPLE, SAVE TRANSLATE, SET, SHOW, SORT VARIABLES, SPLIT FILE, SUBTITLE, SYSFILE INFO, TEMPORARY, TITLE, UNIANOVA, UPDATE, USE, VARIABLE ALIGNMENT, VARIABLE ATTRIBUTE, VARIABLE ROLE, VARIABLE WIDTH, VARSTOCASES, VECTOR, WRITE, WRITE FORMATS, XSAVE
+ADD DOCUMENT, ADD VALUE LABELS, ALTER TYPE, ANOVA, APPLY DICTIONARY, AUTORECODE, BREAK, CACHE, CASESTOVARS, CD, CLEAR TRANSFORMATIONS, CLUSTER, DATASET ACTIVATE, DATASET CLOSE, DATASET COPY, DATASET DECLARE, DATASET DISPLAY, DATASET NAME, DATE, DEFINE, DISCRIMINANT, DISPLAY, DO REPEAT, DOCUMENT, DROP DOCUMENTS, ECHO, END CASE, END DATA, END FILE, END FILE TYPE, END INPUT PROGRAM, END LOOP, END MATRIX, END REPEAT, ERASE, EXPORT, FACTOR, FILE HANDLE, FILE LABEL, FILE TYPE, FINISH, FLIP, GET DATA, GET TRANSLATE, GLM, GRAPH, HOST, IMPORT, INCLUDE, INPUT PROGRAM, INSERT, LEAVE, LIST, LOGISTIC REGRESSION, LOOP, MATRIX, MATRIX DATA, MULT RESPONSE, NEW FILE, NPAR TESTS, OUTPUT CLOSE, OUTPUT EXPORT, OUTPUT NEW, OUTPUT SAVE, PARTIAL CORR, PERMISSIONS, PRESERVE, PRINT, PRINT EJECT, PRINT FORMATS, PRINT SPACE, QUICK CLUSTER, RANK, RECORD TYPE, REGRESSION, RELIABILITY, REPEATING DATA, REPORT, REREAD, RESTORE, SAVE TRANSLATE, SET, SHOW, SORT VARIABLES, SUBTITLE, SYSFILE INFO, TITLE, UNIANOVA, UPDATE, USE, VARIABLE ALIGNMENT, VARIABLE ATTRIBUTE, VARIABLE ROLE, VARIABLE WIDTH, VARSTOCASES, VECTOR, WRITE, WRITE FORMATS, XSAVE

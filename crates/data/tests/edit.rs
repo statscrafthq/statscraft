@@ -394,7 +394,6 @@ fn numeric_values() {
         "all",
         "x.",
         "$sys",
-        "#tmp",
         "a-b",
         too_long.as_str(),
     ] {
@@ -404,6 +403,15 @@ fn numeric_values() {
             "{invalid}: {result:?}"
         );
     }
+    // a scratch variable may live in a dataset, never in a file
+    let mut scratch = data.clone();
+    scratch.set_numeric_values("#tmp", vec![None; 200]).unwrap();
+    let file = std::env::temp_dir().join(format!("statscraft-scratch-{}.sav", std::process::id()));
+    let refused = scratch.write_sav(&file).unwrap_err().to_string();
+    assert_eq!(
+        refused,
+        "#tmp is a scratch variable, which a data file cannot hold"
+    );
     assert_error!(
         data.set_numeric_values("a b", vec![None; 200]),
         Error::InvalidName(_),
