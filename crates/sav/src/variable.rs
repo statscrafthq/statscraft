@@ -104,10 +104,10 @@ impl VariableRecord {
 
         // Variable label
         let label = if has_var_label == 1 {
-            let label_len = reader.read_i32()? as usize;
+            let label_len = reader.read_len("variable label length")?;
             let padded_len = io_utils::round_up(label_len, 4);
             let label_bytes = reader.read_bytes(padded_len)?;
-            Some(label_bytes[..label_len].to_vec())
+            Some(label_bytes.get(..label_len).unwrap_or_default().to_vec())
         } else {
             None
         };

@@ -55,8 +55,8 @@ impl FileHeader {
             io_utils::bytes_to_string_lossy(io_utils::trim_trailing_padding(&product_bytes));
 
         // Layout code: 4 bytes (used to detect endianness)
-        let layout_bytes = reader.read_bytes(4)?;
-        let layout_arr: [u8; 4] = layout_bytes.try_into().unwrap();
+        let mut layout_arr = [0u8; 4];
+        reader.read_exact(&mut layout_arr)?;
         let bswap = io_utils::detect_endianness(layout_arr)?;
         reader.set_bswap(bswap);
 

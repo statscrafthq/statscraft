@@ -1,5 +1,5 @@
-use crate::error::{Result, SavError};
-use crate::io_utils::{self, RawText};
+use crate::error::Result;
+use crate::io_utils::{self, RawText, take, take_len};
 
 /// Missing value specification for a long string variable.
 #[derive(Debug, Clone)]
@@ -26,37 +26,23 @@ pub fn parse_long_string_missing(data: &[u8]) -> Result<Vec<LongStringMissingEnt
     let mut result = Vec::new();
     let mut pos = 0;
 
-    while pos + 4 <= data.len() {
-        // Variable name
-        let name_len = read_i32_le(data, pos)? as usize;
-        pos += 4;
-        if pos + name_len > data.len() {
+    // A record that ends early or holds a corrupt length keeps what came before it.
+    while let Some(name_len) = take_len(data, &mut pos) {
+        let Some(name) = take(data, &mut pos, name_len) else {
             break;
-        }
-        let var_name = io_utils::trim_ascii_nul(&data[pos..pos + name_len]).to_vec();
-        pos += name_len;
-
-        // Number of missing values
-        if pos >= data.len() {
+        };
+        let var_name = io_utils::trim_ascii_nul(name).to_vec();
+        let (Some(&[n_values]), Some(value_len)) = (take(data, &mut pos, 1), take_len(data, &mut pos))
+        else {
             break;
-        }
-        let n_values = data[pos];
-        pos += 1;
+        };
 
-        // Value length
-        if pos + 4 > data.len() {
-            break;
-        }
-        let value_len = read_i32_le(data, pos)? as usize;
-        pos += 4;
-
-        let mut values = Vec::with_capacity((n_values as usize).min(4096));
+        let mut values = Vec::with_capacity(n_values as usize);
         for _ in 0..n_values {
-            if pos + value_len > data.len() {
+            let Some(value) = take(data, &mut pos, value_len) else {
                 break;
-            }
-            values.push(data[pos..pos + value_len].to_vec());
-            pos += value_len;
+            };
+            values.push(value.to_vec());
         }
 
         result.push(LongStringMissingEntry {
@@ -69,13 +55,3 @@ pub fn parse_long_string_missing(data: &[u8]) -> Result<Vec<LongStringMissingEnt
     Ok(result)
 }
 
-fn read_i32_le(data: &[u8], pos: usize) -> Result<i32> {
-    if pos + 4 > data.len() {
-        return Err(SavError::TruncatedFile {
-            expected: pos + 4,
-            actual: data.len(),
-        });
-    }
-    let bytes: [u8; 4] = data[pos..pos + 4].try_into().unwrap();
-    Ok(i32::from_le_bytes(bytes))
-}

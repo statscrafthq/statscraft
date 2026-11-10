@@ -25,7 +25,7 @@ pub struct ValueLabelSet {
 /// Returns the value-label pairs. The caller should immediately read the
 /// following type 4 record to get the variable indices.
 pub fn parse_value_labels<R: Read>(reader: &mut SavReader<R>) -> Result<Vec<(RawValue, Vec<u8>)>> {
-    let count = reader.read_i32()? as usize;
+    let count = reader.read_len("value label count")?;
     let mut labels = Vec::with_capacity(count.min(4096));
 
     for _ in 0..count {
@@ -42,7 +42,7 @@ pub fn parse_value_labels<R: Read>(reader: &mut SavReader<R>) -> Result<Vec<(Raw
         // The label + length byte together must be padded to a multiple of 8
         let padded_label_len = io_utils::round_up(label_len + 1, 8) - 1;
         let label_data = reader.read_bytes(padded_label_len)?;
-        let label_bytes = label_data[..label_len].to_vec();
+        let label_bytes = label_data.get(..label_len).unwrap_or_default().to_vec();
 
         // We store as numeric by default; the dictionary resolution step will
         // determine if this should be string based on the linked variable types.
@@ -58,7 +58,7 @@ pub fn parse_value_labels<R: Read>(reader: &mut SavReader<R>) -> Result<Vec<(Raw
 ///
 /// Returns 0-based variable slot indices.
 pub fn parse_value_label_variables<R: Read>(reader: &mut SavReader<R>) -> Result<Vec<usize>> {
-    let count = reader.read_i32()? as usize;
+    let count = reader.read_len("value label variable count")?;
 
     if count == 0 {
         return Err(SavError::InvalidValueLabel(

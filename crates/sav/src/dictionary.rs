@@ -618,7 +618,7 @@ pub fn resolve_dictionary(raw: RawDictionary) -> Result<ResolvedDictionary> {
             let attr_name = dec(attr_name_bytes);
             let values: Vec<String> = value_bytes.iter().map(|v| dec(v)).collect();
             if attr_name == "$@Role" && !values.is_empty() {
-                if let Some(role) = Role::from_code(&values[0]) {
+                if let Some(role) = values.first().and_then(|v| Role::from_code(v)) {
                     meta.variable_roles.insert(var_name.clone(), role);
                 }
             } else {

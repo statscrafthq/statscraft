@@ -1,5 +1,5 @@
-use crate::error::{Result, SavError};
-use crate::io_utils::{self, RawText};
+use crate::error::Result;
+use crate::io_utils::{self, RawText, take, take_len};
 
 /// A set of value labels for a long string variable.
 #[derive(Debug, Clone)]
@@ -26,56 +26,28 @@ pub fn parse_long_string_labels(data: &[u8]) -> Result<Vec<LongStringLabelSet>> 
     let mut result = Vec::new();
     let mut pos = 0;
 
-    while pos + 4 <= data.len() {
-        // Variable name
-        let name_len = read_i32_le(data, pos)? as usize;
-        pos += 4;
-        if pos + name_len > data.len() {
+    // A record that ends early or holds a corrupt length keeps what came before it.
+    while let Some(name_len) = take_len(data, &mut pos) {
+        let Some(name) = take(data, &mut pos, name_len) else {
             break;
-        }
-        let var_name = io_utils::trim_ascii_nul(&data[pos..pos + name_len]).to_vec();
-        pos += name_len;
-
-        // Variable width (skip — used for value padding)
-        if pos + 4 > data.len() {
+        };
+        let var_name = io_utils::trim_ascii_nul(name).to_vec();
+        // variable width: not needed, the values carry their own length
+        let (Some(_), Some(label_count)) = (take(data, &mut pos, 4), take_len(data, &mut pos))
+        else {
             break;
-        }
-        // let _var_width = read_i32_le(data, pos)?;
-        pos += 4;
-
-        // Label count
-        if pos + 4 > data.len() {
-            break;
-        }
-        let label_count = read_i32_le(data, pos)? as usize;
-        pos += 4;
+        };
 
         let mut labels = Vec::with_capacity(label_count.min(4096));
         for _ in 0..label_count {
-            // Value length + value
-            if pos + 4 > data.len() {
+            let value = take_len(data, &mut pos).and_then(|n| take(data, &mut pos, n));
+            let Some(value) = value.map(<[u8]>::to_vec) else {
                 break;
-            }
-            let value_len = read_i32_le(data, pos)? as usize;
-            pos += 4;
-            if pos + value_len > data.len() {
+            };
+            let label = take_len(data, &mut pos).and_then(|n| take(data, &mut pos, n));
+            let Some(label) = label.map(<[u8]>::to_vec) else {
                 break;
-            }
-            let value = data[pos..pos + value_len].to_vec();
-            pos += value_len;
-
-            // Label length + label
-            if pos + 4 > data.len() {
-                break;
-            }
-            let label_len = read_i32_le(data, pos)? as usize;
-            pos += 4;
-            if pos + label_len > data.len() {
-                break;
-            }
-            let label = data[pos..pos + label_len].to_vec();
-            pos += label_len;
-
+            };
             labels.push((value, label));
         }
 
@@ -85,13 +57,3 @@ pub fn parse_long_string_labels(data: &[u8]) -> Result<Vec<LongStringLabelSet>> 
     Ok(result)
 }
 
-fn read_i32_le(data: &[u8], pos: usize) -> Result<i32> {
-    if pos + 4 > data.len() {
-        return Err(SavError::TruncatedFile {
-            expected: pos + 4,
-            actual: data.len(),
-        });
-    }
-    let bytes: [u8; 4] = data[pos..pos + 4].try_into().unwrap();
-    Ok(i32::from_le_bytes(bytes))
-}

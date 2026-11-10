@@ -78,6 +78,13 @@ impl<R: Read> SavReader<R> {
         Ok(val)
     }
 
+    /// Read a 4-byte count or length; a negative value is corruption.
+    pub fn read_len(&mut self, what: &str) -> Result<usize> {
+        let n = self.read_i32()?;
+        usize::try_from(n)
+            .map_err(|_| SavError::InvalidDictionary(format!("negative {what}: {n}")))
+    }
+
     /// Read a 4-byte unsigned integer with endian handling.
     #[allow(dead_code)]
     pub fn read_u32(&mut self) -> Result<u32> {
@@ -169,7 +176,8 @@ pub fn trim_trailing_padding(buf: &[u8]) -> &[u8] {
     &buf[..end]
 }
 
-/// Round a length up to the next multiple of `alignment`.
+/// Round a length up to the next multiple of `alignment` (saturating, so a
+/// corrupt length can never overflow; the read that follows then fails).
 pub fn round_up(len: usize, alignment: usize) -> usize {
     if alignment == 0 {
         return len;
@@ -178,36 +186,32 @@ pub fn round_up(len: usize, alignment: usize) -> usize {
     if remainder == 0 {
         len
     } else {
-        len + alignment - remainder
+        len.saturating_add(alignment - remainder)
     }
+}
+
+/// Bytes `pos..pos + n` of an in-memory record, advancing `pos`; `None` when
+/// the record is shorter (also when a corrupt `n` would overflow).
+pub fn take<'a>(data: &'a [u8], pos: &mut usize, n: usize) -> Option<&'a [u8]> {
+    let bytes = data.get(*pos..pos.checked_add(n)?)?;
+    *pos += n;
+    Some(bytes)
+}
+
+/// A little-endian i32 at `pos` of an in-memory record, advancing `pos`.
+pub fn take_i32(data: &[u8], pos: &mut usize) -> Option<i32> {
+    Some(i32::from_le_bytes(take(data, pos, 4)?.try_into().ok()?))
+}
+
+/// A non-negative little-endian i32 length at `pos`, advancing `pos`.
+pub fn take_len(data: &[u8], pos: &mut usize) -> Option<usize> {
+    usize::try_from(take_i32(data, pos)?).ok()
 }
 
 /// Convert a byte slice to a string, trying UTF-8 first and falling back to lossy.
 pub fn bytes_to_string_lossy(bytes: &[u8]) -> String {
     String::from_utf8(bytes.to_vec())
         .unwrap_or_else(|_| String::from_utf8_lossy(bytes).into_owned())
-}
-
-/// Read a pascal-style string: 4-byte length prefix, then that many bytes.
-#[allow(dead_code)]
-pub fn read_pascal_string<R: Read>(reader: &mut SavReader<R>) -> Result<Vec<u8>> {
-    let len = reader.read_i32()? as usize;
-    if len == 0 {
-        return Ok(Vec::new());
-    }
-    reader.read_bytes(len)
-}
-
-/// Read a pascal-style string and skip padding to align to 4 bytes.
-#[allow(dead_code)]
-pub fn read_pascal_string_aligned<R: Read>(reader: &mut SavReader<R>) -> Result<Vec<u8>> {
-    let len = reader.read_i32()? as usize;
-    if len == 0 {
-        return Ok(Vec::new());
-    }
-    let padded_len = round_up(len, 4);
-    let data = reader.read_bytes(padded_len)?;
-    Ok(data[..len].to_vec())
 }
 
 /// Detect endianness from the SAV header's layout_code field.

@@ -1,5 +1,7 @@
 //! statscraft-sav: reader and writer for .sav and .zsav files, started from ambers 0.4.7.
 //!
+//! No unsafe code: every file is untrusted input.
+//!
 //! This library reads SAV SAV/ZSAV files natively in Rust with no C dependencies.
 //! Data is returned as Apache Arrow RecordBatch for seamless integration with
 //! Polars, DataFusion, and other Arrow-compatible tools.
@@ -14,6 +16,8 @@
 //! println!("Columns: {}", batch.num_columns());
 //! println!("Variables: {:?}", meta.variable_names);
 //! ```
+
+#![forbid(unsafe_code)]
 
 pub(crate) mod arrow_convert;
 pub(crate) mod columnar;

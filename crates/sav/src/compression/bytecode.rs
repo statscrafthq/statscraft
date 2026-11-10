@@ -187,94 +187,49 @@ impl BytecodeDecompressor {
             return Ok(false);
         }
 
-        // The unsafe writes below require the whole row to fit in `output`.
-        // This is a real check, not a debug_assert!: a release build must never
-        // write past the buffer, whatever the caller passed (GitHub issue #2).
-        // One comparison per row, outside the per-slot loop.
+        // The whole row must fit in `output`: a real check, not a debug_assert!,
+        // whatever the caller passed (GitHub issue #2). One check per row.
         let row_bytes = slots_per_row * 8;
-        if out_offset + row_bytes > output.len() {
+        let Some(row) = output.get_mut(out_offset..out_offset + row_bytes) else {
             return Err(output_too_small(out_offset, row_bytes, output.len()));
-        }
+        };
+        let mut slots = row.as_chunks_mut::<8>().0.iter_mut();
+        let mut dest = slots.next();
 
-        let mut slot = 0;
-        while slot < slots_per_row {
+        while let Some(slot) = dest.as_deref_mut() {
             // Need a new control block?
             if self.control_idx >= 8 {
-                if self.pos + 8 > input.len() {
+                let Some(block) = input.get(self.pos..self.pos + 8) else {
                     return Ok(false);
-                }
-                self.control_bytes
-                    .copy_from_slice(&input[self.pos..self.pos + 8]);
+                };
+                self.control_bytes.copy_from_slice(block);
                 self.pos += 8;
                 self.control_idx = 0;
             }
 
-            let code = self.control_bytes[self.control_idx];
+            let code = self.control_bytes[self.control_idx % 8];
             self.control_idx += 1;
 
-            let dest_offset = out_offset + slot * 8;
             match code {
                 // Hot path first: codes 1..=251 are small numeric values.
-                // Uses pre-computed LUT — single memcpy, no int→float or subtraction.
-                1..=251 => {
-                    // SAFETY: the bounds check at the top of this function
-                    // guarantees out_offset + slots_per_row * 8 <= output.len(),
-                    // and slot < slots_per_row, so dest_offset + 8 <= output.len().
-                    unsafe {
-                        std::ptr::copy_nonoverlapping(
-                            self.bias_lut[code as usize].as_ptr(),
-                            output.as_mut_ptr().add(dest_offset),
-                            8,
-                        );
-                    }
-                    slot += 1;
-                }
-                COMPRESS_SKIP => {
-                    continue;
-                }
+                // Uses pre-computed LUT: single copy, no int-to-float or subtraction.
+                1..=251 => *slot = self.bias_lut[code as usize],
+                COMPRESS_SKIP => continue,
                 COMPRESS_RAW_FOLLOWS => {
-                    if self.pos + 8 > input.len() {
+                    let Some(raw) = input.get(self.pos..self.pos + 8) else {
                         return Err(truncated_err(self.pos + 8, input.len()));
-                    }
-                    // SAFETY: dest as above (row bounds check at function entry);
-                    // input bounds checked just above.
-                    unsafe {
-                        std::ptr::copy_nonoverlapping(
-                            input.as_ptr().add(self.pos),
-                            output.as_mut_ptr().add(dest_offset),
-                            8,
-                        );
-                    }
+                    };
+                    slot.copy_from_slice(raw);
                     self.pos += 8;
-                    slot += 1;
                 }
-                COMPRESS_EIGHT_SPACES => {
-                    // SAFETY: dest covered by the row bounds check at function entry.
-                    unsafe {
-                        std::ptr::copy_nonoverlapping(
-                            SPACES_RAW.as_ptr(),
-                            output.as_mut_ptr().add(dest_offset),
-                            8,
-                        );
-                    }
-                    slot += 1;
-                }
-                COMPRESS_SYSMIS => {
-                    // SAFETY: dest covered by the row bounds check at function entry.
-                    unsafe {
-                        std::ptr::copy_nonoverlapping(
-                            SYSMIS_RAW.as_ptr(),
-                            output.as_mut_ptr().add(dest_offset),
-                            8,
-                        );
-                    }
-                    slot += 1;
-                }
+                COMPRESS_EIGHT_SPACES => *slot = SPACES_RAW,
+                COMPRESS_SYSMIS => *slot = SYSMIS_RAW,
                 COMPRESS_END_OF_FILE => {
                     self.eof = true;
                     return Ok(false);
                 }
             }
+            dest = slots.next();
         }
 
         Ok(true)

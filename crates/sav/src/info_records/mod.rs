@@ -12,7 +12,7 @@ pub mod very_long_strings;
 use std::io::Read;
 
 use crate::constants::*;
-use crate::error::Result;
+use crate::error::{Result, SavError};
 use crate::io_utils::SavReader;
 
 /// Header for a type 7 (info) record.
@@ -36,9 +36,18 @@ impl InfoRecordHeader {
         })
     }
 
-    /// Total data bytes for this info record.
-    pub fn data_len(&self) -> usize {
-        (self.size as usize) * (self.count as usize)
+    /// Total data bytes for this info record; corrupt sizes are an error.
+    pub fn data_len(&self) -> Result<usize> {
+        let size = usize::try_from(self.size).ok();
+        let count = usize::try_from(self.count).ok();
+        size.zip(count)
+            .and_then(|(size, count)| size.checked_mul(count))
+            .ok_or_else(|| {
+                SavError::InvalidDictionary(format!(
+                    "info record {} declares {} elements of {} bytes",
+                    self.subtype, self.count, self.size
+                ))
+            })
     }
 }
 
@@ -64,7 +73,7 @@ pub fn parse_info_record<R: Read>(
     reader: &mut SavReader<R>,
     header: &InfoRecordHeader,
 ) -> Result<InfoRecord> {
-    let data_len = header.data_len();
+    let data_len = header.data_len()?;
 
     match header.subtype {
         INFO_MR_SETS => {
@@ -85,8 +94,9 @@ pub fn parse_info_record<R: Read>(
             let info = float_info::FloatInfo::parse(reader)?;
             Ok(InfoRecord::FloatInfo(info))
         }
-        INFO_VAR_DISPLAY => {
-            let entries = var_display::parse_var_display(reader, header.count)?;
+        // elements are 4-byte integers; any other size is skipped as unknown
+        INFO_VAR_DISPLAY if header.size == 4 => {
+            let entries = var_display::parse_var_display(reader, data_len / 4)?;
             Ok(InfoRecord::VarDisplay(entries))
         }
         INFO_LONG_NAMES => {

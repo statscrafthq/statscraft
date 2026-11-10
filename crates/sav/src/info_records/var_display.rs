@@ -19,9 +19,8 @@ pub struct VarDisplayEntry {
 /// each variable gets (measure, alignment) — no width field.
 pub fn parse_var_display<R: Read>(
     reader: &mut SavReader<R>,
-    count: i32,
+    count: usize,
 ) -> Result<Vec<VarDisplayEntry>> {
-    let count = count as usize;
     let has_width = count.is_multiple_of(3);
 
     let n_vars = if has_width { count / 3 } else { count / 2 };
@@ -42,6 +41,9 @@ pub fn parse_var_display<R: Read>(
             alignment,
         });
     }
+    // an odd element count leaves elements no variable takes; skip them to stay in step
+    let used = n_vars * if has_width { 3 } else { 2 };
+    reader.skip((count - used) * 4)?;
 
     Ok(entries)
 }

@@ -1,7 +1,6 @@
 use std::io::{Read, Seek, SeekFrom};
 
 use flate2::Decompress;
-use rayon::prelude::*;
 
 use crate::error::{Result, SavError};
 use crate::io_utils::SavReader;
@@ -89,15 +88,32 @@ pub fn decompress_single_block<R: Read + Seek>(
     reader: &mut SavReader<R>,
     entry: &ZTrailerEntry,
 ) -> Result<Vec<u8>> {
-    reader
-        .inner_mut()
-        .seek(SeekFrom::Start(entry.compressed_offset as u64))?;
-    let compressed = reader.read_bytes(entry.compressed_size as usize)?;
-    let mut output = vec![0u8; entry.uncompressed_size as usize];
+    let sizes = usize::try_from(entry.compressed_size)
+        .ok()
+        .zip(usize::try_from(entry.uncompressed_size).ok());
+    // zlib cannot expand data more than about 1032 times, so a larger declared
+    // size is corrupt and must not decide an allocation
+    let Some((compressed_size, uncompressed_size)) =
+        sizes.filter(|&(c, u)| u <= c.saturating_mul(1100).saturating_add(64))
+    else {
+        return Err(SavError::Zlib(format!(
+            "block declares {} compressed and {} uncompressed bytes",
+            entry.compressed_size, entry.uncompressed_size
+        )));
+    };
+    let offset = u64::try_from(entry.compressed_offset)
+        .map_err(|_| SavError::Zlib(format!("block offset {}", entry.compressed_offset)))?;
+    reader.inner_mut().seek(SeekFrom::Start(offset))?;
+    let compressed = reader.read_bytes(compressed_size)?;
+    let mut output = vec![0u8; uncompressed_size];
 
     let mut decompressor = Decompress::new(true);
     match decompressor.decompress(&compressed, &mut output, flate2::FlushDecompress::Finish) {
-        Ok(flate2::Status::Ok | flate2::Status::StreamEnd) => Ok(output),
+        Ok(flate2::Status::Ok | flate2::Status::StreamEnd) => {
+            // a block that inflates to less than declared yields only what it holds
+            output.truncate(decompressor.total_out() as usize);
+            Ok(output)
+        }
         Ok(flate2::Status::BufError) => Err(SavError::Zlib(
             "single block decompression buffer too small".to_string(),
         )),
@@ -107,64 +123,3 @@ pub fn decompress_single_block<R: Read + Seek>(
     }
 }
 
-/// Decompress all ZSAV blocks into a single pre-allocated byte buffer.
-///
-/// Each block is zlib-compressed. The decompressed blocks contain
-/// bytecode-compressed data that must be further processed by the
-/// bytecode decompressor.
-///
-/// Phase 1: Read all compressed blocks sequentially (I/O-bound).
-/// Phase 2: Decompress all blocks in parallel directly into the output buffer,
-///          avoiding per-block Vec allocations and the final concat copy.
-///
-/// Note: The streaming scanner now uses `decompress_single_block` for on-demand
-/// decompression. This function is retained as public API for callers that
-/// prefer parallel bulk decompression.
-#[allow(dead_code)]
-pub fn decompress_zsav_blocks<R: Read + Seek>(
-    reader: &mut SavReader<R>,
-    trailer: &ZTrailer,
-) -> Result<Vec<u8>> {
-    // Phase 1: Sequential I/O — read all compressed blocks + compute output offsets
-    let mut compressed_blocks: Vec<(Vec<u8>, usize, usize)> =
-        Vec::with_capacity(trailer.entries.len());
-    let mut total_uncompressed: usize = 0;
-
-    for entry in &trailer.entries {
-        reader
-            .inner_mut()
-            .seek(SeekFrom::Start(entry.compressed_offset as u64))?;
-        let compressed = reader.read_bytes(entry.compressed_size as usize)?;
-        let uncompressed_size = entry.uncompressed_size as usize;
-        compressed_blocks.push((compressed, uncompressed_size, total_uncompressed));
-        total_uncompressed += uncompressed_size;
-    }
-
-    // Phase 2: Pre-allocate single output buffer, decompress blocks in parallel
-    // directly into non-overlapping slices — no per-block Vecs, no final concat.
-    let mut output = vec![0u8; total_uncompressed];
-    // Store as usize (Send+Sync) to avoid Rust 2024 disjoint field capture issues.
-    let base_addr = output.as_mut_ptr() as usize;
-
-    compressed_blocks
-        .par_iter()
-        .try_for_each(|(compressed, uncompressed_size, offset)| {
-            // SAFETY: Each block writes to [offset..offset+uncompressed_size],
-            // and these ranges are non-overlapping (offsets are cumulative sums).
-            // The output Vec lives longer than this par_iter scope.
-            let dest = unsafe {
-                std::slice::from_raw_parts_mut((base_addr + *offset) as *mut u8, *uncompressed_size)
-            };
-
-            let mut decompressor = Decompress::new(true);
-            match decompressor.decompress(compressed, dest, flate2::FlushDecompress::Finish) {
-                Ok(flate2::Status::Ok | flate2::Status::StreamEnd) => Ok(()),
-                Ok(flate2::Status::BufError) => Err(SavError::Zlib(
-                    "decompression buffer too small".to_string(),
-                )),
-                Err(e) => Err(SavError::Zlib(format!("zlib decompression error: {e}"))),
-            }
-        })?;
-
-    Ok(output)
-}
