@@ -220,10 +220,6 @@ fn aggregate_errors() {
         );
     }
     assert_eq!(
-        err("AGGREGATE /BREAK=g /m = MEAN(a).").expected,
-        ["OUTFILE"]
-    );
-    assert_eq!(
         err("AGGREGATE /OUTFILE=* MODE=FAST /m = N.").expected,
         ["ADDVARIABLES", "REPLACE"]
     );
@@ -353,4 +349,21 @@ fn mrsets_mistakes() {
         assert!(e.message.starts_with(message), "{source}: {}", e.message);
     }
     assert!(help(Some("MRSETS")).unwrap().contains("MCGROUP"));
+}
+
+#[test]
+fn aggregate_without_outfile_adds_variables_to_the_active_dataset() {
+    for source in [
+        "AGGREGATE /BREAK=region /m = MEAN(age).",
+        "AGGREGATE BREAK=region /m = MEAN(age).",
+    ] {
+        let Command::Aggregate(a) = one(source) else {
+            panic!("not AGGREGATE");
+        };
+        assert_eq!(
+            (a.outfile, a.add_variables, a.breaks.len()),
+            (None, true, 1),
+            "{source}"
+        );
+    }
 }

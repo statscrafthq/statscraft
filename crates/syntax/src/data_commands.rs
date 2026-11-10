@@ -202,9 +202,12 @@ fn aggregation(p: &mut Parser) -> PResult<Aggregation> {
 }
 
 pub(crate) fn aggregate(p: &mut Parser) -> PResult<Command> {
+    let start = p.pos;
     p.eat(Punct::Slash);
     if !p.eat_keyword("OUTFILE") {
-        return Err(p.unexpected(&["OUTFILE"]));
+        // without OUTFILE the results are added to the active dataset (manual, basic specification)
+        p.pos = start;
+        return aggregate_body(p, None, true);
     }
     p.eat(Punct::Eq);
     let outfile = if p.eat(Punct::Star) {
@@ -221,9 +224,20 @@ pub(crate) fn aggregate(p: &mut Parser) -> PResult<Command> {
             return Err(p.unexpected(&["ADDVARIABLES", "REPLACE"]));
         }
     }
+    aggregate_body(p, outfile, add_variables)
+}
+
+fn aggregate_body(
+    p: &mut Parser,
+    outfile: Option<String>,
+    add_variables: bool,
+) -> PResult<Command> {
     let mut breaks = Vec::new();
     let mut aggregations = Vec::new();
-    while p.eat(Punct::Slash) {
+    // the first subcommand may come without its slash, as in `AGGREGATE BREAK=g /m = MEAN(x)`
+    let mut first = true;
+    while p.eat(Punct::Slash) || (std::mem::take(&mut first) && p.peek().is_some()) {
+        first = false;
         let assigns = p.peek_at(1) == Some(&TokenKind::Punct(Punct::Eq));
         // these words are subcommands only where they cannot start a target list
         let bare = matches!(p.peek_at(1), None | Some(TokenKind::Punct(Punct::Slash)));
