@@ -126,6 +126,8 @@ pub struct Means {
     /// `/STATISTICS=LINEARITY`: the test of linearity as well.
     pub linearity: bool,
     pub missing: MeansMissing,
+    /// The control variables named by `NPCT(var)` and `SPCT(var)`, as written.
+    pub within: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -162,6 +164,13 @@ pub enum MeansCell {
     Spct,
     Harmonic,
     Geometric,
+    /// `GMEDIAN`: the grouped median.
+    GroupedMedian,
+    /// `NPCT(var)`: percent of the N of the group of that control variable, an index into
+    /// `Means::within`.
+    NpctIn(usize),
+    /// `SPCT(var)`: percent of the sum of the group of that control variable.
+    SpctIn(usize),
 }
 
 #[derive(Debug, Clone, PartialEq)]

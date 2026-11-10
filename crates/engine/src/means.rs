@@ -11,8 +11,12 @@
 //! - Weights are used as they are; a case with a missing, zero or negative weight is left out.
 //! - Skewness needs W >= 3, kurtosis W >= 4, both a positive standard deviation. The median is
 //!   the value at position (W + 1) / 2, interpolated. Harmonic and geometric means need
-//!   positive values (where the manual is silent: other values leave them empty).
-//! - A string dependent gets COUNT, FIRST and LAST only.
+//!   positive values (where the manual is silent: other values leave them empty). The grouped
+//!   median follows the appendix Grouped Percentiles.
+//! - NPCT(var) and SPCT(var) take as base the cases in the row's category of that control, all
+//!   cases on its Total rows (the manual says "within the specified variable" and no more);
+//!   a report without that control leaves them empty with a warning.
+//! - A string dependent gets COUNT, FIRST and LAST only (and the percentages of N).
 //! - ANOVA uses the first control; it needs two groups, the test of linearity three groups of
 //!   a numeric control. What cannot be done is reported as a warning.
 
@@ -24,7 +28,12 @@ use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Values, Variable};
 use statscraft_syntax::{Means, MeansCell as M, MeansMissing};
 
-fn cell_name(cell: M) -> &'static str {
+fn cell_name(cell: M, within: &[String]) -> String {
+    match cell {
+        M::NpctIn(i) => return format!("% of Total N in {}", within[i]),
+        M::SpctIn(i) => return format!("% of Total Sum in {}", within[i]),
+        _ => {}
+    }
     match cell {
         M::Mean => "Mean",
         M::Count => "N",
@@ -46,7 +55,40 @@ fn cell_name(cell: M) -> &'static str {
         M::Spct => "% of Total Sum",
         M::Harmonic => "Harmonic Mean",
         M::Geometric => "Geometric Mean",
+        M::GroupedMedian => "Grouped Median",
+        M::NpctIn(_) | M::SpctIn(_) => unreachable!("named above"),
     }
+    .to_string()
+}
+
+/// The grouped median (Algorithms manual, appendix Grouped Percentiles): each distinct value is
+/// the midpoint of its interval, and the cumulative weight up to the midpoints, cc_l = the
+/// weight below value l plus half its own, is interpolated linearly at half the total.
+fn grouped_median(cells: &[(f64, f64)]) -> Option<f64> {
+    let mut cells: Vec<(f64, f64)> = cells.iter().copied().filter(|(_, w)| *w > 0.0).collect();
+    cells.sort_by(|a, b| a.0.total_cmp(&b.0));
+    cells.dedup_by(|next, kept| {
+        let same = next.0 == kept.0;
+        if same {
+            kept.1 += next.1;
+        }
+        same
+    });
+    let half = cells.iter().map(|(_, w)| w).sum::<f64>() / 2.0;
+    let (mut below, mut previous) = (0.0, None);
+    for (value, weight) in cells {
+        let cumulative = below + weight / 2.0;
+        if half < cumulative {
+            // half the total never lies below the first midpoint, where the manual leaves the
+            // percentile undefined
+            let (x, c): (f64, f64) = previous?;
+            let r = (half - c) / (cumulative - c);
+            return Some((1.0 - r) * x + r * value);
+        }
+        previous = Some((value, cumulative));
+        below += weight;
+    }
+    previous.map(|(x, _)| x)
 }
 
 /// True when the value of `variable` at `case` is valid; `include` makes user-missing valid.
@@ -78,7 +120,14 @@ pub(crate) fn combinations(lists: &[Vec<String>]) -> Vec<Vec<String>> {
 }
 
 /// The statistics of one group of a numeric dependent: (value, weight, case) of its cases.
-fn statistic(cell: M, cases: &[(f64, f64, usize)], totals: (f64, f64)) -> Cell {
+/// `within` holds the count and sum of the group of each `NPCT(var)` and `SPCT(var)` variable,
+/// None where the report does not have that control.
+fn statistic(
+    cell: M,
+    cases: &[(f64, f64, usize)],
+    totals: (f64, f64),
+    within: &[Option<(f64, f64)>],
+) -> Cell {
     let pairs: Vec<(f64, f64)> = cases.iter().map(|&(x, w, _)| (x, w)).collect();
     let s = summarize(&pairs);
     let w = s.n;
@@ -106,12 +155,21 @@ fn statistic(cell: M, cases: &[(f64, f64, usize)], totals: (f64, f64)) -> Cell {
         M::Geometric => {
             positive.then(|| (pairs.iter().map(|(x, w)| w * x.ln()).sum::<f64>() / w).exp())
         }
+        M::GroupedMedian => grouped_median(&pairs),
+        M::NpctIn(i) => within[i].map(|t| 100.0 * w / t.0),
+        M::SpctIn(i) => s.sum.zip(within[i]).map(|(sum, t)| 100.0 * sum / t.1),
     };
     number(value)
 }
 
 /// A string dependent: counts, first and last values only.
-fn string_statistic(cell: M, variable: &Variable, cases: &[(f64, f64, usize)], total: f64) -> Cell {
+fn string_statistic(
+    cell: M,
+    variable: &Variable,
+    cases: &[(f64, f64, usize)],
+    total: f64,
+    within: &[Option<(f64, f64)>],
+) -> Cell {
     let Values::String(values) = variable.values() else {
         return Cell::Empty;
     };
@@ -119,6 +177,7 @@ fn string_statistic(cell: M, variable: &Variable, cases: &[(f64, f64, usize)], t
     match cell {
         M::Count => Cell::Number(w),
         M::Npct => number(Some(100.0 * w / total)),
+        M::NpctIn(i) => number(within[i].map(|t| 100.0 * w / t.0)),
         M::First => cases
             .first()
             .map_or(Cell::Empty, |c| Cell::Text(values.get(c.2).to_string())),
@@ -196,6 +255,19 @@ impl Engine {
                 .collect::<Result<_, _>>()?;
             let dependents = &dimensions[0];
             let combos = combinations(&dimensions[1..]);
+            for name in &command.within {
+                let control = |v: &String| v.eq_ignore_ascii_case(name);
+                if !dimensions[1..].iter().flatten().any(control) {
+                    return Err(Error(format!(
+                        "NPCT({name}) and SPCT({name}) need {name} as a control variable of every table list"
+                    )));
+                }
+                if combos.iter().any(|combo| !combo.iter().any(control)) {
+                    warnings.push(format!(
+                        "the percentages within {name} are empty in the reports without {name}"
+                    ));
+                }
+            }
             let valid_dependent = |name: &str, case| {
                 Ok::<_, Error>(is_valid(&data.variable(name)?, case, include_dependent))
             };
@@ -311,9 +383,33 @@ fn report(
         everything.iter().map(|c| c.1).sum::<f64>(),
         everything.iter().map(|c| c.0 * c.1).sum::<f64>(),
     );
+    // the position of each NPCT(var) and SPCT(var) variable among the controls
+    let positions: Vec<Option<usize>> = command
+        .within
+        .iter()
+        .map(|name| {
+            controls
+                .iter()
+                .position(|v| v.name().eq_ignore_ascii_case(name))
+        })
+        .collect();
     let mut rows = Vec::new();
     for group in groups(&keys, included) {
         let cases = cases_of(&group);
+        // the count and sum of the cases in the same category of that control (all cases on
+        // its Total rows)
+        let within: Vec<Option<(f64, f64)>> = positions
+            .iter()
+            .map(|position| {
+                position.map(|p| {
+                    let mut only = vec![None; controls.len()];
+                    only[p] = group[p].clone();
+                    let base = cases_of(&only);
+                    let w: f64 = base.iter().map(|c| c.1).sum();
+                    (w, base.iter().map(|c| c.0 * c.1).sum::<f64>())
+                })
+            })
+            .collect();
         let mut row: Vec<Cell> = group
             .iter()
             .zip(controls)
@@ -321,9 +417,9 @@ fn report(
             .collect();
         for &cell in &command.cells {
             row.push(if dependent.is_string() {
-                string_statistic(cell, dependent, &cases, totals.0)
+                string_statistic(cell, dependent, &cases, totals.0, &within)
             } else {
-                statistic(cell, &cases, totals)
+                statistic(cell, &cases, totals, &within)
             });
         }
         rows.push(row);
@@ -331,7 +427,7 @@ fn report(
     let mut names = vec![dependent.name().to_string()];
     names.extend(controls.iter().map(|v| v.name().to_string()));
     let mut columns: Vec<String> = controls.iter().map(|v| v.name().to_string()).collect();
-    columns.extend(command.cells.iter().map(|c| cell_name(*c).to_string()));
+    columns.extend(command.cells.iter().map(|c| cell_name(*c, &command.within)));
     let mut out = vec![Table {
         title: format!("Report: {}", names.join(" by ")),
         row_headers: controls.len(),
@@ -482,4 +578,22 @@ fn anova(
         ..Table::default()
     });
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::grouped_median;
+
+    #[test]
+    fn grouped_median_interpolates_between_midpoints() {
+        // midpoints 0.5 and 2.5 of the cumulative weight; half the total is 2
+        assert_eq!(grouped_median(&[(1.0, 1.0), (2.0, 3.0)]), Some(1.75));
+        // half the total on a midpoint gives that value
+        assert_eq!(
+            grouped_median(&[(3.0, 1.0), (1.0, 1.0), (2.0, 1.0)]),
+            Some(2.0)
+        );
+        assert_eq!(grouped_median(&[(5.0, 2.0), (5.0, 1.5)]), Some(5.0));
+        assert_eq!(grouped_median(&[(5.0, 0.0)]), None);
+    }
 }

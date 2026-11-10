@@ -63,11 +63,12 @@ fn level(p: &mut Parser, what: &str) -> PResult<f64> {
 
 const MEANS_SUBCOMMANDS: [&str; 4] = ["TABLES", "CELLS", "STATISTICS", "MISSING"];
 
-const MEANS_CELLS: [(&str, &[M]); 22] = [
+const MEANS_CELLS: [(&str, &[M]); 23] = [
     ("MEAN", &[M::Mean]),
     ("COUNT", &[M::Count]),
     ("STDDEV", &[M::StdDev]),
     ("MEDIAN", &[M::Median]),
+    ("GMEDIAN", &[M::GroupedMedian]),
     ("SEMEAN", &[M::SeMean]),
     ("SUM", &[M::Sum]),
     ("MIN", &[M::Min]),
@@ -92,6 +93,7 @@ const MEANS_CELLS: [(&str, &[M]); 22] = [
             M::Count,
             M::StdDev,
             M::Median,
+            M::GroupedMedian,
             M::SeMean,
             M::Sum,
             M::Min,
@@ -112,6 +114,41 @@ const MEANS_CELLS: [(&str, &[M]); 22] = [
     ),
 ];
 
+/// The keywords of MEANS /CELLS; `NPCT(var)` and `SPCT(var)` add the variable to `within`.
+fn means_cells(p: &mut Parser, within: &mut Vec<String>) -> PResult<Vec<M>> {
+    let mut out = Vec::new();
+    while !at_end(p) {
+        let found = MEANS_CELLS.iter().find(|(name, _)| p.at_keyword(name));
+        let Some((name, cells)) = found else {
+            return Err(p.unexpected(&names(&MEANS_CELLS)));
+        };
+        p.pos += 1;
+        if matches!(*name, "NPCT" | "SPCT") && p.eat(Punct::LParen) {
+            let variable = p.name("a control variable")?;
+            p.expect(Punct::RParen)?;
+            let index = within
+                .iter()
+                .position(|v| v.eq_ignore_ascii_case(&variable))
+                .unwrap_or_else(|| {
+                    within.push(variable);
+                    within.len() - 1
+                });
+            out.push(if *name == "NPCT" {
+                M::NpctIn(index)
+            } else {
+                M::SpctIn(index)
+            });
+        } else {
+            out.extend_from_slice(cells);
+        }
+        p.eat(Punct::Comma);
+    }
+    if out.is_empty() {
+        return Err(p.unexpected(&names(&MEANS_CELLS)));
+    }
+    Ok(out)
+}
+
 /// `dependents [BY controls [BY ...]]`
 fn means_table(p: &mut Parser) -> PResult<Vec<Vec<VarItem>>> {
     let mut dimensions = vec![variables(p)?];
@@ -128,6 +165,7 @@ pub(crate) fn means(p: &mut Parser) -> PResult<Command> {
         anova: false,
         linearity: false,
         missing: MeansMissing::Separate,
+        within: Vec::new(),
     };
     let mut cells: Option<Vec<M>> = None;
     p.eat(Punct::Slash);
@@ -144,15 +182,7 @@ pub(crate) fn means(p: &mut Parser) -> PResult<Command> {
             let chosen = if !p.eat(Punct::Eq) && at_end(p) {
                 vec![M::Mean, M::Count, M::StdDev]
             } else {
-                keywords(p, &MEANS_CELLS, |p| {
-                    if p.at(Punct::LParen) {
-                        let message =
-                            "NPCT(var) and SPCT(var) in MEANS /CELLS are not supported yet";
-                        SyntaxError::new(p.span(), message)
-                    } else {
-                        keyword_error(p, "MEANS /CELLS", &["GMEDIAN"], &names(&MEANS_CELLS))
-                    }
-                })?
+                means_cells(p, &mut command.within)?
             };
             cells.get_or_insert_default().extend(chosen);
         } else if p.eat_keyword("STATISTICS") {

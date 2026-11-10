@@ -214,6 +214,7 @@ fn means() {
             anova: false,
             linearity: false,
             missing: MeansMissing::Separate,
+            within: Vec::new(),
         })
     );
     let Command::Means(m) = one(
@@ -227,18 +228,25 @@ fn means() {
     let Command::Means(m) = one("MEANS x /CELLS=ALL /STATISTICS=LINEARITY.") else {
         panic!()
     };
-    assert_eq!(m.cells.len(), 20);
+    assert_eq!(m.cells.len(), 21);
     assert!(m.anova && m.linearity);
-    assert!(
-        err("MEANS x /CELLS=GMEDIAN.")
-            .message
-            .contains("GMEDIAN in MEANS /CELLS is not supported yet")
+    let Command::Means(m) =
+        one("MEANS x BY g BY h /CELLS=GMEDIAN NPCT(h) SPCT(H) NPCT SPCT(g), NPCT(h).")
+    else {
+        panic!()
+    };
+    assert_eq!(
+        m.cells,
+        [
+            M::GroupedMedian,
+            M::NpctIn(0),
+            M::SpctIn(0),
+            M::Npct,
+            M::SpctIn(1)
+        ]
     );
-    assert!(
-        err("MEANS x BY g /CELLS=NPCT(g).")
-            .message
-            .contains("NPCT(var)")
-    );
+    assert_eq!(m.within, ["h", "g"]);
+    err("MEANS x BY g /CELLS=NPCT(g.");
 }
 
 #[test]

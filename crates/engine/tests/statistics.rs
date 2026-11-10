@@ -149,6 +149,95 @@ fn means_cells_and_analysis_of_variance() {
     );
 }
 
+// Grouped medians and percentages within a control: the manual's formulas computed in R from
+// the weighted data.
+#[test]
+fn means_grouped_median_and_percentages_within_a_control() {
+    let mut engine = weighted();
+    let tables = run(
+        &mut engine,
+        "MEANS monthly_spend BY gender BY region\n\
+         /CELLS=COUNT GMEDIAN NPCT(gender) SPCT(gender) NPCT(region) SPCT(region).",
+    );
+    let report = titled(&tables, "Report: monthly_spend");
+    assert_eq!(
+        report.columns[2..],
+        [
+            "N",
+            "Grouped Median",
+            "% of Total N in gender",
+            "% of Total Sum in gender",
+            "% of Total N in region",
+            "% of Total Sum in region"
+        ]
+    );
+    // (row, N, grouped median, NPCT(gender), SPCT(gender), NPCT(region), SPCT(region))
+    let expected = [
+        (
+            0,
+            29.4055,
+            147.1969920669899,
+            24.2691122715189,
+            22.7282702959794,
+            68.9937940662357,
+            59.3762482029175,
+        ),
+        (
+            10,
+            31.5875,
+            213.0964284625468,
+            30.2511262469162,
+            32.9850829608779,
+            54.6027975992920,
+            58.6201184414934,
+        ),
+        (
+            13,
+            3.1946,
+            165.1405556251174,
+            38.7689469787988,
+            35.51779341590344,
+            9.78437978560490,
+            9.52676390952956,
+        ),
+        (
+            11,
+            104.4176,
+            198.0821727979175,
+            100.0,
+            100.0,
+            44.6568757430866,
+            49.0626618345398,
+        ),
+        (
+            19,
+            47.1713,
+            192.0581413664667,
+            20.1740212640385,
+            20.3182983094075,
+            100.0,
+            100.0,
+        ),
+        (21, 233.822, 183.820093182397, 100.0, 100.0, 100.0, 100.0),
+    ];
+    for (row, a, b, c, d, e, f) in expected {
+        for (i, value) in [a, b, c, d, e, f].into_iter().enumerate() {
+            near(number(&report.rows[row][2 + i]), value, 10);
+        }
+    }
+    let tables = run(
+        &mut engine,
+        "MEANS q1_satisfaction BY plan /CELLS=GMEDIAN MEDIAN.",
+    );
+    let report = titled(&tables, "Report: q1_satisfaction");
+    near(number(&report.rows[0][1]), 3.47118003011977, 13);
+    near(number(&report.rows[3][1]), 3.7274635660791, 13);
+    near(number(&report.rows[4][1]), 3.63653938746809, 13);
+    // the variable of NPCT(var) must be a control
+    let (commands, _) = parse("MEANS age BY gender /CELLS=NPCT(region).");
+    assert!(engine.execute(&commands[0].command).is_err());
+}
+
 #[test]
 fn means_missing_values_per_dependent_or_per_table() {
     // monthly_spend has 19 system-missing values; on its own it leaves out only those
