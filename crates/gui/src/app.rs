@@ -7,7 +7,7 @@ use crate::analyze_dialogs::{
 };
 use crate::dialogs::{
     Adjust, CROSSTABS_CELLS, Compute, Crosstabs, CustomTables, DESCRIPTIVES_STATISTICS,
-    Descriptives, Frequencies, NewValue, OldValue, Recode, RecodeRule, label_command,
+    Descriptives, Frequencies, Letters, NewValue, OldValue, Recode, RecodeRule, label_command,
 };
 use crate::edits::{self, Field};
 use crate::output::{self, OutputItem};
@@ -1230,7 +1230,8 @@ impl App {
                 ui.horizontal_top(|ui| {
                     ui.vertical(|ui| {
                         ui.set_width(230.0);
-                        variable_picker(ui, data, &mut self.filter, &mut self.picked);
+                        let sets = matches!(dialog, Dialog::CustomTables(_));
+                        variable_picker(ui, data, sets, &mut self.filter, &mut self.picked);
                     });
                     ui.add_space(12.0);
                     ui.vertical(|ui| {
@@ -1690,8 +1691,15 @@ fn paint_table(ui: &mut Ui, table: &statscraft_engine::Table, widths: &[f32]) {
     );
 }
 
-/// The dataset's variables, filtered by name or label; a click picks or unpicks one.
-fn variable_picker(ui: &mut Ui, data: &Dataset, filter: &mut String, picked: &mut Vec<String>) {
+/// The dataset's variables, filtered by name or label, and with `sets` its multiple response
+/// sets; a click picks or unpicks one.
+fn variable_picker(
+    ui: &mut Ui,
+    data: &Dataset,
+    sets: bool,
+    filter: &mut String,
+    picked: &mut Vec<String>,
+) {
     ui.strong("Variables");
     ui.add(TextEdit::singleline(filter).hint_text("Filter"));
     let needle = filter.to_lowercase();
@@ -1732,6 +1740,33 @@ fn variable_picker(ui: &mut Ui, data: &Dataset, filter: &mut String, picked: &mu
                 }
             }
         });
+    let sets: Vec<_> = data
+        .multiple_response_sets()
+        .iter()
+        .filter(|_| sets)
+        .filter(|set| {
+            needle.is_empty()
+                || set.name.to_lowercase().contains(&needle)
+                || set.label.to_lowercase().contains(&needle)
+        })
+        .collect();
+    if !sets.is_empty() {
+        ui.add_space(4.0);
+        ui.strong("Multiple response sets");
+        for set in sets {
+            let on = picked.contains(&set.name);
+            let response = ui
+                .selectable_label(on, format!("{} (set)", set.name))
+                .on_hover_text(format!("{} set: {}", set.kind, set.label));
+            if response.clicked() {
+                if on {
+                    picked.retain(|p| p != &set.name);
+                } else {
+                    picked.push(set.name.clone());
+                }
+            }
+        }
+    }
     ui.weak("Click to pick, then Add to a list.");
 }
 
@@ -1844,8 +1879,14 @@ fn dialog_body(ui: &mut Ui, dialog: &mut Dialog, picked: &mut Vec<String>) {
             ui.checkbox(&mut d.chi_square, "Chi-square tests");
         }
         Dialog::CustomTables(d) => {
-            target_list(ui, "Rows (categories)", &mut d.rows, picked);
-            target_list(ui, "Columns (categories)", &mut d.columns, picked);
+            target_list(ui, "Rows (categories or sets)", &mut d.rows, picked);
+            target_list(ui, "Columns (categories or sets)", &mut d.columns, picked);
+            target_list(
+                ui,
+                "Layers (a table for each category)",
+                &mut d.layers,
+                picked,
+            );
             target_list(
                 ui,
                 "Means of (scale variables, in the rows)",
@@ -1861,6 +1902,13 @@ fn dialog_body(ui: &mut Ui, dialog: &mut Dialog, picked: &mut Vec<String>) {
                 ui.checkbox(&mut d.mean, "Mean");
                 ui.checkbox(&mut d.totals, "Totals");
             });
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut d.hide_small_counts, "Hide counts below");
+                ui.add_enabled(
+                    d.hide_small_counts,
+                    TextEdit::singleline(&mut d.small_count).desired_width(40.0),
+                );
+            });
             ui.strong("Significance tests (need column variables)");
             ui.checkbox(&mut d.chi_square, "Chi-square test of independence");
             ui.checkbox(&mut d.compare_proportions, "Compare column proportions");
@@ -1873,6 +1921,16 @@ fn dialog_body(ui: &mut Ui, dialog: &mut Dialog, picked: &mut Vec<String>) {
                     .show_ui(ui, |ui| {
                         for adjust in Adjust::ALL {
                             ui.selectable_value(&mut d.adjust, adjust, adjust.label());
+                        }
+                    });
+            });
+            ui.horizontal(|ui| {
+                ui.label("Letters of the column comparisons");
+                ComboBox::new("letters", "")
+                    .selected_text(d.letters.label())
+                    .show_ui(ui, |ui| {
+                        for letters in Letters::ALL {
+                            ui.selectable_value(&mut d.letters, letters, letters.label());
                         }
                     });
             });

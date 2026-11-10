@@ -1,7 +1,7 @@
 //! The state of every Analyze and Transform dialog and the syntax it builds. A dialog never
 //! touches data: OK runs the syntax, Paste puts it in the syntax editor.
 
-use crate::syntax_text::{names, number, quote, value};
+use crate::syntax_text::{names, probability, quote, value};
 
 #[derive(Default, Clone, PartialEq, Debug)]
 pub struct Frequencies {
@@ -170,13 +170,46 @@ impl Adjust {
     }
 }
 
-/// A simple custom table: categorical variables stacked in the rows and the columns, and scale
-/// variables whose means are shown in the rows.
+/// Where the column comparison tests of Custom Tables put their letters.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub enum Letters {
+    #[default]
+    Separate,
+    /// In the main table, letters that columns share unless they differ.
+    Apa,
+    /// In the main table, the keys of the columns that differ.
+    Simple,
+}
+
+impl Letters {
+    pub const ALL: [Letters; 3] = [Letters::Separate, Letters::Apa, Letters::Simple];
+
+    fn options(self) -> &'static str {
+        match self {
+            Letters::Separate => "",
+            Letters::Apa => " MERGE=YES",
+            Letters::Simple => " MERGE=YES STYLE=SIMPLE",
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Letters::Separate => "In a table of their own",
+            Letters::Apa => "In the main table, shared letters (APA)",
+            Letters::Simple => "In the main table, column keys",
+        }
+    }
+}
+
+/// A simple custom table: categorical variables and multiple response sets ($name) stacked in
+/// the rows and the columns, scale variables whose means are shown in the rows, and stacked
+/// layer variables that give a table for each of their categories.
 #[derive(Clone, PartialEq, Debug)]
 pub struct CustomTables {
     pub rows: Vec<String>,
     pub columns: Vec<String>,
     pub scale_rows: Vec<String>,
+    pub layers: Vec<String>,
     pub count: bool,
     pub column_percent: bool,
     pub row_percent: bool,
@@ -187,6 +220,9 @@ pub struct CustomTables {
     pub compare_means: bool,
     pub alpha: String,
     pub adjust: Adjust,
+    pub letters: Letters,
+    pub hide_small_counts: bool,
+    pub small_count: String,
 }
 
 impl Default for CustomTables {
@@ -195,6 +231,7 @@ impl Default for CustomTables {
             rows: Vec::new(),
             columns: Vec::new(),
             scale_rows: Vec::new(),
+            layers: Vec::new(),
             count: true,
             column_percent: false,
             row_percent: false,
@@ -205,6 +242,9 @@ impl Default for CustomTables {
             compare_means: false,
             alpha: "0.05".into(),
             adjust: Adjust::Bonferroni,
+            letters: Letters::Separate,
+            hide_small_counts: false,
+            small_count: "5".into(),
         }
     }
 }
@@ -230,21 +270,50 @@ impl CustomTables {
         if !self.scale_rows.is_empty() && !self.mean {
             return Err("variables under Means need the Mean statistic".into());
         }
+        if self.scale_rows.iter().any(|name| is_set(name)) {
+            return Err("a multiple response set has no mean; put it in Rows".into());
+        }
         let summary = summaries.join(", ");
         let mut rows: Vec<String> = self
             .rows
             .iter()
-            .map(|name| format!("{name} [C] [{summary}]"))
+            .map(|name| format!("{} [{summary}]", categorical(name)))
             .collect();
         rows.extend(
             self.scale_rows
                 .iter()
                 .map(|name| format!("{name} [S] [MEAN]")),
         );
-        let mut text = format!("CTABLES\n  /TABLE {}", rows.join(" + "));
-        if !self.columns.is_empty() {
-            let columns: Vec<String> = self.columns.iter().map(|n| format!("{n} [C]")).collect();
-            text.push_str(&format!(" BY {}", columns.join(" + ")));
+        let mut text = String::from("CTABLES");
+        if self.hide_small_counts {
+            let below = self
+                .small_count
+                .trim()
+                .parse::<u32>()
+                .ok()
+                .filter(|n| *n >= 2)
+                .ok_or("hide counts below a whole number of 2 or more")?;
+            text.push_str("\n  /HIDESMALLCOUNTS");
+            if below != 5 {
+                text.push_str(&format!(" COUNT={below}"));
+            }
+        }
+        text.push_str(&format!("\n  /TABLE {}", rows.join(" + ")));
+        let stack = |names: &[String]| {
+            names
+                .iter()
+                .map(|n| categorical(n))
+                .collect::<Vec<_>>()
+                .join(" + ")
+        };
+        if !self.columns.is_empty() || !self.layers.is_empty() {
+            text.push_str(" BY");
+            if !self.columns.is_empty() {
+                text.push_str(&format!(" {}", stack(&self.columns)));
+            }
+        }
+        if !self.layers.is_empty() {
+            text.push_str(&format!(" BY {}", stack(&self.layers)));
         }
         let categorical: Vec<&str> = self
             .rows
@@ -263,15 +332,9 @@ impl CustomTables {
             if self.columns.is_empty() {
                 return Err("significance tests need at least one variable in Columns".into());
             }
-            let alpha = self
-                .alpha
-                .trim()
-                .parse::<f64>()
-                .ok()
-                .filter(|a| *a > 0.0 && *a < 1.0)
-                .ok_or("the significance level must be a number between 0 and 1")?;
-            let alpha = number(alpha);
+            let alpha = probability(&self.alpha)?;
             let adjust = self.adjust.keyword();
+            let letters = self.letters.options();
             if (self.chi_square || self.compare_proportions) && self.rows.is_empty() {
                 return Err("chi-square and proportion tests need a variable in Rows".into());
             }
@@ -280,7 +343,7 @@ impl CustomTables {
             }
             if self.compare_proportions {
                 text.push_str(&format!(
-                    "\n  /COMPARETEST TYPE=PROP ALPHA={alpha} ADJUST={adjust}"
+                    "\n  /COMPARETEST TYPE=PROP ALPHA={alpha} ADJUST={adjust}{letters}"
                 ));
             }
             if self.compare_means {
@@ -288,12 +351,26 @@ impl CustomTables {
                     return Err("the test of means needs a variable under Means".into());
                 }
                 text.push_str(&format!(
-                    "\n  /COMPARETEST TYPE=MEAN ALPHA={alpha} ADJUST={adjust}"
+                    "\n  /COMPARETEST TYPE=MEAN ALPHA={alpha} ADJUST={adjust}{letters}"
                 ));
             }
         }
         text.push('.');
         Ok(text)
+    }
+}
+
+/// A multiple response set: its name starts with $.
+pub fn is_set(name: &str) -> bool {
+    name.starts_with('$')
+}
+
+/// A variable forced to be categorical in CTABLES; a set is categorical already.
+fn categorical(name: &str) -> String {
+    if is_set(name) {
+        name.to_string()
+    } else {
+        format!("{name} [C]")
     }
 }
 
@@ -515,7 +592,7 @@ pub(crate) mod testing {
 
 #[cfg(test)]
 mod tests {
-    use super::testing::{runs, v};
+    use super::testing::{open, run_in, runs, v};
     use super::*;
 
     #[test]
@@ -676,6 +753,72 @@ mod tests {
             "CTABLES\n  /TABLE age [S] [MEAN] BY gender [C]\n  /COMPARETEST TYPE=MEAN ALPHA=0.05 ADJUST=NONE."
         );
         assert_eq!(runs(&syntax), 2);
+    }
+
+    #[test]
+    fn custom_tables_sets_layers_letters_and_small_counts() {
+        let mut d = CustomTables {
+            rows: v(&["$q5", "region"]),
+            columns: v(&["gender"]),
+            layers: v(&["$q6", "plan"]),
+            column_percent: true,
+            totals: true,
+            ..Default::default()
+        };
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "CTABLES\n  /TABLE $q5 [COUNT, COLPCT.COUNT PCT40.1] + region [C] [COUNT, COLPCT.COUNT PCT40.1] \
+             BY gender [C] BY $q6 + plan [C]\n  \
+             /CATEGORIES VARIABLES=$q5 region gender TOTAL=YES."
+        );
+        let mut session = open("survey_basic_phpwriter.sav");
+        assert!(run_in(&mut session, &syntax) >= 2);
+
+        // layers without columns, small counts hidden
+        d.columns.clear();
+        d.layers = v(&["gender"]);
+        d.totals = false;
+        d.hide_small_counts = true;
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "CTABLES\n  /HIDESMALLCOUNTS\n  /TABLE $q5 [COUNT, COLPCT.COUNT PCT40.1] + \
+             region [C] [COUNT, COLPCT.COUNT PCT40.1] BY BY gender [C]."
+        );
+        assert!(run_in(&mut session, &syntax) >= 3);
+        d.small_count = "1".into();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "hide counts below a whole number of 2 or more"
+        );
+        d.small_count = "10".into();
+        assert!(d.syntax().unwrap().contains("/HIDESMALLCOUNTS COUNT=10\n"));
+
+        // letters in the main table
+        d.hide_small_counts = false;
+        d.layers.clear();
+        d.columns = v(&["gender"]);
+        d.scale_rows = v(&["age"]);
+        d.compare_proportions = true;
+        d.compare_means = true;
+        d.letters = Letters::Apa;
+        let syntax = d.syntax().unwrap();
+        assert!(syntax.ends_with(
+            "/COMPARETEST TYPE=PROP ALPHA=0.05 ADJUST=BONFERRONI MERGE=YES\n  \
+             /COMPARETEST TYPE=MEAN ALPHA=0.05 ADJUST=BONFERRONI MERGE=YES."
+        ));
+        assert!(run_in(&mut session, &syntax) >= 1);
+        d.letters = Letters::Simple;
+        let syntax = d.syntax().unwrap();
+        assert!(syntax.ends_with("ADJUST=BONFERRONI MERGE=YES STYLE=SIMPLE."));
+        assert!(run_in(&mut session, &syntax) >= 1);
+
+        d.scale_rows = v(&["$q6"]);
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "a multiple response set has no mean; put it in Rows"
+        );
     }
 
     #[test]
