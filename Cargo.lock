@@ -140,20 +140,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "ambers"
-version = "0.4.7"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "9d95e2754f0a5181022520c811d324b280d03544095bdff00335ba9eba370972"
-dependencies = [
- "arrow",
- "encoding_rs",
- "flate2",
- "indexmap",
- "rayon",
- "thiserror 2.0.21",
-]
-
-[[package]]
 name = "android-activity"
 version = "0.6.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -391,9 +377,6 @@ name = "arrow-schema"
 version = "57.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "aa4512df738ac4c7b03ac93f185fefa294e4548ec0f8561e5f733a4a93f82cec"
-dependencies = [
- "bitflags 2.13.2",
-]
 
 [[package]]
 name = "arrow-select"
@@ -3357,10 +3340,10 @@ dependencies = [
 name = "statscraft-data"
 version = "0.0.0"
 dependencies = [
- "ambers",
  "arrow",
  "serde",
  "serde_json",
+ "statscraft-sav",
 ]
 
 [[package]]
@@ -3393,6 +3376,18 @@ dependencies = [
  "serde_json",
  "sha2",
  "statscraft-data",
+]
+
+[[package]]
+name = "statscraft-sav"
+version = "0.0.0"
+dependencies = [
+ "arrow",
+ "encoding_rs",
+ "flate2",
+ "indexmap",
+ "rayon",
+ "thiserror 2.0.21",
 ]
 
 [[package]]

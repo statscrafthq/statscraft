@@ -1,0 +1,109 @@
+//! statscraft-sav: reader and writer for .sav and .zsav files, started from ambers 0.4.7.
+//!
+//! This library reads SAV SAV/ZSAV files natively in Rust with no C dependencies.
+//! Data is returned as Apache Arrow RecordBatch for seamless integration with
+//! Polars, DataFusion, and other Arrow-compatible tools.
+//!
+//! # Quick Start
+//!
+//! ```no_run
+//! use statscraft_sav::read_sav;
+//!
+//! let (batch, meta) = read_sav("survey.sav").unwrap();
+//! println!("Rows: {}", batch.num_rows());
+//! println!("Columns: {}", batch.num_columns());
+//! println!("Variables: {:?}", meta.variable_names);
+//! ```
+
+pub(crate) mod arrow_convert;
+pub(crate) mod columnar;
+pub(crate) mod compression;
+pub mod constants;
+pub(crate) mod dictionary;
+pub(crate) mod document;
+pub(crate) mod encoding;
+pub mod error;
+pub(crate) mod header;
+pub(crate) mod info_records;
+pub(crate) mod io_utils;
+pub mod metadata;
+pub mod scanner;
+pub(crate) mod value_labels;
+pub(crate) mod variable;
+pub mod writer;
+
+use std::fs::File;
+use std::io::{BufReader, Read, Seek};
+use std::path::Path;
+
+use arrow::record_batch::RecordBatch;
+
+use crate::error::Result;
+use crate::scanner::SavScanner;
+
+// Re-export key public types
+pub use crate::constants::{Alignment, Compression, Measure};
+pub use crate::metadata::{MissingSpec, MrSet, MrType, SavMetadata, Value};
+pub use crate::scanner::SavScanner as Scanner;
+pub use crate::writer::{write_sav, write_sav_to_writer};
+
+/// Read a SAV .sav or .zsav file, returning all data as an Arrow RecordBatch
+/// plus the file's metadata.
+///
+/// This loads the entire dataset into memory. For streaming batch reads or
+/// column projection, use `scan_sav()` instead.
+pub fn read_sav(path: impl AsRef<Path>) -> Result<(RecordBatch, SavMetadata)> {
+    let mut scanner = scan_sav(path)?;
+    let batch = scanner.collect_single()?;
+    // Cloned after the read so `metadata.warnings` includes data-time findings
+    // (e.g. header case count vs rows actually read).
+    let metadata = scanner.metadata().clone();
+    Ok((batch, metadata))
+}
+
+/// Read a SAV file from any reader that supports Read + Seek.
+pub fn read_sav_from_reader<R: Read + Seek>(reader: R) -> Result<(RecordBatch, SavMetadata)> {
+    let mut scanner = scan_sav_from_reader(reader, usize::MAX)?;
+    let batch = scanner.collect_single()?;
+    let metadata = scanner.metadata().clone();
+    Ok((batch, metadata))
+}
+
+/// Read only the metadata from a SAV file (no data).
+///
+/// This is much faster than `read_sav()` for files where you only need
+/// variable information, labels, or other metadata.
+pub fn read_sav_metadata(path: impl AsRef<Path>) -> Result<SavMetadata> {
+    let file = File::open(path)?;
+    let buf_reader = BufReader::with_capacity(64 * 1024 * 1024, file);
+    let scanner = SavScanner::open(buf_reader, 0)?;
+    Ok(scanner.metadata().clone())
+}
+
+/// Create a streaming scanner for a SAV .sav or .zsav file.
+///
+/// Reads metadata immediately. Data is read on demand via `next_batch()`
+/// or `collect_single()`. Supports column projection via `select()` and
+/// row limits via `limit()`.
+///
+/// Default batch size: 100,000 rows.
+///
+/// # Example
+/// ```no_run
+/// let mut scanner = statscraft_sav::scan_sav("survey.sav").unwrap();
+/// scanner.select(&["age", "gender"]).unwrap();
+/// scanner.limit(1000);
+/// while let Some(batch) = scanner.next_batch().unwrap() {
+///     println!("Batch: {} rows", batch.num_rows());
+/// }
+/// ```
+pub fn scan_sav(path: impl AsRef<Path>) -> Result<SavScanner<BufReader<File>>> {
+    let file = File::open(path)?;
+    let buf_reader = BufReader::with_capacity(64 * 1024 * 1024, file);
+    SavScanner::open(buf_reader, 100_000)
+}
+
+/// Create a streaming scanner from any Read+Seek source.
+pub fn scan_sav_from_reader<R: Read + Seek>(reader: R, batch_size: usize) -> Result<SavScanner<R>> {
+    SavScanner::open(reader, batch_size)
+}

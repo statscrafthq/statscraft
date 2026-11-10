@@ -1,10 +1,10 @@
-//! Reading and writing `.sav` / `.zsav` files. The only module that knows the `ambers` crate.
+//! Reading and writing `.sav` / `.zsav` files. The only module that knows the `statscraft-sav` crate.
 
 use crate::{
     Dataset, Dictionary, Error, Measure, MissingValues, MultipleResponseSet, Value, VariableDef,
     non_empty,
 };
-use ambers::constants::{
+use statscraft_sav::constants::{
     MICROS_PER_SECOND, SECONDS_PER_DAY, the reference program_EPOCH_OFFSET_DAYS, the reference program_EPOCH_OFFSET_SECONDS,
     SavFormat, TemporalKind,
 };
@@ -28,19 +28,19 @@ const MAX_DURATION: f64 = 9.0e12;
 #[derive(Clone, Default, PartialEq)]
 pub(crate) struct VariableExtras {
     display_width: Option<u32>,
-    alignment: Option<ambers::Alignment>,
-    role: Option<ambers::constants::Role>,
+    alignment: Option<statscraft_sav::Alignment>,
+    role: Option<statscraft_sav::constants::Role>,
     attributes: Vec<(String, Vec<String>)>,
 }
 
-const ALIGNMENTS: [(&str, ambers::Alignment); 3] = [
-    ("left", ambers::Alignment::Left),
-    ("right", ambers::Alignment::Right),
-    ("center", ambers::Alignment::Center),
+const ALIGNMENTS: [(&str, statscraft_sav::Alignment); 3] = [
+    ("left", statscraft_sav::Alignment::Left),
+    ("right", statscraft_sav::Alignment::Right),
+    ("center", statscraft_sav::Alignment::Center),
 ];
 
-const ROLES: [(&str, ambers::constants::Role); 6] = {
-    use ambers::constants::Role;
+const ROLES: [(&str, statscraft_sav::constants::Role); 6] = {
+    use statscraft_sav::constants::Role;
     [
         ("input", Role::Input),
         ("target", Role::Target),
@@ -120,7 +120,7 @@ impl Dataset {
     pub fn read_sav(path: impl AsRef<Path>) -> Result<Self, Error> {
         let path = path.as_ref();
         let file_error = |e: String| Error::File(format!("{}: {e}", path.display()));
-        let (batch, mut meta) = ambers::read_sav(path).map_err(|e| file_error(e.to_string()))?;
+        let (batch, mut meta) = statscraft_sav::read_sav(path).map_err(|e| file_error(e.to_string()))?;
 
         let mut columns = Vec::with_capacity(batch.num_columns());
         let mut variables = Vec::with_capacity(batch.num_columns());
@@ -138,9 +138,9 @@ impl Dataset {
                 format,
                 width,
                 measure: match meta.variable_measures.get(name) {
-                    Some(ambers::Measure::Nominal) => Measure::Nominal,
-                    Some(ambers::Measure::Ordinal) => Measure::Ordinal,
-                    Some(ambers::Measure::Scale) => Measure::Scale,
+                    Some(statscraft_sav::Measure::Nominal) => Measure::Nominal,
+                    Some(statscraft_sav::Measure::Ordinal) => Measure::Ordinal,
+                    Some(statscraft_sav::Measure::Scale) => Measure::Scale,
                     _ => Measure::Unknown,
                 },
                 value_labels: meta
@@ -172,8 +172,8 @@ impl Dataset {
                 // the reader strips the "$" that set names carry in syntax
                 name: format!("${}", set.name),
                 kind: match set.mr_type {
-                    ambers::MrType::MultipleDichotomy => "dichotomy",
-                    ambers::MrType::MultipleCategory => "category",
+                    statscraft_sav::MrType::MultipleDichotomy => "dichotomy",
+                    statscraft_sav::MrType::MultipleCategory => "category",
                 },
                 label: set.label,
                 counted_value: set.counted_value,
@@ -186,9 +186,9 @@ impl Dataset {
             dict: Arc::new(Dictionary {
                 encoding: meta.file_encoding,
                 compression: match meta.compression {
-                    ambers::Compression::None => "none",
-                    ambers::Compression::Bytecode => "bytecode",
-                    ambers::Compression::Zlib => "zlib",
+                    statscraft_sav::Compression::None => "none",
+                    statscraft_sav::Compression::Bytecode => "bytecode",
+                    statscraft_sav::Compression::Zlib => "zlib",
                 },
                 file_label: non_empty(meta.file_label.trim_end()),
                 weight_variable: meta.weight_variable,
@@ -208,7 +208,7 @@ impl Dataset {
         let dict = &*self.dict;
         // shortcut: text from a file in another encoding can outgrow its byte width as UTF-8 and
         // the writer then cuts it; widen such variables when a real code-page file arrives
-        let mut meta = ambers::SavMetadata {
+        let mut meta = statscraft_sav::SavMetadata {
             file_label: dict.file_label.clone().unwrap_or_default(),
             notes: dict.documents.clone(),
             weight_variable: dict.weight_variable.clone(),
@@ -229,11 +229,11 @@ impl Dataset {
                 .insert(name.clone(), def.format.clone());
             let measure = match def.measure {
                 // a file has no "not decided yet": write the level the reference program writes
-                Measure::Unknown if def.width.is_some() => ambers::Measure::Nominal,
-                Measure::Unknown => ambers::Measure::Scale,
-                Measure::Nominal => ambers::Measure::Nominal,
-                Measure::Ordinal => ambers::Measure::Ordinal,
-                Measure::Scale => ambers::Measure::Scale,
+                Measure::Unknown if def.width.is_some() => statscraft_sav::Measure::Nominal,
+                Measure::Unknown => statscraft_sav::Measure::Scale,
+                Measure::Nominal => statscraft_sav::Measure::Nominal,
+                Measure::Ordinal => statscraft_sav::Measure::Ordinal,
+                Measure::Scale => statscraft_sav::Measure::Scale,
             };
             meta.variable_measures.insert(name.clone(), measure);
             if let Some(label) = &def.label {
@@ -242,8 +242,8 @@ impl Dataset {
             if !def.value_labels.is_empty() {
                 let labels = def.value_labels.iter().map(|(value, label)| {
                     let value = match value {
-                        Value::Number(v) => ambers::Value::Numeric(*v),
-                        Value::String(s) => ambers::Value::String(s.clone()),
+                        Value::Number(v) => statscraft_sav::Value::Numeric(*v),
+                        Value::String(s) => statscraft_sav::Value::String(s.clone()),
                     };
                     (value, label.clone())
                 });
@@ -271,12 +271,12 @@ impl Dataset {
         }
         for set in &dict.multiple_response_sets {
             let name = set.name.trim_start_matches('$').to_string();
-            let set = ambers::MrSet {
+            let set = statscraft_sav::MrSet {
                 name: name.clone(),
                 label: set.label.clone(),
                 mr_type: match set.kind {
-                    "dichotomy" => ambers::MrType::MultipleDichotomy,
-                    _ => ambers::MrType::MultipleCategory,
+                    "dichotomy" => statscraft_sav::MrType::MultipleDichotomy,
+                    _ => statscraft_sav::MrType::MultipleCategory,
                 },
                 counted_value: set.counted_value.clone(),
                 variables: set.variables.clone(),
@@ -290,14 +290,14 @@ impl Dataset {
             .extension()
             .is_some_and(|e| e.eq_ignore_ascii_case("zsav"));
         let compression = if zsav {
-            ambers::Compression::Zlib
+            statscraft_sav::Compression::Zlib
         } else {
-            ambers::Compression::Bytecode
+            statscraft_sav::Compression::Bytecode
         };
         // a failed or interrupted write must not destroy the previous session state
         let mut partial = path.as_os_str().to_owned();
         partial.push(format!(".{}.partial", std::process::id()));
-        ambers::write_sav(&partial, &batch, &meta, compression, None)
+        statscraft_sav::write_sav(&partial, &batch, &meta, compression, None)
             .map_err(|e| e.to_string())
             .and_then(|()| std::fs::rename(&partial, path).map_err(|e| e.to_string()))
             .map_err(|e| {
@@ -417,20 +417,20 @@ fn writer_column(def: &VariableDef, column: &ArrayRef) -> Result<ArrayRef, Error
     }
 }
 
-fn model_value(value: ambers::Value) -> Value {
+fn model_value(value: statscraft_sav::Value) -> Value {
     match value {
-        ambers::Value::Numeric(v) => Value::Number(v),
-        ambers::Value::String(s) => Value::String(s.trim_end_matches(' ').to_string()),
+        statscraft_sav::Value::Numeric(v) => Value::Number(v),
+        statscraft_sav::Value::String(s) => Value::String(s.trim_end_matches(' ').to_string()),
     }
 }
 
-fn model_missing(specs: Option<Vec<ambers::MissingSpec>>) -> MissingValues {
+fn model_missing(specs: Option<Vec<statscraft_sav::MissingSpec>>) -> MissingValues {
     let (mut numbers, mut strings, mut range) = (Vec::new(), Vec::new(), None);
     for spec in specs.into_iter().flatten() {
         match spec {
-            ambers::MissingSpec::Value(v) => numbers.push(v),
-            ambers::MissingSpec::Range { lo, hi } => range = Some((lo, hi)),
-            ambers::MissingSpec::StringValue(s) => {
+            statscraft_sav::MissingSpec::Value(v) => numbers.push(v),
+            statscraft_sav::MissingSpec::Range { lo, hi } => range = Some((lo, hi)),
+            statscraft_sav::MissingSpec::StringValue(s) => {
                 strings.push(s.trim_end_matches(' ').to_string())
             }
         }
@@ -447,8 +447,8 @@ fn model_missing(specs: Option<Vec<ambers::MissingSpec>>) -> MissingValues {
     }
 }
 
-fn writer_missing(missing: &MissingValues) -> Vec<ambers::MissingSpec> {
-    use ambers::MissingSpec;
+fn writer_missing(missing: &MissingValues) -> Vec<statscraft_sav::MissingSpec> {
+    use statscraft_sav::MissingSpec;
     match missing {
         MissingValues::None => Vec::new(),
         MissingValues::Numbers(discrete) => {

@@ -1,0 +1,680 @@
+/// SAV system-missing value (specific NaN bit pattern used by the reference program).
+pub const SYSMIS_BITS: u64 = 0xFFEF_FFFF_FFFF_FFFF;
+
+/// Highest representable double in the reference program.
+pub const HIGHEST_BITS: u64 = 0x7FEF_FFFF_FFFF_FFFF;
+
+/// Lowest representable double in the reference program.
+pub const LOWEST_BITS: u64 = 0xFFEF_FFFF_FFFF_FFFE;
+
+/// Default compression bias (added to bytecodes 1..=251).
+pub const DEFAULT_BIAS: f64 = 100.0;
+
+// -- Bytecode compression control codes --
+
+/// Padding / skip.
+pub const COMPRESS_SKIP: u8 = 0;
+/// End of file marker.
+pub const COMPRESS_END_OF_FILE: u8 = 252;
+/// Next 8 raw bytes follow as uncompressed data.
+pub const COMPRESS_RAW_FOLLOWS: u8 = 253;
+/// Represents 8 ASCII spaces (0x20).
+pub const COMPRESS_EIGHT_SPACES: u8 = 254;
+/// System-missing value.
+pub const COMPRESS_SYSMIS: u8 = 255;
+
+// -- SAV record type codes --
+
+pub const RECORD_TYPE_VARIABLE: i32 = 2;
+pub const RECORD_TYPE_VALUE_LABEL: i32 = 3;
+pub const RECORD_TYPE_VALUE_LABEL_VARS: i32 = 4;
+pub const RECORD_TYPE_DOCUMENT: i32 = 6;
+pub const RECORD_TYPE_INFO: i32 = 7;
+pub const RECORD_TYPE_DICT_TERMINATION: i32 = 999;
+
+// -- Info record subtypes --
+
+pub const INFO_MR_SETS: i32 = 7;
+pub const INFO_MR_SETS_V2: i32 = 19;
+pub const INFO_INTEGER: i32 = 3;
+pub const INFO_FLOAT: i32 = 4;
+pub const INFO_VAR_DISPLAY: i32 = 11;
+pub const INFO_LONG_NAMES: i32 = 13;
+pub const INFO_VERY_LONG_STRINGS: i32 = 14;
+pub const INFO_ENCODING: i32 = 20;
+pub const INFO_VAR_ATTRIBUTES: i32 = 18;
+pub const INFO_LONG_STRING_LABELS: i32 = 21;
+pub const INFO_LONG_STRING_MISSING: i32 = 22;
+
+// -- Enums --
+
+/// the reference program compression type.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Compression {
+    None,
+    Bytecode,
+    Zlib,
+}
+
+impl Compression {
+    pub fn from_i32(val: i32) -> Option<Compression> {
+        match val {
+            0 => Some(Compression::None),
+            1 => Some(Compression::Bytecode),
+            2 => Some(Compression::Zlib),
+            _ => None,
+        }
+    }
+
+    pub fn to_i32(self) -> i32 {
+        match self {
+            Compression::None => 0,
+            Compression::Bytecode => 1,
+            Compression::Zlib => 2,
+        }
+    }
+}
+
+/// Variable measurement level.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Measure {
+    Unknown,
+    Nominal,
+    Ordinal,
+    Scale,
+}
+
+impl Measure {
+    pub fn from_i32(val: i32) -> Measure {
+        match val {
+            1 => Measure::Nominal,
+            2 => Measure::Ordinal,
+            3 => Measure::Scale,
+            _ => Measure::Unknown,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Measure::Unknown => "unknown",
+            Measure::Nominal => "nominal",
+            Measure::Ordinal => "ordinal",
+            Measure::Scale => "scale",
+        }
+    }
+
+    pub fn to_i32(self) -> i32 {
+        match self {
+            Measure::Unknown => 0,
+            Measure::Nominal => 1,
+            Measure::Ordinal => 2,
+            Measure::Scale => 3,
+        }
+    }
+}
+
+/// Variable alignment.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Alignment {
+    Unknown,
+    Left,
+    Right,
+    Center,
+}
+
+impl Alignment {
+    pub fn from_i32(val: i32) -> Alignment {
+        match val {
+            0 => Alignment::Left,
+            1 => Alignment::Right,
+            2 => Alignment::Center,
+            _ => Alignment::Unknown,
+        }
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Alignment::Unknown => "unknown",
+            Alignment::Left => "left",
+            Alignment::Right => "right",
+            Alignment::Center => "center",
+        }
+    }
+
+    pub fn to_i32(self) -> i32 {
+        match self {
+            Alignment::Unknown | Alignment::Left => 0,
+            Alignment::Right => 1,
+            Alignment::Center => 2,
+        }
+    }
+}
+
+/// Variable role (stored as $@Role attribute in subtype 18).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Role {
+    Input,
+    Target,
+    Both,
+    None,
+    Partition,
+    Split,
+}
+
+impl Role {
+    /// Parse from SAV numeric code string ("0"=Input, "1"=Target, etc.).
+    pub fn from_code(s: &str) -> Option<Role> {
+        match s.trim() {
+            "0" => Some(Role::Input),
+            "1" => Some(Role::Target),
+            "2" => Some(Role::Both),
+            "3" => Some(Role::None),
+            "4" => Some(Role::Partition),
+            "5" => Some(Role::Split),
+            _ => Option::None,
+        }
+    }
+
+    /// Return the SAV numeric code string.
+    pub fn to_code(&self) -> &'static str {
+        match self {
+            Role::Input => "0",
+            Role::Target => "1",
+            Role::Both => "2",
+            Role::None => "3",
+            Role::Partition => "4",
+            Role::Split => "5",
+        }
+    }
+
+    /// Return the human-readable role name.
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Role::Input => "input",
+            Role::Target => "target",
+            Role::Both => "both",
+            Role::None => "none",
+            Role::Partition => "partition",
+            Role::Split => "split",
+        }
+    }
+}
+
+/// SAV variable type.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum VarType {
+    Numeric,
+    String(usize), // width in bytes
+}
+
+// -- Temporal conversion constants --
+
+/// Days from the reference program epoch (1582-10-14) to Unix epoch (1970-01-01).
+/// 12,219,379,200 seconds / 86,400 seconds-per-day = 141,428 days.
+pub const the reference program_EPOCH_OFFSET_DAYS: i64 = 141_428;
+
+/// Seconds from the reference program epoch (1582-10-14) to Unix epoch (1970-01-01).
+pub const the reference program_EPOCH_OFFSET_SECONDS: f64 = 12_219_379_200.0;
+
+/// Microseconds per second.
+pub const MICROS_PER_SECOND: f64 = 1_000_000.0;
+
+/// Seconds per day.
+pub const SECONDS_PER_DAY: f64 = 86_400.0;
+
+/// The Arrow temporal type category for a SAV date/time format.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TemporalKind {
+    /// Date-only → Arrow Date32 (days since Unix epoch).
+    Date,
+    /// Date+time → Arrow Timestamp(Microsecond, None).
+    Timestamp,
+    /// Elapsed time → Arrow Duration(Microsecond).
+    Duration,
+}
+
+/// SAV print/write format type codes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[repr(u8)]
+pub enum FormatType {
+    A = 1,
+    Ahex = 2,
+    Comma = 3,
+    Dollar = 4,
+    F = 5,
+    Ib = 6,
+    PibHex = 7,
+    P = 8,
+    Pib = 9,
+    Pk = 10,
+    Rb = 11,
+    RbHex = 12,
+    Z = 15,
+    N = 16,
+    E = 17,
+    Date = 20,
+    Time = 21,
+    DateTime = 22,
+    ADate = 23,
+    JDate = 24,
+    DTime = 25,
+    Wkday = 26,
+    Month = 27,
+    Moyr = 28,
+    Qyr = 29,
+    Wkyr = 30,
+    Pct = 31,
+    Dot = 32,
+    Cca = 33,
+    Ccb = 34,
+    Ccc = 35,
+    Ccd = 36,
+    Cce = 37,
+    EDate = 38,
+    SDate = 39,
+    MTime = 40,
+    YmDhms = 41,
+}
+
+impl FormatType {
+    pub fn from_prefix(s: &str) -> Option<FormatType> {
+        match s.to_uppercase().as_str() {
+            "A" => Some(FormatType::A),
+            "AHEX" => Some(FormatType::Ahex),
+            "COMMA" => Some(FormatType::Comma),
+            "DOLLAR" => Some(FormatType::Dollar),
+            "F" => Some(FormatType::F),
+            "IB" => Some(FormatType::Ib),
+            "PIBHEX" => Some(FormatType::PibHex),
+            "P" => Some(FormatType::P),
+            "PIB" => Some(FormatType::Pib),
+            "PK" => Some(FormatType::Pk),
+            "RB" => Some(FormatType::Rb),
+            "RBHEX" => Some(FormatType::RbHex),
+            "Z" => Some(FormatType::Z),
+            "N" => Some(FormatType::N),
+            "E" => Some(FormatType::E),
+            "DATE" => Some(FormatType::Date),
+            "TIME" => Some(FormatType::Time),
+            "DATETIME" => Some(FormatType::DateTime),
+            "ADATE" => Some(FormatType::ADate),
+            "JDATE" => Some(FormatType::JDate),
+            "DTIME" => Some(FormatType::DTime),
+            "WKDAY" => Some(FormatType::Wkday),
+            "MONTH" => Some(FormatType::Month),
+            "MOYR" => Some(FormatType::Moyr),
+            "QYR" => Some(FormatType::Qyr),
+            "WKYR" => Some(FormatType::Wkyr),
+            "PCT" => Some(FormatType::Pct),
+            "DOT" => Some(FormatType::Dot),
+            "CCA" => Some(FormatType::Cca),
+            "CCB" => Some(FormatType::Ccb),
+            "CCC" => Some(FormatType::Ccc),
+            "CCD" => Some(FormatType::Ccd),
+            "CCE" => Some(FormatType::Cce),
+            "EDATE" => Some(FormatType::EDate),
+            "SDATE" => Some(FormatType::SDate),
+            "MTIME" => Some(FormatType::MTime),
+            "YMDHMS" => Some(FormatType::YmDhms),
+            _ => None,
+        }
+    }
+
+    pub fn from_u8(val: u8) -> Option<FormatType> {
+        match val {
+            1 => Some(FormatType::A),
+            2 => Some(FormatType::Ahex),
+            3 => Some(FormatType::Comma),
+            4 => Some(FormatType::Dollar),
+            5 => Some(FormatType::F),
+            6 => Some(FormatType::Ib),
+            7 => Some(FormatType::PibHex),
+            8 => Some(FormatType::P),
+            9 => Some(FormatType::Pib),
+            10 => Some(FormatType::Pk),
+            11 => Some(FormatType::Rb),
+            12 => Some(FormatType::RbHex),
+            15 => Some(FormatType::Z),
+            16 => Some(FormatType::N),
+            17 => Some(FormatType::E),
+            20 => Some(FormatType::Date),
+            21 => Some(FormatType::Time),
+            22 => Some(FormatType::DateTime),
+            23 => Some(FormatType::ADate),
+            24 => Some(FormatType::JDate),
+            25 => Some(FormatType::DTime),
+            26 => Some(FormatType::Wkday),
+            27 => Some(FormatType::Month),
+            28 => Some(FormatType::Moyr),
+            29 => Some(FormatType::Qyr),
+            30 => Some(FormatType::Wkyr),
+            31 => Some(FormatType::Pct),
+            32 => Some(FormatType::Dot),
+            33 => Some(FormatType::Cca),
+            34 => Some(FormatType::Ccb),
+            35 => Some(FormatType::Ccc),
+            36 => Some(FormatType::Ccd),
+            37 => Some(FormatType::Cce),
+            38 => Some(FormatType::EDate),
+            39 => Some(FormatType::SDate),
+            40 => Some(FormatType::MTime),
+            41 => Some(FormatType::YmDhms),
+            _ => None,
+        }
+    }
+
+    pub fn prefix(&self) -> &'static str {
+        match self {
+            FormatType::A => "A",
+            FormatType::Ahex => "AHEX",
+            FormatType::Comma => "COMMA",
+            FormatType::Dollar => "DOLLAR",
+            FormatType::F => "F",
+            FormatType::Ib => "IB",
+            FormatType::PibHex => "PIBHEX",
+            FormatType::P => "P",
+            FormatType::Pib => "PIB",
+            FormatType::Pk => "PK",
+            FormatType::Rb => "RB",
+            FormatType::RbHex => "RBHEX",
+            FormatType::Z => "Z",
+            FormatType::N => "N",
+            FormatType::E => "E",
+            FormatType::Date => "DATE",
+            FormatType::Time => "TIME",
+            FormatType::DateTime => "DATETIME",
+            FormatType::ADate => "ADATE",
+            FormatType::JDate => "JDATE",
+            FormatType::DTime => "DTIME",
+            FormatType::Wkday => "WKDAY",
+            FormatType::Month => "MONTH",
+            FormatType::Moyr => "MOYR",
+            FormatType::Qyr => "QYR",
+            FormatType::Wkyr => "WKYR",
+            FormatType::Pct => "PCT",
+            FormatType::Dot => "DOT",
+            FormatType::Cca => "CCA",
+            FormatType::Ccb => "CCB",
+            FormatType::Ccc => "CCC",
+            FormatType::Ccd => "CCD",
+            FormatType::Cce => "CCE",
+            FormatType::EDate => "EDATE",
+            FormatType::SDate => "SDATE",
+            FormatType::MTime => "MTIME",
+            FormatType::YmDhms => "YMDHMS",
+        }
+    }
+
+    /// Whether this format type represents a string variable.
+    pub fn is_string(&self) -> bool {
+        matches!(self, FormatType::A | FormatType::Ahex)
+    }
+
+    /// Returns the temporal kind if this format should produce an Arrow temporal type.
+    /// Returns None for non-temporal formats and for Wkday/Month (integer codes).
+    pub fn temporal_kind(&self) -> Option<TemporalKind> {
+        match self {
+            FormatType::Date
+            | FormatType::ADate
+            | FormatType::JDate
+            | FormatType::EDate
+            | FormatType::SDate
+            | FormatType::Moyr
+            | FormatType::Qyr
+            | FormatType::Wkyr => Some(TemporalKind::Date),
+
+            FormatType::DateTime | FormatType::YmDhms => Some(TemporalKind::Timestamp),
+
+            FormatType::Time | FormatType::DTime | FormatType::MTime => {
+                Some(TemporalKind::Duration)
+            }
+
+            _ => None,
+        }
+    }
+
+    /// Whether this format type is a date/time type (no decimals in display).
+    pub fn is_date_time(&self) -> bool {
+        matches!(
+            self,
+            FormatType::Date
+                | FormatType::Time
+                | FormatType::DateTime
+                | FormatType::ADate
+                | FormatType::JDate
+                | FormatType::DTime
+                | FormatType::Wkday
+                | FormatType::Month
+                | FormatType::Moyr
+                | FormatType::Qyr
+                | FormatType::Wkyr
+                | FormatType::EDate
+                | FormatType::SDate
+                | FormatType::MTime
+                | FormatType::YmDhms
+        )
+    }
+}
+
+/// Decoded SAV print/write format.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SavFormat {
+    pub format_type: FormatType,
+    pub width: u8,
+    pub decimals: u8,
+}
+
+impl SavFormat {
+    /// Decode a packed i32 format specification.
+    /// Layout: `(type << 16) | (width << 8) | decimals`
+    pub fn from_packed(packed: i32) -> Option<SavFormat> {
+        let raw = packed as u32;
+        let format_type_byte = ((raw >> 16) & 0xFF) as u8;
+        let width = ((raw >> 8) & 0xFF) as u8;
+        let decimals = (raw & 0xFF) as u8;
+
+        FormatType::from_u8(format_type_byte).map(|format_type| SavFormat {
+            format_type,
+            width,
+            decimals,
+        })
+    }
+
+    /// Encode to packed i32 format: `(type << 16) | (width << 8) | decimals`.
+    /// Reverse of `from_packed`.
+    pub fn to_packed(&self) -> i32 {
+        ((self.format_type as u8 as i32) << 16)
+            | ((self.width as i32) << 8)
+            | (self.decimals as i32)
+    }
+
+    /// Parse a SAV format string like "F8.2", "A50", "DATE11" back to SavFormat.
+    pub fn from_string(s: &str) -> Option<SavFormat> {
+        let s = s.trim();
+        if s.is_empty() {
+            return None;
+        }
+        // Split at boundary between letters and digits
+        let prefix_end = s
+            .find(|c: char| c.is_ascii_digit() || c == '.')
+            .unwrap_or(s.len());
+        let prefix = &s[..prefix_end];
+        let rest = &s[prefix_end..];
+
+        let format_type = FormatType::from_prefix(prefix)?;
+
+        // Parse "width.decimals" or just "width"
+        // Width can exceed 255 for VLS strings (e.g. "A281"), so parse as u32
+        // and clamp to 255 for the packed format representation.
+        let (width, decimals) = if let Some(dot_pos) = rest.find('.') {
+            let w: u32 = rest[..dot_pos].parse().ok()?;
+            let d: u32 = rest[dot_pos + 1..].parse().ok()?;
+            ((w.min(255)) as u8, (d.min(255)) as u8)
+        } else if rest.is_empty() {
+            // Format with no width (rare, use defaults)
+            (8, 0)
+        } else {
+            let w: u32 = rest.parse().ok()?;
+            ((w.min(255)) as u8, 0)
+        };
+
+        Some(SavFormat {
+            format_type,
+            width,
+            decimals,
+        })
+    }
+
+    /// Render as a human-readable SAV format string like "F8.2" or "A50".
+    pub fn to_sav_string(&self) -> String {
+        if self.format_type.is_string() || self.format_type.is_date_time() {
+            // String and date/time formats: no decimal suffix
+            format!("{}{}", self.format_type.prefix(), self.width)
+        } else {
+            format!(
+                "{}{}.{}",
+                self.format_type.prefix(),
+                self.width,
+                self.decimals
+            )
+        }
+    }
+}
+
+/// Check if a raw f64 bit pattern is SYSMIS.
+#[inline(always)]
+pub fn is_sysmis(val: f64) -> bool {
+    val.to_bits() == SYSMIS_BITS
+}
+
+/// Get the SYSMIS value as f64.
+#[inline]
+pub fn sysmis() -> f64 {
+    f64::from_bits(SYSMIS_BITS)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_sysmis_is_negative_max() {
+        // SYSMIS is -DBL_MAX, the most negative finite double, NOT NaN
+        let val = sysmis();
+        assert!(val.is_finite());
+        assert!(val < 0.0);
+        assert_eq!(val, -f64::MAX);
+    }
+
+    #[test]
+    fn test_is_sysmis() {
+        assert!(is_sysmis(sysmis()));
+        assert!(!is_sysmis(0.0));
+        assert!(!is_sysmis(f64::NAN)); // regular NaN != SYSMIS
+    }
+
+    #[test]
+    fn test_format_decode() {
+        // F8.2 = type 5, width 8, decimals 2
+        let packed = (5 << 16) | (8 << 8) | 2;
+        let fmt = SavFormat::from_packed(packed).unwrap();
+        assert_eq!(fmt.format_type, FormatType::F);
+        assert_eq!(fmt.width, 8);
+        assert_eq!(fmt.decimals, 2);
+        assert_eq!(fmt.to_sav_string(), "F8.2");
+    }
+
+    #[test]
+    fn test_format_string_type() {
+        // A50 = type 1, width 50, decimals 0
+        let packed = (1 << 16) | (50 << 8) | 0;
+        let fmt = SavFormat::from_packed(packed).unwrap();
+        assert_eq!(fmt.format_type, FormatType::A);
+        assert_eq!(fmt.to_sav_string(), "A50");
+    }
+
+    #[test]
+    fn test_compression_from_i32() {
+        assert_eq!(Compression::from_i32(0), Some(Compression::None));
+        assert_eq!(Compression::from_i32(1), Some(Compression::Bytecode));
+        assert_eq!(Compression::from_i32(2), Some(Compression::Zlib));
+        assert_eq!(Compression::from_i32(99), None);
+    }
+
+    #[test]
+    fn test_temporal_kind() {
+        // Date-only formats
+        assert_eq!(FormatType::Date.temporal_kind(), Some(TemporalKind::Date));
+        assert_eq!(FormatType::ADate.temporal_kind(), Some(TemporalKind::Date));
+        assert_eq!(FormatType::JDate.temporal_kind(), Some(TemporalKind::Date));
+        assert_eq!(FormatType::EDate.temporal_kind(), Some(TemporalKind::Date));
+        assert_eq!(FormatType::SDate.temporal_kind(), Some(TemporalKind::Date));
+        assert_eq!(FormatType::Moyr.temporal_kind(), Some(TemporalKind::Date));
+        assert_eq!(FormatType::Qyr.temporal_kind(), Some(TemporalKind::Date));
+        assert_eq!(FormatType::Wkyr.temporal_kind(), Some(TemporalKind::Date));
+
+        // Timestamp formats
+        assert_eq!(
+            FormatType::DateTime.temporal_kind(),
+            Some(TemporalKind::Timestamp)
+        );
+        assert_eq!(
+            FormatType::YmDhms.temporal_kind(),
+            Some(TemporalKind::Timestamp)
+        );
+
+        // Duration formats
+        assert_eq!(
+            FormatType::Time.temporal_kind(),
+            Some(TemporalKind::Duration)
+        );
+        assert_eq!(
+            FormatType::DTime.temporal_kind(),
+            Some(TemporalKind::Duration)
+        );
+        assert_eq!(
+            FormatType::MTime.temporal_kind(),
+            Some(TemporalKind::Duration)
+        );
+
+        // Non-temporal: Wkday, Month, plain numeric
+        assert_eq!(FormatType::Wkday.temporal_kind(), None);
+        assert_eq!(FormatType::Month.temporal_kind(), None);
+        assert_eq!(FormatType::F.temporal_kind(), None);
+        assert_eq!(FormatType::A.temporal_kind(), None);
+        assert_eq!(FormatType::Comma.temporal_kind(), None);
+    }
+
+    #[test]
+    fn test_temporal_conversions() {
+        // 1970-01-01 00:00:00 in the reference program seconds = 12,219,379,200
+        let sav_unix_epoch = the reference program_EPOCH_OFFSET_SECONDS;
+
+        // Date32: days since unix epoch → should be 0
+        let days = (sav_unix_epoch / SECONDS_PER_DAY - the reference program_EPOCH_OFFSET_DAYS as f64) as i32;
+        assert_eq!(days, 0);
+
+        // Timestamp: microseconds since unix epoch → should be 0
+        let micros = ((sav_unix_epoch - the reference program_EPOCH_OFFSET_SECONDS) * MICROS_PER_SECOND) as i64;
+        assert_eq!(micros, 0);
+
+        // Duration: 3600 the reference program seconds = 1 hour = 3,600,000,000 microseconds
+        let dur_micros = (3600.0 * MICROS_PER_SECOND) as i64;
+        assert_eq!(dur_micros, 3_600_000_000);
+
+        // 2024-01-01: 19723 days after Unix epoch
+        // In the reference program: (141428 + 19723) days * 86400 = the reference program seconds
+        let days_2024 = the reference program_EPOCH_OFFSET_DAYS + 19723;
+        let sav_2024 = days_2024 as f64 * SECONDS_PER_DAY;
+        let date32_2024 = (sav_2024 / SECONDS_PER_DAY - the reference program_EPOCH_OFFSET_DAYS as f64) as i32;
+        assert_eq!(date32_2024, 19723); // 19723 days from 1970-01-01 to 2024-01-01
+    }
+
+    #[test]
+    fn test_measure_from_i32() {
+        assert_eq!(Measure::from_i32(1), Measure::Nominal);
+        assert_eq!(Measure::from_i32(2), Measure::Ordinal);
+        assert_eq!(Measure::from_i32(3), Measure::Scale);
+        assert_eq!(Measure::from_i32(0), Measure::Unknown);
+    }
+}

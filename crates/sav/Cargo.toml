@@ -1,0 +1,16 @@
+[package]
+name = "statscraft-sav"
+description = "Reader and writer for .sav and .zsav system files, started from ambers 0.4.7"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+arrow = { version = "57", default-features = false }
+flate2 = { version = "1", default-features = false, features = ["zlib-rs"] }
+encoding_rs = "0.8"
+thiserror = "2"
+rayon = "1"
+indexmap = "2"

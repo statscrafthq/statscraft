@@ -8,7 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
-ambers = "0.4.7"
+statscraft-sav = { path = "../sav" }
 arrow = { version = "57", default-features = false }
 serde = { version = "1", features = ["derive"] }
 # float_roundtrip: exact f64 parsing; preserve_order: value labels keep file order
