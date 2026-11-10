@@ -45,6 +45,8 @@ pub const INFO_ENCODING: i32 = 20;
 pub const INFO_VAR_ATTRIBUTES: i32 = 18;
 pub const INFO_LONG_STRING_LABELS: i32 = 21;
 pub const INFO_LONG_STRING_MISSING: i32 = 22;
+pub const INFO_VARIABLE_SETS: i32 = 5;
+pub const INFO_FILE_ATTRIBUTES: i32 = 17;
 
 // -- Enums --
 
@@ -546,7 +548,7 @@ mod tests {
     #[test]
     fn test_format_string_type() {
         // A50 = type 1, width 50, decimals 0
-        let packed = (1 << 16) | (50 << 8) | 0;
+        let packed = (1 << 16) | (50 << 8);
         let fmt = SavFormat::from_packed(packed).unwrap();
         assert_eq!(fmt.format_type, FormatType::A);
         assert_eq!(fmt.to_sav_string(), "A50");
@@ -561,7 +563,10 @@ mod tests {
             ("DATETIME20", "DATETIME20"),
             ("DATE11.2", "DATE11"),
         ] {
-            assert_eq!(SavFormat::from_string(text).unwrap().to_sav_string(), back);
+            assert_eq!(
+                SavFormat::from_string(text).unwrap().to_sav_string(),
+                back
+            );
         }
     }
 

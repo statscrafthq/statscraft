@@ -255,6 +255,8 @@ fn mrsets_subcommands_in_order() {
             label: label.map(str::to_string),
             variables,
             value,
+            counted_value_labels: false,
+            label_from_variables: false,
         })
     };
     assert_eq!(
@@ -287,6 +289,25 @@ fn mrsets_subcommands_in_order() {
 }
 
 #[test]
+fn mrsets_label_settings() {
+    let source = "MRSETS /MDGROUP NAME=$ch CATEGORYLABELS=COUNTEDVALUES LABELSOURCE=VARLABEL\n\
+                  VARIABLES=a b VALUE=1\n\
+                  /MDGROUP NAME=$d CATEGORYLABELS=COUNTEDVALUES CATEGORYLABELS=VARLABELS VARIABLES=a b VALUE=1.";
+    let Command::Mrsets(list) = one(source) else {
+        panic!("not MRSETS");
+    };
+    let flags: Vec<(bool, bool)> = list
+        .iter()
+        .map(|m| match m {
+            Mrsets::Define(g) => (g.counted_value_labels, g.label_from_variables),
+            _ => panic!("not a definition"),
+        })
+        .collect();
+    // the last CATEGORYLABELS wins
+    assert_eq!(flags, [(true, true), (false, false)]);
+}
+
+#[test]
 fn mrsets_mistakes() {
     for (source, message) in [
         (
@@ -316,12 +337,16 @@ fn mrsets_mistakes() {
         ),
         ("MRSETS.", "unexpected end of command"),
         (
-            "MRSETS /MDGROUP NAME=$ch CATEGORYLABELS=COUNTEDVALUES VARIABLES=a b VALUE=1.",
-            "CATEGORYLABELS=COUNTEDVALUES in MRSETS is not supported yet",
+            "MRSETS /MDGROUP NAME=$ch LABELSOURCE=VARLABEL VARIABLES=a b VALUE=1.",
+            "LABELSOURCE=VARLABEL needs CATEGORYLABELS=COUNTEDVALUES",
         ),
         (
-            "MRSETS /MDGROUP NAME=$ch LABELSOURCE=VARLABEL VARIABLES=a b VALUE=1.",
-            "LABELSOURCE=VARLABEL in MRSETS is not supported yet",
+            "MRSETS /MDGROUP NAME=$ch LABEL='x' LABELSOURCE=VARLABEL CATEGORYLABELS=COUNTEDVALUES VARIABLES=a b VALUE=1.",
+            "LABEL and LABELSOURCE exclude each other",
+        ),
+        (
+            "MRSETS /MCGROUP NAME=$ch CATEGORYLABELS=COUNTEDVALUES VARIABLES=a b.",
+            "unexpected word CATEGORYLABELS",
         ),
     ] {
         let e = err(source);

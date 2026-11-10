@@ -32,7 +32,8 @@ pub fn parse_long_string_missing(data: &[u8]) -> Result<Vec<LongStringMissingEnt
             break;
         };
         let var_name = io_utils::trim_ascii_nul(name).to_vec();
-        let (Some(&[n_values]), Some(value_len)) = (take(data, &mut pos, 1), take_len(data, &mut pos))
+        let (Some(&[n_values]), Some(value_len)) =
+            (take(data, &mut pos, 1), take_len(data, &mut pos))
         else {
             break;
         };
@@ -54,4 +55,3 @@ pub fn parse_long_string_missing(data: &[u8]) -> Result<Vec<LongStringMissingEnt
 
     Ok(result)
 }
-

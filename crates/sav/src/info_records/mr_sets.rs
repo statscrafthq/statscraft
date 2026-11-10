@@ -9,8 +9,7 @@ use crate::metadata::MrType;
 /// parser once did, with UTF-8) breaks those offsets for non-ASCII labels and
 /// made the parser panic on a char boundary (GitHub issue #5).
 ///
-/// Subtype 7: variable names are SHORT names — must be resolved to long names.
-/// Subtype 19: variable names are already LONG names.
+/// Both subtypes list the variables by short name; some writers put long names in subtype 19.
 #[derive(Debug, Clone)]
 pub struct RawMrSet {
     pub name: RawText,
@@ -18,8 +17,10 @@ pub struct RawMrSet {
     pub counted_value: Option<RawText>,
     pub label: RawText,
     pub var_names: Vec<RawText>,
-    /// If true, var_names are already long names (subtype 19).
-    pub uses_long_names: bool,
+    /// `E` type: CATEGORYLABELS=COUNTEDVALUES.
+    pub counted_value_labels: bool,
+    /// `E 11`: LABELSOURCE=VARLABEL as well.
+    pub label_from_variables: bool,
 }
 
 /// Parse subtype 7 multiple response sets (SHORT variable names).
@@ -31,7 +32,7 @@ pub struct RawMrSet {
 /// Where n is the byte length of counted_value (can be multi-digit),
 /// and label_len is the byte length of the label that follows.
 pub fn parse_mr_sets(data: &[u8]) -> Vec<RawMrSet> {
-    parse_mr_sets_inner(data, false)
+    parse_mr_sets_inner(data)
 }
 
 /// Parse subtype 19 multiple response sets (LONG variable names).
@@ -42,10 +43,10 @@ pub fn parse_mr_sets(data: &[u8]) -> Vec<RawMrSet> {
 ///
 /// counting_type: 1 = CATEGORYLABELS=COUNTEDVALUES, 11 = LABELSOURCE=VARLABEL
 pub fn parse_mr_sets_v2(data: &[u8]) -> Vec<RawMrSet> {
-    parse_mr_sets_inner(data, true)
+    parse_mr_sets_inner(data)
 }
 
-fn parse_mr_sets_inner(data: &[u8], uses_long_names: bool) -> Vec<RawMrSet> {
+fn parse_mr_sets_inner(data: &[u8]) -> Vec<RawMrSet> {
     let mut sets = Vec::new();
 
     // Sets are newline-separated (may also have NUL terminators)
@@ -54,7 +55,7 @@ fn parse_mr_sets_inner(data: &[u8], uses_long_names: bool) -> Vec<RawMrSet> {
         if line.is_empty() || line[0] != b'$' {
             continue;
         }
-        if let Some(mr_set) = parse_one_mr_set(line, uses_long_names) {
+        if let Some(mr_set) = parse_one_mr_set(line) {
             sets.push(mr_set);
         }
     }
@@ -71,7 +72,7 @@ fn trim_start_ascii(s: &[u8]) -> &[u8] {
     &s[n..]
 }
 
-fn parse_one_mr_set(text: &[u8], uses_long_names: bool) -> Option<RawMrSet> {
+fn parse_one_mr_set(text: &[u8]) -> Option<RawMrSet> {
     // Must start with $
     let text = text.strip_prefix(b"$")?;
 
@@ -87,6 +88,7 @@ fn parse_one_mr_set(text: &[u8], uses_long_names: bool) -> Option<RawMrSet> {
     let type_char = rest[0];
     let rest = &rest[1..];
 
+    let mut counting_type = None;
     let (mr_type, counted_value, after_cv) = match type_char {
         b'D' => {
             // Dichotomy: Dn counted_value ...
@@ -106,7 +108,8 @@ fn parse_one_mr_set(text: &[u8], uses_long_names: bool) -> Option<RawMrSet> {
             // counting_type: 1 or 11, followed by space
             // Then same as D: cv_len counted_value ...
             let rest = trim_start_ascii(rest);
-            let (_, after_ct) = parse_number(rest)?;
+            let (code, after_ct) = parse_number(rest)?;
+            counting_type = Some(code);
             let after_ct = strip_one_space(after_ct);
             let (cv_len, after_len) = parse_number(after_ct)?;
             let after_space = strip_one_space(after_len);
@@ -140,7 +143,8 @@ fn parse_one_mr_set(text: &[u8], uses_long_names: bool) -> Option<RawMrSet> {
             counted_value,
             label,
             var_names: Vec::new(),
-            uses_long_names,
+            counted_value_labels: counting_type.is_some(),
+            label_from_variables: counting_type == Some(11),
         });
     }
 
@@ -160,7 +164,8 @@ fn parse_one_mr_set(text: &[u8], uses_long_names: bool) -> Option<RawMrSet> {
         counted_value,
         label,
         var_names,
-        uses_long_names,
+        counted_value_labels: counting_type.is_some(),
+        label_from_variables: counting_type == Some(11),
     })
 }
 
@@ -240,7 +245,6 @@ mod tests {
         assert_eq!(sets[0].counted_value, Some(b"10".to_vec()));
         assert_eq!(sets[0].label, b"Label");
         assert_eq!(sets[0].var_names, names(&["V1", "V2"]));
-        assert!(!sets[0].uses_long_names);
     }
 
     #[test]
@@ -269,7 +273,7 @@ mod tests {
 
     #[test]
     fn test_parse_v2_dichotomy() {
-        // Subtype 19 D type — same format but long variable names
+        // Subtype 19 D type: same format but long variable names
         let data = b"$q7all=D1 1 11 All of Q7's q7_1 q7_2 q7_3\n";
         let sets = parse_mr_sets_v2(data);
         assert_eq!(sets.len(), 1);
@@ -278,7 +282,6 @@ mod tests {
         assert_eq!(sets[0].counted_value, Some(b"1".to_vec()));
         assert_eq!(sets[0].label, b"All of Q7's");
         assert_eq!(sets[0].var_names, names(&["q7_1", "q7_2", "q7_3"]));
-        assert!(sets[0].uses_long_names);
     }
 
     #[test]
@@ -293,7 +296,6 @@ mod tests {
         assert_eq!(sets[0].counted_value, Some(b"34".to_vec()));
         assert_eq!(sets[0].label, b"third mdgroup");
         assert_eq!(sets[0].var_names, names(&["k", "l", "m"]));
-        assert!(sets[0].uses_long_names);
     }
 
     #[test]
@@ -316,7 +318,6 @@ mod tests {
         assert_eq!(sets.len(), 1);
         assert_eq!(sets[0].name, b"colors");
         assert_eq!(sets[0].mr_type, MrType::MultipleCategory);
-        assert!(sets[0].uses_long_names);
     }
 
     #[test]

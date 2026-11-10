@@ -3,7 +3,7 @@
 mod common;
 
 use common::{assert_survives_write, file_name, fixture, fixture_files, scratch};
-use statscraft_data::{Dataset, Error, Measure, MissingValues, Value};
+use statscraft_data::{Dataset, Error, Measure, MissingValues, Value, VariableSet};
 
 #[test]
 fn every_fixture_survives_a_write_read_cycle() {
@@ -142,4 +142,144 @@ fn a_failed_write_keeps_the_existing_file() {
     let unwritable = scratch("no_such_directory/x.sav");
     let error = fixture("empty.sav").write_sav(unwritable).unwrap_err();
     assert!(matches!(error, Error::File(_)), "{error}");
+}
+
+/// A value label has a one-byte length in the file, so it holds up to 255 bytes; labels of
+/// long string variables (their own record) keep the same limit.
+#[test]
+fn value_labels_up_to_255_bytes_survive() {
+    let mut data = fixture("survey_basic.sav");
+    let longest = "õ".repeat(127) + "x"; // 255 bytes of UTF-8
+    data.set_value_labels("gender", vec![(Value::Number(1.0), longest.clone())])
+        .unwrap();
+    let text = vec![(Value::String("ENTERPRISE".into()), longest.clone())];
+    data.set_value_labels("plan", text).unwrap();
+    let copy = assert_survives_write(&data, "long_value_labels.sav");
+    assert_eq!(
+        copy.variable("gender").unwrap().value_labels()[0].1,
+        longest
+    );
+    assert_eq!(copy.variable("plan").unwrap().value_labels()[0].1, longest);
+}
+
+/// The file label has a fixed 64-byte field in the header and no other record, so 64 bytes
+/// is the limit: a longer label is refused when writing instead of being cut.
+#[test]
+fn the_file_label_holds_64_bytes() {
+    let mut data = fixture("survey_basic.sav");
+    let label = "ä".repeat(32);
+    data.set_file_label(Some(&label));
+    let copy = assert_survives_write(&data, "file_label.sav");
+    assert_eq!(copy.file_label(), Some(label.as_str()));
+
+    data.set_file_label(Some(&format!("{label}x")));
+    let path = scratch("file_label_too_long.sav");
+    let error = data.write_sav(&path).unwrap_err();
+    assert!(error.to_string().contains("at most 64"), "{error}");
+    assert!(!path.exists());
+}
+
+/// CATEGORYLABELS=COUNTEDVALUES and LABELSOURCE=VARLABEL are kept in the file. Such sets have
+/// their own record after the one of the other sets, so they come back after those.
+#[test]
+fn multiple_response_label_settings_survive() {
+    let mut data = fixture("survey_basic_phpwriter.sav");
+    let mut set = data.multiple_response_sets()[0].clone();
+    set.name = "$counted".into();
+    set.counted_value_labels = true;
+    set.label_from_variables = true;
+    data.set_multiple_response_set(set.clone()).unwrap();
+    let mut plain = set.clone();
+    plain.name = "$plain".into();
+    plain.label_from_variables = false;
+    data.set_multiple_response_set(plain).unwrap();
+    let copy = assert_survives_write(&data, "mr_labels.sav");
+    assert_eq!(copy.multiple_response_sets()[2], set);
+    assert_survives_write(&data, "mr_labels.zsav");
+
+    // only a dichotomy set has counted values, and a label from the variables needs them
+    let mut wrong = data.multiple_response_sets()[1].clone();
+    wrong.counted_value_labels = true;
+    assert!(data.set_multiple_response_set(wrong).is_err());
+    set.counted_value_labels = false;
+    assert!(data.set_multiple_response_set(set).is_err());
+}
+
+/// Variable sets and data file attributes are kept, and follow renamed and deleted variables.
+#[test]
+fn variable_sets_and_file_attributes_survive() {
+    let mut data = fixture("survey_basic.sav");
+    let sets = vec![
+        VariableSet {
+            name: "demographics".into(),
+            variables: vec!["AGE".into(), "gender".into()],
+        },
+        VariableSet {
+            name: "channels".into(),
+            variables: vec!["q5_1".into(), "q5_2".into()],
+        },
+    ];
+    data.set_variable_sets(sets).unwrap();
+    let attributes = vec![
+        ("origin".to_string(), vec!["synthetic".to_string()]),
+        (
+            "waves".to_string(),
+            vec!["1".to_string(), "2 õ".to_string()],
+        ),
+    ];
+    data.set_attributes(attributes.clone());
+    data.rename_variable("q5_1", "phone").unwrap();
+    data.delete_variables(&["q5_2"]).unwrap();
+    let copy = assert_survives_write(&data, "variable_sets.sav");
+    assert_eq!(copy.variable_sets(), data.variable_sets());
+    assert_eq!(copy.variable_sets()[0].variables, ["age", "gender"]);
+    assert_eq!(copy.variable_sets()[1].variables, ["phone"]);
+    assert_eq!(copy.attributes(), attributes);
+
+    let unknown = vec![VariableSet {
+        name: "x".into(),
+        variables: vec!["nope".into()],
+    }];
+    assert!(data.set_variable_sets(unknown).is_err());
+}
+
+/// A file is written in the encoding of the dataset: the one it was read in, or the one
+/// `set_encoding` chose. Text that encoding cannot hold is refused.
+#[test]
+fn a_file_is_written_in_the_chosen_encoding() {
+    let mut data = fixture("survey_basic.sav");
+    assert_eq!(data.encoding(), "UTF-8");
+    data.set_variable_label("age", Some("Vanus (õäöü šž)"))
+        .unwrap();
+    // 10 characters, 20 bytes of UTF-8, 10 bytes of windows-1257
+    let text: Vec<String> = (0..200).map(|_| "õ".repeat(10)).collect();
+    data.set_string_values("baltic", 20, text).unwrap();
+    data.set_encoding("1257").unwrap();
+    assert_eq!(data.encoding(), "windows-1257");
+    let copy = assert_survives_write(&data, "baltic.sav");
+    assert_eq!(copy.encoding(), "windows-1257");
+
+    // the copy keeps its encoding: written again, it is still windows-1257
+    let again = assert_survives_write(&copy, "baltic_again.zsav");
+    assert_eq!(again.encoding(), "windows-1257");
+
+    // and written as UTF-8 when asked
+    let mut utf8 = copy.clone();
+    utf8.set_encoding("utf8").unwrap();
+    assert_eq!(
+        assert_survives_write(&utf8, "baltic_utf8.sav").encoding(),
+        "UTF-8"
+    );
+
+    let mut cyrillic = data.clone();
+    cyrillic.set_variable_label("age", Some("Возраст")).unwrap();
+    let path = scratch("cyrillic_in_1257.sav");
+    let error = cyrillic.write_sav(&path).unwrap_err();
+    assert!(
+        error.to_string().contains("windows-1257 cannot hold"),
+        "{error}"
+    );
+    assert!(!path.exists());
+    assert!(data.set_encoding("UTF-16").is_err());
+    assert!(data.set_encoding("no such encoding").is_err());
 }

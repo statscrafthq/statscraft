@@ -236,7 +236,7 @@ impl BytecodeDecompressor {
     }
 }
 
-/// Cold error path — kept out of the hot decompression loop to reduce icache pressure.
+/// Cold error path: kept out of the hot decompression loop to reduce icache pressure.
 #[cold]
 fn truncated_err(expected: usize, actual: usize) -> SavError {
     SavError::TruncatedFile { expected, actual }
@@ -299,14 +299,14 @@ mod tests {
         // Control block: [253 (raw follows), 0, 0, 0, 0, 0, 0, 0]
         input.extend_from_slice(&[253, 0, 0, 0, 0, 0, 0, 0]);
         // Raw 8 bytes
-        input.extend_from_slice(&3.14_f64.to_le_bytes());
+        input.extend_from_slice(&3.25_f64.to_le_bytes());
 
         decompressor.decompress_row(&input, 1, &mut slots).unwrap();
         assert_eq!(slots.len(), 1);
         match slots[0] {
             SlotValue::Raw(bytes) => {
                 let val = f64::from_le_bytes(bytes);
-                assert!((val - 3.14).abs() < 1e-10);
+                assert!((val - 3.25).abs() < 1e-10);
             }
             _ => panic!("expected Raw"),
         }

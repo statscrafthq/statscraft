@@ -3,7 +3,7 @@
 
 use crate::{
     Dataset, Dictionary, Error, Measure, MissingValues, MultipleResponseSet, Value, VariableDef,
-    non_empty, same_name, sav,
+    VariableSet, non_empty, same_name, sav,
 };
 use arrow::array::{ArrayRef, AsArray, BooleanArray, Float64Array, StringViewArray, UInt64Array};
 use std::sync::Arc;
@@ -13,8 +13,8 @@ const RESERVED_WORDS: [&str; 13] = [
 ];
 const MAX_NAME_BYTES: usize = 64;
 const MAX_STRING_WIDTH: usize = 32767;
-/// A file stores a value label behind a one-byte length, and readers expect at most this much.
-const MAX_VALUE_LABEL_BYTES: usize = 120;
+/// A file stores a value label behind a one-byte length.
+const MAX_VALUE_LABEL_BYTES: usize = 255;
 const MAX_MISSING_STRING_BYTES: usize = 8;
 
 impl Dataset {
@@ -72,6 +72,35 @@ impl Dataset {
         let dict = Arc::make_mut(&mut self.dict);
         dict.encoding = encoding.to_string();
         dict.compression = compression;
+        Ok(())
+    }
+
+    /// Replaces the data file attributes.
+    pub fn set_attributes(&mut self, attributes: Vec<(String, Vec<String>)>) {
+        Arc::make_mut(&mut self.dict).attributes = attributes;
+    }
+
+    /// Replaces the variable sets; every variable must exist, and is stored as the dictionary
+    /// spells it.
+    pub fn set_variable_sets(&mut self, sets: Vec<VariableSet>) -> Result<(), Error> {
+        let mut checked = Vec::with_capacity(sets.len());
+        for set in sets {
+            let variables = set
+                .variables
+                .iter()
+                .map(|name| Ok(self.dict.variables[self.index_of(name)?].name.clone()))
+                .collect::<Result<_, Error>>()?;
+            checked.push(VariableSet { variables, ..set });
+        }
+        Arc::make_mut(&mut self.dict).variable_sets = checked;
+        Ok(())
+    }
+
+    /// The encoding `write_sav` writes text in: an encoding name such as "UTF-8" or
+    /// "windows-1252", or a Windows code page number such as "1252".
+    pub fn set_encoding(&mut self, encoding: &str) -> Result<(), Error> {
+        let name = sav::encoding_name(encoding)?;
+        Arc::make_mut(&mut self.dict).encoding = name;
         Ok(())
     }
 
@@ -302,6 +331,11 @@ impl Dataset {
             .multiple_response_sets
             .iter_mut()
             .flat_map(|set| &mut set.variables)
+            .chain(
+                dict.variable_sets
+                    .iter_mut()
+                    .flat_map(|set| &mut set.variables),
+            )
             .chain(&mut dict.weight_variable);
         for reference in references.filter(|r| **r == old) {
             *reference = new_name.to_string();
@@ -390,6 +424,12 @@ impl Dataset {
         }
         if !matches!(set.kind, "dichotomy" | "category") {
             return invalid(format!("unknown kind of set {}", set.kind));
+        }
+        if set.counted_value_labels && set.kind != "dichotomy" {
+            return invalid("only a dichotomy set labels its categories by counted value".into());
+        }
+        if set.label_from_variables && !set.counted_value_labels {
+            return invalid("a label from the variables needs counted value labels".into());
         }
         if set.variables.len() < 2 {
             return invalid("a set needs at least two variables".into());
@@ -533,6 +573,9 @@ fn drop_dangling_references(dict: &mut Dictionary) {
     }
     dict.multiple_response_sets
         .retain(|set| !set.variables.is_empty());
+    for set in &mut dict.variable_sets {
+        set.variables.retain(exists);
+    }
     if !dict.weight_variable.as_ref().is_some_and(exists) {
         dict.weight_variable = None;
     }

@@ -4,9 +4,11 @@ use std::collections::HashSet;
 
 use arrow::datatypes::DataType;
 use arrow::record_batch::RecordBatch;
+use encoding_rs::Encoding;
 use indexmap::IndexMap;
 
 use crate::constants::*;
+use crate::encoding::encode;
 use crate::error::{Result, SavError};
 use crate::metadata::{MissingSpec, SavMetadata, specs_to_missing};
 use crate::variable::MissingValues;
@@ -73,6 +75,8 @@ pub(super) struct CaseLayout {
     pub(super) short_to_long: IndexMap<String, String>,
     /// VLS declarations for subtype 14: (short_name, true_width).
     pub(super) very_long_strings: Vec<(String, usize)>,
+    /// The encoding every text of the file is written in.
+    pub(super) encoding: &'static Encoding,
 }
 
 // ---------------------------------------------------------------------------
@@ -252,7 +256,11 @@ pub(crate) fn validate_write_inputs(
 // Layout computation
 // ---------------------------------------------------------------------------
 
-pub(super) fn compute_layout(batch: &RecordBatch, meta: &SavMetadata) -> Result<CaseLayout> {
+pub(super) fn compute_layout(
+    batch: &RecordBatch,
+    meta: &SavMetadata,
+    encoding: &'static Encoding,
+) -> Result<CaseLayout> {
     let schema = batch.schema();
     let mut write_vars = Vec::new();
     let mut slot_records = Vec::new();
@@ -358,7 +366,25 @@ pub(super) fn compute_layout(batch: &RecordBatch, meta: &SavMetadata) -> Result<
                         name
                     )));
                 }
-                Ok(specs_to_missing(specs))
+                let mut strings = Vec::new();
+                for spec in specs {
+                    if let MissingSpec::StringValue(text) = spec {
+                        let mut bytes = encode(text, encoding)?.into_owned();
+                        // the format keeps string missing values as 8-byte values
+                        if bytes.len() > 8 {
+                            return Err(SavError::WriteError(format!(
+                                "variable '{name}': missing value {text:?} is longer than 8 bytes"
+                            )));
+                        }
+                        bytes.resize(8, b' ');
+                        strings.push(bytes);
+                    }
+                }
+                Ok(if strings.is_empty() {
+                    specs_to_missing(specs)
+                } else {
+                    MissingValues::DiscreteString(strings)
+                })
             })
             .transpose()?
             .unwrap_or(MissingValues::None);
@@ -419,7 +445,8 @@ pub(super) fn compute_layout(batch: &RecordBatch, meta: &SavMetadata) -> Result<
                     .unwrap()
                     .label
                     .as_ref()
-                    .map(|s| s.as_bytes().to_vec()),
+                    .map(|s| encode(s, encoding).map(|b| b.into_owned()))
+                    .transpose()?,
                 print_format: format.clone(),
                 write_format: format.clone(),
                 // Strings > 8 bytes: missing values go in subtype 22 only, not type-2 record
@@ -500,7 +527,8 @@ pub(super) fn compute_layout(batch: &RecordBatch, meta: &SavMetadata) -> Result<
                             .unwrap()
                             .label
                             .as_ref()
-                            .map(|s| s.as_bytes().to_vec()),
+                            .map(|s| encode(s, encoding).map(|b| b.into_owned()))
+                            .transpose()?,
                         MissingValues::None,
                     )
                 } else {
@@ -547,6 +575,7 @@ pub(super) fn compute_layout(batch: &RecordBatch, meta: &SavMetadata) -> Result<
     }
 
     Ok(CaseLayout {
+        encoding,
         write_vars,
         slot_records,
         slots_per_row: slot_index,

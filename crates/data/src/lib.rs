@@ -31,6 +31,9 @@ struct Dictionary {
     weight_variable: Option<String>,
     variables: Vec<VariableDef>,
     multiple_response_sets: Vec<MultipleResponseSet>,
+    variable_sets: Vec<VariableSet>,
+    /// Data file attributes: name and values, in file order.
+    attributes: Vec<(String, Vec<String>)>,
     warnings: Vec<String>,
     /// Document lines of the file, carried through to the next write.
     documents: Vec<String>,
@@ -304,7 +307,7 @@ pub struct VariableDescription {
     pub n_user_missing: usize,
 }
 
-#[derive(Clone, Debug, PartialEq, Serialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize)]
 pub struct MultipleResponseSet {
     /// With the leading "$".
     pub name: String,
@@ -315,6 +318,21 @@ pub struct MultipleResponseSet {
     /// The counted value of a dichotomy set, as the file states it.
     #[serde(serialize_with = "text_or_number")]
     pub counted_value: Option<String>,
+    pub variables: Vec<String>,
+    /// CATEGORYLABELS=COUNTEDVALUES: a dichotomy set labels its categories with the value
+    /// label of the counted value in each variable, not with the variable labels.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub counted_value_labels: bool,
+    /// LABELSOURCE=VARLABEL: `label` was taken from the variable labels of the set (only with
+    /// `counted_value_labels`).
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub label_from_variables: bool,
+}
+
+/// A named list of variables, a shortcut for choosing variables in a user interface.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+pub struct VariableSet {
+    pub name: String,
     pub variables: Vec<String>,
 }
 
@@ -332,6 +350,8 @@ impl Dataset {
                 weight_variable: None,
                 variables: Vec::new(),
                 multiple_response_sets: Vec::new(),
+                variable_sets: Vec::new(),
+                attributes: Vec::new(),
                 warnings: Vec::new(),
                 documents: Vec::new(),
             }),
@@ -384,6 +404,15 @@ impl Dataset {
 
     pub fn multiple_response_sets(&self) -> &[MultipleResponseSet] {
         &self.dict.multiple_response_sets
+    }
+
+    pub fn variable_sets(&self) -> &[VariableSet] {
+        &self.dict.variable_sets
+    }
+
+    /// Data file attributes: name and its values, in file order.
+    pub fn attributes(&self) -> &[(String, Vec<String>)] {
+        &self.dict.attributes
     }
 
     pub fn file_label(&self) -> Option<&str> {

@@ -122,4 +122,3 @@ pub fn decompress_single_block<R: Read + Seek>(
         ))),
     }
 }
-

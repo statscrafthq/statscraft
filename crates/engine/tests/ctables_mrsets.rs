@@ -685,3 +685,44 @@ fn mistakes_with_sets_name_the_rule() {
         assert_eq!(error(&mut engine, source), message, "{source}");
     }
 }
+
+/// MRSETS, pages 1167-1168: CATEGORYLABELS=COUNTEDVALUES labels each category of a dichotomy
+/// set with the value label of the counted value in its variable; every variable needs one and
+/// they must differ (case ignored). LABELSOURCE=VARLABEL takes the set label from the first
+/// variable with a variable label. Both settings are kept in the data file.
+#[test]
+fn counted_value_labels_and_a_label_from_the_variables() {
+    let mut engine = engine();
+    // every q5 variable labels 1 as "Selected", so the labels do not tell the categories apart
+    let same = error(
+        &mut engine,
+        "MRSETS /MDGROUP NAME=$c CATEGORYLABELS=COUNTEDVALUES VARIABLES=q5_1 q5_2 VALUE=1.",
+    );
+    assert!(same.contains("q5_2 repeats 'Selected'"), "{same}");
+    let unlabelled = error(
+        &mut engine,
+        "MRSETS /MDGROUP NAME=$c CATEGORYLABELS=COUNTEDVALUES VARIABLES=q5_1 q5_2 VALUE=2.",
+    );
+    assert!(unlabelled.contains("needs a value label"), "{unlabelled}");
+
+    let define = "VALUE LABELS q5_1 1 'Phone' /q5_2 1 'Email' /q5_3 1 'Chat'.\n\
+                  MRSETS /MDGROUP NAME=$c CATEGORYLABELS=COUNTEDVALUES LABELSOURCE=VARLABEL\n\
+                  VARIABLES=q5_1 TO q5_3 VALUE=1.";
+    run_on(&mut engine, define).unwrap();
+    let check = |engine: &mut Engine| {
+        let set = engine.dataset().unwrap().multiple_response_sets()[2].clone();
+        assert!(set.counted_value_labels && set.label_from_variables);
+        assert_eq!(
+            set.label,
+            "Q5. Which of these channels have you used to contact us? Phone"
+        );
+        let t = table(engine, "CTABLES /TABLE $c.");
+        assert_eq!(text(&t.rows[0][0]), set.label);
+        assert_eq!(row_labels(&t, 1), ["Phone", "Email", "Chat"]);
+    };
+    check(&mut engine);
+    let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR")).join("counted_labels.sav");
+    let saved = format!("SAVE OUTFILE='{0}'.\nGET FILE='{0}'.", path.display());
+    run_on(&mut engine, &saved).unwrap();
+    check(&mut engine);
+}

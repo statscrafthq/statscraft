@@ -47,6 +47,7 @@ use crate::scanner::SavScanner;
 
 // Re-export key public types
 pub use crate::constants::{Alignment, Compression, Measure};
+pub use crate::encoding::encoding_for_writing;
 pub use crate::metadata::{MissingSpec, MrSet, MrType, SavMetadata, Value};
 pub use crate::scanner::SavScanner as Scanner;
 pub use crate::writer::{write_sav, write_sav_to_writer};

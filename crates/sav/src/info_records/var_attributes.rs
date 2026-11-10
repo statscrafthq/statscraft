@@ -18,7 +18,7 @@ use crate::io_utils::{self, RawText};
 /// A parsed variable attribute set.
 #[derive(Debug, Clone)]
 pub struct VarAttributeSet {
-    /// Variable name bytes (may be a short name — resolved in dictionary.rs).
+    /// Variable name bytes (may be a short name: resolved in dictionary.rs).
     pub var_name: RawText,
     /// (attribute_name, [values]) pairs, undecoded.
     pub attributes: Vec<(RawText, Vec<RawText>)>,
@@ -86,7 +86,7 @@ fn split_var_sets(text: &[u8]) -> Vec<&[u8]> {
 }
 
 /// Parse the attribute portion: `AttrName1('val1'\n)AttrName2('val2'\n)`
-fn parse_attributes(bytes: &[u8]) -> Vec<(RawText, Vec<RawText>)> {
+pub(crate) fn parse_attributes(bytes: &[u8]) -> Vec<(RawText, Vec<RawText>)> {
     let mut result = Vec::new();
     let mut pos = 0;
 
@@ -140,7 +140,7 @@ fn parse_attributes(bytes: &[u8]) -> Vec<(RawText, Vec<RawText>)> {
                     pos += 1;
                 }
             } else {
-                // Unexpected character — skip to avoid infinite loop
+                // Unexpected character: skip to avoid infinite loop
                 pos += 1;
             }
         }

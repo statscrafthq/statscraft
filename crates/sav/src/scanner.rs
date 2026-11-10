@@ -155,7 +155,7 @@ impl<R: Read + Seek> SavScanner<R> {
         }
     }
 
-    /// Set column projection — only these columns will be read and returned.
+    /// Set column projection: only these columns will be read and returned.
     /// Returns an error if any column name is not found.
     pub fn select(&mut self, columns: &[&str]) -> Result<()> {
         let mut indices = Vec::with_capacity(columns.len());
@@ -172,7 +172,7 @@ impl<R: Read + Seek> SavScanner<R> {
         Ok(())
     }
 
-    /// Set a row limit — stop reading after this many rows.
+    /// Set a row limit: stop reading after this many rows.
     pub fn limit(&mut self, n: usize) {
         self.row_limit = Some(n);
     }

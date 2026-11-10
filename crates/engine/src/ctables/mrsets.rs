@@ -27,7 +27,7 @@
 
 use super::{Category, CategoryList, Key, Tally, TermVar, VlabelsDisplay, add_total, categories};
 use crate::{Engine, Error};
-use statscraft_data::{Dataset, Values, Variable};
+use statscraft_data::{Dataset, Value, Values, Variable};
 use statscraft_syntax::{
     AxisVariable, Categories, CategoryItem, Ctables, PercentOf, Statistic, Summary,
     SummaryFunction, VarItem,
@@ -43,6 +43,9 @@ pub(super) struct Set<'a> {
     pub counted: Option<Key>,
     /// /MRSETS COUNTDUPLICATES=YES
     pub count_duplicates: bool,
+    /// The set's CATEGORYLABELS=COUNTEDVALUES: categories take the value label of the counted
+    /// value in their variable.
+    pub counted_value_labels: bool,
 }
 
 /// The categories a case falls in for one categorical variable, each once and with its number
@@ -106,6 +109,7 @@ impl Engine {
                 variables,
                 counted,
                 count_duplicates: command.count_duplicates,
+                counted_value_labels: set.counted_value_labels,
             }),
         })
     }
@@ -151,7 +155,20 @@ pub(super) fn set_categories(set: &Set, spec: Option<&Categories>) -> Result<Cat
         }
         return categories(set.name, &set.variables, spec, None);
     };
-    let label = |v: &Variable| v.label().unwrap_or(v.name()).to_string();
+    let label = |v: &Variable| {
+        let counted_label = v.value_labels().iter().find_map(|(value, label)| {
+            let counted = match (value, counted) {
+                (Value::Number(x), Key::Number(n)) => x == n,
+                (Value::String(s), Key::Text(t)) => s == t,
+                _ => false,
+            };
+            counted.then(|| label.clone())
+        });
+        // a variable whose counted value lost its label falls back to the variable label
+        counted_label
+            .filter(|_| set.counted_value_labels)
+            .unwrap_or_else(|| v.label().unwrap_or(v.name()).to_string())
+    };
     let mut order: Vec<usize> = match spec.and_then(|s| s.values.as_ref()) {
         Some(items) => {
             let mut order = Vec::new();

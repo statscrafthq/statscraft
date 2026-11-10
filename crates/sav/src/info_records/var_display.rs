@@ -16,7 +16,7 @@ pub struct VarDisplayEntry {
 ///
 /// The record contains `count` i32 values. If count is divisible by 3,
 /// each variable gets (measure, width, alignment). If not divisible by 3,
-/// each variable gets (measure, alignment) — no width field.
+/// each variable gets (measure, alignment): no width field.
 pub fn parse_var_display<R: Read>(
     reader: &mut SavReader<R>,
     count: usize,

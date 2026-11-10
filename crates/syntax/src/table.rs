@@ -320,7 +320,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "MRSETS",
         summary: "Define, delete and list multiple response sets.",
-        syntax: "MRSETS [/]MDGROUP NAME=$name [LABEL='text'] [CATEGORYLABELS=VARLABELS] VARIABLES=varlist VALUE=value\n\
+        syntax: "MRSETS [/]MDGROUP NAME=$name [LABEL='text' | LABELSOURCE=VARLABEL] [CATEGORYLABELS=VARLABELS | COUNTEDVALUES]\n\
+                 \x20      VARIABLES=varlist VALUE=value\n\
                  \x20      /MCGROUP NAME=$name [LABEL='text'] VARIABLES=varlist\n\
                  \x20      /DELETE NAME=[$name ...] | ALL\n\
                  \x20      /DISPLAY NAME=[$name ...] | ALL.\n\
@@ -328,10 +329,13 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  existing name replaces that set. A set has at least two variables, all numeric or all strings.\n\
                  MDGROUP (dichotomies): every variable is one category, labelled with its variable label or name; a\n\
                  case has a response in it when the variable holds VALUE, a whole number or, for strings, a quoted\n\
-                 text no wider than the narrowest variable. MCGROUP (categories): the values of the variables are\n\
+                 text no wider than the narrowest variable. CATEGORYLABELS=COUNTEDVALUES labels each category with\n\
+                 the value label of VALUE in its variable instead; every variable needs one and they must differ.\n\
+                 LABELSOURCE=VARLABEL (only with COUNTEDVALUES, instead of LABEL) takes the set label from the first\n\
+                 variable of the set that has a variable label, else the name of the first variable.\n\
+                 MCGROUP (categories): the values of the variables are\n\
                  the categories, labelled with the value labels of the first variable that has one.\n\
-                 DISPLAY lists the sets in a table. Sets are saved with the data file and used by CTABLES.\n\
-                 Not supported yet: CATEGORYLABELS=COUNTEDVALUES and LABELSOURCE=VARLABEL.",
+                 DISPLAY lists the sets in a table. Sets are saved with the data file and used by CTABLES.",
         example: "MRSETS /MDGROUP NAME=$channels LABEL='Contact channels' VARIABLES=q5_1 TO q5_5 VALUE=1 /DISPLAY NAME=ALL.",
         parse: mrsets::mrsets,
     },

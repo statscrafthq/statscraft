@@ -25,13 +25,10 @@ pub struct MrsetsGroup {
     pub variables: Vec<VarItem>,
     /// The counted value of `/MDGROUP`; None for `/MCGROUP`.
     pub value: Option<Value>,
-}
-
-fn not_supported(p: &Parser, start: usize, what: &str) -> SyntaxError {
-    SyntaxError::new(
-        p.span_from(start),
-        format!("{what} in MRSETS is not supported yet"),
-    )
+    /// `CATEGORYLABELS=COUNTEDVALUES`: the categories take the value labels of the counted value.
+    pub counted_value_labels: bool,
+    /// `LABELSOURCE=VARLABEL`: the set label is the first variable label of the set.
+    pub label_from_variables: bool,
 }
 
 fn set_name(p: &mut Parser) -> PResult<String> {
@@ -48,6 +45,7 @@ fn set_name(p: &mut Parser) -> PResult<String> {
 /// `/MDGROUP` (`dichotomy`) or `/MCGROUP` with the parser after the subcommand name.
 fn group(p: &mut Parser, start: usize, dichotomy: bool) -> PResult<MrsetsGroup> {
     let (mut name, mut label, mut variables, mut value) = (None, None, None, None);
+    let (mut counted_value_labels, mut label_source) = (false, None);
     // an attribute given twice takes its last value
     while !at_end_of_subcommand(p) {
         let at = p.pos;
@@ -67,13 +65,10 @@ fn group(p: &mut Parser, start: usize, dichotomy: bool) -> PResult<MrsetsGroup> 
                     .ok_or_else(|| p.unexpected(&["a number", "a quoted string"]))?,
             );
         } else if dichotomy && p.eat_keyword("CATEGORYLABELS") {
-            if choice(p, &["VARLABELS", "COUNTEDVALUES"])? == 1 {
-                // the file writer has no place for this choice yet, so a SAVE would lose it
-                return Err(not_supported(p, at, "CATEGORYLABELS=COUNTEDVALUES"));
-            }
+            counted_value_labels = choice(p, &["VARLABELS", "COUNTEDVALUES"])? == 1;
         } else if dichotomy && p.eat_keyword("LABELSOURCE") {
             choice(p, &["VARLABEL"])?;
-            return Err(not_supported(p, at, "LABELSOURCE=VARLABEL"));
+            label_source = Some(at);
         } else if dichotomy {
             return Err(p.unexpected(&[
                 "NAME",
@@ -87,6 +82,16 @@ fn group(p: &mut Parser, start: usize, dichotomy: bool) -> PResult<MrsetsGroup> 
             return Err(p.unexpected(&["NAME", "LABEL", "VARIABLES"]));
         }
     }
+    if let Some(at) = label_source {
+        if label.is_some() {
+            let why = "LABEL and LABELSOURCE exclude each other; give one of them";
+            return Err(SyntaxError::new(p.span_from(at), why));
+        }
+        if !counted_value_labels {
+            let why = "LABELSOURCE=VARLABEL needs CATEGORYLABELS=COUNTEDVALUES";
+            return Err(SyntaxError::new(p.span_from(at), why));
+        }
+    }
     let subcommand = if dichotomy { "MDGROUP" } else { "MCGROUP" };
     let missing =
         |what: &str| SyntaxError::new(p.span_from(start), format!("/{subcommand} needs {what}"));
@@ -98,6 +103,8 @@ fn group(p: &mut Parser, start: usize, dichotomy: bool) -> PResult<MrsetsGroup> 
             (true, None) => return Err(missing("VALUE=, the value that counts as a response")),
             (_, value) => value,
         },
+        counted_value_labels,
+        label_from_variables: label_source.is_some(),
     })
 }
 

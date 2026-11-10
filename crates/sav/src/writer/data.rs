@@ -19,6 +19,34 @@ use crate::io_utils::SavWriteExt;
 // Data helpers
 // ---------------------------------------------------------------------------
 
+/// Every string value must be writable in the file encoding and fit the width of its
+/// variable: the writer refuses rather than cut a value.
+pub(super) fn check_strings(batch: &RecordBatch, layout: &CaseLayout) -> Result<()> {
+    for var in &layout.write_vars {
+        let VarType::String(width) = var.var_type else {
+            continue;
+        };
+        let col = batch.column(var.col_index).as_ref();
+        for row in 0..batch.num_rows() {
+            if col.is_null(row) {
+                continue;
+            }
+            let text = get_string_value(col, row).trim_end_matches(' ');
+            let bytes = crate::encoding::encode(text, layout.encoding)
+                .map_err(|e| SavError::WriteError(format!("variable '{}': {e}", var.long_name)))?;
+            if bytes.len() > width {
+                return Err(SavError::WriteError(format!(
+                    "variable '{}': {text:?} takes {} bytes in {}, more than the width {width}",
+                    var.long_name,
+                    bytes.len(),
+                    layout.encoding.name()
+                )));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Extract a string value from any Arrow string array type.
 /// Handles StringViewArray (Utf8View), StringArray (Utf8), and LargeStringArray (LargeUtf8).
 /// Polars exports LargeUtf8 via PyCapsule, so all three must be supported.
@@ -81,12 +109,7 @@ fn get_numeric_f64(arr: &dyn Array, row: usize) -> Option<f64> {
 
 /// Fill a pre-allocated row buffer with data from one row of the RecordBatch.
 /// `row_buf` must be pre-filled with spaces (0x20) before calling.
-fn fill_row_buffer(
-    row_buf: &mut [u8],
-    row: usize,
-    batch: &RecordBatch,
-    layout: &CaseLayout,
-) {
+fn fill_row_buffer(row_buf: &mut [u8], row: usize, batch: &RecordBatch, layout: &CaseLayout) {
     let mut slot_offset = 0;
     for var in &layout.write_vars {
         let col: &dyn Array = batch.column(var.col_index).as_ref();
@@ -108,7 +131,9 @@ fn fill_row_buffer(
                     get_string_value(col, row)
                 };
 
-                let str_bytes = str_val.as_bytes();
+                // `check_strings` has made sure that every value encodes and fits
+                let encoded = crate::encoding::encode(str_val, layout.encoding).unwrap_or_default();
+                let str_bytes: &[u8] = &encoded;
                 let total_slots = var.total_slots();
 
                 if var.n_segments == 1 {
@@ -168,12 +193,7 @@ fn fill_rows_parallel(
         .enumerate()
         .for_each(|(chunk_idx, row_buf)| {
             row_buf.fill(b' ');
-            fill_row_buffer(
-                row_buf,
-                start_row + chunk_idx,
-                batch,
-                layout,
-            );
+            fill_row_buffer(row_buf, start_row + chunk_idx, batch, layout);
         });
 }
 
@@ -205,23 +225,9 @@ fn fill_rows(
     layout: &CaseLayout,
 ) {
     if nrows >= MIN_PARALLEL_ROWS {
-        fill_rows_parallel(
-            big_buf,
-            start_row,
-            nrows,
-            row_bytes,
-            batch,
-            layout,
-        );
+        fill_rows_parallel(big_buf, start_row, nrows, row_bytes, batch, layout);
     } else {
-        fill_rows_sequential(
-            big_buf,
-            start_row,
-            nrows,
-            row_bytes,
-            batch,
-            layout,
-        );
+        fill_rows_sequential(big_buf, start_row, nrows, row_bytes, batch, layout);
     }
 }
 
@@ -240,14 +246,7 @@ pub(super) fn write_data_uncompressed<W: Write>(
     while row < nrows {
         let this_chunk = (nrows - row).min(chunk_rows);
         let buf_slice = &mut big_buf[..this_chunk * row_bytes];
-        fill_rows(
-            buf_slice,
-            row,
-            this_chunk,
-            row_bytes,
-            batch,
-            layout,
-        );
+        fill_rows(buf_slice, row, this_chunk, row_bytes, batch, layout);
         w.write_all(buf_slice)?;
         row += this_chunk;
     }
@@ -274,14 +273,7 @@ pub(super) fn write_data_bytecode<W: Write>(
     while row < nrows {
         let this_chunk = (nrows - row).min(chunk_rows);
         let buf_slice = &mut big_buf[..this_chunk * row_bytes];
-        fill_rows(
-            buf_slice,
-            row,
-            this_chunk,
-            row_bytes,
-            batch,
-            layout,
-        );
+        fill_rows(buf_slice, row, this_chunk, row_bytes, batch, layout);
 
         // Encode rows sequentially from pre-filled buffer
         for r in 0..this_chunk {
@@ -352,14 +344,7 @@ pub(super) fn write_data_zsav<W: Write + Seek>(
     while row < nrows {
         let this_chunk = (nrows - row).min(chunk_rows);
         let buf_slice = &mut big_buf[..this_chunk * row_bytes];
-        fill_rows(
-            buf_slice,
-            row,
-            this_chunk,
-            row_bytes,
-            batch,
-            layout,
-        );
+        fill_rows(buf_slice, row, this_chunk, row_bytes, batch, layout);
 
         for r in 0..this_chunk {
             let row_slice = &buf_slice[r * row_bytes..(r + 1) * row_bytes];

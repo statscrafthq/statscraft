@@ -4,48 +4,101 @@ use encoding_rs::Encoding;
 
 use crate::error::{Result, SavError};
 
+/// Windows code page numbers (the character code of the integer info record)
+/// and their encodings. Where one code page stands for another (an approximation),
+/// the entry says so; such entries are skipped when looking up a number for writing.
+static CODE_PAGES: &[(i32, &Encoding, bool)] = &[
+    (437, encoding_rs::CP866, true),       // approximate: DOS US
+    (850, encoding_rs::WINDOWS_1252, true), // approximate: DOS Western European
+    (874, encoding_rs::WINDOWS_874, false),
+    (932, encoding_rs::SHIFT_JIS, false),
+    (936, encoding_rs::GBK, false),
+    (949, encoding_rs::EUC_KR, false),
+    (950, encoding_rs::BIG5, false),
+    (1200, encoding_rs::UTF_16LE, false),
+    (1201, encoding_rs::UTF_16BE, false),
+    (1250, encoding_rs::WINDOWS_1250, false),
+    (1251, encoding_rs::WINDOWS_1251, false),
+    (1252, encoding_rs::WINDOWS_1252, false),
+    (1253, encoding_rs::WINDOWS_1253, false),
+    (1254, encoding_rs::WINDOWS_1254, false),
+    (1255, encoding_rs::WINDOWS_1255, false),
+    (1256, encoding_rs::WINDOWS_1256, false),
+    (1257, encoding_rs::WINDOWS_1257, false),
+    (1258, encoding_rs::WINDOWS_1258, false),
+    (20127, encoding_rs::WINDOWS_1252, true), // US-ASCII -> treat as 1252
+    (20936, encoding_rs::GBK, false),         // simplified Chinese
+    (28591, encoding_rs::WINDOWS_1252, true), // ISO-8859-1 mapped to windows-1252 per WHATWG
+    (28592, encoding_rs::ISO_8859_2, false),
+    (28593, encoding_rs::ISO_8859_3, false),
+    (28594, encoding_rs::ISO_8859_4, false),
+    (28595, encoding_rs::ISO_8859_5, false),
+    (28596, encoding_rs::ISO_8859_6, false),
+    (28597, encoding_rs::ISO_8859_7, false),
+    (28598, encoding_rs::ISO_8859_8, false),
+    (28599, encoding_rs::WINDOWS_1254, true), // ISO-8859-9 ≈ windows-1254
+    (28603, encoding_rs::ISO_8859_13, false),
+    (28605, encoding_rs::ISO_8859_15, false),
+    (50220, encoding_rs::ISO_2022_JP, false),
+    (51932, encoding_rs::EUC_JP, false),
+    (51949, encoding_rs::EUC_KR, false),
+    (52936, encoding_rs::GBK, true), // HZ-GB-2312
+    (54936, encoding_rs::GB18030, false),
+    (65001, encoding_rs::UTF_8, false),
+];
+
 /// Map a SAV IANA code page number to an encoding_rs Encoding.
 pub fn encoding_from_code_page(code_page: i32) -> &'static Encoding {
-    match code_page {
-        437 => encoding_rs::CP866,       // approximate: DOS US
-        850 => encoding_rs::WINDOWS_1252, // approximate: DOS Western European
-        874 => encoding_rs::WINDOWS_874,
-        932 => encoding_rs::SHIFT_JIS,
-        936 => encoding_rs::GBK,
-        949 => encoding_rs::EUC_KR,
-        950 => encoding_rs::BIG5,
-        1200 => encoding_rs::UTF_16LE,
-        1201 => encoding_rs::UTF_16BE,
-        1250 => encoding_rs::WINDOWS_1250,
-        1251 => encoding_rs::WINDOWS_1251,
-        1252 => encoding_rs::WINDOWS_1252,
-        1253 => encoding_rs::WINDOWS_1253,
-        1254 => encoding_rs::WINDOWS_1254,
-        1255 => encoding_rs::WINDOWS_1255,
-        1256 => encoding_rs::WINDOWS_1256,
-        1257 => encoding_rs::WINDOWS_1257,
-        1258 => encoding_rs::WINDOWS_1258,
-        20127 => encoding_rs::WINDOWS_1252, // US-ASCII -> treat as 1252
-        20936 => encoding_rs::GBK,          // simplified Chinese
-        28591 => encoding_rs::WINDOWS_1252, // ISO-8859-1 mapped to windows-1252 per WHATWG
-        28592 => encoding_rs::ISO_8859_2,
-        28593 => encoding_rs::ISO_8859_3,
-        28594 => encoding_rs::ISO_8859_4,
-        28595 => encoding_rs::ISO_8859_5,
-        28596 => encoding_rs::ISO_8859_6,
-        28597 => encoding_rs::ISO_8859_7,
-        28598 => encoding_rs::ISO_8859_8,
-        28599 => encoding_rs::WINDOWS_1254, // ISO-8859-9 ≈ windows-1254
-        28603 => encoding_rs::ISO_8859_13,
-        28605 => encoding_rs::ISO_8859_15,
-        50220 => encoding_rs::ISO_2022_JP,
-        51932 => encoding_rs::EUC_JP,
-        51949 => encoding_rs::EUC_KR,
-        52936 => encoding_rs::GBK, // HZ-GB-2312
-        54936 => encoding_rs::GB18030,
-        65001 => encoding_rs::UTF_8,
-        _ => encoding_rs::WINDOWS_1252, // safe default
+    CODE_PAGES
+        .iter()
+        .find(|(number, _, _)| *number == code_page)
+        .map_or(encoding_rs::WINDOWS_1252, |(_, encoding, _)| encoding) // safe default
+}
+
+/// The code page number a writer stores for `encoding`, 0 when it has none.
+pub fn code_page_of(encoding: &'static Encoding) -> i32 {
+    CODE_PAGES
+        .iter()
+        .find(|(_, known, approximate)| *known == encoding && !approximate)
+        .map_or(0, |(number, _, _)| *number)
+}
+
+/// The encoding to write a file in: an encoding name ("windows-1252", "UTF-8") or a
+/// Windows code page number ("1252"). Empty means UTF-8. UTF-16 is refused: text records
+/// of a system file are byte strings.
+pub fn encoding_for_writing(name: &str) -> Result<&'static Encoding> {
+    let name = name.trim();
+    let encoding = if name.is_empty() {
+        Some(encoding_rs::UTF_8)
+    } else if let Ok(number) = name.parse::<i32>() {
+        CODE_PAGES
+            .iter()
+            .find(|(known, _, _)| *known == number)
+            .map(|(_, encoding, _)| *encoding)
+    } else {
+        Encoding::for_label(name.as_bytes())
+    };
+    match encoding {
+        Some(encoding) if encoding.output_encoding() == encoding => Ok(encoding),
+        _ => Err(SavError::Encoding(format!(
+            "cannot write a file in the encoding {name}"
+        ))),
     }
+}
+
+/// Text as bytes of `encoding`; an error names the text when a character has no code there.
+pub fn encode<'a>(text: &'a str, encoding: &'static Encoding) -> Result<Cow<'a, [u8]>> {
+    if encoding == encoding_rs::UTF_8 {
+        return Ok(Cow::Borrowed(text.as_bytes()));
+    }
+    let (bytes, _, unmappable) = encoding.encode(text);
+    if unmappable {
+        return Err(SavError::Encoding(format!(
+            "{text:?} has characters that {} cannot hold; write the file as UTF-8",
+            encoding.name()
+        )));
+    }
+    Ok(bytes)
 }
 
 /// Map an encoding name string (e.g., "UTF-8", "windows-1252") to an encoding_rs Encoding.

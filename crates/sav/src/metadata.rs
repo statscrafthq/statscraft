@@ -172,6 +172,12 @@ pub struct MrSet {
     pub mr_type: MrType,
     pub counted_value: Option<String>,
     pub variables: Vec<String>,
+    /// CATEGORYLABELS=COUNTEDVALUES: a dichotomy set labels its categories with the value
+    /// labels of the counted value instead of the variable labels.
+    pub counted_value_labels: bool,
+    /// LABELSOURCE=VARLABEL: the set label came from the variable labels (only with
+    /// `counted_value_labels`).
+    pub label_from_variables: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -225,6 +231,10 @@ pub struct SavMetadata {
     pub variable_roles: IndexMap<String, Role>,
     pub variable_attributes: IndexMap<String, IndexMap<String, Vec<String>>>,
     pub weight_variable: Option<String>,
+    /// Data file attributes: name and its values, in file order.
+    pub file_attributes: IndexMap<String, Vec<String>>,
+    /// Variable sets: name and member variables, in file order.
+    pub variable_sets: Vec<(String, Vec<String>)>,
 }
 
 impl SavMetadata {
@@ -342,6 +352,8 @@ impl Default for SavMetadata {
             variable_roles: IndexMap::new(),
             variable_attributes: IndexMap::new(),
             weight_variable: None,
+            file_attributes: IndexMap::new(),
+            variable_sets: Vec::new(),
         }
     }
 }

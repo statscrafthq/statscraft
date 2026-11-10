@@ -6,7 +6,8 @@ use indexmap::IndexMap;
 
 use super::layout::{CaseLayout, WriteVariable};
 use crate::constants::*;
-use crate::error::Result;
+use crate::encoding::{code_page_of, encode};
+use crate::error::{Result, SavError};
 use crate::io_utils::{self, SavWriteExt};
 use crate::metadata::{MissingSpec, MrType, SavMetadata, Value};
 use crate::variable::MissingValues;
@@ -95,7 +96,10 @@ pub(super) fn write_header<W: Write>(
     w.write_all(magic)?;
 
     // Product name (60 bytes, space-padded)
-    let product = format!("@(#) StatsCraft data file ambers {}", env!("CARGO_PKG_VERSION"));
+    let product = format!(
+        "@(#) StatsCraft data file StatsCraft {}",
+        env!("CARGO_PKG_VERSION")
+    );
     w.write_fixed_string(&product, 60)?;
 
     // Layout code (2 = little-endian)
@@ -146,8 +150,16 @@ pub(super) fn write_header<W: Write>(
         w.write_fixed_string(&time_now, 8)?;
     }
 
-    // File label (64 bytes, space-padded)
-    w.write_fixed_string(&meta.file_label, 64)?;
+    // File label: the header has exactly 64 bytes for it and no other record holds one
+    let label = encode(&meta.file_label, layout.encoding)?;
+    if label.len() > 64 {
+        return Err(SavError::WriteError(format!(
+            "the file label takes {} bytes in {}; a file label holds at most 64",
+            label.len(),
+            layout.encoding.name()
+        )));
+    }
+    w.write_fixed_bytes(&label, 64)?;
 
     // Padding (3 bytes)
     w.write_zero_padding(3)?;
@@ -288,20 +300,20 @@ pub(super) fn write_value_label_records<W: Write>(
                 Value::Numeric(v) => {
                     w.write_f64_le(*v)?;
                 }
-                Value::String(s) => {
-                    let mut buf = [b' '; 8];
-                    let bytes = s.as_bytes();
-                    let len = bytes.len().min(8);
-                    buf[..len].copy_from_slice(&bytes[..len]);
-                    w.write_all(&buf)?;
-                }
+                Value::String(s) => w.write_fixed_bytes(&encode(s, layout.encoding)?, 8)?,
             }
 
             // Label length (1 byte) + label text + padding to 8-byte boundary
-            let label_bytes = label.as_bytes();
-            let label_len = label_bytes.len().min(120); // the reference program caps at 120
+            let label_bytes = encode(label, layout.encoding)?;
+            let label_len = label_bytes.len();
+            if label_len > 255 {
+                return Err(SavError::WriteError(format!(
+                    "variable '{}': value label {label:?} is longer than 255 bytes",
+                    var.long_name
+                )));
+            }
             w.write_all(&[label_len as u8])?;
-            w.write_all(&label_bytes[..label_len])?;
+            w.write_all(&label_bytes)?;
             // Pad: total = 1 + label_len, round up to nearest multiple of 8
             let total = 1 + label_len;
             let padded = io_utils::round_up(total, 8);
@@ -319,7 +331,11 @@ pub(super) fn write_value_label_records<W: Write>(
     Ok(())
 }
 
-pub(super) fn write_document_record<W: Write>(w: &mut W, meta: &SavMetadata) -> Result<()> {
+pub(super) fn write_document_record<W: Write>(
+    w: &mut W,
+    meta: &SavMetadata,
+    layout: &CaseLayout,
+) -> Result<()> {
     if meta.notes.is_empty() {
         return Ok(());
     }
@@ -335,7 +351,7 @@ pub(super) fn write_document_record<W: Write>(w: &mut W, meta: &SavMetadata) -> 
     w.write_i32_le(lines.len() as i32)?;
 
     for line in &lines {
-        w.write_fixed_string(line, 80)?;
+        w.write_fixed_bytes(&encode(line, layout.encoding)?, 80)?;
     }
 
     Ok(())
@@ -354,7 +370,11 @@ fn write_info_record_header<W: Write>(
     Ok(())
 }
 
-pub(super) fn write_info_integer<W: Write>(w: &mut W, _compression: Compression) -> Result<()> {
+pub(super) fn write_info_integer<W: Write>(
+    w: &mut W,
+    _compression: Compression,
+    layout: &CaseLayout,
+) -> Result<()> {
     write_info_record_header(w, INFO_INTEGER, 4, 8)?;
     w.write_i32_le(28)?; // version_major
     w.write_i32_le(0)?; // version_minor
@@ -363,7 +383,7 @@ pub(super) fn write_info_integer<W: Write>(w: &mut W, _compression: Compression)
     w.write_i32_le(1)?; // floating_point_rep (IEEE 754)
     w.write_i32_le(1)?; // compression_code: always 1 per PSPP spec, regardless of actual compression
     w.write_i32_le(2)?; // endianness (LE)
-    w.write_i32_le(65001)?; // UTF-8 code page
+    w.write_i32_le(code_page_of(layout.encoding))?;
     Ok(())
 }
 
@@ -424,8 +444,9 @@ pub(super) fn write_info_long_names<W: Write>(w: &mut W, layout: &CaseLayout) ->
         return Ok(());
     }
 
+    let payload = encode(&payload, layout.encoding)?;
     write_info_record_header(w, INFO_LONG_NAMES, 1, payload.len() as i32)?;
-    w.write_all(payload.as_bytes())?;
+    w.write_all(&payload)?;
     Ok(())
 }
 
@@ -449,8 +470,8 @@ pub(super) fn write_info_very_long_strings<W: Write>(w: &mut W, layout: &CaseLay
     Ok(())
 }
 
-pub(super) fn write_info_encoding<W: Write>(w: &mut W) -> Result<()> {
-    let encoding = b"UTF-8";
+pub(super) fn write_info_encoding<W: Write>(w: &mut W, layout: &CaseLayout) -> Result<()> {
+    let encoding = layout.encoding.name().as_bytes();
     write_info_record_header(w, INFO_ENCODING, 1, encoding.len() as i32)?;
     w.write_all(encoding)?;
     Ok(())
@@ -479,9 +500,9 @@ pub(super) fn write_info_long_string_labels<W: Write>(
     let mut payload = Vec::new();
     for (var_name, var_width, labels) in &entries {
         // Variable name: length-prefixed
-        let name_bytes = var_name.as_bytes();
+        let name_bytes = encode(var_name, layout.encoding)?;
         payload.extend_from_slice(&(name_bytes.len() as i32).to_le_bytes());
-        payload.extend_from_slice(name_bytes);
+        payload.extend_from_slice(&name_bytes);
 
         // Variable width
         payload.extend_from_slice(&(*var_width as i32).to_le_bytes());
@@ -495,7 +516,7 @@ pub(super) fn write_info_long_string_labels<W: Write>(
                 Value::String(s) => s.clone(),
                 Value::Numeric(n) => n.to_string(),
             };
-            let val_bytes = val_str.as_bytes();
+            let val_bytes = encode(&val_str, layout.encoding)?;
             let padded_len = *var_width;
             payload.extend_from_slice(&(padded_len as i32).to_le_bytes());
             let copy_len = val_bytes.len().min(padded_len);
@@ -506,9 +527,14 @@ pub(super) fn write_info_long_string_labels<W: Write>(
             }
 
             // Label: length-prefixed
-            let label_bytes = label.as_bytes();
+            let label_bytes = encode(label, layout.encoding)?;
+            if label_bytes.len() > 255 {
+                return Err(SavError::WriteError(format!(
+                    "variable '{var_name}': value label {label:?} is longer than 255 bytes"
+                )));
+            }
             payload.extend_from_slice(&(label_bytes.len() as i32).to_le_bytes());
-            payload.extend_from_slice(label_bytes);
+            payload.extend_from_slice(&label_bytes);
         }
     }
 
@@ -554,7 +580,7 @@ pub(super) fn write_info_long_string_missing<W: Write>(
         for spec in *specs {
             if let MissingSpec::StringValue(s) = spec {
                 // Each value is exactly 8 bytes, space-padded
-                let val_bytes = s.as_bytes();
+                let val_bytes = encode(s, layout.encoding)?;
                 let mut buf = [b' '; 8];
                 let len = val_bytes.len().min(8);
                 buf[..len].copy_from_slice(&val_bytes[..len]);
@@ -573,116 +599,135 @@ pub(super) fn write_info_mr_sets<W: Write>(
     meta: &SavMetadata,
     layout: &CaseLayout,
 ) -> Result<()> {
-    if meta.mr_sets.is_empty() {
-        return Ok(());
-    }
-
-    // Build long -> short name map (inverted from layout.short_to_long)
-    let long_to_short: IndexMap<String, String> = layout
+    let long_to_short: IndexMap<&str, &str> = layout
         .short_to_long
         .iter()
-        .map(|(short, long)| (long.clone(), short.clone()))
+        .map(|(short, long)| (long.as_str(), short.as_str()))
         .collect();
-
-    // Format per line (one set per line):
-    //   $NAME=Dn counted_value label_len label var1 var2 ...\n  (dichotomy)
-    //   $NAME=C label_len label var1 var2 ...\n                  (category)
-    // Where n = ASCII length of counted_value, label_len = ASCII byte length of label.
-    // Variable names must be SHORT names (8 char max).
-    let mut payload = String::new();
+    // One line per set (lengths count bytes in the file encoding):
+    //   $name=C label_len label vars                     category set
+    //   $name=Dn value label_len label vars              dichotomy set, n = value length
+    //   $name=E 1 n value label_len label vars           CATEGORYLABELS=COUNTEDVALUES
+    //   $name=E 11 n value label_len label vars          ... with LABELSOURCE=VARLABEL
+    // with the variables by short name in lower case.
+    let (mut classic, mut extended) = (Vec::new(), Vec::new());
     for (name, mr) in &meta.mr_sets {
-        payload.push('$');
-        payload.push_str(name);
-        payload.push('=');
-        match mr.mr_type {
-            MrType::MultipleDichotomy => {
-                payload.push('D');
-                if let Some(ref cv) = mr.counted_value {
-                    // Write length of counted_value + space + counted_value
-                    payload.push_str(&cv.len().to_string());
-                    payload.push(' ');
-                    payload.push_str(cv);
-                } else {
-                    // No counted value -- write "1 1" as default (common for dichotomy)
-                    payload.push_str("1 1");
-                }
-            }
+        let counted = encode(mr.counted_value.as_deref().unwrap_or("1"), layout.encoding)?;
+        let label = encode(&mr.label, layout.encoding)?;
+        let mut line = b"$".to_vec();
+        line.extend_from_slice(&encode(name, layout.encoding)?);
+        let payload = match mr.mr_type {
             MrType::MultipleCategory => {
-                payload.push('C');
+                line.extend_from_slice(b"=C ");
+                &mut classic
             }
+            MrType::MultipleDichotomy if mr.counted_value_labels => {
+                let code = if mr.label_from_variables { 11 } else { 1 };
+                line.extend_from_slice(format!("=E {code} {} ", counted.len()).as_bytes());
+                line.extend_from_slice(&counted);
+                line.push(b' ');
+                &mut extended
+            }
+            MrType::MultipleDichotomy => {
+                line.extend_from_slice(format!("=D{} ", counted.len()).as_bytes());
+                line.extend_from_slice(&counted);
+                line.push(b' ');
+                &mut classic
+            }
+        };
+        line.extend_from_slice(format!("{} ", label.len()).as_bytes());
+        line.extend_from_slice(&label);
+        for var in &mr.variables {
+            let short = long_to_short.get(var.as_str()).copied().unwrap_or(var);
+            line.push(b' ');
+            line.extend_from_slice(&encode(&short.to_lowercase(), layout.encoding)?);
         }
-        payload.push(' ');
-
-        // Write label_len + space + label
-        let label_bytes = mr.label.len();
-        payload.push_str(&label_bytes.to_string());
-        payload.push(' ');
-        payload.push_str(&mr.label);
-
-        // Write space-separated short variable names
-        for var_long in &mr.variables {
-            let short = long_to_short.get(var_long).unwrap_or(var_long);
-            payload.push(' ');
-            payload.push_str(short);
-        }
-        payload.push('\n');
+        line.push(b'\n');
+        payload.extend_from_slice(&line);
     }
-
-    write_info_record_header(w, INFO_MR_SETS, 1, payload.len() as i32)?;
-    w.write_all(payload.as_bytes())?;
+    for (subtype, payload) in [(INFO_MR_SETS, classic), (INFO_MR_SETS_V2, extended)] {
+        if !payload.is_empty() {
+            write_info_record_header(w, subtype, 1, payload.len() as i32)?;
+            w.write_all(&payload)?;
+        }
+    }
     Ok(())
 }
 
-/// Write subtype 19 MR sets with LONG variable names.
-/// Modern the reference program (14+) writes MR sets to subtype 19 alongside subtype 7.
-/// Writing both ensures full roundtrip fidelity.
-pub(super) fn write_info_mr_sets_v2<W: Write>(w: &mut W, meta: &SavMetadata) -> Result<()> {
-    if meta.mr_sets.is_empty() {
+/// Subtype 5: one line per variable set, `name= var1 var2`, the variables by short name.
+pub(super) fn write_info_variable_sets<W: Write>(
+    w: &mut W,
+    meta: &SavMetadata,
+    layout: &CaseLayout,
+) -> Result<()> {
+    let long_to_short: IndexMap<&str, &str> = layout
+        .short_to_long
+        .iter()
+        .map(|(short, long)| (long.as_str(), short.as_str()))
+        .collect();
+    let mut payload = String::new();
+    for (name, members) in &meta.variable_sets {
+        payload.push_str(name);
+        payload.push('=');
+        for member in members {
+            payload.push(' ');
+            payload.push_str(
+                long_to_short
+                    .get(member.as_str())
+                    .copied()
+                    .unwrap_or(member),
+            );
+        }
+        payload.push('\n');
+    }
+    if payload.is_empty() {
         return Ok(());
     }
-
-    // Same text format as subtype 7, but with long variable names directly
-    let mut payload = String::new();
-    for (name, mr) in &meta.mr_sets {
-        payload.push('$');
-        payload.push_str(name);
-        payload.push('=');
-        match mr.mr_type {
-            MrType::MultipleDichotomy => {
-                payload.push('D');
-                if let Some(ref cv) = mr.counted_value {
-                    payload.push_str(&cv.len().to_string());
-                    payload.push(' ');
-                    payload.push_str(cv);
-                } else {
-                    payload.push_str("1 1");
-                }
-            }
-            MrType::MultipleCategory => {
-                payload.push('C');
-            }
-        }
-        payload.push(' ');
-
-        let label_bytes = mr.label.len();
-        payload.push_str(&label_bytes.to_string());
-        payload.push(' ');
-        payload.push_str(&mr.label);
-
-        // Write space-separated LONG variable names (no short-name mapping)
-        for var in &mr.variables {
-            payload.push(' ');
-            payload.push_str(var);
-        }
-        payload.push('\n');
-    }
-
-    write_info_record_header(w, INFO_MR_SETS_V2, 1, payload.len() as i32)?;
-    w.write_all(payload.as_bytes())?;
+    let payload = encode(&payload, layout.encoding)?;
+    write_info_record_header(w, INFO_VARIABLE_SETS, 1, payload.len() as i32)?;
+    w.write_all(&payload)?;
     Ok(())
 }
 
-pub(super) fn write_info_var_attributes<W: Write>(w: &mut W, meta: &SavMetadata) -> Result<()> {
+/// `name('value'\n'value'\n)` for each attribute, the text of subtypes 17 and 18.
+fn attribute_text(payload: &mut String, attributes: &IndexMap<String, Vec<String>>) {
+    for (name, values) in attributes {
+        if values.is_empty() {
+            continue; // the grammar wants at least one value
+        }
+        payload.push_str(name);
+        payload.push('(');
+        for value in values {
+            payload.push('\'');
+            payload.push_str(value);
+            payload.push_str("'\n");
+        }
+        payload.push(')');
+    }
+}
+
+/// Subtype 17: the data file attributes.
+pub(super) fn write_info_file_attributes<W: Write>(
+    w: &mut W,
+    meta: &SavMetadata,
+    layout: &CaseLayout,
+) -> Result<()> {
+    let mut payload = String::new();
+    attribute_text(&mut payload, &meta.file_attributes);
+    if payload.is_empty() {
+        return Ok(());
+    }
+    let payload = encode(&payload, layout.encoding)?;
+    write_info_record_header(w, INFO_FILE_ATTRIBUTES, 1, payload.len() as i32)?;
+    w.write_all(&payload)?;
+    Ok(())
+}
+
+pub(super) fn write_info_var_attributes<W: Write>(
+    w: &mut W,
+    meta: &SavMetadata,
+    layout: &CaseLayout,
+) -> Result<()> {
     if meta.variable_roles.is_empty() && meta.variable_attributes.is_empty() {
         return Ok(());
     }
@@ -708,19 +753,7 @@ pub(super) fn write_info_var_attributes<W: Write>(w: &mut W, meta: &SavMetadata)
 
         // Write custom attributes first
         if let Some(attrs) = meta.variable_attributes.get(*long_name) {
-            for (attr_name, values) in attrs {
-                if values.is_empty() {
-                    continue; // Empty value list is invalid per PSPP grammar (value+)
-                }
-                payload.push_str(attr_name);
-                payload.push('(');
-                for val in values {
-                    payload.push('\'');
-                    payload.push_str(val);
-                    payload.push_str("'\n");
-                }
-                payload.push(')');
-            }
+            attribute_text(&mut payload, attrs);
         }
 
         // Write $@Role
@@ -731,8 +764,9 @@ pub(super) fn write_info_var_attributes<W: Write>(w: &mut W, meta: &SavMetadata)
         }
     }
 
+    let payload = encode(&payload, layout.encoding)?;
     write_info_record_header(w, INFO_VAR_ATTRIBUTES, 1, payload.len() as i32)?;
-    w.write_all(payload.as_bytes())?;
+    w.write_all(&payload)?;
     Ok(())
 }
 

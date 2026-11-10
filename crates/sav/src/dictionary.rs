@@ -38,6 +38,8 @@ pub struct RawDictionary {
     pub long_string_missing: Vec<crate::info_records::long_string_missing::LongStringMissingEntry>,
     pub mr_sets: Vec<crate::info_records::mr_sets::RawMrSet>,
     pub var_attributes: Vec<crate::info_records::var_attributes::VarAttributeSet>,
+    pub file_attributes: Vec<(RawText, Vec<RawText>)>,
+    pub variable_sets: Vec<(RawText, Vec<RawText>)>,
 }
 
 /// The resolved dictionary ready for data reading.
@@ -74,6 +76,8 @@ pub fn parse_dictionary<R: Read>(
     let mut long_string_missing = Vec::new();
     let mut mr_sets = Vec::new();
     let mut var_attributes = Vec::new();
+    let mut file_attributes = Vec::new();
+    let mut variable_sets = Vec::new();
 
     let mut slot_index = 0;
     let mut warnings: Vec<String> = Vec::new();
@@ -121,8 +125,10 @@ pub fn parse_dictionary<R: Read>(
                     InfoRecord::Encoding(name) => encoding_name = Some(name),
                     InfoRecord::LongStringLabels(labels) => long_string_labels = labels,
                     InfoRecord::LongStringMissing(entries) => long_string_missing = entries,
-                    InfoRecord::MrSets(sets) => mr_sets = sets,
+                    InfoRecord::MrSets(sets) => mr_sets.extend(sets),
                     InfoRecord::VarAttributes(attrs) => var_attributes = attrs,
+                    InfoRecord::FileAttributes(attrs) => file_attributes = attrs,
+                    InfoRecord::VariableSets(sets) => variable_sets = sets,
                     InfoRecord::Unknown { .. } => {} // skip
                 }
             }
@@ -193,6 +199,8 @@ pub fn parse_dictionary<R: Read>(
         long_string_missing,
         mr_sets,
         var_attributes,
+        file_attributes,
+        variable_sets,
     })
 }
 
@@ -275,7 +283,7 @@ pub fn resolve_dictionary(raw: RawDictionary) -> Result<ResolvedDictionary> {
             var_idx += 1;
             continue;
         }
-        // This is a named variable record — it consumes one display entry
+        // This is a named variable record: it consumes one display entry
         if display_idx < raw.var_display.len() {
             let entry = &raw.var_display[display_idx];
             if !variables[var_idx].is_ghost {
@@ -505,7 +513,7 @@ pub fn resolve_dictionary(raw: RawDictionary) -> Result<ResolvedDictionary> {
     }
 
     // 8. Resolve long string missing values (subtype 22)
-    // Subtype 22 uses SHORT names — map to long names for consistent metadata.
+    // Subtype 22 uses SHORT names: map to long names for consistent metadata.
     let short_to_long_missing: HashMap<RawText, String> = variables
         .iter()
         .filter(|v| !v.is_ghost)
@@ -560,31 +568,22 @@ pub fn resolve_dictionary(raw: RawDictionary) -> Result<ResolvedDictionary> {
         .filter(|v| !v.is_ghost)
         .map(|v| v.long_name.clone())
         .collect();
+    // Set records list members by short name (lower case); some writers put long names in
+    // subtype 19, so a name that is no short name is tried as a long name.
+    let resolve_name = |name_bytes: &RawText| -> Option<String> {
+        let mut key = name_bytes.clone();
+        key.make_ascii_uppercase();
+        short_to_long.get(&key).cloned().or_else(|| {
+            let name = dec(name_bytes);
+            long_name_set
+                .iter()
+                .find(|ln| ln.eq_ignore_ascii_case(&name))
+                .cloned()
+        })
+    };
     for raw_mr in &raw.mr_sets {
-        let resolved_vars: Vec<String> = raw_mr
-            .var_names
-            .iter()
-            .filter_map(|name_bytes| {
-                if raw_mr.uses_long_names {
-                    // Subtype 19: names are already long names
-                    let name = dec(name_bytes);
-                    if long_name_set.contains(&name) {
-                        Some(name)
-                    } else {
-                        // Try case-insensitive match
-                        long_name_set
-                            .iter()
-                            .find(|ln| ln.eq_ignore_ascii_case(&name))
-                            .cloned()
-                    }
-                } else {
-                    // Subtype 7: names are short names, need mapping
-                    let mut key = name_bytes.clone();
-                    key.make_ascii_uppercase();
-                    short_to_long.get(&key).cloned()
-                }
-            })
-            .collect();
+        let resolved_vars: Vec<String> =
+            raw_mr.var_names.iter().filter_map(&resolve_name).collect();
         if !resolved_vars.is_empty() {
             let name = dec(&raw_mr.name);
             meta.mr_sets.insert(
@@ -595,13 +594,25 @@ pub fn resolve_dictionary(raw: RawDictionary) -> Result<ResolvedDictionary> {
                     mr_type: raw_mr.mr_type.clone(),
                     counted_value: raw_mr.counted_value.as_deref().map(dec),
                     variables: resolved_vars,
+                    counted_value_labels: raw_mr.counted_value_labels,
+                    label_from_variables: raw_mr.label_from_variables,
                 },
             );
         }
     }
 
+    // Variable sets (subtype 5) and data file attributes (subtype 17)
+    for (name, members) in &raw.variable_sets {
+        let members = members.iter().filter_map(&resolve_name).collect();
+        meta.variable_sets.push((dec(name), members));
+    }
+    for (name, values) in &raw.file_attributes {
+        meta.file_attributes
+            .insert(dec(name), values.iter().map(|v| dec(v)).collect());
+    }
+
     // 10. Resolve variable attributes (subtype 18)
-    // Variable names in subtype 18 may be SHORT names — map to long names.
+    // Variable names in subtype 18 may be SHORT names: map to long names.
     for var_attr_set in &raw.var_attributes {
         let var_name = short_to_long
             .get(&var_attr_set.var_name)

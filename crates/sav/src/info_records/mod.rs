@@ -65,6 +65,8 @@ pub enum InfoRecord {
     LongStringMissing(Vec<long_string_missing::LongStringMissingEntry>),
     MrSets(Vec<mr_sets::RawMrSet>),
     VarAttributes(Vec<var_attributes::VarAttributeSet>),
+    FileAttributes(Vec<(crate::io_utils::RawText, Vec<crate::io_utils::RawText>)>),
+    VariableSets(Vec<(crate::io_utils::RawText, Vec<crate::io_utils::RawText>)>),
     Unknown { subtype: i32 },
 }
 
@@ -129,6 +131,16 @@ pub fn parse_info_record<R: Read>(
             let attrs = var_attributes::parse_var_attributes(&data);
             Ok(InfoRecord::VarAttributes(attrs))
         }
+        INFO_FILE_ATTRIBUTES => {
+            let data = reader.read_bytes(data_len)?;
+            Ok(InfoRecord::FileAttributes(
+                var_attributes::parse_attributes(&data),
+            ))
+        }
+        INFO_VARIABLE_SETS => {
+            let data = reader.read_bytes(data_len)?;
+            Ok(InfoRecord::VariableSets(parse_variable_sets(&data)))
+        }
         _ => {
             // Unknown subtype -- skip the data
             reader.skip(data_len)?;
@@ -136,5 +148,46 @@ pub fn parse_info_record<R: Read>(
                 subtype: header.subtype,
             })
         }
+    }
+}
+
+/// Subtype 5: one variable set per line, `name= var1 var2 ...`, the variables by short name.
+fn parse_variable_sets(
+    data: &[u8],
+) -> Vec<(crate::io_utils::RawText, Vec<crate::io_utils::RawText>)> {
+    data.split(|&b| b == b'\n')
+        .filter_map(|line| {
+            let eq = line.iter().position(|&b| b == b'=')?;
+            let (name, rest) = line.split_at(eq);
+            let members = rest[1..]
+                .split(|b| b.is_ascii_whitespace() || *b == 0)
+                .filter(|s| !s.is_empty())
+                .map(<[u8]>::to_vec)
+                .collect();
+            Some((crate::io_utils::trim_ascii_nul(name).to_vec(), members))
+        })
+        .collect()
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn variable_sets_are_split_into_names_and_members() {
+        let sets = super::parse_variable_sets(b"demo= respid age\nmore=  a1 b2\n\n");
+        let text = |s: &[u8]| String::from_utf8(s.to_vec()).unwrap();
+        let sets: Vec<(String, Vec<String>)> = sets
+            .iter()
+            .map(|(n, m)| (text(n), m.iter().map(|v| text(v)).collect()))
+            .collect();
+        assert_eq!(
+            sets,
+            [
+                (
+                    "demo".to_string(),
+                    vec!["respid".to_string(), "age".to_string()]
+                ),
+                ("more".to_string(), vec!["a1".to_string(), "b2".to_string()]),
+            ]
+        );
     }
 }

@@ -10,7 +10,7 @@ use rusqlite::{
     Connection, OpenFlags, OptionalExtension, Transaction, TransactionBehavior, params,
 };
 use serde_json::{Value, json};
-use statscraft_data::{Dataset, Measure, MissingValues, MultipleResponseSet, Values};
+use statscraft_data::{Dataset, Measure, MissingValues, MultipleResponseSet, Values, VariableSet};
 use std::collections::HashSet;
 use std::path::Path;
 
@@ -775,6 +775,27 @@ fn store(tx: &Transaction, dataset: &Dataset, name: &str, format: &str) -> Resul
             params![uuid(tx)?, id, k as i64 + 1, line],
         )?;
     }
+    for (name, values) in dataset.attributes() {
+        for (k, value) in values.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO dataset_attribute VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![uuid(tx)?, id, name, k as i64 + 1, value],
+            )?;
+        }
+    }
+    for (k, set) in dataset.variable_sets().iter().enumerate() {
+        let set_id = uuid(tx)?;
+        tx.execute(
+            "INSERT INTO variable_set VALUES (?1, ?2, ?3, ?4)",
+            params![set_id, id, k as i64 + 1, set.name],
+        )?;
+        for (m, member) in set.variables.iter().enumerate() {
+            tx.execute(
+                "INSERT INTO variable_set_member VALUES (?1, ?2, ?3)",
+                params![set_id, id_of(member)?, m as i64 + 1],
+            )?;
+        }
+    }
     for (k, set) in dataset.multiple_response_sets().iter().enumerate() {
         let set_id = uuid(tx)?;
         let string_set = set
@@ -792,10 +813,31 @@ fn store(tx: &Transaction, dataset: &Dataset, name: &str, format: &str) -> Resul
                 ("MD", Some("numeric"), Some(number), None)
             }
         };
-        // category_label_behavior and label_source stay NULL: the model does not carry them
+        let category_labels = if set.counted_value_labels {
+            "counted_values"
+        } else {
+            "variable_labels"
+        };
+        let label_source = if set.label_from_variables {
+            "variable_label"
+        } else {
+            "set_label"
+        };
         tx.execute(
-            "INSERT INTO multiple_response_set VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, NULL, NULL)",
-            params![set_id, id, k as i64 + 1, set.name, set.label, kind, counted_kind, number, text],
+            "INSERT INTO multiple_response_set VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+            params![
+                set_id,
+                id,
+                k as i64 + 1,
+                set.name,
+                set.label,
+                kind,
+                counted_kind,
+                number,
+                text,
+                category_labels,
+                label_source
+            ],
         )?;
         for (m, member) in set.variables.iter().enumerate() {
             tx.execute(
@@ -1059,20 +1101,6 @@ fn load(conn: &Connection, name: &str) -> Result<(Dataset, Vec<String>, String)>
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
         )?;
     let mut losses = vec![];
-    let count = |sql: &str| -> Result<i64> { Ok(conn.query_row(sql, [&id], |r| r.get(0))?) };
-    if count("SELECT count(*) FROM dataset_attribute WHERE dataset_id = ?1")? > 0 {
-        losses.push("dataset_attributes".to_string());
-    }
-    if count("SELECT count(*) FROM variable_set WHERE dataset_id = ?1")? > 0 {
-        losses.push("variable_sets".to_string());
-    }
-    if count(
-        "SELECT count(*) FROM multiple_response_set WHERE dataset_id = ?1
-         AND (category_label_behavior IS NOT NULL OR label_source IS NOT NULL)",
-    )? > 0
-    {
-        losses.push("multiple_response_category_labels".to_string());
-    }
 
     let variables = catalog_variables(conn, &id)?;
     let mut select = String::from("SELECT \"__case_ordinal\"");
@@ -1229,7 +1257,42 @@ fn load(conn: &Connection, name: &str) -> Result<(Dataset, Vec<String>, String)>
     if let Some(weight) = weight {
         dataset.set_weight_variable(Some(&name_of(&weight)?))?;
     }
-    // id, name, label, kind, counted number, counted text
+    let mut attributes: Vec<(String, Vec<String>)> = vec![];
+    let rows: Vec<(String, String)> = conn
+        .prepare(
+            "SELECT attribute_name, attribute_value FROM dataset_attribute
+             WHERE dataset_id = ?1 ORDER BY rowid",
+        )?
+        .query_map([&id], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<std::result::Result<_, _>>()?;
+    for (name, value) in rows {
+        match attributes.iter_mut().find(|(n, _)| *n == name) {
+            Some((_, values)) => values.push(value),
+            None => attributes.push((name, vec![value])),
+        }
+    }
+    dataset.set_attributes(attributes);
+    let variable_sets: Vec<(String, String)> = conn
+        .prepare(
+            "SELECT variable_set_id, set_name FROM variable_set
+             WHERE dataset_id = ?1 ORDER BY source_ordinal",
+        )?
+        .query_map([&id], |r| Ok((r.get(0)?, r.get(1)?)))?
+        .collect::<std::result::Result<_, _>>()?;
+    let mut sets = Vec::with_capacity(variable_sets.len());
+    for (set_id, name) in variable_sets {
+        let members: Vec<String> = conn
+            .prepare(
+                "SELECT variable_id FROM variable_set_member
+                 WHERE variable_set_id = ?1 ORDER BY source_ordinal",
+            )?
+            .query_map([&set_id], |r| r.get(0))?
+            .collect::<std::result::Result<_, _>>()?;
+        let variables = members.iter().map(|m| name_of(m)).collect::<Result<_>>()?;
+        sets.push(VariableSet { name, variables });
+    }
+    dataset.set_variable_sets(sets)?;
+    // id, name, label, kind, counted number, counted text, category labels, label source
     type SetRow = (
         String,
         String,
@@ -1237,11 +1300,14 @@ fn load(conn: &Connection, name: &str) -> Result<(Dataset, Vec<String>, String)>
         String,
         Option<f64>,
         Option<String>,
+        Option<String>,
+        Option<String>,
     );
     let sets: Vec<SetRow> = conn
         .prepare(
             "SELECT multiple_response_set_id, set_name, set_label, set_kind,
-                    counted_numeric_value, counted_string_value
+                    counted_numeric_value, counted_string_value,
+                    category_label_behavior, label_source
              FROM multiple_response_set WHERE dataset_id = ?1 ORDER BY source_ordinal",
         )?
         .query_map([&id], |r| {
@@ -1252,10 +1318,12 @@ fn load(conn: &Connection, name: &str) -> Result<(Dataset, Vec<String>, String)>
                 r.get(3)?,
                 r.get(4)?,
                 r.get(5)?,
+                r.get(6)?,
+                r.get(7)?,
             ))
         })?
         .collect::<std::result::Result<_, _>>()?;
-    for (set_id, set_name, set_label, kind, number, text) in sets {
+    for (set_id, set_name, set_label, kind, number, text, category_labels, label_source) in sets {
         let members: Vec<String> = conn
             .prepare(
                 "SELECT variable_id FROM multiple_response_member
@@ -1278,6 +1346,8 @@ fn load(conn: &Connection, name: &str) -> Result<(Dataset, Vec<String>, String)>
             label: set_label.unwrap_or_default(),
             counted_value,
             variables: members.iter().map(|m| name_of(m)).collect::<Result<_>>()?,
+            counted_value_labels: category_labels.as_deref() == Some("counted_values"),
+            label_from_variables: label_source.as_deref() == Some("variable_label"),
         })?;
     }
     let documents: Vec<String> = conn
@@ -1509,10 +1579,12 @@ mod tests {
     #[test]
     fn catalog_content_the_model_cannot_hold_needs_allow_loss() {
         let mut conn = memory();
-        let id = write_dataset(&mut conn, &sample(), "s").unwrap();
+        write_dataset(&mut conn, &sample(), "s").unwrap();
+        // the model has no write format of its own: one that differs from the print format
         conn.execute(
-            "INSERT INTO dataset_attribute VALUES ('a', ?1, 'origin', 1, 'test')",
-            [&id],
+            "UPDATE variable SET write_format_width = write_format_width + 1
+             WHERE source_ordinal = 1",
+            [],
         )
         .unwrap();
         let e = read_dataset(&mut conn, "s", false).err().unwrap();

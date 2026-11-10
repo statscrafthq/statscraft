@@ -235,21 +235,8 @@ fn preflight_problems() -> Vec<String> {
 }
 
 /// Known gaps, each caused by the StatsCraft dataset model or its .sav reader, not by the
-/// SQLite binding: the catalog has the relations, but the reader never hands these items over.
-const KNOWN_SAV_GAPS: [(&str, &str); 3] = [
-    (
-        "long-utf8-and-attributes",
-        "dataset (file) attributes are not read from .sav files",
-    ),
-    (
-        "sets",
-        "variable sets are not read; MR category label behavior and label source are not read",
-    ),
-    (
-        "weight-and-string-mr",
-        "the extended MR set (string counted value, counted-value category labels) is not read at all",
-    ),
-];
+/// SQLite binding. None at present; a new gap is listed here with its reason.
+const KNOWN_SAV_GAPS: [(&str, &str); 0] = [];
 
 #[test]
 fn sav_sav_zsav_1_0_on_sqlite() {

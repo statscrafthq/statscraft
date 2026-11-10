@@ -164,7 +164,10 @@ fn value_labels() {
         Error::Invalid(_),
         "plan: value longer than 10 bytes: ENTERPRISES"
     );
-    let long = vec![(Value::Number(1.0), "x".repeat(121))];
+    // a value label has a one-byte length in the file
+    let longest = vec![(Value::Number(1.0), "x".repeat(255))];
+    data.set_value_labels("gender", longest).unwrap();
+    let long = vec![(Value::Number(1.0), "x".repeat(256))];
     assert!(matches!(
         data.set_value_labels("gender", long),
         Err(Error::Invalid(_))
@@ -727,6 +730,7 @@ fn set(
         label: "Label".into(),
         counted_value: counted.map(str::to_string),
         variables: variables.iter().map(|v| v.to_string()).collect(),
+        ..Default::default()
     }
 }
 

@@ -42,7 +42,8 @@ fn batch() -> (RecordBatch, SavMetadata) {
         fields.push(Field::new(name, DataType::Utf8, true));
         columns.push(Arc::new(b.finish()));
         meta.variable_names.push(name.into());
-        meta.variable_formats.insert(name.into(), format!("A{width}"));
+        meta.variable_formats
+            .insert(name.into(), format!("A{width}"));
         meta.variable_storage_widths.insert(name.into(), width);
     }
     let batch = RecordBatch::try_new(Arc::new(Schema::new(fields)), columns).unwrap();

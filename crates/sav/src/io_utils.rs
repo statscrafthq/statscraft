@@ -232,7 +232,7 @@ pub fn detect_endianness(layout_code_bytes: [u8; 4]) -> Result<bool> {
 }
 
 // ---------------------------------------------------------------------------
-// SavWriteExt — endian-aware binary writing (always little-endian)
+// SavWriteExt: endian-aware binary writing (always little-endian)
 // ---------------------------------------------------------------------------
 
 /// Extension trait for endian-aware binary writing to SAV files.
@@ -256,7 +256,11 @@ pub trait SavWriteExt: Write {
 
     /// Write a string, space-padded or truncated to exactly `len` bytes.
     fn write_fixed_string(&mut self, s: &str, len: usize) -> Result<()> {
-        let bytes = s.as_bytes();
+        self.write_fixed_bytes(s.as_bytes(), len)
+    }
+
+    /// Write bytes, space-padded or truncated to exactly `len` bytes.
+    fn write_fixed_bytes(&mut self, bytes: &[u8], len: usize) -> Result<()> {
         let to_write = bytes.len().min(len);
         self.write_all(&bytes[..to_write])?;
         if to_write < len {
@@ -322,9 +326,9 @@ mod tests {
 
     #[test]
     fn test_sav_reader_f64() {
-        let data = 3.14_f64.to_le_bytes();
+        let data = 3.25_f64.to_le_bytes();
         let mut reader = SavReader::new(&data[..]);
         let val = reader.read_f64().unwrap();
-        assert!((val - 3.14).abs() < 1e-10);
+        assert!((val - 3.25).abs() < 1e-10);
     }
 }

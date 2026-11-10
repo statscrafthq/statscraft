@@ -2,7 +2,7 @@
 
 use crate::{
     Dataset, Dictionary, Error, Measure, MissingValues, MultipleResponseSet, Value, VariableDef,
-    non_empty,
+    VariableSet, non_empty,
 };
 use arrow::array::RecordBatch;
 use arrow::datatypes::{DataType, Field, Schema};
@@ -106,7 +106,8 @@ impl Dataset {
     pub fn read_sav(path: impl AsRef<Path>) -> Result<Self, Error> {
         let path = path.as_ref();
         let file_error = |e: String| Error::File(format!("{}: {e}", path.display()));
-        let (batch, mut meta) = statscraft_sav::read_sav(path).map_err(|e| file_error(e.to_string()))?;
+        let (batch, mut meta) =
+            statscraft_sav::read_sav(path).map_err(|e| file_error(e.to_string()))?;
 
         // date and time variables arrive as the stored numbers, which is what the model keeps
         let columns = batch.columns().to_vec();
@@ -164,7 +165,14 @@ impl Dataset {
                 label: set.label,
                 counted_value: set.counted_value,
                 variables: set.variables,
+                counted_value_labels: set.counted_value_labels,
+                label_from_variables: set.label_from_variables,
             })
+            .collect();
+        let variable_sets = meta
+            .variable_sets
+            .into_iter()
+            .map(|(name, variables)| VariableSet { name, variables })
             .collect();
         Ok(Self {
             columns,
@@ -180,24 +188,33 @@ impl Dataset {
                 weight_variable: meta.weight_variable,
                 variables,
                 multiple_response_sets,
+                variable_sets,
+                attributes: meta.file_attributes.into_iter().collect(),
                 warnings: meta.warnings,
                 documents: meta.notes,
             }),
         })
     }
 
-    /// Writes the dataset as UTF-8: zlib-compressed when the extension is `.zsav`, otherwise
-    /// bytecode-compressed. An existing file is replaced only after the new one is complete.
+    /// Writes the dataset in its encoding (the one it was read in, or the one `set_encoding`
+    /// chose): zlib-compressed when the extension is `.zsav`, otherwise bytecode-compressed. A
+    /// text the encoding cannot hold, or a value that does not fit its width there, is an
+    /// error. An existing file is replaced only after the new one is complete.
     pub fn write_sav(&self, path: impl AsRef<Path>) -> Result<(), Error> {
         let path = path.as_ref();
         let file_error = |e: String| Error::File(format!("{}: {e}", path.display()));
         let dict = &*self.dict;
-        // shortcut: text from a file in another encoding can outgrow its byte width as UTF-8 and
-        // the writer then cuts it; widen such variables when a real code-page file arrives
         let mut meta = statscraft_sav::SavMetadata {
             file_label: dict.file_label.clone().unwrap_or_default(),
+            file_encoding: dict.encoding.clone(),
             notes: dict.documents.clone(),
             weight_variable: dict.weight_variable.clone(),
+            file_attributes: dict.attributes.iter().cloned().collect(),
+            variable_sets: dict
+                .variable_sets
+                .iter()
+                .map(|set| (set.name.clone(), set.variables.clone()))
+                .collect(),
             ..Default::default()
         };
 
@@ -266,6 +283,8 @@ impl Dataset {
                 },
                 counted_value: set.counted_value.clone(),
                 variables: set.variables.clone(),
+                counted_value_labels: set.counted_value_labels,
+                label_from_variables: set.label_from_variables,
             };
             meta.mr_sets.insert(name, set);
         }
@@ -375,4 +394,11 @@ fn writer_missing(missing: &MissingValues) -> Vec<statscraft_sav::MissingSpec> {
             .map(|s| MissingSpec::StringValue(s.clone()))
             .collect(),
     }
+}
+
+/// The canonical name of an encoding `write_sav` can write in.
+pub(crate) fn encoding_name(encoding: &str) -> Result<String, Error> {
+    statscraft_sav::encoding_for_writing(encoding)
+        .map(|e| e.name().to_string())
+        .map_err(|e| Error::Invalid(e.to_string()))
 }

@@ -9,9 +9,11 @@
 use std::io::Cursor;
 use std::sync::Arc;
 
-use statscraft_sav::{Compression, SavMetadata, read_sav, read_sav_from_reader, write_sav_to_writer};
 use arrow::array::{Float64Builder, RecordBatch, StringBuilder};
 use arrow::datatypes::{DataType, Field, Schema};
+use statscraft_sav::{
+    Compression, SavMetadata, read_sav, read_sav_from_reader, write_sav_to_writer,
+};
 
 // --------------------------------------------------------------------------
 // Fixture helpers: walk the dictionary and splice records.

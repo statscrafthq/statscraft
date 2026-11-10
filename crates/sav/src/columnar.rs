@@ -3,7 +3,7 @@
 //! Eliminates the `Vec<Vec<CellValue>>` intermediate by pushing decoded values
 //! directly from decompressed slots into pre-allocated Arrow column builders.
 //!
-//! **Performance rule:** The hot paths (`push_raw_chunk`) must stay minimal —
+//! **Performance rule:** The hot paths (`push_raw_chunk`) must stay minimal:
 //! only Float64 + String. Date and time variables stay the stored numbers.
 //! Never add new ColBuilder variants or match arms to the hot loops; it causes
 //! icache pressure that slows ALL columns.
@@ -36,7 +36,7 @@ use crate::variable::VariableRecord;
 const WIDE_ROW_THRESHOLD: usize = 12_288;
 
 /// Target tile size in bytes for wide-file row tiling.
-/// Each tile should comfortably fit in L3 cache (~12–36 MB on modern CPUs)
+/// Each tile should comfortably fit in L3 cache (~12-36 MB on modern CPUs)
 /// so all rayon threads access cache-hot data during parallel column processing.
 /// 4 MB leaves headroom for builder state and other cache residents.
 const L3_TILE_BYTES: usize = 4 * 1024 * 1024;
@@ -64,7 +64,7 @@ struct ColumnMapping {
     vls_layout: Vec<VlsSegmentInfo>,
 }
 
-/// Arrow column builder (typed). Only two variants — keeps hot path icache small.
+/// Arrow column builder (typed). Only two variants: keeps hot path icache small.
 enum ColBuilder {
     Float64(Float64Builder),
     Str(StringViewBuilder),
@@ -139,7 +139,7 @@ impl ColumnarBatchBuilder {
 
             match &var.var_type {
                 VarType::Numeric => {
-                    // ALL numerics use Float64Builder — keeps hot path minimal
+                    // ALL numerics use Float64Builder: keeps hot path minimal
                     builders.push(ColBuilder::Float64(Float64Builder::with_capacity(capacity)));
                 }
                 VarType::String(_) => {

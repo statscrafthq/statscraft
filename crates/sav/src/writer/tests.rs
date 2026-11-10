@@ -37,7 +37,7 @@ fn make_simple_batch() -> RecordBatch {
 fn test_write_header_size() {
     let batch = make_simple_batch();
     let meta = SavMetadata::from_arrow_schema(batch.schema().as_ref());
-    let layout = layout::compute_layout(&batch, &meta).unwrap();
+    let layout = layout::compute_layout(&batch, &meta, encoding_rs::UTF_8).unwrap();
     let mut cursor = Cursor::new(Vec::new());
     records::write_header(&mut cursor, &layout, &meta, Compression::None, 3).unwrap();
     assert_eq!(cursor.into_inner().len(), 176);
@@ -254,7 +254,7 @@ fn test_write_with_value_labels() {
 #[test]
 fn test_write_numeric_data_accuracy() {
     let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Float64, true)]));
-    let values = vec![0.0, 1.0, -1.0, 3.14159, 1e10, -1e10, 0.001];
+    let values = vec![0.0, 1.0, -1.0, 3.25, 1e10, -1e10, 0.001];
     let mut builder = Float64Builder::new();
     for &v in &values {
         builder.append_value(v);
@@ -306,9 +306,7 @@ fn test_bytecode_write_and_read_back() {
 #[test]
 fn test_bytecode_numeric_accuracy() {
     let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Float64, true)]));
-    let values = vec![
-        0.0, 1.0, -1.0, 3.14159, 1e10, -1e10, 0.001, -99.0, 42.0, 151.0,
-    ];
+    let values = vec![0.0, 1.0, -1.0, 3.25, 1e10, -1e10, 0.001, -99.0, 42.0, 151.0];
     let mut builder = Float64Builder::new();
     for &v in &values {
         builder.append_value(v);
@@ -541,9 +539,7 @@ fn test_zsav_write_and_read_back() {
 #[test]
 fn test_zsav_numeric_accuracy() {
     let schema = Arc::new(Schema::new(vec![Field::new("x", DataType::Float64, true)]));
-    let values = vec![
-        0.0, 1.0, -1.0, 3.14159, 1e10, -1e10, 0.001, -99.0, 42.0, 151.0,
-    ];
+    let values = vec![0.0, 1.0, -1.0, 3.25, 1e10, -1e10, 0.001, -99.0, 42.0, 151.0];
     let mut builder = Float64Builder::new();
     for &v in &values {
         builder.append_value(v);
@@ -790,8 +786,8 @@ fn test_vls_last_segment_layout() {
     id_builder.append_value(1.0);
     id_builder.append_value(2.0);
     let mut text_builder = StringBuilder::new();
-    text_builder.append_value(&"A".repeat(400));
-    text_builder.append_value(&"B".repeat(300));
+    text_builder.append_value("A".repeat(400));
+    text_builder.append_value("B".repeat(300));
     let batch = RecordBatch::try_new(
         schema,
         vec![
@@ -807,7 +803,7 @@ fn test_vls_last_segment_layout() {
     meta.variable_storage_widths
         .insert("longtext".to_string(), 500);
 
-    let layout = layout::compute_layout(&batch, &meta).unwrap();
+    let layout = layout::compute_layout(&batch, &meta, encoding_rs::UTF_8).unwrap();
 
     // Find the VLS variable
     let vls_var = layout
@@ -828,7 +824,7 @@ fn test_vls_last_segment_layout() {
     let non_ghost_records: Vec<&layout::SlotRecord> = layout
         .slot_records
         .iter()
-        .filter(|r| !r.is_ghost && r.short_name.len() > 0)
+        .filter(|r| !r.is_ghost && !r.short_name.is_empty())
         .collect();
     // Should have: id (1 record) + longtext seg0 + longtext seg1 = 3 named records
     assert_eq!(non_ghost_records.len(), 3);
@@ -848,7 +844,7 @@ fn test_vls_three_segment_layout() {
         true,
     )]));
     let mut builder = StringBuilder::new();
-    builder.append_value(&"X".repeat(600));
+    builder.append_value("X".repeat(600));
     let batch = RecordBatch::try_new(schema, vec![Arc::new(builder.finish())]).unwrap();
 
     let mut meta = SavMetadata::from_arrow_schema(batch.schema().as_ref());
@@ -857,7 +853,7 @@ fn test_vls_three_segment_layout() {
     meta.variable_storage_widths
         .insert("bigtext".to_string(), 600);
 
-    let layout = layout::compute_layout(&batch, &meta).unwrap();
+    let layout = layout::compute_layout(&batch, &meta, encoding_rs::UTF_8).unwrap();
     let vls_var = layout
         .write_vars
         .iter()
@@ -890,9 +886,9 @@ fn test_vls_roundtrip_no_ghost_columns() {
     let mut score_b = Float64Builder::new();
     for i in 0..n {
         id_b.append_value(i as f64);
-        short_b.append_value(&format!("row_{i}"));
-        vls500_b.append_value(&format!("{}{}", "A".repeat(400), i));
-        vls1000_b.append_value(&format!("{}{}", "B".repeat(900), i));
+        short_b.append_value(format!("row_{i}"));
+        vls500_b.append_value(format!("{}{}", "A".repeat(400), i));
+        vls1000_b.append_value(format!("{}{}", "B".repeat(900), i));
         score_b.append_value(i as f64 * 1.5);
     }
     let batch = RecordBatch::try_new(

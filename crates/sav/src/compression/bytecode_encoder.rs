@@ -1,6 +1,6 @@
 //! Bytecode compressor for SAV row-wise compression.
 //!
-//! This is the reverse of `bytecode.rs` — it converts 8-byte slot data
+//! This is the reverse of `bytecode.rs`: it converts 8-byte slot data
 //! into SAV bytecode-compressed format. The encoding rules:
 //!
 //! - SYSMIS (0xFFEFFFFFFFFFFFFF) → opcode 255
@@ -202,8 +202,8 @@ mod tests {
     #[test]
     fn test_encode_raw_float() {
         let mut enc = BytecodeEncoder::new(100.0);
-        // 3.14 is not an integer → opcode 253
-        let slot = 3.14_f64.to_le_bytes();
+        // 3.25 is not an integer → opcode 253
+        let slot = 3.25_f64.to_le_bytes();
         enc.encode_slot(&slot);
         assert_eq!(enc.control_bytes[0], COMPRESS_RAW_FOLLOWS);
         assert_eq!(enc.raw_buffer.len(), 8);
@@ -254,7 +254,7 @@ mod tests {
         let slots: Vec<[u8; 8]> = vec![
             1.0_f64.to_le_bytes(),     // small int → opcode
             0.0_f64.to_le_bytes(),     // zero → opcode 100
-            3.14_f64.to_le_bytes(),    // float → raw
+            3.25_f64.to_le_bytes(),    // float → raw
             SYSMIS_BITS.to_le_bytes(), // sysmis → 255
             [0x20; 8],                 // spaces → 254
             (-50.0_f64).to_le_bytes(), // negative int → opcode 50
@@ -311,7 +311,7 @@ mod tests {
             42.0_f64.to_le_bytes(),
             0.0_f64.to_le_bytes(),
             (-99.0_f64).to_le_bytes(),
-            3.14159_f64.to_le_bytes(),
+            3.25_f64.to_le_bytes(),
             SYSMIS_BITS.to_le_bytes(),
             [0x20; 8],
             150.0_f64.to_le_bytes(),

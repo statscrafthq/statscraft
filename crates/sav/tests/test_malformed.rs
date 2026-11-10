@@ -9,13 +9,13 @@
 use std::io::Cursor;
 use std::sync::Arc;
 
+use arrow::array::{Float64Builder, RecordBatch, StringBuilder};
+use arrow::datatypes::{DataType, Field, Schema};
 use statscraft_sav::error::SavError;
 use statscraft_sav::{
     Compression, SavMetadata, read_sav, read_sav_from_reader, scan_sav_from_reader,
     write_sav_to_writer,
 };
-use arrow::array::{Float64Builder, RecordBatch, StringBuilder};
-use arrow::datatypes::{DataType, Field, Schema};
 
 /// Byte offset of the header's `nominal_case_size` (i32, little-endian on
 /// files written by ambers): magic (4) + product name (60) + layout_code (4).
@@ -557,9 +557,7 @@ fn oversized_info_record_is_rejected_before_allocation() {
     put_i32(&mut bytes, off + 8, 1); // size
     put_i32(&mut bytes, off + 12, 1_300_000_000); // count -> 1.3 GB declared
     let t0 = std::time::Instant::now();
-    let err = read_sav_from_reader(Cursor::new(bytes))
-        .err()
-        .expect("must fail");
+    let err = read_sav_from_reader(Cursor::new(bytes)).expect_err("must fail");
     assert!(
         matches!(err, SavError::TruncatedFile { .. }),
         "got {err:?}"

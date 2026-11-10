@@ -53,10 +53,56 @@ impl Engine {
                 )));
             }
         };
-        let warnings = label_conflicts(self.active()?, &variables, group.value.as_ref())?;
+        // the manual's label warnings concern categories labelled by variable labels
+        let warnings = if group.counted_value_labels {
+            Vec::new()
+        } else {
+            label_conflicts(self.active()?, &variables, group.value.as_ref())?
+        };
         for warning in warnings {
             self.warn(format!("/{subcommand} {}: {warning}", group.name));
         }
+        let data = self.active()?;
+        if group.counted_value_labels {
+            // every counted value needs a value label, and no two may be the same
+            let mut seen: Vec<String> = Vec::new();
+            for name in &variables {
+                let variable = data.variable(name)?;
+                let label = variable.value_labels().iter().find_map(|(value, label)| {
+                    let counted = match (value, &group.value) {
+                        (StoredValue::Number(v), Some(Value::Number(n))) => v == n,
+                        (StoredValue::String(v), Some(Value::String(s))) => {
+                            v == s.trim_end_matches(' ')
+                        }
+                        _ => false,
+                    };
+                    counted.then_some(label)
+                });
+                let Some(label) = label else {
+                    return Err(fail(format!(
+                        "CATEGORYLABELS=COUNTEDVALUES needs a value label for the counted value in {name}"
+                    )));
+                };
+                if seen
+                    .iter()
+                    .any(|s| s.to_lowercase() == label.to_lowercase())
+                {
+                    return Err(fail(format!(
+                        "CATEGORYLABELS=COUNTEDVALUES needs a different label for the counted value in every variable; {name} repeats '{label}'"
+                    )));
+                }
+                seen.push(label.clone());
+            }
+        }
+        let label = if group.label_from_variables {
+            // the first variable label of the set, else the name of the first variable
+            let labelled = variables
+                .iter()
+                .find_map(|name| data.variable(name).ok()?.label().map(str::to_string));
+            labelled.unwrap_or_else(|| variables[0].clone())
+        } else {
+            group.label.clone().unwrap_or_default()
+        };
         let set = MultipleResponseSet {
             name: group.name.clone(),
             kind: if group.value.is_some() {
@@ -64,9 +110,11 @@ impl Engine {
             } else {
                 "category"
             },
-            label: group.label.clone().unwrap_or_default(),
+            label,
             counted_value,
             variables,
+            counted_value_labels: group.counted_value_labels,
+            label_from_variables: group.label_from_variables,
         };
         self.active_mut()?
             .set_multiple_response_set(set)

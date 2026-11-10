@@ -31,16 +31,16 @@ use arrow::record_batch::RecordBatch;
 /// are inferred from the Arrow schema.
 ///
 /// # Compression
-/// - `Compression::None` — uncompressed .sav
-/// - `Compression::Bytecode` — row-compressed .sav
-/// - `Compression::Zlib` — block-compressed .zsav
+/// - `Compression::None`: uncompressed .sav
+/// - `Compression::Bytecode`: row-compressed .sav
+/// - `Compression::Zlib`: block-compressed .zsav
 ///
 /// # Compression Level (zsav only)
 /// Controls zlib compression intensity. Ignored for non-zsav files.
-/// - `None` — default (level 6, compact)
-/// - `Some(1)` — "fast": fastest compression, largest files
-/// - `Some(3)` — "balanced": moderate speed, moderate size
-/// - `Some(6)` — "compact": slower compression, smallest files (default)
+/// - `None`: default (level 6, compact)
+/// - `Some(1)`: "fast": fastest compression, largest files
+/// - `Some(3)`: "balanced": moderate speed, moderate size
+/// - `Some(6)`: "compact": slower compression, smallest files (default)
 pub fn write_sav(
     path: impl AsRef<Path>,
     batch: &RecordBatch,
@@ -125,10 +125,10 @@ fn fill_defaults_from_schema(meta: &mut SavMetadata, schema: &arrow::datatypes::
 ///
 /// # Compression Level (zsav only)
 /// Controls zlib compression intensity. Ignored for non-zsav files.
-/// - `None` — default (level 6, compact)
-/// - `Some(1)` — "fast": fastest compression, largest files
-/// - `Some(3)` — "balanced": moderate speed, moderate size
-/// - `Some(6)` — "compact": slower compression, smallest files (default)
+/// - `None`: default (level 6, compact)
+/// - `Some(1)`: "fast": fastest compression, largest files
+/// - `Some(3)`: "balanced": moderate speed, moderate size
+/// - `Some(6)`: "compact": slower compression, smallest files (default)
 pub fn write_sav_to_writer<W: Write + Seek>(
     mut writer: W,
     batch: &RecordBatch,
@@ -143,26 +143,29 @@ pub fn write_sav_to_writer<W: Write + Seek>(
 
     // Validate inputs before heavy computation
     layout::validate_write_inputs(batch.schema().as_ref(), metadata)?;
+    let encoding = crate::encoding::encoding_for_writing(&metadata.file_encoding)?;
 
-    let layout = layout::compute_layout(batch, metadata)?;
+    let layout = layout::compute_layout(batch, metadata, encoding)?;
+    data::check_strings(batch, &layout)?;
     let nrows = batch.num_rows() as i32;
 
     // Write dictionary
     records::write_header(&mut writer, &layout, metadata, compression, nrows)?;
     records::write_variable_records(&mut writer, &layout)?;
     records::write_value_label_records(&mut writer, &layout, metadata)?;
-    records::write_document_record(&mut writer, metadata)?;
-    records::write_info_integer(&mut writer, compression)?;
+    records::write_document_record(&mut writer, metadata, &layout)?;
+    records::write_info_integer(&mut writer, compression, &layout)?;
     records::write_info_float(&mut writer)?;
     records::write_info_var_display(&mut writer, &layout)?;
     records::write_info_long_names(&mut writer, &layout)?;
     records::write_info_very_long_strings(&mut writer, &layout)?;
-    records::write_info_encoding(&mut writer)?;
+    records::write_info_encoding(&mut writer, &layout)?;
     records::write_info_long_string_labels(&mut writer, &layout, metadata)?;
     records::write_info_long_string_missing(&mut writer, &layout, metadata)?;
     records::write_info_mr_sets(&mut writer, metadata, &layout)?;
-    records::write_info_mr_sets_v2(&mut writer, metadata)?;
-    records::write_info_var_attributes(&mut writer, metadata)?;
+    records::write_info_variable_sets(&mut writer, metadata, &layout)?;
+    records::write_info_var_attributes(&mut writer, metadata, &layout)?;
+    records::write_info_file_attributes(&mut writer, metadata, &layout)?;
     records::write_dict_termination(&mut writer)?;
 
     // Write data
