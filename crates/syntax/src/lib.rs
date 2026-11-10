@@ -27,6 +27,7 @@ mod lexer;
 mod mrsets;
 mod parser;
 mod procedures;
+mod selection;
 mod split;
 mod stats;
 mod table;

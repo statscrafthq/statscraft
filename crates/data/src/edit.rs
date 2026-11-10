@@ -2,8 +2,8 @@
 //! and changes nothing.
 
 use crate::{
-    Dataset, Dictionary, Error, Measure, MissingValues, MultipleResponseSet, Value, VariableDef,
-    VariableSet, non_empty, same_name, sav,
+    Dataset, Dictionary, Error, Measure, MissingValues, MultipleResponseSet, SplitFile, Value,
+    VariableDef, VariableSet, non_empty, same_name, sav,
 };
 use arrow::array::{ArrayRef, AsArray, BooleanArray, Float64Array, StringViewArray, UInt64Array};
 use std::sync::Arc;
@@ -224,6 +224,56 @@ impl Dataset {
         }
     }
 
+    /// Cases `offset` to `offset + length`, sharing the values and the dictionary. Panics when
+    /// they are out of range.
+    pub fn slice(&self, offset: usize, length: usize) -> Dataset {
+        Dataset {
+            columns: self
+                .columns
+                .iter()
+                .map(|c| c.slice(offset, length))
+                .collect(),
+            case_count: length,
+            dict: self.dict.clone(),
+        }
+    }
+
+    /// The cases of `parts` one after the other, with the dictionary of `template`. A part
+    /// that lacks a variable of the template has it blank there (system-missing, empty).
+    pub fn from_parts(template: &Dataset, parts: &[Dataset]) -> Result<Dataset, Error> {
+        let mut columns = Vec::with_capacity(template.columns.len());
+        for (index, def) in template.dict.variables.iter().enumerate() {
+            let mut arrays: Vec<ArrayRef> = Vec::with_capacity(parts.len() + 1);
+            arrays.push(template.columns[index].clone());
+            for part in parts {
+                let same = part
+                    .dict
+                    .variables
+                    .get(index)
+                    .is_some_and(|d| d.name == def.name);
+                let found = if same {
+                    Some(index)
+                } else {
+                    part.variable_index(&def.name)
+                };
+                arrays.push(match found {
+                    Some(i) => part.columns[i].clone(),
+                    None if def.width.is_some() => Arc::new(StringViewArray::from_iter_values(
+                        std::iter::repeat_n("", part.case_count),
+                    )),
+                    None => Arc::new(Float64Array::from(vec![None; part.case_count])),
+                });
+            }
+            let refs: Vec<&dyn arrow::array::Array> = arrays.iter().map(|a| a.as_ref()).collect();
+            columns.push(arrow::compute::concat(&refs).map_err(|e| Error::Invalid(e.to_string()))?);
+        }
+        Ok(Dataset {
+            columns,
+            case_count: template.case_count + parts.iter().map(|p| p.case_count).sum::<usize>(),
+            dict: template.dict.clone(),
+        })
+    }
+
     /// Keeps the cases whose mask entry is true.
     pub fn select_cases(&mut self, keep: &[bool]) -> Result<(), Error> {
         self.check_length(keep.len())?;
@@ -318,7 +368,8 @@ impl Dataset {
         Ok(())
     }
 
-    /// Multiple response sets and the weight designation follow the new name.
+    /// Multiple response sets, the weight and filter variables and the split follow the new
+    /// name.
     pub fn rename_variable(&mut self, name: &str, new_name: &str) -> Result<(), Error> {
         let index = self.index_of(name)?;
         check_name(new_name)?;
@@ -336,7 +387,9 @@ impl Dataset {
                     .iter_mut()
                     .flat_map(|set| &mut set.variables),
             )
-            .chain(&mut dict.weight_variable);
+            .chain(&mut dict.weight_variable)
+            .chain(&mut dict.filter_variable)
+            .chain(dict.split.iter_mut().flat_map(|split| &mut split.variables));
         for reference in references.filter(|r| **r == old) {
             *reference = new_name.to_string();
         }
@@ -402,6 +455,38 @@ impl Dataset {
             None => None,
         };
         Arc::make_mut(&mut self.dict).weight_variable = weight;
+        Ok(())
+    }
+
+    /// Sets or (with `None`) turns off the split. The variables must exist; they are stored as
+    /// the dictionary spells them.
+    pub fn set_split_file(&mut self, split: Option<SplitFile>) -> Result<(), Error> {
+        let split = match split {
+            Some(mut split) => {
+                for name in &mut split.variables {
+                    *name = self.dict.variables[self.index_of(name)?].name.clone();
+                }
+                Some(split)
+            }
+            None => None,
+        };
+        Arc::make_mut(&mut self.dict).split = split;
+        Ok(())
+    }
+
+    /// Sets or (with `None`) turns off the filter. The variable must be numeric.
+    pub fn set_filter_variable(&mut self, name: Option<&str>) -> Result<(), Error> {
+        let filter = match name {
+            Some(name) => {
+                let def = &self.dict.variables[self.index_of(name)?];
+                if def.width.is_some() {
+                    return Err(def.wrong_type("numeric"));
+                }
+                Some(def.name.clone())
+            }
+            None => None,
+        };
+        Arc::make_mut(&mut self.dict).filter_variable = filter;
         Ok(())
     }
 
@@ -579,6 +664,12 @@ fn drop_dangling_references(dict: &mut Dictionary) {
     if !dict.weight_variable.as_ref().is_some_and(exists) {
         dict.weight_variable = None;
     }
+    if !dict.filter_variable.as_ref().is_some_and(exists) {
+        dict.filter_variable = None;
+    }
+    if !dict.split.iter().flat_map(|s| &s.variables).all(exists) {
+        dict.split = None;
+    }
 }
 
 /// A string value of the dictionary (value label key, missing value) without its padding, or an
@@ -596,8 +687,10 @@ fn fitting(value: &str, width: usize, def: &VariableDef) -> Result<String, Error
 
 fn check_name(name: &str) -> Result<(), Error> {
     let mut chars = name.chars();
-    // "#" and "$" start scratch and system variables, which never belong in a saved dataset
-    let valid = chars.next().is_some_and(|c| c.is_alphabetic() || c == '@')
+    // "$" starts system variables; "#" scratch variables, which a file never holds
+    let valid = chars
+        .next()
+        .is_some_and(|c| c.is_alphabetic() || c == '@' || c == '#')
         && chars.all(|c| c.is_alphanumeric() || "_.$#@".contains(c))
         && name.len() <= MAX_NAME_BYTES
         && !name.ends_with('.')

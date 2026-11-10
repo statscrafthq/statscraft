@@ -29,6 +29,9 @@ struct Dictionary {
     compression: &'static str,
     file_label: Option<String>,
     weight_variable: Option<String>,
+    /// SPLIT FILE and FILTER: they belong to the dataset but are not written to a file.
+    split: Option<SplitFile>,
+    filter_variable: Option<String>,
     variables: Vec<VariableDef>,
     multiple_response_sets: Vec<MultipleResponseSet>,
     variable_sets: Vec<VariableSet>,
@@ -284,6 +287,10 @@ pub struct Description {
     pub variable_count: usize,
     pub file_label: Option<String>,
     pub weight_variable: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub split_file: Option<SplitFile>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub filter_variable: Option<String>,
     pub variables: Vec<VariableDescription>,
     pub multiple_response_sets: Vec<MultipleResponseSet>,
 }
@@ -329,6 +336,15 @@ pub struct MultipleResponseSet {
     pub label_from_variables: bool,
 }
 
+/// SPLIT FILE: procedures run on each group of adjacent cases with equal values of the
+/// variables.
+#[derive(Clone, Debug, PartialEq, Serialize, serde::Deserialize)]
+pub struct SplitFile {
+    pub variables: Vec<String>,
+    /// The groups share each table; otherwise every group has tables of its own.
+    pub layered: bool,
+}
+
 /// A named list of variables, a shortcut for choosing variables in a user interface.
 #[derive(Clone, Debug, PartialEq, Serialize)]
 pub struct VariableSet {
@@ -348,6 +364,8 @@ impl Dataset {
                 compression: "none",
                 file_label: None,
                 weight_variable: None,
+                split: None,
+                filter_variable: None,
                 variables: Vec::new(),
                 multiple_response_sets: Vec::new(),
                 variable_sets: Vec::new(),
@@ -402,6 +420,16 @@ impl Dataset {
         self.dict.weight_variable.as_deref()
     }
 
+    /// The SPLIT FILE in effect, with the variable names as the dictionary spells them.
+    pub fn split_file(&self) -> Option<&SplitFile> {
+        self.dict.split.as_ref()
+    }
+
+    /// The FILTER variable in effect.
+    pub fn filter_variable(&self) -> Option<&str> {
+        self.dict.filter_variable.as_deref()
+    }
+
     pub fn multiple_response_sets(&self) -> &[MultipleResponseSet] {
         &self.dict.multiple_response_sets
     }
@@ -454,6 +482,8 @@ impl Dataset {
             variable_count: self.columns.len(),
             file_label: dict.file_label.clone(),
             weight_variable: dict.weight_variable.clone(),
+            split_file: dict.split.clone(),
+            filter_variable: dict.filter_variable.clone(),
             variables: self.variables().map(describe_variable).collect(),
             multiple_response_sets: dict.multiple_response_sets.clone(),
         }

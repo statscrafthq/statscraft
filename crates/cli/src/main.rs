@@ -133,9 +133,39 @@ fn load_session(name: &str) -> Result<Option<Dataset>, Vec<Failure>> {
     if !path.exists() {
         return Ok(None);
     }
-    Dataset::read_sav(&path)
-        .map(Some)
-        .map_err(|e| vec![Failure::plain("session", e.to_string())])
+    let fail = |e: String| vec![Failure::plain("session", e)];
+    let mut dataset = Dataset::read_sav(&path).map_err(|e| fail(e.to_string()))?;
+    // a data file holds no split or filter, so the session keeps them next to it
+    if let Ok(text) = std::fs::read_to_string(state_file(&path)) {
+        let state: SessionState = serde_json::from_str(&text).map_err(|e| fail(e.to_string()))?;
+        dataset
+            .set_split_file(state.split_file)
+            .and_then(|()| dataset.set_filter_variable(state.filter_variable.as_deref()))
+            .map_err(|e| fail(e.to_string()))?;
+    }
+    Ok(Some(dataset))
+}
+
+/// What a session keeps beside its data file.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SessionState {
+    split_file: Option<statscraft_data::SplitFile>,
+    filter_variable: Option<String>,
+}
+
+fn state_file(data: &std::path::Path) -> PathBuf {
+    data.with_file_name("state.json")
+}
+
+/// Writes the dataset of a session and the state that its file cannot hold.
+fn save_session(path: &std::path::Path, dataset: &Dataset) -> Result<(), String> {
+    dataset.write_sav(path).map_err(|e| e.to_string())?;
+    let state = SessionState {
+        split_file: dataset.split_file().cloned(),
+        filter_variable: dataset.filter_variable().map(str::to_string),
+    };
+    let text = serde_json::to_string_pretty(&state).expect("plain data");
+    std::fs::write(state_file(path), text).map_err(|e| e.to_string())
 }
 
 fn describe(file: Option<String>, session: Option<String>, json: bool) -> Result<(), Vec<Failure>> {
@@ -277,7 +307,7 @@ fn run(args: RunArgs, check_only: bool, xlsx: &XlsxArgs) -> Result<(), Vec<Failu
             let fail = |m: String| vec![Failure::plain("session", m)];
             std::fs::create_dir_all(path.parent().expect("session path has a parent"))
                 .map_err(|e| fail(e.to_string()))?;
-            dataset.write_sav(&path).map_err(|e| fail(e.to_string()))?;
+            save_session(&path, dataset).map_err(fail)?;
             result.saved = true;
         }
     }

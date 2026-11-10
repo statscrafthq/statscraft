@@ -356,7 +356,21 @@ impl Engine {
                 data.delete_variables(&names)?;
             }
         }
-        self.dataset = result.dataset;
+        let mut out = result.dataset.expect("the merge made a dataset");
+        // the filter and the split stay when the active dataset was merged and the result
+        // still has their variables
+        let active = self
+            .dataset
+            .as_ref()
+            .filter(|_| merge.inputs.iter().any(|i| i.file.is_none()));
+        let filter = active.and_then(Dataset::filter_variable);
+        let split = active.and_then(Dataset::split_file).cloned();
+        let numeric = |name: &str| out.variable(name).is_ok_and(|v| !v.is_string());
+        let filter = filter.filter(|name| numeric(name)).map(str::to_string);
+        out.set_filter_variable(filter.as_deref())?;
+        let split = split.filter(|s| s.variables.iter().all(|n| out.variable_index(n).is_some()));
+        out.set_split_file(split)?;
+        self.dataset = Some(out);
         Ok(())
     }
 }

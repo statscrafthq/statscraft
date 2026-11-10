@@ -64,6 +64,32 @@ pub enum Command {
     DataList(DataList),
     /// The lines between BEGIN DATA and END DATA, each with its line number in the source.
     BeginData(Vec<(u32, String)>),
+    /// `SPLIT FILE [LAYERED | SEPARATE] BY varlist`; None is `SPLIT FILE OFF`.
+    SplitFile(Option<SplitFile>),
+    /// `FILTER BY var`; None is `FILTER OFF`, or `FILTER` alone when `bare`.
+    Filter {
+        variable: Option<String>,
+        bare: bool,
+    },
+    Temporary,
+    /// `N OF CASES n`
+    NOfCases(u64),
+    Sample(Sample),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct SplitFile {
+    pub variables: Vec<VarItem>,
+    /// SEPARATE: one table per split group; LAYERED (the default): the groups in one table.
+    pub separate: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Sample {
+    /// `SAMPLE p`: each case with probability p, between 0 and 1.
+    Fraction(f64),
+    /// `SAMPLE n FROM m`: exactly n of the first m cases.
+    Exactly { n: u64, from: u64 },
 }
 
 /// DATA LIST: how to read text data, inline or from a file.

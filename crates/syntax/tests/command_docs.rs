@@ -25,6 +25,12 @@ const AREAS: &[(&str, &[&str])] = &[
             "AGGREGATE",
             "DATA LIST",
             "BEGIN DATA",
+            "SPLIT FILE",
+            "FILTER",
+            "TEMPORARY",
+            "N OF CASES",
+            "N",
+            "SAMPLE",
         ],
     ),
     (

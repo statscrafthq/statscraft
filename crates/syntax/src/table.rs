@@ -11,6 +11,7 @@ use crate::lexer::{Punct, Token, TokenKind};
 use crate::mrsets;
 use crate::parser::{PResult, Parser};
 use crate::procedures;
+use crate::selection;
 use crate::stats;
 
 /// One supported command: its name, its help text and its parser.
@@ -172,6 +173,64 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Missing values are skipped. With a weight variable SUM, MEAN, SD, MEDIAN, N and NMISS are weighted.",
         example: "AGGREGATE /OUTFILE=* MODE=ADDVARIABLES /BREAK=region /region_mean = MEAN(income) /region_n = N.",
         parse: data_commands::aggregate,
+    },
+    CommandSpec {
+        name: "SPLIT FILE",
+        [removed]
+        syntax: "SPLIT FILE [LAYERED | SEPARATE] BY varlist.\n\
+                 SPLIT FILE OFF.\n\
+                 A group ends where a split variable changes value, so sort the cases first.\n\
+                 LAYERED (the default) shows the groups in one table, with the split variables as the\n\
+                 outermost row labels; SEPARATE gives every group tables of its own. AGGREGATE ignores\n\
+                 the split; SORT CASES turns it off. The split is kept with the dataset.",
+        example: "SPLIT FILE SEPARATE BY region.",
+        parse: selection::split_file,
+    },
+    CommandSpec {
+        name: "FILTER",
+        summary: "Leave out of procedures the cases whose filter value is 0 or missing.",
+        syntax: "FILTER BY var.\n\
+                 FILTER OFF.\n\
+                 The cases stay in the dataset. The filter is kept with the dataset, follows a rename\n\
+                 and ends when the variable is deleted or the dataset replaced.",
+        example: "FILTER BY adult.",
+        parse: selection::filter,
+    },
+    CommandSpec {
+        name: "TEMPORARY",
+        summary: "Make the changes that follow last only until the next procedure.",
+        syntax: "TEMPORARY.\n\
+                 Transformations, labels, formats, SELECT IF, SAMPLE, N OF CASES, WEIGHT, FILTER and\n\
+                 SPLIT FILE after it are undone once the next command that reads the data (a procedure,\n\
+                 EXECUTE or SAVE) has run, or at the end of the run. Variables that procedure adds stay.",
+        example: "TEMPORARY.",
+        parse: selection::temporary,
+    },
+    CommandSpec {
+        name: "N OF CASES",
+        summary: "Keep only the first n cases from the next data pass on.",
+        syntax: "N OF CASES n.\n\
+                 The limit applies after SELECT IF and SAMPLE, wherever they stand in the pass.",
+        example: "N OF CASES 100.",
+        parse: selection::n_of_cases,
+    },
+    CommandSpec {
+        name: "N",
+        summary: "Short for N OF CASES.",
+        syntax: "N n.",
+        example: "N 100.",
+        parse: selection::n_of_cases,
+    },
+    CommandSpec {
+        name: "SAMPLE",
+        summary: "Keep a random sample of the cases.",
+        syntax: "SAMPLE proportion.\n\
+                 SAMPLE n FROM m.\n\
+                 A proportion between 0 and 1 keeps each case with that chance; n FROM m keeps exactly n\n\
+                 of the first m cases (fewer when there are fewer than m). Inside DO IF only the cases of\n\
+                 the branch are sampled. The random numbers start from the same seed in every session.",
+        example: "SAMPLE 500 FROM 3420.",
+        parse: selection::sample,
     },
     CommandSpec {
         name: "COMPUTE",
@@ -618,7 +677,6 @@ static UNSUPPORTED: &[&str] = &[
     "FILE HANDLE",
     "FILE LABEL",
     "FILE TYPE",
-    "FILTER",
     "FINISH",
     "FLIP",
     "GET DATA",
@@ -637,7 +695,6 @@ static UNSUPPORTED: &[&str] = &[
     "MATRIX",
     "MATRIX DATA",
     "MULT RESPONSE",
-    "N OF CASES",
     "NEW FILE",
     "NPAR TESTS",
     "OUTPUT CLOSE",
@@ -660,15 +717,12 @@ static UNSUPPORTED: &[&str] = &[
     "REPORT",
     "REREAD",
     "RESTORE",
-    "SAMPLE",
     "SAVE TRANSLATE",
     "SET",
     "SHOW",
     "SORT VARIABLES",
-    "SPLIT FILE",
     "SUBTITLE",
     "SYSFILE INFO",
-    "TEMPORARY",
     "TITLE",
     "UNIANOVA",
     "UPDATE",

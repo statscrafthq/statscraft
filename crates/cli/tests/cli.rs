@@ -197,6 +197,44 @@ fn session_weight_changes_survive_a_separate_run() {
 }
 
 #[test]
+fn session_split_and_filter_survive_a_separate_run() {
+    let dir = Workdir::new("session-split");
+    dir.ok(&["run", "-s", "t1", "-e", &get_fixture("survey_basic.sav")]);
+    let report = dir.json(&[
+        "run",
+        "-s",
+        "t1",
+        "--json",
+        "-e",
+        "SORT CASES BY gender.\nSPLIT FILE SEPARATE BY gender.\nFILTER BY q5_1.",
+    ]);
+    assert_eq!(report["saved"], true);
+    let description = dir.json(&["describe", "-s", "t1", "--json"]);
+    assert_eq!(
+        description["split_file"],
+        serde_json::json!({"variables": ["gender"], "layered": false})
+    );
+    assert_eq!(description["filter_variable"], "q5_1");
+    let report = dir.json(&["run", "-s", "t1", "--json", "-e", "DESCRIPTIVES age."]);
+    let titles: Vec<&str> = report["commands"][0]["tables"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|t| t["title"].as_str().unwrap())
+        .collect();
+    assert_eq!(titles.len(), 3, "{titles:?}");
+    assert!(
+        titles[0].starts_with("Descriptive Statistics (gender = "),
+        "{titles:?}"
+    );
+    dir.ok(&["run", "-s", "t1", "-e", "SPLIT FILE OFF.\nFILTER OFF."]);
+    let description = dir.json(&["describe", "-s", "t1", "--json"]);
+    assert!(
+        description.get("split_file").is_none() && description.get("filter_variable").is_none()
+    );
+}
+
+#[test]
 fn a_line_range_runs_only_the_commands_inside_it() {
     let dir = Workdir::new("lines");
     let syntax = format!(

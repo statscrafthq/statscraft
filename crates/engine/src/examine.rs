@@ -625,6 +625,7 @@ impl Engine {
                 names: &model[..],
                 level,
                 id: id.as_ref(),
+                numbers: self.case_numbers.as_deref(),
             };
             let used: Vec<&CellResult> = results.iter().filter(|r| r.valid > 0.0).collect();
             if used.is_empty() {
@@ -717,6 +718,8 @@ struct Tables<'a> {
     names: &'a [String],
     level: f64,
     id: Option<&'a Variable<'a>>,
+    /// The case numbers in the whole dataset when the procedure sees a part of it.
+    numbers: Option<&'a [usize]>,
 }
 
 impl Tables<'_> {
@@ -879,7 +882,8 @@ impl Tables<'_> {
     /// The label of a case: its number, or its value of the ID variable.
     fn case_label(&self, case: usize) -> Cell {
         let Some(id) = self.id else {
-            return Cell::Number(case as f64 + 1.0);
+            let number = self.numbers.map_or(case, |numbers| numbers[case]);
+            return Cell::Number(number as f64 + 1.0);
         };
         match id.values() {
             Values::Numeric(values) => match values.get(case) {

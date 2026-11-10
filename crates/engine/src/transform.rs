@@ -16,6 +16,16 @@ pub(crate) struct Block {
     else_seen: bool,
 }
 
+impl Block {
+    /// Keeps the entries of the cases whose `keep` entry is true.
+    pub(crate) fn retain(&mut self, keep: &[bool]) {
+        for mask in [&mut self.active, &mut self.pending] {
+            let mut kept = keep.iter();
+            mask.retain(|_| *kept.next().unwrap_or(&true));
+        }
+    }
+}
+
 /// A string value cut to the width of its variable, as an assignment does.
 fn fit(mut value: String, width: usize) -> String {
     let mut end = width.min(value.len());
@@ -35,14 +45,17 @@ impl Engine {
     }
 
     /// To be called when a run ends. An open DO IF block is an error, because the block is not
-    /// kept between runs.
-    pub fn finish(&self) -> Result<(), Error> {
-        if self.blocks.is_empty() {
-            return Ok(());
+    /// kept between runs. The end of a run ends the data pass: N OF CASES takes effect and
+    /// TEMPORARY changes are undone.
+    pub fn finish(&mut self) -> Result<(), Error> {
+        if !self.blocks.is_empty() {
+            return Err(Error(
+                "DO IF without END IF: close the block with END IF in the same run".into(),
+            ));
         }
-        Err(Error(
-            "DO IF without END IF: close the block with END IF in the same run".into(),
-        ))
+        self.begin_pass()?;
+        self.end_pass(None);
+        Ok(())
     }
 
     /// Inside DO IF only the commands that honour `active_cases` may run.
@@ -53,6 +66,7 @@ impl Engine {
                 | Command::If { .. }
                 | Command::Recode(_)
                 | Command::Count(_)
+                | Command::Sample(_)
                 | Command::DoIf(_)
                 | Command::ElseIf(_)
                 | Command::Else
@@ -63,7 +77,7 @@ impl Engine {
         }
         Err(Error(
             "this command cannot be used between DO IF and END IF; only COMPUTE, IF, RECODE, \
-             COUNT and nested DO IF can"
+             COUNT, SAMPLE and nested DO IF can"
                 .into(),
         ))
     }

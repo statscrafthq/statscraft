@@ -304,7 +304,8 @@ fn read(
 /// A number in one of the numeric input formats; None for a blank field.
 fn number(text: &str, kind: FormatType, decimals: u8) -> Result<Option<f64>, &'static str> {
     let text = text.trim();
-    if text.is_empty() {
+    // a lone period is the system-missing value, as values are shown
+    if text.is_empty() || text == "." {
         return Ok(None);
     }
     let cleaned: String = match kind {
@@ -450,6 +451,7 @@ mod tests {
         assert_eq!(f("1.234,5", FormatType::Dot, 1), Some(1234.5));
         assert_eq!(f("5%", FormatType::Pct, 0), Some(5.0));
         assert_eq!(f("   ", FormatType::F, 0), None);
+        assert_eq!(f(" . ", FormatType::F, 0), None);
         assert!(number("1 2", FormatType::F, 0).is_err());
         assert!(number("4a", FormatType::F, 0).is_err());
         assert!(number("-1", FormatType::N, 0).is_err());

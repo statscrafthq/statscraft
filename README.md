@@ -22,6 +22,8 @@ What runs today: reading and writing data files, labels and missing values, tran
 
 DATA LIST reads text data in fixed columns, freefield (FREE) or one case per line (LIST), inline between BEGIN DATA and END DATA or from a file, and warns with the line number of every value it cannot read.
 
+SPLIT FILE runs every procedure per group of adjacent cases, LAYERED in one table or SEPARATE, FILTER leaves cases out of procedures without deleting them, TEMPORARY makes the changes after it last until the next procedure, N OF CASES keeps the first cases and SAMPLE a random sample; split and filter stay with the session's dataset.
+
 ## Documentation
 
 - [Getting started](docs/getting-started.md): install, open a file, run syntax, the window in five minutes.

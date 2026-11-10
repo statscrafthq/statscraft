@@ -186,6 +186,8 @@ impl Dataset {
                 },
                 file_label: non_empty(meta.file_label.trim_end()),
                 weight_variable: meta.weight_variable,
+                split: None,
+                filter_variable: None,
                 variables,
                 multiple_response_sets,
                 variable_sets,
@@ -201,6 +203,11 @@ impl Dataset {
     /// text the encoding cannot hold, or a value that does not fit its width there, is an
     /// error. An existing file is replaced only after the new one is complete.
     pub fn write_sav(&self, path: impl AsRef<Path>) -> Result<(), Error> {
+        if let Some(scratch) = self.variable_names().find(|name| name.starts_with('#')) {
+            return Err(Error::Invalid(format!(
+                "{scratch} is a scratch variable, which a data file cannot hold"
+            )));
+        }
         let path = path.as_ref();
         let file_error = |e: String| Error::File(format!("{}: {e}", path.display()));
         let dict = &*self.dict;

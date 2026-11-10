@@ -1,7 +1,7 @@
 //! `statscraft db`: datasets in an OpenStatSpec database (one wide table plus catalog) in
 //! SQLite, PostgreSQL, MySQL, MariaDB or Dolt.
 
-use crate::{load_session, session_file};
+use crate::{load_session, save_session, session_file};
 use clap::{Args, Subcommand};
 use serde_json::{Value, json};
 use statscraft_data::Dataset;
@@ -197,9 +197,11 @@ fn execute(command: DbCmd) -> Result<Value, DbError> {
                 }
                 _ => return Err(usage("give --out FILE or --session NAME".into())),
             };
-            dataset
-                .write_sav(&target)
-                .map_err(|e| DbError::new("file", e.to_string()))?;
+            let written = match session {
+                Some(_) => save_session(&target, &dataset),
+                None => dataset.write_sav(&target).map_err(|e| e.to_string()),
+            };
+            written.map_err(|e| DbError::new("file", e))?;
             let mut ok = json!({
                 "ok": true,
                 "dataset": name,

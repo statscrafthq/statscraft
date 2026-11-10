@@ -148,7 +148,7 @@ fn pspp_tables(output: &str) -> Vec<(String, Vec<Vec<String>>)> {
     tables.retain(|(title, _)| {
         !matches!(
             title.as_str(),
-            "Summary" | "Mapping of Variables to Z-scores" | "Settings"
+            "Summary" | "Mapping of Variables to Z-scores" | "Settings" | "Split Values"
         )
     });
     tables
@@ -1280,4 +1280,49 @@ fn examine_tables() {
     for (case, fixture, syntax) in &cases {
         compare_examine(&format!("examine-{case}"), fixture, syntax);
     }
+}
+
+/// SPLIT FILE, FILTER, TEMPORARY and N OF CASES. PSPP shows split groups as separate tables
+/// whatever the keyword, so ours use SEPARATE: one set of tables per group, in group order.
+#[test]
+#[ignore = "needs STATSCRAFT_PSPP"]
+fn split_and_filter_tables() {
+    let cases = [
+        (
+            "split-sorted",
+            "SORT CASES BY gender.\nSPLIT FILE SEPARATE BY gender.\nDESCRIPTIVES age monthly_spend.",
+        ),
+        // groups are runs of adjacent cases, so an unsorted file gives many small groups
+        (
+            "split-adjacent-runs",
+            "SELECT IF resp_id <= 1040.\nSPLIT FILE SEPARATE BY region.\nDESCRIPTIVES age monthly_spend.",
+        ),
+        (
+            "filter",
+            "COMPUTE adult = age >= 40.\nFILTER BY adult.\nDESCRIPTIVES age monthly_spend /STATISTICS=ALL.",
+        ),
+        (
+            "split-filter-crosstabs",
+            "SORT CASES BY region.\nSPLIT FILE SEPARATE BY region.\nFILTER BY q5_1.\nCROSSTABS /TABLES=q1_satisfaction BY gender /CELLS=COUNT ROW /STATISTICS=CHISQ.",
+        ),
+        (
+            "split-two-variables",
+            "SORT CASES BY region gender.\nSPLIT FILE SEPARATE BY region gender.\nDESCRIPTIVES age.",
+        ),
+        (
+            "temporary",
+            "TEMPORARY.\nSELECT IF gender = 1.\nCOMPUTE age = age * 2.\nDESCRIPTIVES age.\nDESCRIPTIVES age.",
+        ),
+        // N OF CASES is not compared: PSPP ignores it after GET (it limits only cases that
+        // DATA LIST reads), where the manual limits the active dataset; split_filter.rs checks it
+    ];
+    for (case, syntax) in cases {
+        compare_tables(&format!("split-{case}"), SURVEY, syntax);
+    }
+    compare_data(
+        "split-z-scores",
+        SURVEY,
+        "",
+        "SORT CASES BY gender.\nSPLIT FILE BY gender.\nFILTER BY q5_1.\nDESCRIPTIVES age monthly_spend /SAVE.\nFILTER OFF.\nSPLIT FILE OFF.\n* the z-score labels differ as in descriptives_data.\nVARIABLE LABELS Zage '' Zmonthly_spend ''.",
+    );
 }

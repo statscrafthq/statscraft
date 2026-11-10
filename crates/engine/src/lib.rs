@@ -20,6 +20,7 @@ mod pass;
 mod recode;
 pub mod session;
 mod sort;
+mod split;
 mod transform;
 mod ttest;
 mod variables;
@@ -212,6 +213,15 @@ pub struct Engine {
     warnings: Vec<String>,
     /// A DATA LIST without FILE, waiting for its BEGIN DATA.
     pending_data: Option<syntax::DataList>,
+    /// What TEMPORARY returns to after the next command that reads the data.
+    temporary: Option<Box<split::Saved>>,
+    /// N OF CASES, waiting for the next data pass.
+    case_limit: Option<usize>,
+    /// How many random numbers were drawn in this session.
+    random_draws: u64,
+    /// While a procedure runs on a split group or the filtered cases: the case number in the
+    /// whole dataset (0-based) of each case it sees.
+    case_numbers: Option<Vec<usize>>,
 }
 
 impl Engine {
@@ -287,6 +297,8 @@ impl Engine {
         match command {
             Command::Get { file } => {
                 self.dataset = Some(Dataset::read_sav(file)?);
+                self.temporary = None;
+                self.case_limit = None;
             }
             Command::Save {
                 outfile,
@@ -295,10 +307,13 @@ impl Engine {
                 if matches!(compression, Some(syntax::Compression::Uncompressed)) {
                     return Err(Error("SAVE /UNCOMPRESSED is not supported yet".into()));
                 }
+                self.begin_pass()?;
                 let data = self.active()?;
                 if !self.dry_run {
                     data.write_sav(outfile)?;
                 }
+                let before = self.dataset.clone();
+                self.end_pass(before.as_ref());
             }
             Command::VariableLabels(pairs) => {
                 for (name, label) in pairs {
@@ -348,15 +363,22 @@ impl Engine {
                     }
                 }
             }
-            Command::Frequencies { variables } => {
-                let data = self.active()?;
-                return self
-                    .expand(variables)?
-                    .iter()
-                    .map(|name| frequencies::table(data, name))
-                    .collect();
+            Command::Frequencies { .. }
+            | Command::Descriptives(_)
+            | Command::Crosstabs(_)
+            | Command::Ctables(_)
+            | Command::Means(_)
+            | Command::TTest(_)
+            | Command::Oneway(_)
+            | Command::Correlations(_)
+            | Command::NonparCorr(_)
+            | Command::Examine(_)
+            | Command::Aggregate(_) => return self.procedure(command),
+            Command::Execute => {
+                self.begin_pass()?;
+                let before = self.dataset.clone();
+                self.end_pass(before.as_ref());
             }
-            Command::Execute => {}
             Command::Recode(groups) => {
                 let inputs = groups
                     .iter()
@@ -370,7 +392,15 @@ impl Engine {
                 self.warn_reversed(inputs);
                 self.all_or_nothing(|engine| engine.count(counts))?
             }
-            Command::SortCases(keys) => self.sort_cases(keys)?,
+            Command::SortCases(keys) => {
+                self.not_temporary("SORT CASES")?;
+                self.begin_pass()?;
+                self.sort_cases(keys)?;
+                if self.active()?.split_file().is_some() {
+                    self.active_mut()?.set_split_file(None)?;
+                    self.warn("SORT CASES turns SPLIT FILE off; give SPLIT FILE again to split");
+                }
+            }
             Command::RenameVariables(groups) => {
                 self.all_or_nothing(|engine| engine.rename_variables(groups))?
             }
@@ -383,7 +413,6 @@ impl Engine {
                 self.active_mut()?
                     .set_weight_variable(variable.as_deref())?;
             }
-            Command::Aggregate(command) => self.aggregate(command)?,
             Command::Compute { target, expr } => self.assign(target, expr, None)?,
             Command::If {
                 condition,
@@ -401,22 +430,87 @@ impl Engine {
             Command::ElseIf(condition) => self.next_branch(Some(condition))?,
             Command::Else => self.next_branch(None)?,
             Command::EndIf => self.end_if()?,
-            Command::Ctables(command) => return self.ctables(command),
             Command::Mrsets(subcommands) => return self.mrsets(subcommands),
-            Command::Descriptives(command) => return self.descriptives(command),
-            Command::Crosstabs(command) => return self.crosstabs(command),
-            Command::Means(command) => return self.means(command),
-            Command::TTest(command) => return self.t_test(command),
-            Command::Oneway(command) => return self.oneway(command),
-            Command::Correlations(command) => return self.correlations(command),
-            Command::NonparCorr(command) => return self.nonpar_corr(command),
-            Command::Examine(command) => return self.examine(command),
-            Command::AddFiles(merge) => self.merge_files(merge, true)?,
-            Command::MatchFiles(merge) => self.merge_files(merge, false)?,
-            Command::DataList(list) => self.data_list(list)?,
+            Command::AddFiles(merge) => {
+                self.not_temporary("ADD FILES")?;
+                self.begin_pass()?;
+                self.merge_files(merge, true)?
+            }
+            Command::MatchFiles(merge) => {
+                self.not_temporary("MATCH FILES")?;
+                self.begin_pass()?;
+                self.merge_files(merge, false)?
+            }
+            Command::DataList(list) => {
+                self.temporary = None;
+                self.case_limit = None;
+                self.data_list(list)?
+            }
             Command::BeginData(lines) => self.begin_data(lines)?,
+            Command::SplitFile(split) => {
+                let split = match split {
+                    Some(split) => {
+                        let variables = self.expand(&split.variables)?;
+                        if variables.len() > 8 {
+                            return Err(Error("SPLIT FILE takes at most eight variables".into()));
+                        }
+                        Some(statscraft_data::SplitFile {
+                            variables,
+                            layered: !split.separate,
+                        })
+                    }
+                    None => None,
+                };
+                self.active_mut()?.set_split_file(split)?;
+            }
+            Command::Filter { variable, bare } => {
+                if *bare {
+                    self.warn("FILTER without BY or OFF turns the filter off");
+                }
+                self.active_mut()?
+                    .set_filter_variable(variable.as_deref())?;
+            }
+            Command::Temporary => self.temporary(),
+            Command::NOfCases(n) => {
+                let n = usize::try_from(*n).unwrap_or(usize::MAX);
+                self.case_limit = Some(self.case_limit.map_or(n, |limit| limit.min(n)));
+            }
+            Command::Sample(sample) => self.sample(sample)?,
         }
         Ok(Vec::new())
+    }
+
+    /// The procedures, on the dataset as it is now.
+    fn run_procedure(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
+        match command {
+            Command::Frequencies { variables } => {
+                let data = self.active()?;
+                self.expand(variables)?
+                    .iter()
+                    .map(|name| frequencies::table(data, name))
+                    .collect()
+            }
+            Command::Ctables(command) => self.ctables(command),
+            Command::Descriptives(command) => self.descriptives(command),
+            Command::Crosstabs(command) => self.crosstabs(command),
+            Command::Means(command) => self.means(command),
+            Command::TTest(command) => self.t_test(command),
+            Command::Oneway(command) => self.oneway(command),
+            Command::Correlations(command) => self.correlations(command),
+            Command::NonparCorr(command) => self.nonpar_corr(command),
+            Command::Examine(command) => self.examine(command),
+            Command::Aggregate(command) => self.aggregate(command).map(|()| Vec::new()),
+            _ => unreachable!("only procedures come here"),
+        }
+    }
+
+    fn not_temporary(&self, command: &str) -> Result<(), Error> {
+        if self.in_temporary() {
+            return Err(Error(format!(
+                "{command} cannot follow TEMPORARY: run a procedure or EXECUTE first"
+            )));
+        }
+        Ok(())
     }
 }
 
