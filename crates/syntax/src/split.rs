@@ -106,7 +106,10 @@ fn build(lines: &[(u32, &str)], end: Span) -> Option<Result<RawCommand, SyntaxEr
             spec.name.to_string()
         }
         Resolution::Unsupported(name, used) => {
-            tokens.truncate(used);
+            // END REPEAT keeps its PRINT for the DO REPEAT that it ends
+            if name != "END REPEAT" {
+                tokens.truncate(used);
+            }
             name.to_string()
         }
         _ => match tokens.first().map(|t| &t.kind) {

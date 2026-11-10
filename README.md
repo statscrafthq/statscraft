@@ -26,6 +26,8 @@ SPLIT FILE runs every procedure per group of adjacent cases, LAYERED in one tabl
 
 Scratch variables (`#name`) start at 0 or blank, keep their value from case to case and are gone at the next procedure; LAG gives a variable's value in an earlier case as that case ended the data pass, and a pass that needs earlier cases runs case by case.
 
+DO REPEAT repeats transformations with stand-ins replaced by variables or values (END REPEAT PRINT lists the generated commands), LOOP repeats them per case with an index, IF conditions and BREAK, and VECTOR names a range of existing or new variables for indexed use such as `v(#i)`.
+
 ## Documentation
 
 - [Getting started](docs/getting-started.md): install, open a file, run syntax, the window in five minutes.

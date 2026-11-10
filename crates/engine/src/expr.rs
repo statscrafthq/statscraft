@@ -135,6 +135,8 @@ pub(crate) struct Evaluator<'a> {
     pub first_case: usize,
     /// The cases before the first one here as they ended the pass, the latest last, for LAG.
     pub previous: &'a [Dataset],
+    /// The vectors by lower-case name, with their variables.
+    pub vectors: &'a std::collections::HashMap<String, Vec<String>>,
 }
 
 fn finite(value: f64) -> Option<f64> {
@@ -721,6 +723,12 @@ impl Evaluator<'_> {
                 (upper.as_str(), needed.map_or(0, |(_, n)| *n))
             }
         };
+        if let (Some(variables), [index]) = (self.vectors.get(&name.to_lowercase()), args) {
+            let Column::Number(indexes) = self.eval(index)? else {
+                return Err(Error(format!("the index of {name} must be a number")));
+            };
+            return crate::loops::element_values(self.data, variables, &indexes);
+        }
         if upper == "LAG" {
             return self.lag(args);
         }

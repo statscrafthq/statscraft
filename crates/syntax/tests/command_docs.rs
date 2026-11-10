@@ -48,6 +48,11 @@ const AREAS: &[(&str, &[&str])] = &[
             "STRING",
             "NUMERIC",
             "EXECUTE",
+            "DO REPEAT",
+            "LOOP",
+            "END LOOP",
+            "BREAK",
+            "VECTOR",
         ],
     ),
     (

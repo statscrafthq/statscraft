@@ -11,6 +11,7 @@ mod examine;
 mod expr;
 mod frequencies;
 pub mod live;
+mod loops;
 mod means;
 mod merge;
 mod mrsets;
@@ -233,6 +234,12 @@ pub struct Engine {
     row: Option<Box<rows::Row>>,
     /// Tables of the case-by-case pass, shown with the command that ended it.
     flushed: Vec<Table>,
+    /// A LOOP whose commands are being collected.
+    collecting: Option<loops::Collecting>,
+    /// How many loops are running.
+    loop_depth: usize,
+    /// The vectors by lower-case name, with their variables.
+    vectors: std::collections::HashMap<String, Vec<String>>,
 }
 
 impl Engine {
@@ -313,8 +320,14 @@ impl Engine {
 
     pub fn execute(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
         self.warnings.clear();
+        if let Some(result) = self.collect_loop(command) {
+            let tables = result?;
+            let mut out = std::mem::take(&mut self.flushed);
+            out.extend(tables);
+            return Ok(out);
+        }
         self.check_block(command)?;
-        if self.row.is_none() {
+        if self.row.is_none() && self.loop_depth == 0 {
             let transformation = matches!(
                 command,
                 Command::Compute { .. }
@@ -328,6 +341,10 @@ impl Engine {
                     | Command::ElseIf(_)
                     | Command::Else
                     | Command::EndIf
+                    | Command::Break
+                    | Command::Vector(_)
+                    | Command::VectorAssign { .. }
+                    | Command::DoRepeat(_)
             );
             if self.pending.is_none() && transformation && self.needs_rows(command)? {
                 self.pending = Some(Vec::new());
@@ -566,6 +583,17 @@ impl Engine {
                 self.case_limit = Some(self.case_limit.map_or(n, |limit| limit.min(n)));
             }
             Command::Sample(sample) => self.sample(sample)?,
+            Command::DoRepeat(repeat) => return self.do_repeat(repeat),
+            Command::Loop(_) => unreachable!("collect_loop takes LOOP"),
+            Command::EndLoop(_) => return Err(Error("END LOOP without LOOP".into())),
+            Command::Break => self.break_loop()?,
+            Command::Vector(specs) => self.vector(specs)?,
+            Command::VectorAssign {
+                condition,
+                vector,
+                index,
+                expr,
+            } => self.vector_assign(condition.as_ref(), vector, index, expr)?,
         }
         Ok(Vec::new())
     }

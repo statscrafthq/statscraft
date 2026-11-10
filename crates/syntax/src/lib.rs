@@ -24,6 +24,7 @@ mod examine;
 mod expr;
 mod files;
 mod lexer;
+mod loops;
 mod mrsets;
 mod parser;
 mod procedures;
@@ -40,6 +41,8 @@ mod tests_data;
 #[cfg(test)]
 mod tests_data_list;
 #[cfg(test)]
+mod tests_loops;
+#[cfg(test)]
 mod tests_procedures;
 
 pub use ast::*;
@@ -52,6 +55,7 @@ pub use ctables::{
 pub use data_list::numbered_names;
 pub use error::{Span, SyntaxError};
 pub use lexer::{Punct, Token, TokenKind};
+pub use loops::{RepeatItem, command_text, substitute};
 pub use mrsets::{Mrsets, MrsetsGroup};
 pub use split::{RawCommand, select_lines, split_commands};
 pub use table::{CommandSpec, command_names, command_specs, help, unsupported_commands};
@@ -72,17 +76,94 @@ pub struct Parsed {
 pub fn parse(source: &str) -> (Vec<Parsed>, Vec<SyntaxError>) {
     let mut parsed = Vec::new();
     let mut errors = Vec::new();
+    let mut raws = Vec::new();
     for raw in split::split(source) {
-        match raw.and_then(|raw| Ok((parse_command(&raw)?, raw))) {
-            Ok((command, raw)) => parsed.push(Parsed {
+        match raw {
+            Ok(raw) => raws.push(raw),
+            Err(error) => errors.push(error),
+        }
+    }
+    for (range, result) in parse_raws(&raws) {
+        match result {
+            Ok(command) => parsed.push(Parsed {
                 command,
-                first_line: raw.first_line,
-                last_line: raw.last_line,
+                first_line: raws[range.start].first_line,
+                last_line: raws[range.end - 1].last_line,
             }),
             Err(error) => errors.push(error),
         }
     }
     (parsed, errors)
+}
+
+/// Parses commands in order, each with the range of `raws` it takes. DO REPEAT takes the
+/// commands up to its END REPEAT as its body, which is checked here with the first item of
+/// every replacement list.
+pub fn parse_raws(
+    raws: &[RawCommand],
+) -> Vec<(std::ops::Range<usize>, Result<Command, SyntaxError>)> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < raws.len() {
+        if raws[i].name != "DO REPEAT" {
+            out.push((i..i + 1, parse_command(&raws[i])));
+            i += 1;
+            continue;
+        }
+        let mut depth = 0;
+        let end = (i + 1..raws.len()).find(|&j| match raws[j].name.as_str() {
+            "DO REPEAT" => {
+                depth += 1;
+                false
+            }
+            "END REPEAT" if depth == 0 => true,
+            "END REPEAT" => {
+                depth -= 1;
+                false
+            }
+            _ => false,
+        });
+        let Some(end) = end else {
+            let start = raws[i].tokens.first().map_or(raws[i].end, |t| t.span);
+            let error = SyntaxError::new(start, "DO REPEAT without END REPEAT")
+                .hint("end the commands to repeat with END REPEAT");
+            out.push((i..i + 1, Err(error)));
+            i += 1;
+            continue;
+        };
+        let mut repeat = match parse_command(&raws[i]) {
+            Ok(Command::DoRepeat(repeat)) => repeat,
+            other => {
+                out.push((i..end + 1, other));
+                i = end + 1;
+                continue;
+            }
+        };
+        repeat.print =
+            raws[end].tokens.iter().skip(2).any(
+                |t| matches!(&t.kind, TokenKind::Word(w) if table::matches_keyword(w, "PRINT")),
+            );
+        repeat.body = raws[i + 1..end].to_vec();
+        let items: Vec<(String, RepeatItem)> = repeat
+            .lists
+            .iter()
+            .map(|(name, list)| (name.clone(), loops::sample_item(list)))
+            .collect();
+        let items: Vec<(&str, &RepeatItem)> =
+            items.iter().map(|(n, item)| (n.as_str(), item)).collect();
+        let body: Vec<RawCommand> = repeat.body.iter().map(|r| substitute(r, &items)).collect();
+        let errors: Vec<_> = parse_raws(&body)
+            .into_iter()
+            .filter_map(|(_, result)| result.err())
+            .collect();
+        if errors.is_empty() {
+            out.push((i..end + 1, Ok(Command::DoRepeat(repeat))));
+        } else {
+            out.extend(errors.into_iter().map(|e| (i..end + 1, Err(e))));
+        }
+        i = end + 1;
+    }
+    out
 }
 
 fn or_list(names: &[&str]) -> String {
@@ -102,6 +183,11 @@ pub fn parse_command(raw: &RawCommand) -> Result<Command, SyntaxError> {
         Resolution::Supported(spec, used) => {
             (spec.parse)(&mut Parser::new(&raw.tokens, used, raw.end))
         }
+        Resolution::Unsupported("END REPEAT", used) => Err(SyntaxError::new(
+            name_span(used),
+            "END REPEAT without DO REPEAT",
+        )
+        .hint("the commands to repeat start with DO REPEAT")),
         Resolution::Unsupported("END DATA", used) => Err(SyntaxError::new(
             name_span(used),
             "END DATA without BEGIN DATA",

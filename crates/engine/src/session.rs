@@ -363,11 +363,18 @@ fn run(
             .map_err(|e| vec![Failure::syntax(e)])?,
         None => &all,
     };
-    let mut commands: Vec<(&RawCommand, Command)> = Vec::new();
+    let mut commands: Vec<(RawCommand, Command)> = Vec::new();
     let mut errors = Vec::new();
-    for raw in selected {
-        match statscraft_syntax::parse_command(raw) {
-            Ok(command) => commands.push((raw, command)),
+    for (range, parsed) in statscraft_syntax::parse_raws(selected) {
+        match parsed {
+            Ok(command) => {
+                // a DO REPEAT runs to the line of its END REPEAT
+                let raw = RawCommand {
+                    last_line: selected[range.end - 1].last_line,
+                    ..selected[range.start].clone()
+                };
+                commands.push((raw, command));
+            }
             Err(e) => errors.push(Failure::syntax(e)),
         }
     }

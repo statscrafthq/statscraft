@@ -704,3 +704,208 @@ COMPUTE d = #d.",
         ],
     );
 }
+
+#[test]
+#[ignore = "needs PSPP: set STATSCRAFT_PSPP"]
+fn do_repeat() {
+    compare_all(
+        "do-repeat",
+        &[
+            (
+                "dummies",
+                SURVEY,
+                "DO REPEAT r = reg1 TO reg4 / v = 1 TO 4.
+COMPUTE r = (region = v).
+END REPEAT.",
+            ),
+            (
+                "existing-and-new-lists",
+                SURVEY,
+                "DO REPEAT q = q5_1 TO q5_5 / n = n1 TO n5.
+COMPUTE n = q * 2.
+END REPEAT PRINT.",
+            ),
+            (
+                "string-values",
+                SURVEY,
+                "DO REPEAT s = s1 s2 s3 / t = 'one' 'two' 'three'.
+STRING s (A5).
+COMPUTE s = t.
+END REPEAT.",
+            ),
+            (
+                "several-commands",
+                SURVEY,
+                "DO REPEAT x = q5_1 q5_2 / y = f1 f2.
+RECODE x (1=10) (ELSE=0) INTO y.
+IF (y = 10) y = 11.
+END REPEAT.",
+            ),
+            (
+                "negative-values-in-do-if",
+                SURVEY,
+                "DO REPEAT v = -1 0 1.5 / t = m1 m2 m3.
+DO IF age > 40.
+COMPUTE t = v.
+ELSE.
+COMPUTE t = -v.
+END IF.
+END REPEAT.",
+            ),
+            (
+                "running-total-and-count",
+                SURVEY,
+                "COMPUTE total = 0.
+DO REPEAT a = q5_1 TO q5_5.
+COMPUTE total = total + a.
+END REPEAT.
+DO REPEAT t = c1 c2 / v = 1 0.
+COUNT t = q5_1 TO q5_5 (v).
+END REPEAT.",
+            ),
+        ],
+    );
+}
+
+// LOOP: the manual sets the index to the counter when the index ends the loop, PSPP leaves it
+// as the last iteration set it; the cases here use scratch indexes, which are not saved
+#[test]
+#[ignore = "needs PSPP: set STATSCRAFT_PSPP"]
+fn loops() {
+    compare_all(
+        "loop",
+        &[
+            (
+                "index-to-a-variable",
+                SURVEY,
+                "COMPUTE f = 1.
+LOOP #i = 1 TO q1_satisfaction.
+COMPUTE f = f * #i.
+END LOOP.",
+            ),
+            (
+                "negative-step",
+                SURVEY,
+                "COMPUTE s = 0.
+LOOP #i = 10 TO region BY -3.
+COMPUTE s = s + #i.
+END LOOP.",
+            ),
+            (
+                "loop-if",
+                SURVEY,
+                "COMPUTE x = age.
+LOOP IF x > 30.
+COMPUTE x = x - 7.
+END LOOP.",
+            ),
+            (
+                "end-loop-if",
+                SURVEY,
+                "COMPUTE y = 0.
+LOOP.
+COMPUTE y = y + 1.
+END LOOP IF y * 10 >= age.",
+            ),
+            (
+                "break",
+                SURVEY,
+                "COMPUTE z = 0.
+LOOP #i = 1 TO 20.
+DO IF #i * 5 > age.
+BREAK.
+END IF.
+COMPUTE z = z + 1.
+END LOOP.",
+            ),
+            (
+                "nested",
+                SURVEY,
+                "COMPUTE n = 0.
+LOOP #i = 1 TO 3.
+LOOP #j = #i TO 4.
+COMPUTE n = n + #i * #j.
+END LOOP.
+END LOOP.",
+            ),
+            (
+                "forty-iterations-without-an-index",
+                SURVEY,
+                "COMPUTE k = 0.
+LOOP.
+COMPUTE k = k + 1.
+END LOOP.",
+            ),
+        ],
+    );
+}
+
+#[test]
+#[ignore = "needs PSPP: set STATSCRAFT_PSPP"]
+fn vectors() {
+    compare_all(
+        "vector",
+        &[
+            (
+                "first-match",
+                SURVEY,
+                "VECTOR q = q5_1 TO q5_5.
+COMPUTE first = 0.
+LOOP #i = 1 TO 5.
+IF (q(#i) = 1 AND first = 0) first = #i.
+END LOOP.",
+            ),
+            (
+                "new-variables",
+                SURVEY,
+                "VECTOR v(5).
+LOOP #i = 1 TO 5.
+COMPUTE v(#i) = #i * age.
+END LOOP.",
+            ),
+            (
+                "formats",
+                SURVEY,
+                "VECTOR w x (3, F4.1).
+COMPUTE w(2) = 1.5.
+COMPUTE x(3) = age.",
+            ),
+            (
+                "strings",
+                SURVEY,
+                "VECTOR t (2, A3).
+COMPUTE t(1) = 'ab'.
+IF (age > 40) t(2) = plan.
+STRING u (A3).
+COMPUTE u = t(2).",
+            ),
+            (
+                // PSPP stops with an error on an index out of range; the cases here stay in it
+                "index-from-a-variable",
+                SURVEY,
+                "VECTOR q = q5_1 TO q5_3.
+IF (region <= 3) pick = q(region).",
+            ),
+            (
+                "replace-missing-with-the-mean",
+                SURVEY,
+                "COMPUTE m = MEAN(q6_mention1 TO q6_mention3).
+VECTOR q = q6_mention1 TO q6_mention3.
+LOOP #i = 1 TO 3.
+DO IF MISSING(q(#i)).
+COMPUTE q(#i) = m.
+END IF.
+END LOOP.",
+            ),
+            (
+                "scratch-vector",
+                SURVEY,
+                "VECTOR #s(3).
+LOOP #i = 1 TO 3.
+COMPUTE #s(#i) = #i * age.
+END LOOP.
+COMPUTE tot = #s1 + #s2 + #s3.",
+            ),
+        ],
+    );
+}

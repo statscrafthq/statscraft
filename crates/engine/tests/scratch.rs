@@ -161,7 +161,7 @@ fn an_error_case_by_case_names_the_case() {
         "COMPUTE #a = #a + 1.\nCOMPUTE b = (#a > 1) AND Var1.",
     );
     assert!(
-        message.starts_with("case 1: the right operand of AND must be 0 or 1"),
+        message.contains("run case by case before this command: case 1: the right operand of AND"),
         "{message}"
     );
 }

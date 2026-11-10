@@ -8,6 +8,7 @@ use crate::data_list;
 use crate::examine;
 use crate::files;
 use crate::lexer::{Punct, Token, TokenKind};
+use crate::loops;
 use crate::mrsets;
 use crate::parser::{PResult, Parser};
 use crate::procedures;
@@ -313,6 +314,57 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "END IF.",
         example: "END IF.",
         parse: commands::end_if,
+    },
+    CommandSpec {
+        name: "DO REPEAT",
+        summary: "Repeat transformations with stand-in names replaced by variables or values.",
+        syntax: "DO REPEAT standin = varlist | values [/ standin = varlist | values ...].\n\
+                 \x20 transformation commands\n\
+                 END REPEAT [PRINT].\n\
+                 Every list must have as many items; the commands run once per item, each stand-in\n\
+                 replaced by its item. A list holds existing variables (TO in file order, ALL) or new\n\
+                 names (v1 TO v5), or numbers and quoted strings (1 TO 5 counts up). PRINT shows the\n\
+                 generated commands.",
+        example: "DO REPEAT r = region1 TO region5 / v = 1 TO 5.\nCOMPUTE r = (region = v).\nEND REPEAT.",
+        parse: loops::do_repeat,
+    },
+    CommandSpec {
+        name: "LOOP",
+        summary: "Repeat transformations for each case, with an index, a condition or both.",
+        syntax: "LOOP [var = first TO last [BY step]] [IF condition].\n\
+                 \x20 transformation commands\n\
+                 END LOOP [IF condition].\n\
+                 The index runs from first to last by step (1 by default); the expressions may differ\n\
+                 per case, a missing one skips the loop. IF on LOOP is checked before each iteration,\n\
+                 IF on END LOOP after it. A loop without an index stops after 40 iterations. BREAK\n\
+                 leaves the innermost loop.",
+        example: "LOOP #i = 1 TO 5.\nCOMPUTE total = total + #i.\nEND LOOP.",
+        parse: loops::loop_command,
+    },
+    CommandSpec {
+        name: "END LOOP",
+        summary: "End a LOOP, optionally when a condition holds.",
+        syntax: "END LOOP [IF condition].",
+        example: "LOOP.\nCOMPUTE x = x + 1.\nEND LOOP IF x >= 10.",
+        parse: loops::end_loop,
+    },
+    CommandSpec {
+        name: "BREAK",
+        summary: "Leave the innermost LOOP, usually inside DO IF.",
+        syntax: "BREAK.",
+        example: "LOOP #i = 1 TO 10.\nDO IF v(#i) = 0.\nBREAK.\nEND IF.\nEND LOOP.",
+        parse: loops::break_command,
+    },
+    CommandSpec {
+        name: "VECTOR",
+        summary: "Name a range of variables, or new variables, as a vector for indexed use.",
+        syntax: "VECTOR name = first TO last [/ ...].\n\
+                 VECTOR prefix [, prefix ...] (n [format]) [/ ...].\n\
+                 The first form refers to existing variables, all numeric or all strings of one width;\n\
+                 the second creates prefix1 to prefixn (F8.2, or the format given). v(i) reads an element\n\
+                 in expressions and is a target of COMPUTE and IF. A vector lasts until the next procedure.",
+        example: "VECTOR q = q1 TO q10 / new (5, F2).",
+        parse: loops::vector,
     },
     CommandSpec {
         name: "CTABLES",
@@ -643,7 +695,6 @@ static UNSUPPORTED: &[&str] = &[
     "ANOVA",
     "APPLY DICTIONARY",
     "AUTORECODE",
-    "BREAK",
     "CACHE",
     "CASESTOVARS",
     "CD",
@@ -659,7 +710,6 @@ static UNSUPPORTED: &[&str] = &[
     "DEFINE",
     "DISCRIMINANT",
     "DISPLAY",
-    "DO REPEAT",
     "DOCUMENT",
     "DROP DOCUMENTS",
     "ECHO",
@@ -668,7 +718,6 @@ static UNSUPPORTED: &[&str] = &[
     "END FILE",
     "END FILE TYPE",
     "END INPUT PROGRAM",
-    "END LOOP",
     "END MATRIX",
     "END REPEAT",
     "ERASE",
@@ -691,7 +740,6 @@ static UNSUPPORTED: &[&str] = &[
     "LEAVE",
     "LIST",
     "LOGISTIC REGRESSION",
-    "LOOP",
     "MATRIX",
     "MATRIX DATA",
     "MULT RESPONSE",
@@ -732,7 +780,6 @@ static UNSUPPORTED: &[&str] = &[
     "VARIABLE ROLE",
     "VARIABLE WIDTH",
     "VARSTOCASES",
-    "VECTOR",
     "WRITE",
     "WRITE FORMATS",
     "XSAVE",

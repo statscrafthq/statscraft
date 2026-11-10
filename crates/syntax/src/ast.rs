@@ -75,6 +75,69 @@ pub enum Command {
     /// `N OF CASES n`
     NOfCases(u64),
     Sample(Sample),
+    /// DO REPEAT with its body, the commands up to END REPEAT, which are parsed again for each
+    /// set of replacements.
+    DoRepeat(DoRepeat),
+    Loop(LoopHeader),
+    /// `END LOOP [IF condition]`
+    EndLoop(Option<Expr>),
+    Break,
+    Vector(Vec<VectorSpec>),
+    /// `COMPUTE v(index) = expr`, or `IF (condition) v(index) = expr`: an element of a vector.
+    VectorAssign {
+        condition: Option<Expr>,
+        vector: String,
+        index: Expr,
+        expr: Expr,
+    },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct DoRepeat {
+    /// Each stand-in name with its replacement list, in the order written.
+    pub lists: Vec<(String, RepeatList)>,
+    pub body: Vec<crate::split::RawCommand>,
+    /// `END REPEAT PRINT`: show the generated commands.
+    pub print: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum RepeatList {
+    /// Existing variables, or names of new ones (`v1 TO v5` counts up).
+    Variables(Vec<VarItem>),
+    /// Numbers or strings; `1 TO 5` is already counted out.
+    Values(Vec<Value>),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoopHeader {
+    pub index: Option<LoopIndex>,
+    /// `IF condition`: checked before every iteration.
+    pub condition: Option<Expr>,
+}
+
+/// `variable = first TO last [BY step]`
+#[derive(Debug, Clone, PartialEq)]
+pub struct LoopIndex {
+    pub variable: String,
+    pub first: Expr,
+    pub last: Expr,
+    pub by: Option<Expr>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct VectorSpec {
+    /// One name for an existing range; one or more prefixes for new variables.
+    pub names: Vec<String>,
+    pub variables: VectorVariables,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum VectorVariables {
+    /// `name = first TO last`
+    Existing(VarItem),
+    /// `prefix(n [format])`: new variables prefix1 to prefixn.
+    New { count: u32, format: Option<Format> },
 }
 
 #[derive(Debug, Clone, PartialEq)]

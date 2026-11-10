@@ -226,34 +226,48 @@ pub(crate) fn execute(p: &mut Parser) -> PResult<Command> {
     Ok(Command::Execute)
 }
 
-/// `target = expression` to the end of the command.
-fn assignment(p: &mut Parser) -> PResult<(String, crate::ast::Expr)> {
-    let start = p.pos;
+/// `target = expression` or `vector(index) = expression` to the end of the command.
+fn assignment(p: &mut Parser) -> PResult<(String, Option<crate::ast::Expr>, crate::ast::Expr)> {
     let target = p.name("a target variable")?;
-    if p.eat(Punct::LParen) {
-        return Err(SyntaxError::new(
-            p.span_from(start),
-            "an indexed target such as v(1) is not supported yet",
-        ));
-    }
+    let index = if p.eat(Punct::LParen) {
+        let index = p.expr()?;
+        p.expect(Punct::RParen)?;
+        Some(index)
+    } else {
+        None
+    };
     p.expect(Punct::Eq)?;
     let expr = p.expr()?;
     p.finish(&["an operator"])?;
-    Ok((target, expr))
+    Ok((target, index, expr))
 }
 
 pub(crate) fn compute(p: &mut Parser) -> PResult<Command> {
-    let (target, expr) = assignment(p)?;
-    Ok(Command::Compute { target, expr })
+    Ok(match assignment(p)? {
+        (target, None, expr) => Command::Compute { target, expr },
+        (vector, Some(index), expr) => Command::VectorAssign {
+            condition: None,
+            vector,
+            index,
+            expr,
+        },
+    })
 }
 
 pub(crate) fn if_command(p: &mut Parser) -> PResult<Command> {
     let condition = p.expr()?;
-    let (target, expr) = assignment(p)?;
-    Ok(Command::If {
-        condition,
-        target,
-        expr,
+    Ok(match assignment(p)? {
+        (target, None, expr) => Command::If {
+            condition,
+            target,
+            expr,
+        },
+        (vector, Some(index), expr) => Command::VectorAssign {
+            condition: Some(condition),
+            vector,
+            index,
+            expr,
+        },
     })
 }
 

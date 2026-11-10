@@ -199,6 +199,16 @@ impl Engine {
             Command::SelectIf(e) | Command::DoIf(e) | Command::ElseIf(e) => {
                 expr_names(e, &mut reads, &mut ranges)
             }
+            Command::VectorAssign {
+                condition,
+                index,
+                expr,
+                ..
+            } => {
+                for e in condition.iter().chain([index, expr]) {
+                    expr_names(e, &mut reads, &mut ranges);
+                }
+            }
             Command::Recode(groups) => {
                 let items = groups.iter().flat_map(|g| g.vars.iter().chain(&g.into));
                 let named = |item: &VarItem| match item {
@@ -225,11 +235,25 @@ impl Engine {
                 condition, expr, ..
             } => has_lag(condition) || has_lag(expr),
             Command::SelectIf(e) | Command::DoIf(e) | Command::ElseIf(e) => has_lag(e),
+            Command::VectorAssign {
+                condition,
+                index,
+                expr,
+                ..
+            } => condition.iter().chain([index, expr]).any(has_lag),
             _ => false,
         };
         if lag {
             return Ok(true);
         }
+        // a vector element reads the variables of the vector
+        let vectors: Vec<String> = reads
+            .iter()
+            .filter_map(|n| self.vectors.get(&n.to_lowercase()))
+            .flatten()
+            .cloned()
+            .collect();
+        reads.extend(vectors);
         for (first, last) in ranges {
             if is_scratch(&first) || is_scratch(&last) {
                 reads.extend(self.expand(&[VarItem::Range(first, last)])?);
@@ -301,7 +325,7 @@ impl Engine {
 
         // only the variables the commands refer to go case by case
         let refs = Refs::of(&commands);
-        let projected = if refs.all {
+        let projected = if refs.all || !self.vectors.is_empty() {
             base.clone()
         } else {
             let mut keep = vec![false; base.variable_count()];
@@ -334,6 +358,7 @@ impl Engine {
                 .iter()
                 .map(|b| b.slice(case.map_or(0..0, |c| c..c + 1)))
                 .collect(),
+            vectors: self.vectors.clone(),
             row: Some(Box::new(Row {
                 case: case.unwrap_or(0),
                 previous,
@@ -344,11 +369,19 @@ impl Engine {
         // the commands on no case at all give the dictionary of the result
         let mut first = engine(projected.slice(0, 0), None, Vec::new());
         let mut warnings: Vec<String> = Vec::new();
+        let earlier = |e: Error| {
+            Error(format!(
+                "in the transformations that run case by case before this command: {}",
+                e.0
+            ))
+        };
         for command in &commands {
-            self.flushed.extend(first.execute(command)?);
+            self.flushed
+                .extend(first.execute(command).map_err(earlier)?);
             warnings.extend(first.warnings.iter().cloned());
         }
         let template = first.dataset.take().expect("the engine keeps its dataset");
+        let vectors_after = std::mem::take(&mut first.vectors);
 
         let mut kept: Vec<Dataset> = Vec::new();
         let mut kept_cases: Vec<Option<usize>> = Vec::new();
@@ -366,7 +399,7 @@ impl Engine {
             for command in &commands {
                 engine
                     .execute(command)
-                    .map_err(|e| Error(format!("case {}: {}", case + 1, e.0)))?;
+                    .map_err(|e| earlier(Error(format!("case {}: {}", case + 1, e.0))))?;
                 warnings.extend(engine.warnings.iter().cloned());
             }
             let data = engine.dataset.take().expect("the engine keeps its dataset");
@@ -406,6 +439,7 @@ impl Engine {
                 .insert(name.to_lowercase(), vec![true; cases]);
         }
         self.dataset = Some(result);
+        self.vectors = vectors_after;
         let mut seen = Vec::new();
         for warning in warnings {
             if !seen.contains(&warning) {
@@ -441,6 +475,13 @@ fn lag_depth(commands: &[Command]) -> usize {
                 condition, expr, ..
             } => vec![condition, expr],
             Command::SelectIf(e) | Command::DoIf(e) | Command::ElseIf(e) => vec![e],
+            Command::EndLoop(Some(e)) => vec![e],
+            Command::VectorAssign {
+                condition,
+                index,
+                expr,
+                ..
+            } => condition.iter().chain([index, expr]).collect(),
             _ => Vec::new(),
         }
     });

@@ -81,6 +81,7 @@ impl Engine {
     pub(crate) fn begin_pass(&mut self) -> Result<(), Error> {
         self.flush()?;
         self.drop_scratch()?;
+        self.vectors.clear();
         if let (Some(limit), Some(data)) = (self.case_limit.take(), self.dataset.as_mut())
             && data.case_count() > limit
         {

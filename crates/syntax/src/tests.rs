@@ -306,7 +306,7 @@ fn number_forms() {
     assert_eq!(expr("3 --2"), "(3 - (-2))");
     let error = err("COMPUTE x = 12abc.");
     assert_eq!(error.message, "invalid number 12abc");
-    assert_eq!(at(&error), (1, 13));
+    assert_eq!(at(&error), (1, 16));
 }
 
 #[test]
@@ -907,12 +907,8 @@ fn compute() {
         }
         other => panic!("{other:?}"),
     }
-    let error = err("COMPUTE v(1) = 2.");
-    assert_eq!(
-        error.message,
-        "an indexed target such as v(1) is not supported yet"
-    );
-    assert_eq!(at(&error), (1, 9));
+    let error = err("COMPUTE v(1 = 2.");
+    assert_eq!(at(&error), (1, 16));
     assert_eq!(err("COMPUTE x 5.").expected, ["'='"]);
 }
 
@@ -1082,7 +1078,7 @@ fn help_for_one_command() {
 #[test]
 fn help_lists_every_command() {
     let overview = help(None).unwrap();
-    assert_eq!(command_names().len(), 45);
+    assert_eq!(command_names().len(), 50);
     for spec in table::COMMANDS {
         assert!(overview.contains(spec.name) && overview.contains(spec.summary));
     }
@@ -1094,10 +1090,11 @@ fn help_lists_every_command() {
 #[test]
 fn table_entries_cannot_drift_from_the_parser() {
     for spec in table::COMMANDS {
+        // an example of a block command (LOOP, DO REPEAT) holds the whole block
         let raw = split_commands(spec.example).unwrap();
-        assert_eq!(raw.len(), 1, "{}", spec.name);
-        assert_eq!(raw[0].name, spec.name);
-        assert!(parse_command(&raw[0]).is_ok(), "{}", spec.example);
+        assert!(raw.iter().any(|r| r.name == spec.name), "{}", spec.name);
+        let parsed = parse_raws(&raw);
+        assert!(parsed.iter().all(|(_, r)| r.is_ok()), "{}", spec.example);
         assert!(spec.syntax.starts_with(spec.name), "{}", spec.name);
         assert!(
             help(Some(spec.name))

@@ -14,21 +14,64 @@ pub(crate) struct Block {
     /// The cases a later branch can still take: every condition so far was false for them.
     pending: Vec<bool>,
     else_seen: bool,
+    /// A LOOP iteration rather than DO IF: the cases that left the loop by BREAK.
+    broken: Option<Vec<bool>>,
 }
 
 impl Block {
+    /// The block of one LOOP iteration over the cases of `running`.
+    pub(crate) fn for_loop(running: Vec<bool>) -> Block {
+        let cases = running.len();
+        Block {
+            active: running,
+            pending: vec![false; cases],
+            else_seen: false,
+            broken: Some(vec![false; cases]),
+        }
+    }
+
+    pub(crate) fn is_loop(&self) -> bool {
+        self.broken.is_some()
+    }
+
+    /// The cases that left this loop by BREAK.
+    pub(crate) fn broken(&self) -> Vec<bool> {
+        self.broken.clone().unwrap_or_default()
+    }
+
+    /// The cases of `leaving` run no more commands of this block.
+    pub(crate) fn leave(&mut self, leaving: &[bool]) {
+        for mask in [&mut self.active, &mut self.pending] {
+            for (case, open) in mask.iter_mut().enumerate() {
+                *open &= !leaving[case];
+            }
+        }
+    }
+
+    /// Records that the cases of `leaving` left this loop.
+    pub(crate) fn broke(&mut self, leaving: &[bool]) {
+        if let Some(broken) = self.broken.as_mut() {
+            for (case, broke) in broken.iter_mut().enumerate() {
+                *broke |= leaving[case];
+            }
+        }
+    }
     /// The block for the cases of `cases` only.
     pub(crate) fn slice(&self, cases: std::ops::Range<usize>) -> Block {
         Block {
             active: self.active[cases.clone()].to_vec(),
-            pending: self.pending[cases].to_vec(),
+            pending: self.pending[cases.clone()].to_vec(),
             else_seen: self.else_seen,
+            broken: self.broken.as_ref().map(|b| b[cases].to_vec()),
         }
     }
 
     /// Keeps the entries of the cases whose `keep` entry is true.
     pub(crate) fn retain(&mut self, keep: &[bool]) {
-        for mask in [&mut self.active, &mut self.pending] {
+        for mask in [&mut self.active, &mut self.pending]
+            .into_iter()
+            .chain(self.broken.as_mut())
+        {
             let mut kept = keep.iter();
             mask.retain(|_| *kept.next().unwrap_or(&true));
         }
@@ -57,6 +100,11 @@ impl Engine {
     /// kept between runs. The end of a run ends the data pass: N OF CASES takes effect and
     /// TEMPORARY changes are undone.
     pub fn finish(&mut self) -> Result<(), Error> {
+        if self.collecting.is_some() {
+            return Err(Error(
+                "LOOP without END LOOP: close the loop with END LOOP in the same run".into(),
+            ));
+        }
         let open = match self.pending {
             Some(_) => self.pending_depth > 0,
             None => !self.blocks.is_empty(),
@@ -76,6 +124,12 @@ impl Engine {
         let allowed = matches!(
             command,
             Command::Compute { .. }
+                | Command::VectorAssign { .. }
+                | Command::Vector(_)
+                | Command::DoRepeat(_)
+                | Command::Loop(_)
+                | Command::EndLoop(_)
+                | Command::Break
                 | Command::If { .. }
                 | Command::Recode(_)
                 | Command::Count(_)
@@ -93,17 +147,21 @@ impl Engine {
             return Ok(());
         }
         Err(Error(
-            "this command cannot be used between DO IF and END IF; only COMPUTE, IF, RECODE, \
-             COUNT, SAMPLE and nested DO IF can"
+            "this command cannot be used inside DO IF or LOOP; only COMPUTE, IF, RECODE, COUNT, \
+             SAMPLE, VECTOR, DO REPEAT, BREAK and nested DO IF and LOOP can"
                 .into(),
         ))
     }
 
-    fn evaluator<'a>(&'a self, active: Option<&'a [bool]>) -> Result<Evaluator<'a>, Error> {
+    pub(crate) fn evaluator<'a>(
+        &'a self,
+        active: Option<&'a [bool]>,
+    ) -> Result<Evaluator<'a>, Error> {
         let data = self.active()?;
         Ok(Evaluator {
             data,
             active,
+            vectors: &self.vectors,
             first_case: self.row.as_ref().map_or(0, |row| row.case),
             previous: self.row.as_ref().map_or(&[], |row| &row.previous[..]),
         })
@@ -139,6 +197,17 @@ impl Engine {
             chosen = Some(holds.collect());
         }
         let value = self.evaluator(chosen.as_deref())?.eval(expr)?;
+        self.put(target, value, chosen)
+    }
+
+    /// Stores `value` in `target` for the cases of `chosen` (None: all); the other cases keep
+    /// their value, or are missing in a new variable.
+    pub(crate) fn put(
+        &mut self,
+        target: &str,
+        value: Column,
+        chosen: Option<Vec<bool>>,
+    ) -> Result<(), Error> {
         if crate::rows::is_scratch(target) {
             self.mark_assigned(target, chosen.as_deref());
         }
@@ -252,6 +321,7 @@ impl Engine {
             active: Vec::new(),
             pending,
             else_seen: false,
+            broken: None,
         });
         let result = self.next_branch(Some(condition));
         if result.is_err() {
@@ -291,6 +361,7 @@ impl Engine {
             active: branch(true),
             pending: branch(false),
             else_seen: condition.is_none(),
+            broken: None,
         };
         *self.blocks.last_mut().expect("checked above") = next;
         Ok(())
