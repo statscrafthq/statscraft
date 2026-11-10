@@ -6,6 +6,9 @@
 - RANK with every function, tie rule and fraction method.
 - Encrypted database connections (TLS with certificate checks) and much faster storing and reading of large datasets in PostgreSQL, MySQL, MariaDB, Dolt and SQLite.
 - Update checks run quietly in the background; the window no longer shows a notice about them on the first start.
+- Window: Variable View with dialogs for type and format, value labels and missing values editors (with pasting many codes at once), row selection with Delete, spreadsheet keys, Ctrl+F to find a variable, Ctrl+C as tab-separated text; Rank, Automatic Recode and Split File dialogs; Select Cases filters by default; split, filter and weight shown in the status bar.
+- Syntax editor: themes (Catppuccin, One Dark, Solarized, GitHub), macros in completion, fills its tab. Output: no automatic selection, a margin around tables. Square corners throughout; Help links open in the browser.
+- Macros defined in a session last across its runs; macro arguments expand at the call as the manual says; dataset names in MATCH FILES, ADD FILES and AGGREGATE.
 
 ## 0.1.0 (2026-11-10, early release)
 
