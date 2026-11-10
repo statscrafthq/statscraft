@@ -33,6 +33,7 @@ AUTORECODE turns the values of variables into consecutive codes in new variables
 ## Documentation
 
 - [Getting started](docs/getting-started.md): install, open a file, run syntax, the window in five minutes.
+- [Changelog](CHANGELOG.md): what is in each release.
 - [The window](docs/window.md): the data editor, syntax editor, output view, menus and dialogs.
 - [The command line](docs/command-line.md): every subcommand and flag, sessions, JSON output, exit codes, Excel export, the live window session, OpenStatSpec plans and SQLite.
 - [AI agents](docs/ai-agents.md): how an agent should work with StatsCraft, and instructions to paste into yours.

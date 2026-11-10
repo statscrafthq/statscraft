@@ -1,0 +1,51 @@
+name: Bug report
+description: Something gives a wrong result, an error it should not, or crashes.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting. Please do not attach real respondent data. A small made-up example that shows the problem is the most useful thing you can give us.
+  - type: input
+    id: version
+    attributes:
+      label: StatsCraft version
+      description: Help > About in the window, or `statscraft --version`.
+      placeholder: "0.1.0"
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where did it happen?
+      options:
+        - Window (statscraft-gui)
+        - Command line (statscraft)
+        - Both
+    validations:
+      required: true
+  - type: input
+    id: system
+    attributes:
+      label: Operating system
+      placeholder: "Windows 11, Ubuntu 24.04, ..."
+  - type: textarea
+    id: syntax
+    attributes:
+      label: Syntax that shows the problem
+      description: The shortest syntax that reproduces it. DATA LIST with BEGIN DATA makes a self-contained example.
+      render: text
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected
+      description: For a statistic, the value you expected and where it comes from (another program, a hand calculation, the manual).
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: What happened
+      description: The output, the error message with its line and column, or what the window showed.
+    validations:
+      required: true

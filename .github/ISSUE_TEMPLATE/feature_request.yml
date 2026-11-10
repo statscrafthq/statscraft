@@ -1,0 +1,16 @@
+name: Suggestion
+description: A command, option, dialog or improvement you would like.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What would you like?
+      description: For a command or subcommand from the syntax language, name it and show how you would write it.
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: What would it let you do?
+      description: The task it is for, so we can judge priority.
