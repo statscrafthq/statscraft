@@ -17,6 +17,8 @@ pub enum Command {
     /// An empty value list clears the missing values of the variables.
     MissingValues(Vec<(Vec<VarItem>, Vec<MissingValue>)>),
     VariableLevel(Vec<(Vec<VarItem>, Level)>),
+    /// Column widths in the data grid, in characters.
+    VariableWidth(Vec<(Vec<VarItem>, u32)>),
     Formats(Vec<(Vec<VarItem>, Format)>),
     Frequencies {
         variables: Vec<VarItem>,

@@ -453,6 +453,17 @@ impl Engine {
                     }
                 }
             }
+            Command::VariableWidth(groups) => {
+                for (vars, width) in groups {
+                    no_scratch(&self.expand(vars)?, "VARIABLE WIDTH")?;
+                    for name in self.expand(vars)? {
+                        let data = self.active_mut()?;
+                        let v = data.variable(&name)?;
+                        let (alignment, role) = (v.alignment(), v.role());
+                        data.set_display(&name, Some(*width), alignment, role)?;
+                    }
+                }
+            }
             Command::Formats(groups) => {
                 for (vars, format) in groups {
                     let mut text = format!("{}{}", format.kind.name(), format.width);

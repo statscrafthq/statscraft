@@ -706,6 +706,29 @@ fn variable_level() {
 }
 
 #[test]
+fn variable_width() {
+    assert_eq!(
+        one("VARIABLE WIDTH sales95 sales96 (10)\n  /id gender (2)."),
+        Command::VariableWidth(vec![
+            (vec![var("sales95"), var("sales96")], 10),
+            (vec![var("id"), var("gender")], 2),
+        ])
+    );
+    assert_eq!(
+        one("var wid a (8) b (3)."),
+        Command::VariableWidth(vec![(vec![var("a")], 8), (vec![var("b")], 3)])
+    );
+    assert_eq!(
+        err("VARIABLE WIDTH a (0).").expected,
+        ["a column width of at least 1"]
+    );
+    assert_eq!(
+        err("VARIABLE WIDTH a (2.5).").expected,
+        ["a column width of at least 1"]
+    );
+}
+
+#[test]
 fn formats() {
     let format = |kind, width, decimals| Format {
         kind,
@@ -1078,7 +1101,7 @@ fn help_for_one_command() {
 #[test]
 fn help_lists_every_command() {
     let overview = help(None).unwrap();
-    assert_eq!(command_names().len(), 51);
+    assert_eq!(command_names().len(), 52);
     for spec in table::COMMANDS {
         assert!(overview.contains(spec.name) && overview.contains(spec.summary));
     }

@@ -17,6 +17,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "VALUE LABELS",
             "MISSING VALUES",
             "VARIABLE LEVEL",
+            "VARIABLE WIDTH",
             "FORMATS",
             "RENAME VARIABLES",
             "DELETE VARIABLES",

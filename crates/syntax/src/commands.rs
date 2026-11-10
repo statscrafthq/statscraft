@@ -164,6 +164,18 @@ pub(crate) fn variable_level(p: &mut Parser) -> PResult<Command> {
     .map(Command::VariableLevel)
 }
 
+pub(crate) fn variable_width(p: &mut Parser) -> PResult<Command> {
+    groups(p, |p| match p.peek() {
+        Some(TokenKind::Number(n)) if n.fract() == 0.0 && *n >= 1.0 && *n <= 1e6 => {
+            let n = *n as u32;
+            p.pos += 1;
+            Ok(n)
+        }
+        _ => Err(p.unexpected(&["a column width of at least 1"])),
+    })
+    .map(Command::VariableWidth)
+}
+
 /// `F8.2`, `A20`, `DATE11`: type letters, a width and optional decimals.
 pub(crate) fn format(text: &str) -> Result<Format, String> {
     let digits = text.find(|c: char| !c.is_ascii_alphabetic());

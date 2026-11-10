@@ -164,6 +164,27 @@ fn errors_are_specific() {
 }
 
 #[test]
+fn variable_width_is_saved_with_the_data() {
+    let mut engine = loaded("survey_basic.sav");
+    let path = std::env::temp_dir().join(format!("statscraft-width-{}.sav", std::process::id()));
+    run(
+        &mut engine,
+        &format!(
+            "VARIABLE WIDTH gender age (12) / plan (3).\nSAVE OUTFILE='{}'.",
+            path.display()
+        ),
+    );
+    let mut reread = Engine::default();
+    run(&mut reread, &format!("GET FILE='{}'.", path.display()));
+    let _ = std::fs::remove_file(&path);
+    let data = reread.dataset().unwrap();
+    let width = |name: &str| data.variable(name).unwrap().display_width();
+    assert_eq!(width("gender"), Some(12));
+    assert_eq!(width("age"), Some(12));
+    assert_eq!(width("plan"), Some(3));
+}
+
+#[test]
 fn dry_run_does_not_write_files() {
     let mut engine = loaded("survey_basic.sav");
     engine.dry_run = true;

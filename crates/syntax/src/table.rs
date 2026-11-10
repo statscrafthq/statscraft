@@ -97,6 +97,14 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: commands::variable_level,
     },
     CommandSpec {
+        name: "VARIABLE WIDTH",
+        summary: "Set how many characters wide variables show in the data grid.",
+        syntax: "VARIABLE WIDTH varlist (n) [[/] varlist (n) ...].\n\
+                 n: a whole number of characters, at least 1. Saved with the data; formats and output stay as they are.",
+        example: "VARIABLE WIDTH comment (40) / id age (5).",
+        parse: commands::variable_width,
+    },
+    CommandSpec {
         name: "FORMATS",
         summary: "Set the display format of variables.",
         syntax: "FORMATS varlist (format) [[/] varlist (format) ...].\n\
@@ -790,7 +798,6 @@ static UNSUPPORTED: &[&str] = &[
     "VARIABLE ALIGNMENT",
     "VARIABLE ATTRIBUTE",
     "VARIABLE ROLE",
-    "VARIABLE WIDTH",
     "VARSTOCASES",
     "WRITE",
     "WRITE FORMATS",
