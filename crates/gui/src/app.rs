@@ -1785,6 +1785,9 @@ impl App {
             (grid::Hit::Number(_), false, Some(s)) => {
                 Some(grid_menu::Target::Cases(picked(&s.rows)))
             }
+            (grid::Hit::Cell(case, column), false, _) => {
+                Some(grid_menu::Target::Cell { case, column })
+            }
             _ => None,
         };
         self.menu = target.map(|t| (t, variable_view));
@@ -1877,6 +1880,7 @@ impl App {
             grid_menu::Action::Ask(confirm) => self.confirm = Some(confirm),
             grid_menu::Action::Open(dialog) => self.open_dialog(*dialog),
             grid_menu::Action::Copy => self.copy_selection(ctx),
+            grid_menu::Action::EditCell(case, column) => self.edit_cell((case, column)),
             grid_menu::Action::EditField(row, field) => {
                 self.tab = Tab::Variables;
                 self.variable_follow = true;

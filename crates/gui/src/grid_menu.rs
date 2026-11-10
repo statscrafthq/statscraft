@@ -3,10 +3,11 @@
 
 use crate::analyze_dialogs::Explore;
 use crate::app::Dialog;
-use crate::data_dialogs::SortCases;
+use crate::data_dialogs::{FILTER_VARIABLE, SelectCases, SelectMode, SortCases};
 use crate::dialogs::{Crosstabs, CustomTables, Descriptives, Frequencies, Recode};
-use crate::edits::{Field, listed};
-use statscraft_data::{Dataset, Measure};
+use crate::edits::{self, Field, listed};
+use crate::syntax_text::{number, quote};
+use statscraft_data::{Dataset, Measure, Values};
 
 /// What a right click landed on.
 #[derive(Clone, Debug, PartialEq)]
@@ -15,6 +16,8 @@ pub enum Target {
     Variables(Vec<usize>),
     /// Data View cases by their index, from row numbers.
     Cases(Vec<usize>),
+    /// A Data View cell.
+    Cell { case: usize, column: usize },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -38,6 +41,11 @@ pub enum Item {
     Copy,
     Delete,
     DeleteCase,
+    Edit,
+    ClearValue,
+    Filter,
+    FilterOff,
+    KeepOnlyDialog,
 }
 
 /// One item of a menu.
@@ -104,6 +112,8 @@ pub enum Action {
     Open(Box<Dialog>),
     /// Ctrl+C: the selection to the clipboard.
     Copy,
+    /// Start editing a Data View cell: (case, column).
+    EditCell(usize, usize),
     /// Start editing a Variable View field: (variable, field).
     EditField(usize, usize),
     /// The variable's row in the Variable View.
@@ -126,15 +136,12 @@ pub const MEASURES: [(Measure, &str); 3] = [
 
 /// The variables a target concerns that the dataset still has, in file order.
 fn columns(data: &Dataset, target: &Target) -> Vec<usize> {
-    let columns = match target {
-        Target::Variables(columns) => columns,
+    let mut columns = match target {
+        Target::Variables(columns) => columns.clone(),
         Target::Cases(_) => return Vec::new(),
+        Target::Cell { column, .. } => vec![*column],
     };
-    let mut columns: Vec<usize> = columns
-        .iter()
-        .copied()
-        .filter(|&c| c < data.variable_count())
-        .collect();
+    columns.retain(|&c| c < data.variable_count());
     columns.sort_unstable();
     columns.dedup();
     columns
@@ -190,6 +197,11 @@ pub fn heading(data: &Dataset, target: &Target) -> String {
             _ => format!("{} cases", rows.len()),
         };
     }
+    if let Target::Cell { case, column } = *target
+        && column < data.variable_count()
+    {
+        return format!("{}, case {}", name(data, column), case + 1);
+    }
     match columns(data, target)[..] {
         [one] => {
             let variable = data.variable_at(one);
@@ -227,6 +239,12 @@ pub fn entries(
             Some(entry(Item::Copy, "Copy").key("Ctrl+C")),
             Some(entry(Item::DeleteCase, "Delete case").ready(&one)),
         ];
+    }
+    if let Target::Cell { case, column } = *target {
+        if case >= data.case_count() || column >= data.variable_count() {
+            return Vec::new();
+        }
+        return cell_entries(data, case, column, &runs);
     }
     let columns = columns(data, target);
     if columns.is_empty() {
@@ -308,6 +326,86 @@ pub fn entries(
     list
 }
 
+/// The menu over a Data View cell: the cell itself, a filter on its value, sorting by its
+/// variable.
+fn cell_entries(
+    data: &Dataset,
+    case: usize,
+    column: usize,
+    runs: &Result<(), String>,
+) -> Vec<Option<Entry>> {
+    let variable = data.variable_at(column);
+    let mut condition = short(&condition(data, case, column), 40);
+    let label = edits::cell_text(&variable, case, true);
+    if label != edits::cell_text(&variable, case, false) {
+        condition.push_str(&format!(" ({})", short(&label, 30)));
+    }
+    let mut filter = entry(Item::Filter, &format!("Only cases where {condition}")).ready(runs);
+    let current = data.filter_variable();
+    if let (true, Some(current)) = (filter.enabled, current) {
+        filter.hover = Some(format!("replaces the filter {current}"));
+    }
+    let mut list = vec![
+        Some(entry(Item::Copy, "Copy").key("Ctrl+C")),
+        Some(entry(Item::Edit, "Edit").key("Enter")),
+        Some(entry(Item::ClearValue, "Clear value").ready(runs)),
+        None,
+        Some(filter),
+    ];
+    if current.is_some() {
+        list.push(Some(entry(Item::FilterOff, "Stop filtering").ready(runs)));
+    }
+    let keep = format!("Keep only cases where {condition}...");
+    list.push(Some(entry(Item::KeepOnlyDialog, &keep)));
+    list.push(None);
+    let name = variable.name();
+    let ascending = format!("Sort ascending by {name}");
+    let descending = format!("Sort descending by {name}");
+    list.push(Some(entry(Item::SortAscending, &ascending).ready(runs)));
+    list.push(Some(entry(Item::SortDescending, &descending).ready(runs)));
+    list
+}
+
+/// The condition that a case holds the value of the cell: the stored value, not the one shown,
+/// so a number shown rounded still matches. A numeric user-missing value is compared through
+/// VALUE, as the comparison of a missing value is missing and would keep no case; system-missing
+/// is SYSMIS. String user-missing values compare as valid ones.
+pub fn condition(data: &Dataset, case: usize, column: usize) -> String {
+    let variable = data.variable_at(column);
+    let name = variable.name();
+    match variable.values() {
+        Values::String(values) => format!("{name} = {}", quote(values.get(case).trim_end())),
+        Values::Numeric(values) => match values.get(case) {
+            None => format!("SYSMIS({name})"),
+            Some(v) if variable.is_user_missing(v) => format!("VALUE({name}) = {}", number(v)),
+            Some(v) => format!("{name} = {}", number(v)),
+        },
+    }
+}
+
+/// The variable a new filter goes into: filter_$, unless a variable of that name holds other
+/// data than the filter in force; then the first free of filter_$_2, filter_$_3, ...
+fn filter_name(data: &Dataset) -> String {
+    let current = data.filter_variable();
+    std::iter::once(FILTER_VARIABLE.to_string())
+        .chain((2..).map(|i| format!("{FILTER_VARIABLE}_{i}")))
+        .find(|n| {
+            data.variable_index(n).is_none() || current.is_some_and(|c| c.eq_ignore_ascii_case(n))
+        })
+        .expect("one of the names is free")
+}
+
+/// A filter that leaves out the cases where the variable of the cell holds another value. It
+/// replaces the filter in force.
+pub fn filter(data: &Dataset, case: usize, column: usize) -> String {
+    let condition = condition(data, case, column);
+    let name = filter_name(data);
+    format!(
+        "COMPUTE {name} = ({condition}).\nVARIABLE LABELS {name} {}.\nFILTER BY {name}.",
+        quote(&short(&condition, 120))
+    )
+}
+
 /// What choosing `item` in the menu over `target` does.
 pub fn action(data: &Dataset, target: &Target, item: Item) -> Result<Action, String> {
     if let Target::Cases(rows) = target {
@@ -315,6 +413,25 @@ pub fn action(data: &Dataset, target: &Target, item: Item) -> Result<Action, Str
             (Item::DeleteCase, &[case]) => Action::Ask(delete_case(case)),
             _ => Action::Copy,
         });
+    }
+    if let Target::Cell { case, column } = *target {
+        if case >= data.case_count() || column >= data.variable_count() {
+            return Err("the case is gone".into());
+        }
+        let variable = data.variable_at(column);
+        match item {
+            Item::Edit => return Ok(Action::EditCell(case, column)),
+            Item::ClearValue => return Ok(Action::Run(edits::cell_edit(&variable, case, "")?)),
+            Item::Filter => return Ok(Action::Run(filter(data, case, column))),
+            Item::FilterOff => return Ok(Action::Run("FILTER OFF.".into())),
+            Item::KeepOnlyDialog => {
+                return Ok(dialog(Dialog::SelectCases(SelectCases {
+                    mode: SelectMode::Delete,
+                    condition: condition(data, case, column),
+                })));
+            }
+            _ => {}
+        }
     }
     let columns = columns(data, target);
     let first = *columns.first().ok_or("the variable is gone")?;
@@ -434,7 +551,12 @@ pub fn action(data: &Dataset, target: &Target, item: Item) -> Result<Action, Str
                 button: "Delete",
             })
         }
-        Item::DeleteCase => return Err("choose a case to delete".into()),
+        Item::DeleteCase
+        | Item::Edit
+        | Item::ClearValue
+        | Item::Filter
+        | Item::FilterOff
+        | Item::KeepOnlyDialog => return Err("this item belongs to another menu".into()),
     })
 }
 
@@ -999,5 +1121,206 @@ mod tests {
             action(data(&session), &hundred, Item::Frequencies),
             Ok(Action::Run(_))
         ));
+    }
+
+    /// The first case (from 0) whose value of `name` meets `test`.
+    fn case_where(session: &Session, name: &str, test: impl Fn(Option<f64>) -> bool) -> usize {
+        numbers(session, name).into_iter().position(test).unwrap()
+    }
+
+    fn cell(session: &Session, case: usize, name: &str) -> Target {
+        Target::Cell {
+            case,
+            column: index(session, name),
+        }
+    }
+
+    /// Runs the filter on the cell and returns the number of cases it keeps, checking that the
+    /// filter is in force.
+    fn filtered(session: &mut Session, case: usize, name: &str) -> usize {
+        let Ok(Action::Run(syntax)) =
+            action(data(session), &cell(session, case, name), Item::Filter)
+        else {
+            panic!("the filter runs at once");
+        };
+        run_in(session, &syntax);
+        let filter = data(session).filter_variable().unwrap().to_string();
+        let values = numbers(session, &filter);
+        values.iter().filter(|v| **v == Some(1.0)).count()
+    }
+
+    #[test]
+    fn the_filter_uses_the_stored_value() {
+        let mut session = open("survey_basic.sav");
+        // a value with more decimals than the format shows
+        run_in(&mut session, "IF ($CASENUM = 4) monthly_spend = 12.3456.");
+        let data = data(&session);
+        let column = index(&session, "monthly_spend");
+        assert_eq!(
+            edits::cell_text(&data.variable_at(column), 3, false),
+            "12.35"
+        );
+        assert_eq!(condition(data, 3, column), "monthly_spend = 12.3456");
+        assert_eq!(
+            filter(data, 3, column),
+            "COMPUTE filter_$ = (monthly_spend = 12.3456).\n\
+             VARIABLE LABELS filter_$ 'monthly_spend = 12.3456'.\nFILTER BY filter_$."
+        );
+        assert_eq!(filtered(&mut session, 3, "monthly_spend"), 1);
+        // a common value keeps every case that holds it, and Frequencies counts the rest out
+        let gender = numbers(&session, "gender");
+        let women = gender.iter().filter(|g| **g == Some(2.0)).count();
+        let case = case_where(&session, "gender", |g| g == Some(2.0));
+        assert_eq!(filtered(&mut session, case, "gender"), women);
+        assert_eq!(data_of(&session).filter_variable(), Some("filter_$"));
+        assert_eq!(run_in(&mut session, "FREQUENCIES VARIABLES=gender."), 1);
+    }
+
+    fn data_of(session: &Session) -> &Dataset {
+        data(session)
+    }
+
+    #[test]
+    fn a_user_missing_value_is_matched_with_value() {
+        let mut session = open("survey_basic.sav");
+        let case = case_where(&session, "q1_satisfaction", |v| v == Some(99.0));
+        let column = index(&session, "q1_satisfaction");
+        assert_eq!(
+            condition(data(&session), case, column),
+            "VALUE(q1_satisfaction) = 99"
+        );
+        let refused = numbers(&session, "q1_satisfaction");
+        let refused = refused.iter().filter(|v| **v == Some(99.0)).count();
+        assert!(refused > 0);
+        assert_eq!(filtered(&mut session, case, "q1_satisfaction"), refused);
+        // a valid value is compared as it is
+        let case = case_where(&session, "q1_satisfaction", |v| v == Some(4.0));
+        assert_eq!(
+            condition(data(&session), case, column),
+            "q1_satisfaction = 4"
+        );
+    }
+
+    #[test]
+    fn a_system_missing_cell_filters_on_sysmis() {
+        let mut session = open("survey_basic.sav");
+        let case = case_where(&session, "monthly_spend", |v| v.is_none());
+        let column = index(&session, "monthly_spend");
+        assert_eq!(
+            condition(data(&session), case, column),
+            "SYSMIS(monthly_spend)"
+        );
+        assert_eq!(filtered(&mut session, case, "monthly_spend"), 19);
+    }
+
+    #[test]
+    fn a_string_value_is_quoted() {
+        let mut session = open("survey_basic.sav");
+        let column = index(&session, "plan");
+        assert_eq!(condition(data(&session), 0, column), "plan = 'BASIC'");
+        run_in(&mut session, "IF ($CASENUM = 1) plan = 'O''Brien'.");
+        assert_eq!(condition(data(&session), 0, column), "plan = 'O''Brien'");
+        assert_eq!(filtered(&mut session, 0, "plan"), 1);
+        // an empty comment matches the blank ones
+        let comments = data(&session).variable("q3_comment").unwrap();
+        let comments: Vec<String> = comments
+            .string()
+            .unwrap()
+            .iter()
+            .map(|c| c.trim().to_string())
+            .collect();
+        let blank = comments.iter().position(|c| c.is_empty()).unwrap();
+        let blanks = comments.iter().filter(|c| c.is_empty()).count();
+        assert_eq!(
+            condition(data(&session), blank, index(&session, "q3_comment")),
+            "q3_comment = ''"
+        );
+        assert_eq!(filtered(&mut session, blank, "q3_comment"), blanks);
+    }
+
+    #[test]
+    fn the_filter_name_never_overwrites_a_variable() {
+        let mut session = open("survey_basic.sav");
+        run_in(&mut session, "COMPUTE filter_$ = 7.");
+        assert!(filter(data(&session), 0, 1).starts_with("COMPUTE filter_$_2 = (gender = 1)."));
+        filtered(&mut session, 0, "gender");
+        assert_eq!(data(&session).filter_variable(), Some("filter_$_2"));
+        // the user's variable is untouched
+        assert!(
+            numbers(&session, "filter_$")
+                .iter()
+                .all(|v| *v == Some(7.0))
+        );
+        // the filter in force is replaced in place
+        assert!(filter(data(&session), 0, 2).starts_with("COMPUTE filter_$_2 = (age = 49)."));
+    }
+
+    #[test]
+    fn clear_value_is_the_cell_edit_with_empty_text() {
+        let mut session = open("survey_basic.sav");
+        let run = |session: &Session, case, name| match action(
+            data(session),
+            &cell(session, case, name),
+            Item::ClearValue,
+        ) {
+            Ok(Action::Run(syntax)) => syntax,
+            _ => panic!("Clear value runs at once"),
+        };
+        let age = run(&session, 2, "age");
+        assert_eq!(age, "IF ($CASENUM = 3) age = $SYSMIS.");
+        let plan = run(&session, 2, "plan");
+        assert_eq!(plan, "IF ($CASENUM = 3) plan = ''.");
+        run_in(&mut session, &format!("{age}\n{plan}"));
+        assert_eq!(numbers(&session, "age")[2], None);
+    }
+
+    #[test]
+    fn the_cell_menu_filters_keeps_and_sorts() {
+        let mut session = open("survey_basic.sav");
+        let target = cell(&session, 1, "gender");
+        let labels = |session: &Session| {
+            let entries = entries(data(session), &target, false, false);
+            let entries = entries.into_iter().flatten();
+            entries.map(|e| e.label).collect::<Vec<_>>()
+        };
+        assert_eq!(
+            labels(&session),
+            [
+                "Copy",
+                "Edit",
+                "Clear value",
+                "Only cases where gender = 1 (Male)",
+                "Keep only cases where gender = 1 (Male)...",
+                "Sort ascending by gender",
+                "Sort descending by gender"
+            ]
+        );
+        assert_eq!(heading(data(&session), &target), "gender, case 2");
+        assert!(matches!(
+            action(data(&session), &target, Item::Edit),
+            Ok(Action::EditCell(1, 1))
+        ));
+        assert!(matches!(
+            action(data(&session), &target, Item::SortDescending),
+            Ok(Action::Run(s)) if s == "SORT CASES BY gender (D)."
+        ));
+        // with a filter on, Stop filtering turns it off
+        filtered(&mut session, 1, "gender");
+        assert!(labels(&session).contains(&"Stop filtering".to_string()));
+        let Ok(Action::Run(off)) = action(data(&session), &target, Item::FilterOff) else {
+            panic!("Stop filtering runs at once");
+        };
+        run_in(&mut session, &off);
+        assert!(data(&session).filter_variable().is_none());
+        // Keep only opens Select Cases, which deletes the other cases
+        let Ok(Action::Open(opened)) = action(data(&session), &target, Item::KeepOnlyDialog) else {
+            panic!("Keep only opens a dialog");
+        };
+        let Dialog::SelectCases(d) = *opened else {
+            panic!("Keep only opens Select Cases");
+        };
+        assert_eq!(d.syntax().unwrap(), "SELECT IF gender = 1.");
+        run_in(&mut session, &d.syntax().unwrap());
+        assert_eq!(data(&session).case_count(), 106);
     }
 }
