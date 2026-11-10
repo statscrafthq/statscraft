@@ -1105,3 +1105,255 @@ fn listwise_missing_values_leave_a_case_out_of_every_scale_variable() {
     assert_eq!(all_numbers(&listwise)[..5], all_numbers(&variable)[..5]);
     assert_ne!(all_numbers(&listwise)[5..], all_numbers(&variable)[5..]);
 }
+
+/// ln Gamma by the Lanczos approximation (g = 7, nine coefficients).
+fn ln_gamma(x: f64) -> f64 {
+    const C: [f64; 9] = [
+        0.999_999_999_999_809_9,
+        676.520_368_121_885_1,
+        -1_259.139_216_722_402_8,
+        771.323_428_777_653_1,
+        -176.615_029_162_140_6,
+        12.507_343_278_686_905,
+        -0.138_571_095_265_720_12,
+        9.984_369_578_019_572e-6,
+        1.505_632_735_149_311_6e-7,
+    ];
+    let x = x - 1.0;
+    let t = x + 7.5;
+    let a = C[1..]
+        .iter()
+        .enumerate()
+        .fold(C[0], |a, (i, c)| a + c / (x + i as f64 + 1.0));
+    0.5 * (2.0 * std::f64::consts::PI).ln() + (x + 0.5) * t.ln() - t + a.ln()
+}
+
+/// The regularized incomplete beta function by its continued fraction (modified Lentz).
+fn incomplete_beta(a: f64, b: f64, x: f64) -> f64 {
+    if x <= 0.0 || x >= 1.0 {
+        return x.clamp(0.0, 1.0);
+    }
+    if x > (a + 1.0) / (a + b + 2.0) {
+        return 1.0 - incomplete_beta(b, a, 1.0 - x);
+    }
+    let front =
+        (ln_gamma(a + b) - ln_gamma(a) - ln_gamma(b) + a * x.ln() + b * (1.0 - x).ln()).exp() / a;
+    let tiny = 1e-300;
+    let (mut c, mut d) = (1.0, 1.0 - (a + b) * x / (a + 1.0));
+    d = 1.0 / if d.abs() < tiny { tiny } else { d };
+    let mut f = d;
+    for m in 1..500 {
+        let m = f64::from(m);
+        for numerator in [
+            m * (b - m) * x / ((a + 2.0 * m - 1.0) * (a + 2.0 * m)),
+            -(a + m) * (a + b + m) * x / ((a + 2.0 * m) * (a + 2.0 * m + 1.0)),
+        ] {
+            d = 1.0 + numerator * d;
+            d = 1.0 / if d.abs() < tiny { tiny } else { d };
+            c = 1.0 + numerator / c;
+            c = if c.abs() < tiny { tiny } else { c };
+            f *= c * d;
+        }
+        if (c * d - 1.0).abs() < 1e-15 {
+            break;
+        }
+    }
+    front * f
+}
+
+/// The p quantile of Beta(a, b), by bisection.
+fn beta_quantile(p: f64, a: f64, b: f64) -> f64 {
+    let (mut low, mut high) = (0.0, 1.0);
+    for _ in 0..200 {
+        let mid = (low + high) / 2.0;
+        if incomplete_beta(a, b, mid) < p {
+            low = mid;
+        } else {
+            high = mid;
+        }
+    }
+    (low + high) / 2.0
+}
+
+/// The t value exceeded with probability `upper` by Student's t with `df` degrees of freedom:
+/// the upper tail is I(df / (df + t^2); df / 2, 1 / 2) / 2.
+fn t_quantile(upper: f64, df: f64) -> f64 {
+    let (mut low, mut high) = (0.0, 1e3);
+    for _ in 0..200 {
+        let mid = (low + high) / 2.0;
+        if incomplete_beta(df / 2.0, 0.5, df / (df + mid * mid)) / 2.0 > upper {
+            low = mid;
+        } else {
+            high = mid;
+        }
+    }
+    (low + high) / 2.0
+}
+
+fn close(got: Option<f64>, want: f64) {
+    let got = got.unwrap_or_else(|| panic!("no value where {want} was expected"));
+    assert!(
+        (got - want).abs() <= 2e-6 * want.abs().max(1.0),
+        "{got} vs {want}"
+    );
+}
+
+// Confidence limits and standard errors (CTABLES, "Confidence intervals and standard error",
+// page 478; CRITERIA CILEVEL, page 497; Algorithms, CTABLES, "Means and Sums", "Counts and
+// Percentages" and "Percentiles"): a proportion has the limits of the Jeffreys Beta interval,
+// on rounded weights with the WEIGHT command and on the effective base with /WEIGHT; a mean and
+// a sum the t interval; a percentile the percentiles at the limits of the share below it.
+#[test]
+fn confidence_limits_and_standard_errors_from_the_raw_values() {
+    let file = "survey_basic_phpwriter.sav";
+    let data = Dataset::read_sav(fixture(file)).unwrap();
+    let (gender, region, age, weight) = (
+        raw(&data, "gender"),
+        raw(&data, "region"),
+        raw(&data, "age"),
+        raw(&data, "weight"),
+    );
+    let n = data.case_count();
+    let alpha: f64 = 0.10;
+    let cells =
+        "[COUNT, COUNT.LCL, COUNT.UCL, COUNT.SE, COLPCT, COLPCT.LCL, COLPCT.UCL, COLPCT.SE]";
+    for (setup, weighted, effective) in [
+        ("WEIGHT OFF.\nCTABLES", false, false),
+        ("WEIGHT BY weight.\nCTABLES", true, false),
+        ("WEIGHT OFF.\nCTABLES /WEIGHT VARIABLE=weight", true, true),
+    ] {
+        let w = |i: usize| if weighted { weight[i].unwrap() } else { 1.0 };
+        let t = run(
+            file,
+            &format!("{setup} /TABLE gender {cells} BY region /CRITERIA CILEVEL=90."),
+        );
+        // the Beta limits and standard error of the proportion part / whole
+        let limits = |part: f64, whole: f64, squares: f64| -> [f64; 3] {
+            let p = part / whole;
+            let ((a, b), size) = if effective {
+                let e = whole * whole / squares;
+                ((e * p + 0.5, e * (1.0 - p) + 0.5), e)
+            } else {
+                (
+                    (part.round() + 0.5, whole.round() - part.round() + 0.5),
+                    whole.round(),
+                )
+            };
+            // a proportion of 0 or 1 is its own limit on that side
+            [
+                if a <= 0.5 {
+                    0.0
+                } else {
+                    beta_quantile(alpha / 2.0, a, b)
+                },
+                if b <= 0.5 {
+                    1.0
+                } else {
+                    beta_quantile(1.0 - alpha / 2.0, a, b)
+                },
+                (p * (1.0 - p) / size).sqrt(),
+            ]
+        };
+        let sum = |f: &dyn Fn(usize) -> bool, power: i32| -> f64 {
+            (0..n).filter(|&i| f(i)).map(|i| w(i).powi(power)).sum()
+        };
+        let all = |_: usize| true;
+        for g in 0..3 {
+            for r in 0..5 {
+                let in_column = |i: usize| region[i] == Some(r as f64 + 1.0);
+                let in_cell = |i: usize| in_column(i) && gender[i] == Some(g as f64 + 1.0);
+                let part = sum(&in_cell, 1);
+                let got = &numbers(&t, g)[r * 8..r * 8 + 8];
+                // a count's area is the table
+                let [low, high, error] = limits(part, sum(&all, 1), sum(&all, 2));
+                let table = if effective {
+                    sum(&all, 1)
+                } else {
+                    sum(&all, 1).round()
+                };
+                close(got[1], table * low);
+                close(got[2], table * high);
+                close(got[3], table * error);
+                let [low, high, error] = limits(part, sum(&in_column, 1), sum(&in_column, 2));
+                close(got[5], 100.0 * low);
+                close(got[6], 100.0 * high);
+                close(got[7], 100.0 * error);
+                assert!(got[5] <= got[4] && got[4] <= got[6], "{setup} {got:?}");
+            }
+        }
+
+        // means and sums
+        let m = run(
+            file,
+            &format!(
+                "{setup} /TABLE age [MEAN, MEAN.LCL, MEAN.UCL, MEAN.SE, SUM, SUM.LCL, SUM.UCL, SUM.SE] BY gender\n\
+                 /CRITERIA CILEVEL=90."
+            ),
+        );
+        for g in 0..3 {
+            let members: Vec<(f64, f64)> = (0..n)
+                .filter(|&i| gender[i] == Some(g as f64 + 1.0))
+                .map(|i| (age[i].unwrap(), w(i)))
+                .collect();
+            let total: f64 = members.iter().map(|m| m.1).sum();
+            let sum_x: f64 = members.iter().map(|(x, w)| x * w).sum();
+            let mean = sum_x / total;
+            let ss: f64 = members.iter().map(|(x, w)| w * (x - mean).powi(2)).sum();
+            let (size, variance) = if effective {
+                let e = total * total / members.iter().map(|m| m.1 * m.1).sum::<f64>();
+                (e, ss / (total - total / e))
+            } else {
+                (total.round(), ss / (total - 1.0))
+            };
+            let row = numbers(&m, 0);
+            let got = &row[g * 8..g * 8 + 8];
+            if size <= 1.0 {
+                continue;
+            }
+            let t = t_quantile(alpha / 2.0, size - 1.0);
+            let se = (variance / size).sqrt();
+            close(got[1], mean - t * se);
+            close(got[2], mean + t * se);
+            close(got[3], se);
+            let se_sum = if effective {
+                total * se
+            } else {
+                (size * variance).sqrt()
+            };
+            close(got[5], sum_x - t * se_sum);
+            close(got[6], sum_x + t * se_sum);
+            close(got[7], se_sum);
+        }
+    }
+
+    // a median's limits are the percentiles at the limits of the share of cases at or below it
+    let t = run(
+        "survey_basic.sav",
+        "CTABLES /TABLE age [MEDIAN, MEDIAN.LCL, MEDIAN.UCL].",
+    );
+    let ages: Vec<f64> = raw(&data, "age").into_iter().flatten().collect();
+    let median = numbers(&t, 0)[0].unwrap();
+    let below = ages.iter().filter(|a| **a <= median).count() as f64;
+    let total = ages.len() as f64;
+    let at = |level: f64| {
+        let share = beta_quantile(level, below + 0.5, total - below + 0.5);
+        let p = run(
+            "survey_basic.sav",
+            &format!("CTABLES /TABLE age [PTILE {}].", 100.0 * share),
+        );
+        numbers(&p, 0)[0]
+    };
+    assert_eq!(numbers(&t, 0)[1], at(0.025));
+    assert_eq!(numbers(&t, 0)[2], at(0.975));
+    assert!(numbers(&t, 0)[1] < Some(median) && Some(median) < numbers(&t, 0)[2]);
+
+    let e = run_on(
+        &mut Engine::default(),
+        &format!(
+            "GET FILE='{}'.\nCTABLES /TABLE $q5 [COUNT.LCL].",
+            fixture(file)
+        ),
+    )
+    .unwrap_err();
+    assert!(e.contains("multiple response sets do not have"), "{e}");
+}

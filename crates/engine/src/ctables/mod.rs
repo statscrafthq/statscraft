@@ -20,6 +20,7 @@
 //! table's, so TABLEPCT spans all layers and LAYERPCT is the table percentage of one layer.
 
 mod format;
+mod interval;
 mod mrsets;
 mod pcompute;
 mod sigtest;
@@ -30,8 +31,8 @@ use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Measure, Value as DataValue, Values, Variable};
 use statscraft_syntax::{
     AxisExpr, AxisVariable, Bound, Categories, CategoryItem, CategoryOrder, Ctables, CtablesTable,
-    EmptyCells, Format, LabelsMoved, PercentBase, PercentOf, Statistic, Summary, SummaryFunction,
-    Value as SyntaxValue, VlabelsDisplay,
+    EmptyCells, Estimate, Format, LabelsMoved, PercentBase, PercentOf, Statistic, Summary,
+    SummaryFunction, Value as SyntaxValue, VlabelsDisplay,
 };
 use std::collections::HashMap;
 
@@ -225,6 +226,12 @@ fn default_label(function: SummaryFunction, percentile: Option<f64>) -> String {
         Statistic::Ecount => "Adjusted Count".into(),
         Statistic::Evalidn => "Adjusted Valid N".into(),
         Statistic::Etotaln => "Adjusted Total N".into(),
+    };
+    let label = match function.estimate {
+        Estimate::Value => label,
+        Estimate::Lower => format!("{label} Lower CL"),
+        Estimate::Upper => format!("{label} Upper CL"),
+        Estimate::StdError => format!("{label} Standard Error"),
     };
     if function.unweighted {
         format!("Unweighted {label}")
@@ -830,6 +837,12 @@ fn sort_by_summary(
         return Ok(());
     };
     let name = var.name();
+    if function.estimate != Estimate::Value {
+        return Err(Error(format!(
+            "/CATEGORIES for {name}: KEY={} is a confidence limit or standard error; sort by the summary itself",
+            function.name()
+        )));
+    }
     if moved != LabelsMoved::No {
         return Err(Error(format!(
             "/CATEGORIES for {name}: sorting by a summary (KEY={}) is not available when /CLABELS moves category labels",
@@ -872,6 +885,7 @@ fn sort_by_summary(
         function: SummaryFunction {
             statistic: counted,
             unweighted: function.unweighted,
+            estimate: Estimate::Value,
         },
         percentile: *percentile,
         label: None,
@@ -1131,6 +1145,7 @@ impl<'a> Layout<'a> {
                 function: SummaryFunction {
                     statistic,
                     unweighted: false,
+                    estimate: Estimate::Value,
                 },
                 percentile: None,
                 label: None,
@@ -1439,6 +1454,8 @@ impl Engine {
                         variable,
                         (tested, table.labels_moved, command.weight.is_some(), group),
                     )?;
+                    let mut section = section;
+                    section.level = table.cilevel;
                     sections.insert((r, c, l), section);
                 }
             }
@@ -1765,6 +1782,8 @@ struct Section {
     has_scale: bool,
     /// The weights are effective base weights (/WEIGHT).
     effective: bool,
+    /// The confidence level of .LCL and .UCL, in percent.
+    level: f64,
 }
 
 /// The category index of a margin cell, see `Section::cells`.
@@ -1858,6 +1877,7 @@ impl Section {
             summaries: summaries.to_vec(),
             has_scale: scale.is_some(),
             effective,
+            level: 95.0,
         };
         let keep_values = scale.is_some();
         'cases: for case in 0..data.case_count() {
@@ -2068,16 +2088,17 @@ impl Section {
         }
         let value = self.value(key, summary);
         // HIDESMALLCOUNTS hides the summaries shown in the count format, weighted or not
-        let count_format = matches!(
-            summary.function.statistic,
-            Statistic::Count
-                | Statistic::Validn
-                | Statistic::Totaln
-                | Statistic::Responses
-                | Statistic::Ecount
-                | Statistic::Evalidn
-                | Statistic::Etotaln
-        );
+        let count_format = summary.function.estimate == Estimate::Value
+            && matches!(
+                summary.function.statistic,
+                Statistic::Count
+                    | Statistic::Validn
+                    | Statistic::Totaln
+                    | Statistic::Responses
+                    | Statistic::Ecount
+                    | Statistic::Evalidn
+                    | Statistic::Etotaln
+            );
         let cell = match (value, &command.missing, command.hide_small_counts) {
             (Some(v), _, Some(n)) if count_format && v < f64::from(n) => {
                 Cell::Text(format!("<{n}"))
@@ -2087,6 +2108,18 @@ impl Section {
             (None, None, _) => Cell::Empty,
         };
         (cell, format.clone())
+    }
+
+    /// The tally of the percentage area of a cell; a total of a deciding variable is the area of
+    /// all its categories.
+    fn area_tally(&self, key: &[usize], base: PercentBase) -> Option<&Tally> {
+        let area_key: Vec<usize> = key
+            .iter()
+            .zip(&self.areas[area(base)])
+            .filter(|(_, d)| **d)
+            .map(|(k, _)| *k)
+            .collect();
+        self.denominators[area(base)].get(&area_key)
     }
 
     /// The value of a summary in a cell. A computed category takes it from the same summary in
@@ -2101,19 +2134,15 @@ impl Section {
         }
         let empty = Tally::default();
         let tally = self.tally(key, summary, &empty)?;
+        if summary.function.estimate != Estimate::Value {
+            return self.interval(key, summary, tally);
+        }
         match summary.function.statistic {
             Statistic::Percent(base, of) => {
-                // a total of a deciding variable is the area of all its categories
-                let area_key: Vec<usize> = key
-                    .iter()
-                    .zip(&self.areas[area(base)])
-                    .filter(|(_, d)| **d)
-                    .map(|(k, _)| *k)
-                    .collect();
                 let unweighted = summary.function.unweighted;
                 let (numerator, denominator) = mrsets::parts(of);
-                let whole = self.denominators[area(base)]
-                    .get(&area_key)
+                let whole = self
+                    .area_tally(key, base)
                     .map_or(0.0, |t| t.base(denominator, unweighted));
                 let part = tally.base(numerator, unweighted);
                 (whole != 0.0).then(|| 100.0 * part / whole)

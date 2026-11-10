@@ -32,8 +32,8 @@ use super::{
 use crate::{Engine, Error};
 use statscraft_data::{Dataset, Value, Values, Variable};
 use statscraft_syntax::{
-    AxisVariable, Categories, CategoryItem, CategoryOrder, Ctables, PercentOf, Statistic, Summary,
-    SummaryFunction, VarItem,
+    AxisVariable, Categories, CategoryItem, CategoryOrder, Ctables, Estimate, PercentOf, Statistic,
+    Summary, SummaryFunction, VarItem,
 };
 
 /// A set as a table variable, resolved against the dictionary.
@@ -380,6 +380,12 @@ pub(super) fn check_functions(var: &TermVar, summaries: &[Summary]) -> Result<()
         if responses && var.set.is_none() {
             return Err(Error(format!(
                 "/TABLE: summary function {} applies only to multiple response sets, and {name} is not one",
+                s.function.name()
+            )));
+        }
+        if var.set.is_some() && s.function.estimate != Estimate::Value {
+            return Err(Error(format!(
+                "/TABLE: {} is a confidence limit or standard error, which multiple response sets do not have, and {name} is one",
                 s.function.name()
             )));
         }

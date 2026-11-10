@@ -40,9 +40,9 @@ mod tests_procedures;
 pub use ast::*;
 pub use ctables::{
     Adjust, AxisExpr, AxisVariable, Categories, CategoryItem, CategoryOrder, CompareKind,
-    CompareStyle, Comparetest, Ctables, CtablesTable, EmptyCells, LabelsMoved, PcomputeExpr,
-    PcomputeOp, PercentBase, PercentOf, Pproperties, Sigtest, Statistic, Summary, SummaryFunction,
-    VlabelsDisplay,
+    CompareStyle, Comparetest, Ctables, CtablesTable, EmptyCells, Estimate, LabelsMoved,
+    PcomputeExpr, PcomputeOp, PercentBase, PercentOf, Pproperties, Sigtest, Statistic, Summary,
+    SummaryFunction, VlabelsDisplay,
 };
 pub use error::{Span, SyntaxError};
 pub use lexer::{Punct, Token, TokenKind};

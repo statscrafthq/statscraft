@@ -239,7 +239,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20       [/PPROPERTIES &name ... [LABEL='text'] [FORMAT=function format ...] [HIDESOURCECATS=NO|YES]]\n\
                  \x20       /TABLE [rows] [BY [columns] [BY layers]]\n\
                  \x20       [/SLABELS POSITION=COLUMN|ROW|LAYER VISIBLE=YES|NO]\n\
-                 \x20       [/CLABELS AUTO|ROWLABELS=OPPOSITE|LAYER|COLLABELS=OPPOSITE|LAYER]\n\
+                 \x20       [/CLABELS AUTO|ROWLABELS=OPPOSITE|LAYER|COLLABELS=OPPOSITE|LAYER] [/CRITERIA CILEVEL=95]\n\
                  \x20       [/CATEGORIES VARIABLES=varlist [ORDER=A|D] [KEY=VALUE|LABEL|function[(var[, n])]]\n\
                  \x20                    [MISSING=EXCLUDE|INCLUDE]\n\
                  \x20                    [TOTAL=NO|YES] [LABEL='text'] [POSITION=AFTER|BEFORE] [EMPTY=INCLUDE|EXCLUDE]]\n\
@@ -279,6 +279,13 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  MISSING and the percentages with .SUM. A U prefix (UCOUNT, UMEAN) ignores the weight.\n\
                  SMISSING LISTWISE: a case missing on one scale variable of a table is missing on all of them\n\
                  (a table: the sections with the same categorical variables); it still counts in COUNT and TOTALN.\n\
+                 Confidence limits and standard errors: a .LCL, .UCL or .SE suffix (COUNT.LCL, COLPCT.COUNT.UCL,\n\
+                 MEAN.SE); .LCL and .UCL for COUNT, the percentages of COUNT, VALIDN or TOTALN, MEAN, MEDIAN, PTILE\n\
+                 and SUM, .SE for COUNT, those percentages, MEAN and SUM; not for sets or with a U prefix.\n\
+                 CRITERIA CILEVEL (after its /TABLE, default 95) sets the level. A proportion has the Jeffreys\n\
+                 interval (Beta quantiles of w + 0.5 and W - w + 0.5, weights rounded); a count is the table's\n\
+                 weight times the interval of its share of the table; a mean or sum the t interval; a percentile\n\
+                 the percentiles at the limits of the share at or below it.\n\
                  /WEIGHT VARIABLE=var (before the first /TABLE) weights every table by an effective base weight,\n\
                  in place of the WEIGHT command's variable. ECOUNT (also for categorical variables and sets),\n\
                  EVALIDN and ETOTALN are then the effective bases (sum of weights)^2 / (sum of squared weights)\n\

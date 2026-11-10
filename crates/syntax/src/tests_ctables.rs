@@ -124,13 +124,53 @@ fn per_table_and_global_subcommands() {
 }
 
 #[test]
-fn features_of_the_next_stage_are_named() {
-    let e = err("CTABLES /TABLE a /CRITERIA CILEVEL=90.");
-    assert!(
-        e.message.contains("CRITERIA") && e.message.contains("not supported yet"),
-        "{}",
-        e.message
+fn confidence_limits_and_their_level() {
+    let c = one(
+        "CTABLES /TABLE a [COUNT.LCL, COLPCT.UCL, COLPCT.VALIDN.SE, MEAN.SE, PTILE.LCL 75] /CRITERIA CILEVEL=90\n\
+         /TABLE b.",
     );
+    assert_eq!((c.tables[0].cilevel, c.tables[1].cilevel), (90.0, 95.0));
+    let Some(AxisExpr::Variable(a)) = &c.tables[0].rows else {
+        panic!()
+    };
+    let functions: Vec<(Statistic, Estimate, String)> = a
+        .summaries
+        .as_ref()
+        .unwrap()
+        .iter()
+        .map(|s| (s.function.statistic, s.function.estimate, s.function.name()))
+        .collect();
+    assert_eq!(
+        functions,
+        [
+            (Statistic::Count, Estimate::Lower, "COUNT.LCL".into()),
+            (
+                Statistic::Percent(PercentBase::Column, PercentOf::Count),
+                Estimate::Upper,
+                "COLPCT.COUNT.UCL".into()
+            ),
+            (
+                Statistic::Percent(PercentBase::Column, PercentOf::Validn),
+                Estimate::StdError,
+                "COLPCT.VALIDN.SE".into()
+            ),
+            (Statistic::Mean, Estimate::StdError, "MEAN.SE".into()),
+            (Statistic::Ptile, Estimate::Lower, "PTILE.LCL".into()),
+        ]
+    );
+    // only counts, percentages, means, sums and percentiles have them, and weighted only
+    for bad in ["MEDIAN.SE", "MODE.LCL", "UCOUNT.LCL", "COLPCT.SUM.LCL"] {
+        let e = err(&format!("CTABLES /TABLE a [{bad}]."));
+        assert!(
+            e.message.contains("unknown summary function"),
+            "{bad}: {}",
+            e.message
+        );
+    }
+    let e = err("CTABLES /TABLE a /CRITERIA CILEVEL=100.");
+    assert!(e.message.contains("less than 100"), "{}", e.message);
+    let e = err("CTABLES /CRITERIA CILEVEL=90 /TABLE a.");
+    assert!(e.message.contains("must follow a /TABLE"), "{}", e.message);
 }
 
 #[test]
@@ -388,6 +428,7 @@ fn multiple_response_sets_stand_like_variables() {
     let f = |statistic, unweighted| SummaryFunction {
         statistic,
         unweighted,
+        estimate: Estimate::Value,
     };
     assert_eq!(
         functions,

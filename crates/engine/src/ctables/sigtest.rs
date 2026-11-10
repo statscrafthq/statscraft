@@ -69,8 +69,8 @@ use super::{
 use crate::dist::{chi_square_p, normal_p, t_p};
 use crate::{Cell, Error, Table};
 use statscraft_syntax::{
-    Adjust, CompareKind, CompareStyle, Comparetest, CtablesTable, PercentBase, PercentOf, Sigtest,
-    Statistic,
+    Adjust, CompareKind, CompareStyle, Comparetest, CtablesTable, Estimate, PercentBase, PercentOf,
+    Sigtest, Statistic,
 };
 use std::collections::HashMap;
 
@@ -777,10 +777,11 @@ fn comparisons(
         if !means {
             return categorical_section(row, column, section);
         }
-        let has_mean = section
-            .summaries
-            .iter()
-            .any(|(_, s, _)| s.function.statistic == Statistic::Mean && !s.function.unweighted);
+        let has_mean = section.summaries.iter().any(|(_, s, _)| {
+            s.function.statistic == Statistic::Mean
+                && !s.function.unweighted
+                && s.function.estimate == Estimate::Value
+        });
         row.iter().any(|v| v.scale) && has_mean && column.iter().any(|v| !v.scale)
     };
     let why_left_out = |r: usize, c: usize| {
@@ -1139,7 +1140,7 @@ pub(super) fn merge(
     };
     let letter_slot = slots
         .iter()
-        .position(|s| wanted(s) && !s.function.unweighted)
+        .position(|s| wanted(s) && !s.function.unweighted && s.function.estimate == Estimate::Value)
         .or_else(|| {
             slots
                 .iter()

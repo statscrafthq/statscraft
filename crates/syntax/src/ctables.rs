@@ -188,6 +188,8 @@ pub struct CtablesTable {
     pub sigtest: Option<Sigtest>,
     /// `/COMPARETEST`s, at most one of each type; a later one of the same type replaces it.
     pub comparetests: Vec<Comparetest>,
+    /// `/CRITERIA CILEVEL`: the confidence level of the .LCL and .UCL summaries, in percent.
+    pub cilevel: f64,
 }
 
 /// Where `/CLABELS` puts the category labels.
@@ -295,7 +297,26 @@ pub struct SummaryFunction {
     pub statistic: Statistic,
     /// The `U` prefix: every case counts once, whatever its weight.
     pub unweighted: bool,
+    /// The `.LCL`, `.UCL` or `.SE` suffix.
+    pub estimate: Estimate,
 }
+
+/// What a summary function shows of its statistic: the value, or a confidence limit or the
+/// standard error (`COUNT.LCL`, `MEAN.UCL`, `COLPCT.COUNT.SE`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Estimate {
+    #[default]
+    Value,
+    Lower,
+    Upper,
+    StdError,
+}
+
+const ESTIMATES: [(&str, Estimate); 3] = [
+    (".LCL", Estimate::Lower),
+    (".UCL", Estimate::Upper),
+    (".SE", Estimate::StdError),
+];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Statistic {
@@ -478,39 +499,67 @@ impl SummaryFunction {
                 .0
                 .to_string(),
         };
+        let suffix = ESTIMATES
+            .iter()
+            .find(|(_, e)| *e == self.estimate)
+            .map_or("", |(s, _)| s);
         if self.unweighted {
-            format!("U{base}")
+            format!("U{base}{suffix}")
         } else {
-            base
+            format!("{base}{suffix}")
         }
     }
 
     fn parse(word: &str) -> Option<SummaryFunction> {
-        if let Some(statistic) = statistic(word) {
-            return Some(SummaryFunction {
-                statistic,
-                unweighted: false,
-            });
+        let upper = word.to_ascii_uppercase();
+        let (body, estimate) = ESTIMATES
+            .iter()
+            .find_map(|(suffix, e)| upper.strip_suffix(suffix).map(|body| (body, *e)))
+            .unwrap_or((&upper, Estimate::Value));
+        let (statistic, unweighted) = match statistic(body) {
+            Some(s) => (s, false),
+            None => (statistic(body.strip_prefix('U')?)?, true),
+        };
+        // an effective base needs the weights, and so do the intervals
+        let effective = matches!(
+            statistic,
+            Statistic::Ecount | Statistic::Evalidn | Statistic::Etotaln
+        );
+        if unweighted && (effective || estimate != Estimate::Value) {
+            return None;
         }
-        let rest = word.strip_prefix(['U', 'u'])?;
-        // an effective base needs the weights
-        statistic(rest)
-            .filter(|s| {
-                !matches!(
-                    s,
-                    Statistic::Ecount | Statistic::Evalidn | Statistic::Etotaln
-                )
-            })
-            .map(|statistic| SummaryFunction {
-                statistic,
-                unweighted: true,
-            })
+        let cases =
+            |of: PercentOf| matches!(of, PercentOf::Count | PercentOf::Validn | PercentOf::Totaln);
+        let available = match estimate {
+            Estimate::Value => true,
+            Estimate::Lower | Estimate::Upper => {
+                matches!(
+                    statistic,
+                    Statistic::Count
+                        | Statistic::Mean
+                        | Statistic::Median
+                        | Statistic::Ptile
+                        | Statistic::Sum
+                ) || matches!(statistic, Statistic::Percent(_, of) if cases(of))
+            }
+            Estimate::StdError => {
+                matches!(
+                    statistic,
+                    Statistic::Count | Statistic::Mean | Statistic::Sum
+                ) || matches!(statistic, Statistic::Percent(_, of) if cases(of))
+            }
+        };
+        available.then_some(SummaryFunction {
+            statistic,
+            unweighted,
+            estimate,
+        })
     }
 }
 
 const SUMMARY_EXPECTED: &str = "a summary function such as COUNT, COLPCT.COUNT or MEAN";
 
-const UNSUPPORTED_SUBCOMMANDS: [&str; 1] = ["CRITERIA"];
+const UNSUPPORTED_SUBCOMMANDS: [&str; 0] = [];
 
 /// `&name` of a computed category; returns the name without the "&".
 fn computed_name(p: &mut Parser) -> PResult<String> {
@@ -927,6 +976,7 @@ fn table(p: &mut Parser) -> PResult<CtablesTable> {
         corner: None,
         sigtest: None,
         comparetests: Vec::new(),
+        cilevel: 95.0,
     })
 }
 
@@ -1385,6 +1435,24 @@ pub(crate) fn ctables(p: &mut Parser) -> PResult<Command> {
         } else if p.eat_keyword("TITLES") {
             table_only(p, &command.tables, "TITLES")?;
             titles(p, command.tables.last_mut().expect("checked"))?;
+        } else if p.eat_keyword("CRITERIA") {
+            table_only(p, &command.tables, "CRITERIA")?;
+            if !p.eat_keyword("CILEVEL") {
+                return Err(p.unexpected(&["CILEVEL"]));
+            }
+            equals(p)?;
+            let at = p.pos;
+            let level = match p.number() {
+                Some(level) if level > 0.0 && level < 100.0 => level,
+                Some(_) => {
+                    return Err(SyntaxError::new(
+                        p.span_from(at),
+                        "CILEVEL is a percentage more than 0 and less than 100, such as 95",
+                    ));
+                }
+                None => return Err(p.unexpected(&["a confidence level such as 95"])),
+            };
+            command.tables.last_mut().expect("checked").cilevel = level;
         } else if p.eat_keyword("SIGTEST") {
             table_only(p, &command.tables, "SIGTEST")?;
             let spec = sigtest(p, start)?;
