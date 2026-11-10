@@ -18,6 +18,8 @@ pub enum Target {
     Cases(Vec<usize>),
     /// A Data View cell.
     Cell { case: usize, column: usize },
+    /// A Variable View cell: the variable of its row and the field of its column.
+    Field { variable: usize, field: usize },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -140,6 +142,7 @@ fn columns(data: &Dataset, target: &Target) -> Vec<usize> {
         Target::Variables(columns) => columns.clone(),
         Target::Cases(_) => return Vec::new(),
         Target::Cell { column, .. } => vec![*column],
+        Target::Field { variable, .. } => vec![*variable],
     };
     columns.retain(|&c| c < data.variable_count());
     columns.sort_unstable();
@@ -249,6 +252,16 @@ pub fn entries(
     let columns = columns(data, target);
     if columns.is_empty() {
         return Vec::new();
+    }
+    if let Target::Field { variable, .. } = *target {
+        let mut list = vec![Some(entry(Item::Edit, "Edit").key("Enter")), None];
+        list.extend(entries(
+            data,
+            &Target::Variables(vec![variable]),
+            true,
+            busy,
+        ));
+        return list;
     }
     let one = columns.len() == 1;
     let numeric = numeric(data, &columns);
@@ -432,6 +445,11 @@ pub fn action(data: &Dataset, target: &Target, item: Item) -> Result<Action, Str
             }
             _ => {}
         }
+    }
+    if let (Target::Field { variable, field }, Item::Edit) = (target, item)
+        && *variable < data.variable_count()
+    {
+        return Ok(Action::EditField(*variable, *field));
     }
     let columns = columns(data, target);
     let first = *columns.first().ok_or("the variable is gone")?;
@@ -1322,5 +1340,55 @@ mod tests {
         assert_eq!(d.syntax().unwrap(), "SELECT IF gender = 1.");
         run_in(&mut session, &d.syntax().unwrap());
         assert_eq!(data(&session).case_count(), 106);
+    }
+
+    #[test]
+    fn show_in_data_view_selects_the_column() {
+        let mut session = open("survey_basic.sav");
+        let names = ["q5_1", "q5_2", "q5_3", "q5_4", "q5_5"];
+        let items = |session: &Session, target: &Target| {
+            let entries = entries(data(session), target, true, false);
+            entries
+                .into_iter()
+                .flatten()
+                .map(|e| e.item)
+                .collect::<Vec<_>>()
+        };
+        // rows of the Variable View: the column menu, with Show in Data View for one
+        let one = items(&session, &target(&session, &["age"]));
+        assert!(one.contains(&Item::ShowInData) && !one.contains(&Item::Properties));
+        let age = index(&session, "age");
+        assert!(matches!(
+            action(data(&session), &target(&session, &["age"]), Item::ShowInData),
+            Ok(Action::ShowInData(c)) if c == age
+        ));
+        // five rows set to ordinal in one step
+        let rows = target(&session, &names);
+        assert!(!items(&session, &rows).contains(&Item::ShowInData));
+        let Ok(Action::Run(syntax)) =
+            action(data(&session), &rows, Item::Measure(Measure::Ordinal))
+        else {
+            panic!("the measure runs at once");
+        };
+        assert_eq!(syntax, "VARIABLE LEVEL q5_1 TO q5_5 (ORDINAL).");
+        run_in(&mut session, &syntax);
+        // a cell of a row: Edit for that field first, then the menu of its variable
+        let label = Field::Label as usize;
+        let field = Target::Field {
+            variable: age,
+            field: label,
+        };
+        let cell = items(&session, &field);
+        assert_eq!(cell[..2], [Item::Edit, Item::SortAscending]);
+        assert!(cell.contains(&Item::ShowInData) && cell.contains(&Item::Delete));
+        assert_eq!(heading(data(&session), &field), "age: Age in years");
+        assert!(matches!(
+            action(data(&session), &field, Item::Edit),
+            Ok(Action::EditField(v, f)) if v == age && f == label
+        ));
+        assert!(matches!(
+            action(data(&session), &field, Item::Frequencies),
+            Ok(Action::Run(s)) if s == "FREQUENCIES VARIABLES=age."
+        ));
     }
 }

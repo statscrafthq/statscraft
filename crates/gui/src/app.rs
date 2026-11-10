@@ -1797,6 +1797,12 @@ impl App {
             (grid::Hit::Cell(case, column), false, _) => {
                 Some(grid_menu::Target::Cell { case, column })
             }
+            (grid::Hit::Number(_), true, Some(s)) => {
+                Some(grid_menu::Target::Variables(picked(&s.rows)))
+            }
+            (grid::Hit::Cell(variable, field), true, _) => {
+                Some(grid_menu::Target::Field { variable, field })
+            }
             _ => None,
         };
         self.menu = target.map(|t| (t, variable_view));
@@ -1982,6 +1988,10 @@ impl App {
                 .unwrap_or_default();
         }
         select(&mut self.variable_selected, &events, modifiers);
+        self.open_menu(events.secondary);
+        if let Some(response) = &events.response {
+            response.context_menu(|ui| self.grid_menu(ui));
+        }
         if let Some(at) = events.clicked {
             // a text edit commits when it loses focus; a list just closes
             let list = |e: &CellEdit| Field::ALL[e.column].choices().is_some();
