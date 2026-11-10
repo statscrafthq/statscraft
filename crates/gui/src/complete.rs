@@ -10,6 +10,43 @@ const EXPRESSIONS: &[&str] = &["COMPUTE", "IF", "SELECT IF", "DO IF", "ELSE IF",
 /// The most candidates shown.
 const MOST: usize = 200;
 
+/// The words of the macro language, offered after `!`.
+const MACRO_WORDS: &[&str] = &[
+    "!BLANKS",
+    "!BREAK",
+    "!BY",
+    "!CHAREND",
+    "!CMDEND",
+    "!CONCAT",
+    "!DEFAULT",
+    "!DO",
+    "!DOEND",
+    "!ELSE",
+    "!ENCLOSE",
+    "!ENDDEFINE",
+    "!EVAL",
+    "!HEAD",
+    "!IF",
+    "!IFEND",
+    "!IN",
+    "!INDEX",
+    "!LENGTH",
+    "!LET",
+    "!NOEXPAND",
+    "!NULL",
+    "!OFFEXPAND",
+    "!ONEXPAND",
+    "!POSITIONAL",
+    "!QUOTE",
+    "!SUBSTR",
+    "!TAIL",
+    "!THEN",
+    "!TO",
+    "!TOKENS",
+    "!UNQUOTE",
+    "!UPCASE",
+];
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum What {
     Command,
@@ -17,6 +54,8 @@ pub enum What {
     Keyword,
     Variable,
     Function,
+    /// A macro defined with DEFINE, or a word of the macro language.
+    Macro,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -29,18 +68,20 @@ pub struct Candidate {
 }
 
 /// The candidates for the cursor at byte `cursor`, and the bytes they replace. `explicit` (from
-/// Ctrl+Space) offers candidates before anything is typed. `variables` holds name and label.
+/// Ctrl+Space) offers candidates before anything is typed. `variables` holds name and label;
+/// `macros` names the macros defined outside the text, in the session.
 pub fn candidates(
     text: &str,
     cursor: usize,
     variables: &[(String, String)],
+    macros: &[String],
     explicit: bool,
 ) -> (Vec<Candidate>, Range<usize>) {
     let before = &text[..cursor];
     let word_start = before
         .char_indices()
         .rev()
-        .take_while(|&(_, c)| c.is_alphanumeric() || matches!(c, '_' | '.' | '$' | '#' | '@'))
+        .take_while(|&(_, c)| c.is_alphanumeric() || matches!(c, '_' | '.' | '$' | '#' | '@' | '!'))
         .last()
         .map_or(cursor, |(i, _)| i);
     let typed = &text[word_start..cursor];
@@ -49,6 +90,23 @@ pub fn candidates(
     }
     let (state, line_start) = highlight::state_at(text, cursor);
     let line = &text[line_start..cursor];
+    let mut macro_names = highlight::macro_names(text);
+    for name in macros {
+        if !macro_names.iter().any(|m| m.eq_ignore_ascii_case(name)) {
+            macro_names.push(name.clone());
+        }
+    }
+    let macro_calls = |typed: &str| -> Vec<Candidate> {
+        macro_names
+            .iter()
+            .filter(|name| starts_with_ignore_case(name, typed))
+            .map(|name| Candidate {
+                text: name.clone(),
+                detail: "macro".into(),
+                what: What::Macro,
+            })
+            .collect()
+    };
 
     // the first words of a command: its name, perhaps of several words, perhaps abbreviated
     let indent = line.len() - line.trim_start().len();
@@ -64,7 +122,7 @@ pub fn candidates(
         } else {
             words.clone()
         };
-        let commands: Vec<Candidate> = statscraft_syntax::command_specs()
+        let mut commands: Vec<Candidate> = statscraft_syntax::command_specs()
             .iter()
             .filter(|spec| name_matches(spec.name, &typed_words))
             .map(|spec| Candidate {
@@ -73,9 +131,12 @@ pub fn candidates(
                 what: What::Command,
             })
             .collect();
+        commands.sort_by(|a, b| a.text.cmp(&b.text));
+        // a macro call stands where a command does
+        if typed_words.len() == 1 {
+            commands.extend(macro_calls(typed_words[0]));
+        }
         if !commands.is_empty() || words.len() <= 1 {
-            let mut commands = commands;
-            commands.sort_by(|a, b| a.text.cmp(&b.text));
             return (commands, name_start..cursor);
         }
     }
@@ -102,6 +163,19 @@ pub fn candidates(
         }));
     }
     if !slash {
+        out.extend(macro_calls(typed).into_iter().filter(|_| !typed.is_empty()));
+        if typed.starts_with('!') {
+            out.extend(
+                MACRO_WORDS
+                    .iter()
+                    .filter(|w| matches(w))
+                    .map(|w| Candidate {
+                        text: w.to_string(),
+                        detail: String::new(),
+                        what: What::Macro,
+                    }),
+            );
+        }
         out.extend(
             variables
                 .iter()
@@ -199,7 +273,7 @@ mod tests {
     }
 
     fn texts(text: &str, explicit: bool) -> (Vec<String>, Range<usize>) {
-        let (list, range) = candidates(text, text.len(), &vars(), explicit);
+        let (list, range) = candidates(text, text.len(), &vars(), &[], explicit);
         (list.into_iter().map(|c| c.text).collect(), range)
     }
 
@@ -241,11 +315,61 @@ mod tests {
         assert!(list.contains(&"age".to_string()));
         assert!(list.contains(&"ABS(".to_string()));
         // labels come along
-        let (list, _) = candidates("fre a", 5, &vars(), false);
+        let (list, _) = candidates("fre a", 5, &vars(), &[], false);
         let age = list.iter().find(|c| c.text == "age").unwrap();
         assert_eq!(age.detail, "Age in years");
         // a word typed in full is left alone
         assert!(texts("fre age", false).0.is_empty());
+    }
+
+    #[test]
+    fn macros_of_the_text_and_the_session_complete() {
+        let text = "DEFINE !freq (!POSITIONAL !TOKENS(1)) FRE !1. !ENDDEFINE.\nDEFINE tab2 ()\n\
+                    CROSSTABS a BY b.\n!ENDDEFINE.\n";
+        let session = vec!["TableSet".to_string()];
+        let at_end = |typed: &str| {
+            let text = format!("{text}{typed}");
+            let (list, _) = candidates(&text, text.len(), &vars(), &session, false);
+            list.into_iter()
+                .map(|c| (c.text, c.what))
+                .collect::<Vec<_>>()
+        };
+        // where a command goes, beside the commands
+        let list = at_end("t");
+        assert!(list.contains(&("tab2".to_string(), What::Macro)));
+        assert!(list.contains(&("TableSet".to_string(), What::Macro)));
+        assert!(list.iter().any(|(_, w)| *w == What::Command));
+        assert_eq!(at_end("!fr"), [("!freq".to_string(), What::Macro)]);
+        // inside a command, with the words of the macro language after !
+        let list = at_end("FREQUENCIES !");
+        assert!(list.contains(&("!freq".to_string(), What::Macro)));
+        assert!(list.contains(&("!ENDDEFINE".to_string(), What::Macro)));
+        assert!(at_end("fre tab").contains(&("tab2".to_string(), What::Macro)));
+    }
+
+    #[test]
+    fn commands_and_subcommands_of_the_table_complete() {
+        let (list, _) = texts("FREQUENCIES age\n  /", true);
+        for subcommand in ["FORMAT", "PERCENTILES", "NTILES", "STATISTICS", "MISSING"] {
+            assert!(list.contains(&subcommand.to_string()), "{subcommand}");
+        }
+        let (list, _) = texts("RANK age\n  /", true);
+        for subcommand in ["NTILES", "TIES", "FRACTION", "SAVAGE"] {
+            assert!(list.contains(&subcommand.to_string()), "{subcommand}");
+        }
+        for (typed, command) in [
+            ("ran", "RANK"),
+            ("se", "SET"),
+            ("dataset n", "DATASET NAME"),
+            ("inc", "INCLUDE"),
+            ("get da", "GET DATA"),
+            ("autor", "AUTORECODE"),
+        ] {
+            assert!(
+                texts(typed, false).0.contains(&command.to_string()),
+                "{command}"
+            );
+        }
     }
 
     #[test]
@@ -263,12 +387,12 @@ mod tests {
     #[test]
     fn accepting_replaces_what_was_typed() {
         let text = "fre\nexecute.";
-        let (list, range) = candidates(text, 3, &vars(), false);
+        let (list, range) = candidates(text, 3, &vars(), &[], false);
         let (out, cursor) = accept(text, range, &list[0]);
         assert_eq!(out, "FREQUENCIES \nexecute.");
         assert_eq!(cursor, 12);
         let text = "fre ag.";
-        let (list, range) = candidates(text, 6, &vars(), false);
+        let (list, range) = candidates(text, 6, &vars(), &[], false);
         assert_eq!(accept(text, range, &list[0]), ("fre age.".to_string(), 7));
     }
 }

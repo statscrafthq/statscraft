@@ -318,6 +318,8 @@ pub struct App {
     /// The full help of a command, from F1.
     help_window: Option<String>,
     completion: Option<Completion>,
+    /// The macros defined by the runs of the session, for completion and colours.
+    macros: Vec<String>,
     /// The About window is open.
     about: bool,
     editor_id: Option<egui::Id>,
@@ -388,6 +390,7 @@ impl App {
             source: String::new(),
             help_window: None,
             completion: None,
+            macros: Vec::new(),
             about: false,
             editor_id: None,
             output: OutputView::default(),
@@ -453,6 +456,7 @@ impl App {
             };
             let busy = self.busy.take().expect("checked above");
             self.finish(busy.after, result);
+            self.macros = session_macros(&self.session.log);
         }
         while self.busy.is_none()
             && let Ok(remote) = self.requests.try_recv()
@@ -542,6 +546,7 @@ impl App {
         }
         let syntax = self.session.undoable().unwrap_or_default().to_string();
         if self.session.undo() {
+            self.macros = session_macros(&self.session.log);
             self.data_file = self.file_before_change.take();
             self.cell_edit = None;
             self.field_edit = None;
@@ -1450,11 +1455,13 @@ impl App {
         let font = FontId::monospace(14.0);
         let error_lines: Vec<u32> = self.syntax_errors.iter().filter_map(|e| e.line).collect();
         let wrap = self.wrap;
+        let macros = self.macros.join(" ");
         let mut layouter = |ui: &Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
             let visuals = ui.visuals();
             let mut job = highlight::cached_job(
                 ui.ctx(),
                 text.as_str(),
+                &macros,
                 visuals.dark_mode,
                 visuals.text_color(),
                 14.0,
@@ -1591,7 +1598,8 @@ impl App {
                     .collect()
             })
             .unwrap_or_default();
-        let (list, range) = complete::candidates(&self.syntax, cursor, &variables, explicit);
+        let (list, range) =
+            complete::candidates(&self.syntax, cursor, &variables, &self.macros, explicit);
         self.completion = (!list.is_empty()).then_some(Completion {
             list,
             range,
@@ -1942,6 +1950,19 @@ fn data_states(data: &Dataset) -> Vec<(String, Dialog)> {
         ));
     }
     states
+}
+
+/// The macros defined by the commands of the session that ran, each name once.
+fn session_macros(log: &[statscraft_engine::session::LogEntry]) -> Vec<String> {
+    let mut names: Vec<String> = Vec::new();
+    for entry in log.iter().filter(|e| e.result.is_ok() && !e.undone) {
+        for name in highlight::macro_names(&entry.syntax) {
+            if !names.iter().any(|n| n.eq_ignore_ascii_case(&name)) {
+                names.push(name);
+            }
+        }
+    }
+    names
 }
 
 /// Whether the dataset has a string variable of that name.

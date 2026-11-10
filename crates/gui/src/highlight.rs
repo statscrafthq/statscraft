@@ -164,8 +164,37 @@ fn name_words(line: &str, start: usize, stop: usize) -> Vec<Range<usize>> {
     words
 }
 
+/// The names of the macros the text defines with DEFINE, as written.
+pub fn macro_names(text: &str) -> Vec<String> {
+    let mut names = Vec::new();
+    for line in text.lines() {
+        let mut words = line.split_whitespace();
+        if words
+            .next()
+            .is_some_and(|w| w.eq_ignore_ascii_case("DEFINE"))
+            && let Some(word) = words.next()
+        {
+            let name = word.split('(').next().unwrap_or_default();
+            if !name.is_empty() && !names.iter().any(|n: &String| n.eq_ignore_ascii_case(name)) {
+                names.push(name.to_string());
+            }
+        }
+    }
+    names
+}
+
+fn is_macro(macros: &[String], word: &str) -> bool {
+    macros.iter().any(|m| m.eq_ignore_ascii_case(word))
+}
+
 /// The spans of one line that are not plain, in order, and the state of the next line.
 pub fn line(text: &str, state: &mut State) -> Vec<(Range<usize>, Kind)> {
+    line_with(text, state, &[])
+}
+
+/// `line`, with the names of the macros defined, whose calls are coloured as macros: a call
+/// at the start of a command stands for the command it expands to.
+pub fn line_with(text: &str, state: &mut State, macros: &[String]) -> Vec<(Range<usize>, Kind)> {
     let mut spans = Vec::new();
     let code = text.trim();
     if state.data {
@@ -204,7 +233,11 @@ pub fn line(text: &str, state: &mut State) -> Vec<(Range<usize>, Kind)> {
         state.command = None;
         let words = name_words(text, indent, stop);
         let strs: Vec<&str> = words.iter().map(|w| &text[w.clone()]).collect();
-        if let Some((name, used)) = statscraft_syntax::command_name(&strs) {
+        // macros expand before the commands are read, so a macro name wins over a command
+        if let Some(first) = words.first().filter(|_| is_macro(macros, strs[0])) {
+            spans.push((first.clone(), Kind::Macro));
+            i = first.end;
+        } else if let Some((name, used)) = statscraft_syntax::command_name(&strs) {
             state.command = Some(name);
             spans.push((words[0].start..words[used - 1].end, Kind::Command));
             i = words[used - 1].end;
@@ -268,7 +301,7 @@ pub fn line(text: &str, state: &mut State) -> Vec<(Range<usize>, Kind)> {
         if word_char(c) && c != '.' {
             let end = word_end(text, i, stop);
             let word = &text[i..end];
-            let kind = if c == '!' {
+            let kind = if c == '!' || is_macro(macros, word) {
                 Kind::Macro
             } else if after_slash {
                 Kind::Subcommand
@@ -345,7 +378,10 @@ pub fn color(kind: Kind, dark: bool, plain: Color32) -> Color32 {
 }
 
 /// The whole text as a layout job with its colours; the wrap width is set by the caller.
-fn job(text: &str, dark: bool, plain: Color32, size: f32) -> LayoutJob {
+/// `macros` names macros defined outside the text, separated by blanks.
+fn job(text: &str, macros: &str, dark: bool, plain: Color32, size: f32) -> LayoutJob {
+    let mut names = macro_names(text);
+    names.extend(macros.split_whitespace().map(str::to_string));
     let font = FontId::monospace(size);
     let format = |kind: Kind| TextFormat {
         font_id: font.clone(),
@@ -378,7 +414,7 @@ fn job(text: &str, dark: bool, plain: Color32, size: f32) -> LayoutJob {
     let mut start = 0;
     for l in text.split_inclusive('\n') {
         let mut at = start;
-        for (range, kind) in line(l.trim_end_matches(['\n', '\r']), &mut state) {
+        for (range, kind) in line_with(l.trim_end_matches(['\n', '\r']), &mut state, &names) {
             push(at..start + range.start, Kind::Plain);
             push(start + range.start..start + range.end, kind);
             at = start + range.end;
@@ -392,16 +428,20 @@ fn job(text: &str, dark: bool, plain: Color32, size: f32) -> LayoutJob {
 #[derive(Default)]
 struct Highlighter;
 
-impl egui::cache::ComputerMut<(&str, bool, Color32, u32), LayoutJob> for Highlighter {
-    fn compute(&mut self, (text, dark, plain, size): (&str, bool, Color32, u32)) -> LayoutJob {
-        job(text, dark, plain, size as f32)
+type JobKey<'a> = (&'a str, &'a str, bool, Color32, u32);
+
+impl egui::cache::ComputerMut<JobKey<'_>, LayoutJob> for Highlighter {
+    fn compute(&mut self, (text, macros, dark, plain, size): JobKey) -> LayoutJob {
+        job(text, macros, dark, plain, size as f32)
     }
 }
 
-/// The coloured layout job of `text`, computed again only when the text or the theme changes.
+/// The coloured layout job of `text`, computed again only when the text, the macros defined
+/// elsewhere (`macros`, separated by blanks) or the theme change.
 pub fn cached_job(
     ctx: &egui::Context,
     text: &str,
+    macros: &str,
     dark: bool,
     plain: Color32,
     size: f32,
@@ -410,7 +450,7 @@ pub fn cached_job(
     ctx.memory_mut(|m| {
         m.caches
             .cache::<Cache>()
-            .get((text, dark, plain, size as u32))
+            .get((text, macros, dark, plain, size as u32))
             .clone()
     })
 }
@@ -538,9 +578,54 @@ mod tests {
     }
 
     #[test]
+    fn macro_calls_and_macro_words_are_coloured_as_macros() {
+        let text = "DEFINE !freq (!POSITIONAL !TOKENS(1))\nFREQUENCIES VARIABLES=!1.\n\
+                    !ENDDEFINE.\ndefine Tab2 ()\nCROSSTABS a BY b.\n!enddefine.\n";
+        assert_eq!(macro_names(text), ["!freq", "Tab2"]);
+        let macros = macro_names(text);
+        let spans = |line: &str| -> Vec<(String, Kind)> {
+            let mut state = State::default();
+            line_with(line, &mut state, &macros)
+                .into_iter()
+                .map(|(r, k)| (line[r].to_string(), k))
+                .collect()
+        };
+        // a call where a command goes is a call, not an unknown command
+        assert_eq!(
+            spans("tab2."),
+            [
+                ("tab2".to_string(), Kind::Macro),
+                (".".to_string(), Kind::Period)
+            ]
+        );
+        assert_eq!(
+            spans("!freq age."),
+            [
+                ("!freq".to_string(), Kind::Macro),
+                (".".to_string(), Kind::Period)
+            ]
+        );
+        // inside a command too, and the words of the macro language
+        assert_eq!(
+            spans("FREQUENCIES tab2 !TOKENS")[1..],
+            [
+                ("tab2".to_string(), Kind::Macro),
+                ("!TOKENS".to_string(), Kind::Macro)
+            ]
+        );
+        // without the definition the same word is plain
+        let mut state = State::default();
+        assert!(line("tab2.", &mut state)[0].1 != Kind::Macro);
+        // a macro defined elsewhere colours the text too
+        let job = job("Other x.", "OTHER", false, Color32::BLACK, 14.0);
+        let macro_color = color(Kind::Macro, false, Color32::BLACK);
+        assert_eq!(job.sections[0].format.color, macro_color);
+    }
+
+    #[test]
     fn the_job_covers_the_text_once() {
         let text = "fre x.\n* note.\n\nCOMPUTE y = 'a'.\n";
-        let job = job(text, true, Color32::WHITE, 14.0);
+        let job = job(text, "", true, Color32::WHITE, 14.0);
         let mut at = 0;
         for section in &job.sections {
             assert_eq!(section.byte_range.start.0, at);
