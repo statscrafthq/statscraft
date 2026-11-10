@@ -39,6 +39,8 @@ pub enum Punct {
     Not,
     LBracket,
     RBracket,
+    /// `%`, as in ALTER TYPE (A=AMIN + 10%)
+    Percent,
 }
 
 impl Punct {
@@ -63,6 +65,7 @@ impl Punct {
             Punct::Not => "~",
             Punct::LBracket => "[",
             Punct::RBracket => "]",
+            Punct::Percent => "%",
         }
     }
 }
@@ -274,6 +277,7 @@ impl<'a> Lexer<'a> {
             ('~', _) => (Punct::Not, 1),
             ('[', _) => (Punct::LBracket, 1),
             (']', _) => (Punct::RBracket, 1),
+            ('%', _) => (Punct::Percent, 1),
             _ => {
                 let start = self.col;
                 self.col += 1;

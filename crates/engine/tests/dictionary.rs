@@ -189,6 +189,54 @@ fn save_and_get_keep_drop_and_rename_and_apply_dictionary() {
 }
 
 #[test]
+fn alter_type_amin_adds_a_percentage_of_the_width() {
+    let mut s = session();
+    // the longest code is 5 bytes; 50 percent of it, 2.5, rounds to 3
+    run(&mut s, "ALTER TYPE code (A=AMIN + 50%) name (AMIN).");
+    let data = s.dataset().unwrap();
+    assert_eq!(data.variable("code").unwrap().format(), "A8");
+    assert_eq!(data.variable("name").unwrap().format(), "A11");
+}
+
+#[test]
+fn apply_dictionary_newvars_adds_the_missing_variables() {
+    let dir = temp_dir("newvars");
+    let file = dir.join("dict.sav").to_string_lossy().into_owned();
+    let mut s = session();
+    run(
+        &mut s,
+        &format!(
+            "VARIABLE LABELS name 'First name'.\nDATASET NAME full.\nSAVE OUTFILE='{file}'.\n\
+             DATA LIST LIST /id.\nBEGIN DATA\n7\n8\nEND DATA.\n\
+             APPLY DICTIONARY FROM full /NEWVARS."
+        ),
+    );
+    let data = s.dataset().unwrap();
+    let names: Vec<&str> = data.variable_names().collect();
+    assert_eq!(names, ["id", "score", "name", "code"]);
+    assert_eq!(numbers(data, "score"), [None, None]);
+    assert_eq!(strings(data, "name"), ["", ""]);
+    let name = data.variable("name").unwrap();
+    assert_eq!((name.format(), name.label()), ("A12", Some("First name")));
+    // id kept its own type and values; the source's format came onto it
+    assert_eq!(numbers(data, "id"), [Some(7.0), Some(8.0)]);
+    assert_eq!(data.variable("id").unwrap().format(), "F3.0");
+    // without an active dataset NEWVARS makes one with the variables and no cases
+    let mut empty = Session::default();
+    run(
+        &mut empty,
+        &format!("APPLY DICTIONARY FROM '{file}' /NEWVARS."),
+    );
+    let data = empty.dataset().unwrap();
+    assert_eq!((data.case_count(), data.variable_count()), (0, 4));
+    assert_eq!(
+        data.variable("score").unwrap().value_labels()[0].1,
+        "low".to_string()
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn aggregate_accepts_presorted() {
     let mut s = session();
     run(&mut s, "AGGREGATE /OUTFILE=* /PRESORTED /BREAK=id /n = N.");

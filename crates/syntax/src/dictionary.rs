@@ -246,15 +246,13 @@ pub(crate) fn alter_type(p: &mut Parser) -> PResult<Command> {
             first = format_word(p, "a format such as A20 or F8.2, or AMIN")?;
         }
         let to = if first.eq_ignore_ascii_case("AMIN") || first.eq_ignore_ascii_case("AHEXMIN") {
-            // shortcut: AMIN + n% is not read, since % is no token yet; add it when a file needs it
             let mut plus = 0.0;
+            let mut percent = false;
             if p.eat(Punct::Plus) {
                 plus = p.number().ok_or_else(|| p.unexpected(&["a number"]))?;
+                percent = p.eat(Punct::Percent);
             }
-            AlterTarget::Amin {
-                plus,
-                percent: false,
-            }
+            AlterTarget::Amin { plus, percent }
         } else {
             let parsed =
                 format(&first).map_err(|message| SyntaxError::new(p.span_from(start), message))?;

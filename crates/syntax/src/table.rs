@@ -1044,13 +1044,14 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "ALTER TYPE",
         summary: "Change the type, string width or format of variables.",
-        syntax: "ALTER TYPE varlist ([input =] format | AMIN [+ n]) [varlist (...) ...] [/PRINT ...].\n\
+        syntax: "ALTER TYPE varlist ([input =] format | AMIN [+ n[%]]) [varlist (...) ...] [/PRINT ...].\n\
                  A string variable may get another width (A20); values longer than it are cut. A numeric\n\
                  variable may get another numeric format, or become a string holding its formatted\n\
                  values; a string may become numeric with an F, COMMA or DOT format, a value that is no\n\
                  number becoming system-missing. A type change drops value labels and missing values.\n\
                  input = (A=, F=, A10=) limits the change to variables of that type and width.\n\
-                 AMIN gives a string variable the width of its longest value, plus n bytes.\n\
+                 AMIN gives a string variable the width of its longest value, plus n bytes or n percent of\n\
+                 that width (rounded).\n\
                  /PRINT is accepted; no report is shown.",
         example: "ALTER TYPE comment (A500) code (A=AMIN).",
         parse: dictionary::alter_type,
@@ -1068,7 +1069,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Without VARINFO everything but attributes is copied, value labels replacing; without\n\
                  FILEINFO only the weight. SOURCE with one variable and TARGET copies that variable's\n\
                  information to every target of the same type. Empty information in the source does\n\
-                 not overwrite the active dataset's. NEWVARS is not supported yet.",
+                 not overwrite the active dataset's. NEWVARS adds the source variables the active dataset\n\
+                 lacks, with their dictionary information and missing values; without an active dataset it\n\
+                 makes one with the source's variables and no cases.",
         example: "APPLY DICTIONARY FROM 'template.sav' /FILEINFO VARSETS=MERGE MRSETS.",
         parse: dictionary::apply_dictionary,
     },

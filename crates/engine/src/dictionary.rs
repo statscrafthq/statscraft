@@ -281,18 +281,26 @@ impl Engine {
     }
 
     fn apply_dictionary(&mut self, apply: &ApplyDictionary) -> Result<(), Error> {
-        if apply.newvars {
-            return Err(Error(
-                "APPLY DICTIONARY /NEWVARS is not supported yet".into(),
-            ));
-        }
         let source: Dataset = match &apply.from {
             None => self.active()?.clone(),
-            Some(name) => match self.named_dataset(name) {
-                Some(data) => data.clone(),
-                None => Dataset::read_sav(self.path(name))?,
-            },
+            Some(name) => self.data_file(name)?,
         };
+        let source_names: Vec<String> = match &apply.source {
+            Some(items) => Engine::with_dataset(Some(source.clone())).expand(items)?,
+            None => source.variable_names().map(str::to_string).collect(),
+        };
+        let one_to_many = apply.source.is_some() && apply.target.is_some();
+        if apply.newvars && !one_to_many {
+            // source variables the active dataset lacks come in with their dictionary entry and
+            // no values; without an active dataset they make a new one without cases
+            let data = self.dataset.get_or_insert_with(|| Dataset::new(0));
+            let blank = vec![None; data.case_count()];
+            for name in &source_names {
+                if data.variable_index(name).is_none() {
+                    data.copy_variable(&source, name, &blank)?;
+                }
+            }
+        }
         let target_names: Vec<String> = match &apply.target {
             Some(items) => self.expand(items)?,
             None => self
@@ -301,11 +309,6 @@ impl Engine {
                 .map(str::to_string)
                 .collect(),
         };
-        let source_names: Vec<String> = match &apply.source {
-            Some(items) => Engine::with_dataset(Some(source.clone())).expand(items)?,
-            None => source.variable_names().map(str::to_string).collect(),
-        };
-        let one_to_many = apply.source.is_some() && apply.target.is_some();
         if one_to_many && source_names.len() != 1 {
             return Err(Error(
                 "APPLY DICTIONARY with SOURCE and TARGET takes one SOURCE variable".into(),

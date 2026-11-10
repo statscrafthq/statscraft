@@ -17,7 +17,7 @@ APPLY DICTIONARY FROM 'file' | dataset | * [/SOURCE VARIABLES=varlist]
 
 Variables match by name and type; with a different type only the label is copied.
 
-Without VARINFO everything but attributes is copied, value labels replacing; without FILEINFO only the weight. SOURCE with one variable and TARGET copies that variable's information to every target of the same type. Empty information in the source does not overwrite the active dataset's. NEWVARS is not supported yet.
+Without VARINFO everything but attributes is copied, value labels replacing; without FILEINFO only the weight. SOURCE with one variable and TARGET copies that variable's information to every target of the same type. Empty information in the source does not overwrite the active dataset's. NEWVARS adds the source variables the active dataset lacks, with their dictionary information and missing values; without an active dataset it makes one with the source's variables and no cases.
 
 ## Example
 
