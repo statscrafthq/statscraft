@@ -21,7 +21,7 @@ use crate::output_view::{self, OutputView};
 use crate::settings::Settings;
 use crate::syntax_text::{number, quote};
 use crate::updates::Updates;
-use crate::{complete, editor, grid, highlight};
+use crate::{complete, editor, grid, highlight, themes};
 use eframe::egui::{
     self, Align, Align2, Color32, ComboBox, FocusDirection, FontId, Key, Modifiers, Rect, RichText,
     ScrollArea, Sense, Stroke, StrokeKind, TextEdit, TextStyle, Ui, UiBuilder, pos2,
@@ -788,7 +788,17 @@ impl App {
                 ui.checkbox(&mut self.show_log, "Log");
                 ui.checkbox(&mut self.wrap, "Wrap long lines in the syntax editor");
                 ui.separator();
-                ui.weak("Paper of the grids, the syntax and the output");
+                ui.menu_button("Syntax colours", |ui| {
+                    for theme in &themes::THEMES {
+                        let on = themes::by_name(&self.settings.theme).name == theme.name;
+                        if ui.radio(on, theme.name).clicked() {
+                            self.settings.theme = theme.name.to_string();
+                            let _ = self.settings.save();
+                        }
+                    }
+                });
+                ui.separator();
+                ui.weak("Paper of the grids and the output");
                 let follow = &mut self.settings.paper_follows_system;
                 let changed = ui.radio_value(follow, false, "Always light").changed()
                     | ui.radio_value(follow, true, "Follow the system theme")
@@ -1958,16 +1968,14 @@ impl App {
         let error_lines: Vec<u32> = self.syntax_errors.iter().filter_map(|e| e.line).collect();
         let wrap = self.wrap;
         let macros = self.macros.join(" ");
+        let theme = themes::by_name(&self.settings.theme);
+        let theme_index = themes::THEMES
+            .iter()
+            .position(|t| t.name == theme.name)
+            .unwrap_or(0);
         let mut layouter = |ui: &Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
-            let visuals = ui.visuals();
-            let mut job = highlight::cached_job(
-                ui.ctx(),
-                text.as_str(),
-                &macros,
-                visuals.dark_mode,
-                visuals.text_color(),
-                14.0,
-            );
+            let mut job =
+                highlight::cached_job(ui.ctx(), text.as_str(), &macros, theme_index, 14.0);
             job.wrap.max_width = if wrap { wrap_width } else { f32::INFINITY };
             ui.ctx().fonts_mut(|f| f.layout_job(job))
         };
@@ -1977,11 +1985,10 @@ impl App {
         } else {
             ScrollArea::both()
         };
-        let light = !self.settings.paper_follows_system;
         let mut popup_at = None;
         let mut hovered_command = None;
         egui::CentralPanel::default().show(ui, |ui| {
-            paper(ui, light);
+            editor_paper(ui, theme);
             // the text fills the tab however tall the window is
             let height = ui.available_height();
             area.auto_shrink(false).show(ui, |ui| {
@@ -2410,6 +2417,9 @@ impl eframe::App for App {
                 ui.label("License: MIT");
                 ui.hyperlink_to("Source code", REPOSITORY);
                 ui.hyperlink_to("Documentation", DOCS);
+                ui.collapsing("Colour themes", |ui| {
+                    ui.add(egui::Label::new(RichText::new(themes::NOTICES).small()).wrap());
+                });
             });
     }
 }
@@ -2424,6 +2434,21 @@ pub(crate) fn paper(ui: &mut Ui, light: bool) {
     let sheet = ui.available_rect_before_wrap();
     ui.painter()
         .rect_filled(sheet, 0.0, ui.visuals().extreme_bg_color);
+}
+
+/// The rest of `ui` as the syntax editor's sheet, in the colours of its theme.
+fn editor_paper(ui: &mut Ui, theme: &themes::Theme) {
+    let visuals = &mut ui.style_mut().visuals;
+    *visuals = if theme.dark {
+        egui::Visuals::dark()
+    } else {
+        egui::Visuals::light()
+    };
+    square(visuals);
+    visuals.extreme_bg_color = theme.background;
+    visuals.text_cursor.stroke.color = theme.text;
+    let sheet = ui.available_rect_before_wrap();
+    ui.painter().rect_filled(sheet, 0.0, theme.background);
 }
 
 /// Square corners for every control, menu and window, to match the square grids.

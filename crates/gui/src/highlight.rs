@@ -1,8 +1,9 @@
 //! Syntax colours: the spans of every line by kind, carried from line to line, and the layout
 //! job the editor draws, kept for as long as the text and the theme stay the same.
 
+use crate::themes::{THEMES, Theme};
 use eframe::egui::{
-    self, Color32, FontId, TextFormat,
+    self, FontId, TextFormat,
     text::{ByteIndex, LayoutJob, LayoutSection},
 };
 use std::collections::HashMap;
@@ -353,39 +354,15 @@ pub fn state_at(text: &str, at: usize) -> (State, usize) {
     (state, start)
 }
 
-/// Colours of a theme, light or dark.
-pub fn color(kind: Kind, dark: bool, plain: Color32) -> Color32 {
-    let rgb = |r, g, b| Color32::from_rgb(r, g, b);
-    match (kind, dark) {
-        (Kind::Plain, _) => plain,
-        (Kind::Command, false) => rgb(0x1a, 0x4f, 0xb8),
-        (Kind::Command, true) => rgb(0x6c, 0xb0, 0xff),
-        (Kind::Subcommand, false) => rgb(0x00, 0x74, 0x74),
-        (Kind::Subcommand, true) => rgb(0x4e, 0xd0, 0xc0),
-        (Kind::Keyword, false) => rgb(0x86, 0x2d, 0xa8),
-        (Kind::Keyword, true) => rgb(0xd0, 0x96, 0xe8),
-        (Kind::String, false) => rgb(0xa3, 0x3a, 0x12),
-        (Kind::String, true) => rgb(0xe8, 0xa0, 0x78),
-        (Kind::Number, false) => rgb(0x0b, 0x7a, 0x3e),
-        (Kind::Number, true) => rgb(0xa8, 0xd8, 0x8c),
-        (Kind::Comment, false) => rgb(0x6a, 0x70, 0x78),
-        (Kind::Comment, true) => rgb(0x8c, 0x94, 0x9c),
-        (Kind::Macro, false) => rgb(0x8a, 0x5a, 0x00),
-        (Kind::Macro, true) => rgb(0xe6, 0xc8, 0x70),
-        (Kind::Period, false) => rgb(0xc0, 0x10, 0x10),
-        (Kind::Period, true) => rgb(0xff, 0x80, 0x70),
-    }
-}
-
 /// The whole text as a layout job with its colours; the wrap width is set by the caller.
 /// `macros` names macros defined outside the text, separated by blanks.
-fn job(text: &str, macros: &str, dark: bool, plain: Color32, size: f32) -> LayoutJob {
+fn job(text: &str, macros: &str, theme: &Theme, size: f32) -> LayoutJob {
     let mut names = macro_names(text);
     names.extend(macros.split_whitespace().map(str::to_string));
     let font = FontId::monospace(size);
     let format = |kind: Kind| TextFormat {
         font_id: font.clone(),
-        color: color(kind, dark, plain),
+        color: theme.color(kind),
         italics: kind == Kind::Comment,
         ..Default::default()
     };
@@ -428,11 +405,12 @@ fn job(text: &str, macros: &str, dark: bool, plain: Color32, size: f32) -> Layou
 #[derive(Default)]
 struct Highlighter;
 
-type JobKey<'a> = (&'a str, &'a str, bool, Color32, u32);
+/// The text, the macros defined elsewhere, the index of the theme and the font size.
+type JobKey<'a> = (&'a str, &'a str, usize, u32);
 
 impl egui::cache::ComputerMut<JobKey<'_>, LayoutJob> for Highlighter {
-    fn compute(&mut self, (text, macros, dark, plain, size): JobKey) -> LayoutJob {
-        job(text, macros, dark, plain, size as f32)
+    fn compute(&mut self, (text, macros, theme, size): JobKey) -> LayoutJob {
+        job(text, macros, &THEMES[theme], size as f32)
     }
 }
 
@@ -442,15 +420,14 @@ pub fn cached_job(
     ctx: &egui::Context,
     text: &str,
     macros: &str,
-    dark: bool,
-    plain: Color32,
+    theme: usize,
     size: f32,
 ) -> LayoutJob {
     type Cache = egui::cache::FrameCache<LayoutJob, Highlighter>;
     ctx.memory_mut(|m| {
         m.caches
             .cache::<Cache>()
-            .get((text, macros, dark, plain, size as u32))
+            .get((text, macros, theme, size as u32))
             .clone()
     })
 }
@@ -617,15 +594,15 @@ mod tests {
         let mut state = State::default();
         assert!(line("tab2.", &mut state)[0].1 != Kind::Macro);
         // a macro defined elsewhere colours the text too
-        let job = job("Other x.", "OTHER", false, Color32::BLACK, 14.0);
-        let macro_color = color(Kind::Macro, false, Color32::BLACK);
+        let job = job("Other x.", "OTHER", &THEMES[0], 14.0);
+        let macro_color = THEMES[0].color(Kind::Macro);
         assert_eq!(job.sections[0].format.color, macro_color);
     }
 
     #[test]
     fn the_job_covers_the_text_once() {
         let text = "fre x.\n* note.\n\nCOMPUTE y = 'a'.\n";
-        let job = job(text, "", true, Color32::WHITE, 14.0);
+        let job = job(text, "", &THEMES[1], 14.0);
         let mut at = 0;
         for section in &job.sections {
             assert_eq!(section.byte_range.start.0, at);

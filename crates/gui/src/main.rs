@@ -15,6 +15,7 @@ mod output;
 mod output_view;
 mod settings;
 mod syntax_text;
+mod themes;
 mod updates;
 
 use eframe::egui;

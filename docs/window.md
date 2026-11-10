@@ -25,11 +25,11 @@ A dialog shows the syntax it builds: OK runs it, Paste puts it in the syntax edi
 
 Syntax is the only command layer: every change and every result in the window comes from syntax run by the engine, exactly as `statscraft run` runs it. Opening a file runs `GET FILE`, editing a cell runs `IF ($CASENUM = n) var = value.`, editing a label runs `VARIABLE LABELS`, and so on. The log under the tabs lists every command with what it changed, and Copy syntax there gives a script that repeats the session. Macros defined by one Run (DEFINE, or INCLUDE of a macro library) stay defined for the later ones while the window is open, with the macro settings of SET.
 
-View, Paper chooses how the Data and Variable grids, the syntax text and the output tables look: Always light (the default) keeps them dark text on a light sheet while menus, panels and dialogs follow the system's dark or light theme, as a spreadsheet or a document page does; Follow the system theme draws them in the system theme too.
+View, Paper chooses how the Data and Variable grids and the output tables look: Always light (the default) keeps them dark text on a light sheet while menus, panels and dialogs follow the system's dark or light theme, as a spreadsheet or a document page does; Follow the system theme draws them in the system theme too. View, Syntax colours chooses the colours and background of the syntax editor from ready-made editor themes: Catppuccin Latte (the default) and Mocha, One Dark, Solarized Light and Dark, GitHub Light and Dark.
 
-Help, Documentation opens these pages online; Help, About shows the version, the license (MIT) and links to the source code and the documentation.
+Help, Documentation opens these pages online; Help, About shows the version, the license (MIT), links to the source code and the documentation, and where the colour themes come from with their licenses.
 
-The window remembers its size and position, the folder of the last file dialog, the ten files opened or saved last (File, Recent files), the paper setting, the Variable View's column widths and the update check setting in `statscraft/window.txt` in the user's config folder: `%APPDATA%` on Windows, `$XDG_CONFIG_HOME` or `~/.config` elsewhere.
+The window remembers its size and position, the folder of the last file dialog, the ten files opened or saved last (File, Recent files), the paper setting, the syntax colours, the Variable View's column widths and the update check setting in `statscraft/window.txt` in the user's config folder: `%APPDATA%` on Windows, `$XDG_CONFIG_HOME` or `~/.config` elsewhere.
 
 Edit, Undo last change (Ctrl+Z outside a text field) puts back the dataset from before the last run that changed it, one step; the log marks that run as undone and Copy syntax leaves it out. Long lines in the syntax editor wrap at the window edge; View turns that off.
 

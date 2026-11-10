@@ -23,6 +23,8 @@ pub struct Settings {
     pub paper_follows_system: bool,
     /// Widths of the Variable View's columns, when they were changed.
     pub variable_widths: Vec<f32>,
+    /// The colour theme of the syntax editor, by name; empty for the default.
+    pub theme: String,
 }
 
 impl Settings {
@@ -58,7 +60,8 @@ impl Settings {
     }
 
     /// Reads the lines `size W H`, `position X Y`, `folder PATH`, `recent PATH`,
-    /// `updates on|off`, `update-checked SECONDS`, `paper system` and `variable_widths W ...`;
+    /// `updates on|off`, `update-checked SECONDS`, `paper system`, `theme NAME` and
+    /// `variable_widths W ...`;
     /// anything else is skipped.
     pub fn parse(text: &str) -> Self {
         let mut settings = Self::default();
@@ -75,6 +78,7 @@ impl Settings {
                 "size" => settings.size = pair(rest),
                 "position" => settings.position = pair(rest),
                 "paper" => settings.paper_follows_system = rest == "system",
+                "theme" => settings.theme = rest.to_string(),
                 "variable_widths" => {
                     let widths = rest.split_whitespace().map(str::parse::<f32>);
                     settings.variable_widths = widths.collect::<Result<_, _>>().unwrap_or_default();
@@ -104,6 +108,9 @@ impl Settings {
         }
         if self.paper_follows_system {
             text.push_str("paper system\n");
+        }
+        if !self.theme.is_empty() {
+            text.push_str(&format!("theme {}\n", self.theme));
         }
         if !self.variable_widths.is_empty() {
             let widths: Vec<String> = self.variable_widths.iter().map(f32::to_string).collect();
@@ -153,6 +160,7 @@ mod tests {
             update_checked: Some(1_790_000_000),
             paper_follows_system: true,
             variable_widths: vec![150.0, 80.5],
+            theme: "Solarized Dark".into(),
         };
         for i in 0..12 {
             settings.add_recent(Path::new(&format!("/data/f{i}.sav")));
