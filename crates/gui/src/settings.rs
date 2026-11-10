@@ -18,6 +18,9 @@ pub struct Settings {
     pub updates: Option<bool>,
     /// When updates were last checked, in seconds since 1970.
     pub update_checked: Option<u64>,
+    /// The grids, the syntax text and the output follow the system's theme; otherwise they
+    /// stay light like paper.
+    pub paper_follows_system: bool,
 }
 
 impl Settings {
@@ -53,7 +56,7 @@ impl Settings {
     }
 
     /// Reads the lines `size W H`, `position X Y`, `folder PATH`, `recent PATH`,
-    /// `updates on|off` and `update-checked SECONDS`; anything else is skipped.
+    /// `updates on|off`, `update-checked SECONDS` and `paper system`; anything else is skipped.
     pub fn parse(text: &str) -> Self {
         let mut settings = Self::default();
         let pair = |rest: &str| {
@@ -68,6 +71,7 @@ impl Settings {
             match key {
                 "size" => settings.size = pair(rest),
                 "position" => settings.position = pair(rest),
+                "paper" => settings.paper_follows_system = rest == "system",
                 "folder" if !rest.is_empty() => settings.folder = Some(PathBuf::from(rest)),
                 "recent" if !rest.is_empty() && settings.recent.len() < RECENT => {
                     settings.recent.push(PathBuf::from(rest))
@@ -90,6 +94,9 @@ impl Settings {
         }
         if let Some(folder) = &self.folder {
             text.push_str(&format!("folder {}\n", folder.display()));
+        }
+        if self.paper_follows_system {
+            text.push_str("paper system\n");
         }
         for file in &self.recent {
             text.push_str(&format!("recent {}\n", file.display()));
@@ -133,6 +140,7 @@ mod tests {
             recent: Vec::new(),
             updates: Some(false),
             update_checked: Some(1_790_000_000),
+            paper_follows_system: true,
         };
         for i in 0..12 {
             settings.add_recent(Path::new(&format!("/data/f{i}.sav")));

@@ -93,6 +93,8 @@ pub struct OutputView {
     scroll_to: Option<(u64, u8)>,
     /// Kept open: on Linux the copied text lives as long as the clipboard does.
     clipboard: Option<arboard::Clipboard>,
+    /// The tables on light paper whatever the system theme.
+    pub light_paper: bool,
 }
 
 impl OutputView {
@@ -294,6 +296,7 @@ impl OutputView {
             .max_size(480.0)
             .show(ui, |ui| self.navigator(ui, ctrl));
         egui::CentralPanel::default().show(ui, |ui| {
+            crate::app::paper(ui, self.light_paper);
             if let Some(r) = self.tables(ui, ctrl) {
                 request = Some(r);
             }

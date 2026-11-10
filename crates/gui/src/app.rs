@@ -706,6 +706,15 @@ impl App {
                     "Command help in the syntax editor (F1)",
                 );
                 ui.checkbox(&mut self.wrap, "Wrap long lines in the syntax editor");
+                ui.separator();
+                ui.weak("Paper of the grids, the syntax and the output");
+                let follow = &mut self.settings.paper_follows_system;
+                let changed = ui.radio_value(follow, false, "Always light").changed()
+                    | ui.radio_value(follow, true, "Follow the system theme")
+                        .changed();
+                if changed {
+                    let _ = self.settings.save();
+                }
             });
             ui.menu_button("Data", |ui| {
                 let weight = self
@@ -998,6 +1007,7 @@ impl App {
                 "Double-click a cell or press Enter to change it; arrows, Tab and Page keys move. The change runs as syntax and shows in the log.",
             );
         });
+        paper(ui, !self.settings.paper_follows_system);
         let data = self.session.dataset().expect("checked above");
         let char_width = TextStyle::Body.resolve(ui.style()).size * 0.6;
         let labels = self.value_labels;
@@ -1154,6 +1164,7 @@ impl App {
             return Self::no_data(ui);
         }
         ui.weak("Double-click a cell to change it. Value labels are written as 1 = Yes; 2 = No, missing values as 98, 99 or LO THRU -1, 9.");
+        paper(ui, !self.settings.paper_follows_system);
         let data = self.session.dataset().expect("checked above");
         let headers: Vec<String> = Field::ALL.iter().map(|f| f.title().to_string()).collect();
         let widths = [150.0, 80.0, 90.0, 60.0, 72.0, 260.0, 300.0, 170.0, 100.0];
@@ -1310,7 +1321,9 @@ impl App {
         } else {
             ScrollArea::both()
         };
+        let light = !self.settings.paper_follows_system;
         egui::CentralPanel::default().show(ui, |ui| {
+            paper(ui, light);
             area.auto_shrink(false).show(ui, |ui| {
                 ui.horizontal_top(|ui| {
                     let left = ui.cursor().left();
@@ -1554,6 +1567,7 @@ impl eframe::App for App {
             Tab::Variables => self.variable_view(ui),
             Tab::Syntax => self.syntax_view(ui),
             Tab::Output => {
+                self.output.light_paper = !self.settings.paper_follows_system;
                 let request = self.output.ui(ui);
                 match request {
                     Some(output_view::Request::ExportHtml) => self.export_html(true),
@@ -1568,6 +1582,17 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         self.dialog_window(&ctx);
     }
+}
+
+/// The rest of `ui` as a sheet of paper: light with dark text when `light`, whatever the system
+/// theme, as a spreadsheet or a document page stays light in dark mode.
+pub(crate) fn paper(ui: &mut Ui, light: bool) {
+    if light {
+        ui.style_mut().visuals = egui::Visuals::light();
+    }
+    let sheet = ui.available_rect_before_wrap();
+    ui.painter()
+        .rect_filled(sheet, 0.0, ui.visuals().extreme_bg_color);
 }
 
 /// What the status bar says about the warnings of the last run.
