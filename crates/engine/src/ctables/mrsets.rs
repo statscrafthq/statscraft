@@ -32,10 +32,9 @@ use super::{
 use crate::{Engine, Error};
 use statscraft_data::{Dataset, Value, Values, Variable};
 use statscraft_syntax::{
-    AxisVariable, Categories, CategoryItem, Ctables, PercentOf, Statistic, Summary,
+    AxisVariable, Categories, CategoryItem, CategoryOrder, Ctables, PercentOf, Statistic, Summary,
     SummaryFunction, VarItem,
 };
-use std::collections::HashMap;
 
 /// A set as a table variable, resolved against the dictionary.
 pub(super) struct Set<'a> {
@@ -206,7 +205,7 @@ pub(super) fn set_categories(set: &Set, spec: Option<&Categories>) -> Result<Cat
         }
         None => {
             let mut order: Vec<usize> = (0..set.variables.len()).collect();
-            if spec.is_some_and(|s| s.by_label) {
+            if spec.is_some_and(|s| s.key == CategoryOrder::Label) {
                 order.sort_by_cached_key(|i| label(&set.variables[*i]));
             }
             if spec.is_some_and(|s| s.descending) {
@@ -227,11 +226,7 @@ pub(super) fn set_categories(set: &Set, spec: Option<&Categories>) -> Result<Cat
             },
         );
     }
-    let mut list = CategoryList {
-        categories: Vec::new(),
-        numbers: HashMap::new(),
-        texts: HashMap::new(),
-    };
+    let mut list = CategoryList::default();
     for item in order {
         let i = match item {
             Ok(i) => i,

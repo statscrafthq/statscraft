@@ -47,6 +47,10 @@ pub enum PcomputeExpr {
     /// `SUBTOTAL` or `SUBTOTAL[n]`: the summary of the only subtotal of the list, or of its nth
     /// subtotal (from 1), SUBTOTAL or HSUBTOTAL alike.
     Subtotal(Option<usize>),
+    /// `[MISSING]`: the sum of the user-missing categories of the list.
+    Missing,
+    /// `[OTHERNM]`: the sum of the categories that OTHERNM puts in the list.
+    OtherNm,
     Number(f64),
     Negate(Box<PcomputeExpr>),
     Binary(PcomputeOp, Box<PcomputeExpr>, Box<PcomputeExpr>),
@@ -97,6 +101,8 @@ impl std::fmt::Display for PcomputeExpr {
             PcomputeExpr::Total => f.write_str("TOTAL"),
             PcomputeExpr::Subtotal(None) => f.write_str("SUBTOTAL"),
             PcomputeExpr::Subtotal(Some(n)) => write!(f, "SUBTOTAL[{n}]"),
+            PcomputeExpr::Missing => f.write_str("[MISSING]"),
+            PcomputeExpr::OtherNm => f.write_str("[OTHERNM]"),
             PcomputeExpr::Number(n) => write!(f, "{n}"),
             PcomputeExpr::Negate(inner) => match **inner {
                 PcomputeExpr::Binary(..) => write!(f, "-({inner})"),
@@ -337,8 +343,8 @@ pub struct Categories {
     /// dichotomy set; None lists the values found.
     pub values: Option<Vec<CategoryItem>>,
     pub descending: bool,
-    /// `KEY=LABEL`: sort by value label instead of value.
-    pub by_label: bool,
+    /// `KEY=`: what the categories are sorted by.
+    pub key: CategoryOrder,
     /// `MISSING=INCLUDE`: user-missing values are categories too.
     pub include_missing: bool,
     pub total: bool,
@@ -346,6 +352,19 @@ pub struct Categories {
     pub total_before: bool,
     /// `EMPTY=EXCLUDE`: leave out categories without cases.
     pub exclude_empty: bool,
+}
+
+/// `KEY=` of /CATEGORIES.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CategoryOrder {
+    Value,
+    Label,
+    /// A summary function, such as `COUNT` or `MEAN(age)` or `PTILE(age, 75)`.
+    Summary {
+        function: SummaryFunction,
+        variable: Option<String>,
+        percentile: Option<f64>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -361,6 +380,10 @@ pub enum CategoryItem {
         label: Option<String>,
         hide: bool,
     },
+    /// `MISSING`: every user-missing value.
+    Missing,
+    /// `OTHERNM`: every valid value the list does not name, in ascending order.
+    OtherNm,
 }
 
 const SIMPLE_STATISTICS: [(&str, Statistic); 18] = [
@@ -560,17 +583,19 @@ fn pcompute_unary(p: &mut Parser) -> PResult<PcomputeExpr> {
         p.expect(Punct::RBracket)?;
         return Ok(PcomputeExpr::Subtotal(Some(n)));
     }
-    let start = p.pos;
     if !p.eat(Punct::LBracket) {
-        return Err(p.unexpected(&["'['", "a number", "TOTAL", "'('"]));
+        return Err(p.unexpected(&["'['", "a number", "TOTAL", "SUBTOTAL", "'('"]));
     }
-    if p.at_keyword("MISSING") || p.at_keyword("OTHERNM") {
-        p.pos += 1;
-        return Err(not_supported(
-            p,
-            start,
-            "MISSING or OTHERNM in a computed category",
-        ));
+    let keyword = if p.eat_word("MISSING") {
+        Some(PcomputeExpr::Missing)
+    } else if p.eat_word("OTHERNM") {
+        Some(PcomputeExpr::OtherNm)
+    } else {
+        None
+    };
+    if let Some(expr) = keyword {
+        p.expect(Punct::RBracket)?;
+        return Ok(expr);
     }
     let expr = match p.value_or_range()? {
         Some(MissingValue::Value(value)) => PcomputeExpr::Category(value),
@@ -999,7 +1024,6 @@ fn clabels(p: &mut Parser, table: &mut CtablesTable) -> PResult<()> {
 fn category_items(p: &mut Parser) -> PResult<Vec<CategoryItem>> {
     let mut items = Vec::new();
     while !p.eat(Punct::RBracket) {
-        let start = p.pos;
         // whole words, so that a variable of a dichotomy set may be called "sub"
         let hide = p.eat_word("HSUBTOTAL");
         if hide || p.eat_word("SUBTOTAL") {
@@ -1012,17 +1036,17 @@ fn category_items(p: &mut Parser) -> PResult<Vec<CategoryItem>> {
             p.eat(Punct::Comma);
             continue;
         }
-        if p.at_keyword("OTHERNM") || p.at_keyword("MISSING") {
-            let Some(TokenKind::Word(word)) = p.peek() else {
-                unreachable!("checked above")
-            };
-            let word = word.to_uppercase();
-            p.pos += 1;
-            return Err(not_supported(
-                p,
-                start,
-                &format!("{word} in a category list"),
-            ));
+        let keyword = if p.eat_word("MISSING") {
+            Some(CategoryItem::Missing)
+        } else if p.eat_word("OTHERNM") {
+            Some(CategoryItem::OtherNm)
+        } else {
+            None
+        };
+        if let Some(item) = keyword {
+            items.push(item);
+            p.eat(Punct::Comma);
+            continue;
         }
         if p.eat(Punct::And) {
             items.push(CategoryItem::Computed(p.name("a computed category name")?));
@@ -1045,6 +1069,44 @@ fn category_items(p: &mut Parser) -> PResult<Vec<CategoryItem>> {
     Ok(items)
 }
 
+/// `VALUE`, `LABEL` or a summary function with an optional variable: `COUNT`, `MEAN(age)`,
+/// `PTILE(age, 75)`.
+fn sort_key(p: &mut Parser) -> PResult<CategoryOrder> {
+    if p.eat_keyword("VALUE") {
+        return Ok(CategoryOrder::Value);
+    }
+    if p.eat_keyword("LABEL") {
+        return Ok(CategoryOrder::Label);
+    }
+    let expected = "VALUE, LABEL or a summary function such as COUNT or MEAN(age)";
+    let Some(function) = (match p.peek() {
+        Some(TokenKind::Word(word)) => SummaryFunction::parse(word),
+        _ => None,
+    }) else {
+        return Err(p.unexpected(&[expected]));
+    };
+    p.pos += 1;
+    let (mut variable, mut percentile) = (None, None);
+    if p.eat(Punct::LParen) {
+        variable = Some(p.name("a variable name")?);
+        if p.eat(Punct::Comma) {
+            match p.number() {
+                Some(n) if (0.0..=100.0).contains(&n) => percentile = Some(n),
+                _ => return Err(p.unexpected(&["a percentile from 0 to 100"])),
+            }
+        }
+        p.expect(Punct::RParen)?;
+    }
+    if function.statistic == Statistic::Ptile && percentile.is_none() {
+        return Err(p.unexpected(&["PTILE(variable, percentile), such as PTILE(age, 75)"]));
+    }
+    Ok(CategoryOrder::Summary {
+        function,
+        variable,
+        percentile,
+    })
+}
+
 fn categories(p: &mut Parser) -> PResult<Categories> {
     if !p.eat_keyword("VARIABLES") {
         return Err(p.unexpected(&["VARIABLES"]));
@@ -1055,7 +1117,7 @@ fn categories(p: &mut Parser) -> PResult<Categories> {
         vars,
         values: None,
         descending: false,
-        by_label: false,
+        key: CategoryOrder::Value,
         include_missing: false,
         total: false,
         total_label: None,
@@ -1070,19 +1132,7 @@ fn categories(p: &mut Parser) -> PResult<Categories> {
             spec.descending = choice(p, &["A", "D"])? == 1;
         } else if p.eat_keyword("KEY") {
             equals(p)?;
-            if p.eat_keyword("VALUE") {
-                spec.by_label = false;
-            } else if p.eat_keyword("LABEL") {
-                spec.by_label = true;
-            } else {
-                let start = p.pos;
-                p.pos += 1;
-                return Err(not_supported(
-                    p,
-                    start,
-                    "sorting categories by a summary (KEY=function)",
-                ));
-            }
+            spec.key = sort_key(p)?;
         } else if p.eat_keyword("MISSING") {
             spec.include_missing = choice(p, &["EXCLUDE", "INCLUDE"])? == 1;
         } else if p.eat_keyword("TOTAL") {

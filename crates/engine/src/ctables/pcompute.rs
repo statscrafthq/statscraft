@@ -219,6 +219,30 @@ fn calc(
                 },
             }
         }
+        PcomputeExpr::Missing | PcomputeExpr::OtherNm => {
+            let other = matches!(expr, PcomputeExpr::OtherNm);
+            let listed = if other {
+                list.listed_other
+            } else {
+                list.listed_missing || list.categories.iter().any(|c| c.missing)
+            };
+            if !listed {
+                return Err(Error(format!(
+                    "/PCOMPUTE &{name}: {expr} needs {} in the explicit category list of {variable}",
+                    if other { "OTHERNM" } else { "MISSING" }
+                )));
+            }
+            Calc::Sum(
+                (0..list.categories.len())
+                    .filter(|&k| {
+                        let c = &list.categories[k];
+                        c.computed.is_none()
+                            && c.key.is_some()
+                            && (if other { c.other } else { c.missing })
+                    })
+                    .collect(),
+            )
+        }
         PcomputeExpr::Number(n) => Calc::Number(*n),
         PcomputeExpr::Negate(inner) => Calc::Negate(Box::new(recurse(inner)?)),
         PcomputeExpr::Binary(op, left, right) => {

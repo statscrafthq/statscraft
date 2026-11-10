@@ -581,6 +581,20 @@ fn rejected_by_both() {
 
 #[test]
 #[ignore = "needs STATSCRAFT_PSPP"]
+fn othernm_and_missing_in_a_list() {
+    survey(&[
+        "CTABLES /TABLE q1_satisfaction BY gender /CATEGORIES VARIABLES=q1_satisfaction [5, OTHERNM, MISSING] TOTAL=YES.",
+        "CTABLES /TABLE q1_satisfaction /CATEGORIES VARIABLES=q1_satisfaction [MISSING, 1, 2].",
+        // PSPP stops on an internal error for [OTHERNM, 3], so ctables_categories.rs checks it
+        "CTABLES /TABLE plan /CATEGORIES VARIABLES=plan ['PLUS', OTHERNM].",
+        // PSPP does not sort by a summary (KEY=COUNT), so ctables_categories.rs checks that
+        // PSPP refuses [OTHERNM] in a computed category, which the manual allows (PCOMPUTE, page
+        // 505), so ctables_categories.rs checks that too
+    ]);
+}
+
+#[test]
+#[ignore = "needs STATSCRAFT_PSPP"]
 fn subtotals() {
     survey(&[
         "CTABLES /TABLE q1_satisfaction /CATEGORIES VARIABLES=q1_satisfaction [1, 2, SUBTOTAL='Low', 3, 4, 5, SUBTOTAL='High'].",

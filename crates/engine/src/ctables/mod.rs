@@ -29,8 +29,8 @@ pub use format::format_value;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Measure, Value as DataValue, Values, Variable};
 use statscraft_syntax::{
-    AxisExpr, AxisVariable, Bound, Categories, CategoryItem, Ctables, CtablesTable, EmptyCells,
-    Format, LabelsMoved, PercentBase, PercentOf, Statistic, Summary, SummaryFunction,
+    AxisExpr, AxisVariable, Bound, Categories, CategoryItem, CategoryOrder, Ctables, CtablesTable,
+    EmptyCells, Format, LabelsMoved, PercentBase, PercentOf, Statistic, Summary, SummaryFunction,
     Value as SyntaxValue, VlabelsDisplay,
 };
 use std::collections::HashMap;
@@ -76,6 +76,8 @@ struct Category {
     subtotal: Option<Subtotal>,
     /// The position of the subtotal that sums this category.
     within: Option<usize>,
+    /// Put in the list by OTHERNM.
+    other: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -85,10 +87,14 @@ struct Subtotal {
 }
 
 /// The categories of one categorical variable, in display order.
+#[derive(Default)]
 struct CategoryList {
     categories: Vec<Category>,
     numbers: HashMap<u64, usize>,
     texts: HashMap<String, usize>,
+    /// The explicit list has MISSING and OTHERNM, which computed categories may name.
+    listed_missing: bool,
+    listed_other: bool,
 }
 
 impl CategoryList {
@@ -491,12 +497,23 @@ fn in_range(key: &Key, low: &Bound, high: &Bound) -> bool {
     above && below
 }
 
-/// An item of a category list: a value, a computed category by name, or a subtotal.
-#[derive(PartialEq)]
+/// An item of a category list: a value (true when OTHERNM put it there), a computed category
+/// by name, or a subtotal.
 enum Wanted {
-    Value(Key),
+    Value(Key, bool),
     Computed(String),
     Subtotal(String, bool),
+}
+
+impl Wanted {
+    /// The same value or the same computed category; subtotals are all different.
+    fn same(&self, other: &Wanted) -> bool {
+        match (self, other) {
+            (Wanted::Value(a, _), Wanted::Value(b, _)) => a == b,
+            (Wanted::Computed(a), Wanted::Computed(b)) => a == b,
+            _ => false,
+        }
+    }
 }
 
 /// The categories of a variable, or of the values of the variables of a category set together.
@@ -548,22 +565,46 @@ fn categories(
     };
     let exclude_empty = spec.is_some_and(|s| s.exclude_empty);
 
+    let (mut listed_missing, mut listed_other) = (false, false);
     let keys: Vec<Wanted> = match spec.and_then(|s| s.values.as_ref()) {
         Some(items) => {
+            let key = |v: &SyntaxValue| match (v, variable.is_string()) {
+                (SyntaxValue::Number(n), false) => Ok(Key::Number(*n + 0.0)),
+                (SyntaxValue::String(s), true) => Ok(Key::Text(s.trim_end().to_string())),
+                (_, true) => Err(Error(format!(
+                    "/CATEGORIES for {name}: {name} is a string variable, so its values are written in quotes"
+                ))),
+                (_, false) => Err(Error(format!(
+                    "/CATEGORIES for {name}: {name} is numeric, so its values are numbers, not quoted strings"
+                ))),
+            };
+            // the values the list names, alone or in a range, which OTHERNM leaves out
+            let named = |k: &Key| {
+                items.iter().any(|item| match item {
+                    CategoryItem::Value(v) => key(v).is_ok_and(|v| v == *k),
+                    CategoryItem::Range(low, high) => in_range(k, low, high),
+                    _ => false,
+                })
+            };
+            let ascending = |keep: &dyn Fn(&Key) -> bool| {
+                let mut found: Vec<Key> = seen.iter().filter(|k| keep(k)).cloned().collect();
+                found.sort_by(Key::compare);
+                found
+            };
             let mut wanted: Vec<Wanted> = Vec::new();
             for item in items {
-                let key = |v: &SyntaxValue| match (v, variable.is_string()) {
-                    (SyntaxValue::Number(n), false) => Ok(Key::Number(*n + 0.0)),
-                    (SyntaxValue::String(s), true) => Ok(Key::Text(s.trim_end().to_string())),
-                    (_, true) => Err(Error(format!(
-                        "/CATEGORIES for {name}: {name} is a string variable, so its values are written in quotes"
-                    ))),
-                    (_, false) => Err(Error(format!(
-                        "/CATEGORIES for {name}: {name} is numeric, so its values are numbers, not quoted strings"
-                    ))),
-                };
                 match item {
-                    CategoryItem::Value(v) => wanted.push(Wanted::Value(key(v)?)),
+                    CategoryItem::Value(v) => wanted.push(Wanted::Value(key(v)?, false)),
+                    CategoryItem::Missing => {
+                        listed_missing = true;
+                        let found = ascending(&|k| is_missing(k));
+                        wanted.extend(found.into_iter().map(|k| Wanted::Value(k, false)));
+                    }
+                    CategoryItem::OtherNm => {
+                        listed_other = true;
+                        let found = ascending(&|k| !is_missing(k) && !named(k));
+                        wanted.extend(found.into_iter().map(|k| Wanted::Value(k, true)));
+                    }
                     CategoryItem::Computed(n) if command.is_none() => {
                         return Err(Error(format!(
                             "/CATEGORIES for {name}: &{n} is a computed category, and those work for categorical variables, not multiple response sets"
@@ -585,20 +626,15 @@ fn categories(
                                 "/CATEGORIES for {name}: ranges (THRU) work only for numeric variables"
                             )));
                         }
-                        let mut found: Vec<Key> = seen
-                            .iter()
-                            .filter(|k| in_range(k, low, high))
-                            .cloned()
-                            .collect();
-                        found.sort_by(Key::compare);
-                        wanted.extend(found.into_iter().map(Wanted::Value));
+                        let found = ascending(&|k| in_range(k, low, high));
+                        wanted.extend(found.into_iter().map(|k| Wanted::Value(k, false)));
                     }
                 }
             }
             // a value named twice, alone or in a range, takes the place of its last mention
             let mut last: Vec<Wanted> = Vec::new();
             for key in wanted.into_iter().rev() {
-                if matches!(key, Wanted::Subtotal(..)) || !last.contains(&key) {
+                if !last.iter().any(|known| known.same(&key)) {
                     last.push(key);
                 }
             }
@@ -615,7 +651,7 @@ fn categories(
                 })
                 .map(|(_, k)| k.clone())
                 .collect();
-            if spec.is_some_and(|s| s.by_label) {
+            if spec.is_some_and(|s| s.key == CategoryOrder::Label) {
                 keys.sort_by_cached_key(|k| category_label(variables, k));
             } else {
                 keys.sort_by(Key::compare);
@@ -623,19 +659,19 @@ fn categories(
             if spec.is_some_and(|s| s.descending) {
                 keys.reverse();
             }
-            keys.into_iter().map(Wanted::Value).collect()
+            keys.into_iter().map(|k| Wanted::Value(k, false)).collect()
         }
     };
 
     let mut list = CategoryList {
-        categories: Vec::new(),
-        numbers: HashMap::new(),
-        texts: HashMap::new(),
+        listed_missing,
+        listed_other,
+        ..Default::default()
     };
     let mut computed = Vec::new();
     for wanted in keys {
-        let key = match wanted {
-            Wanted::Value(key) => key,
+        let (key, other) = match wanted {
+            Wanted::Value(key, other) => (key, other),
             Wanted::Computed(n) => {
                 list.categories.push(pcompute::placeholder());
                 computed.push(n);
@@ -668,6 +704,7 @@ fn categories(
             label: category_label(variables, &key),
             missing: is_missing(&key),
             key: Some(key),
+            other,
             ..Default::default()
         });
     }
@@ -718,6 +755,136 @@ fn add_subtotals(list: &mut CategoryList, spec: Option<&Categories>) {
             pending.push(i);
         }
     }
+}
+
+/// Sorts the categories of an implicit list by a summary of each (KEY=function, CATEGORIES
+/// subcommand, "Data-Dependent Sorting", page 495). The summary is taken over all cases of a
+/// category, whatever their categories of the other variables of the table, and with weights.
+/// KEY=function(var) summarizes var, which the scale functions need. A percentage orders the
+/// categories as its count or sum does. Categories whose summary cannot be computed come last;
+/// ties keep the order of their values. The total keeps its place.
+fn sort_by_summary(
+    list: &mut CategoryList,
+    var: &TermVar,
+    data: &Dataset,
+    weights: Option<&[f64]>,
+    spec: &Categories,
+    moved: LabelsMoved,
+) -> Result<(), Error> {
+    let CategoryOrder::Summary {
+        function,
+        variable,
+        percentile,
+    } = &spec.key
+    else {
+        return Ok(());
+    };
+    let name = var.name();
+    if moved != LabelsMoved::No {
+        return Err(Error(format!(
+            "/CATEGORIES for {name}: sorting by a summary (KEY={}) is not available when /CLABELS moves category labels",
+            function.name()
+        )));
+    }
+    let source = match variable {
+        Some(key) => {
+            let v = data.variable(key).map_err(|_| {
+                Error(format!(
+                    "/CATEGORIES for {name}: unknown variable {key} in KEY"
+                ))
+            })?;
+            if v.is_string() {
+                return Err(Error(format!(
+                    "/CATEGORIES for {name}: KEY summarizes {key}, which is a string variable; name a numeric one"
+                )));
+            }
+            Some(v)
+        }
+        None if scale_only(*function) && !mrsets::counts_responses(*function) => {
+            return Err(Error(format!(
+                "/CATEGORIES for {name}: KEY={0} needs the variable it summarizes, such as KEY={0}(age)",
+                function.name()
+            )));
+        }
+        None => None,
+    };
+    let counted = match function.statistic {
+        Statistic::Percent(_, of) => match mrsets::parts(of).0 {
+            PercentOf::Count => Statistic::Count,
+            PercentOf::Validn => Statistic::Validn,
+            PercentOf::Totaln => Statistic::Totaln,
+            PercentOf::Sum => Statistic::Sum,
+            _ => Statistic::Responses,
+        },
+        other => other,
+    };
+    let summary = Summary {
+        function: SummaryFunction {
+            statistic: counted,
+            unweighted: function.unweighted,
+        },
+        percentile: *percentile,
+        label: None,
+        format: None,
+    };
+    let mut tallies: Vec<Tally> = (0..list.categories.len())
+        .map(|_| Tally::default())
+        .collect();
+    for case in 0..data.case_count() {
+        let weight = weights.map_or(1.0, |w| w[case]);
+        let Some(choice) = mrsets::choice(var, list, case).filter(|_| weight > 0.0) else {
+            continue;
+        };
+        let value = match &source {
+            Some(v) => v.numeric()?.get(case).filter(|x| !v.is_user_missing(*x)),
+            None => None,
+        };
+        for (c, responses) in choice {
+            let valid = match source {
+                Some(_) => value.is_some(),
+                None => !list.categories[c].missing,
+            };
+            tallies[c].add_case(weight, (valid, responses), value, true, false);
+        }
+    }
+    let values: Vec<Option<f64>> = tallies.iter().map(|t| statistic(&summary, t)).collect();
+    let slots: Vec<usize> = (0..list.categories.len())
+        .filter(|&i| list.categories[i].key.is_some())
+        .collect();
+    let mut sorted = slots.clone();
+    sorted.sort_by(|&a, &b| match (values[a], values[b]) {
+        (Some(x), Some(y)) if spec.descending => y.total_cmp(&x),
+        (Some(x), Some(y)) => x.total_cmp(&y),
+        (Some(_), None) => std::cmp::Ordering::Less,
+        (None, Some(_)) => std::cmp::Ordering::Greater,
+        (None, None) => std::cmp::Ordering::Equal,
+    });
+    let mut order: Vec<usize> = (0..list.categories.len()).collect();
+    for (slot, from) in slots.iter().zip(sorted) {
+        order[*slot] = from;
+    }
+    let mut old: Vec<Option<Category>> = std::mem::take(&mut list.categories)
+        .into_iter()
+        .map(Some)
+        .collect();
+    list.categories = order
+        .iter()
+        .map(|&i| old[i].take().expect("each category once"))
+        .collect();
+    list.numbers.clear();
+    list.texts.clear();
+    for (i, category) in list.categories.iter().enumerate() {
+        match &category.key {
+            Some(Key::Number(n)) => {
+                list.numbers.insert(n.to_bits(), i);
+            }
+            Some(Key::Text(t)) => {
+                list.texts.insert(t.clone(), i);
+            }
+            None => {}
+        }
+    }
+    Ok(())
 }
 
 fn list_of<'l>(lists: &'l HashMap<String, CategoryList>, var: &TermVar) -> &'l CategoryList {
@@ -1061,10 +1228,13 @@ impl Engine {
                     spec = Some(categories);
                 }
             }
-            let list = match &var.set {
+            let mut list = match &var.set {
                 Some(set) => mrsets::set_categories(set, spec)?,
                 None => categories(var.variable.name(), &[var.variable], spec, Some(command))?,
             };
+            if let Some(spec) = spec.filter(|s| s.values.is_none()) {
+                sort_by_summary(&mut list, var, data, weights, spec, table.labels_moved)?;
+            }
             lists.insert(name, list);
         }
         let list_of = |var: &TermVar| list_of(&lists, var);

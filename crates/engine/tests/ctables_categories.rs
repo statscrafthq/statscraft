@@ -335,3 +335,176 @@ fn computed_categories_name_subtotals_by_position() {
         assert!(e.contains(message), "{e}");
     }
 }
+
+fn labels(t: &Table) -> Vec<String> {
+    (0..t.rows.len()).map(|r| row_label(t, r)).collect()
+}
+
+// OTHERNM and MISSING in an explicit list (CATEGORIES, "Explicit Category Specification", page
+// 494): OTHERNM stands for every valid value the list does not name, ascending, where it
+// stands; MISSING for every user-missing value. A value named twice takes its last place, so
+// [OTHERNM, 3] is [1, 2, 4, 5, 3], as the manual's example says.
+#[test]
+fn othernm_and_missing_stand_for_the_values_not_named() {
+    let file = "survey_basic.sav";
+    let t = |list: &str| {
+        run(
+            file,
+            &format!(
+                "CTABLES /TABLE q1_satisfaction [COUNT, COLPCT] BY gender\n\
+                 /CATEGORIES VARIABLES=q1_satisfaction {list} TOTAL=YES."
+            ),
+        )
+    };
+    let explicit = t("[1, 2, 4, 5, 3]");
+    for list in ["[OTHERNM, 3]", "[1 THRU 5, 3]", "[3, OTHERNM, 3]"] {
+        let other = t(list);
+        assert_eq!(labels(&other), labels(&explicit), "{list}");
+        assert_eq!(all_numbers(&other), all_numbers(&explicit), "{list}");
+    }
+    // MISSING lists 98 and 99 where it stands; OTHERNM leaves them out
+    let data = Dataset::read_sav(fixture(file)).unwrap();
+    let q1 = raw(&data, "q1_satisfaction");
+    let count = |v: f64| q1.iter().filter(|x| **x == Some(v)).count() as f64;
+    let m = run(
+        file,
+        "CTABLES /TABLE q1_satisfaction /CATEGORIES VARIABLES=q1_satisfaction [MISSING, 4, OTHERNM].",
+    );
+    assert_eq!(
+        labels(&m),
+        [
+            "Don't know",
+            "Refused",
+            "Satisfied",
+            "Very dissatisfied",
+            "Dissatisfied",
+            "Neither satisfied nor dissatisfied",
+            "Very satisfied"
+        ]
+    );
+    let expected: Vec<Vec<Option<f64>>> = [98.0, 99.0, 4.0, 1.0, 2.0, 3.0, 5.0]
+        .iter()
+        .map(|v| vec![Some(count(*v))])
+        .collect();
+    assert_eq!(all_numbers(&m), expected);
+    // a string variable: OTHERNM in ascending order of the text
+    let s = run(
+        file,
+        "CTABLES /TABLE plan /CATEGORIES VARIABLES=plan ['PLUS', OTHERNM].",
+    );
+    let shown = labels(&s);
+    assert_eq!(shown[0], "PLUS");
+    let mut sorted = shown[1..].to_vec();
+    sorted.sort();
+    assert_eq!(shown[1..], sorted);
+    assert!(shown.len() > 2 && !shown[1..].contains(&"PLUS".to_string()));
+
+    // computed categories may sum them: [OTHERNM] and [MISSING] (PCOMPUTE, page 505)
+    let c = run(
+        file,
+        "CTABLES /PCOMPUTE &o = EXPR([OTHERNM]) /PCOMPUTE &m = EXPR([MISSING])\n\
+         /TABLE q1_satisfaction /CATEGORIES VARIABLES=q1_satisfaction [1, OTHERNM, &o, MISSING, &m].",
+    );
+    let others: f64 = [2.0, 3.0, 4.0, 5.0].iter().map(|v| count(*v)).sum();
+    assert_eq!(numbers(&c, 5), [Some(others)]);
+    assert_eq!(numbers(&c, 8), [Some(count(98.0) + count(99.0))]);
+    let e = error(
+        file,
+        "CTABLES /PCOMPUTE &o = EXPR([OTHERNM]) /TABLE q1_satisfaction\n\
+         /CATEGORIES VARIABLES=q1_satisfaction [1, 2, &o].",
+    );
+    assert!(e.contains("needs OTHERNM"), "{e}");
+}
+
+// Sorting by a summary (CATEGORIES, KEY, "Data-Dependent Sorting", page 495): the categories
+// are ordered by the summary of each, taken without regard to the other variables of the table;
+// the total keeps its place. KEY=MEAN(age) orders by the mean of age in each category.
+#[test]
+fn categories_sorted_by_a_summary() {
+    let file = "survey_basic_phpwriter.sav";
+    let data = Dataset::read_sav(fixture(file)).unwrap();
+    let (region, age, weight) = (
+        raw(&data, "region"),
+        raw(&data, "age"),
+        raw(&data, "weight"),
+    );
+    let n = data.case_count();
+    let by_region = |f: &dyn Fn(usize) -> f64| -> Vec<(usize, f64)> {
+        (1..=5)
+            .map(|r| {
+                let total = (0..n).filter(|&i| region[i] == Some(r as f64)).map(f).sum();
+                (r, total)
+            })
+            .collect()
+    };
+    let names = ["North", "South", "East", "West", "Central"];
+    let order = |mut v: Vec<(usize, f64)>, descending: bool| -> Vec<String> {
+        v.sort_by(|a, b| {
+            if descending {
+                b.1.total_cmp(&a.1)
+            } else {
+                a.1.total_cmp(&b.1)
+            }
+        });
+        v.iter().map(|(r, _)| names[r - 1].to_string()).collect()
+    };
+    // unweighted counts, descending, with the total last
+    let t = run(
+        file,
+        "WEIGHT OFF.\nCTABLES /TABLE region BY gender\n\
+         /CATEGORIES VARIABLES=region ORDER=D KEY=COUNT TOTAL=YES.",
+    );
+    let mut expected = order(by_region(&|_| 1.0), true);
+    expected.push("Total".into());
+    assert_eq!(labels(&t), expected);
+    // weighted counts, ascending; a column percentage orders like the count
+    let weighted = by_region(&|i| weight[i].unwrap_or(0.0).max(0.0));
+    for key in ["COUNT", "COLPCT.COUNT"] {
+        let w = run(
+            file,
+            &format!(
+                "WEIGHT BY weight.\nCTABLES /TABLE region /CATEGORIES VARIABLES=region KEY={key}."
+            ),
+        );
+        assert_eq!(labels(&w), order(weighted.clone(), false), "{key}");
+    }
+    // the mean of age in each region
+    let m = run(
+        file,
+        "WEIGHT OFF.\nCTABLES /TABLE region > age [MEAN] BY gender\n\
+         /CATEGORIES VARIABLES=region ORDER=D KEY=MEAN(age).",
+    );
+    let sums = by_region(&|i| age[i].unwrap_or(0.0));
+    let counts = by_region(&|i| f64::from(u8::from(age[i].is_some())));
+    let means: Vec<(usize, f64)> = sums
+        .iter()
+        .zip(&counts)
+        .map(|(s, c)| (s.0, s.1 / c.1))
+        .collect();
+    let shown: Vec<String> = (0..m.rows.len())
+        .map(|r| match &m.rows[r][1] {
+            Cell::Text(t) => t.clone(),
+            other => panic!("{other:?}"),
+        })
+        .collect();
+    assert_eq!(shown, order(means, true));
+
+    for (syntax, message) in [
+        (
+            "CTABLES /TABLE region /CATEGORIES VARIABLES=region KEY=MEAN.",
+            "KEY=MEAN needs the variable",
+        ),
+        (
+            "CTABLES /TABLE region BY gender /CATEGORIES VARIABLES=region KEY=COUNT\n\
+             /CLABELS ROWLABELS=OPPOSITE.",
+            "not available when /CLABELS",
+        ),
+        (
+            "CTABLES /TABLE region /CATEGORIES VARIABLES=region KEY=MEAN(nope).",
+            "unknown variable nope",
+        ),
+    ] {
+        let e = error("survey_basic.sav", syntax);
+        assert!(e.contains(message), "{e}");
+    }
+}

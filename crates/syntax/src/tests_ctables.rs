@@ -100,7 +100,8 @@ fn per_table_and_global_subcommands() {
     let t = &c.tables[0];
     assert!(t.summaries_in_rows && !t.summary_labels);
     let a = &t.categories[0];
-    assert!(a.descending && a.by_label && a.include_missing && a.total && a.total_before);
+    assert!(a.descending && a.include_missing && a.total && a.total_before);
+    assert_eq!(a.key, CategoryOrder::Label);
     assert!(a.exclude_empty);
     assert_eq!(a.total_label.as_deref(), Some("All"));
     assert_eq!(
@@ -126,10 +127,6 @@ fn per_table_and_global_subcommands() {
 fn features_of_the_next_stage_are_named() {
     for (source, feature) in [
         ("CTABLES /TABLE a /CRITERIA CILEVEL=90.", "CRITERIA"),
-        (
-            "CTABLES /PCOMPUTE &x = EXPR([OTHERNM]) /TABLE a.",
-            "OTHERNM in a computed category",
-        ),
         ("CTABLES /TABLE a [ECOUNT].", "ECOUNT"),
         (
             "CTABLES /TABLE a /CLABELS ROWLABELS=LAYER.",
@@ -469,4 +466,47 @@ fn subtotals_in_a_category_list_and_in_a_computed_category() {
     assert_eq!(c.pcomputes[0].expr.to_string(), "SUBTOTAL[2] - SUBTOTAL");
     let e = err("CTABLES /PCOMPUTE &x = EXPR(SUBTOTAL[0]) /TABLE a.");
     assert!(e.message.contains("whole number from 1"), "{}", e.message);
+}
+
+#[test]
+fn othernm_missing_and_a_summary_as_the_sort_key() {
+    let c = one(
+        "CTABLES /PCOMPUTE &x = EXPR([OTHERNM] - [MISSING]) /TABLE a BY b\n\
+         /CATEGORIES VARIABLES=a [MISSING, 1, OTHERNM, &x]\n\
+         /CATEGORIES VARIABLES=b ORDER=D KEY=PTILE(age, 75).",
+    );
+    let t = &c.tables[0];
+    assert_eq!(
+        t.categories[0].values,
+        Some(vec![
+            CategoryItem::Missing,
+            CategoryItem::Value(Value::Number(1.0)),
+            CategoryItem::OtherNm,
+            CategoryItem::Computed("x".into()),
+        ])
+    );
+    assert_eq!(c.pcomputes[0].expr.to_string(), "[OTHERNM] - [MISSING]");
+    let CategoryOrder::Summary {
+        function,
+        variable,
+        percentile,
+    } = &t.categories[1].key
+    else {
+        panic!("{:?}", t.categories[1].key)
+    };
+    assert_eq!(function.statistic, Statistic::Ptile);
+    assert_eq!(
+        (variable.as_deref(), *percentile),
+        (Some("age"), Some(75.0))
+    );
+    let c = one("CTABLES /TABLE a /CATEGORIES VARIABLES=a KEY=UCOUNT.");
+    assert!(matches!(
+        &c.tables[0].categories[0].key,
+        CategoryOrder::Summary { function, variable: None, .. } if function.unweighted
+    ));
+    let e = err("CTABLES /TABLE a /CATEGORIES VARIABLES=a KEY=PTILE(age).");
+    assert!(
+        e.expected.iter().any(|x| x.contains("PTILE(variable")),
+        "{e:?}"
+    );
 }
