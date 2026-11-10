@@ -1,6 +1,7 @@
 //! CROSSTABS: contingency tables, their cell statistics and chi-square tests.
 
 use crate::descriptives::case_weights;
+use crate::dist::chi_square_p;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Value, Values, Variable};
 use statscraft_syntax::{Crosstabs, CrosstabsCell as C};
@@ -8,13 +9,13 @@ use std::cmp::Ordering;
 
 /// A category: the value of a case.
 #[derive(Clone, PartialEq)]
-enum Key {
+pub(crate) enum Key {
     Number(f64),
     Text(String),
 }
 
 impl Key {
-    fn compare(&self, other: &Key) -> Ordering {
+    pub(crate) fn compare(&self, other: &Key) -> Ordering {
         match (self, other) {
             (Key::Number(a), Key::Number(b)) => a.total_cmp(b),
             (Key::Text(a), Key::Text(b)) => a.cmp(b),
@@ -25,7 +26,7 @@ impl Key {
 }
 
 /// The category of every case, None where the value is missing.
-fn categories(variable: &Variable, include: bool) -> Vec<Option<Key>> {
+pub(crate) fn categories(variable: &Variable, include: bool) -> Vec<Option<Key>> {
     match variable.values() {
         Values::Numeric(values) => values
             .iter()
@@ -42,7 +43,7 @@ fn categories(variable: &Variable, include: bool) -> Vec<Option<Key>> {
 }
 
 /// The value label of a category, else its value.
-fn label(variable: &Variable, key: &Key) -> String {
+pub(crate) fn label(variable: &Variable, key: &Key) -> String {
     let labelled = variable
         .value_labels()
         .iter()
@@ -429,87 +430,6 @@ impl Engine {
     }
 }
 
-/// The significance of a chi-square value: the probability of a larger one.
-pub(crate) fn chi_square_p(value: f64, df: f64) -> f64 {
-    gamma_q(df / 2.0, value / 2.0)
-}
-
-/// ln Γ(x) for x > 0 (Lanczos, g = 7, nine terms; relative error near 1e-15).
-pub(crate) fn ln_gamma(x: f64) -> f64 {
-    const G: [f64; 9] = [
-        0.999_999_999_999_809_9,
-        676.520_368_121_885_1,
-        -1_259.139_216_722_402_8,
-        771.323_428_777_653_1,
-        -176.615_029_162_140_6,
-        12.507_343_278_686_905,
-        -0.138_571_095_265_720_12,
-        9.984_369_578_019_572e-6,
-        1.505_632_735_149_311_6e-7,
-    ];
-    if x < 0.5 {
-        // reflection keeps the series in its accurate range
-        return (std::f64::consts::PI / (std::f64::consts::PI * x).sin()).ln() - ln_gamma(1.0 - x);
-    }
-    let x = x - 1.0;
-    let t = x + 7.5;
-    let sum = G[1..]
-        .iter()
-        .enumerate()
-        .fold(G[0], |sum, (i, g)| sum + g / (x + i as f64 + 1.0));
-    0.5 * (2.0 * std::f64::consts::PI).ln() + (x + 0.5) * t.ln() - t + sum.ln()
-}
-
-/// The regularized upper incomplete gamma function Q(a, x) = Γ(a, x) / Γ(a): a power series
-/// below x = a + 1, a continued fraction above.
-pub(crate) fn gamma_q(a: f64, x: f64) -> f64 {
-    const EPSILON: f64 = 1e-16;
-    const TINY: f64 = 1e-300;
-    if x.is_nan() || a <= 0.0 {
-        return f64::NAN;
-    }
-    if x <= 0.0 {
-        return 1.0;
-    }
-    let front = (-x + a * x.ln() - ln_gamma(a)).exp();
-    if x < a + 1.0 {
-        let (mut term, mut sum, mut ap) = (1.0 / a, 1.0 / a, a);
-        for _ in 0..10_000 {
-            ap += 1.0;
-            term *= x / ap;
-            sum += term;
-            if term.abs() < sum.abs() * EPSILON {
-                break;
-            }
-        }
-        return (1.0 - sum * front).max(0.0);
-    }
-    // modified Lentz evaluation
-    let mut b = x + 1.0 - a;
-    let mut c = 1.0 / TINY;
-    let mut d = 1.0 / b;
-    let mut h = d;
-    for i in 1..10_000 {
-        let an = -(i as f64) * (i as f64 - a);
-        b += 2.0;
-        d = an * d + b;
-        if d.abs() < TINY {
-            d = TINY;
-        }
-        c = b + an / c;
-        if c.abs() < TINY {
-            c = TINY;
-        }
-        d = 1.0 / d;
-        let step = d * c;
-        h *= step;
-        if (step - 1.0).abs() < EPSILON {
-            break;
-        }
-    }
-    (front * h).min(1.0)
-}
-
 /// Fisher's exact test of the 2 x 2 table [[a, b], [c, d]]: the two-sided significance (the
 /// tables no more likely than the observed one) and the one-sided one (the smaller tail).
 pub(crate) fn fisher(a: u64, b: u64, c: u64, d: u64) -> (f64, f64) {
@@ -545,6 +465,7 @@ pub(crate) fn fisher(a: u64, b: u64, c: u64, d: u64) -> (f64, f64) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::dist::{gamma_q, ln_gamma};
 
     fn close(a: f64, b: f64, tolerance: f64) -> bool {
         (a - b).abs() <= tolerance * b.abs().max(1e-300)

@@ -50,78 +50,13 @@
 use super::{
     CategoryList, Entry, Layout, MARGIN, Section, Slot, Term, TermVar, combinations, list_of,
 };
-use crate::crosstabs::{chi_square_p, gamma_q, ln_gamma};
+use crate::dist::{chi_square_p, normal_p, t_p};
 use crate::{Cell, Error, Table};
 use statscraft_syntax::{
     Adjust, CompareKind, CompareStyle, Comparetest, CtablesTable, PercentBase, PercentOf, Sigtest,
     Statistic,
 };
 use std::collections::HashMap;
-
-// ---- distributions ----
-
-/// The complementary error function: erfc(x) = Q(1/2, x^2) for x >= 0.
-pub(crate) fn erfc(x: f64) -> f64 {
-    let q = gamma_q(0.5, x * x);
-    if x < 0.0 { 2.0 - q } else { q }
-}
-
-/// Two-sided significance of a standard normal z.
-pub(crate) fn normal_p(z: f64) -> f64 {
-    erfc(z.abs() / std::f64::consts::SQRT_2)
-}
-
-/// Two-sided significance of Student's t with `df` degrees of freedom: I_x(df/2, 1/2) at
-/// x = df / (df + t^2).
-pub(crate) fn t_p(t: f64, df: f64) -> f64 {
-    beta_i(df / 2.0, 0.5, df / (df + t * t))
-}
-
-/// The regularized incomplete beta function I_x(a, b), by its continued fraction on the side of
-/// x where it converges fast.
-pub(crate) fn beta_i(a: f64, b: f64, x: f64) -> f64 {
-    if x.is_nan() {
-        return f64::NAN;
-    }
-    if x <= 0.0 {
-        return 0.0;
-    }
-    if x >= 1.0 {
-        return 1.0;
-    }
-    let front =
-        (ln_gamma(a + b) - ln_gamma(a) - ln_gamma(b) + a * x.ln() + b * (1.0 - x).ln()).exp();
-    if x < (a + 1.0) / (a + b + 2.0) {
-        front * beta_fraction(a, b, x) / a
-    } else {
-        1.0 - front * beta_fraction(b, a, 1.0 - x) / b
-    }
-}
-
-/// The continued fraction of I_x(a, b), evaluated by the modified Lentz method.
-fn beta_fraction(a: f64, b: f64, x: f64) -> f64 {
-    const TINY: f64 = 1e-300;
-    let guard = |v: f64| if v.abs() < TINY { TINY } else { v };
-    let mut c = 1.0;
-    let mut d = 1.0 / guard(1.0 - (a + b) * x / (a + 1.0));
-    let mut h = d;
-    for m in 1..100_000 {
-        let m = m as f64;
-        let even = m * (b - m) * x / ((a + 2.0 * m - 1.0) * (a + 2.0 * m));
-        d = 1.0 / guard(1.0 + even * d);
-        c = guard(1.0 + even / c);
-        h *= d * c;
-        let odd = -(a + m) * (a + b + m) * x / ((a + 2.0 * m) * (a + 2.0 * m + 1.0));
-        d = 1.0 / guard(1.0 + odd * d);
-        c = guard(1.0 + odd / c);
-        let step = d * c;
-        h *= step;
-        if (step - 1.0).abs() < 1e-15 {
-            break;
-        }
-    }
-    h
-}
 
 // ---- tests on aggregated cells ----
 
@@ -1234,6 +1169,7 @@ mod tests {
     //! the normal and t distributions.
 
     use super::*;
+    use crate::dist::{beta_i, erfc};
 
     const NONE_SHARED: Shared = &|_, _| 0.0;
 

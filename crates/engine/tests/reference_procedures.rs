@@ -1,4 +1,5 @@
-//! DESCRIPTIVES, CROSSTABS, ADD FILES and MATCH FILES compared with GNU PSPP, run as a black
+//! DESCRIPTIVES, CROSSTABS, MEANS, T-TEST, ONEWAY, CORRELATIONS, ADD FILES and MATCH FILES
+//! compared with GNU PSPP, run as a black
 //! box on the same files and the same syntax. Ignored by default because they need PSPP:
 //!
 //! ```text
@@ -161,7 +162,12 @@ fn pspp_number(text: &str) -> Option<Option<(f64, i32)>> {
     }
     let text = text.strip_suffix('%').unwrap_or(text);
     let value: f64 = text.parse().ok()?;
-    let decimals = text.split_once('.').map_or(0, |(_, d)| d.len() as i32);
+    // in scientific notation such as 2.1411656982E-005 the exponent moves the last digit
+    let (mantissa, exponent) = match text.split_once(['E', 'e']) {
+        Some((m, e)) => (m, e.parse::<i32>().ok()?),
+        None => (text, 0),
+    };
+    let decimals = mantissa.split_once('.').map_or(0, |(_, d)| d.len() as i32) - exponent;
     Some(Some((value, decimals)))
 }
 
@@ -735,4 +741,222 @@ fn merges() {
     for (case, fixture, syntax) in cases {
         compare_data(&format!("merge-{case}"), fixture, PREPARE, syntax);
     }
+}
+
+/// How a table of MEANS, T-TEST, ONEWAY or CORRELATIONS lines up with PSPP's: the header rows
+/// PSPP writes, and for every compared column its index in PSPP's rows and in ours.
+struct Layout {
+    header_rows: usize,
+    columns: Vec<(usize, usize)>,
+}
+
+/// The same columns from `first` on in both programs, `count` of them.
+fn straight(header_rows: usize, first: usize, count: usize) -> Layout {
+    Layout {
+        header_rows,
+        columns: (first..first + count).map(|c| (c, c)).collect(),
+    }
+}
+
+/// None for one of our tables that PSPP does not make (effect sizes, MEANS ANOVA, the robust
+/// tests); they are left out before the tables are paired.
+fn layout(title: &str, ours: &Table) -> Option<Layout> {
+    let values = ours.columns.len() - ours.row_headers;
+    Some(match title {
+        "Case Processing Summary" => straight(3, 1, 6),
+        t if t.starts_with("Report") => straight(1, ours.row_headers, values),
+        "One-Sample Statistics" => straight(1, 1, 4),
+        t if t.starts_with("One-Sample Test") => straight(3, 1, 6),
+        "Group Statistics" => straight(1, 2, 4),
+        "Independent Samples Test" => straight(3, 2, 9),
+        // PSPP shows N before the mean, we follow the manual's order
+        "Paired Samples Statistics" => Layout {
+            header_rows: 1,
+            columns: vec![(2, 3), (3, 2), (4, 4), (5, 5)],
+        },
+        "Paired Samples Correlations" => straight(1, 2, 3),
+        "Paired Samples Test" => straight(3, 2, 8),
+        "Descriptive Statistics" => straight(1, 1, 3),
+        "Correlations" => straight(1, 2, values),
+        "Descriptives" => straight(2, 2, 8),
+        "Test of Homogeneity of Variances" => straight(1, 1, 4),
+        "ANOVA" => straight(1, 2, 5),
+        "Contrast Coefficients" => straight(2, 1, values),
+        "Contrast Tests" => straight(1, 2, 6),
+        t if t.starts_with("Multiple Comparisons") => straight(2, 3, 5),
+        _ => return None,
+    })
+}
+
+/// Compares the rows of one table cell by cell through `layout`.
+fn positional(pspp: &[Vec<String>], ours: &Table, layout: &Layout) -> Vec<String> {
+    let data = &pspp[layout.header_rows.min(pspp.len())..];
+    if data.len() != ours.rows.len() {
+        return vec![format!(
+            "rows: PSPP {}, ours {}",
+            data.len(),
+            ours.rows.len()
+        )];
+    }
+    let mut problems = Vec::new();
+    let mut test = String::new();
+    for (r, (row, mine)) in data.iter().zip(&ours.rows).enumerate() {
+        if !row[0].is_empty() {
+            test = row[0].clone();
+        }
+        for &(p, o) in &layout.columns {
+            // PSPP shows the pooled standard error in the Games-Howell rows; the manual's
+            // test uses the separate variances, as its interval in both programs does
+            if test == "Games-Howell" && p == 4 {
+                continue;
+            }
+            let (Some(cell), Some(our)) = (row.get(p), mine.get(o)) else {
+                problems.push(format!("row {r}: column {p} or {o} is missing"));
+                continue;
+            };
+            // where the manual leaves a statistic undefined (a standard deviation of one case,
+            // skewness below W = 3, kurtosis below W = 4) PSPP prints NaN, infinity or a
+            // standard error of 0; ours is empty
+            let undefined = matches!(cell.as_str(), "NaN" | "+Infinity" | "-Infinity")
+                || (ours.columns[o].starts_with("Std. Error of K")
+                    || ours.columns[o].starts_with("Std. Error of S"))
+                    && pspp_number(cell) == Some(Some((0.0, 10)));
+            if undefined && *our == Cell::Empty {
+                continue;
+            }
+            // PSPP's studentized range is good to about 1e-8; ours agrees with a more precise
+            // reference to 1e-10 (see dist.rs), so intervals built on it get that much room
+            if matches!(test.as_str(), "Tukey HSD" | "Games-Howell")
+                && let (Some(Some((value, _))), Cell::Number(number)) = (pspp_number(cell), our)
+                && (number - value).abs() <= 1e-8 * value.abs() + 5e-8
+            {
+                continue;
+            }
+            // a value PSPP writes with an exponent is mostly a difference of two near numbers,
+            // such as an interval bound at 0, where both programs keep about 1e-14 of them
+            if cell.contains('E')
+                && let (Some(Some((value, _))), Cell::Number(number)) = (pspp_number(cell), our)
+                && (number - value).abs() <= 1e-13
+            {
+                continue;
+            }
+            let what = format!("row {} column {p}", r + 1);
+            problems.extend(check_cell(&what, cell, our).err());
+        }
+    }
+    problems
+}
+
+/// Runs `syntax` after GET of the fixture in both programs and compares every table PSPP
+/// makes with ours, in order.
+fn compare_statistics(case: &str, fixture: &str, syntax: &str) {
+    let Some((program, dir)) = setup(case, fixture) else {
+        return;
+    };
+    let syntax = format!("GET FILE='{{dir}}data.sav'.\n{syntax}\n");
+    let output = pspp(case, &program, &dir, &syntax);
+    let theirs = pspp_tables(&output);
+    let mine: Vec<(Table, Layout)> = ours(case, &dir, &syntax)
+        .into_iter()
+        .filter_map(|t| layout(&t.title.clone(), &t).map(|l| (t, l)))
+        .collect();
+    assert_eq!(
+        theirs.len(),
+        mine.len(),
+        "{case}: PSPP made {} tables, we {}: {:?}\n{output}",
+        theirs.len(),
+        mine.len(),
+        mine.iter().map(|(t, _)| &t.title).collect::<Vec<_>>()
+    );
+    let mut problems = Vec::new();
+    for ((_, rows), (table, layout)) in theirs.iter().zip(&mine) {
+        let found = positional(rows, table, layout);
+        problems.extend(found.into_iter().map(|p| format!("{}: {p}", table.title)));
+    }
+    assert!(
+        problems.is_empty(),
+        "{case}: {} differences (files kept in {})\n{}",
+        problems.len(),
+        dir.display(),
+        problems[..problems.len().min(25)].join("\n")
+    );
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+/// Display formats with ten decimals, so PSPP prints the statistics of these variables
+/// (MEANS uses the format of the dependent) precisely enough.
+const PRECISE: &str =
+    "FORMATS age monthly_spend q1_satisfaction q2_recommend q5_1 TO q5_5 (F20.10).";
+
+fn run_statistics(prefix: &str, cases: &[(&str, &str, &str)]) {
+    for (case, fixture, syntax) in cases {
+        compare_statistics(
+            &format!("{prefix}-{case}"),
+            fixture,
+            &format!("{PRECISE}\n{syntax}"),
+        );
+    }
+}
+
+/// The cells PSPP knows; it has no MEDIAN, NPCT or SPCT.
+const MEANS_CELLS: &str = "MEAN COUNT STDDEV SEMEAN SUM MIN MAX RANGE VARIANCE KURT SEKURT SKEW SESKEW FIRST LAST HARMONIC GEOMETRIC";
+
+#[test]
+#[ignore = "needs PSPP: set STATSCRAFT_PSPP"]
+fn means_tables() {
+    let all = format!("MEANS age BY gender BY region /CELLS={MEANS_CELLS}.");
+    let all_weighted = format!("MEANS monthly_spend BY region BY q5_1 /CELLS={MEANS_CELLS}.");
+    let no_controls = "MEANS TABLES=monthly_spend /CELLS=MEAN COUNT SUM HARMONIC GEOMETRIC.";
+    run_statistics(
+        "means",
+        &[
+            ("default", SURVEY, "MEANS TABLES=age BY gender."),
+            ("all-cells", SURVEY, &all),
+            ("all-cells-weighted", WEIGHTED, &all_weighted),
+            (
+                "missing-dependent",
+                WEIGHTED,
+                "MEANS monthly_spend BY region.",
+            ),
+            (
+                "include",
+                SURVEY,
+                "MEANS q1_satisfaction BY gender /MISSING=INCLUDE.",
+            ),
+            // PSPP has no MISSING=TABLE; tablewise deletion is checked in procedures.rs
+            (
+                "include-nested-weighted",
+                WEIGHTED,
+                "MEANS q2_recommend BY region BY q5_1 /MISSING=INCLUDE /CELLS=MEAN COUNT STDDEV SUM.",
+            ),
+            (
+                "dependent",
+                SURVEY,
+                "MEANS age BY q1_satisfaction /MISSING=DEPENDENT.",
+            ),
+            ("no-controls", WEIGHTED, no_controls),
+            (
+                "two-lists-weighted",
+                WEIGHTED,
+                "MEANS age BY gender /monthly_spend BY region /CELLS=MEAN COUNT VARIANCE.",
+            ),
+            // PSPP's MIN and MAX still see cases weighted 0 or less, which the manual makes
+            // invisible, so they are not asked for here (procedures.rs checks them)
+            (
+                "unusable-weights",
+                WEIGHTED,
+                "RECODE weight (LO THRU 0.6 = 0) (0.6 THRU 0.7 = -1).\nMEANS age BY region /CELLS=MEAN COUNT STDDEV SUM.",
+            ),
+            (
+                "string-control",
+                SURVEY,
+                "MEANS age BY plan /CELLS=MEAN COUNT STDDEV FIRST LAST.",
+            ),
+            (
+                "nested-missing-weighted",
+                WEIGHTED,
+                "MEANS monthly_spend BY gender BY q6_mention1 /CELLS=MEAN COUNT STDDEV SEMEAN.",
+            ),
+        ],
+    );
 }

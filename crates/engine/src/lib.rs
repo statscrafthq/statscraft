@@ -4,9 +4,11 @@ mod aggregate;
 mod crosstabs;
 mod ctables;
 mod descriptives;
+mod dist;
 mod expr;
 mod frequencies;
 pub mod live;
+mod means;
 mod merge;
 mod mrsets;
 mod recode;
@@ -323,6 +325,7 @@ impl Engine {
             Command::Mrsets(subcommands) => return self.mrsets(subcommands),
             Command::Descriptives(command) => return self.descriptives(command),
             Command::Crosstabs(command) => return self.crosstabs(command),
+            Command::Means(command) => return self.means(command),
             Command::AddFiles(merge) => self.merge_files(merge, true)?,
             Command::MatchFiles(merge) => self.merge_files(merge, false)?,
         }

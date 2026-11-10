@@ -23,20 +23,20 @@ pub(crate) fn case_weights(data: &Dataset) -> Result<Option<Vec<f64>>, Error> {
 
 /// The statistics of one variable from its valid (value, weight) pairs, each None where it is
 /// not defined.
-struct Summary {
-    n: f64,
-    mean: Option<f64>,
-    sd: Option<f64>,
-    skewness: Option<f64>,
-    se_skewness: Option<f64>,
-    kurtosis: Option<f64>,
-    se_kurtosis: Option<f64>,
-    min: Option<f64>,
-    max: Option<f64>,
-    sum: Option<f64>,
+pub(crate) struct Summary {
+    pub n: f64,
+    pub mean: Option<f64>,
+    pub sd: Option<f64>,
+    pub skewness: Option<f64>,
+    pub se_skewness: Option<f64>,
+    pub kurtosis: Option<f64>,
+    pub se_kurtosis: Option<f64>,
+    pub min: Option<f64>,
+    pub max: Option<f64>,
+    pub sum: Option<f64>,
 }
 
-fn summarize(cells: &[(f64, f64)]) -> Summary {
+pub(crate) fn summarize(cells: &[(f64, f64)]) -> Summary {
     let w: f64 = cells.iter().map(|(_, w)| w).sum();
     let mean = statistic(F::Mean, cells);
     let sd = statistic(F::Sd, cells);
@@ -93,7 +93,7 @@ fn columns(stat: Stat, s: &Summary) -> Vec<(&'static str, Option<f64>)> {
     }
 }
 
-fn number(value: Option<f64>) -> Cell {
+pub(crate) fn number(value: Option<f64>) -> Cell {
     value
         .filter(|v| v.is_finite())
         .map_or(Cell::Empty, Cell::Number)

@@ -9,6 +9,7 @@ use crate::lexer::{Punct, Token, TokenKind};
 use crate::mrsets;
 use crate::parser::{PResult, Parser};
 use crate::procedures;
+use crate::stats;
 
 pub(crate) struct CommandSpec {
     pub name: &'static str,
@@ -366,6 +367,24 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: procedures::crosstabs,
     },
     CommandSpec {
+        name: "MEANS",
+        summary: "Statistics of dependent variables within groups of control variables.",
+        syntax: "MEANS [TABLES=]deps [BY controls [BY ...]] [/deps BY ...] [/CELLS=cell ...]\n\
+                 \x20     [/STATISTICS=ANOVA | LINEARITY | NONE] [/MISSING=TABLE | INCLUDE | DEPENDENT].\n\
+                 cell: MEAN COUNT STDDEV MEDIAN SEMEAN SUM MIN MAX RANGE VARIANCE KURT SEKURT SKEW SESKEW\n\
+                 FIRST LAST NPCT SPCT HARMONIC GEOMETRIC DEFAULT ALL; DEFAULT is MEAN COUNT STDDEV.\n\
+                 One Report table per dependent and combination of controls: every group of the first control,\n\
+                 the next nested inside, each level with a Total. A Case Processing Summary per table list.\n\
+                 A string dependent gets COUNT, FIRST and LAST only. ANOVA gives the analysis of variance by the\n\
+                 first control with eta; LINEARITY adds the linear term and r (three or more numeric groups).\n\
+                 Without /MISSING each dependent with its controls leaves out its own missing cases; any /MISSING\n\
+                 leaves out cases missing on any variable of the list (INCLUDE: user-missing values count;\n\
+                 DEPENDENT: they count for the controls only). Weighted when a weight variable is set.\n\
+                 Not supported yet: GMEDIAN, NPCT(var), SPCT(var).",
+        example: "MEANS TABLES=income BY region BY gender /CELLS=MEAN COUNT STDDEV MEDIAN /STATISTICS=ANOVA.",
+        parse: stats::means,
+    },
+    CommandSpec {
         name: "ADD FILES",
         summary: "Append the cases of several data files, matching variables by name.",
         syntax: "ADD FILES /FILE=* | 'path' [/RENAME=(old = new) ...] /FILE=... [/BY varlist]\n\
@@ -459,7 +478,6 @@ static UNSUPPORTED: &[&str] = &[
     "LOOP",
     "MATRIX",
     "MATRIX DATA",
-    "MEANS",
     "MULT RESPONSE",
     "N OF CASES",
     "NEW FILE",

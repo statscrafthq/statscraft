@@ -26,6 +26,7 @@ mod mrsets;
 mod parser;
 mod procedures;
 mod split;
+mod stats;
 mod table;
 #[cfg(test)]
 mod tests;

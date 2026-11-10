@@ -379,9 +379,9 @@ fn unknown_command_gets_a_did_you_mean_hint() {
 #[test]
 fn real_but_unsupported_commands_say_so() {
     for (source, name) in [
-        ("ONEWAY a BY b.", "ONEWAY"),
+        ("REGRESSION /DEPENDENT=a.", "REGRESSION"),
         ("split file by a.", "SPLIT FILE"),
-        ("T-TEST GROUPS=g(1, 2) /VARIABLES=a.", "T-TEST"),
+        ("NPAR TESTS /WILCOXON=a WITH b.", "NPAR TESTS"),
         ("TITLE Don't panic.", "TITLE"),
         ("EXAM a b.", "EXAMINE"),
     ] {
@@ -1068,7 +1068,11 @@ fn help_for_one_command() {
     assert!(help_text.contains("VALUE LABELS varlist value 'label'"));
     assert!(help_text.contains("Example:\n  VALUE LABELS gender 1 'Male' 2 'Female'"));
     assert_eq!(help(Some("val lab")), Some(help_text));
-    assert!(help(Some("oneway")).unwrap().contains("not supported yet"));
+    assert!(
+        help(Some("regression"))
+            .unwrap()
+            .contains("not supported yet")
+    );
     assert_eq!(help(Some("NOPE")), None);
     assert_eq!(help(Some("VALUE LABELS extra")), None);
     assert_eq!(help(Some("")), None);
@@ -1077,7 +1081,7 @@ fn help_for_one_command() {
 #[test]
 fn help_lists_every_command() {
     let overview = help(None).unwrap();
-    assert_eq!(command_names().len(), 31);
+    assert_eq!(command_names().len(), 32);
     for spec in table::COMMANDS {
         assert!(overview.contains(spec.name) && overview.contains(spec.summary));
     }

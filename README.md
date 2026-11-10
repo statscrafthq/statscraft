@@ -25,6 +25,9 @@ A run is all or nothing: if one command fails, nothing is saved, so the same lin
 
 Commands executed so far: GET, SAVE, VARIABLE LABELS, VALUE LABELS, MISSING VALUES, VARIABLE LEVEL, FORMATS, FREQUENCIES (weighted when the file has a weight variable), EXECUTE, COMPUTE, IF, SELECT IF, STRING, NUMERIC, DO IF / ELSE IF / ELSE / END IF, RECODE, COUNT, SORT CASES, RENAME VARIABLES, DELETE VARIABLES, WEIGHT and AGGREGATE. DESCRIPTIVES (with z-scores through /SAVE) and CROSSTABS (cell percentages, residuals and chi-square tests) run weighted when a weight variable is set, and ADD FILES and MATCH FILES combine the active dataset with saved files. Expressions follow the missing-value rules of the language and cover arithmetic, statistical, missing-value, string and date functions.
 
+MEANS reports means, counts, medians and other statistics of dependent variables within nested groups of control variables, with an optional analysis of variance and test of linearity.
+MEANS runs weighted when a weight variable is set. A command that does something differently from what was asked without failing (a skipped string variable, a reversed range) reports a warning, shown with the output and in the JSON as `warnings` per command.
+
 [removed]
 
 MRSETS defines multiple response sets (dichotomy and category sets, saved with the data file), and CTABLES tabulates them like categorical variables, with counts of cases or of responses and percentages based on either, and tests them for significance with the variants of the tests for multiple responses.

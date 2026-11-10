@@ -87,7 +87,7 @@ pub(crate) fn statistic(function: F, cells: &[(f64, f64)]) -> Option<f64> {
 
 /// The weighted median: the value at position (W + 1) / 2 of the cumulated weights,
 /// interpolated between the two neighbouring values.
-fn median(cells: &[(f64, f64)]) -> Option<f64> {
+pub(crate) fn median(cells: &[(f64, f64)]) -> Option<f64> {
     let mut cells: Vec<(f64, f64)> = cells.iter().copied().filter(|(_, w)| *w > 0.0).collect();
     cells.sort_by(|a, b| a.0.total_cmp(&b.0));
     cells.dedup_by(|next, kept| {

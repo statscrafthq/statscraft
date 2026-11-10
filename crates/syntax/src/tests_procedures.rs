@@ -1,4 +1,5 @@
-//! Parser tests of DESCRIPTIVES, CROSSTABS, ADD FILES and MATCH FILES.
+//! Parser tests of DESCRIPTIVES, CROSSTABS, MEANS, T-TEST, ONEWAY, CORRELATIONS, ADD FILES and
+//! MATCH FILES.
 
 use super::*;
 
@@ -196,5 +197,46 @@ fn add_and_match_files() {
         err("MATCH FILES /TABLE='t.sav' /BY k.")
             .expected
             .contains(&"/FILE='path' or /FILE=*".to_string())
+    );
+}
+
+#[test]
+fn means() {
+    use MeansCell as M;
+    assert_eq!(
+        one("MEANS age BY gender BY region / income BY gender."),
+        Command::Means(Means {
+            tables: vec![
+                vec![vec![var("age")], vec![var("gender")], vec![var("region")]],
+                vec![vec![var("income")], vec![var("gender")]],
+            ],
+            cells: vec![M::Mean, M::Count, M::StdDev],
+            anova: false,
+            linearity: false,
+            missing: MeansMissing::Separate,
+        })
+    );
+    let Command::Means(m) = one(
+        "MEANS TABLES=a TO c BY g /CELLS=MEDIAN MEAN MEDIAN SUM /STATISTICS /MISSING=DEPENDENT.",
+    ) else {
+        panic!()
+    };
+    assert_eq!(m.cells, [M::Median, M::Mean, M::Sum]);
+    assert!(m.anova && !m.linearity);
+    assert_eq!(m.missing, MeansMissing::Dependent);
+    let Command::Means(m) = one("MEANS x /CELLS=ALL /STATISTICS=LINEARITY.") else {
+        panic!()
+    };
+    assert_eq!(m.cells.len(), 20);
+    assert!(m.anova && m.linearity);
+    assert!(
+        err("MEANS x /CELLS=GMEDIAN.")
+            .message
+            .contains("GMEDIAN in MEANS /CELLS is not supported yet")
+    );
+    assert!(
+        err("MEANS x BY g /CELLS=NPCT(g).")
+            .message
+            .contains("NPCT(var)")
     );
 }

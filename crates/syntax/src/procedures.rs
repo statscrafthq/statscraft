@@ -82,7 +82,12 @@ const UNSUPPORTED_FORMATS: [&str; 8] = [
 
 /// Error at a keyword of a subcommand: "not supported yet" for one of `unsupported`, otherwise
 /// "unexpected" with the supported keywords as the expected ones.
-fn keyword_error(p: &Parser, place: &str, unsupported: &[&str], supported: &[&str]) -> SyntaxError {
+pub(crate) fn keyword_error(
+    p: &Parser,
+    place: &str,
+    unsupported: &[&str],
+    supported: &[&str],
+) -> SyntaxError {
     let known = match p.peek() {
         Some(TokenKind::Word(w)) => unsupported.iter().find(|k| matches_keyword(w, k)),
         _ => None,
@@ -100,7 +105,7 @@ fn keyword_error(p: &Parser, place: &str, unsupported: &[&str], supported: &[&st
 
 /// Keywords of a subcommand up to the next '/' or the end, each mapped to its values. At least
 /// one keyword is needed.
-fn keywords<T: Copy>(
+pub(crate) fn keywords<T: Copy>(
     p: &mut Parser,
     table: &[(&str, &[T])],
     on_unknown: impl Fn(&Parser) -> SyntaxError,
@@ -124,11 +129,11 @@ fn keywords<T: Copy>(
 }
 
 /// True at the end of the command or of a subcommand.
-fn at_end(p: &Parser) -> bool {
+pub(crate) fn at_end(p: &Parser) -> bool {
     matches!(p.peek(), None | Some(TokenKind::Punct(Punct::Slash)))
 }
 
-fn names<T>(table: &[(&'static str, T)]) -> Vec<&'static str> {
+pub(crate) fn names<T>(table: &[(&'static str, T)]) -> Vec<&'static str> {
     table.iter().map(|(name, _)| *name).collect()
 }
 

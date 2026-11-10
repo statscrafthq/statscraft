@@ -53,6 +53,7 @@ pub enum Command {
     Mrsets(Vec<crate::mrsets::Mrsets>),
     Descriptives(Descriptives),
     Crosstabs(Crosstabs),
+    Means(Means),
     AddFiles(Merge),
     MatchFiles(Merge),
 }
@@ -108,6 +109,55 @@ pub enum CrosstabsCell {
     Resid,
     Sresid,
     Asresid,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Means {
+    /// One entry per table list: the dependent variables, then one list per BY dimension.
+    pub tables: Vec<Vec<Vec<VarItem>>>,
+    /// In display order, without duplicates.
+    pub cells: Vec<MeansCell>,
+    /// `/STATISTICS=ANOVA`: analysis of variance by the first control variable.
+    pub anova: bool,
+    /// `/STATISTICS=LINEARITY`: the test of linearity as well.
+    pub linearity: bool,
+    pub missing: MeansMissing,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MeansMissing {
+    /// No /MISSING: each dependent with the control variables on its own.
+    Separate,
+    /// TABLE: a case missing on any variable of the table list is left out.
+    Table,
+    /// INCLUDE: tablewise, user-missing values are valid.
+    Include,
+    /// DEPENDENT: tablewise, user-missing values are valid for the control variables only.
+    Dependent,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MeansCell {
+    Mean,
+    Count,
+    StdDev,
+    Median,
+    SeMean,
+    Sum,
+    Min,
+    Max,
+    Range,
+    Variance,
+    Kurtosis,
+    SeKurtosis,
+    Skewness,
+    SeSkewness,
+    First,
+    Last,
+    Npct,
+    Spct,
+    Harmonic,
+    Geometric,
 }
 
 /// ADD FILES and MATCH FILES.
