@@ -1290,7 +1290,8 @@ impl App {
         let data = self.session.dataset().expect("checked above");
         let headers: Vec<String> = Field::ALL.iter().map(|f| f.title().to_string()).collect();
         let mut widths = vec![
-            150.0, 80.0, 90.0, 60.0, 72.0, 260.0, 300.0, 170.0, 72.0, 80.0, 100.0, 100.0,
+            // all twelve fit a window 1280 points wide
+            130.0, 76.0, 80.0, 56.0, 72.0, 230.0, 230.0, 120.0, 68.0, 72.0, 84.0, 84.0,
         ];
         if self.settings.variable_widths.len() == widths.len() {
             widths.clone_from(&self.settings.variable_widths);
@@ -1699,15 +1700,19 @@ impl App {
             .resizable(true)
             .default_width(720.0)
             .show(ctx, |ui| {
+                // the lists and a long dialog scroll, so the syntax and OK stay in reach on a
+                // small screen or at a large scale: the title, syntax and buttons take the rest
+                let lines = syntax.as_ref().map_or(1, |text| text.lines().count()) as f32;
+                let row = ui.text_style_height(&TextStyle::Monospace);
+                let height = (ctx.content_rect().height() - 150.0 - lines * row).max(160.0);
                 ui.horizontal_top(|ui| {
                     ui.vertical(|ui| {
                         ui.set_width(230.0);
                         let sets = matches!(dialog, Dialog::CustomTables(..));
-                        variable_picker(ui, data, sets, &mut self.filter, &mut self.picked);
+                        let list = (height - 90.0).clamp(80.0, 320.0);
+                        variable_picker(ui, data, sets, &mut self.filter, &mut self.picked, list);
                     });
                     ui.add_space(12.0);
-                    // a long dialog scrolls, so OK stays in reach on a small screen
-                    let height = (ctx.content_rect().height() - 260.0).max(240.0);
                     ScrollArea::vertical()
                         .id_salt("dialog_body")
                         .max_height(height)
@@ -2269,13 +2274,14 @@ fn paint_grid(
 }
 
 /// The dataset's variables, filtered by name or label, and with `sets` its multiple response
-/// sets; a click picks or unpicks one.
+/// sets; a click picks or unpicks one. The list is at most `height` high.
 fn variable_picker(
     ui: &mut Ui,
     data: &Dataset,
     sets: bool,
     filter: &mut String,
     picked: &mut Vec<String>,
+    height: f32,
 ) {
     ui.strong("Variables");
     ui.add(TextEdit::singleline(filter).hint_text("Filter"));
@@ -2292,7 +2298,7 @@ fn variable_picker(
     let row_height = ui.text_style_height(&TextStyle::Body) + 4.0;
     ScrollArea::vertical()
         .id_salt("picker")
-        .max_height(320.0)
+        .max_height(height)
         .auto_shrink([false, true])
         .show_rows(ui, row_height, matches.len(), |ui, range| {
             for &i in &matches[range] {
