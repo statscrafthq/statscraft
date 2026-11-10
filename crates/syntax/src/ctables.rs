@@ -19,6 +19,9 @@ pub struct Ctables {
     /// `/MRSETS COUNTDUPLICATES=YES`: a category set counts a value as often as a case gives
     /// it in RESPONSES and the percentages based on responses.
     pub count_duplicates: bool,
+    /// `/WEIGHT VARIABLE=name`: the effective base weight, used instead of the WEIGHT command's
+    /// variable, without rounding in the tests.
+    pub weight: Option<String>,
     /// `/HIDESMALLCOUNTS COUNT=n`: counts below n show as "<n".
     pub hide_small_counts: Option<u32>,
     /// `/PCOMPUTE`s in source order; of two with one name the later counts.
@@ -306,6 +309,10 @@ pub enum Statistic {
     Missing,
     /// The number of responses to a multiple response set.
     Responses,
+    /// `ECOUNT`, `EVALIDN`, `ETOTALN`: the effective base of COUNT, VALIDN and TOTALN.
+    Ecount,
+    Evalidn,
+    Etotaln,
 }
 
 /// The area a percentage is taken of: `COLPCT` and the like.
@@ -386,7 +393,7 @@ pub enum CategoryItem {
     OtherNm,
 }
 
-const SIMPLE_STATISTICS: [(&str, Statistic); 18] = [
+const SIMPLE_STATISTICS: [(&str, Statistic); 21] = [
     ("COUNT", Statistic::Count),
     ("MEAN", Statistic::Mean),
     ("MEDIAN", Statistic::Median),
@@ -403,6 +410,9 @@ const SIMPLE_STATISTICS: [(&str, Statistic); 18] = [
     ("TOTALN", Statistic::Totaln),
     ("MISSING", Statistic::Missing),
     ("RESPONSES", Statistic::Responses),
+    ("ECOUNT", Statistic::Ecount),
+    ("EVALIDN", Statistic::Evalidn),
+    ("ETOTALN", Statistic::Etotaln),
     ("MIN", Statistic::Minimum),
     ("MAX", Statistic::Maximum),
 ];
@@ -475,16 +485,24 @@ impl SummaryFunction {
             });
         }
         let rest = word.strip_prefix(['U', 'u'])?;
-        statistic(rest).map(|statistic| SummaryFunction {
-            statistic,
-            unweighted: true,
-        })
+        // an effective base needs the weights
+        statistic(rest)
+            .filter(|s| {
+                !matches!(
+                    s,
+                    Statistic::Ecount | Statistic::Evalidn | Statistic::Etotaln
+                )
+            })
+            .map(|statistic| SummaryFunction {
+                statistic,
+                unweighted: true,
+            })
     }
 }
 
 const SUMMARY_EXPECTED: &str = "a summary function such as COUNT, COLPCT.COUNT or MEAN";
 
-const UNSUPPORTED_SUBCOMMANDS: [&str; 3] = ["WEIGHT", "CRITERIA", "SMISSING"];
+const UNSUPPORTED_SUBCOMMANDS: [&str; 2] = ["CRITERIA", "SMISSING"];
 
 /// `&name` of a computed category; returns the name without the "&".
 fn computed_name(p: &mut Parser) -> PResult<String> {
@@ -730,19 +748,10 @@ fn summary_format(p: &mut Parser, word: &str) -> PResult<Format> {
 fn summaries(p: &mut Parser) -> PResult<Vec<Summary>> {
     let mut list = Vec::new();
     loop {
-        let start = p.pos;
         let Some(TokenKind::Word(word)) = p.peek() else {
             return Err(p.unexpected(&[SUMMARY_EXPECTED]));
         };
         let upper = word.to_ascii_uppercase();
-        if matches!(upper.as_str(), "ECOUNT" | "EVALIDN" | "ETOTALN") {
-            p.pos += 1;
-            return Err(not_supported(
-                p,
-                start,
-                &format!("summary function {upper}"),
-            ));
-        }
         let Some(function) = SummaryFunction::parse(word) else {
             let mut error = SyntaxError::new(p.span(), format!("unknown summary function {upper}"));
             error.expected = vec![SUMMARY_EXPECTED.into()];
@@ -1296,6 +1305,7 @@ pub(crate) fn ctables(p: &mut Parser) -> PResult<Command> {
         empty: EmptyCells::Zero,
         missing: None,
         count_duplicates: false,
+        weight: None,
         hide_small_counts: None,
         pcomputes: Vec::new(),
         pproperties: Vec::new(),
@@ -1330,6 +1340,16 @@ pub(crate) fn ctables(p: &mut Parser) -> PResult<Command> {
             command.pproperties.push(pproperties(p)?);
         } else if p.eat_keyword("HIDESMALLCOUNTS") {
             command.hide_small_counts = Some(hide_small_counts(p)?);
+        } else if p.eat_keyword("WEIGHT") {
+            if !command.tables.is_empty() {
+                return Err(SyntaxError::new(
+                    p.span_from(start),
+                    "/WEIGHT applies to all tables, so it must come before the first /TABLE",
+                ));
+            }
+            p.eat_keyword("VARIABLE");
+            equals(p)?;
+            command.weight = Some(p.name("a variable name")?);
         } else if p.eat_keyword("MRSETS") {
             if !p.eat_keyword("COUNTDUPLICATES") {
                 return Err(p.unexpected(&["COUNTDUPLICATES"]));

@@ -222,6 +222,9 @@ fn default_label(function: SummaryFunction, percentile: Option<f64>) -> String {
         Statistic::Totaln => "Total N".into(),
         Statistic::Missing => "Missing".into(),
         Statistic::Responses => "Responses".into(),
+        Statistic::Ecount => "Adjusted Count".into(),
+        Statistic::Evalidn => "Adjusted Valid N".into(),
+        Statistic::Etotaln => "Adjusted Total N".into(),
     };
     if function.unweighted {
         format!("Unweighted {label}")
@@ -235,6 +238,7 @@ fn scale_only(function: SummaryFunction) -> bool {
     !matches!(
         function.statistic,
         Statistic::Count
+            | Statistic::Ecount
             | Statistic::Percent(_, PercentOf::Count | PercentOf::Validn | PercentOf::Totaln)
     )
 }
@@ -253,9 +257,13 @@ fn default_format(summary: &Summary, variable: &Variable) -> String {
         return format_text(f);
     }
     match summary.function.statistic {
-        Statistic::Count | Statistic::Validn | Statistic::Totaln | Statistic::Responses => {
-            "F40.0".into()
-        }
+        Statistic::Count
+        | Statistic::Validn
+        | Statistic::Totaln
+        | Statistic::Responses
+        | Statistic::Ecount
+        | Statistic::Evalidn
+        | Statistic::Etotaln => "F40.0".into(),
         Statistic::Percent(..) => "PCT40.1".into(),
         _ => variable.format().to_string(),
     }
@@ -288,15 +296,22 @@ struct Tally {
     /// Cases without a response in a multiple response set: they count in TOTALN only.
     total_only: f64,
     total_only_cases: f64,
+    /// The sums of the squared weights of `count`, `valid` and `total_only`, for the effective
+    /// base: (sum of weights)^2 / (sum of squared weights).
+    squares: f64,
+    valid_squares: f64,
+    total_only_squares: f64,
 }
 
 impl Tally {
     fn add(&mut self, weight: f64, valid: bool, value: Option<f64>, keep_values: bool) {
         self.cases += 1.0;
         self.count += weight;
+        self.squares += weight * weight;
         if valid {
             self.valid_cases += 1.0;
             self.valid += weight;
+            self.valid_squares += weight * weight;
         }
         if let Some(x) = value {
             self.sum += weight * x;
@@ -366,7 +381,18 @@ fn percentile(values: &[(f64, f64)], p: f64) -> Option<f64> {
     previous
 }
 
-fn statistic(summary: &Summary, tally: &Tally) -> Option<f64> {
+/// The effective base of a sum of weights and the sum of their squares; 0 without weight.
+fn effective_base(weights: f64, squares: f64) -> f64 {
+    if squares > 0.0 {
+        weights * weights / squares
+    } else {
+        0.0
+    }
+}
+
+/// The value of a summary in a cell. `effective`: the weights are effective base weights
+/// (/WEIGHT), which the E functions and SEMEAN take into account.
+fn statistic(summary: &Summary, tally: &Tally, effective: bool) -> Option<f64> {
     let unweighted = summary.function.unweighted;
     let values: Vec<(f64, f64)> = tally
         .values
@@ -400,7 +426,23 @@ fn statistic(summary: &Summary, tally: &Tally) -> Option<f64> {
         Statistic::Range => Some(counted().reduce(f64::max)? - counted().reduce(f64::min)?),
         Statistic::Variance => variance(),
         Statistic::Stddev => variance().map(f64::sqrt),
+        // with effective base weights: the variance adjusted to the effective base e, over e
+        Statistic::Semean if effective && !unweighted => {
+            let q: f64 = values.iter().map(|(_, w)| w * w).sum();
+            let e = effective_base(total, q);
+            (e > 1.0).then(|| (squares / (total - total / e) / e).sqrt())
+        }
         Statistic::Semean => variance().map(|v| (v / total).sqrt()),
+        // without effective base weights the E functions are the plain ones
+        Statistic::Ecount if effective => Some(effective_base(tally.count, tally.squares)),
+        Statistic::Evalidn if effective => Some(effective_base(tally.valid, tally.valid_squares)),
+        Statistic::Etotaln if effective => Some(effective_base(
+            tally.count + tally.total_only,
+            tally.squares + tally.total_only_squares,
+        )),
+        Statistic::Ecount => Some(count),
+        Statistic::Evalidn => Some(valid),
+        Statistic::Etotaln => Some(tally.base(PercentOf::Totaln, unweighted)),
         Statistic::Median => percentile(&values, 50.0),
         Statistic::Ptile => percentile(&values, summary.percentile.unwrap_or(50.0)),
         Statistic::Mode => {
@@ -416,11 +458,19 @@ fn statistic(summary: &Summary, tally: &Tally) -> Option<f64> {
 /// The case weights; a missing or negative weight counts as zero. Fractional survey weights are
 /// used as they are, as in FREQUENCIES and CROSSTABS. The reference program rounds every case
 /// weight to a whole number in this procedure only, which would drop cases weighted below 0.5.
-fn weights(data: &Dataset) -> Result<Option<Vec<f64>>, Error> {
-    let Some(name) = data.weight_variable() else {
+/// The effective base weight of /WEIGHT takes the place of the WEIGHT command's variable.
+fn weights(data: &Dataset, command: &Ctables) -> Result<Option<Vec<f64>>, Error> {
+    let Some(name) = command.weight.as_deref().or(data.weight_variable()) else {
         return Ok(None);
     };
-    let variable = data.variable(name)?;
+    let variable = data
+        .variable(name)
+        .map_err(|_| Error(format!("/WEIGHT: unknown variable {name}")))?;
+    if variable.is_string() {
+        return Err(Error(format!(
+            "/WEIGHT: {name} is a string variable; the effective base weight must be numeric"
+        )));
+    }
     let values = variable.numeric()?;
     let usable = |v: Option<f64>| v.filter(|v| !variable.is_user_missing(*v));
     Ok(Some(
@@ -767,7 +817,7 @@ fn sort_by_summary(
     list: &mut CategoryList,
     var: &TermVar,
     data: &Dataset,
-    weights: Option<&[f64]>,
+    (weights, effective): (Option<&[f64]>, bool),
     spec: &Categories,
     moved: LabelsMoved,
 ) -> Result<(), Error> {
@@ -847,7 +897,10 @@ fn sort_by_summary(
             tallies[c].add_case(weight, (valid, responses), value, true, false);
         }
     }
-    let values: Vec<Option<f64>> = tallies.iter().map(|t| statistic(&summary, t)).collect();
+    let values: Vec<Option<f64>> = tallies
+        .iter()
+        .map(|t| statistic(&summary, t, effective))
+        .collect();
     let slots: Vec<usize> = (0..list.categories.len())
         .filter(|&i| list.categories[i].key.is_some())
         .collect();
@@ -1098,7 +1151,7 @@ impl<'a> Layout<'a> {
 impl Engine {
     pub(crate) fn ctables(&self, command: &Ctables) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
-        let weights = weights(data)?;
+        let weights = weights(data, command)?;
         let many = command.tables.len() > 1;
         command
             .tables
@@ -1233,7 +1286,15 @@ impl Engine {
                 None => categories(var.variable.name(), &[var.variable], spec, Some(command))?,
             };
             if let Some(spec) = spec.filter(|s| s.values.is_none()) {
-                sort_by_summary(&mut list, var, data, weights, spec, table.labels_moved)?;
+                let effective = command.weight.is_some();
+                sort_by_summary(
+                    &mut list,
+                    var,
+                    data,
+                    (weights, effective),
+                    spec,
+                    table.labels_moved,
+                )?;
             }
             lists.insert(name, list);
         }
@@ -1341,7 +1402,7 @@ impl Engine {
                         &lists,
                         summaries,
                         variable,
-                        (tested, table.labels_moved),
+                        (tested, table.labels_moved, command.weight.is_some()),
                     )?;
                     sections.insert((r, c, l), section);
                 }
@@ -1609,6 +1670,8 @@ struct Section {
     pairs: HashMap<Vec<usize>, Tally>,
     summaries: Vec<(usize, Summary, String)>,
     has_scale: bool,
+    /// The weights are effective base weights (/WEIGHT).
+    effective: bool,
 }
 
 /// The category index of a margin cell, see `Section::cells`.
@@ -1626,7 +1689,7 @@ impl Section {
         lists: &HashMap<String, CategoryList>,
         summaries: &[(usize, Summary, String)],
         summary_variable: &TermVar<'a>,
-        (margins, moved): (bool, LabelsMoved),
+        (margins, moved, effective): (bool, LabelsMoved, bool),
     ) -> Result<Section, Error> {
         let [nr, nc, _] = terms.map(|term| term.iter().filter(|v| !v.scale).count());
         // the categorical variables of the rows, then the columns, then the layers
@@ -1698,6 +1761,7 @@ impl Section {
             pairs: HashMap::new(),
             summaries: summaries.to_vec(),
             has_scale: scale.is_some(),
+            effective,
         };
         let keep_values = scale.is_some();
         'cases: for case in 0..data.case_count() {
@@ -1857,6 +1921,9 @@ impl Section {
                 | Statistic::Totaln
                 | Statistic::Missing
                 | Statistic::Responses
+                | Statistic::Ecount
+                | Statistic::Evalidn
+                | Statistic::Etotaln
         );
         match self.cells.get(key) {
             Some(tally) => Some(tally),
@@ -1898,7 +1965,13 @@ impl Section {
         // HIDESMALLCOUNTS hides the summaries shown in the count format, weighted or not
         let count_format = matches!(
             summary.function.statistic,
-            Statistic::Count | Statistic::Validn | Statistic::Totaln | Statistic::Responses
+            Statistic::Count
+                | Statistic::Validn
+                | Statistic::Totaln
+                | Statistic::Responses
+                | Statistic::Ecount
+                | Statistic::Evalidn
+                | Statistic::Etotaln
         );
         let cell = match (value, &command.missing, command.hide_small_counts) {
             (Some(v), _, Some(n)) if count_format && v < f64::from(n) => {
@@ -1940,7 +2013,7 @@ impl Section {
                 let part = tally.base(numerator, unweighted);
                 (whole != 0.0).then(|| 100.0 * part / whole)
             }
-            _ => statistic(summary, tally),
+            _ => statistic(summary, tally, self.effective),
         }
     }
 }

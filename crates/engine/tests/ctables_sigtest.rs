@@ -1080,3 +1080,364 @@ fn a_table_without_the_needed_variables_is_an_error() {
     let e = fails("CTABLES /TABLE age [MEDIAN] BY region /COMPARETEST TYPE=MEAN.");
     assert!(e.contains("summarized by MEAN"), "{e}");
 }
+
+// ---- effective base weights (/WEIGHT) ----
+//
+// The rules, from the algorithms reference (CTABLES: Pearson's chi-square, "Use of weights";
+// "Column Means Tests (With Effective Base Weighting)"; "Column Proportions Tests (With
+// Effective Base Weighting)") and the command reference (WEIGHT subcommand, "Weights and
+// Rounding"): nothing is rounded. The chi-square statistic of the weighted counts is multiplied
+// by W / q, the subtable's weight over its sum of squared weights. A proportions or means test is
+// a t-test with the effective bases e = w^2 / q in place of the sizes: the column base of a
+// proportion is the sum of the bases of its cells, the variance of a mean is adjusted to its base
+// (the weighted sum of squared deviations over w - w / e), and df is e_j + e_k - 2 (pooled from
+// all categories: the sum of their bases minus their number). Two categories are compared when
+// both have a case and one of them two or more.
+
+/// ln Gamma by the Lanczos approximation (g = 7, nine coefficients).
+fn ln_gamma(x: f64) -> f64 {
+    const C: [f64; 9] = [
+        0.999_999_999_999_809_9,
+        676.520_368_121_885_1,
+        -1_259.139_216_722_402_8,
+        771.323_428_777_653_1,
+        -176.615_029_162_140_6,
+        12.507_343_278_686_905,
+        -0.138_571_095_265_720_12,
+        9.984_369_578_019_572e-6,
+        1.505_632_735_149_311_6e-7,
+    ];
+    let x = x - 1.0;
+    let mut a = C[0];
+    let t = x + 7.5;
+    for (i, c) in C.iter().enumerate().skip(1) {
+        a += c / (x + i as f64);
+    }
+    0.5 * (2.0 * std::f64::consts::PI).ln() + (x + 0.5) * t.ln() - t + a.ln()
+}
+
+/// Two-sided p of Student's t with any degrees of freedom: 1 minus twice the integral of the
+/// density from 0 to |t|, by Simpson's rule.
+fn t_p_any(t: f64, df: f64) -> f64 {
+    let c = (ln_gamma((df + 1.0) / 2.0) - ln_gamma(df / 2.0)).exp()
+        / (df * std::f64::consts::PI).sqrt();
+    let density = |x: f64| c * (1.0 + x * x / df).powf(-(df + 1.0) / 2.0);
+    let (to, steps) = (t.abs(), 20_000);
+    let h = to / f64::from(steps);
+    let mut sum = density(0.0) + density(to);
+    for i in 1..steps {
+        sum += density(f64::from(i) * h) * if i % 2 == 1 { 4.0 } else { 2.0 };
+    }
+    1.0 - 2.0 * sum * h / 3.0
+}
+
+/// The effective base of some weights.
+fn effective(weights: impl Iterator<Item = f64>) -> f64 {
+    let (sum, squares) = weights.fold((0.0, 0.0), |(s, q), w| (s + w, q + w * w));
+    if squares > 0.0 {
+        sum * sum / squares
+    } else {
+        0.0
+    }
+}
+
+/// Which of a family's categories take part with effective base weights, and whether a pair
+/// is compared, by their numbers of cases.
+fn compared(cases: &[usize], j: usize, k: usize) -> bool {
+    cases[j] >= 1 && cases[k] >= 1 && (cases[j] >= 2 || cases[k] >= 2)
+}
+
+fn taking_part(cases: &[usize]) -> Vec<bool> {
+    (0..cases.len())
+        .map(|j| (0..cases.len()).any(|k| k != j && compared(cases, j, k)))
+        .collect()
+}
+
+/// The proportions family of one row (`row` among the subtable's `rows`) with effective base
+/// weights.
+fn proportion_family_effective(
+    all: &[&Case],
+    rows: &[&dyn Fn(&Case) -> bool],
+    row: usize,
+    column: impl Fn(&Case) -> f64,
+    groups: &[f64],
+) -> Family {
+    let pick = |f: &dyn Fn(&Case) -> bool| -> Vec<f64> {
+        all.iter().filter(|c| f(c)).map(|c| c.weight).collect()
+    };
+    let mut counts = Vec::new();
+    let mut totals = Vec::new();
+    let mut bases = Vec::new();
+    let mut cases = Vec::new();
+    for &g in groups {
+        let in_column = |c: &Case| column(c) == g;
+        counts.push(pick(&|c| in_column(c) && rows[row](c)).iter().sum::<f64>());
+        let total = pick(&in_column);
+        totals.push(total.iter().sum::<f64>());
+        cases.push(total.len());
+        bases.push(
+            rows.iter()
+                .map(|r| effective(pick(&|c| in_column(c) && r(c)).into_iter()))
+                .sum::<f64>(),
+        );
+    }
+    let shares: Vec<f64> = counts.iter().zip(&totals).map(|(f, c)| f / c).collect();
+    let mut pairs = Vec::new();
+    for j in 0..groups.len() {
+        for k in j + 1..groups.len() {
+            if !compared(&cases, j, k) {
+                continue;
+            }
+            let pooled = (counts[j] + counts[k]) / (totals[j] + totals[k]);
+            let variance = pooled * (1.0 - pooled) * (1.0 / bases[j] + 1.0 / bases[k]);
+            let df = bases[j] + bases[k] - 2.0;
+            if variance > 0.0 && df > 0.0 {
+                let t = (shares[j] - shares[k]) / variance.sqrt();
+                pairs.push((j, k, t_p_any(t, df)));
+            }
+        }
+    }
+    (shares, taking_part(&cases), pairs)
+}
+
+/// The means family of y over the column groups with effective base weights.
+fn mean_family_effective(
+    cases: &[&Case],
+    column: impl Fn(&Case) -> f64,
+    groups: &[f64],
+    pool_all: bool,
+) -> Family {
+    // weight, mean, sum of squared deviations, effective base, cases
+    let mut stats = Vec::new();
+    for &g in groups {
+        let members: Vec<&&Case> = cases.iter().filter(|c| column(c) == g).collect();
+        let w: f64 = members.iter().map(|c| c.weight).sum();
+        let mean = members.iter().map(|c| c.weight * c.y()).sum::<f64>() / w;
+        let ss: f64 = members
+            .iter()
+            .map(|c| c.weight * (c.y() - mean).powi(2))
+            .sum();
+        let e = effective(members.iter().map(|c| c.weight));
+        stats.push((w, mean, ss, e, members.len()));
+    }
+    let n: Vec<usize> = stats.iter().map(|s| s.4).collect();
+    let room = |s: &(f64, f64, f64, f64, usize)| s.0 - s.0 / s.3;
+    let full: Vec<_> = stats.iter().filter(|s| s.4 >= 2).collect();
+    let pooled = full.iter().map(|s| s.2).sum::<f64>() / full.iter().map(|s| room(s)).sum::<f64>();
+    let df_all = full.iter().map(|s| s.3).sum::<f64>() - full.len() as f64;
+    let mut pairs = Vec::new();
+    for j in 0..groups.len() {
+        for k in j + 1..groups.len() {
+            if !compared(&n, j, k) {
+                continue;
+            }
+            let (a, b) = (&stats[j], &stats[k]);
+            let (variance, df) = if pool_all {
+                (pooled, df_all)
+            } else {
+                ((a.2 + b.2) / (room(a) + room(b)), a.3 + b.3 - 2.0)
+            };
+            let t = (a.1 - b.1) / (variance * (1.0 / a.3 + 1.0 / b.3)).sqrt();
+            pairs.push((j, k, t_p_any(t, df)));
+        }
+    }
+    (stats.iter().map(|s| s.1).collect(), taking_part(&n), pairs)
+}
+
+/// The fixture and the variable /WEIGHT names: unit weights, and the survey weights.
+const EFFECTIVE: [(&str, &str); 2] = [
+    ("survey_basic.sav", "COMPUTE one = 1.\n"),
+    ("survey_basic_phpwriter.sav", ""),
+];
+
+fn weight_name(file: &str) -> &'static str {
+    if file == "survey_basic.sav" {
+        "one"
+    } else {
+        "weight"
+    }
+}
+
+#[test]
+fn the_t_distribution_of_the_tests_below_agrees_with_the_closed_forms() {
+    for df in [3.0, 10.0, 41.0] {
+        for t in [0.5, 2.0, 3.5] {
+            assert!((t_p_any(t, df) - t_p(t, df)).abs() < 1e-9, "{t} {df}");
+        }
+    }
+}
+
+#[test]
+fn effective_base_chi_square_scales_the_unrounded_statistic() {
+    for (file, setup) in EFFECTIVE {
+        let tables = run(
+            file,
+            &format!(
+                "{setup}CTABLES /WEIGHT VARIABLE={} /TABLE q1_satisfaction BY region\n\
+                 /SIGTEST TYPE=CHISQUARE ALPHA=0.5.",
+                weight_name(file)
+            ),
+        )
+        .unwrap();
+        let row = &tables[1].rows[0];
+        let all = cases(file);
+        let inside: Vec<&Case> = all.iter().filter(|c| c.q1.is_some()).collect();
+        let sums: Vec<Vec<f64>> = (1..=5)
+            .map(|q| {
+                (1..=5)
+                    .map(|r| {
+                        let cell = inside
+                            .iter()
+                            .filter(|c| c.q1 == Some(f64::from(q)) && c.region == f64::from(r));
+                        cell.map(|c| c.weight).sum()
+                    })
+                    .collect()
+            })
+            .collect();
+        let w: f64 = inside.iter().map(|c| c.weight).sum();
+        let q: f64 = inside.iter().map(|c| c.weight * c.weight).sum();
+        let (value, df) = pearson(&sums);
+        let value = value * w / q;
+        assert!(
+            (number(&row[2]) - value).abs() < 1e-10 * value,
+            "{file}: {row:?} {value}"
+        );
+        assert_eq!(number(&row[3]), df);
+        assert!(
+            tables[1]
+                .caption
+                .as_ref()
+                .unwrap()
+                .contains("effective base")
+        );
+    }
+}
+
+#[test]
+fn effective_base_column_proportions_from_the_raw_weights() {
+    for (file, setup) in EFFECTIVE {
+        let tables = run(
+            file,
+            &format!(
+                "{setup}{DERIVED}CTABLES /WEIGHT VARIABLE={} /TABLE x BY gender > agegrp\n\
+                 /COMPARETEST TYPE=PROP ALPHA=0.01, 0.05 SHOWSIG=YES.",
+                weight_name(file)
+            ),
+        )
+        .unwrap();
+        let t = &tables[1];
+        assert!(t.caption.as_ref().unwrap().starts_with("Two-sided t-tests"));
+        let all = cases(file);
+        let (zero, one) = (|c: &Case| c.x() == 0.0, |c: &Case| c.x() == 1.0);
+        let rows: [&dyn Fn(&Case) -> bool; 2] = [&zero, &one];
+        let mut marks = 0;
+        for row in 0..2 {
+            let mut want = Vec::new();
+            for (g, gender) in [1.0, 2.0, 3.0].into_iter().enumerate() {
+                let subtable: Vec<&Case> = all.iter().filter(|c| c.gender == gender).collect();
+                let (shares, tested, pairs) = proportion_family_effective(
+                    &subtable,
+                    &rows,
+                    row,
+                    Case::agegrp,
+                    &[1.0, 2.0, 3.0],
+                );
+                want.extend(letters(
+                    &shares,
+                    &tested,
+                    &pairs,
+                    &[0.01, 0.05],
+                    Mode::Bonferroni,
+                    3 * g,
+                    true,
+                ));
+            }
+            assert_eq!(cells(t, row), want, "{file} row {row}");
+            marks += want.iter().filter(|w| w.contains('(')).count();
+        }
+        assert!(marks > 0, "{file}: some pair is significant");
+    }
+}
+
+#[test]
+fn effective_base_column_means_from_the_raw_weights() {
+    for (file, setup) in EFFECTIVE {
+        for (options, pool_all, mode, alpha) in [
+            (
+                "ALPHA=0.001 0.05 SHOWSIG=YES",
+                true,
+                Mode::Bonferroni,
+                [0.001, 0.05],
+            ),
+            (
+                "MEANSVARIANCE=TESTEDCATS ADJUST=BH ALPHA=0.01, 0.1 SHOWSIG=YES",
+                false,
+                Mode::Bh,
+                [0.01, 0.1],
+            ),
+        ] {
+            let tables = run(
+                file,
+                &format!(
+                    "{setup}{DERIVED}CTABLES /WEIGHT VARIABLE={} /TABLE gender > y BY agegrp\n\
+                     /CATEGORIES VARIABLES=gender TOTAL=YES /COMPARETEST TYPE=MEAN {options}.",
+                    weight_name(file)
+                ),
+            )
+            .unwrap();
+            let t = &tables[1];
+            let all = cases(file);
+            let mut marks = 0;
+            for (row, gender) in [Some(1.0), Some(2.0), Some(3.0), None]
+                .into_iter()
+                .enumerate()
+            {
+                let subtable: Vec<&Case> = all
+                    .iter()
+                    .filter(|c| gender.is_none_or(|g| c.gender == g))
+                    .collect();
+                let (means, tested, pairs) =
+                    mean_family_effective(&subtable, Case::agegrp, &[1.0, 2.0, 3.0], pool_all);
+                let want = letters(&means, &tested, &pairs, &alpha, mode, 0, true);
+                assert_eq!(cells(t, row), want, "{file} {options} row {row}");
+                marks += want.iter().filter(|w| !w.is_empty() && *w != ".").count();
+            }
+            assert!(marks > 0, "{file} {options}");
+        }
+    }
+}
+
+#[test]
+fn unit_effective_base_weights_give_the_unweighted_chi_square_and_means_tests() {
+    // with every weight 1 the effective base of a category is its number of cases, so where
+    // every category has two cases or more the formulas reduce to the unweighted ones
+    let tests = "/COMPARETEST TYPE=MEAN ALPHA=0.2 SHOWSIG=YES";
+    let plain = run(
+        "survey_basic.sav",
+        &format!("{DERIVED}CTABLES /TABLE y BY agegrp + region {tests}."),
+    )
+    .unwrap();
+    let ones = run(
+        "survey_basic.sav",
+        &format!(
+            "COMPUTE one = 1.\n{DERIVED}CTABLES /WEIGHT VARIABLE=one /TABLE y BY agegrp + region {tests}."
+        ),
+    )
+    .unwrap();
+    for row in 0..plain[1].rows.len() {
+        assert_eq!(cells(&ones[1], row), cells(&plain[1], row));
+    }
+    let q1 = |weight: &str| {
+        run(
+            "survey_basic.sav",
+            &format!("COMPUTE one = 1.\nCTABLES {weight} /TABLE q1_satisfaction BY region /SIGTEST TYPE=CHISQUARE."),
+        )
+        .unwrap()
+    };
+    let (plain, ones) = (q1(""), q1("/WEIGHT VARIABLE=one"));
+    let row = |t: &Table| -> Vec<f64> { (2..5).map(|i| number(&t.rows[0][i])).collect() };
+    let (a, b) = (row(&plain[1]), row(&ones[1]));
+    for (x, y) in a.iter().zip(&b) {
+        assert!((x - y).abs() < 1e-12 * x.abs().max(1.0), "{a:?} {b:?}");
+    }
+}

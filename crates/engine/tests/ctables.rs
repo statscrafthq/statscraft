@@ -847,3 +847,125 @@ fn hidden_missing_values_count_in_totaln_but_values_left_out_do_not() {
         assert_eq!(row[12..], [Some(valid as f64), Some(100.0)]);
     }
 }
+
+// Effective base weights (Command Syntax Reference, CTABLES, WEIGHT subcommand, page 504, and the
+// E functions, pages 486-488; Algorithms, CTABLES, "Weights" and the effective base of a
+// category, e = w^2 / q with q the sum of squared weights): /WEIGHT VARIABLE weights every
+// summary instead of the WEIGHT command's variable. ECOUNT, EVALIDN and ETOTALN are the
+// effective bases of COUNT, VALIDN and TOTALN; without /WEIGHT they equal those. SEMEAN uses the
+// variance adjusted to the effective base, over the effective base.
+#[test]
+fn effective_base_summaries_from_the_raw_weights() {
+    let file = "survey_basic.sav";
+    let data = Dataset::read_sav(fixture(file)).unwrap();
+    let (gender, region, weight) = (
+        raw(&data, "gender"),
+        raw(&data, "region"),
+        raw(&data, "weight"),
+    );
+    let q2 = data.variable("q2_recommend").unwrap();
+    let recommend: Vec<Option<f64>> = raw(&data, "q2_recommend")
+        .into_iter()
+        .map(|v| v.filter(|v| !q2.is_user_missing(*v)))
+        .collect();
+    let n = data.case_count();
+    let w = |i: usize| weight[i].filter(|w| *w > 0.0);
+    let round = |x: f64| Some((x * 1e6).round() / 1e6);
+    let t = run(
+        file,
+        "CTABLES /WEIGHT VARIABLE=weight /TABLE gender [COUNT, ECOUNT, UCOUNT] BY region.",
+    );
+    for g in 0..3 {
+        for r in 0..5 {
+            let cell: Vec<f64> = (0..n)
+                .filter(|&i| gender[i] == Some(g as f64 + 1.0) && region[i] == Some(r as f64 + 1.0))
+                .filter_map(w)
+                .collect();
+            let sum: f64 = cell.iter().sum();
+            let squares: f64 = cell.iter().map(|w| w * w).sum();
+            let e = if squares > 0.0 {
+                sum * sum / squares
+            } else {
+                0.0
+            };
+            assert_eq!(
+                numbers(&t, g)[r * 3..r * 3 + 3],
+                [round(sum), round(e), Some(cell.len() as f64)],
+                "gender {g} region {r}"
+            );
+        }
+    }
+    // /WEIGHT takes the place of the WEIGHT command's variable
+    let replaced = run(
+        file,
+        "WEIGHT BY age.\nCTABLES /WEIGHT VARIABLE=weight /TABLE gender [COUNT, ECOUNT, UCOUNT] BY region.",
+    );
+    assert_eq!(all_numbers(&replaced), all_numbers(&t));
+    // without /WEIGHT the E functions are the plain ones, weighted by the WEIGHT command
+    let plain = run(
+        file,
+        "WEIGHT BY weight.\nCTABLES /TABLE q2_recommend [COUNT, ECOUNT, VALIDN, EVALIDN, TOTALN, ETOTALN] BY gender.",
+    );
+    for g in 0..3 {
+        let row = numbers(&plain, 0);
+        let k = g * 6;
+        assert_eq!(
+            (row[k + 1], row[k + 3], row[k + 5]),
+            (row[k], row[k + 2], row[k + 4])
+        );
+    }
+
+    let s = run(
+        file,
+        "CTABLES /WEIGHT VARIABLE=weight\n\
+         /TABLE q2_recommend [MEAN, SEMEAN, VALIDN, EVALIDN, ETOTALN, ECOUNT] BY gender.",
+    );
+    for g in 0..3 {
+        let is_g = |i: usize| gender[i] == Some(g as f64 + 1.0) && w(i).is_some();
+        let all: Vec<f64> = (0..n).filter(|&i| is_g(i)).filter_map(w).collect();
+        let valid: Vec<(f64, f64)> = (0..n)
+            .filter(|&i| is_g(i))
+            .filter_map(|i| Some((recommend[i]?, w(i)?)))
+            .collect();
+        let base = |ws: &[f64]| {
+            let sum: f64 = ws.iter().sum();
+            sum * sum / ws.iter().map(|w| w * w).sum::<f64>()
+        };
+        let weights: Vec<f64> = valid.iter().map(|v| v.1).collect();
+        let total: f64 = weights.iter().sum();
+        let mean = valid.iter().map(|(x, w)| x * w).sum::<f64>() / total;
+        let deviations: f64 = valid.iter().map(|(x, w)| w * (x - mean).powi(2)).sum();
+        let e = base(&weights);
+        let semean = (deviations / (total - total / e) / e).sqrt();
+        let row = numbers(&s, 0);
+        let got = &row[g * 6..g * 6 + 6];
+        assert!((got[0].unwrap() - mean).abs() < 1e-5, "{got:?} {mean}");
+        assert!((got[1].unwrap() - semean).abs() < 1e-5, "{got:?} {semean}");
+        assert_eq!(got[2], round(total));
+        assert_eq!(got[3], round(e));
+        assert_eq!(got[4], round(base(&all)));
+        assert_eq!(got[5], round(base(&all)));
+        assert!(all.len() > valid.len(), "the fixture has missing values");
+    }
+
+    // unit weights: every effective base is the number of cases
+    let ones = run(
+        file,
+        "COMPUTE one = 1.\nCTABLES /WEIGHT VARIABLE=one /TABLE gender [ECOUNT, UCOUNT] BY region.",
+    );
+    for g in 0..3 {
+        let row = numbers(&ones, g);
+        for r in 0..5 {
+            assert_eq!(row[r * 2], row[r * 2 + 1]);
+        }
+    }
+    let e = run_on(
+        &mut Engine::default(),
+        &format!(
+            "GET FILE='{}'.\nCTABLES /WEIGHT VARIABLE=plan /TABLE gender.",
+            fixture(file)
+        ),
+    )
+    .unwrap_err();
+    assert!(e.contains("must be numeric"), "{e}");
+}

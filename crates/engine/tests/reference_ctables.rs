@@ -593,6 +593,11 @@ fn othernm_and_missing_in_a_list() {
     ]);
 }
 
+// Effective base weights (/WEIGHT, ECOUNT) are not compared: PSPP leaves COUNT unweighted and
+// shows the weighted count as ECOUNT, where the manual weights every summary by the effective base
+// weight and makes ECOUNT the effective base (w^2 / q). ctables.rs and ctables_sigtest.rs check
+// them against the raw values.
+
 #[test]
 #[ignore = "needs STATSCRAFT_PSPP"]
 fn subtotals() {

@@ -342,6 +342,7 @@ impl Tally {
         if total_only {
             self.total_only += weight;
             self.total_only_cases += 1.0;
+            self.total_only_squares += weight * weight;
             return;
         }
         self.add(weight, valid, value, keep_values);

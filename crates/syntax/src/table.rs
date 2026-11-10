@@ -234,7 +234,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "CTABLES [/FORMAT EMPTY=ZERO|BLANK|'text' MISSING='text']\n\
                  \x20       [/VLABELS VARIABLES=varlist DISPLAY=DEFAULT|NAME|LABEL|BOTH|NONE]\n\
                  \x20       [/MRSETS COUNTDUPLICATES=NO|YES]\n\
-                 \x20       [/HIDESMALLCOUNTS [COUNT=5]]\n\
+                 \x20       [/HIDESMALLCOUNTS [COUNT=5]] [/WEIGHT VARIABLE=varname]\n\
                  \x20       [/PCOMPUTE &name=EXPR(expression)]\n\
                  \x20       [/PPROPERTIES &name ... [LABEL='text'] [FORMAT=function format ...] [HIDESOURCECATS=NO|YES]]\n\
                  \x20       /TABLE rows [BY [columns] [BY layers]]\n\
@@ -274,6 +274,14 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  each with .COUNT, .VALIDN or .TOTALN (COLPCT.COUNT and so on); COLPCT alone means COLPCT.COUNT.\n\
                  Scale: also MEAN MEDIAN MODE MINIMUM MAXIMUM RANGE SUM STDDEV VARIANCE SEMEAN PTILE n VALIDN TOTALN\n\
                  MISSING and the percentages with .SUM. A U prefix (UCOUNT, UMEAN) ignores the weight.\n\
+                 /WEIGHT VARIABLE=var (before the first /TABLE) weights every table by an effective base weight,\n\
+                 in place of the WEIGHT command's variable. ECOUNT (also for categorical variables and sets),\n\
+                 EVALIDN and ETOTALN are then the effective bases (sum of weights)^2 / (sum of squared weights)\n\
+                 of COUNT, VALIDN and TOTALN, and SEMEAN uses the variance adjusted to the effective base;\n\
+                 without /WEIGHT they equal COUNT, VALIDN and TOTALN. The tests then round nothing: the\n\
+                 chi-square is multiplied by the subtable's weight over its sum of squared weights, and the\n\
+                 column tests are t-tests on the effective bases, comparing two categories when both have a\n\
+                 case and one of them two.\n\
                  Weighted by the weight variable when one is set; fractional weights are not rounded, and a case\n\
                  whose weight is zero, negative or missing is left out (also from U functions). MEDIAN and PTILE\n\
                  use the averaged empirical distribution. A count without cases is 0 unless EMPTY says otherwise.\n\
@@ -325,7 +333,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  cases two categories of a set share; the means test then pools the variance from the two categories\n\
                  compared. INCLUDEMRSETS=NO leaves sets out of the tests, and so does COUNTDUPLICATES=YES for a\n\
                  category set.\n\
-                 Not supported yet: CLABELS ROWLABELS=LAYER or COLLABELS=LAYER, effective base (E functions),\n\
+                 Not supported yet: CLABELS ROWLABELS=LAYER or COLLABELS=LAYER,\n\
                  )LABEL[n] in a computed category's label, an empty row axis (/TABLE BY columns).",
         example: "CTABLES /TABLE q1 [COUNT, COLPCT.COUNT PCT8.1] BY gender /CATEGORIES VARIABLES=q1 TOTAL=YES.",
         parse: ctables::ctables,

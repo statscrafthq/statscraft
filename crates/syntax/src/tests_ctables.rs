@@ -127,7 +127,6 @@ fn per_table_and_global_subcommands() {
 fn features_of_the_next_stage_are_named() {
     for (source, feature) in [
         ("CTABLES /TABLE a /CRITERIA CILEVEL=90.", "CRITERIA"),
-        ("CTABLES /TABLE a [ECOUNT].", "ECOUNT"),
         (
             "CTABLES /TABLE a /CLABELS ROWLABELS=LAYER.",
             "category labels to the layers",
@@ -508,5 +507,47 @@ fn othernm_missing_and_a_summary_as_the_sort_key() {
     assert!(
         e.expected.iter().any(|x| x.contains("PTILE(variable")),
         "{e:?}"
+    );
+}
+
+#[test]
+fn an_effective_base_weight_and_the_e_functions() {
+    let c = one("CTABLES /WEIGHT VARIABLE=w /TABLE a [ECOUNT, EVALIDN, ETOTALN, COUNT].");
+    assert_eq!(c.weight.as_deref(), Some("w"));
+    let Some(AxisExpr::Variable(a)) = Some(&c.tables[0].rows) else {
+        panic!()
+    };
+    let functions: Vec<Statistic> = a
+        .summaries
+        .as_ref()
+        .unwrap()
+        .iter()
+        .map(|s| s.function.statistic)
+        .collect();
+    assert_eq!(
+        functions,
+        [
+            Statistic::Ecount,
+            Statistic::Evalidn,
+            Statistic::Etotaln,
+            Statistic::Count
+        ]
+    );
+    assert_eq!(
+        one("CTABLES /WEIGHT=w /TABLE a.").weight.as_deref(),
+        Some("w")
+    );
+    let e = err("CTABLES /TABLE a /WEIGHT VARIABLE=w.");
+    assert!(
+        e.message.contains("before the first /TABLE"),
+        "{}",
+        e.message
+    );
+    // an effective base needs the weights, so there is no unweighted one
+    let e = err("CTABLES /TABLE a [UECOUNT].");
+    assert!(
+        e.message.contains("unknown summary function UECOUNT"),
+        "{}",
+        e.message
     );
 }

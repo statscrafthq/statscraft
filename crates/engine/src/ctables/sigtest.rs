@@ -27,6 +27,17 @@
 //!   the cell counts of the chi-square test, the column totals of the proportions test (the
 //!   proportions themselves are not rounded), and the category weights of the means test (means
 //!   and variances are not rounded).
+//! - Effective base weights (/WEIGHT; algorithms reference, the chi-square's "Use of weights" and
+//!   the column tests "With Effective Base Weighting"): nothing is rounded. The chi-square is
+//!   multiplied by W / q, the subtable's weight over its sum of squared weights. The column tests
+//!   are t-tests on the effective bases e = w^2 / q: a column proportion's base is the sum of
+//!   the bases of its cells (of the column total when the rows are a set), a mean's variance is
+//!   its weighted sum of squared deviations over w - w / e, and df is e_j + e_k - 2 (pooled from
+//!   all: the sum of the bases minus their number). The cases two categories of a set share
+//!   have the base 0.5 w_jk (e_j / w_j + e_k / w_k), taken off as with plain weights. Two
+//!   categories are compared when both have a case and one of them has two or more. Where the
+//!   manual is silent: the reference gives the chi-square factor both as E_SS and as W / q; we
+//!   use W / q, which scales the statistic to the effective sample size.
 //! - Every column of the table gets a letter. For a significant pair the letter of the column
 //!   with the smaller proportion or mean goes into the column with the larger one: uppercase when
 //!   significant at the smaller of two ALPHA levels (or at the only one), lowercase at the larger.
@@ -52,7 +63,8 @@
 //!   insert-and-absorb construction of a compact letter display.
 
 use super::{
-    CategoryList, Entry, Layout, MARGIN, Section, Slot, Term, TermVar, combinations, list_of,
+    CategoryList, Entry, Layout, MARGIN, Section, Slot, Tally, Term, TermVar, combinations,
+    effective_base, list_of,
 };
 use crate::dist::{chi_square_p, normal_p, t_p};
 use crate::{Cell, Error, Table};
@@ -173,24 +185,140 @@ pub(crate) fn proportions(
     (pairs, tested)
 }
 
-/// The weighted size, mean and variance (divided by the weight minus 1) of one category.
+/// The weighted size, mean and variance (divided by the weight minus 1) of one category, with
+/// what effective base weights need: the weighted sum of squared deviations, the sum of squared
+/// weights and the number of cases.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub(crate) struct Group {
     pub weight: f64,
     pub mean: f64,
     pub variance: f64,
+    pub deviations: f64,
+    pub squares: f64,
+    pub cases: f64,
 }
 
 /// The group of the valid (value, weight) pairs of a category.
 pub(crate) fn group(values: &[(f64, f64)]) -> Group {
     let weight: f64 = values.iter().map(|(_, w)| w).sum();
     let mean = values.iter().map(|(x, w)| x * w).sum::<f64>() / weight;
-    let squares: f64 = values.iter().map(|(x, w)| w * (x - mean).powi(2)).sum();
+    let deviations: f64 = values.iter().map(|(x, w)| w * (x - mean).powi(2)).sum();
     Group {
         weight,
         mean,
-        variance: squares / (weight - 1.0),
+        variance: deviations / (weight - 1.0),
+        deviations,
+        squares: values.iter().map(|(_, w)| w * w).sum(),
+        cases: values.len() as f64,
     }
+}
+
+/// Which categories take part in a test with effective base weights, by their numbers of
+/// cases: a pair is compared when both have a case and one of them two or more.
+fn compared_by_cases(cases: &[f64]) -> (Vec<bool>, impl Fn(usize, usize) -> bool + '_) {
+    let tested = (0..cases.len())
+        .map(|j| {
+            cases[j] >= 2.0
+                || (cases[j] >= 1.0 && (0..cases.len()).any(|k| k != j && cases[k] >= 2.0))
+        })
+        .collect();
+    let pair = move |j: usize, k: usize| {
+        cases[j] >= 1.0 && cases[k] >= 1.0 && (cases[j] >= 2.0 || cases[k] >= 2.0)
+    };
+    (tested, pair)
+}
+
+/// One column of a proportions test with effective base weights (/WEIGHT): the weight of the
+/// row in the column, the column's weight, its effective base and its number of cases.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct BaseColumn {
+    pub count: f64,
+    pub total: f64,
+    pub base: f64,
+    pub cases: f64,
+}
+
+/// Column proportions test of one row with effective base weights: a t-test with the effective
+/// bases in place of the column sizes and df = e_j + e_k - 2; nothing is rounded. `shared` gives
+/// the effective base of the cases two columns of a set share, which comes off the variance
+/// factor as 2 e_jk / (e_j e_k) and off df.
+pub(crate) fn proportions_effective(
+    columns: &[BaseColumn],
+    shared: Shared,
+) -> (Vec<Pair>, Vec<bool>) {
+    let cases: Vec<f64> = columns.iter().map(|c| c.cases).collect();
+    let (tested, compared) = compared_by_cases(&cases);
+    let share = |j: usize| columns[j].count / columns[j].total;
+    let mut pairs = Vec::new();
+    for j in 0..columns.len() {
+        for k in j + 1..columns.len() {
+            if !compared(j, k) {
+                continue;
+            }
+            let (a, b) = (&columns[j], &columns[k]);
+            let pooled = (a.count + b.count) / (a.total + b.total);
+            let both = shared(j, k);
+            let factor = 1.0 / a.base + 1.0 / b.base - 2.0 * both / (a.base * b.base);
+            let variance = pooled * (1.0 - pooled) * factor;
+            let df = a.base + b.base - both - 2.0;
+            // a pooled proportion of 0 or 1, or columns that hold the same cases, leave
+            // nothing to test
+            if !(variance > 0.0 && df > 0.0) {
+                continue;
+            }
+            let t = (share(j) - share(k)) / variance.sqrt();
+            pairs.push(pair(j, k, share(j), share(k), t_p(t, df)));
+        }
+    }
+    (pairs, tested)
+}
+
+/// Column means test of one subtable with effective base weights (/WEIGHT): every category's
+/// variance is adjusted to its effective base e = w^2 / q, the pooled variance is the sum of the
+/// squared deviations over the sum of w - w / e (of all categories with two cases or more, or of
+/// the two compared), the t statistic uses 1 / e_i + 1 / e_j, and df is e_i + e_j - 2 (pooled
+/// from all: the sum of their e minus their number). Nothing is rounded. `shared` gives the
+/// weight two categories of a set share; its effective base 0.5 w_ij (e_i / w_i + e_j / w_j)
+/// comes off the factor and off df, and sets always pool from the two compared.
+pub(crate) fn means_effective(
+    groups: &[Group],
+    pool_all: bool,
+    shared: Option<Shared>,
+) -> (Vec<Pair>, Vec<bool>) {
+    let pool_all = pool_all && shared.is_none();
+    let cases: Vec<f64> = groups.iter().map(|g| g.cases).collect();
+    let (tested, compared) = compared_by_cases(&cases);
+    let e = |g: &Group| effective_base(g.weight, g.squares);
+    let room = |g: &Group| g.weight - g.weight / e(g);
+    let full: Vec<&Group> = groups.iter().filter(|g| g.cases >= 2.0).collect();
+    let pooled =
+        full.iter().map(|g| g.deviations).sum::<f64>() / full.iter().map(|g| room(g)).sum::<f64>();
+    let df_all = full.iter().map(|g| e(g)).sum::<f64>() - full.len() as f64;
+    let mut pairs = Vec::new();
+    for i in 0..groups.len() {
+        for j in i + 1..groups.len() {
+            if !compared(i, j) {
+                continue;
+            }
+            let (gi, gj) = (&groups[i], &groups[j]);
+            let both = shared.map_or(0.0, |f| {
+                0.5 * f(i, j) * (e(gi) / gi.weight + e(gj) / gj.weight)
+            });
+            let (variance, df) = if pool_all {
+                (pooled, df_all)
+            } else {
+                let variance = (gi.deviations + gj.deviations) / (room(gi) + room(gj));
+                (variance, e(gi) + e(gj) - both - 2.0)
+            };
+            let factor = 1.0 / e(gi) + 1.0 / e(gj) - 2.0 * both / (e(gi) * e(gj));
+            if !(variance > 0.0 && factor > 0.0 && df > 0.0) {
+                continue;
+            }
+            let t = (gi.mean - gj.mean) / (variance * factor).sqrt();
+            pairs.push(pair(i, j, gi.mean, gj.mean, t_p(t, df)));
+        }
+    }
+    (pairs, tested)
 }
 
 /// Column means test of one subtable. `pool_all` pools the variance from every category taking
@@ -473,10 +601,16 @@ fn chi_square_table(
             let inner_columns = tested_categories(column_lists[nc - 1], spec.subtotals);
             for row_outer in tested_combinations(&row_lists[..nr - 1]) {
                 for column_outer in tested_combinations(&column_lists[..nc - 1]) {
-                    // whole cases: weighted counts are rounded for the test
+                    // whole cases: weighted counts are rounded for the test, unless the weights
+                    // are effective base weights
                     let at = |i: usize, j: usize| {
                         let key = [&row_outer[..], &[i], &column_outer, &[j], layer].concat();
-                        count_at(section, &key).round()
+                        let count = count_at(section, &key);
+                        if section.effective {
+                            count
+                        } else {
+                            count.round()
+                        }
                     };
                     let counts: Vec<Vec<f64>> = inner_rows
                         .iter()
@@ -502,6 +636,23 @@ fn chi_square_table(
                             sets,
                         )
                     };
+                    // effective base weights: the statistic scaled to the effective base, by the
+                    // subtable's weight over its sum of squared weights
+                    let test = test.map(|test| match section.effective {
+                        true => {
+                            let key = [&row_outer[..], &[MARGIN], &column_outer, &[MARGIN], layer]
+                                .concat();
+                            let all = section.cells.get(&key);
+                            let factor = all.map_or(1.0, |t| t.count / t.squares);
+                            let value = test.value * factor;
+                            ChiSquare {
+                                value,
+                                p: chi_square_p(value, test.df),
+                                ..test
+                            }
+                        }
+                        false => test,
+                    });
                     match test {
                         Some(test) => {
                             let mark = if test.p < spec.alpha { "*" } else { "" };
@@ -541,6 +692,9 @@ fn chi_square_table(
     }
     if untested {
         caption.push_str(" A subtable with fewer than two nonempty rows or columns is not tested.");
+    }
+    if sections.values().any(|s| s.effective) {
+        caption.push_str(" With effective base weights the counts are not rounded, and the statistic is multiplied by the subtable's weight over its sum of squared weights.");
     }
     for why in left_out {
         caption.push(' ');
@@ -594,6 +748,8 @@ pub(super) struct Comparisons {
     dots: bool,
     left_out: Vec<&'static str>,
     with_sets: bool,
+    /// The weights are effective base weights (/WEIGHT).
+    effective: bool,
 }
 
 /// The outcome of one family of comparisons, by category position of the innermost column
@@ -711,13 +867,17 @@ fn comparisons(
                         let column_lists = category_lists(column_term, lists);
                         let inner_columns =
                             tested_categories(column_lists[column_lists.len() - 1], spec.subtotals);
-                        let set = set_sides(term, column_term).1;
+                        let sets = set_sides(term, column_term);
                         let at = Place {
                             row: &row_combo,
                             column_outer: outer,
                             layer,
                         };
-                        compare(spec, section, at, &inner_columns, set)
+                        // the means test may have no categorical row variable
+                        let inner_rows = row_lists
+                            .last()
+                            .map_or(Vec::new(), |list| tested_categories(list, spec.subtotals));
+                        compare(spec, section, at, (&inner_rows, &inner_columns), sets)
                     });
                 outcomes.push(if !family.tested[&inner[0]] {
                     dots = true;
@@ -756,6 +916,7 @@ fn comparisons(
         dots,
         left_out,
         with_sets,
+        effective: sections.values().any(|s| s.effective),
     })
 }
 
@@ -1039,9 +1200,10 @@ fn compare(
     spec: &Comparetest,
     section: &Section,
     at: Place,
-    inner_columns: &[usize],
-    set: bool,
+    (inner_rows, inner_columns): (&[usize], &[usize]),
+    sets: (bool, bool),
 ) -> Family {
+    let set = sets.1;
     let (row_combo, column_outer, layer) = (at.row, at.column_outer, at.layer);
     let key = |row: &[usize], j: usize| [row, column_outer, &[j], layer].concat();
     // the cases two categories of a set in the columns share
@@ -1066,7 +1228,16 @@ fn compare(
                 .iter()
                 .map(|&j| count_at(section, &key(&margin, j)))
                 .collect();
-            proportions(&counts, &totals, &|j, k| shared_by(&margin, j, k, false))
+            if section.effective {
+                proportions_effective(
+                    &effective_columns(section, at, (inner_rows, inner_columns), sets.0, &counts),
+                    &|j, k| {
+                        effective_shared(section, at, (inner_rows, inner_columns), sets, (j, k))
+                    },
+                )
+            } else {
+                proportions(&counts, &totals, &|j, k| shared_by(&margin, j, k, false))
+            }
         }
         CompareKind::Means => {
             let groups: Vec<Group> = inner_columns
@@ -1081,7 +1252,12 @@ fn compare(
                 })
                 .collect();
             let shared = |j: usize, k: usize| shared_by(row_combo, j, k, true);
-            means(&groups, spec.pool_all, set.then_some(&shared as Shared))
+            let shared = set.then_some(&shared as Shared);
+            if section.effective {
+                means_effective(&groups, spec.pool_all, shared)
+            } else {
+                means(&groups, spec.pool_all, shared)
+            }
         }
     };
     let adjusted = adjust(
@@ -1107,6 +1283,93 @@ fn compare(
     family
 }
 
+/// The tally of a cell of a subtable: row categories, the outer column categories, the inner
+/// column category and the layer.
+fn cell_at<'s>(section: &'s Section, at: Place, row: &[usize], j: usize) -> Option<&'s Tally> {
+    section
+        .cells
+        .get(&[row, at.column_outer, &[j], at.layer].concat())
+}
+
+/// The effective base of a cell, 0 without cases.
+fn cell_base(tally: Option<&Tally>) -> f64 {
+    tally.map_or(0.0, |t| effective_base(t.count, t.squares))
+}
+
+/// The columns of one row of a proportions test with effective base weights. A column's
+/// effective base is the sum of those of its cells in the subtable's rows; when the rows are a
+/// set, whose cells share cases, it is the effective base of the column total.
+fn effective_columns(
+    section: &Section,
+    at: Place,
+    (inner_rows, inner_columns): (&[usize], &[usize]),
+    row_set: bool,
+    counts: &[f64],
+) -> Vec<BaseColumn> {
+    let outer_rows = &at.row[..at.row.len() - 1];
+    let margin = [outer_rows, &[MARGIN][..]].concat();
+    inner_columns
+        .iter()
+        .zip(counts)
+        .map(|(&j, &count)| {
+            let total = cell_at(section, at, &margin, j);
+            let base = if row_set {
+                cell_base(total)
+            } else {
+                inner_rows
+                    .iter()
+                    .map(|&i| cell_base(cell_at(section, at, &[outer_rows, &[i]].concat(), j)))
+                    .sum()
+            };
+            BaseColumn {
+                count,
+                total: total.map_or(0.0, |t| t.count),
+                base,
+                cases: total.map_or(0.0, |t| t.cases),
+            }
+        })
+        .collect()
+}
+
+/// The effective base of the cases two columns of a set share (columns j and k by position):
+/// for every row 0.5 w_ijk (e_ij / w_ij + e_ik / w_ik), summed over the rows; when the rows are
+/// a set too, 0.5 w_jk (e_j / w_j + e_k / w_k) from the column totals. 0 for a categorical
+/// variable in the columns.
+fn effective_shared(
+    section: &Section,
+    at: Place,
+    (inner_rows, inner_columns): (&[usize], &[usize]),
+    sets: (bool, bool),
+    (j, k): (usize, usize),
+) -> f64 {
+    if !sets.1 {
+        return 0.0;
+    }
+    let (a, b) = (inner_columns[j], inner_columns[k]);
+    let pair = [a.min(b), a.max(b)];
+    let outer_rows = &at.row[..at.row.len() - 1];
+    let part = |row: &[usize]| {
+        let shared = section
+            .pairs
+            .get(&[row, at.column_outer, at.layer, &pair[..]].concat())
+            .map_or(0.0, |t| t.count);
+        let ratio = |c: usize| {
+            cell_at(section, at, row, c)
+                .filter(|t| t.count > 0.0)
+                .map_or(0.0, |t| effective_base(t.count, t.squares) / t.count)
+        };
+        0.5 * shared * (ratio(a) + ratio(b))
+    };
+    if sets.0 {
+        part(&[outer_rows, &[MARGIN][..]].concat())
+    } else {
+        inner_rows
+            .iter()
+            .map(|&i| part(&[outer_rows, &[i]].concat()))
+            .sum()
+    }
+}
+
 fn p_text(p: f64) -> String {
     if p < 0.0005 {
         "<0.001".into()
@@ -1123,6 +1386,11 @@ fn comparison_caption(
     merged: Option<CompareStyle>,
 ) -> String {
     let (dots, left_out, with_sets) = (found.dots, &found.left_out, found.with_sets);
+    let base = if found.effective {
+        ", with effective base weights"
+    } else {
+        ""
+    };
     let means = spec.kind == CompareKind::Means;
     let (what, smaller) = if means {
         let pooled = if spec.pool_all {
@@ -1131,12 +1399,15 @@ fn comparison_caption(
             "pooled from the two categories compared"
         };
         (
-            format!("Two-sided t-tests of the equality of column means, variance {pooled}"),
+            format!("Two-sided t-tests of the equality of column means, variance {pooled}{base}"),
             "mean",
         )
     } else {
         (
-            "Two-sided z-tests of the equality of column proportions".to_string(),
+            match found.effective {
+                true => format!("Two-sided t-tests of the equality of column proportions{base}"),
+                false => "Two-sided z-tests of the equality of column proportions".to_string(),
+            },
             "proportion",
         )
     };
@@ -1168,7 +1439,9 @@ fn comparison_caption(
     if spec.show_sig {
         caption.push_str(" The adjusted significance follows each letter in parentheses.");
     }
-    if dots {
+    if dots && found.effective {
+        caption.push_str(" A period marks a category that is not compared: it has no case, or neither it nor any other has two.");
+    } else if dots {
         caption.push_str(if means {
             " A period marks a category that weighs less than 2 and is not compared."
         } else {
@@ -1538,6 +1811,68 @@ mod tests {
             letters(&[0, 1, 2, 3], &[(0, 2), (0, 3), (1, 3)]),
             ["a", "ab", "bc", "c"]
         );
+    }
+
+    #[test]
+    fn effective_base_proportions_use_the_bases_and_the_shared_base() {
+        // 30 of 50 against 20 of 50, effective bases 40 and 25 sharing 5: pooled 0.5, factor
+        // 1/40 + 1/25 - 2 * 5 / (40 * 25) = 0.055, df 40 + 25 - 5 - 2 = 58
+        let columns = [
+            BaseColumn {
+                count: 30.0,
+                total: 50.0,
+                base: 40.0,
+                cases: 50.0,
+            },
+            BaseColumn {
+                count: 20.0,
+                total: 50.0,
+                base: 25.0,
+                cases: 50.0,
+            },
+        ];
+        let (pairs, tested) = proportions_effective(&columns, &|_, _| 5.0);
+        let t = 0.2 / (0.25_f64 * 0.055).sqrt();
+        assert_eq!(tested, [true, true]);
+        assert!(close(pairs[0].p, t_p(t, 58.0), 1e-13));
+        // a column of one case is compared only with columns of two or more; proportions of 0
+        // and 1 take part
+        let one = |count: f64, cases: f64| BaseColumn {
+            count,
+            total: cases,
+            base: cases,
+            cases,
+        };
+        let (pairs, tested) = proportions_effective(
+            &[one(1.0, 1.0), one(0.0, 1.0), one(1.0, 3.0), one(0.0, 0.0)],
+            NONE_SHARED,
+        );
+        assert_eq!(tested, [true, true, true, false]);
+        let compared: Vec<(usize, usize)> = pairs
+            .iter()
+            .map(|p| (p.larger.min(p.smaller), p.larger.max(p.smaller)))
+            .collect();
+        assert_eq!(compared, [(0, 2), (1, 2)]);
+    }
+
+    #[test]
+    fn effective_base_means_adjust_the_variance_to_the_base() {
+        // unit weights: the base is the number of cases and the test is the unweighted one,
+        // here A = {1, 2, 3} against C = {2, 4, 6} with one shared case (see the set test above)
+        let a = group(&[(1.0, 1.0), (2.0, 1.0), (3.0, 1.0)]);
+        let c = group(&[(2.0, 1.0), (4.0, 1.0), (6.0, 1.0)]);
+        let (pairs, _) = means_effective(&[a, c], true, Some(&|_, _| 1.0));
+        let t = 2.0 / (2.5_f64 * 4.0 / 9.0).sqrt();
+        assert!(close(pairs[0].p, t_closed_form(t, 3), 1e-10));
+        // weights 1 and 3: w = 4, q = 10, e = 1.6; mean (1 + 9) / 4 = 2.5, squared deviations
+        // 2.25 + 0.75 = 3, adjusted room 4 - 4 / 1.6 = 1.5. B = {5, 7} at 1: e = 2, room 1,
+        // deviations 2. Pooled from the pair: 5 / 2.5 = 2, factor 1/1.6 + 1/2, df 1.6 + 2 - 2.
+        let a = group(&[(1.0, 1.0), (3.0, 3.0)]);
+        let b = group(&[(5.0, 1.0), (7.0, 1.0)]);
+        let (pairs, tested) = means_effective(&[a, b], false, None);
+        assert_eq!(tested, [true, true]);
+        let t = (2.5 - 6.0) / (2.0_f64 * (1.0 / 1.6 + 0.5)).sqrt();
+        assert!(close(pairs[0].p, t_p(t, 1.6), 1e-12));
     }
 
     #[test]
