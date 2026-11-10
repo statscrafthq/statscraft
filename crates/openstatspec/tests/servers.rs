@@ -650,6 +650,51 @@ fn dolt_and_mysql_refuse_each_other() {
     }
 }
 
+// ---------------------------------------------------------------- Bulk rows
+
+/// 20,000 cases of 30 numbers and a string with every character that needs escaping: about
+/// 12 MB of INSERT text on the MySQL protocol, so several batches, and one COPY on PostgreSQL.
+fn many_cases() -> Dataset {
+    let cases = 20_000;
+    let mut d = Dataset::new(cases);
+    for v in 0..30 {
+        let values = (0..cases)
+            .map(|c| match (c + v) % 7 {
+                0 => None,
+                1 => Some(5e-324),
+                2 => Some(f64::MAX),
+                3 => Some(-1.0 / 3.0),
+                k => Some((c * 31 + k) as f64),
+            })
+            .collect();
+        d.set_numeric_values(&format!("x{v}"), values).unwrap();
+    }
+    let strings = (0..cases).map(|c| format!("it's \\ a\0b õ {c}")).collect();
+    d.set_string_values("s", 40, strings).unwrap();
+    d
+}
+
+#[test]
+#[ignore = "needs STATSCRAFT_PG_URL, STATSCRAFT_MARIADB_URL and STATSCRAFT_DOLT_URL"]
+fn many_cases_round_trip_in_batches_on_every_server() {
+    let d = many_cases();
+    if let Some(pg) = Postgres::get() {
+        // PostgreSQL text cannot hold U+0000
+        let mut d = d.clone();
+        let strings = (0..d.case_count())
+            .map(|c| format!("it's \\ õ {c}"))
+            .collect();
+        d.set_string_values("s", 40, strings).unwrap();
+        assert_values_round_trip(pg.fresh().as_mut(), &d, "many");
+    }
+    for server in mysql_family() {
+        assert_values_round_trip(server.fresh().as_mut(), &d, "many");
+    }
+    for server in dolts() {
+        assert_values_round_trip(server.fresh().as_mut(), &d, "many");
+    }
+}
+
 // ---------------------------------------------------------------- TLS
 
 /// STATSCRAFT_TLS_DIR holds `ca.crt`, the CA that signed the servers' certificate for the host

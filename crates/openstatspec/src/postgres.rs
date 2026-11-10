@@ -6,6 +6,7 @@ use crate::db::{
     Db, DbError, Dialect, Limits, POSTGRESQL, Result, Sql, Tls, placeholders, take_params, tls,
 };
 use bytes::{BufMut, BytesMut};
+use postgres::binary_copy::BinaryCopyInWriter;
 use postgres::config::SslMode;
 use postgres::error::SqlState;
 use postgres::types::{FromSql, IsNull, ToSql, Type, to_sql_checked};
@@ -277,6 +278,28 @@ impl Db for PgDb {
             row_bytes: block - 32,
             statement_bytes: (1 << 30) - 1,
         })
+    }
+
+    /// COPY in the binary format, with the column types the table declares.
+    fn insert_rows(&mut self, table: &str, rows: &mut dyn Iterator<Item = Vec<Sql>>) -> Result<()> {
+        let table = POSTGRESQL.quote(table);
+        let types: Vec<Type> = self
+            .client
+            .prepare(&format!("SELECT * FROM {table} LIMIT 0"))?
+            .columns()
+            .iter()
+            .map(|c| c.type_().clone())
+            .collect();
+        let sink = self
+            .client
+            .copy_in(&format!("COPY {table} FROM STDIN (FORMAT binary)"))?;
+        let mut writer = BinaryCopyInWriter::new(sink, &types);
+        for row in rows {
+            let refs: Vec<&(dyn ToSql + Sync)> = row.iter().map(|p| p as _).collect();
+            writer.write(&refs)?;
+        }
+        writer.finish()?;
+        Ok(())
     }
 
     fn create_namespace(&mut self) -> Result<()> {

@@ -669,6 +669,9 @@ impl Db for FailAt<'_> {
     fn committed_head(&mut self, branch: &str) -> Result<String> {
         self.inner.committed_head(branch)
     }
+    fn insert_rows(&mut self, table: &str, rows: &mut dyn Iterator<Item = Vec<Sql>>) -> Result<()> {
+        self.inner.insert_rows(table, rows)
+    }
 }
 
 /// On Dolt: commits the working set as the provisioning commit and returns the context an

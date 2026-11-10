@@ -219,6 +219,22 @@ pub trait Db {
     fn committed_head(&mut self, _branch: &str) -> Result<String> {
         Err(DbError::new("dolt_context_required", "not a Dolt database"))
     }
+    /// Appends rows to `table` (unquoted) inside the open transaction; each row holds every
+    /// column in table order. The default runs one prepared INSERT per row.
+    fn insert_rows(&mut self, table: &str, rows: &mut dyn Iterator<Item = Vec<Sql>>) -> Result<()> {
+        let mut insert = String::new();
+        for row in rows {
+            if insert.is_empty() {
+                let marks = vec!["?"; row.len()].join(", ");
+                insert = format!(
+                    "INSERT INTO {} VALUES ({marks})",
+                    self.dialect().quote(table)
+                );
+            }
+            self.exec(&insert, &row)?;
+        }
+        Ok(())
+    }
 }
 
 /// Replaces each `?` outside string literals with `fill(n)` for the n-th placeholder, from 1.
@@ -353,6 +369,8 @@ pub struct Dialect {
     pub read_only_export: bool,
     /// Parameters of one prepared statement.
     pub max_params: usize,
+    /// Data rows travel as SQL text literals, so a case's INSERT grows with escaping.
+    pub literal_rows: bool,
     accepts: fn(f64) -> bool,
 }
 
@@ -388,6 +406,7 @@ pub const SQLITE: Dialect = Dialect {
     text_nul: true,
     read_only_export: false,
     max_params: 32766,
+    literal_rows: false,
     accepts: sqlite_value,
 };
 
@@ -415,6 +434,7 @@ pub const POSTGRESQL: Dialect = Dialect {
     text_nul: false,
     read_only_export: false,
     max_params: 65535,
+    literal_rows: false,
     accepts: any_value,
 };
 
@@ -444,6 +464,7 @@ pub const MYSQL: Dialect = Dialect {
     text_nul: true,
     read_only_export: false,
     max_params: 65535,
+    literal_rows: false,
     accepts: finite,
 };
 
@@ -462,6 +483,7 @@ pub const DOLT: Dialect = Dialect {
     read_only_export: true,
     // a prepared statement with 1,024 or more parameters gets no answer (2.2.3)
     max_params: 1023,
+    literal_rows: true,
     ..MYSQL
 };
 
@@ -539,6 +561,29 @@ impl Dialect {
             RowRule::DoltSchema => 8 + 8 * n + 20 * s,
         }
     }
+
+    /// The bytes of the INSERT of one case with `n` values besides the ordinal; `text` is the
+    /// sum over its strings of [`Dialect::text_bytes`]. Framing and the table name take at
+    /// most 128 bytes; as parameters a value takes a type and a length (11 bytes) besides its
+    /// bytes, as a literal a number takes at most 25 bytes with its comma.
+    pub(crate) fn insert_bytes(&self, n: usize, text: u64) -> u64 {
+        let per_value = if self.literal_rows { 25 } else { 11 };
+        128 + per_value * (n as u64 + 1) + text
+    }
+
+    /// The bytes of one string value in an INSERT: as a literal with quotes, a comma and the
+    /// escapes of quote, backslash and NUL.
+    pub(crate) fn text_bytes(&self, value: &str) -> u64 {
+        if self.literal_rows {
+            let escapes = value
+                .bytes()
+                .filter(|b| matches!(b, b'\'' | b'\\' | 0))
+                .count();
+            (value.len() + escapes + 3) as u64
+        } else {
+            value.len() as u64
+        }
+    }
 }
 
 /// The OpenStatSpec commit this adapter was tested against: untagged work on `main`.
@@ -563,7 +608,9 @@ pub fn capabilities() -> Value {
                 "source": format!("worst-case record at CREATE TABLE: 31 + ceil(n/8) + 8 per \
                     DOUBLE + {text} per TEXT, measured"),
             },
-            "emitted_statement": {"unit": "bytes", "source": "active max_allowed_packet"},
+            "emitted_statement": {"unit": "bytes", "source": "active max_allowed_packet; \
+                prepared multi-row INSERTs of at most 4 MiB and 65,535 parameters, each case \
+                preflighted at 11 bytes per value plus its string bytes"},
             "numeric": "DOUBLE; NaN, infinities and negative zero refused",
             "text": "TEXT NOT NULL, binary collation without padding",
             "atomic_schema_change": false,
@@ -624,7 +671,9 @@ pub fn capabilities() -> Value {
                 "value": {"unit": "bytes", "source": "LONGTEXT and active max_allowed_packet"},
                 "structural_row": limit(65503, "bytes", "table definition below 65,504 bytes: \
                     8 per BIGINT and DOUBLE, 20 per LONGTEXT, measured"),
-                "emitted_statement": {"unit": "bytes", "source": "active max_allowed_packet"},
+                "emitted_statement": {"unit": "bytes", "source": "active max_allowed_packet; \
+                rows as literals in multi-row INSERTs of at most 4 MiB, each case's INSERT \
+                preflighted at 25 bytes per number plus its escaped strings"},
                 "numeric": "DOUBLE; NaN, infinities and negative zero refused (Dolt stores -0 as 0)",
                 "text": "LONGTEXT NOT NULL",
                 "atomic_schema_change": false,

@@ -10,7 +10,7 @@ repository.workspace = true
 [dependencies]
 statscraft-data = { path = "../data" }
 # MIT; the bundled SQLite is public domain
-rusqlite = { version = "0.41.1", default-features = false, features = ["bundled", "limits"] }
+rusqlite = { version = "0.41.1", default-features = false, features = ["bundled", "cache", "limits"] }
 serde = { version = "1", features = ["derive"] }
 # MIT OR Apache-2.0; a synchronous client (it runs tokio-postgres on a private runtime)
 postgres = "0.19.14"

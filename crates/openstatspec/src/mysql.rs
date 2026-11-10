@@ -197,12 +197,19 @@ fn from_value(v: Value) -> Result<Sql> {
 /// back to them); text escapes the quote, the backslash and NUL, as the session's sql_mode
 /// keeps backslash escapes.
 fn literal(v: &Sql) -> String {
+    let mut out = String::new();
+    push_literal(&mut out, v);
+    out
+}
+
+fn push_literal(out: &mut String, v: &Sql) {
+    use std::fmt::Write;
     match v {
-        Sql::Null => "NULL".into(),
-        Sql::Int(i) => i.to_string(),
-        Sql::Real(r) => format!("{r:e}"),
+        Sql::Null => out.push_str("NULL"),
+        Sql::Int(i) => write!(out, "{i}").expect("a String takes any text"),
+        Sql::Real(r) => write!(out, "{r:e}").expect("a String takes any text"),
         Sql::Text(t) => {
-            let mut out = String::with_capacity(t.len() + 2);
+            out.reserve(t.len() + 2);
             out.push('\'');
             for c in t.chars() {
                 match c {
@@ -213,10 +220,13 @@ fn literal(v: &Sql) -> String {
                 }
             }
             out.push('\'');
-            out
         }
     }
 }
+
+/// The text of a multi-row INSERT that is worth sending at once: larger statements are no
+/// faster and cost memory on both sides.
+const BATCH_BYTES: usize = 4 << 20;
 
 /// A statement over the dialect's parameter limit fails here instead of waiting forever.
 fn check_params(dialect: &Dialect, values: &[Sql]) -> Result<()> {
@@ -244,6 +254,52 @@ impl MyDb {
     /// Strict mode, so that nothing is truncated or substituted silently.
     fn session(&mut self) -> Result<()> {
         self.batch("SET SESSION sql_mode = 'STRICT_ALL_TABLES,NO_ENGINE_SUBSTITUTION'")
+    }
+
+    /// One INSERT of `rows` rows whose parameters are `batch`, which it empties.
+    fn insert_prepared(&mut self, head: &str, rows: usize, batch: &mut Vec<Value>) -> Result<()> {
+        let one = format!("({})", vec!["?"; batch.len() / rows].join(","));
+        let sql = format!("{head}{}", vec![one.as_str(); rows].join(","));
+        self.conn
+            .exec_drop(sql, Params::Positional(std::mem::take(batch)))?;
+        Ok(())
+    }
+
+    /// Multi-row INSERTs of literals; `limit` is the packet's room for the statement.
+    fn insert_literals(
+        &mut self,
+        head: &str,
+        limit: usize,
+        rows: &mut dyn Iterator<Item = Vec<Sql>>,
+    ) -> Result<()> {
+        let (mut sql, mut values) = (String::new(), String::new());
+        for row in rows {
+            values.clear();
+            for (i, v) in row.iter().enumerate() {
+                values.push(if i == 0 { '(' } else { ',' });
+                push_literal(&mut values, v);
+            }
+            values.push(')');
+            if head.len() + values.len() > limit {
+                return Err(DbError::capability(
+                    "row",
+                    "emitted_statement",
+                    limit as u64,
+                    (head.len() + values.len()) as u64,
+                    "bytes",
+                ));
+            }
+            if !sql.is_empty() && sql.len() + 1 + values.len() > limit.min(BATCH_BYTES) {
+                self.conn.query_drop(&sql)?;
+                sql.clear();
+            }
+            sql.push_str(if sql.is_empty() { head } else { "," });
+            sql.push_str(&values);
+        }
+        if !sql.is_empty() {
+            self.conn.query_drop(&sql)?;
+        }
+        Ok(())
     }
 }
 
@@ -316,6 +372,44 @@ impl Db for MyDb {
                 statement_bytes: packet,
             }
         })
+    }
+
+    /// Multi-row INSERTs, each within `max_allowed_packet` and [`BATCH_BYTES`]: prepared, with
+    /// at most `max_params` parameters, on MySQL and MariaDB; as literals on Dolt, which
+    /// prepares wide statements slowly. A case's bytes are counted as the preflight counts them.
+    fn insert_rows(&mut self, table: &str, rows: &mut dyn Iterator<Item = Vec<Sql>>) -> Result<()> {
+        let packet = self.query("SELECT @@max_allowed_packet", &[])?[0][0].int()? as usize;
+        // the packet also holds the command byte
+        let limit = packet.saturating_sub(1);
+        let head = format!("INSERT INTO {} VALUES ", self.dialect.quote(table));
+        if self.dialect.literal_rows {
+            return self.insert_literals(&head, limit, rows);
+        }
+        let limit = limit.min(BATCH_BYTES);
+        let (mut batch, mut count, mut bytes) = (vec![], 0, 128);
+        for row in rows {
+            let text: usize = row
+                .iter()
+                .map(|v| if let Sql::Text(t) = v { t.len() } else { 0 })
+                .sum();
+            let size = 11 * row.len() + text;
+            if count > 0
+                && (batch.len() + row.len() > self.dialect.max_params || bytes + size > limit)
+            {
+                self.insert_prepared(&head, count, &mut batch)?;
+                (count, bytes) = (0, 128);
+            }
+            batch.extend(row.into_iter().map(|v| match v {
+                Sql::Text(t) => Value::Bytes(t.into_bytes()),
+                v => to_value(&v),
+            }));
+            count += 1;
+            bytes += size;
+        }
+        if count > 0 {
+            self.insert_prepared(&head, count, &mut batch)?;
+        }
+        Ok(())
     }
 
     fn write_gate(&self) -> Result<()> {

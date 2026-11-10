@@ -62,12 +62,13 @@ impl Db for SqliteDb {
     }
 
     fn exec(&mut self, sql: &str, params: &[Sql]) -> Result<u64> {
-        let mut statement = self.conn.prepare(sql)?;
+        // cached: the INSERT of the data rows runs once per case
+        let mut statement = self.conn.prepare_cached(sql)?;
         Ok(statement.execute(params_from_iter(params.iter().map(param)))? as u64)
     }
 
     fn query(&mut self, sql: &str, params: &[Sql]) -> Result<Vec<Vec<Sql>>> {
-        let mut statement = self.conn.prepare(sql)?;
+        let mut statement = self.conn.prepare_cached(sql)?;
         let n = statement.column_count();
         let rows = statement.query_map(params_from_iter(params.iter().map(param)), |r| {
             (0..n)

@@ -625,23 +625,17 @@ fn preflight(db: &mut dyn Db, dataset: &Dataset, table: &str) -> Result<Vec<Stri
         e.detail = Some(Box::new(value));
         e
     };
-    let cases = dataset.case_count();
-    let mut numeric: Vec<Vec<bool>> = vec![vec![]; cases];
-    let mut strings: Vec<Vec<u64>> = vec![vec![]; cases];
     for variable in dataset.variables() {
         match variable.values() {
             Values::Numeric(values) => {
-                for (case, value) in values.iter().enumerate() {
-                    if let Some(v) = value
-                        && !dialect.accepts(v)
-                    {
+                for v in values.iter().flatten() {
+                    if !dialect.accepts(v) {
                         return Err(cannot_store(
                             variable.name(),
                             format!("the value {v:?}"),
                             json!({"limit": "binary64", "value": format!("{:016x}", v.to_bits())}),
                         ));
                     }
-                    numeric[case].push(value.is_some());
                 }
             }
             Values::String(values) => {
@@ -663,13 +657,28 @@ fn preflight(db: &mut dyn Db, dataset: &Dataset, table: &str) -> Result<Vec<Stri
                             json!({"limit": "text", "case": case + 1}),
                         ));
                     }
-                    strings[case].push(bytes);
                 }
             }
         }
     }
-    for (numeric, strings) in numeric.iter().zip(&strings) {
-        let row = dialect.row_bytes(numeric, strings);
+    // case by case, with one buffer per case instead of one per cell
+    let columns: Vec<Values> = dataset.variables().map(|v| v.values()).collect();
+    let (mut numeric, mut strings) = (Vec::with_capacity(n), Vec::with_capacity(n));
+    for case in 0..dataset.case_count() {
+        numeric.clear();
+        strings.clear();
+        let mut text = 0;
+        for values in &columns {
+            match values {
+                Values::Numeric(v) => numeric.push(v.get(case).is_some()),
+                Values::String(v) => {
+                    let value = v.get(case);
+                    strings.push(value.len() as u64);
+                    text += dialect.text_bytes(value);
+                }
+            }
+        }
+        let row = dialect.row_bytes(&numeric, &strings);
         if row > limits.row_bytes {
             return Err(DbError::capability(
                 "row",
@@ -679,8 +688,8 @@ fn preflight(db: &mut dyn Db, dataset: &Dataset, table: &str) -> Result<Vec<Stri
                 "bytes",
             ));
         }
-        // the INSERT of one case: framing, a type and length per value, and the values
-        let statement = 64 + 11 * (n as u64 + 1) + strings.iter().sum::<u64>();
+        // the INSERT of one case; a batch of several cases is cut to the same limit
+        let statement = dialect.insert_bytes(n, text);
         if statement > limits.statement_bytes {
             return Err(DbError::capability(
                 "row",
@@ -703,21 +712,16 @@ fn store(
 ) -> Result<String> {
     let dialect = db.dialect();
     let table = format!("data_{name}");
-    let placeholders = vec!["?"; physical.len() + 1].join(", ");
-    let insert = format!(
-        "INSERT INTO {} VALUES ({placeholders})",
-        dialect.quote(&table)
-    );
     let columns: Vec<Values> = dataset.variables().map(|v| v.values()).collect();
-    for case in 0..dataset.case_count() {
-        let row: Vec<Sql> = std::iter::once(Sql::Int(case as i64 + 1))
+    let mut rows = (0..dataset.case_count()).map(|case| {
+        std::iter::once(Sql::Int(case as i64 + 1))
             .chain(columns.iter().map(|values| match values {
                 Values::Numeric(v) => v.get(case).map_or(Sql::Null, Sql::Real),
                 Values::String(v) => Sql::Text(v.get(case).to_string()),
             }))
-            .collect();
-        db.exec(&insert, &row)?;
-    }
+            .collect()
+    });
+    db.insert_rows(&table, &mut rows)?;
 
     let id = uuid();
     db.exec(
