@@ -509,6 +509,218 @@ impl FormatChoice {
     }
 }
 
+/// Lines of `code<separator>label` pasted at once. The separator is the first of tab,
+/// semicolon, equals sign and comma that the text holds; a line splits at its first separator.
+/// Empty lines are left out.
+pub fn parse_labels(text: &str) -> Result<Vec<(String, String)>, String> {
+    let separator = ['\t', ';', '=', ',']
+        .into_iter()
+        .find(|s| text.contains(*s))
+        .ok_or("put a tab, semicolon, equals sign or comma between each code and its label")?;
+    text.lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(|line| {
+            line.split_once(separator)
+                .map(|(code, label)| (code.trim().to_string(), label.trim().to_string()))
+                .ok_or_else(|| format!("{line:?} has no {}", separator_name(separator)))
+        })
+        .collect()
+}
+
+fn separator_name(separator: char) -> &'static str {
+    match separator {
+        '\t' => "tab",
+        ';' => "semicolon",
+        '=' => "equals sign",
+        _ => "comma",
+    }
+}
+
+/// The value labels dialog: codes and labels one by one, or many pasted at once.
+#[derive(Clone, Debug, PartialEq)]
+pub struct LabelsEditor {
+    /// The variable the dialog opened on.
+    pub name: String,
+    pub string: bool,
+    /// The other selected variables of the same type, which can get the same labels.
+    pub others: Vec<String>,
+    pub apply_to_others: bool,
+    /// Code and label as typed.
+    pub pairs: Vec<(String, String)>,
+    original: Vec<(String, String)>,
+    /// Pasting many at once instead of the list.
+    pub quick: bool,
+    pub pasted: String,
+    /// With pasting: the pasted list becomes the whole set (VALUE LABELS) instead of adding
+    /// and changing codes (ADD VALUE LABELS).
+    pub replace: bool,
+}
+
+impl LabelsEditor {
+    pub fn of(variable: &Variable, others: Vec<String>) -> Self {
+        let pairs: Vec<(String, String)> = variable
+            .value_labels()
+            .iter()
+            .map(|(v, label)| {
+                let code = match v {
+                    Value::Number(n) => number(*n),
+                    Value::String(s) => s.trim_end().to_string(),
+                };
+                (code, label.clone())
+            })
+            .collect();
+        Self {
+            name: variable.name().to_string(),
+            string: variable.is_string(),
+            others,
+            apply_to_others: false,
+            original: pairs.clone(),
+            pairs,
+            quick: false,
+            pasted: String::new(),
+            replace: false,
+        }
+    }
+
+    pub fn syntax(&self) -> Result<String, String> {
+        let mut names = vec![self.name.as_str()];
+        if self.apply_to_others {
+            names.extend(self.others.iter().map(String::as_str));
+        }
+        let names = names.join(" ");
+        let (pairs, command) = if self.quick {
+            let pairs = parse_labels(&self.pasted)?;
+            let command = if self.replace {
+                "VALUE LABELS"
+            } else {
+                "ADD VALUE LABELS"
+            };
+            (pairs, command)
+        } else {
+            let pairs: Vec<(String, String)> = self
+                .pairs
+                .iter()
+                .filter(|(code, label)| !code.trim().is_empty() || !label.trim().is_empty())
+                .cloned()
+                .collect();
+            if pairs == self.original && !self.apply_to_others {
+                return Err("change, add or remove a label".into());
+            }
+            (pairs, "VALUE LABELS")
+        };
+        if pairs.is_empty() && command == "ADD VALUE LABELS" {
+            return Err("paste at least one code and label".into());
+        }
+        let mut items = Vec::new();
+        for (code, label) in &pairs {
+            if code.trim().is_empty() {
+                return Err(format!("give the code of the label {label:?}"));
+            }
+            let code = match self.string {
+                true => quote(code.trim_end()),
+                false => value(code, false)?,
+            };
+            items.push(format!("{code} {}", quote(label)));
+        }
+        Ok(match items.is_empty() {
+            true => format!("{command} {names}."),
+            false => format!("{command} {names}\n  {}.", items.join("\n  ")),
+        })
+    }
+}
+
+/// The missing values dialog: up to three values, or a range and one value more.
+#[derive(Clone, Debug, PartialEq)]
+pub struct MissingEditor {
+    pub name: String,
+    pub string: bool,
+    pub others: Vec<String>,
+    pub apply_to_others: bool,
+    pub range: bool,
+    pub values: [String; 3],
+    pub low: String,
+    pub high: String,
+    pub extra: String,
+    original: String,
+}
+
+impl MissingEditor {
+    pub fn of(variable: &Variable, others: Vec<String>) -> Self {
+        let mut d = Self {
+            name: variable.name().to_string(),
+            string: variable.is_string(),
+            others,
+            apply_to_others: false,
+            range: false,
+            values: Default::default(),
+            low: String::new(),
+            high: String::new(),
+            extra: String::new(),
+            original: String::new(),
+        };
+        match variable.missing_values() {
+            MissingValues::None => {}
+            MissingValues::Numbers(values) => {
+                for (slot, v) in d.values.iter_mut().zip(values) {
+                    *slot = number(*v);
+                }
+            }
+            MissingValues::Strings(values) => {
+                for (slot, v) in d.values.iter_mut().zip(values) {
+                    *slot = v.trim_end().to_string();
+                }
+            }
+            MissingValues::Range { low, high, extra } => {
+                d.range = true;
+                d.low = bound_text(*low);
+                d.high = bound_text(*high);
+                d.extra = extra.map(number).unwrap_or_default();
+            }
+        }
+        d.original = d.items().unwrap_or_default();
+        d
+    }
+
+    /// The list in parentheses.
+    fn items(&self) -> Result<String, String> {
+        let mut items = Vec::new();
+        if self.range {
+            if self.string {
+                return Err("a range works only with numeric variables".into());
+            }
+            match (self.low.trim(), self.high.trim()) {
+                ("", "") => {}
+                ("", _) | (_, "") => return Err("give both ends of the range".into()),
+                (low, high) => items.push(missing_item(&format!("{low} THRU {high}"))?),
+            }
+            if !self.extra.trim().is_empty() {
+                items.push(value(&self.extra, false)?);
+            }
+        } else {
+            for v in self.values.iter().filter(|v| !v.trim().is_empty()) {
+                items.push(match self.string {
+                    true => quote(v.trim_end()),
+                    false => missing_item(v)?,
+                });
+            }
+        }
+        Ok(items.join(", "))
+    }
+
+    pub fn syntax(&self) -> Result<String, String> {
+        let items = self.items()?;
+        if items == self.original && !self.apply_to_others {
+            return Err("change, add or remove a missing value".into());
+        }
+        let mut names = vec![self.name.as_str()];
+        if self.apply_to_others {
+            names.extend(self.others.iter().map(String::as_str));
+        }
+        Ok(format!("MISSING VALUES {} ({items}).", names.join(" ")))
+    }
+}
+
 /// The syntax that deletes variables.
 pub fn delete_variables(names: &[String]) -> String {
     format!("DELETE VARIABLES {}.", names.join(" "))
@@ -826,6 +1038,175 @@ mod tests {
         );
         d.width = "wide".into();
         assert_eq!(d.syntax().unwrap_err(), "the width must be a whole number");
+    }
+
+    #[test]
+    fn pasted_labels_split_at_the_separator_they_use() {
+        let pairs = |list: &[(&str, &str)]| {
+            list.iter()
+                .map(|(c, l)| (c.to_string(), l.to_string()))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            parse_labels("1\tVery good\n2\tGood, mostly\n\n").unwrap(),
+            pairs(&[("1", "Very good"), ("2", "Good, mostly")])
+        );
+        assert_eq!(
+            parse_labels("1; Yes = sure\r\n 2 ;No").unwrap(),
+            pairs(&[("1", "Yes = sure"), ("2", "No")])
+        );
+        assert_eq!(
+            parse_labels("1 = Yes, sure\n2=No").unwrap(),
+            pairs(&[("1", "Yes, sure"), ("2", "No")])
+        );
+        assert_eq!(
+            parse_labels("1,Yes\n2,No").unwrap(),
+            pairs(&[("1", "Yes"), ("2", "No")])
+        );
+        assert_eq!(
+            parse_labels("1,Yes\n2 No").unwrap_err(),
+            "\"2 No\" has no comma"
+        );
+        assert!(parse_labels("1 Yes").is_err());
+    }
+
+    #[test]
+    fn the_value_labels_dialog_replaces_or_adds_labels() {
+        let mut session = survey();
+        let mut d = with(&session, "gender", |v| {
+            LabelsEditor::of(v, vec!["region".into()])
+        });
+        assert_eq!(d.pairs[0], ("1".to_string(), "Male".to_string()));
+        assert_eq!(d.syntax().unwrap_err(), "change, add or remove a label");
+        // the list: change one, remove one, add one
+        d.pairs[0].1 = "Man".into();
+        d.pairs.remove(1);
+        d.pairs.push(("9".into(), "No answer".into()));
+        d.pairs.push((" ".into(), String::new()));
+        let syntax = d.syntax().unwrap();
+        assert!(
+            syntax.starts_with("VALUE LABELS gender\n  1 'Man'\n"),
+            "{syntax}"
+        );
+        assert!(syntax.ends_with("\n  9 'No answer'."), "{syntax}");
+        session.run(&syntax, None).unwrap();
+        with(&session, "gender", |v| {
+            let text = field_text(v, Field::Values);
+            assert!(
+                text.starts_with("1 = Man; ") && !text.contains("Female"),
+                "{text}"
+            );
+        });
+        d.pairs.push(("x".into(), "Bad".into()));
+        assert_eq!(d.syntax().unwrap_err(), "\"x\" is not a number");
+        d.pairs.pop();
+        d.pairs.push((String::new(), "No code".into()));
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "give the code of the label \"No code\""
+        );
+
+        // pasting: update adds and changes, replace makes the whole set, for two variables
+        let mut d = with(&session, "gender", |v| {
+            LabelsEditor::of(v, vec!["region".into()])
+        });
+        d.quick = true;
+        d.pasted = "1\tMan\n7\tSeven".into();
+        d.apply_to_others = true;
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "ADD VALUE LABELS gender region\n  1 'Man'\n  7 'Seven'."
+        );
+        session.run(&syntax, None).unwrap();
+        with(&session, "region", |v| {
+            let text = field_text(v, Field::Values);
+            // code 1 changed, 7 added, the others kept
+            assert!(
+                text.contains("1 = Man")
+                    && text.contains("2 = South")
+                    && text.contains("7 = Seven"),
+                "{text}"
+            );
+        });
+        d.replace = true;
+        let syntax = d.syntax().unwrap();
+        assert!(syntax.starts_with("VALUE LABELS gender region\n"));
+        session.run(&syntax, None).unwrap();
+        with(&session, "region", |v| {
+            assert_eq!(field_text(v, Field::Values), "1 = Man; 7 = Seven");
+        });
+
+        // strings get quotes; an empty list clears the labels
+        let mut d = with(&session, "plan", |v| LabelsEditor::of(v, Vec::new()));
+        d.pairs = vec![("BASIC".into(), "Basic plan".into())];
+        let syntax = d.syntax().unwrap();
+        assert_eq!(syntax, "VALUE LABELS plan\n  'BASIC' 'Basic plan'.");
+        session.run(&syntax, None).unwrap();
+        let mut d = with(&session, "plan", |v| LabelsEditor::of(v, Vec::new()));
+        d.pairs.clear();
+        let syntax = d.syntax().unwrap();
+        assert_eq!(syntax, "VALUE LABELS plan.");
+        session.run(&syntax, None).unwrap();
+        with(&session, "plan", |v| assert!(v.value_labels().is_empty()));
+    }
+
+    #[test]
+    fn the_missing_values_dialog_sets_values_or_a_range() {
+        let mut session = survey();
+        let mut d = with(&session, "q1_satisfaction", |v| {
+            MissingEditor::of(v, vec!["q2_recommend".into()])
+        });
+        assert_eq!(d.values[..2], ["98".to_string(), "99".to_string()]);
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "change, add or remove a missing value"
+        );
+        d.values[2] = "97".into();
+        let syntax = d.syntax().unwrap();
+        assert_eq!(syntax, "MISSING VALUES q1_satisfaction (98, 99, 97).");
+        session.run(&syntax, None).unwrap();
+
+        let mut d = with(&session, "q2_recommend", |v| {
+            MissingEditor::of(v, Vec::new())
+        });
+        assert!(d.range);
+        assert_eq!((d.low.as_str(), d.high.as_str()), ("97", "99"));
+        d.low = "lo".into();
+        d.high = "-1".into();
+        d.extra = "999".into();
+        let syntax = d.syntax().unwrap();
+        assert_eq!(syntax, "MISSING VALUES q2_recommend (LOWEST THRU -1, 999).");
+        session.run(&syntax, None).unwrap();
+        with(&session, "q2_recommend", |v| {
+            assert_eq!(field_text(v, Field::Missing), "LO THRU -1, 999");
+        });
+        d.high.clear();
+        assert_eq!(d.syntax().unwrap_err(), "give both ends of the range");
+
+        // none at all, for two variables at once
+        let mut d = with(&session, "q1_satisfaction", |v| {
+            MissingEditor::of(v, vec!["q2_recommend".into()])
+        });
+        d.values = Default::default();
+        d.apply_to_others = true;
+        let syntax = d.syntax().unwrap();
+        assert_eq!(syntax, "MISSING VALUES q1_satisfaction q2_recommend ().");
+        session.run(&syntax, None).unwrap();
+        with(&session, "q2_recommend", |v| {
+            assert_eq!(field_text(v, Field::Missing), "")
+        });
+
+        let mut d = with(&session, "plan", |v| MissingEditor::of(v, Vec::new()));
+        d.values[0] = "NONE".into();
+        let syntax = d.syntax().unwrap();
+        assert_eq!(syntax, "MISSING VALUES plan ('NONE').");
+        session.run(&syntax, None).unwrap();
+        d.range = true;
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "a range works only with numeric variables"
+        );
     }
 
     #[test]

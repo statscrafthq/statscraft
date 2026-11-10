@@ -318,6 +318,11 @@ pub struct App {
     confirm_delete: Option<Vec<String>>,
     /// The Type and Format dialog of a variable.
     format_dialog: Option<edits::FormatChoice>,
+    labels_dialog: Option<edits::LabelsEditor>,
+    missing_dialog: Option<edits::MissingEditor>,
+    /// The Variable View rows selected before the last plain click, which the first click of
+    /// a double-click on one of them takes away.
+    rows_before_click: BTreeSet<usize>,
     syntax: String,
     syntax_file: Option<PathBuf>,
     syntax_errors: Vec<Failure>,
@@ -399,6 +404,9 @@ impl App {
             find_focus: false,
             confirm_delete: None,
             format_dialog: None,
+            labels_dialog: None,
+            missing_dialog: None,
+            rows_before_click: BTreeSet::new(),
             syntax: String::new(),
             syntax_file: None,
             syntax_errors: Vec::new(),
@@ -1262,6 +1270,8 @@ impl App {
         if self.dialog.is_some()
             || self.confirm_delete.is_some()
             || self.format_dialog.is_some()
+            || self.labels_dialog.is_some()
+            || self.missing_dialog.is_some()
             || (variables && self.field_edit.is_some())
             || rows == 0
             || columns == 0
@@ -1550,6 +1560,146 @@ impl App {
         }
     }
 
+    /// The value labels dialog: a list of codes and labels, or many pasted at once.
+    fn labels_window(&mut self, ctx: &egui::Context) {
+        let Some(d) = self.labels_dialog.as_mut() else {
+            return;
+        };
+        let syntax = d.syntax();
+        let mut answer = None;
+        egui::Window::new(format!("Value labels of {}", d.name))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+            .show(ctx, |ui| {
+                ui.set_width(460.0);
+                ui.horizontal(|ui| {
+                    ui.selectable_value(&mut d.quick, false, "One by one");
+                    ui.selectable_value(&mut d.quick, true, "Paste many");
+                });
+                ui.separator();
+                if d.quick {
+                    ui.add(
+                        TextEdit::multiline(&mut d.pasted)
+                            .desired_width(f32::INFINITY)
+                            .desired_rows(8)
+                            .hint_text("1\tVery satisfied\n2\tSatisfied")
+                            .font(TextStyle::Monospace),
+                    );
+                    ui.weak("A code and its label on each line, with a tab, semicolon, = or comma between.");
+                    ui.radio_value(
+                        &mut d.replace,
+                        false,
+                        "Update: add new codes, change the labels of codes there are",
+                    );
+                    ui.radio_value(&mut d.replace, true, "Replace: the pasted list is the whole set");
+                } else {
+                    let mut remove = None;
+                    ScrollArea::vertical()
+                        .max_height(300.0)
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| {
+                        let row = ui.text_style_height(&TextStyle::Body) + 6.0;
+                        ui.horizontal(|ui| {
+                            ui.add_sized([80.0, row], egui::Label::new(RichText::new("Code").strong()));
+                            ui.strong("Label");
+                        });
+                        for (i, (code, label)) in d.pairs.iter_mut().enumerate() {
+                            ui.horizontal(|ui| {
+                                ui.add_sized([80.0, row], TextEdit::singleline(code));
+                                ui.add_sized([320.0, row], TextEdit::singleline(label));
+                                if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
+                                    remove = Some(i);
+                                }
+                            });
+                        }
+                    });
+                    if let Some(i) = remove {
+                        d.pairs.remove(i);
+                    }
+                    if ui.button("Add a label").clicked() {
+                        d.pairs.push(Default::default());
+                    }
+                }
+                if !d.others.is_empty() {
+                    ui.checkbox(
+                        &mut d.apply_to_others,
+                        format!("Also for {}", edits::listed(&d.others)),
+                    );
+                }
+                ui.separator();
+                dialog_footer(ui, &syntax, &mut answer);
+            });
+        match (answer, syntax) {
+            (Some(true), Ok(text)) => {
+                self.labels_dialog = None;
+                self.run(&text, None, After::Show);
+            }
+            (Some(false), _) => self.labels_dialog = None,
+            _ => {}
+        }
+    }
+
+    /// The missing values dialog: up to three values, or a range and one more value.
+    fn missing_window(&mut self, ctx: &egui::Context) {
+        let Some(d) = self.missing_dialog.as_mut() else {
+            return;
+        };
+        let syntax = d.syntax();
+        let mut answer = None;
+        egui::Window::new(format!("Missing values of {}", d.name))
+            .collapsible(false)
+            .resizable(false)
+            .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
+            .show(ctx, |ui| {
+                ui.set_width(420.0);
+                ui.radio_value(&mut d.range, false, "Up to three values");
+                ui.horizontal(|ui| {
+                    ui.add_space(24.0);
+                    for v in &mut d.values {
+                        ui.add_enabled(!d.range, TextEdit::singleline(v).desired_width(80.0));
+                    }
+                });
+                if !d.string {
+                    ui.radio_value(&mut d.range, true, "A range and one value more");
+                    ui.horizontal(|ui| {
+                        ui.add_space(24.0);
+                        ui.add_enabled(
+                            d.range,
+                            TextEdit::singleline(&mut d.low).desired_width(70.0),
+                        );
+                        ui.label("through");
+                        ui.add_enabled(
+                            d.range,
+                            TextEdit::singleline(&mut d.high).desired_width(70.0),
+                        );
+                        ui.label("and");
+                        ui.add_enabled(
+                            d.range,
+                            TextEdit::singleline(&mut d.extra).desired_width(70.0),
+                        );
+                    });
+                    ui.weak("LO and HI stand for the lowest and highest value.");
+                }
+                if !d.others.is_empty() {
+                    ui.checkbox(
+                        &mut d.apply_to_others,
+                        format!("Also for {}", edits::listed(&d.others)),
+                    );
+                }
+                ui.separator();
+                dialog_footer(ui, &syntax, &mut answer);
+            });
+        match (answer, syntax) {
+            (Some(true), Ok(text)) => {
+                self.missing_dialog = None;
+                self.run(&text, None, After::Show);
+            }
+            (Some(false), _) => self.missing_dialog = None,
+            _ => {}
+        }
+    }
+
     /// The question before variables are deleted.
     fn delete_window(&mut self, ctx: &egui::Context) {
         let Some(names) = &self.confirm_delete else {
@@ -1652,6 +1802,13 @@ impl App {
             }
         }
         let modifiers = ui.input(|i| i.modifiers);
+        if events.clicked.is_some() {
+            self.rows_before_click = self
+                .variable_selected
+                .as_ref()
+                .map(|s| s.rows.clone())
+                .unwrap_or_default();
+        }
         select(&mut self.variable_selected, &events, modifiers);
         if let Some(at) = events.clicked {
             // a text edit commits when it loses focus; a list just closes
@@ -1689,11 +1846,37 @@ impl App {
         };
         let variable = data.variable_at(row);
         let field = Field::ALL[column];
-        self.variable_selected = Some(grid::Selection::cell((row, column)));
-        if matches!(field, Field::Type | Field::Format) {
-            self.format_dialog = Some(edits::FormatChoice::of(&variable));
-            return;
+        // the other variables of the same type whose rows are selected can get the same labels
+        let rows = match &self.variable_selected {
+            Some(s) if s.rows.contains(&row) => &s.rows,
+            _ => &self.rows_before_click,
+        };
+        let others: Vec<String> = match rows.contains(&row) {
+            true => rows
+                .iter()
+                .filter(|&&r| r != row && r < data.variable_count())
+                .map(|&r| data.variable_at(r))
+                .filter(|v| v.is_string() == variable.is_string())
+                .map(|v| v.name().to_string())
+                .collect(),
+            false => Vec::new(),
+        };
+        match field {
+            Field::Type | Field::Format => {
+                self.format_dialog = Some(edits::FormatChoice::of(&variable));
+                return;
+            }
+            Field::Values => {
+                self.labels_dialog = Some(edits::LabelsEditor::of(&variable, others));
+                return;
+            }
+            Field::Missing => {
+                self.missing_dialog = Some(edits::MissingEditor::of(&variable, others));
+                return;
+            }
+            _ => {}
         }
+        self.variable_selected = Some(grid::Selection::cell((row, column)));
         if field.editable(variable.is_string()) {
             let text = edits::field_text(&variable, field);
             self.field_edit = Some(CellEdit {
@@ -2214,6 +2397,8 @@ impl eframe::App for App {
         self.dialog_window(&ctx);
         self.delete_window(&ctx);
         self.format_window(&ctx);
+        self.labels_window(&ctx);
+        self.missing_window(&ctx);
         egui::Window::new("About StatsCraft")
             .open(&mut self.about)
             .collapsible(false)
@@ -2394,6 +2579,30 @@ fn dropped(paths: Vec<PathBuf>) -> Dropped {
         ));
     }
     drop
+}
+
+/// The syntax of a small dialog, or why it has none yet, and OK and Cancel; `answer` becomes
+/// true for OK, false for Cancel or Escape.
+fn dialog_footer(ui: &mut Ui, syntax: &Result<String, String>, answer: &mut Option<bool>) {
+    match syntax {
+        Ok(text) => {
+            ui.label(RichText::new(text).monospace());
+        }
+        Err(message) => {
+            ui.colored_label(ui.visuals().warn_fg_color, message);
+        }
+    }
+    ui.horizontal(|ui| {
+        if ui
+            .add_enabled(syntax.is_ok(), egui::Button::new("OK"))
+            .clicked()
+        {
+            *answer = Some(true);
+        }
+        if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
+            *answer = Some(false);
+        }
+    });
 }
 
 /// A click in a grid changes its selection: a cell (with Shift the block to it), a row number
