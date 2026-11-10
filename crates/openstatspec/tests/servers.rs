@@ -16,7 +16,7 @@ mod common;
 use common::runner::{
     Backend, FailAt, in_place_conformance, query, round_trip_fixtures, sav_conformance,
 };
-use common::with_spec;
+use common::{differences, with_spec};
 use mysql::prelude::Queryable;
 use statscraft_data::{Dataset, Values};
 use statscraft_openstatspec::catalog::{prepare, read_dataset, write_dataset};
@@ -419,6 +419,232 @@ fn mysql_refuses_foreign_databases_other_products_and_other_versions() {
     for other in ["STATSCRAFT_MARIADB10_URL", "STATSCRAFT_DOLT_URL"] {
         if let Ok(url) = std::env::var(other) {
             let e = my::open(&url, None, true).err().unwrap();
+            assert_eq!(e.code, "server_unsupported", "{other}: {e}");
+        }
+    }
+}
+
+// ---------------------------------------------------------------- Dolt
+
+/// A Dolt sql-server; each fresh connection gets a new database whose catalog is committed on
+/// `main`, with the session on a new branch `feature/recode`.
+struct Dolt(String);
+
+const DOLT: [&str; 2] = ["STATSCRAFT_DOLT_URL", "STATSCRAFT_DOLT2_URL"];
+
+fn dolts() -> Vec<Dolt> {
+    DOLT.iter().filter_map(|v| server(v).map(Dolt)).collect()
+}
+
+impl Dolt {
+    fn url(&self, database: &str) -> String {
+        format!("{}/{database}", &self.0[..self.0.rfind('/').unwrap()])
+    }
+
+    fn new_database(&self) -> String {
+        let name = fresh_name();
+        let mut admin = mysql::Conn::new(mysql::Opts::from_url(&self.0).unwrap()).unwrap();
+        admin.query_drop(format!("CREATE DATABASE {name}")).unwrap();
+        self.url(&name)
+    }
+}
+
+impl Backend for Dolt {
+    fn fresh(&self) -> Box<dyn Db> {
+        let mut db = my::open_dolt(&self.new_database(), None, true).unwrap();
+        db.batch("CALL DOLT_ADD('-A')").unwrap();
+        db.batch("CALL DOLT_COMMIT('-m', 'catalog')").unwrap();
+        db.batch("CALL DOLT_CHECKOUT('-b', 'feature/recode')")
+            .unwrap();
+        Box::new(db)
+    }
+
+    fn columns(&self, db: &mut dyn Db, table: &str) -> Vec<String> {
+        column_names(
+            db,
+            "SELECT COLUMN_NAME FROM information_schema.COLUMNS
+             WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?",
+            table,
+        )
+    }
+
+    fn reopen(&self, db: &mut dyn Db) -> Box<dyn Db> {
+        let url = self.url(&db.namespace().unwrap());
+        Box::new(my::open_dolt(&url, None, false).unwrap())
+    }
+}
+
+/// Branch, HEAD, commit count and working-set status.
+fn dolt_state(db: &mut dyn Db) -> serde_json::Value {
+    serde_json::json!([
+        query(db, "SELECT active_branch(), HASHOF('HEAD')", &[]),
+        query(db, "SELECT count(*) FROM dolt_log", &[]),
+        query(
+            db,
+            "SELECT table_name, staged, status FROM dolt_status ORDER BY table_name",
+            &[]
+        ),
+    ])
+}
+
+#[test]
+#[ignore = "needs STATSCRAFT_DOLT_URL"]
+fn dolt_round_trips_every_fixture() {
+    for server in dolts() {
+        round_trip_fixtures(&server);
+    }
+}
+
+#[test]
+#[ignore = "needs STATSCRAFT_DOLT_URL"]
+fn dolt_sav_sav_zsav_1_0() {
+    for server in dolts() {
+        with_spec(|dir| sav_conformance(&server, dir));
+    }
+}
+
+#[test]
+#[ignore = "needs STATSCRAFT_DOLT_URL"]
+fn dolt_in_place_bindings() {
+    for server in dolts() {
+        with_spec(|dir| in_place_conformance(&server, dir));
+    }
+}
+
+#[test]
+#[ignore = "needs STATSCRAFT_DOLT_URL"]
+fn dolt_keeps_finite_values_and_refuses_negative_zero_and_the_others() {
+    for server in dolts() {
+        let mut db = server.fresh();
+        let finite: Vec<f64> = FINITE
+            .into_iter()
+            .filter(|v| v.to_bits() != 1 << 63)
+            .collect();
+        assert_values_round_trip(db.as_mut(), &numbers(&finite), "finite");
+        for bad in [-0.0, f64::INFINITY, f64::NEG_INFINITY, f64::NAN] {
+            let e = write_dataset(db.as_mut(), &numbers(&[1.0, bad]), "bad").unwrap_err();
+            assert_eq!(
+                (e.code, e.source_item.as_deref()),
+                ("target_capability_exceeded", Some("x1"))
+            );
+        }
+        let mut text = Dataset::new(2);
+        let long = "õ".repeat(16_000);
+        text.set_string_values("s", long.len(), vec!["a\0b".into(), long.clone()])
+            .unwrap();
+        assert_values_round_trip(db.as_mut(), &text, "text");
+    }
+}
+
+#[test]
+#[ignore = "needs STATSCRAFT_DOLT_URL"]
+fn dolt_preflight_matches_the_measured_boundaries() {
+    for server in dolts() {
+        let mut db = server.fresh();
+        let strings = |n: usize| {
+            let mut d = Dataset::new(1);
+            for i in 0..n {
+                d.set_string_values(&format!("s{i}"), 1, vec!["a".into()])
+                    .unwrap();
+            }
+            d
+        };
+        let tables = db.objects().unwrap().len();
+        // 4,096 variables are 4,097 columns; 3,274 LONGTEXT columns are a 65,488-byte definition
+        let mut wide = numbers(&vec![1.0; 4095]);
+        wide.set_string_values("s", 2, vec!["ab".into()]).unwrap();
+        write_dataset(db.as_mut(), &wide, "doubles").unwrap();
+        // one text INSERT of 4,097 values; the prepared SELECT reads them back bit for bit
+        let (back, _) = read_dataset(db.as_mut(), "doubles", false).unwrap();
+        assert_eq!(differences(&wide, &back), Vec::<String>::new());
+        write_dataset(db.as_mut(), &strings(3274), "texts").unwrap();
+        let e = write_dataset(db.as_mut(), &numbers(&vec![1.0; 4097]), "doubles2").unwrap_err();
+        assert_eq!(e.detail.unwrap()["limit"], "physical_columns");
+        let e = write_dataset(db.as_mut(), &strings(3275), "texts2").unwrap_err();
+        assert_eq!(e.detail.unwrap()["limit"], "structural_row");
+        let e = write_dataset(db.as_mut(), &numbers(&[1.0]), &"n".repeat(60)).unwrap_err();
+        assert_eq!(e.detail.unwrap()["limit"], "identifier");
+        write_dataset(db.as_mut(), &numbers(&[1.0]), &"n".repeat(59)).unwrap();
+        assert_eq!(db.objects().unwrap().len(), tables + 3);
+    }
+}
+
+#[test]
+#[ignore = "needs STATSCRAFT_DOLT_URL"]
+fn dolt_import_never_commits_and_export_writes_nothing() {
+    for server in dolts() {
+        let mut db = server.fresh();
+        let before = dolt_state(db.as_mut());
+        write_dataset(db.as_mut(), &numbers(&[1.0, 2.0]), "d").unwrap();
+        let after = dolt_state(db.as_mut());
+        assert_eq!(after[0], before[0], "branch and HEAD");
+        assert_eq!(after[1], before[1], "no commit");
+        // commit the import, then make one item the model cannot hold
+        db.exec(
+            "UPDATE variable SET write_format_width = write_format_width + 1
+             WHERE source_name = 'x0'",
+            &[],
+        )
+        .unwrap();
+        db.batch("CALL DOLT_ADD('-A')").unwrap();
+        db.batch("CALL DOLT_COMMIT('-m', 'import')").unwrap();
+        let clean = dolt_state(db.as_mut());
+        let operations = query(db.as_mut(), "SELECT count(*) FROM operation", &[]);
+        let e = read_dataset(db.as_mut(), "d", false).err().unwrap();
+        assert_eq!(e.code, "export_fidelity_loss");
+        let (_, losses) = read_dataset(db.as_mut(), "d", true).unwrap();
+        assert_eq!(losses, ["x0: write_format"]);
+        // a fresh read-only session sees the same
+        let mut reader = server.reopen(db.as_mut());
+        reader
+            .batch("CALL DOLT_CHECKOUT('feature/recode')")
+            .unwrap();
+        read_dataset(reader.as_mut(), "d", true).unwrap();
+        assert_eq!(dolt_state(db.as_mut()), clean);
+        assert_eq!(
+            query(db.as_mut(), "SELECT count(*) FROM operation", &[]),
+            operations
+        );
+    }
+}
+
+#[test]
+#[ignore = "needs STATSCRAFT_DOLT_URL"]
+fn dolt_apply_needs_the_controlled_context() {
+    for server in dolts() {
+        let mut db = server.fresh();
+        write_dataset(db.as_mut(), &numbers(&[1.0]), "d").unwrap();
+        let plan = statscraft_openstatspec::validate_plan(&serde_json::json!({
+            "contract": "openstatspec-transformation-plan-v0.2",
+            "input_alias": "d",
+            "operations": [{"op": "execute"}],
+        }))
+        .unwrap();
+        let e = statscraft_openstatspec::apply::apply_plan(
+            db.as_mut(),
+            "d",
+            &plan,
+            &"0".repeat(64),
+            "runner",
+            None,
+        )
+        .unwrap_err();
+        assert_eq!(e.code, "dolt_context_required");
+    }
+}
+
+#[test]
+#[ignore = "needs STATSCRAFT_DOLT_URL"]
+fn dolt_and_mysql_refuse_each_other() {
+    for server in dolts() {
+        assert_eq!(
+            my::open(&server.0, None, false).err().unwrap().code,
+            "server_unsupported"
+        );
+    }
+    for other in [MYSQL, MARIADB] {
+        if let Ok(url) = std::env::var(other) {
+            let e = my::open_dolt(&url, None, false).err().unwrap();
             assert_eq!(e.code, "server_unsupported", "{other}: {e}");
         }
     }

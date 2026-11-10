@@ -17,6 +17,14 @@ use std::collections::HashSet;
 pub const BINDING_V01: &str = "openstatspec-in-place-transformation-v0.1";
 pub const BINDING_V02: &str = "openstatspec-in-place-transformation-v0.2";
 
+/// The controlled Dolt context of an apply: the active branch and the HEAD commit the caller
+/// expects. Other profiles ignore it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct DoltContext {
+    pub branch: String,
+    pub head: String,
+}
+
 /// What a successful apply recorded.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Applied {
@@ -42,12 +50,18 @@ pub fn bind_plan(db: &mut dyn Db, name: &str, plan: &Plan) -> Result<()> {
 /// Applies `plan` to dataset `name` in place. `source_hash` is the SHA-256 of the
 /// LF-normalized syntax the plan came from; `actor` names who applies it. Every check runs
 /// before the first change; any failure leaves data, catalog and audit as they were.
+///
+/// On Dolt, `dolt` is required: the session must be on that branch at that HEAD with a clean
+/// working set before anything changes, and the branch must still point at that HEAD (seen
+/// from a second session) before the transaction commits. The apply never commits to Dolt;
+/// its changes stay in the working set.
 pub fn apply_plan(
     db: &mut dyn Db,
     name: &str,
     plan: &Plan,
     source_hash: &str,
     actor: &str,
+    dolt: Option<&DoltContext>,
 ) -> Result<Applied> {
     if actor.is_empty() {
         return Err(DbError::new("actor_required", "an apply needs an actor"));
@@ -65,12 +79,52 @@ pub fn apply_plan(
     validate_plan(&plan.to_json())?;
     db.write_gate()?;
     let dialect = db.dialect();
+    let dolt = if dialect.profile == "dolt" {
+        let Some(expected) = dolt else {
+            return Err(DbError::new(
+                "dolt_context_required",
+                "an apply on Dolt needs the expected branch and HEAD",
+            ));
+        };
+        check_dolt_context(db, expected)?;
+        Some(expected)
+    } else {
+        None
+    };
     db.batch(dialect.begin)?;
-    let result = apply_in_transaction(db, name, plan, source_hash, actor);
+    let result = apply_in_transaction(db, name, plan, source_hash, actor, dolt);
     if result.is_err() {
         rollback(db);
     }
     result
+}
+
+/// The session's branch and HEAD, and a clean working set, before the first change.
+fn check_dolt_context(db: &mut dyn Db, expected: &DoltContext) -> Result<()> {
+    let row = first(db, "SELECT active_branch(), HASHOF('HEAD')", &[])?
+        .ok_or_else(|| DbError::new("dolt_context_required", "no Dolt session context"))?;
+    let (branch, head) = (row[0].text()?, row[1].text()?);
+    if branch != expected.branch {
+        return Err(DbError::new(
+            "dolt_branch_mismatch",
+            format!("the session is on {branch}, not {}", expected.branch),
+        ));
+    }
+    if head != expected.head {
+        return Err(DbError::new(
+            "dolt_head_mismatch",
+            format!("HEAD is {head}, not {}", expected.head),
+        ));
+    }
+    let changes =
+        first(db, "SELECT count(*) FROM dolt_status", &[])?.map_or(Ok(0), |r| r[0].int())?;
+    if changes != 0 {
+        return Err(DbError::new(
+            "dolt_working_set_dirty",
+            format!("the working set has {changes} uncommitted table changes"),
+        ));
+    }
+    Ok(())
 }
 
 fn apply_in_transaction(
@@ -79,6 +133,7 @@ fn apply_in_transaction(
     plan: &Plan,
     source_hash: &str,
     actor: &str,
+    dolt: Option<&DoltContext>,
 ) -> Result<Applied> {
     let dialect = db.dialect();
     let started =
@@ -114,6 +169,30 @@ fn apply_in_transaction(
             "the dataset table identity changed during the apply",
         ));
     }
+    // the branch must still point at the expected HEAD: a commit by another session would
+    // otherwise absorb this apply's changes unseen
+    let dolt_audit = match dolt {
+        Some(expected) => {
+            let branch = first(db, "SELECT active_branch()", &[])?
+                .map_or(Ok(String::new()), |r| r[0].text())?;
+            let head = db.committed_head(&expected.branch)?;
+            if branch != expected.branch || head != expected.head {
+                return Err(DbError::new(
+                    "dolt_context_changed",
+                    format!(
+                        "{} moved from {} to {head} (session on {branch}) during the apply",
+                        expected.branch, expected.head
+                    ),
+                ));
+            }
+            [
+                Sql::from(&expected.branch),
+                Sql::from(&expected.head),
+                Sql::from(head),
+            ]
+        }
+        None => [Sql::Null, Sql::Null, Sql::Null],
+    };
     let apply_id = uuid();
     let contract = if plan.contract == PLAN_V01 {
         BINDING_V01
@@ -121,10 +200,11 @@ fn apply_in_transaction(
         BINDING_V02
     };
     let schema = before.map_or(Sql::Null, |r| r[0].clone());
+    let [dolt_branch, dolt_head_before, dolt_head_after] = dolt_audit;
     db.exec(
         &format!(
             "INSERT INTO transformation_apply VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?,
-             'succeeded', NULL, NULL, NULL, ?, ?, {})",
+             'succeeded', ?, ?, ?, ?, ?, {})",
             dialect.now
         ),
         &[
@@ -138,6 +218,9 @@ fn apply_in_transaction(
             plan.hash().into(),
             plan.canonical().into(),
             actor.into(),
+            dolt_branch,
+            dolt_head_before,
+            dolt_head_after,
             plan.operations.len().into(),
             started,
         ],
@@ -690,7 +773,7 @@ mod tests {
     const HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
     fn code(conn: &mut SqliteDb, p: Plan) -> &'static str {
-        apply_plan(conn, "d", &p, HASH, "t").unwrap_err().code
+        apply_plan(conn, "d", &p, HASH, "t", None).unwrap_err().code
     }
 
     #[test]
@@ -819,7 +902,9 @@ mod tests {
         assert_eq!(code(&mut conn, labels), "type_mismatch");
         let p = v02(json!([{"op": "execute"}]));
         assert_eq!(
-            apply_plan(&mut conn, "d", &p, HASH, "").unwrap_err().code,
+            apply_plan(&mut conn, "d", &p, HASH, "", None)
+                .unwrap_err()
+                .code,
             "actor_required"
         );
         // nothing was applied
@@ -844,7 +929,7 @@ mod tests {
                  "labels": [{"value": {"type": "string", "value": "long"}, "label": "L"}]}
             ]),
         );
-        let applied = apply_plan(&mut conn, "d", &p, HASH, "t").unwrap();
+        let applied = apply_plan(&mut conn, "d", &p, HASH, "t", None).unwrap();
         assert_eq!(applied.operation_count, 3);
         let (d, _) = read_dataset(&mut conn, "d", false).unwrap();
         let s2 = d.variable("s2").unwrap();

@@ -8,13 +8,18 @@
 //! backend's own catalog. Cases about Dolt branch and HEAD context run only on Dolt; cases about
 //! non-atomic DDL run only where DDL is not atomic, and the atomic create-target case only where
 //! it is.
+//!
+//! On Dolt every apply runs in the controlled context of the cases: the backend starts each
+//! fresh database on branch `feature/recode`, the runner commits the prepared dataset as the
+//! provisioning commit and passes that branch and HEAD; afterwards the working set must hold
+//! the changes, HEAD must be unchanged and no commit must have been made.
 
 use super::{cases, differences, load, via_sav};
 use serde_json::{Map, Value, json};
 use statscraft_data::{Dataset, MissingValues};
-use statscraft_openstatspec::apply::apply_plan;
+use statscraft_openstatspec::apply::{DoltContext, apply_plan};
 use statscraft_openstatspec::catalog::{input_schema, read_dataset, write_dataset};
-use statscraft_openstatspec::db::{Db, Dialect, Limits, Result, Sql};
+use statscraft_openstatspec::db::{Db, Dialect, Limits, Result, Sql, uuid};
 use statscraft_openstatspec::{canonical_json, compile_request};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -27,6 +32,10 @@ pub trait Backend {
     /// Temporary objects of the session, where the engine shows them.
     fn temporary(&self, _db: &mut dyn Db) -> i64 {
         0
+    }
+    /// A second session on the database of `db` (Dolt only).
+    fn reopen(&self, _db: &mut dyn Db) -> Box<dyn Db> {
+        unimplemented!("a second session is needed only on Dolt")
     }
 }
 
@@ -94,8 +103,9 @@ fn fixtures() -> Vec<PathBuf> {
     files
 }
 
+/// A scratch folder of its own: tests of one process run in parallel.
 fn scratch(what: &str) -> PathBuf {
-    let dir = std::env::temp_dir().join(format!("statscraft-{what}-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("statscraft-{what}-{}", uuid()));
     std::fs::create_dir_all(&dir).unwrap();
     dir
 }
@@ -531,8 +541,13 @@ const AUDIT_FIELDS: [&str; 17] = [
 ];
 
 /// The audit row against `expected_audit`. The dataset id and schema are the backend's own;
-/// Dolt fields must be NULL on every other profile.
-fn audit_problems(db: &mut dyn Db, case: &Value, dataset_id: &str) -> Vec<String> {
+/// Dolt fields hold the context on Dolt and are NULL on every other profile.
+fn audit_problems(
+    db: &mut dyn Db,
+    case: &Value,
+    dataset_id: &str,
+    dolt: Option<&DoltContext>,
+) -> Vec<String> {
     let mut problems = vec![];
     let profile = db.dialect().profile;
     let rows = query(
@@ -569,9 +584,14 @@ fn audit_problems(db: &mut dyn Db, case: &Value, dataset_id: &str) -> Vec<String
             _ => {}
         }
     }
+    let dolt_fields = match dolt {
+        Some(c) => json!({"dolt_branch": c.branch, "dolt_head_before": c.head,
+                          "dolt_head_after": c.head}),
+        None => json!({"dolt_branch": null, "dolt_head_before": null, "dolt_head_after": null}),
+    };
     for (key, want) in case["expected_audit"].as_object().into_iter().flatten() {
         let want = match key.as_str() {
-            k if k.starts_with("dolt_") => Value::Null,
+            k if k.starts_with("dolt_") => dolt_fields[k].clone(),
             "database_profile" => json!(profile),
             "dataset_id" => json!(dataset_id),
             "physical_table_schema" => schema.clone(),
@@ -589,7 +609,7 @@ fn audit_problems(db: &mut dyn Db, case: &Value, dataset_id: &str) -> Vec<String
             &mut problems,
             &format!("audit {key}"),
             audit[key].clone(),
-            &Value::Null,
+            &dolt_fields[key],
         );
     }
     expect(
@@ -643,6 +663,56 @@ impl Db for FailAt<'_> {
     fn limits(&mut self) -> Result<Limits> {
         self.inner.limits()
     }
+    fn write_gate(&self) -> Result<()> {
+        self.inner.write_gate()
+    }
+    fn committed_head(&mut self, branch: &str) -> Result<String> {
+        self.inner.committed_head(branch)
+    }
+}
+
+/// On Dolt: commits the working set as the provisioning commit and returns the context an
+/// apply expects. Elsewhere nothing.
+pub fn provision(db: &mut dyn Db) -> Option<DoltContext> {
+    if db.dialect().profile != "dolt" {
+        return None;
+    }
+    db.batch("CALL DOLT_ADD('-A')").unwrap();
+    db.batch("CALL DOLT_COMMIT('-m', 'provisioning')").unwrap();
+    let row = query(db, "SELECT active_branch(), HASHOF('HEAD')", &[]).remove(0);
+    Some(DoltContext {
+        branch: row[0].as_str().unwrap().to_string(),
+        head: row[1].as_str().unwrap().to_string(),
+    })
+}
+
+fn dolt_state(db: &mut dyn Db) -> Value {
+    json!([
+        query(db, "SELECT active_branch(), HASHOF('HEAD')", &[]),
+        query(db, "SELECT count(*) FROM dolt_log", &[]),
+        query(
+            db,
+            "SELECT table_name, staged, status FROM dolt_status ORDER BY table_name",
+            &[]
+        ),
+    ])
+}
+
+/// After a successful apply on Dolt: same branch and HEAD, no commit, a dirty working set.
+fn dolt_after(db: &mut dyn Db, before: &Value) -> Vec<String> {
+    let mut problems = vec![];
+    let after = dolt_state(db);
+    expect(
+        &mut problems,
+        "Dolt branch and HEAD",
+        after[0].clone(),
+        &before[0],
+    );
+    expect(&mut problems, "Dolt commits", after[1].clone(), &before[1]);
+    if after[2].as_array().is_none_or(Vec::is_empty) {
+        problems.push("the working set holds no changes".into());
+    }
+    problems
 }
 
 /// Runs one success case of the 0.2 manifest (native or adapted).
@@ -693,6 +763,7 @@ fn binding_02_problems(backend: &dyn Backend, dir: &Path, case: &Value) -> Vec<S
         problems.push(format!("plan differs: {}", compiled.canonical));
     }
     let source_hash = out.source_hash.unwrap();
+    let dolt = provision(db);
 
     if let Some(probe) = case.get("rollback_probe") {
         // fail at the audit insert, after the column, data and catalog changes
@@ -701,7 +772,15 @@ fn binding_02_problems(backend: &dyn Backend, dir: &Path, case: &Value) -> Vec<S
             inner: &mut *db,
             prefix: "INSERT INTO transformation_apply",
         };
-        if apply_plan(&mut failing, name, &compiled.plan, &source_hash, "probe").is_ok() {
+        let applied = apply_plan(
+            &mut failing,
+            name,
+            &compiled.plan,
+            &source_hash,
+            "probe",
+            None,
+        );
+        if applied.is_ok() {
             problems.push("rollback probe: the apply succeeded".into());
         }
         let column = backend.columns(db, table).iter().any(|c| c == "target");
@@ -726,10 +805,14 @@ fn binding_02_problems(backend: &dyn Backend, dir: &Path, case: &Value) -> Vec<S
 
     let target_before = (before.get("target_identity").is_some()).then(|| metadata(db, "target"));
     let snap = snapshot(backend, db);
+    let versioned = dolt.is_some().then(|| dolt_state(db));
     let actor = case["actor"].as_str().unwrap();
-    if let Err(e) = apply_plan(db, name, &compiled.plan, &source_hash, actor) {
+    if let Err(e) = apply_plan(db, name, &compiled.plan, &source_hash, actor, dolt.as_ref()) {
         problems.push(format!("apply: {e}"));
         return problems;
+    }
+    if let Some(before) = &versioned {
+        problems.extend(dolt_after(db, before));
     }
     expect(
         &mut problems,
@@ -743,7 +826,7 @@ fn binding_02_problems(backend: &dyn Backend, dir: &Path, case: &Value) -> Vec<S
         table_rows(db, table, after_rows),
         &json!(after_rows),
     );
-    problems.extend(audit_problems(db, case, &dataset_id));
+    problems.extend(audit_problems(db, case, &dataset_id, dolt.as_ref()));
     if let Some(want) = after.get("target_metadata") {
         compare_metadata(&mut problems, &metadata(db, "target"), want);
     }
@@ -803,15 +886,22 @@ fn binding_01_problems(backend: &dyn Backend, case: &Value) -> Vec<String> {
         Ok(c) => c,
         Err(d) => return vec![format!("frontend: {} {}", d.code, d.message)],
     };
+    let dolt = provision(db);
     let snap = snapshot(backend, db);
+    let versioned = dolt.is_some().then(|| dolt_state(db));
+    let source_hash = out.source_hash.unwrap();
     if let Err(e) = apply_plan(
         db,
         "survey",
         &compiled.plan,
-        &out.source_hash.unwrap(),
+        &source_hash,
         "runner",
+        dolt.as_ref(),
     ) {
         return vec![format!("apply: {e}")];
+    }
+    if let Some(before) = &versioned {
+        problems.extend(dolt_after(db, before));
     }
     expect(
         &mut problems,
@@ -847,7 +937,7 @@ fn binding_01_problems(backend: &dyn Backend, case: &Value) -> Vec<String> {
         "expected_audit": {"contract_id": "openstatspec-in-place-transformation-v0.1",
                            "plan_hash": compiled.plan_hash, "status": "succeeded",
                            "physical_table_name": "data_survey", "actor": "runner"}});
-    problems.extend(audit_problems(db, &audit, &dataset_id));
+    problems.extend(audit_problems(db, &audit, &dataset_id, dolt.as_ref()));
     problems
 }
 
@@ -865,7 +955,7 @@ fn empty_actor_problems(backend: &dyn Backend, dir: &Path) -> Vec<String> {
     let snap = snapshot(backend, db);
     let hash = "0".repeat(64);
     let mut problems = vec![];
-    match apply_plan(db, "atomic_create", &plan, &hash, "") {
+    match apply_plan(db, "atomic_create", &plan, &hash, "", None) {
         Ok(_) => problems.push("an empty actor was accepted".into()),
         Err(e) => expect(
             &mut problems,
@@ -916,16 +1006,13 @@ fn create_fails_problems(backend: &dyn Backend, dir: &Path, case: &Value) -> Vec
             (plan, "atomic_create", "target")
         }
     };
+    let dolt = provision(db);
     let snap = snapshot(backend, db);
+    let versioned = dolt.is_some().then(|| dolt_state(db));
     let catalog = query(db, "SELECT variable_id, physical_name FROM variable", &[]);
     let mut problems = vec![];
-    match apply_plan(
-        db,
-        name,
-        &plan,
-        &"0".repeat(64),
-        case["actor"].as_str().unwrap_or("runner"),
-    ) {
+    let actor = case["actor"].as_str().unwrap_or("runner");
+    match apply_plan(db, name, &plan, &"0".repeat(64), actor, dolt.as_ref()) {
         Ok(_) => problems.push("a create-target plan was applied".into()),
         Err(e) => expect(
             &mut problems,
@@ -955,6 +1042,171 @@ fn create_fails_problems(backend: &dyn Backend, dir: &Path, case: &Value) -> Vec
         scalar(db, "SELECT count(*) FROM transformation_apply", &[]),
         &json!(0),
     );
+    if let Some(before) = versioned {
+        expect(&mut problems, "Dolt state", dolt_state(db), &before);
+    }
+    problems
+}
+
+/// A Dolt dataset `survey` with `score` 1..4 and its label, committed on `feature/recode`.
+fn dolt_survey(backend: &dyn Backend) -> (Box<dyn Db>, DoltContext, statscraft_openstatspec::Plan) {
+    let mut db = backend.fresh();
+    let rows: Vec<Value> = (1..=4)
+        .map(|i| json!({"__case_ordinal": i, "score": i}))
+        .collect();
+    make_dataset(db.as_mut(), "survey", &rows, &Value::Null);
+    let request = json!({
+        "contract": "openstatspec-spss-syntax-frontend-v0.2",
+        "input_alias": "input",
+        "input_schema": input_schema(db.as_mut(), "survey", true).unwrap(),
+        "source_text": "COMPUTE score = 9.\nVARIABLE LABELS score 'After'.",
+    });
+    let plan = compile_request(&request).result.unwrap().plan;
+    let dolt = provision(db.as_mut()).unwrap();
+    (db, dolt, plan)
+}
+
+/// What a failed Dolt apply must leave as it was: rows, labels, audit, branch, HEAD, status.
+/// On another branch the dataset may not exist.
+fn dolt_unchanged(db: &mut dyn Db) -> Value {
+    let rows = vec![json!({"__case_ordinal": 1, "score": 1})];
+    let present = db.objects().unwrap().iter().any(|o| o == "data_survey");
+    json!([
+        present.then(|| table_rows(db, "data_survey", &rows)),
+        query(
+            db,
+            "SELECT source_name, variable_label FROM variable ORDER BY source_name",
+            &[]
+        ),
+        scalar(db, "SELECT count(*) FROM transformation_apply", &[]),
+        dolt_state(db),
+    ])
+}
+
+/// The 0.1 rejections: another branch, another HEAD, or a dirty working set fail before any
+/// change with their stable codes.
+fn dolt_reject_problems(backend: &dyn Backend, case: &Value) -> Vec<String> {
+    let (mut db, mut expected, plan) = dolt_survey(backend);
+    let db = db.as_mut();
+    let observed = &case["observed_context"];
+    if observed["branch"] != case["expected_context"]["branch"] {
+        db.batch("CALL DOLT_CHECKOUT('main')").unwrap();
+    }
+    if observed["head"] != case["expected_context"]["head"] {
+        // a real commit that is not the one the session is at
+        expected.head = query(db, "SELECT HASHOF('HEAD~1')", &[])[0][0]
+            .as_str()
+            .unwrap()
+            .to_string();
+    }
+    if observed["working_set_clean"] == false {
+        db.exec(
+            "UPDATE variable SET variable_label = 'Unrelated' WHERE source_name = 'score'",
+            &[],
+        )
+        .unwrap();
+    }
+    let before = dolt_unchanged(db);
+    let mut problems = vec![];
+    match apply_plan(
+        db,
+        "survey",
+        &plan,
+        &"0".repeat(64),
+        "runner",
+        Some(&expected),
+    ) {
+        Ok(_) => problems.push("the apply succeeded".into()),
+        Err(e) => expect(
+            &mut problems,
+            "code",
+            json!(e.code),
+            &case["expected_error"],
+        ),
+    }
+    expect(&mut problems, "state", dolt_unchanged(db), &before);
+    problems
+}
+
+/// Commits on the expected branch from another session when the apply looks at the branch
+/// head before completing: after the data and metadata changes, before the audit row.
+struct ConcurrentCommit<'a> {
+    inner: &'a mut dyn Db,
+    other: Box<dyn Db>,
+}
+
+impl Db for ConcurrentCommit<'_> {
+    fn dialect(&self) -> &'static Dialect {
+        self.inner.dialect()
+    }
+    fn exec(&mut self, sql: &str, params: &[Sql]) -> Result<u64> {
+        self.inner.exec(sql, params)
+    }
+    fn query(&mut self, sql: &str, params: &[Sql]) -> Result<Vec<Vec<Sql>>> {
+        self.inner.query(sql, params)
+    }
+    fn batch(&mut self, sql: &str) -> Result<()> {
+        self.inner.batch(sql)
+    }
+    fn objects(&mut self) -> Result<Vec<String>> {
+        self.inner.objects()
+    }
+    fn namespace(&self) -> Option<String> {
+        self.inner.namespace()
+    }
+    fn limits(&mut self) -> Result<Limits> {
+        self.inner.limits()
+    }
+    fn committed_head(&mut self, branch: &str) -> Result<String> {
+        self.other
+            .batch(&format!("CALL DOLT_CHECKOUT('{branch}')"))
+            .unwrap();
+        self.other
+            .batch("CALL DOLT_COMMIT('--allow-empty', '-m', 'concurrent')")
+            .unwrap();
+        self.inner.committed_head(branch)
+    }
+}
+
+/// The 0.2 case: HEAD moves between the changes and the audit; the apply fails with
+/// `dolt_context_changed` and its changes roll back.
+fn dolt_changed_problems(backend: &dyn Backend, case: &Value) -> Vec<String> {
+    let (mut db, expected, plan) = dolt_survey(backend);
+    let db = db.as_mut();
+    let rows = vec![json!({"__case_ordinal": 1, "score": 1})];
+    let before = json!([
+        table_rows(db, "data_survey", &rows),
+        metadata(db, "score")["variable_label"],
+        scalar(db, "SELECT count(*) FROM transformation_apply", &[]),
+    ]);
+    let other = backend.reopen(db);
+    let mut concurrent = ConcurrentCommit {
+        inner: &mut *db,
+        other,
+    };
+    let mut problems = vec![];
+    match apply_plan(
+        &mut concurrent,
+        "survey",
+        &plan,
+        &"0".repeat(64),
+        "runner",
+        Some(&expected),
+    ) {
+        Ok(_) => problems.push("the apply succeeded".into()),
+        Err(e) => expect(
+            &mut problems,
+            "code",
+            json!(e.code),
+            &case["expected_error"],
+        ),
+    }
+    let after = json!([
+        table_rows(db, "data_survey", &rows),
+        metadata(db, "score")["variable_label"],
+        scalar(db, "SELECT count(*) FROM transformation_apply", &[]),
+    ]);
+    expect(&mut problems, "rows, label and audit", after, &before);
     problems
 }
 
@@ -964,6 +1216,8 @@ enum Run {
     Binding02,
     EmptyActor,
     CreateFails,
+    DoltReject,
+    DoltChanged,
     NotApplicable,
 }
 
@@ -975,7 +1229,10 @@ fn plan_for(case: &Value, profile: &str, atomic: bool) -> Run {
         return Run::NotApplicable;
     }
     match id {
-        "mysql-recode-and-labels-preserve-dataset-and-table-identity" => Run::Binding01,
+        "mysql-recode-and-labels-preserve-dataset-and-table-identity"
+        | "dolt-recode-and-labels-preserve-controlled-context" => Run::Binding01,
+        "dolt-context-changed-after-mutation-rolls-back" => Run::DoltChanged,
+        _ if case.get("observed_context").is_some() => Run::DoltReject,
         "dolt-empty-actor-fails-before-mutation" => Run::EmptyActor,
         _ if case["expected_error"] == "schema_change_not_atomic" => {
             if atomic {
@@ -1013,6 +1270,8 @@ pub fn in_place_conformance(backend: &dyn Backend, dir: &Path) {
                 Run::Binding02 => binding_02_problems(backend, dir, case),
                 Run::EmptyActor => empty_actor_problems(backend, dir),
                 Run::CreateFails => create_fails_problems(backend, dir, case),
+                Run::DoltReject => dolt_reject_problems(backend, case),
+                Run::DoltChanged => dolt_changed_problems(backend, case),
                 Run::NotApplicable => {
                     not_applicable.push(id);
                     continue;

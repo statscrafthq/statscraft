@@ -1,5 +1,5 @@
 //! `statscraft db`: datasets in an OpenStatSpec database (one wide table plus catalog) in
-//! SQLite, PostgreSQL, MySQL or MariaDB.
+//! SQLite, PostgreSQL, MySQL, MariaDB or Dolt.
 
 use crate::{load_session, session_file};
 use clap::{Args, Subcommand};
@@ -26,11 +26,17 @@ pub struct Target {
     /// MySQL or MariaDB: mysql://user@host:port/database, a database dedicated to the catalog
     #[arg(long, value_name = "URL", conflicts_with_all = ["sqlite", "postgres"])]
     pub mysql: Option<String>,
+    /// Dolt sql-server: mysql://user@host:port/database, a database dedicated to the catalog
+    #[arg(long, value_name = "URL", conflicts_with_all = ["sqlite", "postgres", "mysql"])]
+    pub dolt: Option<String>,
 }
 
 impl Target {
     pub fn given(&self) -> bool {
-        self.sqlite.is_some() || self.postgres.is_some() || self.mysql.is_some()
+        self.sqlite.is_some()
+            || self.postgres.is_some()
+            || self.mysql.is_some()
+            || self.dolt.is_some()
     }
 
     /// Opens the database; `create` installs the catalog into an empty one. A URL without a
@@ -39,17 +45,20 @@ impl Target {
         let password = std::env::var(PASSWORD_VARIABLE).ok();
         let password = password.as_deref();
         use statscraft_openstatspec::{mysql, postgres, sqlite};
-        Ok(match (&self.sqlite, &self.postgres, &self.mysql) {
-            (Some(path), _, _) => Box::new(sqlite::open(path, create)?),
-            (_, Some(url), _) => Box::new(postgres::open(url, password, create)?),
-            (_, _, Some(url)) => Box::new(mysql::open(url, password, create)?),
-            _ => {
-                return Err(DbError::new(
-                    "usage",
-                    "give --sqlite DB, --postgres URL or --mysql URL",
-                ));
-            }
-        })
+        Ok(
+            match (&self.sqlite, &self.postgres, &self.mysql, &self.dolt) {
+                (Some(path), ..) => Box::new(sqlite::open(path, create)?),
+                (_, Some(url), ..) => Box::new(postgres::open(url, password, create)?),
+                (_, _, Some(url), _) => Box::new(mysql::open(url, password, create)?),
+                (.., Some(url)) => Box::new(mysql::open_dolt(url, password, create)?),
+                _ => {
+                    return Err(DbError::new(
+                        "usage",
+                        "give --sqlite DB, --postgres URL, --mysql URL or --dolt URL",
+                    ));
+                }
+            },
+        )
     }
 }
 
@@ -57,8 +66,9 @@ impl Target {
 #[command(after_help = "\
 Prints one line of canonical JSON: {\"ok\":true,...} or {\"ok\":false,\"error\":{\"code\":...,\"message\":...}}.
 
-The database is dedicated to OpenStatSpec: a SQLite file, a PostgreSQL schema or a MySQL or \
-MariaDB database. Export \
+The database is dedicated to OpenStatSpec: a SQLite file, a PostgreSQL schema, or a MySQL, \
+MariaDB or Dolt database. On Dolt, `db export` leaves its changes in the working set and \
+never commits, and `db import` writes nothing at all. Export \
 creates the catalog in a new or empty one and refuses one holding anything else. Each dataset is one table data_<name> with __case_ordinal and one column per \
 variable; the dictionary lives in the catalog tables. A URL without a password takes it from \
 the STATSCRAFT_DB_PASSWORD environment variable; passwords are never printed.")]
@@ -99,6 +109,8 @@ enum DbCmd {
         #[arg(long)]
         allow_loss: bool,
     },
+    /// Print the adapter's capability declaration: versions, limits and atomicity per profile
+    Capabilities,
 }
 
 pub fn run(args: DbArgs) -> ExitCode {
@@ -131,6 +143,10 @@ fn first_failure(failures: Vec<crate::Failure>) -> DbError {
 
 fn execute(command: DbCmd) -> Result<Value, DbError> {
     match command {
+        DbCmd::Capabilities => Ok(json!({
+            "ok": true,
+            "capabilities": statscraft_openstatspec::db::capabilities(),
+        })),
         DbCmd::Export {
             file,
             session,

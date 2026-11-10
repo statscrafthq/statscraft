@@ -221,6 +221,25 @@ pub trait Db {
     }
 }
 
+/// Replaces each `?` outside string literals with `fill(n)` for the n-th placeholder, from 1.
+pub(crate) fn placeholders(sql: &str, mut fill: impl FnMut(usize) -> String) -> String {
+    let (mut out, mut n, mut quoted) = (String::with_capacity(sql.len()), 0, false);
+    for c in sql.chars() {
+        match c {
+            '?' if !quoted => {
+                n += 1;
+                out += &fill(n);
+            }
+            '\'' => {
+                quoted = !quoted;
+                out.push(c);
+            }
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 /// The first row of a query, if any.
 pub(crate) fn first(db: &mut dyn Db, sql: &str, params: &[Sql]) -> Result<Option<Vec<Sql>>> {
     Ok(db.query(sql, params)?.into_iter().next())
@@ -266,6 +285,8 @@ pub struct Dialect {
     /// True when export and every other read writes nothing to the database: Database I/O
     /// Execution Policy v1, selected for Dolt so that reads leave the working set clean.
     pub read_only_export: bool,
+    /// Parameters of one prepared statement.
+    pub max_params: usize,
     accepts: fn(f64) -> bool,
 }
 
@@ -279,8 +300,8 @@ fn sqlite_value(v: f64) -> bool {
     !v.is_nan() && !(v == 0.0 && v.is_sign_negative())
 }
 
-/// MySQL and MariaDB DOUBLE columns hold finite values only, and a parameter of negative
-/// zero comes back as positive zero (MySQL 8.4.9, MariaDB 11.8.9).
+/// MySQL, MariaDB and Dolt DOUBLE columns hold finite values only, and a parameter of negative
+/// zero comes back as positive zero (MySQL 8.4.9, MariaDB 11.8.9, Dolt 2.2.2 and 2.2.3).
 fn finite(v: f64) -> bool {
     v.is_finite() && !(v == 0.0 && v.is_sign_negative())
 }
@@ -300,6 +321,7 @@ pub const SQLITE: Dialect = Dialect {
     types: ["TEXT", "TEXT", "TEXT", "TEXT", "REAL", "INTEGER"],
     text_nul: true,
     read_only_export: false,
+    max_params: 32766,
     accepts: sqlite_value,
 };
 
@@ -326,6 +348,7 @@ pub const POSTGRESQL: Dialect = Dialect {
     ],
     text_nul: false,
     read_only_export: false,
+    max_params: 65535,
     accepts: any_value,
 };
 
@@ -354,6 +377,7 @@ pub const MYSQL: Dialect = Dialect {
     types: MYSQL_TYPES,
     text_nul: true,
     read_only_export: false,
+    max_params: 65535,
     accepts: finite,
 };
 
@@ -370,6 +394,8 @@ pub const DOLT: Dialect = Dialect {
     table_options: " DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_bin",
     row_rule: RowRule::DoltSchema,
     read_only_export: true,
+    // a prepared statement with 1,024 or more parameters gets no answer (2.2.3)
+    max_params: 1023,
     ..MYSQL
 };
 
@@ -447,6 +473,95 @@ impl Dialect {
             RowRule::DoltSchema => 8 + 8 * n + 20 * s,
         }
     }
+}
+
+/// The OpenStatSpec commit this adapter was tested against: untagged work on `main`.
+pub const SPECIFICATION_COMMIT: &str = "8594ee12ccf57526cf1142df4b216432c366da84";
+
+/// The adapter's machine-readable capability declaration: per SQL profile the claimed and
+/// tested server versions, the effective limits with their units and sources, and the
+/// atomicity. Dolt selects Database I/O Execution Policy v1: writes follow the packaged tested
+/// versions instead of an external declaration, and reads write nothing.
+pub fn capabilities() -> Value {
+    let limit = |value: u64, unit: &str, source: &str| json!({"value": value, "unit": unit, "source": source});
+    let innodb = |tested: &[&str], claimed: &[&str], text: u64| {
+        json!({
+            "engine": "InnoDB, ROW_FORMAT=DYNAMIC, 16 KiB pages",
+            "claimed_release_series": claimed,
+            "tested_versions": tested,
+            "physical_columns": limit(1017, "columns", "InnoDB column limit"),
+            "identifier": limit(64, "characters", "MySQL and MariaDB identifier limit"),
+            "value": limit(65535, "bytes", "TEXT"),
+            "structural_row": {
+                "value": 8126, "unit": "bytes",
+                "source": format!("worst-case record at CREATE TABLE: 31 + ceil(n/8) + 8 per \
+                    DOUBLE + {text} per TEXT, measured"),
+            },
+            "emitted_statement": {"unit": "bytes", "source": "active max_allowed_packet"},
+            "numeric": "DOUBLE; NaN, infinities and negative zero refused",
+            "text": "TEXT NOT NULL, binary collation without padding",
+            "atomic_schema_change": false,
+            "failure_cleanup": "the data table is dropped when the rows or catalog fail",
+        })
+    };
+    json!({
+        "adapter_implementation_id": "statscraft-openstatspec",
+        "adapter_version": env!("CARGO_PKG_VERSION"),
+        "specification_commit": SPECIFICATION_COMMIT,
+        "specification_status": "release_candidate",
+        "specification_release": null,
+        "source_profile": crate::catalog::SPEC_VERSION,
+        "directions": ["import", "export", "semantic_round_trip"],
+        "transformation_bindings": [
+            "openstatspec-in-place-transformation-v0.1",
+            "openstatspec-in-place-transformation-v0.2",
+        ],
+        "transport": "plain TCP without TLS",
+        "profiles": {
+            "sqlite": {
+                "claimed_versions": ">=3.24.0,<4.0.0",
+                "tested_versions": [rusqlite::version()],
+                "physical_columns": limit(2000, "columns", "profile default and SQLITE_LIMIT_COLUMN"),
+                "identifier": limit(255, "bytes", "OpenStatSpec adapter policy"),
+                "value": {"unit": "bytes", "source": "SQLITE_LIMIT_LENGTH"},
+                "structural_row": {"unit": "bytes", "source": "SQLITE_LIMIT_LENGTH"},
+                "numeric": "REAL; NaN and negative zero refused",
+                "text": "TEXT NOT NULL",
+                "atomic_schema_change": true,
+            },
+            "postgresql": {
+                "claimed_release_series": ["17.x", "18.x"],
+                "tested_versions": ["17.11"],
+                "physical_columns": limit(1600, "columns", "PostgreSQL column limit"),
+                "identifier": {"unit": "bytes", "source": "active max_identifier_length, UTF8"},
+                "value": limit((1 << 30) - 1, "bytes", "varlena limit"),
+                "structural_row": {"unit": "bytes", "source": "block_size - 32; lower bound per \
+                    case: 32 + 8 per non-NULL double + min(bytes + 1, 9) per string"},
+                "numeric": "DOUBLE PRECISION, every bit pattern",
+                "text": "TEXT NOT NULL; U+0000 refused",
+                "atomic_schema_change": true,
+            },
+            "mysql": innodb(&["8.4.9"], &["8.4.x", "9.7.x"], 41),
+            "mariadb": innodb(&["11.8.9"], &["11.4.x", "11.8.x", "12.3.x"], 21),
+            "dolt": {
+                "database_io_policy": "openstatspec-database-io-v1",
+                "claimed_product_versions": ">=2.2.2,<2.3.0",
+                "tested_product_versions": crate::mysql::DOLT_TESTED,
+                "product_identity": "@@version_comment trimmed and case-folded is dolt; DOLT_VERSION()",
+                "physical_columns": limit(4097, "columns", "Dolt tuple limit, measured"),
+                "identifier": limit(64, "characters", "measured"),
+                "value": {"unit": "bytes", "source": "LONGTEXT and active max_allowed_packet"},
+                "structural_row": limit(65503, "bytes", "table definition below 65,504 bytes: \
+                    8 per BIGINT and DOUBLE, 20 per LONGTEXT, measured"),
+                "emitted_statement": {"unit": "bytes", "source": "active max_allowed_packet"},
+                "numeric": "DOUBLE; NaN, infinities and negative zero refused (Dolt stores -0 as 0)",
+                "text": "LONGTEXT NOT NULL",
+                "atomic_schema_change": false,
+                "failure_cleanup": "the data table is dropped when the rows or catalog fail",
+                "version_control": "never commits, branches, merges or resets; reads write nothing",
+            },
+        },
+    })
 }
 
 /// A time-ordered version 7 UUID (RFC 9562): 48 bits of Unix milliseconds, a 12-bit counter

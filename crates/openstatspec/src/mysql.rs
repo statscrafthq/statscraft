@@ -1,9 +1,10 @@
-//! MySQL and MariaDB connections: the catalog lives in the dedicated database the URL names.
-//! The product is decided by positive identity on the connection, not by the protocol.
+//! MySQL, MariaDB and Dolt connections: the catalog lives in the dedicated database the URL
+//! names. The product is decided by positive identity on the connection, never by the
+//! protocol, so a MySQL connection refuses Dolt and a Dolt connection refuses MySQL.
 //! Plain TCP, no TLS.
 
 use crate::catalog::prepare;
-use crate::db::{Db, DbError, Dialect, Limits, MARIADB, MYSQL, Result, Sql};
+use crate::db::{DOLT, Db, DbError, Dialect, Limits, MARIADB, MYSQL, Result, Sql, placeholders};
 use mysql::prelude::Queryable;
 use mysql::{Conn, Opts, OptsBuilder, Params, Value};
 
@@ -18,13 +19,22 @@ impl From<mysql::Error> for DbError {
 
 pub struct MyDb {
     conn: Conn,
+    opts: Opts,
     dialect: &'static Dialect,
     database: String,
+    /// Dolt: a product version that may be read but not written.
+    read_only: Option<String>,
+    /// Dolt: a second session that sees branch heads outside this session's transaction.
+    probe: Option<Conn>,
 }
 
 /// Claimed release series of the server version policy.
 const MYSQL_SERIES: [&str; 2] = ["8.4", "9.7"];
 const MARIADB_SERIES: [&str; 3] = ["11.4", "11.8", "12.3"];
+
+/// The exact Dolt versions this adapter release was tested on and writes to (Database I/O
+/// Execution Policy v1, packaged policy). Other 2.2.x versions from 2.2.2 on may be read.
+pub const DOLT_TESTED: [&str; 2] = ["2.2.2", "2.2.3"];
 
 fn unsupported(message: String) -> DbError {
     DbError::new("server_unsupported", message)
@@ -35,12 +45,15 @@ fn series(version: &str) -> String {
     version.split('.').take(2).collect::<Vec<_>>().join(".")
 }
 
-/// Connects to a `mysql://user[:password]@host[:port]/database` URL and verifies the catalog
-/// in that database, or installs it into an empty one when `create` is set. `password` is used
-/// when the URL has none. The server must identify itself as MySQL 8.4.x or 9.7.x, or MariaDB
-/// 11.4.x, 11.8.x or 12.3.x, with 16 KiB InnoDB pages; anything else, Dolt included, is
-/// refused before anything is read or written.
-pub fn open(url: &str, password: Option<&str>, create: bool) -> Result<MyDb> {
+/// The Dolt family claim: `>=2.2.2,<2.3.0`, exact versions only.
+fn dolt_claimed(version: &str) -> bool {
+    let parts: Vec<&str> = version.split('.').collect();
+    matches!(parts[..], ["2", "2", patch]
+        if patch.bytes().all(|b| b.is_ascii_digit()) && patch.parse::<u32>().is_ok_and(|p| p >= 2))
+}
+
+/// Opens the connection and reads `VERSION()` and `@@version_comment`; nothing is written.
+fn connect(url: &str, password: Option<&str>) -> Result<(MyDb, String, String)> {
     let opts = Opts::from_url(url)
         .map_err(|_| DbError::new("database_unavailable", "the MySQL URL is not valid"))?;
     let Some(database) = opts.get_db_name().map(str::to_string) else {
@@ -53,18 +66,36 @@ pub fn open(url: &str, password: Option<&str>, create: bool) -> Result<MyDb> {
     if let (None, Some(password)) = (opts.get_pass(), password) {
         builder = builder.pass(Some(password));
     }
+    let opts = Opts::from(builder);
     let conn =
-        Conn::new(builder).map_err(|e| DbError::new("database_unavailable", e.to_string()))?;
+        Conn::new(opts.clone()).map_err(|e| DbError::new("database_unavailable", e.to_string()))?;
     let mut db = MyDb {
         conn,
+        opts,
         dialect: &MYSQL,
         database,
+        read_only: None,
+        probe: None,
     };
     let row = db
         .query("SELECT VERSION(), @@version_comment", &[])?
         .remove(0);
     let (version, comment) = (row[0].text()?, row[1].text()?);
-    let product = if comment.trim().eq_ignore_ascii_case("dolt") {
+    Ok((db, version, comment))
+}
+
+fn is_dolt(comment: &str) -> bool {
+    comment.trim().to_lowercase() == "dolt"
+}
+
+/// Connects to a `mysql://user[:password]@host[:port]/database` URL and verifies the catalog
+/// in that database, or installs it into an empty one when `create` is set. `password` is used
+/// when the URL has none. The server must identify itself as MySQL 8.4.x or 9.7.x, or MariaDB
+/// 11.4.x, 11.8.x or 12.3.x, with 16 KiB InnoDB pages; anything else, Dolt included, is
+/// refused before anything is read or written.
+pub fn open(url: &str, password: Option<&str>, create: bool) -> Result<MyDb> {
+    let (mut db, version, comment) = connect(url, password)?;
+    let product = if is_dolt(&comment) {
         return Err(unsupported(
             "the server is Dolt, which has its own profile; use the Dolt connection".into(),
         ));
@@ -89,6 +120,33 @@ pub fn open(url: &str, password: Option<&str>, create: bool) -> Result<MyDb> {
         return Err(unsupported(format!(
             "innodb_page_size {page}: the row limits of the profile are for 16 KiB pages"
         )));
+    }
+    db.session()?;
+    prepare(&mut db, create)?;
+    Ok(db)
+}
+
+/// Connects to a Dolt sql-server at a `mysql://...` URL like [`open`]. The same connection
+/// must show `@@version_comment` Dolt and a `DOLT_VERSION()` in the claimed family 2.2.x from
+/// 2.2.2 on; writes (catalog install, import, apply) need one of [`DOLT_TESTED`]. Reading
+/// writes nothing, so the working set stays as it was. The connection stays on the branch the
+/// session starts on (the database's default branch, or `database/branch` in the URL).
+pub fn open_dolt(url: &str, password: Option<&str>, create: bool) -> Result<MyDb> {
+    let (mut db, version, comment) = connect(url, password)?;
+    if !is_dolt(&comment) {
+        return Err(unsupported(format!(
+            "the server identifies as {version} ({comment}), not Dolt"
+        )));
+    }
+    db.dialect = &DOLT;
+    let version = db.query("SELECT DOLT_VERSION()", &[])?[0][0].text()?;
+    if !dolt_claimed(&version) {
+        return Err(unsupported(format!(
+            "Dolt {version:?}: the Dolt profile supports 2.2.x from 2.2.2 on"
+        )));
+    }
+    if !DOLT_TESTED.contains(&version.as_str()) {
+        db.read_only = Some(version);
     }
     db.session()?;
     prepare(&mut db, create)?;
@@ -121,6 +179,45 @@ fn from_value(v: Value) -> Result<Sql> {
     })
 }
 
+/// A value as a SQL literal. Numbers keep their exact bits (the shortest digits that parse
+/// back to them); text escapes the quote, the backslash and NUL, as the session's sql_mode
+/// keeps backslash escapes.
+fn literal(v: &Sql) -> String {
+    match v {
+        Sql::Null => "NULL".into(),
+        Sql::Int(i) => i.to_string(),
+        Sql::Real(r) => format!("{r:e}"),
+        Sql::Text(t) => {
+            let mut out = String::with_capacity(t.len() + 2);
+            out.push('\'');
+            for c in t.chars() {
+                match c {
+                    '\'' => out.push_str("''"),
+                    '\\' => out.push_str("\\\\"),
+                    '\0' => out.push_str("\\0"),
+                    c => out.push(c),
+                }
+            }
+            out.push('\'');
+            out
+        }
+    }
+}
+
+/// A statement over the dialect's parameter limit fails here instead of waiting forever.
+fn check_params(dialect: &Dialect, values: &[Sql]) -> Result<()> {
+    if values.len() > dialect.max_params {
+        return Err(DbError::capability(
+            "statement",
+            "emitted_statement",
+            dialect.max_params as u64,
+            values.len() as u64,
+            "parameters",
+        ));
+    }
+    Ok(())
+}
+
 fn params(values: &[Sql]) -> Params {
     if values.is_empty() {
         Params::Empty
@@ -142,11 +239,21 @@ impl Db for MyDb {
     }
 
     fn exec(&mut self, sql: &str, values: &[Sql]) -> Result<u64> {
+        if self.dialect.profile == "dolt" {
+            // Dolt prepares a statement on a wide table slowly, and one with 1,024 or more
+            // parameters not at all; a text statement with literals takes milliseconds
+            let mut values = values.iter();
+            let sql = placeholders(sql, |_| values.next().map_or_else(String::new, literal));
+            self.conn.query_drop(sql)?;
+            return Ok(self.conn.affected_rows());
+        }
+        check_params(self.dialect, values)?;
         self.conn.exec_drop(sql, params(values))?;
         Ok(self.conn.affected_rows())
     }
 
     fn query(&mut self, sql: &str, values: &[Sql]) -> Result<Vec<Vec<Sql>>> {
+        check_params(self.dialect, values)?;
         let rows: Vec<mysql::Row> = self.conn.exec(sql, params(values))?;
         rows.into_iter()
             .map(|row| row.unwrap().into_iter().map(from_value).collect())
@@ -171,17 +278,54 @@ impl Db for MyDb {
         Some(self.database.clone())
     }
 
-    /// 1,017 InnoDB columns; identifiers of 64 characters; a TEXT value of 65,535 bytes; the
-    /// worst-case DYNAMIC record of 8,126 bytes that a 16 KiB page allows; one statement of
-    /// `max_allowed_packet` bytes.
+    /// MySQL and MariaDB: 1,017 InnoDB columns; identifiers of 64 characters; a TEXT value of
+    /// 65,535 bytes; the worst-case DYNAMIC record of 8,126 bytes that a 16 KiB page allows.
+    /// Dolt 2.2.2 and 2.2.3 (measured): 4,096 columns besides `__case_ordinal`, identifiers of
+    /// 64 characters, a table definition below 65,504 bytes, LONGTEXT values. Every profile:
+    /// one statement of `max_allowed_packet` bytes.
     fn limits(&mut self) -> Result<Limits> {
-        let packet = self.query("SELECT @@max_allowed_packet", &[])?[0][0].int()?;
-        Ok(Limits {
-            columns: 1017,
-            identifier: 64,
-            value_bytes: 65535,
-            row_bytes: 8126,
-            statement_bytes: packet as u64,
+        let packet = self.query("SELECT @@max_allowed_packet", &[])?[0][0].int()? as u64;
+        Ok(if self.dialect.profile == "dolt" {
+            Limits {
+                columns: 4097,
+                identifier: 64,
+                value_bytes: packet.min(u32::MAX.into()),
+                row_bytes: 65503,
+                statement_bytes: packet,
+            }
+        } else {
+            Limits {
+                columns: 1017,
+                identifier: 64,
+                value_bytes: 65535,
+                row_bytes: 8126,
+                statement_bytes: packet,
+            }
+        })
+    }
+
+    fn write_gate(&self) -> Result<()> {
+        match &self.read_only {
+            Some(version) => Err(unsupported(format!(
+                "Dolt {version} may be read but not written: writes are tested on {}",
+                DOLT_TESTED.join(" and ")
+            ))),
+            None => Ok(()),
+        }
+    }
+
+    fn committed_head(&mut self, branch: &str) -> Result<String> {
+        if self.probe.is_none() {
+            self.probe = Some(Conn::new(self.opts.clone())?);
+        }
+        let probe = self.probe.as_mut().expect("opened above");
+        let head: Option<String> =
+            probe.exec_first("SELECT hash FROM dolt_branches WHERE name = ?", (branch,))?;
+        head.ok_or_else(|| {
+            DbError::new(
+                "dolt_context_changed",
+                format!("branch {branch} no longer exists"),
+            )
         })
     }
 }
@@ -195,5 +339,38 @@ mod tests {
         assert_eq!(series("11.8.9-MariaDB-ubu2404"), "11.8");
         assert_eq!(series("8.4.9"), "8.4");
         assert!(!MARIADB_SERIES.contains(&series("10.11.18-MariaDB").as_str()));
+    }
+
+    #[test]
+    fn literals_keep_bits_and_escape_text() {
+        assert_eq!(literal(&Sql::Real(5e-324)), "5e-324");
+        assert_eq!(literal(&Sql::Real(-1.5)), "-1.5e0");
+        assert_eq!(literal(&Sql::Real(f64::MAX)), "1.7976931348623157e308");
+        for v in [0.1, 1.0 / 3.0, 2.225_073_858_507_201e-308, -123456.789e-200] {
+            assert_eq!(
+                literal(&Sql::Real(v)).parse::<f64>().unwrap().to_bits(),
+                v.to_bits()
+            );
+        }
+        assert_eq!(literal(&Sql::Text("a'b\\c\0d".into())), "'a''b\\\\c\\0d'");
+        assert_eq!(literal(&Sql::Null), "NULL");
+    }
+
+    #[test]
+    fn the_dolt_claim_is_2_2_x_from_2_2_2_on_with_exact_versions() {
+        for (version, claimed) in [
+            ("2.2.2", true),
+            ("2.2.3", true),
+            ("2.2.17", true),
+            ("2.2.1", false),
+            ("2.3.0", false),
+            ("2.2", false),
+            ("2.2.x", false),
+            ("2.2.+3", false),
+            ("2.2.3-rc1", false),
+            ("8.0.31", false),
+        ] {
+            assert_eq!(dolt_claimed(version), claimed, "{version}");
+        }
     }
 }

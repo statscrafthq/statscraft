@@ -2,7 +2,7 @@
 //! schema on the connection's search path. Plain TCP, no TLS.
 
 use crate::catalog::prepare;
-use crate::db::{Db, DbError, Dialect, Limits, POSTGRESQL, Result, Sql};
+use crate::db::{Db, DbError, Dialect, Limits, POSTGRESQL, Result, Sql, placeholders};
 use bytes::{BufMut, BytesMut};
 use postgres::error::SqlState;
 use postgres::types::{FromSql, IsNull, ToSql, Type, to_sql_checked};
@@ -108,21 +108,7 @@ pub fn open(url: &str, password: Option<&str>, create: bool) -> Result<PgDb> {
 
 /// Rewrites `?` placeholders outside string literals as `$1`, `$2`, ...
 fn numbered(sql: &str) -> String {
-    let (mut out, mut n, mut quoted) = (String::with_capacity(sql.len()), 0, false);
-    for c in sql.chars() {
-        match c {
-            '\'' => {
-                quoted = !quoted;
-                out.push(c);
-            }
-            '?' if !quoted => {
-                n += 1;
-                out += &format!("${n}");
-            }
-            _ => out.push(c),
-        }
-    }
-    out
+    placeholders(sql, |n| format!("${n}"))
 }
 
 impl PgDb {

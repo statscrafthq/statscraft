@@ -26,9 +26,11 @@ VARIABLE LEVEL and EXECUTE.
 Profile 0.3 adds comments, TO lists, NE <> ~= and NOT, LOWEST/HIGHEST ranges and ADD VALUE LABELS.
 Anything else is rejected: this is OpenStatSpec's bounded frontend, not the full language of `statscraft run`.
 
-With --sqlite DB, --postgres URL or --mysql URL and --name DATASET the input schema comes from that \
+With --sqlite DB, --postgres URL, --mysql URL or --dolt URL and --name DATASET the input schema comes from that \
 OpenStatSpec dataset, and --apply applies the plan to it in place, in one transaction with one \
-audit row; the output then has \"applied\":{\"apply_id\":...,\"dataset_id\":...,\"operation_count\":...}.")]
+audit row; the output then has \"applied\":{\"apply_id\":...,\"dataset_id\":...,\"operation_count\":...}. \
+On Dolt, --apply needs --expected-branch and --expected-head: the session must be on that \
+branch at that commit with a clean working set, and the changes stay uncommitted.")]
 pub struct PlanArgs {
     /// Syntax file, or - for standard input
     file: Option<String>,
@@ -50,6 +52,12 @@ pub struct PlanArgs {
     /// Apply the plan to the dataset in place
     #[arg(long, requires = "name")]
     apply: bool,
+    /// Dolt: the branch the apply must run on
+    #[arg(long, value_name = "BRANCH", requires = "apply")]
+    expected_branch: Option<String>,
+    /// Dolt: the commit HEAD must be at
+    #[arg(long, value_name = "COMMIT", requires = "apply")]
+    expected_head: Option<String>,
     /// Who applies the plan, for the audit row; defaults to $USER
     #[arg(long)]
     actor: Option<String>,
@@ -184,7 +192,14 @@ fn apply_to_dataset(args: &PlanArgs, plan: &Plan, source_hash: &str) -> Result<V
         .or_else(|| std::env::var("USER").ok())
         .unwrap_or_default();
     let mut db = args.target.open(false)?;
-    let applied = apply::apply_plan(db.as_mut(), name, plan, source_hash, &actor)?;
+    let dolt = match (&args.expected_branch, &args.expected_head) {
+        (Some(branch), Some(head)) => Some(apply::DoltContext {
+            branch: branch.clone(),
+            head: head.clone(),
+        }),
+        _ => None,
+    };
+    let applied = apply::apply_plan(db.as_mut(), name, plan, source_hash, &actor, dolt.as_ref())?;
     Ok(json!({
         "apply_id": applied.apply_id,
         "dataset_id": applied.dataset_id,
