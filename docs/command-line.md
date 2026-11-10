@@ -383,3 +383,39 @@ Each prints one line of JSON, such as `{"case_count":200,"dataset":"survey_basic
 | `--allow-loss` | `import` goes on when the catalog holds items a dataset cannot keep (dataset attributes, variable sets, write formats that differ from the print format) |
 
 Before writing, `export` checks the column limit (2000 including `__case_ordinal`), identifiers and value sizes, and refuses NaN and negative zero, which SQLite cannot keep. A failure leaves no table and no dataset row behind.
+
+### Databases other than SQLite
+
+```
+statscraft db export survey.sav --sqlite study.db [--name survey]   store a dataset in SQLite
+statscraft db export survey.sav --postgres URL                      or in PostgreSQL
+statscraft db export survey.sav --mysql URL                         or in MySQL or MariaDB
+statscraft db export survey.sav --dolt URL                          or in Dolt
+statscraft db capabilities                                          versions and limits per database
+statscraft db export -s work --sqlite study.db --name work          store a session's dataset
+statscraft db import --sqlite study.db --name survey --out back.sav read it back into a file
+statscraft db import --sqlite study.db --name survey -s work        or into a session
+statscraft plan job.sps --sqlite study.db --name survey --apply     apply syntax to it in place
+```
+
+`db` stores a dataset the way OpenStatSpec's SAV/ZSAV profile 1.0 and its SQL dialect profiles specify: one table `data_<name>` with `__case_ordinal` (1, 2, 3, ... in case order) and one column per variable in variable order, numbers as binary64 with system-missing as NULL, strings as text that is never NULL, user-missing codes kept as values, dates as numbers. The dictionary (labels, value labels, missing values, formats, measurement level, role, display settings, attributes, documents, weight variable, multiple response sets) goes into the catalog tables. The database belongs to OpenStatSpec: `export` sets up the catalog in a new or empty one and refuses one that holds anything else. Before writing, a preflight checks the column limit, identifiers, value sizes and the row size against the profile and the server's settings. A failure leaves no table and no dataset row, only the failed operation and its diagnostic. Variable names that are not plain ASCII get generated column names (`v<position>`); the catalog maps them back. Reading a dataset whose catalog holds items StatsCraft cannot keep (dataset attributes, variable sets, write formats other than the print format) fails unless `--allow-loss` is given; the losses are then listed in the output.
+
+| | SQLite | PostgreSQL | MySQL, MariaDB | Dolt |
+|---|---|---|---|---|
+| Option | `--sqlite FILE` | `--postgres postgres://user@host:port/db[?schema=NAME]` | `--mysql mysql://user@host:port/db` | `--dolt mysql://user@host:port/db` |
+| The catalog lives in | the whole file | schema NAME (default `openstatspec`) | database `db` | database `db`, on the session's branch |
+| Server versions | bundled SQLite | 17.x, 18.x, UTF8 encoding | MySQL 8.4.x, 9.7.x; MariaDB 11.4.x, 11.8.x, 12.3.x; 16 KiB InnoDB pages | reads 2.2.x from 2.2.2 on; writes 2.2.2 and 2.2.3 |
+| Columns, `__case_ordinal` included | 2,000 | 1,600 | 1,017 | 4,097 |
+| Numbers | REAL; NaN and negative zero refused | DOUBLE PRECISION, every bit pattern kept | DOUBLE; NaN, infinities and negative zero refused | DOUBLE; NaN, infinities and negative zero refused |
+| Text | TEXT NOT NULL | TEXT NOT NULL; U+0000 refused | TEXT NOT NULL, binary collation, at most 65,535 bytes | LONGTEXT NOT NULL |
+| Row | the length limit | a heap tuple of 8,160 bytes (NULLs are free) | the InnoDB record of 8,126 bytes: 8 per number, 41 (MySQL) or 21 (MariaDB) per string; one INSERT within `max_allowed_packet` | a table definition below 65,504 bytes: 8 per number, 20 per string |
+| Identifiers | 255 bytes | `max_identifier_length` (63 bytes) | 64 characters | 64 characters |
+| New variables in `plan --apply` | yes, in the same transaction | yes, in the same transaction | no: `schema_change_not_atomic` before any change | no: `schema_change_not_atomic` |
+
+MySQL, MariaDB and Dolt commit DDL implicitly, so `export` creates the table first, writes the rows and the catalog in one transaction, and drops the table again if that fails. A plan that would create a variable is refused before anything changes; create the column and its catalog variable in a separate step first.
+
+The product is decided by what the server says about itself, not by the protocol: `--mysql` refuses a Dolt server and `--dolt` refuses MySQL and MariaDB. On Dolt, StatsCraft never commits, branches, merges or resets. `db export` leaves its changes in the working set for you to commit; `db import` and the input schema of `plan` write nothing at all (OpenStatSpec's Database I/O Execution Policy v1, which `db capabilities` declares), so allowed losses are reported in the output instead of in the catalog. `plan --apply` on Dolt needs `--expected-branch` and `--expected-head`: the session must be on that branch at that commit with a clean working set, and the branch must still point at that commit when the apply completes; the audit row records both, and the changes stay uncommitted. The session's branch is the database's default branch, or the one named as `db/branch` in the URL.
+
+A URL without a password takes it from the `STATSCRAFT_DB_PASSWORD` environment variable. Passwords are never printed. Connections use plain TCP without TLS.
+
+`plan --name DATASET` with a database option takes the input schema from that dataset; with `--apply` it then applies the plan to the same table in one transaction: direct UPDATEs, `ALTER TABLE ... ADD COLUMN` for new variables, catalog updates and one audit row in `transformation_apply` (plan and source hashes, actor, operation count). Nothing is copied, and on any error nothing changes. `--actor` names who applies the plan (default `$USER`).
