@@ -31,6 +31,30 @@ pub fn names(names: &[String], what: &str) -> Result<String, String> {
     Ok(names.join(" "))
 }
 
+/// A probability the user typed, such as a significance level: a number between 0 and 1.
+pub fn probability(text: &str) -> Result<String, String> {
+    text.trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|p| *p > 0.0 && *p < 1.0)
+        .map(number)
+        .ok_or_else(|| "the significance level must be a number between 0 and 1".into())
+}
+
+/// A confidence level the user typed in percent, as the fraction the syntax takes: 95 is 0.95.
+/// `None` for the default of 95 percent.
+pub fn confidence(text: &str) -> Result<Option<String>, String> {
+    let percent = text
+        .trim()
+        .parse::<f64>()
+        .ok()
+        .filter(|p| *p > 0.0 && *p < 100.0)
+        .ok_or("the confidence level must be a percentage between 0 and 100")?;
+    // rounded, so 99.9 gives 0.999 and not 0.9990000000000001
+    let fraction = (percent * 1e6).round() / 1e8;
+    Ok((fraction != 0.95).then(|| number(fraction)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -44,6 +68,12 @@ mod tests {
         assert_eq!(value(" a b ", true).unwrap(), "' a b '");
         assert_eq!(value("abc", false).unwrap_err(), "\"abc\" is not a number");
         assert!(value("inf", false).is_err());
+        assert_eq!(probability(" 0.01 ").unwrap(), "0.01");
+        assert!(probability("1").is_err());
+        assert_eq!(confidence("95").unwrap(), None);
+        assert_eq!(confidence("99.9").unwrap().unwrap(), "0.999");
+        assert_eq!(confidence("90").unwrap().unwrap(), "0.9");
+        assert!(confidence("0.95x").is_err());
         assert_eq!(
             names(&[], "Variables").unwrap_err(),
             "add at least one variable to Variables"

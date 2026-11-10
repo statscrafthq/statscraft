@@ -1,6 +1,10 @@
 //! The window. Drawing only: every change to data and every result goes through `Session::run`
 //! with syntax built by the plain modules.
 
+use crate::analyze_dialogs::{
+    Correlations, MEANS_CELLS, Means, ONEWAY_STATISTICS, Oneway, POST_HOC_TESTS, STANDARDIZERS,
+    TTest, TTestKind,
+};
 use crate::dialogs::{
     Adjust, CROSSTABS_CELLS, Compute, Crosstabs, CustomTables, DESCRIPTIVES_STATISTICS,
     Descriptives, Frequencies, NewValue, OldValue, Recode, RecodeRule, label_command,
@@ -66,6 +70,10 @@ enum Dialog {
     CustomTables(CustomTables),
     Compute(Compute, String),
     Recode(Recode, RuleDraft),
+    Means(Means),
+    TTest(TTest),
+    Oneway(Oneway),
+    Correlations(Correlations),
 }
 
 impl Dialog {
@@ -77,6 +85,10 @@ impl Dialog {
             Dialog::CustomTables(_) => "Custom Tables",
             Dialog::Compute(..) => "Compute Variable",
             Dialog::Recode(..) => "Recode",
+            Dialog::Means(_) => "Means",
+            Dialog::TTest(d) => d.title(),
+            Dialog::Oneway(_) => "One-Way ANOVA",
+            Dialog::Correlations(_) => "Bivariate Correlations",
         }
     }
 
@@ -88,6 +100,10 @@ impl Dialog {
             Dialog::CustomTables(_) => Dialog::CustomTables(Default::default()),
             Dialog::Compute(..) => Dialog::Compute(Default::default(), String::new()),
             Dialog::Recode(..) => Dialog::Recode(Default::default(), Default::default()),
+            Dialog::Means(_) => Dialog::Means(Default::default()),
+            Dialog::TTest(d) => Dialog::TTest(TTest::new(d.kind)),
+            Dialog::Oneway(_) => Dialog::Oneway(Default::default()),
+            Dialog::Correlations(_) => Dialog::Correlations(Default::default()),
         }
     }
 
@@ -116,6 +132,10 @@ impl Dialog {
                 }
                 d.syntax(strings > 0)
             }
+            Dialog::Means(d) => d.syntax(),
+            Dialog::TTest(d) => d.syntax(is_string(data, &d.grouping)),
+            Dialog::Oneway(d) => d.syntax(),
+            Dialog::Correlations(d) => d.syntax(),
         }
     }
 }
@@ -556,6 +576,35 @@ impl App {
                         self.open_dialog(dialog);
                     }
                 }
+                ui.add_enabled_ui(has_data, |ui| {
+                    ui.menu_button("Compare Means", |ui| {
+                        for (label, dialog) in [
+                            ("Means...", Dialog::Means(Default::default())),
+                            (
+                                "One-Sample T Test...",
+                                Dialog::TTest(TTest::new(TTestKind::OneSample)),
+                            ),
+                            (
+                                "Independent-Samples T Test...",
+                                Dialog::TTest(TTest::new(TTestKind::Independent)),
+                            ),
+                            (
+                                "Paired-Samples T Test...",
+                                Dialog::TTest(TTest::new(TTestKind::Paired)),
+                            ),
+                            ("One-Way ANOVA...", Dialog::Oneway(Default::default())),
+                        ] {
+                            if ui.button(label).clicked() {
+                                self.open_dialog(dialog);
+                            }
+                        }
+                    });
+                    ui.menu_button("Correlate", |ui| {
+                        if ui.button("Bivariate...").clicked() {
+                            self.open_dialog(Dialog::Correlations(Default::default()));
+                        }
+                    });
+                });
             });
             ui.menu_button("Transform", |ui| {
                 if ui
@@ -1297,6 +1346,11 @@ impl eframe::App for App {
     }
 }
 
+/// Whether the dataset has a string variable of that name.
+fn is_string(data: &Dataset, name: &str) -> bool {
+    data.variable(name.trim()).is_ok_and(|v| v.is_string())
+}
+
 fn error_text(errors: &[Failure]) -> String {
     errors
         .iter()
@@ -1721,6 +1775,38 @@ fn target_list(ui: &mut Ui, title: &str, list: &mut Vec<String>, picked: &mut Ve
     });
 }
 
+/// A slot for one variable, filled with the first picked variable.
+fn target_one(ui: &mut Ui, title: &str, slot: &mut String, picked: &mut Vec<String>) {
+    ui.push_id(title, |ui| {
+        ui.horizontal(|ui| {
+            ui.strong(title);
+            if ui
+                .add_enabled(!picked.is_empty(), egui::Button::new("Set").small())
+                .clicked()
+            {
+                *slot = picked.remove(0);
+            }
+            if slot.is_empty() {
+                ui.weak("empty");
+            } else if ui
+                .button(format!("{slot}  \u{d7}"))
+                .on_hover_text("Remove")
+                .clicked()
+            {
+                slot.clear();
+            }
+        });
+    });
+}
+
+/// A text field with a label in front, on one line.
+fn field(ui: &mut Ui, label: &str, text: &mut String, width: f32) {
+    ui.horizontal(|ui| {
+        ui.label(label);
+        ui.add(TextEdit::singleline(text).desired_width(width));
+    });
+}
+
 fn checkboxes(ui: &mut Ui, options: &[(&str, &str)], flags: &mut [bool]) {
     egui::Grid::new(ui.next_auto_id())
         .num_columns(2)
@@ -1826,6 +1912,133 @@ fn dialog_body(ui: &mut Ui, dialog: &mut Dialog, picked: &mut Vec<String>) {
                 }
             }
         }
+        Dialog::Means(d) => {
+            target_list(ui, "Dependent variables", &mut d.dependents, picked);
+            ui.horizontal(|ui| {
+                let count = d.layers.len();
+                ui.label(format!("Layer {} of {count}", d.layer + 1));
+                if ui
+                    .add_enabled(d.layer > 0, egui::Button::new("Previous").small())
+                    .clicked()
+                {
+                    d.layer -= 1;
+                }
+                let can_add = !d.layers[d.layer].is_empty();
+                if ui
+                    .add_enabled(
+                        d.layer + 1 < count || can_add,
+                        egui::Button::new("Next").small(),
+                    )
+                    .on_hover_text("The next layer is nested in this one")
+                    .clicked()
+                {
+                    d.layer += 1;
+                    if d.layer == count {
+                        d.layers.push(Vec::new());
+                    }
+                }
+            });
+            target_list(
+                ui,
+                "Group by (control variables)",
+                &mut d.layers[d.layer],
+                picked,
+            );
+            ui.add_space(6.0);
+            ui.strong("Statistics");
+            checkboxes(ui, &MEANS_CELLS, &mut d.cells);
+            ui.checkbox(&mut d.anova, "Analysis of variance and eta (Layer 1)");
+            ui.checkbox(&mut d.linearity, "Test for linearity");
+        }
+        Dialog::TTest(d) => match d.kind {
+            TTestKind::OneSample => {
+                target_list(ui, "Test variables", &mut d.variables, picked);
+                field(ui, "Test value", &mut d.test_value, 70.0);
+                t_test_options(ui, d);
+            }
+            TTestKind::Independent => {
+                target_list(ui, "Test variables", &mut d.variables, picked);
+                target_one(ui, "Grouping variable", &mut d.grouping, picked);
+                ui.horizontal(|ui| {
+                    ui.radio_value(&mut d.cut_point, false, "Values");
+                    ui.add(
+                        TextEdit::singleline(&mut d.group1)
+                            .desired_width(60.0)
+                            .hint_text("1"),
+                    );
+                    if !d.cut_point {
+                        ui.label("and");
+                        ui.add(
+                            TextEdit::singleline(&mut d.group2)
+                                .desired_width(60.0)
+                                .hint_text("2"),
+                        );
+                    }
+                    ui.radio_value(&mut d.cut_point, true, "Cut point");
+                });
+                if d.cut_point {
+                    ui.weak("Cases at or above the cut point form one group.");
+                }
+                t_test_options(ui, d);
+            }
+            TTestKind::Paired => {
+                ui.strong("Pairs");
+                let mut remove = None;
+                for (i, (a, b)) in d.pairs.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.label(format!("{a}  with  {b}"));
+                        if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
+                            remove = Some(i);
+                        }
+                    });
+                }
+                if let Some(i) = remove {
+                    d.pairs.remove(i);
+                }
+                if ui
+                    .add_enabled(picked.len() >= 2, egui::Button::new("Add pair"))
+                    .on_hover_text("Pairs the first two picked variables")
+                    .clicked()
+                {
+                    let first = picked.remove(0);
+                    d.pairs.push((first, picked.remove(0)));
+                }
+                t_test_options(ui, d);
+            }
+        },
+        Dialog::Oneway(d) => {
+            target_list(ui, "Dependent variables", &mut d.dependents, picked);
+            target_one(ui, "Factor", &mut d.factor, picked);
+            ui.add_space(6.0);
+            egui::CollapsingHeader::new("Post hoc comparisons").show(ui, |ui| {
+                checkboxes(ui, &POST_HOC_TESTS, &mut d.post_hoc);
+                field(ui, "Significance level", &mut d.alpha, 60.0);
+            });
+            egui::CollapsingHeader::new("Options").show(ui, |ui| {
+                checkboxes(ui, &ONEWAY_STATISTICS, &mut d.statistics);
+                field(ui, "Confidence level %", &mut d.confidence, 60.0);
+                ui.checkbox(
+                    &mut d.listwise,
+                    "Leave out a case missing on any listed variable",
+                );
+            });
+        }
+        Dialog::Correlations(d) => {
+            target_list(ui, "Variables", &mut d.variables, picked);
+            ui.add_space(6.0);
+            ui.strong("Pearson correlations");
+            ui.horizontal(|ui| {
+                ui.radio_value(&mut d.one_tailed, false, "Two-tailed test");
+                ui.radio_value(&mut d.one_tailed, true, "One-tailed test");
+            });
+            ui.checkbox(&mut d.flag, "Mark significant correlations with stars");
+            ui.checkbox(&mut d.descriptives, "Means and standard deviations");
+            ui.checkbox(&mut d.cross_products, "Cross-products and covariances");
+            ui.checkbox(
+                &mut d.listwise,
+                "Leave out a case missing on any listed variable",
+            );
+        }
         Dialog::Recode(d, draft) => {
             target_list(ui, "Variables", &mut d.variables, picked);
             ui.horizontal(|ui| {
@@ -1882,4 +2095,24 @@ fn dialog_body(ui: &mut Ui, dialog: &mut Dialog, picked: &mut Vec<String>) {
             });
         }
     }
+}
+
+/// The options the three t tests share.
+fn t_test_options(ui: &mut Ui, d: &mut TTest) {
+    ui.add_space(6.0);
+    egui::CollapsingHeader::new("Options").show(ui, |ui| {
+        field(ui, "Confidence interval %", &mut d.confidence, 60.0);
+        ui.checkbox(
+            &mut d.listwise,
+            "Leave out a case missing on any variable of the test",
+        );
+        ui.checkbox(&mut d.effect_sizes, "Effect sizes");
+        if d.kind == TTestKind::Paired && d.effect_sizes {
+            ComboBox::new("standardizer", "Scale of Cohen's d")
+                .selected_text(STANDARDIZERS[d.standardizer].1)
+                .show_index(ui, &mut d.standardizer, STANDARDIZERS.len(), |i| {
+                    STANDARDIZERS[i].1
+                });
+        }
+    });
 }

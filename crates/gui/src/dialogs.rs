@@ -474,30 +474,49 @@ pub fn label_command(name: &str, label: &str) -> Option<String> {
     (!label.is_empty()).then(|| format!("VARIABLE LABELS {} {}.", name.trim(), quote(label)))
 }
 
+/// What the dialog tests share: every test runs the syntax it builds through the engine, to
+/// prove the engine takes it.
 #[cfg(test)]
-mod tests {
-    use super::*;
+pub(crate) mod testing {
+    use crate::syntax_text::quote;
     use statscraft_engine::session::Session;
 
-    fn v(names: &[&str]) -> Vec<String> {
+    pub fn v(names: &[&str]) -> Vec<String> {
         names.iter().map(|n| n.to_string()).collect()
     }
 
-    /// Runs the syntax on the survey file, so every test also proves the engine takes it.
-    fn runs(syntax: &str) -> usize {
+    /// The path of a file in tests/fixtures.
+    pub fn fixture(name: &str) -> String {
+        format!("{}/../../tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"))
+    }
+
+    /// A session with a fixture open.
+    pub fn open(name: &str) -> Session {
         let mut session = Session::default();
-        let file = format!(
-            "{}/../../tests/fixtures/survey_basic.sav",
-            env!("CARGO_MANIFEST_DIR")
-        );
         session
-            .run(&format!("GET FILE={}.", quote(&file)), None)
+            .run(&format!("GET FILE={}.", quote(&fixture(name))), None)
             .unwrap();
+        session
+    }
+
+    /// Runs the syntax in the session and returns the number of tables it made.
+    pub fn run_in(session: &mut Session, syntax: &str) -> usize {
         let result = session
             .run(syntax, None)
             .unwrap_or_else(|e| panic!("{syntax}\n{e:?}"));
         result.commands.iter().map(|o| o.tables.len()).sum()
     }
+
+    /// Runs the syntax on the survey file and returns the number of tables it made.
+    pub fn runs(syntax: &str) -> usize {
+        run_in(&mut open("survey_basic.sav"), syntax)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::testing::{runs, v};
+    use super::*;
 
     #[test]
     fn frequencies() {
