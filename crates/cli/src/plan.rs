@@ -26,7 +26,7 @@ VARIABLE LEVEL and EXECUTE.
 Profile 0.3 adds comments, TO lists, NE <> ~= and NOT, LOWEST/HIGHEST ranges and ADD VALUE LABELS.
 Anything else is rejected: this is OpenStatSpec's bounded frontend, not the full language of `statscraft run`.
 
-With --sqlite DB or --postgres URL and --name DATASET the input schema comes from that \
+With --sqlite DB, --postgres URL or --mysql URL and --name DATASET the input schema comes from that \
 OpenStatSpec dataset, and --apply applies the plan to it in place, in one transaction with one \
 audit row; the output then has \"applied\":{\"apply_id\":...,\"dataset_id\":...,\"operation_count\":...}.")]
 pub struct PlanArgs {

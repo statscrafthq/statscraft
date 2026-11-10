@@ -279,9 +279,10 @@ fn sqlite_value(v: f64) -> bool {
     !v.is_nan() && !(v == 0.0 && v.is_sign_negative())
 }
 
-/// MySQL, MariaDB and Dolt DOUBLE columns hold finite values only.
+/// MySQL and MariaDB DOUBLE columns hold finite values only, and a parameter of negative
+/// zero comes back as positive zero (MySQL 8.4.9, MariaDB 11.8.9).
 fn finite(v: f64) -> bool {
-    v.is_finite()
+    v.is_finite() && !(v == 0.0 && v.is_sign_negative())
 }
 
 pub const SQLITE: Dialect = Dialect {

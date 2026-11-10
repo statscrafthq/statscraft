@@ -1,5 +1,5 @@
 //! `statscraft db`: datasets in an OpenStatSpec database (one wide table plus catalog) in
-//! SQLite or PostgreSQL.
+//! SQLite, PostgreSQL, MySQL or MariaDB.
 
 use crate::{load_session, session_file};
 use clap::{Args, Subcommand};
@@ -23,11 +23,14 @@ pub struct Target {
     /// PostgreSQL: postgres://user@host:port/database[?schema=NAME], schema default openstatspec
     #[arg(long, value_name = "URL", conflicts_with = "sqlite")]
     pub postgres: Option<String>,
+    /// MySQL or MariaDB: mysql://user@host:port/database, a database dedicated to the catalog
+    #[arg(long, value_name = "URL", conflicts_with_all = ["sqlite", "postgres"])]
+    pub mysql: Option<String>,
 }
 
 impl Target {
     pub fn given(&self) -> bool {
-        self.sqlite.is_some() || self.postgres.is_some()
+        self.sqlite.is_some() || self.postgres.is_some() || self.mysql.is_some()
     }
 
     /// Opens the database; `create` installs the catalog into an empty one. A URL without a
@@ -35,11 +38,17 @@ impl Target {
     pub fn open(&self, create: bool) -> Result<Box<dyn Db>, DbError> {
         let password = std::env::var(PASSWORD_VARIABLE).ok();
         let password = password.as_deref();
-        use statscraft_openstatspec::{postgres, sqlite};
-        Ok(match (&self.sqlite, &self.postgres) {
-            (Some(path), _) => Box::new(sqlite::open(path, create)?),
-            (_, Some(url)) => Box::new(postgres::open(url, password, create)?),
-            _ => return Err(DbError::new("usage", "give --sqlite DB or --postgres URL")),
+        use statscraft_openstatspec::{mysql, postgres, sqlite};
+        Ok(match (&self.sqlite, &self.postgres, &self.mysql) {
+            (Some(path), _, _) => Box::new(sqlite::open(path, create)?),
+            (_, Some(url), _) => Box::new(postgres::open(url, password, create)?),
+            (_, _, Some(url)) => Box::new(mysql::open(url, password, create)?),
+            _ => {
+                return Err(DbError::new(
+                    "usage",
+                    "give --sqlite DB, --postgres URL or --mysql URL",
+                ));
+            }
         })
     }
 }
@@ -48,7 +57,8 @@ impl Target {
 #[command(after_help = "\
 Prints one line of canonical JSON: {\"ok\":true,...} or {\"ok\":false,\"error\":{\"code\":...,\"message\":...}}.
 
-The database is dedicated to OpenStatSpec: a SQLite file or a PostgreSQL schema. Export \
+The database is dedicated to OpenStatSpec: a SQLite file, a PostgreSQL schema or a MySQL or \
+MariaDB database. Export \
 creates the catalog in a new or empty one and refuses one holding anything else. Each dataset is one table data_<name> with __case_ordinal and one column per \
 variable; the dictionary lives in the catalog tables. A URL without a password takes it from \
 the STATSCRAFT_DB_PASSWORD environment variable; passwords are never printed.")]

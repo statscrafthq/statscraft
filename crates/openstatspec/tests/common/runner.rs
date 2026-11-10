@@ -610,9 +610,9 @@ fn case_by_id<'m>(manifest: &'m Value, id: &str) -> &'m Value {
 
 /// Fails the first statement that starts with `prefix`: a fault injected after the earlier
 /// statements of the same transaction ran.
-struct FailAt<'a> {
-    inner: &'a mut dyn Db,
-    prefix: &'static str,
+pub struct FailAt<'a> {
+    pub inner: &'a mut dyn Db,
+    pub prefix: &'static str,
 }
 
 impl Db for FailAt<'_> {
