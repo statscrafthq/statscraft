@@ -960,3 +960,69 @@ fn means_tables() {
         ],
     );
 }
+
+#[test]
+#[ignore = "needs PSPP: set STATSCRAFT_PSPP"]
+fn t_test_tables() {
+    run_statistics(
+        "t-test",
+        &[
+            (
+                "one-sample",
+                SURVEY,
+                "T-TEST /TESTVAL=50 /VARIABLES=age monthly_spend.",
+            ),
+            (
+                "one-sample-weighted-90",
+                WEIGHTED,
+                "T-TEST /TESTVAL=150 /VARIABLES=monthly_spend age /CRITERIA=CI(.90).",
+            ),
+            (
+                "groups",
+                SURVEY,
+                "T-TEST GROUPS=gender(1,2) /VARIABLES=age monthly_spend.",
+            ),
+            (
+                "groups-weighted",
+                WEIGHTED,
+                "T-TEST GROUPS=gender(1 2) /VARIABLES=age monthly_spend q2_recommend.",
+            ),
+            (
+                "cut-point",
+                WEIGHTED,
+                "T-TEST GROUPS=age(50) /VARIABLES=monthly_spend q1_satisfaction.",
+            ),
+            (
+                "default-groups",
+                SURVEY,
+                "T-TEST GROUPS=gender /VARIABLES=q1_satisfaction q2_recommend.",
+            ),
+            (
+                "groups-listwise",
+                WEIGHTED,
+                "T-TEST GROUPS=q5_1(0,1) /VARIABLES=monthly_spend q1_satisfaction /MISSING=LISTWISE.",
+            ),
+            (
+                "include",
+                SURVEY,
+                "T-TEST /TESTVAL=3 /VARIABLES=q1_satisfaction /MISSING=INCLUDE.",
+            ),
+            ("pairs-all", SURVEY, "T-TEST PAIRS=q5_1 q5_2 q5_3."),
+            (
+                "pairs-paired-weighted",
+                WEIGHTED,
+                "T-TEST PAIRS=q1_satisfaction q5_1 WITH age q5_2 (PAIRED).",
+            ),
+            (
+                "pairs-with-listwise",
+                WEIGHTED,
+                "T-TEST PAIRS=q1_satisfaction WITH q2_recommend monthly_spend /MISSING=LISTWISE /CRITERIA=CI(.99).",
+            ),
+            (
+                "groups-other-values",
+                WEIGHTED,
+                "T-TEST GROUPS=region(1,3) /VARIABLES=age.",
+            ),
+        ],
+    );
+}

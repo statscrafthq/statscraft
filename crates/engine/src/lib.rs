@@ -15,6 +15,7 @@ mod recode;
 pub mod session;
 mod sort;
 mod transform;
+mod ttest;
 mod variables;
 
 pub use ctables::format_value;
@@ -76,7 +77,7 @@ impl Table {
     }
 }
 
-#[derive(Debug, Serialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, PartialEq)]
 #[serde(untagged)]
 pub enum Cell {
     Text(String),
@@ -326,6 +327,7 @@ impl Engine {
             Command::Descriptives(command) => return self.descriptives(command),
             Command::Crosstabs(command) => return self.crosstabs(command),
             Command::Means(command) => return self.means(command),
+            Command::TTest(command) => return self.t_test(command),
             Command::AddFiles(merge) => self.merge_files(merge, true)?,
             Command::MatchFiles(merge) => self.merge_files(merge, false)?,
         }

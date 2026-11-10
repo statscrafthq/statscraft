@@ -385,6 +385,24 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: stats::means,
     },
     CommandSpec {
+        name: "T-TEST",
+        summary: "One-sample, independent-samples and paired-samples t tests with effect sizes.",
+        syntax: "T-TEST /TESTVAL=value /VARIABLES=varlist\n\
+                 T-TEST /GROUPS=var[(value) | (value, value)] /VARIABLES=varlist\n\
+                 T-TEST /PAIRS=varlist [WITH varlist [(PAIRED)]] [/varlist ...]\n\
+                 \x20      [/CRITERIA=CI(0.95)] [/MISSING=ANALYSIS | LISTWISE [INCLUDE]]\n\
+                 \x20      [/ES DISPLAY(TRUE | FALSE) STANDARDIZER(SD | CORRECTED_SD | AVERAGE)].\n\
+                 GROUPS without values compares 1 with 2; one value splits at it (at or above against below).\n\
+                 The independent test shows Levene's test and rows for equal and unequal variances. PAIRS without\n\
+                 WITH pairs every variable with every later one; WITH pairs each left with each right one, and\n\
+                 (PAIRED) the n-th with the n-th. ANALYSIS (default) leaves out cases missing in each analysis,\n\
+                 LISTWISE those missing on any variable of the test type. Effect sizes: Cohen's d and Hedges'\n\
+                 correction (and Glass's delta for groups) with confidence intervals; they use weights rounded to\n\
+                 whole numbers. Weighted when a weight variable is set.",
+        example: "T-TEST GROUPS=gender(1,2) /VARIABLES=age income /CRITERIA=CI(.90).",
+        parse: stats::t_test,
+    },
+    CommandSpec {
         name: "ADD FILES",
         summary: "Append the cases of several data files, matching variables by name.",
         syntax: "ADD FILES /FILE=* | 'path' [/RENAME=(old = new) ...] /FILE=... [/BY varlist]\n\
@@ -512,7 +530,6 @@ static UNSUPPORTED: &[&str] = &[
     "SPLIT FILE",
     "SUBTITLE",
     "SYSFILE INFO",
-    "T-TEST",
     "TEMPORARY",
     "TITLE",
     "UNIANOVA",

@@ -1073,6 +1073,7 @@ fn help_for_one_command() {
             .unwrap()
             .contains("not supported yet")
     );
+    assert!(help(Some("t-test")).unwrap().starts_with("T-TEST: "));
     assert_eq!(help(Some("NOPE")), None);
     assert_eq!(help(Some("VALUE LABELS extra")), None);
     assert_eq!(help(Some("")), None);
@@ -1081,7 +1082,7 @@ fn help_for_one_command() {
 #[test]
 fn help_lists_every_command() {
     let overview = help(None).unwrap();
-    assert_eq!(command_names().len(), 32);
+    assert_eq!(command_names().len(), 33);
     for spec in table::COMMANDS {
         assert!(overview.contains(spec.name) && overview.contains(spec.summary));
     }

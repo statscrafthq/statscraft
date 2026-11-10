@@ -240,3 +240,46 @@ fn means() {
             .contains("NPCT(var)")
     );
 }
+
+#[test]
+fn t_test() {
+    let Command::TTest(t) = one("T-TEST /TESTVAL=322 /VARIABLES=brake /CRITERIA=CIN(.90).") else {
+        panic!()
+    };
+    assert_eq!((t.testval, t.ci), (Some(322.0), 0.9));
+    assert!(t.effect_sizes);
+    let Command::TTest(t) =
+        one("T-TEST GROUPS=insert(0 1) /MISSING=LISTWISE INCLUDE /VARIABLES=d.")
+    else {
+        panic!()
+    };
+    assert_eq!(
+        t.groups,
+        Some((
+            "insert".into(),
+            TTestGroups::Two(Value::Number(0.0), Value::Number(1.0))
+        ))
+    );
+    assert!(t.listwise && t.include);
+    let Command::TTest(t) = one("T-TEST GROUPS=age(50) /VARIABLES=d.") else {
+        panic!()
+    };
+    assert_eq!(t.groups.unwrap().1, TTestGroups::Cut(Value::Number(50.0)));
+    let Command::TTest(t) = one(
+        "T-TEST PAIRS=a b WITH c d (PAIRED) / e f /ES DISPLAY(FALSE) STANDARDIZER(CORRECTED_SD).",
+    ) else {
+        panic!()
+    };
+    assert_eq!(t.pairs.len(), 2);
+    assert!(t.pairs[0].paired && t.pairs[1].right.is_none());
+    assert!(!t.effect_sizes);
+    assert_eq!(t.standardizer, Standardizer::CorrectedSd);
+    assert!(err("T-TEST PAIRS=a b (PAIRED).").message.contains("WITH"));
+    assert!(err("T-TEST /VARIABLES=a.").message.contains("TESTVAL"));
+    assert!(err("T-TEST /TESTVAL=1.").message.contains("VARIABLES"));
+    assert!(
+        err("T-TEST /TESTVAL=1 /VARIABLES=a /CRITERIA=CI(95).")
+            .message
+            .contains("between 0 and 1")
+    );
+}

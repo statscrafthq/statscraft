@@ -54,6 +54,7 @@ pub enum Command {
     Descriptives(Descriptives),
     Crosstabs(Crosstabs),
     Means(Means),
+    TTest(TTest),
     AddFiles(Merge),
     MatchFiles(Merge),
 }
@@ -158,6 +159,57 @@ pub enum MeansCell {
     Spct,
     Harmonic,
     Geometric,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TTest {
+    /// `/VARIABLES`: the variables of the one-sample and independent-samples tests.
+    pub variables: Vec<VarItem>,
+    /// `/TESTVAL`: the one-sample test.
+    pub testval: Option<f64>,
+    /// `/GROUPS=var(...)`: the independent-samples test.
+    pub groups: Option<(String, TTestGroups)>,
+    /// `/PAIRS`: the paired-samples tests, one entry per analysis list.
+    pub pairs: Vec<TTestPairs>,
+    /// `/CRITERIA=CI(value)`, between 0 and 1.
+    pub ci: f64,
+    /// `/MISSING=LISTWISE`
+    pub listwise: bool,
+    /// `/MISSING=INCLUDE`
+    pub include: bool,
+    /// `/ES DISPLAY(TRUE)`, the default: the effect sizes table.
+    pub effect_sizes: bool,
+    pub standardizer: Standardizer,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TTestGroups {
+    /// No values: 1 and 2.
+    Default,
+    /// One value: the cases at or above it against the cases below it.
+    Cut(Value),
+    /// Two values: the cases with the first against the cases with the second.
+    Two(Value, Value),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct TTestPairs {
+    pub left: Vec<VarItem>,
+    /// The list after WITH.
+    pub right: Option<Vec<VarItem>>,
+    /// `(PAIRED)`: the n-th variable before WITH with the n-th after it.
+    pub paired: bool,
+}
+
+/// How the effect size of a paired test is standardized.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Standardizer {
+    /// The standard deviation of the differences.
+    Sd,
+    /// That standard deviation corrected for the correlation of the pair.
+    CorrectedSd,
+    /// The root of the average of the two variances.
+    Average,
 }
 
 /// ADD FILES and MATCH FILES.

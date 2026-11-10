@@ -202,3 +202,107 @@ fn means_string_dependent_and_warnings() {
         ["no analysis of variance for age by gender: it needs at least two groups"]
     );
 }
+
+#[test]
+fn t_test_one_sample_with_effect_sizes() {
+    let tables = run(&mut survey(), "T-TEST /TESTVAL=50 /VARIABLES=age.");
+    let titles: Vec<&str> = tables.iter().map(|t| t.title.as_str()).collect();
+    assert_eq!(
+        titles,
+        [
+            "One-Sample Statistics",
+            "One-Sample Test (Test Value = 50)",
+            "One-Sample Effect Sizes"
+        ]
+    );
+    let effects = &tables[2];
+    assert_eq!(text(&effects.rows[0][1]), "Cohen's d");
+    near(number(&effects.rows[0][3]), 0.043_948_504_385_819_76, 12);
+    near(number(&effects.rows[0][4]), -0.094_764_160_206_702_18, 10);
+    near(number(&effects.rows[0][5]), 0.182_550_916_936_861_32, 10);
+    let j = 0.996_225_623_024_769;
+    near(
+        number(&effects.rows[1][3]),
+        0.043_948_504_385_819_76 * j,
+        12,
+    );
+    near(
+        number(&effects.rows[1][2]),
+        number(&effects.rows[0][2]) / j,
+        10,
+    );
+    let none = run(
+        &mut survey(),
+        "T-TEST /TESTVAL=50 /VARIABLES=age /ES DISPLAY(FALSE).",
+    );
+    assert_eq!(none.len(), 2);
+}
+
+#[test]
+fn t_test_independent_samples_weighted() {
+    let tables = run(
+        &mut weighted(),
+        "T-TEST GROUPS=gender(1,2) /VARIABLES=age /CRITERIA=CI(.90).",
+    );
+    let groups = &tables[0];
+    near(number(&groups.rows[0][2]), 132.3074, 4);
+    near(number(&groups.rows[1][3]), 51.007_525_970_3, 10);
+    let test = &tables[1];
+    // Levene, t, df, significance, difference, its standard error, the 90% interval
+    let pooled = [
+        1.212_394_973_1,
+        0.216_841_675_2,
+        249.694,
+        0.829,
+        0.527_663_293_5,
+        2.433_403_510_4,
+    ];
+    for (column, expected) in [2, 4, 5, 6, 7, 8].into_iter().zip(pooled) {
+        let decimals = if column == 6 { 3 } else { 10 };
+        near(number(&test.rows[0][column]), expected, decimals);
+    }
+    near(number(&test.rows[1][5]), 247.685_020_638_3, 10);
+    assert_eq!(test.rows[1][2], Cell::Empty);
+    assert_eq!(
+        test.column_groups[9],
+        ["t-test for Equality of Means", "90% Confidence Interval"]
+    );
+}
+
+#[test]
+fn t_test_groups_by_a_cut_point_and_paired_samples() {
+    let tables = run(
+        &mut survey(),
+        "T-TEST GROUPS=age(50) /VARIABLES=monthly_spend.",
+    );
+    let groups = &tables[0];
+    assert_eq!(text(&groups.rows[0][1]), ">= 50");
+    assert_eq!(text(&groups.rows[1][1]), "< 50");
+    let total = number(&groups.rows[0][2]) + number(&groups.rows[1][2]);
+    assert_eq!(total, 181.0);
+
+    let tables = run(
+        &mut weighted(),
+        "T-TEST PAIRS=q1_satisfaction q5_1 WITH age q5_2 (PAIRED).",
+    );
+    let correlations = &tables[1];
+    assert_eq!(text(&correlations.rows[1][1]), "q5_1 & q5_2");
+    near(number(&correlations.rows[0][2]), 230.6772, 4);
+    let test = &tables[2];
+    near(number(&test.rows[0][2]), -47.192_124_319_2, 10);
+    near(number(&test.rows[0][3]), 19.517_268_718_8, 10);
+    near(number(&test.rows[1][7]), -2.719_895_423_2, 10);
+    near(number(&test.rows[1][8]), 258.9341, 4);
+    assert_eq!(tables[3].title, "Paired Samples Effect Sizes");
+}
+
+#[test]
+fn t_test_warns_about_unmatched_paired_lists() {
+    let mut engine = survey();
+    let tables = run(&mut engine, "T-TEST PAIRS=q5_1 q5_2 WITH q5_3 (PAIRED).");
+    assert_eq!(tables[1].rows.len(), 1);
+    assert_eq!(
+        engine.warnings(),
+        ["(PAIRED) has 2 variables before WITH and 1 after; the unmatched ones are left out"]
+    );
+}

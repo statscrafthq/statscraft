@@ -1,7 +1,10 @@
 //! Parsers of the procedures that compare means and correlate: MEANS, T-TEST, ONEWAY and
 //! CORRELATIONS.
 
-use crate::ast::{Command, Means, MeansCell as M, MeansMissing, VarItem};
+use crate::ast::{
+    Command, Means, MeansCell as M, MeansMissing, Standardizer, TTest, TTestGroups, TTestPairs,
+    VarItem,
+};
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
@@ -36,6 +39,26 @@ fn variables(p: &mut Parser) -> PResult<Vec<VarItem>> {
 /// True when the word after a '/' names one of `subcommands`.
 fn at_subcommand(p: &Parser, subcommands: &[&str]) -> bool {
     matches!(p.peek(), Some(TokenKind::Word(w)) if subcommands.iter().any(|s| matches_keyword(w, s)))
+}
+
+/// `(value)` or `= value` or a bare number, for CI and ALPHA settings; must lie in (0, 1).
+fn level(p: &mut Parser, what: &str) -> PResult<f64> {
+    let parenthesized = p.eat(Punct::LParen);
+    if !parenthesized {
+        p.eat(Punct::Eq);
+    }
+    let start = p.pos;
+    let Some(value) = p.number() else {
+        return Err(p.unexpected(&["a number between 0 and 1"]));
+    };
+    if !(value > 0.0 && value < 1.0) {
+        let message = format!("{what} must lie between 0 and 1, got {value}");
+        return Err(SyntaxError::new(p.span_from(start), message));
+    }
+    if parenthesized {
+        p.expect(Punct::RParen)?;
+    }
+    Ok(value)
 }
 
 const MEANS_SUBCOMMANDS: [&str; 4] = ["TABLES", "CELLS", "STATISTICS", "MISSING"];
@@ -180,4 +203,168 @@ pub(crate) fn means(p: &mut Parser) -> PResult<Command> {
     });
     command.cells = chosen;
     Ok(Command::Means(command))
+}
+
+const TTEST_SUBCOMMANDS: [&str; 7] = [
+    "TESTVAL",
+    "GROUPS",
+    "VARIABLES",
+    "PAIRS",
+    "CRITERIA",
+    "MISSING",
+    "ES",
+];
+
+/// `list [WITH list [(PAIRED)]]`
+fn pair_list(p: &mut Parser) -> PResult<TTestPairs> {
+    let left = variables(p)?;
+    let start = p.pos;
+    let mut pairs = TTestPairs {
+        left,
+        right: None,
+        paired: false,
+    };
+    if p.eat_word("WITH") {
+        pairs.right = Some(variables(p)?);
+    }
+    if p.at(Punct::LParen) {
+        p.pos += 1;
+        if !p.eat_keyword("PAIRED") {
+            return Err(p.unexpected(&["PAIRED"]));
+        }
+        p.expect(Punct::RParen)?;
+        if pairs.right.is_none() {
+            let message = "(PAIRED) needs a list after WITH to pair with";
+            return Err(SyntaxError::new(p.span_from(start), message));
+        }
+        pairs.paired = true;
+    }
+    Ok(pairs)
+}
+
+pub(crate) fn t_test(p: &mut Parser) -> PResult<Command> {
+    let mut command = TTest {
+        variables: Vec::new(),
+        testval: None,
+        groups: None,
+        pairs: Vec::new(),
+        ci: 0.95,
+        listwise: false,
+        include: false,
+        effect_sizes: true,
+        standardizer: Standardizer::Sd,
+    };
+    let start = p.pos;
+    p.eat(Punct::Slash);
+    let mut last_pairs = false;
+    loop {
+        if p.eat_keyword("TESTVAL") {
+            p.eat(Punct::Eq);
+            command.testval = Some(p.number().ok_or_else(|| p.unexpected(&["a number"]))?);
+            last_pairs = false;
+        } else if p.eat_keyword("GROUPS") {
+            p.eat(Punct::Eq);
+            let name = p.name("the grouping variable")?;
+            let mut groups = TTestGroups::Default;
+            if p.eat(Punct::LParen) {
+                let values = [p.value(), {
+                    p.eat(Punct::Comma);
+                    p.value()
+                }];
+                groups = match values {
+                    [None, _] => TTestGroups::Default,
+                    [Some(a), None] => TTestGroups::Cut(a),
+                    [Some(a), Some(b)] => TTestGroups::Two(a, b),
+                };
+                p.expect(Punct::RParen)?;
+            }
+            command.groups = Some((name, groups));
+            last_pairs = false;
+        } else if p.eat_keyword("VARIABLES") {
+            p.eat(Punct::Eq);
+            command.variables.extend(variables(p)?);
+            last_pairs = false;
+        } else if p.eat_keyword("PAIRS") {
+            p.eat(Punct::Eq);
+            command.pairs.push(pair_list(p)?);
+            last_pairs = true;
+        } else if p.eat_keyword("CRITERIA") {
+            p.eat(Punct::Eq);
+            if !(p.eat_keyword("CIN") || p.eat_word("CI")) {
+                return Err(p.unexpected(&["CI(value)"]));
+            }
+            command.ci = level(p, "the confidence level")?;
+            last_pairs = false;
+        } else if p.eat_keyword("MISSING") {
+            p.eat(Punct::Eq);
+            const CHOICES: [(&str, &[u8]); 4] = [
+                ("ANALYSIS", &[0]),
+                ("LISTWISE", &[1]),
+                ("INCLUDE", &[2]),
+                ("EXCLUDE", &[3]),
+            ];
+            for choice in keywords(p, &CHOICES, |p| p.unexpected(&names(&CHOICES)))? {
+                match choice {
+                    0 => command.listwise = false,
+                    1 => command.listwise = true,
+                    2 => command.include = true,
+                    _ => command.include = false,
+                }
+            }
+            last_pairs = false;
+        } else if p.eat_keyword("ES") {
+            while !at_end(p) {
+                if p.eat_keyword("DISPLAY") {
+                    p.expect(Punct::LParen)?;
+                    command.effect_sizes = if p.eat_keyword("TRUE") {
+                        true
+                    } else if p.eat_keyword("FALSE") {
+                        false
+                    } else {
+                        return Err(p.unexpected(&["TRUE", "FALSE"]));
+                    };
+                    p.expect(Punct::RParen)?;
+                } else if p.eat_keyword("STANDARDIZER") {
+                    p.expect(Punct::LParen)?;
+                    command.standardizer = if p.eat_keyword("SD") {
+                        Standardizer::Sd
+                    } else if p.eat_keyword("CORRECTED_SD") {
+                        Standardizer::CorrectedSd
+                    } else if p.eat_keyword("AVERAGE") {
+                        Standardizer::Average
+                    } else {
+                        return Err(p.unexpected(&["SD", "CORRECTED_SD", "AVERAGE"]));
+                    };
+                    p.expect(Punct::RParen)?;
+                } else {
+                    return Err(p.unexpected(&["DISPLAY(TRUE|FALSE)", "STANDARDIZER(...)"]));
+                }
+            }
+            last_pairs = false;
+        } else if last_pairs && !at_subcommand(p, &TTEST_SUBCOMMANDS) {
+            // another analysis list of PAIRS after a slash
+            command.pairs.push(pair_list(p)?);
+        } else {
+            return Err(p.subcommand_error("T-TEST", &[]));
+        }
+        if !p.eat(Punct::Slash) {
+            break;
+        }
+    }
+    p.finish(&["'/'"])?;
+    let one_or_two = command.testval.is_some() || command.groups.is_some();
+    let message = match (
+        one_or_two,
+        command.variables.is_empty(),
+        command.pairs.is_empty(),
+    ) {
+        (true, true, _) => Some("TESTVAL and GROUPS need /VARIABLES=varlist"),
+        (false, false, _) => Some("VARIABLES needs /TESTVAL=value or /GROUPS=var(values)"),
+        (false, true, true) => Some("T-TEST needs TESTVAL, GROUPS or PAIRS"),
+        _ => None,
+    };
+    if let Some(message) = message {
+        return Err(SyntaxError::new(p.span_from(start), message));
+    }
+    Ok(Command::TTest(command))
 }
