@@ -28,6 +28,8 @@ Scratch variables (`#name`) start at 0 or blank, keep their value from case to c
 
 DO REPEAT repeats transformations with stand-ins replaced by variables or values (END REPEAT PRINT lists the generated commands), LOOP repeats them per case with an index, IF conditions and BREAK, and VECTOR names a range of existing or new variables for indexed use such as `v(#i)`.
 
+AUTORECODE turns the values of variables into consecutive codes in new variables, labelled with the old values or their labels, in ascending or descending order, with user-missing values last and one scheme for several variables with /GROUP.
+
 ## Documentation
 
 - [Getting started](docs/getting-started.md): install, open a file, run syntax, the window in five minutes.

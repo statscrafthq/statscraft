@@ -1,6 +1,7 @@
 //! Executes parsed commands on a dataset and returns result tables.
 
 mod aggregate;
+mod autorecode;
 mod correlations;
 mod crosstabs;
 mod ctables;
@@ -588,6 +589,13 @@ impl Engine {
             Command::EndLoop(_) => return Err(Error("END LOOP without LOOP".into())),
             Command::Break => self.break_loop()?,
             Command::Vector(specs) => self.vector(specs)?,
+            Command::Autorecode(command) => {
+                self.begin_pass()?;
+                let before = self.dataset.clone();
+                let tables = self.autorecode(command);
+                self.end_pass(before.as_ref());
+                return tables;
+            }
             Command::VectorAssign {
                 condition,
                 vector,

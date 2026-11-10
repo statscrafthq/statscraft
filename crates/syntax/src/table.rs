@@ -234,6 +234,19 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: selection::sample,
     },
     CommandSpec {
+        name: "AUTORECODE",
+        summary: "Recode values into consecutive integers in new variables, labelled with the old values.",
+        syntax: "AUTORECODE [VARIABLES=] varlist /INTO newlist [/BLANK=VALID | MISSING] [/GROUP]\n\
+                 \x20          [/DESCENDING] [/PRINT].\n\
+                 Valid values get 1, 2, ... in ascending order (DESCENDING: descending), user-missing values\n\
+                 the codes after them, still user-missing; system-missing stays missing. Each code is\n\
+                 labelled with the value label or the value. GROUP uses one scheme for all variables,\n\
+                 BLANK=MISSING makes a blank string user-missing. All cases are recoded, also those a\n\
+                 filter leaves out. APPLY TEMPLATE and SAVE TEMPLATE are not supported yet.",
+        example: "AUTORECODE VARIABLES=country /INTO country_code /PRINT.",
+        parse: data_commands::autorecode,
+    },
+    CommandSpec {
         name: "COMPUTE",
         summary: "Assign the value of an expression to a variable.",
         syntax: "COMPUTE target = expression.",
@@ -694,7 +707,6 @@ static UNSUPPORTED: &[&str] = &[
     "ALTER TYPE",
     "ANOVA",
     "APPLY DICTIONARY",
-    "AUTORECODE",
     "CACHE",
     "CASESTOVARS",
     "CD",

@@ -659,7 +659,7 @@ fn do_if_errors() {
     let message = error("DO IF (age > 1).\nELSE.\nELSE IF (age > 2).");
     assert!(message.starts_with("ELSE IF after ELSE"), "{message}");
     let message = error("DO IF (age > 1).\nSELECT IF age > 2.");
-    assert!(message.contains("between DO IF and END IF"), "{message}");
+    assert!(message.contains("inside DO IF or LOOP"), "{message}");
 
     let mut engine = loaded("survey_basic.sav");
     try_run(&mut engine, "DO IF (age > 1).\nCOMPUTE x = 1.").unwrap();

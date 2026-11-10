@@ -53,6 +53,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "END LOOP",
             "BREAK",
             "VECTOR",
+            "AUTORECODE",
         ],
     ),
     (

@@ -306,7 +306,7 @@ fn number_forms() {
     assert_eq!(expr("3 --2"), "(3 - (-2))");
     let error = err("COMPUTE x = 12abc.");
     assert_eq!(error.message, "invalid number 12abc");
-    assert_eq!(at(&error), (1, 16));
+    assert_eq!(at(&error), (1, 13));
 }
 
 #[test]
@@ -1078,7 +1078,7 @@ fn help_for_one_command() {
 #[test]
 fn help_lists_every_command() {
     let overview = help(None).unwrap();
-    assert_eq!(command_names().len(), 50);
+    assert_eq!(command_names().len(), 51);
     for spec in table::COMMANDS {
         assert!(overview.contains(spec.name) && overview.contains(spec.summary));
     }

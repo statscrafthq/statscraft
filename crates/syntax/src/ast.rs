@@ -83,6 +83,7 @@ pub enum Command {
     EndLoop(Option<Expr>),
     Break,
     Vector(Vec<VectorSpec>),
+    Autorecode(Autorecode),
     /// `COMPUTE v(index) = expr`, or `IF (condition) v(index) = expr`: an element of a vector.
     VectorAssign {
         condition: Option<Expr>,
@@ -90,6 +91,20 @@ pub enum Command {
         index: Expr,
         expr: Expr,
     },
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Autorecode {
+    pub variables: Vec<VarItem>,
+    /// New names, one per variable.
+    pub into: Vec<VarItem>,
+    /// `/BLANK=MISSING`: a blank string becomes a user-missing code.
+    pub blank_missing: bool,
+    /// `/GROUP`: one scheme for all the variables.
+    pub group: bool,
+    pub descending: bool,
+    /// `/PRINT`: a table of old and new values per variable.
+    pub print: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

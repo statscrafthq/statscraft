@@ -909,3 +909,56 @@ COMPUTE tot = #s1 + #s2 + #s3.",
         ],
     );
 }
+
+// AUTORECODE: the manual gives the new variables no measurement level; ours are nominal (the
+// codes stand for categories) and PSPP's vary, so the cases set the level. PSPP also makes a
+// blank string system-missing under BLANK=MISSING, where the manual makes it a user-missing
+// code, so blanks stay valid here
+#[test]
+#[ignore = "needs PSPP: set STATSCRAFT_PSPP"]
+fn autorecode() {
+    compare_all(
+        "autorecode",
+        &[
+            (
+                "strings-and-labels",
+                SURVEY,
+                "AUTORECODE VARIABLES=plan region /INTO rplan rregion /PRINT.
+VARIABLE LEVEL rplan rregion (NOMINAL).",
+            ),
+            (
+                "user-missing",
+                SURVEY,
+                "AUTORECODE q1_satisfaction q2_recommend /INTO r1 r2.
+VARIABLE LEVEL r1 r2 (NOMINAL).",
+            ),
+            (
+                "descending",
+                SURVEY,
+                "AUTORECODE age q1_satisfaction /INTO rage rq1 /DESCENDING.
+VARIABLE LEVEL rage rq1 (NOMINAL).",
+            ),
+            (
+                "group",
+                SURVEY,
+                "AUTORECODE q5_1 TO q5_3 q2_recommend /INTO g1 TO g4 /GROUP.
+VARIABLE LEVEL g1 TO g4 (NOMINAL).",
+            ),
+            (
+                "many-values-and-system-missing",
+                SURVEY,
+                "AUTORECODE monthly_spend /INTO rspend.
+VARIABLE LEVEL rspend (NOMINAL).",
+            ),
+            (
+                "group-strings-missing-from-the-second",
+                SURVEY,
+                "STRING p2 (A10).
+COMPUTE p2 = plan.
+MISSING VALUES p2 ('basic').
+AUTORECODE plan p2 /INTO a1 a2 /GROUP /DESCENDING.
+VARIABLE LEVEL a1 a2 (NOMINAL).",
+            ),
+        ],
+    );
+}

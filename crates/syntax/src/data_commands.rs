@@ -2,8 +2,8 @@
 //! VARIABLES, WEIGHT and AGGREGATE.
 
 use crate::ast::{
-    Aggregate, AggregateFunction, Aggregation, Command, Count, MissingValue, RecodeInput, SortKey,
-    VarItem,
+    Aggregate, AggregateFunction, Aggregation, Autorecode, Command, Count, MissingValue,
+    RecodeInput, SortKey, VarItem,
 };
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
@@ -265,4 +265,45 @@ fn aggregate_body(
         breaks,
         aggregations,
     }))
+}
+
+pub(crate) fn autorecode(p: &mut Parser) -> PResult<Command> {
+    p.eat(Punct::Slash);
+    if p.eat_keyword("VARIABLES") {
+        p.eat(Punct::Eq);
+    }
+    let variables = p.var_list()?;
+    p.expect(Punct::Slash)?;
+    if !p.eat_keyword("INTO") {
+        return Err(p.unexpected(&["INTO"]));
+    }
+    p.eat(Punct::Eq);
+    let mut command = Autorecode {
+        variables,
+        into: p.var_list()?,
+        blank_missing: false,
+        group: false,
+        descending: false,
+        print: false,
+    };
+    while p.eat(Punct::Slash) {
+        if p.eat_keyword("BLANK") {
+            p.eat(Punct::Eq);
+            if p.eat_keyword("MISSING") {
+                command.blank_missing = true;
+            } else if !p.eat_keyword("VALID") {
+                return Err(p.unexpected(&["VALID", "MISSING"]));
+            }
+        } else if p.eat_keyword("GROUP") {
+            command.group = true;
+        } else if p.eat_keyword("DESCENDING") {
+            command.descending = true;
+        } else if p.eat_keyword("PRINT") {
+            command.print = true;
+        } else {
+            return Err(p.subcommand_error("AUTORECODE", &["APPLY", "SAVE"]));
+        }
+    }
+    p.finish(&["'/'"])?;
+    Ok(Command::Autorecode(command))
 }
