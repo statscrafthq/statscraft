@@ -279,6 +279,8 @@ struct GridEvents {
     resized: Option<(usize, f32, bool)>,
     /// Rows in view, for Page Up and Page Down.
     page: usize,
+    /// Where a right click landed, for the grid's menu.
+    secondary: Option<grid::Hit>,
 }
 
 /// The keys that move the selected cell of the Data View.
@@ -2650,6 +2652,18 @@ fn select(selection: &mut Option<grid::Selection>, events: &GridEvents, modifier
             .get_or_insert_with(Default::default)
             .click_column(c, shift, ctrl);
     }
+    // a right click keeps a selection of whole rows or columns that holds it, for a menu over
+    // all of them; a cell becomes the selected cell
+    match events.secondary {
+        Some(grid::Hit::Header(c)) => selection
+            .get_or_insert_with(Default::default)
+            .right_click_column(c),
+        Some(grid::Hit::Number(r)) => selection
+            .get_or_insert_with(Default::default)
+            .right_click_row(r),
+        Some(grid::Hit::Cell(r, c)) => *selection = Some(grid::Selection::cell((r, c))),
+        _ => {}
+    }
 }
 
 /// A text editor over one grid cell. Returns (commit, cancel): Enter or leaving the cell
@@ -2865,29 +2879,21 @@ fn paint_grid(
                 header_fill,
             );
 
-            if let Some(pos) = response.interact_pointer_pos() {
-                let at = pos - origin;
-                let inside =
-                    at.x > viewport.min.x + number_width && at.y > viewport.min.y + header_height;
-                let c = offsets
-                    .partition_point(|&o| o <= at.x - number_width)
-                    .saturating_sub(1);
-                let r = ((at.y - header_height) / row_height) as usize;
-                let header = at.y <= viewport.min.y + header_height;
-                let numbers = at.x <= viewport.min.x + number_width;
-                if response.clicked() && header && !numbers && c < widths.len() {
-                    events.column_clicked = Some(c);
+            let sizes = (number_width, header_height, row_height);
+            let hit = response
+                .interact_pointer_pos()
+                .and_then(|pos| grid::hit(pos - origin, viewport.min, sizes, &offsets, rows));
+            match hit {
+                Some(grid::Hit::Header(c)) if response.clicked() => events.column_clicked = Some(c),
+                Some(grid::Hit::Number(r)) if response.clicked() => events.row_clicked = Some(r),
+                Some(grid::Hit::Cell(r, c)) if response.double_clicked() => {
+                    events.double_clicked = Some((r, c))
                 }
-                if response.clicked() && numbers && !header && at.y > header_height && r < rows {
-                    events.row_clicked = Some(r);
-                }
-                if inside && r < rows && c < widths.len() {
-                    if response.double_clicked() {
-                        events.double_clicked = Some((r, c));
-                    } else if response.clicked() {
-                        events.clicked = Some((r, c));
-                    }
-                }
+                Some(grid::Hit::Cell(r, c)) if response.clicked() => events.clicked = Some((r, c)),
+                _ => {}
+            }
+            if response.secondary_clicked() {
+                events.secondary = hit;
             }
         });
     events

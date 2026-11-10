@@ -1,7 +1,7 @@
-//! Which part of a large grid is visible, so only those cells are drawn, where the keyboard
-//! moves the selected cell, what is selected, and the text a selection copies.
+//! Which part of a large grid is visible, so only those cells are drawn, where a click lands,
+//! where the keyboard moves the selected cell, what is selected, and the text a selection copies.
 
-use eframe::egui::Key;
+use eframe::egui::{Key, Pos2, Vec2};
 use std::collections::BTreeSet;
 use std::ops::Range;
 
@@ -74,6 +74,21 @@ impl Selection {
         self.cursor = (self.cursor.0, column);
     }
 
+    /// A right click on a row number: a selection that holds the row stays, for a menu over all
+    /// of it; otherwise the row is selected alone.
+    pub fn right_click_row(&mut self, row: usize) {
+        if !self.rows.contains(&row) {
+            self.click_row(row, false, false);
+        }
+    }
+
+    /// A right click on a column header, as `right_click_row` for columns.
+    pub fn right_click_column(&mut self, column: usize) {
+        if !self.columns.contains(&column) {
+            self.click_column(column, false, false);
+        }
+    }
+
     fn block(&self) -> (Range<usize>, Range<usize>) {
         let (a, c) = (self.anchor, self.cursor);
         (
@@ -113,6 +128,41 @@ impl Selection {
             r.filter(|&r| r < rows).collect(),
             c.filter(|&c| c < columns).collect(),
         )
+    }
+}
+
+/// Where a point of a grid lies: the corner over the row numbers, a column header, a row number
+/// or a cell, by index.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Hit {
+    Corner,
+    Header(usize),
+    Number(usize),
+    Cell(usize, usize),
+}
+
+/// What lies under `at`, a point measured from the grid's top left corner, when the grid is
+/// scrolled to `scroll`. The header row and the row numbers stay in view while scrolling, so
+/// they lie at the top and left of the view; `offsets` are the left edges of the columns.
+pub fn hit(
+    at: Vec2,
+    scroll: Pos2,
+    (number_width, header_height, row_height): (f32, f32, f32),
+    offsets: &[f32],
+    rows: usize,
+) -> Option<Hit> {
+    let columns = offsets.len().saturating_sub(1);
+    let header = at.y <= scroll.y + header_height;
+    let numbers = at.x <= scroll.x + number_width;
+    let c = offsets
+        .partition_point(|&o| o <= at.x - number_width)
+        .saturating_sub(1);
+    let r = ((at.y - header_height) / row_height).max(0.0) as usize;
+    match (header, numbers) {
+        (true, true) => Some(Hit::Corner),
+        (true, false) => (c < columns).then_some(Hit::Header(c)),
+        (false, true) => (r < rows).then_some(Hit::Number(r)),
+        (false, false) => (r < rows && c < columns).then_some(Hit::Cell(r, c)),
     }
 }
 
@@ -345,6 +395,52 @@ mod tests {
         // a cell click or Shift+arrow ends the whole rows or columns
         s.extend_to((1, 1));
         assert!(s.columns.is_empty());
+    }
+
+    #[test]
+    fn a_click_lands_on_the_header_a_row_number_or_a_cell() {
+        // row numbers 50 wide, header 24 high, rows 20 high, three columns of 100
+        let sizes = (50.0, 24.0, 20.0);
+        let offsets = offsets(&[100.0, 100.0, 100.0]);
+        let at = |x, y, scroll| hit(Vec2::new(x, y), scroll, sizes, &offsets, 10);
+        let top = Pos2::ZERO;
+        assert_eq!(at(10.0, 10.0, top), Some(Hit::Corner));
+        assert_eq!(at(60.0, 10.0, top), Some(Hit::Header(0)));
+        assert_eq!(at(260.0, 10.0, top), Some(Hit::Header(2)));
+        assert_eq!(at(10.0, 30.0, top), Some(Hit::Number(0)));
+        assert_eq!(at(10.0, 64.0, top), Some(Hit::Number(2)));
+        assert_eq!(at(160.0, 64.0, top), Some(Hit::Cell(2, 1)));
+        // past the last column or row there is nothing
+        assert_eq!(at(400.0, 10.0, top), None);
+        assert_eq!(at(10.0, 260.0, top), None);
+        assert_eq!(at(160.0, 260.0, top), None);
+        // scrolled down by 100 and right by 120: the header and the row numbers moved along
+        let scrolled = Pos2::new(120.0, 100.0);
+        assert_eq!(at(130.0, 110.0, scrolled), Some(Hit::Corner));
+        assert_eq!(at(180.0, 110.0, scrolled), Some(Hit::Header(1)));
+        assert_eq!(at(130.0, 130.0, scrolled), Some(Hit::Number(5)));
+        assert_eq!(at(180.0, 130.0, scrolled), Some(Hit::Cell(5, 1)));
+    }
+
+    #[test]
+    fn a_right_click_outside_the_selection_selects_that_column_alone() {
+        let mut s = Selection::cell((3, 1));
+        s.click_column(1, false, false);
+        s.click_column(3, true, false);
+        // inside: the selection stays, for a menu over all three
+        s.right_click_column(2);
+        assert_eq!(s.columns, BTreeSet::from([1, 2, 3]));
+        // outside: that column alone
+        s.right_click_column(5);
+        assert_eq!(s.columns, BTreeSet::from([5]));
+        assert_eq!(s.cursor, (3, 5));
+        // the same for row numbers, and a right click on a row ends the columns
+        s.click_row(2, false, false);
+        s.click_row(4, false, true);
+        s.right_click_row(4);
+        assert_eq!(s.rows, BTreeSet::from([2, 4]));
+        s.right_click_row(7);
+        assert!(s.rows == BTreeSet::from([7]) && s.columns.is_empty());
     }
 
     #[test]
