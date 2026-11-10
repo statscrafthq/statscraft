@@ -4,6 +4,11 @@
 ; The installer lands in target\packages\.
 ;
 ; No administrator rights: everything goes to the user's own program folder and registry.
+;
+; The updater in StatsCraft runs this installer as
+;   setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RELAUNCH=1
+; It installs over the earlier version in the same folder (the AppId below and
+; UsePreviousAppDir), rewrites the same file types, and with /RELAUNCH=1 starts the window again.
 
 #ifndef AppVersion
   #error Pass the version, for example: iscc /DAppVersion=0.1.0 packaging\windows\statscraft.iss
@@ -34,6 +39,12 @@ UninstallDisplayName=StatsCraft
 WizardStyle=modern
 Compression=lzma2
 SolidCompression=yes
+; an update goes where the earlier version is, without asking
+UsePreviousAppDir=yes
+; close a running window before its files are replaced. Restart Manager restarts only programs
+; that registered with it, which the window does not, so [Run] starts it again on /RELAUNCH=1.
+CloseApplications=yes
+RestartApplications=no
 
 [Files]
 Source: "target\release\statscraft.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -72,8 +83,16 @@ Root: HKA; Subkey: "Software\Classes\.sps"; ValueType: string; ValueName: ""; Va
 
 [Run]
 Filename: "{app}\statscraft-gui.exe"; Description: "Start StatsCraft"; Flags: nowait postinstall skipifsilent
+; after an update from the window, which passes /RELAUNCH=1
+Filename: "{app}\statscraft-gui.exe"; Flags: nowait; Check: Relaunch
 
 [Code]
+// True when the updater asked for the window to be started again.
+function Relaunch: Boolean;
+begin
+  Result := ExpandConstant('{param:RELAUNCH|0}') = '1';
+end;
+
 // Position of Dir in the user's Path, 0 when it is not there.
 function PathPos(Paths, Dir: String): Integer;
 begin

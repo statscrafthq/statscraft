@@ -23,11 +23,24 @@ A dialog shows the syntax it builds: OK runs it, Paste puts it in the syntax edi
 
 Syntax is the only command layer: every change and every result in the window comes from syntax run by the engine, exactly as `statscraft run` runs it. Opening a file runs `GET FILE`, editing a cell runs `IF ($CASENUM = n) var = value.`, editing a label runs `VARIABLE LABELS`, and so on. The log under the tabs lists every command with what it changed, and Copy syntax there gives a script that repeats the session.
 
-The window remembers its size and position, the folder of the last file dialog and the ten files opened or saved last (File, Recent files) in `statscraft/window.txt` in the user's config folder: `%APPDATA%` on Windows, `$XDG_CONFIG_HOME` or `~/.config` elsewhere.
+The window remembers its size and position, the folder of the last file dialog and the ten files opened or saved last (File, Recent files) and the update check setting in `statscraft/window.txt` in the user's config folder: `%APPDATA%` on Windows, `$XDG_CONFIG_HOME` or `~/.config` elsewhere.
 
 Edit, Undo last change (Ctrl+Z outside a text field) puts back the dataset from before the last run that changed it, one step; the log marks that run as undone and Copy syntax leaves it out. Long lines in the syntax editor wrap at the window edge; View turns that off.
 
 Opening a file and every run happen off the drawing thread: the status bar shows what is running and the window stays responsive. One run goes at a time; requests from the command line wait their turn.
+
+## Updates
+
+The window asks GitHub at most once a day, in the background and never holding up the start, whether a newer release is published. The first start does not check yet; it says that checks exist and how to turn them off. Help, Check for updates automatically turns them on and off (the line `updates on` or `updates off` in `window.txt`), and Help, Check for updates checks at once and also says when there is nothing new.
+
+When a newer release is out, a small bar under the menu says so, with a link to the release notes, **Update now** and **Later**. Later hides the bar until the next check. Update now downloads the package for this installation, checks it against the release's `SHA256SUMS` and then:
+
+- installed with the Windows installer: closes the window, runs the new installer silently for the same per-user installation (same folder, file types and Start menu entry) and the installer opens the window again. Save your work first.
+- installed from the tarball: replaces `statscraft` and `statscraft-gui` in its `bin` folder (each written next to the old one, then renamed over it) and offers **Restart now**.
+- installed from the .deb: saves the package in `~/Downloads` and shows the one command that installs it, `sudo apt install ~/Downloads/statscraft_X_amd64.deb`, with a button that copies it. The window never runs sudo.
+- built from source or copied elsewhere: there is no Update now; the bar says to install the new version the way this copy was installed.
+
+The check is one request to the GitHub API with the User-Agent `statscraft/VERSION`; nothing about you or your data is sent. `statscraft update` does the same from the command line.
 
 ## Driving the window from the command line or an AI agent
 

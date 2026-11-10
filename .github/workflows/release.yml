@@ -2,7 +2,9 @@ name: Release build
 
 # Manual only: Actions > Release build > Run workflow. Windows gives a per-user installer, Linux a
 # .deb and a .tar.gz, each uploaded as its own artifact. With "draft release" ticked, a draft GitHub
-# Release with the same files is created too; publishing it stays a manual step.
+# Release vX.Y.Z (the version in the workspace Cargo.toml) is created with the same files and a
+# SHA256SUMS of them, which the updater checks every download against. Publishing it stays a
+# manual step: the updaters only see published releases.
 on:
   workflow_dispatch:
     inputs:
@@ -61,4 +63,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
-          gh release create "v$version" packages/* --draft --target "$GITHUB_SHA" --title "StatsCraft $version" --notes "Draft built by the Release build workflow."
+          (cd packages && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
+          gh release create "v$version" packages/* --draft --target "$GITHUB_SHA" --title "StatsCraft $version" --generate-notes

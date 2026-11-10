@@ -60,6 +60,16 @@ rm -r share/doc/statscraft
 update-mime-database ~/.local/share/mime
 ```
 
+### Updating
+
+When a new version is published, the window says so in a bar under the menu: **Update now** installs it, Later hides the bar. From the command line, `statscraft update --check` tells whether there is one and `statscraft update` installs it. How it works for each kind of installation:
+
+- Windows: the new installer is downloaded, checked and run silently; the window closes and opens again in the new version. Save your work first.
+- Tarball under `~/.local`: the two programs in `~/.local/bin` are replaced; restart the window to use the new one.
+- Debian and Ubuntu: the new .deb is downloaded and checked into `~/Downloads`, and you install it with the command shown, `sudo apt install ~/Downloads/statscraft_X_amd64.deb`.
+
+Every download is checked against the checksums published with the release before it is used. The window checks at most once a day, sending only one request to GitHub and nothing about you or your data; the first start says so, and Help, Check for updates automatically turns it off. See [the window](window.md#updates) and [the command line](command-line.md#update).
+
 ### Build from source
 
 You need Rust 1.95 or newer (`rustc --version` shows yours; `rustup update stable` gets a newer one).

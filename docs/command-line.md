@@ -7,6 +7,7 @@ statscraft check      validate syntax without saving or writing anything
 statscraft help       syntax of a command, or the list of commands
 statscraft plan       lower syntax to an OpenStatSpec transformation plan
 statscraft db         store datasets in an OpenStatSpec SQLite database and read them back
+statscraft update     check for a newer release, or update this installation to it
 ```
 
 `statscraft --version` prints the version, and `statscraft <subcommand> --help` lists the flags of a subcommand. The examples run from the root of the repository and use the synthetic files in `tests/fixtures/`; `job.sps` is the file from [Getting started](getting-started.md#run-a-syntax-file).
@@ -293,6 +294,36 @@ warning: line 1: DESCRIPTIVES: no statistics for string variables: plan
 | 0 | success, including runs with warnings |
 | 1 | the syntax, the run, a file or a session failed; also `plan` and `db` when they print `"ok":false` |
 | 2 | the command line itself is wrong: an unknown flag, a missing value, flags that conflict |
+| 10 | `update --check`: a newer release is published |
+
+## update
+
+```
+statscraft update --check          current and latest version; exit code 10 when an update exists
+statscraft update --check --json   the same as JSON
+statscraft update                  update this installation to the latest release
+```
+
+The latest release is the newest published release on the GitHub repository; drafts and prereleases do not count. `update --check` prints the running and the latest version and exits with 0 when this copy is up to date (also when no release is published yet) and with 10 when a newer one exists, so a script can ask `statscraft update --check || ...`. With `--json` it prints one line:
+
+```
+{"current":"0.1.0","latest":"0.2.0","update":true,"notes":"https://github.com/statscrafthq/statscraft/releases/tag/v0.2.0"}
+```
+
+`latest` is null when no release is published yet, and `notes` is the release page when there is an update.
+
+`update` does what the window's Update now does, for the way this copy was installed:
+
+| Installed with | What `update` does |
+|---|---|
+| the Windows installer | downloads the new installer and starts it silently for the same per-user installation; it closes an open window first |
+| the tarball, under a prefix such as `~/.local` | downloads the tarball and replaces `statscraft` and `statscraft-gui` in its `bin` folder |
+| the .deb | downloads the package into `~/Downloads` and prints the one command that installs it, `sudo apt install ~/Downloads/statscraft_X_amd64.deb`; it never runs sudo itself |
+| anything else (a build from source, a copy elsewhere) | refuses with exit code 1 and says to update it the way it was installed |
+
+Every download is checked against the `SHA256SUMS` file of the release before anything is run or replaced; on a mismatch nothing changes and the file is deleted. The installer and the tarball go to a temporary folder that is removed after use. Errors print as for the other subcommands, exit code 1.
+
+The only requests go to GitHub over HTTPS: one to the API for the latest release and, on update, the download of `SHA256SUMS` and of the one package. They carry the User-Agent `statscraft/VERSION` and nothing else about you; there is no account, token or telemetry.
 
 ## Excel export
 

@@ -44,6 +44,15 @@ AUTORECODE turns the values of variables into consecutive codes in new variables
 
 The manual workflow **Release build** (Actions, Release build, Run workflow, or `gh workflow run release.yml`) gives a per-user Windows installer, a .deb for Debian and Ubuntu, and a .tar.gz for other Linux, each with `statscraft` and `statscraft-gui`; ticking **draft release** also attaches them to a draft GitHub Release. [Getting started](docs/getting-started.md#install) explains how to install and uninstall them. The packaging scripts are in `packaging/`, the icon in `crates/gui/icons/`. To build from source you need Rust 1.95 or newer: `cargo build --release -p statscraft -p statscraft-gui`.
 
+## Releasing a version
+
+1. Set the new version in `[workspace.package]` of the root `Cargo.toml` (for example `version = "0.2.0"`), run `cargo build` so `Cargo.lock` follows, and commit and push to `main`.
+2. Run the **Release build** workflow on `main` with **draft release** ticked (`gh workflow run release.yml -f draft_release=true`). It builds the three packages and creates a draft release `v0.2.0` with them, a `SHA256SUMS` file and notes generated from the commits.
+3. Review the draft on the Releases page: edit the notes, and try the packages if you like.
+4. Publish it. Only then do the windows and `statscraft update` see it; the workflow never publishes by itself.
+
+The updaters compare the release tag `vX.Y.Z` with their own version, so every release needs a higher version in `Cargo.toml`.
+
 ## Development
 
 ```
