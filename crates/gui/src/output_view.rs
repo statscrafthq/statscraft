@@ -24,6 +24,8 @@ const TITLE_SIZE: f32 = 15.0;
 const HEADING: f32 = 30.0;
 /// Space below a table.
 const GAP: f32 = 22.0;
+/// Space around the output, so a table's border stands off the edge.
+const MARGIN: f32 = 14.0;
 
 /// What the Output tab asks of the window.
 pub enum Request {
@@ -197,10 +199,14 @@ impl OutputView {
     }
 
     /// Selects the tables, or with Ctrl adds them to the selection (or takes them out when all
-    /// are in it already).
+    /// are in it already). A click on the selection as it is takes it away.
     fn pick(&mut self, ids: &[u64], ctrl: bool) {
         self.syntax_of = ids.first().copied();
-        if !ctrl {
+        let same =
+            self.selected.len() == ids.len() && ids.iter().all(|id| self.selected.contains(id));
+        if !ctrl && same {
+            self.selected.clear();
+        } else if !ctrl {
             self.selected.clear();
             self.selected.extend(ids);
         } else if ids.iter().all(|id| self.selected.contains(id)) {
@@ -225,13 +231,17 @@ impl OutputView {
         let some = !self.selected.is_empty();
         // keys when no text field has them: Ctrl+C copies, Delete deletes, Ctrl+A selects all
         if !ui.ctx().text_edit_focused() {
-            let (copy, delete, all) = ui.input_mut(|i| {
+            let (copy, delete, all, escape) = ui.input_mut(|i| {
                 (
                     i.events.iter().any(|e| matches!(e, egui::Event::Copy)),
                     i.consume_key(egui::Modifiers::NONE, Key::Delete),
                     i.consume_key(egui::Modifiers::COMMAND, Key::A),
+                    i.key_pressed(Key::Escape),
                 )
             });
+            if escape {
+                self.selected.clear();
+            }
             if copy && some {
                 request = Some(Request::Status(self.copy(ui, true)));
             }
@@ -453,13 +463,22 @@ impl OutputView {
         let mut clicked = None;
         let mut secondary = None;
         let mut menu = None;
+        let mut deselect = false;
         let layouts = &self.layouts;
         let selected = &self.selected;
         let scroll_to = &mut self.scroll_to;
         ScrollArea::both()
             .auto_shrink(false)
             .show_viewport(ui, |ui, viewport| {
-                let (area, _) = ui.allocate_exact_size(vec2(width, bottom), Sense::hover());
+                // a margin keeps the tables off the edge; a click beside them takes the selection away
+                let (outer, background) = ui.allocate_exact_size(
+                    vec2(width + 2.0 * MARGIN, bottom + 2.0 * MARGIN),
+                    Sense::click(),
+                );
+                if background.clicked() {
+                    deselect = true;
+                }
+                let area = outer.shrink(MARGIN);
                 let first = blocks
                     .partition_point(|(top, ..)| *top <= viewport.min.y)
                     .saturating_sub(1);
@@ -531,6 +550,8 @@ impl OutputView {
         }
         if let Some(id) = clicked {
             self.pick(&[id], ctrl);
+        } else if deselect {
+            self.selected.clear();
         }
         match menu {
             Some(Menu::Copy) => Some(Request::Status(self.copy(ui, true))),
@@ -811,5 +832,29 @@ fn paint_block(ui: &Ui, table: &Table, layout: &Layout, rect: Rect, font: &FontI
             visuals.weak_text_color(),
             wide,
         );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_click_on_the_selection_as_it_is_takes_it_away() {
+        let mut view = OutputView::default();
+        view.pick(&[1], false);
+        assert_eq!(view.selected, HashSet::from([1]));
+        view.pick(&[2], true);
+        assert_eq!(view.selected, HashSet::from([1, 2]));
+        // a plain click on one of several selects that one alone
+        view.pick(&[2], false);
+        assert_eq!(view.selected, HashSet::from([2]));
+        // and a second plain click takes it away
+        view.pick(&[2], false);
+        assert!(view.selected.is_empty());
+        // a command's tables picked twice in the navigator likewise
+        view.pick(&[3, 4], false);
+        view.pick(&[3, 4], false);
+        assert!(view.selected.is_empty());
     }
 }
