@@ -43,6 +43,7 @@ mod tests_data;
 mod tests_data_list;
 #[cfg(test)]
 mod tests_loops;
+mod tests_preprocess;
 #[cfg(test)]
 mod tests_procedures;
 

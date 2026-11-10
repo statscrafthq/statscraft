@@ -130,7 +130,7 @@ impl<'a> Lexer<'a> {
         let Some(c) = self.peek_char() else {
             return Ok(None);
         };
-        let start = self.col;
+        let (start, line) = (self.col, self.line);
         let next = self.chars.get(start + 1).copied();
         let kind = if c == '\'' || c == '"' {
             self.string(c)?
@@ -141,10 +141,12 @@ impl<'a> Lexer<'a> {
         } else {
             self.punct(c, next)?
         };
-        Ok(Some(Token {
-            kind,
-            span: self.span(start),
-        }))
+        // a string may end on a later line than it starts
+        let span = Span {
+            line,
+            ..self.span(start)
+        };
+        Ok(Some(Token { kind, span }))
     }
 
     fn span(&self, start: usize) -> Span {
@@ -160,19 +162,29 @@ impl<'a> Lexer<'a> {
         self.chars[start..self.col].iter().collect()
     }
 
+    /// A string runs on over line breaks until its closing quote; each break becomes `\n`.
     fn string(&mut self, quote: char) -> Result<TokenKind, SyntaxError> {
-        let start = self.col;
+        let (start, line) = (self.col, self.line);
         let mut text = String::new();
         self.col += 1;
         loop {
             match self.chars.get(self.col) {
                 None => {
-                    return Err(
-                        SyntaxError::new(self.span(start), "unterminated string").hint(
-                            "a string must close on the line where it starts; \
+                    if let Some(&(next, chars)) = self.lines.next() {
+                        (self.line, self.chars, self.col) = (next, chars.chars().collect(), 0);
+                        text.push('\n');
+                        continue;
+                    }
+                    let span = Span {
+                        line,
+                        column: start as u32 + 1,
+                        end_line: line,
+                        end_column: start as u32 + 2,
+                    };
+                    return Err(SyntaxError::new(span, "unterminated string").hint(
+                        "the string runs to the end of the command without its closing quote; \
                          write a quote inside a string by doubling it",
-                        ),
-                    );
+                    ));
                 }
                 Some(&c) if c == quote => {
                     self.col += 1;

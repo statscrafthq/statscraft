@@ -1010,7 +1010,8 @@ General rules:
   A command ends with a period at the end of a line, at a blank line, or at the end of input.
   Command names and keywords are case-insensitive and may be shortened to three or more letters.
   varlist: variable names, a range written as first TO last, or ALL.
-  Strings use single or double quotes; double the quote character to include it.
+  Strings use single or double quotes; double the quote character to include it. A string may
+  run on over line breaks, which it keeps; 'a' + 'b' joins two strings into one.
   Comments: a command starting with * or COMMENT, or /* text */ inside a line.
   Expressions: + - * / **, = <> < > <= >= (or EQ NE LT GT LE GE), AND OR NOT (or & | ~),
   functions such as MEAN(a, b) or SUM(q1 TO q5); LAG(var [, n]) is the value n cases back.

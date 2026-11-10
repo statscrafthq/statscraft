@@ -422,9 +422,10 @@ fn error_display_format() {
 
 #[test]
 fn error_positions_of_typical_mistakes() {
+    // an open string runs on over the next lines, so the error points at where it opens
     let source = "GET FILE='a.sav'.\nVARIABLE LABELS age 'Age in years.\nEXECUTE.";
     let (parsed, errors) = parse(source);
-    assert_eq!(parsed.len(), 2);
+    assert_eq!(parsed.len(), 1);
     assert_eq!(errors[0].message, "unterminated string");
     assert_eq!(
         errors[0].span,
@@ -432,7 +433,7 @@ fn error_positions_of_typical_mistakes() {
             line: 2,
             column: 21,
             end_line: 2,
-            end_column: 34
+            end_column: 22
         }
     );
 
