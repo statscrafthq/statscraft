@@ -177,3 +177,53 @@ fn a_request_without_the_token_is_refused() {
         "session gui has no dataset yet"
     );
 }
+
+/// The parts of a workbook, without docProps/core.xml, which holds the time it was written.
+fn workbook_parts(path: &Path) -> Vec<(String, String)> {
+    use std::io::Read;
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(path).unwrap()).unwrap();
+    let mut parts = Vec::new();
+    for i in 0..zip.len() {
+        let mut file = zip.by_index(i).unwrap();
+        let mut text = String::new();
+        file.read_to_string(&mut text).unwrap();
+        let name = file.name().unwrap().to_string();
+        if name != "docProps/core.xml" {
+            parts.push((name, text));
+        }
+    }
+    parts
+}
+
+#[test]
+fn the_window_run_writes_the_same_workbook() {
+    let dir = Workdir::new("xlsx");
+    let _server = start_window(&dir.endpoint());
+    let fixture = format!(
+        "{}/../../tests/fixtures/survey_basic.sav",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    std::fs::copy(fixture, dir.0.join("survey.sav")).unwrap();
+    for session in ["t1", "gui"] {
+        let out = dir.cli(&["run", "-s", session, "-e", "GET FILE='survey.sav'."]);
+        assert!(out.status.success());
+    }
+    let syntax = "FREQUENCIES gender.\nCTABLES /TABLE region BY gender.";
+    for json in [false, true] {
+        let with = |session: &str| {
+            let file = format!("{session}.xlsx");
+            let mut args = vec!["run", "-s", session, "--xlsx", &file];
+            if json {
+                args.push("--json");
+            }
+            args.extend(["-e", syntax]);
+            let (ok, out, err) = text(&dir.cli(&args));
+            let out = out.replace("\"session\": \"gui\"", "\"session\": \"t1\"");
+            (ok, out, err, workbook_parts(&dir.0.join(&file)))
+        };
+        let file = with("t1");
+        let window = with("gui");
+        assert!(file.0, "{}", file.2);
+        assert_eq!(window, file, "json {json}");
+    }
+}

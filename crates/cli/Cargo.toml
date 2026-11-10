@@ -10,8 +10,13 @@ repository.workspace = true
 [dependencies]
 statscraft-data = { path = "../data" }
 statscraft-engine = { path = "../engine" }
+statscraft-export = { path = "../export" }
 statscraft-syntax = { path = "../syntax" }
 statscraft-openstatspec = { path = "../openstatspec" }
 serde_json = "1"
 clap = { version = "4.6.7", features = ["derive"] }
 serde = { version = "1.0.229", features = ["derive"] }
+
+[dev-dependencies]
+# reads the written workbooks back in the tests (already a dependency of rust_xlsxwriter)
+zip = { version = "9.5.0", default-features = false, features = ["deflate"] }

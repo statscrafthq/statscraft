@@ -14,12 +14,15 @@ statscraft run job.sps                          run a syntax file
 statscraft run -s work job.sps                  run it in a session: the dataset is kept between runs
 statscraft run -s work --lines 40-55 job.sps    run only the commands on those lines
 statscraft run -s work -e "FREQUENCIES age."    run syntax given on the command line
+statscraft run job.sps --xlsx tables.xlsx       also write every table to an Excel workbook
 statscraft check -s work job.sps                validate against the session without saving anything
 statscraft describe -s work --json              dictionary and counts of the session's dataset
 statscraft help FREQUENCIES                     syntax of one command; without a name, the list
 ```
 
 Add `--json` to `run` and `check` for structured output: result tables, a summary of what changed in the dataset, and errors with line and column.
+
+`--xlsx FILE` writes every table of the run to an Excel workbook as well, with or without `--session` and also with `-s gui`: one worksheet per table, named after its title, or with `--xlsx-one-sheet` all tables on one sheet, one below the other. Each table has its title in bold, the column headers with merged cells for every level, the row labels, thin borders and its caption below; on a sheet of its own the header and row labels stay in view while scrolling. Numbers stay numbers with a number format that shows them as the output does: a percentage cell keeps 45.2 and shows 45.2%, COMMA and DOLLAR show thousands separators. Text such as significance letters and hidden small counts (`<5`) stays text. A workbook that cannot be written fails the run, and a file session is then not saved.
 
 A run is all or nothing: if one command fails, nothing is saved, so the same lines can be run again after the fix. A line range must cover whole commands.
 
@@ -75,6 +78,8 @@ cargo run -p statscraft-gui -- survey.sav job.sps     open a data file and a syn
 - **Variables**: one row per variable with name, type, format, width, decimals, label, value labels, missing values and measure. Double-click to change a field.
 - **Syntax**: an editor with line numbers. Run all, or Run selection (Ctrl+Enter) for the commands on the selected lines. Errors show at their line and column, and the help panel (F1) follows the command under the cursor.
 - **Output**: every result table with its multi-level header, an outline, Copy (tab-separated, for a spreadsheet) and Export as HTML.
+
+File, Export output as HTML saves the whole output as one web page; File, Export output as Excel saves it as a workbook, with One sheet per table or All tables on one sheet, laid out as `--xlsx` does.
 
 The menus have dialogs that build syntax:
 

@@ -345,3 +345,98 @@ SELECT IF q1_satisfaction > 3.";
     let description = dir.json(&["describe", "-s", "t1", "--json"]);
     assert_eq!(description["variable_count"], 23);
 }
+
+/// The parts of a workbook, without docProps/core.xml, which holds the time it was written.
+fn workbook_parts(path: &std::path::Path) -> Vec<(String, String)> {
+    use std::io::Read;
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(path).unwrap()).unwrap();
+    let mut parts = Vec::new();
+    for i in 0..zip.len() {
+        let mut file = zip.by_index(i).unwrap();
+        let mut text = String::new();
+        file.read_to_string(&mut text).unwrap();
+        let name = file.name().unwrap().to_string();
+        if name != "docProps/core.xml" {
+            parts.push((name, text));
+        }
+    }
+    parts
+}
+
+fn sheet_names(path: &std::path::Path) -> Vec<String> {
+    let parts = workbook_parts(path);
+    let (_, workbook) = parts.iter().find(|(n, _)| n == "xl/workbook.xml").unwrap();
+    workbook
+        .split("<sheet name=\"")
+        .skip(1)
+        .map(|s| s[..s.find('"').unwrap()].to_string())
+        .collect()
+}
+
+#[test]
+fn run_writes_every_table_to_a_workbook() {
+    let dir = Workdir::new("xlsx");
+    let syntax = format!(
+        "{}\nFREQUENCIES gender.\nCROSSTABS /TABLES=gender BY region /STATISTICS=CHISQ.",
+        get_fixture("survey_basic.sav")
+    );
+    let plain = dir.ok(&["run", "-e", &syntax]);
+    // the normal output stays the same
+    assert_eq!(dir.ok(&["run", "--xlsx", "out.xlsx", "-e", &syntax]), plain);
+    assert_eq!(
+        sheet_names(&dir.0.join("out.xlsx")),
+        [
+            "gender Gender",
+            "gender by region",
+            "Chi-Square Tests gender by regi"
+        ]
+    );
+    dir.ok(&[
+        "run",
+        "--xlsx",
+        "one.xlsx",
+        "--xlsx-one-sheet",
+        "-e",
+        &syntax,
+    ]);
+    assert_eq!(sheet_names(&dir.0.join("one.xlsx")), ["Tables"]);
+    let out = dir.run(&["run", "--xlsx-one-sheet", "-e", &syntax]);
+    assert!(!out.status.success(), "--xlsx-one-sheet needs --xlsx");
+
+    // in a session, the tables of this run only, with --json as well
+    dir.ok(&["run", "-s", "t1", "-e", &get_fixture("survey_basic.sav")]);
+    let report = dir.json(&[
+        "run",
+        "-s",
+        "t1",
+        "--json",
+        "--xlsx",
+        "session.xlsx",
+        "-e",
+        "FREQUENCIES gender.",
+    ]);
+    assert_eq!(report["ok"], true);
+    assert_eq!(sheet_names(&dir.0.join("session.xlsx")), ["gender Gender"]);
+    let first_sheet = |file: &str| {
+        workbook_parts(&dir.0.join(file))
+            .into_iter()
+            .find(|(n, _)| n == "xl/worksheets/sheet1.xml")
+            .unwrap()
+            .1
+    };
+    assert_eq!(first_sheet("session.xlsx"), first_sheet("out.xlsx"));
+
+    // a workbook that cannot be written fails the run before the session is saved
+    let out = dir.run(&[
+        "run",
+        "-s",
+        "t2",
+        "--xlsx",
+        "no/such/folder/out.xlsx",
+        "-e",
+        &get_fixture("survey_basic.sav"),
+    ]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("no/such/folder/out.xlsx"));
+    assert!(!dir.0.join(".statscraft/sessions/t2").exists());
+}

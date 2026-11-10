@@ -1,7 +1,7 @@
 use clap::{Args, Parser, Subcommand};
 use statscraft_data::Dataset;
 use statscraft_engine::live::{self, Action, Request};
-use statscraft_engine::session::{Failure, Session, describe_output};
+use statscraft_engine::session::{Failure, RunResult, Session, describe_output};
 use std::io::Read;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -34,7 +34,12 @@ enum Cmd {
         json: bool,
     },
     /// Run syntax. With --session the dataset is kept between runs
-    Run(RunArgs),
+    Run {
+        #[command(flatten)]
+        args: RunArgs,
+        #[command(flatten)]
+        xlsx: XlsxArgs,
+    },
     /// Validate syntax against the session's dataset without saving or writing anything
     Check(RunArgs),
     /// Show the syntax of a command, or list all commands
@@ -63,6 +68,16 @@ struct RunArgs {
     json: bool,
 }
 
+#[derive(Args, Default)]
+struct XlsxArgs {
+    /// Also write every table of the run to this Excel workbook, one sheet per table
+    #[arg(long, value_name = "FILE")]
+    xlsx: Option<PathBuf>,
+    /// With --xlsx, put all tables on one sheet, one below the other
+    #[arg(long, requires = "xlsx")]
+    xlsx_one_sheet: bool,
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let (json, outcome) = match cli.command {
@@ -71,8 +86,8 @@ fn main() -> ExitCode {
             session,
             json,
         } => (json, describe(file, session, json)),
-        Cmd::Run(args) => (args.json, run(args, false)),
-        Cmd::Check(args) => (args.json, run(args, true)),
+        Cmd::Run { args, xlsx } => (args.json, run(args, false, &xlsx)),
+        Cmd::Check(args) => (args.json, run(args, true, &XlsxArgs::default())),
         Cmd::Help { command } => (false, help(&command.join(" "))),
         Cmd::Plan(args) => return plan::run(args),
         Cmd::Db(args) => return db::run(args),
@@ -206,11 +221,11 @@ fn parse_lines(spec: &str) -> Result<(u32, u32), Vec<Failure>> {
     }
 }
 
-fn run(args: RunArgs, check_only: bool) -> Result<(), Vec<Failure>> {
+fn run(args: RunArgs, check_only: bool, xlsx: &XlsxArgs) -> Result<(), Vec<Failure>> {
     let source = read_source(&args)?;
     let lines = args.lines.as_deref().map(parse_lines).transpose()?;
     if args.session.as_deref() == Some(live::SESSION) {
-        return remote(Request {
+        let request = Request {
             token: String::new(),
             action: if check_only {
                 Action::Check
@@ -219,9 +234,23 @@ fn run(args: RunArgs, check_only: bool) -> Result<(), Vec<Failure>> {
             },
             source,
             lines,
-            json: args.json,
+            // the tables for the workbook come back in the JSON form
+            json: args.json || xlsx.xlsx.is_some(),
             cwd: std::env::current_dir().ok(),
-        });
+        };
+        if xlsx.xlsx.is_none() {
+            return remote(request);
+        }
+        let reply = live::send(&live::endpoint_file(), request)?;
+        let result: RunResult = serde_json::from_str(&reply).map_err(|e| {
+            vec![Failure::plain(
+                "session",
+                format!("reply of the window: {e}"),
+            )]
+        })?;
+        write_workbook(&result, xlsx)?;
+        print!("{}", result.output(args.json, check_only));
+        return Ok(());
     }
     let loaded = match &args.session {
         Some(name) => load_session(name)?,
@@ -238,6 +267,8 @@ fn run(args: RunArgs, check_only: bool) -> Result<(), Vec<Failure>> {
     result.session = args.session.clone();
     // a run is all or nothing: a failure above returned before anything was saved
     let changed = std::mem::take(&mut result.saved);
+    // before the session is saved, so a workbook that cannot be written leaves the session as it was
+    write_workbook(&result, xlsx)?;
     if let (false, Some(name), Some(dataset)) = (check_only, &args.session, session.dataset()) {
         let path = session_file(name)?;
         if changed || !path.exists() {
@@ -250,4 +281,14 @@ fn run(args: RunArgs, check_only: bool) -> Result<(), Vec<Failure>> {
     }
     print!("{}", result.output(args.json, check_only));
     Ok(())
+}
+
+/// Writes every table of the run to the workbook `--xlsx` names, if any.
+fn write_workbook(result: &RunResult, xlsx: &XlsxArgs) -> Result<(), Vec<Failure>> {
+    let Some(path) = &xlsx.xlsx else {
+        return Ok(());
+    };
+    let tables = result.commands.iter().flat_map(|c| &c.tables);
+    statscraft_export::write_xlsx(path, tables, xlsx.xlsx_one_sheet)
+        .map_err(|e| vec![Failure::plain("file", format!("{}: {e}", path.display()))])
 }

@@ -10,6 +10,7 @@ repository.workspace = true
 [dependencies]
 statscraft-data = { path = "../data" }
 statscraft-engine = { path = "../engine" }
+statscraft-export = { path = "../export" }
 statscraft-syntax = { path = "../syntax" }
 # glow instead of the default wgpu keeps the build small. No default_fonts: the bundled fonts are
 # not under MIT or Apache, so fonts.rs loads system fonts at startup.

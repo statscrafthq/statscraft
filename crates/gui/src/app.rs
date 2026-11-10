@@ -608,6 +608,16 @@ impl App {
                 {
                     self.export_html();
                 }
+                ui.add_enabled_ui(!self.output.is_empty(), |ui| {
+                    ui.menu_button("Export output as Excel", |ui| {
+                        if ui.button("One sheet per table...").clicked() {
+                            self.export_xlsx(false);
+                        }
+                        if ui.button("All tables on one sheet...").clicked() {
+                            self.export_xlsx(true);
+                        }
+                    });
+                });
             });
             ui.menu_button("Edit", |ui| {
                 let undo = self.busy.is_none() && self.session.undoable().is_some();
@@ -767,6 +777,19 @@ impl App {
             .save_file()
         {
             self.status = match std::fs::write(&path, output::html(&self.output)) {
+                Ok(()) => Ok(format!("output exported to {}", path.display())),
+                Err(e) => Err(format!("{}: {e}", path.display())),
+            };
+        }
+    }
+
+    fn export_xlsx(&mut self, one_sheet: bool) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("Excel workbook", &["xlsx"])
+            .save_file()
+        {
+            let tables = self.output.iter().flat_map(|item| &item.tables);
+            self.status = match statscraft_export::write_xlsx(&path, tables, one_sheet) {
                 Ok(()) => Ok(format!("output exported to {}", path.display())),
                 Err(e) => Err(format!("{}: {e}", path.display())),
             };
