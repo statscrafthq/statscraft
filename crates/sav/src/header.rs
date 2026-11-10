@@ -10,7 +10,7 @@ use crate::io_utils::{self, SavReader};
 pub struct FileHeader {
     /// Magic string: "$FL2" (standard) or "$FL3".
     pub magic: [u8; 4],
-    /// SAV product that created the file.
+    /// Product text naming the program that created the file.
     pub product: String,
     /// Endianness indicator (2 = native layout).
     pub layout_code: i32,

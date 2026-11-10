@@ -1,0 +1,3 @@
+#!/bin/sh
+# Refuses a commit message that carries names listed in scripts/check-terms.sh.
+exec "$(git rev-parse --show-toplevel)/scripts/check-terms.sh" --message "$1"

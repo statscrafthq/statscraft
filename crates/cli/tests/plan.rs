@@ -1,6 +1,7 @@
 //! `statscraft plan`, end to end, each test in its own temporary working directory.
 
 use serde_json::Value;
+use statscraft_openstatspec::wire;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -78,7 +79,7 @@ fn errors_are_json_with_code_and_position() {
     let schema = ["--input-schema", "schema.json"];
     let (ok, out) = w.run(&[&["plan", "-e", "EXECUTE.\nFREQUENCIES q1."], &schema[..]].concat());
     assert!(!ok);
-    assert_eq!(out["error"]["code"], "unsupported_spss_command");
+    assert_eq!(out["error"]["code"], wire::UNSUPPORTED_COMMAND);
     assert_eq!(
         (&out["error"]["line"], &out["error"]["column"]),
         (&2.into(), &1.into())
@@ -92,7 +93,7 @@ fn errors_are_json_with_code_and_position() {
         .concat(),
     );
     assert!(!ok);
-    assert_eq!(out["error"]["code"], "unsupported_spss_command");
+    assert_eq!(out["error"]["code"], wire::UNSUPPORTED_COMMAND);
 
     let (ok, out) = w.run(&["plan", "-e", "EXECUTE."]);
     assert!(!ok);

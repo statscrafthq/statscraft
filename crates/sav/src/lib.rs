@@ -2,7 +2,7 @@
 //!
 //! No unsafe code: every file is untrusted input.
 //!
-//! This library reads SAV SAV/ZSAV files natively in Rust with no C dependencies.
+//! This library reads .sav and .zsav files natively in Rust with no C dependencies.
 //! Data is returned as Apache Arrow RecordBatch for seamless integration with
 //! Polars, DataFusion, and other Arrow-compatible tools.
 //!
@@ -52,7 +52,7 @@ pub use crate::metadata::{MissingSpec, MrSet, MrType, SavMetadata, Value};
 pub use crate::scanner::SavScanner as Scanner;
 pub use crate::writer::{write_sav, write_sav_to_writer};
 
-/// Read a SAV .sav or .zsav file, returning all data as an Arrow RecordBatch
+/// Read a .sav or .zsav file, returning all data as an Arrow RecordBatch
 /// plus the file's metadata.
 ///
 /// This loads the entire dataset into memory. For streaming batch reads or
@@ -66,7 +66,7 @@ pub fn read_sav(path: impl AsRef<Path>) -> Result<(RecordBatch, SavMetadata)> {
     Ok((batch, metadata))
 }
 
-/// Read a SAV file from any reader that supports Read + Seek.
+/// Read a .sav or .zsav file from any reader that supports Read + Seek.
 pub fn read_sav_from_reader<R: Read + Seek>(reader: R) -> Result<(RecordBatch, SavMetadata)> {
     let mut scanner = scan_sav_from_reader(reader, usize::MAX)?;
     let batch = scanner.collect_single()?;
@@ -74,7 +74,7 @@ pub fn read_sav_from_reader<R: Read + Seek>(reader: R) -> Result<(RecordBatch, S
     Ok((batch, metadata))
 }
 
-/// Read only the metadata from a SAV file (no data).
+/// Read only the metadata from a .sav or .zsav file (no data).
 ///
 /// This is much faster than `read_sav()` for files where you only need
 /// variable information, labels, or other metadata.
@@ -85,7 +85,7 @@ pub fn read_sav_metadata(path: impl AsRef<Path>) -> Result<SavMetadata> {
     Ok(scanner.metadata().clone())
 }
 
-/// Create a streaming scanner for a SAV .sav or .zsav file.
+/// Create a streaming scanner for a .sav or .zsav file.
 ///
 /// Reads metadata immediately. Data is read on demand via `next_batch()`
 /// or `collect_single()`. Supports column projection via `select()` and

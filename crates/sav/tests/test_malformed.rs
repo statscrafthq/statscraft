@@ -308,7 +308,11 @@ fn issue2_repro_file_does_not_crash() {
     match read_sav(path) {
         Ok((batch, meta)) => {
             assert_eq!(batch.num_columns(), 7);
-            assert_eq!(batch.num_rows(), 5, "the reference program reads 5 rows from this file");
+            assert_eq!(
+                batch.num_rows(),
+                5,
+                "the reference program reads 5 rows from this file"
+            );
             assert_eq!(meta.number_rows, Some(0), "header value is reported as-is");
         }
         Err(e) => panic!("expected a clean read (the reference program opens this file), got {e}"),
@@ -558,10 +562,7 @@ fn oversized_info_record_is_rejected_before_allocation() {
     put_i32(&mut bytes, off + 12, 1_300_000_000); // count -> 1.3 GB declared
     let t0 = std::time::Instant::now();
     let err = read_sav_from_reader(Cursor::new(bytes)).expect_err("must fail");
-    assert!(
-        matches!(err, SavError::TruncatedFile { .. }),
-        "got {err:?}"
-    );
+    assert!(matches!(err, SavError::TruncatedFile { .. }), "got {err:?}");
     assert!(t0.elapsed().as_secs_f64() < 1.0, "took {:?}", t0.elapsed());
 }
 

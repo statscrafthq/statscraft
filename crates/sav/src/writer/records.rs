@@ -16,7 +16,7 @@ use crate::variable::MissingValues;
 // Date/time helpers
 // ---------------------------------------------------------------------------
 
-/// Return the current date and time in SAV header format.
+/// Return the current date and time in the file header format.
 /// Date: "DD MMM YY" (9 bytes), Time: "HH:MM:SS" (8 bytes).
 pub(super) fn current_date_time() -> (String, String) {
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -96,10 +96,7 @@ pub(super) fn write_header<W: Write>(
     w.write_all(magic)?;
 
     // Product name (60 bytes, space-padded)
-    let product = format!(
-        "@(#) StatsCraft data file StatsCraft {}",
-        env!("CARGO_PKG_VERSION")
-    );
+    let product = format!("@(#) StatsCraft data file {}", env!("CARGO_PKG_VERSION"));
     w.write_fixed_string(&product, 60)?;
 
     // Layout code (2 = little-endian)
@@ -136,7 +133,7 @@ pub(super) fn write_header<W: Write>(
     // Bias
     w.write_f64_le(DEFAULT_BIAS)?;
 
-    // SAV header: date (9 bytes "DD MMM YY") + time (8 bytes "HH:MM:SS").
+    // File header: date (9 bytes "DD MMM YY") + time (8 bytes "HH:MM:SS").
     // meta.creation_time is now a full datetime like "2026-02-21 12:38:47".
     // Preserve on roundtrip; use current UTC for new files.
     let (date_now, time_now) = current_date_time();
@@ -275,7 +272,7 @@ pub(super) fn write_value_label_records<W: Write>(
     }
 
     // Group variables that share the same value label set
-    // For the reference program, Type 3+4 pairs can reference multiple variables with the same labels.
+    // In the format, Type 3+4 pairs can reference multiple variables with the same labels.
     // For simplicity (and correctness), emit one Type 3+4 pair per variable.
     for &(slot, var) in &var_slot_indices {
         let labels = match meta.variable_value_labels.get(&var.long_name) {

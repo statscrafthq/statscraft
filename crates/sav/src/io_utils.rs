@@ -81,8 +81,7 @@ impl<R: Read> SavReader<R> {
     /// Read a 4-byte count or length; a negative value is corruption.
     pub fn read_len(&mut self, what: &str) -> Result<usize> {
         let n = self.read_i32()?;
-        usize::try_from(n)
-            .map_err(|_| SavError::InvalidDictionary(format!("negative {what}: {n}")))
+        usize::try_from(n).map_err(|_| SavError::InvalidDictionary(format!("negative {what}: {n}")))
     }
 
     /// Read a 4-byte unsigned integer with endian handling.
@@ -236,7 +235,7 @@ pub fn detect_endianness(layout_code_bytes: [u8; 4]) -> Result<bool> {
 // ---------------------------------------------------------------------------
 
 /// Extension trait for endian-aware binary writing to SAV files.
-/// Always writes little-endian (modern SAV convention).
+/// Always writes little-endian (the modern .sav convention).
 pub trait SavWriteExt: Write {
     fn write_i32_le(&mut self, val: i32) -> Result<()> {
         self.write_all(&val.to_le_bytes())?;

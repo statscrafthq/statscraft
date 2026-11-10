@@ -7,7 +7,7 @@ mod common;
 
 use common::{cases, load, with_spec};
 use serde_json::Value;
-use statscraft_openstatspec::{canonical_json, compile_request, validate_plan};
+use statscraft_openstatspec::{canonical_json, compile_request, validate_plan, wire};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -54,13 +54,13 @@ fn transformation_plan_manifests() {
 }
 
 #[test]
-fn sav_syntax_frontend_manifests() {
+fn syntax_frontend_manifests() {
     with_spec(|dir| {
         let plan01 = plan_cases(dir, "transformation-plan-0.1.json");
         let plan02 = plan_cases(dir, "transformation-plan-0.2.json");
         // `expected_plan_case_0_1` names a Frontend 0.1 case; its plan is inline or a plan case.
         let frontend01: HashMap<String, (Value, Value)> =
-            cases(&load(dir, "spss-syntax-frontend-0.1.json"))
+            cases(&load(dir, wire::FRONTEND_MANIFESTS[0]))
                 .iter()
                 .filter(|c| c["expected_error"].is_null())
                 .map(|c| {
@@ -80,11 +80,7 @@ fn sav_syntax_frontend_manifests() {
             }
         };
         let mut failures = vec![];
-        for name in [
-            "spss-syntax-frontend-0.1.json",
-            "spss-syntax-frontend-0.2.json",
-            "spss-syntax-frontend-0.3.json",
-        ] {
+        for name in wire::FRONTEND_MANIFESTS {
             let manifest = load(dir, name);
             // (case, contract override, manifest that defines it)
             let mut effective: Vec<(Value, Option<Value>, String)> = vec![];

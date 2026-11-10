@@ -6,7 +6,7 @@ Built and verified with pyreadstat 1.3.7 (pandas 3.1.1, Python 3.13.2). Run from
     uv run --with pyreadstat==1.3.7 --with pandas==3.1.1 python tests/fixtures/generate.py
 
 Every run writes all pyreadstat fixtures, then reads each one back and checks it against the
-in-script definitions. `generate.py verify` only runs the check (use it after generate_php.php).
+in-script definitions. `generate.py verify` only runs the check (use it after the PHP writer).
 All data and texts are invented for this project. See README.md.
 """
 import datetime as dt
@@ -43,7 +43,7 @@ def text(name, label, measure, values, labels=None):
 
 
 def sav_date(year, month, day):
-    """the reference program stores dates as seconds since 1582-10-14 00:00:00."""
+    """A .sav file stores dates as seconds since 1582-10-14 00:00:00."""
     return (dt.date(year, month, day) - dt.date(1582, 10, 14)).days * 86400
 
 
@@ -123,7 +123,7 @@ def survey_basic():
     return dict(file_label="StatsCraft synthetic customer survey", variables=variables)
 
 
-# Only the php-sav writer can store these, so only survey_basic_phpwriter.sav carries them.
+# Only the pure-PHP writer can store these, so only survey_basic_phpwriter.sav carries them.
 SURVEY_MR_SETS = [
     dict(name="$q5", type="dichotomy", label="Q5. Contact channels used", counted_value=1,
          variables=[f"q5_{i}" for i in range(1, 6)]),
@@ -277,6 +277,11 @@ def write(fx):
                         for v in vs if v["missing_values"] or v["missing_range"]},
         variable_measure={v["name"]: v["measure"] for v in vs},
         variable_format={v["name"]: v["format"] for v in vs if v["type"] == "numeric"})
+    # The 60-byte product field (bytes 4 to 64) gets our own text, padded so offsets stay put.
+    path = HERE / fx["file"]
+    data = bytearray(path.read_bytes())
+    data[4:64] = b"@(#) DATA FILE - https://github.com/WizardMac/ReadStat".ljust(60)
+    path.write_bytes(data)
 
 
 # ---------------------------------------------------------------- verification
@@ -354,7 +359,7 @@ def main():
     print(f"pyreadstat {pyreadstat.__version__}, pandas {pd.__version__}")
     if sys.argv[1:] != ["verify"]:
         for fx in fixtures:
-            if fx.get("writer") == "php":  # generate_php.php turns this into the .sav and its sidecar
+            if fx.get("writer") == "php":  # the PHP writer turns this into the .sav and its sidecar
                 dump({"expected": expected(fx), "cases": cases(fx)}, sidecar(fx, ".input.json"))
             else:
                 write(fx)
@@ -362,7 +367,7 @@ def main():
     failed = False
     for fx in fixtures:
         if not (HERE / fx["file"]).exists():
-            print(f"SKIP {fx['file']} (not generated, run generate_php.php)")
+            print(f"SKIP {fx['file']} (not generated, run the PHP writer)")
             continue
         problems = verify(fx)
         failed |= bool(problems)

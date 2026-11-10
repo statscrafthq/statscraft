@@ -6,7 +6,17 @@ on:
   pull_request:
 
 jobs:
+  terms:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - run: scripts/check-terms.sh --tree
+      - run: scripts/check-terms.sh --history HEAD
+
   build:
+    needs: terms
     strategy:
       fail-fast: false
       matrix:

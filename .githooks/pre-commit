@@ -1,0 +1,3 @@
+#!/bin/sh
+# Refuses a commit whose staged files or file names carry names listed in scripts/check-terms.sh.
+exec "$(git rev-parse --show-toplevel)/scripts/check-terms.sh" --staged

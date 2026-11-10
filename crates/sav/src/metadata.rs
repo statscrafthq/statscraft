@@ -186,7 +186,7 @@ pub enum MrType {
     MultipleCategory,
 }
 
-/// The complete metadata for a SAV file.
+/// The complete metadata for a .sav or .zsav file.
 #[derive(Debug, Clone)]
 pub struct SavMetadata {
     // File-level
@@ -226,7 +226,7 @@ pub struct SavMetadata {
     // Missing values
     pub variable_missing_values: IndexMap<String, Vec<MissingSpec>>,
 
-    // the reference program-specific
+    // Format-specific
     pub mr_sets: IndexMap<String, MrSet>,
     pub variable_roles: IndexMap<String, Role>,
     pub variable_attributes: IndexMap<String, IndexMap<String, Vec<String>>>,
@@ -248,7 +248,7 @@ impl SavMetadata {
         self.variable_value_labels.get(name)
     }
 
-    /// Get the SAV format string for a variable (e.g., "F8.2", "A50").
+    /// Get the format string for a variable (e.g., "F8.2", "A50").
     pub fn format(&self, name: &str) -> Option<&str> {
         self.variable_formats.get(name).map(|s| s.as_str())
     }
@@ -366,7 +366,7 @@ const MONTH_ABBR: [&str; 12] = [
     "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
 ];
 
-/// Parse SAV header date ("21 Feb 26") + time ("12:38:47") into "2026-02-21 12:38:47".
+/// Parse the file header date ("21 Feb 26") + time ("12:38:47") into "2026-02-21 12:38:47".
 pub(crate) fn format_sav_datetime(date_str: &str, time_str: &str) -> String {
     let parts: Vec<&str> = date_str.split_whitespace().collect();
     if parts.len() == 3 {
@@ -385,7 +385,7 @@ pub(crate) fn format_sav_datetime(date_str: &str, time_str: &str) -> String {
     format!("{date_str} {time_str}")
 }
 
-/// Parse "2026-02-21 12:38:47" back into the reference program parts ("21 Feb 26", "12:38:47").
+/// Parse "2026-02-21 12:38:47" back into file header parts ("21 Feb 26", "12:38:47").
 /// Returns None if the format doesn't match.
 pub(crate) fn parse_iso_to_sav_parts(datetime: &str) -> Option<(String, String)> {
     let (date_part, time_part) = datetime.split_once(' ')?;

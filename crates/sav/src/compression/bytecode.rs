@@ -23,7 +23,7 @@ pub enum SlotValue {
 
 /// Stateful bytecode decompressor for SAV row-wise compression.
 ///
-/// Maintains control block state across row boundaries, since the reference program control
+/// Maintains control block state across row boundaries, since the format's control
 /// blocks do NOT align with row boundaries.
 pub struct BytecodeDecompressor {
     /// Compression bias (typically 100.0). Used by test-only `decompress_row()`.

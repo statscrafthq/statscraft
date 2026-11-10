@@ -31,7 +31,7 @@ pub enum MissingValues {
 pub struct VariableRecord {
     /// Position in the case (0-based slot index).
     pub slot_index: usize,
-    /// SAV variable type: 0 = numeric, -1 = ghost (continuation), >0 = string width.
+    /// Variable type: 0 = numeric, -1 = ghost (continuation), >0 = string width.
     pub raw_type: i32,
     /// Short variable name bytes (up to 8), trailing padding removed and ASCII
     /// letters upper-cased. Undecoded: the file encoding is not known yet.
@@ -88,7 +88,7 @@ impl VariableRecord {
             1..=255 => (VarType::String(raw_type as usize), false),
             -1 => (VarType::Numeric, true), // continuation slot of a wide string
             t if t < -1 => {
-                // the reference program opens files with such records (observed: -257), so treat
+                // The reference program opens files with such records (observed: -257), so treat
                 // them as continuation slots and report, rather than refuse.
                 warnings.push(format!(
                     "variable record {slot_index} ({name_for_msg:?}) declares type {t}; treated as a continuation slot"
@@ -251,7 +251,10 @@ mod tests {
         assert_eq!(var.var_type, VarType::Numeric);
         assert!(!var.is_ghost);
         assert!(var.label.is_none());
-        assert_eq!(var.print_format.as_ref().unwrap().to_sav_string(), "F8.2");
+        assert_eq!(
+            var.print_format.as_ref().unwrap().to_format_string(),
+            "F8.2"
+        );
     }
 
     #[test]

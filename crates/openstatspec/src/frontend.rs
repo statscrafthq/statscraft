@@ -1,4 +1,4 @@
-//! the reference program-like Syntax Frontend profiles 0.1, 0.2 and 0.3: request in, plan or diagnostic out.
+//! Syntax frontend profiles 0.1, 0.2 and 0.3: request in, plan or diagnostic out.
 //!
 //! The profiles are bounded on purpose, so this module has its own lexer and parser instead of
 //! StatsCraft's command language: it must reject much that StatsCraft accepts, and its number
@@ -212,7 +212,8 @@ fn e<T>(code: &'static str, message: impl Into<String>, (start, end): (usize, us
     })
 }
 
-const SYNTAX: &str = "spss_syntax_error";
+const SYNTAX: &str = crate::wire::SYNTAX_ERROR;
+const UNSUPPORTED: &str = crate::wire::UNSUPPORTED_COMMAND;
 const TYPE_UNSUPPORTED: &str = "expression_type_unsupported";
 
 // ---------------------------------------------------------------------------------------------
@@ -582,7 +583,7 @@ fn compile(v: Version, req: &Request, source: &str) -> R<Plan> {
         match t.tok {
             Tok::Comment if v < Version::V3 => {
                 return e(
-                    "unsupported_spss_command",
+                    UNSUPPORTED,
                     "comments need frontend profile 0.3",
                     (t.start, t.end),
                 );
@@ -657,7 +658,7 @@ impl Compiler {
             Ok(())
         } else {
             e(
-                "unsupported_spss_command",
+                UNSUPPORTED,
                 format!(
                     "{name} is not supported by frontend profile {}",
                     self.v.name()
@@ -1422,8 +1423,9 @@ mod tests {
     use serde_json::json;
 
     fn run(version: &str, source: &str) -> Result<Compiled, Diagnostic> {
+        let profile = ["0.1", "0.2", "0.3"].iter().position(|v| *v == version);
         compile_request(&json!({
-            "contract": format!("openstatspec-spss-syntax-frontend-v{version}"),
+            "contract": crate::FRONTEND_CONTRACTS[profile.unwrap()],
             "input_alias": "d",
             "input_schema": {"variables": [
                 {"name": "Age", "storage_kind": "numeric"},
@@ -1454,12 +1456,9 @@ mod tests {
             code("0.1", "RECODE age (1=0) (2='x') INTO new."),
             "mixed_result_types"
         );
-        assert_eq!(
-            code("0.1", "RECODE age (1, 2 THRU 3=0)."),
-            "spss_syntax_error"
-        );
-        assert_eq!(code("0.1", "RECODE age (1=0)"), "spss_syntax_error");
-        assert_eq!(code("0.1", "COMPUTE x = 1."), "unsupported_spss_command");
+        assert_eq!(code("0.1", "RECODE age (1, 2 THRU 3=0)."), SYNTAX);
+        assert_eq!(code("0.1", "RECODE age (1=0)"), SYNTAX);
+        assert_eq!(code("0.1", "COMPUTE x = 1."), UNSUPPORTED);
         assert_eq!(
             code("0.2", "RECODE age (5 THRU 3=0)."),
             "invalid_numeric_range"
@@ -1468,16 +1467,13 @@ mod tests {
             code("0.3", "RECODE age (5 THRU 3=0)."),
             "invalid_variable_range"
         );
-        assert_eq!(code("0.2", "IF (age NE 1) age = 1."), "spss_syntax_error");
+        assert_eq!(code("0.2", "IF (age NE 1) age = 1."), SYNTAX);
         assert_eq!(code("0.3", "COMPUTE __x = 1."), "reserved_target_name");
         assert_eq!(
             code("0.3", "COMPUTE x = abs(age)."),
             "expression_type_unsupported"
         );
-        assert_eq!(
-            code("0.3", "COMPUTE x = 1 /* a /* b */."),
-            "spss_syntax_error"
-        );
+        assert_eq!(code("0.3", "COMPUTE x = 1 /* a /* b */."), SYNTAX);
     }
 
     #[test]

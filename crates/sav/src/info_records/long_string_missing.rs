@@ -19,7 +19,7 @@ pub struct LongStringMissingEntry {
 ///   4-byte var_name_length
 ///   var_name bytes
 ///   1-byte n_missing_values
-///   4-byte value_length (per SAV spec: the width)
+///   4-byte value_length (per the format: the width)
 ///   For each missing value:
 ///     value_length bytes of value
 pub fn parse_long_string_missing(data: &[u8]) -> Result<Vec<LongStringMissingEntry>> {

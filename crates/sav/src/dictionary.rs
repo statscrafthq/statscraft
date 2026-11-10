@@ -165,7 +165,7 @@ pub fn parse_dictionary<R: Read>(
     }
 
     // The header's case size is unreliable (PSPP documents writers that store
-    // -1/0, and the reference program itself ignores it: it opens files whose value is absurd).
+    // -1/0, and the reference program ignores it: it opens files whose value is absurd).
     // The variable list is authoritative; a disagreement is reported, not fatal.
     if header.nominal_case_size > 0 && header.nominal_case_size as usize != slots_per_row {
         warnings.push(format!(
@@ -324,7 +324,7 @@ pub fn resolve_dictionary(raw: RawDictionary) -> Result<ResolvedDictionary> {
         ..Default::default()
     };
 
-    // Carry parse-time anomalies, then check the compression bias. the reference program always
+    // Carry parse-time anomalies, then check the compression bias. Writers always
     // writes 100; compressed integer codes decode as `code - bias`, so any other
     // value shifts every compressed integer. We read the file literally and
     // tell the caller instead of silently assuming 100 as the reference program does.
@@ -374,7 +374,7 @@ pub fn resolve_dictionary(raw: RawDictionary) -> Result<ResolvedDictionary> {
                     // VLS: override the u8-capped width with true width
                     format!("{}{}", fmt.format_type.prefix(), w)
                 }
-                _ => fmt.to_sav_string(),
+                _ => fmt.to_format_string(),
             };
             meta.variable_formats.insert(name.clone(), format_str);
         }
@@ -679,6 +679,6 @@ fn determine_encoding(
         return encoding::encoding_from_code_page(info.character_code);
     }
 
-    // Default: windows-1252 (historical the reference program default on Windows)
+    // Default: windows-1252 (historical default on Windows)
     encoding_rs::WINDOWS_1252
 }

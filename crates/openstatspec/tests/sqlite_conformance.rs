@@ -1,4 +1,4 @@
-//! The published cases on SQLite: the round trip of every fixture, `spss-sav-zsav-1.0.json`
+//! The published cases on SQLite: the round trip of every fixture, the .sav/.zsav profile manifest
 //! and the in-place binding manifests (see `common::runner`). Without a specification
 //! checkout the manifest tests skip with a message.
 
@@ -40,7 +40,7 @@ fn every_fixture_round_trips_through_sqlite_and_back_to_sav() {
 }
 
 #[test]
-fn sav_sav_zsav_1_0_on_sqlite() {
+fn sav_zsav_1_0_on_sqlite() {
     with_spec(|dir| sav_conformance(&Sqlite, dir));
 }
 

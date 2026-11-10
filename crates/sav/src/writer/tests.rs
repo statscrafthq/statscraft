@@ -770,7 +770,7 @@ fn test_zsav_roundtrip_test3_large() {
 // VLS (Very Long String) segment layout tests
 // Regression test for bug where the writer declared width=255 for all
 // VLS segments including the last, instead of the actual remaining width.
-// This caused third-party the reference program readers (Q Research Software) to show
+// This caused third-party .sav readers (Q Research Software) to show
 // extra ghost columns.
 // -----------------------------------------------------------------------
 

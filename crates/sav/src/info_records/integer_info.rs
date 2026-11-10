@@ -11,7 +11,7 @@ pub struct IntegerInfo {
     pub version_minor: i32,
     pub version_revision: i32,
     pub machine_code: i32,
-    /// Floating point representation: 1=IEEE, 2=the vendor, 3=VAX.
+    /// Floating point representation: 1 = IEEE 754, 2 = hexadecimal mainframe floats, 3 = VAX.
     pub floating_point_rep: i32,
     pub compression_code: i32,
     /// Endianness: 1=big, 2=little.

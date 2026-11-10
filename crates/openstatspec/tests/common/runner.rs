@@ -20,7 +20,7 @@ use statscraft_data::{Dataset, MissingValues};
 use statscraft_openstatspec::apply::{DoltContext, apply_plan};
 use statscraft_openstatspec::catalog::{input_schema, read_dataset, write_dataset};
 use statscraft_openstatspec::db::{Db, Dialect, Limits, Result, Sql, uuid};
-use statscraft_openstatspec::{canonical_json, compile_request};
+use statscraft_openstatspec::{canonical_json, compile_request, wire};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -337,9 +337,9 @@ fn preflight_problems(backend: &dyn Backend) -> Vec<String> {
     problems
 }
 
-/// Runs `spss-sav-zsav-1.0.json`; every fixture must pass.
+/// Runs the manifest of the .sav/.zsav profile; every fixture must pass.
 pub fn sav_conformance(backend: &dyn Backend, dir: &Path) {
-    let manifest = load(dir, "spss-sav-zsav-1.0.json");
+    let manifest = load(dir, wire::SAV_MANIFEST);
     let scratch = scratch("sav-conf");
     let fixtures = manifest["fixtures"].as_array().unwrap();
     let mut failed: BTreeMap<String, Vec<String>> = BTreeMap::new();
@@ -359,7 +359,8 @@ pub fn sav_conformance(backend: &dyn Backend, dir: &Path) {
     }
     std::fs::remove_dir(&scratch).unwrap();
     println!(
-        "spss-sav-zsav-1.0.json on {profile}: {} of {} fixtures pass",
+        "{} on {profile}: {} of {} fixtures pass",
+        wire::SAV_MANIFEST,
         fixtures.len() - failed.len(),
         fixtures.len()
     );
@@ -728,7 +729,7 @@ fn dolt_after(db: &mut dyn Db, before: &Value) -> Vec<String> {
 
 /// Runs one success case of the 0.2 manifest (native or adapted).
 fn binding_02_problems(backend: &dyn Backend, dir: &Path, case: &Value) -> Vec<String> {
-    let frontend = load(dir, "spss-syntax-frontend-0.2.json");
+    let frontend = load(dir, wire::FRONTEND_MANIFESTS[1]);
     let plans = load(dir, "transformation-plan-0.2.json");
     let before = case.get("before").cloned().unwrap_or(json!({}));
     let after = case.get("after").cloned().unwrap_or(json!({}));
@@ -887,7 +888,7 @@ fn binding_01_problems(backend: &dyn Backend, case: &Value) -> Vec<String> {
         .collect();
     let dataset_id = make_dataset(db, "survey", &rows, &Value::Null);
     let request = json!({
-        "contract": "openstatspec-spss-syntax-frontend-v0.1",
+        "contract": wire::FRONTEND_CONTRACTS[0],
         "input_alias": "input",
         "input_schema": input_schema(db, "survey", false).unwrap(),
         "source_text": case["source_text"],
@@ -998,7 +999,7 @@ fn create_fails_problems(backend: &dyn Backend, dir: &Path, case: &Value) -> Vec
                 .collect();
             make_dataset(db, "survey", &rows, &Value::Null);
             let request = json!({
-                "contract": "openstatspec-spss-syntax-frontend-v0.1",
+                "contract": wire::FRONTEND_CONTRACTS[0],
                 "input_alias": "input",
                 "input_schema": input_schema(db, "survey", false).unwrap(),
                 "source_text": source,
@@ -1067,7 +1068,7 @@ fn dolt_survey(backend: &dyn Backend) -> (Box<dyn Db>, DoltContext, statscraft_o
         .collect();
     make_dataset(db.as_mut(), "survey", &rows, &Value::Null);
     let request = json!({
-        "contract": "openstatspec-spss-syntax-frontend-v0.2",
+        "contract": wire::FRONTEND_CONTRACTS[1],
         "input_alias": "input",
         "input_schema": input_schema(db.as_mut(), "survey", true).unwrap(),
         "source_text": "COMPUTE score = 9.\nVARIABLE LABELS score 'After'.",

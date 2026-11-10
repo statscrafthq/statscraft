@@ -1,4 +1,4 @@
-//! OpenStatSpec driver. Part one: the the reference program syntax frontend profiles 0.1, 0.2 and 0.3 that
+//! OpenStatSpec driver. Part one: the syntax frontend profiles 0.1, 0.2 and 0.3 that
 //! lower bounded syntax to a Transformation Plan 0.1 or 0.2, plan validation, canonical JSON
 //! and the plan and source hashes. Part two (`catalog`, `apply`): a dataset stored as one wide
 //! table plus the catalog in SQL, read back, and plans applied to it in place, over the
@@ -15,19 +15,14 @@ pub mod mysql;
 pub mod plan;
 pub mod postgres;
 pub mod sqlite;
+pub mod wire;
 
 pub use frontend::{Compiled, Diagnostic, Output, Span, compile_request, normalize_source};
 pub use plan::{Plan, PlanError, validate_plan};
+pub use wire::FRONTEND_CONTRACTS;
 
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-
-/// Request contracts of the frontend profiles, oldest first.
-pub const FRONTEND_CONTRACTS: [&str; 3] = [
-    "openstatspec-spss-syntax-frontend-v0.1",
-    "openstatspec-spss-syntax-frontend-v0.2",
-    "openstatspec-spss-syntax-frontend-v0.3",
-];
 
 /// Lowercase hex SHA-256 of `bytes`.
 pub fn sha256_hex(bytes: &[u8]) -> String {

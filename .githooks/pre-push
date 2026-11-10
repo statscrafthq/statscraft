@@ -1,0 +1,19 @@
+#!/bin/sh
+# Refuses a push whose new commits (messages, author, committer) or ref names carry names listed
+# in scripts/check-terms.sh.
+set -eu
+check="$(git rev-parse --show-toplevel)/scripts/check-terms.sh"
+remote=$1
+zero=$(git hash-object --stdin </dev/null | tr '0-9a-f' '0')
+status=0
+while read -r local_ref local_sha remote_ref remote_sha; do
+    "$check" --refs "$local_ref" "$remote_ref" || status=1
+    [ "$local_sha" = "$zero" ] && continue # a deleted ref has no new commits
+    if [ "$remote_sha" = "$zero" ]; then
+        # a new ref: the commits the remote does not have yet
+        "$check" --history "$local_sha" --not "--remotes=$remote" || status=1
+    else
+        "$check" --history "$remote_sha..$local_sha" || status=1
+    fi
+done
+exit $status

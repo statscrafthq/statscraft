@@ -1,10 +1,10 @@
-/// SAV system-missing value (specific NaN bit pattern used by the reference program).
+/// System-missing value (the specific bit pattern the .sav format uses).
 pub const SYSMIS_BITS: u64 = 0xFFEF_FFFF_FFFF_FFFF;
 
-/// Highest representable double in the reference program.
+/// Highest representable double in a .sav file.
 pub const HIGHEST_BITS: u64 = 0x7FEF_FFFF_FFFF_FFFF;
 
-/// Lowest representable double in the reference program.
+/// Lowest representable double in a .sav file.
 pub const LOWEST_BITS: u64 = 0xFFEF_FFFF_FFFF_FFFE;
 
 /// Default compression bias (added to bytecodes 1..=251).
@@ -50,7 +50,7 @@ pub const INFO_FILE_ATTRIBUTES: i32 = 17;
 
 // -- Enums --
 
-/// the reference program compression type.
+/// Compression type of a .sav file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Compression {
     None,
@@ -164,7 +164,7 @@ pub enum Role {
 }
 
 impl Role {
-    /// Parse from SAV numeric code string ("0"=Input, "1"=Target, etc.).
+    /// Parse from the numeric code string ("0"=Input, "1"=Target, etc.).
     pub fn from_code(s: &str) -> Option<Role> {
         match s.trim() {
             "0" => Some(Role::Input),
@@ -177,7 +177,7 @@ impl Role {
         }
     }
 
-    /// Return the SAV numeric code string.
+    /// Return the numeric code string.
     pub fn to_code(&self) -> &'static str {
         match self {
             Role::Input => "0",
@@ -202,14 +202,14 @@ impl Role {
     }
 }
 
-/// SAV variable type.
+/// Variable type.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum VarType {
     Numeric,
     String(usize), // width in bytes
 }
 
-/// SAV print/write format type codes.
+/// Print/write format type codes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[repr(u8)]
 pub enum FormatType {
@@ -409,7 +409,7 @@ impl FormatType {
     }
 }
 
-/// Decoded SAV print/write format.
+/// Decoded print/write format.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SavFormat {
     pub format_type: FormatType,
@@ -441,7 +441,7 @@ impl SavFormat {
             | (self.decimals as i32)
     }
 
-    /// Parse a SAV format string like "F8.2", "A50", "DATE11" back to SavFormat.
+    /// Parse a format string like "F8.2", "A50", "DATE11" back to SavFormat.
     pub fn from_string(s: &str) -> Option<SavFormat> {
         let s = s.trim();
         if s.is_empty() {
@@ -478,8 +478,8 @@ impl SavFormat {
         })
     }
 
-    /// Render as a human-readable SAV format string like "F8.2" or "A50".
-    pub fn to_sav_string(&self) -> String {
+    /// Render as a human-readable format string like "F8.2" or "A50".
+    pub fn to_format_string(&self) -> String {
         // only time formats can show fractions of a second (TIME11.2, DATETIME23.2)
         let fraction = matches!(
             self.format_type,
@@ -542,7 +542,7 @@ mod tests {
         assert_eq!(fmt.format_type, FormatType::F);
         assert_eq!(fmt.width, 8);
         assert_eq!(fmt.decimals, 2);
-        assert_eq!(fmt.to_sav_string(), "F8.2");
+        assert_eq!(fmt.to_format_string(), "F8.2");
     }
 
     #[test]
@@ -551,7 +551,7 @@ mod tests {
         let packed = (1 << 16) | (50 << 8);
         let fmt = SavFormat::from_packed(packed).unwrap();
         assert_eq!(fmt.format_type, FormatType::A);
-        assert_eq!(fmt.to_sav_string(), "A50");
+        assert_eq!(fmt.to_format_string(), "A50");
     }
 
     #[test]
@@ -564,7 +564,7 @@ mod tests {
             ("DATE11.2", "DATE11"),
         ] {
             assert_eq!(
-                SavFormat::from_string(text).unwrap().to_sav_string(),
+                SavFormat::from_string(text).unwrap().to_format_string(),
                 back
             );
         }

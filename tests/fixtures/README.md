@@ -1,10 +1,10 @@
 # Test fixtures for the .sav reader
 
-Small SAV system files (`.sav`, `.zsav`) with known ground truth, used to test the StatsCraft reader.
+Small system files (`.sav`, `.zsav`) with known ground truth, used to test the StatsCraft reader.
 
 All data is synthetic and was created for this project. The survey, its question texts, the provider
 names and every value are invented. Nothing was downloaded or copied from another dataset, and no
-vendor software and no GNU PSPP code or test file was used to make these files.
+software of the format's original vendor and no GNU PSPP code or test file was used to make these files.
 
 ## Files
 
@@ -12,7 +12,7 @@ vendor software and no GNU PSPP code or test file was used to make these files.
 |---|---|---|---|---|
 | `survey_basic.sav` | pyreadstat | none | 200 x 19 | Typical survey file: value labels, discrete user-missing codes (98, 99) that occur in the data, a user-missing range (97 to 99), system-missing values, F8.2 decimals, an A10 and an A200 string (with empty strings), a DATE11 date, five 0/1 items `q5_1..q5_5`, three mention variables `q6_mention1..3`, a non-integer `weight` variable, a file label |
 | `survey_basic.zsav` | pyreadstat | zlib (ZSAV) | 200 x 19 | The same content, zsav-compressed |
-| `survey_basic_phpwriter.sav` | php-sav | bytecode | 200 x 19 | The same content written by a second, independent writer. The only file with multiple-response set definitions (`$q5` dichotomy, `$q6` category) and a designated weight variable |
+| `survey_basic_phpwriter.sav` | pure-PHP writer | bytecode | 200 x 19 | The same content written by a second, independent pure-PHP writer. The only file with multiple-response set definitions (`$q5` dichotomy, `$q6` category) and a designated weight variable |
 | `unicode.sav` | pyreadstat | none | 20 x 6 | UTF-8 text in the file label, variable labels, value labels and string values: Estonian (õ ä ö ü š ž), German, Cyrillic, Greek, CJK and emoji. Three non-ASCII variable names: `linn_õäöü`, `оценка`, `コメント` |
 | `edge_cases.sav` | pyreadstat | bytecode | 12 x 12 | See "Edge cases" below |
 | `empty.sav` | pyreadstat | none | 0 x 4 | Valid dictionary (labels, value labels, a missing value, a date format), zero cases |
@@ -22,10 +22,11 @@ Other files:
 
 * `<name>.expected.json`: ground truth for `<name>.sav`. The zsav file has `survey_basic.zsav.expected.json`
   (rule: strip a trailing `.sav` from the file name, then append `.expected.json`).
-* `survey_basic_phpwriter.input.json`: written by `generate.py`, read by `generate_php.php`. It holds
+* `survey_basic_phpwriter.input.json`: written by `generate.py`, read by the PHP writer. It holds
   the expected block plus ALL 200 cases of the survey, so it also works as full-data ground truth for
   the three `survey_basic*` files.
-* `generate.py`, `generate_php.php`: the generators.
+* `generate.py`: the generator of the pyreadstat files and of the PHP writer's input. The PHP writer's
+  script is not part of the repository.
 
 ### Edge cases in `edge_cases.sav`
 
@@ -37,7 +38,7 @@ Other files:
 * `all_missing`: numeric, every case system-missing.
 * `empty_text`: string, every case empty.
 * `extreme_numbers` (format E16.8): 9.99e307, -9.99e307, 1e-300, -1e-300, 5e-324 (smallest subnormal
-  double), 1e15, -1e15, 2^53 and a few ordinary values. None of them equals a value the reference program reserves
+  double), 1e15, -1e15, 2^53 and a few ordinary values. None of them equals a value the format reserves
   (system-missing, LOWEST, HIGHEST).
 * `three_missing`: exactly three discrete missing values (97, 98, 99).
 * `range_plus_one`: missing range 90 to 99 plus the discrete missing value -1.
@@ -65,7 +66,7 @@ never by reading the data file back.
 
 Notes for test authors:
 
-* Date variables are numeric. Their sample values are the stored SAV numbers: seconds since
+* Date variables are numeric. Their sample values are the stored numbers: seconds since
   1582-10-14 00:00:00 (13918176000 is 2023-11-01).
 * Numbers are written with the shortest text that round-trips to the same IEEE 754 double. For exact
   comparisons the JSON parser must parse floats exactly, otherwise compare with a relative tolerance.
@@ -78,19 +79,21 @@ From the repo root (uv creates a throwaway environment, nothing is installed int
 
 ```bash
 uv run --with pyreadstat==1.3.7 --with pandas==3.1.1 python tests/fixtures/generate.py
-php tests/fixtures/generate_php.php /path/to/php-sav        # optional second writer
 uv run --with pyreadstat==1.3.7 --with pandas==3.1.1 python tests/fixtures/generate.py verify
 ```
 
 `generate.py` uses a fixed random seed, so the data values and all JSON files are identical on every
 run. The pyreadstat data files differ between runs only in the creation date and time in the header
-(bytes 92 to 108). `generate_php.php` takes the path of a php-sav checkout that has
-`vendor/autoload.php`; it needs `survey_basic_phpwriter.input.json` from `generate.py`.
+(bytes 92 to 108). The 60-byte product text (bytes 4 to 64) of every data file is replaced with a
+neutral one of the same length; `generate.py` does that right after pyreadstat writes a file, and the
+PHP writer's file was patched the same way. `survey_basic_phpwriter.sav` and its sidecar were written once by a second,
+independent pure-PHP writer from `survey_basic_phpwriter.input.json`; run `generate.py verify` after
+rewriting it.
 
 Tool versions used:
 
 * pyreadstat 1.3.7 (ReadStat based), pandas 3.1.1, Python 3.13.2, uv 0.7.2
-* php-sav (`openstatspec/sav`) 3.1.1, commit c4ff108, on PHP 8.5.9
+* the pure-PHP writer 3.1.1, commit c4ff108, on PHP 8.5.9
 
 ## Verification
 
@@ -101,10 +104,10 @@ system-missing counts, multiple-response sets and ALL cases (not only the sample
 header bytes directly for the magic (`$FL2` or `$FL3`), the compression code, the weight index and the
 case count, and checks that the `.expected.json` on disk matches the definitions.
 
-The files were additionally read once with the php-sav reader, which is independent of ReadStat. It
+The files were additionally read once with the reader of the pure-PHP library, which is independent of ReadStat. It
 agreed with every sidecar except for the `very_long_text` values that have a space on byte 255 of a
-segment: php-sav 3.1.1 trims each 255-byte segment and drops that space. The weight variable
-designation is confirmed only by the header index and by the php-sav reader, because pyreadstat does
+segment: version 3.1.1 of that reader trims each 255-byte segment and drops that space. The weight variable
+designation is confirmed only by the header index and by the PHP reader, because pyreadstat does
 not report it.
 
 ## Gaps: what is NOT in these files
@@ -123,13 +126,13 @@ Limits of the pyreadstat 1.3.7 writer:
 * Any encoding other than UTF-8, and big-endian files. `write_sav` has no option for either. There is
   no code-page file (for example windows-1252) in this set.
 
-Limit of the php-sav 3.1.1 writer:
+Limit of the pure-PHP writer 3.1.1:
 
 * For a newly built dataset it writes the weight index as the plain variable number, which is wrong
-  when a string variable precedes the weight variable. `generate_php.php` passes the correct
+  when a string variable precedes the weight variable. The PHP script passes the correct
   dictionary position through the public `dictionaryIndex` argument. The library was not modified.
 
 Not attempted, so do not expect them here: user-missing values on string variables, open-ended
 missing ranges (LOWEST THRU x, x THRU HIGHEST), document records, variable roles, custom display width
-or alignment, variable attributes and data file attributes, variable sets, files written by old the reference program
+or alignment, variable attributes and data file attributes, variable sets, files written by old writer
 versions (no long-name or encoding records), encrypted files and portable (.por) files.

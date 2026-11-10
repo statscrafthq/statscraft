@@ -1,7 +1,7 @@
 //! Bytecode compressor for SAV row-wise compression.
 //!
 //! This is the reverse of `bytecode.rs`: it converts 8-byte slot data
-//! into SAV bytecode-compressed format. The encoding rules:
+//! into the bytecode-compressed .sav format. The encoding rules:
 //!
 //! - SYSMIS (0xFFEFFFFFFFFFFFFF) → opcode 255
 //! - 8 ASCII spaces (0x2020202020202020) → opcode 254
@@ -14,7 +14,7 @@ use crate::constants::*;
 const SPACES_RAW: [u8; 8] = [0x20u8; 8];
 const SYSMIS_RAW: [u8; 8] = SYSMIS_BITS.to_le_bytes();
 
-/// Bytecode compressor that encodes 8-byte slots into SAV compressed format.
+/// Bytecode compressor that encodes 8-byte slots into the compressed .sav format.
 ///
 /// Opcodes are accumulated in groups of 8 (a "control block"). When the
 /// block is full, it is flushed: the 8 opcode bytes followed by any raw

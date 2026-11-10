@@ -1,6 +1,6 @@
 # Differences and limits
 
-StatsCraft runs syntax compatible with the reference program syntax. Its behaviour follows the published documentation of the reference program. GNU PSPP, another free program for the same language, is used only to compare numbers. This page lists where StatsCraft differs from either on purpose, the choices it made where the documentation says nothing, and what does not work yet.
+StatsCraft runs the established statistics command syntax. Its behaviour follows the published reference documentation of that syntax. GNU PSPP, another free program for the same language, is used only to compare numbers. This page lists where StatsCraft differs from either on purpose, the choices it made where the documentation says nothing, and what does not work yet.
 
 ## Where StatsCraft follows the documentation and GNU PSPP does not
 

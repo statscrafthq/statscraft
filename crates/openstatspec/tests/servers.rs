@@ -141,7 +141,7 @@ fn postgres_round_trips_every_fixture() {
 
 #[test]
 #[ignore = "needs STATSCRAFT_PG_URL"]
-fn postgres_sav_sav_zsav_1_0() {
+fn postgres_sav_zsav_1_0() {
     if let Some(pg) = Postgres::get() {
         with_spec(|dir| sav_conformance(&pg, dir));
     }
@@ -292,7 +292,7 @@ fn mysql_and_mariadb_round_trip_every_fixture() {
 
 #[test]
 #[ignore = "needs STATSCRAFT_MYSQL_URL and STATSCRAFT_MARIADB_URL"]
-fn mysql_and_mariadb_sav_sav_zsav_1_0() {
+fn mysql_and_mariadb_sav_zsav_1_0() {
     for server in mysql_family() {
         with_spec(|dir| sav_conformance(&server, dir));
     }
@@ -497,7 +497,7 @@ fn dolt_round_trips_every_fixture() {
 
 #[test]
 #[ignore = "needs STATSCRAFT_DOLT_URL"]
-fn dolt_sav_sav_zsav_1_0() {
+fn dolt_sav_zsav_1_0() {
     for server in dolts() {
         with_spec(|dir| sav_conformance(&server, dir));
     }

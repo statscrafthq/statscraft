@@ -64,8 +64,8 @@ Because the person may also change the data in the window, the agent should run 
 ## Instructions to paste into your agent
 
 ```text
-You can analyse data with StatsCraft, a statistics program driven by syntax compatible with
-the reference program syntax. Use the `statscraft` command line in the shell.
+You can analyse data with StatsCraft, a statistics program driven by the established
+statistics command syntax (COMPUTE, RECODE, FREQUENCIES, CTABLES and so on). Use the `statscraft` command line in the shell.
 
 - Start with `statscraft describe <file> --json` to learn the variables, labels and missing values.
 - Look up syntax with `statscraft help` and `statscraft help <COMMAND>`. Use only commands and

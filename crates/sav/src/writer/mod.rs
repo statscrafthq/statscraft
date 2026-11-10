@@ -1,6 +1,6 @@
 //! SAV/ZSAV file writer.
 //!
-//! Writes Arrow RecordBatch + SavMetadata to SAV .sav/.zsav binary format.
+//! Writes Arrow RecordBatch + SavMetadata to the .sav/.zsav binary format.
 //! Supports uncompressed, bytecode-compressed (.sav), and zlib-compressed (.zsav) output.
 
 mod data;
@@ -24,10 +24,10 @@ use arrow::record_batch::RecordBatch;
 // Public API
 // ---------------------------------------------------------------------------
 
-/// Write an Arrow RecordBatch to a SAV .sav file.
+/// Write an Arrow RecordBatch to a .sav file.
 ///
 /// If `metadata` is provided, it controls variable labels, value labels,
-/// formats, and other SAV metadata. If default metadata is used, types
+/// formats, and other file metadata. If default metadata is used, types
 /// are inferred from the Arrow schema.
 ///
 /// # Compression

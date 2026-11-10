@@ -1,4 +1,4 @@
-//! SQL binding of the SAV SAV/ZSAV profile 1.0: one dataset is one wide table plus the
+//! SQL binding of the .sav/.zsav profile 1.0: one dataset is one wide table plus the
 //! normative catalog, in a namespace dedicated to OpenStatSpec (a SQLite file, a PostgreSQL
 //! schema, a MySQL, MariaDB or Dolt database).
 //!
@@ -16,7 +16,7 @@ pub const CONTRACT_ID: &str = "openstatspec-strict-wide-table-v1";
 /// Version of the catalog DDL below. The specification does not number catalog schemas.
 pub const SCHEMA_VERSION: i64 = 1;
 /// Written to `dataset.spec_version`: the profile the dataset follows.
-pub const SPEC_VERSION: &str = "spss-sav-zsav-1.0";
+pub const SPEC_VERSION: &str = crate::wire::SAV_PROFILE;
 
 /// The catalog relations, in creation order.
 pub const CATALOG_TABLES: [&str; 18] = [

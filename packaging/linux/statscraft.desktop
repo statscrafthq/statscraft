@@ -8,7 +8,7 @@ Icon=statscraft
 Terminal=false
 Categories=Science;Math;
 Keywords=statistics;survey;tables;crosstabs;sav;
-# application/x-statscraft-sav is the shared-mime-info type for .sav and .zsav; statscraft.xml adds .sps
-MimeType=application/x-statscraft-sav;text/x-statscraft-syntax;
+# statscraft.xml defines both types: data files (.sav, .zsav) and syntax files (.sps)
+MimeType=application/x-statscraft-data;text/x-statscraft-syntax;
 # the window's app id, so docks match the window to this entry
 StartupWMClass=StatsCraft

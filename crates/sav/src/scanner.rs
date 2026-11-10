@@ -31,7 +31,7 @@ enum ScanState {
     },
 }
 
-/// A streaming reader for SAV .sav/.zsav files.
+/// A streaming reader for .sav/.zsav files.
 ///
 /// Reads metadata immediately on construction. Data is read on demand
 /// via `next_batch()` or `collect_single()`. Supports column projection
@@ -96,7 +96,7 @@ impl<R: Read + Seek> SavScanner<R> {
                     .iter()
                     .map(|e| e.uncompressed_size.max(0) as usize)
                     .sum();
-                // Writers disagree on the sign here (the reference program/ambers write -100, some
+                // Writers disagree on the sign here (the reference program and ambers write -100, some
                 // tools +100); decoding uses the main header's bias anyway.
                 if ztrailer.bias.abs() != 100 {
                     dict.metadata.warnings.push(format!(
@@ -432,8 +432,8 @@ impl<R: Read + Seek> SavScanner<R> {
                     );
 
                     let needs_more = match &result {
-                        Ok(true) => false,                            // Row completed successfully
-                        Ok(false) if decompressor.is_eof() => break,  // True EOF marker seen
+                        Ok(true) => false,                           // Row completed successfully
+                        Ok(false) if decompressor.is_eof() => break, // True EOF marker seen
                         Ok(false) => true, // Buffer exhausted at clean boundary
                         Err(SavError::TruncatedFile { .. }) => true, // Buffer exhausted mid-row
                         Err(_) => return result.map(|_| None), // Propagate real errors

@@ -387,7 +387,7 @@ statscraft plan -s demo -e "RECODE q1_satisfaction (98, 99 = SYSMIS)."
 statscraft plan -e "FREQUENCIES q1." --input-schema schema.json
 ```
 
-The last one prints `{"error":{"code":"unsupported_spss_command","column":1,"end":11,"line":1,"message":"FREQUENCIES is not supported by frontend profile 0.3","start":0},"ok":false,"source_hash":"..."}` and exits with 1.
+The last one prints `{"error":{...,"message":"FREQUENCIES is not supported by frontend profile 0.3",...},"ok":false,...}`, whose `code` is the profile's code for an unsupported command, and exits with 1.
 
 ## db
 
