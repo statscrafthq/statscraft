@@ -196,8 +196,14 @@ fn add_and_match_files() {
     assert!(
         err("MATCH FILES /TABLE='t.sav' /BY k.")
             .expected
-            .contains(&"/FILE='path' or /FILE=*".to_string())
+            .contains(&"/FILE='path', /FILE=dataset or /FILE=*".to_string())
     );
+    // a dataset name may stand without quotes
+    let Command::MatchFiles(m) = one("MATCH FILES /FILE=wave1 /TABLE=regions /BY k.") else {
+        panic!()
+    };
+    assert_eq!(m.inputs[0].file.as_deref(), Some("wave1"));
+    assert_eq!(m.inputs[1].file.as_deref(), Some("regions"));
 }
 
 #[test]

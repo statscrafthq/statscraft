@@ -196,7 +196,7 @@ impl Engine {
     fn merge_input(&self, input: &MergeInput) -> Result<Input, Error> {
         let (name, data) = match &input.file {
             None => ("FILE=*".to_string(), self.active()?.clone()),
-            Some(path) => (format!("FILE='{path}'"), Dataset::read_sav(path)?),
+            Some(file) => (format!("FILE='{file}'"), self.data_file(file)?),
         };
         let mut renamed = Engine::with_dataset(Some(data));
         if !input.rename.is_empty() {

@@ -30,6 +30,16 @@ pub(crate) fn renames(p: &mut Parser) -> PResult<Vec<(Vec<VarItem>, Vec<VarItem>
     Ok(groups)
 }
 
+/// A quoted file path, or the unquoted name of a dataset (DATASET NAME or DECLARE).
+pub(crate) fn dataset_or_file(p: &mut Parser) -> PResult<String> {
+    if let Some(TokenKind::Word(word)) = p.peek() {
+        let word = word.clone();
+        p.pos += 1;
+        return Ok(word);
+    }
+    p.string("'*', a quoted file path or a dataset name")
+}
+
 fn merge(p: &mut Parser, command: &str, tables: bool) -> PResult<Merge> {
     let mut merge = Merge {
         inputs: Vec::new(),
@@ -45,7 +55,7 @@ fn merge(p: &mut Parser, command: &str, tables: bool) -> PResult<Merge> {
             let file = if p.eat(Punct::Star) {
                 None
             } else {
-                Some(p.string("'*' or a quoted file path")?)
+                Some(dataset_or_file(p)?)
             };
             merge.inputs.push(MergeInput {
                 file,
@@ -80,7 +90,7 @@ fn merge(p: &mut Parser, command: &str, tables: bool) -> PResult<Merge> {
     }
     p.finish(&["'/'"])?;
     if merge.inputs.iter().all(|input| input.table) {
-        return Err(p.unexpected(&["/FILE='path' or /FILE=*"]));
+        return Err(p.unexpected(&["/FILE='path', /FILE=dataset or /FILE=*"]));
     }
     if merge.by.is_empty() && merge.inputs.iter().any(|input| input.table) {
         let mut error = SyntaxError::new(p.span(), "MATCH FILES /TABLE needs /BY key variables");

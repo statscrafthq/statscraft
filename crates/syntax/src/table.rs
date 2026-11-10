@@ -200,11 +200,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "AGGREGATE",
         summary: "Aggregate groups of cases into new variables or a new dataset.",
-        syntax: "AGGREGATE [/OUTFILE=* | 'path' [MODE=ADDVARIABLES | REPLACE]] [/BREAK=varlist [(A | D)] ...]\n\
+        syntax: "AGGREGATE [/OUTFILE=* | 'path' | dataset [MODE=ADDVARIABLES | REPLACE]] [/BREAK=varlist [(A | D)] ...]\n\
                  \x20         /target ['label'] [target ...] = function(varlist) [/target ...].\n\
                  OUTFILE=* replaces the active dataset with one case per break group (break variables, then\n\
                  targets); with MODE=ADDVARIABLES it keeps the cases and adds the targets to each of them.\n\
-                 OUTFILE='path' writes the aggregated dataset to a file and leaves the active dataset alone.\n\
+                 OUTFILE='path' writes the aggregated dataset to a file and leaves the active dataset alone;\n\
+                 OUTFILE=dataset puts it into a dataset that DATASET DECLARE or DATASET NAME defined.\n\
                  Without OUTFILE the targets are added to every case, as with OUTFILE=* MODE=ADDVARIABLES.\n\
                  functions: SUM MEAN SD MEDIAN MIN MAX FIRST LAST N NU NMISS NUMISS; N and NU also without (varlist).\n\
                  Missing values are skipped. With a weight variable SUM, MEAN, SD, MEDIAN, N and NMISS are weighted.",
@@ -734,9 +735,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "ADD FILES",
         summary: "Append the cases of several data files, matching variables by name.",
-        syntax: "ADD FILES /FILE=* | 'path' [/RENAME=(old = new) ...] /FILE=... [/BY varlist]\n\
+        syntax: "ADD FILES /FILE=* | 'path' | dataset [/RENAME=(old = new) ...] /FILE=... [/BY varlist]\n\
                  \x20         [/KEEP=varlist] [/DROP=varlist].\n\
-                 FILE=* is the active dataset. A variable missing from a file is blank in its cases.\n\
+                 FILE=* is the active dataset; a dataset name (DATASET NAME), quoted or not, is that open\n\
+                 dataset and comes before a file of the same name. A variable missing from a file is blank in its cases.\n\
                  The first file that has a variable gives its format and measurement level; a later file\n\
                  fills in a label, value labels or missing values the earlier ones lack. A string variable\n\
                  takes its widest width; a variable that is numeric in one file and a string in another is\n\
@@ -748,8 +750,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "MATCH FILES",
         summary: "Combine the variables of several data files case by case or by key.",
-        syntax: "MATCH FILES /FILE=* | 'path' [/RENAME=(old = new) ...] [/TABLE='path' ...] /FILE=...\n\
-                 \x20           [/BY varlist] [/KEEP=varlist] [/DROP=varlist].\n\
+        syntax: "MATCH FILES /FILE=* | 'path' | dataset [/RENAME=(old = new) ...] [/TABLE='path' | dataset ...]\n\
+                 \x20           /FILE=... [/BY varlist] [/KEEP=varlist] [/DROP=varlist].\n\
+                 A dataset name (DATASET NAME), quoted or not, is that open dataset and comes before a file\n\
+                 of the same name.\n\
                  With BY, cases with equal keys are joined; every file must be sorted by the keys (use\n\
                  SORT CASES). Without BY the n-th cases of the files are joined. A TABLE adds its variables\n\
                  to the cases whose key it holds and adds no cases; it may hold each key once. A variable in\n\

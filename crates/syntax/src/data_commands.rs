@@ -213,7 +213,7 @@ pub(crate) fn aggregate(p: &mut Parser) -> PResult<Command> {
     let outfile = if p.eat(Punct::Star) {
         None
     } else {
-        Some(p.string("'*' or a quoted file path")?)
+        Some(crate::files::dataset_or_file(p)?)
     };
     let mut add_variables = false;
     if p.eat_keyword("MODE") {

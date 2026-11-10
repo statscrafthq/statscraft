@@ -179,6 +179,39 @@ fn named_datasets_stay_open_while_another_is_active() {
 }
 
 #[test]
+fn file_commands_take_dataset_names() {
+    let mut session = Session::default();
+    run(&mut session, DATA);
+    run(
+        &mut session,
+        "DATASET NAME whole.\n\
+         DATASET DECLARE counts.\n\
+         AGGREGATE /OUTFILE=counts /BREAK=grp /n = N.\n\
+         DATA LIST LIST /grp code.\nBEGIN DATA\n1 10\n2 20\nEND DATA.\n\
+         DATASET NAME codes.\n\
+         DATASET ACTIVATE whole.\n\
+         SORT CASES BY grp.\n\
+         MATCH FILES /FILE=* /TABLE='codes' /BY grp.",
+    );
+    let data = session.dataset().unwrap();
+    assert_eq!(data.case_count(), 8);
+    let code = data.variable("code").unwrap();
+    let codes: Vec<Option<f64>> = code.numeric().unwrap().iter().collect();
+    assert_eq!(codes[..4], [Some(10.0); 4]);
+    assert_eq!(codes[4..], [Some(20.0); 4]);
+    // the declared dataset got the aggregated cases; ADD FILES reads it by name, unquoted
+    run(
+        &mut session,
+        "ADD FILES /FILE=counts /FILE=counts.\nDATASET NAME both.",
+    );
+    assert_eq!(session.dataset().unwrap().case_count(), 4);
+    let error = session
+        .run("AGGREGATE /OUTFILE=both /BREAK=grp /m = N.", None)
+        .unwrap_err();
+    assert!(error[0].message.contains("OUTFILE=*"), "{error:?}");
+}
+
+#[test]
 fn display_and_list_show_the_dictionary_and_the_cases() {
     let mut session = Session::default();
     run(&mut session, DATA);

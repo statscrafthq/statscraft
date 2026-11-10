@@ -200,6 +200,31 @@ impl Engine {
             .and_then(|i| self.session.datasets[i].1.as_ref())
     }
 
+    /// The data a file command names: an open dataset of that name, which comes before a file
+    /// of that name, else the data file.
+    pub(crate) fn data_file(&self, file: &str) -> Result<Dataset, Error> {
+        match self.named_dataset(file) {
+            Some(data) => Ok(data.clone()),
+            None => Ok(Dataset::read_sav(self.path(file))?),
+        }
+    }
+
+    /// Writes `data` where an OUTFILE names: into the dataset of that name when DATASET NAME or
+    /// DECLARE defined one, else to the data file.
+    pub(crate) fn write_data_file(&mut self, file: &str, data: Dataset) -> Result<(), Error> {
+        if self.is_active_name(file) {
+            return Err(Error(format!(
+                "{file} is the active dataset; write to it with OUTFILE=*"
+            )));
+        }
+        match self.find_dataset(file) {
+            Some(i) => self.session.datasets[i].1 = Some(data),
+            None if !self.dry_run => data.write_sav(self.path(file))?,
+            None => {}
+        }
+        Ok(())
+    }
+
     /// The named datasets other than the active one, and the name of the active one.
     pub fn named_datasets(&self) -> (&[(String, Option<Dataset>)], Option<&str>) {
         (&self.session.datasets, self.session.active_name.as_deref())

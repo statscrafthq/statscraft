@@ -228,8 +228,7 @@ impl Engine {
         let result = self.aggregate_dataset(command)?;
         match &command.outfile {
             None => self.dataset = Some(result),
-            Some(path) if !self.dry_run => result.write_sav(path)?,
-            Some(_) => {}
+            Some(file) => self.write_data_file(file, result)?,
         }
         Ok(())
     }

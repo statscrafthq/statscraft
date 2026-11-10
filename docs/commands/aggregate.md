@@ -7,13 +7,13 @@ Aggregate groups of cases into new variables or a new dataset.
 ## Syntax
 
 ```text
-AGGREGATE [/OUTFILE=* | 'path' [MODE=ADDVARIABLES | REPLACE]] [/BREAK=varlist [(A | D)] ...]
+AGGREGATE [/OUTFILE=* | 'path' | dataset [MODE=ADDVARIABLES | REPLACE]] [/BREAK=varlist [(A | D)] ...]
           /target ['label'] [target ...] = function(varlist) [/target ...].
 ```
 
 OUTFILE=\* replaces the active dataset with one case per break group (break variables, then targets); with MODE=ADDVARIABLES it keeps the cases and adds the targets to each of them.
 
-OUTFILE='path' writes the aggregated dataset to a file and leaves the active dataset alone.
+OUTFILE='path' writes the aggregated dataset to a file and leaves the active dataset alone; OUTFILE=dataset puts it into a dataset that DATASET DECLARE or DATASET NAME defined.
 
 Without OUTFILE the targets are added to every case, as with OUTFILE=\* MODE=ADDVARIABLES.
 
