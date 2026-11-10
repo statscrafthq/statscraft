@@ -443,7 +443,7 @@ impl OldValue {
         }
     }
 
-    fn syntax(&self, string: bool) -> Result<String, String> {
+    pub fn syntax(&self, string: bool) -> Result<String, String> {
         let range = |text: &str| {
             if string {
                 Err("ranges work only with numeric variables".to_string())
@@ -542,6 +542,41 @@ impl Recode {
         }
         text.push('.');
         Ok(text)
+    }
+}
+
+/// COUNT: how many of the variables hold one of the values, per case, into a new variable.
+#[derive(Default, Clone, PartialEq, Debug)]
+pub struct Count {
+    pub target: String,
+    pub variables: Vec<String>,
+    /// Any old value of Recode except "all other values".
+    pub values: Vec<OldValue>,
+}
+
+impl Count {
+    /// `string` tells whether the variables are string variables, so values get quotes.
+    pub fn syntax(&self, string: bool) -> Result<String, String> {
+        let target = self.target.trim();
+        if target.is_empty() {
+            return Err("give the name of the target variable".into());
+        }
+        let variables = names(&self.variables, "Variables")?;
+        if self.values.is_empty() {
+            return Err("add at least one value to count".into());
+        }
+        let values = self
+            .values
+            .iter()
+            .map(|v| match v {
+                OldValue::Else => Err("all other values cannot be counted".to_string()),
+                v => v.syntax(string),
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(format!(
+            "COUNT {target} = {variables} ({}).",
+            values.join(" ")
+        ))
     }
 }
 
@@ -818,6 +853,75 @@ mod tests {
         assert_eq!(
             d.syntax().unwrap_err(),
             "a multiple response set has no mean; put it in Rows"
+        );
+    }
+
+    #[test]
+    fn count_values() {
+        let mut d = Count::default();
+        assert_eq!(
+            d.syntax(false).unwrap_err(),
+            "give the name of the target variable"
+        );
+        d.target = "channels".into();
+        d.variables = v(&["q5_1", "q5_2", "q5_3", "q5_4", "q5_5"]);
+        assert_eq!(
+            d.syntax(false).unwrap_err(),
+            "add at least one value to count"
+        );
+        d.values = vec![OldValue::Value("1".into())];
+        let syntax = d.syntax(false).unwrap();
+        assert_eq!(syntax, "COUNT channels = q5_1 q5_2 q5_3 q5_4 q5_5 (1).");
+        let mut session = open("survey_basic.sav");
+        run_in(&mut session, &syntax);
+        let data = session.dataset().unwrap();
+        let counts = data.variable("channels").unwrap();
+        assert!(
+            counts
+                .numeric()
+                .unwrap()
+                .iter()
+                .flatten()
+                .all(|n| (0.0..=5.0).contains(&n))
+        );
+
+        d.target = "extremes".into();
+        d.variables = v(&["q1_satisfaction", "q2_recommend"]);
+        d.values = vec![
+            OldValue::LowestThru("1".into()),
+            OldValue::Range("5".into(), "10".into()),
+            OldValue::ThruHighest("98".into()),
+            OldValue::Missing,
+            OldValue::SystemMissing,
+        ];
+        let syntax = d.syntax(false).unwrap();
+        assert_eq!(
+            syntax,
+            "COUNT extremes = q1_satisfaction q2_recommend \
+             (LOWEST THRU 1 5 THRU 10 98 THRU HIGHEST MISSING SYSMIS)."
+        );
+        assert_eq!(runs(&syntax), 0);
+        d.values.push(OldValue::Else);
+        assert_eq!(
+            d.syntax(false).unwrap_err(),
+            "all other values cannot be counted"
+        );
+
+        let strings = Count {
+            target: "basic".into(),
+            variables: v(&["plan"]),
+            values: vec![OldValue::Value("BASIC".into())],
+        };
+        let syntax = strings.syntax(true).unwrap();
+        assert_eq!(syntax, "COUNT basic = plan ('BASIC').");
+        assert_eq!(runs(&syntax), 0);
+        let range = Count {
+            values: vec![OldValue::Range("a".into(), "b".into())],
+            ..strings
+        };
+        assert_eq!(
+            range.syntax(true).unwrap_err(),
+            "ranges work only with numeric variables"
         );
     }
 

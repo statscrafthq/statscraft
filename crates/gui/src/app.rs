@@ -10,7 +10,7 @@ use crate::data_dialogs::{
     SortCases, WeightCases,
 };
 use crate::dialogs::{
-    Adjust, CROSSTABS_CELLS, Compute, Crosstabs, CustomTables, DESCRIPTIVES_STATISTICS,
+    Adjust, CROSSTABS_CELLS, Compute, Count, Crosstabs, CustomTables, DESCRIPTIVES_STATISTICS,
     Descriptives, Frequencies, Letters, NewValue, OldValue, Recode, RecodeRule, label_command,
 };
 use crate::edits::{self, Field};
@@ -74,6 +74,8 @@ enum Dialog {
     CustomTables(CustomTables),
     Compute(Compute, String),
     Recode(Recode, RuleDraft),
+    /// With the label of the new variable and the value being put together.
+    Count(Count, String, RuleDraft),
     Means(Means),
     TTest(TTest),
     Oneway(Oneway),
@@ -96,6 +98,7 @@ impl Dialog {
             Dialog::CustomTables(_) => "Custom Tables",
             Dialog::Compute(..) => "Compute Variable",
             Dialog::Recode(..) => "Recode",
+            Dialog::Count(..) => "Count Values within Cases",
             Dialog::Means(_) => "Means",
             Dialog::TTest(d) => d.title(),
             Dialog::Oneway(_) => "One-Way ANOVA",
@@ -117,6 +120,9 @@ impl Dialog {
             Dialog::CustomTables(_) => Dialog::CustomTables(Default::default()),
             Dialog::Compute(..) => Dialog::Compute(Default::default(), String::new()),
             Dialog::Recode(..) => Dialog::Recode(Default::default(), Default::default()),
+            Dialog::Count(..) => {
+                Dialog::Count(Default::default(), String::new(), Default::default())
+            }
             Dialog::Means(_) => Dialog::Means(Default::default()),
             Dialog::TTest(d) => Dialog::TTest(TTest::new(d.kind)),
             Dialog::Oneway(_) => Dialog::Oneway(Default::default()),
@@ -157,6 +163,18 @@ impl Dialog {
                     return Err("recode string and numeric variables separately".into());
                 }
                 d.syntax(strings > 0)
+            }
+            Dialog::Count(d, label, _) => {
+                let strings = d.variables.iter().filter(|n| is_string(data, n)).count();
+                if strings > 0 && strings < d.variables.len() {
+                    return Err("count in string and numeric variables separately".into());
+                }
+                let mut text = d.syntax(strings > 0)?;
+                if let Some(label) = label_command(&d.target, label) {
+                    text.push('\n');
+                    text.push_str(&label);
+                }
+                Ok(text)
             }
             Dialog::Means(d) => d.syntax(),
             Dialog::TTest(d) => d.syntax(is_string(data, &d.grouping)),
@@ -694,6 +712,16 @@ impl App {
                     .clicked()
                 {
                     self.open_dialog(Dialog::Recode(Default::default(), Default::default()));
+                }
+                if ui
+                    .add_enabled(has_data, egui::Button::new("Count Values within Cases..."))
+                    .clicked()
+                {
+                    self.open_dialog(Dialog::Count(
+                        Default::default(),
+                        String::new(),
+                        Default::default(),
+                    ));
                 }
             });
         });
@@ -2045,6 +2073,55 @@ fn dialog_body(ui: &mut Ui, data: &Dataset, dialog: &mut Dialog, picked: &mut Ve
                     d.expression.push_str(&name);
                 }
             }
+        }
+        Dialog::Count(d, label, draft) => {
+            egui::Grid::new("count").num_columns(2).show(ui, |ui| {
+                ui.label("Target variable");
+                ui.text_edit_singleline(&mut d.target);
+                ui.end_row();
+                ui.label("Label (optional)");
+                ui.text_edit_singleline(label);
+                ui.end_row();
+            });
+            target_list(ui, "Variables", &mut d.variables, picked);
+            ui.add_space(6.0);
+            ui.strong("Values to count");
+            let mut remove = None;
+            for (i, value) in d.values.iter().enumerate() {
+                ui.horizontal(|ui| {
+                    let text = value
+                        .syntax(false)
+                        .or_else(|_| value.syntax(true))
+                        .unwrap_or_else(|e| e);
+                    ui.monospace(text);
+                    if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
+                        remove = Some(i);
+                    }
+                });
+            }
+            if let Some(i) = remove {
+                d.values.remove(i);
+            }
+            // every old value of Recode but the last, "all other values"
+            let choices = OldValue::CHOICES.len() - 1;
+            ui.horizontal_wrapped(|ui| {
+                ComboBox::new("count value", "")
+                    .selected_text(OldValue::CHOICES[draft.old])
+                    .show_index(ui, &mut draft.old, choices, |i| OldValue::CHOICES[i]);
+                if draft.old <= 3 {
+                    ui.add(TextEdit::singleline(&mut draft.low).desired_width(70.0));
+                }
+                if draft.old == 1 {
+                    ui.label("through");
+                    ui.add(TextEdit::singleline(&mut draft.high).desired_width(70.0));
+                }
+                if ui.button("Add value").clicked() {
+                    d.values
+                        .push(OldValue::from_choice(draft.old, &draft.low, &draft.high));
+                    *draft = RuleDraft::default();
+                }
+            });
+            ui.weak("A value or range also counts user-missing values.");
         }
         Dialog::Means(d) => {
             target_list(ui, "Dependent variables", &mut d.dependents, picked);
