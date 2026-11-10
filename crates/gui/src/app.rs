@@ -345,6 +345,8 @@ pub struct App {
     macros: Vec<String>,
     /// The About window is open.
     about: bool,
+    /// The app icon, shown in the About window.
+    logo: egui::TextureHandle,
     editor_id: Option<egui::Id>,
     output: OutputView,
     /// Window size and position, the last folder, the recent files and the update check, kept
@@ -371,6 +373,7 @@ impl App {
     pub fn new(args: &[String], ctx: &egui::Context, mut settings: Settings) -> Self {
         let (sender, requests) = mpsc::channel::<Remote>();
         let app_ctx = ctx.clone();
+        let logo = logo(ctx);
         let ctx = ctx.clone();
         // the listener thread hands each request to the window and waits for the reply
         let server = live::serve(live::endpoint_file(), move |request| {
@@ -425,6 +428,7 @@ impl App {
             completion: None,
             macros: Vec::new(),
             about: false,
+            logo,
             editor_id: None,
             output: OutputView::default(),
             settings,
@@ -2583,7 +2587,10 @@ impl eframe::App for App {
             .collapsible(false)
             .resizable(false)
             .show(&ctx, |ui| {
-                ui.heading("StatsCraft");
+                ui.horizontal(|ui| {
+                    ui.add(egui::Image::new(&self.logo).fit_to_exact_size(egui::vec2(48.0, 48.0)));
+                    ui.heading("StatsCraft");
+                });
                 ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
                 ui.label("Statistics with a command language, on .sav data files.");
                 ui.label("License: MIT");
@@ -2594,6 +2601,15 @@ impl eframe::App for App {
                 });
             });
     }
+}
+
+/// The app icon as a texture, at 128 px so it stays sharp on a high-density screen.
+fn logo(ctx: &egui::Context) -> egui::TextureHandle {
+    let icon = eframe::icon_data::from_png_bytes(include_bytes!("../icons/statscraft-128.png"))
+        .expect("the bundled icon is a valid PNG");
+    let size = [icon.width as usize, icon.height as usize];
+    let image = egui::ColorImage::from_rgba_unmultiplied(size, &icon.rgba);
+    ctx.load_texture("logo", image, egui::TextureOptions::LINEAR)
 }
 
 /// The rest of `ui` as a sheet of paper: light with dark text when `light`, whatever the system

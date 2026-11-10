@@ -1,5 +1,7 @@
 #!/bin/sh
 # Renders statscraft.svg to the PNG sizes Linux uses and to statscraft.ico for Windows.
+# statscraft.svg is the logo's icon as the brand files give it: replace it, never redraw it.
+# All sizes, 16 px included, are the same full-colour icon.
 # Needs rsvg-convert (librsvg) and ImageMagick. Run it after changing the SVG and commit the output.
 set -eu
 cd "$(dirname "$0")"
