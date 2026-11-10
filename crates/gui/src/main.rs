@@ -10,6 +10,7 @@ mod editor;
 mod edits;
 mod fonts;
 mod grid;
+mod grid_menu;
 mod highlight;
 mod output;
 mod output_view;

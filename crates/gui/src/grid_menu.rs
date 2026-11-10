@@ -1,0 +1,732 @@
+//! The right-click menus of the Data View and the Variable View: what a menu offers for what was
+//! clicked, and the syntax or the prefilled dialog each item becomes.
+
+use crate::analyze_dialogs::Explore;
+use crate::app::Dialog;
+use crate::data_dialogs::SortCases;
+use crate::dialogs::{Crosstabs, CustomTables, Descriptives, Frequencies, Recode};
+use crate::edits::Field;
+use statscraft_data::{Dataset, Measure};
+
+/// What a right click landed on.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Target {
+    /// Variables by their index, in file order: Data View columns or Variable View rows.
+    Variables(Vec<usize>),
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Item {
+    SortAscending,
+    SortDescending,
+    Frequencies,
+    Descriptives,
+    Information,
+    FrequenciesDialog,
+    DescriptivesDialog,
+    ExploreDialog,
+    CrosstabsDialog,
+    CustomTablesDialog,
+    Measure(Measure),
+    Rename,
+    Properties,
+    ShowInData,
+    RecodeDialog,
+    Copy,
+}
+
+/// One item of a menu.
+#[derive(Debug)]
+pub struct Entry {
+    pub item: Item,
+    pub label: String,
+    pub enabled: bool,
+    /// Why the item is off, or what it leaves out.
+    pub hover: Option<String>,
+    /// For a choice of one of several: whether it is the current one.
+    pub checked: Option<bool>,
+    /// The submenu the item sits in.
+    pub submenu: Option<&'static str>,
+    pub shortcut: Option<&'static str>,
+}
+
+fn entry(item: Item, label: &str) -> Entry {
+    Entry {
+        item,
+        label: label.to_string(),
+        enabled: true,
+        hover: None,
+        checked: None,
+        submenu: None,
+        shortcut: None,
+    }
+}
+
+impl Entry {
+    /// Off, with the reason on hover, when `ready` is an error.
+    fn ready(mut self, ready: &Result<(), String>) -> Self {
+        if let Err(why) = ready {
+            self.enabled = false;
+            self.hover = Some(why.clone());
+        }
+        self
+    }
+
+    fn under(mut self, submenu: &'static str) -> Self {
+        self.submenu = Some(submenu);
+        self
+    }
+
+    fn key(mut self, shortcut: &'static str) -> Self {
+        self.shortcut = Some(shortcut);
+        self
+    }
+}
+
+/// A question asked before an action runs: what it will do, the syntax, and the button that
+/// runs it.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Confirm {
+    pub question: String,
+    pub syntax: String,
+    pub button: &'static str,
+}
+
+/// What choosing an item does.
+pub enum Action {
+    Run(String),
+    Ask(Confirm),
+    Open(Box<Dialog>),
+    /// Ctrl+C: the selection to the clipboard.
+    Copy,
+    /// Start editing a Variable View field: (variable, field).
+    EditField(usize, usize),
+    /// The variable's row in the Variable View.
+    Properties(usize),
+    /// The variable's column in the Data View.
+    ShowInData(usize),
+}
+
+fn dialog(dialog: Dialog) -> Action {
+    Action::Open(Box::new(dialog))
+}
+
+const MORE: &str = "More analyses";
+const MEASURE: &str = "Measure";
+pub const MEASURES: [(Measure, &str); 3] = [
+    (Measure::Nominal, "Nominal"),
+    (Measure::Ordinal, "Ordinal"),
+    (Measure::Scale, "Scale"),
+];
+
+/// The variables a target concerns that the dataset still has, in file order.
+fn columns(data: &Dataset, target: &Target) -> Vec<usize> {
+    let Target::Variables(columns) = target;
+    let mut columns: Vec<usize> = columns
+        .iter()
+        .copied()
+        .filter(|&c| c < data.variable_count())
+        .collect();
+    columns.sort_unstable();
+    columns.dedup();
+    columns
+}
+
+fn name(data: &Dataset, column: usize) -> String {
+    data.variable_at(column).name().to_string()
+}
+
+fn numeric(data: &Dataset, columns: &[usize]) -> Vec<usize> {
+    let mut numeric = columns.to_vec();
+    numeric.retain(|&c| !data.variable_at(c).is_string());
+    numeric
+}
+
+/// A variable list for syntax, in file order: a run of three or more neighbouring variables is
+/// written `a TO c`, so a wide selection stays short. `columns` must be sorted.
+pub fn varlist(data: &Dataset, columns: &[usize]) -> String {
+    let mut parts = Vec::new();
+    let mut i = 0;
+    while i < columns.len() {
+        let mut j = i;
+        while j + 1 < columns.len() && columns[j + 1] == columns[j] + 1 {
+            j += 1;
+        }
+        if j - i >= 2 {
+            parts.push(format!(
+                "{} TO {}",
+                name(data, columns[i]),
+                name(data, columns[j])
+            ));
+        } else {
+            parts.extend(columns[i..=j].iter().map(|&c| name(data, c)));
+        }
+        i = j + 1;
+    }
+    parts.join(" ")
+}
+
+/// `text` cut to about `most` characters.
+fn short(text: &str, most: usize) -> String {
+    match text.char_indices().nth(most) {
+        Some((at, _)) => format!("{}...", &text[..at]),
+        None => text.to_string(),
+    }
+}
+
+/// The first line of a menu: what it acts on.
+pub fn heading(data: &Dataset, target: &Target) -> String {
+    match columns(data, target)[..] {
+        [one] => {
+            let variable = data.variable_at(one);
+            match variable.label() {
+                Some(label) => format!("{}: {}", variable.name(), short(label, 48)),
+                None => variable.name().to_string(),
+            }
+        }
+        ref several => format!("{} variables", several.len()),
+    }
+}
+
+/// The items of the menu over `target`. None stands for a separator. `variable_view` tells
+/// which grid was clicked, `busy` that a run is going on.
+pub fn entries(
+    data: &Dataset,
+    target: &Target,
+    variable_view: bool,
+    busy: bool,
+) -> Vec<Option<Entry>> {
+    let runs: Result<(), String> = match busy {
+        true => Err("wait for the running command to finish".into()),
+        false => Ok(()),
+    };
+    let cases = match data.case_count() {
+        0 => Err("no cases".into()),
+        _ => runs.clone(),
+    };
+    let columns = columns(data, target);
+    if columns.is_empty() {
+        return Vec::new();
+    }
+    let one = columns.len() == 1;
+    let numeric = numeric(data, &columns);
+    let strings: Vec<String> = columns
+        .iter()
+        .filter(|c| !numeric.contains(c))
+        .map(|&c| name(data, c))
+        .collect();
+    let (ascending, descending) = match one {
+        true => ("Sort ascending", "Sort descending"),
+        false => ("Sort ascending by these", "Sort descending by these"),
+    };
+    let mut descriptives = entry(Item::Descriptives, "Descriptives").ready(&cases);
+    let no_mean = match (numeric.is_empty(), one) {
+        (false, _) => Ok(()),
+        (true, true) => Err("a string variable has no mean".to_string()),
+        (true, false) => Err("string variables have no mean".to_string()),
+    };
+    descriptives = descriptives.ready(&no_mean);
+    if descriptives.enabled && !strings.is_empty() {
+        descriptives.hover = Some(format!("leaves out {}", crate::edits::listed(&strings)));
+    }
+    let mut list = vec![
+        Some(entry(Item::SortAscending, ascending).ready(&cases)),
+        Some(entry(Item::SortDescending, descending).ready(&cases)),
+        None,
+        Some(entry(Item::Frequencies, "Frequencies").ready(&cases)),
+        Some(descriptives),
+        Some(entry(Item::Information, "Variable information").ready(&runs)),
+        Some(entry(Item::FrequenciesDialog, "Frequencies...").under(MORE)),
+        Some(
+            entry(Item::DescriptivesDialog, "Descriptives...")
+                .ready(&no_mean)
+                .under(MORE),
+        ),
+        Some(
+            entry(Item::ExploreDialog, "Explore...")
+                .ready(&no_mean)
+                .under(MORE),
+        ),
+        Some(entry(Item::CrosstabsDialog, "Crosstabs...").under(MORE)),
+        Some(entry(Item::CustomTablesDialog, "Custom Tables...").under(MORE)),
+    ];
+    for (measure, label) in MEASURES {
+        let mut choice = entry(Item::Measure(measure), label)
+            .ready(&runs)
+            .under(MEASURE);
+        choice.checked = Some(
+            columns
+                .iter()
+                .all(|&c| data.variable_at(c).measure() == measure),
+        );
+        list.push(Some(choice));
+    }
+    list.push(None);
+    if one {
+        list.push(Some(entry(Item::Rename, "Rename")));
+        list.push(Some(match variable_view {
+            true => entry(Item::ShowInData, "Show in Data View"),
+            false => entry(Item::Properties, "Properties"),
+        }));
+        list.push(Some(entry(Item::RecodeDialog, "Recode...")));
+        list.push(None);
+    }
+    list.push(Some(entry(Item::Copy, "Copy").key("Ctrl+C")));
+    list
+}
+
+/// What choosing `item` in the menu over `target` does.
+pub fn action(data: &Dataset, target: &Target, item: Item) -> Result<Action, String> {
+    let columns = columns(data, target);
+    let first = *columns.first().ok_or("the variable is gone")?;
+    let all = varlist(data, &columns);
+    let names: Vec<String> = columns.iter().map(|&c| name(data, c)).collect();
+    let numeric = numeric(data, &columns);
+    let numeric_names: Vec<String> = numeric.iter().map(|&c| name(data, c)).collect();
+    Ok(match item {
+        Item::SortAscending | Item::SortDescending => {
+            let descending = item == Item::SortDescending;
+            let syntax = SortCases {
+                keys: vec![(all, descending)],
+            }
+            .syntax()?;
+            match data.split_file() {
+                Some(split) => Action::Ask(Confirm {
+                    question: format!(
+                        "Sorting the cases ends the split by {}.",
+                        split.variables.join(" ")
+                    ),
+                    syntax,
+                    button: "Sort",
+                }),
+                None => Action::Run(syntax),
+            }
+        }
+        Item::Frequencies => Action::Run(
+            Frequencies {
+                variables: vec![all],
+                ..Default::default()
+            }
+            .syntax()?,
+        ),
+        Item::Descriptives => Action::Run(
+            Descriptives {
+                variables: vec![varlist(data, &numeric)],
+                ..Default::default()
+            }
+            .syntax()?,
+        ),
+        Item::Information => Action::Run(format!("DISPLAY DICTIONARY /VARIABLES={all}.")),
+        Item::FrequenciesDialog => dialog(Dialog::Frequencies(Frequencies {
+            variables: names,
+            ..Default::default()
+        })),
+        Item::DescriptivesDialog => dialog(Dialog::Descriptives(Descriptives {
+            variables: numeric_names,
+            ..Default::default()
+        })),
+        Item::ExploreDialog => dialog(Dialog::Explore(Explore {
+            dependents: numeric_names,
+            ..Default::default()
+        })),
+        Item::CrosstabsDialog => {
+            let mut d = Crosstabs::default();
+            match &names[..] {
+                [row, column] => (d.rows, d.columns) = (vec![row.clone()], vec![column.clone()]),
+                _ => d.rows = names,
+            }
+            dialog(Dialog::Crosstabs(d))
+        }
+        Item::CustomTablesDialog => {
+            let mut d = CustomTables::default();
+            for &c in &columns {
+                let variable = data.variable_at(c);
+                let scale = !variable.is_string() && variable.measure() == Measure::Scale;
+                let list = if scale {
+                    &mut d.scale_rows
+                } else {
+                    &mut d.rows
+                };
+                list.push(variable.name().to_string());
+            }
+            dialog(Dialog::CustomTables(d, Default::default()))
+        }
+        Item::Measure(measure) => Action::Run(format!(
+            "VARIABLE LEVEL {all} ({}).",
+            measure.as_str().to_ascii_uppercase()
+        )),
+        Item::Rename => Action::EditField(first, Field::Name as usize),
+        Item::Properties => Action::Properties(first),
+        Item::ShowInData => Action::ShowInData(first),
+        Item::RecodeDialog => dialog(Dialog::Recode(
+            Recode {
+                variables: names,
+                ..Default::default()
+            },
+            Default::default(),
+        )),
+        Item::Copy => Action::Copy,
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dialogs::testing::{open, run_in, v};
+    use statscraft_engine::session::Session;
+
+    fn data(session: &Session) -> &Dataset {
+        session.dataset().unwrap()
+    }
+
+    fn index(session: &Session, name: &str) -> usize {
+        data(session).variable_index(name).unwrap()
+    }
+
+    fn target(session: &Session, names: &[&str]) -> Target {
+        Target::Variables(names.iter().map(|n| index(session, n)).collect())
+    }
+
+    /// The item's entry in the menu over `names` of the Data View.
+    fn find(session: &Session, names: &[&str], item: Item) -> Option<Entry> {
+        let entries = entries(data(session), &target(session, names), false, false);
+        entries.into_iter().flatten().find(|e| e.item == item)
+    }
+
+    fn syntax(session: &Session, names: &[&str], item: Item) -> String {
+        match action(data(session), &target(session, names), item).unwrap() {
+            Action::Run(syntax) => syntax,
+            Action::Ask(confirm) => confirm.syntax,
+            _ => panic!("{item:?} runs no syntax"),
+        }
+    }
+
+    /// The values of a numeric variable, system-missing as None.
+    fn numbers(session: &Session, name: &str) -> Vec<Option<f64>> {
+        let variable = data(session).variable(name).unwrap();
+        variable.numeric().unwrap().iter().collect()
+    }
+
+    #[test]
+    fn sort_by_one_column_both_ways() {
+        let mut session = open("survey_basic.sav");
+        let up = syntax(&session, &["age"], Item::SortAscending);
+        assert_eq!(up, "SORT CASES BY age.");
+        run_in(&mut session, &up);
+        let ages = numbers(&session, "age");
+        assert!(ages.windows(2).all(|w| w[0] <= w[1]));
+        let down = syntax(&session, &["age"], Item::SortDescending);
+        assert_eq!(down, "SORT CASES BY age (D).");
+        run_in(&mut session, &down);
+        let ages = numbers(&session, "age");
+        assert!(ages.windows(2).all(|w| w[0] >= w[1]));
+    }
+
+    #[test]
+    fn sort_by_several_columns_in_file_order() {
+        let mut session = open("survey_basic.sav");
+        // clicked as region, then gender: the syntax follows the file
+        let up = syntax(&session, &["region", "gender"], Item::SortAscending);
+        assert_eq!(up, "SORT CASES BY gender region.");
+        let entry = find(&session, &["region", "gender"], Item::SortAscending).unwrap();
+        assert_eq!(entry.label, "Sort ascending by these");
+        run_in(&mut session, &up);
+        let pairs: Vec<_> = numbers(&session, "gender")
+            .into_iter()
+            .zip(numbers(&session, "region"))
+            .collect();
+        assert!(pairs.windows(2).all(|w| w[0] <= w[1]));
+        let down = syntax(&session, &["region", "gender"], Item::SortDescending);
+        assert_eq!(down, "SORT CASES BY gender region (D).");
+        run_in(&mut session, &down);
+    }
+
+    #[test]
+    fn sort_asks_first_when_split_is_on() {
+        let mut session = open("survey_basic.sav");
+        run_in(&mut session, "SORT CASES BY region.\nSPLIT FILE BY region.");
+        let Action::Ask(confirm) = action(
+            data(&session),
+            &target(&session, &["age"]),
+            Item::SortAscending,
+        )
+        .unwrap() else {
+            panic!("sorting with a split asks first");
+        };
+        assert_eq!(
+            confirm.question,
+            "Sorting the cases ends the split by region."
+        );
+        assert_eq!(confirm.syntax, "SORT CASES BY age.");
+        run_in(&mut session, &confirm.syntax);
+        assert!(data(&session).split_file().is_none());
+    }
+
+    #[test]
+    fn frequencies_is_the_dialog_default() {
+        let session = open("survey_basic.sav");
+        let quick = syntax(&session, &["gender", "plan"], Item::Frequencies);
+        let dialog = Frequencies {
+            variables: v(&["gender plan"]),
+            ..Default::default()
+        };
+        assert_eq!(quick, dialog.syntax().unwrap());
+        assert_eq!(quick, "FREQUENCIES VARIABLES=gender plan.");
+        // one frequency table per variable
+        assert_eq!(run_in(&mut open("survey_basic.sav"), &quick), 2);
+    }
+
+    #[test]
+    fn descriptives_leaves_out_strings() {
+        let session = open("survey_basic.sav");
+        let quick = syntax(
+            &session,
+            &["age", "plan", "monthly_spend"],
+            Item::Descriptives,
+        );
+        assert_eq!(
+            quick,
+            "DESCRIPTIVES VARIABLES=age monthly_spend\n  /STATISTICS=MEAN STDDEV MINIMUM MAXIMUM."
+        );
+        let entry = find(
+            &session,
+            &["age", "plan", "monthly_spend"],
+            Item::Descriptives,
+        );
+        let entry = entry.unwrap();
+        assert!(entry.enabled);
+        assert_eq!(entry.hover.as_deref(), Some("leaves out plan"));
+        assert_eq!(run_in(&mut open("survey_basic.sav"), &quick), 1);
+    }
+
+    #[test]
+    fn descriptives_is_off_for_a_string() {
+        let session = open("survey_basic.sav");
+        let entry = find(&session, &["plan"], Item::Descriptives).unwrap();
+        assert!(!entry.enabled);
+        assert_eq!(
+            entry.hover.as_deref(),
+            Some("a string variable has no mean")
+        );
+        let entry = find(&session, &["plan", "q3_comment"], Item::Descriptives).unwrap();
+        assert_eq!(
+            entry.hover.as_deref(),
+            Some("string variables have no mean")
+        );
+        assert!(
+            !find(&session, &["plan"], Item::ExploreDialog)
+                .unwrap()
+                .enabled
+        );
+        // the other analyses take strings
+        assert!(
+            find(&session, &["plan"], Item::Frequencies)
+                .unwrap()
+                .enabled
+        );
+    }
+
+    #[test]
+    fn variable_information_shows_the_dictionary() {
+        let mut session = open("survey_basic.sav");
+        let quick = syntax(&session, &["gender", "age"], Item::Information);
+        assert_eq!(quick, "DISPLAY DICTIONARY /VARIABLES=gender age.");
+        // the variables and the value labels of gender
+        assert_eq!(run_in(&mut session, &quick), 2);
+    }
+
+    #[test]
+    fn measure_for_several_variables() {
+        let mut session = open("survey_basic.sav");
+        let names = ["q5_1", "q5_2", "q5_3", "q5_4", "q5_5"];
+        let nominal = find(&session, &names, Item::Measure(Measure::Nominal)).unwrap();
+        assert_eq!(
+            (nominal.checked, nominal.submenu),
+            (Some(true), Some(MEASURE))
+        );
+        let quick = syntax(&session, &names, Item::Measure(Measure::Ordinal));
+        assert_eq!(quick, "VARIABLE LEVEL q5_1 TO q5_5 (ORDINAL).");
+        run_in(&mut session, &quick);
+        for name in names {
+            let measure = data(&session).variable(name).unwrap().measure();
+            assert_eq!(measure, Measure::Ordinal);
+        }
+        let ordinal = find(&session, &names, Item::Measure(Measure::Ordinal)).unwrap();
+        assert_eq!(ordinal.checked, Some(true));
+        // a mix has none checked
+        let mixed = find(&session, &["age", "q5_1"], Item::Measure(Measure::Scale)).unwrap();
+        assert_eq!(mixed.checked, Some(false));
+    }
+
+    #[test]
+    fn a_long_selection_is_written_with_to() {
+        let session = open("survey_basic.sav");
+        let data = data(&session);
+        // resp_id gender age region, q5_1 q5_2, q6_mention1 to q6_mention3
+        let columns = [0, 1, 2, 3, 10, 11, 15, 16, 17];
+        assert_eq!(
+            varlist(data, &columns),
+            "resp_id TO region q5_1 q5_2 q6_mention1 TO q6_mention3"
+        );
+        let target = Target::Variables(columns.to_vec());
+        for item in [Item::SortAscending, Item::Frequencies, Item::Information] {
+            let Ok(Action::Run(syntax)) = action(data, &target, item) else {
+                panic!("{item:?} runs at once");
+            };
+            assert!(syntax.contains("resp_id TO region q5_1 q5_2 q6_mention1 TO q6_mention3"));
+            run_in(&mut open("survey_basic.sav"), &syntax);
+        }
+        // Descriptives leaves out no string here, so the runs stay whole
+        let Ok(Action::Run(syntax)) = action(data, &target, Item::Descriptives) else {
+            panic!("Descriptives runs at once");
+        };
+        assert!(syntax.starts_with("DESCRIPTIVES VARIABLES=resp_id TO region q5_1 q5_2"));
+        // a string inside a run breaks it: age monthly_spend plan signup_date
+        assert_eq!(varlist(data, &[2]), "age");
+        let mixed = Target::Variables(vec![5, 6, 7, 8, 9]);
+        let Ok(Action::Run(syntax)) = action(data, &mixed, Item::Descriptives) else {
+            panic!("Descriptives runs at once");
+        };
+        assert!(
+            syntax.starts_with("DESCRIPTIVES VARIABLES=q2_recommend monthly_spend signup_date\n")
+        );
+        run_in(&mut open("survey_basic.sav"), &syntax);
+    }
+
+    #[test]
+    fn analyses_are_off_without_cases() {
+        let mut session = open("survey_basic.sav");
+        run_in(&mut session, "SELECT IF resp_id < 0.");
+        assert_eq!(data(&session).case_count(), 0);
+        for item in [
+            Item::SortAscending,
+            Item::SortDescending,
+            Item::Frequencies,
+            Item::Descriptives,
+        ] {
+            let entry = find(&session, &["age"], item).unwrap();
+            assert!(!entry.enabled, "{item:?}");
+            assert_eq!(entry.hover.as_deref(), Some("no cases"));
+        }
+        // the dictionary stays at hand
+        for item in [
+            Item::Information,
+            Item::Measure(Measure::Ordinal),
+            Item::Rename,
+        ] {
+            assert!(find(&session, &["age"], item).unwrap().enabled, "{item:?}");
+        }
+        let quick = syntax(&session, &["age"], Item::Information);
+        run_in(&mut session, &quick);
+    }
+
+    #[test]
+    fn items_that_run_wait_for_a_run_going_on() {
+        let session = open("survey_basic.sav");
+        let target = target(&session, &["age"]);
+        let entries = entries(data(&session), &target, false, true);
+        let entries: Vec<Entry> = entries.into_iter().flatten().collect();
+        let off = |item| {
+            let entry = entries.iter().find(|e| e.item == item).unwrap();
+            (!entry.enabled).then(|| entry.hover.clone().unwrap())
+        };
+        let wait = Some("wait for the running command to finish".to_string());
+        assert_eq!(off(Item::SortAscending), wait);
+        assert_eq!(off(Item::Information), wait);
+        assert_eq!(off(Item::Measure(Measure::Scale)), wait);
+        // dialogs and the clipboard do not run anything yet
+        assert_eq!(off(Item::FrequenciesDialog), None);
+        assert_eq!(off(Item::Copy), None);
+    }
+
+    #[test]
+    fn crosstabs_of_two_columns_prefills_rows_and_columns() {
+        let session = open("survey_basic.sav");
+        let Ok(Action::Open(opened)) = action(
+            data(&session),
+            &target(&session, &["region", "gender"]),
+            Item::CrosstabsDialog,
+        ) else {
+            panic!("Crosstabs opens its dialog");
+        };
+        let Dialog::Crosstabs(d) = *opened else {
+            panic!("Crosstabs opens its dialog");
+        };
+        assert_eq!(
+            (d.rows.clone(), d.columns.clone()),
+            (v(&["gender"]), v(&["region"]))
+        );
+        run_in(&mut open("survey_basic.sav"), &d.syntax().unwrap());
+    }
+
+    #[test]
+    fn the_other_dialogs_are_prefilled() {
+        let session = open("survey_basic.sav");
+        let open_with =
+            |names: &[&str], item| match action(data(&session), &target(&session, names), item)
+                .unwrap()
+            {
+                Action::Open(dialog) => *dialog,
+                _ => panic!("{item:?} opens a dialog"),
+            };
+        let names = ["gender", "age", "plan"];
+        let Dialog::Frequencies(d) = open_with(&names, Item::FrequenciesDialog) else {
+            panic!()
+        };
+        assert_eq!(d.variables, v(&names));
+        let Dialog::Descriptives(d) = open_with(&names, Item::DescriptivesDialog) else {
+            panic!()
+        };
+        assert_eq!(d.variables, v(&["gender", "age"]));
+        let Dialog::Explore(d) = open_with(&names, Item::ExploreDialog) else {
+            panic!()
+        };
+        assert_eq!(d.dependents, v(&["gender", "age"]));
+        // a scale variable goes to the scale rows of Custom Tables
+        let Dialog::CustomTables(d, _) = open_with(&names, Item::CustomTablesDialog) else {
+            panic!()
+        };
+        assert_eq!(
+            (d.rows.clone(), d.scale_rows.clone()),
+            (v(&["gender", "plan"]), v(&["age"]))
+        );
+        run_in(&mut open("survey_basic.sav"), &d.syntax().unwrap());
+        let Dialog::Recode(d, _) = open_with(&["region"], Item::RecodeDialog) else {
+            panic!()
+        };
+        assert_eq!(d.variables, v(&["region"]));
+    }
+
+    #[test]
+    fn one_variable_has_rename_and_its_properties_several_do_not() {
+        let session = open("survey_basic.sav");
+        let data = data(&session);
+        let age = index(&session, "age");
+        let items = |target: &Target, variable_view| {
+            let entries = entries(data, target, variable_view, false);
+            entries
+                .into_iter()
+                .flatten()
+                .map(|e| e.item)
+                .collect::<Vec<_>>()
+        };
+        let one = items(&Target::Variables(vec![age]), false);
+        assert!(one.contains(&Item::Rename) && one.contains(&Item::Properties));
+        assert!(!one.contains(&Item::ShowInData));
+        let several = items(&Target::Variables(vec![age, age + 1]), false);
+        assert!(!several.contains(&Item::Rename) && !several.contains(&Item::RecodeDialog));
+        let target = Target::Variables(vec![age]);
+        assert!(matches!(
+            action(data, &target, Item::Rename),
+            Ok(Action::EditField(c, 0)) if c == age
+        ));
+        assert!(
+            matches!(action(data, &target, Item::Properties), Ok(Action::Properties(c)) if c == age)
+        );
+        assert_eq!(heading(data, &target), "age: Age in years");
+        assert_eq!(
+            heading(data, &Target::Variables(vec![1, 2, 3])),
+            "3 variables"
+        );
+    }
+}

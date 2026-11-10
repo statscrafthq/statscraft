@@ -21,7 +21,7 @@ use crate::output_view::{self, OutputView};
 use crate::settings::Settings;
 use crate::syntax_text::{number, quote};
 use crate::updates::Updates;
-use crate::{complete, editor, grid, highlight, themes};
+use crate::{complete, editor, grid, grid_menu, highlight, themes};
 use eframe::egui::{
     self, Align, Align2, Color32, ComboBox, FocusDirection, FontId, Key, Modifiers, Rect, RichText,
     ScrollArea, Sense, Stroke, StrokeKind, TextEdit, TextStyle, Ui, UiBuilder, pos2,
@@ -70,7 +70,7 @@ enum Tab {
 /// The categories panel of Custom Tables: the variable shown, its categories as (syntax
 /// literal, shown text), and the subtotal being put together.
 #[derive(Default)]
-struct CategoryDraft {
+pub(crate) struct CategoryDraft {
     variable: String,
     categories: Vec<(String, String)>,
     label: String,
@@ -79,7 +79,7 @@ struct CategoryDraft {
 
 /// The rule being put together in the Recode dialog.
 #[derive(Default)]
-struct RuleDraft {
+pub(crate) struct RuleDraft {
     old: usize,
     low: String,
     high: String,
@@ -87,7 +87,7 @@ struct RuleDraft {
     value: String,
 }
 
-enum Dialog {
+pub(crate) enum Dialog {
     Frequencies(Frequencies),
     Descriptives(Descriptives),
     Explore(Explore),
@@ -281,6 +281,8 @@ struct GridEvents {
     page: usize,
     /// Where a right click landed, for the grid's menu.
     secondary: Option<grid::Hit>,
+    /// The grid's response, which opens its menu.
+    response: Option<egui::Response>,
 }
 
 /// The keys that move the selected cell of the Data View.
@@ -316,8 +318,10 @@ pub struct App {
     find: Option<String>,
     /// Put the keyboard in the find bar on the next frame.
     find_focus: bool,
-    /// Variables to delete once the user says yes.
-    confirm_delete: Option<Vec<String>>,
+    /// A question before syntax runs, such as deleting variables: it runs once the user says yes.
+    confirm: Option<grid_menu::Confirm>,
+    /// What the open right-click menu of a grid acts on, and whether it is the Variable View's.
+    menu: Option<(grid_menu::Target, bool)>,
     /// The Type and Format dialog of a variable.
     format_dialog: Option<edits::FormatChoice>,
     labels_dialog: Option<edits::LabelsEditor>,
@@ -404,7 +408,8 @@ impl App {
             field_edit: None,
             find: None,
             find_focus: false,
-            confirm_delete: None,
+            confirm: None,
+            menu: None,
             format_dialog: None,
             labels_dialog: None,
             missing_dialog: None,
@@ -1208,6 +1213,10 @@ impl App {
         self.page = events.page.max(1);
         let modifiers = ui.input(|i| i.modifiers);
         select(&mut self.selected, &events, modifiers);
+        self.open_menu(events.secondary);
+        if let Some(response) = &events.response {
+            response.context_menu(|ui| self.grid_menu(ui));
+        }
         if let Some((c, width, done)) = events.resized {
             self.data_resize = Some((c, width));
             if done {
@@ -1280,7 +1289,7 @@ impl App {
             _ => return,
         };
         if self.dialog.is_some()
-            || self.confirm_delete.is_some()
+            || self.confirm.is_some()
             || self.format_dialog.is_some()
             || self.labels_dialog.is_some()
             || self.missing_dialog.is_some()
@@ -1487,13 +1496,17 @@ impl App {
             self.status = Err("select variables by their row numbers to delete them".into());
             return;
         }
-        let names = s
+        let names: Vec<String> = s
             .rows
             .iter()
             .filter(|&&r| r < data.variable_count())
             .map(|&r| data.variable_at(r).name().to_string())
             .collect();
-        self.confirm_delete = Some(names);
+        self.confirm = Some(grid_menu::Confirm {
+            question: format!("Delete {}?", edits::listed(&names)),
+            syntax: edits::delete_variables(&names),
+            button: "Delete",
+        });
     }
 
     /// The Type and Format dialog: a format from a list, its width and decimals.
@@ -1712,37 +1725,146 @@ impl App {
         }
     }
 
-    /// The question before variables are deleted.
-    fn delete_window(&mut self, ctx: &egui::Context) {
-        let Some(names) = &self.confirm_delete else {
+    /// The question before syntax that deletes or reorders runs: the question, the syntax, the
+    /// button that runs it and Cancel. Only a click runs it, so a stray Enter never deletes;
+    /// Escape or a click beside the window cancels. A yes clears the selections, which may
+    /// point at other variables or cases afterwards.
+    fn confirm_window(&mut self, ctx: &egui::Context) {
+        let Some(c) = &self.confirm else {
             return;
         };
         let mut answer = None;
-        egui::Window::new("Delete variables")
-            .collapsible(false)
-            .resizable(false)
-            .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-            .show(ctx, |ui| {
-                ui.set_max_width(420.0);
-                ui.label(format!("Delete {}?", edits::listed(names)));
-                ui.weak("Edit, Undo last change brings them back.");
-                ui.horizontal(|ui| {
-                    if ui.button("Delete").clicked() || ui.input(|i| i.key_pressed(Key::Enter)) {
-                        answer = Some(true);
-                    }
-                    if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
-                        answer = Some(false);
-                    }
-                });
+        let modal = egui::Modal::new(egui::Id::unique("confirm")).show(ctx, |ui| {
+            ui.set_max_width(460.0);
+            ui.label(&c.question);
+            ui.add_space(4.0);
+            ui.add(egui::Label::new(RichText::new(&c.syntax).monospace()).wrap());
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                if ui.button(c.button).clicked() {
+                    answer = Some(true);
+                }
+                if ui.button("Cancel").clicked() {
+                    answer = Some(false);
+                }
             });
+        });
+        if answer.is_none() && modal.should_close() {
+            answer = Some(false);
+        }
         match answer {
             Some(true) => {
-                let names = self.confirm_delete.take().unwrap_or_default();
+                let syntax = self.confirm.take().map(|c| c.syntax).unwrap_or_default();
+                self.selected = None;
                 self.variable_selected = None;
-                self.run(&edits::delete_variables(&names), None, After::Show);
+                self.run(&syntax, None, After::Show);
             }
-            Some(false) => self.confirm_delete = None,
+            Some(false) => self.confirm = None,
             None => {}
+        }
+    }
+
+    /// A right click on a grid: the menu acts on what the click selected.
+    fn open_menu(&mut self, hit: Option<grid::Hit>) {
+        let Some(hit) = hit else {
+            return;
+        };
+        let variable_view = self.tab == Tab::Variables;
+        let selection = match variable_view {
+            true => &self.variable_selected,
+            false => &self.selected,
+        };
+        let picked = |set: &BTreeSet<usize>| set.iter().copied().collect();
+        let target = match (hit, variable_view, selection) {
+            (grid::Hit::Header(_), false, Some(s)) => {
+                Some(grid_menu::Target::Variables(picked(&s.columns)))
+            }
+            _ => None,
+        };
+        self.menu = target.map(|t| (t, variable_view));
+    }
+
+    /// The right-click menu of a grid: its target and the split, filter and weight in force
+    /// at the top, then the items.
+    fn grid_menu(&mut self, ui: &mut Ui) {
+        let (Some((target, variable_view)), Some(data)) = (&self.menu, self.session.dataset())
+        else {
+            return ui.close();
+        };
+        let entries = grid_menu::entries(data, target, *variable_view, self.busy.is_some());
+        if entries.is_empty() {
+            return ui.close();
+        }
+        ui.weak(grid_menu::heading(data, target));
+        for (state, _) in data_states(data) {
+            ui.weak(state);
+        }
+        ui.separator();
+        let mut chosen = None;
+        let mut i = 0;
+        while i < entries.len() {
+            let Some(e) = &entries[i] else {
+                ui.separator();
+                i += 1;
+                continue;
+            };
+            let Some(title) = e.submenu else {
+                if menu_entry(ui, e) {
+                    chosen = Some(e.item);
+                }
+                i += 1;
+                continue;
+            };
+            let end = i + entries[i..]
+                .iter()
+                .take_while(|e| e.as_ref().is_some_and(|e| e.submenu == Some(title)))
+                .count();
+            ui.menu_button(title, |ui| {
+                for e in entries[i..end].iter().flatten() {
+                    if menu_entry(ui, e) {
+                        chosen = Some(e.item);
+                    }
+                }
+            });
+            i = end;
+        }
+        let Some(item) = chosen else {
+            return;
+        };
+        ui.close();
+        match grid_menu::action(data, target, item) {
+            Ok(action) => self.act(action, ui.ctx()),
+            Err(message) => self.status = Err(message),
+        }
+    }
+
+    /// Does what a menu item asks for.
+    fn act(&mut self, action: grid_menu::Action, ctx: &egui::Context) {
+        match action {
+            grid_menu::Action::Run(syntax) => self.run(&syntax, None, After::Show),
+            grid_menu::Action::Ask(confirm) => self.confirm = Some(confirm),
+            grid_menu::Action::Open(dialog) => self.open_dialog(*dialog),
+            grid_menu::Action::Copy => self.copy_selection(ctx),
+            grid_menu::Action::EditField(row, field) => {
+                self.tab = Tab::Variables;
+                self.variable_follow = true;
+                self.edit_field((row, field));
+            }
+            grid_menu::Action::Properties(row) => {
+                let mut s = grid::Selection::cell((row, 0));
+                s.click_row(row, false, false);
+                self.variable_selected = Some(s);
+                self.variable_follow = true;
+                self.tab = Tab::Variables;
+            }
+            grid_menu::Action::ShowInData(column) => {
+                let row = self.selected.as_ref().map_or(0, |s| s.cursor.0);
+                let mut s = grid::Selection::cell((row, column));
+                s.click_column(column, false, false);
+                self.selected = Some(s);
+                self.follow = true;
+                self.tab = Tab::Data;
+            }
         }
     }
 
@@ -2404,7 +2526,7 @@ impl eframe::App for App {
         });
         let ctx = ui.ctx().clone();
         self.dialog_window(&ctx);
-        self.delete_window(&ctx);
+        self.confirm_window(&ctx);
         self.format_window(&ctx);
         self.labels_window(&ctx);
         self.missing_window(&ctx);
@@ -2666,6 +2788,29 @@ fn select(selection: &mut Option<grid::Selection>, events: &GridEvents, modifier
     }
 }
 
+/// One item of a grid's right-click menu, off with the reason on hover when it cannot be used;
+/// true when it was clicked.
+fn menu_entry(ui: &mut Ui, e: &grid_menu::Entry) -> bool {
+    let response = match e.checked {
+        Some(on) => ui.add_enabled(e.enabled, egui::RadioButton::new(on, e.label.as_str())),
+        None => {
+            let button = egui::Button::new(e.label.as_str());
+            let button = match e.shortcut {
+                Some(key) => button.shortcut_text(key),
+                None => button,
+            };
+            ui.add_enabled(e.enabled, button)
+        }
+    };
+    match &e.hover {
+        Some(text) => response
+            .on_hover_text(text)
+            .on_disabled_hover_text(text)
+            .clicked(),
+        None => response.clicked(),
+    }
+}
+
 /// A text editor over one grid cell. Returns (commit, cancel): Enter or leaving the cell
 /// commits, Escape cancels.
 fn cell_editor(ui: &mut Ui, rect: Rect, edit: &mut CellEdit) -> (bool, bool) {
@@ -2895,6 +3040,7 @@ fn paint_grid(
             if response.secondary_clicked() {
                 events.secondary = hit;
             }
+            events.response = Some(response);
         });
     events
 }
