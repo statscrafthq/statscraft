@@ -389,3 +389,36 @@ fn a_quote_in_free_text_or_an_unknown_command_stays_on_its_line() {
         rows(&[("TITLE", 1, 1), ("BOGUS", 2, 2), ("EXECUTE", 3, 3)])
     );
 }
+
+#[test]
+fn set_mnest_and_miterate_limit_the_expansion() {
+    let source = "DEFINE !a () 1 !ENDDEFINE.\nDEFINE !b () !a !ENDDEFINE.\n\
+                  DEFINE !loop () !DO !i = 1 !TO 3 !i !DOEND !ENDDEFINE.\n\
+                  SET MNEST=1 MITERATE=2.\nTITLE !b.\nTITLE !loop.\n\
+                  SET MNEST=2 MITERATE=3.\nTITLE !b.\nTITLE !loop.";
+    let lines = expanded(source);
+    assert!(lines[4].contains("nested more than 1 levels"), "{lines:?}");
+    assert!(lines[5].contains("more than 2 times"), "{lines:?}");
+    assert_eq!(lines[7..], ["8: TITLE 1.", "9: TITLE 1 2 3."]);
+}
+
+#[test]
+fn the_macro_state_carries_definitions_and_settings_to_the_next_text() {
+    let mut state = MacroState::default();
+    let library = "DEFINE !pair (!POSITIONAL !TOKENS(1) / !POSITIONAL !TOKENS(1))\n\
+                   !1 + !2\n!ENDDEFINE.\nSET MPRINT=YES MNEST=7.";
+    split_commands_with(library, None, &mut state, None).unwrap();
+    // written out and read back, as a command-line session keeps it
+    let state = MacroState::from_syntax(&state.to_syntax());
+    assert_eq!(state.names(), ["!PAIR"]);
+    let mut later = state.clone();
+    let raw = split_commands_with("COMPUTE x = !pair a b.", None, &mut later, None).unwrap();
+    assert_eq!(raw[0].echo.as_deref(), Some("COMPUTE x = a + b"));
+    assert_eq!(later, state);
+    assert!(state.to_syntax().contains("MNEST=7"));
+    // with a line range only the definitions on those lines are kept
+    let mut ranged = MacroState::default();
+    let text = "DEFINE !one () 1 !ENDDEFINE.\nDEFINE !two () 2 !ENDDEFINE.";
+    split_commands_with(text, None, &mut ranged, Some((2, 2))).unwrap();
+    assert_eq!(ranged.names(), ["!TWO"]);
+}

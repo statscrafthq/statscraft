@@ -522,3 +522,28 @@ fn a_session_keeps_its_named_datasets_between_runs() {
     assert_eq!(rows[0], serde_json::json!(["full", 3.0, 1.0, "yes"]));
     assert_eq!(rows[1], serde_json::json!(["part", 2.0, 1.0, ""]));
 }
+
+#[test]
+fn a_session_keeps_its_macros_and_macro_settings_between_runs() {
+    let dir = Workdir::new("macros");
+    // a library of macros run before there is any data, as an INCLUDE would bring it in
+    let library = "DEFINE !double (!POSITIONAL !TOKENS(1)) (!1 * 2) !ENDDEFINE.\nSET MPRINT=YES.";
+    assert!(
+        dir.ok(&["run", "-s", "m", "-e", library])
+            .contains("session saved")
+    );
+    let data = "DATA LIST LIST /x.\nBEGIN DATA\n1\n4\nEND DATA.\nCOMPUTE y = !double x.";
+    let result = dir.json(&["run", "-s", "m", "--json", "-e", data]);
+    // SET MPRINT=YES of the first run shows the expansion in the second
+    let echo = &result["commands"][2]["tables"][0];
+    assert_eq!(echo["title"], "Macro expansion");
+    assert_eq!(echo["rows"][0][0], "COMPUTE y = (x * 2)");
+    let result = dir.json(&["check", "-s", "m", "--json", "-e", "DISPLAY MACROS."]);
+    assert_eq!(
+        result["commands"][0]["tables"][0]["rows"],
+        serde_json::json!([["!DOUBLE"]])
+    );
+    let listed = dir.json(&["run", "-s", "m", "--json", "-e", "LIST y."]);
+    let rows = &listed["commands"][0]["tables"][0]["rows"];
+    assert_eq!(rows, &serde_json::json!([["2.00"], ["8.00"]]));
+}

@@ -21,7 +21,7 @@ The menus have dialogs that build syntax:
 
 A dialog shows the syntax it builds: OK runs it, Paste puts it in the syntax editor. Options left at their defaults add nothing to the syntax. Warnings of a run appear under its command in the log, and the status bar says how many there were.
 
-Syntax is the only command layer: every change and every result in the window comes from syntax run by the engine, exactly as `statscraft run` runs it. Opening a file runs `GET FILE`, editing a cell runs `IF ($CASENUM = n) var = value.`, editing a label runs `VARIABLE LABELS`, and so on. The log under the tabs lists every command with what it changed, and Copy syntax there gives a script that repeats the session.
+Syntax is the only command layer: every change and every result in the window comes from syntax run by the engine, exactly as `statscraft run` runs it. Opening a file runs `GET FILE`, editing a cell runs `IF ($CASENUM = n) var = value.`, editing a label runs `VARIABLE LABELS`, and so on. The log under the tabs lists every command with what it changed, and Copy syntax there gives a script that repeats the session. Macros defined by one Run (DEFINE, or INCLUDE of a macro library) stay defined for the later ones while the window is open, with the macro settings of SET.
 
 View, Paper chooses how the Data and Variable grids, the syntax text and the output tables look: Always light (the default) keeps them dark text on a light sheet while menus, panels and dialogs follow the system's dark or light theme, as a spreadsheet or a document page does; Follow the system theme draws them in the system theme too.
 

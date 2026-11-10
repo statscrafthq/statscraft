@@ -70,8 +70,9 @@ pub use error::{Span, SyntaxError};
 pub use lexer::{Punct, Token, TokenKind};
 pub use loops::{RepeatItem, command_text, substitute};
 pub use mrsets::{Mrsets, MrsetsGroup};
+pub use preprocess::MacroState;
 pub use session_commands::{SETTINGS, SettingEffect};
-pub use split::{RawCommand, select_lines, split_commands, split_commands_in};
+pub use split::{RawCommand, select_lines, split_commands, split_commands_in, split_commands_with};
 pub use table::{
     CommandSpec, command_name, command_names, command_specs, help, unsupported_commands,
 };

@@ -28,7 +28,7 @@ Functions: !LENGTH(s) !CONCAT(s, ...) !SUBSTR(s, from\[, length\]) !INDEX(s, par
 
 Expressions: = \<\> \~= \< \> \<= \>= (or !EQ !NE !LT !GT !LE !GE), !AND !OR !NOT (or & \| \~), parentheses. Operands are unquoted and compared as numbers when both are numbers, else as text with case; the result is 1 or 0, and 0 is false.
 
-The expansion is scanned again for macro calls, up to SET MNEST levels (50); a !DO loop runs at most SET MITERATE times (1000). SET MEXPAND=OFF stops expansion and SET MPRINT=YES shows every expanded command.
+The expansion is scanned again for macro calls, up to SET MNEST levels (50); a !DO loop runs at most SET MITERATE times (1000). SET MEXPAND=OFF stops expansion and SET MPRINT=YES shows every expanded command. A session (command line or window) keeps the macros and these settings from run to run; DISPLAY MACROS lists the macros.
 
 A body that ends with a period ends the command when the call is the last thing in it; in the middle of a command that period is dropped.
 

@@ -784,7 +784,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  text with case; the result is 1 or 0, and 0 is false.\n\
                  The expansion is scanned again for macro calls, up to SET MNEST levels (50); a !DO loop\n\
                  runs at most SET MITERATE times (1000). SET MEXPAND=OFF stops expansion and\n\
-                 SET MPRINT=YES shows every expanded command.\n\
+                 SET MPRINT=YES shows every expanded command. A session (command line or window) keeps\n\
+                 the macros and these settings from run to run; DISPLAY MACROS lists the macros.\n\
                  A body that ends with a period ends the command when the call is the last thing in it;\n\
                  in the middle of a command that period is dropped.",
         example: "DEFINE !freqs (vars = !CMDEND) FREQUENCIES VARIABLES=!vars. !ENDDEFINE.",
@@ -946,7 +947,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  NAMES (the default): names. INDEX: names and positions. VARIABLES: also formats and missing\n\
                  values. LABELS: positions and labels. DICTIONARY: everything, value labels included.\n\
                  ATTRIBUTES: custom attributes except those starting with @ or $@; @ATTRIBUTES all of them.\n\
-                 SORTED sorts by name; /VARIABLES limits the list.",
+                 MACROS: the names of the macros defined in this run and the runs of the session before,\n\
+                 sorted. SORTED sorts by name; /VARIABLES limits the list.",
         example: "DISPLAY SORTED DICTIONARY /VARIABLES=age TO q5.",
         parse: session_commands::display,
     },

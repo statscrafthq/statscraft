@@ -12,7 +12,7 @@
 use crate::{Cell, Engine, Error, Table, ctables::format_value};
 use statscraft_data::{Dataset, MissingValues, Value, Values};
 use statscraft_syntax::{
-    Command, DatasetCommand, Display, List, SETTINGS, SettingEffect, UseRange,
+    Command, DatasetCommand, Display, List, MacroState, SETTINGS, SettingEffect, UseRange,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -32,6 +32,11 @@ pub(crate) struct State {
     datasets: Vec<(String, Option<Dataset>)>,
     /// The name of the active dataset.
     active_name: Option<String>,
+    /// The macros, and the macro settings, of the runs before this one. The preprocessor reads
+    /// and updates them; the commands only list them.
+    pub macros: MacroState,
+    /// The macros defined by the DEFINE commands of this run so far.
+    defined: Vec<String>,
 }
 
 fn table(title: &str, columns: &[&str], rows: Vec<Vec<Cell>>) -> Table {
@@ -200,6 +205,17 @@ impl Engine {
         (&self.session.datasets, self.session.active_name.as_deref())
     }
 
+    /// The macros and macro settings kept between runs.
+    pub fn macros(&self) -> &MacroState {
+        &self.session.macros
+    }
+
+    /// Keeps `macros` for the next run; the DEFINE commands of the run that made them are done.
+    pub fn set_macros(&mut self, macros: MacroState) {
+        self.session.macros = macros;
+        self.session.defined.clear();
+    }
+
     /// Puts back named datasets, as `named_datasets` gave them.
     pub fn set_named_datasets(
         &mut self,
@@ -213,7 +229,8 @@ impl Engine {
     /// The commands of this module; the main `execute` hands them over.
     pub(crate) fn execute_session(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
         match command {
-            Command::Define(_) | Command::Cache => {}
+            Command::Define(name) => self.session.defined.push(name.to_uppercase()),
+            Command::Cache => {}
             Command::Insert { file, include } => {
                 // the commands of the file were read in already; here only a file that could
                 // not be read is reported
@@ -537,8 +554,12 @@ impl Engine {
     fn display_command(&mut self, display: &Display) -> Result<Vec<Table>, Error> {
         let what = display.what.as_str();
         if what == "MACROS" {
-            self.warn("DISPLAY MACROS lists nothing: macros are expanded before the commands run");
-            return Ok(Vec::new());
+            let mut names = self.session.macros.names();
+            names.extend(self.session.defined.iter().cloned());
+            names.sort();
+            names.dedup();
+            let rows = names.into_iter().map(|n| vec![text(n)]).collect();
+            return Ok(vec![table("Macros", &["Macro"], rows)]);
         }
         if what == "VECTOR" {
             let mut vectors: Vec<(&String, &Vec<String>)> = self.vectors.iter().collect();

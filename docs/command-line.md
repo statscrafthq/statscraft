@@ -88,7 +88,8 @@ A command of the language that StatsCraft does not run yet (for example `statscr
 A session is a named dataset kept on disk between runs, in `.statscraft/sessions/<name>/data.zsav` under the current folder. A name may hold letters, digits, `-` and `_`.
 
 - The first run of a new session starts without data; its syntax usually begins with `GET FILE`.
-- A run saves the session when it changed the dataset, or when the session file did not exist yet.
+- The session also keeps its named datasets, and its macros with the SET values that steer them (MEXPAND, MPRINT, MNEST, MITERATE) in `macros.sps`, so a macro library included in one run can be called in the next. With `--lines`, only the macros defined on those lines are kept; a macro defined elsewhere in the file still serves the run, as before.
+- A run saves the session when it changed the dataset, its named datasets or its macros, or when the session file did not exist yet.
 - `check` and `describe` never write it.
 - Delete the session's folder to start over.
 

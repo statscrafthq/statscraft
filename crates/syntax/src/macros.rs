@@ -444,13 +444,24 @@ pub(crate) fn define(tokens: &[Tok]) -> MResult<Macro> {
     })
 }
 
-const MNEST: usize = 50;
-const MITERATE: usize = 1000;
-
-/// The defined macros, by upper-case name.
-#[derive(Default, Clone)]
+/// The defined macros, by upper-case name, and the limits of their expansion.
+#[derive(Clone, Debug)]
 pub(crate) struct Macros {
     pub defined: HashMap<String, Macro>,
+    /// SET MNEST: how deep macro calls may nest.
+    pub nest: usize,
+    /// SET MITERATE: how many rounds a !DO loop may run.
+    pub iterate: usize,
+}
+
+impl Default for Macros {
+    fn default() -> Self {
+        Self {
+            defined: HashMap::new(),
+            nest: 50,
+            iterate: 1000,
+        }
+    }
 }
 
 enum Flow {
@@ -518,10 +529,10 @@ impl Macros {
                 i += 1;
                 continue;
             }
-            if depth >= MNEST {
+            if depth >= self.nest {
                 return fail(
                     Some(t),
-                    format!("macro calls are nested more than {MNEST} levels deep"),
+                    format!("macro calls are nested more than {} levels deep", self.nest),
                 );
             }
             let definition = &self.defined[&t.upper()];
@@ -741,10 +752,10 @@ impl Macros {
                         }
                         // the number of rounds after the first; negative when there are none
                         let after = ((last - first) / step).floor();
-                        if after >= MITERATE as f64 {
+                        if after >= self.iterate as f64 {
                             return fail(
                                 Some(t),
-                                format!("the loop would run more than {MITERATE} times"),
+                                format!("the loop would run more than {} times", self.iterate),
                             );
                         }
                         let rounds = if after < 0.0 { 0 } else { after as usize + 1 };
@@ -765,10 +776,10 @@ impl Macros {
                     let (_, end) = matching(tokens, k, "!DO", "!DOEND", None).ok_or_else(|| {
                         (Some((t.line, t.column)), "!DO without !DOEND".to_string())
                     })?;
-                    if items.len() > MITERATE {
+                    if items.len() > self.iterate {
                         return fail(
                             Some(t),
-                            format!("the loop would run more than {MITERATE} times"),
+                            format!("the loop would run more than {} times", self.iterate),
                         );
                     }
                     for item in items {

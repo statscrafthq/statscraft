@@ -171,6 +171,11 @@ struct SessionState {
     filter_variable: Option<String>,
 }
 
+/// The macros of a session (DEFINE) and the SET values that steer them, kept as syntax.
+fn macros_file(data: &std::path::Path) -> PathBuf {
+    data.with_file_name("macros.sps")
+}
+
 fn state_file(data: &std::path::Path) -> PathBuf {
     data.with_file_name("state.json")
 }
@@ -362,7 +367,11 @@ fn run(args: RunArgs, check_only: bool, xlsx: &XlsxArgs) -> Result<(), Vec<Failu
     };
     let mut session = Session::with_dataset(loaded);
     if let Some(name) = &args.session {
-        load_named(&session_file(name)?, &mut session)?;
+        let path = session_file(name)?;
+        load_named(&path, &mut session)?;
+        if let Ok(text) = std::fs::read_to_string(macros_file(&path)) {
+            session.set_macros(statscraft_syntax::MacroState::from_syntax(&text));
+        }
     }
     // INSERT and INCLUDE in a syntax file start from its folder
     let folder = args.file.as_deref().filter(|f| *f != "-");
@@ -381,14 +390,19 @@ fn run(args: RunArgs, check_only: bool, xlsx: &XlsxArgs) -> Result<(), Vec<Failu
     let changed = std::mem::take(&mut result.saved);
     // before the session is saved, so a workbook that cannot be written leaves the session as it was
     write_workbook(&result, xlsx)?;
-    if let (false, Some(name), Some(dataset)) = (check_only, &args.session, session.dataset()) {
+    if let (false, Some(name)) = (check_only, &args.session) {
         let path = session_file(name)?;
-        if changed || !path.exists() {
+        let dataset = session.dataset();
+        if changed || (dataset.is_some() && !path.exists()) {
             let fail = |m: String| vec![Failure::plain("session", m)];
             std::fs::create_dir_all(path.parent().expect("session path has a parent"))
                 .map_err(|e| fail(e.to_string()))?;
-            save_session(&path, dataset).map_err(fail)?;
+            if let Some(dataset) = dataset {
+                save_session(&path, dataset).map_err(fail)?;
+            }
             save_named(&path, &session).map_err(fail)?;
+            std::fs::write(macros_file(&path), session.macros().to_syntax())
+                .map_err(|e| fail(e.to_string()))?;
             result.saved = true;
         }
     }

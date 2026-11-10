@@ -8,7 +8,7 @@ StatsCraft is built so that an AI agent with a shell can do the analysis work: e
 2. **Look up the syntax.** `statscraft help` lists the supported commands; `statscraft help COMMAND` gives the syntax, the rules and an example. Use only what the help shows. A command that is not supported yet fails with a clear error.
 3. **Write syntax to a file** (`job.sps`), one command per line or block, each ending with a period.
 4. **Check it.** `statscraft check -s NAME --json job.sps` parses every command and runs it on a copy of the session's data, so it finds unknown variables and type errors too, and writes nothing.
-5. **Run it in pieces.** `statscraft run -s NAME --json --lines FIRST-LAST job.sps` runs the commands in those lines and keeps the result in the session. The next range builds on it. Line numbers stay those of the file.
+5. **Run it in pieces.** `statscraft run -s NAME --json --lines FIRST-LAST job.sps` runs the commands in those lines and keeps the result in the session. The next range builds on it. Line numbers stay those of the file. Macros last too: run the INCLUDE of a macro library once and call its macros in later runs; `DISPLAY MACROS.` lists them.
 6. **Read the JSON.** `ok` says whether the run worked. `changes` names the variables added, changed and removed and the case counts before and after; `dataset` gives the size; `commands[].tables` holds the results with raw numbers; `commands[].warnings` says where a command did something other than asked.
 7. **Fix errors where they point.** On failure `errors[]` gives `kind`, `message`, `line` and, for syntax errors, `column`, `expected` and often a `hint`. Fix that line and run the same range again. A failed run saves nothing, so a retry starts from the same data.
 

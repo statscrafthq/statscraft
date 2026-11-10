@@ -2,7 +2,7 @@
 
 use crate::error::{Span, SyntaxError};
 use crate::lexer::{Lexer, Token, TokenKind};
-use crate::preprocess::{Line, Piece, preprocess};
+use crate::preprocess::{Line, MacroState, Piece, preprocess_with};
 use crate::table::{Resolution, matches_keyword, resolve_tokens};
 use std::path::Path;
 
@@ -339,9 +339,20 @@ pub(crate) fn multiline_hint(tokens: &[Token], error: SyntaxError) -> SyntaxErro
 /// Every command of the source, or the error that prevented tokenising it. Macros are
 /// expanded and files inserted first; `base` is the folder relative paths start from.
 pub(crate) fn split(source: &str, base: Option<&Path>) -> Vec<Result<RawCommand, SyntaxError>> {
+    split_with(source, base, &mut MacroState::default(), None)
+}
+
+/// `split` starting from the macros of `macros`, which afterwards also holds those the lines
+/// of `range` define (see `preprocess_with`).
+fn split_with(
+    source: &str,
+    base: Option<&Path>,
+    macros: &mut MacroState,
+    range: Option<(u32, u32)>,
+) -> Vec<Result<RawCommand, SyntaxError>> {
     let mut out = Vec::new();
     let mut run: Vec<&Line> = Vec::new();
-    let pieces = preprocess(source, base);
+    let pieces = preprocess_with(source, base, macros, range);
     for piece in &pieces {
         match piece {
             Piece::Line(line) => run.push(line),
@@ -433,6 +444,20 @@ pub fn split_commands_in(
     base: Option<&Path>,
 ) -> Result<Vec<RawCommand>, SyntaxError> {
     split(source, base).into_iter().collect()
+}
+
+/// `split_commands_in` for a session: macro calls see the macros of `macros` too, and
+/// afterwards `macros` also holds those defined on the lines of `range` (all lines when None),
+/// with the macro settings those lines changed.
+pub fn split_commands_with(
+    source: &str,
+    base: Option<&Path>,
+    macros: &mut MacroState,
+    range: Option<(u32, u32)>,
+) -> Result<Vec<RawCommand>, SyntaxError> {
+    split_with(source, base, macros, range)
+        .into_iter()
+        .collect()
 }
 
 fn lines(first: u32, last: u32) -> String {

@@ -16,6 +16,7 @@ use crate::error::{Span, SyntaxError};
 use crate::macros::{Kind, Macros, Tok, define, tokenize};
 use crate::split::{Start, command_end, is_line_command};
 use crate::table::{Resolution, resolve};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// One line of the text that is split into commands.
@@ -37,12 +38,84 @@ pub(crate) enum Piece {
 
 const MAX_NESTING: usize = 5;
 
-struct Pre {
-    macros: Macros,
+/// The macros defined and the SET values that steer their expansion (MEXPAND, MPRINT, MNEST,
+/// MITERATE). A session keeps it between runs, so that a macro library included once serves
+/// the runs after it.
+#[derive(Clone, Debug)]
+pub struct MacroState {
+    pub(crate) macros: Macros,
+    /// The text of every definition, by upper-case name, to write the state out.
+    sources: BTreeMap<String, String>,
     /// SET MEXPAND
-    expand: bool,
+    pub(crate) expand: bool,
     /// SET MPRINT
-    print: bool,
+    pub(crate) print: bool,
+}
+
+impl Default for MacroState {
+    fn default() -> Self {
+        Self {
+            macros: Macros::default(),
+            sources: BTreeMap::new(),
+            expand: true,
+            print: false,
+        }
+    }
+}
+
+impl PartialEq for MacroState {
+    fn eq(&self, other: &Self) -> bool {
+        self.to_syntax() == other.to_syntax()
+    }
+}
+
+impl MacroState {
+    /// The names of the defined macros, sorted.
+    pub fn names(&self) -> Vec<String> {
+        self.sources.keys().cloned().collect()
+    }
+
+    /// The state as syntax that `from_syntax` reads back: every definition, then one SET.
+    pub fn to_syntax(&self) -> String {
+        let mut out = String::new();
+        for text in self.sources.values() {
+            out.push_str(text);
+            out.push('\n');
+        }
+        let on = |b: bool| if b { "ON" } else { "OFF" };
+        out.push_str(&format!(
+            "SET MEXPAND={} MPRINT={} MNEST={} MITERATE={}.\n",
+            on(self.expand),
+            on(self.print),
+            self.macros.nest,
+            self.macros.iterate
+        ));
+        out
+    }
+
+    /// The state that `to_syntax` wrote.
+    pub fn from_syntax(text: &str) -> Self {
+        let mut state = Self::default();
+        preprocess_with(text, None, &mut state, None);
+        state
+    }
+
+    fn define(&mut self, definition: crate::macros::Macro, text: String) {
+        self.sources.insert(definition.name.clone(), text);
+        self.macros
+            .defined
+            .insert(definition.name.clone(), definition);
+    }
+}
+
+struct Pre {
+    /// What this text sees: the state it started from and every definition and SET in it.
+    state: MacroState,
+    /// What a session keeps: the state it started from and the definitions and SETs of the
+    /// lines that run.
+    kept: MacroState,
+    /// The source lines that run; None for all.
+    range: Option<(u32, u32)>,
     out: Vec<Piece>,
     /// The inserted files being read, outermost first.
     open: Vec<PathBuf>,
@@ -59,17 +132,31 @@ enum Place {
 
 /// The source with macros expanded and files inserted, as numbered lines and the errors found
 /// on the way, in source order. `base` is the folder of the syntax file, if it is one.
+#[cfg(test)]
 pub(crate) fn preprocess(source: &str, base: Option<&Path>) -> Vec<Piece> {
+    preprocess_with(source, base, &mut MacroState::default(), None)
+}
+
+/// `preprocess` starting from the macros of `state`. Afterwards `state` holds them and those
+/// defined (and the macro settings changed) on the source lines of `range`, or anywhere when
+/// it is None. Definitions outside the range still serve calls inside it, as before.
+pub(crate) fn preprocess_with(
+    source: &str,
+    base: Option<&Path>,
+    state: &mut MacroState,
+    range: Option<(u32, u32)>,
+) -> Vec<Piece> {
     let mut pre = Pre {
-        macros: Macros::default(),
-        expand: true,
-        print: false,
+        state: state.clone(),
+        kept: state.clone(),
+        range,
         out: Vec::new(),
         open: Vec::new(),
     };
     let mut base = base.map_or_else(|| PathBuf::from("."), Path::to_path_buf);
     let source = source.strip_prefix('\u{feff}').unwrap_or(source);
     pre.text(source, &mut base, &Place::Source, false);
+    *state = pre.kept;
     pre.out
 }
 
@@ -127,6 +214,12 @@ fn resolve_path(base: &Path, file: &str) -> PathBuf {
 }
 
 impl Pre {
+    /// Whether source line `number` runs, so that what it defines is kept.
+    fn runs(&self, number: u32) -> bool {
+        self.range
+            .is_none_or(|(first, last)| (first..=last).contains(&number))
+    }
+
     fn emit(&mut self, number: u32, text: &str, origin: &Option<String>) {
         self.out.push(Piece::Line(Line {
             number,
@@ -243,11 +336,17 @@ impl Pre {
                         *base = resolve_path(base, &crate::macros::unquote(&dir.text));
                     }
                 }
-                Some("SET") => self.set(&tokens),
+                Some("SET") => {
+                    let keep = self.runs(number);
+                    set(&mut self.state, &tokens);
+                    if keep {
+                        set(&mut self.kept, &tokens);
+                    }
+                }
                 _ => {}
             }
-            let expanded = if self.expand {
-                self.macros.expand(&tokens, 0)
+            let expanded = if self.state.expand {
+                self.state.macros.expand(&tokens, 0)
             } else {
                 Ok(None)
             };
@@ -282,7 +381,7 @@ impl Pre {
     ) {
         let called: Vec<String> = tokens
             .iter()
-            .filter(|t| self.macros.is_macro(t))
+            .filter(|t| self.state.macros.is_macro(t))
             .map(|t| t.text.to_uppercase())
             .collect();
         let what = format!("the expansion of macro {}", called.join(", "));
@@ -308,7 +407,7 @@ impl Pre {
                 }
             }
         }
-        if self.print
+        if self.state.print
             && let Some(Piece::Line(line)) = self.out.get_mut(first)
         {
             line.echo = Some(text.replace('\r', "\n"));
@@ -331,9 +430,11 @@ impl Pre {
             match define(&tokens[..=end]) {
                 Ok(definition) => {
                     let placeholder = format!("DEFINE '{}'", definition.name);
-                    self.macros
-                        .defined
-                        .insert(definition.name.clone(), definition);
+                    let source = format!("{}.", text.join("\n").trim_end().trim_end_matches('.'));
+                    if self.runs(number) {
+                        self.kept.define(definition.clone(), source.clone());
+                    }
+                    self.state.define(definition, source);
                     if j == i {
                         self.emit(number, &format!("{placeholder}."), origin);
                     } else {
@@ -351,27 +452,6 @@ impl Pre {
         }
         self.error(number, 1, "DEFINE without !ENDDEFINE".into(), origin);
         lines.len()
-    }
-
-    /// SET MEXPAND and SET MPRINT act while macros are expanded.
-    fn set(&mut self, tokens: &[Tok]) {
-        let code: Vec<&Tok> = tokens.iter().filter(|t| t.kind != Kind::Newline).collect();
-        for (k, t) in code.iter().enumerate() {
-            let value = |k: usize| {
-                let k = if code.get(k).is_some_and(|t| t.is("=")) {
-                    k + 1
-                } else {
-                    k
-                };
-                code.get(k).map(|t| t.text.to_uppercase())
-            };
-            let on = |v: Option<String>| v.is_some_and(|v| v == "ON" || v == "YES");
-            if t.is("MEXPAND") {
-                self.expand = on(value(k + 1));
-            } else if t.is("MPRINT") {
-                self.print = on(value(k + 1));
-            }
-        }
     }
 
     /// The text of the file an INSERT or INCLUDE names, read in place of the command. A file
@@ -439,6 +519,37 @@ impl Pre {
         self.open.pop();
         if setting("CD").is_some_and(|s| s.eq_ignore_ascii_case("YES")) {
             *base = folder;
+        }
+    }
+}
+
+/// SET MEXPAND, MPRINT, MNEST and MITERATE act while macros are expanded.
+fn set(state: &mut MacroState, tokens: &[Tok]) {
+    let code: Vec<&Tok> = tokens.iter().filter(|t| t.kind != Kind::Newline).collect();
+    for (k, t) in code.iter().enumerate() {
+        let value = |k: usize| {
+            let k = if code.get(k).is_some_and(|t| t.is("=")) {
+                k + 1
+            } else {
+                k
+            };
+            code.get(k).map(|t| t.text.to_uppercase())
+        };
+        let on = |v: Option<String>| v.is_some_and(|v| v == "ON" || v == "YES");
+        // a limit that is not a positive whole number is left as it was; SET reports it
+        let limit = |v: Option<String>, old: usize| {
+            v.and_then(|v| v.parse::<usize>().ok())
+                .filter(|&n| n > 0)
+                .unwrap_or(old)
+        };
+        if t.is("MEXPAND") {
+            state.expand = on(value(k + 1));
+        } else if t.is("MPRINT") {
+            state.print = on(value(k + 1));
+        } else if t.is("MNEST") {
+            state.macros.nest = limit(value(k + 1), state.macros.nest);
+        } else if t.is("MITERATE") {
+            state.macros.iterate = limit(value(k + 1), state.macros.iterate);
         }
     }
 }

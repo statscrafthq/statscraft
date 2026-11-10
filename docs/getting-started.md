@@ -165,6 +165,8 @@ statscraft describe -s demo
 
 The second run prints `variables added: age_group` and `ran 3 command(s), session saved`. A run is all or nothing: when one command fails, the session stays as it was, so you fix the line and run the same range again.
 
+A session also keeps the macros its runs defined (DEFINE, or a macro library brought in with INCLUDE) and the macro settings of SET (MEXPAND, MPRINT, MNEST, MITERATE), so a library included once serves every later run.
+
 Sessions live in `.statscraft/sessions/<name>/` under the current folder. Delete that folder to start over.
 
 ## The window in five minutes

@@ -15,7 +15,7 @@ NAMES (the default): names. INDEX: names and positions. VARIABLES: also formats 
 
 ATTRIBUTES: custom attributes except those starting with @ or \$@; @ATTRIBUTES all of them.
 
-SORTED sorts by name; /VARIABLES limits the list.
+MACROS: the names of the macros defined in this run and the runs of the session before, sorted. SORTED sorts by name; /VARIABLES limits the list.
 
 ## Example
 

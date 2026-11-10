@@ -240,6 +240,16 @@ impl Session {
         self.engine.named_datasets()
     }
 
+    /// The macros and macro settings the runs so far defined.
+    pub fn macros(&self) -> &statscraft_syntax::MacroState {
+        self.engine.macros()
+    }
+
+    /// Puts back the macros a session kept.
+    pub fn set_macros(&mut self, macros: statscraft_syntax::MacroState) {
+        self.engine.set_macros(macros);
+    }
+
     /// Puts back the named datasets a session kept.
     pub fn set_named_datasets(
         &mut self,
@@ -377,8 +387,15 @@ fn run(
     source: &str,
     lines: Option<(u32, u32)>,
 ) -> Result<(Engine, RunResult, String), Vec<Failure>> {
-    let all = statscraft_syntax::split_commands_in(source, engine.base_dir.as_deref())
-        .map_err(|e| vec![Failure::syntax(e)])?;
+    // macros of earlier runs serve this one; those of the lines that run are kept after it
+    let mut macros = engine.macros().clone();
+    let all = statscraft_syntax::split_commands_with(
+        source,
+        engine.base_dir.as_deref(),
+        &mut macros,
+        lines,
+    )
+    .map_err(|e| vec![Failure::syntax(e)])?;
     let selected: &[RawCommand] = match lines {
         Some((first, last)) => statscraft_syntax::select_lines(&all, first, last)
             .map_err(|e| vec![Failure::syntax(e)])?,
@@ -456,6 +473,8 @@ fn run(
     engine
         .finish()
         .map_err(|e| vec![Failure::plain("run", e.to_string())])?;
+    let macros_changed = engine.macros() != &macros;
+    engine.set_macros(macros);
     let after = engine.dataset();
     let changes = Changes::between(before.as_ref(), after);
     let summary = summary(&changes, after, &outputs);
@@ -465,7 +484,8 @@ fn run(
         changes,
         dataset: after.map(|d| [d.case_count(), d.variable_count()]),
         // compare whole datasets: a weight change shows in no variable
-        saved: !engine.dry_run && (before.as_ref() != after || named_before != named(&engine)),
+        saved: !engine.dry_run
+            && (before.as_ref() != after || named_before != named(&engine) || macros_changed),
         commands: outputs,
     };
     Ok((engine, result, summary))
@@ -682,5 +702,44 @@ mod tests {
         assert!(session.dataset().unwrap().variable("z").is_err());
         session.apply(done).unwrap();
         assert!(session.dataset().unwrap().variable("z").is_ok());
+    }
+
+    #[test]
+    fn macros_last_from_run_to_run_but_not_from_a_failed_run_or_a_check() {
+        let mut session = survey();
+        let result = session
+            .run("DEFINE !ten () 10 !ENDDEFINE.\nSET MEXPAND=ON.", None)
+            .unwrap();
+        // a run that only defines a macro changes the session
+        assert!(result.saved);
+        session.run("COMPUTE t = !ten.", None).unwrap();
+        session
+            .run("DEFINE !lost () 1 !ENDDEFINE.\nCOMPUTE x = nowhere.", None)
+            .unwrap_err();
+        session
+            .check("DEFINE !checked () 1 !ENDDEFINE.", None)
+            .unwrap();
+        assert_eq!(session.macros().names(), ["!TEN"]);
+        let errors = session.run("COMPUTE l = !lost.", None).unwrap_err();
+        assert!(errors[0].message.contains('!'), "{errors:?}");
+        // SET MEXPAND=OFF lasts too
+        session.run("SET MEXPAND=OFF.", None).unwrap();
+        assert!(session.run("COMPUTE u = !ten.", None).is_err());
+    }
+
+    #[test]
+    fn a_line_range_keeps_only_the_macros_its_lines_define() {
+        let mut session = survey();
+        let source = "DEFINE !a () 1 !ENDDEFINE.\nDEFINE !b () 2 !ENDDEFINE.\nCOMPUTE b = !b + !a.";
+        // the macro on line 1 serves the call on line 3, as before, but is not kept
+        session.run(source, Some((2, 3))).unwrap();
+        assert_eq!(session.macros().names(), ["!B"]);
+        let result = session.run(
+            "DISPLAY MACROS.\nDEFINE !c () 3 !ENDDEFINE.\nDISPLAY MACROS.",
+            None,
+        );
+        let commands = result.unwrap().commands;
+        let names = |c: &CommandResult| c.tables[0].rows.len();
+        assert_eq!((names(&commands[0]), names(&commands[2])), (1, 2));
     }
 }
