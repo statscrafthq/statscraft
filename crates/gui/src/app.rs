@@ -1462,29 +1462,38 @@ impl App {
         let Some(data) = self.session.dataset() else {
             return;
         };
-        let text = if self.tab == Tab::Variables {
+        let (text, wide) = if self.tab == Tab::Variables {
             let Some(s) = &self.variable_selected else {
                 return;
             };
             let headers: Vec<String> = Field::ALL.iter().map(|f| f.title().to_string()).collect();
-            let span = s.span((data.variable_count(), Field::ALL.len()));
-            grid::copy_text(&headers, &span, |r, c| {
+            let size = (data.variable_count(), Field::ALL.len());
+            let text = grid::copy(s, size, &headers, |r, c| {
                 edits::field_text(&data.variable_at(r), Field::ALL[c])
-            })
+            });
+            (text, s.is_wide())
         } else {
             let Some(s) = &self.selected else {
                 return;
             };
             let headers: Vec<String> = data.variable_names().map(str::to_string).collect();
-            let span = s.span((data.case_count(), data.variable_count()));
+            let size = (data.case_count(), data.variable_count());
             let labels = self.value_labels;
-            grid::copy_text(&headers, &span, |r, c| {
+            let text = grid::copy(s, size, &headers, |r, c| {
                 edits::cell_text(&data.variable_at(c), r, labels)
-            })
+            });
+            (text, s.is_wide())
+        };
+        let text = match text {
+            Ok(text) => text,
+            Err(message) => return self.status = Err(message),
         };
         let lines = text.lines().count().saturating_sub(1);
         ctx.copy_text(text);
-        self.status = Ok(format!("{lines} row(s) copied with their headers"));
+        self.status = Ok(match wide {
+            true => format!("{lines} row(s) copied with their headers"),
+            false => "the cell copied".into(),
+        });
     }
 
     /// Asks before deleting the variables whose rows are selected in the Variable View.

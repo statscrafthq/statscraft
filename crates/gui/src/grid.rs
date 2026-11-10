@@ -182,6 +182,31 @@ pub fn copy_text(
     out
 }
 
+/// The most cells one copy takes. shortcut: a fixed cap on text built in memory; stream to the
+/// clipboard when someone needs more.
+pub const COPY_CAP: usize = 2_000_000;
+
+/// What Ctrl+C puts on the clipboard for a selection in a grid of (rows, columns): one cell
+/// alone as its text, more as `copy_text` with the headers; an error above `COPY_CAP` cells.
+pub fn copy(
+    selection: &Selection,
+    size: (usize, usize),
+    headers: &[String],
+    cell: impl Fn(usize, usize) -> String,
+) -> Result<String, String> {
+    let span = selection.span(size);
+    let cells = span.0.len() * span.1.len();
+    if cells > COPY_CAP {
+        return Err(format!(
+            "{cells} cells is too much to copy at once; copy at most {COPY_CAP}"
+        ));
+    }
+    if !selection.is_wide() && cells == 1 {
+        return Ok(cell(span.0[0], span.1[0]).replace(['\t', '\n', '\r'], " "));
+    }
+    Ok(copy_text(headers, &span, cell))
+}
+
 /// The next variable after `after` (or the first, from the start) whose name or label holds
 /// `needle`, ignoring case, wrapping around at the end. `items` holds name and label.
 pub fn find(items: &[(String, String)], needle: &str, after: Option<usize>) -> Option<usize> {
@@ -461,6 +486,30 @@ mod tests {
             copy_text(&headers, &s.span((2, 3)), cell),
             "Measure\nr0c2\nr1c2\n"
         );
+    }
+
+    #[test]
+    fn one_cell_copies_alone_and_a_huge_selection_is_refused() {
+        let headers: Vec<String> = ["a", "b"].map(String::from).to_vec();
+        let cell = |r: usize, c: usize| format!("r{r}\tc{c}");
+        let one = Selection::cell((1, 1));
+        assert_eq!(copy(&one, (5, 2), &headers, cell).unwrap(), "r1 c1");
+        // a case: names, then its values
+        let mut case = Selection::cell((1, 1));
+        case.click_row(3, false, false);
+        assert_eq!(
+            copy(&case, (5, 2), &headers, cell).unwrap(),
+            "a\tb\nr3 c0\tr3 c1\n"
+        );
+        // three million cases of one column
+        let mut column = Selection::cell((0, 0));
+        column.click_column(0, false, false);
+        let error = copy(&column, (3_000_000, 2), &headers, cell).unwrap_err();
+        assert_eq!(
+            error,
+            "3000000 cells is too much to copy at once; copy at most 2000000"
+        );
+        assert!(copy(&column, (2_000_000, 2), &headers, |_, _| String::new()).is_ok());
     }
 
     #[test]
