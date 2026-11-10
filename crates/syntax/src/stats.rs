@@ -2,8 +2,8 @@
 //! CORRELATIONS.
 
 use crate::ast::{
-    Command, Means, MeansCell as M, MeansMissing, Standardizer, TTest, TTestGroups, TTestPairs,
-    VarItem,
+    Command, Means, MeansCell as M, MeansMissing, Oneway, Posthoc, Standardizer, TTest,
+    TTestGroups, TTestPairs, VarItem,
 };
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
@@ -367,4 +367,163 @@ pub(crate) fn t_test(p: &mut Parser) -> PResult<Command> {
         return Err(SyntaxError::new(p.span_from(start), message));
     }
     Ok(Command::TTest(command))
+}
+
+const ONEWAY_UNSUPPORTED: [&str; 6] = ["POLYNOMIAL", "RANGES", "PLOT", "MATRIX", "TEMPLATE", "ES"];
+
+const POSTHOCS: [(&str, &[Posthoc]); 7] = [
+    ("LSD", &[Posthoc::Lsd]),
+    ("BONFERRONI", &[Posthoc::Bonferroni]),
+    ("SIDAK", &[Posthoc::Sidak]),
+    ("TUKEY", &[Posthoc::Tukey]),
+    ("SCHEFFE", &[Posthoc::Scheffe]),
+    ("GH", &[Posthoc::GamesHowell]),
+    ("T2", &[Posthoc::T2]),
+];
+
+const UNSUPPORTED_POSTHOCS: [&str; 13] = [
+    "SNK", "BTUKEY", "DUNCAN", "DUNNETT", "DUNNETTL", "DUNNETTR", "GT2", "GABRIEL", "FREGW",
+    "QREGW", "T3", "C", "WALLER",
+];
+
+pub(crate) fn oneway(p: &mut Parser) -> PResult<Command> {
+    p.eat(Punct::Slash);
+    if p.eat_keyword("VARIABLES") {
+        p.expect(Punct::Eq)?;
+    }
+    let dependents = variables(p)?;
+    if !p.eat_word("BY") {
+        return Err(p.unexpected(&["BY"]));
+    }
+    let factor = p.name("the factor variable")?;
+    if p.at(Punct::LParen) {
+        let message = "a value range after the factor is not supported; every value forms a group";
+        return Err(SyntaxError::new(p.span(), message));
+    }
+    let mut command = Oneway {
+        dependents,
+        factor,
+        contrasts: Vec::new(),
+        posthoc: Vec::new(),
+        alpha: 0.05,
+        descriptives: false,
+        homogeneity: false,
+        welch: false,
+        brown_forsythe: false,
+        listwise: false,
+        include: false,
+        ci: 0.95,
+    };
+    while p.eat(Punct::Slash) {
+        if p.eat_keyword("POSTHOC") {
+            p.eat(Punct::Eq);
+            let mut chosen = Vec::new();
+            while !at_end(p) {
+                if p.eat_keyword("ALPHA") {
+                    command.alpha = level(p, "ALPHA")?;
+                    continue;
+                }
+                let found = POSTHOCS.iter().find(|(name, _)| {
+                    matches!(p.peek(), Some(TokenKind::Word(w)) if w.eq_ignore_ascii_case(name) || (name.len() > 2 && matches_keyword(w, name)))
+                });
+                let Some((_, tests)) = found else {
+                    let mut supported = names(&POSTHOCS);
+                    supported.push("ALPHA(value)");
+                    return Err(keyword_error(
+                        p,
+                        "ONEWAY /POSTHOC",
+                        &UNSUPPORTED_POSTHOCS,
+                        &supported,
+                    ));
+                };
+                p.pos += 1;
+                chosen.extend_from_slice(tests);
+                p.eat(Punct::Comma);
+            }
+            if chosen.is_empty() {
+                return Err(p.unexpected(&names(&POSTHOCS)));
+            }
+            // only one POSTHOC counts: the last
+            command.posthoc.clear();
+            for test in chosen {
+                if !command.posthoc.contains(&test) {
+                    command.posthoc.push(test);
+                }
+            }
+        } else if p.eat_keyword("CONTRAST") {
+            p.eat(Punct::Eq);
+            let mut coefficients = Vec::new();
+            while !at_end(p) {
+                let start = p.pos;
+                let Some(value) = p.number() else {
+                    return Err(p.unexpected(&["a coefficient"]));
+                };
+                if p.eat(Punct::Star) {
+                    let Some(repeated) = p.number() else {
+                        return Err(p.unexpected(&["a coefficient"]));
+                    };
+                    if value < 1.0 || value.fract() != 0.0 {
+                        let message = "in n*c the count n must be a positive whole number";
+                        return Err(SyntaxError::new(p.span_from(start), message));
+                    }
+                    coefficients.extend(std::iter::repeat_n(repeated, value as usize));
+                } else {
+                    coefficients.push(value);
+                }
+                p.eat(Punct::Comma);
+            }
+            if coefficients.is_empty() {
+                return Err(p.unexpected(&["a coefficient"]));
+            }
+            command.contrasts.push(coefficients);
+        } else if p.eat_keyword("STATISTICS") {
+            p.eat(Punct::Eq);
+            const CHOICES: [(&str, &[u8]); 6] = [
+                ("DESCRIPTIVES", &[1]),
+                ("HOMOGENEITY", &[2]),
+                ("WELCH", &[3]),
+                ("BROWNFORSYTHE", &[4]),
+                ("ALL", &[1, 2, 3, 4]),
+                ("NONE", &[0]),
+            ];
+            let chosen = keywords(p, &CHOICES, |p| {
+                keyword_error(p, "ONEWAY /STATISTICS", &["EFFECTS"], &names(&CHOICES))
+            })?;
+            for choice in chosen {
+                match choice {
+                    1 => command.descriptives = true,
+                    2 => command.homogeneity = true,
+                    3 => command.welch = true,
+                    4 => command.brown_forsythe = true,
+                    _ => {}
+                }
+            }
+        } else if p.eat_keyword("MISSING") {
+            p.eat(Punct::Eq);
+            const CHOICES: [(&str, &[u8]); 4] = [
+                ("ANALYSIS", &[0]),
+                ("LISTWISE", &[1]),
+                ("INCLUDE", &[2]),
+                ("EXCLUDE", &[3]),
+            ];
+            for choice in keywords(p, &CHOICES, |p| p.unexpected(&names(&CHOICES)))? {
+                match choice {
+                    0 => command.listwise = false,
+                    1 => command.listwise = true,
+                    2 => command.include = true,
+                    _ => command.include = false,
+                }
+            }
+        } else if p.eat_keyword("CRITERIA") {
+            p.eat(Punct::Eq);
+            if !p.eat_keyword("CILEVEL") {
+                return Err(p.unexpected(&["CILEVEL(value)"]));
+            }
+            command.ci = level(p, "CILEVEL")?;
+        } else {
+            return Err(p.subcommand_error("ONEWAY", &ONEWAY_UNSUPPORTED));
+        }
+    }
+    p.finish(&["'/'"])?;
+    Ok(Command::Oneway(command))
 }

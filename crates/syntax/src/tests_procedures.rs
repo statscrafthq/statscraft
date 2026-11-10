@@ -283,3 +283,36 @@ fn t_test() {
             .contains("between 0 and 1")
     );
 }
+
+#[test]
+fn oneway() {
+    let Command::Oneway(o) = one(
+        "ONEWAY a b BY g /CONTRAST=-1 1 2*0 /POSTHOC=TUKEY LSD GH ALPHA(.01) /STATISTICS=ALL /MISSING=LISTWISE.",
+    ) else {
+        panic!()
+    };
+    assert_eq!(o.dependents, [var("a"), var("b")]);
+    assert_eq!(o.factor, "g");
+    assert_eq!(o.contrasts, [vec![-1.0, 1.0, 0.0, 0.0]]);
+    assert_eq!(
+        o.posthoc,
+        [Posthoc::Tukey, Posthoc::Lsd, Posthoc::GamesHowell]
+    );
+    assert_eq!(o.alpha, 0.01);
+    assert!(o.descriptives && o.homogeneity && o.welch && o.brown_forsythe && o.listwise);
+    assert!(
+        err("ONEWAY a BY g /POSTHOC=SNK.")
+            .message
+            .contains("SNK in ONEWAY /POSTHOC is not supported yet")
+    );
+    assert!(
+        err("ONEWAY a BY g /POLYNOMIAL=2.")
+            .message
+            .contains("POLYNOMIAL of ONEWAY is not supported yet")
+    );
+    assert!(
+        err("ONEWAY a BY g /STATISTICS=EFFECTS.")
+            .message
+            .contains("EFFECTS")
+    );
+}

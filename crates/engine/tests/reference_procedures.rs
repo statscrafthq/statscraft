@@ -1026,3 +1026,68 @@ fn t_test_tables() {
         ],
     );
 }
+
+#[test]
+#[ignore = "needs PSPP: set STATSCRAFT_PSPP"]
+fn oneway_tables() {
+    run_statistics(
+        "oneway",
+        &[
+            (
+                "plain",
+                SURVEY,
+                "ONEWAY age BY region /STATISTICS=DESCRIPTIVES HOMOGENEITY.",
+            ),
+            (
+                "weighted",
+                WEIGHTED,
+                "ONEWAY age monthly_spend BY region /STATISTICS=DESCRIPTIVES HOMOGENEITY.",
+            ),
+            (
+                "pooled-tests",
+                SURVEY,
+                "ONEWAY monthly_spend BY region /POSTHOC=LSD BONFERRONI SIDAK.",
+            ),
+            (
+                "tukey-scheffe-weighted",
+                WEIGHTED,
+                "ONEWAY age BY region /POSTHOC=TUKEY SCHEFFE.",
+            ),
+            (
+                "games-howell-weighted",
+                WEIGHTED,
+                "ONEWAY monthly_spend BY region /POSTHOC=GH.",
+            ),
+            (
+                "contrasts",
+                SURVEY,
+                "ONEWAY age BY region /CONTRAST=1 -1 0 0 0 /CONTRAST=2 1 0 -1 -2.",
+            ),
+            (
+                "contrasts-weighted-repeat",
+                WEIGHTED,
+                "ONEWAY age monthly_spend BY gender /CONTRAST=-1 0.5 0.5.",
+            ),
+            (
+                "listwise",
+                WEIGHTED,
+                "ONEWAY age monthly_spend BY region /MISSING=LISTWISE /STATISTICS=DESCRIPTIVES.",
+            ),
+            (
+                "include",
+                SURVEY,
+                "ONEWAY q1_satisfaction BY region /MISSING=INCLUDE /STATISTICS=DESCRIPTIVES.",
+            ),
+            (
+                "missing-factor",
+                SURVEY,
+                "ONEWAY age BY q1_satisfaction /POSTHOC=TUKEY LSD /STATISTICS=HOMOGENEITY.",
+            ),
+            (
+                "alpha",
+                WEIGHTED,
+                "ONEWAY age BY gender /POSTHOC=LSD TUKEY ALPHA(0.01).",
+            ),
+        ],
+    );
+}

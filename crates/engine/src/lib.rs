@@ -11,6 +11,7 @@ pub mod live;
 mod means;
 mod merge;
 mod mrsets;
+mod oneway;
 mod recode;
 pub mod session;
 mod sort;
@@ -328,6 +329,7 @@ impl Engine {
             Command::Crosstabs(command) => return self.crosstabs(command),
             Command::Means(command) => return self.means(command),
             Command::TTest(command) => return self.t_test(command),
+            Command::Oneway(command) => return self.oneway(command),
             Command::AddFiles(merge) => self.merge_files(merge, true)?,
             Command::MatchFiles(merge) => self.merge_files(merge, false)?,
         }

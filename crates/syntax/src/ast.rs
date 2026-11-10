@@ -55,6 +55,7 @@ pub enum Command {
     Crosstabs(Crosstabs),
     Means(Means),
     TTest(TTest),
+    Oneway(Oneway),
     AddFiles(Merge),
     MatchFiles(Merge),
 }
@@ -210,6 +211,39 @@ pub enum Standardizer {
     CorrectedSd,
     /// The root of the average of the two variances.
     Average,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Oneway {
+    pub dependents: Vec<VarItem>,
+    pub factor: String,
+    /// `/CONTRAST`: coefficients for the groups in ascending order of the factor.
+    pub contrasts: Vec<Vec<f64>>,
+    /// `/POSTHOC`: in the order written, without duplicates.
+    pub posthoc: Vec<Posthoc>,
+    /// `/POSTHOC ... ALPHA(value)`
+    pub alpha: f64,
+    pub descriptives: bool,
+    pub homogeneity: bool,
+    pub welch: bool,
+    pub brown_forsythe: bool,
+    /// `/MISSING=LISTWISE`
+    pub listwise: bool,
+    /// `/MISSING=INCLUDE`
+    pub include: bool,
+    /// `/CRITERIA=CILEVEL(value)`: the level of the confidence intervals.
+    pub ci: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Posthoc {
+    Lsd,
+    Bonferroni,
+    Sidak,
+    Tukey,
+    Scheffe,
+    GamesHowell,
+    T2,
 }
 
 /// ADD FILES and MATCH FILES.

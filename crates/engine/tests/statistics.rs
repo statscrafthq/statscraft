@@ -306,3 +306,73 @@ fn t_test_warns_about_unmatched_paired_lists() {
         ["(PAIRED) has 2 variables before WITH and 1 after; the unmatched ones are left out"]
     );
 }
+
+#[test]
+fn oneway_tables_weighted() {
+    let tables = run(
+        &mut weighted(),
+        "ONEWAY age BY region /STATISTICS=DESCRIPTIVES HOMOGENEITY /CONTRAST=1 -1 0 0 0 /POSTHOC=TUKEY.",
+    );
+    let titles: Vec<&str> = tables.iter().map(|t| t.title.as_str()).collect();
+    assert_eq!(
+        titles,
+        [
+            "Descriptives",
+            "Test of Homogeneity of Variances",
+            "ANOVA",
+            "Contrast Coefficients",
+            "Contrast Tests",
+            "Multiple Comparisons: age"
+        ]
+    );
+    let descriptives = &tables[0];
+    near(number(&descriptives.rows[0][6]), 38.520_011_872_7, 10);
+    near(number(&tables[1].rows[0][1]), 0.728_510_347_5, 10);
+    let anova = &tables[2];
+    near(number(&anova.rows[0][2]), 4_569.257_708_853_7, 10);
+    near(number(&anova.rows[0][5]), 3.238_716_003_1, 10);
+    let contrasts = &tables[4];
+    near(number(&contrasts.rows[0][4]), 3.682_795_537, 10);
+    near(number(&contrasts.rows[1][6]), 102.258_710_462_5, 10);
+    let tukey = &tables[5];
+    near(number(&tukey.rows[0][5]), 0.073, 3);
+    near(number(&tukey.rows[2][5]), 0.008, 3);
+}
+
+#[test]
+fn oneway_robust_tests_and_separate_variance_comparisons() {
+    let tables = run(
+        &mut survey(),
+        "ONEWAY age BY region /STATISTICS=WELCH BROWNFORSYTHE /POSTHOC=T2 GH.",
+    );
+    let robust = titled(&tables, "Robust Tests");
+    near(number(&robust.rows[0][2]), 2.020_783_464_855_474, 12);
+    near(number(&robust.rows[0][4]), 92.839_132_951_574_43, 10);
+    near(number(&robust.rows[0][5]), 0.097_895_239_057_414_11, 12);
+    near(number(&robust.rows[1][2]), 2.074_410_361_603_061_6, 12);
+    near(number(&robust.rows[1][4]), 185.929_331_033_706_86, 10);
+    let comparisons = titled(&tables, "Multiple Comparisons");
+    assert_eq!(text(&comparisons.rows[0][0]), "Tamhane");
+    near(number(&comparisons.rows[0][4]), 4.153_416_787_051_074, 12);
+    near(number(&comparisons.rows[0][5]), 0.441_067_652_648_411_4, 10);
+    let games_howell = &comparisons.rows[20];
+    assert_eq!(text(&games_howell[0]), "Games-Howell");
+    near(number(&games_howell[5]), 0.307_121_930_382_999, 9);
+}
+
+#[test]
+fn oneway_contrast_warnings() {
+    let mut engine = survey();
+    let tables = run(
+        &mut engine,
+        "ONEWAY age BY gender /CONTRAST=1 1 1 /CONTRAST=1 -1.",
+    );
+    assert_eq!(tables.len(), 3);
+    assert_eq!(
+        engine.warnings(),
+        [
+            "the coefficients of contrast 1 do not sum to 0",
+            "contrast 2 has 2 coefficients for 3 groups and is not tested"
+        ]
+    );
+}

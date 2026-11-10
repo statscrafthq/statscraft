@@ -403,6 +403,20 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: stats::t_test,
     },
     CommandSpec {
+        name: "ONEWAY",
+        summary: "One-way analysis of variance with contrasts and post hoc comparisons.",
+        syntax: "ONEWAY deps BY factor [/STATISTICS=DESCRIPTIVES HOMOGENEITY WELCH BROWNFORSYTHE ALL NONE]\n\
+                 \x20      [/CONTRAST=coefficients] [/POSTHOC=test ... [ALPHA(0.05)]]\n\
+                 \x20      [/MISSING=ANALYSIS | LISTWISE [INCLUDE | EXCLUDE]] [/CRITERIA=CILEVEL(0.95)].\n\
+                 test: LSD BONFERRONI SIDAK TUKEY SCHEFFE GH T2. Every value of the factor is a group.\n\
+                 CONTRAST gives one coefficient per group in ascending order (n*c repeats c n times); it is\n\
+                 tested with pooled and separate variances. HOMOGENEITY is Levene's test based on the mean.\n\
+                 Multiple Comparisons show every ordered pair of groups. Weighted when a weight variable is set.\n\
+                 Not supported yet: POLYNOMIAL, RANGES, EFFECTS, homogeneous subsets and the other post hoc tests.",
+        example: "ONEWAY income BY region /STATISTICS=DESCRIPTIVES HOMOGENEITY WELCH /POSTHOC=TUKEY GH.",
+        parse: stats::oneway,
+    },
+    CommandSpec {
         name: "ADD FILES",
         summary: "Append the cases of several data files, matching variables by name.",
         syntax: "ADD FILES /FILE=* | 'path' [/RENAME=(old = new) ...] /FILE=... [/BY varlist]\n\
@@ -501,7 +515,6 @@ static UNSUPPORTED: &[&str] = &[
     "NEW FILE",
     "NONPAR CORR",
     "NPAR TESTS",
-    "ONEWAY",
     "OUTPUT CLOSE",
     "OUTPUT EXPORT",
     "OUTPUT NEW",
