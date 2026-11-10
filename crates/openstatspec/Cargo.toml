@@ -1,6 +1,6 @@
 [package]
 name = "statscraft-openstatspec"
-description = "OpenStatSpec driver: syntax frontend, transformation plans, and the SQLite binding of datasets and plans"
+description = "OpenStatSpec driver: syntax frontend, transformation plans, and the SQL bindings of datasets and plans"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -12,5 +12,9 @@ statscraft-data = { path = "../data" }
 # MIT; the bundled SQLite is public domain
 rusqlite = { version = "0.41.1", default-features = false, features = ["bundled", "limits"] }
 serde = { version = "1", features = ["derive"] }
+# MIT OR Apache-2.0; a synchronous client (it runs tokio-postgres on a private runtime)
+postgres = "0.19.14"
+# MIT; the buffer type of the postgres parameter trait
+bytes = "1"
 serde_json = "1"
 sha2 = "0.10"

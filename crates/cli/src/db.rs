@@ -1,21 +1,57 @@
-//! `statscraft db`: datasets in an OpenStatSpec SQLite database (one wide table plus catalog).
+//! `statscraft db`: datasets in an OpenStatSpec database (one wide table plus catalog) in
+//! SQLite or PostgreSQL.
 
 use crate::{load_session, session_file};
 use clap::{Args, Subcommand};
 use serde_json::{Value, json};
 use statscraft_data::Dataset;
 use statscraft_openstatspec::canonical_json;
-use statscraft_openstatspec::sqlite::{self, DbError};
+use statscraft_openstatspec::catalog;
+use statscraft_openstatspec::db::{Db, DbError};
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
+
+/// Where the password comes from when a URL has none.
+pub const PASSWORD_VARIABLE: &str = "STATSCRAFT_DB_PASSWORD";
+
+/// The database: exactly one of these.
+#[derive(Args)]
+pub struct Target {
+    /// OpenStatSpec SQLite database file
+    #[arg(long, value_name = "DB")]
+    pub sqlite: Option<PathBuf>,
+    /// PostgreSQL: postgres://user@host:port/database[?schema=NAME], schema default openstatspec
+    #[arg(long, value_name = "URL", conflicts_with = "sqlite")]
+    pub postgres: Option<String>,
+}
+
+impl Target {
+    pub fn given(&self) -> bool {
+        self.sqlite.is_some() || self.postgres.is_some()
+    }
+
+    /// Opens the database; `create` installs the catalog into an empty one. A URL without a
+    /// password takes it from STATSCRAFT_DB_PASSWORD.
+    pub fn open(&self, create: bool) -> Result<Box<dyn Db>, DbError> {
+        let password = std::env::var(PASSWORD_VARIABLE).ok();
+        let password = password.as_deref();
+        use statscraft_openstatspec::{postgres, sqlite};
+        Ok(match (&self.sqlite, &self.postgres) {
+            (Some(path), _) => Box::new(sqlite::open(path, create)?),
+            (_, Some(url)) => Box::new(postgres::open(url, password, create)?),
+            _ => return Err(DbError::new("usage", "give --sqlite DB or --postgres URL")),
+        })
+    }
+}
 
 #[derive(Args)]
 #[command(after_help = "\
 Prints one line of canonical JSON: {\"ok\":true,...} or {\"ok\":false,\"error\":{\"code\":...,\"message\":...}}.
 
-The database file is dedicated to OpenStatSpec: export creates the catalog in a new or empty \
-file and refuses a file holding anything else. Each dataset is one table data_<name> with \
-__case_ordinal and one column per variable; the dictionary lives in the catalog tables.")]
+The database is dedicated to OpenStatSpec: a SQLite file or a PostgreSQL schema. Export \
+creates the catalog in a new or empty one and refuses one holding anything else. Each dataset is one table data_<name> with __case_ordinal and one column per \
+variable; the dictionary lives in the catalog tables. A URL without a password takes it from \
+the STATSCRAFT_DB_PASSWORD environment variable; passwords are never printed.")]
 pub struct DbArgs {
     #[command(subcommand)]
     command: DbCmd,
@@ -23,25 +59,23 @@ pub struct DbArgs {
 
 #[derive(Subcommand)]
 enum DbCmd {
-    /// Store a .sav/.zsav file, or the dataset of a session, as a dataset in SQLite
+    /// Store a .sav/.zsav file, or the dataset of a session, as a dataset in the database
     Export {
         /// A .sav or .zsav file
         file: Option<PathBuf>,
         /// Export the dataset of this session instead of a file
         #[arg(short, long, conflicts_with = "file")]
         session: Option<String>,
-        /// The database file
-        #[arg(long, value_name = "DB")]
-        sqlite: PathBuf,
+        #[command(flatten)]
+        target: Target,
         /// Dataset name: ASCII letters, digits and _; defaults to the file or session name
         #[arg(long)]
         name: Option<String>,
     },
-    /// Read a dataset from SQLite into a .sav/.zsav file or a session
+    /// Read a dataset from the database into a .sav/.zsav file or a session
     Import {
-        /// The database file
-        #[arg(long, value_name = "DB")]
-        sqlite: PathBuf,
+        #[command(flatten)]
+        target: Target,
         /// Dataset name
         #[arg(long)]
         name: String,
@@ -90,7 +124,7 @@ fn execute(command: DbCmd) -> Result<Value, DbError> {
         DbCmd::Export {
             file,
             session,
-            sqlite,
+            target,
             name,
         } => {
             let (dataset, default_name) = match (&file, &session) {
@@ -107,8 +141,8 @@ fn execute(command: DbCmd) -> Result<Value, DbError> {
                 _ => return Err(usage("give a .sav/.zsav file or --session NAME".into())),
             };
             let name = name.unwrap_or(default_name);
-            let mut conn = sqlite::open(&sqlite, true)?;
-            let id = sqlite::write_dataset(&mut conn, &dataset, &name)?;
+            let mut db = target.open(true)?;
+            let id = catalog::write_dataset(db.as_mut(), &dataset, &name)?;
             Ok(json!({
                 "ok": true,
                 "dataset": name,
@@ -119,14 +153,14 @@ fn execute(command: DbCmd) -> Result<Value, DbError> {
             }))
         }
         DbCmd::Import {
-            sqlite,
+            target,
             name,
             out,
             session,
             allow_loss,
         } => {
-            let mut conn = sqlite::open(&sqlite, false)?;
-            let dataset = sqlite::read_dataset(&mut conn, &name, allow_loss)?;
+            let mut db = target.open(false)?;
+            let (dataset, losses) = catalog::read_dataset(db.as_mut(), &name, allow_loss)?;
             let target = match (out, &session) {
                 (Some(out), None) => out,
                 (None, Some(session)) => {
@@ -146,6 +180,9 @@ fn execute(command: DbCmd) -> Result<Value, DbError> {
                 "case_count": dataset.case_count(),
                 "variable_count": dataset.variable_count(),
             });
+            if !losses.is_empty() {
+                ok["losses"] = json!(losses);
+            }
             match session {
                 Some(session) => ok["session"] = json!(session),
                 None => ok["file"] = json!(target.display().to_string()),

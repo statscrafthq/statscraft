@@ -1,14 +1,18 @@
 //! OpenStatSpec driver. Part one: the the reference program syntax frontend profiles 0.1, 0.2 and 0.3 that
 //! lower bounded syntax to a Transformation Plan 0.1 or 0.2, plan validation, canonical JSON
-//! and the plan and source hashes. Part two (`sqlite`): a dataset stored as one wide table
-//! plus the catalog in SQLite, read back, and plans applied to it in place.
+//! and the plan and source hashes. Part two (`catalog`, `apply`): a dataset stored as one wide
+//! table plus the catalog in SQL, read back, and plans applied to it in place, over the
+//! dialect profiles in `db` and the connections in `sqlite` and `postgres`.
 //!
 //! This is a separate, strictly bounded frontend with its own lexer and parser. StatsCraft's
 //! own engine does not run on these plans.
 
 pub mod apply;
+pub mod catalog;
+pub mod db;
 mod frontend;
 pub mod plan;
+pub mod postgres;
 pub mod sqlite;
 
 pub use frontend::{Compiled, Diagnostic, Output, Span, compile_request, normalize_source};

@@ -1,6 +1,8 @@
 //! Helpers shared by the integration tests. Each test file uses a part of them.
 #![allow(dead_code)]
 
+pub mod runner;
+
 use serde_json::Value;
 use statscraft_data::{Dataset, Values};
 use std::path::{Path, PathBuf};

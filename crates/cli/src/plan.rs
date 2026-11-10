@@ -1,11 +1,15 @@
 //! `statscraft plan`: lowers bounded syntax to an OpenStatSpec transformation plan.
 
+use crate::db::Target;
 use crate::{RunArgs, load_session, read_source};
 use clap::Args;
 use serde_json::{Value, json};
 use statscraft_data::Dataset;
+use statscraft_openstatspec::db::DbError;
 use statscraft_openstatspec::plan::Plan;
-use statscraft_openstatspec::{FRONTEND_CONTRACTS, apply, canonical_json, compile_request, sqlite};
+use statscraft_openstatspec::{
+    FRONTEND_CONTRACTS, apply, canonical_json, catalog, compile_request,
+};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -22,9 +26,9 @@ VARIABLE LEVEL and EXECUTE.
 Profile 0.3 adds comments, TO lists, NE <> ~= and NOT, LOWEST/HIGHEST ranges and ADD VALUE LABELS.
 Anything else is rejected: this is OpenStatSpec's bounded frontend, not the full language of `statscraft run`.
 
-With --sqlite DB --name DATASET the input schema comes from that OpenStatSpec dataset, and \
---apply applies the plan to it in place, in one transaction with one audit row; the output \
-then has \"applied\":{\"apply_id\":...,\"dataset_id\":...,\"operation_count\":...}.")]
+With --sqlite DB or --postgres URL and --name DATASET the input schema comes from that \
+OpenStatSpec dataset, and --apply applies the plan to it in place, in one transaction with one \
+audit row; the output then has \"applied\":{\"apply_id\":...,\"dataset_id\":...,\"operation_count\":...}.")]
 pub struct PlanArgs {
     /// Syntax file, or - for standard input
     file: Option<String>,
@@ -32,19 +36,19 @@ pub struct PlanArgs {
     #[arg(short = 'e', long = "execute", conflicts_with = "file")]
     text: Option<String>,
     /// Input schema: a JSON file with {"variables": [{"name", "storage_kind", ...}]}
-    #[arg(long, value_name = "FILE", conflicts_with_all = ["session", "sqlite"])]
+    #[arg(long, value_name = "FILE", conflicts_with_all = ["session", "name"])]
     input_schema: Option<PathBuf>,
     /// Take the input schema from the dataset of this session
-    #[arg(short, long, conflicts_with = "sqlite")]
+    #[arg(short, long, conflicts_with = "name")]
     session: Option<String>,
-    /// OpenStatSpec SQLite database that holds the dataset named by --name
-    #[arg(long, value_name = "DB", requires = "name")]
-    sqlite: Option<PathBuf>,
-    /// Dataset name in the --sqlite database
-    #[arg(long, value_name = "DATASET", requires = "sqlite")]
+    /// The database that holds the dataset named by --name
+    #[command(flatten)]
+    target: Target,
+    /// Dataset name in the database
+    #[arg(long, value_name = "DATASET")]
     name: Option<String>,
-    /// Apply the plan to the --sqlite dataset in place
-    #[arg(long, requires = "sqlite")]
+    /// Apply the plan to the dataset in place
+    #[arg(long, requires = "name")]
     apply: bool,
     /// Who applies the plan, for the audit row; defaults to $USER
     #[arg(long)]
@@ -71,7 +75,7 @@ pub fn run(args: PlanArgs) -> ExitCode {
                     });
                     if args.apply {
                         let source_hash = out.source_hash.as_deref().unwrap_or("");
-                        match apply_to_sqlite(&args, &c.plan, source_hash) {
+                        match apply_to_dataset(&args, &c.plan, source_hash) {
                             Ok(applied) => ok["applied"] = applied,
                             Err(e) => {
                                 ok["ok"] = json!(false);
@@ -138,13 +142,17 @@ fn request(args: &PlanArgs) -> Result<Value, String> {
                 .ok_or_else(|| format!("session {name} has no dataset yet"))?;
             schema_of(&dataset, !v01)
         }
-        (None, None) => match (&args.sqlite, &args.name) {
-            (Some(path), Some(name)) => sqlite::open(path, false)
-                .and_then(|conn| sqlite::input_schema(&conn, name, !v01))
+        (None, None) => match &args.name {
+            Some(name) if args.target.given() => args
+                .target
+                .open(false)
+                .and_then(|mut db| catalog::input_schema(db.as_mut(), name, !v01))
                 .map_err(|e| e.to_string())?,
             _ => {
                 return Err(
-                    "give --input-schema FILE, --session NAME or --sqlite DB --name DATASET".into(),
+                    "give --input-schema FILE, --session NAME or a database with \
+                     --name DATASET"
+                        .into(),
                 );
             }
         },
@@ -162,16 +170,12 @@ fn request(args: &PlanArgs) -> Result<Value, String> {
     }))
 }
 
-/// Applies a compiled plan to the --sqlite dataset; an empty actor fails in the binding.
-fn apply_to_sqlite(
-    args: &PlanArgs,
-    plan: &Plan,
-    source_hash: &str,
-) -> Result<Value, sqlite::DbError> {
-    let (Some(path), Some(name)) = (&args.sqlite, &args.name) else {
-        return Err(sqlite::DbError::new(
+/// Applies a compiled plan to the --name dataset; an empty actor fails in the binding.
+fn apply_to_dataset(args: &PlanArgs, plan: &Plan, source_hash: &str) -> Result<Value, DbError> {
+    let Some(name) = &args.name else {
+        return Err(DbError::new(
             "usage",
-            "--apply needs --sqlite DB --name DATASET",
+            "--apply needs a database and --name DATASET",
         ));
     };
     let actor = args
@@ -179,8 +183,8 @@ fn apply_to_sqlite(
         .clone()
         .or_else(|| std::env::var("USER").ok())
         .unwrap_or_default();
-    let mut conn = sqlite::open(path, false)?;
-    let applied = apply::apply_plan(&mut conn, name, plan, source_hash, &actor)?;
+    let mut db = args.target.open(false)?;
+    let applied = apply::apply_plan(db.as_mut(), name, plan, source_hash, &actor)?;
     Ok(json!({
         "apply_id": applied.apply_id,
         "dataset_id": applied.dataset_id,
