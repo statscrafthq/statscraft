@@ -6,6 +6,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+mod db;
 mod plan;
 
 #[derive(Parser)]
@@ -40,6 +41,8 @@ enum Cmd {
     Help { command: Vec<String> },
     /// Lower bounded syntax to an OpenStatSpec transformation plan (JSON)
     Plan(plan::PlanArgs),
+    /// Store datasets in an OpenStatSpec SQLite database and read them back
+    Db(db::DbArgs),
 }
 
 #[derive(Args)]
@@ -72,6 +75,7 @@ fn main() -> ExitCode {
         Cmd::Check(args) => (args.json, run(args, true)),
         Cmd::Help { command } => (false, help(&command.join(" "))),
         Cmd::Plan(args) => return plan::run(args),
+        Cmd::Db(args) => return db::run(args),
     };
     match outcome {
         Ok(()) => ExitCode::SUCCESS,
