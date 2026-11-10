@@ -9,15 +9,56 @@ The command line works without the window.
 
 ## Install
 
-### Release zips
+### Getting the installer or package
 
-There is no installer yet. Zips for x86_64 Windows and Linux come from the **Release build** workflow of the GitHub repository, which runs only when someone starts it:
+The installer and packages for x86_64 Windows and Linux are attached to a release on the GitHub repository's **Releases** page. They come from the **Release build** workflow, which runs only when someone starts it:
 
-1. On GitHub open **Actions**, choose **Release build**, then **Run workflow** (with the GitHub CLI: `gh workflow run release.yml`).
-2. When the run has finished, its page lists `statscraft-windows-x86_64.zip` and `statscraft-linux-x86_64.zip`.
-3. Unzip one. It holds `statscraft`, `statscraft-gui`, the README and the license.
+1. On GitHub open **Actions**, choose **Release build**, then **Run workflow** (with the GitHub CLI: `gh workflow run release.yml`). Tick **draft release** to also get a draft release with the files attached; a maintainer publishes it by hand.
+2. When the run has finished, its page lists the files below, where `X` is the version:
+   - `statscraft-X-windows-x86_64-setup.exe`, the Windows installer
+   - `statscraft_X_amd64.deb`, the package for Debian and Ubuntu
+   - `statscraft-X-linux-x86_64.tar.gz`, the same files for any other Linux
 
-On Windows, start `statscraft-gui.exe` to open the window. `statscraft.exe` is the command line and runs in a terminal. Put the folder on your `PATH` to call `statscraft` from anywhere.
+### Windows
+
+Run `statscraft-X-windows-x86_64-setup.exe`. It needs no administrator rights and installs for your user only:
+
+- both programs go to `%LOCALAPPDATA%\Programs\StatsCraft`
+- the Start menu gets **StatsCraft**, which opens the window
+- that folder is added to your `PATH`, so `statscraft` works in any terminal you open after the installation
+- .sav and .zsav files open in the window, and .sps files in its syntax editor. Where another program is already the default for one of these types, it stays the default, and StatsCraft is offered under **Open with**.
+
+Windows may warn that the installer comes from an unknown publisher, because it is not signed yet. Choose **More info**, then **Run anyway**.
+
+To uninstall, open **Settings**, **Apps**, **Installed apps**, find StatsCraft and choose **Uninstall**. That removes the programs, the Start menu entry, the `PATH` entry and the file types.
+
+### Debian and Ubuntu
+
+```
+sudo apt install ./statscraft_X_amd64.deb
+```
+
+puts `statscraft` and `statscraft-gui` in `/usr/bin`, adds StatsCraft to the applications menu and opens .sav, .zsav and .sps files in the window. `sudo apt remove statscraft` uninstalls it.
+
+### Other Linux
+
+The tarball holds a `bin` and a `share` folder. Unpack it into `~/.local` and refresh the file types:
+
+```
+tar -xzf statscraft-X-linux-x86_64.tar.gz --strip-components=1 -C ~/.local
+update-mime-database ~/.local/share/mime
+update-desktop-database ~/.local/share/applications
+```
+
+(`update-desktop-database` comes with desktop-file-utils; where it is missing, skip that line.) `~/.local/bin` must be on your `PATH`, which it is by default on most distributions once the folder exists. To uninstall, delete what the tarball put there:
+
+```
+cd ~/.local
+rm bin/statscraft bin/statscraft-gui share/applications/statscraft.desktop share/mime/packages/statscraft.xml
+rm share/icons/hicolor/*/apps/statscraft.png share/icons/hicolor/scalable/apps/statscraft.svg
+rm -r share/doc/statscraft
+update-mime-database ~/.local/share/mime
+```
 
 ### Build from source
 

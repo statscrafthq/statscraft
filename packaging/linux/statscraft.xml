@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- .sav and .zsav are known to shared-mime-info already; this adds syntax files. -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="text/x-statscraft-syntax">
+    <comment>StatsCraft syntax file</comment>
+    <sub-class-of type="text/plain"/>
+    <glob pattern="*.sps"/>
+  </mime-type>
+</mime-info>

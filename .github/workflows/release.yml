@@ -1,34 +1,64 @@
 name: Release build
 
-# Manual only: Actions > Release build > Run workflow. Each platform gives one zip with
-# statscraft (command line) and statscraft-gui (window).
+# Manual only: Actions > Release build > Run workflow. Windows gives a per-user installer, Linux a
+# .deb and a .tar.gz, each uploaded as its own artifact. With "draft release" ticked, a draft GitHub
+# Release with the same files is created too; publishing it stays a manual step.
 on:
   workflow_dispatch:
+    inputs:
+      draft_release:
+        description: Also create a draft GitHub Release with the packages
+        type: boolean
+        default: false
 
 jobs:
   build:
     strategy:
       matrix:
-        include:
-          - os: windows-latest
-            platform: windows-x86_64
-            exe: .exe
-          - os: ubuntu-latest
-            platform: linux-x86_64
-            exe: ""
+        os: [windows-latest, ubuntu-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
       - run: cargo build --release --locked -p statscraft -p statscraft-gui
-      - name: Package
-        shell: bash
-        run: |
-          dir=statscraft-${{ matrix.platform }}
-          mkdir "$dir"
-          cp target/release/statscraft${{ matrix.exe }} target/release/statscraft-gui${{ matrix.exe }} README.md LICENSE "$dir/"
-          if [ "$RUNNER_OS" = Windows ]; then 7z a "$dir.zip" "$dir"; else zip -r "$dir.zip" "$dir"; fi
-      # archive: false uploads the zip as it is, which keeps the executable bit on Linux
-      - uses: actions/upload-artifact@v7
+      # the workspace version in Cargo.toml is the package version
+      - shell: bash
+        run: echo "VERSION=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)" >> "$GITHUB_ENV"
+      # Inno Setup 6 is preinstalled on the Windows runners
+      - if: runner.os == 'Windows'
+        run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$env:VERSION" packaging\windows\statscraft.iss'
+      - if: runner.os == 'Linux'
+        run: sh packaging/linux/build.sh "$VERSION"
+      # archive: false uploads each file as it is; it takes one file per step
+      - if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
         with:
-          path: statscraft-${{ matrix.platform }}.zip
+          path: target/packages/statscraft-${{ env.VERSION }}-windows-x86_64-setup.exe
           archive: false
+      - if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v7
+        with:
+          path: target/packages/statscraft_${{ env.VERSION }}_amd64.deb
+          archive: false
+      - if: runner.os == 'Linux'
+        uses: actions/upload-artifact@v7
+        with:
+          path: target/packages/statscraft-${{ env.VERSION }}-linux-x86_64.tar.gz
+          archive: false
+
+  draft-release:
+    if: inputs.draft_release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/download-artifact@v8
+        with:
+          path: packages
+          merge-multiple: true
+      - env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+          gh release create "v$version" packages/* --draft --target "$GITHUB_SHA" --title "StatsCraft $version" --notes "Draft built by the Release build workflow."

@@ -45,4 +45,4 @@ These are accepted where the documented syntax refuses them. Results on document
 - **Charts.** No command draws charts yet.
 - **Data files.** StatsCraft reads and writes .sav and .zsav files. Portable (.por) files, spreadsheets and text files cannot be read yet. An old .sav file that does not state its code page is read as Western European (windows-1252); there is no way to choose another encoding yet.
 - **Output.** Tables come out as Markdown, JSON, HTML (from the window) and Excel workbooks.
-- **Installer.** There is no installer; the release zips are unpacked by hand.
+- **Installer.** The Windows installer is not signed yet, and there are no packages for macOS or for ARM processors.

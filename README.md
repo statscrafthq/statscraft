@@ -30,7 +30,7 @@ What runs today: reading and writing data files, labels and missing values, tran
 
 ## Getting a build
 
-The manual workflow **Release build** (Actions, Release build, Run workflow, or `gh workflow run release.yml`) gives `statscraft-windows-x86_64.zip` and `statscraft-linux-x86_64.zip`, each with `statscraft`, `statscraft-gui`, this README and the license. To build from source you need Rust 1.95 or newer: `cargo build --release -p statscraft -p statscraft-gui`.
+The manual workflow **Release build** (Actions, Release build, Run workflow, or `gh workflow run release.yml`) gives a per-user Windows installer, a .deb for Debian and Ubuntu, and a .tar.gz for other Linux, each with `statscraft` and `statscraft-gui`; ticking **draft release** also attaches them to a draft GitHub Release. [Getting started](docs/getting-started.md#install) explains how to install and uninstall them. The packaging scripts are in `packaging/`, the icon in `crates/gui/icons/`. To build from source you need Rust 1.95 or newer: `cargo build --release -p statscraft -p statscraft-gui`.
 
 ## Development
 
