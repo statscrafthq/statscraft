@@ -329,7 +329,7 @@ CREATE TABLE transformation_apply (
 );
 "#;
 
-const NOW: &str = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
+pub(crate) const NOW: &str = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
 
 /// Opens a database file dedicated to the catalog. With `create`, a missing or empty file gets
 /// the catalog installed; without it the file must exist and already hold the catalog. Any

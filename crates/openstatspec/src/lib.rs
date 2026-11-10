@@ -6,6 +6,7 @@
 //! This is a separate, strictly bounded frontend with its own lexer and parser. StatsCraft's
 //! own engine does not run on these plans.
 
+pub mod apply;
 mod frontend;
 pub mod plan;
 pub mod sqlite;
