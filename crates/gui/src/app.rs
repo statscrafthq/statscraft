@@ -1322,7 +1322,7 @@ impl App {
             }
             enter = !editing && i.consume_key(Modifiers::NONE, Key::Enter);
             copy = !editing && i.events.iter().any(|e| matches!(e, egui::Event::Copy));
-            delete = variables && i.consume_key(Modifiers::NONE, Key::Delete);
+            delete = !editing && i.consume_key(Modifiers::NONE, Key::Delete);
         });
         if copy {
             self.copy_selection(ui.ctx());
@@ -1489,24 +1489,27 @@ impl App {
 
     /// Asks before deleting the variables whose rows are selected in the Variable View.
     fn ask_delete(&mut self) {
-        let (Some(s), Some(data)) = (&self.variable_selected, self.session.dataset()) else {
+        let Some(data) = self.session.dataset() else {
             return;
         };
-        if s.rows.is_empty() {
-            self.status = Err("select variables by their row numbers to delete them".into());
+        let variable_view = self.tab == Tab::Variables;
+        let picked = match variable_view {
+            true => self.variable_selected.as_ref().map(|s| &s.rows),
+            false => self.selected.as_ref().map(|s| &s.columns),
+        };
+        let picked: Vec<usize> = picked.into_iter().flatten().copied().collect();
+        if picked.is_empty() {
+            if variable_view {
+                self.status = Err("select variables by their row numbers to delete them".into());
+            }
             return;
         }
-        let names: Vec<String> = s
-            .rows
-            .iter()
-            .filter(|&&r| r < data.variable_count())
-            .map(|&r| data.variable_at(r).name().to_string())
-            .collect();
-        self.confirm = Some(grid_menu::Confirm {
-            question: format!("Delete {}?", edits::listed(&names)),
-            syntax: edits::delete_variables(&names),
-            button: "Delete",
-        });
+        let target = grid_menu::Target::Variables(picked);
+        if let Ok(grid_menu::Action::Ask(confirm)) =
+            grid_menu::action(data, &target, grid_menu::Item::Delete)
+        {
+            self.confirm = Some(confirm);
+        }
     }
 
     /// The Type and Format dialog: a format from a list, its width and decimals.
@@ -1779,6 +1782,9 @@ impl App {
             (grid::Hit::Header(_), false, Some(s)) => {
                 Some(grid_menu::Target::Variables(picked(&s.columns)))
             }
+            (grid::Hit::Number(_), false, Some(s)) => {
+                Some(grid_menu::Target::Cases(picked(&s.rows)))
+            }
             _ => None,
         };
         self.menu = target.map(|t| (t, variable_view));
@@ -1787,15 +1793,16 @@ impl App {
     /// The right-click menu of a grid: its target and the split, filter and weight in force
     /// at the top, then the items.
     fn grid_menu(&mut self, ui: &mut Ui) {
-        let (Some((target, variable_view)), Some(data)) = (&self.menu, self.session.dataset())
+        let (Some((target, variable_view)), Some(data)) =
+            (self.menu.clone(), self.session.dataset())
         else {
             return ui.close();
         };
-        let entries = grid_menu::entries(data, target, *variable_view, self.busy.is_some());
+        let entries = grid_menu::entries(data, &target, variable_view, self.busy.is_some());
         if entries.is_empty() {
             return ui.close();
         }
-        ui.weak(grid_menu::heading(data, target));
+        ui.weak(grid_menu::heading(data, &target));
         for (state, _) in data_states(data) {
             ui.weak(state);
         }
@@ -1832,9 +1839,34 @@ impl App {
             return;
         };
         ui.close();
-        match grid_menu::action(data, target, item) {
+        let action = grid_menu::action(data, &target, item);
+        // the new variable takes the place of the one it went before
+        if item == grid_menu::Item::InsertBefore
+            && let grid_menu::Target::Variables(columns) = &target
+            && let Some(&column) = columns.first()
+        {
+            self.select_variable(column, variable_view);
+        }
+        match action {
             Ok(action) => self.act(action, ui.ctx()),
             Err(message) => self.status = Err(message),
+        }
+    }
+
+    /// Selects one variable, as a row of the Variable View or a column of the Data View, and
+    /// scrolls it into view.
+    fn select_variable(&mut self, index: usize, variable_view: bool) {
+        if variable_view {
+            let mut s = grid::Selection::cell((index, 0));
+            s.click_row(index, false, false);
+            self.variable_selected = Some(s);
+            self.variable_follow = true;
+        } else {
+            let row = self.selected.as_ref().map_or(0, |s| s.cursor.0);
+            let mut s = grid::Selection::cell((row, index));
+            s.click_column(index, false, false);
+            self.selected = Some(s);
+            self.follow = true;
         }
     }
 
@@ -1851,18 +1883,11 @@ impl App {
                 self.edit_field((row, field));
             }
             grid_menu::Action::Properties(row) => {
-                let mut s = grid::Selection::cell((row, 0));
-                s.click_row(row, false, false);
-                self.variable_selected = Some(s);
-                self.variable_follow = true;
+                self.select_variable(row, true);
                 self.tab = Tab::Variables;
             }
             grid_menu::Action::ShowInData(column) => {
-                let row = self.selected.as_ref().map_or(0, |s| s.cursor.0);
-                let mut s = grid::Selection::cell((row, column));
-                s.click_column(column, false, false);
-                self.selected = Some(s);
-                self.follow = true;
+                self.select_variable(column, false);
                 self.tab = Tab::Data;
             }
         }

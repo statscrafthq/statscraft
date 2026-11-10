@@ -5,7 +5,7 @@ use crate::analyze_dialogs::Explore;
 use crate::app::Dialog;
 use crate::data_dialogs::SortCases;
 use crate::dialogs::{Crosstabs, CustomTables, Descriptives, Frequencies, Recode};
-use crate::edits::Field;
+use crate::edits::{Field, listed};
 use statscraft_data::{Dataset, Measure};
 
 /// What a right click landed on.
@@ -13,6 +13,8 @@ use statscraft_data::{Dataset, Measure};
 pub enum Target {
     /// Variables by their index, in file order: Data View columns or Variable View rows.
     Variables(Vec<usize>),
+    /// Data View cases by their index, from row numbers.
+    Cases(Vec<usize>),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -32,7 +34,10 @@ pub enum Item {
     Properties,
     ShowInData,
     RecodeDialog,
+    InsertBefore,
     Copy,
+    Delete,
+    DeleteCase,
 }
 
 /// One item of a menu.
@@ -121,7 +126,10 @@ pub const MEASURES: [(Measure, &str); 3] = [
 
 /// The variables a target concerns that the dataset still has, in file order.
 fn columns(data: &Dataset, target: &Target) -> Vec<usize> {
-    let Target::Variables(columns) = target;
+    let columns = match target {
+        Target::Variables(columns) => columns,
+        Target::Cases(_) => return Vec::new(),
+    };
     let mut columns: Vec<usize> = columns
         .iter()
         .copied()
@@ -176,6 +184,12 @@ fn short(text: &str, most: usize) -> String {
 
 /// The first line of a menu: what it acts on.
 pub fn heading(data: &Dataset, target: &Target) -> String {
+    if let Target::Cases(rows) = target {
+        return match rows[..] {
+            [one] => format!("Case {}", one + 1),
+            _ => format!("{} cases", rows.len()),
+        };
+    }
     match columns(data, target)[..] {
         [one] => {
             let variable = data.variable_at(one);
@@ -204,6 +218,16 @@ pub fn entries(
         0 => Err("no cases".into()),
         _ => runs.clone(),
     };
+    if let Target::Cases(rows) = target {
+        let one = match rows[..] {
+            [_] => runs.clone(),
+            _ => Err("one case at a time".into()),
+        };
+        return vec![
+            Some(entry(Item::Copy, "Copy").key("Ctrl+C")),
+            Some(entry(Item::DeleteCase, "Delete case").ready(&one)),
+        ];
+    }
     let columns = columns(data, target);
     if columns.is_empty() {
         return Vec::new();
@@ -227,7 +251,7 @@ pub fn entries(
     };
     descriptives = descriptives.ready(&no_mean);
     if descriptives.enabled && !strings.is_empty() {
-        descriptives.hover = Some(format!("leaves out {}", crate::edits::listed(&strings)));
+        descriptives.hover = Some(format!("leaves out {}", listed(&strings)));
     }
     let mut list = vec![
         Some(entry(Item::SortAscending, ascending).ready(&cases)),
@@ -269,14 +293,29 @@ pub fn entries(
             false => entry(Item::Properties, "Properties"),
         }));
         list.push(Some(entry(Item::RecodeDialog, "Recode...")));
+        list.push(Some(
+            entry(Item::InsertBefore, "Insert variable before").ready(&runs),
+        ));
         list.push(None);
     }
     list.push(Some(entry(Item::Copy, "Copy").key("Ctrl+C")));
+    let delete = if one {
+        "Delete variable"
+    } else {
+        "Delete variables"
+    };
+    list.push(Some(entry(Item::Delete, delete).key("Del").ready(&runs)));
     list
 }
 
 /// What choosing `item` in the menu over `target` does.
 pub fn action(data: &Dataset, target: &Target, item: Item) -> Result<Action, String> {
+    if let Target::Cases(rows) = target {
+        return Ok(match (item, &rows[..]) {
+            (Item::DeleteCase, &[case]) => Action::Ask(delete_case(case)),
+            _ => Action::Copy,
+        });
+    }
     let columns = columns(data, target);
     let first = *columns.first().ok_or("the variable is gone")?;
     let all = varlist(data, &columns);
@@ -302,13 +341,21 @@ pub fn action(data: &Dataset, target: &Target, item: Item) -> Result<Action, Str
                 None => Action::Run(syntax),
             }
         }
-        Item::Frequencies => Action::Run(
-            Frequencies {
+        Item::Frequencies => {
+            let syntax = Frequencies {
                 variables: vec![all],
                 ..Default::default()
             }
-            .syntax()?,
-        ),
+            .syntax()?;
+            match columns.len() {
+                n if n > 100 => Action::Ask(Confirm {
+                    question: format!("Frequencies makes a table for each of the {n} variables."),
+                    syntax,
+                    button: "Run",
+                }),
+                _ => Action::Run(syntax),
+            }
+        }
         Item::Descriptives => Action::Run(
             Descriptives {
                 variables: vec![varlist(data, &numeric)],
@@ -365,8 +412,61 @@ pub fn action(data: &Dataset, target: &Target, item: Item) -> Result<Action, Str
             },
             Default::default(),
         )),
+        Item::InsertBefore => Action::Run(insert_before(data, first)),
         Item::Copy => Action::Copy,
+        Item::Delete => {
+            let mut question = match names.len() {
+                1 => format!("Delete {}? Ctrl+Z brings it back.", names[0]),
+                _ => format!("Delete {}? Ctrl+Z brings them back.", listed(&names)),
+            };
+            let among = |name: Option<&str>| {
+                name.is_some_and(|name| names.iter().any(|n| n.eq_ignore_ascii_case(name)))
+            };
+            if among(data.weight_variable()) {
+                question.push_str(" This also ends weighting.");
+            }
+            if among(data.filter_variable()) {
+                question.push_str(" This also ends the filter.");
+            }
+            Action::Ask(Confirm {
+                question,
+                syntax: format!("DELETE VARIABLES {all}."),
+                button: "Delete",
+            })
+        }
+        Item::DeleteCase => return Err("choose a case to delete".into()),
     })
+}
+
+/// A new numeric variable before the variable at `before`, named new_1 or the first free of
+/// new_2, new_3, ... MATCH FILES puts it in place and drops the weight, so the weight is set
+/// again.
+pub fn insert_before(data: &Dataset, before: usize) -> String {
+    let new = (1..)
+        .map(|i| format!("new_{i}"))
+        .find(|n| data.variable_index(n).is_none())
+        .expect("one of the names is free");
+    let earlier: Vec<usize> = (0..before).collect();
+    let keep = match before {
+        0 => new.clone(),
+        _ => format!("{} {new}", varlist(data, &earlier)),
+    };
+    let mut syntax = format!("NUMERIC {new} (F8.2).\nMATCH FILES /FILE=* /KEEP={keep} ALL.");
+    if let Some(weight) = data.weight_variable() {
+        syntax.push_str(&format!("\nWEIGHT BY {weight}."));
+    }
+    syntax
+}
+
+/// Deletes the case at `case` (from 0). $CASENUM cannot be used in SELECT IF, so a scratch
+/// variable counts the cases; it sees every case, filtered or not.
+fn delete_case(case: usize) -> Confirm {
+    let n = case + 1;
+    Confirm {
+        question: format!("Delete case {n}? Ctrl+Z brings it back."),
+        syntax: format!("COMPUTE #row = #row + 1.\nSELECT IF #row <> {n}."),
+        button: "Delete",
+    }
 }
 
 #[cfg(test)]
@@ -728,5 +828,176 @@ mod tests {
             heading(data, &Target::Variables(vec![1, 2, 3])),
             "3 variables"
         );
+    }
+
+    fn ask(session: &Session, target: &Target, item: Item) -> Confirm {
+        match action(data(session), target, item) {
+            Ok(Action::Ask(confirm)) => confirm,
+            _ => panic!("{item:?} asks first"),
+        }
+    }
+
+    #[test]
+    fn delete_variables_warns_about_weight_and_filter() {
+        let mut session = open("survey_basic.sav");
+        let one = ask(&session, &target(&session, &["age"]), Item::Delete);
+        assert_eq!(one.question, "Delete age? Ctrl+Z brings it back.");
+        assert_eq!(one.syntax, "DELETE VARIABLES age.");
+        run_in(
+            &mut session,
+            "WEIGHT BY weight.\nCOMPUTE adult = age >= 30.\nFILTER BY adult.",
+        );
+        let names = ["region", "adult", "weight"];
+        let all = ask(&session, &target(&session, &names), Item::Delete);
+        assert_eq!(
+            all.question,
+            "Delete region, weight and adult? Ctrl+Z brings them back. This also ends weighting. \
+             This also ends the filter."
+        );
+        assert_eq!(all.syntax, "DELETE VARIABLES region weight adult.");
+        run_in(&mut session, &all.syntax);
+        let data = data(&session);
+        assert_eq!(data.variable_count(), 17);
+        assert!(data.weight_variable().is_none() && data.filter_variable().is_none());
+        // a run of three is written with TO
+        let run = ask(
+            &session,
+            &target(&session, &["q5_1", "q5_2", "q5_3"]),
+            Item::Delete,
+        );
+        assert_eq!(run.syntax, "DELETE VARIABLES q5_1 TO q5_3.");
+        run_in(&mut session, &run.syntax);
+        assert!(data_after(&session, "q5_2").is_none());
+    }
+
+    fn data_after(session: &Session, name: &str) -> Option<usize> {
+        data(session).variable_index(name)
+    }
+
+    #[test]
+    fn insert_variable_keeps_its_place_and_the_weight() {
+        let mut session = open("survey_basic.sav");
+        run_in(
+            &mut session,
+            "WEIGHT BY weight.\nCOMPUTE adult = age >= 30.\nFILTER BY adult.",
+        );
+        let age = index(&session, "age");
+        let syntax = syntax(&session, &["age"], Item::InsertBefore);
+        assert_eq!(
+            syntax,
+            "NUMERIC new_1 (F8.2).\nMATCH FILES /FILE=* /KEEP=resp_id gender new_1 ALL.\n\
+             WEIGHT BY weight."
+        );
+        run_in(&mut session, &syntax);
+        let data = data(&session);
+        assert_eq!(data.variable_at(age).name(), "new_1");
+        assert_eq!(data.variable_at(age + 1).name(), "age");
+        assert_eq!(data.variable_count(), 21);
+        assert_eq!(data.case_count(), 200);
+        assert_eq!(data.weight_variable(), Some("weight"));
+        assert_eq!(data.filter_variable(), Some("adult"));
+        // the dictionary of the other variables stays
+        assert_eq!(data.variable("gender").unwrap().value_labels().len(), 3);
+        // further on, the variables before it are written with TO
+        let later = syntax_of(&session, "plan");
+        assert!(later.contains("/KEEP=resp_id TO monthly_spend new_2 ALL."));
+        run_in(&mut session, &later);
+    }
+
+    fn syntax_of(session: &Session, name: &str) -> String {
+        syntax(session, &[name], Item::InsertBefore)
+    }
+
+    #[test]
+    fn insert_before_the_first_column() {
+        let mut session = open("survey_basic.sav");
+        let syntax = syntax_of(&session, "resp_id");
+        assert_eq!(
+            syntax,
+            "NUMERIC new_1 (F8.2).\nMATCH FILES /FILE=* /KEEP=new_1 ALL."
+        );
+        run_in(&mut session, &syntax);
+        assert_eq!(data(&session).variable_at(0).name(), "new_1");
+        assert_eq!(data(&session).variable_at(1).name(), "resp_id");
+    }
+
+    #[test]
+    fn the_new_name_is_the_first_free() {
+        let mut session = open("survey_basic.sav");
+        run_in(&mut session, "NUMERIC new_1 new_3.");
+        assert!(syntax_of(&session, "age").starts_with("NUMERIC new_2 (F8.2)."));
+    }
+
+    #[test]
+    fn delete_case_removes_exactly_that_case() {
+        for filter in [false, true] {
+            let mut session = open("survey_basic.sav");
+            if filter {
+                // the second case is filtered out; it is deleted all the same
+                run_in(&mut session, "COMPUTE f = resp_id <> 1002.\nFILTER BY f.");
+            }
+            let ids = numbers(&session, "resp_id");
+            let confirm = ask(&session, &Target::Cases(vec![1]), Item::DeleteCase);
+            assert_eq!(confirm.question, "Delete case 2? Ctrl+Z brings it back.");
+            assert_eq!(
+                confirm.syntax,
+                "COMPUTE #row = #row + 1.\nSELECT IF #row <> 2."
+            );
+            run_in(&mut session, &confirm.syntax);
+            let after = numbers(&session, "resp_id");
+            assert_eq!(after.len(), 199);
+            assert_eq!(after[..1], ids[..1]);
+            assert_eq!(after[1..], ids[2..]);
+        }
+    }
+
+    #[test]
+    fn the_case_menu_copies_and_deletes_one_case() {
+        let session = open("survey_basic.sav");
+        let data = data(&session);
+        let items = |rows: Vec<usize>| {
+            let entries = entries(data, &Target::Cases(rows), false, false);
+            let entries = entries.into_iter().flatten();
+            entries.map(|e| (e.item, e.enabled)).collect::<Vec<_>>()
+        };
+        assert_eq!(
+            items(vec![11]),
+            [(Item::Copy, true), (Item::DeleteCase, true)]
+        );
+        assert_eq!(
+            items(vec![3, 4]),
+            [(Item::Copy, true), (Item::DeleteCase, false)]
+        );
+        assert_eq!(heading(data, &Target::Cases(vec![11])), "Case 12");
+        assert_eq!(heading(data, &Target::Cases(vec![3, 4])), "2 cases");
+        assert!(matches!(
+            action(data, &Target::Cases(vec![3, 4]), Item::Copy),
+            Ok(Action::Copy)
+        ));
+    }
+
+    #[test]
+    fn frequencies_asks_above_100_variables() {
+        let mut session = open("wide.sav");
+        let count = data(&session).variable_count();
+        let target = Target::Variables((0..count).collect());
+        let confirm = ask(&session, &target, Item::Frequencies);
+        assert_eq!(
+            confirm.question,
+            "Frequencies makes a table for each of the 300 variables."
+        );
+        let first = data(&session).variable_at(0).name().to_string();
+        let last = data(&session).variable_at(count - 1).name().to_string();
+        assert_eq!(
+            confirm.syntax,
+            format!("FREQUENCIES VARIABLES={first} TO {last}.")
+        );
+        assert_eq!(run_in(&mut session, &confirm.syntax), 300);
+        // up to 100 it runs at once
+        let hundred = Target::Variables((0..100).collect());
+        assert!(matches!(
+            action(data(&session), &hundred, Item::Frequencies),
+            Ok(Action::Run(_))
+        ));
     }
 }

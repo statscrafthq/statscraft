@@ -721,11 +721,6 @@ impl MissingEditor {
     }
 }
 
-/// The syntax that deletes variables.
-pub fn delete_variables(names: &[String]) -> String {
-    format!("DELETE VARIABLES {}.", names.join(" "))
-}
-
 /// Names for a question: `age`, `age and region`, `age, region and q1`, or for many the count
 /// and the first few.
 pub fn listed(names: &[String]) -> String {
@@ -1221,9 +1216,7 @@ mod tests {
         );
         let mut session = survey();
         let count = session.dataset().unwrap().variable_count();
-        let syntax = delete_variables(&names(&["q5_1", "plan"]));
-        assert_eq!(syntax, "DELETE VARIABLES q5_1 plan.");
-        session.run(&syntax, None).unwrap();
+        session.run("DELETE VARIABLES q5_1 plan.", None).unwrap();
         let data = session.dataset().unwrap();
         assert_eq!(data.variable_count(), count - 2);
         assert!(data.variable("plan").is_err());
