@@ -228,6 +228,11 @@ fn push_literal(out: &mut String, v: &Sql) {
 /// faster and cost memory on both sides.
 const BATCH_BYTES: usize = 4 << 20;
 
+/// The same for INSERTs of literals on Dolt, which slows down on long statements: on Dolt
+/// 2.2.3, 256 KiB and 4 MiB batches stored 20,000 cases of 300 variables about equally fast,
+/// 32 MiB five times slower.
+const LITERAL_BATCH_BYTES: usize = 256 << 10;
+
 /// A statement over the dialect's parameter limit fails here instead of waiting forever.
 fn check_params(dialect: &Dialect, values: &[Sql]) -> Result<()> {
     if values.len() > dialect.max_params {
@@ -289,7 +294,7 @@ impl MyDb {
                     "bytes",
                 ));
             }
-            if !sql.is_empty() && sql.len() + 1 + values.len() > limit.min(BATCH_BYTES) {
+            if !sql.is_empty() && sql.len() + 1 + values.len() > limit.min(LITERAL_BATCH_BYTES) {
                 self.conn.query_drop(&sql)?;
                 sql.clear();
             }

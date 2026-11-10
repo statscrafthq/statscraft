@@ -682,7 +682,7 @@ pub fn capabilities() -> Value {
                 "structural_row": limit(65503, "bytes", "table definition below 65,504 bytes: \
                     8 per BIGINT and DOUBLE, 20 per LONGTEXT, measured"),
                 "emitted_statement": {"unit": "bytes", "source": "active max_allowed_packet; \
-                rows as literals in multi-row INSERTs of at most 4 MiB, each case's INSERT \
+                rows as literals in multi-row INSERTs of at most 256 KiB, each case's INSERT \
                 preflighted at 25 bytes per number plus its escaped strings"},
                 "numeric": "DOUBLE; NaN, infinities and negative zero refused (Dolt stores -0 as 0)",
                 "text": "LONGTEXT NOT NULL",
