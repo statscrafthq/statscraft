@@ -262,7 +262,19 @@ impl Engine {
                 .collect::<Result<_, _>>()?
         };
         let cases = match_cases(&inputs, &keys, !by.is_empty(), add);
+        // without a table, equal keys are matched in order, case by case, and the manual asks
+        // for a warning; with a table, repeated keys in the files are what it is for
+        let tables = inputs.iter().any(|input| input.table);
+        let repeated: Vec<&str> = (inputs.iter().zip(&keys))
+            .filter(|(_, keys)| !add && !tables && keys.windows(2).any(|k| k[0] == k[1]))
+            .map(|(input, _)| input.name.as_str())
+            .collect();
         drop(keys);
+        for name in repeated {
+            self.warn(format!(
+                "{name} holds some keys more than once; cases with the same key are matched in order"
+            ));
+        }
 
         let mut out = inputs[0].data.clone();
         out.take_cases(&cases[0])?;

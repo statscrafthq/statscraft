@@ -343,7 +343,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  MISSING=VARIABLE (the default) leaves out the missing values of each variable on its own;\n\
                  LISTWISE leaves out a case missing on any listed variable; INCLUDE counts user-missing values.\n\
                  The row Valid N (listwise) counts the cases valid on every listed variable. String variables get no\n\
-                 statistics; the table names them. var (name) in the list adds a z-score under that name; SAVE adds\n\
+                 statistics; a warning names them. var (name) in the list adds a z-score under that name; SAVE adds\n\
                  one for every variable, named Z plus the variable name (ZSC001 to ZSC099, STDZ01 to STDZ09,\n\
                  ZZZZ01 to ZZZZ09, ZQZQ01 to ZQZQ09 when that name is taken), labelled Zscore: plus the label.",
         example: "DESCRIPTIVES VARIABLES=age income (z_inc) /STATISTICS=DEFAULT SUM /SAVE.",

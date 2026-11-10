@@ -171,3 +171,80 @@ fn dry_run_does_not_write_files() {
     run(&mut engine, &format!("SAVE OUTFILE='{}'.", path.display()));
     assert!(!path.exists());
 }
+
+#[test]
+fn warnings_report_what_a_command_did_differently() {
+    let mut engine = loaded("survey_basic.sav");
+    // a range written high THRU low is read the other way round
+    run(
+        &mut engine,
+        "RECODE age (60 THRU 18 = 1) (ELSE = 0) INTO young.",
+    );
+    assert_eq!(
+        engine.warnings(),
+        ["the range 60 THRU 18 has its high end first; it is read as 18 THRU 60"]
+    );
+    run(&mut engine, "COUNT n = q5_1 TO q5_5 (1 THRU 0).");
+    assert_eq!(engine.warnings().len(), 1);
+    run(&mut engine, "COUNT m = q5_1 TO q5_5 (0 THRU 1).");
+    assert!(engine.warnings().is_empty());
+
+    // MRSETS: equal variable labels and different labels of one value, ignoring case
+    run(
+        &mut engine,
+        "VARIABLE LABELS q5_2 'Q5. Which of these channels have you used to contact us? PHONE'.
+VALUE LABELS q5_3 0 'not selected' 1 'Ticked'.",
+    );
+    run(
+        &mut engine,
+        "MRSETS /MDGROUP NAME=$a VARIABLES=q5_1 TO q5_3 VALUE=1.",
+    );
+    assert_eq!(
+        engine.warnings(),
+        [
+            "/MDGROUP $a: q5_1 and q5_2 have the same variable label, so their categories look alike",
+            "/MDGROUP $a: q5_1 and q5_3 label the value 1 differently ('Selected' and 'Ticked')",
+        ]
+    );
+    run(&mut engine, "MRSETS /MCGROUP NAME=$b VARIABLES=q5_1 q5_3.");
+    assert_eq!(
+        engine.warnings(),
+        ["/MCGROUP $b: q5_1 and q5_3 label the value 1 differently ('Selected' and 'Ticked')"]
+    );
+    run(
+        &mut engine,
+        "MRSETS /MCGROUP NAME=$c VARIABLES=q6_mention1 TO q6_mention3.",
+    );
+    assert!(engine.warnings().is_empty());
+}
+
+#[test]
+fn match_files_warns_about_repeated_keys_in_a_file() {
+    let dir = std::env::temp_dir().join(format!("statscraft-warn-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let lookup = dir.join("regions.sav");
+    let mut engine = loaded("survey_basic.sav");
+    run(
+        &mut engine,
+        &format!(
+            "AGGREGATE /OUTFILE='{}' /BREAK=region /n = N.\nSORT CASES BY region.",
+            lookup.display()
+        ),
+    );
+    let table = format!(
+        "MATCH FILES /FILE=* /TABLE='{}' /BY region.",
+        lookup.display()
+    );
+    run(&mut engine, &table);
+    assert!(engine.warnings().is_empty());
+    let file = format!(
+        "MATCH FILES /FILE=* /FILE='{}' /BY region.",
+        lookup.display()
+    );
+    run(&mut engine, &file);
+    assert_eq!(
+        engine.warnings(),
+        ["FILE=* holds some keys more than once; cases with the same key are matched in order"]
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}

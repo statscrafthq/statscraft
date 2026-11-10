@@ -240,14 +240,19 @@ fn descriptives_edge_cases() {
         &[Some(200.0), None, None, None, None],
     );
 
-    // a string variable gets no statistics; the caption names it
-    let tables = run(&mut survey(), "DESCRIPTIVES age plan.");
+    // a string variable gets no statistics, and a warning names it
+    let mut engine = survey();
+    let tables = run(&mut engine, "DESCRIPTIVES age plan.");
     assert_eq!(texts(&tables[0].rows[0])[0], "age");
     assert_eq!(texts(&tables[0].rows[1])[0], "Valid N (listwise)");
+    assert_eq!(tables[0].caption, None);
     assert_eq!(
-        tables[0].caption.as_deref(),
-        Some("No statistics for string variables: plan.")
+        engine.warnings(),
+        ["no statistics for string variables: plan"]
     );
+    // the next command starts without warnings
+    run(&mut engine, "DESCRIPTIVES age.");
+    assert!(engine.warnings().is_empty());
 }
 
 #[test]

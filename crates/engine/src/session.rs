@@ -77,6 +77,8 @@ pub struct CommandResult {
     pub first_line: u32,
     pub last_line: u32,
     pub tables: Vec<Table>,
+    /// What the command did differently from what was asked, without failing.
+    pub warnings: Vec<String>,
 }
 
 /// What a run did. Serialized, it is the JSON that `statscraft run --json` prints.
@@ -102,8 +104,17 @@ impl RunResult {
             return serde_json::to_string_pretty(self).expect("plain data") + "\n";
         }
         let mut out = String::new();
-        for table in self.commands.iter().flat_map(|c| &c.tables) {
-            markdown(&mut out, table);
+        for command in &self.commands {
+            for table in &command.tables {
+                markdown(&mut out, table);
+            }
+            for warning in &command.warnings {
+                let _ = writeln!(
+                    out,
+                    "warning: line {}: {}: {warning}",
+                    command.first_line, command.name
+                );
+            }
         }
         let c = &self.changes;
         let list = |out: &mut String, title: &str, names: &[String]| {
@@ -194,6 +205,8 @@ pub fn describe_output(dataset: &Dataset, json: bool) -> String {
 pub struct LogEntry {
     pub syntax: String,
     pub result: Result<String, Vec<Failure>>,
+    /// The warnings of the run's commands, each as "line N: COMMAND: message".
+    pub warnings: Vec<String>,
     /// Taken back by `Session::undo`, so a script made from the log leaves it out.
     pub undone: bool,
 }
@@ -280,9 +293,14 @@ impl Session {
                         // longer history when someone needs more than the last step back.
                         self.previous = Some((before, self.log.len()));
                     }
+                    let warnings = result.commands.iter().flat_map(|c| {
+                        let place = format!("line {}: {}", c.first_line, c.name);
+                        c.warnings.iter().map(move |w| format!("{place}: {w}"))
+                    });
                     self.log.push(LogEntry {
                         syntax: done.syntax,
                         result: Ok(summary),
+                        warnings: warnings.collect(),
                         undone: false,
                     });
                 }
@@ -293,6 +311,7 @@ impl Session {
                     self.log.push(LogEntry {
                         syntax: done.syntax,
                         result: Err(errors.clone()),
+                        warnings: Vec::new(),
                         undone: false,
                     });
                 }
@@ -391,6 +410,7 @@ fn run(
             first_line: raw.first_line,
             last_line: raw.last_line,
             tables,
+            warnings: engine.warnings().to_vec(),
         });
     }
     engine
@@ -502,6 +522,29 @@ mod tests {
             "2 commands; 1 table; added: x"
         );
         assert!(!session.run("FREQUENCIES gender.", None).unwrap().saved);
+    }
+
+    #[test]
+    fn warnings_reach_the_text_the_json_and_the_log() {
+        let mut session = survey();
+        let result = session
+            .run("COMPUTE x = 1.\nDESCRIPTIVES age plan.", None)
+            .unwrap();
+        let warning = "no statistics for string variables: plan";
+        assert!(result.commands[0].warnings.is_empty());
+        assert_eq!(result.commands[1].warnings, [warning]);
+        let text = result.output(false, false);
+        assert!(
+            text.contains(&format!("warning: line 2: DESCRIPTIVES: {warning}\n")),
+            "{text}"
+        );
+        let json: serde_json::Value = serde_json::from_str(&result.output(true, false)).unwrap();
+        assert_eq!(json["commands"][0]["warnings"], serde_json::json!([]));
+        assert_eq!(json["commands"][1]["warnings"][0], warning);
+        assert_eq!(
+            session.log[1].warnings,
+            [format!("line 2: DESCRIPTIVES: {warning}")]
+        );
     }
 
     #[test]

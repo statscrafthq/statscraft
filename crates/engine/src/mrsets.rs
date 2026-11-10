@@ -1,7 +1,7 @@
 //! MRSETS: defining, deleting and listing multiple response sets.
 
 use crate::{Cell, Engine, Error, Table};
-use statscraft_data::{Dataset, MultipleResponseSet};
+use statscraft_data::{Dataset, MultipleResponseSet, Value as StoredValue};
 use statscraft_syntax::{Mrsets, MrsetsGroup, Value};
 
 impl Engine {
@@ -53,6 +53,10 @@ impl Engine {
                 )));
             }
         };
+        let warnings = label_conflicts(self.active()?, &variables, group.value.as_ref())?;
+        for warning in warnings {
+            self.warn(format!("/{subcommand} {}: {warning}", group.name));
+        }
         let set = MultipleResponseSet {
             name: group.name.clone(),
             kind: if group.value.is_some() {
@@ -67,6 +71,61 @@ impl Engine {
         self.active_mut()?
             .set_multiple_response_set(set)
             .map_err(|e| fail(e.to_string()))
+    }
+}
+
+/// Labels that make the categories of a set ambiguous, compared ignoring case: for a dichotomy
+/// set two variables with the same variable label, or different value labels of the counted
+/// value; for a category set different value labels of one value.
+fn label_conflicts(
+    data: &Dataset,
+    variables: &[String],
+    counted: Option<&Value>,
+) -> Result<Vec<String>, Error> {
+    let mut warnings = Vec::new();
+    let mut seen: Vec<(StoredValue, String, &str)> = Vec::new();
+    let mut labels: Vec<(String, &str)> = Vec::new();
+    for name in variables {
+        let variable = data.variable(name)?;
+        if counted.is_some()
+            && let Some(label) = variable.label()
+        {
+            match labels.iter().find(|(l, _)| l.eq_ignore_ascii_case(label)) {
+                Some((_, first)) => warnings.push(format!(
+                    "{first} and {name} have the same variable label, so their categories look alike"
+                )),
+                None => labels.push((label.to_string(), name)),
+            }
+        }
+        for (value, label) in variable.value_labels() {
+            let counted_here = match (counted, value) {
+                (None, _) => true,
+                (Some(Value::Number(n)), StoredValue::Number(v)) => n == v,
+                (Some(Value::String(s)), StoredValue::String(v)) => s.trim_end() == v.trim_end(),
+                _ => false,
+            };
+            if !counted_here {
+                continue;
+            }
+            match seen.iter().find(|(v, _, _)| v == value) {
+                Some((_, first_label, first)) if !first_label.eq_ignore_ascii_case(label) => {
+                    warnings.push(format!(
+                        "{first} and {name} label the value {} differently ('{first_label}' and '{label}')",
+                        show(value)
+                    ))
+                }
+                Some(_) => {}
+                None => seen.push((value.clone(), label.clone(), name)),
+            }
+        }
+    }
+    Ok(warnings)
+}
+
+fn show(value: &StoredValue) -> String {
+    match value {
+        StoredValue::Number(n) => n.to_string(),
+        StoredValue::String(s) => format!("'{}'", s.trim_end()),
     }
 }
 

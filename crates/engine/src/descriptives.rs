@@ -107,7 +107,7 @@ impl Engine {
             let names = self.expand(std::slice::from_ref(item))?;
             variables.extend(names.into_iter().map(|name| (name, z.clone())));
         }
-        // a string variable gets no statistics, and the table says so
+        // a string variable gets no statistics, and a warning says so
         let mut strings = Vec::new();
         let mut columns_of = Vec::new();
         variables.retain(|(name, _)| match data.variable(name) {
@@ -192,8 +192,6 @@ impl Engine {
             column_groups: vec![Vec::new(); headers.len()],
             columns: headers.into_iter().map(String::from).collect(),
             rows,
-            caption: (!strings.is_empty())
-                .then(|| format!("No statistics for string variables: {}.", strings.join(" "))),
             ..Table::default()
         };
 
@@ -239,6 +237,12 @@ impl Engine {
                 }
                 Ok(())
             })?;
+        }
+        if !strings.is_empty() {
+            self.warn(format!(
+                "no statistics for string variables: {}",
+                strings.join(" ")
+            ));
         }
         Ok(vec![table])
     }

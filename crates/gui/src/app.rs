@@ -678,6 +678,9 @@ impl App {
                             ui.colored_label(ui.visuals().error_fg_color, error_text(errors))
                         }
                     };
+                    for warning in &entry.warnings {
+                        ui.colored_label(ui.visuals().warn_fg_color, format!("warning: {warning}"));
+                    }
                     ui.add_space(4.0);
                 }
             });

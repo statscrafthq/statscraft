@@ -135,6 +135,8 @@ pub struct Engine {
     pub dry_run: bool,
     /// The open DO IF blocks, innermost last. See `Engine::active_cases`.
     blocks: Vec<transform::Block>,
+    /// What the last command did differently from what was asked, without failing.
+    warnings: Vec<String>,
 }
 
 impl Engine {
@@ -147,6 +149,16 @@ impl Engine {
 
     pub fn dataset(&self) -> Option<&Dataset> {
         self.dataset.as_ref()
+    }
+
+    /// The warnings of the last `execute`, such as a variable a procedure skipped. A command
+    /// with warnings still succeeded.
+    pub fn warnings(&self) -> &[String] {
+        &self.warnings
+    }
+
+    pub(crate) fn warn(&mut self, message: impl Into<String>) {
+        self.warnings.push(message.into());
     }
 
     fn active(&self) -> Result<&Dataset, Error> {
@@ -188,6 +200,7 @@ impl Engine {
     }
 
     pub fn execute(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
+        self.warnings.clear();
         self.check_block(command)?;
         match command {
             Command::Get { file } => {
@@ -262,8 +275,19 @@ impl Engine {
                     .collect();
             }
             Command::Execute => {}
-            Command::Recode(groups) => self.all_or_nothing(|engine| engine.recode(groups))?,
-            Command::Count(counts) => self.all_or_nothing(|engine| engine.count(counts))?,
+            Command::Recode(groups) => {
+                let inputs = groups
+                    .iter()
+                    .flat_map(|g| &g.mappings)
+                    .flat_map(|m| &m.inputs);
+                self.warn_reversed(inputs);
+                self.all_or_nothing(|engine| engine.recode(groups))?
+            }
+            Command::Count(counts) => {
+                let inputs = counts.iter().flat_map(|c| &c.criteria).flat_map(|(_, i)| i);
+                self.warn_reversed(inputs);
+                self.all_or_nothing(|engine| engine.count(counts))?
+            }
             Command::SortCases(keys) => self.sort_cases(keys)?,
             Command::RenameVariables(groups) => {
                 self.all_or_nothing(|engine| engine.rename_variables(groups))?

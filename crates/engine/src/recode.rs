@@ -87,6 +87,19 @@ fn fitted(text: &str, width: usize) -> &str {
 }
 
 impl Engine {
+    /// A warning for every range written high THRU low, which `matches` reads the other way.
+    pub(crate) fn warn_reversed<'a>(&mut self, inputs: impl Iterator<Item = &'a RecodeInput>) {
+        for input in inputs {
+            if let RecodeInput::Range(Bound::Number(low), Bound::Number(high)) = input
+                && low > high
+            {
+                self.warn(format!(
+                    "the range {low} THRU {high} has its high end first; it is read as {high} THRU {low}"
+                ));
+            }
+        }
+    }
+
     /// The cases a transformation may write to; None is every case.
     fn case_mask(&self) -> Option<&[bool]> {
         self.active_cases()
