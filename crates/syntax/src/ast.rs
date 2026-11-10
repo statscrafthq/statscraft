@@ -654,6 +654,8 @@ pub struct Examine {
     pub mestimators: Vec<MEstimator>,
     /// `/PLOT=NPPLOT`: the tests of normality.
     pub normality: bool,
+    /// `/PLOT` BOXPLOT, STEMLEAF or HISTOGRAM: asked for, not drawn yet.
+    pub plots: Vec<String>,
     /// `/MISSING=PAIRWISE`: each dependent and factor on its own instead of listwise.
     pub pairwise: bool,
     /// `/MISSING=INCLUDE`: user-missing values of the dependents are valid.

@@ -201,6 +201,7 @@ pub(crate) fn examine(p: &mut Parser) -> PResult<Command> {
         cinterval: 95.0,
         mestimators: Vec::new(),
         normality: false,
+        plots: Vec::new(),
         pairwise: false,
         include: false,
         report: false,
@@ -232,12 +233,44 @@ pub(crate) fn examine(p: &mut Parser) -> PResult<Command> {
             percentiles(p, &mut command)?;
         } else if p.eat_keyword("PLOT") {
             p.eat(Punct::Eq);
-            const CHOICES: [(&str, &[bool]); 2] = [("NPPLOT", &[true]), ("NONE", &[false])];
-            const PLOTS: [&str; 5] = ["STEMLEAF", "BOXPLOT", "HISTOGRAM", "SPREADLEVEL", "ALL"];
-            let chosen = keywords(p, &CHOICES, |p| {
-                keyword_error(p, "EXAMINE /PLOT", &PLOTS, &names(&CHOICES))
-            })?;
-            command.normality = chosen.last() == Some(&true);
+            // plots are not drawn: they are kept to warn about; NPPLOT gives the tests
+            const DRAWN: [&str; 3] = ["BOXPLOT", "STEMLEAF", "HISTOGRAM"];
+            let mut any = false;
+            while !at_end(p) {
+                if p.eat_keyword("NPPLOT") {
+                    command.normality = true;
+                } else if p.eat_keyword("NONE") {
+                    command.normality = false;
+                    command.plots.clear();
+                } else if p.eat_word("ALL") {
+                    command.normality = true;
+                    command.plots = DRAWN.iter().map(|s| s.to_string()).collect();
+                } else if let Some(plot) = DRAWN.iter().find(|k| p.at_keyword(k)) {
+                    p.pos += 1;
+                    if !command.plots.iter().any(|q| q == plot) {
+                        command.plots.push(plot.to_string());
+                    }
+                } else {
+                    let all: [(&str, &[bool]); 6] = [
+                        ("BOXPLOT", &[]),
+                        ("STEMLEAF", &[]),
+                        ("HISTOGRAM", &[]),
+                        ("NPPLOT", &[]),
+                        ("ALL", &[]),
+                        ("NONE", &[]),
+                    ];
+                    return Err(keyword_error(
+                        p,
+                        "EXAMINE /PLOT",
+                        &["SPREADLEVEL"],
+                        &names(&all),
+                    ));
+                }
+                any = true;
+            }
+            if !any {
+                command.normality = false;
+            }
         } else if p.eat_keyword("STATISTICS") {
             p.eat(Punct::Eq);
             let (mut descriptives, mut extreme) = (false, None);

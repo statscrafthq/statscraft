@@ -472,6 +472,12 @@ struct CellResult {
 
 impl Engine {
     pub(crate) fn examine(&mut self, command: &Examine) -> Result<Vec<Table>, Error> {
+        if !command.plots.is_empty() {
+            self.warn(format!(
+                "plots are not drawn yet: {} left out; the statistics are shown",
+                command.plots.join(", ")
+            ));
+        }
         let data = self.active()?;
         let mut dependents = self.expand(&command.dependents)?;
         dedup(&mut dependents);

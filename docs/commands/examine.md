@@ -11,7 +11,7 @@ EXAMINE [VARIABLES=]deps [BY factor [BY factor] [factor ...]] [/TOTAL | NOTOTAL]
         [/PERCENTILES[(list)][=HAVERAGE | WAVERAGE | ROUND | EMPIRICAL | AEMPIRICAL | NONE]]
         [/STATISTICS=DESCRIPTIVES EXTREME[(n)] ALL NONE] [/CINTERVAL=95]
         [/MESTIMATORS[=HUBER[(c)] TUKEY[(c)] HAMPEL[(a,b,c)] ANDREW[(c)] ALL NONE]]
-        [/PLOT=NPPLOT | NONE] [/COMPARE=GROUPS | VARIABLES]
+        [/PLOT=[BOXPLOT] [STEMLEAF] [HISTOGRAM] [NPPLOT] | ALL | NONE] [/COMPARE=GROUPS | VARIABLES]
         [/MISSING=LISTWISE | PAIRWISE  EXCLUDE | INCLUDE  NOREPORT | REPORT].
 ```
 
@@ -21,7 +21,7 @@ NPPLOT gives the Tests of Normality table (Kolmogorov-Smirnov with the Lilliefor
 
 LISTWISE (default) leaves out a case missing on any dependent or factor, PAIRWISE only from the analyses of that variable. INCLUDE makes user-missing values of the dependents valid, REPORT makes missing values of the factors categories. Weighted when a weight variable is set (Shapiro-Wilk rounds the weights and takes 3 to 50 cases with non-integer weights). COMPARE changes nothing.
 
-Not supported yet: STEMLEAF, BOXPLOT, HISTOGRAM, SPREADLEVEL.
+BOXPLOT, STEMLEAF and HISTOGRAM are accepted and not drawn yet, with a warning; the statistics are shown. ALL is the three and NPPLOT. Not supported yet: SPREADLEVEL.
 
 ## Example
 

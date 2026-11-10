@@ -487,10 +487,18 @@ fn examine_subcommands() {
 #[test]
 fn examine_errors() {
     let message = |source: &str| err(source).message;
-    assert!(
-        message("EXAMINE a /PLOT=BOXPLOT.")
-            .contains("BOXPLOT in EXAMINE /PLOT is not supported yet")
+    // plots are accepted and kept, to warn that they are not drawn
+    let plots = |source: &str| match one(source) {
+        Command::Examine(e) => (e.plots, e.normality),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        plots("EXAMINE a /PLOT=BOXPLOT HISTOGRAM."),
+        (vec!["BOXPLOT".to_string(), "HISTOGRAM".to_string()], false)
     );
+    assert!(plots("EXAMINE a /PLOT=STEMLEAF NPPLOT.").1);
+    assert_eq!(plots("EXAMINE a /PLOT=ALL.").0.len(), 3);
+    assert!(plots("EXAMINE a /PLOT=BOXPLOT NONE.").0.is_empty());
     assert!(message("EXAMINE a /PLOT=SPREADLEVEL(0).").contains("not supported yet"));
     assert!(message("EXAMINE a BY f BY g BY h.").contains("more than two crossed factors"));
     assert!(message("EXAMINE a /PERCENTILES(0, 50).").contains("between 0 and 100"));

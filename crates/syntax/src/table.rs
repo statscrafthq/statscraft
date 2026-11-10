@@ -664,7 +664,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20       [/PERCENTILES[(list)][=HAVERAGE | WAVERAGE | ROUND | EMPIRICAL | AEMPIRICAL | NONE]]\n\
                  \x20       [/STATISTICS=DESCRIPTIVES EXTREME[(n)] ALL NONE] [/CINTERVAL=95]\n\
                  \x20       [/MESTIMATORS[=HUBER[(c)] TUKEY[(c)] HAMPEL[(a,b,c)] ANDREW[(c)] ALL NONE]]\n\
-                 \x20       [/PLOT=NPPLOT | NONE] [/COMPARE=GROUPS | VARIABLES]\n\
+                 \x20       [/PLOT=[BOXPLOT] [STEMLEAF] [HISTOGRAM] [NPPLOT] | ALL | NONE] [/COMPARE=GROUPS | VARIABLES]\n\
                  \x20       [/MISSING=LISTWISE | PAIRWISE  EXCLUDE | INCLUDE  NOREPORT | REPORT].\n\
                  Each dependent is analysed over all cases (unless NOTOTAL) and in every cell of each factor term,\n\
                  two factors crossed with BY. Descriptives (the default): mean with its confidence interval (CINTERVAL,\n\
@@ -680,7 +680,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  analyses of that variable. INCLUDE makes user-missing values of the dependents valid, REPORT makes\n\
                  missing values of the factors categories. Weighted when a weight variable is set (Shapiro-Wilk rounds\n\
                  the weights and takes 3 to 50 cases with non-integer weights). COMPARE changes nothing.\n\
-                 Not supported yet: STEMLEAF, BOXPLOT, HISTOGRAM, SPREADLEVEL.",
+                 BOXPLOT, STEMLEAF and HISTOGRAM are accepted and not drawn yet, with a warning; the\n\
+                 statistics are shown. ALL is the three and NPPLOT. Not supported yet: SPREADLEVEL.",
         example: "EXAMINE VARIABLES=income BY region /PERCENTILES(25,50,75)=HAVERAGE /STATISTICS=ALL /MESTIMATORS /PLOT=NPPLOT.",
         parse: examine::examine,
     },
