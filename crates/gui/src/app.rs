@@ -1284,14 +1284,16 @@ impl App {
         paper(ui, !self.settings.paper_follows_system);
         let data = self.session.dataset().expect("checked above");
         let headers: Vec<String> = Field::ALL.iter().map(|f| f.title().to_string()).collect();
-        let mut widths = vec![150.0, 80.0, 90.0, 60.0, 72.0, 260.0, 300.0, 170.0, 100.0];
+        let mut widths = vec![
+            150.0, 80.0, 90.0, 60.0, 72.0, 260.0, 300.0, 170.0, 72.0, 80.0, 100.0, 100.0,
+        ];
         if self.settings.variable_widths.len() == widths.len() {
             widths.clone_from(&self.settings.variable_widths);
         }
         let cell = |r: usize, c: usize| {
             let field = Field::ALL[c];
             let text = edits::field_text(&data.variable_at(r), field);
-            let right = matches!(field, Field::Width | Field::Decimals);
+            let right = matches!(field, Field::Width | Field::Decimals | Field::Columns);
             (text, right)
         };
         let mut commit = false;
@@ -1309,16 +1311,16 @@ impl App {
             edit.as_ref().map(|e| (e.row, e.column)),
             &mut |ui, rect| {
                 let Some(e) = edit.as_mut() else { return };
-                if Field::ALL[e.column] != Field::Measure {
+                let Some(choices) = Field::ALL[e.column].choices() else {
                     (commit, cancel) = cell_editor(ui, rect, e);
                     return;
-                }
+                };
                 ui.scope_builder(UiBuilder::new().max_rect(rect), |ui| {
-                    ComboBox::new("measure_edit", "")
+                    ComboBox::new("choice_edit", "")
                         .selected_text(e.text.clone())
                         .width(rect.width() - 8.0)
                         .show_ui(ui, |ui| {
-                            for level in ["Nominal", "Ordinal", "Scale"] {
+                            for &level in choices {
                                 if ui.selectable_label(e.text == level, level).clicked() {
                                     e.text = level.into();
                                     commit = true;
@@ -1340,12 +1342,12 @@ impl App {
         }
         if let Some(at) = events.clicked {
             self.variable_selected = Some(at);
-            // a text edit commits when it loses focus; the measure list just closes
-            let measure = |e: &CellEdit| Field::ALL[e.column] == Field::Measure;
+            // a text edit commits when it loses focus; a list just closes
+            let list = |e: &CellEdit| Field::ALL[e.column].choices().is_some();
             if self
                 .field_edit
                 .as_ref()
-                .is_some_and(|e| measure(e) && (e.row, e.column) != at)
+                .is_some_and(|e| list(e) && (e.row, e.column) != at)
             {
                 self.field_edit = None;
             }

@@ -162,11 +162,15 @@ pub enum Field {
     Label,
     Values,
     Missing,
+    /// The display width: how many characters wide the Data View shows the variable.
+    Columns,
+    Align,
     Measure,
+    Role,
 }
 
 impl Field {
-    pub const ALL: [Field; 9] = [
+    pub const ALL: [Field; 12] = [
         Field::Name,
         Field::Type,
         Field::Format,
@@ -175,7 +179,10 @@ impl Field {
         Field::Label,
         Field::Values,
         Field::Missing,
+        Field::Columns,
+        Field::Align,
         Field::Measure,
+        Field::Role,
     ];
 
     pub fn title(self) -> &'static str {
@@ -188,7 +195,20 @@ impl Field {
             Field::Label => "Label",
             Field::Values => "Value labels",
             Field::Missing => "Missing values",
+            Field::Columns => "Columns",
+            Field::Align => "Align",
             Field::Measure => "Measure",
+            Field::Role => "Role",
+        }
+    }
+
+    /// The values a field chosen from a list can take, as shown.
+    pub fn choices(self) -> Option<&'static [&'static str]> {
+        match self {
+            Field::Align => Some(&ALIGNMENTS),
+            Field::Measure => Some(&["Nominal", "Ordinal", "Scale"]),
+            Field::Role => Some(&ROLES),
+            _ => None,
         }
     }
 
@@ -224,6 +244,17 @@ fn bound_text(v: f64) -> String {
     } else {
         number(v)
     }
+}
+
+const ALIGNMENTS: [&str; 3] = ["Left", "Right", "Center"];
+const ROLES: [&str; 6] = ["Input", "Target", "Both", "None", "Partition", "Split"];
+
+/// "left" as "Left".
+fn capitalized(word: &str) -> String {
+    let mut chars = word.chars();
+    chars.next().map_or_else(String::new, |first| {
+        first.to_uppercase().chain(chars).collect()
+    })
 }
 
 fn measure_name(measure: Measure) -> &'static str {
@@ -276,7 +307,17 @@ pub fn field_text(variable: &Variable, field: Field) -> String {
             }
             MissingValues::Strings(values) => values.join(", "),
         },
+        Field::Columns => variable
+            .display_width()
+            .map_or_else(String::new, |w| w.to_string()),
+        // without a setting in the file: numbers to the right, strings to the left, all input
+        Field::Align => capitalized(variable.alignment().unwrap_or(if variable.is_string() {
+            "left"
+        } else {
+            "right"
+        })),
         Field::Measure => measure_name(variable.measure()).into(),
+        Field::Role => capitalized(variable.role().unwrap_or("input")),
     }
 }
 
@@ -372,6 +413,24 @@ pub fn field_edit(variable: &Variable, field: Field, text: &str) -> Result<Optio
                 })
                 .collect::<Result<Vec<_>, _>>()?;
             format!("MISSING VALUES {name} ({}).", items.join(", "))
+        }
+        Field::Columns => match whole("number of columns")? {
+            0 => return Err("the number of columns must be at least 1".into()),
+            n => format!("VARIABLE WIDTH {name} ({n})."),
+        },
+        Field::Align => {
+            let align = text.trim().to_ascii_uppercase();
+            if !ALIGNMENTS.iter().any(|a| a.eq_ignore_ascii_case(&align)) {
+                return Err("choose left, right or center".into());
+            }
+            format!("VARIABLE ALIGNMENT {name} ({align}).")
+        }
+        Field::Role => {
+            let role = text.trim().to_ascii_uppercase();
+            if !ROLES.iter().any(|r| r.eq_ignore_ascii_case(&role)) {
+                return Err("choose input, target, both, none, partition or split".into());
+            }
+            format!("VARIABLE ROLE /{role} {name}.")
         }
         Field::Measure => {
             let level = match text.trim().to_ascii_lowercase().as_str() {
@@ -508,7 +567,15 @@ mod tests {
             "{}",
             gender[6]
         );
-        assert_eq!(gender[8], "Nominal");
+        // the display width of the file
+        assert_eq!(gender[8..], ["8", "Right", "Nominal", "Input"]);
+        // without a display width, the cell is empty
+        let mut session = survey();
+        session.run("COMPUTE new = 1.", None).unwrap();
+        with(&session, "new", |v| {
+            assert_eq!(field_text(v, Field::Columns), "")
+        });
+        assert_eq!(row("plan")[9], "Left");
         assert_eq!(row("monthly_spend")[4], "2");
         let plan = row("plan");
         assert_eq!(plan[..4], ["plan", "String", "A10", "10"]);
@@ -585,6 +652,19 @@ mod tests {
                 "FORMATS monthly_spend (COMMA10.1).",
             ),
             ("age", Field::Width, "5", "FORMATS age (F5)."),
+            ("plan", Field::Columns, " 12 ", "VARIABLE WIDTH plan (12)."),
+            (
+                "age",
+                Field::Align,
+                "Center",
+                "VARIABLE ALIGNMENT age (CENTER).",
+            ),
+            (
+                "gender",
+                Field::Role,
+                "Target",
+                "VARIABLE ROLE /TARGET gender.",
+            ),
             (
                 "resp_id",
                 Field::Name,
@@ -601,9 +681,15 @@ mod tests {
             assert_eq!(field_text(v, Field::Label), "Age in years");
             assert_eq!(field_text(v, Field::Measure), "Ordinal");
             assert_eq!(field_text(v, Field::Format), "F5.0");
+            assert_eq!(field_text(v, Field::Align), "Center");
         });
+        with(&session, "plan", |v| {
+            assert_eq!(field_text(v, Field::Columns), "12");
+        });
+        assert_eq!(edit(&session, "plan", Field::Columns, "12").unwrap(), None);
         with(&session, "gender", |v| {
             assert_eq!(field_text(v, Field::Values), "1 = Man; 2 = Woman's");
+            assert_eq!(field_text(v, Field::Role), "Target");
         });
         with(&session, "q1_satisfaction", |v| {
             assert_eq!(field_text(v, Field::Missing), "");
@@ -620,6 +706,22 @@ mod tests {
         );
         for (field, text, error) in [
             (Field::Measure, "big", "choose nominal, ordinal or scale"),
+            (Field::Align, "top", "choose left, right or center"),
+            (
+                Field::Role,
+                "main",
+                "choose input, target, both, none, partition or split",
+            ),
+            (
+                Field::Columns,
+                "0",
+                "the number of columns must be at least 1",
+            ),
+            (
+                Field::Columns,
+                "wide",
+                "the number of columns must be a whole number",
+            ),
             (
                 Field::Format,
                 "8.2",
