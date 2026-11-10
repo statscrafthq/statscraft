@@ -144,6 +144,21 @@ impl Distribution {
         })
     }
 
+    /// The `percent` percentile by the rule of FREQUENCIES: tc = (W + 1) p and, with
+    /// cc_k <= tc < cc_k+1, y_k+1 when tc - cc_k >= 1, else (1 - g) y_k + g y_k+1 with
+    /// g = tc - cc_k. Unlike HAVERAGE, g is not divided by a weight c_k+1 below 1.
+    pub(crate) fn frequencies_percentile(&self, percent: f64) -> Option<f64> {
+        if self.values.is_empty() {
+            return None;
+        }
+        let (k, g) = self.locate((self.total + 1.0) * percent / 100.0);
+        Some(if g >= 1.0 {
+            self.y(k + 1)
+        } else {
+            (1.0 - g) * self.y(k) + g * self.y(k + 1)
+        })
+    }
+
     /// Tukey's hinges: the 25th, 50th and 75th percentiles by the depths of the hinges.
     fn hinges(&self) -> Option<[f64; 3]> {
         if self.values.is_empty() {
@@ -407,7 +422,7 @@ pub(crate) fn shapiro_wilk(dist: &Distribution) -> (Option<(f64, f64)>, f64) {
 }
 
 /// A number with up to six decimals and no trailing zeros, as in "95" or "97.5".
-fn short(x: f64) -> String {
+pub(crate) fn short(x: f64) -> String {
     let text = format!("{x:.6}");
     text.trim_end_matches('0').trim_end_matches('.').to_string()
 }

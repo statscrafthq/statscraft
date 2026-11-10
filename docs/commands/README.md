@@ -71,7 +71,7 @@ One page per supported command, generated from the same table that the parser an
 
 | Command | What it does |
 |---|---|
-| [FREQUENCIES](frequencies.md) | Frequency tables. |
+| [FREQUENCIES](frequencies.md) | Frequency tables, summary statistics and percentiles. |
 | [DESCRIPTIVES](descriptives.md) | Summary statistics of numeric variables, optionally saved as z-scores. |
 | [CROSSTABS](crosstabs.md) | Contingency tables with percentages, residuals and chi-square tests. |
 | [MEANS](means.md) | Statistics of dependent variables within groups of control variables. |

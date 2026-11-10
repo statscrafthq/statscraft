@@ -508,3 +508,106 @@ fn examine_errors() {
     assert!(message("EXAMINE a /FOO.").contains("unknown subcommand FOO of EXAMINE"));
     assert_eq!(err("EXAMINE /ID=x.").expected, ["VARIABLES=dependents"]);
 }
+
+fn freq(source: &str) -> Frequencies {
+    match one(source) {
+        Command::Frequencies(f) => f,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn frequencies_subcommands_and_abbreviations() {
+    use FrequencyStatistic as F;
+    let f = freq(
+        "FRE VAR=a b /FOR=NOTABLE DFREQ /MIS=INCLUDE /STA=MEAN MED SEKURT\n /PER=10, 90 25 /NTI=4 /ORD=VAR.",
+    );
+    assert_eq!(f.variables, [var("a"), var("b")]);
+    assert!(f.notable && f.include && f.by_variable);
+    assert_eq!(f.order, FrequencyOrder::DFreq);
+    assert_eq!(f.statistics, [F::Mean, F::Median, F::SeKurtosis]);
+    assert_eq!(f.percentiles, [10.0, 25.0, 50.0, 75.0, 90.0]);
+    // STATISTICS alone and DEF are the default four; NONE drops what came before; /STATS works
+    let default = [F::Mean, F::StdDev, F::Minimum, F::Maximum];
+    assert_eq!(freq("FREQUENCIES a /STATISTICS.").statistics, default);
+    assert_eq!(
+        freq("FREQUENCIES a /STATS=DEF MODE.").statistics,
+        [F::Mean, F::Mode, F::StdDev, F::Minimum, F::Maximum]
+    );
+    assert_eq!(freq("FREQUENCIES a /STATISTICS=ALL.").statistics.len(), 14);
+    assert!(
+        freq("FREQUENCIES a /STATISTICS=ALL NONE.")
+            .statistics
+            .is_empty()
+    );
+    assert_eq!(
+        freq("FREQUENCIES a /STATISTICS=SKEW SESKEW KURT VAR SEM RAN SUM.").statistics,
+        [
+            F::SeMean,
+            F::Variance,
+            F::Skewness,
+            F::SeSkewness,
+            F::Kurtosis,
+            F::Range,
+            F::Sum
+        ]
+    );
+    // several NTILES add up, duplicates once
+    assert_eq!(
+        freq("FREQUENCIES a /NTILES=4 /NTILES=2 /PERCENTILES=0 100.").percentiles,
+        [0.0, 25.0, 50.0, 75.0, 100.0]
+    );
+    assert_eq!(freq("FREQUENCIES a /FORMAT=LIMIT(10).").limit, Some(10));
+    // subcommands before VARIABLES
+    assert_eq!(
+        freq("FREQUENCIES /FORMAT=AFREQ /VARIABLES=x.").order,
+        FrequencyOrder::AFreq
+    );
+}
+
+#[test]
+fn frequencies_grouped_and_charts() {
+    let f = freq(
+        "FREQUENCIES age income temp /GROUPED=age, income /GROUPED=temp (0.5)\n /GROUPED=w (17.5, 22.5 27.5) / v.",
+    );
+    assert_eq!(
+        f.grouped,
+        [
+            (vec![var("age"), var("income")], Grouping::Midpoints),
+            (vec![var("temp")], Grouping::Width(0.5)),
+            (vec![var("w")], Grouping::Boundaries(vec![17.5, 22.5, 27.5])),
+            (vec![var("v")], Grouping::Midpoints),
+        ]
+    );
+    let f = freq("FREQUENCIES a /BARCHART /PIE=MIN(1) MAX(10) PERCENT NOMISSING /BAR=FREQ(50).");
+    assert_eq!(f.charts, ["BARCHART", "PIECHART"]);
+    let f = freq("FREQUENCIES a /HIST=NORMAL FREQ(20) MINIMUM(0).");
+    assert_eq!(f.charts, ["HISTOGRAM"]);
+}
+
+#[test]
+fn frequencies_errors() {
+    let message = |source: &str| err(source).message;
+    assert!(message("FREQUENCIES a /BARCHART /HISTOGRAM.").contains("cannot be used together"));
+    assert!(message("FREQUENCIES a /PERCENTILES=101.").contains("between 0 and 100"));
+    assert!(message("FREQUENCIES a /NTILES=0.").contains("at least 1"));
+    assert!(message("FREQUENCIES a /NTILES=2.5.").contains("whole number"));
+    assert!(message("FREQUENCIES a /GROUPED=a (0).").contains("positive"));
+    assert!(message("FREQUENCIES a /GROUPED=a (3 2 1).").contains("ascending"));
+    assert!(message("FREQUENCIES a /GROUPED=a ().").contains("width or the group boundaries"));
+    assert_eq!(err("FREQUENCIES a /FORMAT=LIMIT.").expected, ["'('"]);
+    assert_eq!(err("FREQUENCIES a /MISSING=EXCLUDE.").expected, ["INCLUDE"]);
+    assert!(
+        err("FREQUENCIES a /STATISTICS=MEANS.")
+            .expected
+            .contains(&"MEDIAN".to_string())
+    );
+    assert_eq!(
+        err("FREQUENCIES /FORMAT=NOTABLE.").expected,
+        ["VARIABLES=varlist"]
+    );
+    assert_eq!(
+        err("FREQUENCIES a /PIECHART=FREQ(3).").message,
+        "unexpected '('"
+    );
+}

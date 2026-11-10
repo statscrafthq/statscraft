@@ -236,13 +236,14 @@ mod tests {
         // functions only where an expression goes
         let (list, _) = texts("COMPUTE x = me", false);
         assert_eq!(list, ["MEAN("]);
-        assert!(texts("fre me", false).0.is_empty());
+        assert!(texts("fre ab", false).0.is_empty());
         let (list, _) = texts("compute y = a", false);
         assert!(list.contains(&"age".to_string()));
         assert!(list.contains(&"ABS(".to_string()));
         // labels come along
         let (list, _) = candidates("fre a", 5, &vars(), false);
-        assert_eq!(list[0].detail, "Age in years");
+        let age = list.iter().find(|c| c.text == "age").unwrap();
+        assert_eq!(age.detail, "Age in years");
         // a word typed in full is left alone
         assert!(texts("fre age", false).0.is_empty());
     }

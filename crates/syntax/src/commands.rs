@@ -18,19 +18,6 @@ const FILE_SUBCOMMANDS: [&str; 7] = [
     "UNSELECTED",
 ];
 
-const FREQUENCIES_SUBCOMMANDS: [&str; 10] = [
-    "FORMAT",
-    "MISSING",
-    "STATISTICS",
-    "PERCENTILES",
-    "NTILES",
-    "BARCHART",
-    "PIECHART",
-    "HISTOGRAM",
-    "GROUPED",
-    "ORDER",
-];
-
 /// `[/]KEYWORD[=]'path'`
 fn file_path(p: &mut Parser, keyword: &str) -> PResult<String> {
     p.eat(Punct::Slash);
@@ -237,26 +224,6 @@ pub(crate) fn formats(p: &mut Parser) -> PResult<Command> {
         Ok(parsed)
     })
     .map(Command::Formats)
-}
-
-pub(crate) fn frequencies(p: &mut Parser) -> PResult<Command> {
-    p.eat(Punct::Slash);
-    // a word is a subcommand only when '=' follows, so the bare form `FREQUENCIES var.` works
-    // even for a variable whose name looks like a keyword
-    if p.peek_at(1) == Some(&TokenKind::Punct(Punct::Eq)) {
-        if !p.at_keyword("VARIABLES") {
-            return Err(p.subcommand_error("FREQUENCIES", &FREQUENCIES_SUBCOMMANDS));
-        }
-        p.pos += 2;
-    } else if p.eat_word("VARIABLES") {
-        return Err(p.unexpected(&["'='"]));
-    }
-    let variables = p.var_list()?;
-    if p.eat(Punct::Slash) {
-        return Err(p.subcommand_error("FREQUENCIES", &FREQUENCIES_SUBCOMMANDS));
-    }
-    p.finish(&["a variable name", "'/'"])?;
-    Ok(Command::Frequencies { variables })
 }
 
 pub(crate) fn execute(p: &mut Parser) -> PResult<Command> {

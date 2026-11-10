@@ -8,6 +8,7 @@ use crate::data_list;
 use crate::dictionary;
 use crate::examine;
 use crate::files;
+use crate::frequencies;
 use crate::get_data;
 use crate::lexer::{Punct, Token, TokenKind};
 use crate::loops;
@@ -120,11 +121,31 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "FREQUENCIES",
-        summary: "Frequency tables.",
-        syntax: "FREQUENCIES [/]VARIABLES=varlist.\n\
-                 Other subcommands are not supported yet.",
-        example: "FREQUENCIES VARIABLES=gender region.",
-        parse: commands::frequencies,
+        summary: "Frequency tables, summary statistics and percentiles.",
+        syntax: "FREQUENCIES [/]VARIABLES=varlist [/FORMAT=[NOTABLE | LIMIT(n)] [AVALUE | DVALUE | AFREQ | DFREQ]]\n\
+                 \x20           [/MISSING=INCLUDE] [/STATISTICS=[stat ...]] [/PERCENTILES=p ...] [/NTILES=n]\n\
+                 \x20           [/GROUPED=varlist [(width) | (boundary, ...)]] [/ORDER=ANALYSIS | VARIABLE]\n\
+                 \x20           [/BARCHART=...] [/PIECHART=...] [/HISTOGRAM=...].\n\
+                 stat: MEAN SEMEAN MEDIAN MODE STDDEV VARIANCE SKEWNESS SESKEW KURTOSIS SEKURT RANGE MINIMUM\n\
+                 MAXIMUM SUM DEFAULT ALL NONE. STATISTICS alone or DEFAULT is MEAN STDDEV MINIMUM MAXIMUM; /STATS works too.\n\
+                 A frequency table per variable: valid values, then missing ones, with percent, valid percent and\n\
+                 cumulative percent. NOTABLE leaves the tables out, LIMIT(n) the tables with more than n values.\n\
+                 DVALUE, AFREQ and DFREQ order the values by descending value or by frequency (ties ascending by\n\
+                 value); they are ignored when percentiles or a histogram are asked for. A Statistics table, one for\n\
+                 all variables (ORDER=VARIABLE: one per variable, before its frequency table), shows the valid and\n\
+                 missing counts and the statistics; it appears when statistics or percentiles are asked for, or when\n\
+                 a frequency table is left out. Percentiles use (W + 1) p, the median is the 50th percentile and is\n\
+                 left out with AFREQ and DFREQ; MODE shows the smallest of tied modes, with a note. NTILES=n adds the\n\
+                 n - 1 points that cut the cases into n equal groups; several PERCENTILES and NTILES add up.\n\
+                 GROUPED treats the values as groups for the median and percentiles: alone the values are group\n\
+                 midpoints, (width) groups that wide around each value, (boundaries) the given groups; a value\n\
+                 outside the boundaries falls in an open group, where percentiles are undefined (shown empty).\n\
+                 INCLUDE makes user-missing values valid. Weighted when a weight variable is set; a case with a\n\
+                 missing, zero or negative weight is left out. String variables get the table and the counts only.\n\
+                 BARCHART, PIECHART and HISTOGRAM are accepted (BARCHART and HISTOGRAM not together) and not\n\
+                 drawn yet, with a warning.",
+        example: "FREQUENCIES VARIABLES=age region /FORMAT=LIMIT(10) /STATISTICS=MEAN MEDIAN MODE /NTILES=4.",
+        parse: frequencies::frequencies,
     },
     CommandSpec {
         name: "EXECUTE",

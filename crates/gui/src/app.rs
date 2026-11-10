@@ -11,8 +11,8 @@ use crate::data_dialogs::{
 };
 use crate::dialogs::{
     Adjust, CROSSTABS_CELLS, Categories, Compute, Count, Crosstabs, CustomTables,
-    DESCRIPTIVES_STATISTICS, Descriptives, Frequencies, Letters, NewValue, OldValue, Recode,
-    RecodeRule, Subtotal, is_set, label_command,
+    DESCRIPTIVES_STATISTICS, Descriptives, FREQUENCIES_STATISTICS, Frequencies, Letters, NewValue,
+    OldValue, Recode, RecodeRule, Subtotal, is_set, label_command,
 };
 use crate::edits::{self, Field};
 use crate::output;
@@ -2329,7 +2329,14 @@ fn dialog_body(
     folder: &mut Option<PathBuf>,
 ) {
     match dialog {
-        Dialog::Frequencies(d) => target_list(ui, "Variables", &mut d.variables, picked),
+        Dialog::Frequencies(d) => {
+            target_list(ui, "Variables", &mut d.variables, picked);
+            ui.add_space(6.0);
+            ui.checkbox(&mut d.tables, "Display frequency tables");
+            ui.strong("Statistics");
+            checkboxes(ui, &FREQUENCIES_STATISTICS, &mut d.statistics);
+            ui.checkbox(&mut d.quartiles, "Quartiles");
+        }
         Dialog::Descriptives(d) => {
             target_list(ui, "Variables", &mut d.variables, picked);
             ui.add_space(6.0);

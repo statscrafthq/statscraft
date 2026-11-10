@@ -3,17 +3,61 @@
 
 use crate::syntax_text::{names, probability, quote, value};
 
-#[derive(Default, Clone, PartialEq, Debug)]
+/// Keyword and label of every statistic Frequencies offers, in the order shown.
+pub const FREQUENCIES_STATISTICS: [(&str, &str); 9] = [
+    ("MEAN", "Mean"),
+    ("MEDIAN", "Median"),
+    ("MODE", "Mode"),
+    ("STDDEV", "Standard deviation"),
+    ("VARIANCE", "Variance"),
+    ("MINIMUM", "Minimum"),
+    ("MAXIMUM", "Maximum"),
+    ("RANGE", "Range"),
+    ("SUM", "Sum"),
+];
+
+#[derive(Clone, PartialEq, Debug)]
 pub struct Frequencies {
     pub variables: Vec<String>,
+    /// One flag per entry of `FREQUENCIES_STATISTICS`.
+    pub statistics: [bool; 9],
+    pub quartiles: bool,
+    pub tables: bool,
+}
+
+impl Default for Frequencies {
+    fn default() -> Self {
+        Self {
+            variables: Vec::new(),
+            statistics: [false; 9],
+            quartiles: false,
+            tables: true,
+        }
+    }
 }
 
 impl Frequencies {
     pub fn syntax(&self) -> Result<String, String> {
-        Ok(format!(
-            "FREQUENCIES VARIABLES={}.",
+        let mut text = format!(
+            "FREQUENCIES VARIABLES={}",
             names(&self.variables, "Variables")?
-        ))
+        );
+        if !self.tables {
+            text.push_str("\n  /FORMAT=NOTABLE");
+        }
+        let statistics: Vec<&str> = FREQUENCIES_STATISTICS
+            .iter()
+            .zip(self.statistics)
+            .filter_map(|((keyword, _), on)| on.then_some(*keyword))
+            .collect();
+        if !statistics.is_empty() {
+            text.push_str(&format!("\n  /STATISTICS={}", statistics.join(" ")));
+        }
+        if self.quartiles {
+            text.push_str("\n  /NTILES=4");
+        }
+        text.push('.');
+        Ok(text)
     }
 }
 
@@ -787,6 +831,15 @@ mod tests {
         let syntax = d.syntax().unwrap();
         assert_eq!(syntax, "FREQUENCIES VARIABLES=gender region.");
         assert_eq!(runs(&syntax), 2);
+        d.statistics[1] = true;
+        d.quartiles = true;
+        d.tables = false;
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "FREQUENCIES VARIABLES=gender region\n  /FORMAT=NOTABLE\n  /STATISTICS=MEDIAN\n  /NTILES=4."
+        );
+        assert_eq!(runs(&syntax), 1);
     }
 
     #[test]

@@ -328,9 +328,10 @@ fn names_keep_case_and_allow_special_characters() {
 fn abbreviated_command_names_and_keywords() {
     assert_eq!(
         one("FREQ VAR=age."),
-        Command::Frequencies {
-            variables: vec![var("age")]
-        }
+        Command::Frequencies(Frequencies {
+            variables: vec![var("age")],
+            ..frequencies_defaults()
+        })
     );
     let source = "VAR LAB a 'x'.\nVAL LAB a 1 'x'.\nMIS VAL a (9).\nVARIABLE LEV a (NOM).\n\
                   for a (f2).\nSEL IF a.\nEXE.\nREC a (1=2).\nget fil='x'.\nSav out='y'.\n\
@@ -766,9 +767,29 @@ fn formats() {
     assert_eq!(err("FORMATS a (8.2).").expected, ["a format such as F8.2"]);
 }
 
+pub(crate) fn frequencies_defaults() -> Frequencies {
+    Frequencies {
+        variables: Vec::new(),
+        notable: false,
+        limit: None,
+        order: FrequencyOrder::AValue,
+        include: false,
+        statistics: Vec::new(),
+        percentiles: Vec::new(),
+        grouped: Vec::new(),
+        charts: Vec::new(),
+        by_variable: false,
+    }
+}
+
 #[test]
 fn frequencies() {
-    let expected = |variables| Command::Frequencies { variables };
+    let expected = |variables| {
+        Command::Frequencies(Frequencies {
+            variables,
+            ..frequencies_defaults()
+        })
+    };
     assert_eq!(
         one("FREQUENCIES VARIABLES=gender region."),
         expected(vec![var("gender"), var("region")])
@@ -782,19 +803,6 @@ fn frequencies() {
         one("FREQUENCIES gender var."),
         expected(vec![var("gender"), var("var")])
     );
-
-    let error = err("FREQUENCIES VARIABLES=age /STAT=MEAN.");
-    assert_eq!(
-        error.message,
-        "subcommand STATISTICS of FREQUENCIES is not supported yet"
-    );
-    assert_eq!(at(&error), (1, 28));
-    let error = err("FREQUENCIES /FORMAT=NOTABLE /VARIABLES=age.");
-    assert_eq!(
-        error.message,
-        "subcommand FORMAT of FREQUENCIES is not supported yet"
-    );
-    assert_eq!(at(&error), (1, 14));
     assert_eq!(
         err("FREQUENCIES VARIABLES=age /FOO.").message,
         "unknown subcommand FOO of FREQUENCIES"

@@ -486,7 +486,7 @@ impl Engine {
                     }
                 }
             }
-            Command::Frequencies { .. }
+            Command::Frequencies(_)
             | Command::Descriptives(_)
             | Command::Crosstabs(_)
             | Command::Ctables(_)
@@ -633,13 +633,7 @@ impl Engine {
     /// The procedures, on the dataset as it is now.
     fn run_procedure(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
         match command {
-            Command::Frequencies { variables } => {
-                let data = self.active()?;
-                self.expand(variables)?
-                    .iter()
-                    .map(|name| frequencies::table(data, name))
-                    .collect()
-            }
+            Command::Frequencies(command) => self.frequencies(command),
             Command::Ctables(command) => self.ctables(command),
             Command::Descriptives(command) => self.descriptives(command),
             Command::Crosstabs(command) => self.crosstabs(command),

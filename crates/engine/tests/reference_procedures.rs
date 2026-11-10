@@ -1326,3 +1326,224 @@ fn split_and_filter_tables() {
         "SORT CASES BY gender.\nSPLIT FILE BY gender.\nFILTER BY q5_1.\nDESCRIPTIVES age monthly_spend /SAVE.\nFILTER OFF.\nSPLIT FILE OFF.\n* the z-score labels differ as in descriptives_data.\nVARIABLE LABELS Zage '' Zmonthly_spend ''.",
     );
 }
+
+/// The cells of a Statistics table as (variable, statistic) to cell text, with the percentile
+/// rows numbered in order. PSPP heads a column with the variable's label.
+fn pspp_statistics(
+    rows: &[Vec<String>],
+    names: &HashMap<String, String>,
+    out: &mut HashMap<(String, String), String>,
+    percentiles: &mut Vec<String>,
+) {
+    let (mut statistic, mut n) = (String::new(), 0);
+    for row in &rows[1..] {
+        if !row[0].is_empty() {
+            statistic = match row[0].as_str() {
+                "S.E. Mean" => "Std. Error of Mean",
+                "Std Dev" => "Std. Deviation",
+                "S.E. Skew" => "Std. Error of Skewness",
+                "S.E. Kurt" => "Std. Error of Kurtosis",
+                other => other,
+            }
+            .to_string();
+        }
+        let key = match statistic.as_str() {
+            "N" => format!("N {}", row[1]),
+            "Percentiles" => {
+                if percentiles.len() <= n {
+                    percentiles.push(row[1].clone());
+                }
+                n += 1;
+                format!("Percentiles #{}", n - 1)
+            }
+            _ => statistic.clone(),
+        };
+        for (column, cell) in row[2..].iter().enumerate() {
+            let header = &rows[0][column + 2];
+            let name = names.get(header).unwrap_or(header).clone();
+            out.insert((name, key.clone()), cell.clone());
+        }
+    }
+}
+
+/// Runs FREQUENCIES in both programs and compares the Statistics cells PSPP shows with ours,
+/// by variable and statistic, and the frequency tables in order. `pspp_syntax` replaces the
+/// syntax for PSPP where it needs another spelling to mean what ours does; `{alg}` asks PSPP
+/// for the manual's percentiles at (W + 1) p, which it computes only with
+/// /ALGORITHM=COMPATIBLE (its default is another definition).
+fn compare_frequencies(case: &str, fixture: &str, syntax: &str, pspp_syntax: Option<&str>) {
+    let Some((program, dir)) = setup(case, fixture) else {
+        return;
+    };
+    let job = |syntax: &str, alg: &str| {
+        let syntax = syntax.replace("{alg}", alg);
+        format!("GET FILE='{{dir}}data.sav'.\n{PRECISE}\n{syntax}\n")
+    };
+    let output = pspp(
+        case,
+        &program,
+        &dir,
+        &job(pspp_syntax.unwrap_or(syntax), " /ALGORITHM=COMPATIBLE"),
+    );
+    let theirs = pspp_tables(&output);
+    let mine = ours(case, &dir, &job(syntax, ""));
+    let data = Dataset::read_sav(dir.join("data.sav")).unwrap();
+    let mut names: HashMap<String, String> = HashMap::new();
+    for name in data.variable_names() {
+        let label = data.variable(name).unwrap().label().map(str::to_string);
+        names.insert(label.unwrap_or_else(|| name.to_string()), name.to_string());
+    }
+
+    let mut problems = Vec::new();
+    let (mut pspp_cells, mut pspp_percentiles) = (HashMap::new(), Vec::new());
+    for (_, rows) in theirs.iter().filter(|(t, _)| t == "Statistics") {
+        pspp_statistics(rows, &names, &mut pspp_cells, &mut pspp_percentiles);
+    }
+    let mut our_cells: HashMap<(String, String), &Cell> = HashMap::new();
+    let mut our_percentiles = Vec::new();
+    for table in mine.iter().filter(|t| t.title == "Statistics") {
+        let mut n = 0;
+        for row in &table.rows {
+            let statistic = text(&row[0]);
+            let key = match statistic.as_str() {
+                "N" => format!("N {}", text(&row[1])),
+                "Percentiles" => {
+                    if our_percentiles.len() <= n {
+                        our_percentiles.push(text(&row[1]));
+                    }
+                    n += 1;
+                    format!("Percentiles #{}", n - 1)
+                }
+                _ => statistic,
+            };
+            for (column, cell) in row[2..].iter().enumerate() {
+                our_cells.insert((table.columns[column + 2].clone(), key.clone()), cell);
+            }
+        }
+    }
+    // PSPP adds the 0th and 100th percentiles to NTILES, which the manual does not
+    let extra: Vec<usize> = pspp_percentiles
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| (*p == "0" || *p == "100") && !our_percentiles.contains(p))
+        .map(|(i, _)| i)
+        .collect();
+    let renumber = |key: &str| -> Option<String> {
+        let Some(i) = key.strip_prefix("Percentiles #") else {
+            return Some(key.to_string());
+        };
+        let i: usize = i.parse().unwrap();
+        let before = extra.iter().filter(|&&e| e < i).count();
+        (!extra.contains(&i)).then(|| format!("Percentiles #{}", i - before))
+    };
+    // with weights that are not whole numbers PSPP's percentiles leave the manual's formula
+    // (an independent computation of it agrees with ours, see frequencies.rs) and its mode is
+    // not the value of the largest weight, so those rows are compared with whole weights only
+    let fractional = fixture == WEIGHTED && !syntax.contains("WEIGHT BY");
+    for ((variable, key), cell) in &pspp_cells {
+        let Some(key) = renumber(key) else {
+            continue;
+        };
+        if fractional && (key == "Median" || key == "Mode" || key.starts_with("Percentiles")) {
+            continue;
+        }
+        let what = format!("{variable} {key}");
+        match our_cells.get(&(variable.clone(), key)) {
+            None => problems.push(format!("{what}: PSPP {cell}, missing in ours")),
+            // where the manual leaves a statistic undefined PSPP may print infinity or NaN
+            Some(Cell::Empty) if matches!(cell.as_str(), "NaN" | "+Infinity" | "-Infinity") => {}
+            Some(our) => problems.extend(check_cell(&what, cell, our).err()),
+        }
+    }
+
+    let pspp_frequencies: Vec<_> = theirs.iter().filter(|(t, _)| t != "Statistics").collect();
+    let our_frequencies: Vec<&Table> = mine.iter().filter(|t| t.title != "Statistics").collect();
+    assert_eq!(
+        pspp_frequencies.len(),
+        our_frequencies.len(),
+        "{case}: PSPP made {} frequency tables, we {}\n{output}",
+        pspp_frequencies.len(),
+        our_frequencies.len()
+    );
+    for ((title, rows), table) in pspp_frequencies.iter().zip(&our_frequencies) {
+        let data_rows = &rows[1..];
+        if data_rows.len() != table.rows.len() {
+            problems.push(format!(
+                "{title}: rows: PSPP {}, ours {}",
+                data_rows.len(),
+                table.rows.len()
+            ));
+            continue;
+        }
+        for (r, (row, mine)) in data_rows.iter().zip(&table.rows).enumerate() {
+            // the value or its label, as PSPP shows it, puts the rows in the same order
+            let shown = row[1].trim();
+            let same = match (pspp_number(shown), &mine[1]) {
+                (Some(Some((value, _))), Cell::Number(n)) => (value - n).abs() < 1e-9,
+                _ => shown.is_empty() || text(&mine[2]) == shown || text(&mine[1]) == shown,
+            };
+            if !same {
+                problems.push(format!("{title} row {r}: PSPP {shown}, ours {:?}", mine[1]));
+            }
+            for column in 2..6 {
+                let what = format!("{title} row {r} column {column}");
+                problems.extend(check_cell(&what, &row[column], &mine[column + 1]).err());
+            }
+        }
+    }
+    assert!(
+        problems.is_empty(),
+        "{case}: {} differences (files kept in {})\n{}\n{output}",
+        problems.len(),
+        dir.display(),
+        problems[..problems.len().min(25)].join("\n")
+    );
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+#[ignore = "needs PSPP: set STATSCRAFT_PSPP"]
+fn frequencies_tables() {
+    const WHOLE: &str = "COMPUTE w3 = RND(weight * 3).\nWEIGHT BY w3.";
+    let percents = "/PERCENTILES=1 5 10 25 33.3 50 66.7 75 90 95 99";
+    let counted = "gender region q1_satisfaction q2_recommend plan";
+    let four = "age monthly_spend q1_satisfaction q2_recommend";
+    let cases: Vec<(&str, &str, String, Option<String>)> = vec![
+        ("counts", SURVEY, format!("FREQUENCIES {counted} /STATISTICS=MEAN."), None),
+        ("counts-weighted", WEIGHTED, format!("FREQUENCIES {counted} /STATISTICS=MEAN."), None),
+        ("all-statistics", SURVEY, format!("FREQUENCIES {four} /STATISTICS=ALL /FORMAT=NOTABLE{{alg}}."), None),
+        ("all-statistics-weighted", WEIGHTED, format!("FREQUENCIES {four} /STATISTICS=ALL /FORMAT=NOTABLE{{alg}}."), None),
+        ("percentiles", SURVEY, format!("FREQUENCIES age monthly_spend q2_recommend {percents} /STATISTICS=MEDIAN /FORMAT=NOTABLE{{alg}}."), None),
+        ("percentiles-weighted", WEIGHTED, format!("{WHOLE}\nFREQUENCIES age monthly_spend q2_recommend {percents} /STATISTICS=MEDIAN MODE /FORMAT=NOTABLE{{alg}}."), None),
+        ("ntiles", SURVEY, "FREQUENCIES age q2_recommend /NTILES=4 /NTILES=10 /STATISTICS=MEAN /FORMAT=NOTABLE{alg}.".into(), None),
+        ("ntiles-weighted", WEIGHTED, format!("{WHOLE}\nFREQUENCIES age monthly_spend /NTILES=5 /PERCENTILES=50 99 /STATISTICS=MEAN /FORMAT=NOTABLE{{alg}}."), None),
+        ("dvalue", SURVEY, "FREQUENCIES region q1_satisfaction plan /FORMAT=DVALUE /STATISTICS=MODE.".into(), None),
+        ("afreq", SURVEY, "FREQUENCIES region q2_recommend q5_1 /FORMAT=AFREQ /STATISTICS=MEAN SUM.".into(), None),
+        // PSPP takes the minimum, maximum and range from the first and last rows of the table,
+        // wrong when they are not in ascending order of value, so those are left out here
+        ("dfreq-weighted", WEIGHTED, "FREQUENCIES region q1_satisfaction /FORMAT=DFREQ /STATISTICS=SUM MEAN.".into(), None),
+        ("limit", SURVEY, "FREQUENCIES age gender q1_satisfaction q5_1 /FORMAT=LIMIT(5) /STATISTICS=MEAN.".into(), None),
+        // PSPP leaves user-missing values out of the statistics even with INCLUDE, where the
+        // manual counts them; without missing values PSPP computes what INCLUDE means
+        ("include", SURVEY, "FREQUENCIES q1_satisfaction q2_recommend /MISSING=INCLUDE /STATISTICS=ALL{alg}.".into(),
+            Some("MISSING VALUES q1_satisfaction q2_recommend ().\nFREQUENCIES q1_satisfaction q2_recommend /STATISTICS=ALL{alg}.".into())),
+        ("include-weighted", WEIGHTED, "FREQUENCIES q2_recommend /MISSING=INCLUDE /STATISTICS=MEAN MEDIAN STDDEV{alg}.".into(),
+            Some("MISSING VALUES q2_recommend ().\nFREQUENCIES q2_recommend /STATISTICS=MEAN MEDIAN STDDEV{alg}.".into())),
+        // PSPP ignores ORDER=VARIABLE and makes one Statistics table; the cells are compared
+        // by variable, so both layouts line up
+        ("order-variable", SURVEY, "FREQUENCIES gender region /ORDER=VARIABLE /STATISTICS=MEAN MODE.".into(), None),
+        ("three-cases", SURVEY, "SELECT IF resp_id <= 1003.\nFREQUENCIES gender age region /STATISTICS=ALL{alg}.".into(), None),
+        ("four-cases", SURVEY, "SELECT IF resp_id <= 1004.\nFREQUENCIES age monthly_spend /STATISTICS=ALL /PERCENTILES=10 50 90 /FORMAT=NOTABLE{alg}.".into(), None),
+        ("unusable-weights", WEIGHTED, "RECODE weight (LO THRU 0.6 = 0) (0.6 THRU 0.7 = -1).\nFREQUENCIES age region /STATISTICS=ALL /FORMAT=LIMIT(6){alg}.".into(), None),
+        ("abbreviations", SURVEY, "FRE VAR=region q5_2 /FOR=DFREQ /STA=SEM VAR KURT SEKURT SKEW SESKEW.".into(), None),
+        ("strings-weighted", WEIGHTED, "FREQUENCIES plan gender /FORMAT=DFREQ /STATISTICS=NONE.".into(), None),
+    ];
+    for (case, fixture, syntax, pspp) in &cases {
+        compare_frequencies(
+            &format!("frequencies-{case}"),
+            fixture,
+            syntax,
+            pspp.as_deref(),
+        );
+    }
+}

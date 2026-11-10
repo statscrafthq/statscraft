@@ -24,9 +24,7 @@ pub enum Command {
     /// Column widths in the data grid, in characters.
     VariableWidth(Vec<(Vec<VarItem>, u32)>),
     Formats(Vec<(Vec<VarItem>, Format)>),
-    Frequencies {
-        variables: Vec<VarItem>,
-    },
+    Frequencies(Frequencies),
     Execute,
     Count(Vec<Count>),
     SortCases(Vec<SortKey>),
@@ -370,6 +368,67 @@ pub struct DataField {
     /// FIXED: the record (1-based) and the first column (1-based); the width is the format's.
     pub record: u32,
     pub column: u32,
+}
+
+/// FREQUENCIES.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Frequencies {
+    pub variables: Vec<VarItem>,
+    /// `/FORMAT=NOTABLE`: no frequency tables.
+    pub notable: bool,
+    /// `/FORMAT=LIMIT(n)`: no frequency table for a variable with more than n categories.
+    pub limit: Option<usize>,
+    /// `/FORMAT=AVALUE | DVALUE | AFREQ | DFREQ`
+    pub order: FrequencyOrder,
+    /// `/MISSING=INCLUDE`: user-missing values are valid.
+    pub include: bool,
+    /// In display order, without duplicates.
+    pub statistics: Vec<FrequencyStatistic>,
+    /// From `/PERCENTILES` and `/NTILES`, ascending, without duplicates.
+    pub percentiles: Vec<f64>,
+    /// `/GROUPED`: variables whose values stand for groups, with how the groups are bounded.
+    pub grouped: Vec<(Vec<VarItem>, Grouping)>,
+    /// The chart subcommands given (BARCHART, PIECHART, HISTOGRAM); charts are not drawn yet.
+    pub charts: Vec<String>,
+    /// `/ORDER=VARIABLE`: a statistics table per variable instead of one for all.
+    pub by_variable: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrequencyOrder {
+    AValue,
+    DValue,
+    AFreq,
+    DFreq,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum FrequencyStatistic {
+    Mean,
+    SeMean,
+    Median,
+    Mode,
+    StdDev,
+    Variance,
+    Skewness,
+    SeSkewness,
+    Kurtosis,
+    SeKurtosis,
+    Range,
+    Minimum,
+    Maximum,
+    Sum,
+}
+
+/// How grouped values are bounded.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Grouping {
+    /// The values are the midpoints of the groups.
+    Midpoints,
+    /// The values are midpoints of groups this wide.
+    Width(f64),
+    /// The groups lie between these ascending boundaries.
+    Boundaries(Vec<f64>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
