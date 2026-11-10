@@ -319,6 +319,25 @@ pub struct MultipleResponseSet {
 }
 
 impl Dataset {
+    /// A dataset with `case_count` cases and no variables yet, as UTF-8 text. Variables come
+    /// from `set_numeric_values` and `set_string_values`.
+    pub fn new(case_count: usize) -> Self {
+        Self {
+            columns: Vec::new(),
+            case_count,
+            dict: Arc::new(Dictionary {
+                encoding: "UTF-8".to_string(),
+                compression: "none",
+                file_label: None,
+                weight_variable: None,
+                variables: Vec::new(),
+                multiple_response_sets: Vec::new(),
+                warnings: Vec::new(),
+                documents: Vec::new(),
+            }),
+        }
+    }
+
     pub fn case_count(&self) -> usize {
         self.case_count
     }
@@ -369,6 +388,21 @@ impl Dataset {
 
     pub fn file_label(&self) -> Option<&str> {
         self.dict.file_label.as_deref()
+    }
+
+    /// Character encoding of the source file.
+    pub fn encoding(&self) -> &str {
+        &self.dict.encoding
+    }
+
+    /// "none", "bytecode" or "zlib": the compression of the source file.
+    pub fn compression(&self) -> &'static str {
+        self.dict.compression
+    }
+
+    /// Document lines, in file order.
+    pub fn documents(&self) -> &[String] {
+        &self.dict.documents
     }
 
     /// What the reader found wrong with the file this dataset was loaded from, for example

@@ -54,6 +54,27 @@ impl Dataset {
         Ok(())
     }
 
+    /// `None` or an empty label removes the file label.
+    pub fn set_file_label(&mut self, label: Option<&str>) {
+        Arc::make_mut(&mut self.dict).file_label = label.and_then(non_empty);
+    }
+
+    pub fn set_documents(&mut self, lines: Vec<String>) {
+        Arc::make_mut(&mut self.dict).documents = lines;
+    }
+
+    /// Records where the data came from: the encoding name and "none", "bytecode" or "zlib".
+    pub fn set_source(&mut self, encoding: &str, compression: &str) -> Result<(), Error> {
+        let compression = ["none", "bytecode", "zlib"]
+            .into_iter()
+            .find(|c| *c == compression)
+            .ok_or_else(|| Error::Invalid(format!("unknown compression {compression}")))?;
+        let dict = Arc::make_mut(&mut self.dict);
+        dict.encoding = encoding.to_string();
+        dict.compression = compression;
+        Ok(())
+    }
+
     /// `MissingValues::None` clears the definition.
     pub fn set_missing_values(&mut self, name: &str, missing: MissingValues) -> Result<(), Error> {
         let def = self.def_mut(name)?;
@@ -447,7 +468,7 @@ impl Dataset {
         Ok(())
     }
 
-    fn def_mut(&mut self, name: &str) -> Result<&mut VariableDef, Error> {
+    pub(crate) fn def_mut(&mut self, name: &str) -> Result<&mut VariableDef, Error> {
         let index = self.index_of(name)?;
         Ok(&mut Arc::make_mut(&mut self.dict).variables[index])
     }

@@ -33,7 +33,90 @@ pub(crate) struct VariableExtras {
     attributes: Vec<(String, Vec<String>)>,
 }
 
+const ALIGNMENTS: [(&str, ambers::Alignment); 3] = [
+    ("left", ambers::Alignment::Left),
+    ("right", ambers::Alignment::Right),
+    ("center", ambers::Alignment::Center),
+];
+
+const ROLES: [(&str, ambers::constants::Role); 6] = {
+    use ambers::constants::Role;
+    [
+        ("input", Role::Input),
+        ("target", Role::Target),
+        ("both", Role::Both),
+        ("none", Role::None),
+        ("partition", Role::Partition),
+        ("split", Role::Split),
+    ]
+};
+
+impl<'a> crate::Variable<'a> {
+    /// Display width in characters, when the file gives one.
+    pub fn display_width(&self) -> Option<u32> {
+        self.def.extras.display_width
+    }
+
+    /// "left", "right" or "center", when the file gives one.
+    pub fn alignment(&self) -> Option<&'static str> {
+        let alignment = self.def.extras.alignment?;
+        ALIGNMENTS
+            .iter()
+            .find(|(_, a)| *a == alignment)
+            .map(|e| e.0)
+    }
+
+    /// "input", "target", "both", "none", "partition" or "split", when the file gives one.
+    pub fn role(&self) -> Option<&'static str> {
+        let role = self.def.extras.role?;
+        ROLES.iter().find(|(_, r)| *r == role).map(|e| e.0)
+    }
+
+    /// Custom attributes: name and its values, in file order.
+    pub fn attributes(&self) -> &'a [(String, Vec<String>)] {
+        &self.def.extras.attributes
+    }
+}
+
 impl Dataset {
+    /// Sets the display properties of a variable; the texts are those `Variable::alignment`
+    /// and `Variable::role` return.
+    pub fn set_display(
+        &mut self,
+        name: &str,
+        width: Option<u32>,
+        alignment: Option<&str>,
+        role: Option<&str>,
+    ) -> Result<(), Error> {
+        fn find<T: Copy>(table: &[(&str, T)], text: Option<&str>) -> Result<Option<T>, Error> {
+            text.map(|text| {
+                table
+                    .iter()
+                    .find(|(t, _)| *t == text)
+                    .map(|e| e.1)
+                    .ok_or_else(|| Error::Invalid(format!("unknown display setting {text}")))
+            })
+            .transpose()
+        }
+        let alignment = find(&ALIGNMENTS, alignment)?;
+        let role = find(&ROLES, role)?;
+        let extras = &mut self.def_mut(name)?.extras;
+        extras.display_width = width;
+        extras.alignment = alignment;
+        extras.role = role;
+        Ok(())
+    }
+
+    /// Replaces the custom attributes of a variable.
+    pub fn set_variable_attributes(
+        &mut self,
+        name: &str,
+        attributes: Vec<(String, Vec<String>)>,
+    ) -> Result<(), Error> {
+        self.def_mut(name)?.extras.attributes = attributes;
+        Ok(())
+    }
+
     pub fn read_sav(path: impl AsRef<Path>) -> Result<Self, Error> {
         let path = path.as_ref();
         let file_error = |e: String| Error::File(format!("{}: {e}", path.display()));

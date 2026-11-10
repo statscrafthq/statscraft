@@ -1,6 +1,6 @@
 [package]
 name = "statscraft-openstatspec"
-description = "OpenStatSpec driver: syntax frontend to the transformation plan, canonical JSON and hashes"
+description = "OpenStatSpec driver: syntax frontend, transformation plans, and the SQLite binding of datasets and plans"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,6 +8,9 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+statscraft-data = { path = "../data" }
+# MIT; the bundled SQLite is public domain
+rusqlite = { version = "0.41.1", default-features = false, features = ["bundled", "limits"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
