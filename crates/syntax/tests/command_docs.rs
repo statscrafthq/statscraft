@@ -23,6 +23,8 @@ const AREAS: &[(&str, &[&str])] = &[
             "SORT CASES",
             "WEIGHT",
             "AGGREGATE",
+            "DATA LIST",
+            "BEGIN DATA",
         ],
     ),
     (

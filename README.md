@@ -20,6 +20,8 @@ statscraft-gui tests/fixtures/survey_basic.sav job.sps        the desktop window
 
 What runs today: reading and writing data files, labels and missing values, transformations (COMPUTE, IF, DO IF, RECODE, COUNT, SELECT IF, AGGREGATE, SORT CASES, merging files), FREQUENCIES, DESCRIPTIVES, CROSSTABS, MEANS, T-TEST, ONEWAY, CORRELATIONS, NONPAR CORR, EXAMINE, and custom tables (CTABLES) with multiple response sets and significance tests. The [command pages](docs/commands/README.md) list every command.
 
+DATA LIST reads text data in fixed columns, freefield (FREE) or one case per line (LIST), inline between BEGIN DATA and END DATA or from a file, and warns with the line number of every value it cannot read.
+
 ## Documentation
 
 - [Getting started](docs/getting-started.md): install, open a file, run syntax, the window in five minutes.

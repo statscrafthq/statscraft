@@ -88,6 +88,9 @@ pub(crate) struct Lexer<'a> {
     line: u32,
     chars: Vec<char>,
     col: usize,
+    /// A number with letters glued to it, such as `3F5.2` or `1X`, is one word instead of an
+    /// error. DATA LIST formats are written that way.
+    pub glued_words: bool,
 }
 
 impl<'a> Lexer<'a> {
@@ -97,6 +100,7 @@ impl<'a> Lexer<'a> {
             line: 0,
             chars: Vec::new(),
             col: 0,
+            glued_words: false,
         }
     }
 
@@ -211,6 +215,9 @@ impl<'a> Lexer<'a> {
         if self.chars.get(self.col).is_some_and(glued) {
             while self.chars.get(self.col).is_some_and(|&c| is_name_char(c)) {
                 self.col += 1;
+            }
+            if self.glued_words {
+                return Ok(TokenKind::Word(self.text(start)));
             }
         } else if let Ok(value) = self.text(start).parse::<f64>()
             && value.is_finite()

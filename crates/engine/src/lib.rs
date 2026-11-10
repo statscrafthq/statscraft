@@ -4,6 +4,7 @@ mod aggregate;
 mod correlations;
 mod crosstabs;
 mod ctables;
+mod data_list;
 mod descriptives;
 mod dist;
 mod examine;
@@ -15,6 +16,7 @@ mod merge;
 mod mrsets;
 mod nonpar_corr;
 mod oneway;
+mod pass;
 mod recode;
 pub mod session;
 mod sort;
@@ -208,6 +210,8 @@ pub struct Engine {
     blocks: Vec<transform::Block>,
     /// What the last command did differently from what was asked, without failing.
     warnings: Vec<String>,
+    /// A DATA LIST without FILE, waiting for its BEGIN DATA.
+    pending_data: Option<syntax::DataList>,
 }
 
 impl Engine {
@@ -273,6 +277,13 @@ impl Engine {
     pub fn execute(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
         self.warnings.clear();
         self.check_block(command)?;
+        if self.pending_data.is_some() && !matches!(command, Command::BeginData(_)) {
+            return Err(Error(
+                "the DATA LIST before this command has no data yet: put BEGIN DATA, the data \
+                 lines and END DATA right after it"
+                    .into(),
+            ));
+        }
         match command {
             Command::Get { file } => {
                 self.dataset = Some(Dataset::read_sav(file)?);
@@ -402,6 +413,8 @@ impl Engine {
             Command::Examine(command) => return self.examine(command),
             Command::AddFiles(merge) => self.merge_files(merge, true)?,
             Command::MatchFiles(merge) => self.merge_files(merge, false)?,
+            Command::DataList(list) => self.data_list(list)?,
+            Command::BeginData(lines) => self.begin_data(lines)?,
         }
         Ok(Vec::new())
     }

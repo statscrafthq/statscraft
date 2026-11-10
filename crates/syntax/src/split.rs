@@ -91,6 +91,7 @@ fn build(lines: &[(u32, &str)], end: Span) -> Option<Result<RawCommand, SyntaxEr
     }
     let name = match resolve_tokens(&tokens) {
         Resolution::Supported(spec, _) => {
+            lexer.glued_words = spec.name == "DATA LIST";
             // only a command with a parser has a body worth tokenising
             while lex_error.is_none() {
                 match lexer.next_token() {
@@ -123,14 +124,102 @@ fn build(lines: &[(u32, &str)], end: Span) -> Option<Result<RawCommand, SyntaxEr
     }))
 }
 
+/// True for a line that holds only the words of `name` (two words separated by blanks),
+/// optionally followed by a period. Inline data starts and ends with such lines.
+fn is_line_command(line: &str, name: [&str; 2]) -> bool {
+    let line = line.trim();
+    let line = line.strip_suffix('.').unwrap_or(line);
+    let mut words = line.split_whitespace();
+    words
+        .next()
+        .is_some_and(|w| w.eq_ignore_ascii_case(name[0]))
+        && words
+            .next()
+            .is_some_and(|w| w.eq_ignore_ascii_case(name[1]))
+        && words.next().is_none()
+}
+
+/// The BEGIN DATA command on line index `first` with its data lines, up to the END DATA line,
+/// and the index of the line after END DATA. Each data line becomes a string token on its own
+/// line, so the lines keep their numbers.
+fn inline_data(lines: &[&str], first: usize) -> (Result<RawCommand, SyntaxError>, usize) {
+    let line_span = |index: usize, text: &str| Span {
+        line: index as u32 + 1,
+        column: 1,
+        end_line: index as u32 + 1,
+        end_column: text.chars().count() as u32 + 1,
+    };
+    let Some(end) = (first + 1..lines.len()).find(|&i| is_line_command(lines[i], ["END", "DATA"]))
+    else {
+        let error = SyntaxError::new(
+            line_span(first, lines[first]),
+            "BEGIN DATA without END DATA",
+        )
+        .hint("end the data with a line that holds only END DATA");
+        return (Err(error), lines.len());
+    };
+    let begin = lines[first];
+    let word = |word: &str| {
+        let at = begin.to_uppercase().find(word).unwrap_or(0);
+        let column = begin[..at].chars().count() as u32 + 1;
+        Token {
+            kind: TokenKind::Word(word.to_string()),
+            span: Span {
+                line: first as u32 + 1,
+                column,
+                end_line: first as u32 + 1,
+                end_column: column + word.len() as u32,
+            },
+        }
+    };
+    let mut tokens = vec![word("BEGIN"), word("DATA")];
+    for (index, text) in lines.iter().enumerate().take(end).skip(first + 1) {
+        tokens.push(Token {
+            kind: TokenKind::Str(text.to_string()),
+            span: line_span(index, text),
+        });
+    }
+    let command = RawCommand {
+        name: "BEGIN DATA".to_string(),
+        first_line: first as u32 + 1,
+        last_line: end as u32 + 1,
+        tokens,
+        end: line_span(end, lines[end]),
+    };
+    (Ok(command), end + 1)
+}
+
 /// Every command of the source, or the error that prevented tokenising it.
 pub(crate) fn split(source: &str) -> Vec<Result<RawCommand, SyntaxError>> {
     let source = source.strip_prefix('\u{feff}').unwrap_or(source);
+    // the extra blank line ends a command that runs to the end of input
+    let lines: Vec<&str> = source.lines().chain([""]).collect();
     let mut out = Vec::new();
     let mut current: Vec<(u32, &str)> = Vec::new();
     let mut comment = None;
-    // the extra blank line ends a command that runs to the end of input
-    for (line, number) in source.lines().chain([""]).zip(1u32..) {
+    let mut index = 0;
+    while index < lines.len() {
+        let (line, number) = (lines[index], index as u32 + 1);
+        index += 1;
+        // inline data: the lines up to END DATA are data, whatever they look like
+        if comment != Some(true) && is_line_command(line, ["BEGIN", "DATA"]) {
+            if let Some(&(last, text)) = current.last() {
+                let column = text.trim_end().chars().count() as u32 + 1;
+                let end = Span {
+                    line: last,
+                    column,
+                    end_line: last,
+                    end_column: column,
+                };
+                out.extend(build(&current, end));
+            }
+            current.clear();
+            comment = None;
+            let (command, next) = inline_data(&lines, index - 1);
+            out.push(command);
+            index = next;
+            continue;
+        }
         let end = if line.trim().is_empty() {
             let Some(&(last, text)) = current.last() else {
                 continue;

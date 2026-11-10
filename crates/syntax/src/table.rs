@@ -4,6 +4,7 @@ use crate::ast::Command;
 use crate::commands;
 use crate::ctables;
 use crate::data_commands;
+use crate::data_list;
 use crate::examine;
 use crate::files;
 use crate::lexer::{Punct, Token, TokenKind};
@@ -23,6 +24,30 @@ pub struct CommandSpec {
 }
 
 pub(crate) static COMMANDS: &[CommandSpec] = &[
+    CommandSpec {
+        name: "DATA LIST",
+        summary: "Define text data, inline or in a file, and read it as the new active dataset.",
+        syntax: "DATA LIST [FILE='path'] [FIXED | FREE [(delimiters)] | LIST [(delimiters)]] [RECORDS=n] [SKIP=n]\n\
+                 \x20         /[record] var [TO var] columns [(type[,decimals])] | (formats) [/ ...].\n\
+                 FIXED (the default): columns such as 1-3, or formats such as (F2.0, 1X, A10) with Tn and nX.\n\
+                 FREE and LIST: var [(format)], values separated by blanks and commas or by the delimiters\n\
+                 given as quoted characters or TAB; LIST reads one case per line. * ends a run of F8.2 variables.\n\
+                 Without FILE the data follow between BEGIN DATA and END DATA.\n\
+                 Formats: F, N, E, COMMA, DOT, DOLLAR, PCT, A, DATE, ADATE, EDATE, SDATE.\n\
+                 A value that cannot be read is system-missing, with a warning naming its line.",
+        example: "DATA LIST LIST /id (F3) name (A12) score.",
+        parse: data_list::data_list,
+    },
+    CommandSpec {
+        name: "BEGIN DATA",
+        summary: "Inline data for the DATA LIST before it, up to a line that holds END DATA.",
+        syntax: "BEGIN DATA\n\
+                 data lines\n\
+                 END DATA.\n\
+                 BEGIN DATA and END DATA each stand alone on their line. Every line between is data.",
+        example: "BEGIN DATA\n1 'Ann' 12.5\nEND DATA.",
+        parse: data_list::begin_data,
+    },
     CommandSpec {
         name: "GET",
         summary: "Read a data file and make it the active dataset.",
@@ -559,14 +584,12 @@ static UNSUPPORTED: &[&str] = &[
     "ANOVA",
     "APPLY DICTIONARY",
     "AUTORECODE",
-    "BEGIN DATA",
     "BREAK",
     "CACHE",
     "CASESTOVARS",
     "CD",
     "CLEAR TRANSFORMATIONS",
     "CLUSTER",
-    "DATA LIST",
     "DATASET ACTIVATE",
     "DATASET CLOSE",
     "DATASET COPY",

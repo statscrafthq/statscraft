@@ -428,7 +428,7 @@ fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
 }
 
 /// (year, month, day) of a number of days from 1970-01-01.
-fn civil_from_days(days: i64) -> (i64, i64, i64) {
+pub(crate) fn civil_from_days(days: i64) -> (i64, i64, i64) {
     let z = days + 719_468;
     let era = z.div_euclid(146_097);
     let day_of_era = z.rem_euclid(146_097);
@@ -448,7 +448,7 @@ fn civil_from_days(days: i64) -> (i64, i64, i64) {
 
 /// The date value of a day: seconds from 1582-10-14. Day 0 to 31 and month 1 to 13 are
 /// accepted and carry into the neighbouring month or year.
-fn date(day: Option<f64>, month: Option<f64>, year: Option<f64>) -> Option<f64> {
+pub(crate) fn date(day: Option<f64>, month: Option<f64>, year: Option<f64>) -> Option<f64> {
     let whole = |v: Option<f64>| v.filter(|v| v.fract() == 0.0 && v.abs() < 1e6);
     let (day, month, year) = (
         whole(day)? as i64,

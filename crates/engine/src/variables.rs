@@ -4,8 +4,6 @@ use crate::{Engine, Error};
 use statscraft_data::Dataset;
 use statscraft_syntax::VarItem;
 
-const MAX_NEW_NAMES: u64 = 10_000;
-
 /// The values a command computed for one variable; a string variable comes with its width.
 pub(crate) enum Column {
     Numeric(Vec<Option<f64>>),
@@ -14,10 +12,6 @@ pub(crate) enum Column {
 
 /// Names for new variables. `v1 TO v3` counts the number at the end of the name up.
 pub(crate) fn new_names(items: &[VarItem]) -> Result<Vec<String>, Error> {
-    fn split(name: &str) -> (&str, &str) {
-        let stem = name.trim_end_matches(|c: char| c.is_ascii_digit());
-        name.split_at(stem.len())
-    }
     let mut names = Vec::new();
     for item in items {
         match item {
@@ -28,24 +22,7 @@ pub(crate) fn new_names(items: &[VarItem]) -> Result<Vec<String>, Error> {
                 ));
             }
             VarItem::Range(first, last) => {
-                let ((stem, from), (last_stem, to)) = (split(first), split(last));
-                let numbers = match (from.parse::<u64>(), to.parse::<u64>()) {
-                    (Ok(from), Ok(to))
-                        if stem.eq_ignore_ascii_case(last_stem)
-                            && from <= to
-                            && to - from < MAX_NEW_NAMES =>
-                    {
-                        from..=to
-                    }
-                    _ => {
-                        return Err(Error(format!(
-                            "{first} TO {last} cannot name new variables: both names need the same \
-                             stem and a number at the end, as in v1 TO v5 (at most {MAX_NEW_NAMES} names)"
-                        )));
-                    }
-                };
-                let width = from.len();
-                names.extend(numbers.map(|n| format!("{stem}{n:0width$}")));
+                names.extend(statscraft_syntax::numbered_names(first, last).map_err(Error)?)
             }
         }
     }

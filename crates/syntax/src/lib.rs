@@ -18,6 +18,7 @@ mod ast;
 mod commands;
 mod ctables;
 mod data_commands;
+mod data_list;
 mod error;
 mod examine;
 mod expr;
@@ -36,6 +37,8 @@ mod tests_ctables;
 #[cfg(test)]
 mod tests_data;
 #[cfg(test)]
+mod tests_data_list;
+#[cfg(test)]
 mod tests_procedures;
 
 pub use ast::*;
@@ -45,6 +48,7 @@ pub use ctables::{
     PcomputeExpr, PcomputeOp, PercentBase, PercentOf, Pproperties, Sigtest, Statistic, Summary,
     SummaryFunction, VlabelsDisplay,
 };
+pub use data_list::numbered_names;
 pub use error::{Span, SyntaxError};
 pub use lexer::{Punct, Token, TokenKind};
 pub use mrsets::{Mrsets, MrsetsGroup};
@@ -97,6 +101,11 @@ pub fn parse_command(raw: &RawCommand) -> Result<Command, SyntaxError> {
         Resolution::Supported(spec, used) => {
             (spec.parse)(&mut Parser::new(&raw.tokens, used, raw.end))
         }
+        Resolution::Unsupported("END DATA", used) => Err(SyntaxError::new(
+            name_span(used),
+            "END DATA without BEGIN DATA",
+        )
+        .hint("inline data starts with a line that holds only BEGIN DATA")),
         Resolution::Unsupported(name, used) => Err(SyntaxError::new(
             name_span(used),
             format!("command {name} is not supported yet"),

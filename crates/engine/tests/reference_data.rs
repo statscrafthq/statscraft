@@ -16,6 +16,18 @@ use std::{env, fs};
 /// end with, and every file in `files` that the commands write. In `commands` a file to write
 /// is named `'{out}name.sav'`.
 fn compare(case: &str, fixture: &str, commands: &str, files: &[&str]) {
+    compare_with(case, fixture, commands, files, &[]);
+}
+
+/// `compare` with text files written to the folder of the run first, as (name, content). In
+/// `commands` the folder is `{dir}`.
+fn compare_with(
+    case: &str,
+    fixture: &str,
+    commands: &str,
+    files: &[&str],
+    inputs: &[(&str, &str)],
+) {
     let Some(pspp) = env::var_os("STATSCRAFT_PSPP") else {
         eprintln!("{case}: skipped, STATSCRAFT_PSPP is not set");
         return;
@@ -27,13 +39,17 @@ fn compare(case: &str, fixture: &str, commands: &str, files: &[&str]) {
     fs::create_dir_all(&dir).unwrap();
     let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
     fs::copy(source.join(fixture), dir.join("data.sav")).unwrap();
-    let job = |get: &str, out: &str| {
+    for (name, content) in inputs {
+        fs::write(dir.join(name), content).unwrap();
+    }
+    let job = |get: &str, out: &str, folder: &str| {
         format!("GET FILE='{get}'.\n{commands}\nSAVE OUTFILE='{{out}}final.sav'.\n")
             .replace("{out}", out)
+            .replace("{dir}", folder)
     };
 
     // PSPP is a Windows program on the development machine: relative paths only
-    fs::write(dir.join("job.sps"), job("data.sav", "pspp_")).unwrap();
+    fs::write(dir.join("job.sps"), job("data.sav", "pspp_", "")).unwrap();
     let status = Command::new(&pspp)
         .args(["job.sps", "-o", "pspp.csv", "-O", "format=csv"])
         .current_dir(&dir)
@@ -46,7 +62,8 @@ fn compare(case: &str, fixture: &str, commands: &str, files: &[&str]) {
     assert!(status.success(), "{case}: PSPP failed\n{log}");
 
     let absolute = |name: &str| dir.join(name).to_str().unwrap().to_string();
-    let (parsed, errors) = parse(&job(&absolute("data.sav"), &absolute("ours_")));
+    let folder = format!("{}/", dir.display());
+    let (parsed, errors) = parse(&job(&absolute("data.sav"), &absolute("ours_"), &folder));
     assert!(errors.is_empty(), "{case}: {errors:?}");
     let mut engine = Engine::default();
     for command in &parsed {
@@ -508,5 +525,100 @@ AGGREGATE /OUTFILE=* /BREAK=region q5_1 q5_2",
         WEIGHTED,
         &every("AGGREGATE /OUTFILE='{out}groups.sav' /BREAK=gender region"),
         &["groups.sav"],
+    );
+}
+
+#[test]
+#[ignore = "needs PSPP: set STATSCRAFT_PSPP"]
+fn data_list() {
+    compare_all(
+        "data-list",
+        &[
+            (
+                // PSPP makes an N variable scale whatever its values; here n3 has no value
+                // below 10, which makes it scale by the rules of the manual too
+                "fixed-columns",
+                SURVEY,
+                "DATA LIST /id 1-3 sex 5-6 (A) age 7-8 op1 TO op3 10-12 rate 14-18 (PCT,2)
+  cost 20-24 (DOLLAR) c2 26-31 (COMMA,1) n3 33-35 (N) f2 37-41 (2) dt 43-53 (DATE).
+BEGIN DATA
+001 m 28 122   935 78788  1,234 012 12345  1-JAN-2001
+002  f 9 2 2  1.5     12    9.5 1x2  -201 03-Feb-1999
+  3 x 4a     -201  $1,0     -12      2 01 3 2 2001
+004   10  1e -1.5  1.2e1    999 345   .20 3.II.1999
+END DATA.",
+            ),
+            (
+                "fixed-formats-and-records",
+                SURVEY,
+                "DATA LIST RECORDS=3 /1 name (A6) score (T9, F4.1) /3 born 1-10 (ADATE)
+  w (1X, COMMA6.2) e 20-25 (E,1) d (1X, DOT8.1) s (1X, SDATE10).
+BEGIN DATA
+Ann     123
+skipped record
+01/31/1990 1,2345  12e1   1.234,5  2001/02/03
+  Bob   99.5
+second skipped record
+2/3/1985        7  1+2    12,5     99.12.31
+END DATA.",
+            ),
+            (
+                "list",
+                SURVEY,
+                "DATA LIST LIST /a b (F2) s (A4) c (DOLLAR8.2) d (EDATE10).
+BEGIN DATA
+1 2 abc $1,234.5 31.12.1999
+3,,\"x y\" 5 1/2/2003
+ 4 , 5 , 'q r' , 6 , 3.3.2003
+6 7 toolong 8
+9 10 z 11 4/4/2004
+END DATA.",
+            ),
+            (
+                "list-with-delimiters",
+                SURVEY,
+                "DATA LIST LIST (\",\") SKIP=1 /a (F2) b (F2) s (A4).
+BEGIN DATA
+header line
+1,2,abc
+3,,x y
+ 4 , 5 , \"q,r\"
+6,,
+,7
+END DATA.",
+            ),
+            (
+                "free",
+                SURVEY,
+                "DATA LIST FREE /a b * s (A3) c.
+BEGIN DATA
+1 2 abc 3
+4 x 5 6
+7 8 lmnop 9 10
+END DATA.",
+            ),
+            (
+                "free-with-tabs",
+                SURVEY,
+                "DATA LIST FREE (TAB) /a b (F3) c.
+BEGIN DATA
+1\t2\t3
+4\t\t6\t7\t8
+9
+END DATA.",
+            ),
+        ],
+    );
+    // PSPP gives data read from text measurement levels by rules of its own (decimals in the
+    // format make a variable scale, for one); the manual decides by the values, so these
+    // values and formats lead both rules to the same levels
+    compare_with(
+        "data-list-file",
+        SURVEY,
+        "DATA LIST FILE='{dir}input.txt' NOTABLE /id 1-2 name 4-8 (A) score 10-13 (1).
+SAVE OUTFILE='{out}fixed.sav'.
+DATA LIST FILE='{dir}input.txt' FREE /a (F2) b (A3) c.",
+        &["fixed.sav"],
+        &[("input.txt", "10 Ann   123\n20 Bob   45.6\n30 Cy     -7\n")],
     );
 }

@@ -61,6 +61,48 @@ pub enum Command {
     Examine(Examine),
     AddFiles(Merge),
     MatchFiles(Merge),
+    DataList(DataList),
+    /// The lines between BEGIN DATA and END DATA, each with its line number in the source.
+    BeginData(Vec<(u32, String)>),
+}
+
+/// DATA LIST: how to read text data, inline or from a file.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DataList {
+    /// `FILE='path'`; None for inline data between BEGIN DATA and END DATA.
+    pub file: Option<String>,
+    pub layout: DataLayout,
+    /// FREE and LIST: the characters that separate values (`TAB` is a tab). Empty: blanks and
+    /// commas.
+    pub delimiters: Vec<char>,
+    /// `SKIP=n`: records to skip at the start of the data.
+    pub skip: u32,
+    /// In the order of the dictionary.
+    pub fields: Vec<DataField>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DataLayout {
+    /// Values in fixed columns; `records` lines make one case.
+    Fixed { records: u32 },
+    /// Values one after the other; a case may span lines and a line may hold several cases.
+    Free,
+    /// Values one after the other, one case per line.
+    List,
+}
+
+/// One variable of DATA LIST with its input format.
+#[derive(Debug, Clone, PartialEq)]
+pub struct DataField {
+    pub name: String,
+    /// How the data are read.
+    pub format: Format,
+    /// How the values are shown: the input format with room for what the data may leave out
+    /// (a decimal point, grouping commas, a dollar or percent sign).
+    pub display: Format,
+    /// FIXED: the record (1-based) and the first column (1-based); the width is the format's.
+    pub record: u32,
+    pub column: u32,
 }
 
 #[derive(Debug, Clone, PartialEq)]
