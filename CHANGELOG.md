@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.1 (2026-11-10)
+
+- FREQUENCIES supports every subcommand (statistics with standard errors, formats, percentiles, ntiles, grouped data, order); chart requests give a warning instead of an error.
+- RANK with every function, tie rule and fraction method.
+- Encrypted database connections (TLS with certificate checks) and much faster storing and reading of large datasets in PostgreSQL, MySQL, MariaDB, Dolt and SQLite.
+- Update checks run quietly in the background; the window no longer shows a notice about them on the first start.
+
 ## 0.1.0 (2026-11-10, early release)
 
 The first version for people who want to try StatsCraft and tell us what breaks. Expect rough edges; please report them (Issues, Bug report).
