@@ -124,8 +124,10 @@ mod tests {
         }
         settings.add_recent(Path::new("/data/f5.sav"));
         assert_eq!(settings.recent.len(), RECENT);
-        assert_eq!(settings.recent[0], PathBuf::from("/data/f5.sav"));
-        assert_eq!(settings.recent[1], PathBuf::from("/data/f11.sav"));
+        // add_recent stores absolute paths, and on Windows "/data" gains the current drive
+        let absolute = |p: &str| std::path::absolute(p).unwrap();
+        assert_eq!(settings.recent[0], absolute("/data/f5.sav"));
+        assert_eq!(settings.recent[1], absolute("/data/f11.sav"));
         assert_eq!(Settings::parse(&settings.text()), settings);
         // broken or unknown lines are skipped
         let read = Settings::parse("size 10\nposition a b\ncolour red\nfolder \nrecent /x.sps\n");
@@ -137,7 +139,7 @@ mod tests {
             }
         );
         settings.remember_folder(Path::new("/elsewhere/job.sps"));
-        assert_eq!(settings.folder, Some(PathBuf::from("/elsewhere")));
+        assert_eq!(settings.folder, Some(absolute("/elsewhere")));
         // a relative path is kept as the folder it means now
         settings.remember_folder(Path::new("job.sps"));
         assert_eq!(settings.folder, Some(std::env::current_dir().unwrap()));
