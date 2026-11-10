@@ -262,6 +262,8 @@ pub struct App {
     picked: Vec<String>,
     filter: String,
     status: Result<String, String>,
+    /// The number of warnings of the last run, noted next to the status.
+    warnings: usize,
     title: String,
     requests: mpsc::Receiver<Remote>,
     busy: Option<Busy>,
@@ -323,6 +325,7 @@ impl App {
             picked: Vec::new(),
             filter: String::new(),
             status,
+            warnings: 0,
             title: "StatsCraft".into(),
             requests,
             busy: None,
@@ -347,6 +350,7 @@ impl App {
             self.status = Err("wait for the running command to finish".into());
             return;
         }
+        self.warnings = 0;
         let check = matches!(&after, After::Remote((r, _)) if r.action == Action::Check);
         let job = self.session.job(source, lines, check);
         let label = match &after {
@@ -494,8 +498,13 @@ impl App {
                     self.tab = Tab::Output;
                     self.scroll_to = Some((first_new, 0));
                 }
-                let summary = self.session.log.last().and_then(|e| e.result.as_ref().ok());
+                let last = self.session.log.last();
+                let summary = last.and_then(|e| e.result.as_ref().ok());
                 self.status = Ok(summary.cloned().unwrap_or_default());
+                self.warnings = last.map_or(0, |e| e.warnings.len());
+                if self.warnings > 0 {
+                    self.show_log = true;
+                }
                 true
             }
             Err(errors) => {
@@ -797,10 +806,15 @@ impl App {
             });
             return;
         }
-        match &self.status {
-            Ok(text) => ui.weak(text),
-            Err(text) => ui.colored_label(ui.visuals().error_fg_color, text),
-        };
+        ui.horizontal(|ui| {
+            match &self.status {
+                Ok(text) => ui.weak(text),
+                Err(text) => ui.colored_label(ui.visuals().error_fg_color, text),
+            };
+            if let Some(note) = warning_note(self.warnings) {
+                ui.colored_label(ui.visuals().warn_fg_color, note);
+            }
+        });
     }
 
     fn log(&mut self, ui: &mut Ui) {
@@ -1448,6 +1462,15 @@ impl eframe::App for App {
         });
         let ctx = ui.ctx().clone();
         self.dialog_window(&ctx);
+    }
+}
+
+/// What the status bar says about the warnings of the last run.
+fn warning_note(warnings: usize) -> Option<String> {
+    match warnings {
+        0 => None,
+        1 => Some("1 warning, see the log".into()),
+        n => Some(format!("{n} warnings, see the log")),
     }
 }
 
@@ -2569,4 +2592,29 @@ fn t_test_options(ui: &mut Ui, d: &mut TTest) {
                 });
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dialogs::testing::{open, run_in, v};
+
+    #[test]
+    fn warnings_of_a_run_reach_the_log_and_the_status_note() {
+        assert_eq!(warning_note(0), None);
+        assert_eq!(warning_note(1).unwrap(), "1 warning, see the log");
+        assert_eq!(warning_note(3).unwrap(), "3 warnings, see the log");
+        // a string variable gets no statistics in DESCRIPTIVES, and a warning says so
+        let syntax = Descriptives {
+            variables: v(&["age", "plan"]),
+            ..Default::default()
+        }
+        .syntax()
+        .unwrap();
+        let mut session = open("survey_basic.sav");
+        run_in(&mut session, &syntax);
+        let warnings = &session.log.last().unwrap().warnings;
+        assert_eq!(warnings.len(), 1, "{warnings:?}");
+        assert!(warnings[0].contains("plan"));
+    }
 }
