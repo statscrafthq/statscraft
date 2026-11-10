@@ -29,6 +29,7 @@ mod ttest;
 mod variables;
 
 pub use ctables::format_value;
+pub use expr::functions;
 use serde::{Deserialize, Serialize};
 use statscraft_data::{Dataset, Measure, MissingValues, Value};
 use statscraft_syntax as syntax;

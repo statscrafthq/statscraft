@@ -5,6 +5,13 @@ pub fn line_of(text: &str, char_index: usize) -> u32 {
     1 + text.chars().take(char_index).filter(|&c| c == '\n').count() as u32
 }
 
+/// The byte where the character at `char_index` starts, or the end of the text.
+pub fn byte_of(text: &str, char_index: usize) -> usize {
+    text.char_indices()
+        .nth(char_index)
+        .map_or(text.len(), |(i, _)| i)
+}
+
 /// The lines a selection between two character positions covers, in either order. A selection
 /// that ends at the very start of a line (after selecting whole lines) leaves that line out.
 pub fn selected_lines(text: &str, a: usize, b: usize) -> (u32, u32) {

@@ -3,12 +3,14 @@
 
 mod analyze_dialogs;
 mod app;
+mod complete;
 mod data_dialogs;
 mod dialogs;
 mod editor;
 mod edits;
 mod fonts;
 mod grid;
+mod highlight;
 mod output;
 mod output_view;
 mod settings;

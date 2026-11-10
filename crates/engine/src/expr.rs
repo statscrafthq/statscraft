@@ -70,6 +70,11 @@ const FUNCTIONS: &[(&str, &str)] = &[
     ("XDATE.MDAY", "XDATE.MDAY(date)"),
 ];
 
+/// The functions expressions evaluate, each with its call form, for completion and help.
+pub fn functions() -> &'static [(&'static str, &'static str)] {
+    FUNCTIONS
+}
+
 /// Functions that take a `.n` suffix, with the number of valid arguments they need without one.
 const STATISTICS: &[(&str, usize)] = &[
     ("SUM", 1),

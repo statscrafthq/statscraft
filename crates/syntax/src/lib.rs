@@ -58,7 +58,9 @@ pub use lexer::{Punct, Token, TokenKind};
 pub use loops::{RepeatItem, command_text, substitute};
 pub use mrsets::{Mrsets, MrsetsGroup};
 pub use split::{RawCommand, select_lines, split_commands};
-pub use table::{CommandSpec, command_names, command_specs, help, unsupported_commands};
+pub use table::{
+    CommandSpec, command_name, command_names, command_specs, help, unsupported_commands,
+};
 
 use parser::Parser;
 use table::Resolution;

@@ -957,6 +957,16 @@ pub fn command_names() -> Vec<&'static str> {
     COMMANDS.iter().map(|spec| spec.name).collect()
 }
 
+/// The command whose name the leading `words` spell, abbreviations allowed, supported or not,
+/// with the number of words its name takes. None when no single command matches.
+pub fn command_name(words: &[&str]) -> Option<(&'static str, usize)> {
+    match resolve(words) {
+        Resolution::Supported(spec, used) => Some((spec.name, used)),
+        Resolution::Unsupported(name, used) => Some((name, used)),
+        _ => None,
+    }
+}
+
 /// Every supported command in help order, for tools that render the help, such as the docs.
 pub fn command_specs() -> &'static [CommandSpec] {
     COMMANDS

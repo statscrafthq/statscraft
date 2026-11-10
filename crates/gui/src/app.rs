@@ -20,7 +20,7 @@ use crate::output_view::{self, OutputView};
 use crate::settings::Settings;
 use crate::syntax_text::{number, quote};
 use crate::updates::Updates;
-use crate::{editor, grid};
+use crate::{complete, editor, grid, highlight};
 use eframe::egui::{
     self, Align, Align2, Color32, ComboBox, FocusDirection, FontId, Key, Modifiers, Rect, RichText,
     ScrollArea, Sense, Stroke, StrokeKind, TextEdit, TextStyle, Ui, UiBuilder, pos2,
@@ -232,6 +232,14 @@ struct CellEdit {
     started: bool,
 }
 
+/// The completion list of the syntax editor.
+struct Completion {
+    list: Vec<complete::Candidate>,
+    /// The bytes of the text a candidate replaces.
+    range: std::ops::Range<usize>,
+    selected: usize,
+}
+
 #[derive(Default)]
 struct GridEvents {
     clicked: Option<(usize, usize)>,
@@ -274,12 +282,13 @@ pub struct App {
     syntax_file: Option<PathBuf>,
     syntax_errors: Vec<Failure>,
     selection: (usize, usize),
-    show_help: bool,
     wrap: bool,
     /// The data file before the last change, which undo puts back too.
     file_before_change: Option<PathBuf>,
-    help_for: Option<(u32, usize)>,
-    help_text: String,
+    /// The full help of a command, from F1.
+    help_window: Option<String>,
+    completion: Option<Completion>,
+    editor_id: Option<egui::Id>,
     output: OutputView,
     /// Window size and position, the last folder, the recent files and the update check, kept
     /// between starts.
@@ -342,11 +351,11 @@ impl App {
             syntax_file: None,
             syntax_errors: Vec::new(),
             selection: (0, 0),
-            show_help: true,
             wrap: true,
             file_before_change: None,
-            help_for: None,
-            help_text: String::new(),
+            help_window: None,
+            completion: None,
+            editor_id: None,
             output: OutputView::default(),
             settings,
             updates,
@@ -707,10 +716,6 @@ impl App {
             ui.menu_button("View", |ui| {
                 ui.checkbox(&mut self.value_labels, "Value labels in Data View");
                 ui.checkbox(&mut self.show_log, "Log");
-                ui.checkbox(
-                    &mut self.show_help,
-                    "Command help in the syntax editor (F1)",
-                );
                 ui.checkbox(&mut self.wrap, "Wrap long lines in the syntax editor");
                 ui.separator();
                 ui.weak("Paper of the grids, the syntax and the output");
@@ -1294,7 +1299,9 @@ impl App {
     fn syntax_view(&mut self, ui: &mut Ui) {
         let run_selection_key = ui.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Enter));
         if ui.input(|i| i.key_pressed(Key::F1)) {
-            self.show_help = !self.show_help;
+            let line = editor::line_of(&self.syntax, self.selection.0.max(self.selection.1));
+            let command = editor::command_at(&self.syntax, line);
+            self.help_window = statscraft_syntax::help(command.as_deref());
         }
         let mut run_all = false;
         let mut run_selection = run_selection_key;
@@ -1302,30 +1309,14 @@ impl App {
             run_all = ui.button("Run all").clicked();
             run_selection |= ui
                 .button("Run selection")
-                .on_hover_text("Runs the commands on the selected lines, or the command at the cursor (Ctrl+Enter)")
+                .on_hover_text("Runs the commands on the selected lines, or the command at the cursor (Ctrl+Enter). Ctrl+Space completes, F1 shows the help of the command at the cursor.")
                 .clicked();
-            ui.toggle_value(&mut self.show_help, "Help (F1)");
             let name = self
                 .syntax_file
                 .as_ref()
                 .map_or("unsaved syntax".into(), |p| p.display().to_string());
             ui.weak(name);
         });
-
-        if self.show_help {
-            egui::Panel::right("help")
-                .resizable(true)
-                .default_size(420.0)
-                .min_size(240.0)
-                .show(ui, |ui| {
-                    // the help text is laid out in lines and indents, so it scrolls instead of wrapping
-                    ScrollArea::both().auto_shrink(false).show(ui, |ui| {
-                        ui.add(
-                            egui::Label::new(RichText::new(&self.help_text).monospace()).extend(),
-                        );
-                    });
-                });
-        }
         if !self.syntax_errors.is_empty() {
             egui::Panel::bottom("syntax_errors")
                 .resizable(true)
@@ -1339,16 +1330,48 @@ impl App {
                 });
         }
 
+        // keys of an open completion list, before the editor sees them
+        let explicit = ui.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Space));
+        let mut accept = None;
+        if let Some(c) = self.completion.as_mut() {
+            ui.input_mut(|i| {
+                if i.consume_key(Modifiers::NONE, Key::ArrowDown) {
+                    c.selected = (c.selected + 1).min(c.list.len() - 1);
+                }
+                if i.consume_key(Modifiers::NONE, Key::ArrowUp) {
+                    c.selected = c.selected.saturating_sub(1);
+                }
+                if i.consume_key(Modifiers::NONE, Key::Enter)
+                    || i.consume_key(Modifiers::NONE, Key::Tab)
+                {
+                    accept = Some(c.selected);
+                }
+            });
+            if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
+                self.completion = None;
+                // Escape also takes the focus from a text field: give it back
+                if let Some(id) = self.editor_id {
+                    ui.memory_mut(|m| m.request_focus(id));
+                }
+            }
+        }
+        if let Some(index) = accept {
+            self.accept_completion(ui.ctx(), index);
+        }
+
         let font = FontId::monospace(14.0);
         let error_lines: Vec<u32> = self.syntax_errors.iter().filter_map(|e| e.line).collect();
         let wrap = self.wrap;
         let mut layouter = |ui: &Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
-            let job = LayoutJob::simple(
-                text.as_str().to_owned(),
-                FontId::monospace(14.0),
-                ui.visuals().text_color(),
-                if wrap { wrap_width } else { f32::INFINITY },
+            let visuals = ui.visuals();
+            let mut job = highlight::cached_job(
+                ui.ctx(),
+                text.as_str(),
+                visuals.dark_mode,
+                visuals.text_color(),
+                14.0,
             );
+            job.wrap.max_width = if wrap { wrap_width } else { f32::INFINITY };
             ui.ctx().fonts_mut(|f| f.layout_job(job))
         };
         let gutter = ui.ctx().fonts_mut(|f| f.glyph_width(&font, '0')) * 5.0 + 4.0;
@@ -1358,6 +1381,8 @@ impl App {
             ScrollArea::both()
         };
         let light = !self.settings.paper_follows_system;
+        let mut popup_at = None;
+        let mut hovered_command = None;
         egui::CentralPanel::default().show(ui, |ui| {
             paper(ui, light);
             area.auto_shrink(false).show(ui, |ui| {
@@ -1374,6 +1399,7 @@ impl App {
                         .hint_text("Type syntax here, for example FREQUENCIES VARIABLES=gender.")
                         .layouter(&mut layouter)
                         .show(ui);
+                    self.editor_id = Some(output.response.id);
                     // a line number beside the first row of every line, which may wrap
                     let mut line = 1;
                     let mut starts_line = true;
@@ -1396,20 +1422,53 @@ impl App {
                         }
                         starts_line = row.ends_with_newline;
                     }
+                    let mut moved = false;
                     if let Some(range) = output.cursor_range {
-                        self.selection = (range.secondary.index.into(), range.primary.index.into());
+                        let selection = (range.secondary.index.0, range.primary.index.0);
+                        moved = selection != self.selection;
+                        self.selection = selection;
+                        let cursor = output.galley.pos_from_cursor(range.primary);
+                        popup_at = Some(output.galley_pos + cursor.left_bottom().to_vec2());
+                    }
+                    let changed = output.response.changed();
+                    if changed || explicit {
+                        self.complete(explicit);
+                    } else if moved {
+                        self.completion = None;
+                    }
+                    if output.response.hovered()
+                        && let Some(pointer) = ui.input(|i| i.pointer.hover_pos())
+                    {
+                        let at = output.galley.cursor_from_pos(pointer - output.galley_pos);
+                        let byte = editor::byte_of(&self.syntax, at.index.0);
+                        hovered_command = complete::command_at_byte(&self.syntax, byte)
+                            .map(|spec| (spec, egui::Response::clone(&output.response)));
                     }
                 });
             });
         });
-
-        // help follows the command under the cursor
-        let line = editor::line_of(&self.syntax, self.selection.0.max(self.selection.1));
-        let key = (line, self.syntax.len());
-        if self.show_help && self.help_for != Some(key) {
-            self.help_for = Some(key);
-            let command = editor::command_at(&self.syntax, line);
-            self.help_text = statscraft_syntax::help(command.as_deref()).unwrap_or_default();
+        if let Some((spec, response)) = hovered_command
+            && self.completion.is_none()
+        {
+            response.on_hover_ui_at_pointer(|ui| command_card(ui, spec));
+        }
+        if let Some(at) = popup_at {
+            self.completion_popup(ui.ctx(), at);
+        }
+        if let Some(text) = &self.help_window {
+            let mut open = true;
+            egui::Window::new("Command help")
+                .open(&mut open)
+                .default_size([560.0, 420.0])
+                .show(ui.ctx(), |ui| {
+                    // the help text is laid out in lines and indents, so it scrolls instead of wrapping
+                    ScrollArea::both().auto_shrink(false).show(ui, |ui| {
+                        ui.add(egui::Label::new(RichText::new(text).monospace()).extend());
+                    });
+                });
+            if !open || ui.input(|i| i.key_pressed(Key::Escape)) {
+                self.help_window = None;
+            }
         }
 
         if run_all {
@@ -1420,6 +1479,110 @@ impl App {
             let lines = editor::whole_commands(&self.syntax, lines);
             let source = self.syntax.clone();
             self.run(&source, Some(lines), After::Editor);
+        }
+    }
+
+    /// Opens, updates or closes the completion list for the text at the cursor.
+    fn complete(&mut self, explicit: bool) {
+        let cursor = editor::byte_of(&self.syntax, self.selection.1);
+        if self.selection.0 != self.selection.1 {
+            self.completion = None;
+            return;
+        }
+        let variables: Vec<(String, String)> = self
+            .session
+            .dataset()
+            .map(|data| {
+                data.variables()
+                    .map(|v| {
+                        (
+                            v.name().to_string(),
+                            v.label().unwrap_or_default().to_string(),
+                        )
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let (list, range) = complete::candidates(&self.syntax, cursor, &variables, explicit);
+        self.completion = (!list.is_empty()).then_some(Completion {
+            list,
+            range,
+            selected: 0,
+        });
+    }
+
+    /// Puts a candidate of the completion list in the text and the cursor after it.
+    fn accept_completion(&mut self, ctx: &egui::Context, index: usize) {
+        let Some(c) = self.completion.take() else {
+            return;
+        };
+        let Some(candidate) = c.list.get(index) else {
+            return;
+        };
+        let (text, cursor) = complete::accept(&self.syntax, c.range, candidate);
+        self.syntax = text;
+        let at = self.syntax[..cursor].chars().count();
+        self.selection = (at, at);
+        if let Some(id) = self.editor_id {
+            let mut state = egui::text_edit::TextEditState::load(ctx, id).unwrap_or_default();
+            let cursor = egui::text::CCursor::new(at);
+            state
+                .cursor
+                .set_char_range(Some(egui::text::CCursorRange::one(cursor)));
+            state.store(ctx, id);
+            ctx.memory_mut(|m| m.request_focus(id));
+        }
+    }
+
+    /// The completion list under the cursor, with the summary and syntax of a command in it.
+    fn completion_popup(&mut self, ctx: &egui::Context, at: egui::Pos2) {
+        let Some(c) = self.completion.as_ref() else {
+            return;
+        };
+        let mut clicked = None;
+        egui::Area::new(egui::Id::unique("completion"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(at + vec2(0.0, 2.0))
+            .show(ctx, |ui| {
+                egui::Frame::popup(ui.style()).show(ui, |ui| {
+                    ui.set_max_width(520.0);
+                    ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
+                        for (i, candidate) in c.list.iter().enumerate() {
+                            let mut text = LayoutJob::default();
+                            let mono = egui::TextFormat {
+                                font_id: FontId::monospace(13.0),
+                                color: ui.visuals().strong_text_color(),
+                                ..Default::default()
+                            };
+                            text.append(&candidate.text, 0.0, mono);
+                            if !candidate.detail.is_empty() {
+                                let weak = egui::TextFormat {
+                                    font_id: FontId::proportional(12.0),
+                                    color: ui.visuals().weak_text_color(),
+                                    ..Default::default()
+                                };
+                                text.append(&candidate.detail, 12.0, weak);
+                            }
+                            let row = ui.selectable_label(i == c.selected, text);
+                            if i == c.selected {
+                                row.scroll_to_me(None);
+                            }
+                            if row.clicked() {
+                                clicked = Some(i);
+                            }
+                        }
+                    });
+                    let selected = &c.list[c.selected];
+                    if selected.what == complete::What::Command
+                        && let Some(spec) = complete::spec(&selected.text)
+                    {
+                        ui.separator();
+                        command_card(ui, spec);
+                    }
+                });
+            });
+        if let Some(i) = clicked {
+            self.accept_completion(ctx, i);
         }
     }
 
@@ -1629,6 +1792,14 @@ pub(crate) fn paper(ui: &mut Ui, light: bool) {
     let sheet = ui.available_rect_before_wrap();
     ui.painter()
         .rect_filled(sheet, 0.0, ui.visuals().extreme_bg_color);
+}
+
+/// The summary and syntax of a command, in the completion list and over a command name.
+fn command_card(ui: &mut Ui, spec: &statscraft_syntax::CommandSpec) {
+    ui.set_max_width(560.0);
+    ui.strong(spec.name);
+    ui.label(spec.summary);
+    ui.add(egui::Label::new(RichText::new(spec.syntax).monospace().size(12.0)).wrap());
 }
 
 /// What the status bar says about the warnings of the last run.

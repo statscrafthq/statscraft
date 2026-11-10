@@ -1099,6 +1099,20 @@ fn help_for_one_command() {
 }
 
 #[test]
+fn command_names_resolve_from_their_words() {
+    assert_eq!(command_name(&["fre", "gender"]), Some(("FREQUENCIES", 1)));
+    assert_eq!(
+        command_name(&["VAL", "LAB", "x"]),
+        Some(("VALUE LABELS", 2))
+    );
+    assert_eq!(command_name(&["T-TEST"]), Some(("T-TEST", 1)));
+    // recognised but not supported yet
+    assert_eq!(command_name(&["SET", "x"]), Some(("SET", 1)));
+    assert_eq!(command_name(&["gender"]), None);
+    assert_eq!(command_name(&[]), None);
+}
+
+#[test]
 fn help_lists_every_command() {
     let overview = help(None).unwrap();
     assert_eq!(command_names().len(), 52);
