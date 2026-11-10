@@ -1268,7 +1268,12 @@ fn titles(p: &mut Parser, table: &mut CtablesTable) -> PResult<()> {
             return Err(p.unexpected(&["TITLE", "CAPTION", "CORNER"]));
         };
         equals(p)?;
-        *slot = Some(p.string("a quoted text")?);
+        // several quoted strings are several lines
+        let mut lines = vec![p.string("a quoted text")?];
+        while let Some(TokenKind::Str(_)) = p.peek() {
+            lines.push(p.string("a quoted text")?);
+        }
+        *slot = Some(lines.join("\n"));
     }
     Ok(())
 }

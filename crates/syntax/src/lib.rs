@@ -26,10 +26,13 @@ mod expr;
 mod files;
 mod lexer;
 mod loops;
+mod macros;
 mod mrsets;
 mod parser;
+mod preprocess;
 mod procedures;
 mod selection;
+mod session_commands;
 mod split;
 mod stats;
 mod table;
@@ -43,6 +46,7 @@ mod tests_data;
 mod tests_data_list;
 #[cfg(test)]
 mod tests_loops;
+#[cfg(test)]
 mod tests_preprocess;
 #[cfg(test)]
 mod tests_procedures;
@@ -60,7 +64,7 @@ pub use error::{Span, SyntaxError};
 pub use lexer::{Punct, Token, TokenKind};
 pub use loops::{RepeatItem, command_text, substitute};
 pub use mrsets::{Mrsets, MrsetsGroup};
-pub use split::{RawCommand, select_lines, split_commands};
+pub use split::{RawCommand, select_lines, split_commands, split_commands_in};
 pub use table::{
     CommandSpec, command_name, command_names, command_specs, help, unsupported_commands,
 };
@@ -82,7 +86,7 @@ pub fn parse(source: &str) -> (Vec<Parsed>, Vec<SyntaxError>) {
     let mut parsed = Vec::new();
     let mut errors = Vec::new();
     let mut raws = Vec::new();
-    for raw in split::split(source) {
+    for raw in split::split(source, None) {
         match raw {
             Ok(raw) => raws.push(raw),
             Err(error) => errors.push(error),
@@ -180,6 +184,13 @@ fn or_list(names: &[&str]) -> String {
 
 /// Parses the body of one command from `split_commands`.
 pub fn parse_command(raw: &RawCommand) -> Result<Command, SyntaxError> {
+    parse_raw(raw).map_err(|error| match &raw.origin {
+        Some(origin) if error.hint.is_none() => error.hint(format!("in {origin}")),
+        _ => error,
+    })
+}
+
+fn parse_raw(raw: &RawCommand) -> Result<Command, SyntaxError> {
     let Some(first) = raw.tokens.first() else {
         return Err(SyntaxError::new(raw.end, "empty command"));
     };

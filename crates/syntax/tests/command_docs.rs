@@ -72,6 +72,10 @@ const AREAS: &[(&str, &[&str])] = &[
         ],
     ),
     ("Custom tables", &["CTABLES", "MRSETS"]),
+    (
+        "Macros, files and session",
+        &["DEFINE", "INSERT", "INCLUDE", "BEGIN PROGRAM"],
+    ),
 ];
 
 const REGENERATE: &str = "UPDATE_DOCS=1 cargo test -p statscraft-syntax --test command_docs";

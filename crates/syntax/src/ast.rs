@@ -93,6 +93,15 @@ pub enum Command {
         index: Expr,
         expr: Expr,
     },
+    /// `DEFINE name ... !ENDDEFINE`: the macro was taken in before parsing; the name.
+    Define(String),
+    /// INSERT or INCLUDE: the commands of the file were read in place of this one already.
+    Insert {
+        file: String,
+        include: bool,
+    },
+    /// `BEGIN PROGRAM ... END PROGRAM`: a program in another language, not run.
+    BeginProgram,
 }
 
 #[derive(Debug, Clone, PartialEq)]

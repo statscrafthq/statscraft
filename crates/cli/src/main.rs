@@ -308,6 +308,11 @@ fn run(args: RunArgs, check_only: bool, xlsx: &XlsxArgs) -> Result<(), Vec<Failu
         None => None,
     };
     let mut session = Session::with_dataset(loaded);
+    // INSERT and INCLUDE in a syntax file start from its folder
+    let folder = args.file.as_deref().filter(|f| *f != "-");
+    session.set_base_dir(
+        folder.and_then(|f| std::path::Path::new(f).parent().map(|p| p.to_path_buf())),
+    );
     // shortcut: check runs the commands on a copy (file writes skipped) instead of a separate
     // validation pass, so it costs as much as a run; add a validation pass if that gets slow.
     let mut result = if check_only {

@@ -2,7 +2,7 @@
 //! `statscraft run`, the window's Run button and the window's live session. Splits, selects,
 //! parses and executes; a run is all or nothing.
 
-use crate::{Changes, Engine, Table, cell_text};
+use crate::{Cell, Changes, Engine, Table, cell_text};
 use serde::{Deserialize, Serialize};
 use statscraft_data::Dataset;
 use statscraft_syntax::{Command, RawCommand, SyntaxError};
@@ -229,6 +229,12 @@ impl Session {
         }
     }
 
+    /// The folder of the syntax file, where INSERT, INCLUDE and CD start from; None for the
+    /// current folder.
+    pub fn set_base_dir(&mut self, dir: Option<std::path::PathBuf>) {
+        self.engine.base_dir = dir;
+    }
+
     pub fn dataset(&self) -> Option<&Dataset> {
         self.engine.dataset()
     }
@@ -357,7 +363,8 @@ fn run(
     source: &str,
     lines: Option<(u32, u32)>,
 ) -> Result<(Engine, RunResult, String), Vec<Failure>> {
-    let all = statscraft_syntax::split_commands(source).map_err(|e| vec![Failure::syntax(e)])?;
+    let all = statscraft_syntax::split_commands_in(source, engine.base_dir.as_deref())
+        .map_err(|e| vec![Failure::syntax(e)])?;
     let selected: &[RawCommand] = match lines {
         Some((first, last)) => statscraft_syntax::select_lines(&all, first, last)
             .map_err(|e| vec![Failure::syntax(e)])?,
@@ -391,13 +398,25 @@ fn run(
     let before = engine.dataset().cloned();
     let mut outputs = Vec::new();
     for (raw, command) in &commands {
-        let tables = engine.execute(command).map_err(|e| {
+        let mut tables = engine.execute(command).map_err(|e| {
             vec![Failure {
                 command: Some(raw.name.clone()),
                 line: Some(raw.first_line),
+                hint: raw.origin.as_ref().map(|origin| format!("in {origin}")),
                 ..Failure::plain("run", e.to_string())
             }]
         })?;
+        // SET MPRINT=YES: the command as macro expansion made it, before its results
+        if let Some(echo) = &raw.echo {
+            let rows = echo.lines().map(|l| vec![Cell::Text(l.to_string())]);
+            let table = Table {
+                title: "Macro expansion".into(),
+                columns: vec!["Syntax".into()],
+                rows: rows.collect(),
+                ..Table::default()
+            };
+            tables.insert(0, table);
+        }
         outputs.push(CommandResult {
             name: raw.name.clone(),
             first_line: raw.first_line,

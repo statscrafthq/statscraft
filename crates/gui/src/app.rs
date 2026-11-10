@@ -400,6 +400,8 @@ impl App {
         }
         self.warnings = 0;
         let check = matches!(&after, After::Remote((r, _)) if r.action == Action::Check);
+        let folder = self.syntax_file.as_ref().and_then(|f| f.parent());
+        self.session.set_base_dir(folder.map(Path::to_path_buf));
         let job = self.session.job(source, lines, check);
         self.source = source.to_string();
         let label = match &after {

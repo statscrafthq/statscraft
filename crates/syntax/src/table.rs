@@ -13,6 +13,7 @@ use crate::mrsets;
 use crate::parser::{PResult, Parser};
 use crate::procedures;
 use crate::selection;
+use crate::session_commands;
 use crate::stats;
 
 /// One supported command: its name, its help text and its parser.
@@ -705,6 +706,72 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         example: "MATCH FILES /FILE=* /TABLE='regions.sav' /BY region.",
         parse: files::match_files,
     },
+    CommandSpec {
+        name: "DEFINE",
+        summary: "Define a macro: a name that stands for syntax, with arguments.",
+        syntax: "DEFINE name ([argument [/ argument ...]])\n\
+                 body\n\
+                 !ENDDEFINE.\n\
+                 argument: !POSITIONAL or keyword =, then one of !TOKENS(n), !CHAREND('c'),\n\
+                 !ENCLOSE('a', 'b'), !CMDEND, optionally with !DEFAULT(value) and !NOEXPAND.\n\
+                 DEFINE and !ENDDEFINE are written in full; the name may start with !.\n\
+                 A call is the macro name followed by its arguments, anywhere in a command outside quotes:\n\
+                 positional values first, in order, then keyword = value in any order. !TOKENS takes the\n\
+                 next n tokens, !CHAREND the tokens up to the character, !ENCLOSE the tokens between the two\n\
+                 characters, !CMDEND the rest of the command; the end of the command ends every argument,\n\
+                 and an argument left out gets its default or nothing. Tokens no argument takes stay in place.\n\
+                 In the body !1, !2 ... are the positional arguments, !* all of them, !name a keyword one.\n\
+                 Outside quotes the body is read in upper case.\n\
+                 Statements: !LET !var = expression; !IF (expression) !THEN ... [!ELSE ...] !IFEND;\n\
+                 !DO !var = from !TO to [!BY step] ... !DOEND; !DO !var !IN (list) ... !DOEND; !BREAK;\n\
+                 !OFFEXPAND and !ONEXPAND to stop and resume expanding macro calls.\n\
+                 Functions: !LENGTH(s) !CONCAT(s, ...) !SUBSTR(s, from[, length]) !INDEX(s, part) !HEAD(s)\n\
+                 !TAIL(s) !QUOTE(s) !UNQUOTE(s) !UPCASE(s) !BLANKS(n) !NULL !EVAL(s).\n\
+                 Expressions: = <> ~= < > <= >= (or !EQ !NE !LT !GT !LE !GE), !AND !OR !NOT (or & | ~),\n\
+                 parentheses. Operands are unquoted and compared as numbers when both are numbers, else as\n\
+                 text with case; the result is 1 or 0, and 0 is false.\n\
+                 The expansion is scanned again for macro calls, up to SET MNEST levels (50); a !DO loop\n\
+                 runs at most SET MITERATE times (1000). SET MEXPAND=OFF stops expansion and\n\
+                 SET MPRINT=YES shows every expanded command.\n\
+                 A body that ends with a period ends the command when the call is the last thing in it;\n\
+                 in the middle of a command that period is dropped.",
+        example: "DEFINE !freqs (vars = !CMDEND) FREQUENCIES VARIABLES=!vars. !ENDDEFINE.",
+        parse: session_commands::define,
+    },
+    CommandSpec {
+        name: "INSERT",
+        summary: "Run the commands of another syntax file in place of this command.",
+        syntax: "INSERT FILE='path' [SYNTAX=INTERACTIVE | BATCH] [ERROR=CONTINUE | STOP] [CD=NO | YES]\n\
+                 \x20      [ENCODING='name'] [PASSWORD='text'].\n\
+                 A relative path starts from the folder of the file that holds the INSERT, or from the\n\
+                 folder CD named. BATCH: a line that starts in the first column starts a new command, and\n\
+                 + - or . there is ignored. CD=YES makes the folder of the file the folder for later\n\
+                 relative paths. ENCODING names the encoding of the file, such as 'windows-1257' or '1252';\n\
+                 by default UTF-8 when the file is valid UTF-8, else the system's legacy code page.\n\
+                 Files nest up to five levels; a file may not insert itself. ERROR and PASSWORD are\n\
+                 accepted and have no effect: a run stops at its first error.",
+        example: "INSERT FILE='macros/tables.sps' CD=YES.",
+        parse: session_commands::insert,
+    },
+    CommandSpec {
+        name: "INCLUDE",
+        summary: "Run the commands of another syntax file, read by the batch rules.",
+        syntax: "INCLUDE [FILE=]'path' [ENCODING='name'] [PASSWORD='text'].\n\
+                 Like INSERT SYNTAX=BATCH: a line that starts in the first column starts a new command.",
+        example: "INCLUDE FILE='setup.sps'.",
+        parse: session_commands::include,
+    },
+    CommandSpec {
+        name: "BEGIN PROGRAM",
+        summary: "A block of code in another programming language; it is skipped with a warning.",
+        syntax: "BEGIN PROGRAM [language].\n\
+                 code\n\
+                 END PROGRAM.\n\
+                 StatsCraft runs no programs in other languages. The block is read up to END PROGRAM and\n\
+                 not run; the run goes on with a warning.",
+        example: "BEGIN PROGRAM PYTHON3.\nprint('not run')\nEND PROGRAM.",
+        parse: session_commands::begin_program,
+    },
 ];
 
 /// Commands of the language that have no parser yet. They get "not supported yet" instead of
@@ -727,7 +794,6 @@ static UNSUPPORTED: &[&str] = &[
     "DATASET DISPLAY",
     "DATASET NAME",
     "DATE",
-    "DEFINE",
     "DISCRIMINANT",
     "DISPLAY",
     "DOCUMENT",
@@ -754,9 +820,7 @@ static UNSUPPORTED: &[&str] = &[
     "GRAPH",
     "HOST",
     "IMPORT",
-    "INCLUDE",
     "INPUT PROGRAM",
-    "INSERT",
     "LEAVE",
     "LIST",
     "LOGISTIC REGRESSION",

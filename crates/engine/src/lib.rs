@@ -22,6 +22,7 @@ mod pass;
 mod recode;
 mod rows;
 pub mod session;
+mod session_commands;
 mod sort;
 mod split;
 mod transform;
@@ -242,6 +243,10 @@ pub struct Engine {
     loop_depth: usize,
     /// The vectors by lower-case name, with their variables.
     vectors: std::collections::HashMap<String, Vec<String>>,
+    /// The folder of the syntax file: INSERT and CD start from it. None: the current folder.
+    pub base_dir: Option<std::path::PathBuf>,
+    /// Settings, named datasets and the CD folder (see `session_commands`).
+    session: session_commands::State,
 }
 
 impl Engine {
@@ -394,7 +399,7 @@ impl Engine {
         }
         match command {
             Command::Get { file } => {
-                self.dataset = Some(Dataset::read_sav(file)?);
+                self.dataset = Some(Dataset::read_sav(self.path(file))?);
                 self.scratch_assigned.clear();
                 self.temporary = None;
                 self.case_limit = None;
@@ -409,7 +414,7 @@ impl Engine {
                 self.begin_pass()?;
                 let data = self.active()?;
                 if !self.dry_run {
-                    data.write_sav(outfile)?;
+                    data.write_sav(self.path(outfile))?;
                 }
                 let before = self.dataset.clone();
                 self.end_pass(before.as_ref());
@@ -614,6 +619,7 @@ impl Engine {
                 index,
                 expr,
             } => self.vector_assign(condition.as_ref(), vector, index, expr)?,
+            _ => return self.execute_session(command),
         }
         Ok(Vec::new())
     }

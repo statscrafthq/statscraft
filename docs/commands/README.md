@@ -76,6 +76,15 @@ One page per supported command, generated from the same table that the parser an
 | [CTABLES](ctables.md) | Custom tables: counts, percentages and statistics by categories. |
 | [MRSETS](mrsets.md) | Define, delete and list multiple response sets. |
 
+## Macros, files and session
+
+| Command | What it does |
+|---|---|
+| [DEFINE](define.md) | Define a macro: a name that stands for syntax, with arguments. |
+| [INSERT](insert.md) | Run the commands of another syntax file in place of this command. |
+| [INCLUDE](include.md) | Run the commands of another syntax file, read by the batch rules. |
+| [BEGIN PROGRAM](begin-program.md) | A block of code in another programming language; it is skipped with a warning. |
+
 ## General rules of the language
 
 ```text

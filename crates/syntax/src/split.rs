@@ -2,7 +2,9 @@
 
 use crate::error::{Span, SyntaxError};
 use crate::lexer::{Lexer, Token, TokenKind};
+use crate::preprocess::{Line, Piece, preprocess};
 use crate::table::{Resolution, matches_keyword, resolve_tokens};
+use std::path::Path;
 
 /// One command as found in the source, before its body is parsed.
 #[derive(Debug, Clone, PartialEq)]
@@ -20,6 +22,11 @@ pub struct RawCommand {
     pub tokens: Vec<Token>,
     /// Where the command ends: the terminating period, or just after the last line.
     pub end: Span,
+    /// Where the text comes from when it is not the source line itself: a macro expansion or
+    /// an inserted file, such as "the expansion of macro !TABLES".
+    pub origin: Option<String>,
+    /// With SET MPRINT=YES: the command as macro expansion made it.
+    pub echo: Option<String>,
 }
 
 /// Enough tokens to hold the longest command name.
@@ -74,7 +81,7 @@ const FREE_TEXT: [&str; 4] = ["DOCUMENT", "FILE LABEL", "SUBTITLE", "TITLE"];
 
 /// How a command whose first code is on a line is read.
 #[derive(Clone, Copy, PartialEq)]
-enum Start {
+pub(crate) enum Start {
     /// `*` or COMMENT: runs to a period that is the last character of a line.
     Comment,
     /// One of `FREE_TEXT`, or a command that is no command of the language: a quote does not
@@ -203,6 +210,8 @@ fn build(lines: &[(u32, &str)], end: Span) -> Option<Result<RawCommand, SyntaxEr
         last_line: lines[lines.len() - 1].0,
         tokens,
         end,
+        origin: None,
+        echo: None,
     }))
 }
 
@@ -265,6 +274,8 @@ fn inline_data(lines: &[(u32, &str)], first: usize) -> (Result<RawCommand, Synta
         last_line: lines[end].0,
         tokens,
         end: line_span(lines[end]),
+        origin: None,
+        echo: None,
     };
     (Ok(command), end + 1)
 }
@@ -305,17 +316,29 @@ pub(crate) fn command_end(
     (lines.len(), None, kind)
 }
 
-/// Every command of the source, or the error that prevented tokenising it.
-pub(crate) fn split(source: &str) -> Vec<Result<RawCommand, SyntaxError>> {
-    let source = source.strip_prefix('\u{feff}').unwrap_or(source);
-    let lines: Vec<(u32, &str)> = (1u32..).zip(source.lines()).collect();
+/// Every command of the source, or the error that prevented tokenising it. Macros are
+/// expanded and files inserted first; `base` is the folder relative paths start from.
+pub(crate) fn split(source: &str, base: Option<&Path>) -> Vec<Result<RawCommand, SyntaxError>> {
     let mut out = Vec::new();
-    split_lines(&lines, &mut out);
+    let mut run: Vec<&Line> = Vec::new();
+    let pieces = preprocess(source, base);
+    for piece in &pieces {
+        match piece {
+            Piece::Line(line) => run.push(line),
+            Piece::Error(error) => {
+                split_lines(&run, &mut out);
+                run.clear();
+                out.push(Err(error.clone()));
+            }
+        }
+    }
+    split_lines(&run, &mut out);
     out
 }
 
 /// The commands of numbered lines.
-fn split_lines(lines: &[(u32, &str)], out: &mut Vec<Result<RawCommand, SyntaxError>>) {
+fn split_lines(run: &[&Line], out: &mut Vec<Result<RawCommand, SyntaxError>>) {
+    let lines: Vec<(u32, &str)> = run.iter().map(|l| (l.number, l.text.as_str())).collect();
     let mut i = 0;
     while i < lines.len() {
         if lines[i].1.trim().is_empty() {
@@ -324,12 +347,12 @@ fn split_lines(lines: &[(u32, &str)], out: &mut Vec<Result<RawCommand, SyntaxErr
         }
         // inline data: the lines up to END DATA are data, whatever they look like
         if is_line_command(lines[i].1, ["BEGIN", "DATA"]) {
-            let (command, next) = inline_data(lines, i);
+            let (command, next) = inline_data(&lines, i);
             out.push(command);
             i = next;
             continue;
         }
-        let (end, terminator, kind) = command_end(lines, i);
+        let (end, terminator, kind) = command_end(&lines, i);
         let mut current = lines[i..end].to_vec();
         let last = current.len() - 1;
         let span = match terminator {
@@ -357,16 +380,39 @@ fn split_lines(lines: &[(u32, &str)], out: &mut Vec<Result<RawCommand, SyntaxErr
         if kind != Start::Comment
             && let Some(command) = build(&current, span)
         {
-            out.push(command);
+            let origin = run[i].origin.clone();
+            let echo = run[i..end].iter().find_map(|l| l.echo.clone());
+            out.push(match command {
+                Ok(command) => Ok(RawCommand {
+                    origin: origin.clone(),
+                    echo,
+                    ..command
+                }),
+                Err(error) => Err(match origin {
+                    Some(origin) if error.hint.is_none() => error.hint(format!("in {origin}")),
+                    _ => error,
+                }),
+            });
         }
         i = end;
     }
 }
+
 /// Splits the source into commands with their exact line ranges. Comment commands and empty
 /// commands are left out. Fails on the first command that cannot be tokenised (for example an
 /// unterminated string); an unknown command name is not an error here but in `parse_command`.
+/// Macros are expanded and files inserted first, relative to the current folder.
 pub fn split_commands(source: &str) -> Result<Vec<RawCommand>, SyntaxError> {
-    split(source).into_iter().collect()
+    split(source, None).into_iter().collect()
+}
+
+/// `split_commands` for syntax whose relative file names start from `base`, the folder of
+/// the syntax file.
+pub fn split_commands_in(
+    source: &str,
+    base: Option<&Path>,
+) -> Result<Vec<RawCommand>, SyntaxError> {
+    split(source, base).into_iter().collect()
 }
 
 fn lines(first: u32, last: u32) -> String {
