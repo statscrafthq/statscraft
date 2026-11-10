@@ -44,6 +44,9 @@ pub enum PcomputeExpr {
     Range(Bound, Bound),
     /// `TOTAL`: the summary of the total.
     Total,
+    /// `SUBTOTAL` or `SUBTOTAL[n]`: the summary of the only subtotal of the list, or of its nth
+    /// subtotal (from 1), SUBTOTAL or HSUBTOTAL alike.
+    Subtotal(Option<usize>),
     Number(f64),
     Negate(Box<PcomputeExpr>),
     Binary(PcomputeOp, Box<PcomputeExpr>, Box<PcomputeExpr>),
@@ -92,6 +95,8 @@ impl std::fmt::Display for PcomputeExpr {
             PcomputeExpr::Category(Value::String(s)) => write!(f, "['{s}']"),
             PcomputeExpr::Range(low, high) => write!(f, "[{} THRU {}]", bound(low), bound(high)),
             PcomputeExpr::Total => f.write_str("TOTAL"),
+            PcomputeExpr::Subtotal(None) => f.write_str("SUBTOTAL"),
+            PcomputeExpr::Subtotal(Some(n)) => write!(f, "SUBTOTAL[{n}]"),
             PcomputeExpr::Number(n) => write!(f, "{n}"),
             PcomputeExpr::Negate(inner) => match **inner {
                 PcomputeExpr::Binary(..) => write!(f, "-({inner})"),
@@ -189,7 +194,8 @@ pub struct Sigtest {
     pub alpha: f64,
     /// `INCLUDEMRSETS=YES` (the default): multiple response sets are tested too.
     pub include_mrsets: bool,
-    /// `CATEGORIES=SUBTOTALS`; it has no effect while category lists cannot hold subtotals.
+    /// `CATEGORIES=SUBTOTALS`: every subtotal takes the place of its categories in the test;
+    /// otherwise only an HSUBTOTAL does.
     pub subtotals: bool,
 }
 
@@ -205,7 +211,8 @@ pub struct Comparetest {
     /// `MEANSVARIANCE=ALLCATS` (the default): the variance of a means test is pooled from all
     /// tested categories; false pools it from the two categories compared.
     pub pool_all: bool,
-    /// `CATEGORIES=SUBTOTALS`; it has no effect while category lists cannot hold subtotals.
+    /// `CATEGORIES=SUBTOTALS`: every subtotal takes the place of its categories in the test;
+    /// otherwise only an HSUBTOTAL does.
     pub subtotals: bool,
     /// `SHOWSIG=YES`: the significance of every letter follows it in parentheses.
     pub show_sig: bool,
@@ -349,6 +356,11 @@ pub enum CategoryItem {
     Name(String),
     /// `&name`: a category computed by /PCOMPUTE, without the "&".
     Computed(String),
+    /// `SUBTOTAL='label'` (or `HSUBTOTAL`, `hide` true, which hides the categories it sums).
+    Subtotal {
+        label: Option<String>,
+        hide: bool,
+    },
 }
 
 const SIMPLE_STATISTICS: [(&str, Statistic); 18] = [
@@ -530,11 +542,25 @@ fn pcompute_unary(p: &mut Parser) -> PResult<PcomputeExpr> {
     if p.eat_word("TOTAL") {
         return Ok(PcomputeExpr::Total);
     }
-    let start = p.pos;
-    if p.at_keyword("SUBTOTAL") {
-        p.pos += 1;
-        return Err(not_supported(p, start, "SUBTOTAL in a computed category"));
+    if p.eat_word("SUBTOTAL") {
+        if !p.eat(Punct::LBracket) {
+            return Ok(PcomputeExpr::Subtotal(None));
+        }
+        let start = p.pos;
+        let n = match p.number() {
+            Some(n) if n >= 1.0 && n.fract() == 0.0 && n <= 1e6 => n as usize,
+            Some(_) => {
+                return Err(SyntaxError::new(
+                    p.span_from(start),
+                    "the position of a subtotal is a whole number from 1, such as SUBTOTAL[2]",
+                ));
+            }
+            None => return Err(p.unexpected(&["the position of a subtotal, such as 2"])),
+        };
+        p.expect(Punct::RBracket)?;
+        return Ok(PcomputeExpr::Subtotal(Some(n)));
     }
+    let start = p.pos;
     if !p.eat(Punct::LBracket) {
         return Err(p.unexpected(&["'['", "a number", "TOTAL", "'('"]));
     }
@@ -974,11 +1000,19 @@ fn category_items(p: &mut Parser) -> PResult<Vec<CategoryItem>> {
     let mut items = Vec::new();
     while !p.eat(Punct::RBracket) {
         let start = p.pos;
-        if p.at_keyword("OTHERNM")
-            || p.at_keyword("MISSING")
-            || p.at_keyword("SUBTOTAL")
-            || p.at_keyword("HSUBTOTAL")
-        {
+        // whole words, so that a variable of a dichotomy set may be called "sub"
+        let hide = p.eat_word("HSUBTOTAL");
+        if hide || p.eat_word("SUBTOTAL") {
+            let label = if p.eat(Punct::Eq) {
+                Some(p.string("a quoted label")?)
+            } else {
+                None
+            };
+            items.push(CategoryItem::Subtotal { label, hide });
+            p.eat(Punct::Comma);
+            continue;
+        }
+        if p.at_keyword("OTHERNM") || p.at_keyword("MISSING") {
             let Some(TokenKind::Word(word)) = p.peek() else {
                 unreachable!("checked above")
             };

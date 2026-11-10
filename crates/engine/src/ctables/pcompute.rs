@@ -6,8 +6,9 @@
 //!   over the values of the same summary in the categories it names, in the same row, column and
 //!   layer otherwise: a difference of counts, of column percentages, of means.
 //! - `[value]` is one category, `[low THRU high]` the sum over the listed categories in the
-//!   range, `TOTAL` the total of the variable (it needs TOTAL=YES); numbers, + - * / ** and
-//!   parentheses combine them. A value that cannot be computed, such as a division by 0, leaves
+//!   range, `TOTAL` the total of the variable (it needs TOTAL=YES), `SUBTOTAL` the only subtotal
+//!   of the list and `SUBTOTAL[n]` its nth one, counted from 1 (SUBTOTAL and HSUBTOTAL alike);
+//!   numbers, + - * / ** and parentheses combine them. A value that cannot be computed, such as a division by 0, leaves
 //!   the cell missing.
 //! - Every category the expression names must be in the explicit list; the place of `&name` in
 //!   the list is its place in the table. Totals do not count computed categories, and there are
@@ -78,14 +79,11 @@ impl Calc {
 /// A placeholder for `&name` in a list, filled in by `resolve` once the list is complete.
 pub(super) fn placeholder() -> Category {
     Category {
-        key: None,
-        label: String::new(),
-        missing: false,
         computed: Some(Computed {
             calc: Calc::Number(0.0),
             formats: Vec::new(),
         }),
-        hidden: false,
+        ..Default::default()
     }
 }
 
@@ -193,6 +191,34 @@ fn calc(
                 )));
             }
         },
+        PcomputeExpr::Subtotal(position) => {
+            let subtotals: Vec<usize> = (0..list.categories.len())
+                .filter(|&k| list.categories[k].subtotal.is_some())
+                .collect();
+            match (position, &subtotals[..]) {
+                (None, [k]) => Calc::Category(*k),
+                (None, []) | (Some(_), []) => {
+                    return Err(Error(format!(
+                        "/PCOMPUTE &{name}: SUBTOTAL needs a SUBTOTAL or HSUBTOTAL in the explicit category list of {variable}"
+                    )));
+                }
+                (None, _) => {
+                    return Err(Error(format!(
+                        "/PCOMPUTE &{name}: the category list of {variable} has {} subtotals, so name one by its position, such as SUBTOTAL[1]",
+                        subtotals.len()
+                    )));
+                }
+                (Some(n), _) => match subtotals.get(n - 1) {
+                    Some(k) => Calc::Category(*k),
+                    None => {
+                        return Err(Error(format!(
+                            "/PCOMPUTE &{name}: {expr} asks for subtotal {n}, but the category list of {variable} has {}",
+                            subtotals.len()
+                        )));
+                    }
+                },
+            }
+        }
         PcomputeExpr::Number(n) => Calc::Number(*n),
         PcomputeExpr::Negate(inner) => Calc::Negate(Box::new(recurse(inner)?)),
         PcomputeExpr::Binary(op, left, right) => {

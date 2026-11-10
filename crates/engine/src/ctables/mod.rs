@@ -60,16 +60,28 @@ impl Key {
     }
 }
 
+#[derive(Default)]
 struct Category {
-    /// None for the total and a computed category.
+    /// None for the total, a subtotal and a computed category.
     key: Option<Key>,
     label: String,
     /// A user-missing value, listed because of MISSING=INCLUDE or an explicit list.
     missing: bool,
     /// A category computed by /PCOMPUTE.
     computed: Option<pcompute::Computed>,
-    /// Not shown: a source of a computed category with HIDESOURCECATS=YES.
+    /// Not shown: a source of a computed category with HIDESOURCECATS=YES, or a category that
+    /// an HSUBTOTAL sums.
     hidden: bool,
+    /// A subtotal of the categories before it (after it with POSITION=BEFORE).
+    subtotal: Option<Subtotal>,
+    /// The position of the subtotal that sums this category.
+    within: Option<usize>,
+}
+
+#[derive(Clone, Copy, Debug)]
+struct Subtotal {
+    /// HSUBTOTAL: the categories it sums are hidden.
+    hides: bool,
 }
 
 /// The categories of one categorical variable, in display order.
@@ -93,7 +105,17 @@ impl CategoryList {
     fn total(&self) -> Option<usize> {
         self.categories
             .iter()
-            .position(|c| c.key.is_none() && c.computed.is_none())
+            .position(|c| c.key.is_none() && c.computed.is_none() && c.subtotal.is_none())
+    }
+
+    /// The categories a case in category `c` adds to: `c` itself and the subtotal that sums it.
+    fn with_subtotal(&self, c: usize) -> impl Iterator<Item = usize> {
+        std::iter::once(c).chain(self.categories[c].within)
+    }
+
+    /// Whether a case in category `c` counts in the cell of category `target`.
+    fn covers(&self, target: usize, c: usize) -> bool {
+        target == c || self.categories[c].within == Some(target)
     }
 }
 
@@ -469,11 +491,12 @@ fn in_range(key: &Key, low: &Bound, high: &Bound) -> bool {
     above && below
 }
 
-/// An item of a category list: a value, or a computed category by name.
+/// An item of a category list: a value, a computed category by name, or a subtotal.
 #[derive(PartialEq)]
 enum Wanted {
     Value(Key),
     Computed(String),
+    Subtotal(String, bool),
 }
 
 /// The categories of a variable, or of the values of the variables of a category set together.
@@ -547,6 +570,10 @@ fn categories(
                         )));
                     }
                     CategoryItem::Computed(n) => wanted.push(Wanted::Computed(n.clone())),
+                    CategoryItem::Subtotal { label, hide } => wanted.push(Wanted::Subtotal(
+                        label.clone().unwrap_or_else(|| "Subtotal".into()),
+                        *hide,
+                    )),
                     CategoryItem::Name(n) => {
                         return Err(Error(format!(
                             "/CATEGORIES for {name}: {n} is a name, but only a multiple dichotomy set lists its categories by name"
@@ -571,7 +598,7 @@ fn categories(
             // a value named twice, alone or in a range, takes the place of its last mention
             let mut last: Vec<Wanted> = Vec::new();
             for key in wanted.into_iter().rev() {
-                if !last.contains(&key) {
+                if matches!(key, Wanted::Subtotal(..)) || !last.contains(&key) {
                     last.push(key);
                 }
             }
@@ -614,6 +641,14 @@ fn categories(
                 computed.push(n);
                 continue;
             }
+            Wanted::Subtotal(label, hides) => {
+                list.categories.push(Category {
+                    label,
+                    subtotal: Some(Subtotal { hides }),
+                    ..Default::default()
+                });
+                continue;
+            }
         };
         if exclude_empty && !counts.contains_key(&id(&key)) {
             continue;
@@ -633,11 +668,11 @@ fn categories(
             label: category_label(variables, &key),
             missing: is_missing(&key),
             key: Some(key),
-            computed: None,
-            hidden: false,
+            ..Default::default()
         });
     }
     add_total(&mut list, spec);
+    add_subtotals(&mut list, spec);
     if let Some(command) = command.filter(|_| !computed.is_empty()) {
         pcompute::resolve(name, !variable.is_string(), &mut list, &computed, command)?;
     }
@@ -648,11 +683,8 @@ fn categories(
 fn add_total(list: &mut CategoryList, spec: Option<&Categories>) {
     if let Some(spec) = spec.filter(|s| s.total) {
         let total = Category {
-            key: None,
             label: spec.total_label.clone().unwrap_or_else(|| "Total".into()),
-            missing: false,
-            computed: None,
-            hidden: false,
+            ..Default::default()
         };
         if spec.total_before {
             list.categories.insert(0, total);
@@ -660,6 +692,30 @@ fn add_total(list: &mut CategoryList, spec: Option<&Categories>) {
             list.texts.values_mut().for_each(|i| *i += 1);
         } else {
             list.categories.push(total);
+        }
+    }
+}
+
+/// Gives every subtotal its categories: the categories of the list before it, back to the
+/// previous subtotal, or with POSITION=BEFORE the ones after it, up to the next subtotal.
+/// Computed categories and the total take no part, and an HSUBTOTAL hides its categories.
+fn add_subtotals(list: &mut CategoryList, spec: Option<&Categories>) {
+    let before = spec.is_some_and(|s| s.total_before);
+    let mut order: Vec<usize> = (0..list.categories.len()).collect();
+    if before {
+        order.reverse();
+    }
+    let mut pending: Vec<usize> = Vec::new();
+    for i in order {
+        let category = &list.categories[i];
+        if let Some(subtotal) = category.subtotal {
+            for &k in &pending {
+                list.categories[k].within = Some(i);
+                list.categories[k].hidden |= subtotal.hides;
+            }
+            pending.clear();
+        } else if category.key.is_some() {
+            pending.push(i);
         }
     }
 }
@@ -1139,7 +1195,15 @@ impl Engine {
                 "/CLABELS: significance tests are not available when category labels are moved; leave out CLABELS or the tests".into(),
             ));
         }
-        let hides = lists.values().flat_map(|l| &l.categories).any(|c| c.hidden);
+        // categories an HSUBTOTAL hides are tested through their subtotal
+        let hides = lists.values().any(|l| {
+            l.categories.iter().any(|c| {
+                let collapsed = c
+                    .within
+                    .is_some_and(|s| l.categories[s].subtotal.is_some_and(|t| t.hides));
+                c.hidden && !collapsed
+            })
+        });
         if hides && tested {
             return Err(Error(
                 "/PPROPERTIES: HIDESOURCECATS=YES cannot go with significance tests; leave out one of them".into(),
@@ -1494,27 +1558,38 @@ impl Section {
                 (Some(_), _) => (value.is_some(), 1.0),
                 (None, Some((i, list))) => choices[i]
                     .iter()
-                    .filter(|(c, _)| of.is_none_or(|of| *c == of))
+                    .filter(|(c, _)| of.is_none_or(|of| list.covers(of, *c)))
                     .fold((false, 0.0), |(valid, sum), (c, responses)| {
                         (valid || !list.categories[*c].missing, sum + responses)
                     }),
                 (None, None) => (true, 1.0),
             };
             let total_only = choices.iter().any(Vec::is_empty);
-            let indices = |choice: &mrsets::Choice| choice.iter().map(|(c, _)| *c).collect();
-            // every area of the case once; the total of a deciding variable is an area too,
-            // the one of a total row or column
+            // the cells of every variable the case adds to: its categories, the subtotals that
+            // sum them and the total, each once
+            let expanded: Vec<Vec<usize>> = choices
+                .iter()
+                .zip(&lists)
+                .zip(&section.totals)
+                .map(|((choice, list), total)| {
+                    let mut part: Vec<usize> = Vec::new();
+                    for k in choice.iter().flat_map(|(c, _)| list.with_subtotal(*c)) {
+                        if !part.contains(&k) {
+                            part.push(k);
+                        }
+                    }
+                    part.extend(*total);
+                    part
+                })
+                .collect();
+            // every area of the case once; the total or a subtotal of a deciding variable is an
+            // area too, the one of a total or subtotal row or column
             for (a, decides) in section.areas.iter().enumerate() {
-                let parts: Vec<Vec<usize>> = choices
+                let parts: Vec<Vec<usize>> = expanded
                     .iter()
                     .zip(decides)
-                    .zip(&section.totals)
-                    .filter(|((_, d), _)| **d)
-                    .map(|((choice, _), total)| {
-                        let mut part: Vec<usize> = indices(choice);
-                        part.extend(*total);
-                        part
-                    })
+                    .filter(|(_, d)| **d)
+                    .map(|(part, _)| part.clone())
                     .collect();
                 let at = summary_list
                     .filter(|(i, _)| decides[*i])
@@ -1530,17 +1605,8 @@ impl Section {
                         .add_case(weight, stats, value, false, total_only);
                 }
             }
-            // the cells of the categories, and of the totals in their place
-            let parts: Vec<Vec<usize>> = choices
-                .iter()
-                .zip(&section.totals)
-                .map(|(choice, total)| {
-                    let mut part: Vec<usize> = indices(choice);
-                    part.extend(*total);
-                    part
-                })
-                .collect();
-            let mut parts = parts;
+            // the cells of the categories, and of the totals and subtotals in their place
+            let mut parts = expanded;
             if margins {
                 for i in [nr.checked_sub(1), (nc > 0).then(|| nr + nc - 1)]
                     .into_iter()
@@ -1566,7 +1632,12 @@ impl Section {
             // categories of the other variables
             let inner_set = nc > 0 && cats[nr + nc - 1].set.is_some();
             if margins && inner_set && !total_only {
-                let inner = indices(&choices[nr + nc - 1]);
+                let total = section.totals[nr + nc - 1];
+                let inner: Vec<usize> = parts[nr + nc - 1]
+                    .iter()
+                    .copied()
+                    .filter(|&k| k != MARGIN && Some(k) != total)
+                    .collect();
                 let mut others = parts.clone();
                 others.remove(nr + nc - 1);
                 let shared: Vec<Vec<usize>> = mrsets::product(&others);

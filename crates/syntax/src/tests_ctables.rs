@@ -127,18 +127,10 @@ fn features_of_the_next_stage_are_named() {
     for (source, feature) in [
         ("CTABLES /TABLE a /CRITERIA CILEVEL=90.", "CRITERIA"),
         (
-            "CTABLES /PCOMPUTE &x = EXPR(SUBTOTAL[1] + [2]) /TABLE a.",
-            "SUBTOTAL in a computed category",
-        ),
-        (
             "CTABLES /PCOMPUTE &x = EXPR([OTHERNM]) /TABLE a.",
             "OTHERNM in a computed category",
         ),
         ("CTABLES /TABLE a [ECOUNT].", "ECOUNT"),
-        (
-            "CTABLES /TABLE a /CATEGORIES VARIABLES=a [1, SUBTOTAL='s'].",
-            "SUBTOTAL",
-        ),
         (
             "CTABLES /TABLE a /CLABELS ROWLABELS=LAYER.",
             "category labels to the layers",
@@ -449,4 +441,32 @@ fn multiple_response_sets_stand_like_variables() {
         err("CTABLES /MRSETS DUPLICATES=YES /TABLE a.").expected,
         ["COUNTDUPLICATES"]
     );
+}
+
+#[test]
+fn subtotals_in_a_category_list_and_in_a_computed_category() {
+    let c = one(
+        "CTABLES /PCOMPUTE &x = EXPR(SUBTOTAL[2] - SUBTOTAL) /TABLE a\n\
+         /CATEGORIES VARIABLES=a [1, 2, SUBTOTAL='Low', 3, HSUBTOTAL, &x].",
+    );
+    assert_eq!(
+        c.tables[0].categories[0].values,
+        Some(vec![
+            CategoryItem::Value(Value::Number(1.0)),
+            CategoryItem::Value(Value::Number(2.0)),
+            CategoryItem::Subtotal {
+                label: Some("Low".into()),
+                hide: false
+            },
+            CategoryItem::Value(Value::Number(3.0)),
+            CategoryItem::Subtotal {
+                label: None,
+                hide: true
+            },
+            CategoryItem::Computed("x".into()),
+        ])
+    );
+    assert_eq!(c.pcomputes[0].expr.to_string(), "SUBTOTAL[2] - SUBTOTAL");
+    let e = err("CTABLES /PCOMPUTE &x = EXPR(SUBTOTAL[0]) /TABLE a.");
+    assert!(e.message.contains("whole number from 1"), "{}", e.message);
 }

@@ -7,6 +7,10 @@
 //!   against the innermost categorical variable of the columns, once for every combination of
 //!   categories of the outer variables of both axes (the total of an outer variable is a subtable
 //!   too). Totals of the two tested variables take no part in the test.
+//! - Subtotals (SIGTEST and COMPARETEST CATEGORIES, and the algorithms reference: tests use the
+//!   visible categories, not totals or subtotals): a test compares the shown categories, and an
+//!   HSUBTOTAL takes the place of the categories it hides. CATEGORIES=SUBTOTALS puts every
+//!   subtotal in place of its categories; categories outside any subtotal stay as they are.
 //! - Chi-square: rows and columns without cases are structural zeros and are left out; with
 //!   fewer than two of either there is no test. df = (R - 1)(C - 1); significant when p < alpha.
 //! - Column proportions: each row of a subtable is tested on its own. A column takes part when its
@@ -288,14 +292,15 @@ pub(crate) fn letter(index: usize) -> String {
 
 // ---- the result tables ----
 
-/// Every combination of categories that tests take part in: computed categories do not.
+/// Every combination of categories that tests take part in: computed categories and hidden
+/// ones do not.
 fn tested_combinations(lists: &[&CategoryList]) -> Vec<Vec<usize>> {
     let mut all = combinations(lists);
     all.retain(|combo| {
-        combo
-            .iter()
-            .zip(lists)
-            .all(|(&k, list)| list.categories[k].computed.is_none())
+        combo.iter().zip(lists).all(|(&k, list)| {
+            let category = &list.categories[k];
+            category.computed.is_none() && !category.hidden
+        })
     });
     all
 }
@@ -311,10 +316,24 @@ fn category_lists<'l>(
         .collect()
 }
 
-/// The positions of the categories of a list that are not its total.
-fn proper(list: &CategoryList) -> Vec<usize> {
+/// The positions of the categories of a tested variable that a test compares: the visible
+/// categories, except that a subtotal takes the place of its categories when it hides them
+/// (HSUBTOTAL) or when `subtotals` (CATEGORIES=SUBTOTALS) asks for it. Totals, other
+/// subtotals and computed categories take no part.
+fn tested_categories(list: &CategoryList, subtotals: bool) -> Vec<usize> {
+    let replaces = |s: usize| {
+        list.categories[s]
+            .subtotal
+            .is_some_and(|t| t.hides || subtotals)
+    };
     (0..list.categories.len())
-        .filter(|&i| list.categories[i].key.is_some())
+        .filter(|&i| {
+            let c = &list.categories[i];
+            match c.subtotal {
+                Some(_) => replaces(i),
+                None => c.key.is_some() && !c.hidden && !c.within.is_some_and(replaces),
+            }
+        })
         .collect()
 }
 
@@ -450,8 +469,8 @@ fn chi_square_table(
                 category_lists(column_term, lists),
             );
             let (nr, nc) = (row_lists.len(), column_lists.len());
-            let inner_rows = proper(row_lists[nr - 1]);
-            let inner_columns = proper(column_lists[nc - 1]);
+            let inner_rows = tested_categories(row_lists[nr - 1], spec.subtotals);
+            let inner_columns = tested_categories(column_lists[nc - 1], spec.subtotals);
             for row_outer in tested_combinations(&row_lists[..nr - 1]) {
                 for column_outer in tested_combinations(&column_lists[..nc - 1]) {
                     // whole cases: weighted counts are rounded for the test
@@ -638,8 +657,10 @@ fn comparisons(
             continue;
         }
         let inner = term_lists.len() - 1;
-        for combo in tested_combinations(&term_lists) {
-            if term_lists[inner].categories[combo[inner]].key.is_some() {
+        let compared = tested_categories(term_lists[inner], spec.subtotals);
+        for combo in tested_combinations(&term_lists[..inner]) {
+            for &k in &compared {
+                let combo = [&combo[..], &[k]].concat();
                 columns.push(Column {
                     term: c,
                     path: path(term, lists, &combo),
@@ -661,15 +682,19 @@ fn comparisons(
             continue;
         }
         let row_lists = category_lists(term, lists);
-        for row_combo in tested_combinations(&row_lists) {
-            // in the proportions test a row is a category of the innermost row variable
-            if !means
-                && row_lists[row_lists.len() - 1].categories[row_combo[row_combo.len() - 1]]
-                    .key
-                    .is_none()
-            {
-                continue;
-            }
+        let row_combos = if means {
+            tested_combinations(&row_lists)
+        } else {
+            // in the proportions test a row is a compared category of the innermost row variable
+            let inner = row_lists.len() - 1;
+            let compared = tested_categories(row_lists[inner], spec.subtotals);
+            let outer = tested_combinations(&row_lists[..inner]);
+            outer
+                .iter()
+                .flat_map(|o| compared.iter().map(move |&k| [&o[..], &[k]].concat()))
+                .collect()
+        };
+        for row_combo in row_combos {
             let mut families: HashMap<(usize, Vec<usize>), Family> = HashMap::new();
             let mut outcomes = Vec::new();
             for column in &columns {
@@ -684,7 +709,8 @@ fn comparisons(
                         let section = sections[&(r, column.term)];
                         let column_term = &layout.columns[column.term];
                         let column_lists = category_lists(column_term, lists);
-                        let inner_columns = proper(column_lists[column_lists.len() - 1]);
+                        let inner_columns =
+                            tested_categories(column_lists[column_lists.len() - 1], spec.subtotals);
                         let set = set_sides(term, column_term).1;
                         let at = Place {
                             row: &row_combo,

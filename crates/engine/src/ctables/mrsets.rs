@@ -25,7 +25,10 @@
 //!   missing categories: MISSING=INCLUDE shows them, and they count in COUNT but not VALIDN.
 //! - The case weight weighs every response of the case.
 
-use super::{Category, CategoryList, Key, Tally, TermVar, VlabelsDisplay, add_total, categories};
+use super::{
+    Category, CategoryList, Key, Subtotal, Tally, TermVar, VlabelsDisplay, add_subtotals,
+    add_total, categories,
+};
 use crate::{Engine, Error};
 use statscraft_data::{Dataset, Value, Values, Variable};
 use statscraft_syntax::{
@@ -169,10 +172,16 @@ pub(super) fn set_categories(set: &Set, spec: Option<&Categories>) -> Result<Cat
             .filter(|_| set.counted_value_labels)
             .unwrap_or_else(|| v.label().unwrap_or(v.name()).to_string())
     };
-    let mut order: Vec<usize> = match spec.and_then(|s| s.values.as_ref()) {
+    // a variable by position, or a subtotal (Err)
+    let mut order: Vec<Result<usize, (String, bool)>> = match spec.and_then(|s| s.values.as_ref()) {
         Some(items) => {
             let mut order = Vec::new();
             for item in items {
+                if let CategoryItem::Subtotal { label, hide } = item {
+                    let label = label.clone().unwrap_or_else(|| "Subtotal".into());
+                    order.push(Err((label, *hide)));
+                    continue;
+                }
                 let CategoryItem::Name(name) = item else {
                     return Err(Error(format!(
                         "/CATEGORIES for {}: the categories of a dichotomy set are its variables, so list them by name",
@@ -190,8 +199,8 @@ pub(super) fn set_categories(set: &Set, spec: Option<&Categories>) -> Result<Cat
                         ))
                     })?;
                 // a variable named twice takes the place of its last mention
-                order.retain(|i| *i != index);
-                order.push(index);
+                order.retain(|i| *i != Ok(index));
+                order.push(Ok(index));
             }
             order
         }
@@ -203,34 +212,49 @@ pub(super) fn set_categories(set: &Set, spec: Option<&Categories>) -> Result<Cat
             if spec.is_some_and(|s| s.descending) {
                 order.reverse();
             }
-            order
+            order.into_iter().map(Ok).collect()
         }
     };
     if spec.is_some_and(|s| s.exclude_empty) {
-        order.retain(|i| match (set.variables[*i].values(), counted) {
-            (Values::Numeric(values), Key::Number(n)) => values.iter().any(|x| x == Some(*n)),
-            (Values::String(values), Key::Text(t)) => values.iter().any(|s| s == t),
-            _ => false,
-        });
+        order.retain(
+            |i| match i.as_ref().map(|i| (set.variables[*i].values(), counted)) {
+                Ok((Values::Numeric(values), Key::Number(n))) => {
+                    values.iter().any(|x| x == Some(*n))
+                }
+                Ok((Values::String(values), Key::Text(t))) => values.iter().any(|s| s == t),
+                Ok(_) => false,
+                Err(_) => true,
+            },
+        );
     }
     let mut list = CategoryList {
         categories: Vec::new(),
         numbers: HashMap::new(),
         texts: HashMap::new(),
     };
-    for i in order {
+    for item in order {
+        let i = match item {
+            Ok(i) => i,
+            Err((label, hides)) => {
+                list.categories.push(Category {
+                    label,
+                    subtotal: Some(Subtotal { hides }),
+                    ..Default::default()
+                });
+                continue;
+            }
+        };
         let v = &set.variables[i];
         list.texts
             .insert(v.name().to_string(), list.categories.len());
         list.categories.push(Category {
             key: Some(Key::Text(v.name().to_string())),
             label: label(v),
-            missing: false,
-            computed: None,
-            hidden: false,
+            ..Default::default()
         });
     }
     add_total(&mut list, spec);
+    add_subtotals(&mut list, spec);
     Ok(list)
 }
 

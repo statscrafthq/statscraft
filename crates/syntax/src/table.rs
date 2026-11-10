@@ -242,7 +242,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20       [/CLABELS AUTO|ROWLABELS=OPPOSITE|COLLABELS=OPPOSITE]\n\
                  \x20       [/CATEGORIES VARIABLES=varlist [ORDER=A|D] [KEY=VALUE|LABEL] [MISSING=EXCLUDE|INCLUDE]\n\
                  \x20                    [TOTAL=NO|YES] [LABEL='text'] [POSITION=AFTER|BEFORE] [EMPTY=INCLUDE|EXCLUDE]]\n\
-                 \x20       [/CATEGORIES VARIABLES=varlist [value, low THRU high, &name, ...] [TOTAL=YES ...]]\n\
+                 \x20       [/CATEGORIES VARIABLES=varlist [value, low THRU high, &name, SUBTOTAL='label',\n\
+                 \x20                    HSUBTOTAL='label', ...] [TOTAL=YES ...]]\n\
                  \x20       [/TITLES TITLE='text' CAPTION='text' CORNER='text']\n\
                  \x20       [/SIGTEST TYPE=CHISQUARE [ALPHA=0.05] [INCLUDEMRSETS=YES|NO] [CATEGORIES=ALLVISIBLE|SUBTOTALS]]\n\
                  \x20       [/COMPARETEST TYPE=PROP|MEAN [ALPHA=0.05 [0.01]] [ADJUST=BONFERRONI|BH|NONE]\n\
@@ -276,10 +277,14 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  whose weight is zero, negative or missing is left out (also from U functions). MEDIAN and PTILE\n\
                  use the averaged empirical distribution. A count without cases is 0 unless EMPTY says otherwise.\n\
                  A total has percentages too: the base of a total row or column takes in every category totaled.\n\
+                 SUBTOTAL='label' in an explicit list sums the listed categories before it, back to the previous\n\
+                 subtotal (with POSITION=BEFORE the ones after it, up to the next); HSUBTOTAL also hides them.\n\
+                 A subtotal counts a case once, like a total, and has every summary and percentage a total has.\n\
                  A computed category &name stands in an explicit category list of a categorical variable. For\n\
                  every summary its value is EXPR over the same summary of other categories: [value], [low THRU\n\
                  high] (the sum of the listed categories in the range), TOTAL (needs TOTAL=YES), numbers, + - * /\n\
-                 ** and parentheses. Every category it names must be listed. PPROPERTIES gives its label (else\n\
+                 ** and parentheses, SUBTOTAL (the only subtotal) or SUBTOTAL[n] (the nth). Every category it\n\
+                 names must be listed. PPROPERTIES gives its label (else\n\
                  the expression), a format per summary, and HIDESOURCECATS=YES to hide the categories it uses\n\
                  (not with tests). Totals and tests leave computed categories out.\n\
                  HIDESMALLCOUNTS COUNT=n (n a whole number from 2, default 5) shows every COUNT, VALIDN, TOTALN or\n\
@@ -289,7 +294,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  case whose valid value an explicit category list leaves out is not in the table at all.\n\
                  Tests run in every innermost subtable (innermost row by innermost column variable, for each\n\
                  category of the outer ones), each in a table after the main one. SIGTEST: Pearson chi-square; empty\n\
-                 rows and columns are left out. COMPARETEST: two-sided pairwise z-tests of column proportions (PROP)\n\
+                 rows and columns are left out. Tests compare the shown categories, with an HSUBTOTAL in place of\n\
+                 the categories it hides; CATEGORIES=SUBTOTALS puts every subtotal in place of its categories.\n\
+                 COMPARETEST: two-sided pairwise z-tests of column proportions (PROP)\n\
                  or t-tests of column means (MEAN: a scale variable with MEAN in the rows) in every row of a subtable.\n\
                  The letter of the column with the smaller value appears in the column with the larger one: uppercase\n\
                  below the smaller ALPHA, lowercase below the larger; a period marks a column left out (a proportion\n\
@@ -313,7 +320,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  compared. INCLUDEMRSETS=NO leaves sets out of the tests, and so does COUNTDUPLICATES=YES for a\n\
                  category set.\n\
                  Not supported yet: CLABELS ROWLABELS=LAYER or COLLABELS=LAYER, effective base (E functions),\n\
-                 subtotals and OTHERNM or MISSING in a list or a computed category, )LABEL[n] in a computed\n\
+                 OTHERNM or MISSING in a list or a computed category, )LABEL[n] in a computed\n\
                  category's label, an empty row axis (/TABLE BY columns).",
         example: "CTABLES /TABLE q1 [COUNT, COLPCT.COUNT PCT8.1] BY gender /CATEGORIES VARIABLES=q1 TOTAL=YES.",
         parse: ctables::ctables,

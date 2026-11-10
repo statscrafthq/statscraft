@@ -578,3 +578,27 @@ fn rejected_by_both() {
         "one axis only",
     );
 }
+
+#[test]
+#[ignore = "needs STATSCRAFT_PSPP"]
+fn subtotals() {
+    survey(&[
+        "CTABLES /TABLE q1_satisfaction /CATEGORIES VARIABLES=q1_satisfaction [1, 2, SUBTOTAL='Low', 3, 4, 5, SUBTOTAL='High'].",
+        "CTABLES /TABLE q1_satisfaction [COUNT, COLPCT] BY gender\n\
+         /CATEGORIES VARIABLES=q1_satisfaction [1, 2, SUBTOTAL='Low', 3, 4, 5, SUBTOTAL='High'] TOTAL=YES.",
+        "CTABLES /TABLE q1_satisfaction [COUNT, COLPCT] BY gender\n\
+         /CATEGORIES VARIABLES=q1_satisfaction [1, 2, HSUBTOTAL='Low', 3, 4, 5, HSUBTOTAL='High'] TOTAL=YES.",
+        // PSPP leaves a percentage blank in a total or subtotal of a variable that decides its
+        // base, where the manual shows it, so these cases take percentages of other bases;
+        // ctables.rs checks the rest
+        "CTABLES /TABLE q1_satisfaction [COUNT, COLPCT] BY region\n\
+         /CATEGORIES VARIABLES=q1_satisfaction [SUBTOTAL='Low', 1, 2, SUBTOTAL='Rest', 3, 4, 5] TOTAL=YES POSITION=BEFORE.",
+        "CTABLES /TABLE gender BY region [COUNT, ROWPCT]\n\
+         /CATEGORIES VARIABLES=region [1, 2, SUBTOTAL='North and south', 3, 4, 5, SUBTOTAL].",
+        "CTABLES /TABLE region > age [MEAN, COUNT] BY q5_1\n\
+         /CATEGORIES VARIABLES=region [1, 2, HSUBTOTAL='A', 3, 4, 5, HSUBTOTAL='B'].",
+        "CTABLES /PCOMPUTE &x = EXPR(SUBTOTAL[1] - SUBTOTAL[2]) /PPROPERTIES &x LABEL='Low minus high'\n\
+         /TABLE q1_satisfaction BY gender\n\
+         /CATEGORIES VARIABLES=q1_satisfaction [1, 2, HSUBTOTAL='Low', 3, 4, 5, HSUBTOTAL='High', &x].",
+    ]);
+}
