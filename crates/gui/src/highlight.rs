@@ -521,7 +521,17 @@ mod tests {
     #[test]
     fn keywords_come_from_the_syntax_diagram() {
         let (subcommands, keywords) = words_of("SAVE");
-        assert_eq!(subcommands, &["COMPRESSED", "UNCOMPRESSED", "ZCOMPRESSED"]);
+        assert_eq!(
+            subcommands,
+            &[
+                "COMPRESSED",
+                "DROP",
+                "KEEP",
+                "RENAME",
+                "UNCOMPRESSED",
+                "ZCOMPRESSED"
+            ]
+        );
         assert_eq!(keywords, &["OUTFILE"]);
         assert!(words_of("FREQUENCIES").0.contains(&"VARIABLES".to_string()));
         assert_eq!(words_of("NO SUCH"), &(Vec::new(), Vec::new()));
