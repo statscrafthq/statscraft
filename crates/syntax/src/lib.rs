@@ -50,6 +50,8 @@ mod tests_loops;
 mod tests_preprocess;
 #[cfg(test)]
 mod tests_procedures;
+#[cfg(test)]
+mod tests_session;
 
 pub use ast::*;
 pub use ctables::{
@@ -64,6 +66,7 @@ pub use error::{Span, SyntaxError};
 pub use lexer::{Punct, Token, TokenKind};
 pub use loops::{RepeatItem, command_text, substitute};
 pub use mrsets::{Mrsets, MrsetsGroup};
+pub use session_commands::{SETTINGS, SettingEffect};
 pub use split::{RawCommand, select_lines, split_commands, split_commands_in};
 pub use table::{
     CommandSpec, command_name, command_names, command_specs, help, unsupported_commands,

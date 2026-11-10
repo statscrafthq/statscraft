@@ -175,6 +175,59 @@ fn state_file(data: &std::path::Path) -> PathBuf {
     data.with_file_name("state.json")
 }
 
+/// The named datasets of a session (DATASET NAME, COPY), kept in `datasets/` beside its data:
+/// `names.json` holds the active dataset's name and the other names, each with its file.
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+struct NamedDatasets {
+    active: Option<String>,
+    names: Vec<String>,
+}
+
+fn datasets_folder(data: &std::path::Path) -> PathBuf {
+    data.with_file_name("datasets")
+}
+
+fn load_named(data: &std::path::Path, session: &mut Session) -> Result<(), Vec<Failure>> {
+    let folder = datasets_folder(data);
+    let Ok(text) = std::fs::read_to_string(folder.join("names.json")) else {
+        return Ok(());
+    };
+    let fail = |e: String| vec![Failure::plain("session", e)];
+    let named: NamedDatasets = serde_json::from_str(&text).map_err(|e| fail(e.to_string()))?;
+    let mut datasets = Vec::new();
+    for (i, name) in named.names.into_iter().enumerate() {
+        let file = folder.join(format!("{i}.zsav"));
+        let data = Dataset::read_sav(&file).map_err(|e| fail(e.to_string()))?;
+        datasets.push((name, Some(data)));
+    }
+    session.set_named_datasets(datasets, named.active);
+    Ok(())
+}
+
+fn save_named(data: &std::path::Path, session: &Session) -> Result<(), String> {
+    let folder = datasets_folder(data);
+    let _ = std::fs::remove_dir_all(&folder);
+    let (datasets, active) = session.named_datasets();
+    let datasets: Vec<(&String, &Dataset)> = datasets
+        .iter()
+        .filter_map(|(name, data)| data.as_ref().map(|d| (name, d)))
+        .collect();
+    if datasets.is_empty() && active.is_none() {
+        return Ok(());
+    }
+    std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
+    for (i, (_, data)) in datasets.iter().enumerate() {
+        data.write_sav(folder.join(format!("{i}.zsav")))
+            .map_err(|e| e.to_string())?;
+    }
+    let named = NamedDatasets {
+        active: active.map(str::to_string),
+        names: datasets.iter().map(|(name, _)| name.to_string()).collect(),
+    };
+    let text = serde_json::to_string_pretty(&named).expect("plain data");
+    std::fs::write(folder.join("names.json"), text).map_err(|e| e.to_string())
+}
+
 /// Writes the dataset of a session and the state that its file cannot hold.
 fn save_session(path: &std::path::Path, dataset: &Dataset) -> Result<(), String> {
     dataset.write_sav(path).map_err(|e| e.to_string())?;
@@ -308,6 +361,9 @@ fn run(args: RunArgs, check_only: bool, xlsx: &XlsxArgs) -> Result<(), Vec<Failu
         None => None,
     };
     let mut session = Session::with_dataset(loaded);
+    if let Some(name) = &args.session {
+        load_named(&session_file(name)?, &mut session)?;
+    }
     // INSERT and INCLUDE in a syntax file start from its folder
     let folder = args.file.as_deref().filter(|f| *f != "-");
     session.set_base_dir(
@@ -332,6 +388,7 @@ fn run(args: RunArgs, check_only: bool, xlsx: &XlsxArgs) -> Result<(), Vec<Failu
             std::fs::create_dir_all(path.parent().expect("session path has a parent"))
                 .map_err(|e| fail(e.to_string()))?;
             save_session(&path, dataset).map_err(fail)?;
+            save_named(&path, &session).map_err(fail)?;
             result.saved = true;
         }
     }

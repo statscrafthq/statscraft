@@ -497,3 +497,28 @@ fn a_syntax_file_in_a_legacy_code_page_is_read_by_detection_or_by_name() {
     assert!(!out.status.success());
     assert!(String::from_utf8_lossy(&out.stderr).contains("unknown encoding klingon"));
 }
+
+#[test]
+fn a_session_keeps_its_named_datasets_between_runs() {
+    let dir = Workdir::new("datasets");
+    let data = "DATA LIST LIST /x.\nBEGIN DATA\n1\n2\n3\nEND DATA.\nDATASET NAME full.\nDATASET COPY part.";
+    dir.ok(&["run", "-s", "d", "-e", data]);
+    dir.ok(&[
+        "run",
+        "-s",
+        "d",
+        "-e",
+        "DATASET ACTIVATE part.\nSELECT IF x > 1.",
+    ]);
+    let result = dir.json(&[
+        "run",
+        "-s",
+        "d",
+        "--json",
+        "-e",
+        "DATASET ACTIVATE full.\nDATASET DISPLAY.",
+    ]);
+    let rows = &result["commands"][1]["tables"][0]["rows"];
+    assert_eq!(rows[0], serde_json::json!(["full", 3.0, 1.0, "yes"]));
+    assert_eq!(rows[1], serde_json::json!(["part", 2.0, 1.0, ""]));
+}

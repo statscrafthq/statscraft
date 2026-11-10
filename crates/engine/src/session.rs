@@ -235,6 +235,20 @@ impl Session {
         self.engine.base_dir = dir;
     }
 
+    /// The named datasets other than the active one, and the active one's name.
+    pub fn named_datasets(&self) -> (&[(String, Option<Dataset>)], Option<&str>) {
+        self.engine.named_datasets()
+    }
+
+    /// Puts back the named datasets a session kept.
+    pub fn set_named_datasets(
+        &mut self,
+        datasets: Vec<(String, Option<Dataset>)>,
+        active: Option<String>,
+    ) {
+        self.engine.set_named_datasets(datasets, active);
+    }
+
     pub fn dataset(&self) -> Option<&Dataset> {
         self.engine.dataset()
     }
@@ -396,16 +410,30 @@ fn run(
     }
 
     let before = engine.dataset().cloned();
+    let named = |engine: &Engine| {
+        let (datasets, active) = engine.named_datasets();
+        (datasets.to_vec(), active.map(str::to_string))
+    };
+    let named_before = named(&engine);
     let mut outputs = Vec::new();
     for (raw, command) in &commands {
-        let mut tables = engine.execute(command).map_err(|e| {
+        let fail = |e: crate::Error| {
             vec![Failure {
                 command: Some(raw.name.clone()),
                 line: Some(raw.first_line),
                 hint: raw.origin.as_ref().map(|origin| format!("in {origin}")),
                 ..Failure::plain("run", e.to_string())
             }]
-        })?;
+        };
+        // SET FORMAT gives the numeric variables a command creates its format
+        let names: Vec<String> = match engine.new_variable_format() {
+            Some(_) => engine.dataset().map_or_else(Vec::new, |d| {
+                d.variable_names().map(str::to_string).collect()
+            }),
+            None => Vec::new(),
+        };
+        let mut tables = engine.execute(command).map_err(fail)?;
+        engine.format_new_variables(command, &names).map_err(fail)?;
         // SET MPRINT=YES: the command as macro expansion made it, before its results
         if let Some(echo) = &raw.echo {
             let rows = echo.lines().map(|l| vec![Cell::Text(l.to_string())]);
@@ -437,7 +465,7 @@ fn run(
         changes,
         dataset: after.map(|d| [d.case_count(), d.variable_count()]),
         // compare whole datasets: a weight change shows in no variable
-        saved: !engine.dry_run && before.as_ref() != after,
+        saved: !engine.dry_run && (before.as_ref() != after || named_before != named(&engine)),
         commands: outputs,
     };
     Ok((engine, result, summary))

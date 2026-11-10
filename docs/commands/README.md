@@ -84,6 +84,21 @@ One page per supported command, generated from the same table that the parser an
 | [INSERT](insert.md) | Run the commands of another syntax file in place of this command. |
 | [INCLUDE](include.md) | Run the commands of another syntax file, read by the batch rules. |
 | [BEGIN PROGRAM](begin-program.md) | A block of code in another programming language; it is skipped with a warning. |
+| [SET](set.md) | Change settings of the session. |
+| [SHOW](show.md) | Show the current settings. |
+| [PRESERVE](preserve.md) | Store the current settings and folder, to bring them back with RESTORE. |
+| [RESTORE](restore.md) | Bring back the settings and folder the last PRESERVE stored. |
+| [CACHE](cache.md) | Accepted and has nothing to do: the data are always kept in memory. |
+| [CD](cd.md) | Change the folder relative file names start from. |
+| [DATASET NAME](dataset-name.md) | Give the active dataset a name, so that it stays open when another one becomes active. |
+| [DATASET ACTIVATE](dataset-activate.md) | Make a named dataset the active one. |
+| [DATASET COPY](dataset-copy.md) | Copy the active dataset, as it is now, into a named dataset. |
+| [DATASET DECLARE](dataset-declare.md) | Reserve a dataset name for a dataset that a later command creates. |
+| [DATASET CLOSE](dataset-close.md) | Close a named dataset, or take the name off the active one. |
+| [DATASET DISPLAY](dataset-display.md) | List the open datasets. |
+| [USE](use.md) | Use all cases, or a range of cases, in the commands that follow. |
+| [DISPLAY](display.md) | Show dictionary information of the active dataset. |
+| [LIST](list.md) | List the values of cases. |
 
 ## General rules of the language
 

@@ -772,6 +772,142 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         example: "BEGIN PROGRAM PYTHON3.\nprint('not run')\nEND PROGRAM.",
         parse: session_commands::begin_program,
     },
+    CommandSpec {
+        name: "SET",
+        summary: "Change settings of the session.",
+        syntax: "SET subcommand[=]value [[/] subcommand[=]value ...].\n\
+                 Followed: FORMAT=Fw.d (format of new numeric variables, default F8.2), DECIMAL=DOT | COMMA\n\
+                 (decimal mark when reading text data), MPRINT, MEXPAND, MNEST, MITERATE (see DEFINE),\n\
+                 LOCALE, UNICODE (StatsCraft always works in Unicode), PRINTBACK.\n\
+                 Settings for speed, memory and messages (CACHE, THREADS, WORKSPACE, MXWARNS ...) are\n\
+                 accepted and have nothing to do. Settings that only change how output looks (TNUMBERS,\n\
+                 TVARS, ONUMBERS, OVARS, TLOOK, WIDTH, LENGTH, DIGITGROUPING ...) are accepted with a\n\
+                 warning. BLANKS, EPOCH, FUZZBITS, MXLOOPS, RNG, SEED, MTINDEX and SCALEMIN are accepted with\n\
+                 a warning that results do not follow them yet. YES and ON, NO and OFF are the same.",
+        example: "SET FORMAT=F10.3 MPRINT=YES /DECIMAL=DOT.",
+        parse: session_commands::set,
+    },
+    CommandSpec {
+        name: "SHOW",
+        summary: "Show the current settings.",
+        syntax: "SHOW [ALL] [setting ...].\n\
+                 Any SET subcommand, and N, WEIGHT, FILTER, SPLIT, DIRECTORY, SYSMIS, VERSION.\n\
+                 Without names: the main settings.",
+        example: "SHOW FORMAT DECIMAL LOCALE.",
+        parse: session_commands::show,
+    },
+    CommandSpec {
+        name: "PRESERVE",
+        summary: "Store the current settings and folder, to bring them back with RESTORE.",
+        syntax: "PRESERVE.\n\
+                 PRESERVE and RESTORE nest up to five levels. Words after PRESERVE are ignored with a warning.",
+        example: "PRESERVE.",
+        parse: session_commands::preserve,
+    },
+    CommandSpec {
+        name: "RESTORE",
+        summary: "Bring back the settings and folder the last PRESERVE stored.",
+        syntax: "RESTORE.\n\
+                 Words after RESTORE are ignored with a warning.",
+        example: "RESTORE.",
+        parse: session_commands::restore,
+    },
+    CommandSpec {
+        name: "CACHE",
+        summary: "Accepted and has nothing to do: the data are always kept in memory.",
+        syntax: "CACHE.",
+        example: "CACHE.",
+        parse: session_commands::cache,
+    },
+    CommandSpec {
+        name: "CD",
+        summary: "Change the folder relative file names start from.",
+        syntax: "CD 'folder'.\n\
+                 A relative folder starts from the current one, which is the folder of the syntax file at\n\
+                 first. When the last part names no existing folder it is taken as a file name and left out.",
+        example: "CD 'data/2026'.",
+        parse: session_commands::cd,
+    },
+    CommandSpec {
+        name: "DATASET NAME",
+        summary: "Give the active dataset a name, so that it stays open when another one becomes active.",
+        syntax: "DATASET NAME name [WINDOW=ASIS | FRONT].\n\
+                 A dataset that had the name before is closed. WINDOW is accepted and has no effect.",
+        example: "DATASET NAME survey.",
+        parse: session_commands::dataset_name_command,
+    },
+    CommandSpec {
+        name: "DATASET ACTIVATE",
+        summary: "Make a named dataset the active one.",
+        syntax: "DATASET ACTIVATE name [WINDOW=ASIS | FRONT].\n\
+                 The dataset that was active stays open when it has a name, else it is closed.",
+        example: "DATASET ACTIVATE survey.",
+        parse: session_commands::dataset_activate,
+    },
+    CommandSpec {
+        name: "DATASET COPY",
+        summary: "Copy the active dataset, as it is now, into a named dataset.",
+        syntax: "DATASET COPY name [WINDOW=MINIMIZED | HIDDEN | FRONT].\n\
+                 A dataset that had the name is replaced, with a warning. When the active dataset has the\n\
+                 name, the copy takes it and the active dataset is left without a name.",
+        example: "DATASET COPY men.",
+        parse: session_commands::dataset_copy,
+    },
+    CommandSpec {
+        name: "DATASET DECLARE",
+        summary: "Reserve a dataset name for a dataset that a later command creates.",
+        syntax: "DATASET DECLARE name [WINDOW=MINIMIZED | HIDDEN | FRONT].",
+        example: "DATASET DECLARE results.",
+        parse: session_commands::dataset_declare,
+    },
+    CommandSpec {
+        name: "DATASET CLOSE",
+        summary: "Close a named dataset, or take the name off the active one.",
+        syntax: "DATASET CLOSE name | * | ALL.\n\
+                 The active dataset stays open: closing it, or *, only takes its name off. ALL closes every\n\
+                 other dataset.",
+        example: "DATASET CLOSE men.",
+        parse: session_commands::dataset_close,
+    },
+    CommandSpec {
+        name: "DATASET DISPLAY",
+        summary: "List the open datasets.",
+        syntax: "DATASET DISPLAY.",
+        example: "DATASET DISPLAY.",
+        parse: session_commands::dataset_display,
+    },
+    CommandSpec {
+        name: "USE",
+        summary: "Use all cases, or a range of cases, in the commands that follow.",
+        syntax: "USE ALL.\n\
+                 USE [first] [THRU [last]] [/PERMANENT].\n\
+                 USE ALL (or THRU alone) turns FILTER off. A range of case numbers is supported with\n\
+                 /PERMANENT, which deletes the cases outside it; dates are not supported yet.",
+        example: "USE ALL.",
+        parse: session_commands::use_command,
+    },
+    CommandSpec {
+        name: "DISPLAY",
+        summary: "Show dictionary information of the active dataset.",
+        syntax: "DISPLAY [SORTED] [NAMES | INDEX | VARIABLES | LABELS | DICTIONARY | ATTRIBUTES | @ATTRIBUTES\n\
+                 \x20        | SCRATCH | VECTOR | MACROS | DOCUMENTS | FILE LABEL] [/VARIABLES=varlist].\n\
+                 NAMES (the default): names. INDEX: names and positions. VARIABLES: also formats and missing\n\
+                 values. LABELS: positions and labels. DICTIONARY: everything, value labels included.\n\
+                 ATTRIBUTES: custom attributes except those starting with @ or $@; @ATTRIBUTES all of them.\n\
+                 SORTED sorts by name; /VARIABLES limits the list.",
+        example: "DISPLAY SORTED DICTIONARY /VARIABLES=age TO q5.",
+        parse: session_commands::display,
+    },
+    CommandSpec {
+        name: "LIST",
+        summary: "List the values of cases.",
+        syntax: "LIST [[VARIABLES=]varlist] [/CASES=[FROM n] [TO n] [BY n]] [/FORMAT=[NUMBERED | UNNUMBERED]\n\
+                 \x20    [WRAP | SINGLE]].\n\
+                 Values show in their print format; system-missing is a period. NUMBERED adds the case\n\
+                 number. Follows FILTER and SPLIT FILE.",
+        example: "LIST VARIABLES=id age /CASES=FROM 1 TO 10 /FORMAT=NUMBERED.",
+        parse: session_commands::list,
+    },
 ];
 
 /// Commands of the language that have no parser yet. They get "not supported yet" instead of
@@ -782,20 +918,11 @@ static UNSUPPORTED: &[&str] = &[
     "ALTER TYPE",
     "ANOVA",
     "APPLY DICTIONARY",
-    "CACHE",
     "CASESTOVARS",
-    "CD",
     "CLEAR TRANSFORMATIONS",
     "CLUSTER",
-    "DATASET ACTIVATE",
-    "DATASET CLOSE",
-    "DATASET COPY",
-    "DATASET DECLARE",
-    "DATASET DISPLAY",
-    "DATASET NAME",
     "DATE",
     "DISCRIMINANT",
-    "DISPLAY",
     "DOCUMENT",
     "DROP DOCUMENTS",
     "ECHO",
@@ -822,7 +949,6 @@ static UNSUPPORTED: &[&str] = &[
     "IMPORT",
     "INPUT PROGRAM",
     "LEAVE",
-    "LIST",
     "LOGISTIC REGRESSION",
     "MATRIX",
     "MATRIX DATA",
@@ -835,7 +961,6 @@ static UNSUPPORTED: &[&str] = &[
     "OUTPUT SAVE",
     "PARTIAL CORR",
     "PERMISSIONS",
-    "PRESERVE",
     "PRINT",
     "PRINT EJECT",
     "PRINT FORMATS",
@@ -848,17 +973,13 @@ static UNSUPPORTED: &[&str] = &[
     "REPEATING DATA",
     "REPORT",
     "REREAD",
-    "RESTORE",
     "SAVE TRANSLATE",
-    "SET",
-    "SHOW",
     "SORT VARIABLES",
     "SUBTITLE",
     "SYSFILE INFO",
     "TITLE",
     "UNIANOVA",
     "UPDATE",
-    "USE",
     "VARIABLE ALIGNMENT",
     "VARIABLE ATTRIBUTE",
     "VARIABLE ROLE",

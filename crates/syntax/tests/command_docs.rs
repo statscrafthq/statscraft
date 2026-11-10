@@ -74,7 +74,27 @@ const AREAS: &[(&str, &[&str])] = &[
     ("Custom tables", &["CTABLES", "MRSETS"]),
     (
         "Macros, files and session",
-        &["DEFINE", "INSERT", "INCLUDE", "BEGIN PROGRAM"],
+        &[
+            "DEFINE",
+            "INSERT",
+            "INCLUDE",
+            "BEGIN PROGRAM",
+            "SET",
+            "SHOW",
+            "PRESERVE",
+            "RESTORE",
+            "CACHE",
+            "CD",
+            "DATASET NAME",
+            "DATASET ACTIVATE",
+            "DATASET COPY",
+            "DATASET DECLARE",
+            "DATASET CLOSE",
+            "DATASET DISPLAY",
+            "USE",
+            "DISPLAY",
+            "LIST",
+        ],
     ),
 ];
 

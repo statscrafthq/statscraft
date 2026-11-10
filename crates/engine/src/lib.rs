@@ -399,7 +399,9 @@ impl Engine {
         }
         match command {
             Command::Get { file } => {
-                self.dataset = Some(Dataset::read_sav(self.path(file))?);
+                let data = Dataset::read_sav(self.path(file))?;
+                self.park_active();
+                self.dataset = Some(data);
                 self.scratch_assigned.clear();
                 self.temporary = None;
                 self.case_limit = None;
@@ -561,6 +563,7 @@ impl Engine {
                 self.merge_files(merge, false)?
             }
             Command::DataList(list) => {
+                self.park_active();
                 self.scratch_assigned.clear();
                 self.temporary = None;
                 self.case_limit = None;
@@ -644,6 +647,7 @@ impl Engine {
             Command::NonparCorr(command) => self.nonpar_corr(command),
             Command::Examine(command) => self.examine(command),
             Command::Aggregate(command) => self.aggregate(command).map(|()| Vec::new()),
+            Command::List(list) => self.list(list),
             _ => unreachable!("only procedures come here"),
         }
     }

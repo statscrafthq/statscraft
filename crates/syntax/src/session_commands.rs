@@ -1,9 +1,11 @@
 //! Parsers of the commands about the session rather than the data: macros, inserted files,
 //! settings, datasets and listings.
 
-use crate::ast::Command;
-use crate::lexer::Punct;
+use crate::ast::{Command, DatasetCommand, Display, List, UseRange};
+use crate::error::SyntaxError;
+use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
+use crate::table::matches_keyword;
 
 /// The placeholder the macro processor leaves for a definition: `DEFINE 'NAME'`.
 pub(crate) fn define(p: &mut Parser) -> PResult<Command> {
@@ -64,4 +66,446 @@ pub(crate) fn insert(p: &mut Parser) -> PResult<Command> {
 
 pub(crate) fn include(p: &mut Parser) -> PResult<Command> {
     insert_or_include(p, true)
+}
+
+/// What a SET subcommand does in StatsCraft.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingEffect {
+    /// Kept and followed.
+    Used,
+    /// About speed, memory or where messages go: accepted, nothing to do.
+    Silent,
+    /// Only changes how output looks: accepted with a warning.
+    Appearance,
+    /// Changes results, but StatsCraft does not follow it yet: accepted with a warning.
+    NotYet,
+}
+
+use SettingEffect::{Appearance, NotYet, Silent, Used};
+
+/// Every SET subcommand with its default as SHOW prints it.
+pub const SETTINGS: &[(&str, &str, SettingEffect)] = &[
+    ("BASETEXTDIRECTION", "AUTOMATIC", Appearance),
+    ("BLANKS", "SYSMIS", NotYet),
+    ("BLOCK", "X'2A'", Appearance),
+    ("BOX", "X'2D7C2B2B2B2B2B2B2B2B2B'", Appearance),
+    ("CACHE", "20", Silent),
+    ("CCA", "-,,,", Appearance),
+    ("CCB", "-,,,", Appearance),
+    ("CCC", "-,,,", Appearance),
+    ("CCD", "-,,,", Appearance),
+    ("CCE", "-,,,", Appearance),
+    ("CELLSBREAK", "10000", Appearance),
+    ("CMPTRANS", "NO", Silent),
+    ("CTEMPLATE", "NONE", Appearance),
+    ("DECIMAL", "DOT", Used),
+    ("DEFOLANG", "ENGLISH", Appearance),
+    ("DIGITGROUPING", "NO", Appearance),
+    ("EPOCH", "AUTOMATIC", NotYet),
+    ("ERRORS", "LISTING", Silent),
+    ("FOOTNOTE", "YES", Appearance),
+    ("FORMAT", "F8.2", Used),
+    ("FUZZBITS", "6", NotYet),
+    ("HEADER", "NO", Appearance),
+    ("JOURNAL", "", Silent),
+    ("LEADZERO", "NO", Appearance),
+    ("LENGTH", "59", Appearance),
+    ("LOCALE", "OSLOCALE", Used),
+    ("MCACHE", "", Silent),
+    ("MDISPLAY", "TEXT", Appearance),
+    ("MESSAGES", "NONE", Silent),
+    ("MEXPAND", "ON", Used),
+    (
+        "MIOUTPUT",
+        "[OBSERVED IMPUTED POOLED DIAGNOSTICS]",
+        Appearance,
+    ),
+    ("MITERATE", "1000", Used),
+    ("MNEST", "50", Used),
+    ("MPRINT", "OFF", Used),
+    ("MTINDEX", "2000000", NotYet),
+    ("MXCELLS", "AUTOMATIC", Silent),
+    ("MXERRS", "100", Silent),
+    ("MXLOOPS", "40", NotYet),
+    ("MXWARNS", "10", Silent),
+    ("OATTRS", "OLANG", Appearance),
+    ("ODISPLAY", "MODELVIEWER", Appearance),
+    ("OLANG", "ENGLISH", Appearance),
+    ("ONUMBERS", "LABELS", Appearance),
+    ("OVARS", "LABELS", Appearance),
+    ("PRINTBACK", "NONE", Used),
+    ("REPDEFER", "NO", Silent),
+    ("RESULTS", "LISTING", Silent),
+    ("RNG", "MC", NotYet),
+    ("ROWSBREAK", "100", Appearance),
+    ("SCALEMIN", "24", NotYet),
+    ("SEED", "2000000", NotYet),
+    ("SIGLESS", "ON", Appearance),
+    ("SMALL", "0", Appearance),
+    ("SORT", "EXTERNAL", Silent),
+    ("SUMMARY", "NONE", Appearance),
+    ("TABLERENDER", "FAST", Silent),
+    ("TFIT", "BOTH", Appearance),
+    ("THREADS", "AUTO", Silent),
+    ("TLOOK", "NONE", Appearance),
+    ("TNUMBERS", "LABELS", Appearance),
+    ("TOLERANCE", "1", Appearance),
+    ("TVARS", "LABELS", Appearance),
+    ("UNDEFINED", "WARN", Silent),
+    ("UNICODE", "ON", Used),
+    ("WIDTH", "80", Appearance),
+    ("WORKSPACE", "24576", Silent),
+    ("XVERSION", "DEFAULT", Silent),
+    ("ZCOMPRESSION", "YES", Silent),
+];
+
+/// What SHOW can show beyond the SET subcommands.
+const SHOW_ONLY: [&str; 14] = [
+    "ALL",
+    "CC",
+    "DIRECTORY",
+    "ENVIRONMENT",
+    "EXTPATHS",
+    "FILTER",
+    "HANDLES",
+    "LICENSE",
+    "N",
+    "PLUGINS",
+    "SCOMPRESSION",
+    "SPLIT",
+    "SYSMIS",
+    "VERSION",
+];
+
+/// The SET subcommand a word names, written in full or shortened to three or more letters.
+fn setting(word: &str) -> Option<&'static str> {
+    let exact = SETTINGS.iter().find(|s| s.0.eq_ignore_ascii_case(word));
+    exact
+        .or_else(|| SETTINGS.iter().find(|s| matches_keyword(word, s.0)))
+        .map(|s| s.0)
+}
+
+pub(crate) fn set(p: &mut Parser) -> PResult<Command> {
+    let mut settings = Vec::new();
+    loop {
+        p.eat(Punct::Slash);
+        let Some(TokenKind::Word(word)) = p.peek() else {
+            break;
+        };
+        let Some(name) = setting(word) else {
+            let error = SyntaxError::new(
+                p.span(),
+                format!("unknown SET subcommand {}", word.to_uppercase()),
+            );
+            return Err(error);
+        };
+        p.pos += 1;
+        p.eat(Punct::Eq);
+        let value = if p.eat(Punct::LBracket) {
+            let mut words = Vec::new();
+            while let Some(TokenKind::Word(w)) = p.peek() {
+                words.push(w.to_uppercase());
+                p.pos += 1;
+            }
+            p.expect(Punct::RBracket)?;
+            format!("[{}]", words.join(" "))
+        } else {
+            match p.peek() {
+                Some(TokenKind::Word(w)) => {
+                    let w = w.clone();
+                    p.pos += 1;
+                    // a Windows code page locale such as 'Estonian_Estonia.1257' is one word
+                    w
+                }
+                Some(TokenKind::Str(_)) => p.string("a quoted value")?,
+                _ => match p.number() {
+                    Some(n) => format!("{n}"),
+                    None => return Err(p.unexpected(&[&format!("a value for {name}")])),
+                },
+            }
+        };
+        settings.push((name.to_string(), value));
+    }
+    if settings.is_empty() {
+        return Err(p.unexpected(&["a SET subcommand such as FORMAT or MPRINT"]));
+    }
+    p.finish(&["a SET subcommand"])?;
+    Ok(Command::Set(settings))
+}
+
+pub(crate) fn show(p: &mut Parser) -> PResult<Command> {
+    let mut names = Vec::new();
+    loop {
+        p.eat(Punct::Slash);
+        let Some(TokenKind::Word(word)) = p.peek() else {
+            break;
+        };
+        let name = setting(word)
+            .or_else(|| {
+                SHOW_ONLY
+                    .iter()
+                    .copied()
+                    .find(|s| s.eq_ignore_ascii_case(word))
+            })
+            .or_else(|| word.eq_ignore_ascii_case("$VARS").then_some("$VARS"));
+        let Some(name) = name else {
+            return Err(SyntaxError::new(
+                p.span(),
+                format!("unknown SHOW keyword {}", word.to_uppercase()),
+            ));
+        };
+        p.pos += 1;
+        names.push(name.to_string());
+    }
+    p.finish(&["a setting name"])?;
+    Ok(Command::Show(names))
+}
+
+/// The words after PRESERVE or RESTORE, which the manual does not provide for.
+fn words(p: &mut Parser) -> PResult<Vec<String>> {
+    let mut words = Vec::new();
+    while let Some(TokenKind::Word(w)) = p.peek() {
+        words.push(w.to_uppercase());
+        p.pos += 1;
+    }
+    p.finish(&[])?;
+    Ok(words)
+}
+
+pub(crate) fn preserve(p: &mut Parser) -> PResult<Command> {
+    Ok(Command::Preserve(words(p)?))
+}
+
+pub(crate) fn restore(p: &mut Parser) -> PResult<Command> {
+    Ok(Command::Restore(words(p)?))
+}
+
+pub(crate) fn cache(p: &mut Parser) -> PResult<Command> {
+    p.finish(&[])?;
+    Ok(Command::Cache)
+}
+
+pub(crate) fn cd(p: &mut Parser) -> PResult<Command> {
+    let folder = p.string("a quoted folder")?;
+    p.finish(&[])?;
+    Ok(Command::Cd(folder))
+}
+
+/// `[WINDOW=keyword]` after a dataset name.
+fn window(p: &mut Parser, allowed: &[&str]) -> PResult<()> {
+    if p.eat_keyword("WINDOW") {
+        keyword_value(p, allowed)?;
+    }
+    p.finish(&["WINDOW"])
+}
+
+fn dataset_name(p: &mut Parser) -> PResult<String> {
+    p.name("a dataset name")
+}
+
+pub(crate) fn dataset_name_command(p: &mut Parser) -> PResult<Command> {
+    let name = dataset_name(p)?;
+    window(p, &["ASIS", "FRONT"])?;
+    Ok(Command::Dataset(DatasetCommand::Name(name)))
+}
+
+pub(crate) fn dataset_activate(p: &mut Parser) -> PResult<Command> {
+    let name = dataset_name(p)?;
+    window(p, &["ASIS", "FRONT"])?;
+    Ok(Command::Dataset(DatasetCommand::Activate(name)))
+}
+
+pub(crate) fn dataset_copy(p: &mut Parser) -> PResult<Command> {
+    let name = dataset_name(p)?;
+    window(p, &["MINIMIZED", "HIDDEN", "FRONT"])?;
+    Ok(Command::Dataset(DatasetCommand::Copy(name)))
+}
+
+pub(crate) fn dataset_declare(p: &mut Parser) -> PResult<Command> {
+    let name = dataset_name(p)?;
+    window(p, &["MINIMIZED", "HIDDEN", "FRONT"])?;
+    Ok(Command::Dataset(DatasetCommand::Declare(name)))
+}
+
+pub(crate) fn dataset_close(p: &mut Parser) -> PResult<Command> {
+    let command = if p.eat(Punct::Star) {
+        DatasetCommand::Close(None)
+    } else if p.eat_word("ALL") {
+        DatasetCommand::CloseAll
+    } else {
+        DatasetCommand::Close(Some(dataset_name(p)?))
+    };
+    p.finish(&[])?;
+    Ok(Command::Dataset(command))
+}
+
+pub(crate) fn dataset_display(p: &mut Parser) -> PResult<Command> {
+    p.finish(&[])?;
+    Ok(Command::Dataset(DatasetCommand::Display))
+}
+
+/// `USE ALL`, `USE THRU`, `USE [first] [THRU [last]] [/PERMANENT]` with case numbers.
+pub(crate) fn use_command(p: &mut Parser) -> PResult<Command> {
+    if p.eat_word("ALL") {
+        p.finish(&[])?;
+        return Ok(Command::Use(None));
+    }
+    let case = |p: &mut Parser| -> PResult<Option<u64>> {
+        if p.eat_keyword("FIRST") || p.eat_keyword("LAST") {
+            return Ok(None);
+        }
+        match p.number() {
+            Some(n) if n >= 1.0 && n.fract() == 0.0 => Ok(Some(n as u64)),
+            Some(_) => Err(p.unexpected(&["a case number from 1"])),
+            None => Ok(None),
+        }
+    };
+    if matches!(p.peek(), Some(TokenKind::Word(w)) if !w.eq_ignore_ascii_case("THRU") && !w.eq_ignore_ascii_case("FIRST"))
+    {
+        return Err(SyntaxError::new(
+            p.span(),
+            "USE with dates is not supported yet; give case numbers or ALL",
+        ));
+    }
+    let first = case(p)?;
+    let last = if p.eat_keyword("THRU") {
+        case(p)?
+    } else {
+        None
+    };
+    let permanent = p.eat(Punct::Slash) && {
+        if !p.eat_keyword("PERMANENT") {
+            return Err(p.unexpected(&["PERMANENT"]));
+        }
+        true
+    };
+    p.finish(&["THRU", "/PERMANENT"])?;
+    if first.is_none() && last.is_none() && !permanent {
+        return Ok(Command::Use(None));
+    }
+    Ok(Command::Use(Some(UseRange {
+        first,
+        last,
+        permanent,
+    })))
+}
+
+const DISPLAY_KEYWORDS: [&str; 11] = [
+    "NAMES",
+    "INDEX",
+    "VARIABLES",
+    "LABELS",
+    "DICTIONARY",
+    "ATTRIBUTES",
+    "SCRATCH",
+    "VECTOR",
+    "MACROS",
+    "DOCUMENTS",
+    "FILE",
+];
+
+pub(crate) fn display(p: &mut Parser) -> PResult<Command> {
+    let sorted = p.eat_keyword("SORTED");
+    let mut what = "NAMES".to_string();
+    if p.at(Punct::Slash) || p.peek().is_none() {
+        // DISPLAY alone, or with /VARIABLES only
+    } else if matches!(p.peek(), Some(TokenKind::Word(w)) if w.eq_ignore_ascii_case("@ATTRIBUTES"))
+    {
+        p.pos += 1;
+        what = "@ATTRIBUTES".into();
+    } else {
+        let found = DISPLAY_KEYWORDS.iter().find(|k| p.at_keyword(k));
+        let Some(found) = found else {
+            return Err(p.unexpected(&DISPLAY_KEYWORDS));
+        };
+        p.pos += 1;
+        what = found.to_string();
+        if what == "FILE" {
+            // DISPLAY FILE LABEL, a form some scripts use
+            if !p.eat_keyword("LABEL") {
+                return Err(p.unexpected(&["LABEL"]));
+            }
+            what = "FILE LABEL".into();
+        }
+    }
+    let mut variables = None;
+    let slash = p.eat(Punct::Slash);
+    if (slash || what != "VARIABLES") && (p.eat_keyword("VARIABLES") || p.eat_keyword("NAMES")) {
+        p.eat(Punct::Eq);
+        variables = Some(p.var_list()?);
+    } else if slash {
+        return Err(p.unexpected(&["VARIABLES"]));
+    } else if what == "VARIABLES" && p.eat(Punct::Eq) {
+        // DISPLAY VARIABLES=varlist: the VARIABLES subcommand without its slash
+        what = "NAMES".into();
+        variables = Some(p.var_list()?);
+    }
+    p.finish(&["/VARIABLES"])?;
+    Ok(Command::Display(Display {
+        what,
+        sorted,
+        variables,
+    }))
+}
+
+pub(crate) fn list(p: &mut Parser) -> PResult<Command> {
+    let mut list = List {
+        variables: None,
+        from: 1,
+        to: None,
+        by: 1,
+        numbered: false,
+    };
+    let count = |p: &mut Parser| -> PResult<u64> {
+        match p.number() {
+            Some(n) if n >= 1.0 && n.fract() == 0.0 => Ok(n as u64),
+            _ => Err(p.unexpected(&["a whole number from 1"])),
+        }
+    };
+    let mut first = true;
+    loop {
+        let slash = p.eat(Punct::Slash);
+        if p.peek().is_none() {
+            break;
+        }
+        if p.eat_keyword("VARIABLES") {
+            p.eat(Punct::Eq);
+            list.variables = Some(p.var_list()?);
+        } else if p.eat_keyword("CASES") {
+            p.eat(Punct::Eq);
+            if let Some(TokenKind::Number(_)) = p.peek() {
+                list.to = Some(count(p)?);
+            }
+            loop {
+                if p.eat_keyword("FROM") {
+                    list.from = count(p)?;
+                } else if p.eat_word("TO") {
+                    list.to = Some(count(p)?);
+                } else if p.eat_word("BY") {
+                    list.by = count(p)?;
+                } else {
+                    break;
+                }
+            }
+        } else if p.eat_keyword("FORMAT") {
+            p.eat(Punct::Eq);
+            loop {
+                if p.eat_keyword("NUMBERED") {
+                    list.numbered = true;
+                } else if p.eat_keyword("UNNUMBERED") {
+                    list.numbered = false;
+                } else if !(p.eat_keyword("WRAP") || p.eat_keyword("SINGLE")) {
+                    break;
+                }
+            }
+        } else if first && !slash && matches!(p.peek(), Some(TokenKind::Word(_))) {
+            // LIST varlist: the VARIABLES keyword left out
+            list.variables = Some(p.var_list()?);
+        } else {
+            return Err(p.unexpected(&["VARIABLES", "CASES", "FORMAT"]));
+        }
+        first = false;
+    }
+    p.finish(&[])?;
+    Ok(Command::List(list))
 }

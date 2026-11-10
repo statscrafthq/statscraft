@@ -102,6 +102,62 @@ pub enum Command {
     },
     /// `BEGIN PROGRAM ... END PROGRAM`: a program in another language, not run.
     BeginProgram,
+    /// SET: each setting in upper case, with its value as written (a string without quotes).
+    Set(Vec<(String, String)>),
+    /// SHOW: the settings asked for in upper case; empty for the main ones.
+    Show(Vec<String>),
+    /// PRESERVE, with any words written after it, which mean nothing.
+    Preserve(Vec<String>),
+    /// RESTORE, with any words written after it, which mean nothing.
+    Restore(Vec<String>),
+    Cache,
+    /// `CD 'folder'`
+    Cd(String),
+    Dataset(DatasetCommand),
+    /// `USE ALL` is None; else the first and last case number, and /PERMANENT.
+    Use(Option<UseRange>),
+    Display(Display),
+    List(List),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum DatasetCommand {
+    Name(String),
+    Activate(String),
+    Copy(String),
+    Declare(String),
+    /// None is `*`, the active dataset.
+    Close(Option<String>),
+    CloseAll,
+    Display,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct UseRange {
+    pub first: Option<u64>,
+    pub last: Option<u64>,
+    pub permanent: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Display {
+    /// NAMES, INDEX, VARIABLES, LABELS, DICTIONARY, ATTRIBUTES, @ATTRIBUTES, SCRATCH, VECTOR,
+    /// MACROS or DOCUMENTS.
+    pub what: String,
+    pub sorted: bool,
+    /// `/VARIABLES=varlist`; None for all.
+    pub variables: Option<Vec<VarItem>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct List {
+    /// None lists every variable.
+    pub variables: Option<Vec<VarItem>>,
+    /// 1-based numbers of the first and last case and the step.
+    pub from: u64,
+    pub to: Option<u64>,
+    pub by: u64,
+    pub numbered: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
