@@ -23,6 +23,7 @@ What runs today: reading and writing data files, labels and missing values, tran
 ## Documentation
 
 - [Getting started](docs/getting-started.md): install, open a file, run syntax, the window in five minutes.
+- [The window](docs/window.md): the data editor, syntax editor, output view, menus and dialogs.
 - [The command line](docs/command-line.md): every subcommand and flag, sessions, JSON output, exit codes, Excel export, the live window session, OpenStatSpec plans and SQLite.
 - [AI agents](docs/ai-agents.md): how an agent should work with StatsCraft, and instructions to paste into yours.
 - [Commands](docs/commands/README.md): one page per supported command, generated from the help table.
