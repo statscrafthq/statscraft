@@ -49,7 +49,7 @@ pub use error::{Span, SyntaxError};
 pub use lexer::{Punct, Token, TokenKind};
 pub use mrsets::{Mrsets, MrsetsGroup};
 pub use split::{RawCommand, select_lines, split_commands};
-pub use table::{command_names, help};
+pub use table::{CommandSpec, command_names, command_specs, help, unsupported_commands};
 
 use parser::Parser;
 use table::Resolution;

@@ -12,13 +12,14 @@ use crate::parser::{PResult, Parser};
 use crate::procedures;
 use crate::stats;
 
-pub(crate) struct CommandSpec {
+/// One supported command: its name, its help text and its parser.
+pub struct CommandSpec {
     pub name: &'static str,
     pub summary: &'static str,
     /// The syntax diagram, then optional note lines.
     pub syntax: &'static str,
     pub example: &'static str,
-    pub parse: fn(&mut Parser) -> PResult<Command>,
+    pub(crate) parse: fn(&mut Parser) -> PResult<Command>,
 }
 
 pub(crate) static COMMANDS: &[CommandSpec] = &[
@@ -811,6 +812,16 @@ pub(crate) fn suggest(words: &[&str]) -> Vec<&'static str> {
 /// The names of the commands that can be parsed, in help order.
 pub fn command_names() -> Vec<&'static str> {
     COMMANDS.iter().map(|spec| spec.name).collect()
+}
+
+/// Every supported command in help order, for tools that render the help, such as the docs.
+pub fn command_specs() -> &'static [CommandSpec] {
+    COMMANDS
+}
+
+/// The commands of the language that are recognised but not supported yet.
+pub fn unsupported_commands() -> &'static [&'static str] {
+    UNSUPPORTED
 }
 
 /// Help text, generated from the table the parser uses. `help(None)` lists the supported
