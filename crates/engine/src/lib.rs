@@ -21,7 +21,7 @@ mod ttest;
 mod variables;
 
 pub use ctables::format_value;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use statscraft_data::{Dataset, Measure, MissingValues, Value};
 use statscraft_syntax as syntax;
 use statscraft_syntax::{Bound, Command, VarItem};
@@ -46,7 +46,7 @@ impl From<statscraft_data::Error> for Error {
 /// A result table, the same for every output format. The first `row_headers` columns label the
 /// rows; the remaining columns hold results. A column header can have several levels: `columns`
 /// holds the innermost label and `column_groups` the labels above it.
-#[derive(Debug, Default, Serialize)]
+#[derive(Debug, Default, Serialize, Deserialize)]
 pub struct Table {
     pub title: String,
     pub row_headers: usize,
@@ -57,7 +57,7 @@ pub struct Table {
     /// The display format of every cell, in the shape of `rows`, such as "PCT40.1"; empty
     /// strings where there is none. Empty when the table sets no formats. Numbers in `rows`
     /// stay raw; `format_value` shows them.
-    #[serde(skip_serializing_if = "Vec::is_empty")]
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub formats: Vec<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub caption: Option<String>,
@@ -79,7 +79,71 @@ impl Table {
     }
 }
 
-#[derive(Debug, Clone, Serialize, PartialEq)]
+/// One header cell spanning `span` columns from `first`.
+#[derive(Debug, PartialEq)]
+pub struct HeaderCell {
+    pub first: usize,
+    pub span: usize,
+    pub label: String,
+}
+
+/// The header rows of a table, outermost first. Every level covers all columns; neighbouring
+/// columns that share a label and everything above it are merged into one cell.
+pub fn header_rows(table: &Table) -> Vec<Vec<HeaderCell>> {
+    let depth = 1 + table.column_groups.iter().map(Vec::len).max().unwrap_or(0);
+    let label = |column: usize, level: usize| -> &str {
+        let groups = table
+            .column_groups
+            .get(column)
+            .map_or(&[][..], Vec::as_slice);
+        if level == depth - 1 {
+            &table.columns[column]
+        } else {
+            groups.get(level).map_or("", String::as_str)
+        }
+    };
+    let path = |column: usize, level: usize| (0..=level).map(move |l| label(column, l));
+    (0..depth)
+        .map(|level| {
+            let mut cells: Vec<HeaderCell> = Vec::new();
+            for column in 0..table.columns.len() {
+                match cells.last_mut() {
+                    Some(cell)
+                        if column >= table.row_headers
+                            && cell.first >= table.row_headers
+                            && path(cell.first, level).eq(path(column, level)) =>
+                    {
+                        cell.span += 1
+                    }
+                    _ => cells.push(HeaderCell {
+                        first: column,
+                        span: 1,
+                        label: label(column, level).to_string(),
+                    }),
+                }
+            }
+            cells
+        })
+        .collect()
+}
+
+/// A result cell as text, in its display format. The same rules as the command line output.
+pub fn cell_text(table: &Table, row: usize, column: usize) -> String {
+    let format = table
+        .formats
+        .get(row)
+        .and_then(|f| f.get(column))
+        .filter(|f| !f.is_empty());
+    match (&table.rows[row][column], format) {
+        (Cell::Text(t), _) => t.clone(),
+        (Cell::Number(n), Some(format)) => format_value(*n, format, true),
+        (Cell::Number(n), None) if n.fract() == 0.0 => format!("{n:.0}"),
+        (Cell::Number(n), None) => format!("{n:.2}"),
+        (Cell::Empty, _) => String::new(),
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum Cell {
     Text(String),
@@ -88,7 +152,7 @@ pub enum Cell {
 }
 
 /// What a run changed in the dataset, so a caller need not diff dictionaries itself.
-#[derive(Debug, Default, Serialize, PartialEq)]
+#[derive(Debug, Default, Serialize, Deserialize, PartialEq)]
 pub struct Changes {
     pub cases_before: Option<usize>,
     pub cases_after: Option<usize>,

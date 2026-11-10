@@ -2,7 +2,7 @@
 //! `statscraft run`, the window's Run button and the window's live session. Splits, selects,
 //! parses and executes; a run is all or nothing.
 
-use crate::{Cell, Changes, Engine, Table, format_value};
+use crate::{Changes, Engine, Table, cell_text};
 use serde::{Deserialize, Serialize};
 use statscraft_data::Dataset;
 use statscraft_syntax::{Command, RawCommand, SyntaxError};
@@ -71,7 +71,7 @@ impl Failure {
 }
 
 /// The tables of one command, with the lines it came from.
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, Deserialize)]
 pub struct CommandResult {
     pub name: String,
     pub first_line: u32,
@@ -81,8 +81,9 @@ pub struct CommandResult {
     pub warnings: Vec<String>,
 }
 
-/// What a run did. Serialized, it is the JSON that `statscraft run --json` prints.
-#[derive(Debug, Serialize)]
+/// What a run did. Serialized, it is the JSON that `statscraft run --json` prints; the command
+/// line reads it back from the window to write a workbook.
+#[derive(Debug, Serialize, Deserialize)]
 pub struct RunResult {
     pub ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -154,23 +155,8 @@ fn markdown(out: &mut String, table: &Table) {
     let _ = writeln!(out, "| {} |", table.column_titles().join(" | "));
     let _ = writeln!(out, "|{}", " --- |".repeat(table.columns.len()));
     for (r, row) in table.rows.iter().enumerate() {
-        let format = |c: usize| {
-            table
-                .formats
-                .get(r)
-                .and_then(|f| f.get(c))
-                .filter(|f| !f.is_empty())
-        };
-        let cells: Vec<String> = row
-            .iter()
-            .enumerate()
-            .map(|(c, cell)| match (cell, format(c)) {
-                (Cell::Text(t), _) => t.replace('|', "\\|"),
-                (Cell::Number(n), Some(format)) => format_value(*n, format, true),
-                (Cell::Number(n), None) if n.fract() == 0.0 => format!("{n:.0}"),
-                (Cell::Number(n), None) => format!("{n:.2}"),
-                (Cell::Empty, _) => String::new(),
-            })
+        let cells: Vec<String> = (0..row.len())
+            .map(|c| cell_text(table, r, c).replace('|', "\\|"))
             .collect();
         let _ = writeln!(out, "| {} |", cells.join(" | "));
     }

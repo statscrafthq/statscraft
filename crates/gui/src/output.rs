@@ -1,75 +1,12 @@
-//! Output items and their text forms: header layout, tab-separated text and HTML.
+//! Output items and their text forms: tab-separated text and HTML.
 
-use statscraft_engine::{Cell, Table, format_value};
+use statscraft_engine::Table;
+pub use statscraft_engine::{cell_text, header_rows};
 
 /// The tables of one command as they appear in the output, with a heading for the outline.
 pub struct OutputItem {
     pub heading: String,
     pub tables: Vec<Table>,
-}
-
-/// One header cell spanning `span` columns from `first`.
-#[derive(Debug, PartialEq)]
-pub struct HeaderCell {
-    pub first: usize,
-    pub span: usize,
-    pub label: String,
-}
-
-/// The header rows of a table, outermost first. Every level covers all columns; neighbouring
-/// columns that share a label and everything above it are merged into one cell.
-pub fn header_rows(table: &Table) -> Vec<Vec<HeaderCell>> {
-    let depth = 1 + table.column_groups.iter().map(Vec::len).max().unwrap_or(0);
-    let label = |column: usize, level: usize| -> &str {
-        let groups = table
-            .column_groups
-            .get(column)
-            .map_or(&[][..], Vec::as_slice);
-        if level == depth - 1 {
-            &table.columns[column]
-        } else {
-            groups.get(level).map_or("", String::as_str)
-        }
-    };
-    let path = |column: usize, level: usize| (0..=level).map(move |l| label(column, l));
-    (0..depth)
-        .map(|level| {
-            let mut cells: Vec<HeaderCell> = Vec::new();
-            for column in 0..table.columns.len() {
-                match cells.last_mut() {
-                    Some(cell)
-                        if column >= table.row_headers
-                            && cell.first >= table.row_headers
-                            && path(cell.first, level).eq(path(column, level)) =>
-                    {
-                        cell.span += 1
-                    }
-                    _ => cells.push(HeaderCell {
-                        first: column,
-                        span: 1,
-                        label: label(column, level).to_string(),
-                    }),
-                }
-            }
-            cells
-        })
-        .collect()
-}
-
-/// A result cell as text, in its display format. The same rules as the command line output.
-pub fn cell_text(table: &Table, row: usize, column: usize) -> String {
-    let format = table
-        .formats
-        .get(row)
-        .and_then(|f| f.get(column))
-        .filter(|f| !f.is_empty());
-    match (&table.rows[row][column], format) {
-        (Cell::Text(t), _) => t.clone(),
-        (Cell::Number(n), Some(format)) => format_value(*n, format, true),
-        (Cell::Number(n), None) if n.fract() == 0.0 => format!("{n:.0}"),
-        (Cell::Number(n), None) => format!("{n:.2}"),
-        (Cell::Empty, _) => String::new(),
-    }
 }
 
 /// The table as tab-separated text for pasting into a spreadsheet: title, header rows, body
@@ -161,6 +98,7 @@ pub fn html(items: &[OutputItem]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use statscraft_engine::Cell;
 
     fn s(text: &str) -> String {
         text.to_string()
