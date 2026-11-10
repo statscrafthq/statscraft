@@ -35,7 +35,7 @@ Opening a file and every run happen off the drawing thread: the status bar shows
 
 ## Updates
 
-The window asks GitHub at most once a day, in the background and never holding up the start, whether a newer release is published. The first start does not check yet; it says that checks exist and how to turn them off. Help, Check for updates automatically turns them on and off (the line `updates on` or `updates off` in `window.txt`), and Help, Check for updates checks at once and also says when there is nothing new.
+The window asks GitHub at most once a day, in the background and never holding up the start, whether a newer release is published. Checks are on by default and say nothing unless a newer version is out. Help, Check for updates automatically turns them on and off (the line `updates on` or `updates off` in `window.txt`), and Help, Check for updates checks at once and also says when there is nothing new.
 
 When a newer release is out, a small bar under the menu says so, with a link to the release notes, **Update now** and **Later**. Later hides the bar until the next check. Update now downloads the package for this installation, checks it against the release's `SHA256SUMS` and then:
 

@@ -68,7 +68,7 @@ When a new version is published, the window says so in a bar under the menu: **U
 - Tarball under `~/.local`: the two programs in `~/.local/bin` are replaced; restart the window to use the new one.
 - Debian and Ubuntu: the new .deb is downloaded and checked into `~/Downloads`, and you install it with the command shown, `sudo apt install ~/Downloads/statscraft_X_amd64.deb`.
 
-Every download is checked against the checksums published with the release before it is used. The window checks at most once a day, sending only one request to GitHub and nothing about you or your data; the first start says so, and Help, Check for updates automatically turns it off. See [the window](window.md#updates) and [the command line](command-line.md#update).
+Every download is checked against the checksums published with the release before it is used. The window checks at most once a day, sending only one request to GitHub and nothing about you or your data. It is on by default and silent unless there is an update; Help, Check for updates automatically turns it off. See [the window](window.md#updates) and [the command line](command-line.md#update).
 
 ### Build from source
 

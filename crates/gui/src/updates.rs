@@ -19,8 +19,6 @@ enum Event {
 
 enum Bar {
     Hidden,
-    /// The first start: checks exist, and how to turn them off.
-    Notice,
     Checking,
     Available(Release),
     Downloading(String),
@@ -55,8 +53,9 @@ fn now() -> u64 {
 }
 
 impl Updates {
-    /// On the first start only says that checks exist; later checks when the last check is a
-    /// day old and checks are on.
+    /// Checks in the background when the last check is a day old, unless checks are turned off
+    /// (Help, Check for updates automatically). They are on by default and say nothing unless
+    /// there is an update.
     pub fn new(ctx: &egui::Context, settings: &mut Settings) -> Self {
         // the Windows installer of the last update cannot delete itself
         statscraft_update::clean();
@@ -68,22 +67,13 @@ impl Updates {
             ctx: ctx.clone(),
             install: Install::detect(),
         };
-        match settings.updates {
-            None => {
-                updates.bar = Bar::Notice;
-                settings.updates = Some(true);
-                let _ = settings.save();
-            }
-            Some(true)
-                if settings
-                    .update_checked
-                    .is_none_or(|t| now().abs_diff(t) >= DAY) =>
-            {
-                settings.update_checked = Some(now());
-                let _ = settings.save();
-                updates.check(false);
-            }
-            _ => {}
+        let due = settings
+            .update_checked
+            .is_none_or(|t| now().abs_diff(t) >= DAY);
+        if settings.updates != Some(false) && due {
+            settings.update_checked = Some(now());
+            let _ = settings.save();
+            updates.check(false);
         }
         updates
     }
@@ -150,16 +140,6 @@ impl Updates {
         let mut click = None;
         ui.horizontal_wrapped(|ui| match &self.bar {
             Bar::Hidden => {}
-            Bar::Notice => {
-                ui.label(
-                    "StatsCraft asks GitHub once a day whether a new version is out. Nothing \
-                     about you or your data is sent. To turn this off, untick Help, Check for \
-                     updates automatically.",
-                );
-                if ui.button("OK").clicked() {
-                    click = Some(Click::Hide);
-                }
-            }
             Bar::Checking => {
                 ui.spinner();
                 ui.label("Checking for updates");
