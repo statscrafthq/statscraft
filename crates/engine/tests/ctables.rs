@@ -1042,3 +1042,66 @@ fn a_table_without_rows_has_its_categories_in_the_columns() {
     let column: Vec<Option<f64>> = all_numbers(&down).iter().map(|r| r[0]).collect();
     assert_eq!(counts, column);
 }
+
+// SMISSING LISTWISE (SMISSING subcommand, page 503): within a table, a case missing on one scale
+// variable is missing on all of them, so their summaries rest on the same cases. A table here is
+// what the manual's example makes of it: the sections with the same categorical variables. A
+// case so left out still counts in COUNT and TOTALN, as a missing value does.
+#[test]
+fn listwise_missing_values_leave_a_case_out_of_every_scale_variable() {
+    let file = "survey_basic.sav";
+    let data = Dataset::read_sav(fixture(file)).unwrap();
+    let valid = |name: &str| -> Vec<Option<f64>> {
+        let variable = data.variable(name).unwrap();
+        raw(&data, name)
+            .into_iter()
+            .map(|v| v.filter(|v| !variable.is_user_missing(*v)))
+            .collect()
+    };
+    let (spend, recommend, gender) = (
+        valid("monthly_spend"),
+        valid("q2_recommend"),
+        raw(&data, "gender"),
+    );
+    let n = data.case_count();
+    let summaries = "[MEAN F12.6, VALIDN, COUNT, MISSING]";
+    let t = run(
+        file,
+        &format!(
+            "CTABLES /SMISSING LISTWISE /TABLE (monthly_spend + q2_recommend) {summaries} BY gender."
+        ),
+    );
+    let both = |i: usize| spend[i].is_some() && recommend[i].is_some();
+    assert!((0..n).any(|i| spend[i].is_some() != recommend[i].is_some()));
+    for (row, values) in [&spend, &recommend].into_iter().enumerate() {
+        for g in 0..3 {
+            let members: Vec<usize> = (0..n)
+                .filter(|&i| gender[i] == Some(g as f64 + 1.0))
+                .collect();
+            let kept: Vec<f64> = members
+                .iter()
+                .filter(|&&i| both(i))
+                .map(|&i| values[i].unwrap())
+                .collect();
+            let mean = kept.iter().sum::<f64>() / kept.len() as f64;
+            let got = &numbers(&t, row)[g * 4..g * 4 + 4];
+            assert!((got[0].unwrap() - mean).abs() < 1e-6, "{got:?} {mean}");
+            let (count, valid) = (members.len() as f64, kept.len() as f64);
+            assert_eq!(got[1..], [Some(valid), Some(count), Some(count - valid)]);
+        }
+    }
+    // a section with other categorical variables is a table of its own: q2_recommend nested in
+    // region keeps every case valid on it, as without LISTWISE
+    let tables = |smissing: &str| {
+        run(
+            file,
+            &format!(
+                "CTABLES {smissing} /TABLE (q2_recommend {summaries} > region)\n\
+                 + (monthly_spend + q2_recommend) {summaries} > gender."
+            ),
+        )
+    };
+    let (listwise, variable) = (tables("/SMISSING LISTWISE"), tables(""));
+    assert_eq!(all_numbers(&listwise)[..5], all_numbers(&variable)[..5]);
+    assert_ne!(all_numbers(&listwise)[5..], all_numbers(&variable)[5..]);
+}

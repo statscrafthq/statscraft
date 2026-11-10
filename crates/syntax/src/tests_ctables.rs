@@ -125,17 +125,12 @@ fn per_table_and_global_subcommands() {
 
 #[test]
 fn features_of_the_next_stage_are_named() {
-    for (source, feature) in [
-        ("CTABLES /TABLE a /CRITERIA CILEVEL=90.", "CRITERIA"),
-        ("CTABLES /SMISSING LISTWISE /TABLE a.", "SMISSING"),
-    ] {
-        let e = err(source);
-        assert!(
-            e.message.contains(feature) && e.message.contains("not supported yet"),
-            "{source}: {}",
-            e.message
-        );
-    }
+    let e = err("CTABLES /TABLE a /CRITERIA CILEVEL=90.");
+    assert!(
+        e.message.contains("CRITERIA") && e.message.contains("not supported yet"),
+        "{}",
+        e.message
+    );
 }
 
 #[test]
@@ -560,4 +555,13 @@ fn labels_to_the_layers_and_an_empty_row_axis() {
     assert!(c.tables[2].rows.is_none() && c.tables[2].columns.is_none());
     assert!(c.tables[2].layers.is_some());
     assert_eq!(c.tables[2].labels_moved, LabelsMoved::ColumnsToLayers);
+}
+
+#[test]
+fn smissing_variable_or_listwise() {
+    assert!(one("CTABLES /SMISSING LISTWISE /TABLE a.").listwise);
+    assert!(!one("CTABLES /SMISSING=VARIABLE /TABLE a.").listwise);
+    assert!(!one("CTABLES /TABLE a.").listwise);
+    let e = err("CTABLES /SMISSING PAIRWISE /TABLE a.");
+    assert!(e.expected.iter().any(|x| x == "LISTWISE"), "{e:?}");
 }

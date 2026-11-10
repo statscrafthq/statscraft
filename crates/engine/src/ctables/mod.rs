@@ -1386,6 +1386,34 @@ impl Engine {
         let column_entries = entries(Axis::Columns);
         let layer_entries = entries(Axis::Layers);
 
+        // SMISSING LISTWISE: the scale variables of the sections with the same categorical
+        // variables, a case missing on one of them is missing on all
+        let mut listwise: HashMap<Vec<String>, Vec<Variable>> = HashMap::new();
+        let categorical = |terms: &[&[TermVar]; 3]| -> Vec<String> {
+            terms
+                .iter()
+                .flat_map(|t| t.iter())
+                .filter(|v| !v.scale)
+                .map(TermVar::key)
+                .collect()
+        };
+        if command.listwise {
+            for row in &layout.rows {
+                for column in &layout.columns {
+                    for layer in &layout.layers {
+                        let terms = [&row[..], &column[..], &layer[..]];
+                        let scale = terms.iter().flat_map(|t| t.iter()).find(|v| v.scale);
+                        let group = listwise.entry(categorical(&terms)).or_default();
+                        if let Some(v) = scale
+                            && !group.iter().any(|g| g.name() == v.variable.name())
+                        {
+                            group.push(v.variable);
+                        }
+                    }
+                }
+            }
+        }
+
         // gather the cases of every section
         let mut sections: HashMap<(usize, usize, usize), Section> = HashMap::new();
         let tested = table.sigtest.is_some() || !table.comparetests.is_empty();
@@ -1398,6 +1426,10 @@ impl Engine {
                         Axis::Layers => l,
                     };
                     let (summaries, variable) = &term_summaries[summary_term];
+                    let terms = [&row_term[..], &column_term[..], &layer_term[..]];
+                    let group = listwise
+                        .get(&categorical(&terms))
+                        .map_or(&[][..], |g| &g[..]);
                     let section = Section::gather(
                         data,
                         weights,
@@ -1405,7 +1437,7 @@ impl Engine {
                         &lists,
                         summaries,
                         variable,
-                        (tested, table.labels_moved, command.weight.is_some()),
+                        (tested, table.labels_moved, command.weight.is_some(), group),
                     )?;
                     sections.insert((r, c, l), section);
                 }
@@ -1750,7 +1782,7 @@ impl Section {
         lists: &HashMap<String, CategoryList>,
         summaries: &[(usize, Summary, String)],
         summary_variable: &TermVar<'a>,
-        (margins, moved, effective): (bool, LabelsMoved, bool),
+        (margins, moved, effective, listwise): (bool, LabelsMoved, bool, &[Variable]),
     ) -> Result<Section, Error> {
         let [nr, nc, _] = terms.map(|term| term.iter().filter(|v| !v.scale).count());
         // the categorical variables of the rows, then the columns, then the layers
@@ -1842,7 +1874,7 @@ impl Section {
             if weight <= 0.0 {
                 continue;
             }
-            let value = match scale {
+            let mut value = match scale {
                 Some(scale) => scale
                     .variable
                     .numeric()?
@@ -1850,6 +1882,15 @@ impl Section {
                     .filter(|v| !scale.variable.is_user_missing(*v)),
                 None => None,
             };
+            for other in listwise {
+                if other
+                    .numeric()?
+                    .get(case)
+                    .is_none_or(|v| other.is_user_missing(v))
+                {
+                    value = None;
+                }
+            }
             // whether the case is valid, and its responses, in one category of the summary
             // variable, or in all of them for None
             let judge = |of: Option<usize>| match (scale, summary_list) {

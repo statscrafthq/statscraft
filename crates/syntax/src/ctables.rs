@@ -22,6 +22,9 @@ pub struct Ctables {
     /// `/WEIGHT VARIABLE=name`: the effective base weight, used instead of the WEIGHT command's
     /// variable, without rounding in the tests.
     pub weight: Option<String>,
+    /// `/SMISSING LISTWISE`: a case missing on one scale variable of a table is missing on all
+    /// of them.
+    pub listwise: bool,
     /// `/HIDESMALLCOUNTS COUNT=n`: counts below n show as "<n".
     pub hide_small_counts: Option<u32>,
     /// `/PCOMPUTE`s in source order; of two with one name the later counts.
@@ -507,7 +510,7 @@ impl SummaryFunction {
 
 const SUMMARY_EXPECTED: &str = "a summary function such as COUNT, COLPCT.COUNT or MEAN";
 
-const UNSUPPORTED_SUBCOMMANDS: [&str; 2] = ["CRITERIA", "SMISSING"];
+const UNSUPPORTED_SUBCOMMANDS: [&str; 1] = ["CRITERIA"];
 
 /// `&name` of a computed category; returns the name without the "&".
 fn computed_name(p: &mut Parser) -> PResult<String> {
@@ -1314,6 +1317,7 @@ pub(crate) fn ctables(p: &mut Parser) -> PResult<Command> {
         missing: None,
         count_duplicates: false,
         weight: None,
+        listwise: false,
         hide_small_counts: None,
         pcomputes: Vec::new(),
         pproperties: Vec::new(),
@@ -1391,11 +1395,17 @@ pub(crate) fn ctables(p: &mut Parser) -> PResult<Command> {
             let tests = &mut command.tables.last_mut().expect("checked").comparetests;
             tests.retain(|t| t.kind != spec.kind);
             tests.push(spec);
-        } else if p.at_keyword("SMISSING")
-            && matches!(p.peek_at(2), Some(TokenKind::Word(w)) if matches_keyword(w, "VARIABLE"))
-        {
-            // the default treatment, so there is nothing to record
-            p.pos += 3;
+        } else if p.eat_keyword("SMISSING") {
+            if p.at(Punct::Eq) {
+                p.pos += 1;
+            }
+            command.listwise = if p.eat_keyword("LISTWISE") {
+                true
+            } else if p.eat_keyword("VARIABLE") {
+                false
+            } else {
+                return Err(p.unexpected(&["VARIABLE", "LISTWISE"]));
+            };
         } else if p.at_keyword("TABLES") {
             return Err(p.unexpected(&["TABLE"]));
         } else {

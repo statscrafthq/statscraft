@@ -234,7 +234,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "CTABLES [/FORMAT EMPTY=ZERO|BLANK|'text' MISSING='text']\n\
                  \x20       [/VLABELS VARIABLES=varlist DISPLAY=DEFAULT|NAME|LABEL|BOTH|NONE]\n\
                  \x20       [/MRSETS COUNTDUPLICATES=NO|YES]\n\
-                 \x20       [/HIDESMALLCOUNTS [COUNT=5]] [/WEIGHT VARIABLE=varname]\n\
+                 \x20       [/HIDESMALLCOUNTS [COUNT=5]] [/WEIGHT VARIABLE=varname] [/SMISSING VARIABLE|LISTWISE]\n\
                  \x20       [/PCOMPUTE &name=EXPR(expression)]\n\
                  \x20       [/PPROPERTIES &name ... [LABEL='text'] [FORMAT=function format ...] [HIDESOURCECATS=NO|YES]]\n\
                  \x20       /TABLE [rows] [BY [columns] [BY layers]]\n\
@@ -277,6 +277,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  each with .COUNT, .VALIDN or .TOTALN (COLPCT.COUNT and so on); COLPCT alone means COLPCT.COUNT.\n\
                  Scale: also MEAN MEDIAN MODE MINIMUM MAXIMUM RANGE SUM STDDEV VARIANCE SEMEAN PTILE n VALIDN TOTALN\n\
                  MISSING and the percentages with .SUM. A U prefix (UCOUNT, UMEAN) ignores the weight.\n\
+                 SMISSING LISTWISE: a case missing on one scale variable of a table is missing on all of them\n\
+                 (a table: the sections with the same categorical variables); it still counts in COUNT and TOTALN.\n\
                  /WEIGHT VARIABLE=var (before the first /TABLE) weights every table by an effective base weight,\n\
                  in place of the WEIGHT command's variable. ECOUNT (also for categorical variables and sets),\n\
                  EVALIDN and ETOTALN are then the effective bases (sum of weights)^2 / (sum of squared weights)\n\

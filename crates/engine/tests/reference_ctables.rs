@@ -616,6 +616,10 @@ fn labels_in_the_layers_and_an_empty_row_axis() {
     }
 }
 
+// SMISSING LISTWISE is not compared: PSPP gives the stacked scale variables of
+// (a + b) [MEAN] BY c the cases valid on each, where the manual's example (SMISSING, page 503)
+// leaves out of both the cases missing on either. ctables.rs checks it against the raw values.
+
 #[test]
 #[ignore = "needs STATSCRAFT_PSPP"]
 fn subtotals() {
