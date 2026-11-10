@@ -4054,6 +4054,9 @@ dependencies = [
 [[package]]
 name = "statscraft-syntax"
 version = "0.1.0"
+dependencies = [
+ "encoding_rs",
+]
 
 [[package]]
 name = "statscraft-update"

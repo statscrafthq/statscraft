@@ -596,7 +596,8 @@ impl App {
     }
 
     fn load_syntax(&mut self, path: PathBuf) {
-        match std::fs::read_to_string(&path) {
+        let text = std::fs::read(&path).map_err(|e| e.to_string());
+        match text.and_then(|bytes| statscraft_syntax::decode_syntax(&bytes, None)) {
             Ok(text) => {
                 self.add_recent(&path);
                 self.syntax = text;

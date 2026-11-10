@@ -19,6 +19,7 @@ mod commands;
 mod ctables;
 mod data_commands;
 mod data_list;
+mod encoding;
 mod error;
 mod examine;
 mod expr;
@@ -53,6 +54,7 @@ pub use ctables::{
     SummaryFunction, VlabelsDisplay,
 };
 pub use data_list::numbered_names;
+pub use encoding::{decode_syntax, encoding_for, legacy_encoding};
 pub use error::{Span, SyntaxError};
 pub use lexer::{Punct, Token, TokenKind};
 pub use loops::{RepeatItem, command_text, substitute};

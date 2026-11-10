@@ -30,7 +30,7 @@ Give either a file or a session. The text form prints `cases, variables` and the
 ## run
 
 ```
-statscraft run [FILE | - | -e TEXT] [-s SESSION] [--lines FIRST-LAST] [--json] [--xlsx FILE [--xlsx-one-sheet]]
+statscraft run [FILE | - | -e TEXT] [-s SESSION] [--lines FIRST-LAST] [--json] [--encoding NAME] [--xlsx FILE [--xlsx-one-sheet]]
 ```
 
 | Flag | Meaning |
@@ -40,6 +40,7 @@ statscraft run [FILE | - | -e TEXT] [-s SESSION] [--lines FIRST-LAST] [--json] [
 | `-s`, `--session NAME` | load the dataset from this session before the run and save it after; `gui` is the open window |
 | `--lines FIRST-LAST` | run only the commands inside these lines (1-based, inclusive), for example `40-55` |
 | `--json` | print the result as JSON instead of Markdown |
+| `--encoding NAME` | encoding of the syntax file or standard input, such as `windows-1257` or `1252`; without it a file that is valid UTF-8 (with or without a byte order mark) is read as UTF-8 and any other file in the system's legacy code page |
 | `--xlsx FILE` | also write every table of the run to an Excel workbook, one sheet per table |
 | `--xlsx-one-sheet` | with `--xlsx`, put all tables on one sheet, one below the other |
 
@@ -56,7 +57,7 @@ A run is all or nothing. When any command fails, nothing is saved: not the sessi
 ## check
 
 ```
-statscraft check [FILE | - | -e TEXT] [-s SESSION] [--lines FIRST-LAST] [--json]
+statscraft check [FILE | - | -e TEXT] [-s SESSION] [--lines FIRST-LAST] [--json] [--encoding NAME]
 ```
 
 The same flags as `run`, without `--xlsx`. `check` runs the commands on a copy of the session's dataset and skips every file write, so it finds both syntax errors and errors that depend on the data (an unknown variable, a string where a number is needed). The session and the disk stay unchanged. The summary says `checked N command(s)`, and in JSON `saved` is always false.

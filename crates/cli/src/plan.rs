@@ -135,6 +135,7 @@ fn request(args: &PlanArgs) -> Result<Value, String> {
         session: None,
         lines: None,
         json: false,
+        encoding: None,
     })
     .map_err(first_message)?;
     let v01 = args.profile == "0.1";

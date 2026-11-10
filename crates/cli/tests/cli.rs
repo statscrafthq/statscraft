@@ -478,3 +478,22 @@ fn run_writes_every_table_to_a_workbook() {
     assert!(String::from_utf8_lossy(&out.stderr).contains("no/such/folder/out.xlsx"));
     assert!(!dir.0.join(".statscraft/sessions/t2").exists());
 }
+
+#[test]
+fn a_syntax_file_in_a_legacy_code_page_is_read_by_detection_or_by_name() {
+    let dir = Workdir::new("encoding");
+    // "Šoti" in Windows-1257, where 0xD0 is S with caron; not valid UTF-8
+    let mut bytes = get_fixture("survey_basic.sav").into_bytes();
+    bytes.extend_from_slice(b"\nVARIABLE LABELS age '\xD0oti'.\nSAVE OUTFILE='out.sav'.\n");
+    std::fs::write(dir.0.join("legacy.sps"), &bytes).unwrap();
+    dir.ok(&["run", "legacy.sps", "--encoding", "windows-1257"]);
+    let description = dir.json(&["describe", "out.sav", "--json"]);
+    assert_eq!(label_of(&description, "age"), "Šoti");
+    // without --encoding the system's legacy code page decodes the byte to one character
+    dir.ok(&["run", "legacy.sps"]);
+    let description = dir.json(&["describe", "out.sav", "--json"]);
+    assert_eq!(label_of(&description, "age").chars().count(), 4);
+    let out = dir.run(&["run", "legacy.sps", "--encoding", "klingon"]);
+    assert!(!out.status.success());
+    assert!(String::from_utf8_lossy(&out.stderr).contains("unknown encoding klingon"));
+}

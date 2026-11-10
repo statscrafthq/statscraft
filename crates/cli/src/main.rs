@@ -78,6 +78,10 @@ struct RunArgs {
     /// Print tables, changes, warnings and errors as JSON
     #[arg(long)]
     json: bool,
+    /// Encoding of the syntax file, such as windows-1257 or 1252. Default: UTF-8 when the file
+    /// is valid UTF-8 (with or without a byte order mark), else the system's legacy code page
+    #[arg(long, value_name = "NAME")]
+    encoding: Option<String>,
 }
 
 #[derive(Args, Default)]
@@ -239,14 +243,15 @@ fn read_source(args: &RunArgs) -> Result<String, Vec<Failure>> {
     match (&args.text, args.file.as_deref()) {
         (Some(text), _) => Ok(text.clone()),
         (None, Some("-")) => {
-            let mut s = String::new();
+            let mut bytes = Vec::new();
             std::io::stdin()
-                .read_to_string(&mut s)
+                .read_to_end(&mut bytes)
                 .map_err(|e| fail(e.to_string()))?;
-            Ok(s)
+            statscraft_syntax::decode_syntax(&bytes, args.encoding.as_deref()).map_err(fail)
         }
         (None, Some(file)) => {
-            std::fs::read_to_string(file).map_err(|e| fail(format!("{file}: {e}")))
+            let bytes = std::fs::read(file).map_err(|e| fail(format!("{file}: {e}")))?;
+            statscraft_syntax::decode_syntax(&bytes, args.encoding.as_deref()).map_err(fail)
         }
         (None, None) => Err(fail(
             "give a syntax file, - for standard input, or -e 'SYNTAX.'".into(),
