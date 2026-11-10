@@ -149,13 +149,8 @@ fn put_row_labels(
             if last > first && !labels[first][c].is_empty() {
                 sheet.merge_range(from, column, to, column, &labels[first][c], format)?;
             } else {
-                for r in first..=last {
-                    sheet.write_string_with_format(
-                        top + r as u32,
-                        column,
-                        &labels[r][c],
-                        format,
-                    )?;
+                for (r, row) in labels.iter().enumerate().take(last + 1).skip(first) {
+                    sheet.write_string_with_format(top + r as u32, column, &row[c], format)?;
                 }
             }
             first = last + 1;
