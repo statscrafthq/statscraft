@@ -1,0 +1,64 @@
+name: Server tests
+
+# The OpenStatSpec tests that need real database servers. They run here, not on developer
+# machines; start by hand before a release or after changes to the database layer.
+# shortcut: no TLS cases (STATSCRAFT_TLS_DIR unset), add certificates when TLS changes.
+on:
+  workflow_dispatch:
+
+jobs:
+  servers:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { postgres: "17", mysql: "8.4", mariadb: "11.4" }
+          - { postgres: "18", mysql: "9.7", mariadb: "11.8" }
+          - { postgres: "18", mysql: "9.7", mariadb: "12.3" }
+    name: pg ${{ matrix.postgres }}, mysql ${{ matrix.mysql }}, mariadb ${{ matrix.mariadb }}
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:${{ matrix.postgres }}
+        env: { POSTGRES_PASSWORD: test }
+        ports: ["5432:5432"]
+        options: --health-cmd "pg_isready -U postgres" --health-interval 2s --health-retries 30
+      mysql:
+        image: mysql:${{ matrix.mysql }}
+        env: { MYSQL_ROOT_PASSWORD: test, MYSQL_DATABASE: statscraft }
+        ports: ["3306:3306"]
+        options: --health-cmd "mysqladmin ping -h 127.0.0.1 -ptest" --health-interval 2s --health-retries 60
+      mariadb:
+        image: mariadb:${{ matrix.mariadb }}
+        env: { MARIADB_ROOT_PASSWORD: test, MARIADB_DATABASE: statscraft }
+        ports: ["3307:3306"]
+        options: --health-cmd "healthcheck.sh --connect --innodb_initialized" --health-interval 2s --health-retries 60
+      # must be refused as too old
+      mariadb10:
+        image: mariadb:10.11
+        env: { MARIADB_ROOT_PASSWORD: test, MARIADB_DATABASE: statscraft }
+        ports: ["3308:3306"]
+        options: --health-cmd "healthcheck.sh --connect --innodb_initialized" --health-interval 2s --health-retries 60
+      dolt:
+        image: dolthub/dolt-sql-server:2.2.2
+        env: { DOLT_ROOT_PASSWORD: test, DOLT_ROOT_HOST: "%", DOLT_DATABASE: statscraft }
+        ports: ["3309:3306"]
+      dolt2:
+        image: dolthub/dolt-sql-server:2.2.3
+        env: { DOLT_ROOT_PASSWORD: test, DOLT_ROOT_HOST: "%", DOLT_DATABASE: statscraft }
+        ports: ["3310:3306"]
+    env:
+      STATSCRAFT_PG_URL: postgres://postgres:test@127.0.0.1:5432/postgres
+      STATSCRAFT_MYSQL_URL: mysql://root:test@127.0.0.1:3306/statscraft
+      STATSCRAFT_MARIADB_URL: mysql://root:test@127.0.0.1:3307/statscraft
+      STATSCRAFT_MARIADB10_URL: mysql://root:test@127.0.0.1:3308/statscraft
+      STATSCRAFT_DOLT_URL: mysql://root:test@127.0.0.1:3309/statscraft
+      STATSCRAFT_DOLT2_URL: mysql://root:test@127.0.0.1:3310/statscraft
+    steps:
+      - uses: actions/checkout@v7
+      - name: Wait for Dolt
+        run: |
+          for port in 3309 3310; do
+            for i in $(seq 60); do (echo > /dev/tcp/127.0.0.1/$port) 2>/dev/null && break; sleep 1; done
+          done
+      - run: cargo test -p statscraft-openstatspec --test servers -- --ignored
