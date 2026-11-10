@@ -384,7 +384,7 @@ pub struct Compute {
 
 /// User text that goes into a command as it is: trimmed, without a closing period that would
 /// end the command early.
-fn clause(text: &str) -> &str {
+pub fn clause(text: &str) -> &str {
     let text = text.trim();
     text.strip_suffix('.').unwrap_or(text).trim_end()
 }

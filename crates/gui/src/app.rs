@@ -5,6 +5,10 @@ use crate::analyze_dialogs::{
     Correlations, MEANS_CELLS, Means, ONEWAY_STATISTICS, Oneway, POST_HOC_TESTS, STANDARDIZERS,
     TTest, TTestKind,
 };
+use crate::data_dialogs::{
+    AGGREGATE_FUNCTIONS, Aggregate, AggregateTo, Aggregated, MergeFiles, Mrsets, SelectCases,
+    SortCases, WeightCases,
+};
 use crate::dialogs::{
     Adjust, CROSSTABS_CELLS, Compute, Crosstabs, CustomTables, DESCRIPTIVES_STATISTICS,
     Descriptives, Frequencies, Letters, NewValue, OldValue, Recode, RecodeRule, label_command,
@@ -74,6 +78,13 @@ enum Dialog {
     TTest(TTest),
     Oneway(Oneway),
     Correlations(Correlations),
+    Mrsets(Mrsets),
+    SortCases(SortCases),
+    SelectCases(SelectCases),
+    WeightCases(WeightCases),
+    /// With the function chosen for the next aggregated variables.
+    Aggregate(Aggregate, usize),
+    MergeFiles(MergeFiles),
 }
 
 impl Dialog {
@@ -89,6 +100,12 @@ impl Dialog {
             Dialog::TTest(d) => d.title(),
             Dialog::Oneway(_) => "One-Way ANOVA",
             Dialog::Correlations(_) => "Bivariate Correlations",
+            Dialog::Mrsets(_) => "Define Multiple Response Sets",
+            Dialog::SortCases(_) => "Sort Cases",
+            Dialog::SelectCases(_) => "Select Cases",
+            Dialog::WeightCases(_) => "Weight Cases",
+            Dialog::Aggregate(..) => "Aggregate",
+            Dialog::MergeFiles(d) => d.title(),
         }
     }
 
@@ -104,6 +121,15 @@ impl Dialog {
             Dialog::TTest(d) => Dialog::TTest(TTest::new(d.kind)),
             Dialog::Oneway(_) => Dialog::Oneway(Default::default()),
             Dialog::Correlations(_) => Dialog::Correlations(Default::default()),
+            Dialog::Mrsets(_) => Dialog::Mrsets(Default::default()),
+            Dialog::SortCases(_) => Dialog::SortCases(Default::default()),
+            Dialog::SelectCases(_) => Dialog::SelectCases(Default::default()),
+            Dialog::WeightCases(_) => Dialog::WeightCases(Default::default()),
+            Dialog::Aggregate(..) => Dialog::Aggregate(Default::default(), 0),
+            Dialog::MergeFiles(d) => Dialog::MergeFiles(MergeFiles {
+                add_variables: d.add_variables,
+                ..Default::default()
+            }),
         }
     }
 
@@ -136,6 +162,18 @@ impl Dialog {
             Dialog::TTest(d) => d.syntax(is_string(data, &d.grouping)),
             Dialog::Oneway(d) => d.syntax(),
             Dialog::Correlations(d) => d.syntax(),
+            Dialog::Mrsets(d) => {
+                let strings = d.variables.iter().filter(|n| is_string(data, n)).count();
+                if strings > 0 && strings < d.variables.len() {
+                    return Err("the variables of a set must be all numeric or all strings".into());
+                }
+                d.syntax(strings > 0)
+            }
+            Dialog::SortCases(d) => d.syntax(),
+            Dialog::SelectCases(d) => d.syntax(),
+            Dialog::WeightCases(d) => d.syntax(),
+            Dialog::Aggregate(d, _) => d.syntax(),
+            Dialog::MergeFiles(d) => d.syntax(),
         }
     }
 }
@@ -564,6 +602,44 @@ impl App {
                     "Command help in the syntax editor (F1)",
                 );
                 ui.checkbox(&mut self.wrap, "Wrap long lines in the syntax editor");
+            });
+            ui.menu_button("Data", |ui| {
+                let weight = self
+                    .session
+                    .dataset()
+                    .and_then(|d| d.weight_variable())
+                    .map(str::to_string);
+                for (label, dialog) in [
+                    (
+                        "Define Multiple Response Sets...",
+                        Dialog::Mrsets(Default::default()),
+                    ),
+                    ("Sort Cases...", Dialog::SortCases(Default::default())),
+                    ("Select Cases...", Dialog::SelectCases(Default::default())),
+                    (
+                        "Weight Cases...",
+                        Dialog::WeightCases(WeightCases::current(weight.as_deref())),
+                    ),
+                    ("Aggregate...", Dialog::Aggregate(Default::default(), 0)),
+                ] {
+                    if ui.add_enabled(has_data, egui::Button::new(label)).clicked() {
+                        self.open_dialog(dialog);
+                    }
+                }
+                ui.add_enabled_ui(has_data, |ui| {
+                    ui.menu_button("Merge Files", |ui| {
+                        for (label, add_variables) in
+                            [("Add Cases...", false), ("Add Variables...", true)]
+                        {
+                            if ui.button(label).clicked() {
+                                self.open_dialog(Dialog::MergeFiles(MergeFiles {
+                                    add_variables,
+                                    ..Default::default()
+                                }));
+                            }
+                        }
+                    });
+                });
             });
             ui.menu_button("Analyze", |ui| {
                 for (label, dialog) in [
@@ -1235,7 +1311,7 @@ impl App {
                     });
                     ui.add_space(12.0);
                     ui.vertical(|ui| {
-                        dialog_body(ui, dialog, &mut self.picked);
+                        dialog_body(ui, data, dialog, &mut self.picked);
                     });
                 });
                 ui.separator();
@@ -1855,7 +1931,7 @@ fn checkboxes(ui: &mut Ui, options: &[(&str, &str)], flags: &mut [bool]) {
         });
 }
 
-fn dialog_body(ui: &mut Ui, dialog: &mut Dialog, picked: &mut Vec<String>) {
+fn dialog_body(ui: &mut Ui, data: &Dataset, dialog: &mut Dialog, picked: &mut Vec<String>) {
     match dialog {
         Dialog::Frequencies(d) => target_list(ui, "Variables", &mut d.variables, picked),
         Dialog::Descriptives(d) => {
@@ -2096,6 +2172,249 @@ fn dialog_body(ui: &mut Ui, dialog: &mut Dialog, picked: &mut Vec<String>) {
                 &mut d.listwise,
                 "Leave out a case missing on any listed variable",
             );
+        }
+        Dialog::Mrsets(d) => {
+            ui.horizontal(|ui| {
+                ui.radio_value(&mut d.delete, false, "Define a set");
+                ui.radio_value(&mut d.delete, true, "Delete sets");
+            });
+            let sets = data.multiple_response_sets();
+            if d.delete {
+                ui.strong("Sets to delete");
+                if sets.is_empty() {
+                    ui.weak("The dataset has no sets.");
+                }
+                for set in sets {
+                    let mut on = d.sets.contains(&set.name);
+                    if ui
+                        .checkbox(&mut on, format!("{}  {}", set.name, set.label))
+                        .changed()
+                    {
+                        if on {
+                            d.sets.push(set.name.clone());
+                        } else {
+                            d.sets.retain(|s| s != &set.name);
+                        }
+                    }
+                }
+                return;
+            }
+            ui.horizontal(|ui| {
+                ui.radio_value(&mut d.dichotomy, true, "Dichotomies")
+                    .on_hover_text("Each variable is a category, counted when it holds one value");
+                ui.radio_value(&mut d.dichotomy, false, "Categories")
+                    .on_hover_text("The values of the variables are the categories");
+            });
+            ui.horizontal(|ui| {
+                ui.label("Name");
+                ui.add(
+                    TextEdit::singleline(&mut d.name)
+                        .desired_width(160.0)
+                        .hint_text("$channels"),
+                );
+            });
+            target_list(ui, "Variables", &mut d.variables, picked);
+            if d.dichotomy {
+                field(ui, "Counted value", &mut d.value, 70.0);
+                ui.checkbox(
+                    &mut d.counted_value_labels,
+                    "Label categories with the value label of the counted value",
+                );
+            }
+            let from_variables = d.dichotomy && d.counted_value_labels;
+            if from_variables {
+                ui.checkbox(
+                    &mut d.label_from_variables,
+                    "Take the set label from the first variable label",
+                );
+            }
+            if !(from_variables && d.label_from_variables) {
+                field(ui, "Label", &mut d.label, 260.0);
+            }
+            if !sets.is_empty() {
+                let names: Vec<&str> = sets.iter().map(|s| s.name.as_str()).collect();
+                ui.weak(format!(
+                    "Sets now: {}. A set with the same name is replaced.",
+                    names.join(", ")
+                ));
+            }
+        }
+        Dialog::SortCases(d) => {
+            ui.horizontal(|ui| {
+                ui.strong("Sort by");
+                if ui
+                    .add_enabled(!picked.is_empty(), egui::Button::new("Add").small())
+                    .clicked()
+                {
+                    for name in picked.drain(..) {
+                        if !d.keys.iter().any(|(k, _)| k == &name) {
+                            d.keys.push((name, false));
+                        }
+                    }
+                }
+            });
+            if d.keys.is_empty() {
+                ui.weak("empty");
+            }
+            let mut remove = None;
+            for (i, (name, descending)) in d.keys.iter_mut().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.label(name.as_str());
+                    let order = if *descending {
+                        "descending"
+                    } else {
+                        "ascending"
+                    };
+                    if ui
+                        .small_button(order)
+                        .on_hover_text("Switch the order")
+                        .clicked()
+                    {
+                        *descending = !*descending;
+                    }
+                    if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
+                        remove = Some(i);
+                    }
+                });
+            }
+            if let Some(i) = remove {
+                d.keys.remove(i);
+            }
+            ui.weak("Cases with equal keys keep their order.");
+        }
+        Dialog::SelectCases(d) => {
+            ui.strong("Keep the cases where");
+            ui.add(
+                TextEdit::multiline(&mut d.condition)
+                    .desired_width(360.0)
+                    .desired_rows(3)
+                    .hint_text("age >= 18 AND gender = 2"),
+            );
+            if ui.button("Add picked variables to the condition").clicked() {
+                for name in picked.drain(..) {
+                    if !d.condition.is_empty() && !d.condition.ends_with(' ') {
+                        d.condition.push(' ');
+                    }
+                    d.condition.push_str(&name);
+                }
+            }
+            ui.colored_label(
+                ui.visuals().warn_fg_color,
+                "The other cases are deleted from the dataset. Edit, Undo last change brings them back.",
+            );
+        }
+        Dialog::WeightCases(d) => {
+            ui.radio_value(&mut d.on, false, "Do not weight cases");
+            ui.radio_value(&mut d.on, true, "Weight cases by a variable");
+            if d.on {
+                target_one(ui, "Weight variable", &mut d.variable, picked);
+            }
+            ui.weak(match data.weight_variable() {
+                Some(name) => format!("Now weighted by {name}."),
+                None => "Now not weighted.".to_string(),
+            });
+        }
+        Dialog::Aggregate(d, function) => {
+            target_list(ui, "Group by (break variables)", &mut d.breaks, picked);
+            ui.add_space(6.0);
+            ui.strong("Aggregated variables");
+            let mut remove = None;
+            for (i, v) in d.variables.iter_mut().enumerate() {
+                ui.horizontal(|ui| {
+                    ui.add(TextEdit::singleline(&mut v.target).desired_width(120.0));
+                    ui.monospace(format!(
+                        "= {}({})",
+                        AGGREGATE_FUNCTIONS[v.function].0, v.source
+                    ));
+                    if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
+                        remove = Some(i);
+                    }
+                });
+            }
+            if let Some(i) = remove {
+                d.variables.remove(i);
+            }
+            ui.horizontal(|ui| {
+                ComboBox::new("function", "")
+                    .selected_text(AGGREGATE_FUNCTIONS[*function].1)
+                    .show_index(ui, function, AGGREGATE_FUNCTIONS.len(), |i| {
+                        AGGREGATE_FUNCTIONS[i].1
+                    });
+                if ui
+                    .add_enabled(
+                        !picked.is_empty(),
+                        egui::Button::new("Add picked variables"),
+                    )
+                    .clicked()
+                {
+                    for name in picked.drain(..) {
+                        d.variables.push(Aggregated::new(*function, &name));
+                    }
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.checkbox(&mut d.count, "Number of cases in the group as");
+                ui.add_enabled(
+                    d.count,
+                    TextEdit::singleline(&mut d.count_name).desired_width(100.0),
+                );
+            });
+            ui.add_space(6.0);
+            ui.strong("Result");
+            ui.radio_value(
+                &mut d.to,
+                AggregateTo::AddVariables,
+                "Add the variables to every case",
+            );
+            ui.radio_value(
+                &mut d.to,
+                AggregateTo::Replace,
+                "Replace the dataset with one case per group",
+            );
+            ui.horizontal(|ui| {
+                ui.radio_value(&mut d.to, AggregateTo::File, "Write to a data file");
+                if d.to == AggregateTo::File {
+                    ui.add(TextEdit::singleline(&mut d.path).desired_width(220.0));
+                    if ui.button("Browse...").clicked()
+                        && let Some(path) = rfd::FileDialog::new()
+                            .add_filter("Data file", &["sav"])
+                            .save_file()
+                    {
+                        d.path = path.to_string_lossy().into_owned();
+                    }
+                }
+            });
+        }
+        Dialog::MergeFiles(d) => {
+            ui.horizontal(|ui| {
+                ui.strong(if d.add_variables {
+                    "File with the variables to add"
+                } else {
+                    "File with the cases to add"
+                });
+                if ui.button("Browse...").clicked()
+                    && let Some(path) = rfd::FileDialog::new()
+                        .add_filter("Data file", &["sav", "zsav"])
+                        .pick_file()
+                {
+                    d.path = path.to_string_lossy().into_owned();
+                }
+            });
+            ui.add(TextEdit::singleline(&mut d.path).desired_width(360.0));
+            if d.add_variables {
+                ui.checkbox(
+                    &mut d.table,
+                    "The file is a lookup table: one case per key, adds no cases",
+                );
+                target_list(ui, "Key variables", &mut d.by, picked);
+                ui.weak(if d.by.is_empty() {
+                    "Without keys the cases are joined in file order."
+                } else {
+                    "Both files must be sorted by the keys (Data, Sort Cases)."
+                });
+            } else {
+                ui.weak("Variables are matched by name; a variable missing from a file is blank.");
+            }
         }
         Dialog::Recode(d, draft) => {
             target_list(ui, "Variables", &mut d.variables, picked);

@@ -3,6 +3,7 @@
 
 mod analyze_dialogs;
 mod app;
+mod data_dialogs;
 mod dialogs;
 mod editor;
 mod edits;
