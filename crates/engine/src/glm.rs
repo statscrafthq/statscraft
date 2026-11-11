@@ -39,25 +39,25 @@ use statscraft_syntax::{
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-enum Part {
+pub(crate) enum Part {
     Factor(usize),
     Covariate(usize),
 }
 
-struct Effect {
-    label: String,
-    parts: Vec<Part>,
+pub(crate) struct Effect {
+    pub(crate) label: String,
+    pub(crate) parts: Vec<Part>,
     /// The factors in the order written.
-    factors: Vec<usize>,
+    pub(crate) factors: Vec<usize>,
     /// The covariates, sorted; one may repeat.
-    covariates: Vec<usize>,
+    pub(crate) covariates: Vec<usize>,
     /// The level of each factor of every column.
-    cells: Vec<Vec<usize>>,
-    start: usize,
+    pub(crate) cells: Vec<Vec<usize>>,
+    pub(crate) start: usize,
 }
 
 impl Effect {
-    fn range(&self) -> std::ops::Range<usize> {
+    pub(crate) fn range(&self) -> std::ops::Range<usize> {
         self.start..self.start + self.cells.len()
     }
 
@@ -74,22 +74,22 @@ impl Effect {
 }
 
 /// The cases of the analysis.
-struct Data {
+pub(crate) struct Data {
     /// The names of the factors, the value of each level as text and its label.
-    factors: Vec<String>,
-    values: Vec<Vec<String>>,
-    labels: Vec<Vec<String>>,
-    labelled: bool,
-    covariates: Vec<String>,
-    case: Vec<usize>,
+    pub(crate) factors: Vec<String>,
+    pub(crate) values: Vec<Vec<String>>,
+    pub(crate) labels: Vec<Vec<String>>,
+    pub(crate) labelled: bool,
+    pub(crate) covariates: Vec<String>,
+    pub(crate) case: Vec<usize>,
     /// The level of every factor of each row.
-    level: Vec<Vec<usize>>,
-    cov: Vec<Vec<f64>>,
+    pub(crate) level: Vec<Vec<usize>>,
+    pub(crate) cov: Vec<Vec<f64>>,
     /// The dependent values of each row (several in the repeated measures model).
-    y: Vec<Vec<f64>>,
+    pub(crate) y: Vec<Vec<f64>>,
     /// Frequency (rounded case weight) and regression weight.
-    f: Vec<f64>,
-    g: Vec<f64>,
+    pub(crate) f: Vec<f64>,
+    pub(crate) g: Vec<f64>,
 }
 
 impl Data {
@@ -142,24 +142,24 @@ fn ginverse(a: &Matrix, eps: f64) -> (Matrix, usize) {
     (out, swept.iter().filter(|&&s| s).count())
 }
 
-struct Fit {
-    effects: Vec<Effect>,
-    p: usize,
-    r: usize,
-    x: Vec<Vec<f64>>,
+pub(crate) struct Fit {
+    pub(crate) effects: Vec<Effect>,
+    pub(crate) p: usize,
+    pub(crate) r: usize,
+    pub(crate) x: Vec<Vec<f64>>,
     /// Z'WZ before sweeping.
-    zwz: Matrix,
-    ginv: Matrix,
-    b: Matrix,
-    s: Matrix,
-    redundant: Vec<bool>,
-    rank: usize,
-    n: f64,
-    eps: f64,
+    pub(crate) zwz: Matrix,
+    pub(crate) ginv: Matrix,
+    pub(crate) b: Matrix,
+    pub(crate) s: Matrix,
+    pub(crate) redundant: Vec<bool>,
+    pub(crate) rank: usize,
+    pub(crate) n: f64,
+    pub(crate) eps: f64,
 }
 
 impl Fit {
-    fn new(data: &Data, mut effects: Vec<Effect>, y: &[Vec<f64>], eps: f64) -> Fit {
+    pub(crate) fn new(data: &Data, mut effects: Vec<Effect>, y: &[Vec<f64>], eps: f64) -> Fit {
         // the columns of each effect: the level combinations that occur
         let mut start = 0;
         for e in &mut effects {
@@ -239,7 +239,7 @@ impl Fit {
     }
 
     /// The error SSCP after sweeping the columns `order`, with the number of columns swept.
-    fn error_after(&self, order: &[usize]) -> (Matrix, usize) {
+    pub(crate) fn error_after(&self, order: &[usize]) -> (Matrix, usize) {
         let (m, swept) = sweep_in_order(&self.zwz, order, self.eps);
         let p = self.p;
         let s = (0..self.r)
@@ -256,7 +256,7 @@ impl Fit {
     }
 
     /// The hypothesis SSCP of L B = K and its degrees of freedom (the rank of L G L').
-    fn hypothesis(&self, l: &Matrix, k: Option<&Matrix>) -> (Matrix, usize) {
+    pub(crate) fn hypothesis(&self, l: &Matrix, k: Option<&Matrix>) -> (Matrix, usize) {
         if l.is_empty() {
             return (vec![vec![0.0; self.r]; self.r], 0);
         }
@@ -284,7 +284,7 @@ impl Fit {
     }
 
     /// The hypothesis matrix of Type III (or IV) for effect `e`.
-    fn type34(&self, e: usize, type4: bool) -> Matrix {
+    pub(crate) fn type34(&self, e: usize, type4: bool) -> Matrix {
         let p = self.p;
         let h = self.h();
         let tol: Vec<f64> = (0..p)

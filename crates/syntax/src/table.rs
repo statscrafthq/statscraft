@@ -1,11 +1,14 @@
 //! The command table: the single source for command name matching, parsing and help.
 
+use crate::anova;
 use crate::ast::Command;
+use crate::cluster;
 use crate::commands;
 use crate::ctables;
 use crate::data_commands;
 use crate::data_list;
 use crate::dictionary;
+use crate::discriminant;
 use crate::examine;
 use crate::factor;
 use crate::files;
@@ -1203,6 +1206,61 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: factor::quick_cluster,
     },
     CommandSpec {
+        name: "CLUSTER",
+        summary: "Hierarchical clustering of cases by one of 37 proximity measures and seven methods.",
+        syntax: "CLUSTER varlist | /MATRIX=IN('file' | dataset | *)\n\
+                 \x20       [/MEASURE=SEUCLID | EUCLID | COSINE | CORRELATION | BLOCK | CHEBYCHEV | MINKOWSKI(p) |\n\
+                 \x20                 POWER(p,r) | CHISQ | PH2 | binary[(p[,np])]]\n\
+                 \x20       [/METHOD=BAVERAGE | WAVERAGE | SINGLE | COMPLETE | CENTROID | MEDIAN | WARD [(rootname)] ...]\n\
+                 \x20       [/PRINT=[SCHEDULE] [CLUSTER(min[,max])] [DISTANCE] [NONE]] [/SAVE=CLUSTER(min[,max])]\n\
+                 \x20       [/ID=var] [/MISSING=EXCLUDE | INCLUDE] [/PLOT=[VICICLE | HICICLE[(min,max,inc)]] [DENDROGRAM] [NONE]].\n\
+                 binary: RR SM JACCARD DICE SS1 RT SS2 K1 SS3 K2 SS4 HAMANN OCHIAI SS5 PHI LAMBDA D Y Q BEUCLID SIZE\n\
+                 PATTERN BSEUCLID BSHAPE DISPER VARIANCE BLWMN, from the 2 x 2 table of presence (p, default 1) and\n\
+                 absence (np, default 0; with p alone every other value is absence). The items are the cases valid on\n\
+                 every variable; the weight variable is not used. Each step joins the most similar pair of clusters\n\
+                 (smallest distance or largest similarity) into the lower-numbered one and updates the proximities by\n\
+                 the formula of the method; BAVERAGE (default) and WAVERAGE choose by the mean proximity between or\n\
+                 within the clusters. Tables: Case Processing Summary, Proximity Matrix (DISTANCE), and for each\n\
+                 method the Agglomeration Schedule (default; for WARD the coefficient is the within-cluster sum of\n\
+                 squares) and Cluster Membership (CLUSTER), the clusters of a solution numbered in the order of their\n\
+                 first case. ID labels the cases. SAVE adds the membership of each solution, named rootname plus the\n\
+                 number of clusters, or CLUn_m. MATRIX=IN reads the rows of type PROX of a matrix file, a dissimilarity\n\
+                 matrix unless the value label of PROX says SIMILARITY. PLOT is accepted with a warning that charts\n\
+                 are not drawn yet. Not supported yet: MATRIX=OUT, SAVE with MATRIX=IN.",
+        example: "CLUSTER q1 TO q5 /MEASURE=SEUCLID /METHOD=WARD /PRINT=SCHEDULE CLUSTER(2,4) /SAVE=CLUSTER(3).",
+        parse: cluster::cluster,
+    },
+    CommandSpec {
+        name: "DISCRIMINANT",
+        summary: "Linear discriminant analysis with direct or stepwise entry and classification of cases.",
+        syntax: "DISCRIMINANT GROUPS=var(min,max) /VARIABLES=varlist [/SELECT=var(value)]\n\
+                 \x20  [/ANALYSIS=varlist[(level)] ...] [/METHOD=DIRECT | WILKS | MAHAL | MAXMINF | MINRESID | RAO]\n\
+                 \x20  [/TOLERANCE=0.001] [/MAXSTEPS=n] [/FIN=3.84] [/FOUT=2.71] [/PIN=p] [/POUT=p] [/VIN=0]\n\
+                 \x20  [/FUNCTIONS=n1[,pct[,sig]]] [/PRIORS=EQUAL | SIZE | values] [/SAVE=[CLASS[=name]] [SCORES[=root]] [PROBS[=root]]]\n\
+                 \x20  [/ANALYSIS=... another block] [/MISSING=EXCLUDE | INCLUDE] [/HISTORY=STEP | NONE]\n\
+                 \x20  [/CLASSIFY=[NONMISSING | UNSELECTED | UNCLASSIFIED] [POOLED | SEPARATE] [MEANSUB]]\n\
+                 \x20  [/STATISTICS=[MEAN] [STDDEV] [UNIVF] [COV] [CORR] [FPAIR] [BOXM] [GCOV] [TCOV] [RAW] [COEFF] [TABLE]\n\
+                 \x20               [CROSSVALID] [ALL]] [/ROTATE=NONE] [/PLOT=...].\n\
+                 The analysis uses the cases with a whole group value in the range, no missing value on VARIABLES and,\n\
+                 with SELECT, the selected value; groups without cases are ignored. DIRECT enters the variables that\n\
+                 pass the tolerance; the stepwise methods enter the variable with the best criterion (smallest Wilks'\n\
+                 lambda, largest smallest Mahalanobis distance or F between groups, smallest sum of unexplained\n\
+                 variation, largest increase in Rao's V) among those passing FIN or PIN, higher inclusion levels\n\
+                 first (even levels together, level 0 never), and remove a level 1 variable below FOUT or above POUT.\n\
+                 Tables: Analysis Case Processing Summary, Group Statistics, Tests of Equality of Group Means (UNIVF),\n\
+                 Pooled Within-Groups Matrices (COV, CORR), Covariance Matrices (GCOV, TCOV), Log Determinants and Box's\n\
+                 M (BOXM), the stepwise tables (HISTORY), Pairwise Group Comparisons (FPAIR), Eigenvalues, Wilks'\n\
+                 Lambda, Standardized Canonical Discriminant Function Coefficients, Structure Matrix, Canonical\n\
+                 Discriminant Function Coefficients (RAW), Functions at Group Centroids, Classification Processing\n\
+                 Summary, Prior Probabilities for Groups, Classification Function Coefficients (COEFF) and\n\
+                 Classification Results (TABLE, CROSSVALID leaving each case out). SAVE adds the predicted group, the\n\
+                 function scores and the posterior probabilities, named DSC_m and DSCn_m unless given. Weighted when a\n\
+                 weight variable is set. PLOT is accepted with a warning that it is not produced yet. Not supported\n\
+                 yet: ROTATE=COEFF and STRUCTURE, MATRIX, OUTFILE.",
+        example: "DISCRIMINANT GROUPS=segment(1,3) /VARIABLES=q1 TO q6 /METHOD=WILKS /PRIORS=SIZE /STATISTICS=MEAN STDDEV UNIVF BOXM TABLE /SAVE=CLASS SCORES PROBS.",
+        parse: discriminant::discriminant,
+    },
+    CommandSpec {
         name: "LOGISTIC REGRESSION",
         summary: "Binary logistic regression with categorical covariates, stepwise selection and case diagnostics.",
         syntax: "LOGISTIC REGRESSION [VARIABLES=] dependent [WITH var | var BY var ...]\n\
@@ -1249,6 +1307,26 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: glm_syntax!("GLM"),
         example: "GLM t1 t2 t3 BY group /WSFACTOR=time 3 POLYNOMIAL /WSDESIGN=time /DESIGN=group.",
         parse: glm::glm,
+    },
+    CommandSpec {
+        name: "ANOVA",
+        summary: "Analysis of variance for factorial designs with covariates, the older form with MCA tables.",
+        syntax: "ANOVA [VARIABLES=] dependents BY factors(min,max) [factors(min,max) ...] [WITH covariates] [/next list ...]\n\
+                 \x20     [/COVARIATES=FIRST | WITH | AFTER] [/MAXORDERS=ALL | n | NONE]\n\
+                 \x20     [/METHOD=UNIQUE | EXPERIMENTAL | HIERARCHICAL] [/STATISTICS=[MCA] [REG] [MEAN] [ALL] [NONE]]\n\
+                 \x20     [/MISSING=EXCLUDE | INCLUDE].\n\
+                 A range follows the factors it applies to; factor values are truncated to whole numbers and cases\n\
+                 outside a range are left out, as is a case missing on any variable of its list. The model has the\n\
+                 covariates, the main effects and the interactions up to MAXORDERS (five by default); an order of\n\
+                 interactions with empty cells is dropped with a warning. UNIQUE (default) adjusts every effect for all\n\
+                 others (Type III); EXPERIMENTAL assesses covariates, main effects and each order of interactions in\n\
+                 turn, each adjusted for its own kind and the kinds before it; HIERARCHICAL adjusts each covariate and\n\
+                 factor only for those before it. COVARIATES sets where the covariates enter. Tables: ANOVA (with REG the\n\
+                 coefficients of the covariates where they enter), and, not with UNIQUE, Cell Means (MEAN), MCA,\n\
+                 Factor Summary and Model Goodness of Fit (MCA). STATISTICS without keywords is MEAN and REG. Weighted\n\
+                 when a weight variable is set.",
+        example: "ANOVA VARIABLES=score BY region(1,4) sex(1,2) WITH age /METHOD=EXPERIMENTAL /STATISTICS=MEAN MCA.",
+        parse: anova::anova,
     },
     CommandSpec {
         name: "TREE",
@@ -1965,9 +2043,6 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
 /// Commands of the language that have no parser yet. They get "not supported yet" instead of
 /// "unknown command", and their bodies are not tokenised.
 static UNSUPPORTED: &[&str] = &[
-    "ANOVA",
-    "CLUSTER",
-    "DISCRIMINANT",
     "END DATA",
     "END MATRIX",
     "END REPEAT",

@@ -1,7 +1,9 @@
 //! Executes parsed commands on a dataset and returns result tables.
 
 mod aggregate;
+mod anova;
 mod autorecode;
+mod cluster;
 mod contrast;
 mod correlations;
 mod crosstabs;
@@ -10,6 +12,7 @@ mod data_list;
 mod date;
 mod descriptives;
 mod dictionary;
+mod discriminant;
 mod dist;
 mod examine;
 pub mod excel;
@@ -580,6 +583,9 @@ impl Engine {
             | Command::QuickCluster(_)
             | Command::Logistic(_)
             | Command::Glm(_)
+            | Command::Cluster(_)
+            | Command::Discriminant(_)
+            | Command::Anova(_)
             | Command::Tree(_)
             | Command::Rank(_)
             | Command::Aggregate(_) => return self.procedure(command),
@@ -771,6 +777,9 @@ impl Engine {
             Command::QuickCluster(command) => self.quick_cluster(command),
             Command::Logistic(command) => self.logistic(command),
             Command::Glm(command) => self.glm(command),
+            Command::Cluster(command) => self.cluster(command),
+            Command::Discriminant(command) => self.discriminant(command),
+            Command::Anova(command) => self.anova(command),
             Command::Tree(command) => self.tree(command),
             Command::Rank(command) => self.rank(command),
             Command::Aggregate(command) => self.aggregate(command).map(|()| Vec::new()),

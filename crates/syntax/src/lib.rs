@@ -14,12 +14,15 @@
 //!   Reserved words (AND, OR, NOT, EQ, NE, LT, LE, GT, GE, TO, ALL, BY, WITH) may not.
 //! - Names are kept as written; comparing them case-insensitively is the caller's job.
 
+mod anova;
 mod ast;
+mod cluster;
 mod commands;
 mod ctables;
 mod data_commands;
 mod data_list;
 mod dictionary;
+mod discriminant;
 mod encoding;
 mod error;
 mod examine;
@@ -70,6 +73,8 @@ mod tests_loops;
 #[cfg(test)]
 mod tests_models;
 #[cfg(test)]
+mod tests_multivariate;
+#[cfg(test)]
 mod tests_npar;
 #[cfg(test)]
 mod tests_output;
@@ -83,7 +88,9 @@ mod tests_restructure;
 mod tests_session;
 mod tree;
 
+pub use anova::{Anova, AnovaList, AnovaMethod, CovariateOrder};
 pub use ast::*;
+pub use cluster::{BinaryMeasure, Cluster, Linkage, Proximity};
 pub use ctables::{
     Adjust, AxisExpr, AxisVariable, Categories, CategoryItem, CategoryOrder, CompareKind,
     CompareStyle, Comparetest, Ctables, CtablesTable, EmptyCells, Estimate, LabelsMoved,
@@ -91,6 +98,10 @@ pub use ctables::{
     SummaryFunction, VlabelsDisplay,
 };
 pub use data_list::numbered_names;
+pub use discriminant::{
+    ClassifyCases, Discriminant, DiscriminantAnalysis, DiscriminantMethod, DiscriminantSave,
+    DiscriminantStatistics, Priors,
+};
 pub use encoding::{decode_syntax, encoding_for, legacy_encoding};
 pub use error::{Span, SyntaxError};
 pub use factor::{
