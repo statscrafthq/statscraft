@@ -323,7 +323,7 @@ impl Default for Oneway {
     }
 }
 
-fn keywords<'a>(options: &[(&'a str, &str)], flags: &[bool]) -> Vec<&'a str> {
+pub(crate) fn keywords<'a>(options: &[(&'a str, &str)], flags: &[bool]) -> Vec<&'a str> {
     options
         .iter()
         .zip(flags)

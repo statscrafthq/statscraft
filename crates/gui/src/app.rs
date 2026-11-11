@@ -22,6 +22,8 @@ use crate::edits::{self, Field};
 use crate::output;
 use crate::output_view::{self, OutputView};
 use crate::settings::Settings;
+use crate::stats_dialogs::{NparKind, NparTests, PartialCorr, Regression, Reliability, numeric};
+use crate::stats_dialogs_view;
 use crate::syntax_text::{number, quote};
 use crate::updates::Updates;
 use crate::{complete, editor, grid, grid_menu, highlight, themes};
@@ -116,6 +118,10 @@ pub(crate) enum Dialog {
     MergeFiles(MergeFiles),
     MultResponse(MultResponse),
     Tree(Tree),
+    Regression(Regression),
+    Reliability(Reliability),
+    NparTests(NparTests),
+    PartialCorr(PartialCorr),
     Restructure(Restructure),
     SortVariables(SortVariables),
     ImportData(ImportData),
@@ -148,6 +154,10 @@ impl Dialog {
             Dialog::MergeFiles(d) => d.title(),
             Dialog::MultResponse(d) => d.title(),
             Dialog::Tree(_) => "Classification Tree",
+            Dialog::Regression(_) => "Linear Regression",
+            Dialog::Reliability(_) => "Reliability Analysis",
+            Dialog::NparTests(d) => d.title(),
+            Dialog::PartialCorr(_) => "Partial Correlations",
             Dialog::Restructure(_) => "Restructure",
             Dialog::SortVariables(_) => "Sort Variables",
             Dialog::ImportData(_) => "Open Data",
@@ -190,6 +200,10 @@ impl Dialog {
                 ..Default::default()
             }),
             Dialog::Tree(_) => Dialog::Tree(Default::default()),
+            Dialog::Regression(_) => Dialog::Regression(Default::default()),
+            Dialog::Reliability(_) => Dialog::Reliability(Default::default()),
+            Dialog::NparTests(d) => Dialog::NparTests(NparTests::new(d.kind)),
+            Dialog::PartialCorr(_) => Dialog::PartialCorr(Default::default()),
             Dialog::Restructure(_) => Dialog::Restructure(Default::default()),
             Dialog::SortVariables(_) => Dialog::SortVariables(Default::default()),
             Dialog::ImportData(d) => Dialog::ImportData(ImportData::new(Path::new(&d.path))),
@@ -286,6 +300,12 @@ impl Dialog {
                     ));
                 }
                 d.syntax(is_string(data, &d.dependent))
+            }
+            Dialog::Regression(d) => numeric(data, d.variables()).and_then(|()| d.syntax()),
+            Dialog::Reliability(d) => numeric(data, &d.items).and_then(|()| d.syntax()),
+            Dialog::NparTests(d) => numeric(data, d.variables()).and_then(|()| d.syntax()),
+            Dialog::PartialCorr(d) => {
+                numeric(data, d.variables.iter().chain(&d.controls)).and_then(|()| d.syntax())
             }
             Dialog::Restructure(d) => d.syntax(),
             Dialog::SortVariables(d) => d.syntax(),
@@ -985,10 +1005,30 @@ impl App {
                         if ui.button("Bivariate...").clicked() {
                             self.open_dialog(Dialog::Correlations(Default::default()));
                         }
+                        if ui.button("Partial...").clicked() {
+                            self.open_dialog(Dialog::PartialCorr(Default::default()));
+                        }
+                    });
+                    ui.menu_button("Regression", |ui| {
+                        if ui.button("Linear...").clicked() {
+                            self.open_dialog(Dialog::Regression(Default::default()));
+                        }
                     });
                     ui.menu_button("Classify", |ui| {
                         if ui.button("Tree...").clicked() {
                             self.open_dialog(Dialog::Tree(Default::default()));
+                        }
+                    });
+                    ui.menu_button("Scale", |ui| {
+                        if ui.button("Reliability Analysis...").clicked() {
+                            self.open_dialog(Dialog::Reliability(Default::default()));
+                        }
+                    });
+                    ui.menu_button("Nonparametric Tests", |ui| {
+                        for kind in NparKind::ALL {
+                            if ui.button(kind.menu()).clicked() {
+                                self.open_dialog(Dialog::NparTests(NparTests::new(kind)));
+                            }
                         }
                     });
                     ui.menu_button("Multiple Response", |ui| {
@@ -3417,7 +3457,12 @@ fn variable_picker(
 }
 
 /// A list of variables in a dialog, with Add (the picked variables) and a remove button each.
-fn target_list(ui: &mut Ui, title: &str, list: &mut Vec<String>, picked: &mut Vec<String>) {
+pub(crate) fn target_list(
+    ui: &mut Ui,
+    title: &str,
+    list: &mut Vec<String>,
+    picked: &mut Vec<String>,
+) {
     ui.push_id(title, |ui| {
         ui.horizontal(|ui| {
             ui.strong(title);
@@ -3457,7 +3502,7 @@ fn target_list(ui: &mut Ui, title: &str, list: &mut Vec<String>, picked: &mut Ve
 }
 
 /// A slot for one variable, filled with the first picked variable.
-fn target_one(ui: &mut Ui, title: &str, slot: &mut String, picked: &mut Vec<String>) {
+pub(crate) fn target_one(ui: &mut Ui, title: &str, slot: &mut String, picked: &mut Vec<String>) {
     ui.push_id(title, |ui| {
         ui.horizontal(|ui| {
             ui.strong(title);
@@ -3481,7 +3526,7 @@ fn target_one(ui: &mut Ui, title: &str, slot: &mut String, picked: &mut Vec<Stri
 }
 
 /// A text field with a label in front, on one line.
-fn field(ui: &mut Ui, label: &str, text: &mut String, width: f32) {
+pub(crate) fn field(ui: &mut Ui, label: &str, text: &mut String, width: f32) {
     ui.horizontal(|ui| {
         ui.label(label);
         ui.add(TextEdit::singleline(text).desired_width(width));
@@ -3489,7 +3534,7 @@ fn field(ui: &mut Ui, label: &str, text: &mut String, width: f32) {
 }
 
 /// A list to choose one of `options` by its label, with a label in front, on one line.
-fn choice(ui: &mut Ui, label: &str, options: &[(&str, &str)], index: &mut usize) {
+pub(crate) fn choice(ui: &mut Ui, label: &str, options: &[(&str, &str)], index: &mut usize) {
     ui.horizontal(|ui| {
         ui.label(label);
         ComboBox::new(label, "")
@@ -3498,7 +3543,7 @@ fn choice(ui: &mut Ui, label: &str, options: &[(&str, &str)], index: &mut usize)
     });
 }
 
-fn checkboxes(ui: &mut Ui, options: &[(&str, &str)], flags: &mut [bool]) {
+pub(crate) fn checkboxes(ui: &mut Ui, options: &[(&str, &str)], flags: &mut [bool]) {
     egui::Grid::new(ui.next_auto_id())
         .num_columns(2)
         .show(ui, |ui| {
@@ -4424,6 +4469,10 @@ fn dialog_body(
             ui.strong("Save");
             checkboxes(ui, &TREE_SAVE, &mut d.save);
         }
+        Dialog::Regression(d) => stats_dialogs_view::regression(ui, d, picked),
+        Dialog::Reliability(d) => stats_dialogs_view::reliability(ui, d, picked),
+        Dialog::NparTests(d) => stats_dialogs_view::npar_tests(ui, d, picked),
+        Dialog::PartialCorr(d) => stats_dialogs_view::partial_corr(ui, d, picked),
         Dialog::Restructure(d) => {
             ui.radio_value(
                 &mut d.kind,

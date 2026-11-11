@@ -16,6 +16,8 @@ mod highlight;
 mod output;
 mod output_view;
 mod settings;
+mod stats_dialogs;
+mod stats_dialogs_view;
 mod syntax_text;
 mod themes;
 mod updates;
