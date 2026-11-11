@@ -160,21 +160,25 @@ pub const SETTINGS: &[(&str, &str, SettingEffect)] = &[
 ];
 
 /// What SHOW can show beyond the SET subcommands.
-const SHOW_ONLY: [&str; 14] = [
+const SHOW_ONLY: [&str; 18] = [
     "ALL",
     "CC",
     "DIRECTORY",
     "ENVIRONMENT",
+    "EXTENSIONS",
     "EXTPATHS",
     "FILTER",
     "HANDLES",
     "LICENSE",
+    "MXMEMORY",
     "N",
     "PLUGINS",
     "SCOMPRESSION",
     "SPLIT",
     "SYSMIS",
+    "TMSRECORDING",
     "VERSION",
+    "WEIGHT",
 ];
 
 /// The SET subcommand a word names, written in full or shortened to three or more letters.

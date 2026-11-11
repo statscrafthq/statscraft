@@ -3,9 +3,12 @@
 //! and the DISPLAY and LIST listings.
 //!
 //! Choices where the manual is silent:
-//! - Words after PRESERVE or RESTORE (`PRESERVE LOCALE.`, as survey tools write) are ignored
-//!   with a warning: the command stores or brings back every setting, LOCALE among them.
-//!   RESTORE without PRESERVE does nothing, with a warning.
+//! - A SET subcommand name after PRESERVE or RESTORE (`PRESERVE LOCALE.`, as survey tools write)
+//!   is accepted: the command stores or brings back every setting, LOCALE among them. RESTORE
+//!   warns when it brings back settings besides the named ones (and DECIMAL, which a locale
+//!   sets) that changed after PRESERVE. Other words are ignored with a warning. RESTORE without
+//!   PRESERVE does nothing, with a warning.
+//! - SET LOCALE sets DECIMAL to the locale's decimal mark; OSLOCALE gives DOT, the default.
 //! - DATASET ACTIVATE warns when the dataset it replaces has no name, since that one is closed.
 //! - SET FORMAT applies to the new numeric variables of the commands that follow, except those
 //!   that read a data file.
@@ -315,14 +318,19 @@ impl Engine {
             if i > 0 {
                 out.push_str("PRESERVE.\n");
             }
-            let changed: Vec<String> = settings
+            // LOCALE sets DECIMAL, so it comes first and DECIMAL is written after it
+            let locale = settings_before.get("LOCALE") != settings.get("LOCALE");
+            let mut changed: Vec<String> = settings
                 .iter()
-                .filter(|(name, value)| settings_before.get(*name) != Some(*value))
+                .filter(|(name, value)| {
+                    settings_before.get(*name) != Some(*value) || (locale && *name == "DECIMAL")
+                })
                 .map(|(name, value)| match value.starts_with('[') {
                     true => format!("{name}={value}"),
                     false => format!("{name}='{}'", value.replace('\'', "''")),
                 })
                 .collect();
+            changed.sort_by_key(|set| !set.starts_with("LOCALE="));
             if !changed.is_empty() {
                 out.push_str(&format!("SET {}.\n", changed.join(" ")));
             }
@@ -422,6 +430,7 @@ impl Engine {
                 self.ignored_words("RESTORE", "brings back", words);
                 match self.session.preserved.pop() {
                     Some((settings, cwd)) => {
+                        self.restore_also(words, &settings, &cwd);
                         self.session.settings = settings;
                         self.session.cwd = cwd;
                         self.random.get_mut().mt_active = self.setting("RNG") == "MT";
@@ -476,12 +485,62 @@ impl Engine {
         Ok(Vec::new())
     }
 
-    /// The words after PRESERVE or RESTORE, which `does` every setting anyway.
+    /// The words after PRESERVE or RESTORE, which `does` every setting anyway. A SET subcommand
+    /// name (`PRESERVE LOCALE`, as survey tools write) is among every setting, so only other
+    /// words get a warning.
     fn ignored_words(&mut self, command: &str, does: &str, words: &[String]) {
-        if !words.is_empty() {
+        let other: Vec<&str> = words
+            .iter()
+            .filter(|w| !SETTINGS.iter().any(|s| s.0 == w.as_str()))
+            .map(String::as_str)
+            .collect();
+        if !other.is_empty() {
             self.warn(format!(
                 "{command} takes no specifications and {does} every setting; {} ignored",
-                words.join(" ")
+                other.join(" ")
+            ));
+        }
+    }
+
+    /// Warns when `RESTORE LOCALE` brings back more than the settings it names: those that
+    /// changed after PRESERVE. DECIMAL goes with LOCALE, since a locale sets it.
+    fn restore_also(
+        &mut self,
+        words: &[String],
+        stored: &BTreeMap<String, String>,
+        cwd: &Option<PathBuf>,
+    ) {
+        let named = |name: &str| {
+            words.iter().any(|w| w == name)
+                || (name == "DECIMAL" && words.iter().any(|w| w == "LOCALE"))
+        };
+        if !words
+            .iter()
+            .any(|w| SETTINGS.iter().any(|s| s.0 == w.as_str()))
+        {
+            return;
+        }
+        let current = &self.session.settings;
+        let value = |settings: &BTreeMap<String, String>, name: &str| {
+            let default = SETTINGS.iter().find(|s| s.0 == name).map(|s| s.1);
+            settings.get(name).cloned().or(default.map(String::from))
+        };
+        let mut also: Vec<String> = current
+            .keys()
+            .chain(stored.keys())
+            .filter(|name| !named(name) && value(current, name) != value(stored, name))
+            .cloned()
+            .collect();
+        also.sort();
+        also.dedup();
+        if *cwd != self.session.cwd {
+            also.push("the CD folder".into());
+        }
+        if !also.is_empty() {
+            self.warn(format!(
+                "every setting comes back, not only {}: also {}, changed after PRESERVE",
+                words.join(" "),
+                also.join(", ")
             ));
         }
     }
@@ -520,6 +579,26 @@ impl Engine {
                         self.warn(
                             "SET UNICODE=OFF has no effect: Statscraft always works in Unicode",
                         );
+                        continue;
+                    }
+                }
+                "LOCALE" => {
+                    // a locale sets the decimal mark, as a later SET DECIMAL may change again;
+                    // Statscraft starts with DOT whatever the system, so OSLOCALE brings DOT back
+                    let os = value.eq_ignore_ascii_case("OSLOCALE");
+                    match if os {
+                        Some("DOT")
+                    } else {
+                        crate::locale::decimal(value)
+                    } {
+                        Some(mark) => {
+                            self.session.settings.insert("DECIMAL".into(), mark.into());
+                        }
+                        None => self.warn(format!(
+                            "SET LOCALE: the decimal mark of locale {value} is not known, so \
+                             DECIMAL stays {}; give SET DECIMAL to be sure",
+                            self.setting("DECIMAL")
+                        )),
                     }
                 }
                 "SEED" => {
@@ -609,9 +688,10 @@ impl Engine {
             names
         };
         let data = self.dataset.as_ref();
-        let rows = names
+        let shown: Vec<(&String, String, &str)> = names
             .iter()
             .map(|name| {
+                let none = || "none".to_string();
                 let value = match name.as_str() {
                     "N" => data.map_or_else(|| "UNKNOWN".into(), |d| d.case_count().to_string()),
                     "WEIGHT" => data
@@ -645,12 +725,60 @@ impl Engine {
                         .map(|c| format!("{c} {}", self.setting(c)))
                         .collect::<Vec<_>>()
                         .join("; "),
+                    "ENVIRONMENT" => {
+                        format!("{} {}", std::env::consts::OS, std::env::consts::ARCH)
+                    }
+                    "LICENSE" => "MIT".into(),
+                    "SCOMPRESSION" => "ON".into(),
+                    "TMSRECORDING" => "NO".into(),
+                    "$VARS" => "$CASENUM = the case number; $SYSMIS = system-missing".into(),
+                    "EXTPATHS" | "PLUGINS" | "EXTENSIONS" | "MXMEMORY" => none(),
                     other => self.setting(other),
                 };
-                vec![text(name.clone()), text(value)]
+                let note = match name.as_str() {
+                    "LICENSE" => "open source: every part of Statscraft is included",
+                    "SCOMPRESSION" => "SAVE writes compressed files, zlib compressed for .zsav",
+                    "TMSRECORDING" => "Statscraft has no TMS BEGIN",
+                    "$VARS" => "$DATE, $JDATE, $TIME, $LENGTH and $WIDTH are not supported yet",
+                    "EXTPATHS" => {
+                        "Statscraft has no custom dialogs, extension commands or R packages"
+                    }
+                    "PLUGINS" => "Statscraft runs no Python or R code",
+                    "EXTENSIONS" | "MXMEMORY" => "no longer in use",
+                    "LOCALE" => "files are always Unicode; the locale sets DECIMAL",
+                    "UNICODE" => "Statscraft always works in Unicode",
+                    other => match SETTINGS.iter().find(|s| s.0 == other).map(|s| s.2) {
+                        Some(SettingEffect::Silent) => "about speed, memory or messages: no effect",
+                        Some(SettingEffect::Appearance) => "output does not follow it",
+                        Some(SettingEffect::NotYet) => "results do not follow it yet",
+                        _ => "",
+                    },
+                };
+                (name, value, note)
             })
             .collect();
-        let mut table = table("Settings", &["Setting", "Value"], rows);
+        // a Note column only when a shown setting has one
+        let notes = shown.iter().any(|(_, _, note)| !note.is_empty());
+        let rows = shown
+            .into_iter()
+            .map(|(name, value, note)| {
+                let mut row = vec![text(name.clone()), text(value)];
+                if notes {
+                    row.push(if note.is_empty() {
+                        Cell::Empty
+                    } else {
+                        text(note)
+                    });
+                }
+                row
+            })
+            .collect();
+        let columns: &[&str] = if notes {
+            &["Setting", "Value", "Note"]
+        } else {
+            &["Setting", "Value"]
+        };
+        let mut table = table("Settings", columns, rows);
         table.row_headers = 1;
         table
     }

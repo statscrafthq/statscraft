@@ -10,7 +10,9 @@ Show the current settings.
 SHOW [ALL] [setting ...].
 ```
 
-Any SET subcommand, and N, WEIGHT, FILTER, SPLIT, DIRECTORY, SYSMIS, VERSION, HANDLES (the file handles). SEED shows where the MC generator stands.
+Any SET subcommand, and N, WEIGHT, FILTER, SPLIT, DIRECTORY, SYSMIS, VERSION, HANDLES (the file handles), CC (CCA to CCE), ENVIRONMENT, LICENSE, \$VARS, SCOMPRESSION, EXTPATHS, PLUGINS, TMSRECORDING, EXTENSIONS and MXMEMORY. SEED shows where the MC generator stands.
+
+A setting Statscraft does not follow shows what Statscraft uses, with a note in a Note column.
 
 Without names: the main settings.
 

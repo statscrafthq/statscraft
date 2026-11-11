@@ -119,7 +119,7 @@ fn settings_are_kept_shown_preserved_and_restored() {
         &mut session,
         "SET FORMAT=F5.1 TNUMBERS=BOTH LOCALE='en_UK'.\n\
          COMPUTE y = q1 * 2.\n\
-         PRESERVE LOCALE.\n\
+         PRESERVE LOCALE WIBBLE.\n\
          SET FORMAT F3.0.\n\
          COMPUTE z = 1.\n\
          RESTORE.\n\
@@ -135,12 +135,15 @@ fn settings_are_kept_shown_preserved_and_restored() {
     assert!(warnings[0].contains("TNUMBERS only changes how output looks"));
     assert_eq!(
         warnings[1],
-        "PRESERVE takes no specifications and stores every setting; LOCALE ignored"
+        "PRESERVE takes no specifications and stores every setting; WIBBLE ignored"
     );
     let show = tables(&result)[0];
-    assert_eq!(row(show, 0), "FORMAT|F5.1");
-    assert_eq!(row(show, 1), "LOCALE|en_UK");
-    assert_eq!(row(show, 2), "N|8");
+    assert_eq!(row(show, 0), "FORMAT|F5.1|");
+    assert_eq!(
+        row(show, 1),
+        "LOCALE|en_UK|files are always Unicode; the locale sets DECIMAL"
+    );
+    assert_eq!(row(show, 2), "N|8|");
     let error = session.run("SET FORMAT=A8.", None).unwrap_err();
     assert!(error[0].message.contains("simple F format"));
     let error = session.run("SET WIBBLE=1.", None).unwrap_err();
@@ -168,22 +171,144 @@ fn restore_brings_back_every_setting_with_the_currencies_and_the_macro_settings(
          SHOW DECIMAL LOCALE.",
     );
     let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
+    // LOCALE after PRESERVE and RESTORE is among every setting; DECIMAL goes with the locale,
+    // the other settings changed in between are named
     assert_eq!(
         warnings,
-        [
-            "PRESERVE takes no specifications and stores every setting; LOCALE ignored",
-            "RESTORE takes no specifications and brings back every setting; LOCALE ignored"
-        ]
+        ["every setting comes back, not only LOCALE: also CCA, MPRINT, changed after PRESERVE"]
     );
     let lists = tables(&result);
     assert_eq!(row(lists[0], 0), "-1.50 EUR");
     assert_eq!(row(lists[1], 0), "($1.50)");
     let show = lists[2];
-    assert_eq!(row(show, 0), "DECIMAL|COMMA");
-    assert_eq!(row(show, 1), "LOCALE|OSLOCALE");
+    assert_eq!(row(show, 0), "DECIMAL|COMMA|");
+    assert!(row(show, 1).starts_with("LOCALE|OSLOCALE|"));
     // MPRINT=YES came after PRESERVE, so RESTORE turned it off before LIST !p
     let titles: Vec<&str> = lists.iter().map(|t| t.title.as_str()).collect();
     assert!(!titles.contains(&"Macro expansion"), "{titles:?}");
+}
+
+fn warnings(result: &RunResult) -> Vec<&String> {
+    result.commands.iter().flat_map(|c| &c.warnings).collect()
+}
+
+#[test]
+fn set_locale_sets_the_decimal_mark_and_the_survey_sequence_runs_without_a_warning() {
+    let dir = temp_dir("locale");
+    std::fs::write(dir.join("comma.dat"), "1;2,5\n").unwrap();
+    std::fs::write(dir.join("dot.dat"), "1,2.5\n").unwrap();
+    let mut session = Session::default();
+    session.set_base_dir(Some(dir.clone()));
+    let get = |file: &str, delimiter: char| {
+        format!(
+            "GET DATA /TYPE=TXT /FILE='{file}' /DELCASE=LINE /DELIMITERS=\"{delimiter}\"\n\
+             /ARRANGEMENT=DELIMITED /FIRSTCASE=1 /VARIABLES=id F1 x F4.1.\n"
+        )
+    };
+    let x = |session: &Session| match session.dataset().unwrap().variable("x").unwrap().values() {
+        statscraft_data::Values::Numeric(v) => v.iter().collect::<Vec<_>>(),
+        _ => panic!("x is a string"),
+    };
+    // a locale with a decimal comma reads 2,5 as 2.5; the code page part changes nothing
+    let estonian = format!(
+        "CD '{}'.\nSET LOCALE='Estonian_Estonia.1257'.\n{}",
+        dir.display(),
+        get("comma.dat", ';')
+    );
+    let result = run(&mut session, &estonian);
+    assert!(warnings(&result).is_empty(), "{:?}", warnings(&result));
+    assert_eq!(x(&session), [Some(2.5)]);
+    // the sequence survey tools write: no warning, and RESTORE brings the comma back
+    let survey = format!(
+        "PRESERVE LOCALE.\nSET LOCALE='en_UK'.\nSET DECIMAL=DOT.\n{}RESTORE LOCALE.\n\
+         SHOW DECIMAL LOCALE.",
+        get("dot.dat", ',')
+    );
+    let result = run(&mut session, &survey);
+    assert!(warnings(&result).is_empty(), "{:?}", warnings(&result));
+    assert_eq!(x(&session), [Some(2.5)]);
+    let show = tables(&result)[0];
+    assert_eq!(row(show, 0), "DECIMAL|COMMA|");
+    assert!(row(show, 1).starts_with("LOCALE|Estonian_Estonia.1257|"));
+
+    // a later LOCALE overrides DECIMAL, a later DECIMAL overrides the locale's
+    let result = run(
+        &mut session,
+        "SET DECIMAL=COMMA LOCALE='en_US'.\nSHOW DECIMAL.\n\
+         SET LOCALE='de_DE' DECIMAL=DOT.\nSHOW DECIMAL.\n\
+         SET LOCALE=OSLOCALE.\nSHOW DECIMAL.\n\
+         SET DECIMAL=COMMA LOCALE='xx_YY'.\nSHOW DECIMAL.",
+    );
+    let shown: Vec<String> = tables(&result).iter().map(|t| row(t, 0)).collect();
+    assert_eq!(
+        shown,
+        ["DECIMAL|DOT", "DECIMAL|DOT", "DECIMAL|DOT", "DECIMAL|COMMA"]
+    );
+    assert_eq!(
+        warnings(&result),
+        [
+            "SET LOCALE: the decimal mark of locale xx_YY is not known, so DECIMAL stays COMMA; \
+             give SET DECIMAL to be sure"
+        ]
+    );
+    // RESTORE LOCALE names what else it brings back, where results could differ
+    let result = run(
+        &mut session,
+        "PRESERVE.\nSET LOCALE='fr_FR' FORMAT=F4.1.\nRESTORE LOCALE.",
+    );
+    assert_eq!(
+        warnings(&result),
+        ["every setting comes back, not only LOCALE: also FORMAT, changed after PRESERVE"]
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn show_takes_every_keyword_of_the_manual() {
+    let mut session = Session::default();
+    run(&mut session, DATA);
+    let keywords = "ALL BASETEXTDIRECTION BLANKS BOX BLOCK CC CCA CCB CCC CCD CCE CACHE CMPTRANS \
+                    CTEMPLATE DECIMAL DEFOLANG DIGITGROUPING DIRECTORY ENVIRONMENT EPOCH ERRORS \
+                    EXTENSIONS EXTPATHS FILTER FORMAT FUZZBITS HANDLES HEADER JOURNAL LEADZERO \
+                    LENGTH LICENSE LOCALE MCACHE MDISPLAY MESSAGES MEXPAND MIOUTPUT MITERATE MNEST \
+                    MPRINT MXCELLS MXERRS MXLOOPS MXMEMORY MXWARNS N OATTRS ODISPLAY OLANG ONUMBERS \
+                    OVARS PLUGINS PRINTBACK REPDEFER RESULTS RNG SCALEMIN SCOMPRESSION SEED SMALL \
+                    SORT SPLIT SYSMIS TABLERENDER TFIT THREADS TLOOK TMSRECORDING TNUMBERS TVARS \
+                    UNDEFINED UNICODE VERSION WEIGHT WIDTH WORKSPACE XVERSION ZCOMPRESSION $VARS";
+    for keyword in keywords.split_whitespace() {
+        let result = session.run(&format!("SHOW {keyword}."), None);
+        let result = result.unwrap_or_else(|e| panic!("SHOW {keyword}: {e:?}"));
+        assert!(!tables(&result)[0].rows.is_empty(), "SHOW {keyword}");
+    }
+    let result = run(
+        &mut session,
+        "WEIGHT BY age.\nSET UNICODE=OFF.\n\
+         SHOW WEIGHT TMSRECORDING SCOMPRESSION EXTENSIONS PLUGINS LICENSE UNICODE CACHE TNUMBERS \
+         FUZZBITS $VARS.",
+    );
+    assert_eq!(
+        warnings(&result),
+        ["SET UNICODE=OFF has no effect: Statscraft always works in Unicode"]
+    );
+    let show = tables(&result)[0];
+    let rows: Vec<String> = (0..show.rows.len()).map(|r| row(show, r)).collect();
+    assert_eq!(
+        rows,
+        [
+            "WEIGHT|Weighted by age|",
+            "TMSRECORDING|NO|Statscraft has no TMS BEGIN",
+            "SCOMPRESSION|ON|SAVE writes compressed files, zlib compressed for .zsav",
+            "EXTENSIONS|none|no longer in use",
+            "PLUGINS|none|Statscraft runs no Python or R code",
+            "LICENSE|MIT|open source: every part of Statscraft is included",
+            "UNICODE|ON|Statscraft always works in Unicode",
+            "CACHE|20|about speed, memory or messages: no effect",
+            "TNUMBERS|LABELS|output does not follow it",
+            "FUZZBITS|6|results do not follow it yet",
+            "$VARS|$CASENUM = the case number; $SYSMIS = system-missing|$DATE, $JDATE, $TIME, \
+             $LENGTH and $WIDTH are not supported yet",
+        ]
+    );
 }
 
 #[test]

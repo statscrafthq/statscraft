@@ -12,7 +12,7 @@ PRESERVE.
 
 Stores every setting of SET (CCA to CCE, DECIMAL, FORMAT, LOCALE, MPRINT, MEXPAND, MNEST, MITERATE and the rest) and the folder of CD. PRESERVE and RESTORE nest up to five levels.
 
-Words after PRESERVE (PRESERVE LOCALE, as survey tools write it) are ignored with a warning: every setting is stored anyway.
+A SET subcommand name after PRESERVE (PRESERVE LOCALE, as survey tools write it) is accepted, since every setting is stored anyway; other words are ignored with a warning.
 
 ## Example
 

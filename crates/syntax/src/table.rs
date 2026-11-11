@@ -1605,7 +1605,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "SET subcommand[=]value [[/] subcommand[=]value ...].\n\
                  Followed: FORMAT=Fw.d (format of new numeric variables, default F8.2), DECIMAL=DOT | COMMA\n\
                  (decimal mark when reading text data), MPRINT, MEXPAND, MNEST, MITERATE (see DEFINE),\n\
-                 LOCALE, UNICODE (Statscraft always works in Unicode), PRINTBACK, CCA to CCE='negative\n\
+                 LOCALE='name' (sets DECIMAL to the decimal mark of the locale: et_EE, de_DE give COMMA,\n\
+                 en_US, en_UK give DOT; OSLOCALE gives DOT; a later DECIMAL overrides it; files are always\n\
+                 Unicode, so a code page in the name changes nothing), UNICODE (Statscraft always works in\n\
+                 Unicode; OFF has no effect), PRINTBACK, CCA to CCE='negative\n\
                  prefix,prefix,suffix,negative suffix' (custom currency formats; three commas, or three periods\n\
                  when the decimal mark is a comma; ' before a period or comma makes it text), RNG=MC | MT\n\
                  (the generator of random numbers), SEED=n | RANDOM (starts the MC generator again; a whole\n\
@@ -1624,7 +1627,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "Show the current settings.",
         syntax: "SHOW [ALL] [setting ...].\n\
                  Any SET subcommand, and N, WEIGHT, FILTER, SPLIT, DIRECTORY, SYSMIS, VERSION, HANDLES (the file\n\
-                 handles). SEED shows where the MC generator stands.\n\
+                 handles), CC (CCA to CCE), ENVIRONMENT, LICENSE, $VARS, SCOMPRESSION, EXTPATHS, PLUGINS,\n\
+                 TMSRECORDING, EXTENSIONS and MXMEMORY. SEED shows where the MC generator stands.\n\
+                 A setting Statscraft does not follow shows what Statscraft uses, with a note in a Note column.\n\
                  Without names: the main settings.",
         example: "SHOW FORMAT DECIMAL LOCALE.",
         parse: session_commands::show,
@@ -1635,8 +1640,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "PRESERVE.\n\
                  Stores every setting of SET (CCA to CCE, DECIMAL, FORMAT, LOCALE, MPRINT, MEXPAND, MNEST,\n\
                  MITERATE and the rest) and the folder of CD. PRESERVE and RESTORE nest up to five levels.\n\
-                 Words after PRESERVE (PRESERVE LOCALE, as survey tools write it) are ignored with a\n\
-                 warning: every setting is stored anyway.",
+                 A SET subcommand name after PRESERVE (PRESERVE LOCALE, as survey tools write it) is\n\
+                 accepted, since every setting is stored anyway; other words are ignored with a warning.",
         example: "PRESERVE.",
         parse: session_commands::preserve,
     },
@@ -1645,8 +1650,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "Bring back the settings and folder the last PRESERVE stored.",
         syntax: "RESTORE.\n\
                  Every setting and the folder come back as the last PRESERVE stored them; a RESTORE without\n\
-                 PRESERVE does nothing, with a warning. Words after RESTORE (RESTORE LOCALE) are ignored with\n\
-                 a warning: every setting comes back.",
+                 PRESERVE does nothing, with a warning. After RESTORE LOCALE (or another SET subcommand name)\n\
+                 every setting still comes back; a warning names the settings besides LOCALE and DECIMAL that\n\
+                 changed after PRESERVE and so come back too. Other words are ignored with a warning.",
         example: "RESTORE.",
         parse: session_commands::restore,
     },

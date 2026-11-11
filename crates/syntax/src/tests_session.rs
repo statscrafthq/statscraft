@@ -57,6 +57,15 @@ fn show_preserve_restore_cache_and_cd() {
         ])
     );
     assert_eq!(one("SHOW."), Command::Show(vec![]));
+    // the keywords SHOW has beyond the SET subcommands
+    assert_eq!(
+        one("SHOW WEIGHT TMSRECORDING EXTENSIONS MXMEMORY."),
+        Command::Show(
+            ["WEIGHT", "TMSRECORDING", "EXTENSIONS", "MXMEMORY"]
+                .map(String::from)
+                .to_vec()
+        )
+    );
     assert_eq!(
         err("SHOW NONSENSE."),
         "line 1, column 6: unknown SHOW keyword NONSENSE"

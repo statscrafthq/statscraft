@@ -837,7 +837,8 @@ mod tests {
         let mut session = survey();
         let result = session
             .run(
-                "SET FORMAT=F10.3 CCA='-,EUR ,,' LOCALE='et_EE'.\nPRESERVE.\nSET DECIMAL=COMMA.",
+                "SET FORMAT=F10.3 CCA='-,EUR ,,' LOCALE='et_EE' DECIMAL=DOT.\nPRESERVE.\n\
+                 SET DECIMAL=COMMA.",
                 None,
             )
             .unwrap();
@@ -846,14 +847,17 @@ mod tests {
         let text = session.settings_syntax();
         assert_eq!(
             text,
-            "SET CCA='-,EUR ,,' FORMAT='F10.3' LOCALE='et_EE'.\nPRESERVE.\nSET DECIMAL='COMMA'.\n"
+            // LOCALE first: it sets DECIMAL, which the DECIMAL after it overrides
+            "SET LOCALE='et_EE' CCA='-,EUR ,,' DECIMAL='DOT' FORMAT='F10.3'.\nPRESERVE.\n\
+             SET DECIMAL='COMMA'.\n"
         );
         let mut next = Session::default();
         next.restore_settings(&text).unwrap();
         assert_eq!(next.settings_syntax(), text);
         // the PRESERVE level came back too: RESTORE returns to the outer settings
         next.run("RESTORE.", None).unwrap();
-        assert!(!next.settings_syntax().contains("DECIMAL"));
+        assert!(next.settings_syntax().contains("DECIMAL='DOT'"));
+        assert!(!next.settings_syntax().contains("COMMA"));
         assert!(next.describe(false).unwrap().contains("FORMAT=F10.3"));
 
         let cd = "PRESERVE.\nCD 'it''s here'.";

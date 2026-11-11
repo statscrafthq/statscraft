@@ -25,6 +25,7 @@ mod glm;
 mod html;
 mod input;
 pub mod live;
+mod locale;
 mod logistic;
 mod loops;
 mod matrix;
