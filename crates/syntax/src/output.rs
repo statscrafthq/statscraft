@@ -559,7 +559,8 @@ fn print_command(p: &mut Parser, kind: PrintKind) -> PResult<Command> {
     if kind == PrintKind::Write {
         known.push("BOM");
     }
-    while !p.at(Punct::Slash) {
+    // PRINT EJECT alone only starts a new page
+    while !p.at(Punct::Slash) && !(kind == PrintKind::PrintEject && p.peek().is_none()) {
         if p.eat_keyword("OUTFILE") {
             p.eat(Punct::Eq);
             print.outfile = Some(p.file("a quoted file path or a file handle")?);

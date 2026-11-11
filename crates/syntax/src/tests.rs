@@ -383,7 +383,7 @@ fn real_but_unsupported_commands_say_so() {
         ("QUICK CLUSTER a b.", "QUICK CLUSTER"),
         ("factor /variables=a.", "FACTOR"),
         ("GLM a BY b.", "GLM"),
-        ("LEAVE total.", "LEAVE"),
+        ("REPORT /FORMAT=LIST.", "REPORT"),
         ("DISC /GROUPS=a(1,2).", "DISCRIMINANT"),
     ] {
         let error = err(source);
@@ -1126,7 +1126,7 @@ fn command_names_resolve_from_their_words() {
 #[test]
 fn help_lists_every_command() {
     let overview = help(None).unwrap();
-    assert_eq!(command_names().len(), 115);
+    assert_eq!(command_names().len(), 125);
     for spec in table::COMMANDS {
         assert!(overview.contains(spec.name) && overview.contains(spec.summary));
     }
@@ -1269,7 +1269,11 @@ fn string_and_numeric() {
         "NUMERIC needs a numeric format such as F8.2"
     );
     assert_eq!(err("NUMERIC score (F5.1) extra").expected[0], "'/'");
-    assert!(err("STRING a TO c (A8).").message.contains("reserved word"));
+    assert!(err("STRING a TO c (A8).").message.contains("same stem"));
+    let Command::String(groups) = one("STRING a1 TO a3 (A8).") else {
+        panic!()
+    };
+    assert_eq!(groups[0].0, ["a1", "a2", "a3"]);
 }
 
 #[test]

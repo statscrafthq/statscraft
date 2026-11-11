@@ -10,6 +10,7 @@ use crate::examine;
 use crate::files;
 use crate::frequencies;
 use crate::get_data;
+use crate::input_program;
 use crate::lexer::{Punct, Token, TokenKind};
 use crate::loops;
 use crate::mrsets;
@@ -43,11 +44,14 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "DATA LIST",
         summary: "Define text data, inline or in a file, and read it as the new active dataset.",
         syntax: "DATA LIST [FILE='path'] [FIXED | FREE [(delimiters)] | LIST [(delimiters)]] [RECORDS=n] [SKIP=n]\n\
-                 \x20         /[record] var [TO var] columns [(type[,decimals])] | (formats) [/ ...].\n\
+                 \x20         [END=var] /[record] var [TO var] columns [(type[,decimals])] | (formats) [/ ...].\n\
                  FIXED (the default): columns such as 1-3, or formats such as (F2.0, 1X, A10) with Tn and nX.\n\
                  FREE and LIST: var [(format)], values separated by blanks and commas or by the delimiters\n\
                  given as quoted characters or TAB; LIST reads one case per line. * ends a run of F8.2 variables.\n\
-                 Without FILE the data follow between BEGIN DATA and END DATA.\n\
+                 Without FILE the data follow between BEGIN DATA and END DATA; transformations may stand\n\
+                 between. Inside INPUT PROGRAM each run reads the next case's records into the case being\n\
+                 built; without variables it passes over a record. END (fixed data in an input program\n\
+                 only) names a variable that is 0, and 1 once the data are used up.\n\
                  Formats: F, N, E, COMMA, DOT, DOLLAR, PCT, A, DATE, ADATE, EDATE, SDATE.\n\
                  A value that cannot be read is system-missing, with a warning naming its line.",
         example: "DATA LIST LIST /id (F3) name (A12) score.",
@@ -62,6 +66,123 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  BEGIN DATA and END DATA each stand alone on their line. Every line between is data.",
         example: "BEGIN DATA\n1 'Ann' 12.5\nEND DATA.",
         parse: data_list::begin_data,
+    },
+    CommandSpec {
+        name: "INPUT PROGRAM",
+        summary: "Start an input program: commands that build the cases of a new active dataset.",
+        syntax: "INPUT PROGRAM.\n\
+                 \x20 DATA LIST, REREAD, REPEATING DATA, END CASE, END FILE and transformations\n\
+                 END INPUT PROGRAM.\n\
+                 The commands run again and again, each time from the top, until a DATA LIST runs out\n\
+                 of data or END FILE runs. Each run builds a case at its end, or at each END CASE when\n\
+                 the program has one. Before each case the variables are blank or system-missing again,\n\
+                 except scratch variables and those named on LEAVE. A run that reads no record and does\n\
+                 not end the file is an error, since it would repeat forever. SELECT IF, SAMPLE, FILTER,\n\
+                 TEMPORARY and procedures cannot stand inside. The program runs right away, or at\n\
+                 BEGIN DATA when it reads inline data.",
+        example: "INPUT PROGRAM.\nDATA LIST /#n 1 head 3-4 (A).\nLEAVE head.\nLOOP #i = 1 TO #n.\nDATA LIST /item 1-2.\nEND CASE.\nEND LOOP.\nEND INPUT PROGRAM.",
+        parse: input_program::input_program,
+    },
+    CommandSpec {
+        name: "END INPUT PROGRAM",
+        summary: "End an input program and run it.",
+        syntax: "END INPUT PROGRAM.",
+        example: "INPUT PROGRAM.\nLOOP #i = 1 TO 5.\nCOMPUTE x = #i.\nEND CASE.\nEND LOOP.\nEND FILE.\nEND INPUT PROGRAM.",
+        parse: input_program::end_input_program,
+    },
+    CommandSpec {
+        name: "END CASE",
+        summary: "In an input program: add the case built so far to the dataset and go on.",
+        syntax: "END CASE.\n\
+                 The program goes on with the command after END CASE, with the variables blank or\n\
+                 system-missing again except scratch and LEAVE variables. With END CASE in a program\n\
+                 no case is built at the end of a run.",
+        example: "LOOP #i = 1 TO 3.\nCOMPUTE x = v(#i).\nEND CASE.\nEND LOOP.",
+        parse: input_program::end_case,
+    },
+    CommandSpec {
+        name: "END FILE",
+        summary: "In an input program or FILE TYPE: stop reading; the case being built is dropped.",
+        syntax: "END FILE.\n\
+                 Usually inside DO IF. Put END CASE before it to keep the case being built.",
+        example: "DO IF year >= 1881.\nEND FILE.\nEND IF.",
+        parse: input_program::end_file,
+    },
+    CommandSpec {
+        name: "LEAVE",
+        summary: "Keep the values of new variables from case to case instead of resetting them.",
+        syntax: "LEAVE varlist.\n\
+                 The variables must be new: made by the transformations since the data were last read,\n\
+                 before LEAVE, and not scratch variables. A numeric one starts at 0 for the first case,\n\
+                 a string one blank; each later case starts with the value the case before ended with.\n\
+                 In an input program the variables are not reset before each case.",
+        example: "COMPUTE total = total + salary.\nLEAVE total.",
+        parse: input_program::leave,
+    },
+    CommandSpec {
+        name: "REREAD",
+        summary: "In an input program: let the next DATA LIST read the last record again.",
+        syntax: "REREAD [FILE='path' | handle] [COLUMN = expression].\n\
+                 COLUMN makes that column of the record column 1 for the DATA LIST (default 1). FILE\n\
+                 names the data of the DATA LIST to reread (default: the last DATA LIST's); a DATA\n\
+                 LIST that reads other data ignores the REREAD. Of several REREAD commands in a row\n\
+                 the last counts.",
+        example: "DATA LIST /kind 10-14 (A).\nDO IF kind = 'FORD'.\nREREAD.\nDATA LIST /price 3-6 (DOLLAR,2).\nEND CASE.\nEND IF.",
+        parse: input_program::reread,
+    },
+    CommandSpec {
+        name: "REPEATING DATA",
+        summary: "In an input program or FILE TYPE: one case per repeating group of a record.",
+        syntax: "REPEATING DATA [FILE='path' | handle] [/ENCODING='UTF-8'] /STARTS=column[-column]\n\
+                 \x20   /OCCURS=n [/LENGTH=n] [/CONTINUED[=column[-column]]] [/ID=columns=var]\n\
+                 \x20   [/TABLE | /NOTABLE] /DATA=variables as on DATA LIST.\n\
+                 STARTS, OCCURS, LENGTH and the end column on STARTS take a number or a variable.\n\
+                 Reads OCCURS groups from the record the last DATA LIST read, starting in column\n\
+                 STARTS; the columns on DATA count from the start of a group. A group is LENGTH\n\
+                 columns, by default up to the last variable or skip. Each group gives a case with the\n\
+                 values of the other variables spread to it. CONTINUED: groups that do not fit before\n\
+                 the end column (default 80, or the longest record) go on in the next records, from\n\
+                 the column given (default 1); ID checks that an identifier on those records matches.\n\
+                 OCCURS missing or below 1 gives no case.",
+        example: "DATA LIST /seqnum 2-4 numveh 9-10.\nREPEATING DATA STARTS=12 /OCCURS=numveh\n /DATA=make 1-8 (A) model 9 (A) numcyl 10.",
+        parse: input_program::repeating_data,
+    },
+    CommandSpec {
+        name: "FILE TYPE",
+        summary: "Start the definition of a file with several kinds of records.",
+        syntax: "FILE TYPE MIXED | GROUPED | NESTED [FILE='path' | handle] [ENCODING='UTF-8']\n\
+                 \x20   RECORD=[var] columns [(format)] [CASE=[var] columns [(format)]]\n\
+                 \x20   [WILD=WARN | NOWARN] [DUPLICATE=WARN | NOWARN | CASE] [MISSING=WARN | NOWARN]\n\
+                 \x20   [ORDERED=YES | NO].\n\
+                 RECORD TYPE value ... / DATA LIST ... pairs follow, then END FILE TYPE.\n\
+                 MIXED: each record of a listed type is a case; others are skipped. GROUPED: the\n\
+                 records with one CASE value make one case (CASE required). NESTED: the RECORD TYPE\n\
+                 commands go from the highest level to the lowest; each lowest-level record is a case\n\
+                 with the values of the records above it. Defaults: WILD=NOWARN (WARN for grouped),\n\
+                 DUPLICATE and MISSING WARN for grouped and NOWARN for nested, ORDERED=YES (grouped\n\
+                 only); DUPLICATE=CASE (nested) makes a case of a record that has no records below it.",
+        example: "FILE TYPE GROUPED RECORD=#test 6 CASE=student 1-4.\nRECORD TYPE 1.\nDATA LIST /english 8-9 (A).\nRECORD TYPE 2.\nDATA LIST /reading 8-10.\nEND FILE TYPE.",
+        parse: input_program::file_type,
+    },
+    CommandSpec {
+        name: "RECORD TYPE",
+        summary: "Inside FILE TYPE: the record types the following DATA LIST reads.",
+        syntax: "RECORD TYPE value [value ...] | OTHER [SKIP] [CASE=columns] [DUPLICATE=WARN | NOWARN]\n\
+                 \x20   [MISSING=WARN | NOWARN] [SPREAD=YES | NO].\n\
+                 Values are numbers, or quoted strings for a string record identifier. OTHER stands\n\
+                 for every type not named before and comes last. SKIP passes over the records. CASE\n\
+                 gives other columns for the case identifier; DUPLICATE (grouped) and MISSING apply to\n\
+                 these types only. SPREAD=NO (nested): the values go to the first case built under the\n\
+                 record only.",
+        example: "RECORD TYPE 21, 22, 23.\nDATA LIST /sex 5 age 6-7.",
+        parse: input_program::record_type,
+    },
+    CommandSpec {
+        name: "END FILE TYPE",
+        summary: "End a FILE TYPE definition and read the file.",
+        syntax: "END FILE TYPE.",
+        example: "FILE TYPE MIXED RECORD=recid 1-2.\nRECORD TYPE 23.\nDATA LIST /sex 5 age 6-7.\nEND FILE TYPE.",
+        parse: input_program::end_file_type,
     },
     CommandSpec {
         name: "GET",
@@ -1693,23 +1814,16 @@ static UNSUPPORTED: &[&str] = &[
     "ANOVA",
     "CLUSTER",
     "DISCRIMINANT",
-    "END CASE",
     "END DATA",
-    "END FILE",
-    "END FILE TYPE",
-    "END INPUT PROGRAM",
     "END MATRIX",
     "END REPEAT",
     "EXPORT",
     "FACTOR",
-    "FILE TYPE",
     "FINISH",
     "GET TRANSLATE",
     "GLM",
     "GRAPH",
     "IMPORT",
-    "INPUT PROGRAM",
-    "LEAVE",
     "LOGISTIC REGRESSION",
     "MATRIX",
     "MATRIX DATA",
@@ -1718,10 +1832,7 @@ static UNSUPPORTED: &[&str] = &[
     "OUTPUT NEW",
     "OUTPUT SAVE",
     "QUICK CLUSTER",
-    "RECORD TYPE",
-    "REPEATING DATA",
     "REPORT",
-    "REREAD",
     "UNIANOVA",
 ];
 

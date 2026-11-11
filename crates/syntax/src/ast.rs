@@ -76,6 +76,21 @@ pub enum Command {
     DataList(DataList),
     /// The lines between BEGIN DATA and END DATA, each with its line number in the source.
     BeginData(Vec<(u32, String)>),
+    InputProgram,
+    EndInputProgram,
+    EndCase,
+    EndFile,
+    /// `LEAVE varlist`: variables that keep their value from case to case.
+    Leave(Vec<VarItem>),
+    /// `REREAD [FILE=file] [COLUMN=expression]`
+    Reread {
+        file: Option<String>,
+        column: Option<Expr>,
+    },
+    RepeatingData(Box<RepeatingData>),
+    FileType(Box<FileType>),
+    RecordType(RecordType),
+    EndFileType,
     /// `SPLIT FILE [LAYERED | SEPARATE] BY varlist`; None is `SPLIT FILE OFF`.
     SplitFile(Option<SplitFile>),
     /// `FILTER BY var`; None is `FILTER OFF`, or `FILTER` alone when `bare`.
@@ -538,6 +553,8 @@ pub struct DataList {
     pub delimiters: Vec<char>,
     /// `SKIP=n`: records to skip at the start of the data.
     pub skip: u32,
+    /// `END=var`: in an input program, the variable that turns 1 at the end of the data.
+    pub end: Option<String>,
     /// In the order of the dictionary.
     pub fields: Vec<DataField>,
 }
@@ -564,6 +581,84 @@ pub struct DataField {
     /// FIXED: the record (1-based) and the first column (1-based); the width is the format's.
     pub record: u32,
     pub column: u32,
+}
+
+/// A column given as a number or by a variable that holds it per case.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Place {
+    Column(u32),
+    Variable(String),
+}
+
+/// REPEATING DATA: one case per repeating group of the records an input program reads.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RepeatingData {
+    pub file: Option<String>,
+    /// STARTS: the first column of the groups on the first record, and the last one.
+    pub starts: Place,
+    pub ends: Option<Place>,
+    /// OCCURS: how many groups an input case has.
+    pub occurs: Place,
+    /// LENGTH: the columns of one group; without it `group_length`.
+    pub length: Option<Place>,
+    /// CONTINUED: the first and last column of the groups on continuation records.
+    pub continued: Option<(u32, Option<u32>)>,
+    /// ID: the columns of the identification variable on continuation records, and the
+    /// variable.
+    pub id: Option<(u32, u32, String)>,
+    /// DATA: the variables, with columns counted within a group.
+    pub fields: Vec<DataField>,
+    /// The columns from the start of a group to the end of the last variable or skip.
+    pub group_length: u32,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileKind {
+    Mixed,
+    Grouped,
+    Nested,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Duplicate {
+    Warn,
+    NoWarn,
+    Case,
+}
+
+/// The record or case identifier of FILE TYPE: `[name] first[-last] [(format)]`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct IdField {
+    pub name: Option<String>,
+    pub column: u32,
+    pub format: Format,
+    pub display: Format,
+}
+
+/// FILE TYPE: a file of several kinds of records. Options left out are None.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FileType {
+    pub kind: FileKind,
+    pub file: Option<String>,
+    pub record: IdField,
+    pub case: Option<IdField>,
+    /// WILD, MISSING: true is WARN.
+    pub wild: Option<bool>,
+    pub duplicate: Option<Duplicate>,
+    pub missing: Option<bool>,
+    pub ordered: Option<bool>,
+}
+
+/// RECORD TYPE: the record types the DATA LIST after it reads. No values is OTHER.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RecordType {
+    pub values: Vec<Value>,
+    pub skip: bool,
+    /// CASE: the first and last column of the case identifier on these records.
+    pub case: Option<(u32, u32)>,
+    pub duplicate: Option<Duplicate>,
+    pub missing: Option<bool>,
+    pub spread: bool,
 }
 
 /// FREQUENCIES.

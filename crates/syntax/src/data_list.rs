@@ -67,7 +67,7 @@ pub fn numbered_names(first: &str, last: &str) -> Result<Vec<String>, String> {
 }
 
 /// A positive whole number.
-fn count(p: &mut Parser, what: &str) -> PResult<u32> {
+pub(crate) fn count(p: &mut Parser, what: &str) -> PResult<u32> {
     match p.peek() {
         Some(TokenKind::Number(n)) if n.fract() == 0.0 && *n >= 1.0 && *n <= 1e9 => {
             let n = *n as u32;
@@ -132,6 +132,7 @@ fn input_format(p: &Parser, text: &str) -> PResult<Format> {
 }
 
 /// One item of a parenthesized format list.
+#[derive(Clone)]
 enum Item {
     /// A format, repeated.
     Format(u32, Format),
@@ -159,6 +160,14 @@ fn format_items(p: &mut Parser, fixed: bool) -> PResult<Vec<Item>> {
             Some(TokenKind::Number(_)) => Some(count(p, "a number")?),
             _ => None,
         };
+        // n(...) repeats a group of items
+        if p.eat(Punct::LParen) {
+            let group = format_items(p, fixed)?;
+            for _ in 0..repeat.unwrap_or(1).min(10_000) {
+                items.extend(group.iter().cloned());
+            }
+            continue;
+        }
         let Some(TokenKind::Word(word)) = p.peek() else {
             return Err(p.unexpected(&expected));
         };
@@ -180,7 +189,7 @@ fn format_items(p: &mut Parser, fixed: bool) -> PResult<Vec<Item>> {
 }
 
 /// Column-style format after the columns: `(A)`, `(F,2)`, `(DOLLAR)`, `(2)`.
-fn column_format(p: &mut Parser, width: u16) -> PResult<Format> {
+pub(crate) fn column_format(p: &mut Parser, width: u16) -> PResult<Format> {
     let mut kind = FormatType::F;
     let mut decimals = 0;
     if p.eat(Punct::LParen) {
@@ -212,11 +221,17 @@ fn column_format(p: &mut Parser, width: u16) -> PResult<Format> {
 }
 
 /// The variables of fixed-format data: per record, names with columns or with formats.
-fn fixed_fields(p: &mut Parser, records: u32) -> PResult<Vec<DataField>> {
+/// `record` is 0 when a slash must open the first record. Also returns the last column any
+/// variable or skip reaches.
+pub(crate) fn fixed_fields(
+    p: &mut Parser,
+    records: u32,
+    mut record: u32,
+) -> PResult<(Vec<DataField>, u32)> {
     let mut fields = Vec::new();
-    let mut record = 0;
     // where a format without a column starts: after the previous field of the record
     let mut cursor = 1;
+    let mut reach = 0;
     let too_many = |p: &Parser, record: u32| {
         SyntaxError::new(
             p.span(),
@@ -280,6 +295,7 @@ fn fixed_fields(p: &mut Parser, records: u32) -> PResult<Vec<DataField>> {
                 });
             }
             cursor = last + 1;
+            reach = reach.max(last);
         } else if p.eat(Punct::LParen) {
             let start = p.pos;
             let items = format_items(p, true)?;
@@ -314,6 +330,7 @@ fn fixed_fields(p: &mut Parser, records: u32) -> PResult<Vec<DataField>> {
                         }
                     }
                 }
+                reach = reach.max(cursor - 1);
             }
             if names.next().is_some() {
                 return Err(SyntaxError::new(
@@ -325,7 +342,7 @@ fn fixed_fields(p: &mut Parser, records: u32) -> PResult<Vec<DataField>> {
             return Err(p.unexpected(&["a column such as 1-3", "'(' and formats"]));
         }
     }
-    Ok(fields)
+    Ok((fields, reach))
 }
 
 /// The variables of freefield data: names, each group followed by formats, `*` or nothing.
@@ -394,6 +411,7 @@ pub(crate) fn data_list(p: &mut Parser) -> PResult<Command> {
     let mut delimiters = Vec::new();
     let mut records = None;
     let mut skip = 0;
+    let mut end = None;
     while !p.at(Punct::Slash) {
         if p.eat(Punct::Comma) {
             continue;
@@ -441,14 +459,13 @@ pub(crate) fn data_list(p: &mut Parser) -> PResult<Command> {
             p.eat(Punct::Eq);
             skip = count(p, "the number of records to skip")?;
         } else if p.eat_keyword("TABLE") || p.eat_keyword("NOTABLE") {
-        } else if p.at_keyword("END") {
-            return Err(SyntaxError::new(
-                p.span(),
-                "END on DATA LIST belongs to an input program, which is not supported yet",
-            ));
+        } else if p.eat_word("END") {
+            p.eat(Punct::Eq);
+            end = Some(p.name("a variable name")?);
         } else {
             return Err(p.unexpected(&[
-                "FILE", "FIXED", "FREE", "LIST", "RECORDS", "SKIP", "TABLE", "NOTABLE", "'/'",
+                "FILE", "FIXED", "FREE", "LIST", "RECORDS", "SKIP", "END", "TABLE", "NOTABLE",
+                "'/'",
             ]));
         }
     }
@@ -464,8 +481,14 @@ pub(crate) fn data_list(p: &mut Parser) -> PResult<Command> {
         }
         free => free,
     };
+    if end.is_some() && !matches!(layout, DataLayout::Fixed { .. }) {
+        return Err(SyntaxError::new(
+            p.span(),
+            "END is for fixed-format data only",
+        ));
+    }
     let fields = match layout {
-        DataLayout::Fixed { records } => fixed_fields(p, records)?,
+        DataLayout::Fixed { records } => fixed_fields(p, records, 0)?.0,
         _ => {
             p.expect(Punct::Slash)?;
             free_fields(p)?
@@ -480,19 +503,19 @@ pub(crate) fn data_list(p: &mut Parser) -> PResult<Command> {
                 format!("variable {} is defined twice", field.name),
             ));
         }
-        if field.name.starts_with(['#', '$']) {
+        if field.name.starts_with('$') {
             return Err(SyntaxError::new(
                 p.span(),
                 format!(
-                    "{} cannot be defined on DATA LIST: scratch and system variables are not \
-                     supported there",
+                    "{} cannot be defined on DATA LIST: it is a system variable",
                     field.name
                 ),
             ));
         }
         seen.push(lower);
     }
-    if fields.is_empty() {
+    // fixed data without variables only passes over records, in an input program
+    if fields.is_empty() && !matches!(layout, DataLayout::Fixed { .. }) {
         return Err(p.unexpected(&["a variable name"]));
     }
     Ok(Command::DataList(DataList {
@@ -500,6 +523,7 @@ pub(crate) fn data_list(p: &mut Parser) -> PResult<Command> {
         layout,
         delimiters,
         skip,
+        end,
         fields,
     }))
 }

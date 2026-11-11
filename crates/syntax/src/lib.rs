@@ -27,6 +27,7 @@ mod expr;
 mod files;
 mod frequencies;
 mod get_data;
+mod input_program;
 mod lexer;
 mod loops;
 mod macros;
@@ -55,6 +56,8 @@ mod tests_ctables;
 mod tests_data;
 #[cfg(test)]
 mod tests_data_list;
+#[cfg(test)]
+mod tests_input_program;
 #[cfg(test)]
 mod tests_loops;
 #[cfg(test)]

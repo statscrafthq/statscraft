@@ -177,8 +177,10 @@ fn build(lines: &[(u32, &str)], end: Span) -> Option<Result<RawCommand, SyntaxEr
             spec.name.to_string()
         }
         Resolution::Supported(spec, _) => {
-            lexer.glued_words =
-                matches!(spec.name, "DATA LIST" | "PRINT" | "PRINT EJECT" | "WRITE");
+            lexer.glued_words = matches!(
+                spec.name,
+                "DATA LIST" | "PRINT" | "PRINT EJECT" | "WRITE" | "REPEATING DATA"
+            );
             // only a command with a parser has a body worth tokenising
             while lex_error.is_none() {
                 match lexer.next_token() {
@@ -368,9 +370,30 @@ fn split_with(
     out
 }
 
+/// A line that starts a command with `+`, `-` or `.` and a blank before its name, as batch
+/// syntax allows for indenting: the line with that character blanked out.
+fn unmarked(line: &str) -> Option<String> {
+    let rest = line.trim_start();
+    let mut chars = rest.chars();
+    let marker = chars.next().filter(|c| matches!(c, '+' | '-' | '.'))?;
+    let after = chars.as_str();
+    let name = after.trim_start();
+    if after.len() == name.len() || !name.starts_with(|c: char| c.is_ascii_alphabetic()) {
+        return None;
+    }
+    let at = line.len() - rest.len();
+    Some(format!(
+        "{}{}{}",
+        &line[..at],
+        " ".repeat(marker.len_utf8()),
+        after
+    ))
+}
+
 /// The commands of numbered lines.
 fn split_lines(run: &[&Line], out: &mut Vec<Result<RawCommand, SyntaxError>>) {
-    let lines: Vec<(u32, &str)> = run.iter().map(|l| (l.number, l.text.as_str())).collect();
+    let marked: Vec<Option<String>> = run.iter().map(|l| unmarked(&l.text)).collect();
+    let mut lines: Vec<(u32, &str)> = run.iter().map(|l| (l.number, l.text.as_str())).collect();
     let mut i = 0;
     while i < lines.len() {
         if lines[i].1.trim().is_empty() {
@@ -383,6 +406,9 @@ fn split_lines(run: &[&Line], out: &mut Vec<Result<RawCommand, SyntaxError>>) {
             out.push(command);
             i = next;
             continue;
+        }
+        if let Some(text) = &marked[i] {
+            lines[i].1 = text;
         }
         let (end, terminator, kind) = command_end(&lines, i);
         let mut current = lines[i..end].to_vec();

@@ -378,8 +378,19 @@ fn declarations(p: &mut Parser, string: bool) -> PResult<Vec<(Vec<String>, Optio
     let mut groups = Vec::new();
     loop {
         let mut names = vec![p.name("a new variable name")?];
-        while p.eat(Punct::Comma) || matches!(p.peek(), Some(TokenKind::Word(_))) {
-            names.push(p.name("a new variable name")?);
+        loop {
+            if p.eat_word("TO") {
+                let start = p.pos;
+                let last = p.name("a new variable name")?;
+                let first = names.pop().expect("one name at least");
+                let numbered = crate::data_list::numbered_names(&first, &last)
+                    .map_err(|message| SyntaxError::new(p.span_from(start - 2), message))?;
+                names.extend(numbered);
+            } else if p.eat(Punct::Comma) || matches!(p.peek(), Some(TokenKind::Word(_))) {
+                names.push(p.name("a new variable name")?);
+            } else {
+                break;
+            }
         }
         let start = p.pos;
         let format = if string || p.at(Punct::LParen) {
