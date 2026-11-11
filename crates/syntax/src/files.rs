@@ -1,4 +1,5 @@
-//! Parsers of the commands that combine data files: ADD FILES, MATCH FILES and STAR JOIN.
+//! Parsers of the commands that combine data files: ADD FILES, MATCH FILES, UPDATE and
+//! STAR JOIN.
 //!
 //! STAR JOIN, from the Command Syntax Reference: the subcommands SELECT, FROM, JOIN (one or
 //! more), OUTFILE and the optional PASSPROTECT, in that order, every keyword in full (no
@@ -46,7 +47,16 @@ pub(crate) fn dataset_or_file(p: &mut Parser) -> PResult<String> {
     p.string("'*', a quoted file path or a dataset name")
 }
 
-fn merge(p: &mut Parser, command: &str, tables: bool) -> PResult<Merge> {
+#[derive(PartialEq)]
+enum Kind {
+    Add,
+    Match,
+    Update,
+}
+
+fn merge(p: &mut Parser, command: &str, kind: Kind) -> PResult<Merge> {
+    let tables = kind == Kind::Match;
+    let update = kind == Kind::Update;
     let mut merge = Merge {
         inputs: Vec::new(),
         by: Vec::new(),
@@ -67,6 +77,7 @@ fn merge(p: &mut Parser, command: &str, tables: bool) -> PResult<Merge> {
                 file,
                 table,
                 rename: Vec::new(),
+                flag: None,
             });
         } else if p.eat_keyword("RENAME") {
             p.eat(Punct::Eq);
@@ -76,6 +87,19 @@ fn merge(p: &mut Parser, command: &str, tables: bool) -> PResult<Merge> {
                 return Err(SyntaxError::new(p.span_from(start), message));
             };
             input.rename.extend(groups);
+        } else if update && p.eat_keyword("IN") {
+            p.eat(Punct::Eq);
+            let name = p.name("a new variable name")?;
+            let Some(input) = merge.inputs.last_mut() else {
+                let message = format!("{command} /IN must follow the /FILE it flags");
+                return Err(SyntaxError::new(p.span_from(start), message));
+            };
+            if input.flag.replace(name).is_some() {
+                let message = format!("{command} takes one /IN per /FILE");
+                return Err(SyntaxError::new(p.span_from(start), message));
+            }
+        } else if update && p.eat_keyword("MAP") {
+            merge.subsets.push(Subset::Map);
         } else if p.eat_keyword("BY") {
             p.eat(Punct::Eq);
             merge.by.extend(p.var_list()?);
@@ -95,6 +119,16 @@ fn merge(p: &mut Parser, command: &str, tables: bool) -> PResult<Merge> {
         }
     }
     p.finish(&["'/'"])?;
+    if update && (merge.inputs.len() < 2 || merge.by.is_empty()) {
+        let missing = if merge.by.is_empty() {
+            "/BY key variables"
+        } else {
+            "a second /FILE"
+        };
+        let mut error = SyntaxError::new(p.span(), format!("UPDATE needs {missing}"));
+        error.expected = vec![missing.to_string()];
+        return Err(error);
+    }
     if merge.inputs.iter().all(|input| input.table) {
         return Err(p.unexpected(&["/FILE='path', /FILE=dataset or /FILE=*"]));
     }
@@ -107,11 +141,15 @@ fn merge(p: &mut Parser, command: &str, tables: bool) -> PResult<Merge> {
 }
 
 pub(crate) fn add_files(p: &mut Parser) -> PResult<Command> {
-    merge(p, "ADD FILES", false).map(Command::AddFiles)
+    merge(p, "ADD FILES", Kind::Add).map(Command::AddFiles)
 }
 
 pub(crate) fn match_files(p: &mut Parser) -> PResult<Command> {
-    merge(p, "MATCH FILES", true).map(Command::MatchFiles)
+    merge(p, "MATCH FILES", Kind::Match).map(Command::MatchFiles)
+}
+
+pub(crate) fn update(p: &mut Parser) -> PResult<Command> {
+    merge(p, "UPDATE", Kind::Update).map(Command::Update)
 }
 
 /// `/NAME` of STAR JOIN, the slash optional before the first.

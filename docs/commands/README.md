@@ -14,6 +14,7 @@ One page per supported command, generated from the same table that the parser an
 | [ADD FILES](add-files.md) | Append the cases of several data files, matching variables by name. |
 | [MATCH FILES](match-files.md) | Combine the variables of several data files case by case or by key. |
 | [STAR JOIN](star-join.md) | Add the fields of lookup files to every case of a data file, by keys, as an SQL left join. |
+| [UPDATE](update.md) | Replace values of a primary file with the values of transaction files, by key. |
 | [VARIABLE LABELS](variable-labels.md) | Set the labels of variables. |
 | [VALUE LABELS](value-labels.md) | Replace the value labels of variables. |
 | [MISSING VALUES](missing-values.md) | Declare user-missing values. |
@@ -23,8 +24,12 @@ One page per supported command, generated from the same table that the parser an
 | [RENAME VARIABLES](rename-variables.md) | Change the names of variables. |
 | [DELETE VARIABLES](delete-variables.md) | Remove variables from the dataset. |
 | [SORT CASES](sort-cases.md) | Sort the cases by the values of variables. |
+| [SORT VARIABLES](sort-variables.md) | Put the variables in order by a property of their dictionary entries. |
 | [WEIGHT](weight.md) | Weight the cases by a variable, or turn weighting off. |
 | [AGGREGATE](aggregate.md) | Aggregate groups of cases into new variables or a new dataset. |
+| [VARSTOCASES](varstocases.md) | Turn groups of variables into cases: one new case per variable of the group. |
+| [CASESTOVARS](casestovars.md) | Turn groups of cases into one case each, with a variable per value of an index. |
+| [FLIP](flip.md) | Transpose the data: variables become cases and cases become variables. |
 | [ADD VALUE LABELS](add-value-labels.md) | Add or change value labels, keeping the other labels of the variables. |
 | [FILE LABEL](file-label.md) | Set the label of the data file. |
 | [DOCUMENT](document.md) | Add free text to the documents of the data file. |
@@ -137,4 +142,4 @@ One page per supported command, generated from the same table that the parser an
 
 These commands of the language are recognised, but Statscraft does not run them yet. A script that uses one stops with the error "command ... is not supported yet" at its line, and nothing is changed.
 
-ANOVA, CASESTOVARS, CLEAR TRANSFORMATIONS, CLUSTER, DATE, DISCRIMINANT, ECHO, END CASE, END DATA, END FILE, END FILE TYPE, END INPUT PROGRAM, END MATRIX, END REPEAT, ERASE, EXPORT, FACTOR, FILE TYPE, FINISH, FLIP, GET TRANSLATE, GLM, GRAPH, HOST, IMPORT, INPUT PROGRAM, LEAVE, LOGISTIC REGRESSION, MATRIX, MATRIX DATA, NEW FILE, NPAR TESTS, OUTPUT CLOSE, OUTPUT EXPORT, OUTPUT NEW, OUTPUT SAVE, PARTIAL CORR, PERMISSIONS, PRINT, PRINT EJECT, PRINT FORMATS, PRINT SPACE, QUICK CLUSTER, RECORD TYPE, REGRESSION, RELIABILITY, REPEATING DATA, REPORT, REREAD, SAVE TRANSLATE, SORT VARIABLES, SUBTITLE, SYSFILE INFO, TITLE, UNIANOVA, UPDATE, VARSTOCASES, WRITE, WRITE FORMATS, XSAVE
+ANOVA, CLEAR TRANSFORMATIONS, CLUSTER, DATE, DISCRIMINANT, ECHO, END CASE, END DATA, END FILE, END FILE TYPE, END INPUT PROGRAM, END MATRIX, END REPEAT, ERASE, EXPORT, FACTOR, FILE TYPE, FINISH, GET TRANSLATE, GLM, GRAPH, HOST, IMPORT, INPUT PROGRAM, LEAVE, LOGISTIC REGRESSION, MATRIX, MATRIX DATA, NEW FILE, NPAR TESTS, OUTPUT CLOSE, OUTPUT EXPORT, OUTPUT NEW, OUTPUT SAVE, PARTIAL CORR, PERMISSIONS, PRINT, PRINT EJECT, PRINT FORMATS, PRINT SPACE, QUICK CLUSTER, RECORD TYPE, REGRESSION, RELIABILITY, REPEATING DATA, REPORT, REREAD, SAVE TRANSLATE, SUBTITLE, SYSFILE INFO, TITLE, UNIANOVA, WRITE, WRITE FORMATS, XSAVE

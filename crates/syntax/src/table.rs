@@ -17,6 +17,7 @@ use crate::mult_response;
 use crate::parser::{PResult, Parser};
 use crate::procedures;
 use crate::rank;
+use crate::restructure;
 use crate::selection;
 use crate::session_commands;
 use crate::stats;
@@ -180,6 +181,23 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: data_commands::sort_cases,
     },
     CommandSpec {
+        name: "SORT VARIABLES",
+        summary: "Put the variables in order by a property of their dictionary entries.",
+        syntax: "SORT VARIABLES [BY] NAME | TYPE | FORMAT | LABEL | VALUES | MISSING | MEASURE | ROLE | COLUMNS\n\
+                 \x20              | ALIGNMENT | ATTRIBUTE name [(A | D)].\n\
+                 A or UP is ascending (the default), D or DOWN reverses the whole order.\n\
+                 NAME: letters without regard to case, then a number at the end by its value (v2 before v10).\n\
+                 TYPE: numeric, then strings from narrow to wide. FORMAT: by format type in the order of the\n\
+                 data file codes (A, COMMA, DOLLAR, F, ... DATE ...), then width and decimals.\n\
+                 LABEL, VALUES, MISSING, ATTRIBUTE: variables without one come first; then labels and\n\
+                 attribute values without regard to case; value labels and missing values so that equal\n\
+                 definitions sit together. MEASURE: nominal, ordinal, scale. ROLE: input, target, both, none,\n\
+                 partition, split. COLUMNS: display width (default 8 for numbers, the width for strings).\n\
+                 ALIGNMENT: left, right, center. Variables that tie keep their order.",
+        example: "SORT VARIABLES BY NAME (A).",
+        parse: restructure::sort_variables,
+    },
+    CommandSpec {
         name: "RENAME VARIABLES",
         summary: "Change the names of variables.",
         syntax: "RENAME VARIABLES (oldlist = newlist) [(oldlist = newlist) ...].\n\
@@ -217,6 +235,66 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Missing values are skipped. With a weight variable SUM, MEAN, SD, MEDIAN, N and NMISS are weighted.",
         example: "AGGREGATE /OUTFILE=* MODE=ADDVARIABLES /BREAK=region /region_mean = MEAN(income) /region_n = N.",
         parse: data_commands::aggregate,
+    },
+    CommandSpec {
+        name: "VARSTOCASES",
+        summary: "Turn groups of variables into cases: one new case per variable of the group.",
+        syntax: "VARSTOCASES /MAKE new ['label'] [FROM] varlist [/MAKE ...]\n\
+                 \x20           [/INDEX=i ['label'] | i ['label'] (make) | i ['label'] (n) j ['label'] (n) ...]\n\
+                 \x20           [/ID=new ['label']] [/NULL=DROP | KEEP] [/COUNT=new ['label']]\n\
+                 \x20           [/KEEP=ALL | varlist | /DROP=varlist].\n\
+                 Every case becomes one case per variable of the FROM lists, in their order; FROM lists\n\
+                 have equal lengths and one type each. A MAKE variable takes the dictionary of its first\n\
+                 FROM variable (strings their widest width), the label given replacing the label. The other\n\
+                 variables are copied to every new case (KEEP: only those, in that order). INDEX numbers the\n\
+                 new cases 1, 2, ...; with (make) it holds the names of that MAKE's FROM variables; with (n)\n\
+                 several factors whose levels multiply to the length of the lists, the last varying fastest.\n\
+                 ID is the case number of the original case (F8.0), COUNT the number of new cases it gave\n\
+                 (F4.0). NULL=DROP (the default) leaves out a new case whose MAKE values are all\n\
+                 system-missing or blank. Order of the new file: ID, the copied variables, COUNT, INDEX,\n\
+                 MAKE; ID and INDEX are nominal, COUNT scale. All cases are used whatever FILTER says;\n\
+                 WEIGHT, SPLIT FILE and FILTER stay unless their variables are gone. Not after TEMPORARY.",
+        example: "VARSTOCASES /MAKE score 'Score' FROM score1 TO score4 /INDEX=wave /ID=person.",
+        parse: restructure::vars_to_cases,
+    },
+    CommandSpec {
+        name: "CASESTOVARS",
+        summary: "Turn groups of cases into one case each, with a variable per value of an index.",
+        syntax: "CASESTOVARS [/ID=varlist] [/INDEX=varlist] [/FIXED=varlist] [/AUTOFIX=YES | NO]\n\
+                 \x20           [/VIND [ROOT=name]] [/COUNT=new ['label']] [/RENAME var=root ...]\n\
+                 \x20           [/SEPARATOR='text'] [/GROUPBY=VARIABLE | INDEX] [/DROP=varlist].\n\
+                 A row group is a run of cases with the same values of the split and ID variables; the\n\
+                 data must be sorted by them. Cases with a system-missing or blank ID are left out with a\n\
+                 warning. Every other variable that varies within a group becomes a variable group: one\n\
+                 variable per index value (INDEX: the values or combinations that occur, ascending; without\n\
+                 INDEX the position in the group), named root, separator ('.') and the index values. With\n\
+                 one string index the values are the names (root, separator and value when several\n\
+                 variables are restructured); names that cannot be used become V1, V2, ... AUTOFIX=YES\n\
+                 copies variables that do not vary (one value plus system-missing or blanks counts as not\n\
+                 varying), and warns about FIXED variables that vary; AUTOFIX=NO makes such a FIXED\n\
+                 variable an error. New variables keep the dictionary of their source; the label adds the\n\
+                 index values. VIND adds a 0/1 indicator (F1.0) per index value, COUNT the cases of the\n\
+                 group (F4.0). Order: split, ID and fixed variables as in the file, the variable groups,\n\
+                 the indicators, COUNT. User-missing values count as values. All cases are used whatever\n\
+                 FILTER says; WEIGHT, SPLIT FILE and FILTER stay unless their variables are gone or\n\
+                 spread. Not after TEMPORARY.",
+        example: "CASESTOVARS /ID=person /INDEX=wave /GROUPBY=VARIABLE.",
+        parse: restructure::cases_to_vars,
+    },
+    CommandSpec {
+        name: "FLIP",
+        summary: "Transpose the data: variables become cases and cases become variables.",
+        syntax: "FLIP [VARIABLES=ALL | varlist] [/NEWNAMES=var].\n\
+                 Each variable becomes a case, named in the new string variable CASE_LBL; each case becomes a\n\
+                 numeric variable (F8.2), named VAR001, VAR002, ... or by the values of NEWNAMES (the values\n\
+                 of CASE_LBL after an earlier FLIP). Names are upper case; a number gets K_ in front, as does a\n\
+                 name that does not start with a letter; other characters a name cannot hold become _, and a\n\
+                 repeated name gets _A, _B, ...; a missing or blank value keeps the default name. String\n\
+                 values and user-missing values become system-missing. Every case is transposed whatever\n\
+                 FILTER says. Labels, value labels, the weight, the split and the filter are gone.\n\
+                 Transformations before FLIP become permanent: TEMPORARY ends. A table lists the new names.",
+        example: "FLIP VARIABLES=income price year /NEWNAMES=country.",
+        parse: restructure::flip,
     },
     CommandSpec {
         name: "SPLIT FILE",
@@ -889,6 +967,23 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: files::star_join,
     },
     CommandSpec {
+        name: "UPDATE",
+        summary: "Replace values of a primary file with the values of transaction files, by key.",
+        syntax: "UPDATE FILE=* | 'path' | dataset [/RENAME=(old = new) ...] [/IN=var]\n\
+                 \x20      /FILE=... [/RENAME=...] [/IN=var] [/FILE=...] /BY varlist\n\
+                 \x20      [/MAP] [/KEEP=varlist] [/DROP=varlist].\n\
+                 The first FILE is the primary file, which may hold each key once; the others are\n\
+                 transactions. Every file must be sorted by the keys. A transaction value replaces the value\n\
+                 of the case with its key unless it is system-missing, user-missing or blank; transactions\n\
+                 apply in order, case by case and file by file. A key only a transaction has adds a case, a\n\
+                 variable only a transaction has adds a variable. Dictionaries combine as in MATCH FILES.\n\
+                 IN adds a variable at the end, 1 for the cases that file holds, else 0 (F1.0); KEEP and\n\
+                 DROP cannot name it. MAP lists the variables at that point with their names in each file.\n\
+                 The result keeps the primary file's weight. FILE=* cannot follow TEMPORARY.",
+        example: "UPDATE FILE='customers.sav' /FILE='changes.sav' /IN=changed /BY id.",
+        parse: files::update,
+    },
+    CommandSpec {
         name: "DEFINE",
         summary: "Define a macro: a name that stands for syntax, with arguments.",
         syntax: "DEFINE name ([argument [/ argument ...]])\n\
@@ -1254,7 +1349,6 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
 /// "unknown command", and their bodies are not tokenised.
 static UNSUPPORTED: &[&str] = &[
     "ANOVA",
-    "CASESTOVARS",
     "CLEAR TRANSFORMATIONS",
     "CLUSTER",
     "DATE",
@@ -1272,7 +1366,6 @@ static UNSUPPORTED: &[&str] = &[
     "FACTOR",
     "FILE TYPE",
     "FINISH",
-    "FLIP",
     "GET TRANSLATE",
     "GLM",
     "GRAPH",
@@ -1303,13 +1396,10 @@ static UNSUPPORTED: &[&str] = &[
     "REPORT",
     "REREAD",
     "SAVE TRANSLATE",
-    "SORT VARIABLES",
     "SUBTITLE",
     "SYSFILE INFO",
     "TITLE",
     "UNIANOVA",
-    "UPDATE",
-    "VARSTOCASES",
     "WRITE",
     "WRITE FORMATS",
     "XSAVE",

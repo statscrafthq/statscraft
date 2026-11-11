@@ -36,6 +36,7 @@ mod parser;
 mod preprocess;
 mod procedures;
 mod rank;
+mod restructure;
 mod selection;
 mod session_commands;
 mod split;
@@ -55,6 +56,8 @@ mod tests_loops;
 mod tests_preprocess;
 #[cfg(test)]
 mod tests_procedures;
+#[cfg(test)]
+mod tests_restructure;
 #[cfg(test)]
 mod tests_session;
 mod tree;

@@ -146,6 +146,94 @@ pub enum Command {
     AlterType(Vec<AlterType>),
     ApplyDictionary(ApplyDictionary),
     GetData(GetData),
+    /// `SORT VARIABLES BY key (A | D)`
+    SortVariables {
+        key: VariableKey,
+        descending: bool,
+    },
+    Flip(Flip),
+    /// UPDATE: the first input is the primary file, the others are transaction files.
+    Update(Merge),
+    VarsToCases(VarsToCases),
+    CasesToVars(CasesToVars),
+}
+
+/// What SORT VARIABLES sorts by.
+#[derive(Debug, Clone, PartialEq)]
+pub enum VariableKey {
+    Name,
+    Type,
+    Format,
+    Label,
+    Values,
+    Missing,
+    Measure,
+    Role,
+    Columns,
+    Alignment,
+    Attribute(String),
+}
+
+/// FLIP: None in `variables` transposes them all.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Flip {
+    pub variables: Option<Vec<VarItem>>,
+    pub newnames: Option<String>,
+}
+
+/// A new variable named on a restructuring subcommand, with its optional label.
+#[derive(Debug, Clone, PartialEq)]
+pub struct NewVariable {
+    pub name: String,
+    pub label: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct VarsToCases {
+    /// `/MAKE new ["label"] FROM varlist`, in order.
+    pub makes: Vec<(NewVariable, Vec<VarItem>)>,
+    pub index: Vec<VarsToCasesIndex>,
+    pub id: Option<NewVariable>,
+    /// NULL=KEEP; the default drops rows whose MAKE values are all null.
+    pub keep_null: bool,
+    pub count: Option<NewVariable>,
+    /// `/KEEP` or `/DROP`; at most one of them.
+    pub subset: Option<Subset>,
+}
+
+/// One variable of VARSTOCASES /INDEX.
+#[derive(Debug, Clone, PartialEq)]
+pub struct VarsToCasesIndex {
+    pub variable: NewVariable,
+    pub kind: IndexKind,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum IndexKind {
+    /// `i`: 1, 2, ... for the variables of the FROM lists.
+    Sequence,
+    /// `i(n)`: one factor of n levels; several make a design whose last factor varies fastest.
+    Levels(usize),
+    /// `i(make)`: the names of the FROM variables of that MAKE.
+    Names(String),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CasesToVars {
+    pub id: Vec<VarItem>,
+    pub index: Vec<VarItem>,
+    pub fixed: Vec<VarItem>,
+    /// AUTOFIX=NO turns it off.
+    pub autofix: bool,
+    /// `/VIND [ROOT=name]`: the root, "ind" by default.
+    pub indicators: Option<String>,
+    pub count: Option<NewVariable>,
+    /// (variable, root)
+    pub rename: Vec<(String, String)>,
+    pub separator: String,
+    /// GROUPBY=INDEX; else the new variables are grouped by the variable they come from.
+    pub group_by_index: bool,
+    pub drop: Vec<VarItem>,
 }
 
 /// GET DATA /TYPE=TXT.
@@ -996,6 +1084,8 @@ pub struct MergeInput {
     pub table: bool,
     /// `/RENAME` groups, as in RENAME VARIABLES.
     pub rename: Vec<(Vec<VarItem>, Vec<VarItem>)>,
+    /// `/IN=var` of UPDATE: 1 for the cases this file has, else 0.
+    pub flag: Option<String>,
 }
 
 /// A subcommand of GET and SAVE that changes which variables the file holds.
@@ -1011,6 +1101,8 @@ pub enum FileOption {
 pub enum Subset {
     Keep(Vec<VarItem>),
     Drop(Vec<VarItem>),
+    /// `/MAP` of UPDATE: a table of the variables at this point and the files they come from.
+    Map,
 }
 
 #[derive(Debug, Clone, PartialEq)]

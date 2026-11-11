@@ -187,11 +187,13 @@ fn add_and_match_files() {
                         (vec![var("a"), var("b")], vec![var("c"), var("d")]),
                         (vec![var("x")], vec![var("y")])
                     ],
+                    flag: None,
                 },
                 MergeInput {
                     file: Some("b.sav".into()),
                     table: false,
                     rename: vec![],
+                    flag: None,
                 },
             ],
             by: vec![var("id")],
