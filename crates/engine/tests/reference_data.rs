@@ -995,3 +995,258 @@ fn rank() {
         compare(&format!("rank-{case}"), fixture, commands, &[]);
     }
 }
+
+/// SORT VARIABLES. PSPP orders VALUES, MISSING and ATTRIBUTE by whether a variable has them
+/// at all, and keeps the rest in order; ours also puts equal definitions together, so those
+/// cases use variables whose definitions already come in ascending order.
+#[test]
+#[ignore = "needs PSPP: set STATSCRAFT_PSPP"]
+fn sort_variables() {
+    let defined = "DATA LIST LIST /p (F3) r (F3) s (F3) q (A3) t (A3).
+BEGIN DATA
+1 2 3 a b
+END DATA.
+VALUE LABELS r 1 'a' / s 1 'b' / q 'a' 'z'.
+MISSING VALUES p (1) s (2) t ('x').
+VARIABLE ATTRIBUTE VARIABLES=r ATTRIBUTE=k('a') /VARIABLES=t ATTRIBUTE=k('b').";
+    let cases = [
+        ("name", "SORT VARIABLES BY NAME.".to_string()),
+        ("name-descending", "SORT VARIABLES NAME (D).".into()),
+        // PSPP compares a name with a number at the end to one without by the whole name, which
+        // can go round in a circle (Q9 < q10 < q1_satisfaction < Q9); ours compares the part
+        // before the number first, as the manual says, so the names here avoid such circles
+        (
+            "name-numbers",
+            "RENAME VARIABLES (q5_1 q5_2 q5_3 = item10 ITEM9 item).\nSORT VARIABLES BY NAME (UP)."
+                .into(),
+        ),
+        ("type", "SORT VARIABLES BY TYPE.".into()),
+        ("type-descending", "SORT VARIABLES BY TYP (DOWN).".into()),
+        ("format", "SORT VARIABLES BY FORMAT.".into()),
+        (
+            "label",
+            "VARIABLE LABELS age '' region 'aaa'.\nSORT VARIABLES BY LABEL.".into(),
+        ),
+        ("label-descending", "SORT VARIABLES LAB (D).".into()),
+        (
+            "measure",
+            "VARIABLE LEVEL age (ORDINAL).\nSORT VARIABLES BY MEASURE.".into(),
+        ),
+        (
+            "role",
+            "VARIABLE ROLE /TARGET age /BOTH plan /NONE region /PARTITION gender /SPLIT q5_1.
+SORT VARIABLES BY ROLE."
+                .into(),
+        ),
+        (
+            "columns",
+            "VARIABLE WIDTH age (3) plan (20).\nSORT VARIABLES BY COLUMNS.".into(),
+        ),
+        (
+            "alignment",
+            "VARIABLE ALIGNMENT age (CENTER) plan (RIGHT) region (LEFT).
+SORT VARIABLES BY ALIGNMENT (D)."
+                .into(),
+        ),
+        ("values", format!("{defined}\nSORT VARIABLES BY VALUES.")),
+        ("missing", format!("{defined}\nSORT VARIABLES BY MISSING.")),
+        (
+            "attribute",
+            format!("{defined}\nSORT VARIABLES BY ATTRIBUTE k."),
+        ),
+        (
+            "attribute-descending",
+            format!("{defined}\nSORT VARIABLES BY ATT k (D)."),
+        ),
+    ];
+    for (case, commands) in &cases {
+        compare_order(&format!("sort-variables-{case}"), SURVEY, commands);
+    }
+}
+
+/// Compares the order of the variables after `commands`, as PSPP's DISPLAY VARIABLES lists it.
+/// PSPP 2.0.1 crashes in any data pass after SORT VARIABLES, so its result cannot be saved.
+fn compare_order(case: &str, fixture: &str, commands: &str) {
+    let Some(pspp) = env::var_os("STATSCRAFT_PSPP") else {
+        eprintln!("{case}: skipped, STATSCRAFT_PSPP is not set");
+        return;
+    };
+    let dir = env::temp_dir().join(format!(
+        "statscraft-reference-{}-{case}",
+        std::process::id()
+    ));
+    fs::create_dir_all(&dir).unwrap();
+    let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
+    fs::copy(source.join(fixture), dir.join("data.sav")).unwrap();
+    let job = |get: &str| format!("GET FILE='{get}'.\n{commands}\nDISPLAY VARIABLES.\n");
+    fs::write(dir.join("job.sps"), job("data.sav")).unwrap();
+    let status = Command::new(&pspp)
+        .args(["job.sps", "-o", "pspp.csv", "-O", "format=csv"])
+        .current_dir(&dir)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::null())
+        .status()
+        .unwrap();
+    let log = fs::read_to_string(dir.join("pspp.csv")).unwrap_or_default();
+    assert!(status.success(), "{case}: PSPP failed\n{log}");
+    let listed = log.rsplit("Table: Variables").next().unwrap();
+    let pspp_order: Vec<&str> = listed
+        .lines()
+        .skip_while(|line| !line.starts_with("Name,"))
+        .skip(1)
+        .take_while(|line| !line.trim().is_empty())
+        .map(|line| line.split(',').next().unwrap())
+        .collect();
+
+    let (parsed, errors) = parse(&job(dir.join("data.sav").to_str().unwrap()));
+    assert!(errors.is_empty(), "{case}: {errors:?}");
+    let mut engine = Engine::default();
+    for command in &parsed {
+        if let Err(error) = engine.execute(&command.command) {
+            panic!("{case}: line {}: {error}", command.first_line);
+        }
+    }
+    let ours: Vec<&str> = engine.dataset().unwrap().variable_names().collect();
+    assert_eq!(pspp_order, ours, "{case}");
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+/// FLIP. PSPP keeps user-missing values and the case of NEWNAMES values, names repeated or
+/// invalid values its own way and numbers the default names from VAR000; the manual makes
+/// user-missing values system-missing, names upper case and starts at VAR001. PSPP also cuts
+/// the names in CASE_LBL to 8 bytes. So every case names the new variables by NEWNAMES values
+/// that are upper case, valid and unique, flips variables with short names and no
+/// user-missing value.
+#[test]
+#[ignore = "needs PSPP: set STATSCRAFT_PSPP"]
+fn flip() {
+    let sheet = "DATA LIST LIST /A (A8) B (F5.1) C (F5.1) D (F5.1).
+BEGIN DATA
+INCOME 22 31 43
+PRICE 34 29 .
+YEAR 1970 1971 1972
+END DATA.
+VARIABLE LABELS B 'Bee'.
+VALUE LABELS C 29 'twenty-nine'.";
+    let names = "STRING nm (A8).\nCOMPUTE nm = CONCAT('R', STRING(resp_id, F4)).";
+    let cases = [
+        (
+            "all",
+            SURVEY,
+            format!("{sheet}\nFLIP VARIABLES=ALL /NEWNAMES=A."),
+        ),
+        ("newnames", SURVEY, format!("{sheet}\nFLIP NEWNAMES=A.")),
+        (
+            "variables",
+            SURVEY,
+            format!("{sheet}\nFLIP VARIABLES=A TO C /NEWNAMES=A."),
+        ),
+        ("twice", SURVEY, format!("{sheet}\nFLIP NEWNAMES=A.\nFLIP.")),
+        (
+            "survey-numbers",
+            SURVEY,
+            format!("{names}\nFLIP VARIABLES=resp_id age gender region /NEWNAMES=nm."),
+        ),
+        (
+            "weighted-selected",
+            WEIGHTED,
+            format!(
+                "SELECT IF resp_id < 1011.\n{names}\nFLIP VARIABLES=age weight region /NEWNAMES=nm."
+            ),
+        ),
+        (
+            "temporary",
+            SURVEY,
+            format!(
+                "{names}\nTEMPORARY.\nSELECT IF resp_id < 1006.\nFLIP VARIABLES=age region /NEWNAMES=nm."
+            ),
+        ),
+    ];
+    for (case, fixture, commands) in &cases {
+        compare(&format!("flip-{case}"), fixture, commands, &[]);
+    }
+}
+
+/// UPDATE, on a primary and two transaction files that the same syntax writes in both
+/// programs.
+#[test]
+#[ignore = "needs PSPP: set STATSCRAFT_PSPP"]
+fn update() {
+    let files = "DATA LIST LIST /k (F3) x (F4) s (A3) w (F3).
+BEGIN DATA
+1 10 a 1
+2 20 b 2
+3 30 c 1
+5 50 e 2
+END DATA.
+VARIABLE LABELS x 'Ex'.
+SAVE OUTFILE='{out}primary.sav'.
+DATA LIST LIST /k (F3) x (F4) y (F4) s (A6).
+BEGIN DATA
+2 . 5 ''
+2 22 6 bb
+4 40 7 dddd
+5 . . ''
+END DATA.
+VARIABLE LABELS y 'Why'.
+SAVE OUTFILE='{out}trans1.sav'.
+DATA LIST LIST /k (F3) y (F4) z (A2).
+BEGIN DATA
+0 1 zz
+2 8 ''
+5 9 q
+END DATA.
+SAVE OUTFILE='{out}trans2.sav'.";
+    let cases = [
+        (
+            "one-transaction",
+            "UPDATE FILE='{out}primary.sav' /FILE='{out}trans1.sav' /BY k.",
+        ),
+        (
+            "two-transactions",
+            "UPDATE FILE='{out}primary.sav' /FILE='{out}trans1.sav' /FILE='{out}trans2.sav' /BY=k.",
+        ),
+        (
+            "active-is-transaction",
+            "GET FILE='{out}trans1.sav'.
+UPDATE FILE='{out}primary.sav' /FILE=* /IN=changed /BY k.",
+        ),
+        (
+            "active-is-primary",
+            "GET FILE='{out}primary.sav'.
+UPDATE FILE=* /IN=old /FILE='{out}trans2.sav' /IN=new /BY k /KEEP=z k ALL /DROP=w.",
+        ),
+        (
+            "rename-map",
+            "UPDATE FILE='{out}primary.sav' /FILE='{out}trans1.sav' /RENAME=(x y = x2 x) /BY k /MAP.",
+        ),
+        (
+            "weighted-primary",
+            // PSPP drops the weight; ours keeps the primary file's (the manual: the result has
+            // the input files' complete dictionary), so it is turned off before the comparison
+            "GET FILE='{out}primary.sav'.
+WEIGHT BY w.
+UPDATE FILE=* /FILE='{out}trans2.sav' /BY k.
+WEIGHT OFF.",
+        ),
+        (
+            "survey-keys",
+            "GET FILE='{dir}data.sav'.
+SELECT IF resp_id > 1190 OR resp_id = 1003.
+COMPUTE age = $SYSMIS.
+COMPUTE monthly_spend = 1.
+SAVE OUTFILE='{out}t.sav'.
+GET FILE='{dir}data.sav'.
+UPDATE FILE=* /FILE='{out}t.sav' /BY resp_id.",
+        ),
+    ];
+    for (case, commands) in cases {
+        compare(
+            &format!("update-{case}"),
+            SURVEY,
+            &format!("{files}\n{commands}"),
+            &[],
+        );
+    }
+}
