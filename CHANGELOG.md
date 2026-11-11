@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.3.0 (2026-11-11)
+
+- New procedures: REGRESSION (linear, with stepwise methods, statistics and saved variables), RELIABILITY (alpha, split-half, Guttman, parallel models, intraclass correlations), NPAR TESTS (every one-sample, independent and related samples test, exact where the manual says), PARTIAL CORR, MULT RESPONSE and TREE (CHAID and exhaustive CHAID).
+- Restructuring and merging: VARSTOCASES, CASESTOVARS, FLIP, UPDATE, SORT VARIABLES, STAR JOIN; ADD FILES and MATCH FILES with IN, FIRST, LAST and MAP.
+- Spreadsheets and text: GET DATA reads Excel workbooks; SAVE TRANSLATE writes CSV, tab-delimited text and XLSX. In the window, File > Open data and File > Export data, and dropped workbooks and text files open.
+- Dates, times and custom currencies show in their formats in every table, the Data View and Excel export (as real Excel dates and numbers).
+- FILE HANDLE; SET SEED, RNG and MTINDEX with the random number functions; PRESERVE and RESTORE for every setting.
+- Command-line sessions keep settings, PRESERVE levels, the CD folder, file handles and the random numbers between runs; describe shows them.
+- Faster CTABLES on large stacked tables; shortened function names such as SYS; CROSSTABS /COUNT and /FORMAT.
+- Window: dialogs for Multiple Response, Tree, Restructure and Sort Variables.
+
 ## 0.2.0 (2026-11-11)
 
 - New app icon and the Statscraft name everywhere: window, installers, file types, documentation and the product string of written .sav files. Installing 0.2.0 over 0.1.x keeps the same install and file associations.
