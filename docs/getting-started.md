@@ -72,7 +72,7 @@ mv ~/Downloads/statscraft-X-macos-universal/statscraft ~/.local/bin/
 
 (add `export PATH="$HOME/.local/bin:$PATH"` to `~/.zshrc` if that folder is not on your `PATH` yet). The first `statscraft --version` is blocked; allow it under **Privacy & Security** as above and run it again. Instead of that, you can clear the download mark in the terminal: `xattr -d com.apple.quarantine ~/.local/bin/statscraft`.
 
-Finder offers Statscraft under **Open With** for .sav, .zsav and .sps files. A double-click on such a file, or Open With, opens it in the window, as if it had been dropped there, whether Statscraft was already running or not. To uninstall, move Statscraft.app to the Bin and delete the `statscraft` program.
+Finder offers Statscraft under **Open With** for .sav, .zsav and .sps files. Opening a file this way should open it in the window, as if it had been dropped there; this has not been tried on a Mac yet. If Statscraft starts without the file, use File, Open, and please report it (Help, Bug report). To uninstall, move Statscraft.app to the Bin and delete the `statscraft` program.
 
 ### Debian and Ubuntu
 
