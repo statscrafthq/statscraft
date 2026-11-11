@@ -149,11 +149,12 @@ impl Dataset {
         Ok(())
     }
 
-    /// Sets the display format, for example "F8.2", "COMMA12.0" or "DATE11". A string variable
-    /// accepts only the A format of its own width.
+    /// Sets the display (print) format and the write format, for example "F8.2", "COMMA12.0" or
+    /// "DATE11". A string variable accepts only the A format of its own width.
     pub fn set_format(&mut self, name: &str, format: &str) -> Result<(), Error> {
         let def = self.def_mut(name)?;
         def.format = sav::canonical_format(format, def)?;
+        def.extras.write_format = None;
         Ok(())
     }
 

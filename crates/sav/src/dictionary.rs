@@ -376,6 +376,12 @@ pub fn resolve_dictionary(raw: RawDictionary) -> Result<ResolvedDictionary> {
                 }
                 _ => fmt.to_format_string(),
             };
+            if let Some(write) = var.write_format.as_ref().map(|f| f.to_format_string())
+                && write != format_str
+                && !matches!(var.var_type, VarType::String(w) if w > 255)
+            {
+                meta.variable_write_formats.insert(name.clone(), write);
+            }
             meta.variable_formats.insert(name.clone(), format_str);
         }
 

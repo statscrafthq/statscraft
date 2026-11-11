@@ -448,7 +448,11 @@ pub(super) fn compute_layout(
                     .map(|s| encode(s, encoding).map(|b| b.into_owned()))
                     .transpose()?,
                 print_format: format.clone(),
-                write_format: format.clone(),
+                write_format: meta
+                    .variable_write_formats
+                    .get(name.as_str())
+                    .and_then(|f| SavFormat::from_string(f))
+                    .unwrap_or_else(|| format.clone()),
                 // Strings > 8 bytes: missing values go in subtype 22 only, not type-2 record
                 missing_values: if matches!(&var_type, VarType::String(w) if *w > 8) {
                     MissingValues::None

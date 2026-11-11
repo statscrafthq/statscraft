@@ -17,6 +17,8 @@ pub(crate) struct VariableExtras {
     alignment: Option<statscraft_sav::Alignment>,
     role: Option<statscraft_sav::constants::Role>,
     attributes: Vec<(String, Vec<String>)>,
+    /// The write format, when it differs from the format (the print format).
+    pub(crate) write_format: Option<String>,
 }
 
 const ALIGNMENTS: [(&str, statscraft_sav::Alignment); 3] = [
@@ -62,6 +64,15 @@ impl<'a> crate::Variable<'a> {
     pub fn attributes(&self) -> &'a [(String, Vec<String>)] {
         &self.def.extras.attributes
     }
+
+    /// The write format, which WRITE uses: the format unless WRITE FORMATS set another.
+    pub fn write_format(&self) -> &'a str {
+        self.def
+            .extras
+            .write_format
+            .as_deref()
+            .unwrap_or(&self.def.format)
+    }
 }
 
 impl Dataset {
@@ -90,6 +101,15 @@ impl Dataset {
         extras.display_width = width;
         extras.alignment = alignment;
         extras.role = role;
+        Ok(())
+    }
+
+    /// Sets the write format of a variable; the format (the print format) stays. FORMATS and
+    /// `set_format` set both.
+    pub fn set_write_format(&mut self, name: &str, format: &str) -> Result<(), Error> {
+        let def = self.def_mut(name)?;
+        let format = canonical_format(format, def)?;
+        def.extras.write_format = (format != def.format).then_some(format);
         Ok(())
     }
 
@@ -148,6 +168,7 @@ impl Dataset {
                         .into_iter()
                         .flatten()
                         .collect(),
+                    write_format: meta.variable_write_formats.swap_remove(name),
                 },
             });
         }
@@ -273,6 +294,10 @@ impl Dataset {
             }
             if let Some(role) = extras.role {
                 meta.variable_roles.insert(name.clone(), role);
+            }
+            if let Some(format) = &extras.write_format {
+                meta.variable_write_formats
+                    .insert(name.clone(), format.clone());
             }
             if !extras.attributes.is_empty() {
                 let attributes = extras.attributes.iter().cloned().collect();

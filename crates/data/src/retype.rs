@@ -70,6 +70,7 @@ impl Dataset {
             }
         }
         def.format = sav::canonical_format(format, &def)?;
+        def.extras.write_format = None;
         Arc::make_mut(&mut self.dict).variables[index] = def;
         self.columns[index] = column;
         Ok(())

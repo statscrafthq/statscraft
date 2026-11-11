@@ -212,6 +212,8 @@ pub struct SavMetadata {
 
     // Type info
     pub variable_formats: IndexMap<String, String>,
+    /// Write formats, only where they differ from the print format in `variable_formats`.
+    pub variable_write_formats: IndexMap<String, String>,
     pub arrow_data_types: IndexMap<String, String>,
 
     // Value labels: {var_name -> {value -> label}}
@@ -341,6 +343,7 @@ impl Default for SavMetadata {
             variable_names: Vec::new(),
             variable_labels: IndexMap::new(),
             variable_formats: IndexMap::new(),
+            variable_write_formats: IndexMap::new(),
             arrow_data_types: IndexMap::new(),
             variable_value_labels: IndexMap::new(),
             variable_alignments: IndexMap::new(),
