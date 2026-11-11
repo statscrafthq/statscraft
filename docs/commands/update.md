@@ -16,7 +16,7 @@ The first FILE is the primary file, which may hold each key once; the others are
 
 IN adds a variable at the end, 1 for the cases that file holds, else 0 (F1.0); KEEP and DROP cannot name it. MAP lists the variables at that point with their names in each file.
 
-The result keeps the primary file's weight. FILE=\* cannot follow TEMPORARY.
+There is no FIRST or LAST, since every key gives one case. The weight and the documents follow MATCH FILES. FILE=\* cannot follow TEMPORARY.
 
 ## Example
 

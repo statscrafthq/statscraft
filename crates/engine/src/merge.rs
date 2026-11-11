@@ -5,7 +5,20 @@
 //! once; a transaction value replaces the value of the case with the same key unless it is
 //! missing (system- or user-missing) or blank. Transactions apply in order, case by case and
 //! file by file, so the last value that is not missing wins. Keys and variables that only
-//! transactions have are added. IN variables go at the end and cannot be dropped.
+//! transactions have are added.
+//!
+//! All three, from the manual: IN is 1 for the cases a file has, else 0; FIRST and LAST (ADD
+//! FILES and MATCH FILES, with BY) are 1 for the first and the last case of each key. They go
+//! at the end of the result, IN in file order, then FIRST, then LAST, and KEEP and DROP cannot
+//! name them; MAP leaves them out. The result has the documents of every file.
+//!
+//! Choices where the manual is silent:
+//! - IN, FIRST and LAST are F1.0, as in GNU PSPP.
+//! - The weight: ADD FILES keeps it when every file is weighted by the same variable (the
+//!   manual turns it off when only one is). MATCH FILES and UPDATE keep it when every weighted
+//!   file uses the same variable, since the result has the complete dictionary of its files
+//!   and a file that only adds variables does not change the weighting. When a weighted file
+//!   leaves the result unweighted, a warning says so.
 
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, MissingValues, Values, Variable};
@@ -43,28 +56,32 @@ struct Input {
     old_names: Vec<String>,
 }
 
+/// The values of the BY variables, case by case; `name` is how messages name the file.
+fn key_rows<'a>(data: &'a Dataset, by: &[String], name: &str) -> Result<Vec<Vec<Key<'a>>>, Error> {
+    let mut columns = Vec::new();
+    for key in by {
+        let variable = data.variable(key).map_err(|_| {
+            Error(format!(
+                "the BY variable {key} is not in {name}; every file needs the key variables"
+            ))
+        })?;
+        columns.push(variable.values());
+    }
+    let key = |case: usize| -> Vec<Key<'a>> {
+        columns
+            .iter()
+            .map(|values| match values {
+                Values::Numeric(v) => Key::Number(v.get(case)),
+                Values::String(v) => Key::Text(v.get(case)),
+            })
+            .collect()
+    };
+    Ok((0..data.case_count()).map(key).collect())
+}
+
 impl Input {
     fn keys<'a>(&'a self, by: &[String]) -> Result<Vec<Vec<Key<'a>>>, Error> {
-        let mut columns = Vec::new();
-        for name in by {
-            let variable = self.data.variable(name).map_err(|_| {
-                Error(format!(
-                    "the BY variable {name} is not in {}; every file needs the key variables",
-                    self.name
-                ))
-            })?;
-            columns.push(variable.values());
-        }
-        let key = |case: usize| -> Vec<Key<'a>> {
-            columns
-                .iter()
-                .map(|values| match values {
-                    Values::Numeric(v) => Key::Number(v.get(case)),
-                    Values::String(v) => Key::Text(v.get(case)),
-                })
-                .collect()
-        };
-        let keys: Vec<Vec<Key>> = (0..self.data.case_count()).map(key).collect();
+        let keys = key_rows(&self.data, by, &self.name)?;
         if self.table
             && let Some(case) = (1..keys.len()).find(|&c| compare(&keys[c - 1], &keys[c]).is_eq())
         {
@@ -226,7 +243,7 @@ impl Engine {
         })
     }
 
-    pub(crate) fn merge_files(&mut self, merge: &Merge, add: bool) -> Result<(), Error> {
+    pub(crate) fn merge_files(&mut self, merge: &Merge, add: bool) -> Result<Vec<Table>, Error> {
         let inputs: Vec<Input> = merge
             .inputs
             .iter()
@@ -277,13 +294,28 @@ impl Engine {
                 .collect();
             set_from(&mut out, name, holders, &inputs, &sources)?;
         }
-        // ADD FILES keeps the weighting when every file is weighted by the same variable
-        let weight = |input: &Input| input.data.weight_variable().map(str::to_lowercase);
-        let weighted = add && inputs.iter().all(|i| weight(i) == weight(&inputs[0]));
-        if !weighted {
-            out.set_weight_variable(None)?;
+        let mut flags: Vec<(String, Vec<bool>)> = (merge.inputs.iter().zip(&cases))
+            .filter_map(|(input, cases)| {
+                Some((
+                    input.flag.clone()?,
+                    cases.iter().map(Option::is_some).collect(),
+                ))
+            })
+            .collect();
+        if merge.first.is_some() || merge.last.is_some() {
+            let keys = key_rows(&out, &by, "the result")?;
+            let n = keys.len();
+            let differs = |a: usize, b: usize| compare(&keys[a], &keys[b]).is_ne();
+            if let Some(name) = &merge.first {
+                let values = (0..n).map(|c| c == 0 || differs(c - 1, c)).collect();
+                flags.push((name.clone(), values));
+            }
+            if let Some(name) = &merge.last {
+                let values = (0..n).map(|c| c + 1 == n || differs(c, c + 1)).collect();
+                flags.push((name.clone(), values));
+            }
         }
-        self.finish_merge(out, merge, &inputs).map(|_| ())
+        self.finish_merge(out, merge, &inputs, add, flags)
     }
 
     /// UPDATE: the primary file with the values of the transaction files, key by key.
@@ -295,25 +327,6 @@ impl Engine {
             .collect::<Result<_, _>>()?;
         let by = Engine::with_dataset(Some(inputs[0].data.clone())).expand(&merge.by)?;
         let variables = union(&inputs)?;
-        let flags: Vec<(usize, &String)> = (merge.inputs.iter().enumerate())
-            .filter_map(|(i, input)| Some((i, input.flag.as_ref()?)))
-            .collect();
-        let subsets = merge.subsets.iter().filter_map(|subset| match subset {
-            Subset::Keep(items) | Subset::Drop(items) => Some(items),
-            Subset::Map => None,
-        });
-        for item in subsets.flatten() {
-            if let VarItem::Name(name) = item
-                && flags
-                    .iter()
-                    .any(|(_, flag)| flag.eq_ignore_ascii_case(name))
-            {
-                return Err(Error(format!(
-                    "{name} is an /IN variable: it goes at the end of the result and cannot be \
-                     named on KEEP or DROP"
-                )));
-            }
-        }
         let keys: Vec<Vec<Vec<Key>>> = inputs
             .iter()
             .map(|i| i.keys(&by))
@@ -387,37 +400,64 @@ impl Engine {
                 .collect();
             set_from(&mut out, name, holders, &inputs, &sources)?;
         }
-        // choice: the primary file's weight stays while its variable does
-        let weight = inputs[0].data.weight_variable().map(str::to_string);
-        let tables = self.finish_merge(out, merge, &inputs)?;
-        let data = self.active_mut()?;
-        for (input, flag) in flags {
-            if data.variable_index(flag).is_some() {
-                return Err(Error(format!(
-                    "the /IN variable {flag} has the name of a variable of the result"
-                )));
-            }
-            let values = cases[input]
-                .iter()
-                .map(|c| Some(if c.is_empty() { 0.0 } else { 1.0 }))
-                .collect();
-            data.set_numeric_values(flag, values)?;
-            data.set_format(flag, "F1.0")?;
-        }
-        if let Some(weight) = weight.filter(|w| data.variable_index(w).is_some()) {
-            data.set_weight_variable(Some(&weight))?;
-        }
-        Ok(tables)
+        let flags = (merge.inputs.iter().zip(&cases))
+            .filter_map(|(input, cases)| {
+                Some((
+                    input.flag.clone()?,
+                    cases.iter().map(|c| !c.is_empty()).collect(),
+                ))
+            })
+            .collect();
+        self.finish_merge(out, merge, &inputs, false, flags)
     }
 
-    /// KEEP, DROP and MAP of a merge in the order written, then the filter and the split of the
-    /// active dataset when it was merged. The result becomes the active dataset.
+    /// The documents of every file, the weight, KEEP, DROP and MAP in the order written, the
+    /// filter and the split of the active dataset when it was merged, and last the IN, FIRST
+    /// and LAST `flags`. ADD FILES (`every`) stays weighted only when every file is. The result
+    /// becomes the active dataset.
     fn finish_merge(
         &mut self,
-        out: Dataset,
+        mut out: Dataset,
         merge: &Merge,
         inputs: &[Input],
+        every: bool,
+        flags: Vec<(String, Vec<bool>)>,
     ) -> Result<Vec<Table>, Error> {
+        let subsets = merge.subsets.iter().filter_map(|subset| match subset {
+            Subset::Keep(items) | Subset::Drop(items) => Some(items),
+            Subset::Map => None,
+        });
+        for item in subsets.flatten() {
+            if let VarItem::Name(name) = item
+                && flags
+                    .iter()
+                    .any(|(flag, _)| flag.eq_ignore_ascii_case(name))
+            {
+                return Err(Error(format!(
+                    "{name} is made by /IN, /FIRST or /LAST: it goes at the end of the result and \
+                     cannot be named on KEEP or DROP"
+                )));
+            }
+        }
+        // the documents of every file, each file once
+        let mut documents = Vec::new();
+        for (i, input) in inputs.iter().enumerate() {
+            if merge.inputs[..i]
+                .iter()
+                .all(|o| o.file != merge.inputs[i].file)
+            {
+                documents.extend(input.data.documents().iter().cloned());
+            }
+        }
+        out.set_documents(documents);
+        let weights: Vec<Option<&str>> = inputs.iter().map(|i| i.data.weight_variable()).collect();
+        let weight = weights.iter().flatten().next().copied();
+        let agree = weights.iter().all(|w| match (w, weight) {
+            (Some(w), Some(first)) => w.eq_ignore_ascii_case(first),
+            _ => !every,
+        });
+        out.set_weight_variable(None)?;
+
         let mut tables = Vec::new();
         let mut result = Engine::with_dataset(Some(out));
         for subset in &merge.subsets {
@@ -459,6 +499,35 @@ impl Engine {
         out.set_filter_variable(filter.as_deref())?;
         let split = split.filter(|s| s.variables.iter().all(|n| out.variable_index(n).is_some()));
         out.set_split_file(split)?;
+        let kept = weight.is_some_and(|w| out.variable(w).is_ok_and(|v| !v.is_string()));
+        for (name, values) in flags {
+            if out.variable_index(&name).is_some() {
+                return Err(Error(format!(
+                    "{name} of /IN, /FIRST or /LAST has the name of a variable of the result"
+                )));
+            }
+            let values = values.into_iter().map(|v| Some(f64::from(u8::from(v))));
+            out.set_numeric_values(&name, values.collect())?;
+            out.set_format(&name, "F1.0")?;
+        }
+        if let Some(weight) = weight {
+            match (agree, kept) {
+                (true, true) => out.set_weight_variable(Some(weight))?,
+                (false, _) if every => self.warn(
+                    "the result is not weighted, since not every file is weighted by the same \
+                     variable; use WEIGHT BY to weight it"
+                        .to_string(),
+                ),
+                (false, _) => self.warn(
+                    "the result is not weighted, since the files are weighted by different \
+                     variables; use WEIGHT BY to weight it"
+                        .to_string(),
+                ),
+                (true, false) => self.warn(format!(
+                    "the result is not weighted, since its weight variable {weight} was dropped"
+                )),
+            }
+        }
         self.dataset = Some(out);
         Ok(tables)
     }

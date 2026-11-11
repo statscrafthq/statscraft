@@ -616,7 +616,8 @@ fn crosstabs_tables() {
 /// Input files for the merges, written by our engine: `b.sav` (cases 1151 to 1200 with a
 /// changed dictionary), `sorted_a.sav` and `sorted_b.sav` (halves sorted by region), `extra.sav`
 /// (some cases, a new and a shared variable, sorted by resp_id), `lookup.sav` (one case per
-/// region) and `plans.sav` (one case per plan, with a duplicate key).
+/// region), `lookup_part.sav` (without region 2) and `plans.sav` (one case per plan, with a
+/// duplicate key).
 const PREPARE: &str = "GET FILE='{dir}data.sav'.
 SELECT IF resp_id > 1150.
 VARIABLE LABELS age 'Age, second file' gender ''.
@@ -644,6 +645,9 @@ DELETE VARIABLES gender region TO q3_comment q5_1 TO weight.
 SAVE OUTFILE='{dir}extra.sav'.
 GET FILE='{dir}data.sav'.
 AGGREGATE /OUTFILE='{dir}lookup.sav' /BREAK=region /mean_age 'Mean age' = MEAN(age) /n = N.
+GET FILE='{dir}lookup.sav'.
+SELECT IF region <> 2.
+SAVE OUTFILE='{dir}lookup_part.sav'.
 GET FILE='{dir}data.sav'.
 AGGREGATE /OUTFILE='{dir}plans.sav' /BREAK=plan /plan_spend = MEAN(monthly_spend).
 GET FILE='{dir}plans.sav'.
@@ -695,10 +699,12 @@ fn merges() {
             SURVEY,
             "MATCH FILES /FILE=* /FILE='{dir}extra.sav' /BY resp_id.",
         ),
+        // PSPP drops the weight; ours keeps it (the manual: the result has the files' complete
+        // dictionary), so it is turned off before the comparison
         (
             "match-other-file-first",
             WEIGHTED,
-            "MATCH FILES /FILE='{dir}extra.sav' /FILE=* /BY resp_id.",
+            "MATCH FILES /FILE='{dir}extra.sav' /FILE=* /BY resp_id.\nWEIGHT OFF.",
         ),
         (
             "match-table",
@@ -718,7 +724,7 @@ fn merges() {
         (
             "match-by-position",
             WEIGHTED,
-            "MATCH FILES /FILE=* /FILE='{dir}b.sav' /RENAME=(age plan = age_b plan_b).",
+            "MATCH FILES /FILE=* /FILE='{dir}b.sav' /RENAME=(age plan = age_b plan_b).\nWEIGHT OFF.",
         ),
         // PSPP takes the first case of a key a table holds twice; the manual forbids such a
         // table, so the comparison uses the one without duplicates
@@ -731,6 +737,36 @@ fn merges() {
             "match-two-keys",
             SURVEY,
             "SORT CASES BY region resp_id.\nMATCH FILES /FILE=* /FILE='{dir}sorted_b.sav' /RENAME=(age = age2) /BY region resp_id /KEEP=resp_id region age age2.",
+        ),
+        (
+            "add-in-first-last",
+            SURVEY,
+            "GET FILE='{dir}sorted_a.sav'.\nADD FILES /FILE=* /IN=from_a /FILE='{dir}sorted_b.sav' /IN=from_b /BY region\n  /LAST=last /FIRST=first /MAP.",
+        ),
+        (
+            "add-in-without-by",
+            SURVEY,
+            "ADD FILES /FILE='{dir}b.sav' /FILE=* /IN=active /KEEP=resp_id age.",
+        ),
+        (
+            "match-in-first-last",
+            SURVEY,
+            "MATCH FILES /FILE=* /IN=in_a /FILE='{dir}extra.sav' /IN=in_x /BY resp_id /FIRST=f /LAST=l\n  /DROP=q3_comment.",
+        ),
+        (
+            "match-groups-flagged",
+            SURVEY,
+            "SORT CASES BY region.\nMATCH FILES /FILE=* /RENAME=(resp_id = id1) /IN=ina /FILE='{dir}sorted_b.sav' /IN=inb\n  /BY region /FIRST=f /LAST=l /KEEP=region id1 resp_id.",
+        ),
+        (
+            "match-table-in",
+            SURVEY,
+            "SORT CASES BY region.\nMATCH FILES /FILE=* /TABLE='{dir}lookup_part.sav' /IN=found /BY region /FIRST=first\n  /MAP /KEEP=resp_id region mean_age.",
+        ),
+        (
+            "match-one-file-first",
+            SURVEY,
+            "SORT CASES BY region.\nMATCH FILES /FILE=* /BY region /FIRST=head /LAST=tail.",
         ),
         (
             "match-and-add",

@@ -1031,14 +1031,18 @@ pub enum CorrelationsLayout {
     LowerNoDiagonal,
 }
 
-/// ADD FILES and MATCH FILES.
+/// ADD FILES, MATCH FILES and UPDATE.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Merge {
     pub inputs: Vec<MergeInput>,
     /// Empty when there is no `/BY`.
     pub by: Vec<VarItem>,
-    /// `/KEEP` and `/DROP` in the order written, applied to the result.
+    /// `/KEEP`, `/DROP` and `/MAP` in the order written, applied to the result.
     pub subsets: Vec<Subset>,
+    /// `/FIRST=var` of ADD FILES and MATCH FILES: 1 for the first case of each key, else 0.
+    pub first: Option<String>,
+    /// `/LAST=var`: 1 for the last case of each key, else 0.
+    pub last: Option<String>,
 }
 
 /// STAR JOIN: every case of the FROM source with the fields of the JOIN sources whose keys
@@ -1084,7 +1088,7 @@ pub struct MergeInput {
     pub table: bool,
     /// `/RENAME` groups, as in RENAME VARIABLES.
     pub rename: Vec<(Vec<VarItem>, Vec<VarItem>)>,
-    /// `/IN=var` of UPDATE: 1 for the cases this file has, else 0.
+    /// `/IN=var`: 1 for the cases this file has, else 0.
     pub flag: Option<String>,
 }
 
@@ -1101,7 +1105,7 @@ pub enum FileOption {
 pub enum Subset {
     Keep(Vec<VarItem>),
     Drop(Vec<VarItem>),
-    /// `/MAP` of UPDATE: a table of the variables at this point and the files they come from.
+    /// `/MAP` of a merge: a table of the variables at this point and the files they come from.
     Map,
 }
 

@@ -1,4 +1,5 @@
-//! VARSTOCASES, CASESTOVARS, FLIP, UPDATE and SORT VARIABLES on small synthetic datasets.
+//! VARSTOCASES, CASESTOVARS, FLIP, UPDATE, ADD FILES, MATCH FILES and SORT VARIABLES on small
+//! synthetic datasets.
 //! FLIP, UPDATE and SORT VARIABLES are also compared with the reference program in
 //! `reference_data.rs`; the expected values here follow from the rules of the manual.
 
@@ -548,12 +549,12 @@ fn update_errors() {
         ),
         (
             "UPDATE FILE=primary /FILE=trans1 /IN=t /BY k /DROP=t.",
-            "t is an /IN variable: it goes at the end of the result and cannot be named on KEEP \
-             or DROP",
+            "t is made by /IN, /FIRST or /LAST: it goes at the end of the result and cannot be \
+             named on KEEP or DROP",
         ),
         (
             "UPDATE FILE=primary /FILE=trans1 /IN=y /BY k.",
-            "the /IN variable y has the name of a variable of the result",
+            "y of /IN, /FIRST or /LAST has the name of a variable of the result",
         ),
         (
             "TEMPORARY.\nUPDATE FILE=primary /FILE=* /BY k.",
@@ -563,6 +564,131 @@ fn update_errors() {
             "SORT CASES BY k (D).\nUPDATE FILE=primary /FILE=* /BY k.",
             "FILE=* is not sorted by k: case 2 has a lower key than case 1; sort the active \
              dataset with SORT CASES BY k first",
+        ),
+    ];
+    for (source, message) in cases {
+        assert_eq!(error(&format!("{FILES}{source}")), message, "{source}");
+    }
+}
+
+#[test]
+fn match_files_flags_in_first_last_and_map() {
+    let mut e = engine(FILES);
+    let tables = run(
+        &mut e,
+        "MATCH FILES /FILE=primary /IN=inp /FILE=trans1 /IN=int /TABLE=trans2 /IN=intab /BY k
+  /LAST=l /FIRST=f /MAP /KEEP=k x y /MAP.",
+    );
+    // IN in file order, then FIRST, then LAST, whatever order they were written in
+    assert_eq!(names(&e), "k x y inp int intab f l");
+    assert_eq!(show(&e, "k"), "1 2 2 3 4 5");
+    assert_eq!(show(&e, "x"), "10 20 22 30 40 50");
+    assert_eq!(show(&e, "y"), ". 5 6 . 7 .");
+    assert_eq!(show(&e, "inp"), "1 1 0 1 0 1");
+    assert_eq!(show(&e, "int"), "0 1 1 0 1 1");
+    assert_eq!(show(&e, "intab"), "0 1 1 0 0 1");
+    assert_eq!(show(&e, "f"), "1 1 0 1 1 1");
+    assert_eq!(show(&e, "l"), "1 0 1 1 1 1");
+    for flag in ["inp", "f", "l"] {
+        assert_eq!(data(&e).variable(flag).unwrap().format(), "F1.0");
+    }
+    // a map at each MAP, without the flags
+    assert_eq!(tables.len(), 2);
+    assert_eq!(
+        tables[0].columns,
+        [
+            "Result",
+            "FILE='primary'",
+            "FILE='trans1'",
+            "TABLE='trans2'"
+        ]
+    );
+    assert_eq!(tables[0].rows.len(), 6);
+    assert_eq!(tables[1].rows.len(), 3);
+}
+
+#[test]
+fn add_files_flags_in_first_last_and_renames() {
+    let mut e = engine(FILES);
+    run(
+        &mut e,
+        "ADD FILES /FILE=primary /IN=a /FILE=trans1 /RENAME=(x y = x1 y1) (s = s1) /BY k /LAST=l
+  /FIRST=f.",
+    );
+    assert_eq!(names(&e), "k x s w x1 y1 s1 a f l");
+    assert_eq!(show(&e, "k"), "1 2 2 2 3 4 5 5");
+    assert_eq!(show(&e, "x1"), ". . . 22 . 40 . .");
+    assert_eq!(show(&e, "a"), "1 1 0 0 1 0 1 0");
+    assert_eq!(show(&e, "f"), "1 1 0 0 1 1 1 0");
+    assert_eq!(show(&e, "l"), "1 0 0 1 1 1 0 1");
+
+    // without BY, IN of ADD FILES still marks the file of each case
+    let mut e = engine(FILES);
+    run(&mut e, "ADD FILES /FILE=trans2 /FILE=primary /IN=p.");
+    assert_eq!(show(&e, "p"), "0 0 0 1 1 1 1");
+}
+
+#[test]
+fn merges_keep_the_dictionary_of_their_files() {
+    let weighted = format!(
+        "{FILES}DATASET ACTIVATE primary.
+WEIGHT BY w.
+DOCUMENT 'first'.
+DATASET ACTIVATE          trans2.
+DOCUMENT 'second'.
+DATASET ACTIVATE primary.
+"
+    );
+    // MATCH FILES and UPDATE keep the weight when every weighted file has the same one
+    for command in [
+        "MATCH FILES /FILE=* /FILE=trans2 /BY k.",
+        "MATCH FILES /FILE=trans2 /FILE=* /BY k.",
+        "UPDATE FILE=trans2 /FILE=* /BY k.",
+    ] {
+        let mut e = engine(&weighted);
+        run(&mut e, command);
+        assert_eq!(data(&e).weight_variable(), Some("w"), "{command}");
+        assert!(e.warnings().is_empty(), "{command}");
+        let documents = data(&e).documents().join(" ");
+        assert!(
+            documents.contains("first") && documents.contains("second"),
+            "{command}: {documents}"
+        );
+    }
+    // ADD FILES only when every file is, as the manual says; a warning tells
+    let mut e = engine(&weighted);
+    run(&mut e, "ADD FILES /FILE=* /FILE=trans2.");
+    assert_eq!(data(&e).weight_variable(), None);
+    assert!(e.warnings()[0].contains("not every file is weighted"));
+    let mut e = engine(&format!(
+        "{weighted}DATASET ACTIVATE trans1.
+WEIGHT BY y.
+"
+    ));
+    run(&mut e, "MATCH FILES /FILE=primary /FILE=* /BY k.");
+    assert_eq!(data(&e).weight_variable(), None);
+    assert!(
+        e.warnings()
+            .iter()
+            .any(|w| w.contains("different variables"))
+    );
+    let mut e = engine(&weighted);
+    run(&mut e, "MATCH FILES /FILE=* /FILE=trans2 /BY k /DROP=w.");
+    assert_eq!(data(&e).weight_variable(), None);
+    assert!(e.warnings()[0].contains("weight variable w was dropped"));
+}
+
+#[test]
+fn merge_flag_errors() {
+    let cases = [
+        (
+            "ADD FILES /FILE=primary /FILE=trans1 /BY k /FIRST=f /KEEP=k f.",
+            "f is made by /IN, /FIRST or /LAST: it goes at the end of the result and cannot be \
+             named on KEEP or DROP",
+        ),
+        (
+            "MATCH FILES /FILE=primary /IN=f /FILE=trans1 /BY k /FIRST=f.",
+            "f of /IN, /FIRST or /LAST has the name of a variable of the result",
         ),
     ];
     for (source, message) in cases {

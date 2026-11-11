@@ -907,30 +907,45 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "ADD FILES",
         summary: "Append the cases of several data files, matching variables by name.",
-        syntax: "ADD FILES /FILE=* | 'path' | dataset [/RENAME=(old = new) ...] /FILE=... [/BY varlist]\n\
-                 \x20         [/KEEP=varlist] [/DROP=varlist].\n\
+        syntax: "ADD FILES /FILE=* | 'path' | dataset [/RENAME=(old = new) ...] [/IN=var]\n\
+                 \x20         /FILE=... [/RENAME=...] [/IN=var] [/BY varlist] [/FIRST=var] [/LAST=var]\n\
+                 \x20         [/MAP] [/KEEP=varlist] [/DROP=varlist].\n\
                  FILE=* is the active dataset; a dataset name (DATASET NAME), quoted or not, is that open\n\
                  dataset and comes before a file of the same name. A variable missing from a file is blank in its cases.\n\
                  The first file that has a variable gives its format and measurement level; a later file\n\
                  fills in a label, value labels or missing values the earlier ones lack. A string variable\n\
                  takes its widest width; a variable that is numeric in one file and a string in another is\n\
-                 an error. BY interleaves files sorted by the key variables. The result stays weighted only when\n\
-                 every file is weighted by the same variable.",
+                 an error. BY interleaves files sorted by the key variables.\n\
+                 RENAME and IN follow their FILE; BY, FIRST, LAST, MAP, KEEP and DROP follow every FILE.\n\
+                 IN adds a variable that is 1 for the cases from that file, else 0. FIRST and LAST (with\n\
+                 BY) add one that is 1 for the first or the last case of each key. These are F1.0 and go\n\
+                 at the end, IN first; KEEP and DROP cannot name them. MAP lists the variables of the\n\
+                 result at that point with their names in each file.\n\
+                 The result has the documents of every file. It stays weighted only when every file is\n\
+                 weighted by the same variable; otherwise a warning says so.",
         example: "ADD FILES /FILE=* /FILE='wave2.sav' /RENAME=(q1_new = q1) /DROP=tmp.",
         parse: files::add_files,
     },
     CommandSpec {
         name: "MATCH FILES",
         summary: "Combine the variables of several data files case by case or by key.",
-        syntax: "MATCH FILES /FILE=* | 'path' | dataset [/RENAME=(old = new) ...] [/TABLE='path' | dataset ...]\n\
-                 \x20           /FILE=... [/BY varlist] [/KEEP=varlist] [/DROP=varlist].\n\
+        syntax: "MATCH FILES /FILE=* | 'path' | dataset [/RENAME=(old = new) ...] [/IN=var]\n\
+                 \x20           [/TABLE='path' | dataset | * [/RENAME=...] [/IN=var] ...]\n\
+                 \x20           /FILE=... [/BY varlist] [/FIRST=var] [/LAST=var]\n\
+                 \x20           [/MAP] [/KEEP=varlist] [/DROP=varlist].\n\
                  A dataset name (DATASET NAME), quoted or not, is that open dataset and comes before a file\n\
                  of the same name.\n\
                  With BY, cases with equal keys are joined; every file must be sorted by the keys (use\n\
                  SORT CASES). Without BY the n-th cases of the files are joined. A TABLE adds its variables\n\
                  to the cases whose key it holds and adds no cases; it may hold each key once. A variable in\n\
-                 several files takes its value from the first file that has the case. The result has no\n\
-                 weight variable.",
+                 several files takes its value from the first file that has the case.\n\
+                 RENAME and IN follow their FILE or TABLE; BY, FIRST, LAST, MAP, KEEP and DROP follow\n\
+                 every FILE and TABLE. IN (with BY) adds a variable that is 1 for the cases that file or\n\
+                 table has, else 0. FIRST and LAST (with BY) add one that is 1 for the first or the last\n\
+                 case of each key. These are F1.0 and go at the end, IN first; KEEP and DROP cannot name\n\
+                 them. MAP lists the variables of the result at that point with their names in each file.\n\
+                 The result has the documents of every file and keeps the weight when every weighted file\n\
+                 uses the same variable and KEEP or DROP leave it; otherwise a warning says so.",
         example: "MATCH FILES /FILE=* /TABLE='regions.sav' /BY region.",
         parse: files::match_files,
     },
@@ -979,7 +994,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  variable only a transaction has adds a variable. Dictionaries combine as in MATCH FILES.\n\
                  IN adds a variable at the end, 1 for the cases that file holds, else 0 (F1.0); KEEP and\n\
                  DROP cannot name it. MAP lists the variables at that point with their names in each file.\n\
-                 The result keeps the primary file's weight. FILE=* cannot follow TEMPORARY.",
+                 There is no FIRST or LAST, since every key gives one case. The weight and the documents\n\
+                 follow MATCH FILES. FILE=* cannot follow TEMPORARY.",
         example: "UPDATE FILE='customers.sav' /FILE='changes.sav' /IN=changed /BY id.",
         parse: files::update,
     },

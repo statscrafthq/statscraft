@@ -12,8 +12,6 @@ use crate::error::{Span, SyntaxError};
 use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
 
-const UNSUPPORTED: [&str; 5] = ["IN", "FIRST", "LAST", "MAP", "SORT"];
-
 /// `(oldlist = newlist) ...` or `old = new ...`, up to the next '/'.
 pub(crate) fn renames(p: &mut Parser) -> PResult<Vec<(Vec<VarItem>, Vec<VarItem>)>> {
     let mut groups = Vec::new();
@@ -54,6 +52,16 @@ enum Kind {
     Update,
 }
 
+/// `[=] name` of IN, FIRST and LAST, once each.
+fn flag(p: &mut Parser, slot: &mut Option<String>, message: String, start: usize) -> PResult<()> {
+    p.eat(Punct::Eq);
+    let name = p.name("a new variable name")?;
+    if slot.replace(name).is_some() {
+        return Err(SyntaxError::new(p.span_from(start), message));
+    }
+    Ok(())
+}
+
 fn merge(p: &mut Parser, command: &str, kind: Kind) -> PResult<Merge> {
     let tables = kind == Kind::Match;
     let update = kind == Kind::Update;
@@ -61,12 +69,17 @@ fn merge(p: &mut Parser, command: &str, kind: Kind) -> PResult<Merge> {
         inputs: Vec::new(),
         by: Vec::new(),
         subsets: Vec::new(),
+        first: None,
+        last: None,
     };
+    // BY, FIRST, LAST, MAP, KEEP and DROP follow every FILE, TABLE, RENAME and IN
+    let mut after_files = false;
+    let mut by = false;
     p.eat(Punct::Slash);
     loop {
         let start = p.pos;
         let table = tables && p.eat_keyword("TABLE");
-        if table || p.eat_keyword("FILE") {
+        let file_part = if table || p.eat_keyword("FILE") {
             p.eat(Punct::Eq);
             let file = if p.eat(Punct::Star) {
                 None
@@ -79,6 +92,7 @@ fn merge(p: &mut Parser, command: &str, kind: Kind) -> PResult<Merge> {
                 rename: Vec::new(),
                 flag: None,
             });
+            true
         } else if p.eat_keyword("RENAME") {
             p.eat(Punct::Eq);
             let groups = renames(p)?;
@@ -87,33 +101,62 @@ fn merge(p: &mut Parser, command: &str, kind: Kind) -> PResult<Merge> {
                 return Err(SyntaxError::new(p.span_from(start), message));
             };
             input.rename.extend(groups);
-        } else if update && p.eat_keyword("IN") {
-            p.eat(Punct::Eq);
-            let name = p.name("a new variable name")?;
+            true
+        } else if p.eat_keyword("IN") {
             let Some(input) = merge.inputs.last_mut() else {
                 let message = format!("{command} /IN must follow the /FILE it flags");
                 return Err(SyntaxError::new(p.span_from(start), message));
             };
-            if input.flag.replace(name).is_some() {
-                let message = format!("{command} takes one /IN per /FILE");
+            let message = format!("{command} takes one /IN per /FILE");
+            flag(p, &mut input.flag, message, start)?;
+            true
+        } else if p.eat_keyword("MAP") {
+            merge.subsets.push(Subset::Map);
+            false
+        } else if !update && p.eat_keyword("FIRST") {
+            flag(
+                p,
+                &mut merge.first,
+                format!("{command} takes one /FIRST"),
+                start,
+            )?;
+            false
+        } else if !update && p.eat_keyword("LAST") {
+            flag(
+                p,
+                &mut merge.last,
+                format!("{command} takes one /LAST"),
+                start,
+            )?;
+            false
+        } else if p.eat_keyword("BY") {
+            if std::mem::replace(&mut by, true) {
+                let message = format!("{command} takes one /BY; name every key variable on it");
                 return Err(SyntaxError::new(p.span_from(start), message));
             }
-        } else if update && p.eat_keyword("MAP") {
-            merge.subsets.push(Subset::Map);
-        } else if p.eat_keyword("BY") {
             p.eat(Punct::Eq);
             merge.by.extend(p.var_list()?);
+            false
         } else if p.eat_keyword("KEEP") {
             p.eat(Punct::Eq);
             merge.subsets.push(Subset::Keep(p.var_list()?));
+            false
         } else if p.eat_keyword("DROP") {
             p.eat(Punct::Eq);
             merge.subsets.push(Subset::Drop(p.var_list()?));
+            false
         } else if merge.inputs.is_empty() {
             return Err(p.unexpected(&["FILE"]));
         } else {
-            return Err(p.subcommand_error(command, &UNSUPPORTED));
+            return Err(p.subcommand_error(command, &[]));
+        };
+        if file_part && after_files {
+            let message = format!(
+                "{command}: FILE, TABLE, RENAME and IN come before BY, FIRST, LAST, MAP, KEEP and DROP"
+            );
+            return Err(SyntaxError::new(p.span_from(start), message));
         }
+        after_files |= !file_part;
         if !p.eat(Punct::Slash) {
             break;
         }
@@ -132,8 +175,19 @@ fn merge(p: &mut Parser, command: &str, kind: Kind) -> PResult<Merge> {
     if merge.inputs.iter().all(|input| input.table) {
         return Err(p.unexpected(&["/FILE='path', /FILE=dataset or /FILE=*"]));
     }
-    if merge.by.is_empty() && merge.inputs.iter().any(|input| input.table) {
-        let mut error = SyntaxError::new(p.span(), "MATCH FILES /TABLE needs /BY key variables");
+    // the manual: TABLE and, for MATCH FILES, IN need keys; FIRST and LAST flag key groups
+    let needs_by = if merge.inputs.iter().any(|input| input.table) {
+        Some("/TABLE")
+    } else if tables && merge.inputs.iter().any(|input| input.flag.is_some()) {
+        Some("/IN")
+    } else if merge.first.is_some() || merge.last.is_some() {
+        Some("/FIRST or /LAST")
+    } else {
+        None
+    };
+    if let Some(what) = needs_by.filter(|_| merge.by.is_empty()) {
+        let message = format!("{command} {what} needs /BY key variables");
+        let mut error = SyntaxError::new(p.span(), message);
         error.expected = vec!["/BY varlist".to_string()];
         return Err(error);
     }

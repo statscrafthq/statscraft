@@ -569,12 +569,12 @@ impl Engine {
             Command::AddFiles(merge) => {
                 self.not_temporary("ADD FILES")?;
                 self.begin_pass()?;
-                self.merge_files(merge, true)?
+                return self.merge_files(merge, true);
             }
             Command::MatchFiles(merge) => {
                 self.not_temporary("MATCH FILES")?;
                 self.begin_pass()?;
-                self.merge_files(merge, false)?
+                return self.merge_files(merge, false);
             }
             Command::StarJoin(join) => {
                 self.not_temporary("STAR JOIN")?;

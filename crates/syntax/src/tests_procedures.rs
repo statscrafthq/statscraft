@@ -201,6 +201,8 @@ fn add_and_match_files() {
                 Subset::Keep(vec![var("id"), var("c")]),
                 Subset::Drop(vec![var("d")])
             ],
+            first: None,
+            last: None,
         })
     );
     let Command::MatchFiles(m) = one("MATCH FILES FILE=* /TABLE='t.sav' /BY k.") else {
@@ -218,10 +220,60 @@ fn add_and_match_files() {
             .message
             .contains("needs /BY")
     );
+    // IN of MATCH FILES, FIRST and LAST need keys
+    assert_eq!(
+        err("MATCH FILES /FILE=* /FILE='b.sav' /IN=src.").message,
+        "MATCH FILES /IN needs /BY key variables"
+    );
+    assert_eq!(
+        err("ADD FILES /FILE=* /FILE='b.sav' /LAST=l.").message,
+        "ADD FILES /FIRST or /LAST needs /BY key variables"
+    );
+    let Command::AddFiles(m) =
+        one("ADD FILES /FILE=* /IN=a /FILE='b.sav' /IN b /BY id /LAST=l /FIR=f /MAP.")
+    else {
+        panic!()
+    };
+    assert_eq!(m.inputs[0].flag.as_deref(), Some("a"));
+    assert_eq!(m.inputs[1].flag.as_deref(), Some("b"));
+    assert_eq!(
+        (m.first.as_deref(), m.last.as_deref()),
+        (Some("f"), Some("l"))
+    );
+    assert_eq!(m.subsets, [Subset::Map]);
+    let Command::MatchFiles(m) =
+        one("MATCH FILES /TABLE='t.sav' /RENAME=(a b = c d) (e = f) /IN=t /FILE=* /BY k /FIRST=f.")
+    else {
+        panic!()
+    };
+    assert_eq!(m.inputs[0].rename.len(), 2);
+    assert_eq!(m.inputs[0].flag.as_deref(), Some("t"));
+    assert_eq!(m.first.as_deref(), Some("f"));
+    // the order of the manual: FILE, TABLE, RENAME and IN first; BY once, IN, FIRST, LAST once
     assert!(
-        err("MATCH FILES /FILE=* /FILE='b.sav' /IN=src.")
+        err("ADD FILES /FILE=* /BY id /FILE='b.sav'.")
             .message
-            .contains("IN of MATCH FILES is not supported yet")
+            .contains("come before BY")
+    );
+    assert!(
+        err("MATCH FILES /FILE=* /FILE='b.sav' /KEEP=id /RENAME=(a=b).")
+            .message
+            .contains("come before BY")
+    );
+    assert!(
+        err("MATCH FILES /FILE=* /FILE='b.sav' /BY id /BY k.")
+            .message
+            .contains("takes one /BY")
+    );
+    assert!(
+        err("ADD FILES /FILE=* /IN=a /IN=b /FILE='b.sav'.")
+            .message
+            .contains("one /IN per /FILE")
+    );
+    assert!(
+        err("ADD FILES /FILE=* /FILE='b.sav' /BY id /FIRST=a /FIRST=b.")
+            .message
+            .contains("takes one /FIRST")
     );
     assert!(
         err("MATCH FILES /RENAME=(a=b) /FILE=*.")

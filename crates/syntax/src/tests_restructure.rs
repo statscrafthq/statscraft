@@ -201,8 +201,9 @@ fn update() {
         err("UPDATE FILE='a.sav' /BY id.").message,
         "UPDATE needs a second /FILE"
     );
+    // UPDATE makes one case per key, so it has no FIRST or LAST
     assert_eq!(
-        err("MATCH FILES /FILE=* /IN=x /FILE='a.sav'.").message,
-        "subcommand IN of MATCH FILES is not supported yet"
+        err("UPDATE FILE='a.sav' /FILE=* /BY id /FIRST=f.").message,
+        "unknown subcommand FIRST of UPDATE"
     );
 }
