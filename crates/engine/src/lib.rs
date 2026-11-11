@@ -2,6 +2,7 @@
 
 mod aggregate;
 mod autorecode;
+mod contrast;
 mod correlations;
 mod crosstabs;
 mod ctables;
@@ -18,7 +19,9 @@ mod format;
 mod frequencies;
 mod get_data;
 mod input;
+mod glm;
 pub mod live;
+mod logistic;
 mod loops;
 mod matrix;
 mod means;
@@ -575,6 +578,8 @@ impl Engine {
             | Command::Reliability(_)
             | Command::Factor(_)
             | Command::QuickCluster(_)
+            | Command::Logistic(_)
+            | Command::Glm(_)
             | Command::Tree(_)
             | Command::Rank(_)
             | Command::Aggregate(_) => return self.procedure(command),
@@ -764,6 +769,8 @@ impl Engine {
             Command::Reliability(command) => self.reliability(command),
             Command::Factor(command) => self.factor(command),
             Command::QuickCluster(command) => self.quick_cluster(command),
+            Command::Logistic(command) => self.logistic(command),
+            Command::Glm(command) => self.glm(command),
             Command::Tree(command) => self.tree(command),
             Command::Rank(command) => self.rank(command),
             Command::Aggregate(command) => self.aggregate(command).map(|()| Vec::new()),

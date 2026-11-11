@@ -428,6 +428,37 @@ const FULL_POSTHOCS: [&str; 4] = ["DUNCAN", "DUNNETT", "DUNNETTL", "DUNNETTR"];
 
 const UNSUPPORTED_POSTHOCS: [&str; 1] = ["WALLER"];
 
+/// One post hoc test keyword, with the reference category of the Dunnett tests. `more` names the
+/// other keywords the subcommand takes, for the error message.
+pub(crate) fn posthoc_test(p: &mut Parser, place: &str, more: &[&str]) -> PResult<Posthoc> {
+    let shortened = |w: &str, name: &str| {
+        name.len() > 2 && !FULL_POSTHOCS.contains(&name) && matches_keyword(w, name)
+    };
+    let found = POSTHOCS.iter().find(|(name, _)| {
+        matches!(p.peek(), Some(TokenKind::Word(w)) if w.eq_ignore_ascii_case(name) || shortened(w, name))
+    });
+    let Some((_, tests)) = found else {
+        let mut supported = names(&POSTHOCS);
+        supported.extend(more);
+        return Err(keyword_error(p, place, &UNSUPPORTED_POSTHOCS, &supported));
+    };
+    p.pos += 1;
+    let mut test = tests[0];
+    if let Posthoc::Dunnett(_, side) = test
+        && p.eat(Punct::LParen)
+    {
+        let start = p.pos;
+        let category = p.number().filter(|n| *n >= 1.0 && n.fract() == 0.0);
+        let Some(category) = category else {
+            let message = "the reference category is a whole number of at least 1";
+            return Err(SyntaxError::new(p.span_from(start), message));
+        };
+        p.expect(Punct::RParen)?;
+        test = Posthoc::Dunnett(Some(category as u32), side);
+    }
+    Ok(test)
+}
+
 pub(crate) fn oneway(p: &mut Parser) -> PResult<Command> {
     p.eat(Punct::Slash);
     if p.eat_keyword("VARIABLES") {
@@ -465,37 +496,7 @@ pub(crate) fn oneway(p: &mut Parser) -> PResult<Command> {
                     command.alpha = level(p, "ALPHA")?;
                     continue;
                 }
-                let shortened = |w: &str, name: &str| {
-                    name.len() > 2 && !FULL_POSTHOCS.contains(&name) && matches_keyword(w, name)
-                };
-                let found = POSTHOCS.iter().find(|(name, _)| {
-                    matches!(p.peek(), Some(TokenKind::Word(w)) if w.eq_ignore_ascii_case(name) || shortened(w, name))
-                });
-                let Some((_, tests)) = found else {
-                    let mut supported = names(&POSTHOCS);
-                    supported.push("ALPHA(value)");
-                    return Err(keyword_error(
-                        p,
-                        "ONEWAY /POSTHOC",
-                        &UNSUPPORTED_POSTHOCS,
-                        &supported,
-                    ));
-                };
-                p.pos += 1;
-                let mut test = tests[0];
-                if let Posthoc::Dunnett(_, side) = test
-                    && p.eat(Punct::LParen)
-                {
-                    let start = p.pos;
-                    let category = p.number().filter(|n| *n >= 1.0 && n.fract() == 0.0);
-                    let Some(category) = category else {
-                        let message = "the reference category is a whole number of at least 1";
-                        return Err(SyntaxError::new(p.span_from(start), message));
-                    };
-                    p.expect(Punct::RParen)?;
-                    test = Posthoc::Dunnett(Some(category as u32), side);
-                }
-                chosen.push(test);
+                chosen.push(posthoc_test(p, "ONEWAY /POSTHOC", &["ALPHA(value)"])?);
                 p.eat(Punct::Comma);
             }
             if chosen.is_empty() {

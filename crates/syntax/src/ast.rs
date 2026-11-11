@@ -70,6 +70,8 @@ pub enum Command {
     Reliability(Box<crate::reliability::Reliability>),
     Factor(Box<crate::factor::Factor>),
     QuickCluster(Box<crate::factor::QuickCluster>),
+    Logistic(Box<crate::logistic::Logistic>),
+    Glm(Box<crate::glm::Glm>),
     Tree(Box<Tree>),
     Rank(Rank),
     AddFiles(Merge),

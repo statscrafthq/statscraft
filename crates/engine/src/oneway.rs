@@ -40,17 +40,17 @@ use std::f64::consts::SQRT_2;
 
 /// The statistics of one group.
 #[derive(Clone, Copy)]
-struct Group {
-    w: f64,
-    mean: f64,
+pub(crate) struct Group {
+    pub(crate) w: f64,
+    pub(crate) mean: f64,
     /// The corrected sum of squares.
-    css: f64,
-    variance: f64,
-    min: f64,
-    max: f64,
+    pub(crate) css: f64,
+    pub(crate) variance: f64,
+    pub(crate) min: f64,
+    pub(crate) max: f64,
 }
 
-fn group(pairs: &[(f64, f64)]) -> Group {
+pub(crate) fn group(pairs: &[(f64, f64)]) -> Group {
     let w: f64 = pairs.iter().map(|(_, w)| w).sum();
     let mean = pairs.iter().map(|(x, w)| x * w).sum::<f64>() / w;
     let squares: f64 = pairs.iter().map(|(x, w)| w * (x - mean) * (x - mean)).sum();
@@ -353,6 +353,185 @@ fn compare(
     [diff, se, p.clamp(0.0, 1.0), diff - half, diff + half]
 }
 
+/// The post hoc tables of one dependent variable: Multiple Comparisons and Homogeneous Subsets.
+/// `groups` are the groups in ascending order of the factor, `labels` their names; `within`
+/// and `df` the error mean square and its degrees of freedom.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn posthoc_tables(
+    dependent: &str,
+    factor: &str,
+    labels: &[String],
+    groups: &[Group],
+    tests: &[Posthoc],
+    within: f64,
+    df: f64,
+    alpha: f64,
+    warnings: &mut Vec<String>,
+) -> (Option<Table>, Option<Table>) {
+    let k = groups.len() as f64;
+    let (mut comparison, mut subset) = (None, None);
+    let pairwise: Vec<Posthoc> = tests.iter().copied().filter(|&t| !range_only(t)).collect();
+    if !pairwise.is_empty() && k >= 2.0 {
+        let mut rows = Vec::new();
+        for &test in &pairwise {
+            if let Posthoc::Dunnett(reference, side) = test {
+                let control = reference.map_or(groups.len() - 1, |r| r as usize - 1);
+                if control >= groups.len() {
+                    warnings.push(format!(
+                        "no {} test for {}: there are only {} groups",
+                        test_name(test),
+                        dependent,
+                        groups.len()
+                    ));
+                    continue;
+                }
+                let found = dunnett(side, groups, control, within, df, alpha);
+                for (n, (i, values)) in found.into_iter().enumerate() {
+                    let mut row = vec![
+                        Cell::Text(if n == 0 {
+                            test_name(test).into()
+                        } else {
+                            String::new()
+                        }),
+                        Cell::Text(labels[i].clone()),
+                        Cell::Text(labels[control].clone()),
+                    ];
+                    row.extend(values.map(|v| number(Some(v))));
+                    rows.push(row);
+                }
+                continue;
+            }
+            // Dunnett's C takes the studentized range of each group's own df
+            let ranges: Vec<f64> = groups
+                .iter()
+                .map(|g| {
+                    if test == Posthoc::C {
+                        studentized_range_quantile(alpha, k, g.w - 1.0)
+                    } else {
+                        f64::NAN
+                    }
+                })
+                .collect();
+            // each unordered pair once; the reverse direction mirrors it
+            let mut found = vec![vec![[f64::NAN; 5]; groups.len()]; groups.len()];
+            for i in 0..groups.len() {
+                for j in i + 1..groups.len() {
+                    let r = compare(
+                        test,
+                        &groups[i],
+                        &groups[j],
+                        k,
+                        within,
+                        df,
+                        alpha,
+                        (ranges[i], ranges[j]),
+                    );
+                    found[i][j] = r;
+                    found[j][i] = [-r[0], r[1], r[2], -r[4], -r[3]];
+                }
+            }
+            for i in 0..groups.len() {
+                for j in (0..groups.len()).filter(|&j| j != i) {
+                    let first_of_test = i == 0 && j == 1;
+                    let mut row = vec![
+                        Cell::Text(if first_of_test {
+                            test_name(test).into()
+                        } else {
+                            String::new()
+                        }),
+                        Cell::Text(if j == usize::from(i == 0) {
+                            labels[i].clone()
+                        } else {
+                            String::new()
+                        }),
+                        Cell::Text(labels[j].clone()),
+                    ];
+                    row.extend(found[i][j].map(|v| number(Some(v))));
+                    rows.push(row);
+                }
+            }
+        }
+        let mut table = simple(
+            format!("Multiple Comparisons: {}", dependent),
+            &[
+                "",
+                "(I) group",
+                "(J) group",
+                "Mean Difference (I-J)",
+                "Std. Error",
+                "Sig.",
+                "Lower Bound",
+                "Upper Bound",
+            ],
+            rows,
+        );
+        table.columns[1] = format!("(I) {}", factor);
+        table.columns[2] = format!("(J) {}", factor);
+        let interval = ci_title(1.0 - alpha);
+        table.column_groups[6] = vec![interval.clone()];
+        table.column_groups[7] = vec![interval];
+        table.row_headers = 3;
+        comparison = Some(table);
+    }
+    let ranged: Vec<Posthoc> = tests.iter().copied().filter(|&t| range_test(t)).collect();
+    if !ranged.is_empty() && k >= 2.0 {
+        let mut order: Vec<usize> = (0..groups.len()).collect();
+        order.sort_by(|&a, &b| groups[a].mean.total_cmp(&groups[b].mean));
+        let sorted: Vec<Group> = order.iter().map(|&i| groups[i]).collect();
+        let found: Vec<(Posthoc, Vec<Subset>)> = ranged
+            .iter()
+            .map(|&t| (t, subsets(t, &sorted, within, df, alpha)))
+            .collect();
+        let width = found.iter().map(|(_, s)| s.len()).max().unwrap_or(0);
+        let mut rows = Vec::new();
+        for (test, sets) in &found {
+            for (position, &i) in order.iter().enumerate() {
+                let mut row = vec![
+                    Cell::Text(if position == 0 {
+                        test_name(*test).into()
+                    } else {
+                        String::new()
+                    }),
+                    Cell::Text(labels[i].clone()),
+                    Cell::Number(groups[i].w),
+                ];
+                row.extend((0..width).map(|s| match sets.get(s) {
+                    Some(&(a, b, _)) if a <= position && position <= b => {
+                        Cell::Number(groups[i].mean)
+                    }
+                    _ => Cell::Empty,
+                }));
+                rows.push(row);
+            }
+            let mut row = vec![Cell::Empty, Cell::Text("Sig.".into()), Cell::Empty];
+            row.extend((0..width).map(|s| number(sets.get(s).and_then(|set| set.2))));
+            rows.push(row);
+        }
+        let mut columns = vec![String::new(), factor.to_string(), "N".into()];
+        columns.extend((1..=width).map(|s| s.to_string()));
+        let mut column_groups = vec![Vec::new(); 3];
+        column_groups.extend(vec![vec![format!("Subset for alpha = {}", alpha)]; width]);
+        let harmonic = k / groups.iter().map(|g| 1.0 / g.w).sum::<f64>();
+        let mut caption = String::from("Means for groups in homogeneous subsets are displayed.");
+        if groups.iter().any(|g| g.w != groups[0].w) {
+            caption.push_str(&format!(
+                " The group sizes are unequal: the harmonic mean of the group sizes, {}, is used, except by the Ryan-Einot-Gabriel-Welsch tests.",
+                (harmonic * 1000.0).round() / 1000.0
+            ));
+        }
+        subset = Some(Table {
+            title: format!("Homogeneous Subsets: {}", dependent),
+            row_headers: 2,
+            columns,
+            column_groups,
+            rows,
+            caption: Some(caption),
+            ..Table::default()
+        });
+    }
+    (comparison, subset)
+}
+
 impl Engine {
     pub(crate) fn oneway(&mut self, command: &Oneway) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
@@ -630,181 +809,21 @@ impl Engine {
                     ]);
                 }
             }
-            let pairwise: Vec<Posthoc> = command
-                .posthoc
-                .iter()
-                .copied()
-                .filter(|&t| !range_only(t))
-                .collect();
             let groups: Vec<Group> = present.iter().map(|(_, g)| *g).collect();
-            if !pairwise.is_empty() && k >= 2.0 {
-                let mut rows = Vec::new();
-                for &test in &pairwise {
-                    if let Posthoc::Dunnett(reference, side) = test {
-                        let control = reference.map_or(groups.len() - 1, |r| r as usize - 1);
-                        if control >= groups.len() {
-                            warnings.push(format!(
-                                "no {} test for {}: there are only {} groups",
-                                test_name(test),
-                                dependent.name(),
-                                groups.len()
-                            ));
-                            continue;
-                        }
-                        let found =
-                            dunnett(side, &groups, control, ms_within, df_within, command.alpha);
-                        for (n, (i, values)) in found.into_iter().enumerate() {
-                            let mut row = vec![
-                                Cell::Text(if n == 0 {
-                                    test_name(test).into()
-                                } else {
-                                    String::new()
-                                }),
-                                Cell::Text(label(&factor, present[i].0)),
-                                Cell::Text(label(&factor, present[control].0)),
-                            ];
-                            row.extend(values.map(|v| number(Some(v))));
-                            rows.push(row);
-                        }
-                        continue;
-                    }
-                    // Dunnett's C takes the studentized range of each group's own df
-                    let ranges: Vec<f64> = groups
-                        .iter()
-                        .map(|g| {
-                            if test == Posthoc::C {
-                                studentized_range_quantile(command.alpha, k, g.w - 1.0)
-                            } else {
-                                f64::NAN
-                            }
-                        })
-                        .collect();
-                    // each unordered pair once; the reverse direction mirrors it
-                    let mut found = vec![vec![[f64::NAN; 5]; present.len()]; present.len()];
-                    for i in 0..present.len() {
-                        for j in i + 1..present.len() {
-                            let r = compare(
-                                test,
-                                &groups[i],
-                                &groups[j],
-                                k,
-                                ms_within,
-                                df_within,
-                                command.alpha,
-                                (ranges[i], ranges[j]),
-                            );
-                            found[i][j] = r;
-                            found[j][i] = [-r[0], r[1], r[2], -r[4], -r[3]];
-                        }
-                    }
-                    for i in 0..present.len() {
-                        for j in (0..present.len()).filter(|&j| j != i) {
-                            let first_of_test = i == 0 && j == 1;
-                            let mut row = vec![
-                                Cell::Text(if first_of_test {
-                                    test_name(test).into()
-                                } else {
-                                    String::new()
-                                }),
-                                Cell::Text(if j == usize::from(i == 0) {
-                                    label(&factor, present[i].0)
-                                } else {
-                                    String::new()
-                                }),
-                                Cell::Text(label(&factor, present[j].0)),
-                            ];
-                            row.extend(found[i][j].map(|v| number(Some(v))));
-                            rows.push(row);
-                        }
-                    }
-                }
-                let mut table = simple(
-                    format!("Multiple Comparisons: {}", dependent.name()),
-                    &[
-                        "",
-                        "(I) group",
-                        "(J) group",
-                        "Mean Difference (I-J)",
-                        "Std. Error",
-                        "Sig.",
-                        "Lower Bound",
-                        "Upper Bound",
-                    ],
-                    rows,
-                );
-                table.columns[1] = format!("(I) {}", factor.name());
-                table.columns[2] = format!("(J) {}", factor.name());
-                let interval = ci_title(1.0 - command.alpha);
-                table.column_groups[6] = vec![interval.clone()];
-                table.column_groups[7] = vec![interval];
-                table.row_headers = 3;
-                comparisons.push(table);
-            }
-            let ranged: Vec<Posthoc> = command
-                .posthoc
-                .iter()
-                .copied()
-                .filter(|&t| range_test(t))
-                .collect();
-            if !ranged.is_empty() && k >= 2.0 {
-                let mut order: Vec<usize> = (0..groups.len()).collect();
-                order.sort_by(|&a, &b| groups[a].mean.total_cmp(&groups[b].mean));
-                let sorted: Vec<Group> = order.iter().map(|&i| groups[i]).collect();
-                let found: Vec<(Posthoc, Vec<Subset>)> = ranged
-                    .iter()
-                    .map(|&t| (t, subsets(t, &sorted, ms_within, df_within, command.alpha)))
-                    .collect();
-                let width = found.iter().map(|(_, s)| s.len()).max().unwrap_or(0);
-                let mut rows = Vec::new();
-                for (test, sets) in &found {
-                    for (position, &i) in order.iter().enumerate() {
-                        let mut row = vec![
-                            Cell::Text(if position == 0 {
-                                test_name(*test).into()
-                            } else {
-                                String::new()
-                            }),
-                            Cell::Text(label(&factor, present[i].0)),
-                            Cell::Number(groups[i].w),
-                        ];
-                        row.extend((0..width).map(|s| match sets.get(s) {
-                            Some(&(a, b, _)) if a <= position && position <= b => {
-                                Cell::Number(groups[i].mean)
-                            }
-                            _ => Cell::Empty,
-                        }));
-                        rows.push(row);
-                    }
-                    let mut row = vec![Cell::Empty, Cell::Text("Sig.".into()), Cell::Empty];
-                    row.extend((0..width).map(|s| number(sets.get(s).and_then(|set| set.2))));
-                    rows.push(row);
-                }
-                let mut columns = vec![String::new(), factor.name().to_string(), "N".into()];
-                columns.extend((1..=width).map(|s| s.to_string()));
-                let mut column_groups = vec![Vec::new(); 3];
-                column_groups.extend(vec![
-                    vec![format!("Subset for alpha = {}", command.alpha)];
-                    width
-                ]);
-                let harmonic = k / groups.iter().map(|g| 1.0 / g.w).sum::<f64>();
-                let mut caption =
-                    String::from("Means for groups in homogeneous subsets are displayed.");
-                if groups.iter().any(|g| g.w != groups[0].w) {
-                    caption.push_str(&format!(
-                        " The group sizes are unequal: the harmonic mean of the group sizes, {}, is used, except by the Ryan-Einot-Gabriel-Welsch tests.",
-                        (harmonic * 1000.0).round() / 1000.0
-                    ));
-                }
-                subset_tables.push(Table {
-                    title: format!("Homogeneous Subsets: {}", dependent.name()),
-                    row_headers: 2,
-                    columns,
-                    column_groups,
-                    rows,
-                    caption: Some(caption),
-                    ..Table::default()
-                });
-            }
+            let labels: Vec<String> = present.iter().map(|(l, _)| label(&factor, *l)).collect();
+            let (comparison, subset) = posthoc_tables(
+                dependent.name(),
+                factor.name(),
+                &labels,
+                &groups,
+                &command.posthoc,
+                ms_within,
+                df_within,
+                command.alpha,
+                &mut warnings,
+            );
+            comparisons.extend(comparison);
+            subset_tables.extend(subset);
         }
         let mut out = Vec::new();
         if command.descriptives {

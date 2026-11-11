@@ -504,6 +504,46 @@ pub(crate) fn noncentral_t_parameter(t: f64, df: f64, p: f64) -> f64 {
     solve(f, t - width, t + width)
 }
 
+/// The distribution function of the noncentral F with `d1` and `d2` degrees of freedom and
+/// noncentrality `lambda`: P(F < f), a Poisson-weighted sum of incomplete beta functions taken
+/// from the largest term outwards.
+pub(crate) fn noncentral_f_cdf(f: f64, d1: f64, d2: f64, lambda: f64) -> f64 {
+    if f <= 0.0 {
+        return 0.0;
+    }
+    let x = d1 * f / (d1 * f + d2);
+    let half = lambda / 2.0;
+    if half <= 0.0 {
+        return beta_i(d1 / 2.0, d2 / 2.0, x);
+    }
+    let term = |j: f64| {
+        (-half + j * half.ln() - ln_gamma(j + 1.0)).exp() * beta_i(d1 / 2.0 + j, d2 / 2.0, x)
+    };
+    let top = half.floor();
+    let mut sum = 0.0;
+    let mut j = top;
+    loop {
+        let value = term(j);
+        sum += value;
+        // the probability is wanted to an absolute precision, so tiny terms end the sum
+        if j == 0.0 || (j < top - 5.0 && (value < 1e-17 * sum || value < 1e-25)) {
+            break;
+        }
+        j -= 1.0;
+    }
+    let mut j = top + 1.0;
+    loop {
+        let value = term(j);
+        sum += value;
+        let small = value < 1e-17 * sum || value < 1e-25;
+        if (j > top + 5.0 && small) || j > top + 100_000.0 {
+            break;
+        }
+        j += 1.0;
+    }
+    sum.clamp(0.0, 1.0)
+}
+
 /// Hedges' correction factor J(k) = Γ(k/2) / (sqrt(k/2) Γ((k-1)/2)).
 pub(crate) fn hedges_j(k: f64) -> f64 {
     (ln_gamma(k / 2.0) - 0.5 * (k / 2.0).ln() - ln_gamma((k - 1.0) / 2.0)).exp()

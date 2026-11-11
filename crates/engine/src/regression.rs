@@ -614,7 +614,7 @@ fn summary(values: &[(f64, f64)]) -> [Option<f64>; 5] {
     ]
 }
 
-fn table(
+pub(crate) fn table(
     title: &str,
     row_headers: usize,
     columns: Vec<(String, String)>,
@@ -642,7 +642,7 @@ fn table(
     }
 }
 
-fn plain(names: &[&str]) -> Vec<(String, String)> {
+pub(crate) fn plain(names: &[&str]) -> Vec<(String, String)> {
     names
         .iter()
         .map(|n| (String::new(), n.to_string()))

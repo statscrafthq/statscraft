@@ -41,6 +41,8 @@ pub enum Punct {
     RBracket,
     /// `%`, as in ALTER TYPE (A=AMIN + 10%)
     Percent,
+    /// `;`, ending a row of an L matrix
+    Semicolon,
 }
 
 impl Punct {
@@ -66,6 +68,7 @@ impl Punct {
             Punct::LBracket => "[",
             Punct::RBracket => "]",
             Punct::Percent => "%",
+            Punct::Semicolon => ";",
         }
     }
 }
@@ -276,6 +279,7 @@ impl<'a> Lexer<'a> {
             ('|', _) => (Punct::Or, 1),
             ('~', _) => (Punct::Not, 1),
             ('[', _) => (Punct::LBracket, 1),
+            (';', _) => (Punct::Semicolon, 1),
             (']', _) => (Punct::RBracket, 1),
             ('%', _) => (Punct::Percent, 1),
             _ => {

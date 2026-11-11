@@ -29,7 +29,9 @@ mod files;
 mod frequencies;
 mod get_data;
 mod input_program;
+mod glm;
 mod lexer;
+mod logistic;
 mod loops;
 mod macros;
 mod mrsets;
@@ -62,6 +64,8 @@ mod tests_factor;
 #[cfg(test)]
 mod tests_input_program;
 #[cfg(test)]
+mod tests_glm;
+#[cfg(test)]
 mod tests_loops;
 #[cfg(test)]
 mod tests_models;
@@ -93,7 +97,14 @@ pub use factor::{
     ClusterMethod, ClusterSave, Extraction, Factor, FactorCriteria, FactorMissing, FactorPrint,
     FactorSave, MatrixKind, QuickCluster, Rotation, ScoreMethod,
 };
+pub use glm::{
+    Adjustment, Contrast, Emmeans, Glm, GlmPrint, GlmTemp, LMatrix, LRow, Term, WsFactor,
+};
 pub use lexer::{Punct, Token, TokenKind};
+pub use logistic::{
+    Logistic, LogisticCasewise, LogisticCriteria, LogisticMethod, LogisticMethodKind,
+    LogisticPrint, LogisticTemp, Removal,
+};
 pub use loops::{RepeatItem, command_text, substitute};
 pub use mrsets::{Mrsets, MrsetsGroup};
 pub use npar::{

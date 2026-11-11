@@ -181,7 +181,7 @@ impl Distribution {
     }
 
     /// The 5% trimmed mean.
-    fn trimmed_mean(&self) -> Option<f64> {
+    pub(crate) fn trimmed_mean(&self) -> Option<f64> {
         if self.values.is_empty() {
             return None;
         }

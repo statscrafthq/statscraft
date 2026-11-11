@@ -12,7 +12,9 @@ use crate::files;
 use crate::frequencies;
 use crate::get_data;
 use crate::input_program;
+use crate::glm;
 use crate::lexer::{Punct, Token, TokenKind};
+use crate::logistic;
 use crate::loops;
 use crate::mrsets;
 use crate::mult_response;
@@ -38,6 +40,48 @@ pub struct CommandSpec {
     pub syntax: &'static str,
     pub example: &'static str,
     pub(crate) parse: fn(&mut Parser) -> PResult<Command>,
+}
+
+/// The help syntax of UNIANOVA and GLM, which share their parser.
+macro_rules! glm_syntax {
+    ($name:literal) => {
+        concat!($name, " dependent [BY factors] [WITH covariates]\n\
+                 \x20  [/WSFACTOR=name levels [POLYNOMIAL | contrast] ...] [/WSDESIGN=effects] (GLM)\n\
+                 \x20  [/METHOD=SSTYPE(1 | 2 | 3 | 4)] [/INTERCEPT=INCLUDE | EXCLUDE] [/MISSING=EXCLUDE | INCLUDE]\n\
+                 \x20  [/CRITERIA=[EPS(1E-8)] [ALPHA(0.05)]] [/REGWGT=var]\n\
+                 \x20  [/PRINT=[DESCRIPTIVE] [HOMOGENEITY] [PARAMETER] [ETASQ] [OPOWER] [LOF]]\n\
+                 \x20  [/EMMEANS=TABLES(OVERALL | factor[*factor...]) [WITH(covariate=value | MEAN ...)]\n\
+                 \x20            [COMPARE[(factor)] [ADJ(LSD | BONFERRONI | SIDAK)]]] ...\n\
+                 \x20  [/POSTHOC=factor ... (tests)] ... [/CONTRAST(factor)=DEVIATION[(ref)] | SIMPLE[(ref)] |\n\
+                 \x20  DIFFERENCE | HELMERT | REPEATED | POLYNOMIAL[(metric)]] ...\n\
+                 \x20  [/LMATRIX=['label'] effect coefficients ... [; ...] | ALL coefficients] ... [/KMATRIX=values]\n\
+                 \x20  [/SAVE=tempvar[(name)] ...] [/PLOT=...] [/DESIGN=effects].\n\
+                 effects: INTERCEPT, a factor or covariate, a*b or a BY b, a(b) or a WITHIN b, a(b(c)), x*x, x*a.\n\
+                 tempvar: PRED WPRED RESID WRESID DRESID ZRESID SRESID SEPRED COOK LEVER. tests: as in ONEWAY\n\
+                 /POSTHOC (LSD BONFERRONI SIDAK TUKEY SCHEFFE GH T2 SNK BTUKEY DUNCAN GT2 GABRIEL FREGW QREGW T3 C\n\
+                 DUNNETT DUNNETTL DUNNETTR). Without DESIGN the model is the intercept, the covariates and the full\n\
+                 factorial of the factors. A case missing on any variable is left out; the weight is rounded to a\n\
+                 whole number. The design matrix has one column per effect level (only combinations that occur);\n\
+                 sweeping it gives a generalized inverse, and a column that adds nothing (EPS) is redundant, its\n\
+                 parameter 0. Tables: Between-Subjects Factors, Descriptive Statistics, Levene's Test of Equality\n\
+                 of Error Variances (absolute residuals by cell; based on the mean, the median, the median with\n\
+                 adjusted df and the trimmed mean for a full factorial without covariates), Tests of\n\
+                 Between-Subjects Effects (Type I sequential, II, III or IV sums of squares, with partial eta\n\
+                 squared, noncentrality and observed power), Parameter Estimates, Lack of Fit Tests, Contrast\n\
+                 Results and Test Results for each CONTRAST and LMATRIX, Estimated Marginal Means (cells weighted\n\
+                 equally, covariates at their means or the WITH values) with Pairwise Comparisons and Univariate\n\
+                 Tests, and the post hoc tables of ONEWAY on the observed means with the model's error. T2, T3,\n\
+                 GH and C need a model with one factor. SAVE adds PRE_1, RES_1 and so on, or the names given.\n\
+                 GLM with WSFACTOR: the dependents are the levels of the within-subjects factors (the first\n\
+                 factor's levels change slowest); Multivariate Tests, Mauchly's Test of Sphericity, Tests of\n\
+                 Within-Subjects Effects (sphericity assumed, Greenhouse-Geisser, Huynh-Feldt, lower bound), Tests\n\
+                 of Within-Subjects Contrasts and Tests of Between-Subjects Effects on the average.\n\
+                 PLOT is accepted with a warning that charts are not drawn yet. Not supported yet: GLM with several\n\
+                 dependents without WSFACTOR (the multivariate model), RANDOM, TEST, ROBUST, OUTFILE, MMATRIX,\n\
+                 MEASURE, POSTHOC VS, CONTRAST SPECIAL, PRINT GEF, TEST(LMATRIX), MBP, BP, F and WHITE; with\n\
+                 WSFACTOR also EMMEANS (left out with a warning), POSTHOC, CONTRAST, LMATRIX, SAVE and PRINT\n\
+                 PARAMETER, HOMOGENEITY and LOF.")
+    };
 }
 
 pub(crate) static COMMANDS: &[CommandSpec] = &[
@@ -1159,6 +1203,54 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: factor::quick_cluster,
     },
     CommandSpec {
+        name: "LOGISTIC REGRESSION",
+        summary: "Binary logistic regression with categorical covariates, stepwise selection and case diagnostics.",
+        syntax: "LOGISTIC REGRESSION [VARIABLES=] dependent [WITH var | var BY var ...]\n\
+                 \x20  [/CATEGORICAL=varlist] [/CONTRAST(var)=INDICATOR[(ref)] | DEVIATION[(ref)] | SIMPLE[(ref)] |\n\
+                 \x20  DIFFERENCE | HELMERT | REPEATED | POLYNOMIAL[(metric)] | SPECIAL(matrix)]\n\
+                 \x20  [/METHOD=ENTER | FSTEP[(COND | LR | WALD)] | BSTEP[(COND | LR | WALD)] [ALL | terms]] ...\n\
+                 \x20  [/ORIGIN | NOORIGIN] [/ID=var] [/PRINT=[DEFAULT] [SUMMARY] [CORR] [ITER[(n)]] [GOODFIT] [CI(95)] [ALL]]\n\
+                 \x20  [/CRITERIA=[BCON(0.001)] [ITERATE(20)] [LCON(0)] [PIN(0.05)] [POUT(0.10)] [EPS(1E-8)] [CUT(0.5)]]\n\
+                 \x20  [/MISSING=EXCLUDE | INCLUDE] [/CASEWISE=[tempvars] [OUTLIER(2)]]\n\
+                 \x20  [/SAVE=tempvar[(name)] ...] [/CLASSPLOT] [/EXTERNAL].\n\
+                 tempvar: PRED PGROUP RESID DEV LRESID SRESID ZRESID LEVER COOK DFBETA. The dependent variable has\n\
+                 exactly two values among the cases used: the lower is coded 0 and the higher 1 (strings in\n\
+                 alphabetical order). A case missing on any variable is left out; one missing only on the dependent\n\
+                 still gets PRED and PGROUP. String covariates are categorical; a categorical variable with k\n\
+                 values becomes k - 1 coded variables that enter and leave together (INDICATOR, last category as\n\
+                 reference, by default). The fit is Newton-Raphson from all coefficients 0 and stops when no\n\
+                 coefficient changes by BCON or more, the -2 log likelihood changes by less than LCON percent, or\n\
+                 after ITERATE iterations. Each METHOD starts from the model the one before it left: ENTER enters\n\
+                 its terms, FSTEP enters by the score test (PIN) and removes by the chosen statistic (POUT), BSTEP\n\
+                 enters its terms first and then removes and enters the same way. Tables: Case Processing Summary,\n\
+                 Dependent Variable Encoding, Categorical Variables Codings, then for block 0 and each block the\n\
+                 Classification Table, Variables in the Equation, Variables not in the Equation, Omnibus Tests of\n\
+                 Model Coefficients, Model Summary (-2LL, Cox and Snell and Nagelkerke R square), Model if Term\n\
+                 Removed (LR), and with PRINT the Iteration History, Hosmer and Lemeshow Test with its contingency\n\
+                 table, the Correlation Matrix and the intervals of Exp(B). SUMMARY shows the last step of each\n\
+                 block only. CASEWISE lists every case, or those whose studentized residual is OUTLIER or more\n\
+                 away from 0. SAVE adds PRE_1, PGR_1, RES_1, DEV_1, LRE_1, SRE_1, ZRE_1, LEV_1, COO_1 and DFB0_1,\n\
+                 DFB1_1, ... (one per coefficient), or the names given (DFBETA(name) gives name0, name1, ...).\n\
+                 Weighted when a weight variable is set. CLASSPLOT is accepted with a warning that charts are not\n\
+                 drawn yet; EXTERNAL changes nothing. Not supported yet: SELECT, OUTFILE.",
+        example: "LOGISTIC REGRESSION VARIABLES=bought WITH age income region /CATEGORICAL=region /METHOD=FSTEP(LR) /PRINT=GOODFIT CI(95) /SAVE=PRED.",
+        parse: logistic::logistic,
+    },
+    CommandSpec {
+        name: "UNIANOVA",
+        summary: "General linear model of one dependent variable: factorial ANOVA, ANCOVA and regression.",
+        syntax: glm_syntax!("UNIANOVA"),
+        example: "UNIANOVA score BY method school WITH pretest /PRINT=DESCRIPTIVE ETASQ PARAMETER /EMMEANS=TABLES(method) COMPARE ADJ(BONFERRONI) /DESIGN=pretest method school method*school.",
+        parse: glm::unianova,
+    },
+    CommandSpec {
+        name: "GLM",
+        summary: "General linear model: one dependent variable as in UNIANOVA, or repeated measures with WSFACTOR.",
+        syntax: glm_syntax!("GLM"),
+        example: "GLM t1 t2 t3 BY group /WSFACTOR=time 3 POLYNOMIAL /WSDESIGN=time /DESIGN=group.",
+        parse: glm::glm,
+    },
+    CommandSpec {
         name: "TREE",
         summary: "A classification tree grown by CHAID or exhaustive CHAID.",
         syntax: "TREE dependent [level] BY predictor [level] ... [FORCE = var [level]]\n\
@@ -1882,10 +1974,11 @@ static UNSUPPORTED: &[&str] = &[
     "EXPORT",
     "FINISH",
     "GET TRANSLATE",
-    "GLM",
     "GRAPH",
     "IMPORT",
     "LOGISTIC REGRESSION",
+    "INPUT PROGRAM",
+    "LEAVE",
     "MATRIX",
     "MATRIX DATA",
     "OUTPUT CLOSE",
@@ -1894,6 +1987,7 @@ static UNSUPPORTED: &[&str] = &[
     "OUTPUT SAVE",
     "REPORT",
     "UNIANOVA",
+    "REREAD",
 ];
 
 fn names() -> impl Iterator<Item = (&'static str, Option<&'static CommandSpec>)> {
