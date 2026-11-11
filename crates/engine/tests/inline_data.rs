@@ -186,6 +186,6 @@ fn inline_data_must_follow_its_data_list() {
     assert!(
         errors[0]
             .message
-            .starts_with("BEGIN DATA needs a DATA LIST without FILE")
+            .starts_with("BEGIN DATA needs a DATA LIST or MATRIX DATA without FILE")
     );
 }

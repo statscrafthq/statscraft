@@ -1,4 +1,4 @@
-//! Input programs, REREAD and LEAVE compared with GNU PSPP, run as a black box on the same
+//! Input programs, REREAD, LEAVE and MATRIX DATA compared with GNU PSPP, run as a black box on the same
 //! syntax: the data files both programs save must hold the same variables, formats and
 //! values. PSPP has no REPEATING DATA or FILE TYPE, so those are checked against the manual
 //! only (tests/input_program.rs). Ignored by default because they need the PSPP program:
@@ -237,4 +237,72 @@ fn leave_outside_an_input_program() {
          FORMATS TSALARY (DOLLAR8)/ SALARY (DOLLAR7).",
         &[],
     );
+}
+
+/// The layouts of MATRIX DATA, each with its own synthetic numbers.
+const MATRIX_CASES: [(&str, &str); 14] = [
+    (
+        "explicit",
+        "MATRIX DATA VARIABLES=ROWTYPE_ a b c.\nBEGIN DATA\n'MEAN' 9.67 35.08 2.29\nSD 4.48 9.15 1.29\nN 50 50 50\nCORR 1\nCORR -.45 1\nCORR .31 -.90 1\nEND DATA.",
+    ),
+    (
+        "upper-nodiagonal",
+        "MATRIX DATA VARIABLES=a b c d /CONTENTS=MEAN SD N CORR /FORMAT=UPPER NODIAGONAL.\nBEGIN DATA\n9.6 35.1 2.3 1106.8\n4.5 9.2 1.3 990.9\n50 50 50 50\n-.45 .31 .22\n-.91 -.76\n.79\nEND DATA.",
+    ),
+    (
+        "within-together",
+        [removed]
+    ),
+    (
+        "within-apart",
+        [removed]
+    ),
+    (
+        "two-factors-implicit",
+        "MATRIX DATA VARIABLES=f1 f2 a b /FACTORS=f1 f2 /CELLS=4 /CONTENTS=(MEAN SD) CORR.\nBEGIN DATA\n1 1 1 2\n1 1 5 4\n1 2 4 5\n1 2 6 5\n2 1 7 8\n2 1 7 6\n2 2 9 8\n2 2 8 7\n1\n.6 1\nEND DATA.",
+    ),
+    (
+        "explicit-factor",
+        "MATRIX DATA VARIABLES=world ROWTYPE_ food appl /FACTORS=world.\nBEGIN DATA\n1 N 25 25\n1 MEAN 76.64 77.32\n2 N 7 7\n2 MEAN 76.14 85.28\n. SD 16.46 22.55\n. CORR 1\n. CORR .14 1\nEND DATA.",
+    ),
+    (
+        "mse-dfe",
+        "MATRIX DATA VARIABLES=educ ROWTYPE_ well /FACTORS=educ.\nBEGIN DATA\n1 N 65\n2 N 95\n1 MEAN 2.6462\n2 MEAN 2.7737\n. MSE 6.2699\n. DFE 494\nEND DATA.",
+    ),
+    (
+        "split-generated",
+        [removed]
+    ),
+    (
+        "split-in-data",
+        [removed]
+    ),
+    (
+        "n-subcommand",
+        "MATRIX DATA VARIABLES=a b c /CONTENTS=MEAN SD CORR /N=99.\nBEGIN DATA\n5 4 3\n3 4 5\n1\n.6 1\n.7 .8 1\nEND DATA.",
+    ),
+    (
+        "n-scalar",
+        "MATRIX DATA VARIABLES=a b c /CONTENTS=MEAN SD N_SCALAR CORR.\nBEGIN DATA\n5 4 3\n3 2 1\n9\n1\n.6 1\n.7 .8 1\nEND DATA.",
+    ),
+    (
+        "full",
+        "MATRIX DATA VARIABLES=ROWTYPE_ a b c /FORMAT=FULL.\nBEGIN DATA\nMEAN 5 4 3\nCOV 4 1.2 .5\nCOV 1.2 9 2.1\nCOV .5 2.1 1\nEND DATA.",
+    ),
+    (
+        "lower-nodiagonal",
+        "MATRIX DATA VARIABLES=ROWTYPE_ a b c /FORMAT=LOWER NODIAGONAL.\nBEGIN DATA\nN 9 9 9\nCORR .6\nCORR .7 .8\nEND DATA.",
+    ),
+    (
+        "free-prox",
+        "MATRIX DATA VARIABLES=a b c /CONTENTS=PROX /FORMAT=FREE NODIAGONAL.\nBEGIN DATA\n1.5 4.25\n3\nEND DATA.",
+    ),
+];
+
+#[test]
+#[ignore = "needs PSPP"]
+fn matrix_data_layouts() {
+    for (case, job) in MATRIX_CASES {
+        compare(&format!("matrix-{case}"), job, &[]);
+    }
 }

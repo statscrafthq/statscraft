@@ -560,3 +560,35 @@ fn xsave_writes_the_cases_as_they_pass() {
     );
     std::fs::remove_dir_all(dir).unwrap();
 }
+
+#[test]
+fn finish_ends_the_run() {
+    let mut s = Session::default();
+    // what follows FINISH is not read, so even broken syntax there is no error
+    let result = run(&mut s, "ECHO 'a'.\nFINISH.\nECHO 'b'.\nNOT A 'command.\n");
+    let names: Vec<&str> = result.commands.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(names, ["ECHO", "FINISH"]);
+    // FINISH in an inserted file ends the whole run
+    let dir = std::env::temp_dir().join(format!("statscraft-finish-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("inner.sps"),
+        "ECHO 'inner'.\nFINISH.\nECHO 'skipped'.\n",
+    )
+    .unwrap();
+    let source = format!(
+        "INSERT FILE='{}'.\nECHO 'after'.\n",
+        dir.join("inner.sps").display()
+    );
+    let result = run(&mut s, &source);
+    let texts: Vec<&Cell> = tables(&result).iter().map(|t| &t.rows[0][0]).collect();
+    assert_eq!(texts, [&Cell::Text("inner".into())]);
+    // with a range of lines only a FINISH inside it counts
+    let result = s.run("FINISH.\nECHO 'b'.\n", Some((2, 2))).unwrap();
+    assert_eq!(result.commands.len(), 1);
+    let result = s
+        .run("ECHO 'a'.\nFINISH.\nECHO 'b'.\n", Some((2, 3)))
+        .unwrap();
+    assert_eq!(result.commands.len(), 1);
+    std::fs::remove_dir_all(dir).unwrap();
+}
