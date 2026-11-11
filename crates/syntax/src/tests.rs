@@ -381,7 +381,7 @@ fn unknown_command_gets_a_did_you_mean_hint() {
 fn real_but_unsupported_commands_say_so() {
     for (source, name) in [
         ("CLUSTER a b.", "CLUSTER"),
-        ("report /format=list.", "REPORT"),
+        ("anova y BY a(1,2).", "ANOVA"),
         ("GLM a BY b.", "GLM"),
         ("REPORT /FORMAT=LIST.", "REPORT"),
         ("DISC /GROUPS=a(1,2).", "DISCRIMINANT"),
