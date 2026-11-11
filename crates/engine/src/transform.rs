@@ -79,7 +79,7 @@ impl Block {
 }
 
 /// A string value cut to the width of its variable, as an assignment does.
-fn fit(mut value: String, width: usize) -> String {
+pub(crate) fn fit(mut value: String, width: usize) -> String {
     let mut end = width.min(value.len());
     while !value.is_char_boundary(end) {
         end -= 1;
@@ -105,9 +105,18 @@ impl Engine {
                 "LOOP without END LOOP: close the loop with END LOOP in the same run".into(),
             ));
         }
+        if let Some(open) = &self.collecting_input {
+            return Err(Error(format!(
+                "{} without {}: close it in the same run",
+                open.opener(),
+                open.closer()
+            )));
+        }
         if self.pending_data.is_some() {
             return Err(Error(
-                "DATA LIST without its BEGIN DATA: give the data lines in the same run".into(),
+                "DATA LIST or input program without its BEGIN DATA: give the data lines in the \
+                 same run"
+                    .into(),
             ));
         }
         let open = match self.pending {
@@ -147,7 +156,11 @@ impl Engine {
                 | Command::Print(_)
                 | Command::PrintSpace(_)
                 | Command::Xsave(_)
-        );
+                | Command::EndCase
+                | Command::EndFile
+                | Command::Reread { .. }
+                | Command::RepeatingData(_)
+        ) || (self.input.is_some() && matches!(command, Command::DataList(_)));
         let open = match self.pending {
             Some(_) => self.pending_depth > 0,
             None => !self.blocks.is_empty(),
@@ -157,8 +170,9 @@ impl Engine {
         }
         Err(Error(
             "this command cannot be used inside DO IF or LOOP; only COMPUTE, IF, RECODE, COUNT, \
-             SAMPLE, VECTOR, DO REPEAT, BREAK, PRINT, PRINT SPACE, WRITE, XSAVE and nested DO IF \
-             and LOOP can"
+             SAMPLE, VECTOR, DO REPEAT, BREAK, PRINT, PRINT SPACE, WRITE, XSAVE, nested DO IF \
+             and LOOP, and in an input program DATA LIST, END CASE, END FILE, REREAD and \
+             REPEATING DATA can"
                 .into(),
         ))
     }
@@ -190,7 +204,7 @@ impl Engine {
         if self.active()?.variable_index(target).is_none() {
             let (mut names, mut ranges) = (Vec::new(), Vec::new());
             crate::rows::expr_names(expr, &mut names, &mut ranges);
-            let scratch = crate::rows::is_scratch(target);
+            let scratch = self.carried(target);
             if scratch || names.iter().any(|n| n.eq_ignore_ascii_case(target)) {
                 let cases = self.active()?.case_count();
                 let start = scratch.then_some(0.0);
@@ -278,7 +292,7 @@ impl Engine {
             && keep == [false]
         {
             let data = self.dataset.as_ref().expect("checked above");
-            row.dropped = Some(crate::rows::scratch_values(data, 0));
+            row.dropped = Some(crate::rows::scratch_values(data, 0, &self.leave));
         }
         self.select_kept(&keep)
     }
@@ -294,8 +308,10 @@ impl Engine {
         for (names, format) in groups {
             for name in names {
                 if data.variable_index(name).is_some() {
-                    // case by case, a scratch variable arrives with the value of the case before
-                    if self.row.is_some() && crate::rows::is_scratch(name) {
+                    // case by case, a scratch variable arrives with the value of the case before;
+                    // in an input program the first pass on no case declared it
+                    let input = self.input.is_some() && cases == 1;
+                    if (self.row.is_some() && self.carried(name)) || input {
                         continue;
                     }
                     return Err(Error(format!("variable {name} already exists")));
@@ -305,8 +321,8 @@ impl Engine {
                     data.set_string_values(name, width, vec![String::new(); cases])?;
                     continue;
                 }
-                // a scratch variable starts at 0, any other at system-missing
-                let start = crate::rows::is_scratch(name).then_some(0.0);
+                // a scratch or LEAVE variable starts at 0, any other at system-missing
+                let start = self.carried(name).then_some(0.0);
                 data.set_numeric_values(name, vec![start; cases])?;
                 if let Some(format) = format {
                     let mut text = format!("{}{}", format.kind.name(), format.width);

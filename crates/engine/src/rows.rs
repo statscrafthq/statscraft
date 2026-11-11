@@ -41,9 +41,14 @@ pub(crate) struct Row {
     pub dropped: Option<Vec<(String, Carried)>>,
 }
 
-/// The scratch values of a case.
-pub(crate) fn scratch_values(data: &Dataset, case: usize) -> Vec<(String, Carried)> {
-    let scratch = data.variables().filter(|v| is_scratch(v.name()));
+/// The values a case passes to the next: scratch and LEAVE variables.
+pub(crate) fn scratch_values(
+    data: &Dataset,
+    case: usize,
+    leave: &std::collections::HashSet<String>,
+) -> Vec<(String, Carried)> {
+    let carried = |n: &str| is_scratch(n) || leave.contains(&n.to_lowercase());
+    let scratch = data.variables().filter(|v| carried(v.name()));
     scratch
         .map(|v| {
             let value = match v.values() {
@@ -171,6 +176,12 @@ impl Refs {
 }
 
 impl Engine {
+    /// A scratch or LEAVE variable: it starts at 0 or blank and keeps its value from case to
+    /// case.
+    pub(crate) fn carried(&self, name: &str) -> bool {
+        is_scratch(name) || self.leave.contains(&name.to_lowercase())
+    }
+
     /// True when the command, run on whole columns now, would give another result than run
     /// case by case: it reads a scratch value that some case has not assigned in this pass,
     /// writes a scratch variable in a way that keeps the value of an earlier case, or calls
@@ -230,6 +241,12 @@ impl Engine {
             // they give something for every case, in case order
             Command::Print(_) | Command::PrintSpace(_) | Command::Xsave(_) => return Ok(true),
             _ => return Ok(false),
+        }
+        // a LEAVE variable takes the value of the case before
+        let leave = |n: &String| self.leave.contains(&n.to_lowercase());
+        if reads.iter().chain(target).any(leave) || ranges.iter().any(|(a, b)| leave(a) || leave(b))
+        {
+            return Ok(true);
         }
         let lag = match command {
             Command::Compute { expr, .. } => has_lag(expr),
@@ -363,6 +380,7 @@ impl Engine {
                 .map(|b| b.slice(case.map_or(0..0, |c| c..c + 1)))
                 .collect(),
             vectors: self.vectors.clone(),
+            leave: self.leave.clone(),
             session: session.clone(),
             row: Some(Box::new(Row {
                 case: case.unwrap_or(0),
@@ -415,7 +433,7 @@ impl Engine {
             outputs.append(&mut engine.case_outputs);
             let data = engine.dataset.take().expect("the engine keeps its dataset");
             let dropped = engine.row.and_then(|row| row.dropped);
-            carry = dropped.unwrap_or_else(|| scratch_values(&data, 0));
+            carry = dropped.unwrap_or_else(|| scratch_values(&data, 0, &self.leave));
             if data.case_count() == 1 {
                 kept.push(data);
                 kept_cases.push(Some(case));

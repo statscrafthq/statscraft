@@ -16,6 +16,7 @@ mod expr;
 mod format;
 mod frequencies;
 mod get_data;
+mod input;
 pub mod live;
 mod loops;
 mod matrix;
@@ -239,8 +240,16 @@ pub struct Engine {
     blocks: Vec<transform::Block>,
     /// What the last command did differently from what was asked, without failing.
     warnings: Vec<String>,
-    /// A DATA LIST without FILE, waiting for its BEGIN DATA.
-    pending_data: Option<syntax::DataList>,
+    /// A DATA LIST without FILE or an input program, waiting for its BEGIN DATA, and the
+    /// commands that came in between, to run after the data.
+    pending_data: Option<data_list::Pending>,
+    queued: Vec<Command>,
+    /// An INPUT PROGRAM or FILE TYPE whose commands are being collected.
+    collecting_input: Option<input::Program>,
+    /// Set in the engine that builds the cases of an input program.
+    input: Option<Box<input::InputState>>,
+    /// LEAVE: the variables (lower case) that keep their value from case to case in this pass.
+    leave: std::collections::HashSet<String>,
     /// What TEMPORARY returns to after the next command that reads the data.
     temporary: Option<Box<split::Saved>>,
     /// N OF CASES, waiting for the next data pass.
@@ -354,6 +363,20 @@ impl Engine {
 
     pub fn execute(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
         self.warnings.clear();
+        if let Some(result) = self.collect_input(command) {
+            let tables = result?;
+            let mut out = std::mem::take(&mut self.flushed);
+            out.extend(tables);
+            return Ok(out);
+        }
+        // transformations between DATA LIST or an input program and its BEGIN DATA run after it
+        if self.pending_data.is_some()
+            && !matches!(command, Command::BeginData(_))
+            && output::stage(command) != output::Stage::Pass
+        {
+            self.queued.push(command.clone());
+            return Ok(Vec::new());
+        }
         self.track_clean(command);
         if let Some(result) = self.collect_loop(command) {
             let tables = result?;
@@ -365,6 +388,13 @@ impl Engine {
         // neither runs the transformations that wait for the data pass
         if matches!(command, Command::ClearTransformations | Command::NewFile) {
             self.drop_pending();
+        }
+        // LEAVE runs the waiting transformations again itself
+        if let Command::Leave(items) = command
+            && self.input.is_none()
+        {
+            self.leave(items)?;
+            return Ok(std::mem::take(&mut self.flushed));
         }
         if self.row.is_none() && self.loop_depth == 0 {
             let transformation = matches!(
@@ -629,14 +659,30 @@ impl Engine {
             Command::Flip(flip) => return self.flip(flip),
             Command::VarsToCases(command) => self.vars_to_cases(command)?,
             Command::CasesToVars(command) => self.cases_to_vars(command)?,
+            Command::DataList(list) if self.input.is_some() => self.program_data_list(list)?,
             Command::DataList(list) => {
+                self.leave.clear();
                 self.park_active();
                 self.scratch_assigned.clear();
                 self.temporary = None;
                 self.case_limit = None;
                 self.data_list(list)?
             }
-            Command::BeginData(lines) => self.begin_data(lines)?,
+            Command::BeginData(lines) => return self.begin_data(lines),
+            Command::EndCase => self.end_case()?,
+            Command::EndFile => self.end_file()?,
+            Command::Reread { file, column } => self.reread(file.as_deref(), column.as_ref())?,
+            Command::RepeatingData(repeating) => self.repeating_data(repeating)?,
+            Command::Leave(items) => self.leave(items)?,
+            Command::InputProgram
+            | Command::EndInputProgram
+            | Command::FileType(_)
+            | Command::RecordType(_)
+            | Command::EndFileType => {
+                return Err(Error(
+                    "this command belongs to an INPUT PROGRAM or FILE TYPE block of its own".into(),
+                ));
+            }
             Command::SplitFile(split) => {
                 let split = match split {
                     Some(split) => {

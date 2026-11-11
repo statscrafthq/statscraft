@@ -107,6 +107,8 @@ pub(crate) struct Clean {
     case_limit: Option<usize>,
     temporary: Option<Box<crate::split::Saved>>,
     vectors: std::collections::HashMap<String, Vec<String>>,
+    /// The commands since then, which LEAVE runs again.
+    commands: Vec<Command>,
 }
 
 fn one_line(title: &str, text: &str) -> Table {
@@ -157,21 +159,75 @@ fn format_text(format: &Format) -> String {
 impl Engine {
     /// At every command, before it runs: keeps what CLEAR TRANSFORMATIONS returns to.
     pub(crate) fn track_clean(&mut self, command: &Command) {
-        if self.row.is_some() || self.loop_depth > 0 || self.collecting.is_some() {
+        if self.row.is_some() || self.loop_depth > 0 || self.input.is_some() {
             return;
         }
-        match stage(command) {
-            Stage::Change if self.clean.is_none() => {
-                self.clean = Some(Box::new(Clean {
-                    dataset: self.dataset.clone(),
-                    case_limit: self.case_limit,
-                    temporary: self.temporary.clone(),
-                    vectors: self.vectors.clone(),
-                }))
+        if self.collecting.is_none() {
+            match stage(command) {
+                Stage::Change if self.clean.is_none() => {
+                    self.clean = Some(Box::new(Clean {
+                        dataset: self.dataset.clone(),
+                        case_limit: self.case_limit,
+                        temporary: self.temporary.clone(),
+                        vectors: self.vectors.clone(),
+                        commands: Vec::new(),
+                    }))
+                }
+                Stage::Pass => self.clean = None,
+                _ => {}
             }
-            Stage::Pass => self.clean = None,
-            _ => {}
         }
+        if let Some(clean) = self.clean.as_mut()
+            && !matches!(command, Command::Leave(_))
+        {
+            clean.commands.push(command.clone());
+        }
+    }
+
+    /// True when a command since the last data pass names the variable.
+    pub(crate) fn defined_since_pass(&self, name: &str) -> bool {
+        self.clean.as_ref().is_some_and(|clean| {
+            let refs = crate::rows::Refs::of(&clean.commands);
+            refs.names.iter().any(|n| n.eq_ignore_ascii_case(name))
+        })
+    }
+
+    /// LEAVE outside an input program. The variables are new in this pass, so the
+    /// transformations since the last pass run again, case by case, with the variables kept
+    /// from case to case.
+    pub(crate) fn leave_in_pass(&mut self, names: Vec<String>) -> Result<(), Error> {
+        let new = |clean: &Clean| {
+            let old = clean.dataset.as_ref();
+            names
+                .iter()
+                .all(|n| old.is_none_or(|d| d.variable_index(n).is_none()))
+        };
+        let clean = match self.clean.take() {
+            Some(clean) if new(&clean) => clean,
+            other => {
+                self.clean = other;
+                return Err(Error(format!(
+                    "LEAVE takes variables that the transformations since the data were last \
+                     read created; {} existed before",
+                    names.join(", ")
+                )));
+            }
+        };
+        self.leave.extend(names.iter().map(|n| n.to_lowercase()));
+        self.dataset = clean.dataset;
+        self.case_limit = clean.case_limit;
+        self.temporary = clean.temporary;
+        self.vectors = clean.vectors;
+        self.blocks.clear();
+        self.scratch_assigned.clear();
+        self.pending = Some(Vec::new());
+        self.pending_depth = 0;
+        let warnings = std::mem::take(&mut self.warnings);
+        for command in &clean.commands {
+            self.execute(command)?;
+        }
+        self.warnings = warnings;
+        Ok(())
     }
 
     /// The transformations kept for the case-by-case pass are dropped, unrun.

@@ -17,31 +17,57 @@
 //! - A value that cannot be read is system-missing, a string longer than its width is cut;
 //!   both with a warning that names the line.
 
-use crate::{Engine, Error};
+use crate::{Engine, Error, Table};
 use statscraft_data::Dataset;
 use statscraft_syntax::{DataField, DataLayout, DataList, FormatType};
 
 /// Warnings beyond this many are counted, not listed.
-const SHOWN_WARNINGS: usize = 20;
+pub(crate) const SHOWN_WARNINGS: usize = 20;
 
 /// A value as read: a number (None: system-missing) or a string.
-enum Read {
+pub(crate) enum Read {
     Number(Option<f64>),
     Text(String),
 }
 
 /// One record of the data with how a warning names it, such as "line 12".
-struct Record {
-    place: String,
-    text: String,
+#[derive(Clone)]
+pub(crate) struct Record {
+    pub place: String,
+    pub text: String,
+}
+
+/// What waits for BEGIN DATA: a DATA LIST, or an input program that reads inline data.
+#[derive(Clone)]
+pub(crate) enum Pending {
+    List(DataList),
+    Program(crate::input::Program),
 }
 
 impl Engine {
     pub(crate) fn data_list(&mut self, list: &DataList) -> Result<(), Error> {
+        if list.end.is_some() {
+            return Err(Error(
+                "END on DATA LIST is for a DATA LIST inside INPUT PROGRAM".into(),
+            ));
+        }
+        if list.fields.iter().all(|f| crate::rows::is_scratch(&f.name)) {
+            return Err(Error(
+                "DATA LIST defines no variables to keep; one without variables, or with scratch \
+                 variables only, belongs inside INPUT PROGRAM"
+                    .into(),
+            ));
+        }
         let Some(file) = &list.file else {
-            self.pending_data = Some(list.clone());
+            self.pending_data = Some(Pending::List(list.clone()));
             return Ok(());
         };
+        let records = self.file_records(file)?;
+        self.read_data(list, records)
+    }
+
+    /// The lines of a text file as records.
+    pub(crate) fn file_records(&self, file: &str) -> Result<Vec<Record>, Error> {
         let bytes = std::fs::read(self.path(file))
             .map_err(|e| Error(format!("cannot read {file}: {e}")))?;
         let text = match self.handle_encoding(file) {
@@ -56,20 +82,36 @@ impl Engine {
             place: format!("record {} of {file}", i + 1),
             text: line.to_string(),
         });
-        self.read_data(list, records.collect())
+        Ok(records.collect())
     }
 
-    pub(crate) fn begin_data(&mut self, lines: &[(u32, String)]) -> Result<(), Error> {
-        let Some(list) = self.pending_data.take() else {
+    /// The data of the DATA LIST or input program before it, then the commands that waited.
+    pub(crate) fn begin_data(&mut self, lines: &[(u32, String)]) -> Result<Vec<Table>, Error> {
+        let Some(pending) = self.pending_data.take() else {
             return Err(Error(
-                "BEGIN DATA needs a DATA LIST without FILE right before it".into(),
+                "BEGIN DATA needs a DATA LIST without FILE, or an input program that reads \
+                 inline data, before it"
+                    .into(),
             ));
         };
         let records = lines.iter().map(|(line, text)| Record {
             place: format!("line {line}"),
             text: text.clone(),
         });
-        self.read_data(&list, records.collect())
+        let mut tables = match pending {
+            Pending::List(list) => {
+                self.read_data(&list, records.collect())?;
+                Vec::new()
+            }
+            Pending::Program(program) => self.run_program(program, Some(records.collect()))?,
+        };
+        let mut warnings = std::mem::take(&mut self.warnings);
+        for command in std::mem::take(&mut self.queued) {
+            tables.extend(self.execute(&command)?);
+            warnings.append(&mut self.warnings);
+        }
+        self.warnings = warnings;
+        Ok(tables)
     }
 
     fn read_data(&mut self, list: &DataList, records: Vec<Record>) -> Result<(), Error> {
@@ -83,6 +125,10 @@ impl Engine {
         };
         let mut data = Dataset::new(cases.len());
         for (index, field) in list.fields.iter().enumerate() {
+            // a scratch variable only passes the value on inside an input program
+            if crate::rows::is_scratch(&field.name) {
+                continue;
+            }
             let values = cases.iter().map(|case| &case[index]);
             if field.format.kind == FormatType::A {
                 let text = |read: &Read| match read {
@@ -115,7 +161,7 @@ impl Engine {
 }
 
 /// The cases of fixed-format data.
-fn fixed(
+pub(crate) fn fixed(
     list: &DataList,
     records: &[Record],
     per_case: u32,
@@ -143,7 +189,7 @@ fn fixed(
 }
 
 /// The text of a field's columns; columns past the end of the line are blank.
-fn columns(line: &str, field: &DataField) -> String {
+pub(crate) fn columns(line: &str, field: &DataField) -> String {
     let bytes = line.as_bytes();
     let start = (field.column as usize - 1).min(bytes.len());
     let end = (start + usize::from(field.format.width)).min(bytes.len());
@@ -151,7 +197,7 @@ fn columns(line: &str, field: &DataField) -> String {
 }
 
 /// The values of one line of freefield data; None is an empty value.
-fn values(line: &str, delimiters: &[char]) -> Vec<Option<String>> {
+pub(crate) fn values(line: &str, delimiters: &[char]) -> Vec<Option<String>> {
     if !delimiters.is_empty() {
         let mut pieces: Vec<&str> = line.split(|c| delimiters.contains(&c)).collect();
         // a delimiter that ends the line ends the value before it, it starts no empty one
@@ -208,7 +254,11 @@ fn values(line: &str, delimiters: &[char]) -> Vec<Option<String>> {
 }
 
 /// The cases of FREE and LIST data.
-fn free(list: &DataList, records: &[Record], warnings: &mut Vec<String>) -> Vec<Vec<Read>> {
+pub(crate) fn free(
+    list: &DataList,
+    records: &[Record],
+    warnings: &mut Vec<String>,
+) -> Vec<Vec<Read>> {
     let fields = &list.fields;
     let mut cases = Vec::new();
     let empty = |field: &DataField| match field.format.kind {
@@ -266,7 +316,7 @@ fn free(list: &DataList, records: &[Record], warnings: &mut Vec<String>) -> Vec<
 }
 
 /// One value by the field's input format. `fixed` data may imply decimals.
-fn read(
+pub(crate) fn read(
     text: &str,
     field: &DataField,
     fixed: bool,

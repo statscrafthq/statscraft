@@ -81,6 +81,7 @@ impl Engine {
     /// effect.
     pub(crate) fn begin_pass(&mut self) -> Result<(), Error> {
         self.flush()?;
+        self.leave.clear();
         self.drop_scratch()?;
         self.vectors.clear();
         if let (Some(limit), Some(data)) = (self.case_limit.take(), self.dataset.as_mut())

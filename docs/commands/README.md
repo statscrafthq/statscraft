@@ -49,6 +49,15 @@ One page per supported command, generated from the same table that the parser an
 | [APPLY DICTIONARY](apply-dictionary.md) | Copy dictionary information from a data file or dataset to the active dataset. |
 | [DATA LIST](data-list.md) | Define text data, inline or in a file, and read it as the new active dataset. |
 | [BEGIN DATA](begin-data.md) | Inline data for the DATA LIST before it, up to a line that holds END DATA. |
+| [INPUT PROGRAM](input-program.md) | Start an input program: commands that build the cases of a new active dataset. |
+| [END INPUT PROGRAM](end-input-program.md) | End an input program and run it. |
+| [END CASE](end-case.md) | In an input program: add the case built so far to the dataset and go on. |
+| [END FILE](end-file.md) | In an input program or FILE TYPE: stop reading; the case being built is dropped. |
+| [REREAD](reread.md) | In an input program: let the next DATA LIST read the last record again. |
+| [REPEATING DATA](repeating-data.md) | In an input program or FILE TYPE: one case per repeating group of a record. |
+| [FILE TYPE](file-type.md) | Start the definition of a file with several kinds of records. |
+| [RECORD TYPE](record-type.md) | Inside FILE TYPE: the record types the following DATA LIST reads. |
+| [END FILE TYPE](end-file-type.md) | End a FILE TYPE definition and read the file. |
 [removed]
 | [FILTER](filter.md) | Leave out of procedures the cases whose filter value is 0 or missing. |
 | [TEMPORARY](temporary.md) | Make the changes that follow last only until the next procedure. |
@@ -71,6 +80,7 @@ One page per supported command, generated from the same table that the parser an
 | [SELECT IF](select-if.md) | Keep only the cases where a condition holds. |
 | [STRING](string.md) | Declare new string variables, filled with empty strings. |
 | [NUMERIC](numeric.md) | Declare new numeric variables, filled with system-missing. |
+| [LEAVE](leave.md) | Keep the values of new variables from case to case instead of resetting them. |
 | [EXECUTE](execute.md) | Run the pending transformations. |
 | [DO REPEAT](do-repeat.md) | Repeat transformations with stand-in names replaced by variables or values. |
 | [LOOP](loop.md) | Repeat transformations for each case, with an index, a condition or both. |
@@ -164,4 +174,4 @@ One page per supported command, generated from the same table that the parser an
 
 These commands of the language are recognised, but Statscraft does not run them yet. A script that uses one stops with the error "command ... is not supported yet" at its line, and nothing is changed.
 
-ANOVA, CLUSTER, DISCRIMINANT, END CASE, END DATA, END FILE, END FILE TYPE, END INPUT PROGRAM, END MATRIX, END REPEAT, EXPORT, FACTOR, FILE TYPE, FINISH, GET TRANSLATE, GLM, GRAPH, IMPORT, INPUT PROGRAM, LEAVE, LOGISTIC REGRESSION, MATRIX, MATRIX DATA, OUTPUT CLOSE, OUTPUT EXPORT, OUTPUT NEW, OUTPUT SAVE, QUICK CLUSTER, RECORD TYPE, REPEATING DATA, REPORT, REREAD, UNIANOVA
+ANOVA, CLUSTER, DISCRIMINANT, END DATA, END MATRIX, END REPEAT, EXPORT, FACTOR, FINISH, GET TRANSLATE, GLM, GRAPH, IMPORT, LOGISTIC REGRESSION, MATRIX, MATRIX DATA, OUTPUT CLOSE, OUTPUT EXPORT, OUTPUT NEW, OUTPUT SAVE, QUICK CLUSTER, REPORT, UNIANOVA

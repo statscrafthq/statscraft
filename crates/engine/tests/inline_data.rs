@@ -160,11 +160,21 @@ fn data_from_a_file() {
 #[test]
 fn inline_data_must_follow_its_data_list() {
     let mut session = Session::default();
-    let errors = session
+    // transformations in between run after the data are read
+    session
         .run(
-            "DATA LIST FREE /x.\nCOMPUTE y = 1.\nBEGIN DATA\n1\nEND DATA.",
+            "DATA LIST FREE /x.\nCOMPUTE y = x * 2.\nBEGIN DATA\n1 2\nEND DATA.",
             None,
         )
+        .unwrap();
+    let y = session.dataset().unwrap().variable("y").unwrap();
+    assert_eq!(
+        y.numeric().unwrap().iter().collect::<Vec<_>>(),
+        [Some(2.0), Some(4.0)]
+    );
+    // a command that reads the data cannot come before them
+    let errors = session
+        .run("DATA LIST FREE /x.\nLIST.\nBEGIN DATA\n1\nEND DATA.", None)
         .unwrap_err();
     assert_eq!(errors[0].line, Some(2));
     assert!(
@@ -173,8 +183,9 @@ fn inline_data_must_follow_its_data_list() {
             .starts_with("the DATA LIST before this command has no data yet")
     );
     let errors = session.run("BEGIN DATA\n1\nEND DATA.", None).unwrap_err();
-    assert_eq!(
-        errors[0].message,
-        "BEGIN DATA needs a DATA LIST without FILE right before it"
+    assert!(
+        errors[0]
+            .message
+            .starts_with("BEGIN DATA needs a DATA LIST without FILE")
     );
 }
