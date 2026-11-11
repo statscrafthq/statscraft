@@ -270,6 +270,76 @@ impl Engine {
         self.session.active_name = active;
     }
 
+    /// The SET values, PRESERVE levels and CD folder as syntax that `restore_settings` reads
+    /// back: the outermost level first, each later level after a PRESERVE with what it changed.
+    pub fn settings_syntax(&self) -> String {
+        let s = &self.session;
+        let current = (&s.settings, &s.cwd);
+        let levels = s.preserved.iter().map(|(set, cwd)| (set, cwd));
+        let (mut settings_before, mut cwd_before) = (&BTreeMap::new(), &None);
+        let mut out = String::new();
+        for (i, (settings, cwd)) in levels.chain([current]).enumerate() {
+            if i > 0 {
+                out.push_str("PRESERVE.\n");
+            }
+            let changed: Vec<String> = settings
+                .iter()
+                .filter(|(name, value)| settings_before.get(*name) != Some(*value))
+                .map(|(name, value)| match value.starts_with('[') {
+                    true => format!("{name}={value}"),
+                    false => format!("{name}='{}'", value.replace('\'', "''")),
+                })
+                .collect();
+            if !changed.is_empty() {
+                out.push_str(&format!("SET {}.\n", changed.join(" ")));
+            }
+            if let (Some(dir), true) = (cwd, cwd != cwd_before) {
+                let dir = dir.display().to_string().replace('\'', "''");
+                out.push_str(&format!("CD '{dir}'.\n"));
+            }
+            (settings_before, cwd_before) = (settings, cwd);
+        }
+        out
+    }
+
+    /// Puts back what `settings_syntax` wrote.
+    pub fn restore_settings(&mut self, text: &str) -> Result<(), Error> {
+        let (parsed, errors) = statscraft_syntax::parse(text);
+        if let Some(e) = errors.first() {
+            return Err(Error(format!("line {}: {}", e.span.line, e.message)));
+        }
+        for p in parsed {
+            match &p.command {
+                Command::Set(_) | Command::Preserve(_) => {
+                    self.execute_session(&p.command)?;
+                }
+                // as written: the folder was checked when CD ran
+                Command::Cd(folder) => self.session.cwd = Some(PathBuf::from(folder)),
+                _ => {
+                    return Err(Error(format!(
+                        "line {}: only SET, PRESERVE and CD belong here",
+                        p.first_line
+                    )));
+                }
+            }
+        }
+        self.warnings.clear();
+        Ok(())
+    }
+
+    /// What `describe` shows of the session besides the active dataset.
+    pub(crate) fn session_state(&self) -> crate::session::SessionState {
+        let s = &self.session;
+        crate::session::SessionState {
+            settings: s.settings.clone(),
+            preserved: s.preserved.len(),
+            directory: s.cwd.as_ref().map(|d| d.display().to_string()),
+            active_dataset: s.active_name.clone(),
+            datasets: s.datasets.iter().map(|(name, _)| name.clone()).collect(),
+            macros: s.macros.names(),
+        }
+    }
+
     /// The commands of this module; the main `execute` hands them over.
     pub(crate) fn execute_session(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
         match command {

@@ -105,6 +105,11 @@ impl Engine {
                 "LOOP without END LOOP: close the loop with END LOOP in the same run".into(),
             ));
         }
+        if self.pending_data.is_some() {
+            return Err(Error(
+                "DATA LIST without its BEGIN DATA: give the data lines in the same run".into(),
+            ));
+        }
         let open = match self.pending {
             Some(_) => self.pending_depth > 0,
             None => !self.blocks.is_empty(),

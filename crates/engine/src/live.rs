@@ -7,7 +7,7 @@
 //! a random token to `endpoint_file()`, readable only by the user. A request without the token
 //! is refused, and the client sends the token only to a loopback address.
 
-use crate::session::{Failure, RunResult, Session, describe_output};
+use crate::session::{Failure, RunResult, Session};
 use serde::{Deserialize, Serialize};
 use std::io::{self, BufRead, BufReader, Read, Write};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream};
@@ -90,13 +90,10 @@ pub fn reply(result: &mut Result<RunResult, Vec<Failure>>, request: &Request) ->
 
 /// The reply to `describe --session gui`.
 pub fn describe(session: &Session, json: bool) -> Response {
-    session
-        .dataset()
-        .map(|d| describe_output(d, json))
-        .ok_or_else(|| {
-            let message = format!("session {SESSION} has no dataset yet");
-            vec![Failure::plain("session", message)]
-        })
+    session.describe(json).ok_or_else(|| {
+        let message = format!("session {SESSION} has no dataset yet");
+        vec![Failure::plain("session", message)]
+    })
 }
 
 /// Answers a request on the calling thread. The window runs on a worker thread instead, with

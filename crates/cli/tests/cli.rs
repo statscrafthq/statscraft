@@ -569,3 +569,114 @@ fn a_session_keeps_its_macros_and_macro_settings_between_runs() {
     let rows = &listed["commands"][0]["tables"][0]["rows"];
     assert_eq!(rows, &serde_json::json!([["2.00"], ["8.00"]]));
 }
+
+/// The setting and value rows of the SHOW table of a command.
+fn shown(report: &serde_json::Value, command: usize) -> Vec<[String; 2]> {
+    let rows = report["commands"][command]["tables"][0]["rows"]
+        .as_array()
+        .unwrap();
+    let text = |cell: &serde_json::Value| cell.as_str().unwrap().to_string();
+    rows.iter().map(|r| [text(&r[0]), text(&r[1])]).collect()
+}
+
+fn pair(name: &str, value: &str) -> [String; 2] {
+    [name.into(), value.into()]
+}
+
+#[test]
+fn a_session_keeps_its_settings_preserve_levels_and_folder_between_runs() {
+    let dir = Workdir::new("settings");
+    std::fs::create_dir_all(dir.0.join("data")).unwrap();
+    // settings before there is any data are kept too
+    let first = "SET FORMAT=F6.1 DECIMAL=COMMA.\nCD 'data'.\nPRESERVE.\nSET FORMAT=F4.0.";
+    assert!(
+        dir.ok(&["run", "-s", "s", "-e", first])
+            .contains("session saved")
+    );
+    let file = dir.0.join(".statscraft/sessions/s/settings.sps");
+    let text = std::fs::read_to_string(&file).unwrap();
+    assert!(
+        text.contains("\nSET DECIMAL='COMMA' FORMAT='F6.1'.\nCD '")
+            && text.ends_with("data'.\nPRESERVE.\nSET FORMAT='F4.0'.\n"),
+        "{text}"
+    );
+    let description = dir.json(&["describe", "-s", "s", "--json"]);
+    assert_eq!(description["session"]["settings"]["FORMAT"], "F4.0");
+    assert_eq!(description["session"]["preserved"], 1);
+    let folder = description["session"]["directory"].as_str().unwrap();
+    assert!(folder.ends_with("data"), "{folder}");
+
+    // a relative SAVE goes to the CD folder of the first run
+    let data = "DATA LIST LIST /x.\nBEGIN DATA\n1\nEND DATA.\nSAVE OUTFILE='x.sav'.";
+    dir.ok(&["run", "-s", "s", "-e", data]);
+    assert!(dir.0.join("data/x.sav").exists());
+    // RESTORE returns to the settings before the PRESERVE of the first run
+    let show = "SHOW FORMAT.\nRESTORE.\nSHOW FORMAT DECIMAL.";
+    let report = dir.json(&["run", "-s", "s", "--json", "-e", show]);
+    assert_eq!(shown(&report, 0), [pair("FORMAT", "F4.0")]);
+    assert_eq!(
+        shown(&report, 2),
+        [pair("FORMAT", "F6.1"), pair("DECIMAL", "COMMA")]
+    );
+    dir.ok(&["run", "-s", "s", "-e", "COMPUTE y = 2."]);
+    let description = dir.json(&["describe", "-s", "s", "--json"]);
+    let y = &description["variables"][1];
+    assert_eq!([&y["name"], &y["format"]], ["y", "F6.1"]);
+    assert_eq!(description["session"]["preserved"], 0);
+}
+
+#[test]
+fn a_failed_run_or_a_check_keeps_no_settings() {
+    let dir = Workdir::new("settings-atomic");
+    dir.ok(&["run", "-s", "s", "-e", "SET FORMAT=F6.1."]);
+    let file = dir.0.join(".statscraft/sessions/s/settings.sps");
+    let before = std::fs::read_to_string(&file).unwrap();
+    let failed = "SET FORMAT=F3.0.\nPRESERVE.\nFREQUENCIES x.";
+    assert!(!dir.run(&["run", "-s", "s", "-e", failed]).status.success());
+    dir.ok(&["check", "-s", "s", "-e", "SET FORMAT=F2.0.\nCD '.'."]);
+    assert_eq!(std::fs::read_to_string(&file).unwrap(), before);
+    let report = dir.json(&["run", "-s", "s", "--json", "-e", "SHOW FORMAT."]);
+    assert_eq!(shown(&report, 0), [pair("FORMAT", "F6.1")]);
+    assert_eq!(report["saved"], false);
+}
+
+#[test]
+fn named_datasets_keep_their_split_filter_and_declared_names_between_runs() {
+    let dir = Workdir::new("datasets-state");
+    let data = "DATA LIST LIST /g x.\nBEGIN DATA\n1 1\n1 0\n2 1\nEND DATA.\n\
+                SPLIT FILE BY g.\nFILTER BY x.\nDATASET NAME first.\nDATASET DECLARE later.\n\
+                DATA LIST LIST /y.\nBEGIN DATA\n5\nEND DATA.";
+    dir.ok(&["run", "-s", "d", "-e", data]);
+    let description = dir.json(&["describe", "-s", "d", "--json"]);
+    assert_eq!(
+        description["session"]["datasets"],
+        serde_json::json!(["later", "first"])
+    );
+    let show = "DATASET ACTIVATE first.\nSHOW SPLIT FILTER.";
+    let report = dir.json(&["run", "-s", "d", "--json", "-e", show]);
+    assert_eq!(
+        shown(&report, 1),
+        [pair("SPLIT", "Split by g"), pair("FILTER", "Filtered by x")]
+    );
+}
+
+#[test]
+fn temporary_ends_with_its_run_and_random_numbers_go_on() {
+    let dir = Workdir::new("temporary");
+    let get = get_fixture("survey_basic.sav");
+    dir.ok(&["run", "-s", "t", "-e", &get]);
+    let sample = "TEMPORARY.\nSAMPLE .5.";
+    let report = dir.json(&["run", "-s", "t", "--json", "-e", sample]);
+    // the sample was temporary; the random numbers it drew changed the session
+    assert_eq!(report["dataset"][0], 200);
+    assert_eq!(report["saved"], true);
+    let state = dir.0.join(".statscraft/sessions/t/state.json");
+    let state: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(state).unwrap()).unwrap();
+    assert!(state["random_draws"].as_u64().unwrap() > 0, "{state}");
+    // two samples in two runs keep the cases they keep in one run
+    let split = dir.json(&["run", "-s", "t", "--json", "-e", "SAMPLE .5."]);
+    let one_run = format!("{get}\n{sample}\nEXECUTE.\nSAMPLE .5.");
+    let whole = dir.json(&["run", "--json", "-e", &one_run]);
+    assert_eq!(split["dataset"], whole["dataset"]);
+}

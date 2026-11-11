@@ -22,10 +22,10 @@ statscraft describe -s SESSION [--json]
 | Flag | Meaning |
 |---|---|
 | `FILE` | a .sav or .zsav file |
-| `-s`, `--session NAME` | describe the dataset of a session instead; `gui` is the open window |
+| `-s`, `--session NAME` | describe a session instead: its dataset and the state it keeps; `gui` is the open window |
 | `--json` | the full dictionary as JSON instead of one line per variable |
 
-Give either a file or a session. The text form prints `cases, variables` and then, per variable, name, format, measurement level, valid count and label, separated by tabs.
+Give either a file or a session. The text form prints `cases, variables` and then, per variable, name, format, measurement level, valid count and label, separated by tabs. For a session it goes on with what the session keeps besides the data, one line each when there is something: `settings:`, `PRESERVE levels:`, `directory:`, `active dataset:`, `other datasets:`, `macros:`. In JSON these are the object `session` (see [Sessions](#sessions-and-line-ranges)).
 
 ## run
 
@@ -85,11 +85,24 @@ A command of the language that Statscraft does not run yet (for example `statscr
 
 ## Sessions and line ranges
 
-A session is a named dataset kept on disk between runs, in `.statscraft/sessions/<name>/data.zsav` under the current folder. A name may hold letters, digits, `-` and `_`.
+A session is what one window would keep from one run to the next, stored on disk in `.statscraft/sessions/<name>/` under the current folder. A name may hold letters, digits, `-` and `_`.
 
-- The first run of a new session starts without data; its syntax usually begins with `GET FILE`.
-- The session also keeps its named datasets, and its macros with the SET values that steer them (MEXPAND, MPRINT, MNEST, MITERATE) in `macros.sps`, so a macro library included in one run can be called in the next. With `--lines`, only the macros defined on those lines are kept; a macro defined elsewhere in the file still serves the run, as before.
-- A run saves the session when it changed the dataset, its named datasets or its macros, or when the session file did not exist yet. A dataset keeps the encoding of the file it came from; when a label or value no longer fits that code page (a letter of another language), the session keeps it in UTF-8 instead.
+| What | Kept | Where in the session folder |
+|---|---|---|
+| The active dataset: data, dictionary, weight, file label, documents, attributes, multiple response sets | yes | `data.zsav` |
+| SPLIT FILE and FILTER of the active dataset | yes | `state.json` |
+| Random numbers drawn so far (SAMPLE, random functions), so the next run goes on where the last one stopped | yes | `state.json` |
+| Named datasets (DATASET NAME, COPY, DECLARE) and which one is active, each with its split and filter | yes | `datasets/` |
+| Macros (DEFINE) and the macro settings MEXPAND, MPRINT, MNEST, MITERATE | yes | `macros.sps` |
+| SET values, PRESERVE levels not yet restored, the CD folder | yes | `settings.sps`, as SET, PRESERVE and CD commands |
+| TEMPORARY, N OF CASES, scratch variables, VECTOR | no: the end of a run is a data pass, so they take effect or end in the run that gives them | |
+| An open DO IF, LOOP, or a DATA LIST without its BEGIN DATA | no: the run fails | |
+| The folder of the syntax file, where INSERT and INCLUDE start | no: each run starts from its own file | |
+
+- The first run of a new session starts without data; its syntax usually begins with `GET FILE`. Settings, macros and a CD may come before any data.
+- With `--lines`, only the macros defined on those lines are kept; a macro defined elsewhere in the file still serves the run, as before.
+- A run saves the session when it changed anything in the table above, or when the session file did not exist yet. A failed run keeps none of its changes. A dataset keeps the encoding of the file it came from; when a label or value no longer fits that code page (a letter of another language), the session keeps it in UTF-8 instead.
+- `describe -s NAME` shows the active dataset and, under `session` in the JSON, the SET values given, the number of PRESERVE levels, the CD folder, the active dataset's name, the other named datasets and the macros.
 - `check` and `describe` never write it.
 - Delete the session's folder to start over.
 
@@ -166,7 +179,7 @@ Line numbers in the output always refer to the whole file, not to the range.
 | `commands[].warnings` | what the command did differently from what was asked, without failing, for example `"no statistics for string variables: plan"` |
 | `changes` | the case count before and after (`null` when there was no dataset), and the names of variables added, removed and changed. A variable counts as changed when its dictionary entry or any value differs |
 | `dataset` | `[cases, variables]` of the active dataset after the run; absent when there is none |
-| `saved` | true when the session file was written (for `gui`: when the run changed the window's dataset). Always false without a session and for `check` |
+| `saved` | true when the session file was written (for `gui`: when the run changed the window's session). Always false without a session and for `check` |
 
 A table:
 
@@ -353,7 +366,8 @@ statscraft describe -s gui --json
 ```
 
 - The window runs the syntax as its own Run button does: the tables appear in Output, the commands in the log, the grid shows the new data.
-- The command line prints what it prints for a file session, with `"session": "gui"`. `saved` is true when the run changed the window's dataset; nothing is written to disk unless the syntax says `SAVE`.
+- The command line prints what it prints for a file session, with `"session": "gui"`. `saved` is true when the run changed the window's session (the table under [Sessions](#sessions-and-line-ranges)); nothing is written to disk unless the syntax says `SAVE`.
+- The window keeps the same state between runs as a file session, in memory until it closes; `describe -s gui` shows it the same way.
 - Relative paths in the syntax are read from the folder where `statscraft` was started, and the window stays in that folder.
 - One run goes at a time. A request waits while the window is busy.
 - When no window is open, `-s gui` fails with "no Statscraft window is running". With several windows open, the one started last answers.

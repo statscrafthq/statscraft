@@ -8,9 +8,9 @@ Statscraft is built so that an AI agent with a shell can do the analysis work: e
 2. **Look up the syntax.** `statscraft help` lists the supported commands; `statscraft help COMMAND` gives the syntax, the rules and an example. Use only what the help shows. A command that is not supported yet fails with a clear error.
 3. **Write syntax to a file** (`job.sps`), one command per line or block, each ending with a period.
 4. **Check it.** `statscraft check -s NAME --json job.sps` parses every command and runs it on a copy of the session's data, so it finds unknown variables and type errors too, and writes nothing.
-5. **Run it in pieces.** `statscraft run -s NAME --json --lines FIRST-LAST job.sps` runs the commands in those lines and keeps the result in the session. The next range builds on it. Line numbers stay those of the file. Macros last too: run the INCLUDE of a macro library once and call its macros in later runs; `DISPLAY MACROS.` lists them.
+5. **Run it in pieces.** `statscraft run -s NAME --json --lines FIRST-LAST job.sps` runs the commands in those lines and keeps the result in the session. The next range builds on it. Line numbers stay those of the file. The session keeps what one window would keep between runs: the data with its weight, split and filter, the named datasets, the macros (run the INCLUDE of a macro library once and call its macros in later runs), the SET values, PRESERVE levels, the CD folder and where the random numbers stand. TEMPORARY, N OF CASES and scratch variables end with the run that gives them. `statscraft describe -s NAME --json` shows the kept state under `session`; the full list is in [the command line](command-line.md#sessions-and-line-ranges).
 6. **Read the JSON.** `ok` says whether the run worked. `changes` names the variables added, changed and removed and the case counts before and after; `dataset` gives the size; `commands[].tables` holds the results with raw numbers; `commands[].warnings` says where a command did something other than asked.
-7. **Fix errors where they point.** On failure `errors[]` gives `kind`, `message`, `line` and, for syntax errors, `column`, `expected` and often a `hint`. Fix that line and run the same range again. A failed run saves nothing, so a retry starts from the same data.
+7. **Fix errors where they point.** On failure `errors[]` gives `kind`, `message`, `line` and, for syntax errors, `column`, `expected` and often a `hint`. Fix that line and run the same range again. A failed run saves nothing, settings included, so a retry starts from the same state.
 
 A short session:
 
@@ -74,7 +74,8 @@ statistics command syntax (COMPUTE, RECODE, FREQUENCIES, CTABLES and so on). Use
   `statscraft check -s work --json <file>.sps`.
 - Run it in steps that keep the data between them:
   `statscraft run -s work --json --lines FIRST-LAST <file>.sps`, or
-  `statscraft run -s work --json -e "<syntax>"` for a single command.
+  `statscraft run -s work --json -e "<syntax>"` for a single command. The session keeps data,
+  settings, macros and named datasets between runs; `statscraft describe -s work --json` shows them.
 - Read the JSON. If "ok" is false, fix the line and column given in "errors" (use "expected" and
   "hint") and run the same lines again; a failed run changes nothing. Read "warnings" of every
   command and "changes" to confirm what happened to the data.

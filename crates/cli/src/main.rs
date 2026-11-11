@@ -28,14 +28,14 @@ enum Cmd {
     Describe {
         /// A .sav or .zsav file
         file: Option<String>,
-        /// Describe the dataset of this session instead of a file; gui is the running window
+        /// Describe this session (dataset, settings, macros) instead of a file; gui is the window
         #[arg(short, long)]
         session: Option<String>,
         /// Print the result as JSON
         #[arg(long)]
         json: bool,
     },
-    /// Run syntax. With --session the dataset is kept between runs
+    /// Run syntax. With --session the dataset, settings and macros are kept between runs
     Run {
         #[command(flatten)]
         args: RunArgs,
@@ -68,7 +68,7 @@ struct RunArgs {
     /// Syntax text given directly
     #[arg(short = 'e', long = "execute", conflicts_with = "file")]
     text: Option<String>,
-    /// Session name: the dataset is loaded from and saved to .statscraft/sessions/<name>.
+    /// Session name: the dataset, settings and macros are loaded from and saved to .statscraft/sessions/<name>.
     /// The name gui sends the syntax to the running statscraft-gui window instead
     #[arg(short, long)]
     session: Option<String>,
@@ -151,24 +151,73 @@ fn load_session(name: &str) -> Result<Option<Dataset>, Vec<Failure>> {
     if !path.exists() {
         return Ok(None);
     }
-    let fail = |e: String| vec![Failure::plain("session", e)];
-    let mut dataset = Dataset::read_sav(&path).map_err(|e| fail(e.to_string()))?;
-    // a data file holds no split or filter, so the session keeps them next to it
-    if let Ok(text) = std::fs::read_to_string(state_file(&path)) {
-        let state: SessionState = serde_json::from_str(&text).map_err(|e| fail(e.to_string()))?;
-        dataset
-            .set_split_file(state.split_file)
-            .and_then(|()| dataset.set_filter_variable(state.filter_variable.as_deref()))
-            .map_err(|e| fail(e.to_string()))?;
+    let mut dataset = Dataset::read_sav(&path).map_err(|e| session_failure(e.to_string()))?;
+    if let Some(state) = read_state(&path)? {
+        state.data.apply(&mut dataset)?;
     }
     Ok(Some(dataset))
 }
 
-/// What a session keeps beside its data file.
-#[derive(serde::Serialize, serde::Deserialize)]
-struct SessionState {
+fn session_failure(message: String) -> Vec<Failure> {
+    vec![Failure::plain("session", message)]
+}
+
+/// The session with everything it keeps: its datasets, macros, settings and random numbers.
+/// A session that does not exist yet is empty.
+fn open_session(name: &str) -> Result<Session, Vec<Failure>> {
+    let path = session_file(name)?;
+    let mut session = Session::with_dataset(load_session(name)?);
+    load_named(&path, &mut session)?;
+    if let Ok(text) = std::fs::read_to_string(macros_file(&path)) {
+        session.set_macros(statscraft_syntax::MacroState::from_syntax(&text));
+    }
+    if let Ok(text) = std::fs::read_to_string(settings_file(&path)) {
+        session.restore_settings(&text)?;
+    }
+    if let Some(state) = read_state(&path)? {
+        session.set_random_draws(state.random_draws);
+    }
+    Ok(session)
+}
+
+/// What a data file cannot hold of a dataset, kept beside it.
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+struct DataState {
     split_file: Option<statscraft_data::SplitFile>,
     filter_variable: Option<String>,
+}
+
+impl DataState {
+    fn of(dataset: &Dataset) -> Self {
+        Self {
+            split_file: dataset.split_file().cloned(),
+            filter_variable: dataset.filter_variable().map(str::to_string),
+        }
+    }
+
+    fn apply(self, dataset: &mut Dataset) -> Result<(), Vec<Failure>> {
+        dataset
+            .set_split_file(self.split_file)
+            .and_then(|()| dataset.set_filter_variable(self.filter_variable.as_deref()))
+            .map_err(|e| session_failure(e.to_string()))
+    }
+}
+
+/// What a session keeps in `state.json` beside its data file.
+#[derive(serde::Serialize, serde::Deserialize)]
+struct SessionState {
+    #[serde(flatten)]
+    data: DataState,
+    /// The random numbers drawn so far, so SAMPLE goes on where the last run stopped.
+    #[serde(default)]
+    random_draws: u64,
+}
+
+fn read_state(data: &std::path::Path) -> Result<Option<SessionState>, Vec<Failure>> {
+    let Ok(text) = std::fs::read_to_string(state_file(data)) else {
+        return Ok(None);
+    };
+    serde_json::from_str(&text).map_err(|e| session_failure(e.to_string()))
 }
 
 /// The macros of a session (DEFINE) and the SET values that steer them, kept as syntax.
@@ -176,16 +225,26 @@ fn macros_file(data: &std::path::Path) -> PathBuf {
     data.with_file_name("macros.sps")
 }
 
+/// The SET values, PRESERVE levels and CD folder of a session, kept as syntax.
+fn settings_file(data: &std::path::Path) -> PathBuf {
+    data.with_file_name("settings.sps")
+}
+
 fn state_file(data: &std::path::Path) -> PathBuf {
     data.with_file_name("state.json")
 }
 
-/// The named datasets of a session (DATASET NAME, COPY), kept in `datasets/` beside its data:
-/// `names.json` holds the active dataset's name and the other names, each with its file.
+/// The named datasets of a session (DATASET NAME, COPY, DECLARE), kept in `datasets/` beside
+/// its data: `names.json` holds the active dataset's name and the other names, in order, each
+/// with its split and filter and the file `<position>.zsav`, except the names only declared.
 #[derive(serde::Serialize, serde::Deserialize, Default)]
 struct NamedDatasets {
     active: Option<String>,
     names: Vec<String>,
+    #[serde(default)]
+    states: Vec<DataState>,
+    #[serde(default)]
+    declared: Vec<String>,
 }
 
 fn datasets_folder(data: &std::path::Path) -> PathBuf {
@@ -197,12 +256,19 @@ fn load_named(data: &std::path::Path, session: &mut Session) -> Result<(), Vec<F
     let Ok(text) = std::fs::read_to_string(folder.join("names.json")) else {
         return Ok(());
     };
-    let fail = |e: String| vec![Failure::plain("session", e)];
-    let named: NamedDatasets = serde_json::from_str(&text).map_err(|e| fail(e.to_string()))?;
+    let mut named: NamedDatasets =
+        serde_json::from_str(&text).map_err(|e| session_failure(e.to_string()))?;
+    let mut states = std::mem::take(&mut named.states).into_iter();
     let mut datasets = Vec::new();
     for (i, name) in named.names.into_iter().enumerate() {
+        let state = states.next().unwrap_or_default();
+        if named.declared.contains(&name) {
+            datasets.push((name, None));
+            continue;
+        }
         let file = folder.join(format!("{i}.zsav"));
-        let data = Dataset::read_sav(&file).map_err(|e| fail(e.to_string()))?;
+        let mut data = Dataset::read_sav(&file).map_err(|e| session_failure(e.to_string()))?;
+        state.apply(&mut data)?;
         datasets.push((name, Some(data)));
     }
     session.set_named_datasets(datasets, named.active);
@@ -212,22 +278,28 @@ fn load_named(data: &std::path::Path, session: &mut Session) -> Result<(), Vec<F
 fn save_named(data: &std::path::Path, session: &Session) -> Result<(), String> {
     let folder = datasets_folder(data);
     let _ = std::fs::remove_dir_all(&folder);
-    let (datasets, active) = session.named_datasets();
-    let datasets: Vec<(&String, &Dataset)> = datasets
-        .iter()
-        .filter_map(|(name, data)| data.as_ref().map(|d| (name, d)))
-        .collect();
-    if datasets.is_empty() && active.is_none() {
+    let (all, active) = session.named_datasets();
+    if all.is_empty() && active.is_none() {
         return Ok(());
     }
     std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
-    for (i, (_, data)) in datasets.iter().enumerate() {
-        write_kept(data, &folder.join(format!("{i}.zsav")))?;
-    }
-    let named = NamedDatasets {
+    let mut named = NamedDatasets {
         active: active.map(str::to_string),
-        names: datasets.iter().map(|(name, _)| name.to_string()).collect(),
+        ..NamedDatasets::default()
     };
+    for (i, (name, data)) in all.iter().enumerate() {
+        named.names.push(name.clone());
+        match data {
+            Some(data) => {
+                write_kept(data, &folder.join(format!("{i}.zsav")))?;
+                named.states.push(DataState::of(data));
+            }
+            None => {
+                named.declared.push(name.clone());
+                named.states.push(DataState::default());
+            }
+        }
+    }
     let text = serde_json::to_string_pretty(&named).expect("plain data");
     std::fs::write(folder.join("names.json"), text).map_err(|e| e.to_string())
 }
@@ -245,19 +317,49 @@ fn write_kept(dataset: &Dataset, path: &std::path::Path) -> Result<(), String> {
     }
 }
 
-/// Writes the dataset of a session and the state that its file cannot hold.
-fn save_session(path: &std::path::Path, dataset: &Dataset) -> Result<(), String> {
+/// Writes the active dataset of a session and what its data file cannot hold.
+fn save_dataset(
+    path: &std::path::Path,
+    dataset: &Dataset,
+    random_draws: u64,
+) -> Result<(), String> {
     write_kept(dataset, path)?;
     let state = SessionState {
-        split_file: dataset.split_file().cloned(),
-        filter_variable: dataset.filter_variable().map(str::to_string),
+        data: DataState::of(dataset),
+        random_draws,
     };
     let text = serde_json::to_string_pretty(&state).expect("plain data");
     std::fs::write(state_file(path), text).map_err(|e| e.to_string())
 }
 
+/// Replaces the active dataset of a session and keeps the rest of it.
+fn replace_dataset(path: &std::path::Path, dataset: &Dataset) -> Result<(), String> {
+    let draws = read_state(path)
+        .ok()
+        .flatten()
+        .map_or(0, |s| s.random_draws);
+    save_dataset(path, dataset, draws)
+}
+
+/// Writes everything a session keeps. A session left without an active dataset keeps its
+/// last data file, as before.
+fn save_session(path: &std::path::Path, session: &Session) -> Result<(), String> {
+    std::fs::create_dir_all(path.parent().expect("session path has a parent"))
+        .map_err(|e| e.to_string())?;
+    if let Some(dataset) = session.dataset() {
+        save_dataset(path, dataset, session.random_draws())?;
+    }
+    save_named(path, session)?;
+    std::fs::write(macros_file(path), session.macros().to_syntax()).map_err(|e| e.to_string())?;
+    let settings = format!(
+        "* The SET values, PRESERVE levels and CD folder of this session.\n{}",
+        session.settings_syntax()
+    );
+    std::fs::write(settings_file(path), settings).map_err(|e| e.to_string())
+}
+
 fn describe(file: Option<String>, session: Option<String>, json: bool) -> Result<(), Vec<Failure>> {
-    let dataset = match (file, session) {
+    let text = match (file, session) {
         (None, Some(name)) if name == live::SESSION => {
             return remote(Request {
                 token: String::new(),
@@ -269,13 +371,12 @@ fn describe(file: Option<String>, session: Option<String>, json: bool) -> Result
             });
         }
         (Some(file), None) => {
-            Dataset::read_sav(&file).map_err(|e| vec![Failure::plain("file", e.to_string())])?
+            let dataset = Dataset::read_sav(&file)
+                .map_err(|e| vec![Failure::plain("file", e.to_string())])?;
+            describe_output(&dataset, json)
         }
-        (None, Some(name)) => load_session(&name)?.ok_or_else(|| {
-            vec![Failure::plain(
-                "session",
-                format!("session {name} has no dataset yet"),
-            )]
+        (None, Some(name)) => open_session(&name)?.describe(json).ok_or_else(|| {
+            session_failure(format!("session {name} has no dataset or settings yet"))
         })?,
         _ => {
             return Err(vec![Failure::plain(
@@ -284,7 +385,7 @@ fn describe(file: Option<String>, session: Option<String>, json: bool) -> Result
             )]);
         }
     };
-    print!("{}", describe_output(&dataset, json));
+    print!("{text}");
     Ok(())
 }
 
@@ -373,18 +474,10 @@ fn run(args: RunArgs, check_only: bool, xlsx: &XlsxArgs) -> Result<(), Vec<Failu
         print!("{}", result.output(args.json, check_only));
         return Ok(());
     }
-    let loaded = match &args.session {
-        Some(name) => load_session(name)?,
-        None => None,
+    let mut session = match &args.session {
+        Some(name) => open_session(name)?,
+        None => Session::default(),
     };
-    let mut session = Session::with_dataset(loaded);
-    if let Some(name) = &args.session {
-        let path = session_file(name)?;
-        load_named(&path, &mut session)?;
-        if let Ok(text) = std::fs::read_to_string(macros_file(&path)) {
-            session.set_macros(statscraft_syntax::MacroState::from_syntax(&text));
-        }
-    }
     // INSERT and INCLUDE in a syntax file start from its folder
     let folder = args.file.as_deref().filter(|f| *f != "-");
     session.set_base_dir(
@@ -404,17 +497,8 @@ fn run(args: RunArgs, check_only: bool, xlsx: &XlsxArgs) -> Result<(), Vec<Failu
     write_workbook(&result, xlsx)?;
     if let (false, Some(name)) = (check_only, &args.session) {
         let path = session_file(name)?;
-        let dataset = session.dataset();
-        if changed || (dataset.is_some() && !path.exists()) {
-            let fail = |m: String| vec![Failure::plain("session", m)];
-            std::fs::create_dir_all(path.parent().expect("session path has a parent"))
-                .map_err(|e| fail(e.to_string()))?;
-            if let Some(dataset) = dataset {
-                save_session(&path, dataset).map_err(fail)?;
-            }
-            save_named(&path, &session).map_err(fail)?;
-            std::fs::write(macros_file(&path), session.macros().to_syntax())
-                .map_err(|e| fail(e.to_string()))?;
+        if changed || (session.dataset().is_some() && !path.exists()) {
+            save_session(&path, &session).map_err(session_failure)?;
             result.saved = true;
         }
     }

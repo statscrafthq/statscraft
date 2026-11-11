@@ -187,6 +187,23 @@ pub fn describe_output(dataset: &Dataset, json: bool) -> String {
     out
 }
 
+/// What a session keeps besides its datasets, as `describe` shows it.
+#[derive(Debug, Default, PartialEq, Serialize)]
+pub struct SessionState {
+    /// The SET values given, by subcommand name; the others have their defaults.
+    pub settings: std::collections::BTreeMap<String, String>,
+    /// How many PRESERVE levels wait for a RESTORE.
+    pub preserved: usize,
+    /// The folder of the last CD.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub directory: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub active_dataset: Option<String>,
+    /// The other named datasets, open or declared.
+    pub datasets: Vec<String>,
+    pub macros: Vec<String>,
+}
+
 /// One entry of the log: the syntax as it was run and a one-line summary or the errors.
 pub struct LogEntry {
     pub syntax: String,
@@ -266,6 +283,73 @@ impl Session {
     /// The SET CCA to CCE specifications, to show custom currency values as the output does.
     pub fn currencies(&self) -> crate::Currencies {
         self.engine.currencies()
+    }
+
+    /// The SET values, PRESERVE levels and CD folder, as SET, PRESERVE and CD commands.
+    pub fn settings_syntax(&self) -> String {
+        self.engine.settings_syntax()
+    }
+
+    /// Puts back the settings that `settings_syntax` wrote.
+    pub fn restore_settings(&mut self, text: &str) -> Result<(), Vec<Failure>> {
+        self.engine
+            .restore_settings(text)
+            .map_err(|e| vec![Failure::plain("session", format!("settings: {e}"))])
+    }
+
+    /// How many random numbers the runs so far drew: the next run goes on from there.
+    pub fn random_draws(&self) -> u64 {
+        self.engine.random_draws
+    }
+
+    pub fn set_random_draws(&mut self, draws: u64) {
+        self.engine.random_draws = draws;
+    }
+
+    /// What `statscraft describe --session` prints: the active dataset and what the session
+    /// keeps besides it. None when it holds neither.
+    pub fn describe(&self, json: bool) -> Option<String> {
+        let state = self.engine.session_state();
+        let dataset = self.dataset();
+        if dataset.is_none() && state == SessionState::default() {
+            return None;
+        }
+        if json {
+            #[derive(Serialize)]
+            struct Described<'a> {
+                #[serde(flatten)]
+                dataset: Option<statscraft_data::Description>,
+                session: &'a SessionState,
+            }
+            let described = Described {
+                dataset: dataset.map(Dataset::describe),
+                session: &state,
+            };
+            return Some(serde_json::to_string_pretty(&described).expect("plain data") + "\n");
+        }
+        let mut out = dataset.map_or_else(
+            || "no active dataset\n".into(),
+            |d| describe_output(d, false),
+        );
+        let settings: Vec<String> = state
+            .settings
+            .iter()
+            .map(|(name, value)| format!("{name}={value}"))
+            .collect();
+        let mut line = |title: &str, text: String| {
+            if !text.is_empty() {
+                let _ = writeln!(out, "{title}: {text}");
+            }
+        };
+        line("settings", settings.join(" "));
+        if state.preserved > 0 {
+            line("PRESERVE levels", state.preserved.to_string());
+        }
+        line("directory", state.directory.unwrap_or_default());
+        line("active dataset", state.active_dataset.unwrap_or_default());
+        line("other datasets", state.datasets.join(", "));
+        line("macros", state.macros.join(", "));
+        Some(out)
     }
 
     /// Runs `source`, or with `lines` only the commands inside that inclusive line range. All or
@@ -437,6 +521,8 @@ fn run(
         (datasets.to_vec(), active.map(str::to_string))
     };
     let named_before = named(&engine);
+    let kept = |engine: &Engine| (engine.settings_syntax(), engine.random_draws);
+    let kept_before = kept(&engine);
     let mut outputs = Vec::new();
     for (raw, command) in &commands {
         let fail = |e: crate::Error| {
@@ -490,7 +576,10 @@ fn run(
         dataset: after.map(|d| [d.case_count(), d.variable_count()]),
         // compare whole datasets: a weight change shows in no variable
         saved: !engine.dry_run
-            && (before.as_ref() != after || named_before != named(&engine) || macros_changed),
+            && (before.as_ref() != after
+                || named_before != named(&engine)
+                || macros_changed
+                || kept_before != kept(&engine)),
         commands: outputs,
     };
     Ok((engine, result, summary))
@@ -730,6 +819,107 @@ mod tests {
         // SET MEXPAND=OFF lasts too
         session.run("SET MEXPAND=OFF.", None).unwrap();
         assert!(session.run("COMPUTE u = !ten.", None).is_err());
+    }
+
+    #[test]
+    fn settings_preserve_levels_and_cd_round_trip_through_their_syntax() {
+        let mut session = survey();
+        let result = session
+            .run(
+                "SET FORMAT=F10.3 CCA='-,EUR ,,' LOCALE='et_EE'.\nPRESERVE.\nSET DECIMAL=COMMA.",
+                None,
+            )
+            .unwrap();
+        // a run that only changes settings changes the session
+        assert!(result.saved);
+        let text = session.settings_syntax();
+        assert_eq!(
+            text,
+            "SET CCA='-,EUR ,,' FORMAT='F10.3' LOCALE='et_EE'.\nPRESERVE.\nSET DECIMAL='COMMA'.\n"
+        );
+        let mut next = Session::default();
+        next.restore_settings(&text).unwrap();
+        assert_eq!(next.settings_syntax(), text);
+        // the PRESERVE level came back too: RESTORE returns to the outer settings
+        next.run("RESTORE.", None).unwrap();
+        assert!(!next.settings_syntax().contains("DECIMAL"));
+        assert!(next.describe(false).unwrap().contains("FORMAT=F10.3"));
+
+        let cd = "PRESERVE.\nCD 'it''s here'.";
+        let mut folder = Session::default();
+        folder.restore_settings(cd).unwrap();
+        assert_eq!(folder.settings_syntax(), "PRESERVE.\nCD 'it''s here'.\n");
+        let wrong = folder.restore_settings("COMPUTE x = 1.").unwrap_err();
+        assert!(
+            wrong[0].message.contains("only SET, PRESERVE and CD"),
+            "{wrong:?}"
+        );
+    }
+
+    #[test]
+    fn settings_last_from_run_to_run_but_not_from_a_failed_run_or_a_check() {
+        let mut session = survey();
+        session.run("SET FORMAT=F6.1.", None).unwrap();
+        session
+            .run("SET FORMAT=F4.0.\nCOMPUTE x = nowhere.", None)
+            .unwrap_err();
+        session.check("SET FORMAT=F3.0.", None).unwrap();
+        assert_eq!(session.settings_syntax(), "SET FORMAT='F6.1'.\n");
+        session.run("COMPUTE y = 1.", None).unwrap();
+        let y = session.dataset().unwrap().variable("y").unwrap();
+        assert_eq!(y.format(), "F6.1");
+    }
+
+    #[test]
+    fn describe_shows_the_session_state_beside_the_dataset() {
+        let mut session = Session::default();
+        assert!(session.describe(true).is_none());
+        session
+            .run("SET MPRINT=YES.\nDEFINE !m () 1 !ENDDEFINE.", None)
+            .unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&session.describe(true).unwrap()).unwrap();
+        assert_eq!(json["session"]["settings"]["MPRINT"], "YES");
+        assert_eq!(json["session"]["macros"][0], "!M");
+        assert!(json.get("variables").is_none());
+        let mut session = survey();
+        session.run("DATASET NAME main.", None).unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&session.describe(true).unwrap()).unwrap();
+        assert_eq!(json["case_count"], 200);
+        assert_eq!(json["session"]["active_dataset"], "main");
+        let text = session.describe(false).unwrap();
+        assert!(text.ends_with("active dataset: main\n"), "{text}");
+    }
+
+    #[test]
+    fn a_run_ends_temporary_n_of_cases_and_an_unfinished_data_list() {
+        let mut session = survey();
+        session
+            .run("TEMPORARY.\nSELECT IF age > 60.", None)
+            .unwrap();
+        assert_eq!(session.dataset().unwrap().case_count(), 200);
+        session.run("N OF CASES 10.", None).unwrap();
+        assert_eq!(session.dataset().unwrap().case_count(), 10);
+        let errors = session.run("DATA LIST LIST /x.", None).unwrap_err();
+        assert!(errors[0].message.contains("BEGIN DATA"), "{errors:?}");
+    }
+
+    #[test]
+    fn random_numbers_go_on_from_the_last_run() {
+        let mut session = survey();
+        let result = session
+            .run("TEMPORARY.\nSAMPLE .5.\nFREQUENCIES gender.", None)
+            .unwrap();
+        // the draws changed the session though the dataset did not
+        assert!(result.saved);
+        let draws = session.random_draws();
+        assert!(draws > 0);
+        let mut next = survey();
+        next.set_random_draws(draws);
+        session.run("SAMPLE .5.", None).unwrap();
+        next.run("SAMPLE .5.", None).unwrap();
+        assert!(session.dataset() == next.dataset());
     }
 
     #[test]
