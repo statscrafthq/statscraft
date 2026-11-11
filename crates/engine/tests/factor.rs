@@ -755,3 +755,53 @@ fn quick_cluster_initial_selection_classify_and_outfile() {
     );
     assert!(tables.iter().all(|t| t.title != "Iteration History"));
 }
+
+#[test]
+fn quick_cluster_update_file_and_iteration_limit() {
+    let initial = "/INITIAL=(2 2 5 5 4 2 5 6 6)";
+    let tables = run(&format!(
+        "QUICK CLUSTER x1 x2 x4 /CRITERIA=CLUSTER(3) MXITER(30) /METHOD=KMEANS(UPDATE) {initial}."
+    ));
+    let history = find(&tables, "Iteration History");
+    assert_eq!(history.rows.len(), 18);
+    assert!(close(number(&history.rows[0][2]), 1.4037526641, 1e-9));
+    let finals = find(&tables, "Final Cluster Centers");
+    assert!(close(row(finals, "x1")[0], 2.5555555556, 1e-9));
+    assert!(close(row(finals, "x4")[1], 2.875, 1e-9));
+
+    // one pass only: a warning and the reason under the history
+    let mut engine = Engine::default();
+    let tables = run_on(
+        &mut engine,
+        &format!("{DATA}QUICK CLUSTER x1 x2 x4 /CRITERIA=CLUSTER(3) MXITER(1) {initial}."),
+    );
+    let caption = find(&tables, "Iteration History").caption.clone().unwrap();
+    assert!(caption.starts_with("Iterations stopped"), "{caption}");
+    assert!(
+        engine
+            .warnings()
+            .iter()
+            .any(|w| w.contains("did not converge"))
+    );
+
+    // CONVERGE stops when no center moves more than its share of the initial gap
+    let tables = run(&format!(
+        "QUICK CLUSTER x1 x2 x4 /CRITERIA=CLUSTER(3) CONVERGE(0.5) {initial}."
+    ));
+    assert_eq!(find(&tables, "Iteration History").rows.len(), 1);
+
+    // FILE: the centers of an earlier run as the initial centers
+    let tables = run(&format!(
+        "DATASET NAME cases.\nDATASET DECLARE centers.\n\
+         QUICK CLUSTER x1 x2 x4 /CRITERIA=CLUSTER(3) {initial} /OUTFILE=centers.\n\
+         QUICK CLUSTER x1 x2 x4 /CRITERIA=CLUSTER(3) /FILE=centers /METHOD=CLASSIFY."
+    ));
+    let titled =
+        |title: &str| -> Vec<&Table> { tables.iter().filter(|t| t.title == title).collect() };
+    let (initials, finals) = (
+        titled("Initial Cluster Centers"),
+        titled("Final Cluster Centers"),
+    );
+    assert_eq!(initials[1].rows, finals[0].rows);
+    assert_eq!(finals[1].rows, finals[0].rows);
+}
