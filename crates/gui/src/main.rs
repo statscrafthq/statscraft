@@ -40,8 +40,8 @@ fn main() -> ExitCode {
         ..Default::default()
     };
     let result = eframe::run_native(
-        // the app id (X11 class, Wayland app id) that installed launchers name; keep it
-        "StatsCraft",
+        // the app id (X11 class, Wayland app id): matches statscraft.desktop and its StartupWMClass
+        "statscraft",
         options,
         Box::new(move |cc| {
             cc.egui_ctx.set_fonts(fonts);

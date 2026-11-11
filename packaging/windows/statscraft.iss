@@ -60,28 +60,27 @@ Name: "{autoprograms}\Statscraft"; Filename: "{app}\statscraft-gui.exe"
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; Check: NeedsAddPath(ExpandConstant('{app}'))
 
 ; .sav and .zsav open in the window, .sps opens in its syntax editor
-; the ProgIDs StatsCraft.Data and StatsCraft.Syntax keep their first spelling, which installed
-; versions registered and FreeOrOurs looks for
-Root: HKA; Subkey: "Software\Classes\StatsCraft.Data"; ValueType: string; ValueName: ""; ValueData: "Statscraft data file"; Flags: uninsdeletekey
-Root: HKA; Subkey: "Software\Classes\StatsCraft.Data\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\statscraft-gui.exe,0"
-Root: HKA; Subkey: "Software\Classes\StatsCraft.Data\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\statscraft-gui.exe"" ""%1"""
-Root: HKA; Subkey: "Software\Classes\StatsCraft.Syntax"; ValueType: string; ValueName: ""; ValueData: "Statscraft syntax file"; Flags: uninsdeletekey
-Root: HKA; Subkey: "Software\Classes\StatsCraft.Syntax\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\statscraft-gui.exe,0"
-Root: HKA; Subkey: "Software\Classes\StatsCraft.Syntax\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\statscraft-gui.exe"" ""%1"""
+; registry names ignore case, so these are the same keys earlier versions registered
+Root: HKA; Subkey: "Software\Classes\Statscraft.Data"; ValueType: string; ValueName: ""; ValueData: "Statscraft data file"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\Statscraft.Data\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\statscraft-gui.exe,0"
+Root: HKA; Subkey: "Software\Classes\Statscraft.Data\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\statscraft-gui.exe"" ""%1"""
+Root: HKA; Subkey: "Software\Classes\Statscraft.Syntax"; ValueType: string; ValueName: ""; ValueData: "Statscraft syntax file"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\Statscraft.Syntax\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\statscraft-gui.exe,0"
+Root: HKA; Subkey: "Software\Classes\Statscraft.Syntax\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\statscraft-gui.exe"" ""%1"""
 
 ; Statscraft is offered under Open with for each type
-Root: HKA; Subkey: "Software\Classes\.sav\OpenWithProgids"; ValueType: string; ValueName: "StatsCraft.Data"; ValueData: ""; Flags: uninsdeletevalue
-Root: HKA; Subkey: "Software\Classes\.zsav\OpenWithProgids"; ValueType: string; ValueName: "StatsCraft.Data"; ValueData: ""; Flags: uninsdeletevalue
-Root: HKA; Subkey: "Software\Classes\.sps\OpenWithProgids"; ValueType: string; ValueName: "StatsCraft.Syntax"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.sav\OpenWithProgids"; ValueType: string; ValueName: "Statscraft.Data"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.zsav\OpenWithProgids"; ValueType: string; ValueName: "Statscraft.Data"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.sps\OpenWithProgids"; ValueType: string; ValueName: "Statscraft.Syntax"; ValueData: ""; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Classes\Applications\statscraft-gui.exe"; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\Classes\Applications\statscraft-gui.exe\SupportedTypes"; ValueType: string; ValueName: ".sav"; ValueData: ""
 Root: HKA; Subkey: "Software\Classes\Applications\statscraft-gui.exe\SupportedTypes"; ValueType: string; ValueName: ".zsav"; ValueData: ""
 Root: HKA; Subkey: "Software\Classes\Applications\statscraft-gui.exe\SupportedTypes"; ValueType: string; ValueName: ".sps"; ValueData: ""
 
 ; and it becomes the default only where no other program is the default already
-Root: HKA; Subkey: "Software\Classes\.sav"; ValueType: string; ValueName: ""; ValueData: "StatsCraft.Data"; Flags: uninsdeletevalue; Check: FreeOrOurs('.sav', 'StatsCraft.Data')
-Root: HKA; Subkey: "Software\Classes\.zsav"; ValueType: string; ValueName: ""; ValueData: "StatsCraft.Data"; Flags: uninsdeletevalue; Check: FreeOrOurs('.zsav', 'StatsCraft.Data')
-Root: HKA; Subkey: "Software\Classes\.sps"; ValueType: string; ValueName: ""; ValueData: "StatsCraft.Syntax"; Flags: uninsdeletevalue; Check: FreeOrOurs('.sps', 'StatsCraft.Syntax')
+Root: HKA; Subkey: "Software\Classes\.sav"; ValueType: string; ValueName: ""; ValueData: "Statscraft.Data"; Flags: uninsdeletevalue; Check: FreeOrOurs('.sav', 'Statscraft.Data')
+Root: HKA; Subkey: "Software\Classes\.zsav"; ValueType: string; ValueName: ""; ValueData: "Statscraft.Data"; Flags: uninsdeletevalue; Check: FreeOrOurs('.zsav', 'Statscraft.Data')
+Root: HKA; Subkey: "Software\Classes\.sps"; ValueType: string; ValueName: ""; ValueData: "Statscraft.Syntax"; Flags: uninsdeletevalue; Check: FreeOrOurs('.sps', 'Statscraft.Syntax')
 
 [Run]
 Filename: "{app}\statscraft-gui.exe"; Description: "Start Statscraft"; Flags: nowait postinstall skipifsilent

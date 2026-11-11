@@ -37,7 +37,7 @@ fn read_access() {
     assert_eq!(data.variable_index("gendr"), None);
     assert_eq!(
         data.file_label(),
-        Some("StatsCraft synthetic customer survey")
+        Some("Statscraft synthetic customer survey")
     );
     assert_eq!(data.weight_variable(), Some("weight"));
 

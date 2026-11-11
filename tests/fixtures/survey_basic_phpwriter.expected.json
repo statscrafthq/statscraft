@@ -3,7 +3,7 @@
     "compression": "bytecode",
     "case_count": 200,
     "variable_count": 19,
-    "file_label": "StatsCraft synthetic customer survey",
+    "file_label": "Statscraft synthetic customer survey",
     "variables": [
         {
             "name": "resp_id",

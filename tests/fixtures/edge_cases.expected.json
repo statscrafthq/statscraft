@@ -3,7 +3,7 @@
  "compression": "bytecode",
  "case_count": 12,
  "variable_count": 12,
- "file_label": "StatsCraft edge cases",
+ "file_label": "Statscraft edge cases",
  "variables": [
   {
    "name": "case_id",

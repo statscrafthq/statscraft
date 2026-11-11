@@ -1,8 +1,12 @@
 # Changelog
 
-## Unreleased
+## 0.2.0 (2026-11-11)
 
-- The name is written Statscraft: window title, menus, messages, documentation, installers and the product string of written .sav files.
+- New app icon and the Statscraft name everywhere: window, installers, file types, documentation and the product string of written .sav files. Installing 0.2.0 over 0.1.x keeps the same install and file associations.
+- Window: right-click menus in the Data View (column headers, cells, row numbers) and the Variable View: sort, quick Frequencies and Descriptives, prefilled dialogs, measure, rename, insert, delete, filter to a value, keep only those cases, copy.
+- Window: the log shows only under Syntax and Output, so the grids use the whole height; cells follow each variable's alignment; cases left out by FILTER have their row number struck through.
+- INCLUDE and INSERT without FILE= read the file before the next lines, so the macros of a macro library can be called right after it.
+- CTABLES: the NEGPAREN, NEQUAL, PAREN, PCTPAREN, DOT, N and E summary formats; )DATE, )TIME and )TABLE in titles; a function repeated in one summary list gives two columns.
 - Window: the Statscraft colours (petrol) for selection, focus, links and OK buttons; Schibsted Grotesk and JetBrains Mono bundled, with digits of equal width so numbers line up; Statscraft Light and Dark syntax colours, Light the default.
 
 ## 0.1.1 (2026-11-10)

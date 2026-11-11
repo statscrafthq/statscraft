@@ -120,7 +120,7 @@ def survey_basic():
     variables.append(num("weight", "Post-stratification weight", "F8.4", "scale",
                          [round(rng.uniform(0.4, 2.2), 4) for _ in range(n)]))
     assert variables[7]["width"] == 10 and variables[8]["width"] == 200 and "" in comments
-    return dict(file_label="StatsCraft synthetic customer survey", variables=variables)
+    return dict(file_label="Statscraft synthetic customer survey", variables=variables)
 
 
 # Only the pure-PHP writer can store these, so only survey_basic_phpwriter.sav carries them.
@@ -197,7 +197,7 @@ def edge_cases():
              ["BASIC", "ENTERPRISE", "PLUS", "BASIC", "ENTERPRISE", "PLUS"] * 2,
              {"BASIC": "Basic plan", "ENTERPRISE": "Enterprise plan"}),
     ]
-    return dict(file_label="StatsCraft edge cases", variables=variables)
+    return dict(file_label="Statscraft edge cases", variables=variables)
 
 
 def empty():

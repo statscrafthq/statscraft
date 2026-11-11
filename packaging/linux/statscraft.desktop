@@ -11,4 +11,4 @@ Keywords=statistics;survey;tables;crosstabs;sav;
 # statscraft.xml defines both types: data files (.sav, .zsav) and syntax files (.sps)
 MimeType=application/x-statscraft-data;text/x-statscraft-syntax;
 # the window's app id, so docks match the window to this entry; it keeps its first spelling
-StartupWMClass=StatsCraft
+StartupWMClass=statscraft
