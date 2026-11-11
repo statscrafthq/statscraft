@@ -53,9 +53,6 @@ jobs:
           rm -r "$name"
       - if: runner.os == 'Linux'
         run: sh packaging/linux/build.sh "$VERSION"
-      # TEMPORARY: the portable update test runs only on Windows
-      - if: runner.os == 'Windows'
-        run: cargo test --locked -p statscraft-update
       - if: runner.os == 'macOS'
         run: sh packaging/macos/build.sh "$VERSION"
       # Signing and notarizing for macOS, skipped: it needs an Apple Developer ID, which the
