@@ -14,6 +14,7 @@ use crate::lexer::{Punct, Token, TokenKind};
 use crate::loops;
 use crate::mrsets;
 use crate::mult_response;
+use crate::npar;
 use crate::parser::{PResult, Parser};
 use crate::procedures;
 use crate::rank;
@@ -839,6 +840,51 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: stats::nonpar_corr,
     },
     CommandSpec {
+        name: "PARTIAL CORR",
+        summary: "Partial correlations of variables controlling for others, with significance.",
+        syntax: "PARTIAL CORR [VARIABLES=]varlist [WITH varlist] BY controls [(order ...)] [/...]\n\
+                 \x20            [/SIGNIFICANCE=TWOTAIL | ONETAIL] [/STATISTICS=NONE CORR DESCRIPTIVES BADCORR ALL]\n\
+                 \x20            [/FORMAT=MATRIX | CONDENSED | SERIAL] [/MISSING=LISTWISE | ANALYSIS  EXCLUDE | INCLUDE].\n\
+                 A list alone gives a square matrix, WITH a rectangular one. Without orders the partials control\n\
+                 for every control variable at once; an order k gives one block per set of k controls (up to five\n\
+                 orders, 25 lists). Coefficients come from the zero-order Pearson correlations step by step, and are\n\
+                 tested with t on M - k - 2 df, M the smallest weighted count of the correlations used. A coefficient\n\
+                 that cannot be computed is empty. CORR shows the zero-order correlations first, BADCORR only when one\n\
+                 of them is empty; DESCRIPTIVES the mean, standard deviation and N. CONDENSED shows the coefficients\n\
+                 alone, marked * at 0.05 and ** at 0.01; SERIAL shows each pair once. LISTWISE (default) uses the cases\n\
+                 valid on every variable of the list, controls included; ANALYSIS each pair's valid cases. Weighted\n\
+                 when a weight variable is set. Not supported yet: MATRIX.",
+        example: "PARTIAL CORR /VARIABLES=satisfaction recommend BY age /STATISTICS=CORR /SIGNIFICANCE=ONETAIL.",
+        parse: npar::partial_corr,
+    },
+    CommandSpec {
+        name: "NPAR TESTS",
+        summary: "Nonparametric tests: one-sample, two and k related samples, two and k independent samples.",
+        syntax: "NPAR TESTS [/CHISQUARE=varlist [(lo,hi)] [/EXPECTED=EQUAL | f1, n*f2, ...]]\n\
+                 \x20          [/BINOMIAL[(p)]=varlist[(cut) | (value1,value2)]] [/RUNS(MEAN | MEDIAN | MODE | value)=varlist]\n\
+                 \x20          [/K-S(NORMAL [mean,sd] | UNIFORM [min,max] | POISSON [mean] | EXPONENTIAL [mean])=varlist]\n\
+                 \x20          [/WILCOXON | /SIGN | /MCNEMAR | /MH=varlist [WITH varlist [(PAIRED)]]]\n\
+                 \x20          [/FRIEDMAN | /KENDALL | /COCHRAN=varlist]\n\
+                 \x20          [/M-W | /K-S | /W-W | /MOSES[(n)] | /K-W | /J-T | /MEDIAN[(value)]=varlist BY var(value1,value2)]\n\
+                 \x20          [/STATISTICS=[DESCRIPTIVES] [QUARTILES] [ALL]] [/MISSING=ANALYSIS | LISTWISE [INCLUDE]]\n\
+                 \x20          [/METHOD=EXACT [TIMER(n)] | MC [CIN(n)] [SAMPLES(n)]] [/SAMPLE] [/KS_SIM ...].\n\
+                 Long names work too: CHI-SQUARE, KOLMOGOROV-SMIRNOV, MANN-WHITNEY, WALD-WOLFOWITZ, KRUSKAL-WALLIS,\n\
+                 JONCKHEERE-TERPSTRA. Without WITH every variable is paired with every later one; (PAIRED) pairs the\n\
+                 n-th with the n-th. M-W, two-sample K-S, W-W and MOSES compare the two groups (MOSES: the first is the\n\
+                 control group); K-W and J-T take every value from value1 to value2 as a group; MEDIAN does so when\n\
+                 value1 < value2, and compares the two values otherwise. Exact significance where the method gives it\n\
+                 for small samples: binomial; sign and McNemar up to 25 changes; Mann-Whitney when n1 n2 <= 400 and\n\
+                 n1 n2 / 2 + min(n1, n2) <= 220; median test up to 30 cases (Fisher); W-W up to 30 cases; Moses.\n\
+                 K-S with normal parameters taken from the data uses the Lilliefors significance. METHOD adds exact\n\
+                 significances for Wilcoxon, sign, McNemar, Mann-Whitney and the runs tests (MC gives them too, as\n\
+                 exact results replace simulated ones); other tests stay asymptotic, with a warning. ANALYSIS (default)\n\
+                 leaves out cases missing on a test's variables, LISTWISE cases missing on any variable of the command.\n\
+                 A weight repeats each case as often as its weight rounded to a whole number. SAMPLE and KS_SIM change\n\
+                 nothing.",
+        example: "NPAR TESTS /M-W=income BY gender(1,2) /WILCOXON=before WITH after /STATISTICS=QUARTILES.",
+        parse: npar::npar_tests,
+    },
+    CommandSpec {
         name: "EXAMINE",
         summary: "Descriptives, percentiles, M-estimators, extreme values and normality tests, by factor cells.",
         syntax: "EXAMINE [VARIABLES=]deps [BY factor [BY factor] [factor ...]] [/TOTAL | NOTOTAL] [/ID=var]\n\
@@ -1393,12 +1439,10 @@ static UNSUPPORTED: &[&str] = &[
     "MATRIX",
     "MATRIX DATA",
     "NEW FILE",
-    "NPAR TESTS",
     "OUTPUT CLOSE",
     "OUTPUT EXPORT",
     "OUTPUT NEW",
     "OUTPUT SAVE",
-    "PARTIAL CORR",
     "PERMISSIONS",
     "PRINT",
     "PRINT EJECT",

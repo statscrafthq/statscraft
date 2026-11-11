@@ -382,7 +382,7 @@ fn real_but_unsupported_commands_say_so() {
     for (source, name) in [
         ("REGRESSION /DEPENDENT=a.", "REGRESSION"),
         ("factor /variables=a.", "FACTOR"),
-        ("NPAR TESTS /WILCOXON=a WITH b.", "NPAR TESTS"),
+        ("GLM a BY b.", "GLM"),
         ("TITLE Don't panic.", "TITLE"),
         ("RELI /VARIABLES=a b.", "RELIABILITY"),
     ] {
@@ -1130,7 +1130,7 @@ fn command_names_resolve_from_their_words() {
 #[test]
 fn help_lists_every_command() {
     let overview = help(None).unwrap();
-    assert_eq!(command_names().len(), 93);
+    assert_eq!(command_names().len(), 95);
     for spec in table::COMMANDS {
         assert!(overview.contains(spec.name) && overview.contains(spec.summary));
     }

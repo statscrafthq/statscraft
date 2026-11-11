@@ -63,6 +63,8 @@ pub enum Command {
     Oneway(Oneway),
     Correlations(Correlations),
     NonparCorr(NonparCorr),
+    NparTests(Box<crate::npar::NparTests>),
+    PartialCorr(crate::npar::PartialCorr),
     Examine(Examine),
     Tree(Box<Tree>),
     Rank(Rank),

@@ -246,7 +246,7 @@ const TTEST_SUBCOMMANDS: [&str; 7] = [
 ];
 
 /// `list [WITH list [(PAIRED)]]`
-fn pair_list(p: &mut Parser) -> PResult<TTestPairs> {
+pub(crate) fn pair_list(p: &mut Parser) -> PResult<TTestPairs> {
     let left = variables(p)?;
     let start = p.pos;
     let mut pairs = TTestPairs {

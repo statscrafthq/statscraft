@@ -88,6 +88,8 @@ const AREAS: &[(&str, &[&str])] = &[
             "ONEWAY",
             "CORRELATIONS",
             "NONPAR CORR",
+            "PARTIAL CORR",
+            "NPAR TESTS",
             "EXAMINE",
             "TREE",
         ],

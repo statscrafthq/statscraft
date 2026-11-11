@@ -32,6 +32,7 @@ mod loops;
 mod macros;
 mod mrsets;
 mod mult_response;
+mod npar;
 mod parser;
 mod preprocess;
 mod procedures;
@@ -52,6 +53,8 @@ mod tests_data;
 mod tests_data_list;
 #[cfg(test)]
 mod tests_loops;
+#[cfg(test)]
+mod tests_npar;
 #[cfg(test)]
 mod tests_preprocess;
 #[cfg(test)]
@@ -75,6 +78,10 @@ pub use error::{Span, SyntaxError};
 pub use lexer::{Punct, Token, TokenKind};
 pub use loops::{RepeatItem, command_text, substitute};
 pub use mrsets::{Mrsets, MrsetsGroup};
+pub use npar::{
+    BinomialSplit, GroupTest, KsDistribution, NparTest, NparTests, PairedTest, PartialCorr,
+    PartialFormat, PartialList, RelatedTest, RunsCut,
+};
 pub use preprocess::{FileHandle, MacroState};
 pub use session_commands::{SETTINGS, SettingEffect};
 pub use split::{RawCommand, select_lines, split_commands, split_commands_in, split_commands_with};
