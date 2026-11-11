@@ -31,8 +31,8 @@ use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Measure, Value as DataValue, Values, Variable};
 use statscraft_syntax::{
     AxisExpr, AxisVariable, Bound, Categories, CategoryItem, CategoryOrder, Ctables, CtablesTable,
-    EmptyCells, Estimate, Format, LabelsMoved, PercentBase, PercentOf, Statistic, Summary,
-    SummaryFunction, Value as SyntaxValue, VlabelsDisplay,
+    EmptyCells, Estimate, LabelsMoved, PercentBase, PercentOf, Statistic, Summary, SummaryFunction,
+    Value as SyntaxValue, VlabelsDisplay,
 };
 use std::collections::HashMap;
 
@@ -250,18 +250,9 @@ fn scale_only(function: SummaryFunction) -> bool {
     )
 }
 
-/// A format as the cells name it, such as "PCT8.1".
-fn format_text(f: &Format) -> String {
-    let mut text = format!("{}{}", f.kind.name(), f.width);
-    if f.decimals > 0 {
-        text.push_str(&format!(".{}", f.decimals));
-    }
-    text
-}
-
 fn default_format(summary: &Summary, variable: &Variable) -> String {
     if let Some(f) = &summary.format {
-        return format_text(f);
+        return f.clone();
     }
     match summary.function.statistic {
         Statistic::Count
@@ -1374,16 +1365,17 @@ impl Engine {
         for term in summary_terms {
             let (list, totals, variable) = layout.summaries(term);
             let mut index = |list: Vec<Summary>| -> Vec<Indexed> {
-                let mut indexed = Vec::new();
+                let mut indexed: Vec<Indexed> = Vec::new();
                 for summary in list {
                     let s = slot(&summary);
-                    let index = match slots.iter().position(|known| *known == s) {
-                        Some(index) => index,
-                        None => {
-                            slots.push(s);
-                            slots.len() - 1
-                        }
-                    };
+                    // a summary repeated in one list gets a column of its own, the nth repeat
+                    // the nth such column of the table
+                    let nth = indexed.iter().filter(|(i, ..)| slots[*i] == s).count();
+                    let found = (0..slots.len()).filter(|i| slots[*i] == s).nth(nth);
+                    let index = found.unwrap_or_else(|| {
+                        slots.push(s);
+                        slots.len() - 1
+                    });
                     let format = default_format(&summary, &variable.variable);
                     indexed.push((index, summary, format));
                 }
@@ -1588,15 +1580,24 @@ impl Engine {
             columns.push(level(&line.path, levels - 1));
             column_groups.push((0..levels - 1).map(|i| level(&line.path, i)).collect());
         }
+        let now = chrono::Local::now();
+        let (date, time) = (now.format("%Y-%m-%d"), now.format("%H:%M:%S"));
+        let expression = table_words(data, table);
+        let symbols = |text: &str| {
+            text.replace(")DATE", &date.to_string())
+                .replace(")TIME", &time.to_string())
+                .replace(")TABLE", &expression)
+        };
         if let Some(corner) = &table.corner {
             match column_groups[0].first_mut() {
-                Some(top) => *top = corner.clone(),
-                None => columns[0] = corner.clone(),
+                Some(top) => *top = symbols(corner),
+                None => columns[0] = symbols(corner),
             }
         }
 
         // one table for every layer, each followed by its tests
-        let title = table.title.as_deref().unwrap_or("Custom Tables");
+        let title = symbols(table.title.as_deref().unwrap_or("Custom Tables"));
+        let caption = table.caption.as_deref().map(symbols);
         let mut out = Vec::new();
         let mut tested_layers: Vec<(usize, &[usize])> = Vec::new();
         let layers = layer_entries.iter().flat_map(|layer| {
@@ -1656,13 +1657,13 @@ impl Engine {
                 false => format!("{title} ({})", parts.join(", ")),
             };
             let mut main = Table {
-                title: layer_title(title),
+                title: layer_title(&title),
                 row_headers,
                 columns: columns.clone(),
                 column_groups: column_groups.clone(),
                 rows: out_rows,
                 formats,
-                caption: table.caption.clone(),
+                caption: caption.clone(),
             };
             // the tests do not depend on the summary of a layer, so they run once per category
             let tests = if tested_layers.contains(&(layer.term, &layer.combo[..])) {
@@ -1696,6 +1697,40 @@ impl Engine {
         }
         Ok(out)
     }
+}
+
+/// The table expression for )TABLE in titles: `rows BY columns BY layers` without levels and
+/// summaries, variable and set labels in place of names, parentheses where a stack is nested.
+fn table_words(data: &Dataset, table: &CtablesTable) -> String {
+    fn words(data: &Dataset, expr: &AxisExpr, nested: bool) -> String {
+        match expr {
+            AxisExpr::Variable(v) => {
+                let set = data
+                    .multiple_response_sets()
+                    .iter()
+                    .find(|set| set.name.eq_ignore_ascii_case(&v.name));
+                let label = match set {
+                    Some(set) => Some(set.label.as_str()).filter(|l| !l.is_empty()),
+                    None => data.variable(&v.name).ok().and_then(|v| v.label()),
+                };
+                label.unwrap_or(&v.name).to_string()
+            }
+            AxisExpr::Stack(a, b) => {
+                let stack = format!("{} + {}", words(data, a, false), words(data, b, false));
+                if nested { format!("({stack})") } else { stack }
+            }
+            AxisExpr::Nest(a, b) => format!("{} > {}", words(data, a, true), words(data, b, true)),
+        }
+    }
+    let axis = |expr: &Option<AxisExpr>| expr.as_ref().map(|e| words(data, e, false));
+    let mut parts = vec![axis(&table.rows)];
+    if table.columns.is_some() || table.layers.is_some() {
+        parts.extend([Some("BY".into()), axis(&table.columns)]);
+    }
+    if table.layers.is_some() {
+        parts.extend([Some("BY".into()), axis(&table.layers)]);
+    }
+    parts.into_iter().flatten().collect::<Vec<_>>().join(" ")
 }
 
 /// The names of the layers that /CLABELS ROWLABELS=LAYER or COLLABELS=LAYER makes of the shown

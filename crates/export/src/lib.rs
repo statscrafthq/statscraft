@@ -186,8 +186,9 @@ fn set_widths(sheet: &mut Worksheet, widths: &[usize]) -> Result<(), XlsxError> 
 }
 
 /// The Excel number format that shows `value` as our display format `format` does ("F8.2",
-/// "PCT40.1", "COMMA12.1", "DOLLAR8.2"). The value is never scaled: a percentage cell holds
-/// 45.2 for 45.2 percent, so the % sign is a literal. Without a format, whole numbers show
+/// "PCT40.1", "COMMA12.1", "DOLLAR8.2", "E10.3", the CTABLES formats such as "PCTPAREN8.1").
+/// The value is never scaled: a percentage cell holds 45.2 for 45.2 percent, so the % sign is
+/// a literal; a negative section writes its own minus where the text output has one. Without a format, whole numbers show
 /// without decimals and others with two, as in the text output. Other formats show like F, as
 /// `format_value` does. Excel adds a leading zero (0.50 where the text output has .50).
 fn number_format(format: &str, value: f64) -> String {
@@ -208,6 +209,11 @@ fn number_format(format: &str, value: f64) -> String {
         "PCT" => format!("{fixed}\"%\""),
         "COMMA" => format!("#,##{fixed}"),
         "DOLLAR" => format!("\"$\"#,##{fixed}"),
+        "E" => format!("{fixed}E+000"),
+        "NEGPAREN" => format!("{fixed};\"(\"{fixed}\")\""),
+        "NEQUAL" => format!("\"N=\"{fixed};\"N=-\"{fixed}"),
+        "PAREN" => format!("\"(\"{fixed}\")\";\"(-\"{fixed}\")\""),
+        "PCTPAREN" => format!("\"(\"{fixed}\"%)\";\"(-\"{fixed}\"%)\""),
         _ => fixed,
     }
 }
@@ -274,6 +280,11 @@ mod tests {
             ("DOLLAR10.2", 207.045, "\"$\"#,##0.00"),
             ("DOLLAR9.0", -1234.0, "\"$\"#,##0"),
             ("N8", 7.0, "0"),
+            ("E10.3", 175.04, "0.000E+000"),
+            ("NEGPAREN9.2", -1.5, "0.00;\"(\"0.00\")\""),
+            ("NEQUAL5", 394.0, "\"N=\"0;\"N=-\"0"),
+            ("PAREN6.1", -8.0, "\"(\"0.0\")\";\"(-\"0.0\")\""),
+            ("PCTPAREN8.1", 67.6, "\"(\"0.0\"%)\";\"(-\"0.0\"%)\""),
             ("", 22.0, "0"),
             ("", 0.25, "0.00"),
         ];

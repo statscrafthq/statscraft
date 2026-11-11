@@ -18,7 +18,7 @@
 //!   summary, and HIDESOURCECATS=YES, which hides the categories and the total the expression uses
 //!   (they are still computed); it cannot go with tests.
 
-use super::{Category, CategoryList, Key, format_text, in_range};
+use super::{Category, CategoryList, Key, in_range};
 use crate::Error;
 use statscraft_syntax::{Ctables, PcomputeExpr, PcomputeOp, SummaryFunction, Value as SyntaxValue};
 
@@ -121,7 +121,7 @@ pub(super) fn resolve(
             label = props.label.clone().or(label);
             for (function, format) in &props.formats {
                 formats.retain(|(f, _)| f != function);
-                formats.push((*function, format_text(format)));
+                formats.push((*function, format.clone()));
             }
             hide_sources = props.hide_sources.unwrap_or(hide_sources);
         }

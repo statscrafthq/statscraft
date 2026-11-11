@@ -21,7 +21,7 @@ CTABLES [/FORMAT EMPTY=ZERO|BLANK|'text' MISSING='text']
                      [TOTAL=NO|YES] [LABEL='text'] [POSITION=AFTER|BEFORE] [EMPTY=INCLUDE|EXCLUDE]]
         [/CATEGORIES VARIABLES=varlist [value, low THRU high, OTHERNM, MISSING, &name,
                      SUBTOTAL='label', HSUBTOTAL='label', ...] [TOTAL=YES ...]]
-        [/TITLES TITLE='text' CAPTION='text' CORNER='text']
+        [/TITLES TITLE='text' ['text' ...] CAPTION='text' ... CORNER='text' ...]
         [/SIGTEST TYPE=CHISQUARE [ALPHA=0.05] [INCLUDEMRSETS=YES|NO] [CATEGORIES=ALLVISIBLE|SUBTOTALS]]
         [/COMPARETEST TYPE=PROP|MEAN [ALPHA=0.05 [0.01]] [ADJUST=BONFERRONI|BH|NONE]
                       [MEANSVARIANCE=ALLCATS|TESTEDCATS] [SHOWSIG=NO|YES] [INCLUDEMRSETS=YES|NO]
@@ -38,9 +38,11 @@ A numeric variable of unknown level is scale with a currency, date or time forma
 
 SLABELS POSITION=LAYER makes every summary a layer of its own. Tests run in every layer.
 
-A summary list follows a scale variable or the innermost categorical variable of one axis: var \[function \['label'\] \[format\], ...\], format F, PCT, COMMA or DOLLAR, such as PCT8.1.
+A summary list follows a scale variable or the innermost categorical variable of one axis: var \[function \['label'\] \[format\], ...\], such as PCT8.1. Formats: F, PCT, COMMA, DOT (period and comma swapped), DOLLAR, N (leading zeros), E (scientific), and NEGPAREN (negative numbers in parentheses), NEQUAL (N= before), PAREN (in parentheses), PCTPAREN (percent in parentheses); these four show the number as F in the width and add their marks outside it. A function given twice in a list is two columns, each with its own format.
 
 After a parenthesis, (a + b \> c) \[COUNT\], the summaries go to a and c, before their own ones.
+
+TITLES: several quoted texts are several lines. )DATE in them is today's date (YYYY-MM-DD), )TIME the time (HH:MM:SS), both local; )TABLE the table expression without levels and summaries, with variable and set labels in place of names: Gender \> Age BY Region.
 
 TOTALS \[function ...\] inside the list gives the totals and subtotals of that categorical variable their own summaries (the columns hold both lists); a function of scale variables there, such as MEAN or MEDIAN, summarizes the variable's own values: var \[COUNT TOTALS \[MEAN\]\].
 

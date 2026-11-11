@@ -613,6 +613,109 @@ fn titles_and_explicit_categories() {
     assert_eq!(numbers(&t, 3), [Some(110.0)]);
 }
 
+// Summary formats (Command Syntax Reference, CTABLES, "Formats for Summaries"): NEGPAREN puts
+// parentheses around negative numbers, NEQUAL writes "N=" before the number, PAREN puts every
+// number in parentheses and PCTPAREN adds a percent sign inside them. DOT swaps the roles of
+// period and comma, N fills the width with leading zeros, E writes scientific notation.
+#[test]
+fn summary_formats_of_the_ctables_kind() {
+    let t = run(
+        "survey_basic.sav",
+        "COMPUTE neg = age - 50.\n\
+         CTABLES /TABLE neg [S][MEAN NEGPAREN9.2, SUM PAREN9.1, VALIDN NEQUAL5, MINIMUM PCTPAREN9.1] BY gender.",
+    );
+    let shown = |t: &Table, r: usize| -> Vec<String> {
+        (t.row_headers..t.rows[r].len())
+            .map(|c| match &t.rows[r][c] {
+                Cell::Number(n) => format_value(*n, &t.formats[r][c], false),
+                Cell::Empty => String::new(),
+                other => text(other).to_string(),
+            })
+            .collect()
+    };
+    // male mean age 51.31 (106 cases), female 50.43, other 48.67 (minimum 34)
+    assert_eq!(shown(&t, 0)[..4], ["1.31", "(139.0)", "N=106", "(-32.0%)"]);
+    assert_eq!(shown(&t, 0)[8..], ["(1.33)", "(-8.0)", "N=6", "(-16.0%)"]);
+    let tables = run_all(
+        "survey_basic.sav",
+        "CTABLES /TABLE monthly_spend [SUM DOT12.1, VALIDN N5, MEAN E10.3] BY gender\n\
+         /PCOMPUTE &mf=EXPR([1] + [2]) /PPROPERTIES &mf FORMAT=COUNT NEQUAL6 COLPCT PCTPAREN8.1\n\
+         /TABLE gender [COUNT, COLPCT] /CATEGORIES VARIABLES=gender [1, 2, &mf, 3].",
+    );
+    assert_eq!(
+        shown(&tables[0], 0),
+        [
+            "16.978,8",
+            "00097",
+            "1.750E+002",
+            "15.702,2",
+            "00078",
+            "2.013E+002",
+            "1.242,3",
+            "00006",
+            "2.070E+002"
+        ]
+    );
+    assert_eq!(shown(&tables[1], 2), ["N=194", "(97.0%)"]);
+    // a summary given twice is two columns, each in its own format
+    let t = run(
+        "survey_basic.sav",
+        "CTABLES /TABLE gender [COUNT NEQUAL5, COUNT PAREN6] + region [COUNT].",
+    );
+    assert_eq!(t.columns[2..], ["Count", "Count"]);
+    assert_eq!(shown(&t, 0), ["N=106", "(106)"]);
+    assert_eq!(shown(&t, 3)[0], "34");
+}
+
+// TITLES symbols (Command Syntax Reference, CTABLES, TITLES subcommand): )DATE is today's date,
+// )TIME the time, )TABLE the table expression without levels and summaries, with variable labels
+// for names. Only upper case is a symbol.
+#[test]
+fn title_symbols_stand_for_the_date_the_time_and_the_table() {
+    let t = run(
+        "survey_basic.sav",
+        "CTABLES /VLABELS VARIABLES=gender DISPLAY=NAME\n\
+         /TABLE (gender + plan) > age [S][MEAN F8.1] BY region [C] BY q5_1\n\
+         /TITLES TITLE=')TABLE' CAPTION='At )TIME on )DATE' ')table' CORNER='k )TABLE'.",
+    );
+    let expression = "(Gender + Current subscription plan) > Age in years BY Region of residence \
+                      BY Q5. Which of these channels have you used to contact us? Phone";
+    assert!(
+        t.title.starts_with(&format!("{expression} (")),
+        "{}",
+        t.title
+    );
+    assert_eq!(t.column_groups[0][0], format!("k {expression}"));
+    let caption = t.caption.unwrap();
+    let (stamp, rest) = caption.split_once('\n').unwrap();
+    assert_eq!(rest, ")table");
+    let shape: String = stamp
+        .chars()
+        .map(|c| if c.is_ascii_digit() { '9' } else { c })
+        .collect();
+    assert_eq!(shape, "At 99:99:99 on 9999-99-99");
+
+    // empty axes keep their BY; a stack inside a nest gets parentheses, a nest in a stack none
+    for (table, expected) in [
+        ("BY region", "BY Region of residence"),
+        ("gender BY BY region", "Gender BY BY Region of residence"),
+        (
+            "gender > age + region",
+            "Gender > Age in years + Region of residence",
+        ),
+        (
+            "gender > (age + region)",
+            "Gender > (Age in years + Region of residence)",
+        ),
+    ] {
+        let t = run(
+            "survey_basic.sav",
+            &format!("CTABLES /TABLE {table} /TITLES TITLE=')TABLE'."),
+        );
+        assert!(t.title.starts_with(expected), "{table}: {}", t.title);
+    }
+}
+
 #[test]
 fn an_unknown_level_is_guessed_from_the_values() {
     let mut data = Dataset::read_sav(fixture("survey_basic.sav")).unwrap();

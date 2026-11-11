@@ -1,6 +1,6 @@
 //! CTABLES: the syntax tree of custom tables and its parser.
 
-use crate::ast::{Bound, Command, Format, FormatType, MissingValue, Value, VarItem};
+use crate::ast::{Bound, Command, FormatType, MissingValue, Value, VarItem};
 use crate::commands::format;
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
@@ -143,7 +143,7 @@ pub struct Pproperties {
     pub names: Vec<String>,
     pub label: Option<String>,
     /// The display format of a summary in the computed categories.
-    pub formats: Vec<(SummaryFunction, Format)>,
+    pub formats: Vec<(SummaryFunction, String)>,
     /// `HIDESOURCECATS=YES`: the categories the expressions use are not shown.
     pub hide_sources: Option<bool>,
 }
@@ -292,7 +292,8 @@ pub struct Summary {
     /// The n of `PTILE n`.
     pub percentile: Option<f64>,
     pub label: Option<String>,
-    pub format: Option<Format>,
+    /// The display format as the cells name it, such as "PCT8.1" or "PCTPAREN6.1".
+    pub format: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -770,28 +771,69 @@ pub(crate) fn choice(p: &mut Parser, choices: &[&str]) -> PResult<usize> {
     }
 }
 
-fn summary_format(p: &mut Parser, word: &str) -> PResult<Format> {
+/// The formats only CTABLES has: a number shown as F in the width, then decorated.
+const DECORATED_FORMATS: [&str; 4] = ["NEGPAREN", "NEQUAL", "PAREN", "PCTPAREN"];
+
+/// A summary format, as the cells name it: "PCT8.1", "F8" (no ".0"), "PCTPAREN6.1".
+fn summary_format(p: &mut Parser, word: &str) -> PResult<String> {
     let upper = word.to_ascii_uppercase();
-    if ["NEGPAREN", "NEQUAL", "PAREN", "PCTPAREN"]
-        .iter()
-        .any(|special| upper.starts_with(special))
-    {
+    let letters = upper
+        .find(|c: char| !c.is_ascii_alphabetic())
+        .unwrap_or(upper.len());
+    let (kind, size) = upper.split_at(letters);
+    let decorated = DECORATED_FORMATS.contains(&kind);
+    // a decorated format takes its width and decimals as F does
+    let plain = if decorated {
+        format!("F{size}")
+    } else {
+        upper.clone()
+    };
+    let parsed = format(&plain)
+        .map_err(|message| SyntaxError::new(p.span(), message.replace(&plain, &upper)))?;
+    let dated = matches!(
+        parsed.kind,
+        FormatType::Cca
+            | FormatType::Ccb
+            | FormatType::Ccc
+            | FormatType::Ccd
+            | FormatType::Cce
+            | FormatType::Date
+            | FormatType::Adate
+            | FormatType::Edate
+            | FormatType::Jdate
+            | FormatType::Sdate
+            | FormatType::Qyr
+            | FormatType::Moyr
+            | FormatType::Wkyr
+            | FormatType::Datetime
+            | FormatType::Ymdhms
+            | FormatType::Time
+            | FormatType::Mtime
+            | FormatType::Dtime
+            | FormatType::Wkday
+            | FormatType::Month
+    );
+    if dated {
         return Err(not_supported(p, p.pos, &format!("format {upper}")));
     }
-    let parsed = format(word).map_err(|message| SyntaxError::new(p.span(), message))?;
     let usable = [
         FormatType::F,
         FormatType::Pct,
         FormatType::Comma,
+        FormatType::Dot,
         FormatType::Dollar,
+        FormatType::N,
+        FormatType::E,
     ];
     if !usable.contains(&parsed.kind) || parsed.width == 0 || parsed.width > 40 {
         let mut error = SyntaxError::new(
             p.span(),
             format!("format {upper} cannot be used for a summary"),
         );
-        error.expected =
-            vec!["F, PCT, COMMA or DOLLAR with a width of 1 to 40, such as PCT8.1".into()];
+        error.expected = vec![
+            "F, PCT, COMMA, DOT, DOLLAR, N, E, NEGPAREN, NEQUAL, PAREN or PCTPAREN with a width of 1 to 40, such as PCT8.1"
+                .into(),
+        ];
         return Err(error);
     }
     if usize::from(parsed.decimals) >= usize::from(parsed.width) && parsed.decimals > 0 {
@@ -801,7 +843,11 @@ fn summary_format(p: &mut Parser, word: &str) -> PResult<Format> {
         ));
     }
     p.pos += 1;
-    Ok(parsed)
+    let kind = if decorated { kind } else { parsed.kind.name() };
+    Ok(match parsed.decimals {
+        0 => format!("{kind}{}", parsed.width),
+        d => format!("{kind}{}.{d}", parsed.width),
+    })
 }
 
 /// The summaries inside `[...]`, with the parser just after the `[`, and those of a

@@ -457,7 +457,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20                    [TOTAL=NO|YES] [LABEL='text'] [POSITION=AFTER|BEFORE] [EMPTY=INCLUDE|EXCLUDE]]\n\
                  \x20       [/CATEGORIES VARIABLES=varlist [value, low THRU high, OTHERNM, MISSING, &name,\n\
                  \x20                    SUBTOTAL='label', HSUBTOTAL='label', ...] [TOTAL=YES ...]]\n\
-                 \x20       [/TITLES TITLE='text' CAPTION='text' CORNER='text']\n\
+                 \x20       [/TITLES TITLE='text' ['text' ...] CAPTION='text' ... CORNER='text' ...]\n\
                  \x20       [/SIGTEST TYPE=CHISQUARE [ALPHA=0.05] [INCLUDEMRSETS=YES|NO] [CATEGORIES=ALLVISIBLE|SUBTOTALS]]\n\
                  \x20       [/COMPARETEST TYPE=PROP|MEAN [ALPHA=0.05 [0.01]] [ADJUST=BONFERRONI|BH|NONE]\n\
                  \x20                     [MEANSVARIANCE=ALLCATS|TESTEDCATS] [SHOWSIG=NO|YES] [INCLUDEMRSETS=YES|NO]\n\
@@ -475,8 +475,15 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  LAYERROWPCT and LAYERCOLPCT: across its subtables), except TABLEPCT, which spans all layers.\n\
                  SLABELS POSITION=LAYER makes every summary a layer of its own. Tests run in every layer.\n\
                  A summary list follows a scale variable or the innermost categorical variable of one axis:\n\
-                 var [function ['label'] [format], ...], format F, PCT, COMMA or DOLLAR, such as PCT8.1.\n\
+                 var [function ['label'] [format], ...], such as PCT8.1. Formats: F, PCT, COMMA, DOT (period and\n\
+                 comma swapped), DOLLAR, N (leading zeros), E (scientific), and NEGPAREN (negative numbers in\n\
+                 parentheses), NEQUAL (N= before), PAREN (in parentheses), PCTPAREN (percent in parentheses);\n\
+                 these four show the number as F in the width and add their marks outside it. A function given\n\
+                 twice in a list is two columns, each with its own format.\n\
                  After a parenthesis, (a + b > c) [COUNT], the summaries go to a and c, before their own ones.\n\
+                 TITLES: several quoted texts are several lines. )DATE in them is today's date (YYYY-MM-DD),\n\
+                 )TIME the time (HH:MM:SS), both local; )TABLE the table expression without levels and\n\
+                 summaries, with variable and set labels in place of names: Gender > Age BY Region.\n\
                  TOTALS [function ...] inside the list gives the totals and subtotals of that categorical\n\
                  variable their own summaries (the columns hold both lists); a function of scale variables there,\n\
                  such as MEAN or MEDIAN, summarizes the variable's own values: var [COUNT TOTALS [MEAN]].\n\

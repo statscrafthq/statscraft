@@ -59,13 +59,31 @@ fn summaries_with_labels_formats_and_levels() {
     let s = v.summaries.as_ref().unwrap();
     assert_eq!(s.len(), 4);
     assert_eq!(s[0].label.as_deref(), Some("N"));
+    assert_eq!(s[0].format.as_deref(), Some("F8"));
+    let more = one(
+        "CTABLES /TABLE q1 [COUNT neqUAL5, COLPCT PCTPAREN8.1, MEAN NEGPAREN9.2, SUM paren6, MEAN DOT10.2, VALIDN N5, MEAN E10.3].",
+    );
+    let Some(AxisExpr::Variable(v)) = &more.tables[0].rows else {
+        panic!()
+    };
+    let formats: Vec<_> = v
+        .summaries
+        .as_ref()
+        .unwrap()
+        .iter()
+        .map(|s| s.format.clone().unwrap())
+        .collect();
     assert_eq!(
-        s[0].format,
-        Some(Format {
-            kind: FormatType::F,
-            width: 8,
-            decimals: 0
-        })
+        formats,
+        [
+            "NEQUAL5",
+            "PCTPAREN8.1",
+            "NEGPAREN9.2",
+            "PAREN6",
+            "DOT10.2",
+            "N5",
+            "E10.3"
+        ]
     );
     assert_eq!(
         s[1].function.statistic,
@@ -426,6 +444,16 @@ fn mistakes_say_what_was_expected() {
     assert!(e.message.contains("must follow a /TABLE"), "{e}");
     let e = err("CTABLES /TABLE a [MEAN A8].");
     assert!(e.message.contains("cannot be used for a summary"), "{e}");
+    let e = err("CTABLES /TABLE a [MEAN ADATE10].");
+    assert!(
+        e.message
+            .contains("ADATE10 in CTABLES is not supported yet"),
+        "{e}"
+    );
+    let e = err("CTABLES /TABLE a [MEAN PAREN4.4].");
+    assert!(e.message.contains("PAREN4.4 has no room"), "{e}");
+    let e = err("CTABLES /TABLE a [MEAN NEGPAREN8.X].");
+    assert!(e.message.contains("invalid format NEGPAREN8.X"), "{e}");
     let e = err("CTABLES /TABLE a [PTILE].");
     assert!(e.expected[0].contains("percentile"), "{e}");
     let e = err("CTABLES /TABLE (a + b) [C].");

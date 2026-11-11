@@ -680,3 +680,32 @@ fn item_labels_of_computed_categories() {
          /TABLE gender [COUNT, COLPCT] BY q5_1 /CATEGORIES VARIABLES=gender [1, 2, &d] TOTAL=YES.",
     ]);
 }
+
+#[test]
+#[ignore = "needs STATSCRAFT_PSPP"]
+fn summary_formats() {
+    survey(&[
+        "CTABLES /TABLE gender [COUNT NEQUAL5.0, COLPCT PCTPAREN8.1, COUNT PAREN6.0, TABLEPCT.COUNT PCTPAREN5.1] BY region.",
+        "COMPUTE neg = age - 50.\n\
+         CTABLES /TABLE neg [S][MEAN NEGPAREN9.2, MINIMUM NEGPAREN8.1, MAXIMUM NEGPAREN8.1, SUM PAREN9.1, MEAN NEQUAL9.2, MINIMUM PCTPAREN9.1] BY gender.",
+        "CTABLES /TABLE monthly_spend [MEAN DOT10.2, SUM DOT12.1, MEAN E10.3, VALIDN N5, MINIMUM NEGPAREN4.0, MAXIMUM NEQUAL5.0, MEAN PAREN4.0] BY gender.",
+        "CTABLES /PCOMPUTE &mf=EXPR([1] + [2]) /PPROPERTIES &mf FORMAT=COUNT NEQUAL6 COLPCT PCTPAREN8.1\n\
+         /TABLE gender [COUNT, COLPCT] BY q5_1 /CATEGORIES VARIABLES=gender [1, 2, &mf, 3].",
+    ]);
+}
+
+/// )DATE and )TIME are left out: the two programs run a moment apart.
+#[test]
+#[ignore = "needs STATSCRAFT_PSPP"]
+fn table_expression_in_titles() {
+    survey(&[
+        "CTABLES /TABLE (gender + plan) > q5_1 BY region /TITLES TITLE=')TABLE' CORNER='c )TABLE'.",
+        "CTABLES /TABLE gender > q5_1 + plan BY region > q5_2 /TITLES TITLE='T: )TABLE' CAPTION=')TABLE ()table)'.",
+        "CTABLES /VLABELS VARIABLES=gender DISPLAY=NAME /TABLE gender > age [MEAN] BY region [C] + plan /TITLES TITLE=')TABLE'.",
+        "CTABLES /TABLE BY region /TITLES TITLE=')TABLE'.",
+    ]);
+    check_first_layer(
+        "survey_basic.sav",
+        "CTABLES /TABLE gender BY BY region /TITLES TITLE=')TABLE'.",
+    );
+}
