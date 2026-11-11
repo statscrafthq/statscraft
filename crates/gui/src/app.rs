@@ -7,9 +7,10 @@ use crate::analyze_dialogs::{
     STANDARDIZERS, TREE_LEVELS, TREE_SAVE, TTest, TTestKind, Tree,
 };
 use crate::data_dialogs::{
-    AGGREGATE_FUNCTIONS, Aggregate, AggregateTo, Aggregated, FILTER_VARIABLE, MergeFiles, Mrsets,
-    Restructure, RestructureKind, SORT_VARIABLES_KEYS, SelectCases, SelectMode, SortCases,
-    SortVariables, SplitFile, SplitMode, WeightCases,
+    AGGREGATE_FUNCTIONS, Aggregate, AggregateTo, Aggregated, EXPORT_NAMES, ExportData,
+    FILTER_VARIABLE, ImportData, MergeFiles, Mrsets, Restructure, RestructureKind,
+    SORT_VARIABLES_KEYS, SelectCases, SelectMode, SortCases, SortVariables, SplitFile, SplitMode,
+    TEXT_DELIMITERS, WeightCases, is_workbook,
 };
 use crate::dialogs::{
     Adjust, Autorecode, CROSSTABS_CELLS, Categories, Compute, Count, Crosstabs, CustomTables,
@@ -117,6 +118,8 @@ pub(crate) enum Dialog {
     Tree(Tree),
     Restructure(Restructure),
     SortVariables(SortVariables),
+    ImportData(ImportData),
+    ExportData(ExportData),
 }
 
 impl Dialog {
@@ -147,6 +150,8 @@ impl Dialog {
             Dialog::Tree(_) => "Classification Tree",
             Dialog::Restructure(_) => "Restructure",
             Dialog::SortVariables(_) => "Sort Variables",
+            Dialog::ImportData(_) => "Open Data",
+            Dialog::ExportData(_) => "Export Data",
         }
     }
 
@@ -187,6 +192,8 @@ impl Dialog {
             Dialog::Tree(_) => Dialog::Tree(Default::default()),
             Dialog::Restructure(_) => Dialog::Restructure(Default::default()),
             Dialog::SortVariables(_) => Dialog::SortVariables(Default::default()),
+            Dialog::ImportData(d) => Dialog::ImportData(ImportData::new(Path::new(&d.path))),
+            Dialog::ExportData(_) => Dialog::ExportData(Default::default()),
         }
     }
 
@@ -282,6 +289,8 @@ impl Dialog {
             }
             Dialog::Restructure(d) => d.syntax(),
             Dialog::SortVariables(d) => d.syntax(),
+            Dialog::ImportData(d) => d.syntax(),
+            Dialog::ExportData(d) => d.syntax(),
         }
     }
 }
@@ -563,7 +572,7 @@ impl App {
         self.data_resize = None;
         let changed = matches!(&result, Ok(r) if r.saved);
         let file = self.data_file.clone();
-        let loaded = matches!(&result, Ok(r) if r.commands.iter().any(|c| c.name == "GET"));
+        let loaded = matches!(&result, Ok(r) if r.commands.iter().any(|c| c.name == "GET" || c.name == "GET DATA"));
         if changed && loaded && !matches!(after, After::OpenData(_)) {
             // a GET typed or sent from the command line: Save must not write this data over
             // the file that was open before
@@ -615,6 +624,10 @@ impl App {
             After::CloseDialog(title) => {
                 if self.show(result, title, false) {
                     self.dialog = None;
+                    if title == "Open Data" {
+                        self.selected = None;
+                        self.tab = Tab::Data;
+                    }
                 }
             }
         }
@@ -740,9 +753,17 @@ impl App {
                     && let Some(path) = self
                         .file_dialog()
                         .add_filter("Data files", &["sav", "zsav"])
+                        .add_filter("Excel workbooks", &["xlsx", "xlsm", "xls"])
+                        .add_filter("Text files", &["csv", "txt", "tab", "dat"])
                         .pick_file()
                 {
-                    self.open_data(path);
+                    if is_data_file(&path) {
+                        self.open_data(path);
+                    } else {
+                        // the folder is kept even when the dialog is cancelled
+                        self.settings.remember_folder(&path);
+                        self.open_dialog(Dialog::ImportData(ImportData::new(&path)));
+                    }
                 }
                 if ui
                     .add_enabled(has_data, egui::Button::new("Save data"))
@@ -758,6 +779,13 @@ impl App {
                     .clicked()
                 {
                     self.save_data_as();
+                }
+                if ui
+                    .add_enabled(has_data, egui::Button::new("Export data..."))
+                    .on_hover_text("Write the data to an Excel workbook, CSV or text file")
+                    .clicked()
+                {
+                    self.open_dialog(Dialog::ExportData(Default::default()));
                 }
                 ui.separator();
                 if ui.button("New syntax").clicked() {
@@ -2454,9 +2482,18 @@ impl App {
         let Some(dialog) = self.dialog.as_mut() else {
             return;
         };
-        let Some(data) = self.session.dataset() else {
-            self.dialog = None;
-            return;
+        // opening a file needs no data
+        let empty;
+        let data = match self.session.dataset() {
+            Some(data) => data,
+            None if matches!(dialog, Dialog::ImportData(_)) => {
+                empty = Dataset::new(0);
+                &empty
+            }
+            None => {
+                self.dialog = None;
+                return;
+            }
         };
         let mut action = None;
         let mut open = true;
@@ -2473,8 +2510,8 @@ impl App {
                 let row = ui.text_style_height(&TextStyle::Monospace);
                 let height = (ctx.content_rect().height() - 150.0 - lines * row).max(160.0);
                 ui.horizontal_top(|ui| {
-                    // Sort Variables takes no variables
-                    if !matches!(dialog, Dialog::SortVariables(_)) {
+                    // Sort Variables and Open Data take no variables
+                    if !matches!(dialog, Dialog::SortVariables(_) | Dialog::ImportData(_)) {
                         ui.vertical(|ui| {
                             ui.set_width(230.0);
                             let sets = matches!(dialog, Dialog::CustomTables(..));
@@ -2855,6 +2892,51 @@ fn file_dialog(folder: &Option<PathBuf>) -> rfd::FileDialog {
 fn is_syntax_file(path: &Path) -> bool {
     path.extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("sps"))
+}
+
+/// The body of Open Data: the sheet, names row and range of a workbook, or the delimiter and
+/// names row of a text file.
+fn import_body(ui: &mut Ui, d: &mut ImportData) {
+    ui.label(&d.path);
+    if let Some(problem) = &d.problem {
+        ui.colored_label(ui.visuals().warn_fg_color, problem);
+        return;
+    }
+    ui.add_space(6.0);
+    if is_workbook(Path::new(&d.path)) {
+        ui.horizontal(|ui| {
+            ui.strong("Sheet");
+            let shown = d.sheets.get(d.sheet).cloned().unwrap_or_default();
+            ComboBox::new("import sheet", "")
+                .selected_text(shown)
+                .show_ui(ui, |ui| {
+                    for (i, name) in d.sheets.iter().enumerate() {
+                        ui.selectable_value(&mut d.sheet, i, name);
+                    }
+                });
+        });
+        ui.checkbox(&mut d.names, "Read variable names from the first row");
+        ui.horizontal(|ui| {
+            ui.strong("Range");
+            ui.add(
+                TextEdit::singleline(&mut d.range)
+                    .hint_text("whole sheet")
+                    .desired_width(120.0),
+            );
+            ui.weak("such as A1:F200");
+        });
+    } else {
+        ui.horizontal(|ui| {
+            ui.strong("Delimiter");
+            for (c, label) in TEXT_DELIMITERS {
+                ui.radio_value(&mut d.delimiter, c, label);
+            }
+        });
+        ui.checkbox(&mut d.names, "Read variable names from the first line");
+        ui.weak("First line");
+        ui.label(RichText::new(&d.first_line).monospace());
+        ui.weak("Each variable is a number when all its values are numbers, else a string.");
+    }
 }
 
 fn is_data_file(path: &Path) -> bool {
@@ -4069,6 +4151,35 @@ fn dialog_body(
                     }
                 }
             });
+        }
+        Dialog::ImportData(d) => import_body(ui, d),
+        Dialog::ExportData(d) => {
+            ui.horizontal(|ui| {
+                ui.strong("File");
+                if ui.button("Browse...").clicked()
+                    && let Some(path) = file_dialog(folder)
+                        .add_filter("Excel workbook", &["xlsx"])
+                        .add_filter("CSV", &["csv"])
+                        .add_filter("Tab-delimited text", &["txt"])
+                        .save_file()
+                {
+                    *folder = path.parent().map(Path::to_path_buf);
+                    d.path = path.to_string_lossy().into_owned();
+                }
+            });
+            ui.add(TextEdit::singleline(&mut d.path).desired_width(360.0));
+            ui.weak("The type follows the name: .xlsx, .csv or .txt (tab-delimited).");
+            ui.add_space(6.0);
+            ui.strong("First row");
+            ui.horizontal(|ui| {
+                for (i, label) in EXPORT_NAMES.iter().enumerate() {
+                    ui.radio_value(&mut d.names, i, *label);
+                }
+            });
+            ui.checkbox(&mut d.labels, "Value labels instead of values");
+            ui.checkbox(&mut d.recode_missing, "User-missing values as empty");
+            ui.add_space(6.0);
+            target_list(ui, "Variables (none: all)", &mut d.variables, picked);
         }
         Dialog::MergeFiles(d) => {
             ui.horizontal(|ui| {

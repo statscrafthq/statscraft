@@ -2,6 +2,7 @@
 //! selecting and weighting cases, aggregating, merging files and restructuring.
 
 use crate::syntax_text::{names, quote, value};
+use std::path::Path;
 
 /// MRSETS: define a dichotomy or category set, or delete sets.
 #[derive(Clone, PartialEq, Debug)]
@@ -420,6 +421,193 @@ impl MergeFiles {
     }
 }
 
+/// Whether File > Open reads `path` as a workbook rather than as text.
+pub fn is_workbook(path: &Path) -> bool {
+    let extension = path.extension().map(|e| e.to_string_lossy().to_lowercase());
+    matches!(extension.as_deref(), Some("xlsx" | "xlsm" | "xls"))
+}
+
+/// The delimiters a text file may use, with their labels.
+pub const TEXT_DELIMITERS: [(char, &str); 3] = [(',', "Comma"), (';', "Semicolon"), ('\t', "Tab")];
+
+/// File > Open for a workbook or a text file: GET DATA with the sheet, the names row and the
+/// range of a workbook, or the delimiter and the names row of a text file.
+#[derive(Default, Clone, PartialEq, Debug)]
+pub struct ImportData {
+    pub path: String,
+    /// The sheets of a workbook; empty for a text file.
+    pub sheets: Vec<String>,
+    pub sheet: usize,
+    /// The first row holds the variable names.
+    pub names: bool,
+    /// A range such as A1:F200; empty reads the whole sheet.
+    pub range: String,
+    pub delimiter: char,
+    /// The first line of a text file.
+    pub first_line: String,
+    /// Why the file could not be looked into.
+    pub problem: Option<String>,
+}
+
+impl ImportData {
+    /// Looks into the file: the sheets of a workbook, the first line of a text file and the
+    /// delimiter it uses most.
+    pub fn new(path: &Path) -> Self {
+        let mut d = Self {
+            path: path.to_string_lossy().into_owned(),
+            names: true,
+            delimiter: ',',
+            ..Default::default()
+        };
+        if is_workbook(path) {
+            match statscraft_engine::workbook::workbook_sheets(path) {
+                Ok(sheets) => d.sheets = sheets,
+                Err(e) => d.problem = Some(e),
+            }
+            return d;
+        }
+        match std::fs::read(path) {
+            Ok(bytes) => {
+                let text = statscraft_syntax::decode_syntax(&bytes, None).unwrap_or_default();
+                d.first_line = text.lines().next().unwrap_or_default().to_string();
+                let count = |c: char| d.first_line.matches(c).count();
+                d.delimiter = TEXT_DELIMITERS
+                    .iter()
+                    .map(|(c, _)| *c)
+                    .max_by_key(|c| (count(*c), *c == ','))
+                    .unwrap_or(',');
+            }
+            Err(e) => d.problem = Some(e.to_string()),
+        }
+        d
+    }
+
+    pub fn syntax(&self) -> Result<String, String> {
+        if let Some(problem) = &self.problem {
+            return Err(format!("cannot read the file: {problem}"));
+        }
+        let path = Path::new(&self.path);
+        let file = quote(&self.path);
+        if is_workbook(path) {
+            let extension = path.extension().map(|e| e.to_string_lossy().to_uppercase());
+            let kind = match extension.as_deref() {
+                Some("XLS") => "XLS",
+                Some("XLSM") => "XLSM",
+                _ => "XLSX",
+            };
+            let mut text = format!("GET DATA /TYPE={kind} /FILE={file}");
+            if let Some(sheet) = self.sheets.get(self.sheet) {
+                text.push_str(&format!("\n  /SHEET=NAME {}", quote(sheet)));
+            }
+            match self.range.trim() {
+                "" => text.push_str("\n  /CELLRANGE=FULL"),
+                range => text.push_str(&format!(
+                    "\n  /CELLRANGE=RANGE {}",
+                    quote(&range.to_uppercase())
+                )),
+            }
+            let names = if self.names { "ON" } else { "OFF" };
+            text.push_str(&format!(" /READNAMES={names}."));
+            return Ok(text);
+        }
+        let records =
+            statscraft_engine::delimited(&self.first_line, &[self.delimiter], Some('"'), false);
+        let Some((_, fields)) = records.first() else {
+            return Err("the file is empty".into());
+        };
+        let mut used = std::collections::HashSet::new();
+        let variables: Vec<String> = fields
+            .iter()
+            .enumerate()
+            .map(|(k, field)| {
+                let heading = field.as_deref().filter(|_| self.names).unwrap_or("");
+                let name = statscraft_engine::workbook::variable_name(heading, k, &mut used);
+                format!("{name} AUTO")
+            })
+            .collect();
+        let lines: Vec<String> = variables.chunks(6).map(|c| c.join(" ")).collect();
+        let delimiter = match self.delimiter {
+            '\t' => "\\t".to_string(),
+            c => c.to_string(),
+        };
+        Ok(format!(
+            "GET DATA /TYPE=TXT /FILE={file} /ARRANGEMENT=DELIMITED\n  \
+             /DELIMITERS=\"{delimiter}\" /QUALIFIER='\"' /FIRSTCASE={}\n  /VARIABLES={}.",
+            if self.names { 2 } else { 1 },
+            lines.join("\n    ")
+        ))
+    }
+}
+
+/// What the first row of an exported file holds.
+pub const EXPORT_NAMES: [&str; 3] = ["No names", "Variable names", "Variable labels"];
+
+/// File > Export data: SAVE TRANSLATE to a workbook, CSV or tab-delimited text, by the
+/// extension of the file.
+#[derive(Clone, PartialEq, Debug)]
+pub struct ExportData {
+    pub path: String,
+    /// Index into `EXPORT_NAMES`.
+    pub names: usize,
+    /// CELLS=LABELS
+    pub labels: bool,
+    /// MISSING=RECODE
+    pub recode_missing: bool,
+    /// KEEP; empty exports every variable.
+    pub variables: Vec<String>,
+}
+
+impl Default for ExportData {
+    fn default() -> Self {
+        Self {
+            path: String::new(),
+            names: 1,
+            labels: false,
+            recode_missing: false,
+            variables: Vec::new(),
+        }
+    }
+}
+
+impl ExportData {
+    pub fn syntax(&self) -> Result<String, String> {
+        let path = self.path.trim();
+        if path.is_empty() {
+            return Err("choose the file to write".into());
+        }
+        let extension = Path::new(path)
+            .extension()
+            .map(|e| e.to_string_lossy().to_lowercase());
+        let kind = match extension.as_deref() {
+            Some("xlsx") => "/TYPE=XLS /VERSION=12",
+            Some("csv") => "/TYPE=CSV",
+            Some("txt" | "tab" | "tsv" | "dat") => "/TYPE=TAB",
+            _ => return Err("the file name must end in .xlsx, .csv or .txt".into()),
+        };
+        let mut text = format!("SAVE TRANSLATE OUTFILE={} {kind}", quote(path));
+        text.push_str(match self.names {
+            1 => " /FIELDNAMES",
+            2 => " /FIELDNAMES VALUE=LABELS",
+            _ => "",
+        });
+        if self.labels || self.recode_missing {
+            text.push_str("\n ");
+        }
+        if self.labels {
+            text.push_str(" /CELLS=LABELS");
+        }
+        if self.recode_missing {
+            text.push_str(" /MISSING=RECODE");
+        }
+        if !self.variables.is_empty() {
+            text.push_str(&format!("\n  /KEEP={}", self.variables.join(" ")));
+        }
+        // the file dialog has asked before an existing file is overwritten
+        text.push_str(" /REPLACE.");
+        Ok(text)
+    }
+}
+
 /// Keyword and label of every property Sort Variables orders by, in the order shown.
 pub const SORT_VARIABLES_KEYS: [(&str, &str); 10] = [
     ("NAME", "Name"),
@@ -581,6 +769,7 @@ impl Restructure {
 mod tests {
     use super::*;
     use crate::dialogs::testing::{fixture, open, run_in, v};
+    use statscraft_engine::session::Session;
 
     #[test]
     fn define_and_delete_sets() {
@@ -1005,5 +1194,64 @@ mod tests {
         let data = session.dataset().unwrap();
         assert_eq!(data.case_count(), 2);
         assert_eq!(data.variable_count(), cases + 1);
+    }
+
+    #[test]
+    fn open_a_text_file_export_a_workbook_and_open_it() {
+        let dir =
+            std::env::temp_dir().join(format!("statscraft-gui-import-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let csv = dir.join("wave.csv");
+        std::fs::write(&csv, "id;First name;score\n1;Ann;1,5\n2;Bob;2\n").unwrap();
+        let d = ImportData::new(&csv);
+        assert_eq!(d.delimiter, ';');
+        let file = quote(&csv.to_string_lossy());
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            format!(
+                "GET DATA /TYPE=TXT /FILE={file} /ARRANGEMENT=DELIMITED\n  \
+                 /DELIMITERS=\";\" /QUALIFIER='\"' /FIRSTCASE=2\n  \
+                 /VARIABLES=id AUTO First_name AUTO score AUTO."
+            )
+        );
+        let mut session = Session::default();
+        run_in(&mut session, &format!("SET DECIMAL=COMMA.\n{syntax}"));
+        assert_eq!(session.dataset().unwrap().case_count(), 2);
+
+        let mut e = ExportData::default();
+        assert_eq!(e.syntax().unwrap_err(), "choose the file to write");
+        let xlsx = dir.join("wave.xlsx");
+        e.path = xlsx.to_string_lossy().into_owned();
+        e.variables = v(&["score", "id"]);
+        let syntax = e.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            format!(
+                "SAVE TRANSLATE OUTFILE={} /TYPE=XLS /VERSION=12 /FIELDNAMES\n  /KEEP=score id /REPLACE.",
+                quote(&e.path)
+            )
+        );
+        run_in(&mut session, &syntax);
+
+        let mut d = ImportData::new(&xlsx);
+        assert_eq!(d.sheets, ["Sheet1"]);
+        d.range = "a1:b2".into();
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            format!(
+                "GET DATA /TYPE=XLSX /FILE={}\n  /SHEET=NAME 'Sheet1'\n  /CELLRANGE=RANGE 'A1:B2' /READNAMES=ON.",
+                quote(&e.path)
+            )
+        );
+        let mut session = Session::default();
+        run_in(&mut session, &syntax);
+        let data = session.dataset().unwrap();
+        // KEEP kept the order of the dataset
+        assert_eq!(data.variable_names().collect::<Vec<_>>(), ["id", "score"]);
+        assert_eq!(data.case_count(), 1);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }
