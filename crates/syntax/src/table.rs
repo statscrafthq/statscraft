@@ -19,6 +19,7 @@ use crate::rank;
 use crate::selection;
 use crate::session_commands;
 use crate::stats;
+use crate::tree;
 
 /// One supported command: its name, its help text and its parser.
 pub struct CommandSpec {
@@ -753,6 +754,44 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: examine::examine,
     },
     CommandSpec {
+        name: "TREE",
+        summary: "A classification tree grown by CHAID or exhaustive CHAID.",
+        syntax: "TREE dependent [level] BY predictor [level] ... [FORCE = var [level]]\n\
+                 \x20    [/TREE DISPLAY=TOPDOWN | LEFTTORIGHT | RIGHTTOLEFT | NONE  NODES=STATISTICS | CHART | BOTH\n\
+                 \x20           BRANCHSTATISTICS=YES | NO  NODEDEFS=YES | NO  SCALE=AUTO | n]\n\
+                 \x20    [/DEPCATEGORIES USEVALUES=[VALID MISSING value ...] TARGET=[value ...]]\n\
+                 \x20    [/PRINT=MODELSUMMARY CLASSIFICATION RISK CPS TREETABLE | NONE]\n\
+                 \x20    [/GAIN CATEGORYTABLE=YES | NO  TYPE=[NODE]  SORT=DESCENDING | ASCENDING  CUMULATIVE=YES | NO]\n\
+                 \x20    [/SAVE NODEID[(name)] PREDVAL[(name)] PREDPROB[(root)]]\n\
+                 \x20    [/METHOD TYPE=CHAID | EXHAUSTIVECHAID]  [/VALIDATION TYPE=NONE]\n\
+                 \x20    [/GROWTHLIMIT MAXDEPTH=AUTO | n  MINPARENTSIZE=100  MINCHILDSIZE=50]\n\
+                 \x20    [/CHAID ALPHASPLIT=.05 ALPHAMERGE=.05 SPLITMERGED=NO CHISQUARE=PEARSON | LR CONVERGE=.001\n\
+                 \x20            MAXITERATIONS=100 ADJUST=BONFERRONI | NONE INTERVALS=10 | varlist(n) ...]\n\
+                 \x20    [/COSTS EQUAL] [/SCORES EQUALINCREMENTS | CUSTOM=value [score] ...]\n\
+                 \x20    [/MISSING NOMINALMISSING=MISSING | VALID].\n\
+                 Levels: [S] scale, [O] ordinal, [N] or [C] nominal; without one the dictionary's level holds,\n\
+                 and an unknown level comes from the data as in a data pass. The dependent is nominal\n\
+                 (Pearson or likelihood-ratio chi-square) or ordinal (likelihood ratio against Goodman's row\n\
+                 effects model, scored 1, 2, ... or by SCORES). Scale predictors are cut into INTERVALS groups of\n\
+                 about equal size. Predictor categories that do not differ at ALPHAMERGE are merged (ordinal ones\n\
+                 only when adjacent); a missing value is a category of its own that may merge with any. A category\n\
+                 smaller than MINCHILDSIZE is merged with its most similar neighbour. The predictor with the\n\
+                 smallest Bonferroni-adjusted significance splits the node when that is at most ALPHASPLIT. A node\n\
+                 is not split when it is pure, smaller than MINPARENTSIZE or at MAXDEPTH (AUTO is 3). Exhaustive\n\
+                 CHAID merges down to two categories and keeps the most significant set. The tree is shown as a\n\
+                 table with one row per node, indented by depth; charts are not drawn yet. TREETABLE lists the nodes\n\
+                 in order with their parents. Gain tables (one per TARGET category) show terminal nodes by index.\n\
+                 SAVE adds the terminal node, the predicted category and one probability per category for the\n\
+                 cases in the analysis (default names NodeID, PredictedValue, PredictedProbability_1, ...).\n\
+                 A weight counts each case as often as its rounded value. SPLIT FILE is ignored.\n\
+                 PLOT, PRIORS, CRT, QUEST, the settings of CRT and QUEST and PRINT IMPORTANCE, SURROGATES and\n\
+                 CATEGORYSPECS are accepted and ignored with a warning. Not supported\n\
+                 yet: METHOD TYPE=CRT and QUEST, a scale dependent, VALIDATION SPLITSAMPLE and CROSSVALIDATION,\n\
+                 SPLITMERGED=YES, COSTS CUSTOM, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.",
+        example: "TREE churn [n] BY region [n] age_group [o] income [s] /GROWTHLIMIT MAXDEPTH=2 /SAVE NODEID PREDVAL.",
+        parse: tree::tree,
+    },
+    CommandSpec {
         name: "ADD FILES",
         summary: "Append the cases of several data files, matching variables by name.",
         syntax: "ADD FILES /FILE=* | 'path' | dataset [/RENAME=(old = new) ...] /FILE=... [/BY varlist]\n\
@@ -1179,7 +1218,6 @@ static UNSUPPORTED: &[&str] = &[
     "SUBTITLE",
     "SYSFILE INFO",
     "TITLE",
-    "TREE",
     "UNIANOVA",
     "UPDATE",
     "VARSTOCASES",

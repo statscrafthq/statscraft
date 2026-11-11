@@ -63,6 +63,7 @@ pub enum Command {
     Correlations(Correlations),
     NonparCorr(NonparCorr),
     Examine(Examine),
+    Tree(Box<Tree>),
     Rank(Rank),
     AddFiles(Merge),
     MatchFiles(Merge),
@@ -753,6 +754,81 @@ pub struct NonparCorr {
     pub listwise: bool,
     /// `/MISSING=INCLUDE`
     pub include: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Tree {
+    pub dependent: String,
+    /// The level in square brackets after a variable; None takes the dictionary's.
+    pub dependent_level: Option<Level>,
+    pub predictors: Vec<(VarItem, Option<Level>)>,
+    /// `FORCE = var [level]`: the variable of the first split.
+    pub force: Option<(String, Option<Level>)>,
+    /// `/METHOD TYPE=EXHAUSTIVECHAID`; CHAID otherwise.
+    pub exhaustive: bool,
+    /// `/TREE DISPLAY`: false for NONE.
+    pub display: bool,
+    /// `/TREE BRANCHSTATISTICS`
+    pub branch_statistics: bool,
+    /// `/TREE NODEDEFS`
+    pub node_definitions: bool,
+    /// `/DEPCATEGORIES USEVALUES`; None uses the valid values.
+    pub use_values: Option<Vec<TreeCategory>>,
+    /// `/DEPCATEGORIES TARGET`
+    pub targets: Vec<Value>,
+    pub print: TreePrint,
+    /// `/GAIN CATEGORYTABLE`
+    pub gain_table: bool,
+    /// `/GAIN CUMULATIVE`
+    pub gain_cumulative: bool,
+    /// `/GAIN SORT=ASCENDING`
+    pub gain_ascending: bool,
+    /// `/SAVE`: what to save, with the name or root given in parentheses.
+    pub save: Vec<(TreeSave, Option<String>)>,
+    /// `/GROWTHLIMIT MAXDEPTH`; None is AUTO.
+    pub max_depth: Option<usize>,
+    pub min_parent: f64,
+    pub min_child: f64,
+    pub alpha_split: f64,
+    pub alpha_merge: f64,
+    /// `/CHAID CHISQUARE=LR`
+    pub likelihood_ratio: bool,
+    pub converge: f64,
+    pub max_iterations: usize,
+    /// `/CHAID ADJUST=BONFERRONI`
+    pub bonferroni: bool,
+    /// `/CHAID INTERVALS`: the number for every scale predictor, then lists with their own.
+    pub intervals: usize,
+    pub variable_intervals: Vec<(Vec<VarItem>, usize)>,
+    /// `/SCORES CUSTOM`; None is EQUALINCREMENTS.
+    pub scores: Option<Vec<(Value, f64)>>,
+    /// `/MISSING NOMINALMISSING=VALID`
+    pub nominal_missing_valid: bool,
+    /// What the command accepts but does not use, each said in a warning when it runs.
+    pub ignored: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum TreeCategory {
+    Valid,
+    Missing,
+    Value(Value),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TreeSave {
+    NodeId,
+    PredictedValue,
+    PredictedProbability,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TreePrint {
+    pub model_summary: bool,
+    pub classification: bool,
+    pub risk: bool,
+    pub case_summary: bool,
+    pub tree_table: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

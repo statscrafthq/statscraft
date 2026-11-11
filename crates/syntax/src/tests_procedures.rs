@@ -726,3 +726,126 @@ fn rank_errors() {
     assert!(message("RANK x /FOO.").contains("unknown subcommand FOO of RANK"));
     assert_eq!(err("RANK.").expected, ["a variable name"]);
 }
+
+fn tree_of(source: &str) -> Tree {
+    match one(source) {
+        Command::Tree(tree) => *tree,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn tree_defaults_and_levels() {
+    let t = tree_of("TREE risk BY income [o] age [S] ALL [n] FORCE = region [c].");
+    assert_eq!((t.dependent.as_str(), t.dependent_level), ("risk", None));
+    assert_eq!(
+        t.predictors,
+        [
+            (var("income"), Some(Level::Ordinal)),
+            (var("age"), Some(Level::Scale)),
+            (VarItem::All, Some(Level::Nominal)),
+        ]
+    );
+    assert_eq!(t.force, Some(("region".into(), Some(Level::Nominal))));
+    assert!(!t.exhaustive && t.display && t.branch_statistics && t.node_definitions);
+    assert!(t.print.model_summary && t.print.classification && t.print.risk);
+    assert!(t.print.case_summary && !t.print.tree_table);
+    assert_eq!(
+        (t.max_depth, t.min_parent, t.min_child),
+        (None, 100.0, 50.0)
+    );
+    assert_eq!(
+        (t.alpha_split, t.alpha_merge, t.intervals),
+        (0.05, 0.05, 10)
+    );
+    assert!(t.bonferroni && !t.likelihood_ratio && t.gain_table && t.gain_cumulative);
+}
+
+#[test]
+fn tree_subcommands() {
+    let t = tree_of(
+        "TREE churn [n] BY region [n] age_group [o] spend [s]
+          /TREE DISPLAY=NONE NODES=BOTH BRANCHSTATISTICS=NO NODEDEFS=NO SCALE=50
+          /DEPCATEGORIES USEVALUES=[VALID -1 MISSING] TARGET=[1 2]
+          /PRINT MODELSUMMARY TREETABLE
+          /GAIN CATEGORYTABLE=YES TYPE=[NODE] SORT=ASCENDING CUMULATIVE=NO
+          /SAVE NODEID(node) PREDVAL PREDPROB(prob) ASSIGNMENT
+          /METHOD TYPE=EXHAUSTIVECHAID MAXSURROGATES=AUTO PRUNE=NONE
+          /GROWTHLIMIT MAXDEPTH=4 MINPARENTSIZE=40 MINCHILDSIZE=20
+          /VALIDATION TYPE=NONE OUTPUT=BOTHSAMPLES
+          /CHAID ALPHASPLIT=0.01 ALPHAMERGE=1 SPLITMERGED=NO CHISQUARE=LR CONVERGE=0.01
+                 MAXITERATIONS=50 ADJUST=NONE INTERVALS=spend (5) age_group (3)
+          /COSTS EQUAL /SCORES CUSTOM=1 [1] 2 [2.5] /MISSING NOMINALMISSING=VALID
+          /PLOT GAIN /PRIORS EQUAL.",
+    );
+    assert!(!t.display && !t.branch_statistics && !t.node_definitions && t.exhaustive);
+    assert_eq!(
+        t.use_values,
+        Some(vec![
+            TreeCategory::Valid,
+            TreeCategory::Value(Value::Number(-1.0)),
+            TreeCategory::Missing
+        ])
+    );
+    assert_eq!(t.targets, [Value::Number(1.0), Value::Number(2.0)]);
+    assert!(t.print.model_summary && t.print.tree_table && !t.print.risk);
+    assert!(t.gain_ascending && !t.gain_cumulative);
+    assert_eq!(
+        t.save,
+        [
+            (TreeSave::NodeId, Some("node".into())),
+            (TreeSave::PredictedValue, None),
+            (TreeSave::PredictedProbability, Some("prob".into())),
+        ]
+    );
+    assert_eq!(
+        (t.max_depth, t.min_parent, t.min_child),
+        (Some(4), 40.0, 20.0)
+    );
+    assert_eq!(
+        (t.alpha_split, t.alpha_merge, t.converge),
+        (0.01, 1.0, 0.01)
+    );
+    assert!(t.likelihood_ratio && !t.bonferroni && t.nominal_missing_valid);
+    assert_eq!(t.max_iterations, 50);
+    assert_eq!(
+        t.variable_intervals,
+        [(vec![var("spend")], 5), (vec![var("age_group")], 3)]
+    );
+    assert_eq!(
+        t.scores,
+        Some(vec![(Value::Number(1.0), 1.0), (Value::Number(2.0), 2.5)])
+    );
+    // MAXSURROGATES, ASSIGNMENT, PLOT and PRIORS are accepted and said to be ignored
+    assert_eq!(t.ignored.len(), 4);
+}
+
+#[test]
+fn tree_errors() {
+    let message = |source: &str| err(source).message;
+    assert_eq!(
+        message("TREE y BY x /METHOD TYPE=QUEST."),
+        "METHOD TYPE=QUEST is not supported yet"
+    );
+    assert_eq!(
+        message("TREE y BY x /VALIDATION TYPE=SPLITSAMPLE(50)."),
+        "VALIDATION TYPE=SPLITSAMPLE is not supported yet"
+    );
+    assert_eq!(
+        message("TREE y BY x /CHAID SPLITMERGED=YES."),
+        "CHAID SPLITMERGED=YES is not supported yet"
+    );
+    assert_eq!(
+        message("TREE y BY x /RULES NODES=ALL."),
+        "subcommand RULES of TREE is not supported yet"
+    );
+    assert!(message("TREE y BY x /COSTS CUSTOM=1 2 [3].").contains("COSTS CUSTOM"));
+    assert!(message("TREE y BY x /GAIN TYPE=[PTILE].").contains("PTILE"));
+    assert!(message("TREE y BY x /PRINT NONE RISK.").contains("NONE"));
+    assert!(message("TREE y BY x /GROWTHLIMIT MINPARENTSIZE=50.").contains("MINCHILDSIZE"));
+    assert!(message("TREE y BY x /PRINT RISK /PRINT CPS.").contains("given twice"));
+    assert!(message("TREE y BY x /CHAID ALPHASPLIT=1.").contains("below 1"));
+    assert!(message("TREE y BY x /FOO.").contains("unknown subcommand FOO of TREE"));
+    assert_eq!(err("TREE y BY x [q].").expected, ["S", "O", "N", "C"]);
+    assert_eq!(err("TREE y x.").expected, ["BY"]);
+}

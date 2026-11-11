@@ -18,7 +18,7 @@ statscraft-gui tests/fixtures/survey_basic.sav job.sps        the desktop window
 
 (`job.sps` is the example from [Getting started](docs/getting-started.md#run-a-syntax-file).)
 
-What runs today: reading and writing data files, labels and missing values, transformations (COMPUTE, IF, DO IF, RECODE, COUNT, SELECT IF, AGGREGATE, SORT CASES, merging files), FREQUENCIES, DESCRIPTIVES, CROSSTABS, MEANS, T-TEST, ONEWAY, CORRELATIONS, NONPAR CORR, EXAMINE, and custom tables (CTABLES) with multiple response sets and significance tests. The [command pages](docs/commands/README.md) list every command.
+What runs today: reading and writing data files, labels and missing values, transformations (COMPUTE, IF, DO IF, RECODE, COUNT, SELECT IF, AGGREGATE, SORT CASES, merging files), FREQUENCIES, DESCRIPTIVES, CROSSTABS, MEANS, T-TEST, ONEWAY, CORRELATIONS, NONPAR CORR, EXAMINE, classification trees (TREE by CHAID and exhaustive CHAID), and custom tables (CTABLES) with multiple response sets and significance tests. The [command pages](docs/commands/README.md) list every command.
 
 DATA LIST reads text data in fixed columns, freefield (FREE) or one case per line (LIST), inline between BEGIN DATA and END DATA or from a file, and warns with the line number of every value it cannot read.
 
@@ -31,6 +31,8 @@ DO REPEAT repeats transformations with stand-ins replaced by variables or values
 RANK saves ranks, fractional ranks, percentile groups, proportion estimates, normal and Savage scores as new variables, within groups of BY variables, with the four ways of treating ties.
 
 AUTORECODE turns the values of variables into consecutive codes in new variables, labelled with the old values or their labels, in ascending or descending order, with user-missing values last and one scheme for several variables with /GROUP.
+
+TREE grows a classification tree for a nominal or ordinal dependent by CHAID or exhaustive CHAID: predictor categories merged by significance, Bonferroni-adjusted splits, scale predictors cut into groups of equal size, missing values as a floating category, and the usual growth limits. It shows the tree as a table, the model summary, risk, classification and gain tables, and saves the node, the predicted category and the predicted probabilities. CRT and QUEST are not supported yet.
 
 ## Documentation
 

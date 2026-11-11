@@ -56,6 +56,7 @@ mod tests_preprocess;
 mod tests_procedures;
 #[cfg(test)]
 mod tests_session;
+mod tree;
 
 pub use ast::*;
 pub use ctables::{

@@ -10,7 +10,7 @@ const SCALE_MIN: usize = 24;
 /// that applies: dollar formats and dates are scale; a variable without valid values is
 /// nominal; a fraction, a negative value, no value below 10000, at least 24 different values
 /// or no value below 10 make it scale; anything else is nominal. Strings are nominal.
-fn default_measure(data: &Dataset, index: usize) -> Measure {
+pub(crate) fn default_measure(data: &Dataset, index: usize) -> Measure {
     let variable = data.variable_at(index);
     let Values::Numeric(values) = variable.values() else {
         return Measure::Nominal;

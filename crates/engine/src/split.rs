@@ -210,7 +210,8 @@ impl Engine {
     pub(crate) fn procedure(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
         self.begin_pass()?;
         let before = self.dataset.clone();
-        let use_split = !matches!(command, Command::Aggregate(_));
+        // TREE ignores SPLIT FILE, as the manual says
+        let use_split = !matches!(command, Command::Aggregate(_) | Command::Tree(_));
         let result = self.in_view(command, use_split);
         if let Command::Aggregate(aggregate) = command
             && aggregate.outfile.is_none()

@@ -30,6 +30,7 @@ mod session_commands;
 mod sort;
 mod split;
 mod transform;
+mod tree;
 mod ttest;
 mod variables;
 
@@ -498,6 +499,7 @@ impl Engine {
             | Command::Correlations(_)
             | Command::NonparCorr(_)
             | Command::Examine(_)
+            | Command::Tree(_)
             | Command::Rank(_)
             | Command::Aggregate(_) => return self.procedure(command),
             Command::Execute => {
@@ -646,6 +648,7 @@ impl Engine {
             Command::Correlations(command) => self.correlations(command),
             Command::NonparCorr(command) => self.nonpar_corr(command),
             Command::Examine(command) => self.examine(command),
+            Command::Tree(command) => self.tree(command),
             Command::Rank(command) => self.rank(command),
             Command::Aggregate(command) => self.aggregate(command).map(|()| Vec::new()),
             Command::List(list) => self.list(list),

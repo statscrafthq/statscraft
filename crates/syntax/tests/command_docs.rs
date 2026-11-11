@@ -82,6 +82,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "CORRELATIONS",
             "NONPAR CORR",
             "EXAMINE",
+            "TREE",
         ],
     ),
     ("Custom tables", &["CTABLES", "MRSETS"]),
