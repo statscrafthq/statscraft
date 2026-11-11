@@ -1,6 +1,6 @@
-//! The Factor Analysis, K-Means Cluster, Binary Logistic Regression, Univariate and Repeated
-//! Measures dialogs. Options left as they are add nothing to the syntax, so the command runs with
-//! its own defaults.
+//! The Factor Analysis, K-Means Cluster, Hierarchical Cluster, Discriminant, Binary Logistic
+//! Regression, Univariate and Repeated Measures dialogs. Options left as they are add nothing to
+//! the syntax, so the command runs with its own defaults.
 
 use crate::analyze_dialogs::{DUNNETT_SIDES, POST_HOC_TESTS, keywords};
 use crate::dialogs::whole;
@@ -293,6 +293,399 @@ impl KMeans {
         .collect();
         if !save.is_empty() {
             text.push_str(&format!("\n  /SAVE={}", save.join(" ")));
+        }
+        text.push('.');
+        Ok(text)
+    }
+}
+
+pub const CLUSTER_METHODS: [(&str, &str); 7] = [
+    ("BAVERAGE", "Between-groups linkage"),
+    ("WAVERAGE", "Within-groups linkage"),
+    ("SINGLE", "Nearest neighbor"),
+    ("COMPLETE", "Furthest neighbor"),
+    ("CENTROID", "Centroid clustering"),
+    ("MEDIAN", "Median clustering"),
+    ("WARD", "Ward's method"),
+];
+
+/// The kinds of data a measure is for.
+pub const CLUSTER_DATA: [&str; 3] = ["Interval", "Counts", "Binary"];
+
+pub const CLUSTER_INTERVAL: [(&str, &str); 8] = [
+    ("SEUCLID", "Squared Euclidean distance"),
+    ("EUCLID", "Euclidean distance"),
+    ("COSINE", "Cosine"),
+    ("CORRELATION", "Pearson correlation"),
+    ("CHEBYCHEV", "Chebychev"),
+    ("BLOCK", "Block"),
+    ("MINKOWSKI", "Minkowski"),
+    ("POWER", "Customized"),
+];
+
+pub const CLUSTER_COUNTS: [(&str, &str); 2] = [
+    ("CHISQ", "Chi-squared measure"),
+    ("PH2", "Phi-squared measure"),
+];
+
+/// The binary measures offered; the syntax has more.
+pub const CLUSTER_BINARY: [(&str, &str); 11] = [
+    ("BSEUCLID", "Squared Euclidean distance"),
+    ("BEUCLID", "Euclidean distance"),
+    ("SM", "Simple matching"),
+    ("JACCARD", "Jaccard"),
+    ("DICE", "Dice"),
+    ("RR", "Russell and Rao"),
+    ("RT", "Rogers and Tanimoto"),
+    ("HAMANN", "Hamann"),
+    ("OCHIAI", "Ochiai"),
+    ("PHI", "Phi 4-point correlation"),
+    ("Q", "Yule's Q"),
+];
+
+/// The solutions of the cluster membership: none, one number of clusters, or a range.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct Solutions {
+    /// 0 none, 1 single, 2 range.
+    pub kind: usize,
+    pub clusters: String,
+    pub min: String,
+    pub max: String,
+}
+
+impl Solutions {
+    /// `CLUSTER(n)` or `CLUSTER(min,max)`, None for no solution.
+    fn keyword(&self) -> Result<Option<String>, String> {
+        let need = |text: &str, what: &str| -> Result<u32, String> {
+            whole(text, 2, what)?.ok_or_else(|| format!("give {what}"))
+        };
+        Ok(match self.kind {
+            0 => None,
+            1 => Some(format!(
+                "CLUSTER({})",
+                need(&self.clusters, "the number of clusters")?
+            )),
+            _ => {
+                let min = need(&self.min, "the smallest number of clusters")?;
+                let max = need(&self.max, "the largest number of clusters")?;
+                if min >= max {
+                    return Err("the smallest number of clusters must be below the largest".into());
+                }
+                Some(format!("CLUSTER({min},{max})"))
+            }
+        })
+    }
+}
+
+/// CLUSTER of the cases by the variables.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Hierarchical {
+    pub variables: Vec<String>,
+    pub label: String,
+    /// Index into `CLUSTER_METHODS`.
+    pub method: usize,
+    /// Index into `CLUSTER_DATA`.
+    pub data: usize,
+    /// Indexes into `CLUSTER_INTERVAL`, `CLUSTER_COUNTS` and `CLUSTER_BINARY`.
+    pub interval: usize,
+    pub counts: usize,
+    pub binary: usize,
+    pub power: String,
+    pub root: String,
+    pub present: String,
+    pub absent: String,
+    pub schedule: bool,
+    pub proximity: bool,
+    pub membership: Solutions,
+    pub save: Solutions,
+}
+
+impl Default for Hierarchical {
+    fn default() -> Self {
+        Self {
+            variables: Vec::new(),
+            label: String::new(),
+            method: 0,
+            data: 0,
+            interval: 0,
+            counts: 0,
+            binary: 0,
+            power: "2".into(),
+            root: "2".into(),
+            present: "1".into(),
+            absent: "0".into(),
+            schedule: true,
+            proximity: false,
+            membership: Solutions::default(),
+            save: Solutions::default(),
+        }
+    }
+}
+
+impl Hierarchical {
+    fn measure(&self) -> Result<String, String> {
+        let positive = |text: &str, what: &str| -> Result<f64, String> {
+            let n = parse(text, what)?;
+            if n <= 0.0 {
+                return Err(format!("{what} must be above 0"));
+            }
+            Ok(n)
+        };
+        Ok(match self.data {
+            0 => {
+                let keyword = CLUSTER_INTERVAL[self.interval].0;
+                match keyword {
+                    "MINKOWSKI" => {
+                        format!("MINKOWSKI({})", number(positive(&self.power, "the power")?))
+                    }
+                    "POWER" => format!(
+                        "POWER({},{})",
+                        number(positive(&self.power, "the power")?),
+                        number(positive(&self.root, "the root")?)
+                    ),
+                    _ => keyword.into(),
+                }
+            }
+            1 => CLUSTER_COUNTS[self.counts].0.into(),
+            _ => {
+                let present = parse(&self.present, "the value of presence")?;
+                let absent = parse(&self.absent, "the value of absence")?;
+                if present == absent {
+                    return Err("the values of presence and absence must differ".into());
+                }
+                let keyword = CLUSTER_BINARY[self.binary].0;
+                if (present, absent) == (1.0, 0.0) {
+                    keyword.into()
+                } else {
+                    format!("{keyword}({},{})", number(present), number(absent))
+                }
+            }
+        })
+    }
+
+    pub fn syntax(&self) -> Result<String, String> {
+        let mut text = format!("CLUSTER {}", names(&self.variables, "Variables")?);
+        let measure = self.measure()?;
+        if measure != "SEUCLID" {
+            text.push_str(&format!("\n  /MEASURE={measure}"));
+        }
+        if self.method > 0 {
+            text.push_str(&format!("\n  /METHOD={}", CLUSTER_METHODS[self.method].0));
+        }
+        let label = self.label.trim();
+        if !label.is_empty() {
+            text.push_str(&format!("\n  /ID={label}"));
+        }
+        let membership = self.membership.keyword()?;
+        if !self.schedule || self.proximity || membership.is_some() {
+            let mut print: Vec<String> = Vec::new();
+            print.extend(self.schedule.then(|| "SCHEDULE".into()));
+            print.extend(membership);
+            print.extend(self.proximity.then(|| "DISTANCE".into()));
+            if print.is_empty() {
+                print.push("NONE".into());
+            }
+            text.push_str(&format!("\n  /PRINT={}", print.join(" ")));
+        }
+        if let Some(save) = self.save.keyword()? {
+            text.push_str(&format!("\n  /SAVE={save}"));
+        }
+        text.push('.');
+        Ok(text)
+    }
+}
+
+/// The stepwise methods of DISCRIMINANT.
+pub const DISCRIMINANT_METHODS: [(&str, &str); 5] = [
+    ("WILKS", "Wilks' lambda"),
+    ("MAHAL", "Mahalanobis distance"),
+    ("MAXMINF", "Smallest F ratio"),
+    ("MINRESID", "Unexplained variance"),
+    ("RAO", "Rao's V"),
+];
+
+/// Keyword and label of every table on /STATISTICS but the classification results.
+pub const DISCRIMINANT_STATISTICS: [(&str, &str); 9] = [
+    ("MEAN STDDEV", "Means"),
+    ("UNIVF", "Univariate ANOVAs"),
+    ("BOXM", "Box's M"),
+    ("COEFF", "Fisher's"),
+    ("RAW", "Unstandardized"),
+    ("CORR", "Within-groups correlation"),
+    ("COV", "Within-groups covariance"),
+    ("GCOV", "Separate-groups covariance"),
+    ("TCOV", "Total covariance"),
+];
+
+/// The groups of `DISCRIMINANT_STATISTICS`: title and the range of its entries.
+pub const DISCRIMINANT_STATISTICS_GROUPS: [(&str, std::ops::Range<usize>); 3] = [
+    ("Descriptives", 0..3),
+    ("Function coefficients", 3..5),
+    ("Matrices", 5..9),
+];
+
+pub const DISCRIMINANT_SAVE: [(&str, &str); 3] = [
+    ("CLASS", "Predicted group membership"),
+    ("SCORES", "Discriminant scores"),
+    ("PROBS", "Probabilities of group membership"),
+];
+
+/// DISCRIMINANT of a grouping variable by independent variables.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Discriminant {
+    pub group: String,
+    pub min: String,
+    pub max: String,
+    pub variables: Vec<String>,
+    pub stepwise: bool,
+    /// Index into `DISCRIMINANT_METHODS`.
+    pub method: usize,
+    /// The stepping criteria are values of F instead of their probabilities.
+    pub use_f: bool,
+    pub entry: String,
+    pub removal: String,
+    /// One flag per entry of `DISCRIMINANT_STATISTICS`.
+    pub statistics: [bool; 9],
+    /// Prior probabilities from the group sizes instead of equal.
+    pub priors_size: bool,
+    /// Classify by the separate-groups covariance matrices instead of the within-groups one.
+    pub separate: bool,
+    pub table: bool,
+    pub leave_one_out: bool,
+    /// One flag per entry of `DISCRIMINANT_SAVE`.
+    pub save: [bool; 3],
+    pub select: String,
+    pub select_value: String,
+}
+
+impl Default for Discriminant {
+    fn default() -> Self {
+        Self {
+            group: String::new(),
+            min: String::new(),
+            max: String::new(),
+            variables: Vec::new(),
+            stepwise: false,
+            method: 0,
+            use_f: true,
+            entry: "3.84".into(),
+            removal: "2.71".into(),
+            statistics: [false; 9],
+            priors_size: false,
+            separate: false,
+            table: false,
+            leave_one_out: false,
+            save: [false; 3],
+            select: String::new(),
+            select_value: String::new(),
+        }
+    }
+}
+
+impl Discriminant {
+    /// Switches the stepping criteria between values of F and their probabilities, at their
+    /// defaults.
+    pub fn set_use_f(&mut self, use_f: bool) {
+        self.use_f = use_f;
+        let (entry, removal) = if use_f {
+            ("3.84", "2.71")
+        } else {
+            ("0.05", "0.10")
+        };
+        self.entry = entry.into();
+        self.removal = removal.into();
+    }
+
+    /// The variables that must be numeric.
+    pub fn numeric(&self) -> impl Iterator<Item = &String> {
+        [&self.group, &self.select]
+            .into_iter()
+            .filter(|n| !n.is_empty())
+            .chain(&self.variables)
+    }
+
+    pub fn syntax(&self) -> Result<String, String> {
+        let group = self.group.trim();
+        if group.is_empty() {
+            return Err("choose the grouping variable".into());
+        }
+        let bound = |text: &str, what: &str| -> Result<f64, String> {
+            let n = parse(text, what)?;
+            if n.fract() != 0.0 {
+                return Err(format!("{what} must be a whole number"));
+            }
+            Ok(n)
+        };
+        let min = bound(&self.min, "the smallest group value")?;
+        let max = bound(&self.max, "the largest group value")?;
+        if min >= max {
+            return Err("the smallest group value must be below the largest".into());
+        }
+        let variables = names(&self.variables, "Independents")?;
+        if self.variables.iter().any(|n| n == group) {
+            return Err(format!("{group} is the grouping variable"));
+        }
+        let mut text = format!(
+            "DISCRIMINANT GROUPS={group}({},{})\n  /VARIABLES={variables}",
+            number(min),
+            number(max)
+        );
+        let select = self.select.trim();
+        if !select.is_empty() {
+            let value = parse(&self.select_value, "the value of the selection variable")?;
+            text.push_str(&format!("\n  /SELECT={select}({})", number(value)));
+        }
+        // the analysis block, before the global subcommands
+        if self.stepwise {
+            text.push_str(&format!(
+                "\n  /METHOD={}",
+                DISCRIMINANT_METHODS[self.method].0
+            ));
+            let entry = parse(&self.entry, "the entry value")?;
+            let removal = parse(&self.removal, "the removal value")?;
+            if self.use_f {
+                if !(removal >= 0.0 && entry > removal) {
+                    return Err(
+                        "the F to enter must be above the F to remove, which is 0 or more".into(),
+                    );
+                }
+                if (entry, removal) != (3.84, 2.71) {
+                    text.push_str(&format!(
+                        "\n  /FIN={}\n  /FOUT={}",
+                        number(entry),
+                        number(removal)
+                    ));
+                }
+            } else {
+                if !(entry > 0.0 && entry < removal && removal <= 1.0) {
+                    return Err(
+                        "the probability to enter must be above 0 and below the probability to remove, which is at most 1"
+                            .into(),
+                    );
+                }
+                // PIN without POUT would remove by FOUT
+                text.push_str(&format!(
+                    "\n  /PIN={}\n  /POUT={}",
+                    number(entry),
+                    number(removal)
+                ));
+            }
+        }
+        if self.priors_size {
+            text.push_str("\n  /PRIORS=SIZE");
+        }
+        let save = keywords(&DISCRIMINANT_SAVE, &self.save);
+        if !save.is_empty() {
+            text.push_str(&format!("\n  /SAVE={}", save.join(" ")));
+        }
+        if self.separate {
+            text.push_str("\n  /CLASSIFY=SEPARATE");
+        }
+        let mut statistics = keywords(&DISCRIMINANT_STATISTICS, &self.statistics);
+        statistics.extend(self.table.then_some("TABLE"));
+        statistics.extend(self.leave_one_out.then_some("CROSSVALID"));
+        if !statistics.is_empty() {
+            text.push_str(&format!("\n  /STATISTICS={}", statistics.join(" ")));
         }
         text.push('.');
         Ok(text)
@@ -1009,6 +1402,224 @@ mod tests {
         assert_eq!(
             d.syntax().unwrap_err(),
             "the number of clusters must be a whole number of at least 2"
+        );
+    }
+
+    #[test]
+    fn hierarchical_cluster() {
+        let mut d = Hierarchical::default();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "add at least one variable to Variables"
+        );
+        d.variables = v(&["age", "monthly_spend"]);
+        let syntax = d.syntax().unwrap();
+        assert_eq!(syntax, "CLUSTER age monthly_spend.");
+        assert!(runs(&syntax) >= 2);
+
+        // Ward with a customized measure, a label, every table, a range saved
+        d.label = "resp_id".into();
+        d.method = 6;
+        d.interval = 7;
+        d.power = "3".into();
+        d.proximity = true;
+        d.membership = Solutions {
+            kind: 1,
+            clusters: "3".into(),
+            ..Default::default()
+        };
+        d.save = Solutions {
+            kind: 2,
+            min: "2".into(),
+            max: "4".into(),
+            ..Default::default()
+        };
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "CLUSTER age monthly_spend\n  /MEASURE=POWER(3,2)\n  /METHOD=WARD\n  /ID=resp_id\n  \
+             /PRINT=SCHEDULE CLUSTER(3) DISTANCE\n  /SAVE=CLUSTER(2,4)."
+        );
+        let mut session = open("survey_basic.sav");
+        assert!(run_in(&mut session, &syntax) >= 4);
+        let data = session.dataset().unwrap();
+        for name in ["CLU2_1", "CLU3_1", "CLU4_1"] {
+            assert!(data.variable(name).is_ok(), "{name}");
+        }
+
+        // Minkowski, then counts, then a binary measure with its own values; no table at all
+        d.interval = 6;
+        d.membership.kind = 0;
+        d.save.kind = 0;
+        d.schedule = false;
+        d.proximity = false;
+        d.label.clear();
+        d.method = 2;
+        assert_eq!(
+            d.syntax().unwrap(),
+            "CLUSTER age monthly_spend\n  /MEASURE=MINKOWSKI(3)\n  /METHOD=SINGLE\n  /PRINT=NONE."
+        );
+        d.data = 1;
+        d.counts = 1;
+        let syntax = d.syntax().unwrap();
+        assert!(syntax.contains("/MEASURE=PH2\n"));
+        assert!(runs(&syntax) >= 1);
+        d.variables = v(&["q5_1", "q5_2", "q5_3", "q5_4", "q5_5"]);
+        d.data = 2;
+        d.binary = 2;
+        d.method = 3;
+        d.schedule = true;
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "CLUSTER q5_1 q5_2 q5_3 q5_4 q5_5\n  /MEASURE=SM\n  /METHOD=COMPLETE."
+        );
+        assert!(runs(&syntax) >= 2);
+        d.present = "0".into();
+        d.absent = "1".into();
+        let syntax = d.syntax().unwrap();
+        assert!(syntax.contains("/MEASURE=SM(0,1)\n"));
+        assert!(runs(&syntax) >= 2);
+
+        d.absent = "0".into();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "the values of presence and absence must differ"
+        );
+        d.data = 0;
+        d.interval = 6;
+        d.power = "0".into();
+        assert_eq!(d.syntax().unwrap_err(), "the power must be above 0");
+        d.interval = 0;
+        d.save = Solutions {
+            kind: 2,
+            min: "4".into(),
+            max: "3".into(),
+            ..Default::default()
+        };
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "the smallest number of clusters must be below the largest"
+        );
+        d.save = Solutions {
+            kind: 1,
+            ..Default::default()
+        };
+        assert_eq!(d.syntax().unwrap_err(), "give the number of clusters");
+    }
+
+    #[test]
+    fn discriminant() {
+        let mut d = Discriminant::default();
+        assert_eq!(d.syntax().unwrap_err(), "choose the grouping variable");
+        d.group = "gender".into();
+        d.min = "1".into();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "the largest group value must be a number"
+        );
+        d.max = "2".into();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "add at least one variable to Independents"
+        );
+        d.variables = v(&["age", "monthly_spend", "q1_satisfaction"]);
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "DISCRIMINANT GROUPS=gender(1,2)\n  /VARIABLES=age monthly_spend q1_satisfaction."
+        );
+        assert!(runs(&syntax) >= 3);
+
+        // stepwise by Mahalanobis with probabilities, every table, sizes as priors, saved
+        // variables and a selection variable
+        d.group = "region".into();
+        d.max = "5".into();
+        d.stepwise = true;
+        d.method = 1;
+        d.set_use_f(false);
+        // lenient, since no variable of the survey tells the regions apart
+        d.entry = "0.5".into();
+        d.removal = "0.6".into();
+        d.statistics = [true; 9];
+        d.priors_size = true;
+        d.separate = true;
+        d.table = true;
+        d.leave_one_out = true;
+        d.save = [true; 3];
+        d.select = "gender".into();
+        d.select_value = "1".into();
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "DISCRIMINANT GROUPS=region(1,5)\n  /VARIABLES=age monthly_spend q1_satisfaction\n  \
+             /SELECT=gender(1)\n  /METHOD=MAHAL\n  /PIN=0.5\n  /POUT=0.6\n  /PRIORS=SIZE\n  \
+             /SAVE=CLASS SCORES PROBS\n  /CLASSIFY=SEPARATE\n  \
+             /STATISTICS=MEAN STDDEV UNIVF BOXM COEFF RAW CORR COV GCOV TCOV TABLE CROSSVALID."
+        );
+        let mut session = open("survey_basic.sav");
+        let result = session.run(&syntax, None).unwrap();
+        let titles: Vec<&str> = result.commands[0]
+            .tables
+            .iter()
+            .map(|t| t.title.as_str())
+            .collect();
+        for title in [
+            "Covariance Matrices",
+            "Test Results",
+            "Canonical Discriminant Function Coefficients",
+            "Classification Function Coefficients",
+            "Classification Results",
+        ] {
+            assert!(titles.contains(&title), "{title} in {titles:?}");
+        }
+        let data = session.dataset().unwrap();
+        assert!(data.variable("DSC_1").is_ok());
+
+        // Rao's V with values of F; the entered-together method leaves the criteria out
+        d.method = 4;
+        d.set_use_f(true);
+        d.entry = "4".into();
+        d.removal = "3".into();
+        d.statistics = [false; 9];
+        d.priors_size = false;
+        d.separate = false;
+        d.table = false;
+        d.leave_one_out = false;
+        d.save = [false; 3];
+        d.select.clear();
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "DISCRIMINANT GROUPS=region(1,5)\n  /VARIABLES=age monthly_spend q1_satisfaction\n  \
+             /METHOD=RAO\n  /FIN=4\n  /FOUT=3."
+        );
+        assert!(runs(&syntax) >= 3);
+        d.entry = "2".into();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "the F to enter must be above the F to remove, which is 0 or more"
+        );
+        d.stepwise = false;
+        assert!(d.syntax().unwrap().ends_with("q1_satisfaction."));
+
+        d.select = "gender".into();
+        d.select_value.clear();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "the value of the selection variable must be a number"
+        );
+        d.variables.push("region".into());
+        assert_eq!(d.syntax().unwrap_err(), "region is the grouping variable");
+        d.max = "1".into();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "the smallest group value must be below the largest"
+        );
+        d.max = "1.5".into();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "the largest group value must be a whole number"
         );
     }
 

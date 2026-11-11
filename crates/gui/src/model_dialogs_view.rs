@@ -1,13 +1,16 @@
-//! Drawing of the Factor Analysis, K-Means Cluster, Binary Logistic Regression, Univariate and
-//! Repeated Measures dialogs.
+//! Drawing of the Factor Analysis, K-Means Cluster, Hierarchical Cluster, Discriminant, Binary
+//! Logistic Regression, Univariate and Repeated Measures dialogs.
 
 use crate::analyze_dialogs::{DUNNETT_SIDES, EQUAL_VARIANCE_TESTS, POST_HOC_TESTS};
 use crate::app::{checkboxes, choice, field, target_list, target_one};
 use crate::model_dialogs::{
-    Categorical, FACTOR_DESCRIPTIVES, FACTOR_EXTRACTIONS, FACTOR_MISSING, FACTOR_ROTATIONS,
-    FACTOR_SCORES, FactorAnalysis, GLM_ADJUSTMENTS, GLM_PRINT, GLM_SAVE, GLM_SAVE_GROUPS, KMeans,
-    LOGISTIC_CONTRASTS, LOGISTIC_METHODS, LOGISTIC_SAVE, LOGISTIC_SAVE_GROUPS, Logistic,
-    RepeatedMeasures, SUM_OF_SQUARES, Univariate, WithinFactor, has_reference,
+    CLUSTER_BINARY, CLUSTER_COUNTS, CLUSTER_DATA, CLUSTER_INTERVAL, CLUSTER_METHODS, Categorical,
+    DISCRIMINANT_METHODS, DISCRIMINANT_SAVE, DISCRIMINANT_STATISTICS,
+    DISCRIMINANT_STATISTICS_GROUPS, Discriminant, FACTOR_DESCRIPTIVES, FACTOR_EXTRACTIONS,
+    FACTOR_MISSING, FACTOR_ROTATIONS, FACTOR_SCORES, FactorAnalysis, GLM_ADJUSTMENTS, GLM_PRINT,
+    GLM_SAVE, GLM_SAVE_GROUPS, Hierarchical, KMeans, LOGISTIC_CONTRASTS, LOGISTIC_METHODS,
+    LOGISTIC_SAVE, LOGISTIC_SAVE_GROUPS, Logistic, RepeatedMeasures, SUM_OF_SQUARES, Solutions,
+    Univariate, WithinFactor, has_reference,
 };
 use crate::stats_dialogs_view::{blocks, small_field};
 use eframe::egui::{self, ComboBox, TextEdit, Ui};
@@ -156,6 +159,142 @@ pub fn k_means(ui: &mut Ui, d: &mut KMeans, picked: &mut Vec<String>) {
         true,
         "Leave out a case only from the distances where its value is missing",
     );
+}
+
+/// No cluster membership, one solution or a range of them.
+fn solutions(ui: &mut Ui, title: &str, s: &mut Solutions) {
+    ui.push_id(title, |ui| {
+        ui.label(title);
+        ui.radio_value(&mut s.kind, 0, "None");
+        ui.horizontal(|ui| {
+            ui.radio_value(&mut s.kind, 1, "Single solution, clusters");
+            small_field(ui, s.kind == 1, &mut s.clusters);
+        });
+        ui.horizontal(|ui| {
+            ui.radio_value(&mut s.kind, 2, "Range of solutions, from");
+            small_field(ui, s.kind == 2, &mut s.min);
+            ui.label("to");
+            small_field(ui, s.kind == 2, &mut s.max);
+        });
+    });
+}
+
+pub fn hierarchical(ui: &mut Ui, d: &mut Hierarchical, picked: &mut Vec<String>) {
+    target_list(ui, "Variables", &mut d.variables, picked);
+    target_one(ui, "Label cases by", &mut d.label, picked);
+    ui.add_space(6.0);
+    egui::CollapsingHeader::new("Statistics").show(ui, |ui| {
+        ui.checkbox(&mut d.schedule, "Agglomeration schedule");
+        ui.checkbox(&mut d.proximity, "Proximity matrix");
+        solutions(ui, "Cluster membership", &mut d.membership);
+    });
+    egui::CollapsingHeader::new("Method").show(ui, |ui| {
+        choice(ui, "Cluster method", &CLUSTER_METHODS, &mut d.method);
+        ui.horizontal(|ui| {
+            ui.label("Measure for");
+            for (i, kind) in CLUSTER_DATA.iter().enumerate() {
+                ui.radio_value(&mut d.data, i, *kind);
+            }
+        });
+        match d.data {
+            0 => {
+                choice(ui, "Measure", &CLUSTER_INTERVAL, &mut d.interval);
+                match CLUSTER_INTERVAL[d.interval].0 {
+                    "MINKOWSKI" => field(ui, "Power", &mut d.power, 50.0),
+                    "POWER" => {
+                        ui.horizontal(|ui| {
+                            ui.label("Power");
+                            small_field(ui, true, &mut d.power);
+                            ui.label("Root");
+                            small_field(ui, true, &mut d.root);
+                        })
+                        .inner
+                    }
+                    _ => {}
+                }
+            }
+            1 => choice(ui, "Measure", &CLUSTER_COUNTS, &mut d.counts),
+            _ => {
+                choice(ui, "Measure", &CLUSTER_BINARY, &mut d.binary);
+                ui.horizontal(|ui| {
+                    ui.label("Present");
+                    small_field(ui, true, &mut d.present);
+                    ui.label("Absent");
+                    small_field(ui, true, &mut d.absent);
+                });
+            }
+        }
+    });
+    egui::CollapsingHeader::new("Save").show(ui, |ui| {
+        solutions(ui, "Cluster membership", &mut d.save);
+    });
+}
+
+pub fn discriminant(ui: &mut Ui, d: &mut Discriminant, picked: &mut Vec<String>) {
+    target_one(ui, "Grouping variable", &mut d.group, picked);
+    ui.horizontal(|ui| {
+        ui.label("Range from");
+        small_field(ui, true, &mut d.min);
+        ui.label("to");
+        small_field(ui, true, &mut d.max);
+    });
+    target_list(ui, "Independents", &mut d.variables, picked);
+    ui.horizontal(|ui| {
+        ui.radio_value(&mut d.stepwise, false, "Enter independents together");
+        ui.radio_value(&mut d.stepwise, true, "Use stepwise method");
+    });
+    target_one(ui, "Selection variable", &mut d.select, picked);
+    ui.add_enabled_ui(!d.select.is_empty(), |ui| {
+        field(ui, "Value", &mut d.select_value, 50.0);
+    });
+    ui.add_space(6.0);
+    egui::CollapsingHeader::new("Statistics").show(ui, |ui| {
+        save_groups(
+            ui,
+            &DISCRIMINANT_STATISTICS_GROUPS,
+            &DISCRIMINANT_STATISTICS,
+            &mut d.statistics,
+        );
+    });
+    ui.add_enabled_ui(d.stepwise, |ui| {
+        egui::CollapsingHeader::new("Method").show(ui, |ui| {
+            choice(ui, "Method", &DISCRIMINANT_METHODS, &mut d.method);
+            ui.horizontal(|ui| {
+                ui.label("Criteria");
+                let mut use_f = d.use_f;
+                ui.radio_value(&mut use_f, true, "F value");
+                ui.radio_value(&mut use_f, false, "Probability of F");
+                if use_f != d.use_f {
+                    d.set_use_f(use_f);
+                }
+            });
+            ui.horizontal(|ui| {
+                ui.label("Entry");
+                small_field(ui, true, &mut d.entry);
+                ui.label("Removal");
+                small_field(ui, true, &mut d.removal);
+            });
+        });
+    });
+    egui::CollapsingHeader::new("Classify").show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.label("Prior probabilities");
+            ui.radio_value(&mut d.priors_size, false, "All groups equal");
+            ui.radio_value(&mut d.priors_size, true, "From group sizes");
+        });
+        ui.horizontal(|ui| {
+            ui.label("Covariance matrix");
+            ui.radio_value(&mut d.separate, false, "Within-groups");
+            ui.radio_value(&mut d.separate, true, "Separate-groups");
+        });
+        ui.checkbox(&mut d.table, "Summary table");
+        ui.checkbox(&mut d.leave_one_out, "Leave-one-out classification");
+    });
+    egui::CollapsingHeader::new("Save").show(ui, |ui| {
+        for ((_, label), on) in DISCRIMINANT_SAVE.iter().zip(&mut d.save) {
+            ui.checkbox(on, *label);
+        }
+    });
 }
 
 pub fn logistic(ui: &mut Ui, d: &mut Logistic, picked: &mut Vec<String>) {
