@@ -2935,6 +2935,9 @@ impl eframe::App for App {
                 .collect();
             (files, !i.raw.hovered_files.is_empty())
         });
+        // files Finder opened with the app take the same way as files dropped on the window
+        #[cfg(target_os = "macos")]
+        let files = [files, crate::open_files::take()].concat();
         if !files.is_empty() {
             self.open_dropped(files);
         }

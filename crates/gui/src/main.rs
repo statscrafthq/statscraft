@@ -15,6 +15,8 @@ mod grid_menu;
 mod highlight;
 mod model_dialogs;
 mod model_dialogs_view;
+#[cfg(target_os = "macos")]
+mod open_files;
 mod output;
 mod output_view;
 mod settings;
@@ -40,6 +42,8 @@ fn main() -> ExitCode {
     if let Some(position) = settings.position {
         viewport = viewport.with_position(position);
     }
+    #[cfg(target_os = "macos")]
+    open_files::listen();
     let options = eframe::NativeOptions {
         viewport,
         ..Default::default()
@@ -50,6 +54,8 @@ fn main() -> ExitCode {
         options,
         Box::new(move |cc| {
             cc.egui_ctx.set_fonts(fonts);
+            #[cfg(target_os = "macos")]
+            open_files::set_context(&cc.egui_ctx);
             Ok(Box::new(app::App::new(&args, &cc.egui_ctx, settings)))
         }),
     );

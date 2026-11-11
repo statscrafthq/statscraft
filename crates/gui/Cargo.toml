@@ -21,6 +21,15 @@ rfd = "0.18.0"
 # rich text (HTML) on the clipboard, which egui cannot put there; already built for eframe
 arboard = { version = "3.7.0", default-features = false }
 
+# Files Finder opens with the app (open_files.rs): the Objective-C runtime and AppKit bindings
+# eframe already builds on macOS (objc2, block2, objc2-foundation: MIT; objc2-app-kit: Zlib OR
+# Apache-2.0 OR MIT).
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6.4"
+block2 = "0.6.2"
+objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSArray", "NSEnumerator", "NSNotification", "NSOperation", "NSString", "NSURL"] }
+objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSResponder"] }
+
 # Embeds icons/statscraft.ico in the Windows executable (build.rs). Without default features it
 # does not pull in toml, which only reads resource settings from Cargo.toml.
 [build-dependencies]
