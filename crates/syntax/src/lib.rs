@@ -24,6 +24,7 @@ mod encoding;
 mod error;
 mod examine;
 mod expr;
+mod factor;
 mod files;
 mod frequencies;
 mod get_data;
@@ -57,6 +58,8 @@ mod tests_data;
 #[cfg(test)]
 mod tests_data_list;
 #[cfg(test)]
+mod tests_factor;
+#[cfg(test)]
 mod tests_input_program;
 #[cfg(test)]
 mod tests_loops;
@@ -86,6 +89,10 @@ pub use ctables::{
 pub use data_list::numbered_names;
 pub use encoding::{decode_syntax, encoding_for, legacy_encoding};
 pub use error::{Span, SyntaxError};
+pub use factor::{
+    ClusterMethod, ClusterSave, Extraction, Factor, FactorCriteria, FactorMissing, FactorPrint,
+    FactorSave, MatrixKind, QuickCluster, Rotation, ScoreMethod,
+};
 pub use lexer::{Punct, Token, TokenKind};
 pub use loops::{RepeatItem, command_text, substitute};
 pub use mrsets::{Mrsets, MrsetsGroup};

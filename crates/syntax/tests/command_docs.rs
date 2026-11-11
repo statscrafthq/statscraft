@@ -115,6 +115,8 @@ const AREAS: &[(&str, &[&str])] = &[
             "EXAMINE",
             "REGRESSION",
             "RELIABILITY",
+            "FACTOR",
+            "QUICK CLUSTER",
             "TREE",
         ],
     ),

@@ -68,6 +68,8 @@ pub enum Command {
     Examine(Examine),
     Regression(Box<crate::regression::Regression>),
     Reliability(Box<crate::reliability::Reliability>),
+    Factor(Box<crate::factor::Factor>),
+    QuickCluster(Box<crate::factor::QuickCluster>),
     Tree(Box<Tree>),
     Rank(Rank),
     AddFiles(Merge),

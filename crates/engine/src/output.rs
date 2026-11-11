@@ -55,6 +55,8 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Examine(_)
         | Command::Regression(_)
         | Command::Reliability(_)
+        | Command::Factor(_)
+        | Command::QuickCluster(_)
         | Command::Tree(_)
         | Command::Rank(_)
         | Command::Aggregate(_)

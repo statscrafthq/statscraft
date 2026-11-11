@@ -13,6 +13,7 @@ mod dist;
 mod examine;
 pub mod excel;
 mod expr;
+mod factor;
 mod format;
 mod frequencies;
 mod get_data;
@@ -32,6 +33,7 @@ mod output;
 mod partial_corr;
 mod pass;
 mod print;
+mod quick_cluster;
 mod random;
 mod rank;
 mod recode;
@@ -571,6 +573,8 @@ impl Engine {
             | Command::Examine(_)
             | Command::Regression(_)
             | Command::Reliability(_)
+            | Command::Factor(_)
+            | Command::QuickCluster(_)
             | Command::Tree(_)
             | Command::Rank(_)
             | Command::Aggregate(_) => return self.procedure(command),
@@ -758,6 +762,8 @@ impl Engine {
             Command::Examine(command) => self.examine(command),
             Command::Regression(command) => self.regression(command),
             Command::Reliability(command) => self.reliability(command),
+            Command::Factor(command) => self.factor(command),
+            Command::QuickCluster(command) => self.quick_cluster(command),
             Command::Tree(command) => self.tree(command),
             Command::Rank(command) => self.rank(command),
             Command::Aggregate(command) => self.aggregate(command).map(|()| Vec::new()),

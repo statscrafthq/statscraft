@@ -7,6 +7,7 @@ use crate::data_commands;
 use crate::data_list;
 use crate::dictionary;
 use crate::examine;
+use crate::factor;
 use crate::files;
 use crate::frequencies;
 use crate::get_data;
@@ -1097,6 +1098,67 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: reliability::reliability,
     },
     CommandSpec {
+        name: "FACTOR",
+        summary: "Factor analysis: principal components and six factoring methods, rotations, factor scores.",
+        syntax: "FACTOR VARIABLES=varlist | MATRIX=IN(COR=* | 'file' | COV=* | 'file')\n\
+                 \x20      [/MISSING=[LISTWISE | PAIRWISE | MEANSUB] [INCLUDE]] [/SELECT=var(value)]\n\
+                 \x20      [/ANALYSIS=varlist] [/METHOD=CORRELATION]\n\
+                 \x20      [/PRINT=[DEFAULT] [INITIAL] [EXTRACTION] [ROTATION] [UNIVARIATE] [CORRELATION] [COVARIANCE]\n\
+                 \x20              [SIG] [DET] [INV] [REPR] [AIC] [KMO] [FSCORE] [ALL]]\n\
+                 \x20      [/FORMAT=[SORT] [BLANK(n)] [DEFAULT]] [/DIAGONAL=values | DEFAULT] [/PLOT=...]\n\
+                 \x20      [/CRITERIA=[FACTORS(n)] [MINEIGEN(1)] [ITERATE(25)] [ECONVERGE(.001)] [RCONVERGE(.0001)]\n\
+                 \x20                 [KAISER | NOKAISER] [DELTA(0)] [KAPPA(4)] [DEFAULT]]\n\
+                 \x20      [/EXTRACTION=PC | PAF | ALPHA | IMAGE | ULS | GLS | ML]\n\
+                 \x20      [/ROTATION=VARIMAX | EQUAMAX | QUARTIMAX | OBLIMIN[(delta)] | PROMAX[(kappa)] | NOROTATE]\n\
+                 \x20      [/SAVE=[REG | BART | AR] [(n | ALL [rootname])]].\n\
+                 The analysis is of the correlation matrix of the ANALYSIS variables (default all of VARIABLES).\n\
+                 LISTWISE (default) uses the cases valid on every variable of VARIABLES; PAIRWISE each pair's own\n\
+                 cases; MEANSUB puts the mean in place of a missing value. SELECT computes the matrix from the\n\
+                 cases with that value, while scores are saved for all cases. CRITERIA applies to the EXTRACTION\n\
+                 and ROTATION that follow it. The number of factors is FACTORS(n), else the count of eigenvalues\n\
+                 above MINEIGEN. Without EXTRACTION the extraction is PC with VARIMAX; with EXTRACTION but no\n\
+                 ROTATION the factors are not rotated. A later ANALYSIS cancels the PRINT, DIAGONAL, EXTRACTION,\n\
+                 ROTATION and SAVE before it, with a warning. Tables: Descriptive Statistics (UNIVARIATE),\n\
+                 Correlation Matrix (CORRELATION, SIG, DET), Inverse of Correlation Matrix (INV), Covariance Matrix,\n\
+                 KMO and Bartlett's Test (KMO), Anti-image Matrices (AIC), Communalities, Total Variance Explained,\n\
+                 Component or Factor Matrix, Goodness-of-fit Test (ML, GLS), Reproduced Correlations (REPR), the\n\
+                 rotated matrix with its transformation matrix, or Pattern, Structure and factor correlation\n\
+                 matrices for OBLIMIN and PROMAX, Score Coefficient and Score Covariance Matrix (FSCORE). SORT\n\
+                 orders the variables by the factor of their largest loading; BLANK(n) leaves out loadings below\n\
+                 n in absolute value. SAVE adds scores by regression, Bartlett or Anderson-Rubin, named FAC1_1,\n\
+                 FAC2_1 and so on, or rootname1, rootname2. MATRIX=IN reads a matrix file (ROWTYPE_ N, MEAN,\n\
+                 STDDEV, CORR or COV, VARNAME_) from the active dataset or a file. Weighted when a weight variable\n\
+                 is set. PLOT is accepted with a warning that charts are not drawn yet. Not supported yet:\n\
+                 METHOD=COVARIANCE, MATRIX=OUT, MATRIX=IN(FAC=...).",
+        example: "FACTOR VARIABLES=q1 TO q10 /PRINT=INITIAL EXTRACTION ROTATION KMO /FORMAT=SORT BLANK(.3) /CRITERIA=MINEIGEN(1) /EXTRACTION=PC /ROTATION=VARIMAX /SAVE=REG(ALL).",
+        parse: factor::factor,
+    },
+    CommandSpec {
+        name: "QUICK CLUSTER",
+        summary: "K-means clustering of cases into a given number of clusters.",
+        syntax: "QUICK CLUSTER varlist | ALL [/MISSING=[LISTWISE | PAIRWISE | DEFAULT] [INCLUDE]]\n\
+                 \x20             [/FILE='file' | dataset] [/INITIAL=(values)]\n\
+                 \x20             [/CRITERIA=[CLUSTER(2)] [NOINITIAL] [MXITER(10)] [CONVERGE(0)]]\n\
+                 \x20             [/METHOD=KMEANS[(NOUPDATE | UPDATE)] | CLASSIFY]\n\
+                 \x20             [/PRINT=[INITIAL] [CLUSTER] [ID(var)] [DISTANCE] [ANOVA] [NONE]]\n\
+                 \x20             [/OUTFILE='file' | dataset] [/SAVE=[CLUSTER[(name)]] [DISTANCE[(name)]]].\n\
+                 Distances are Euclidean. Initial centers: by default the first k complete cases, then a case\n\
+                 replaces a center when it lies farther from the centers than the two closest centers lie from\n\
+                 each other (NOINITIAL keeps the first k cases); INITIAL gives them cluster by cluster, FILE reads\n\
+                 them from the clustering variables of a data file. KMEANS moves each center to the mean of its\n\
+                 cases after each pass (UPDATE after each case) until no center moves more than CONVERGE times the\n\
+                 smallest distance between the initial centers, or MXITER passes; CLASSIFY keeps the initial\n\
+                 centers. Then every case goes to its nearest center, and the final centers are the means of\n\
+                 their cases. Tables: Initial Cluster Centers, Iteration History, Cluster Membership (CLUSTER,\n\
+                 with ID), Final Cluster Centers, Distances between Final Cluster Centers (DISTANCE), ANOVA and\n\
+                 Number of Cases in each Cluster. LISTWISE (default) leaves out a case missing on any variable;\n\
+                 PAIRWISE uses the variables a case has. SAVE adds the cluster number and the distance to the\n\
+                 classification center, named QCL_1, QCL_2 and so on unless given. OUTFILE writes the final\n\
+                 centers with CLUSTER_. Weighted when a weight variable is set.",
+        example: "QUICK CLUSTER q1 TO q5 /CRITERIA=CLUSTER(3) MXITER(20) /PRINT=INITIAL ANOVA /SAVE=CLUSTER(segment) DISTANCE.",
+        parse: factor::quick_cluster,
+    },
+    CommandSpec {
         name: "TREE",
         summary: "A classification tree grown by CHAID or exhaustive CHAID.",
         syntax: "TREE dependent [level] BY predictor [level] ... [FORCE = var [level]]\n\
@@ -1818,7 +1880,6 @@ static UNSUPPORTED: &[&str] = &[
     "END MATRIX",
     "END REPEAT",
     "EXPORT",
-    "FACTOR",
     "FINISH",
     "GET TRANSLATE",
     "GLM",
@@ -1831,7 +1892,6 @@ static UNSUPPORTED: &[&str] = &[
     "OUTPUT EXPORT",
     "OUTPUT NEW",
     "OUTPUT SAVE",
-    "QUICK CLUSTER",
     "REPORT",
     "UNIANOVA",
 ];
