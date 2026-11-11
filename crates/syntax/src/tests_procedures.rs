@@ -89,6 +89,8 @@ fn crosstabs() {
             chisq: false,
             include: false,
             descending: false,
+            count: WeightCount::Asis,
+            truncate: false,
         })
     );
     assert_eq!(
@@ -104,6 +106,8 @@ fn crosstabs() {
             chisq: true,
             include: true,
             descending: true,
+            count: WeightCount::Asis,
+            truncate: false,
         })
     );
     let Command::Crosstabs(c) = one("CROSSTABS a BY b /CELLS=NONE.") else {
@@ -157,6 +161,15 @@ fn crosstabs_format_tables_is_the_default_and_notables_is_cells_none() {
     assert!(!tables.descending);
     let none = crosstabs("CROSSTABS a BY b /CELLS=COUNT ROW /FORMAT=DVALUE NOTABLES /STAT=CHISQ.");
     assert!(none.cells.is_empty() && none.descending && none.chisq);
+    let count = crosstabs("CROSSTABS a BY b /COUNT=CASE TRUNCATE.");
+    assert_eq!((count.count, count.truncate), (WeightCount::Case, true));
+    let count = crosstabs("CROSSTABS a BY b /COUNT ROUND.");
+    assert_eq!((count.count, count.truncate), (WeightCount::Cell, false));
+    assert!(
+        err("CROSSTABS a BY b /COUNT=SOME.")
+            .message
+            .contains("unexpected word SOME")
+    );
     // the last of TABLES and NOTABLES counts
     assert!(crosstabs("CROSSTABS a BY b /FORMAT=NOTABLES TABLES.").cells == [CrosstabsCell::Count]);
 }

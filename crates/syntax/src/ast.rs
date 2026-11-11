@@ -518,6 +518,22 @@ pub struct Crosstabs {
     pub include: bool,
     /// `/FORMAT=DVALUE`: row categories in descending order.
     pub descending: bool,
+    /// `/COUNT`: what is rounded or truncated to whole counts.
+    pub count: WeightCount,
+    /// `/COUNT TRUNCATE`: truncate instead of rounding.
+    pub truncate: bool,
+}
+
+/// How CROSSTABS turns case weights into counts.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum WeightCount {
+    /// Weights as they are (without /COUNT); only the exact test takes whole counts.
+    #[default]
+    Asis,
+    /// The weight of every case, before it is counted.
+    Case,
+    /// The summed weight of every cell, before anything is computed from it.
+    Cell,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]

@@ -43,6 +43,8 @@ These are accepted where the documented syntax refuses them. Results on document
 - A CORRELATIONS coefficient marked by NOSIG shows 3 decimals and stars, explained in a caption.
 - Levene's test is based on the mean.
 - CROSSTABS shows Fisher's exact test for every 2 x 2 table.
+- CROSSTABS /COUNT with a keyword left out takes CELL or ROUND, as the dialog writes `/COUNT ROUND CELL`; rounding takes halves away from zero.
+- A function name may be shortened to three or more letters that start only one function; a shared start such as STR (STRING, STRUNC) is an error.
 - RANK: a case with a missing, zero or negative weight gets no rank (GNU PSPP ranks a case of weight 0); missing values of BY variables form groups of their own; labels add "by" and the BY variables; a variable named twice is ranked once, with a warning.
 - FREQUENCIES shows the Statistics table only when statistics or percentiles are asked for or a frequency table is left out. LIMIT counts the missing values too. Values with equal frequencies stay in ascending order. Grouped percentiles: with a width or boundaries a percentile is interpolated within the first group whose cumulative weight reaches it; a value on a boundary belongs to the group above, except the last boundary; values outside the boundaries form open groups, where percentiles are undefined.
 - EXAMINE: Shapiro-Wilk uses Royston's algorithm for 3 to 5000 cases; the Lilliefors significance comes from a published table and shows ">0.200" beyond it; M-estimators start from the median, and a cell is empty when the absolute deviation is 0; percentiles below the first or above the last value take the minimum or maximum.

@@ -767,3 +767,47 @@ GET FILE='{}'.\nSORT CASES BY region.",
     let _ = Dataset::read_sav(path("b.sav")).unwrap();
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+// COUNT (manual, CROSSTABS): CASE makes every case weight whole before it is counted, CELL every
+// cell's summed weight before anything is computed from it, each by ROUND or TRUNCATE; without
+// COUNT the weights stay as they are.
+#[test]
+fn crosstabs_count_rounds_or_truncates_case_weights_or_cell_counts() {
+    let data = "DATA LIST FREE /r c w.\nBEGIN DATA\n1 1 1.4\n1 1 1.4\n1 2 0.6\n2 1 2.5\n2 2 0.4\n\
+                END DATA.\nWEIGHT BY w.\n";
+    let counts = |count: &str| {
+        let mut engine = Engine::default();
+        let tables = run(&mut engine, &format!("{data}CROSSTABS r BY c {count}."));
+        let rows = &tables[0].rows;
+        (0..rows.len())
+            .map(|i| rows[i][2..].iter().map(number).collect::<Vec<f64>>())
+            .collect::<Vec<_>>()
+    };
+    let close = |count: &str, expected: &[&[f64]]| {
+        let actual = counts(count);
+        assert_eq!(actual.len(), expected.len(), "{count}: {actual:?}");
+        for (a, e) in actual.iter().zip(expected) {
+            assert_eq!(a.len(), e.len(), "{count}: {actual:?}");
+            for (x, y) in a.iter().zip(*e) {
+                assert!((x - y).abs() < 1e-9, "{count}: {actual:?}");
+            }
+        }
+    };
+    let asis: &[&[f64]] = &[&[2.8, 0.6, 3.4], &[2.5, 0.4, 2.9], &[5.3, 1.0, 6.3]];
+    close("", asis);
+    close("/COUNT ASIS", asis);
+    // CELL ROUND is what the dialog writes; a keyword left out is CELL or ROUND
+    let cell_round: &[&[f64]] = &[&[3.0, 1.0, 4.0], &[3.0, 0.0, 3.0], &[6.0, 1.0, 7.0]];
+    close("/COUNT ROUND CELL", cell_round);
+    close("/COUNT", cell_round);
+    let cell_truncate: &[&[f64]] = &[&[2.0, 0.0, 2.0], &[2.0, 0.0, 2.0], &[4.0, 0.0, 4.0]];
+    close("/COUNT CELL TRUNCATE", cell_truncate);
+    // CASE ROUND: weights 1 1 1 3 0, so the last case drops out
+    let case_round: &[&[f64]] = &[&[2.0, 1.0, 3.0], &[3.0, 0.0, 3.0], &[5.0, 1.0, 6.0]];
+    close("/COUNT=CASE ROUND", case_round);
+    // CASE TRUNCATE: weights 1 1 0 2 0, so column 2 has no case left
+    close(
+        "/COUNT CASE TRUNCATE",
+        &[&[2.0, 2.0], &[2.0, 2.0], &[4.0, 4.0]],
+    );
+}

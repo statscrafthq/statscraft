@@ -2,6 +2,7 @@
 
 use crate::ast::{
     Command, Crosstabs, CrosstabsCell, DescriptiveStatistic as Stat, Descriptives, VarItem,
+    WeightCount,
 };
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
@@ -41,8 +42,7 @@ const STATISTICS: [(&str, &[Stat]); 14] = [
     ),
 ];
 
-const CROSSTABS_SUBCOMMANDS: [&str; 6] =
-    ["VARIABLES", "WRITE", "COUNT", "METHOD", "BARCHART", "EXACT"];
+const CROSSTABS_SUBCOMMANDS: [&str; 5] = ["VARIABLES", "WRITE", "METHOD", "BARCHART", "EXACT"];
 
 const CELLS: [(&str, &[CrosstabsCell]); 10] = [
     ("COUNT", &[CrosstabsCell::Count]),
@@ -258,6 +258,8 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
         chisq: false,
         include: false,
         descending: false,
+        count: WeightCount::Asis,
+        truncate: false,
     };
     let mut cells: Option<Vec<CrosstabsCell>> = None;
     let mut no_tables = false;
@@ -309,6 +311,26 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
                 keyword_error(p, "CROSSTABS /MISSING", &["REPORT"], &names(&CHOICES))
             })?;
             command.include = chosen.last() == Some(&true);
+        } else if p.eat_keyword("COUNT") {
+            // a keyword left out is CELL or ROUND, what the dialog writes
+            const CHOICES: [(&str, &[u8]); 5] = [
+                ("ASIS", &[0]),
+                ("CASE", &[1]),
+                ("CELL", &[2]),
+                ("ROUND", &[3]),
+                ("TRUNCATE", &[4]),
+            ];
+            let chosen = match !p.eat(Punct::Eq) && at_end(p) {
+                true => Vec::new(),
+                false => keywords(p, &CHOICES, |p| p.unexpected(&names(&CHOICES)))?,
+            };
+            let last = |of: &[u8]| chosen.iter().rfind(|c| of.contains(*c)).copied();
+            command.count = match last(&[0, 1, 2]) {
+                Some(0) => WeightCount::Asis,
+                Some(1) => WeightCount::Case,
+                _ => WeightCount::Cell,
+            };
+            command.truncate = last(&[3, 4]) == Some(4);
         } else if p.eat_keyword("FORMAT") {
             p.eat(Punct::Eq);
             // the order of the rows, and TABLES (the default) or NOTABLES, the same as CELLS=NONE

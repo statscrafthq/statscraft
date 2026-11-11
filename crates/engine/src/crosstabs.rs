@@ -5,7 +5,7 @@ use crate::dist::chi_square_p;
 use crate::format::category_text;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Value, Values, Variable};
-use statscraft_syntax::{Crosstabs, CrosstabsCell as C};
+use statscraft_syntax::{Crosstabs, CrosstabsCell as C, WeightCount};
 use std::cmp::Ordering;
 
 /// A category: the value of a case.
@@ -69,6 +69,17 @@ struct Block {
     row_totals: Vec<f64>,
     column_totals: Vec<f64>,
     total: f64,
+    /// `/COUNT TRUNCATE`: whole counts are truncated, not rounded.
+    truncate: bool,
+}
+
+/// A weight or count as a whole number, as `/COUNT` asks.
+fn whole(value: f64, truncate: bool) -> f64 {
+    if truncate {
+        value.trunc()
+    } else {
+        value.round()
+    }
 }
 
 impl Block {
@@ -151,7 +162,7 @@ impl Block {
             asymptotic("Likelihood Ratio", ratio, df),
         ];
         if (r, c) == (2, 2) {
-            let rounded = |i: usize, j: usize| self.counts[i][j].round() as u64;
+            let rounded = |i: usize, j: usize| whole(self.counts[i][j], self.truncate) as u64;
             let (two, one) = fisher(rounded(0, 0), rounded(0, 1), rounded(1, 0), rounded(1, 1));
             rows.push((
                 "Fisher's Exact Test",
@@ -212,8 +223,13 @@ fn ordered(a: &Key, b: &Key, descending: bool) -> Ordering {
 
 /// The blocks of one table: every combination of layer categories that occurs, the last layer
 /// variable outermost. `descending` orders the rows from the highest value; columns and layers
-/// stay ascending.
-fn blocks(keys: &[Vec<Option<Key>>], weights: Option<&[f64]>, descending: bool) -> Vec<Block> {
+/// stay ascending. `/COUNT CELL` makes every cell a whole count before the totals.
+fn blocks(
+    keys: &[Vec<Option<Key>>],
+    weights: Option<&[f64]>,
+    descending: bool,
+    (count, truncate): (WeightCount, bool),
+) -> Vec<Block> {
     let order = |a: &Key, b: &Key| a.compare(b);
     let case_count = keys[0].len();
     let weight = |case: usize| weights.map_or(1.0, |w| w[case]);
@@ -259,6 +275,12 @@ fn blocks(keys: &[Vec<Option<Key>>], weights: Option<&[f64]>, descending: bool) 
                     .expect("listed above");
                 counts[i][j] += w;
             }
+            if count == WeightCount::Cell {
+                counts
+                    .iter_mut()
+                    .flatten()
+                    .for_each(|n| *n = whole(*n, truncate));
+            }
             let row_totals: Vec<f64> = counts.iter().map(|row| row.iter().sum()).collect();
             let column_totals: Vec<f64> = (0..columns.len())
                 .map(|j| counts.iter().map(|row| row[j]).sum())
@@ -271,6 +293,7 @@ fn blocks(keys: &[Vec<Option<Key>>], weights: Option<&[f64]>, descending: bool) 
                 counts,
                 row_totals,
                 column_totals,
+                truncate,
             }
         })
         .collect()
@@ -299,8 +322,15 @@ fn tables(data: &Dataset, names: &[String], command: &Crosstabs) -> Result<Vec<T
         .iter()
         .map(|v| categories(v, command.include))
         .collect();
-    let weights = case_weights(data)?;
-    let blocks = blocks(&keys, weights.as_deref(), command.descending);
+    let mut weights = case_weights(data)?;
+    if command.count == WeightCount::Case {
+        // every case's weight as a whole number; one that becomes 0 is left out
+        for w in weights.iter_mut().flatten() {
+            *w = whole(*w, command.truncate);
+        }
+    }
+    let count = (command.count, command.truncate);
+    let blocks = blocks(&keys, weights.as_deref(), command.descending, count);
     let layer_variables = &variables[2..];
     let layer_cells = |block: &Block| -> Vec<Cell> {
         let pairs = layer_variables.iter().zip(&block.layer);
