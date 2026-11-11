@@ -747,13 +747,6 @@ pub(crate) fn at_end_of_subcommand(p: &Parser) -> bool {
     matches!(p.peek(), None | Some(TokenKind::Punct(Punct::Slash)))
 }
 
-fn not_supported(p: &Parser, start: usize, what: &str) -> SyntaxError {
-    SyntaxError::new(
-        p.span_from(start),
-        format!("{what} in CTABLES is not supported yet"),
-    )
-}
-
 /// `KEYWORD=` with the keyword already matched by the caller.
 fn equals(p: &mut Parser) -> PResult<()> {
     p.expect(Punct::Eq)
@@ -790,32 +783,6 @@ fn summary_format(p: &mut Parser, word: &str) -> PResult<String> {
     };
     let parsed = format(&plain)
         .map_err(|message| SyntaxError::new(p.span(), message.replace(&plain, &upper)))?;
-    let dated = matches!(
-        parsed.kind,
-        FormatType::Cca
-            | FormatType::Ccb
-            | FormatType::Ccc
-            | FormatType::Ccd
-            | FormatType::Cce
-            | FormatType::Date
-            | FormatType::Adate
-            | FormatType::Edate
-            | FormatType::Jdate
-            | FormatType::Sdate
-            | FormatType::Qyr
-            | FormatType::Moyr
-            | FormatType::Wkyr
-            | FormatType::Datetime
-            | FormatType::Ymdhms
-            | FormatType::Time
-            | FormatType::Mtime
-            | FormatType::Dtime
-            | FormatType::Wkday
-            | FormatType::Month
-    );
-    if dated {
-        return Err(not_supported(p, p.pos, &format!("format {upper}")));
-    }
     let usable = [
         FormatType::F,
         FormatType::Pct,
@@ -824,6 +791,26 @@ fn summary_format(p: &mut Parser, word: &str) -> PResult<String> {
         FormatType::Dollar,
         FormatType::N,
         FormatType::E,
+        FormatType::Cca,
+        FormatType::Ccb,
+        FormatType::Ccc,
+        FormatType::Ccd,
+        FormatType::Cce,
+        FormatType::Date,
+        FormatType::Adate,
+        FormatType::Edate,
+        FormatType::Jdate,
+        FormatType::Sdate,
+        FormatType::Qyr,
+        FormatType::Moyr,
+        FormatType::Wkyr,
+        FormatType::Datetime,
+        FormatType::Ymdhms,
+        FormatType::Time,
+        FormatType::Mtime,
+        FormatType::Dtime,
+        FormatType::Wkday,
+        FormatType::Month,
     ];
     if !usable.contains(&parsed.kind) || parsed.width == 0 || parsed.width > 40 {
         let mut error = SyntaxError::new(
@@ -831,7 +818,7 @@ fn summary_format(p: &mut Parser, word: &str) -> PResult<String> {
             format!("format {upper} cannot be used for a summary"),
         );
         error.expected = vec![
-            "F, PCT, COMMA, DOT, DOLLAR, N, E, NEGPAREN, NEQUAL, PAREN or PCTPAREN with a width of 1 to 40, such as PCT8.1"
+            "F, PCT, COMMA, DOT, DOLLAR, N, E, CCA to CCE, a date or time format, NEGPAREN, NEQUAL, PAREN or PCTPAREN with a width of 1 to 40, such as PCT8.1"
                 .into(),
         ];
         return Err(error);

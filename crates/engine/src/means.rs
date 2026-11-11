@@ -24,6 +24,7 @@ use crate::aggregate::median;
 use crate::crosstabs::{Key, categories, label};
 use crate::descriptives::{case_weights, number, summarize};
 use crate::dist::f_p;
+use crate::format::{Stat, formats_of, procedure_format};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Values, Variable};
 use statscraft_syntax::{Means, MeansCell as M, MeansMissing};
@@ -59,6 +60,34 @@ fn cell_name(cell: M, within: &[String]) -> String {
         M::NpctIn(_) | M::SpctIn(_) => unreachable!("named above"),
     }
     .to_string()
+}
+
+/// How a cell relates to the values of the dependent, for its format; None for one without
+/// their unit.
+fn kind(cell: M) -> Option<Stat> {
+    match cell {
+        M::Mean
+        | M::Median
+        | M::Min
+        | M::Max
+        | M::First
+        | M::Last
+        | M::Harmonic
+        | M::Geometric
+        | M::GroupedMedian => Some(Stat::Value),
+        M::StdDev | M::SeMean | M::Range => Some(Stat::Spread),
+        M::Sum => Some(Stat::Sum),
+        M::Variance => Some(Stat::Other),
+        M::Count
+        | M::Kurtosis
+        | M::SeKurtosis
+        | M::Skewness
+        | M::SeSkewness
+        | M::Npct
+        | M::Spct
+        | M::NpctIn(_)
+        | M::SpctIn(_) => None,
+    }
 }
 
 /// The grouped median (Algorithms manual, appendix Grouped Percentiles): each distinct value is
@@ -428,8 +457,15 @@ fn report(
     names.extend(controls.iter().map(|v| v.name().to_string()));
     let mut columns: Vec<String> = controls.iter().map(|v| v.name().to_string()).collect();
     columns.extend(command.cells.iter().map(|c| cell_name(*c, &command.within)));
+    let formats = formats_of(&rows, |_, c| {
+        let cell = c.checked_sub(controls.len()).map(|i| command.cells[i]);
+        cell.and_then(kind).map_or_else(String::new, |kind| {
+            procedure_format(dependent.format(), kind)
+        })
+    });
     let mut out = vec![Table {
         title: format!("Report: {}", names.join(" by ")),
+        formats,
         row_headers: controls.len(),
         column_groups: vec![Vec::new(); columns.len()],
         columns,

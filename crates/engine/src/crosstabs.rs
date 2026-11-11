@@ -2,6 +2,7 @@
 
 use crate::descriptives::case_weights;
 use crate::dist::chi_square_p;
+use crate::format::category_text;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Value, Values, Variable};
 use statscraft_syntax::{Crosstabs, CrosstabsCell as C};
@@ -42,7 +43,7 @@ pub(crate) fn categories(variable: &Variable, include: bool) -> Vec<Option<Key>>
     }
 }
 
-/// The value label of a category, else its value.
+/// The value label of a category, else its value (a date or time in its format).
 pub(crate) fn label(variable: &Variable, key: &Key) -> String {
     let labelled = variable
         .value_labels()
@@ -54,7 +55,7 @@ pub(crate) fn label(variable: &Variable, key: &Key) -> String {
         });
     match (labelled, key) {
         (Some((_, label)), _) => label.clone(),
-        (None, Key::Number(n)) => n.to_string(),
+        (None, Key::Number(n)) => category_text(*n, variable.format()),
         (None, Key::Text(text)) => text.clone(),
     }
 }

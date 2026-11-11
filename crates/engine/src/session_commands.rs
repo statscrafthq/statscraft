@@ -9,7 +9,8 @@
 //! - SET FORMAT applies to the new numeric variables of the commands that follow, except those
 //!   that read a data file.
 
-use crate::{Cell, Engine, Error, Table, ctables::format_value};
+use crate::format::{Currency, DEFAULT_CURRENCY};
+use crate::{Cell, Engine, Error, Table, format_value};
 use statscraft_data::{Dataset, MissingValues, Value, Values};
 use statscraft_syntax::{
     Command, DatasetCommand, Display, List, MacroState, SETTINGS, SettingEffect, UseRange,
@@ -121,6 +122,20 @@ impl Engine {
             let default = SETTINGS.iter().find(|s| s.0 == name);
             default.map_or_else(String::new, |s| s.1.to_string())
         })
+    }
+
+    /// A display format with what `format_value` needs beyond its name: a custom currency
+    /// format (CCA to CCE) gets the SET specification, when it is not the default, after a space.
+    pub(crate) fn currency_format(&self, format: &str) -> String {
+        let kind = format.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.');
+        let kind = kind.to_ascii_uppercase();
+        if !["CCA", "CCB", "CCC", "CCD", "CCE"].contains(&kind.as_str()) {
+            return format.to_string();
+        }
+        match self.setting(&kind) {
+            spec if spec == DEFAULT_CURRENCY => format.to_string(),
+            spec => format!("{format} {spec}"),
+        }
     }
 
     /// The format SET FORMAT gives new numeric variables, when it is not the default F8.2.
@@ -342,6 +357,11 @@ impl Engine {
                 }
                 "MPRINT" | "MEXPAND" => {
                     on_off(name, value)?;
+                }
+                "CCA" | "CCB" | "CCC" | "CCD" | "CCE" => {
+                    Currency::parse(value).map_err(|e| Error(format!("SET {name}: {e}")))?;
+                    self.session.settings.insert(name.clone(), value.clone());
+                    continue;
                 }
                 "UNICODE" => {
                     if !on_off(name, value)? {
@@ -788,16 +808,20 @@ impl Engine {
             .to
             .map_or(data.case_count(), |t| (t as usize).min(data.case_count()));
         let cases = (list.from as usize..=last).step_by(list.by as usize);
+        let formats: Vec<String> = variables
+            .iter()
+            .map(|v| self.currency_format(v.format()))
+            .collect();
         let mut rows = Vec::new();
         for case in cases {
             let mut row = Vec::new();
             if list.numbered {
                 row.push(Cell::Number(case as f64));
             }
-            for v in &variables {
+            for (v, format) in variables.iter().zip(&formats) {
                 row.push(match v.values() {
                     Values::Numeric(values) => match values.get(case - 1) {
-                        Some(x) => text(format_value(x, v.format(), true)),
+                        Some(x) => text(format_value(x, format, true)),
                         None => text("."),
                     },
                     Values::String(values) => text(values.get(case - 1)),

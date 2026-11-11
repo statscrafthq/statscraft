@@ -28,6 +28,7 @@
 use crate::crosstabs::{Key, categories, label};
 use crate::descriptives::{case_weights, number, summarize};
 use crate::dist::{erfc, normal_cdf, normal_quantile, t_quantile};
+use crate::format::{Stat, formats_of, procedure_format};
 use crate::means::is_valid;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Values, Variable};
@@ -478,6 +479,8 @@ fn levels(variable: &Variable, report: bool) -> Vec<Option<Level>> {
 struct CellResult {
     /// The label of the dependent and of each factor level.
     labels: Vec<String>,
+    /// The print format of the dependent.
+    format: String,
     valid: f64,
     total: f64,
     /// (value, case) of the cases used, in case order.
@@ -609,7 +612,9 @@ impl Engine {
                 .collect();
             let mut results = Vec::new();
             for (d, name) in dependents.iter().enumerate() {
-                let Values::Numeric(values) = data.variable(name)?.values() else {
+                let dependent = data.variable(name)?;
+                let format = dependent.format();
+                let Values::Numeric(values) = dependent.values() else {
                     unreachable!("string dependents were refused above")
                 };
                 let first = results.len();
@@ -618,6 +623,7 @@ impl Engine {
                         labels: std::iter::once(name.clone())
                             .chain(cell.iter().zip(&factors).map(|(l, v)| l.name(v)))
                             .collect(),
+                        format: format.to_string(),
                         valid: 0.0,
                         total: 0.0,
                         cases: Vec::new(),
@@ -751,6 +757,7 @@ impl Tables<'_> {
     fn descriptives(&self, results: &[&CellResult]) -> Table {
         let interval = format!("{}% Confidence Interval for Mean", short(self.level));
         let mut rows = Vec::new();
+        let mut formats = Vec::new();
         for r in results {
             let dist = Distribution::new(&r.pairs);
             let s = summarize(&r.pairs);
@@ -762,6 +769,7 @@ impl Tables<'_> {
             let method = self.command.method;
             let quartile = |p| dist.percentile(p, method);
             let iqr = quartile(75.0).zip(quartile(25.0)).map(|(h, l)| h - l);
+            // each line with how its statistic and its standard error relate to the values
             let lines: [(&str, &str, Option<f64>, Option<f64>); 13] = [
                 ("Mean", "", s.mean, se),
                 (
@@ -787,13 +795,34 @@ impl Tables<'_> {
                 ("Skewness", "", s.skewness, s.se_skewness),
                 ("Kurtosis", "", s.kurtosis, s.se_kurtosis),
             ];
-            for (name, bound, value, error) in &lines {
+            let kinds = [
+                (Some(Stat::Value), Some(Stat::Spread)),
+                (Some(Stat::Value), None),
+                (Some(Stat::Value), None),
+                (Some(Stat::Value), None),
+                (Some(Stat::Value), None),
+                (Some(Stat::Other), None),
+                (Some(Stat::Spread), None),
+                (Some(Stat::Value), None),
+                (Some(Stat::Value), None),
+                (Some(Stat::Spread), None),
+                (Some(Stat::Spread), None),
+                (None, None),
+                (None, None),
+            ];
+            let shown = |kind: Option<Stat>| {
+                kind.map_or_else(String::new, |kind| procedure_format(&r.format, kind))
+            };
+            for ((name, bound, value, error), (kind, error_kind)) in lines.iter().zip(kinds) {
                 let mut row = self.labels(r);
+                let mut format = vec![String::new(); row.len() + 2];
                 row.push(Cell::Text(name.to_string()));
                 row.push(Cell::Text(bound.to_string()));
                 row.push(number(*value));
                 row.push(number(*error));
+                format.extend([shown(kind), shown(error_kind)]);
                 rows.push(row);
+                formats.push(format);
             }
         }
         let (columns, column_groups) = header(
@@ -802,6 +831,7 @@ impl Tables<'_> {
             &[("Statistic", Vec::new()), ("Std. Error", Vec::new())],
         );
         Table {
+            formats: formats_of(&rows, |r, c| formats[r][c].clone()),
             title: "Descriptives".into(),
             row_headers: self.names.len() + 3,
             columns,
@@ -813,7 +843,7 @@ impl Tables<'_> {
 
     fn mestimators(&self, results: &[&CellResult]) -> Table {
         let estimators = &self.command.mestimators;
-        let rows = results
+        let rows: Vec<Vec<Cell>> = results
             .iter()
             .map(|r| {
                 let dist = Distribution::new(&r.pairs);
@@ -850,14 +880,18 @@ impl Tables<'_> {
             })
             .collect();
         let (columns, column_groups) = header(self.names, 0, &names);
+        let labels = self.names.len() + 1;
         Table {
+            formats: formats_of(&rows, |r, c| match c >= labels {
+                true => procedure_format(&results[r].format, Stat::Value),
+                false => String::new(),
+            }),
             title: "M-Estimators".into(),
             row_headers: self.names.len() + 1,
             columns,
             column_groups,
             rows,
             caption: Some(format!("Weighting constants: {}.", constants.join("; "))),
-            ..Table::default()
         }
     }
 
@@ -866,9 +900,14 @@ impl Tables<'_> {
         let hinge_at = |p: f64| [25.0, 50.0, 75.0].iter().position(|&h| h == p);
         let hinges = percents.iter().any(|&p| hinge_at(p).is_some());
         let mut rows = Vec::new();
+        let mut owners = Vec::new();
         for r in results {
             let dist = Distribution::new(&r.pairs);
             let mut row = self.labels(r);
+            owners.push(r);
+            if hinges {
+                owners.push(r);
+            }
             row.push(Cell::Text(method_name(method).into()));
             row.extend(percents.iter().map(|&p| number(dist.percentile(p, method))));
             rows.push(row);
@@ -890,7 +929,12 @@ impl Tables<'_> {
             .map(|l| (l.as_str(), vec!["Percentiles".to_string()]))
             .collect();
         let (columns, column_groups) = header(self.names, 1, &values);
+        let labels = self.names.len() + 2;
         Table {
+            formats: formats_of(&rows, |r, c| match c >= labels {
+                true => procedure_format(&owners[r].format, Stat::Value),
+                false => String::new(),
+            }),
             title: "Percentiles".into(),
             row_headers: self.names.len() + 2,
             columns,
@@ -924,6 +968,7 @@ impl Tables<'_> {
 
     fn extremes(&self, results: &[&CellResult], n: usize) -> Table {
         let mut rows = Vec::new();
+        let mut owners = Vec::new();
         for r in results {
             let mut sorted = r.cases.clone();
             // stable: equal values keep the case order
@@ -942,6 +987,7 @@ impl Tables<'_> {
                     row.push(self.case_label(*case));
                     row.push(Cell::Number(*value));
                     rows.push(row);
+                    owners.push(r);
                 }
             }
         }
@@ -954,6 +1000,11 @@ impl Tables<'_> {
             &[(id.as_str(), Vec::new()), ("Value", Vec::new())],
         );
         Table {
+            // the value is the last column
+            formats: formats_of(&rows, |r, c| match c + 1 == rows[r].len() {
+                true => procedure_format(&owners[r].format, Stat::Value),
+                false => String::new(),
+            }),
             title: "Extreme Values".into(),
             row_headers: self.names.len() + 3,
             columns,

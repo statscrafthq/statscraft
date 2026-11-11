@@ -11,6 +11,7 @@ mod dictionary;
 mod dist;
 mod examine;
 mod expr;
+mod format;
 mod frequencies;
 mod get_data;
 pub mod live;
@@ -32,8 +33,8 @@ mod transform;
 mod ttest;
 mod variables;
 
-pub use ctables::format_value;
 pub use expr::functions;
+pub use format::{format_value, is_date_time_or_currency};
 use serde::{Deserialize, Serialize};
 use statscraft_data::{Dataset, Measure, MissingValues, Value};
 use statscraft_syntax as syntax;
@@ -634,7 +635,7 @@ impl Engine {
 
     /// The procedures, on the dataset as it is now.
     fn run_procedure(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
-        match command {
+        let mut tables = match command {
             Command::Frequencies(command) => self.frequencies(command),
             Command::Ctables(command) => self.ctables(command),
             Command::Descriptives(command) => self.descriptives(command),
@@ -649,7 +650,11 @@ impl Engine {
             Command::Aggregate(command) => self.aggregate(command).map(|()| Vec::new()),
             Command::List(list) => self.list(list),
             _ => unreachable!("only procedures come here"),
+        }?;
+        for format in tables.iter_mut().flat_map(|t| &mut t.formats).flatten() {
+            *format = self.currency_format(format);
         }
+        Ok(tables)
     }
 
     fn not_temporary(&self, command: &str) -> Result<(), Error> {

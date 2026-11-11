@@ -8,7 +8,7 @@
 //! - ALTER TYPE from string to numeric reads F, COMMA and DOT values (thousands separators
 //!   allowed); other numeric formats are refused for now.
 
-use crate::{Engine, Error, ctables::format_value};
+use crate::{Engine, Error, format_value};
 use statscraft_data::{Dataset, MissingValues, NewValues, Values, cut_to};
 use statscraft_syntax::{
     AlterTarget, AlterType, ApplyDictionary, AttributeChange, Command, FileOption, FormatType,

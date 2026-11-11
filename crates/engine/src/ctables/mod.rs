@@ -19,14 +19,12 @@
 //! layer at a time in the same way. A layer variable decides every percentage area except the
 //! table's, so TABLEPCT spans all layers and LAYERPCT is the table percentage of one layer.
 
-mod format;
 mod interval;
 mod mrsets;
 mod pcompute;
 mod sigtest;
 
-pub use format::format_value;
-
+use crate::format::{Stat, format_value, statistic_format};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Measure, Value as DataValue, Values, Variable};
 use statscraft_syntax::{
@@ -263,7 +261,16 @@ fn default_format(summary: &Summary, variable: &Variable) -> String {
         | Statistic::Evalidn
         | Statistic::Etotaln => "F40.0".into(),
         Statistic::Percent(..) => "PCT40.1".into(),
-        _ => variable.format().to_string(),
+        statistic => {
+            let stat = match (statistic, summary.function.estimate) {
+                (_, Estimate::StdError)
+                | (Statistic::Stddev | Statistic::Semean | Statistic::Range, _) => Stat::Spread,
+                (Statistic::Sum, _) => Stat::Sum,
+                (Statistic::Variance | Statistic::Missing, _) => Stat::Other,
+                _ => Stat::Value,
+            };
+            statistic_format(variable.format(), stat)
+        }
     }
 }
 

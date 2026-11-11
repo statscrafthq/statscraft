@@ -4,11 +4,8 @@ use crate::syntax_text::{number, quote, value};
 use statscraft_data::{Measure, MissingValues, Value, Values, Variable};
 use statscraft_engine::format_value;
 
-const SECONDS_PER_DAY: f64 = 86_400.0;
-/// Days from the start of the date scale, 1582-10-14, to 1970-01-01.
-const DAYS_TO_1970: i64 = 141_428;
-
-/// Whether a format shows a date (true) or a date and a time (false); None for other formats.
+/// Whether a format takes a typed date (true) or date and time (false) as yyyy-mm-dd and
+/// hh:mm:ss; None for other formats.
 fn date_kind(format: &str) -> Option<bool> {
     let kind: String = format
         .chars()
@@ -22,36 +19,11 @@ fn date_kind(format: &str) -> Option<bool> {
     }
 }
 
-/// (year, month, day) of a number of days from 1970-01-01 (proleptic Gregorian calendar).
-fn civil_from_days(days: i64) -> (i64, i64, i64) {
-    let z = days + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let day = doy - (153 * mp + 2) / 5 + 1;
-    let month = if mp < 10 { mp + 3 } else { mp - 9 };
-    (yoe + era * 400 + i64::from(month <= 2), month, day)
-}
-
-/// A number shown in its variable's format. Dates are shown as yyyy-mm-dd (with hh:mm:ss for a
-/// date and time), the other formats through the engine's `format_value`.
+/// A number shown in its variable's format.
+// shortcut: a custom currency shows with the default SET CCx specification, since the window
+// does not see the session's settings; ask the engine for them when someone needs it
 pub fn number_text(v: f64, format: &str) -> String {
-    match date_kind(format) {
-        Some(date_only) if v.is_finite() && v.abs() < 1e13 => {
-            let days = (v / SECONDS_PER_DAY).floor();
-            let (year, month, day) = civil_from_days(days as i64 - DAYS_TO_1970);
-            let mut text = format!("{year:04}-{month:02}-{day:02}");
-            if !date_only {
-                let seconds = (v - days * SECONDS_PER_DAY).round() as i64;
-                let (h, m, s) = (seconds / 3600, seconds / 60 % 60, seconds % 60);
-                text.push_str(&format!(" {h:02}:{m:02}:{s:02}"));
-            }
-            text
-        }
-        _ => format_value(v, format, true),
-    }
+    format_value(v, format, true)
 }
 
 fn label_of<'a>(variable: &Variable<'a>, value: &Value) -> Option<&'a str> {
@@ -93,8 +65,15 @@ pub fn edit_text(variable: &Variable, case: usize) -> String {
     match variable.values() {
         Values::Numeric(values) => match values.get(case) {
             None => String::new(),
-            Some(v) if date_kind(variable.format()).is_some() => number_text(v, variable.format()),
-            Some(v) => number(v),
+            Some(v) => match date_kind(variable.format()) {
+                // the form the editor reads back: yyyy-mm-dd, with hh:mm:ss for a date and time
+                Some(date_only) => {
+                    let text = format_value(v, "YMDHMS19", true);
+                    let cut = if date_only { 10 } else { text.len() };
+                    text.get(..cut).unwrap_or(&text).to_string()
+                }
+                None => number(v),
+            },
         },
         Values::String(values) => values.get(case).to_string(),
     }
@@ -861,14 +840,15 @@ mod tests {
     }
 
     #[test]
-    fn dates_show_as_iso_dates() {
+    fn dates_show_in_their_format() {
         // 1970-01-01 is 141 428 days after the start of the date scale
-        assert_eq!(number_text(141_428.0 * 86_400.0, "DATE11"), "1970-01-01");
-        assert_eq!(number_text(13_918_176_000.0, "ADATE10"), "2023-11-01");
+        assert_eq!(number_text(141_428.0 * 86_400.0, "DATE11"), "01-JAN-1970");
+        assert_eq!(number_text(13_918_176_000.0, "ADATE10"), "11/01/2023");
         assert_eq!(
             number_text(13_918_176_000.0 + 3_723.0, "DATETIME20"),
-            "2023-11-01 01:02:03"
+            "01-NOV-2023 01:02:03"
         );
+        assert_eq!(number_text(3_723.0, "TIME8"), "01:02:03");
         assert_eq!(number_text(2.5, "F8.2"), "2.50");
         assert_eq!(
             date_expression("2026-11-09").unwrap(),
@@ -900,8 +880,10 @@ mod tests {
         with(&session, "plan", |v| {
             assert_eq!(cell_text(v, 1, false), "PREMIUM")
         });
+        // a date shows in its format (DATE11) and is edited as yyyy-mm-dd
         with(&session, "signup_date", |v| {
-            assert_eq!(cell_text(v, 0, false), "2023-11-01");
+            assert_eq!(cell_text(v, 0, false), "01-NOV-2023");
+            assert_eq!(edit_text(v, 0), "2023-11-01");
         });
     }
 
@@ -939,7 +921,7 @@ mod tests {
             assert_eq!(cell_text(v, 0, false), "")
         });
         with(&session, "signup_date", |v| {
-            assert_eq!(cell_text(v, 0, false), "2024-02-29")
+            assert_eq!(cell_text(v, 0, false), "29-FEB-2024")
         });
         let error = with(&session, "age", |v| cell_edit(v, 0, "old")).unwrap_err();
         assert_eq!(error, "\"old\" is not a number");

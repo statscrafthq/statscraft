@@ -1,6 +1,7 @@
 //! DESCRIPTIVES: summary statistics of numeric variables and their z-scores.
 
 use crate::aggregate::statistic;
+use crate::format::{Stat as Kind, formats_of, procedure_format};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::Dataset;
 use statscraft_syntax::{AggregateFunction as F, DescriptiveStatistic as Stat, Descriptives};
@@ -93,6 +94,18 @@ fn columns(stat: Stat, s: &Summary) -> Vec<(&'static str, Option<f64>)> {
     }
 }
 
+/// How the first column of a statistic relates to the values, for its format; None for one
+/// without their unit.
+fn kind(stat: Stat) -> Option<Kind> {
+    match stat {
+        Stat::Mean | Stat::Min | Stat::Max => Some(Kind::Value),
+        Stat::SeMean | Stat::StdDev | Stat::Range => Some(Kind::Spread),
+        Stat::Sum => Some(Kind::Sum),
+        Stat::Variance => Some(Kind::Other),
+        Stat::Kurtosis | Stat::Skewness => None,
+    }
+}
+
 pub(crate) fn number(value: Option<f64>) -> Cell {
     value
         .filter(|v| v.is_finite())
@@ -158,6 +171,13 @@ impl Engine {
 
         let mut headers = vec!["Variable", "Label", "N"];
         let mut rows = Vec::new();
+        // the format of every column after N, the same for all variables but its own
+        let mut kinds: Vec<Option<Kind>> = Vec::new();
+        for &stat in &command.statistics {
+            let count = columns(stat, &summaries[0]).len();
+            kinds.push(kind(stat));
+            kinds.extend(std::iter::repeat_n(None, count - 1));
+        }
         for ((name, _), summary) in variables.iter().zip(&summaries) {
             let label = data.variable(name)?.label();
             let mut row = vec![
@@ -186,8 +206,16 @@ impl Engine {
             row.resize_with(headers.len(), || Cell::Empty);
             rows.push(row);
         }
+        let formats = formats_of(&rows, |r, c| {
+            let kind = c.checked_sub(3).and_then(|i| kinds[i]);
+            match (variables.get(r), kind) {
+                (Some(_), Some(kind)) => procedure_format(columns_of[r].format(), kind),
+                _ => String::new(),
+            }
+        });
         let table = Table {
             title: "Descriptive Statistics".into(),
+            formats,
             row_headers: 2,
             column_groups: vec![Vec::new(); headers.len()],
             columns: headers.into_iter().map(String::from).collect(),

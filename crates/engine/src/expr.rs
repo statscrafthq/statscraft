@@ -129,7 +129,7 @@ const UNSUPPORTED: &[&str] = &[
 
 const SECONDS_PER_DAY: f64 = 86400.0;
 /// Days from 1582-10-14, where date values start, to 1970-01-01.
-const DAYS_TO_1970: i64 = 141_428;
+pub(crate) const DAYS_TO_1970: i64 = 141_428;
 
 pub(crate) struct Evaluator<'a> {
     pub data: &'a Dataset,
@@ -426,7 +426,7 @@ pub(crate) fn format_number(value: Option<f64>, width: usize, decimals: usize) -
 }
 
 /// Days from 1970-01-01 to a date of the Gregorian calendar; the month may run past 1 to 12.
-fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+pub(crate) fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
     let year = year + (month - 1).div_euclid(12);
     let month = (month - 1).rem_euclid(12) + 1;
     let y = if month <= 2 { year - 1 } else { year };

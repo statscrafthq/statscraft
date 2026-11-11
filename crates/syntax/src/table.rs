@@ -116,7 +116,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "FORMATS",
         summary: "Set the display format of variables.",
         syntax: "FORMATS varlist (format) [[/] varlist (format) ...].\n\
-                 format: type, width and optional decimals, for example F8.2, A20, DATE11.",
+                 format: type, width and optional decimals, for example F8.2, A20, DATE11.\n\
+                 Output shows values in the format: DATE11 28-OCT-1990, DATE9 28-OCT-90, ADATE10 10/28/1990,\n\
+                 TIME8 01:02:34, TIME5 01:02 (what the width cannot show is cut off), CCA to CCE as SET defines.\n\
+                 Procedures show the mean, median, mode, minimum, maximum and percentiles of a date, time or\n\
+                 custom currency variable in its format; a spread of dates as days and time (DTIME).",
         example: "FORMATS income (COMMA10.2) / age (F3).",
         parse: commands::formats,
     },
@@ -478,7 +482,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  var [function ['label'] [format], ...], such as PCT8.1. Formats: F, PCT, COMMA, DOT (period and\n\
                  comma swapped), DOLLAR, N (leading zeros), E (scientific), and NEGPAREN (negative numbers in\n\
                  parentheses), NEQUAL (N= before), PAREN (in parentheses), PCTPAREN (percent in parentheses);\n\
-                 these four show the number as F in the width and add their marks outside it. A function given\n\
+                 these four show the number as F in the width and add their marks outside it; CCA to CCE and\n\
+                 the date and time formats. By default a summary of a scale variable has the variable's format,\n\
+                 but for dates: STDDEV, SEMEAN and RANGE as days and time (DTIME), SUM and VARIANCE plain;\n\
+                 and VARIANCE of a time variable plain. A function given\n\
                  twice in a list is two columns, each with its own format.\n\
                  After a parenthesis, (a + b > c) [COUNT], the summaries go to a and c, before their own ones.\n\
                  TITLES: several quoted texts are several lines. )DATE in them is today's date (YYYY-MM-DD),\n\
@@ -843,7 +850,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "SET subcommand[=]value [[/] subcommand[=]value ...].\n\
                  Followed: FORMAT=Fw.d (format of new numeric variables, default F8.2), DECIMAL=DOT | COMMA\n\
                  (decimal mark when reading text data), MPRINT, MEXPAND, MNEST, MITERATE (see DEFINE),\n\
-                 LOCALE, UNICODE (Statscraft always works in Unicode), PRINTBACK.\n\
+                 LOCALE, UNICODE (Statscraft always works in Unicode), PRINTBACK, CCA to CCE='negative\n\
+                 prefix,prefix,suffix,negative suffix' (custom currency formats; three commas, or three periods\n\
+                 when the decimal mark is a comma; ' before a period or comma makes it text).\n\
                  Settings for speed, memory and messages (CACHE, THREADS, WORKSPACE, MXWARNS ...) are\n\
                  accepted and have nothing to do. Settings that only change how output looks (TNUMBERS,\n\
                  TVARS, ONUMBERS, OVARS, TLOOK, WIDTH, LENGTH, DIGITGROUPING ...) are accepted with a\n\

@@ -2,7 +2,7 @@
 //! own so the engine stays free of file formats it does not read.
 
 use rust_xlsxwriter::{Color, Format, FormatAlign, FormatBorder, Workbook, Worksheet, XlsxError};
-use statscraft_engine::{Cell, Table, cell_text, header_rows};
+use statscraft_engine::{Cell, Table, cell_text, header_rows, is_date_time_or_currency};
 use std::path::Path;
 
 /// Columns never grow wider than this many characters; longer labels wrap.
@@ -103,6 +103,10 @@ fn put_table(
         row += 1;
     }
     let body_top = row;
+    let format = |r: usize, c: usize| {
+        let format = table.formats.get(r).and_then(|f| f.get(c));
+        format.map_or("", String::as_str)
+    };
     for (r, cells) in table.rows.iter().enumerate() {
         for (c, cell) in cells.iter().enumerate() {
             let column = c as u16;
@@ -111,11 +115,12 @@ fn put_table(
             match cell {
                 // row labels are written below, merged over the rows that repeat them
                 _ if c < table.row_headers => continue,
-                Cell::Number(n) if n.is_finite() => {
-                    let format = table.formats.get(r).and_then(|f| f.get(c));
+                // shortcut: a date, time or custom currency is written as its text; write
+                // spreadsheet dates when someone needs to compute with them there
+                Cell::Number(n) if n.is_finite() && !is_date_time_or_currency(format(r, c)) => {
                     let number = border
                         .clone()
-                        .set_num_format(number_format(format.map_or("", String::as_str), *n));
+                        .set_num_format(number_format(format(r, c), *n));
                     sheet.write_number_with_format(row, column, *n, &number)?
                 }
                 Cell::Empty => sheet.write_blank(row, column, &text)?,

@@ -61,7 +61,7 @@ fn summaries_with_labels_formats_and_levels() {
     assert_eq!(s[0].label.as_deref(), Some("N"));
     assert_eq!(s[0].format.as_deref(), Some("F8"));
     let more = one(
-        "CTABLES /TABLE q1 [COUNT neqUAL5, COLPCT PCTPAREN8.1, MEAN NEGPAREN9.2, SUM paren6, MEAN DOT10.2, VALIDN N5, MEAN E10.3].",
+        "CTABLES /TABLE q1 [COUNT neqUAL5, COLPCT PCTPAREN8.1, MEAN NEGPAREN9.2, SUM paren6, MEAN DOT10.2, VALIDN N5, MEAN E10.3, MEAN adate10, STDDEV DTIME12, SUM CCA9.2, MAXIMUM TIME11.2].",
     );
     let Some(AxisExpr::Variable(v)) = &more.tables[0].rows else {
         panic!()
@@ -82,7 +82,11 @@ fn summaries_with_labels_formats_and_levels() {
             "PAREN6",
             "DOT10.2",
             "N5",
-            "E10.3"
+            "E10.3",
+            "ADATE10",
+            "DTIME12",
+            "CCA9.2",
+            "TIME11.2"
         ]
     );
     assert_eq!(
@@ -444,12 +448,8 @@ fn mistakes_say_what_was_expected() {
     assert!(e.message.contains("must follow a /TABLE"), "{e}");
     let e = err("CTABLES /TABLE a [MEAN A8].");
     assert!(e.message.contains("cannot be used for a summary"), "{e}");
-    let e = err("CTABLES /TABLE a [MEAN ADATE10].");
-    assert!(
-        e.message
-            .contains("ADATE10 in CTABLES is not supported yet"),
-        "{e}"
-    );
+    let e = err("CTABLES /TABLE a [MEAN AHEX8].");
+    assert!(e.message.contains("cannot be used for a summary"), "{e}");
     let e = err("CTABLES /TABLE a [MEAN PAREN4.4].");
     assert!(e.message.contains("PAREN4.4 has no room"), "{e}");
     let e = err("CTABLES /TABLE a [MEAN NEGPAREN8.X].");

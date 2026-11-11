@@ -38,7 +38,7 @@ A numeric variable of unknown level is scale with a currency, date or time forma
 
 SLABELS POSITION=LAYER makes every summary a layer of its own. Tests run in every layer.
 
-A summary list follows a scale variable or the innermost categorical variable of one axis: var \[function \['label'\] \[format\], ...\], such as PCT8.1. Formats: F, PCT, COMMA, DOT (period and comma swapped), DOLLAR, N (leading zeros), E (scientific), and NEGPAREN (negative numbers in parentheses), NEQUAL (N= before), PAREN (in parentheses), PCTPAREN (percent in parentheses); these four show the number as F in the width and add their marks outside it. A function given twice in a list is two columns, each with its own format.
+A summary list follows a scale variable or the innermost categorical variable of one axis: var \[function \['label'\] \[format\], ...\], such as PCT8.1. Formats: F, PCT, COMMA, DOT (period and comma swapped), DOLLAR, N (leading zeros), E (scientific), and NEGPAREN (negative numbers in parentheses), NEQUAL (N= before), PAREN (in parentheses), PCTPAREN (percent in parentheses); these four show the number as F in the width and add their marks outside it; CCA to CCE and the date and time formats. By default a summary of a scale variable has the variable's format, but for dates: STDDEV, SEMEAN and RANGE as days and time (DTIME), SUM and VARIANCE plain; and VARIANCE of a time variable plain. A function given twice in a list is two columns, each with its own format.
 
 After a parenthesis, (a + b \> c) \[COUNT\], the summaries go to a and c, before their own ones.
 

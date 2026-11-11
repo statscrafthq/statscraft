@@ -27,6 +27,7 @@
 
 use crate::descriptives::{case_weights, number, summarize};
 use crate::examine::{Distribution, short};
+use crate::format::{Stat, formats_of, procedure_format};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Value, Values, Variable};
 use statscraft_syntax::{Frequencies, FrequencyOrder as Order, FrequencyStatistic as S, Grouping};
@@ -46,6 +47,8 @@ struct Analysis {
     /// Valid values first, then missing ones, each in ascending order.
     rows: Vec<Row>,
     numeric: bool,
+    /// The print format of the variable.
+    format: String,
     valid: f64,
     total: f64,
     /// The distinct valid values in ascending order with their summed weights.
@@ -152,6 +155,7 @@ fn analyse(
             None => name.to_string(),
         },
         numeric: !variable.is_string(),
+        format: variable.format().to_string(),
         valid: rows.iter().filter(|r| !r.missing).map(|r| r.count).sum(),
         total: rows.iter().map(|r| r.count).sum(),
         rows,
@@ -220,7 +224,12 @@ fn frequency_table(analysis: &Analysis) -> Table {
         Cell::Empty,
         Cell::Empty,
     ]);
+    let value_format = procedure_format(&analysis.format, Stat::Value);
     Table {
+        formats: formats_of(&out, |_, c| match c {
+            1 => value_format.clone(),
+            _ => String::new(),
+        }),
         title: analysis.title.clone(),
         row_headers: 3,
         column_groups: vec![Vec::new(); 7],
@@ -256,6 +265,17 @@ fn statistic_name(stat: S) -> &'static str {
         S::Minimum => "Minimum",
         S::Maximum => "Maximum",
         S::Sum => "Sum",
+    }
+}
+
+/// How a statistic relates to the values, for its format; None for one without their unit.
+fn statistic_kind(stat: S) -> Option<Stat> {
+    match stat {
+        S::Mean | S::Median | S::Mode | S::Minimum | S::Maximum => Some(Stat::Value),
+        S::SeMean | S::StdDev | S::Range => Some(Stat::Spread),
+        S::Sum => Some(Stat::Sum),
+        S::Variance => Some(Stat::Other),
+        S::Skewness | S::SeSkewness | S::Kurtosis | S::SeKurtosis => None,
     }
 }
 
@@ -460,7 +480,7 @@ impl Engine {
                 .map(|p| [Cell::Text("Percentiles".into()), Cell::Text(short(*p))]),
         );
         let statistics_table = |indices: &[usize]| {
-            let rows = row_labels
+            let rows: Vec<Vec<Cell>> = row_labels
                 .iter()
                 .enumerate()
                 .map(|(r, labels)| {
@@ -476,8 +496,21 @@ impl Engine {
                 .map(|&i| analyses[i].name.as_str())
                 .filter(|n| multiple_modes.iter().any(|m| m == n))
                 .collect();
+            // the two N rows and the label columns are plain; percentiles are values
+            let formats = formats_of(&rows, |r, c| {
+                let kind = match r.checked_sub(2) {
+                    _ if c < 2 => None,
+                    Some(s) if s < statistics.len() => statistic_kind(statistics[s]),
+                    Some(_) => Some(Stat::Value),
+                    None => None,
+                };
+                kind.map_or_else(String::new, |kind| {
+                    procedure_format(&analyses[indices[c - 2]].format, kind)
+                })
+            });
             Table {
                 title: "Statistics".into(),
+                formats,
                 row_headers: 2,
                 column_groups: vec![Vec::new(); headers.len()],
                 columns: headers,
@@ -488,7 +521,6 @@ impl Engine {
                         tied.join(", ")
                     )
                 }),
-                ..Table::default()
             }
         };
         let mut out = Vec::new();
