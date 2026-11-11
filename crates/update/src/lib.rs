@@ -76,7 +76,8 @@ impl Release {
         self.version > current()
     }
 
-    fn url(&self, name: &str) -> Result<&str> {
+    /// The download address of the release file `name`.
+    pub fn url(&self, name: &str) -> Result<&str> {
         self.assets
             .iter()
             .find(|a| a.name == name)
@@ -101,10 +102,14 @@ pub fn sum_of<'a>(sums: &'a str, name: &str) -> Option<&'a str> {
 pub enum Install {
     /// The per-user Windows installer; its uninstaller is next to the programs.
     Windows,
+    /// The portable Windows ZIP unpacked anywhere: the folder with the programs and LICENSE.txt.
+    Portable(PathBuf),
     /// The tarball unpacked under a prefix such as `~/.local`: the `bin` folder with the programs.
     Tarball(PathBuf),
     /// The .deb package, in `/usr/bin`.
     Deb,
+    /// The macOS app bundle, `Statscraft.app`.
+    Mac(PathBuf),
     /// A build from source or a copy elsewhere, with the folder it runs from.
     Unmanaged(PathBuf),
 }
@@ -126,6 +131,17 @@ impl Install {
             if dir.join("unins000.exe").is_file() {
                 return Install::Windows;
             }
+            // the ZIP has LICENSE.txt next to the programs, a build folder does not
+            if dir.join("LICENSE.txt").is_file() {
+                return Install::Portable(dir);
+            }
+        } else if let Some(app) = dir
+            .ends_with("Contents/MacOS")
+            .then(|| dir.parent().and_then(Path::parent))
+            .flatten()
+            .filter(|app| app.extension().is_some_and(|e| e == "app"))
+        {
+            return Install::Mac(app.to_path_buf());
         } else if dir == Path::new("/usr/bin") {
             return Install::Deb;
         } else if dir.file_name().is_some_and(|n| n == "bin")
@@ -142,8 +158,10 @@ impl Install {
     pub fn asset(&self, version: &Version) -> Option<String> {
         match self {
             Install::Windows => Some(format!("statscraft-{version}-windows-x86_64-setup.exe")),
+            Install::Portable(_) => Some(format!("statscraft-{version}-windows-x86_64.zip")),
             Install::Tarball(_) => Some(format!("statscraft-{version}-linux-x86_64.tar.gz")),
             Install::Deb => Some(format!("statscraft_{version}_amd64.deb")),
+            Install::Mac(_) => Some(format!("statscraft-{version}-macos-universal.tar.gz")),
             Install::Unmanaged(_) => None,
         }
     }
@@ -165,10 +183,29 @@ fn temp_folder() -> PathBuf {
     std::env::temp_dir().join("statscraft-update")
 }
 
-/// Removes what an earlier update left in the temporary folder (the Windows installer cannot
-/// delete itself while it runs).
+/// The file name of a program on this system.
+fn program(name: &str) -> String {
+    format!("{name}{}", std::env::consts::EXE_SUFFIX)
+}
+
+/// Where `replace` moves the old program `name` (with its suffix) in `bin`.
+fn aside(bin: &Path, name: &str) -> PathBuf {
+    bin.join(format!(".{name}.old"))
+}
+
+/// Removes what an earlier update left behind, which Windows does not let a running program
+/// delete: the installer in the temporary folder, and the old programs that a portable update
+/// moved aside.
 pub fn clean() {
     let _ = std::fs::remove_dir_all(temp_folder());
+    if let Some(bin) = std::env::current_exe()
+        .ok()
+        .and_then(|e| e.parent().map(Path::to_path_buf))
+    {
+        for p in PROGRAMS {
+            let _ = std::fs::remove_file(aside(&bin, &program(p)));
+        }
+    }
 }
 
 pub struct Client {
@@ -332,7 +369,7 @@ impl Client {
                     .map_err(|e| format!("cannot start {}: {e}", file.display()))?;
                 Ok(Done::InstallerStarted)
             }
-            Install::Tarball(bin) => {
+            Install::Portable(bin) | Install::Tarball(bin) => {
                 clean();
                 let folder = temp_folder();
                 let result = self
@@ -350,17 +387,36 @@ impl Client {
                 let command = format!("sudo apt install {}", file.display());
                 Ok(Done::Saved { file, command })
             }
+            // Replacing files inside an app bundle breaks its signature once it is signed, and
+            // a bundle started from Downloads runs from a read-only copy; the window links the
+            // download instead
+            Install::Mac(app) => Err(format!(
+                "download {} and replace {} with the Statscraft.app in it",
+                release.url(&name).unwrap_or(&release.notes),
+                app.display()
+            )),
             Install::Unmanaged(_) => unreachable!("handled above"),
         }
     }
 }
 
-/// Unpacks the two programs of the tarball `file` into `folder` and returns their folder.
+/// Unpacks the two programs of the tarball or the ZIP `file` into `folder` and returns their
+/// folder. The tarball has them in `bin`, the ZIP at its top.
 fn unpack(file: &Path, name: &str, folder: &Path) -> Result<PathBuf> {
-    let top = name.strip_suffix(".tar.gz").unwrap_or(name);
-    let members = PROGRAMS.map(|p| format!("{top}/bin/{p}"));
-    let status = Command::new("tar")
-        .arg("-xzf")
+    let (top, sub) = match name.strip_suffix(".zip") {
+        Some(top) => (top, ""),
+        None => (name.strip_suffix(".tar.gz").unwrap_or(name), "bin/"),
+    };
+    let members = PROGRAMS.map(|p| format!("{top}/{sub}{}", program(p)));
+    // Windows 10 and later have bsdtar, which also reads ZIP files, in System32; a GNU tar that
+    // comes first on the PATH (Git's) does not
+    let tar = match std::env::var_os("SystemRoot") {
+        Some(root) if cfg!(windows) => Path::new(&root).join("System32").join("tar.exe"),
+        _ => PathBuf::from("tar"),
+    };
+    // without -z: both tars find the compression themselves
+    let status = Command::new(tar)
+        .arg("-xf")
         .arg(file)
         .arg("-C")
         .arg(folder)
@@ -374,22 +430,36 @@ fn unpack(file: &Path, name: &str, folder: &Path) -> Result<PathBuf> {
 }
 
 /// Replaces the programs in `bin` with those in `from`. Each new program is first copied next
-/// to the old one, and only when both copies are there are they renamed over the old ones, so
-/// a failure leaves the old programs as they were.
+/// to the old one, and only when both copies are there do they take the old ones' names, so
+/// a failure leaves the old programs as they were. Windows cannot overwrite or delete a running
+/// program but can rename it, so the old one is first moved aside; `clean` deletes it on a
+/// later start where it is still there.
 pub fn replace(from: &Path, bin: &Path) -> Result<()> {
-    let staged = PROGRAMS.map(|p| bin.join(format!(".{p}.new")));
-    for (program, new) in PROGRAMS.iter().zip(&staged) {
+    let names = PROGRAMS.map(program);
+    let staged = names.each_ref().map(|p| bin.join(format!(".{p}.new")));
+    for (name, new) in names.iter().zip(&staged) {
         // fs::copy keeps the permissions, so the copy is executable
-        if let Err(e) = std::fs::copy(from.join(program), new) {
+        if let Err(e) = std::fs::copy(from.join(name), new) {
             for file in &staged {
                 let _ = std::fs::remove_file(file);
             }
             return Err(format!("cannot write {}: {e}", new.display()));
         }
     }
-    for (program, new) in PROGRAMS.iter().zip(&staged) {
-        let old = bin.join(program);
-        std::fs::rename(new, &old).map_err(|e| format!("cannot replace {}: {e}", old.display()))?;
+    for (name, new) in names.iter().zip(&staged) {
+        let (old, aside) = (bin.join(name), aside(bin, name));
+        let fail = |e: std::io::Error| format!("cannot replace {}: {e}", old.display());
+        let _ = std::fs::remove_file(&aside);
+        match std::fs::rename(&old, &aside) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(fail(e)),
+            _ => {}
+        }
+        if let Err(e) = std::fs::rename(new, &old) {
+            let _ = std::fs::rename(&aside, &old);
+            return Err(fail(e));
+        }
+        // fails on Windows while the old program runs
+        let _ = std::fs::remove_file(&aside);
     }
     Ok(())
 }
@@ -518,6 +588,23 @@ mod tests {
             Install::at(&target.join("statscraft-gui.exe"), true),
             Install::Unmanaged(target.clone())
         );
+        // the portable ZIP has LICENSE.txt next to the programs
+        let portable = root.join("portable");
+        std::fs::create_dir_all(&portable).unwrap();
+        std::fs::write(portable.join("LICENSE.txt"), "").unwrap();
+        let zip = Install::at(&portable.join("statscraft.exe"), true);
+        assert_eq!(zip, Install::Portable(portable.clone()));
+        assert_eq!(
+            zip.asset(&v).unwrap(),
+            "statscraft-1.2.3-windows-x86_64.zip"
+        );
+        // only on Windows
+        assert_eq!(
+            Install::at(&portable.join("statscraft"), false),
+            Install::Unmanaged(portable.clone())
+        );
+        // the installer also ships LICENSE.txt, and stays the installer
+        std::fs::write(target.join("LICENSE.txt"), "").unwrap();
         std::fs::write(target.join("unins000.exe"), "").unwrap();
         let windows = Install::at(&target.join("statscraft-gui.exe"), true);
         assert_eq!(windows, Install::Windows);
@@ -529,34 +616,86 @@ mod tests {
     }
 
     #[test]
+    fn a_mac_app_bundle_is_found_by_its_layout() {
+        let app = Path::new("/Applications/Statscraft.app");
+        let mac = Install::at(&app.join("Contents/MacOS/statscraft-gui"), false);
+        assert_eq!(mac, Install::Mac(app.to_path_buf()));
+        assert_eq!(
+            mac.asset(&Version::new(1, 2, 3)).unwrap(),
+            "statscraft-1.2.3-macos-universal.tar.gz"
+        );
+        // the command line from the tarball, outside the bundle
+        assert_eq!(
+            Install::at(Path::new("/usr/local/bin/statscraft"), false),
+            Install::Unmanaged(PathBuf::from("/usr/local/bin"))
+        );
+        // Contents/MacOS that is not in a bundle
+        assert_eq!(
+            Install::at(Path::new("/tmp/Contents/MacOS/statscraft"), false),
+            Install::Unmanaged(PathBuf::from("/tmp/Contents/MacOS"))
+        );
+    }
+
+    #[test]
+    fn replace_takes_the_place_of_an_old_program_moved_aside() {
+        let root = temp("aside");
+        let (new, bin) = (root.join("new"), root.join("bin"));
+        std::fs::create_dir_all(&new).unwrap();
+        std::fs::create_dir_all(&bin).unwrap();
+        for p in PROGRAMS {
+            std::fs::write(new.join(program(p)), "new").unwrap();
+            std::fs::write(bin.join(program(p)), "old").unwrap();
+        }
+        // left from an earlier update whose old program was still running
+        std::fs::write(aside(&bin, &program("statscraft")), "older").unwrap();
+        replace(&new, &bin).unwrap();
+        let mut names: Vec<_> = std::fs::read_dir(&bin)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().into_string().unwrap())
+            .collect();
+        names.sort();
+        assert_eq!(names, PROGRAMS.map(program));
+        for p in PROGRAMS {
+            assert_eq!(
+                std::fs::read_to_string(bin.join(program(p))).unwrap(),
+                "new"
+            );
+        }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    #[test]
     fn replace_swaps_both_programs_or_neither() {
         let root = temp("replace");
         let (new, bin) = (root.join("new"), root.join("bin"));
         std::fs::create_dir_all(&new).unwrap();
         std::fs::create_dir_all(&bin).unwrap();
         for p in PROGRAMS {
-            std::fs::write(bin.join(p), "old").unwrap();
+            std::fs::write(bin.join(program(p)), "old").unwrap();
         }
         // only one new program: nothing changes and nothing is left behind
-        std::fs::write(new.join("statscraft"), "new").unwrap();
+        std::fs::write(new.join(program("statscraft")), "new").unwrap();
         assert!(replace(&new, &bin).is_err());
         let mut names: Vec<_> = std::fs::read_dir(&bin)
             .unwrap()
             .map(|e| e.unwrap().file_name().into_string().unwrap())
             .collect();
         names.sort();
-        assert_eq!(names, ["statscraft", "statscraft-gui"]);
+        assert_eq!(names, PROGRAMS.map(program));
         for p in PROGRAMS {
-            assert_eq!(std::fs::read_to_string(bin.join(p)).unwrap(), "old");
+            assert_eq!(
+                std::fs::read_to_string(bin.join(program(p))).unwrap(),
+                "old"
+            );
         }
-        std::fs::write(new.join("statscraft-gui"), "new gui").unwrap();
+        std::fs::write(new.join(program("statscraft-gui")), "new gui").unwrap();
         replace(&new, &bin).unwrap();
         assert_eq!(
-            std::fs::read_to_string(bin.join("statscraft")).unwrap(),
+            std::fs::read_to_string(bin.join(program("statscraft"))).unwrap(),
             "new"
         );
         assert_eq!(
-            std::fs::read_to_string(bin.join("statscraft-gui")).unwrap(),
+            std::fs::read_to_string(bin.join(program("statscraft-gui"))).unwrap(),
             "new gui"
         );
         assert_eq!(std::fs::read_dir(&bin).unwrap().count(), 2);

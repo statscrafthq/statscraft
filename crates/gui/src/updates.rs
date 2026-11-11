@@ -59,7 +59,8 @@ impl Updates {
     /// (Edit > Settings, Updates). They are on by default and say nothing unless
     /// there is an update.
     pub fn new(ctx: &egui::Context, settings: &mut Settings) -> Self {
-        // the Windows installer of the last update cannot delete itself
+        // the Windows installer of the last update cannot delete itself, nor a running program
+        // that a portable update moved aside
         statscraft_update::clean();
         let (sender, events) = mpsc::channel();
         let mut updates = Updates {
@@ -158,6 +159,12 @@ impl Updates {
                     Install::Unmanaged(_) => {
                         ui.weak("Install it the way you installed this copy.");
                     }
+                    // no replacing inside the bundle (see Client::update): a link to the package
+                    Install::Mac(_) => {
+                        let name = self.install.asset(&release.version).unwrap_or_default();
+                        ui.hyperlink_to("Download", release.url(&name).unwrap_or(&release.notes));
+                        ui.weak("Then replace Statscraft.app with the one in the download.");
+                    }
                     install => {
                         if ui
                             .button("Update now")
@@ -218,7 +225,8 @@ impl Updates {
             Some(Click::Hide) => self.bar = Bar::Hidden,
             Some(Click::Update(release)) => self.update(release),
             Some(Click::Restart(bin)) => {
-                let program = bin.join("statscraft-gui");
+                let gui = format!("statscraft-gui{}", std::env::consts::EXE_SUFFIX);
+                let program = bin.join(gui);
                 if program.is_file() {
                     // the close asks about unsaved work first; the new window starts on exit
                     self.restart = Some(program);
@@ -264,7 +272,7 @@ fn update_hint(install: &Install) -> String {
                              checksums. The window then closes, the installer updates Statscraft \
                              and opens the window again."
             .into(),
-        Install::Tarball(bin) => format!(
+        Install::Portable(bin) | Install::Tarball(bin) => format!(
             "Downloads the new programs, checks them against the release's checksums and \
              replaces the ones in {}.",
             bin.display()
@@ -272,6 +280,6 @@ fn update_hint(install: &Install) -> String {
         Install::Deb => "Downloads the package to your Downloads folder and checks it against \
                          the release's checksums. Installing it takes one command with sudo."
             .into(),
-        Install::Unmanaged(_) => String::new(),
+        Install::Mac(_) | Install::Unmanaged(_) => String::new(),
     }
 }

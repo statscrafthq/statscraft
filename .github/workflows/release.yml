@@ -1,10 +1,12 @@
 name: Release build
 
-# Manual only: Actions > Release build > Run workflow. Windows gives a per-user installer, Linux a
-# .deb and a .tar.gz, each uploaded as its own artifact. With "draft release" ticked, a draft GitHub
-# Release vX.Y.Z (the version in the workspace Cargo.toml) is created with the same files and a
-# SHA256SUMS of them, which the updater checks every download against. Publishing it stays a
-# manual step: the updaters only see published releases.
+# Manual only: Actions > Release build > Run workflow. Windows gives a per-user installer and a
+# portable .zip, Linux a .deb and a .tar.gz, macOS a .tar.gz with Statscraft.app and the command
+# line for Apple silicon and Intel, each uploaded as its own artifact, with a SHA256SUMS of them.
+# With "draft release" ticked, a draft GitHub Release vX.Y.Z (the version in the workspace
+# Cargo.toml) is created with the same files and SHA256SUMS, which the updater checks every
+# download against. Without it nothing is released. Publishing the draft stays a manual step:
+# the updaters only see published releases.
 on:
   workflow_dispatch:
     inputs:
@@ -16,25 +18,93 @@ on:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
-        os: [windows-latest, ubuntu-latest]
+        os: [windows-latest, ubuntu-latest, macos-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v7
-      - run: cargo build --release --locked -p statscraft -p statscraft-gui
+      - if: runner.os != 'macOS'
+        run: cargo build --release --locked -p statscraft -p statscraft-gui
+      # one universal program from both architectures; the Apple silicon runner builds both
+      - if: runner.os == 'macOS'
+        run: |
+          rustup target add aarch64-apple-darwin x86_64-apple-darwin
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --release --locked -p statscraft -p statscraft-gui --target "$target"
+          done
       # the workspace version in Cargo.toml is the package version
       - shell: bash
         run: echo "VERSION=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)" >> "$GITHUB_ENV"
       # Inno Setup 6 is preinstalled on the Windows runners
       - if: runner.os == 'Windows'
         run: '& "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe" "/DAppVersion=$env:VERSION" packaging\windows\statscraft.iss'
+      # the portable .zip: the installer's files in one folder, without the installer. The
+      # updater knows it by LICENSE.txt next to the programs.
+      - if: runner.os == 'Windows'
+        shell: bash
+        run: |
+          name=statscraft-$VERSION-windows-x86_64
+          mkdir "target/packages/$name"
+          cp target/release/statscraft.exe target/release/statscraft-gui.exe README.md "target/packages/$name/"
+          cp LICENSE "target/packages/$name/LICENSE.txt"
+          cd target/packages
+          7z a -tzip "$name.zip" "$name"
+          rm -r "$name"
       - if: runner.os == 'Linux'
         run: sh packaging/linux/build.sh "$VERSION"
+      # TEMPORARY: the portable update test runs only on Windows
+      - if: runner.os == 'Windows'
+        run: cargo test --locked -p statscraft-update
+      - if: runner.os == 'macOS'
+        run: sh packaging/macos/build.sh "$VERSION"
+      # Signing and notarizing for macOS, skipped: it needs an Apple Developer ID, which the
+      # project does not have yet. To turn it on, add these repository secrets and drop
+      # "false &&" from the condition:
+      #   MACOS_CERTIFICATE           the Developer ID Application certificate, a .p12 in base64
+      #   MACOS_CERTIFICATE_PASSWORD  the password of that .p12
+      #   MACOS_SIGNING_IDENTITY      "Developer ID Application: Name (TEAMID)"
+      #   APPLE_ID, APPLE_TEAM_ID     the developer account
+      #   APPLE_APP_PASSWORD          an app-specific password of that account, for notarytool
+      # It replaces the ad-hoc signatures of build.sh before the folder is packed.
+      - if: false && runner.os == 'macOS'
+        env:
+          MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+          MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+          MACOS_SIGNING_IDENTITY: ${{ secrets.MACOS_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+        run: |
+          keychain=$RUNNER_TEMP/signing.keychain-db
+          security create-keychain -p "" "$keychain"
+          security set-keychain-settings "$keychain"
+          security unlock-keychain -p "" "$keychain"
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security import "$RUNNER_TEMP/certificate.p12" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" "$keychain"
+          security list-keychains -d user -s "$keychain"
+          dir=target/packages/statscraft-$VERSION-macos-universal
+          codesign --force --options runtime --timestamp --sign "$MACOS_SIGNING_IDENTITY" "$dir/statscraft"
+          codesign --force --options runtime --timestamp --sign "$MACOS_SIGNING_IDENTITY" "$dir/Statscraft.app"
+          ditto -c -k --keepParent "$dir" "$RUNNER_TEMP/notarize.zip"
+          xcrun notarytool submit "$RUNNER_TEMP/notarize.zip" --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" --password "$APPLE_APP_PASSWORD" --wait
+          xcrun stapler staple "$dir/Statscraft.app"
+      # COPYFILE_DISABLE keeps macOS metadata (._ files) out of the archive
+      - if: runner.os == 'macOS'
+        run: |
+          cd target/packages
+          COPYFILE_DISABLE=1 tar -czf "statscraft-$VERSION-macos-universal.tar.gz" "statscraft-$VERSION-macos-universal"
       # archive: false uploads each file as it is; it takes one file per step
       - if: runner.os == 'Windows'
         uses: actions/upload-artifact@v7
         with:
           path: target/packages/statscraft-${{ env.VERSION }}-windows-x86_64-setup.exe
+          archive: false
+      - if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          path: target/packages/statscraft-${{ env.VERSION }}-windows-x86_64.zip
           archive: false
       - if: runner.os == 'Linux'
         uses: actions/upload-artifact@v7
@@ -46,9 +116,14 @@ jobs:
         with:
           path: target/packages/statscraft-${{ env.VERSION }}-linux-x86_64.tar.gz
           archive: false
+      - if: runner.os == 'macOS'
+        uses: actions/upload-artifact@v7
+        with:
+          path: target/packages/statscraft-${{ env.VERSION }}-macos-universal.tar.gz
+          archive: false
 
-  draft-release:
-    if: inputs.draft_release
+  # SHA256SUMS of every package, always; the draft release only with "draft release" ticked
+  release:
     needs: build
     runs-on: ubuntu-latest
     permissions:
@@ -59,9 +134,14 @@ jobs:
         with:
           path: packages
           merge-multiple: true
-      - env:
+      - run: cd packages && sha256sum -- * > SHA256SUMS && cat SHA256SUMS
+      - uses: actions/upload-artifact@v7
+        with:
+          path: packages/SHA256SUMS
+          archive: false
+      - if: inputs.draft_release
+        env:
           GH_TOKEN: ${{ github.token }}
         run: |
           version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
-          (cd packages && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
           gh release create "v$version" packages/* --draft --target "$GITHUB_SHA" --title "Statscraft $version" --generate-notes

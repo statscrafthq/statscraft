@@ -1,10 +1,7 @@
 //! The updater against a tiny HTTP server in the test, so no test calls GitHub.
 
 use sha2::{Digest, Sha256};
-use statscraft_update::{Client, Release};
-// only the tarball tests use these, and they need tar, so they run on Unix only
-#[cfg(unix)]
-use statscraft_update::{Done, Install};
+use statscraft_update::{Client, Done, Install, Release};
 use std::collections::HashMap;
 use std::io::{BufRead, BufReader, Write};
 use std::net::TcpListener;
@@ -127,20 +124,29 @@ fn a_download_is_kept_only_when_it_matches_sha256sums() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
-/// The tarball update from download to replaced programs. Needs tar, as the updater does.
-#[cfg(unix)]
-#[test]
-fn a_tarball_install_gets_the_new_programs() {
-    let root = temp("tarball");
-    let top = "statscraft-9.9.9-linux-x86_64";
-    let tree = root.join("pack").join(top).join("bin");
+/// An update from download to replaced programs, from a release with the archive `name` that
+/// `tar args` packs. The programs are in `sub` of its top folder. Needs tar, as the updater does.
+fn update_from_archive(
+    name: &str,
+    tar: &str,
+    args: &[&str],
+    programs: [&str; 2],
+    sub: &str,
+    install: impl FnOnce(PathBuf) -> Install,
+) {
+    let root = temp(name);
+    let top = name
+        .strip_suffix(".zip")
+        .or(name.strip_suffix(".tar.gz"))
+        .unwrap();
+    let tree = root.join("pack").join(top).join(sub);
     std::fs::create_dir_all(&tree).unwrap();
-    std::fs::write(tree.join("statscraft"), "new cli").unwrap();
-    std::fs::write(tree.join("statscraft-gui"), "new gui").unwrap();
-    let name = format!("{top}.tar.gz");
-    let archive = root.join(&name);
-    let status = std::process::Command::new("tar")
-        .arg("-czf")
+    for p in programs {
+        std::fs::write(tree.join(p), format!("new {p}")).unwrap();
+    }
+    let archive = root.join(name);
+    let status = std::process::Command::new(tar)
+        .args(args)
         .arg(&archive)
         .arg("-C")
         .arg(root.join("pack"))
@@ -154,31 +160,30 @@ fn a_tarball_install_gets_the_new_programs() {
         HashMap::from([
             (
                 LATEST.into(),
-                (200, release_json(base, &["SHA256SUMS", &name])),
+                (200, release_json(base, &["SHA256SUMS", name])),
             ),
             ("/dl/SHA256SUMS".into(), (200, sums.into_bytes())),
             (format!("/dl/{name}"), (200, bytes)),
         ])
     });
 
-    let bin = root.join("prefix/bin");
+    let bin = root.join("installed");
     std::fs::create_dir_all(&bin).unwrap();
-    std::fs::write(bin.join("statscraft"), "old cli").unwrap();
-    std::fs::write(bin.join("statscraft-gui"), "old gui").unwrap();
+    for p in programs {
+        std::fs::write(bin.join(p), "old").unwrap();
+    }
     let client = Client::at(&base);
     let release = client.latest().unwrap().unwrap();
     let done = client
-        .update(&release, &Install::Tarball(bin.clone()), false)
+        .update(&release, &install(bin.clone()), false)
         .unwrap();
     assert_eq!(done, Done::Replaced(bin.clone()));
-    assert_eq!(
-        std::fs::read_to_string(bin.join("statscraft")).unwrap(),
-        "new cli"
-    );
-    assert_eq!(
-        std::fs::read_to_string(bin.join("statscraft-gui")).unwrap(),
-        "new gui"
-    );
+    for p in programs {
+        assert_eq!(
+            std::fs::read_to_string(bin.join(p)).unwrap(),
+            format!("new {p}")
+        );
+    }
     assert_eq!(std::fs::read_dir(&bin).unwrap().count(), 2);
     assert!(!std::env::temp_dir().join("statscraft-update").exists());
 
@@ -191,4 +196,35 @@ fn a_tarball_install_gets_the_new_programs() {
         "{error}"
     );
     std::fs::remove_dir_all(root).unwrap();
+}
+
+#[cfg(unix)]
+#[test]
+fn a_tarball_install_gets_the_new_programs() {
+    update_from_archive(
+        "statscraft-9.9.9-linux-x86_64.tar.gz",
+        "tar",
+        &["-czf"],
+        ["statscraft", "statscraft-gui"],
+        "bin",
+        Install::Tarball,
+    );
+}
+
+/// The portable ZIP, packed and unpacked by the tar that Windows ships.
+#[cfg(windows)]
+#[test]
+fn a_portable_install_gets_the_new_programs() {
+    let tar = format!(
+        "{}\\System32\\tar.exe",
+        std::env::var("SystemRoot").unwrap()
+    );
+    update_from_archive(
+        "statscraft-9.9.9-windows-x86_64.zip",
+        &tar,
+        &["-a", "-cf"],
+        ["statscraft.exe", "statscraft-gui.exe"],
+        "",
+        Install::Portable,
+    );
 }
