@@ -58,13 +58,20 @@ enum After {
     Remote(Remote),
 }
 
-/// Closing the window with unsaved work.
-enum Closing {
-    /// The question, with what is unsaved.
-    Asking(Vec<String>),
-    /// Save was chosen: the data file still to save once no run is going on; then the window
-    /// closes, unless a save failed.
-    Saving(Option<PathBuf>),
+/// The question about unsaved work, and the saves before the window closes.
+enum Ask {
+    /// The question, with what is unsaved and what follows the answer.
+    Unsaved(Vec<String>, Then),
+    /// Save was chosen before closing: the data file still to save once no run is going on;
+    /// then the window closes, unless a save failed.
+    SavingToClose(Option<PathBuf>),
+}
+
+/// What follows the question about unsaved work.
+enum Then {
+    Close,
+    /// The syntax of this file, or new syntax, takes the editor.
+    Syntax(Option<PathBuf>),
 }
 
 /// A run on a worker thread, so a large file or a long run leaves the window responsive.
@@ -432,7 +439,7 @@ pub struct App {
     data_saved: Option<Dataset>,
     /// The syntax text as last loaded or saved; empty for new syntax.
     syntax_saved: String,
-    closing: Option<Closing>,
+    ask: Option<Ask>,
     /// The user chose to close: the next close request goes through.
     close_ok: bool,
     /// The app icon, shown in the About window.
@@ -526,7 +533,7 @@ impl App {
             settings_section: None,
             data_saved: None,
             syntax_saved: String::new(),
-            closing: None,
+            ask: None,
             close_ok: false,
             logo,
             editor_id: None,
@@ -758,7 +765,7 @@ impl App {
     fn open_dropped(&mut self, paths: Vec<PathBuf>) {
         let drop = dropped(paths);
         if let Some(path) = drop.syntax {
-            self.load_syntax(path);
+            self.replace_syntax(Some(path));
         }
         match drop.data {
             Some(path) if is_data_file(&path) => self.open_data(path),
@@ -849,11 +856,7 @@ impl App {
                 }
                 ui.separator();
                 if ui.button("New syntax").clicked() {
-                    self.syntax.clear();
-                    self.syntax_saved.clear();
-                    self.syntax_file = None;
-                    self.syntax_errors.clear();
-                    self.tab = Tab::Syntax;
+                    self.replace_syntax(None);
                 }
                 if ui.button("Open syntax...").clicked()
                     && let Some(path) = self
@@ -861,7 +864,7 @@ impl App {
                         .add_filter("Syntax", &["sps"])
                         .pick_file()
                 {
-                    self.load_syntax(path);
+                    self.replace_syntax(Some(path));
                 }
                 let recent = self.settings.recent.clone();
                 ui.add_enabled_ui(!recent.is_empty(), |ui| {
@@ -877,7 +880,7 @@ impl App {
                                 .clicked()
                             {
                                 if is_syntax_file(&path) {
-                                    self.load_syntax(path);
+                                    self.replace_syntax(Some(path));
                                 } else {
                                     self.open_data(path);
                                 }
@@ -1172,7 +1175,7 @@ impl App {
         if self.close_ok {
             return;
         }
-        if let Some(Closing::Saving(pending)) = &mut self.closing
+        if let Some(Ask::SavingToClose(pending)) = &mut self.ask
             && self.busy.is_none()
         {
             match pending.take() {
@@ -1182,22 +1185,69 @@ impl App {
                     ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                 }
                 // a save failed, and the status bar says why
-                None => self.closing = None,
+                None => self.keep_open(),
             }
         }
-        if self.closing.is_some() {
+        if self.ask.is_some() {
             if ctx.input(|i| i.viewport().close_requested()) {
                 ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                // a close during the syntax question is dropped, a restart with it
+                if matches!(self.ask, Some(Ask::Unsaved(_, Then::Syntax(_)))) {
+                    self.updates.cancel_restart();
+                }
             }
         } else if let Some(items) = hold_close(ctx, || self.unsaved()) {
-            self.closing = Some(Closing::Asking(items));
+            self.ask = Some(Ask::Unsaved(items, Then::Close));
         }
     }
 
-    /// The question before closing with unsaved work: Save, Don't save or Cancel. Escape or a
-    /// click beside it cancels.
-    fn close_window(&mut self, ctx: &egui::Context) {
-        let Some(Closing::Asking(items)) = &self.closing else {
+    /// The window stays open after all: no saves wait, and no restart.
+    fn keep_open(&mut self) {
+        self.ask = None;
+        self.updates.cancel_restart();
+    }
+
+    /// New syntax (`None`) or a syntax file takes the editor; unsaved syntax is asked about
+    /// first.
+    fn replace_syntax(&mut self, next: Option<PathBuf>) {
+        if self.ask.is_some() {
+            return;
+        }
+        let file = self.syntax_file.as_deref();
+        let items = unsaved_items(None, None, None, &self.syntax, &self.syntax_saved, file);
+        if items.is_empty() {
+            self.take_syntax(next);
+        } else {
+            self.ask = Some(Ask::Unsaved(items, Then::Syntax(next)));
+        }
+    }
+
+    fn take_syntax(&mut self, next: Option<PathBuf>) {
+        match next {
+            Some(path) => self.load_syntax(path),
+            None => {
+                self.syntax.clear();
+                self.syntax_saved.clear();
+                self.syntax_file = None;
+                self.syntax_errors.clear();
+                self.tab = Tab::Syntax;
+            }
+        }
+    }
+
+    /// Saves the syntax to its file, or to one chosen now; false when it was not saved.
+    fn save_syntax_now(&mut self) -> bool {
+        match self.syntax_file.clone() {
+            Some(path) => self.save_syntax(path),
+            None => self.save_syntax_as(),
+        }
+        self.syntax == self.syntax_saved
+    }
+
+    /// The question about unsaved work, before closing or before other syntax takes the
+    /// editor: Save, Don't save or Cancel. Escape or a click beside it cancels.
+    fn unsaved_window(&mut self, ctx: &egui::Context) {
+        let Some(Ask::Unsaved(items, then)) = &self.ask else {
             return;
         };
         enum Answer {
@@ -1206,9 +1256,12 @@ impl App {
             Cancel,
         }
         let mut answer = None;
-        let modal = egui::Modal::new(egui::Id::unique("close")).show(ctx, |ui| {
+        let modal = egui::Modal::new(egui::Id::unique("unsaved")).show(ctx, |ui| {
             ui.set_max_width(460.0);
-            ui.label("Save the changes before closing?");
+            ui.label(match then {
+                Then::Close => "Save the changes before closing?",
+                Then::Syntax(_) => "Save the changes to the syntax first?",
+            });
             ui.add_space(4.0);
             for item in items {
                 ui.label(item);
@@ -1229,40 +1282,49 @@ impl App {
         if answer.is_none() && modal.should_close() {
             answer = Some(Answer::Cancel);
         }
-        match answer {
-            Some(Answer::Save) => self.save_before_close(),
-            Some(Answer::Discard) => {
+        let Some(answer) = answer else {
+            return;
+        };
+        let Some(Ask::Unsaved(_, then)) = self.ask.take() else {
+            return;
+        };
+        match (answer, then) {
+            (Answer::Save, Then::Close) => self.save_before_close(),
+            (Answer::Discard, Then::Close) => {
                 self.close_ok = true;
                 ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             }
-            Some(Answer::Cancel) => self.closing = None,
-            None => {}
+            (Answer::Cancel, Then::Close) => self.keep_open(),
+            (Answer::Save, Then::Syntax(next)) => {
+                if self.save_syntax_now() {
+                    self.take_syntax(next);
+                }
+            }
+            (Answer::Discard, Then::Syntax(next)) => self.take_syntax(next),
+            (Answer::Cancel, Then::Syntax(_)) => {}
         }
     }
 
     /// Saves the syntax, then the data, each to its file or to one chosen now; a cancelled
     /// file dialog or a failed save keeps the window open.
     fn save_before_close(&mut self) {
-        self.closing = None;
-        if self.syntax != self.syntax_saved {
-            match self.syntax_file.clone() {
-                Some(path) => self.save_syntax(path),
-                None => self.save_syntax_as(),
-            }
-            if self.syntax != self.syntax_saved {
-                return;
-            }
+        if self.syntax != self.syntax_saved && !self.save_syntax_now() {
+            self.keep_open();
+            return;
         }
         let data = self.session.dataset();
         let pending = if data.is_some() && data != self.data_saved.as_ref() {
             match self.data_file.clone().or_else(|| self.data_file_dialog()) {
                 Some(path) => Some(path),
-                None => return,
+                None => {
+                    self.keep_open();
+                    return;
+                }
             }
         } else {
             None
         };
-        self.closing = Some(Closing::Saving(pending));
+        self.ask = Some(Ask::SavingToClose(pending));
     }
 
     fn save_syntax_as(&mut self) {
@@ -2778,6 +2840,7 @@ impl eframe::App for App {
         // removes the endpoint file, so the command line says at once that no window runs
         self.server = None;
         let _ = self.settings.save();
+        self.updates.restart();
     }
 
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
@@ -2875,7 +2938,7 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         self.dialog_window(&ctx);
         self.confirm_window(&ctx);
-        self.close_window(&ctx);
+        self.unsaved_window(&ctx);
         let log_hidden = self.settings.log_hidden;
         settings_window::show(&ctx, &mut self.settings_section, &mut self.settings);
         if self.settings.log_hidden != log_hidden {

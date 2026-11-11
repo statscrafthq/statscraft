@@ -44,6 +44,8 @@ pub struct Updates {
     events: mpsc::Receiver<Event>,
     ctx: egui::Context,
     install: Install,
+    /// The new window to start once this one has closed, after Restart now.
+    restart: Option<PathBuf>,
 }
 
 fn now() -> u64 {
@@ -66,6 +68,7 @@ impl Updates {
             events,
             ctx: ctx.clone(),
             install: Install::detect(),
+            restart: None,
         };
         let due = settings
             .update_checked
@@ -215,12 +218,31 @@ impl Updates {
             Some(Click::Hide) => self.bar = Bar::Hidden,
             Some(Click::Update(release)) => self.update(release),
             Some(Click::Restart(bin)) => {
-                match std::process::Command::new(bin.join("statscraft-gui")).spawn() {
-                    Ok(_) => ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close),
-                    Err(e) => self.bar = Bar::Message(Err(format!("cannot restart: {e}"))),
+                let program = bin.join("statscraft-gui");
+                if program.is_file() {
+                    // the close asks about unsaved work first; the new window starts on exit
+                    self.restart = Some(program);
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                } else {
+                    let missing = format!("cannot restart: {} is missing", program.display());
+                    self.bar = Bar::Message(Err(missing));
                 }
             }
             None => {}
+        }
+    }
+
+    /// The close after Restart now was cancelled: no new window.
+    pub fn cancel_restart(&mut self) {
+        self.restart = None;
+    }
+
+    /// Starts the new window when Restart now closed this one.
+    pub fn restart(&mut self) {
+        if let Some(program) = self.restart.take()
+            && let Err(e) = std::process::Command::new(&program).spawn()
+        {
+            eprintln!("cannot restart {}: {e}", program.display());
         }
     }
 
