@@ -426,7 +426,7 @@ fn unpack(file: &Path, name: &str, folder: &Path) -> Result<PathBuf> {
     if !status.success() {
         return Err(format!("tar could not unpack {name}"));
     }
-    Ok(folder.join(top).join("bin"))
+    Ok(folder.join(top).join(sub.trim_end_matches('/')))
 }
 
 /// Replaces the programs in `bin` with those in `from`. Each new program is first copied next
