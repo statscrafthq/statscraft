@@ -351,6 +351,8 @@ struct GridEvents {
     page: usize,
     /// Where a right click landed, for the grid's menu.
     secondary: Option<grid::Hit>,
+    /// A drag with the left button: where it began and what is under the pointer now.
+    dragged: Option<(grid::Hit, grid::Hit)>,
     /// The grid's response, which opens its menu.
     response: Option<egui::Response>,
 }
@@ -465,7 +467,11 @@ impl App {
             Ok(_) => Ok("Ready".into()),
             Err(e) => Err(format!("the command line cannot reach this window: {e}")),
         };
-        app_ctx.all_styles_mut(|style| square(&mut style.visuals));
+        app_ctx.all_styles_mut(|style| {
+            square(&mut style.visuals);
+            // no fade at the edges of a scroll area: flat
+            style.spacing.scroll.fade.strength = 0.0;
+        });
         let updates = Updates::new(&app_ctx, &mut settings);
         let mut app = App {
             session: Session::default(),
@@ -1338,10 +1344,9 @@ impl App {
         let cell = |r: usize, c: usize| {
             let variable = data.variable_at(c);
             let labelled = labels && !variable.value_labels().is_empty();
-            (
-                edits::cell_text(&variable, r, labelled, &currencies),
-                cell_align(&variable),
-            )
+            let sysmis = matches!(variable.values(), Values::Numeric(v) if v.get(r).is_none());
+            let text = edits::cell_text(&variable, r, labelled, &currencies);
+            ((!sysmis).then_some(text), cell_align(&variable))
         };
         let mut commit = false;
         let mut cancel = false;
@@ -1365,7 +1370,9 @@ impl App {
         );
         self.page = events.page.max(1);
         let modifiers = ui.input(|i| i.modifiers);
-        select(&mut self.selected, &events, modifiers);
+        if select(&mut self.selected, &events, modifiers) {
+            self.follow = true;
+        }
         self.open_menu(events.secondary);
         if let Some(response) = &events.response {
             response.context_menu(|ui| self.grid_menu(ui));
@@ -1423,8 +1430,8 @@ impl App {
 
     /// The keyboard in the Data View and the Variable View, read before any widget sees the
     /// keys: arrows, Page Up and Down, Home and End, with Ctrl to the edges, with Shift to
-    /// extend the selection; Tab and Shift+Tab; Enter to edit; Ctrl+C copies the selection and,
-    /// in the Variable View, Delete deletes the selected variables. While a Data View cell is
+    /// extend the selection; Tab and Shift+Tab; Enter to edit; Ctrl+C copies the selection;
+    /// Delete deletes the selected variables or clears the selected cells. While a Data View cell is
     /// edited, Tab and the up and down arrows commit it and move on; Enter commits and Escape
     /// cancels in the editor itself.
     fn grid_keys(&mut self, ui: &mut Ui) {
@@ -1650,12 +1657,26 @@ impl App {
         });
     }
 
-    /// Asks before deleting the variables whose rows are selected in the Variable View.
+    /// Delete: asks before deleting the variables whose rows (Variable View) or columns (Data
+    /// View) are selected; in the Data View it clears the selected cells otherwise.
     fn ask_delete(&mut self) {
         let Some(data) = self.session.dataset() else {
             return;
         };
         let variable_view = self.tab == Tab::Variables;
+        if !variable_view
+            && let Some(s) = &self.selected
+            && s.rows.is_empty()
+            && s.columns.is_empty()
+        {
+            let (rows, columns) = s.span((data.case_count(), data.variable_count()));
+            if let (Some(&first), Some(&last)) = (rows.first(), rows.last()) {
+                let variables: Vec<_> = columns.iter().map(|&c| data.variable_at(c)).collect();
+                let syntax = edits::clear_cells(&variables, first, last);
+                self.run(&syntax, None, After::Show);
+            }
+            return;
+        }
         let picked = match variable_view {
             true => self.variable_selected.as_ref().map(|s| &s.rows),
             false => self.selected.as_ref().map(|s| &s.columns),
@@ -1970,7 +1991,7 @@ impl App {
         else {
             return ui.close();
         };
-        let entries = grid_menu::entries(data, &target, variable_view, self.busy.is_some());
+        let entries = grid_menu::entries(data, &target, self.busy.is_some());
         if entries.is_empty() {
             return ui.close();
         }
@@ -1980,32 +2001,14 @@ impl App {
         }
         ui.separator();
         let mut chosen = None;
-        let mut i = 0;
-        while i < entries.len() {
-            let Some(e) = &entries[i] else {
-                ui.separator();
-                i += 1;
-                continue;
-            };
-            let Some(title) = e.submenu else {
-                if menu_entry(ui, e) {
-                    chosen = Some(e.item);
+        for e in &entries {
+            match e {
+                None => {
+                    ui.separator();
                 }
-                i += 1;
-                continue;
-            };
-            let end = i + entries[i..]
-                .iter()
-                .take_while(|e| e.as_ref().is_some_and(|e| e.submenu == Some(title)))
-                .count();
-            ui.menu_button(title, |ui| {
-                for e in entries[i..end].iter().flatten() {
-                    if menu_entry(ui, e) {
-                        chosen = Some(e.item);
-                    }
-                }
-            });
-            i = end;
+                Some(e) if menu_entry(ui, e) => chosen = Some(e.item),
+                Some(_) => {}
+            }
         }
         let Some(item) = chosen else {
             return;
@@ -2055,14 +2058,6 @@ impl App {
                 self.variable_follow = true;
                 self.edit_field((row, field));
             }
-            grid_menu::Action::Properties(row) => {
-                self.select_variable(row, true);
-                self.tab = Tab::Variables;
-            }
-            grid_menu::Action::ShowInData(column) => {
-                self.select_variable(column, false);
-                self.tab = Tab::Data;
-            }
         }
     }
 
@@ -2087,7 +2082,7 @@ impl App {
             let field = Field::ALL[c];
             let text = edits::field_text(&data.variable_at(r), field);
             let right = matches!(field, Field::Width | Field::Decimals | Field::Columns);
-            (text, if right { Align::Max } else { Align::Min })
+            (Some(text), if right { Align::Max } else { Align::Min })
         };
         let mut commit = false;
         let mut cancel = false;
@@ -2142,7 +2137,9 @@ impl App {
                 .map(|s| s.rows.clone())
                 .unwrap_or_default();
         }
-        select(&mut self.variable_selected, &events, modifiers);
+        if select(&mut self.variable_selected, &events, modifiers) {
+            self.variable_follow = true;
+        }
         self.open_menu(events.secondary);
         if let Some(response) = &events.response {
             response.context_menu(|ui| self.grid_menu(ui));
@@ -2813,8 +2810,8 @@ fn editor_paper(ui: &mut Ui, theme: &themes::Theme) {
     ui.painter().rect_filled(sheet, 0.0, theme.background);
 }
 
-/// Square corners for every control, menu and window, to match the square grids, and the
-/// brand's accent colour.
+/// Square corners and no shadows for every control, menu and window, to match the flat square
+/// grids, and the brand's accent colour.
 pub(crate) fn square(visuals: &mut egui::Visuals) {
     crate::brand::accent(visuals);
     let none = egui::CornerRadius::ZERO;
@@ -2830,6 +2827,8 @@ pub(crate) fn square(visuals: &mut egui::Visuals) {
     }
     visuals.menu_corner_radius = none;
     visuals.window_corner_radius = none;
+    visuals.window_shadow = egui::Shadow::NONE;
+    visuals.popup_shadow = egui::Shadow::NONE;
 }
 
 /// The summary and syntax of a command, in the completion list and over a command name.
@@ -3075,8 +3074,14 @@ fn dialog_footer(ui: &mut Ui, syntax: &Result<String, String>, answer: &mut Opti
 }
 
 /// A click in a grid changes its selection: a cell (with Shift the block to it), a row number
-/// or a column header (with Shift a range, with Ctrl one more or one less).
-fn select(selection: &mut Option<grid::Selection>, events: &GridEvents, modifiers: Modifiers) {
+/// or a column header (with Shift a range, with Ctrl one more or one less). A drag selects from
+/// where it began to where it is. True when a drag across cells moved the cursor, which then
+/// scrolls into view.
+fn select(
+    selection: &mut Option<grid::Selection>,
+    events: &GridEvents,
+    modifiers: Modifiers,
+) -> bool {
     let (shift, ctrl) = (modifiers.shift, modifiers.command);
     if let Some(at) = events.clicked {
         match selection {
@@ -3094,6 +3099,9 @@ fn select(selection: &mut Option<grid::Selection>, events: &GridEvents, modifier
             .get_or_insert_with(Default::default)
             .click_column(c, shift, ctrl);
     }
+    if let (Some(s), Some((from, to))) = (selection.as_mut(), events.dragged) {
+        s.drag(from, to);
+    }
     // a right click keeps a selection of whole rows or columns that holds it, for a menu over
     // all of them; a cell becomes the selected cell
     match events.secondary {
@@ -3106,22 +3114,21 @@ fn select(selection: &mut Option<grid::Selection>, events: &GridEvents, modifier
         Some(grid::Hit::Cell(r, c)) => *selection = Some(grid::Selection::cell((r, c))),
         _ => {}
     }
+    matches!(
+        events.dragged,
+        Some((grid::Hit::Cell(..), grid::Hit::Cell(..)))
+    )
 }
 
 /// One item of a grid's right-click menu, off with the reason on hover when it cannot be used;
 /// true when it was clicked.
 fn menu_entry(ui: &mut Ui, e: &grid_menu::Entry) -> bool {
-    let response = match e.checked {
-        Some(on) => ui.add_enabled(e.enabled, egui::RadioButton::new(on, e.label.as_str())),
-        None => {
-            let button = egui::Button::new(e.label.as_str());
-            let button = match e.shortcut {
-                Some(key) => button.shortcut_text(key),
-                None => button,
-            };
-            ui.add_enabled(e.enabled, button)
-        }
+    let button = egui::Button::new(e.label.as_str());
+    let button = match e.shortcut {
+        Some(key) => button.shortcut_text(key),
+        None => button,
     };
+    let response = ui.add_enabled(e.enabled, button);
     match &e.hover {
         Some(text) => response
             .on_hover_text(text)
@@ -3161,8 +3168,9 @@ fn cell_editor(ui: &mut Ui, rect: Rect, edit: &mut CellEdit) -> (bool, bool) {
 const MIN_COLUMN: f32 = 20.0;
 
 /// Draws only the visible cells of a large grid, with a header row and row numbers that stay
-/// in view, and reports clicks by (row, column). The number of a row that `struck` names gets
-/// a diagonal stroke, as a case the filter leaves out.
+/// in view, and reports clicks and drags by (row, column). The number of a row that `struck`
+/// names gets a diagonal stroke, as a case the filter leaves out. A cell without text (None)
+/// is system-missing and shows a small grey dot, where an empty string shows nothing.
 #[allow(clippy::too_many_arguments)]
 fn paint_grid(
     ui: &mut Ui,
@@ -3172,7 +3180,7 @@ fn paint_grid(
     rows: usize,
     selected: Option<&grid::Selection>,
     follow: bool,
-    cell: &dyn Fn(usize, usize) -> (String, Align),
+    cell: &dyn Fn(usize, usize) -> (Option<String>, Align),
     struck: &dyn Fn(usize) -> bool,
     editing: Option<(usize, usize)>,
     editor: &mut dyn FnMut(&mut Ui, Rect),
@@ -3192,7 +3200,7 @@ fn paint_grid(
         .id_salt(id)
         .auto_shrink(false)
         .show_viewport(ui, |ui, viewport| {
-            let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+            let (rect, response) = ui.allocate_exact_size(size, Sense::click_and_drag());
             let origin = rect.min;
             let clip = ui.clip_rect();
             let painter = ui.painter().with_clip_rect(clip);
@@ -3212,21 +3220,24 @@ fn paint_grid(
             let cell_rect = |r: usize, c: usize| {
                 Rect::from_min_max(pos2(x(c), y(r)), pos2(x(c + 1), y(r) + row_height))
             };
-            // a right-aligned or centred text too wide for its cell shows its start, so a
-            // number cut short never reads as a different number
+            // a text too wide for its cell shows its start and ends in an ellipsis, so a number
+            // cut short never reads as a different number, and it keeps the alignment of its
+            // column: a right-aligned column stays flush at the right
             let text_in = |painter: &egui::Painter,
                            rect: Rect,
                            text: String,
                            align: Align,
                            color: Color32| {
                 let painter = painter.with_clip_rect(rect.shrink(1.0).intersect(clip));
-                let galley = painter.layout_no_wrap(text, font.clone(), color);
+                let format = egui::TextFormat::simple(font.clone(), color);
+                let mut job = egui::text::LayoutJob::single_section(text, format);
+                job.wrap = egui::text::TextWrapping::truncate_at_width(rect.width() - 12.0);
+                let galley = painter.layout_job(job);
                 let width = galley.size().x;
-                let fits = width <= rect.width() - 12.0;
                 let x = match align {
-                    Align::Max if fits => rect.right() - 6.0 - width,
-                    Align::Center if fits => rect.center().x - width / 2.0,
-                    _ => rect.left() + 6.0,
+                    Align::Max => rect.right() - 6.0 - width,
+                    Align::Center => rect.center().x - width / 2.0,
+                    Align::Min => rect.left() + 6.0,
                 };
                 let y = rect.center().y - galley.size().y / 2.0;
                 painter.galley(pos2(x, y), galley, color);
@@ -3245,9 +3256,21 @@ fn paint_grid(
                     if wide.is_some_and(|s| s.contains(r, c)) {
                         painter.rect_filled(cell_rect(r, c), 0.0, marked);
                     }
-                    let (text, align) = cell(r, c);
-                    if !text.is_empty() {
-                        text_in(&painter, cell_rect(r, c), text, align, visuals.text_color());
+                    let rect = cell_rect(r, c);
+                    match cell(r, c) {
+                        (Some(text), _) if text.is_empty() => {}
+                        (Some(text), align) => {
+                            text_in(&painter, rect, text, align, visuals.text_color())
+                        }
+                        (None, align) => {
+                            let x = match align {
+                                Align::Max => rect.right() - 8.0,
+                                Align::Center => rect.center().x,
+                                Align::Min => rect.left() + 8.0,
+                            };
+                            let dot = pos2(x, rect.center().y);
+                            painter.circle_filled(dot, 1.5, visuals.weak_text_color());
+                        }
                     }
                 }
                 painter.hline(left..=right, y(r) + row_height, line);
@@ -3356,9 +3379,22 @@ fn paint_grid(
             );
 
             let sizes = (number_width, header_height, row_height);
-            let hit = response
-                .interact_pointer_pos()
-                .and_then(|pos| grid::hit(pos - origin, viewport.min, sizes, &offsets, rows));
+            let at = |pos: egui::Pos2| grid::hit(pos - origin, viewport.min, sizes, &offsets, rows);
+            let hit = response.interact_pointer_pos().and_then(at);
+            let left = egui::PointerButton::Primary;
+            if response.dragged_by(left) {
+                let from = ui.input(|i| i.pointer.press_origin()).and_then(at);
+                // the press that began the drag selects as a click would
+                if response.drag_started_by(left) {
+                    match from {
+                        Some(grid::Hit::Header(c)) => events.column_clicked = Some(c),
+                        Some(grid::Hit::Number(r)) => events.row_clicked = Some(r),
+                        Some(grid::Hit::Cell(r, c)) => events.clicked = Some((r, c)),
+                        _ => {}
+                    }
+                }
+                events.dragged = from.zip(hit);
+            }
             match hit {
                 Some(grid::Hit::Header(c)) if response.clicked() => events.column_clicked = Some(c),
                 Some(grid::Hit::Number(r)) if response.clicked() => events.row_clicked = Some(r),

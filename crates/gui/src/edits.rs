@@ -134,6 +134,20 @@ pub fn cell_edit(variable: &Variable, case: usize, text: &str) -> Result<String,
     ))
 }
 
+/// The syntax that clears the cells of the cases `first` to `last` (from 0) of `variables`:
+/// a number becomes system-missing, a string blank. One line per variable.
+pub fn clear_cells(variables: &[Variable], first: usize, last: usize) -> String {
+    let condition = match first == last {
+        true => format!("$CASENUM = {}", first + 1),
+        false => format!("RANGE($CASENUM, {}, {})", first + 1, last + 1),
+    };
+    let line = |v: &Variable| {
+        let empty = if v.is_string() { "''" } else { "$SYSMIS" };
+        format!("IF ({condition}) {} = {empty}.", v.name())
+    };
+    variables.iter().map(line).collect::<Vec<_>>().join("\n")
+}
+
 /// The columns of the Variable View.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Field {
@@ -850,6 +864,41 @@ mod tests {
 
     fn with<R>(session: &Session, name: &str, f: impl FnOnce(&Variable) -> R) -> R {
         f(&session.dataset().unwrap().variable(name).unwrap())
+    }
+
+    #[test]
+    fn delete_clears_a_block_of_cells_and_undo_brings_it_back() {
+        let mut session = survey();
+        let data = session.dataset().unwrap();
+        let block: Vec<Variable> = ["age", "plan"]
+            .iter()
+            .map(|n| data.variable(n).unwrap())
+            .collect();
+        let syntax = clear_cells(&block, 1, 3);
+        assert_eq!(
+            syntax,
+            "IF (RANGE($CASENUM, 2, 4)) age = $SYSMIS.\nIF (RANGE($CASENUM, 2, 4)) plan = ''."
+        );
+        // one cell reads like the cell edit that empties it
+        let one = clear_cells(&block[..1], 2, 2);
+        assert_eq!(one, cell_edit(&block[0], 2, "").unwrap());
+        let before: Vec<String> = (0..5)
+            .map(|r| with(&session, "plan", |v| cell_text(v, r, false)))
+            .collect();
+        assert!(before[1..4].iter().all(|t| !t.trim().is_empty()));
+        session.run(&syntax, None).unwrap();
+        let cells = |session: &Session, name: &str| -> Vec<String> {
+            (0..5)
+                .map(|r| with(session, name, |v| cell_text(v, r, false)))
+                .collect()
+        };
+        let age = cells(&session, "age");
+        assert!(!age[0].is_empty() && age[1..4].iter().all(String::is_empty) && !age[4].is_empty());
+        let plan = cells(&session, "plan");
+        assert!(plan[1..4].iter().all(|t| t.trim().is_empty()));
+        assert_eq!((&plan[0], &plan[4]), (&before[0], &before[4]));
+        assert!(session.undo());
+        assert_eq!(cells(&session, "plan"), before);
     }
 
     #[test]

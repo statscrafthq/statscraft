@@ -89,6 +89,18 @@ impl Selection {
         }
     }
 
+    /// A drag that began on `from` and is now over `to`: from a cell the block to the cell
+    /// under the pointer, from a column header the columns, from a row number the rows, from
+    /// where the drag began to where it is.
+    pub fn drag(&mut self, from: Hit, to: Hit) {
+        match (from, to) {
+            (Hit::Cell(..), Hit::Cell(r, c)) => self.extend_to((r, c)),
+            (Hit::Header(_), Hit::Header(c) | Hit::Cell(_, c)) => self.click_column(c, true, false),
+            (Hit::Number(_), Hit::Number(r) | Hit::Cell(r, _)) => self.click_row(r, true, false),
+            _ => {}
+        }
+    }
+
     fn block(&self) -> (Range<usize>, Range<usize>) {
         let (a, c) = (self.anchor, self.cursor);
         (
@@ -420,6 +432,40 @@ mod tests {
         // a cell click or Shift+arrow ends the whole rows or columns
         s.extend_to((1, 1));
         assert!(s.columns.is_empty());
+    }
+
+    #[test]
+    fn a_drag_selects_a_block_columns_or_rows() {
+        // across cells: the block from the pressed cell
+        let mut s = Selection::cell((2, 1));
+        s.drag(Hit::Cell(2, 1), Hit::Cell(5, 3));
+        assert_eq!(s.span((100, 10)), (vec![2, 3, 4, 5], vec![1, 2, 3]));
+        // back past the start
+        s.drag(Hit::Cell(2, 1), Hit::Cell(0, 0));
+        assert_eq!(s.span((100, 10)), (vec![0, 1, 2], vec![0, 1]));
+        // over a header or a row number the block stays
+        s.drag(Hit::Cell(2, 1), Hit::Header(7));
+        assert_eq!(s.cursor, (0, 0));
+
+        // across column headers, also with the pointer down in the cells
+        let mut s = Selection::default();
+        s.click_column(4, false, false);
+        s.drag(Hit::Header(4), Hit::Header(6));
+        assert_eq!(s.columns, BTreeSet::from([4, 5, 6]));
+        s.drag(Hit::Header(4), Hit::Cell(30, 2));
+        assert_eq!(s.columns, BTreeSet::from([2, 3, 4]));
+        assert!(s.rows.is_empty());
+
+        // across row numbers
+        let mut s = Selection::default();
+        s.click_row(10, false, false);
+        s.drag(Hit::Number(10), Hit::Number(12));
+        assert_eq!(s.rows, BTreeSet::from([10, 11, 12]));
+        s.drag(Hit::Number(10), Hit::Cell(8, 5));
+        assert_eq!(s.rows, BTreeSet::from([8, 9, 10]));
+        // a header under the pointer changes nothing
+        s.drag(Hit::Number(10), Hit::Header(1));
+        assert_eq!(s.rows, BTreeSet::from([8, 9, 10]));
     }
 
     #[test]
