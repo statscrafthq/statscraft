@@ -249,6 +249,22 @@ fn unrotated_scores_and_orthogonal_rotations() {
         1e-5,
         "quartimax",
     );
+    // three components: the default criterion settles the loadings at the optimum
+    let three = run("FACTOR VARIABLES=x1 TO x6 /CRITERIA=MINEIGEN(0.4) /ROTATION=VARIMAX.");
+    let v = rows(find(&three, "Rotated Component Matrix"), &X);
+    let optimum = [
+        [0.9030339194, 0.1799655924, -0.0153207194],
+        [0.8031200678, 0.0695349489, 0.5056805755],
+        [0.9170497178, 0.1332721626, -0.0713784929],
+        [0.055638989, 0.8304299742, 0.3618390659],
+        [0.2844389033, 0.8723843714, 0.0962076156],
+        [-0.0097777657, 0.5445528149, 0.7946355253],
+    ];
+    for (a, e) in v.iter().zip(optimum) {
+        for j in 0..3 {
+            assert!((a[j] - e[j]).abs() < 2e-4, "{a:?} {e:?}");
+        }
+    }
     // with two factors equamax is varimax
     let equamax = run("FACTOR VARIABLES=x1 TO x6 /CRITERIA=FACTORS(2) /ROTATION=EQUAMAX.");
     let e = rows(find(&equamax, "Rotated Component Matrix"), &X);

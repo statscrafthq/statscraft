@@ -955,6 +955,7 @@ fn orthogonal(
     let mut converged = false;
     while iterations < c.iterate {
         iterations += 1;
+        let mut turn: f64 = 0.0;
         for j in 0..m {
             for k in j + 1..m {
                 let (mut sa, mut sb, mut sc, mut sd) = (0.0, 0.0, 0.0, 0.0);
@@ -976,6 +977,7 @@ fn orthogonal(
                     _ => (sd - 2.0 * sa * sb / n, sc - (sa * sa - sb * sb) / n),
                 };
                 let angle = x.atan2(y) / 4.0;
+                turn = turn.max(angle.sin().abs());
                 if angle.sin().abs() <= 1e-15 {
                     continue;
                 }
@@ -988,7 +990,9 @@ fn orthogonal(
             }
         }
         let now = simplicity(&l);
-        if (now - last).abs() <= c.rconverge {
+        // the manual stops on the change of the criterion alone, which can leave the loadings
+        // unsettled in the third decimal; a sweep must also turn no pair by more than RCONVERGE
+        if (now - last).abs() <= c.rconverge && turn <= c.rconverge {
             converged = true;
             break;
         }
