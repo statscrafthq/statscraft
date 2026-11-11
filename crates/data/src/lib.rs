@@ -232,6 +232,13 @@ impl<'a> Variable<'a> {
     pub fn is_user_missing_str(&self, value: &str) -> bool {
         self.def.missing.contains_str(value)
     }
+
+    /// Whether this variable, as the FILTER variable, keeps `case`: a value that is neither 0
+    /// nor missing. A string variable keeps no case.
+    pub fn keeps(&self, case: usize) -> bool {
+        let value = self.numeric().ok().and_then(|values| values.get(case));
+        value.is_some_and(|v| v != 0.0 && !self.is_user_missing(v))
+    }
 }
 
 impl VariableDef {

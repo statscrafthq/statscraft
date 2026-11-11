@@ -796,7 +796,7 @@ impl App {
             });
             ui.menu_button("View", |ui| {
                 ui.checkbox(&mut self.value_labels, "Value labels in Data View");
-                ui.checkbox(&mut self.show_log, "Log");
+                ui.checkbox(&mut self.show_log, "Log under Syntax and Output");
                 ui.checkbox(&mut self.wrap, "Wrap long lines in the syntax editor");
                 ui.separator();
                 ui.menu_button("Syntax colours", |ui| {
@@ -1067,9 +1067,9 @@ impl App {
         ui.horizontal(|ui| {
             // the split, filter and weight in force, each opening its dialog
             let mut open = None;
-            if let Some(data) = self.session.dataset() {
+            if let Some(states) = self.session.dataset().map(data_states) {
                 ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
-                    for (text, dialog) in data_states(data).into_iter().rev() {
+                    for (text, dialog) in states.into_iter().rev() {
                         if ui.link(text).on_hover_text("Change it").clicked() {
                             open = Some(dialog);
                         }
@@ -1085,11 +1085,19 @@ impl App {
         });
     }
 
-    /// The result of the last run and its warnings.
-    fn status_line(&self, ui: &mut Ui) {
+    /// The result of the last run and its warnings; a click on the warnings shows the log,
+    /// from the Data and Variable Views in the Syntax view.
+    fn status_line(&mut self, ui: &mut Ui) {
         ui.with_layout(egui::Layout::left_to_right(Align::Center), |ui| {
-            if let Some(note) = warning_note(self.warnings) {
-                ui.colored_label(ui.visuals().warn_fg_color, note);
+            if let Some(note) = warning_note(self.warnings)
+                && ui
+                    .link(RichText::new(note).color(ui.visuals().warn_fg_color))
+                    .clicked()
+            {
+                self.show_log = true;
+                if !shows_log(self.tab) {
+                    self.tab = Tab::Syntax;
+                }
             }
             // a long message is cut at the links of the split, filter and weight
             let text = match &self.status {
@@ -1184,16 +1192,13 @@ impl App {
             widths[c] = width;
         }
         let headers: Vec<String> = data.variable_names().map(str::to_string).collect();
-        // numbers align right, value labels and strings left
         let cell = |r: usize, c: usize| {
             let variable = data.variable_at(c);
-            let plain = edits::cell_text(&variable, r, false);
-            if !labels || variable.value_labels().is_empty() {
-                return (plain, !variable.is_string());
-            }
-            let text = edits::cell_text(&variable, r, true);
-            let right = !variable.is_string() && text == plain;
-            (text, right)
+            let labelled = labels && !variable.value_labels().is_empty();
+            (
+                edits::cell_text(&variable, r, labelled),
+                cell_align(&variable),
+            )
         };
         let mut commit = false;
         let mut cancel = false;
@@ -1207,6 +1212,7 @@ impl App {
             self.selected.as_ref(),
             std::mem::take(&mut self.follow),
             &cell,
+            &filtered_out(data),
             edit.as_ref().map(|e| (e.row, e.column)),
             &mut |ui, rect| {
                 if let Some(e) = edit.as_mut() {
@@ -1937,7 +1943,7 @@ impl App {
             let field = Field::ALL[c];
             let text = edits::field_text(&data.variable_at(r), field);
             let right = matches!(field, Field::Width | Field::Decimals | Field::Columns);
-            (text, right)
+            (text, if right { Align::Max } else { Align::Min })
         };
         let mut commit = false;
         let mut cancel = false;
@@ -1951,6 +1957,7 @@ impl App {
             self.variable_selected.as_ref(),
             std::mem::take(&mut self.variable_follow),
             &cell,
+            &|_| false,
             edit.as_ref().map(|e| (e.row, e.column)),
             &mut |ui, rect| {
                 let Some(e) = edit.as_mut() else { return };
@@ -2546,7 +2553,7 @@ impl eframe::App for App {
             egui::Panel::top("update").show(ui, |ui| self.updates.bar(ui));
         }
         egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
-        if self.show_log {
+        if self.show_log && shows_log(self.tab) {
             egui::Panel::bottom("log")
                 .resizable(true)
                 .default_size(150.0)
@@ -2665,12 +2672,37 @@ fn command_card(ui: &mut Ui, spec: &statscraft_syntax::CommandSpec) {
 }
 
 /// What the status bar says about the warnings of the last run.
+/// The log panel shows under the syntax editor and the output; the grids get the whole height.
+fn shows_log(tab: Tab) -> bool {
+    matches!(tab, Tab::Syntax | Tab::Output)
+}
+
 fn warning_note(warnings: usize) -> Option<String> {
     match warnings {
         0 => None,
         1 => Some("1 warning, see the log".into()),
         n => Some(format!("{n} warnings, see the log")),
     }
+}
+
+/// Where the Data View draws a variable's values and value labels: its alignment, else
+/// numbers to the right and strings to the left.
+fn cell_align(variable: &statscraft_data::Variable) -> Align {
+    match variable.alignment() {
+        Some("left") => Align::Min,
+        Some("center") => Align::Center,
+        Some(_) => Align::Max,
+        None if variable.is_string() => Align::Min,
+        None => Align::Max,
+    }
+}
+
+/// The cases the FILTER in force leaves out, whose row numbers the Data View strikes through.
+fn filtered_out(data: &Dataset) -> impl Fn(usize) -> bool + '_ {
+    let filter = data
+        .filter_variable()
+        .and_then(|name| data.variable(name).ok());
+    move |case| filter.as_ref().is_some_and(|f| !f.keeps(case))
 }
 
 /// The split, filter and weight in force, as the status bar names them, each with the dialog
@@ -2905,7 +2937,8 @@ fn cell_editor(ui: &mut Ui, rect: Rect, edit: &mut CellEdit) -> (bool, bool) {
 const MIN_COLUMN: f32 = 20.0;
 
 /// Draws only the visible cells of a large grid, with a header row and row numbers that stay
-/// in view, and reports clicks by (row, column).
+/// in view, and reports clicks by (row, column). The number of a row that `struck` names gets
+/// a diagonal stroke, as a case the filter leaves out.
 #[allow(clippy::too_many_arguments)]
 fn paint_grid(
     ui: &mut Ui,
@@ -2915,7 +2948,8 @@ fn paint_grid(
     rows: usize,
     selected: Option<&grid::Selection>,
     follow: bool,
-    cell: &dyn Fn(usize, usize) -> (String, bool),
+    cell: &dyn Fn(usize, usize) -> (String, Align),
+    struck: &dyn Fn(usize) -> bool,
     editing: Option<(usize, usize)>,
     editor: &mut dyn FnMut(&mut Ui, Rect),
 ) -> GridEvents {
@@ -2954,21 +2988,25 @@ fn paint_grid(
             let cell_rect = |r: usize, c: usize| {
                 Rect::from_min_max(pos2(x(c), y(r)), pos2(x(c + 1), y(r) + row_height))
             };
-            // a right-aligned text too wide for its cell shows its start, so a number cut
-            // short never reads as a different number
-            let text_in =
-                |painter: &egui::Painter, rect: Rect, text: String, right: bool, color: Color32| {
-                    let painter = painter.with_clip_rect(rect.shrink(1.0).intersect(clip));
-                    let galley = painter.layout_no_wrap(text, font.clone(), color);
-                    let width = galley.size().x;
-                    let x = if right && width <= rect.width() - 12.0 {
-                        rect.right() - 6.0 - width
-                    } else {
-                        rect.left() + 6.0
-                    };
-                    let y = rect.center().y - galley.size().y / 2.0;
-                    painter.galley(pos2(x, y), galley, color);
+            // a right-aligned or centred text too wide for its cell shows its start, so a
+            // number cut short never reads as a different number
+            let text_in = |painter: &egui::Painter,
+                           rect: Rect,
+                           text: String,
+                           align: Align,
+                           color: Color32| {
+                let painter = painter.with_clip_rect(rect.shrink(1.0).intersect(clip));
+                let galley = painter.layout_no_wrap(text, font.clone(), color);
+                let width = galley.size().x;
+                let fits = width <= rect.width() - 12.0;
+                let x = match align {
+                    Align::Max if fits => rect.right() - 6.0 - width,
+                    Align::Center if fits => rect.center().x - width / 2.0,
+                    _ => rect.left() + 6.0,
                 };
+                let y = rect.center().y - galley.size().y / 2.0;
+                painter.galley(pos2(x, y), galley, color);
+            };
 
             let (left, right) = (x(visible_columns.start), x(visible_columns.end));
             // a selection of more than one cell is shaded, the cursor framed
@@ -2983,9 +3021,9 @@ fn paint_grid(
                     if wide.is_some_and(|s| s.contains(r, c)) {
                         painter.rect_filled(cell_rect(r, c), 0.0, marked);
                     }
-                    let (text, right) = cell(r, c);
+                    let (text, align) = cell(r, c);
                     if !text.is_empty() {
-                        text_in(&painter, cell_rect(r, c), text, right, visuals.text_color());
+                        text_in(&painter, cell_rect(r, c), text, align, visuals.text_color());
                     }
                 }
                 painter.hline(left..=right, y(r) + row_height, line);
@@ -3033,7 +3071,7 @@ fn paint_grid(
                     &painter,
                     rect,
                     headers[c].clone(),
-                    false,
+                    Align::Min,
                     visuals.strong_text_color(),
                 );
                 painter.vline(x(c + 1), rect.y_range(), line);
@@ -3076,9 +3114,14 @@ fn paint_grid(
                         &painter,
                         rect,
                         (r + 1).to_string(),
-                        true,
+                        Align::Max,
                         visuals.weak_text_color(),
                     );
+                    if struck(r) {
+                        let shrunk = rect.shrink2(vec2(6.0, 3.0));
+                        let stroke = Stroke::new(1.5, visuals.text_color());
+                        painter.line_segment([shrunk.left_bottom(), shrunk.right_top()], stroke);
+                    }
                 }
             }
             painter.vline(side + number_width, clip.top()..=bottom, line);
@@ -4367,6 +4410,51 @@ mod tests {
         let warnings = &session.log.last().unwrap().warnings;
         assert_eq!(warnings.len(), 1, "{warnings:?}");
         assert!(warnings[0].contains("plan"));
+    }
+
+    #[test]
+    fn the_log_shows_under_the_syntax_and_the_output_only() {
+        assert!(shows_log(Tab::Syntax) && shows_log(Tab::Output));
+        assert!(!shows_log(Tab::Data) && !shows_log(Tab::Variables));
+    }
+
+    #[test]
+    fn data_view_cells_follow_the_alignment_of_their_variable() {
+        let mut session = open("survey_basic.sav");
+        let aligns = |session: &Session| -> Vec<Align> {
+            let data = session.dataset().unwrap();
+            ["n", "s"]
+                .map(|name| cell_align(&data.variable(name).unwrap()))
+                .to_vec()
+        };
+        // new variables have no setting: numbers right, strings left
+        run_in(&mut session, "NUMERIC n.\nSTRING s (A8).");
+        assert_eq!(aligns(&session), [Align::Max, Align::Min]);
+        run_in(&mut session, "VARIABLE ALIGNMENT n (LEFT) s (CENTER).");
+        assert_eq!(aligns(&session), [Align::Min, Align::Center]);
+        run_in(&mut session, "VARIABLE ALIGNMENT s (RIGHT).");
+        assert_eq!(aligns(&session), [Align::Min, Align::Max]);
+    }
+
+    #[test]
+    fn the_cases_a_filter_leaves_out_are_struck() {
+        let mut session = open("survey_basic.sav");
+        let struck = |session: &Session| -> Vec<bool> {
+            let out = filtered_out(session.dataset().unwrap());
+            (0..6).map(out).collect()
+        };
+        assert_eq!(struck(&session), [false; 6]);
+        // 1, missing, 3 (user-missing), 0, 1, 2
+        run_in(
+            &mut session,
+            "COMPUTE f = MOD($CASENUM, 4).\nIF ($CASENUM = 2) f = $SYSMIS.\n\
+             MISSING VALUES f (3).\nFILTER BY f.",
+        );
+        assert_eq!(struck(&session), [false, true, true, true, false, false]);
+        // the cases stay, only marked
+        assert_eq!(session.dataset().unwrap().case_count(), 200);
+        run_in(&mut session, "FILTER OFF.");
+        assert_eq!(struck(&session), [false; 6]);
     }
 
     #[test]

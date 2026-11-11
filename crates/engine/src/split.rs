@@ -176,12 +176,8 @@ impl Engine {
         let mut kept: Vec<usize> = (0..data.case_count()).collect();
         if let Some(filter) = filter {
             let variable = data.variable(filter)?;
-            let values = variable.numeric()?;
-            kept.retain(|&case| {
-                values
-                    .get(case)
-                    .is_some_and(|v| v != 0.0 && !variable.is_user_missing(v))
-            });
+            variable.numeric()?;
+            kept.retain(|&case| variable.keeps(case));
         }
         let Some(split) = split else {
             return Ok(Some(vec![Group {

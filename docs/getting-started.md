@@ -185,7 +185,7 @@ statscraft-gui tests/fixtures/survey_basic.sav job.sps
 4. **Output** collects every table. Copy puts a table on the clipboard for a spreadsheet; File, Export output as Excel saves all tables as a workbook.
 5. The menus **Data**, **Analyze** and **Transform** open dialogs that build syntax. OK runs it, Paste puts it in the syntax editor.
 
-Everything the window does is syntax: the log under the tabs lists every command it ran, and Copy syntax there gives a script that repeats your session with `statscraft run`. Edit, Undo last change (Ctrl+Z) takes back the last run that changed the data.
+Everything the window does is syntax: the log under the Syntax and Output views lists every command it ran, and Copy syntax there gives a script that repeats your session with `statscraft run`. Edit, Undo last change (Ctrl+Z) takes back the last run that changed the data.
 
 The grid draws only the visible cells, so large files stay quick. Arrows, Page Up and Down, Home and End move the selection, Ctrl+Home and Ctrl+End go to the first and last cell, and Tab and Shift+Tab move to the next and previous cell, committing an edit on the way. Long lines in the syntax editor wrap; View turns that off. The window uses system fonts; set `STATSCRAFT_FONT` or `STATSCRAFT_MONO_FONT` to a .ttf file to choose others.
 
