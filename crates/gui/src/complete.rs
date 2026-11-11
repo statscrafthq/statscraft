@@ -381,7 +381,7 @@ mod tests {
         assert!(command_at_byte(text, 10).is_none());
         assert!(command_at_byte(text, 17).is_none());
         // recognised but unsupported commands have no card
-        assert!(command_at_byte("FACTOR x.", 1).is_none());
+        assert!(command_at_byte("DISCRIMINANT x.", 1).is_none());
     }
 
     #[test]

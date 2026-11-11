@@ -646,6 +646,44 @@ fn analysis_order_sort_blank_and_matrix_input() {
         kmo,
         1e-7
     ));
+    // a covariance matrix gives the correlations, the counts and the deviations
+    let sd = [
+        1.2417580343,
+        1.4272296076,
+        1.2703534975,
+        1.5488719338,
+        1.2845509425,
+        1.4114447871,
+    ];
+    let mut matrix = String::from(
+        "DATA LIST LIST /ROWTYPE_ (A8) VARNAME_ (A8) x1 x2 x3 x4 x5 x6.\nBEGIN DATA.\nN '' 38 38 38 38 38 38\n",
+    );
+    for (i, row) in r.iter().enumerate() {
+        let values: Vec<String> = row
+            .iter()
+            .enumerate()
+            .map(|(j, v)| (v * sd[i] * sd[j]).to_string())
+            .collect();
+        matrix.push_str(&format!("COV x{} {}\n", i + 1, values.join(" ")));
+    }
+    matrix.push_str(
+        "END DATA.\nFACTOR MATRIX=IN(COV=*) /PRINT=EXTRACTION COVARIANCE /CRITERIA=FACTORS(2) /FORMAT=SORT BLANK(.4).\n",
+    );
+    let from_cov = run_on(&mut Engine::default(), &matrix);
+    for (a, b) in find(&from_cov, "Component Matrix")
+        .rows
+        .iter()
+        .zip(&sorted.rows)
+    {
+        for j in 1..3 {
+            match (&a[j], &b[j]) {
+                (Cell::Number(x), Cell::Number(y)) => assert!(close(*x, *y, 1e-8)),
+                (x, y) => assert_eq!(x, y),
+            }
+        }
+    }
+    let cov = find(&from_cov, "Covariance Matrix");
+    assert!(close(row(cov, "x1")[0], sd[0] * sd[0], 1e-9));
 }
 
 #[test]

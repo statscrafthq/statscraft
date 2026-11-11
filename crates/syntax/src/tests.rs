@@ -380,8 +380,8 @@ fn unknown_command_gets_a_did_you_mean_hint() {
 #[test]
 fn real_but_unsupported_commands_say_so() {
     for (source, name) in [
-        ("QUICK CLUSTER a b.", "QUICK CLUSTER"),
-        ("factor /variables=a.", "FACTOR"),
+        ("CLUSTER a b.", "CLUSTER"),
+        ("report /format=list.", "REPORT"),
         ("GLM a BY b.", "GLM"),
         ("REPORT /FORMAT=LIST.", "REPORT"),
         ("DISC /GROUPS=a(1,2).", "DISCRIMINANT"),
