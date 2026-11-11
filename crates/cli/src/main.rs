@@ -222,8 +222,7 @@ fn save_named(data: &std::path::Path, session: &Session) -> Result<(), String> {
     }
     std::fs::create_dir_all(&folder).map_err(|e| e.to_string())?;
     for (i, (_, data)) in datasets.iter().enumerate() {
-        data.write_sav(folder.join(format!("{i}.zsav")))
-            .map_err(|e| e.to_string())?;
+        write_kept(data, &folder.join(format!("{i}.zsav")))?;
     }
     let named = NamedDatasets {
         active: active.map(str::to_string),
@@ -233,9 +232,22 @@ fn save_named(data: &std::path::Path, session: &Session) -> Result<(), String> {
     std::fs::write(folder.join("names.json"), text).map_err(|e| e.to_string())
 }
 
+/// Writes a dataset the session keeps. Text the file's code page cannot hold, such as a label
+/// typed in another language, is kept in UTF-8 instead of leaving the session unsaved.
+fn write_kept(dataset: &Dataset, path: &std::path::Path) -> Result<(), String> {
+    match dataset.write_sav(path) {
+        Err(e) if dataset.encoding() != "UTF-8" => {
+            let mut unicode = dataset.clone();
+            unicode.set_encoding("UTF-8").map_err(|e| e.to_string())?;
+            unicode.write_sav(path).map_err(|_| e.to_string())
+        }
+        written => written.map_err(|e| e.to_string()),
+    }
+}
+
 /// Writes the dataset of a session and the state that its file cannot hold.
 fn save_session(path: &std::path::Path, dataset: &Dataset) -> Result<(), String> {
-    dataset.write_sav(path).map_err(|e| e.to_string())?;
+    write_kept(dataset, path)?;
     let state = SessionState {
         split_file: dataset.split_file().cloned(),
         filter_variable: dataset.filter_variable().map(str::to_string),

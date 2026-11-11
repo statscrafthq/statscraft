@@ -466,3 +466,14 @@ fn the_macro_state_carries_definitions_and_settings_to_the_next_text() {
     split_commands_with(text, None, &mut ranged, Some((2, 2))).unwrap();
     assert_eq!(ranged.names(), ["!TWO"]);
 }
+
+#[test]
+fn a_broken_line_outside_the_range_does_not_stop_the_range() {
+    let text = "COMPUTE x = 1.\nCOMPUTE y = 557O.\nCOMPUTE z = 2.";
+    let mut state = MacroState::default();
+    assert!(split_commands_with(text, None, &mut state, None).is_err());
+    let raw = split_commands_with(text, None, &mut state, Some((3, 3))).unwrap();
+    assert!(raw.iter().any(|c| c.first_line == 3));
+    let error = split_commands_with(text, None, &mut state, Some((2, 3))).unwrap_err();
+    assert_eq!(error.message, "invalid number 557O");
+}

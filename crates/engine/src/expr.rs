@@ -127,6 +127,23 @@ const UNSUPPORTED: &[&str] = &[
     "NPDF.",
 ];
 
+/// A function name shortened to three or more letters that start only one function, such as
+/// SYS for SYSMIS, as the full name; any other name as it is.
+fn full_name(name: String) -> String {
+    let names = FUNCTIONS.iter().map(|(f, _)| *f);
+    let all = names
+        .clone()
+        .chain(UNSUPPORTED.iter().map(|u| u.trim_end_matches('.')));
+    if name.len() < 3 || name.contains('.') || names.clone().any(|f| f == name) {
+        return name;
+    }
+    let mut starting = all.filter(|f| f.starts_with(&name));
+    match (starting.next(), starting.next()) {
+        (Some(only), None) if names.clone().any(|f| f == only) => only.to_string(),
+        _ => name,
+    }
+}
+
 const SECONDS_PER_DAY: f64 = 86400.0;
 /// Days from 1582-10-14, where date values start, to 1970-01-01.
 pub(crate) const DAYS_TO_1970: i64 = 141_428;
@@ -715,7 +732,7 @@ impl Evaluator<'_> {
     }
 
     fn call(&self, name: &str, args: &[Expr]) -> Result<Column, Error> {
-        let upper = name.to_uppercase();
+        let upper = full_name(name.to_uppercase());
         // `MEAN.2`: the suffix is the number of valid arguments the result needs
         let suffix = upper.rsplit_once('.').and_then(|(base, n)| {
             let needed = STATISTICS.iter().find(|(known, _)| *known == base)?.1;

@@ -480,6 +480,28 @@ fn run_writes_every_table_to_a_workbook() {
 }
 
 #[test]
+fn a_session_keeps_text_its_code_page_cannot_hold() {
+    let dir = Workdir::new("session-code-page");
+    dir.ok(&[
+        "run",
+        "-e",
+        "DATA LIST FREE /x.\nBEGIN DATA\n1 2\nEND DATA.\nSAVE OUTFILE='u.sav'.",
+    ]);
+    let mut data = statscraft_data::Dataset::read_sav(dir.0.join("u.sav")).unwrap();
+    data.set_encoding("windows-1252").unwrap();
+    data.write_sav(dir.0.join("w.sav")).unwrap();
+    dir.ok(&["run", "-s", "t1", "-e", "GET FILE='w.sav'."]);
+    // Latvian a with macron: no code in Windows-1252
+    let label = dir.json(&["run", "-s", "t1", "--json", "-e", "VALUE LABELS x 1 'ā'."]);
+    assert_eq!(label["saved"], true);
+    let next = dir.json(&["run", "-s", "t1", "--json", "-e", "COMPUTE y = x * 2."]);
+    assert_eq!(next["dataset"], serde_json::json!([2, 2]));
+    let description = dir.json(&["describe", "-s", "t1", "--json"]);
+    let labels = &description["variables"][0]["value_labels"];
+    assert_eq!(labels.to_string(), r#"{"1":"ā"}"#);
+}
+
+#[test]
 fn a_syntax_file_in_a_legacy_code_page_is_read_by_detection_or_by_name() {
     let dir = Workdir::new("encoding");
     // "Šoti" in Windows-1257, where 0xD0 is S with caron; not valid UTF-8

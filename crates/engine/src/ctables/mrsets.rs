@@ -26,7 +26,7 @@
 //! - The case weight weighs every response of the case.
 
 use super::{
-    Category, CategoryList, Key, Subtotal, Tally, TermVar, VlabelsDisplay, add_subtotals,
+    Category, CategoryList, Key, Mass, Subtotal, Tally, TermVar, VlabelsDisplay, add_subtotals,
     add_total, categories,
 };
 use crate::{Engine, Error};
@@ -333,21 +333,21 @@ impl Tally {
     /// only.
     pub(super) fn add_case(
         &mut self,
-        weight: f64,
+        mass: Mass,
         (valid, responses): (bool, f64),
         value: Option<f64>,
         keep_values: bool,
         total_only: bool,
     ) {
         if total_only {
-            self.total_only += weight;
-            self.total_only_cases += 1.0;
-            self.total_only_squares += weight * weight;
+            self.total_only += mass.weight;
+            self.total_only_cases += mass.cases;
+            self.total_only_squares += mass.squares;
             return;
         }
-        self.add(weight, valid, value, keep_values);
-        self.responses += weight * responses;
-        self.unweighted_responses += responses;
+        self.add(mass, valid, value, keep_values);
+        self.responses += mass.weight * responses;
+        self.unweighted_responses += mass.cases * responses;
     }
 }
 

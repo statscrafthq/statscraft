@@ -9,10 +9,13 @@ Contingency tables with percentages, residuals and chi-square tests.
 ```text
 CROSSTABS [/]TABLES=rowvars BY colvars [BY layervars ...] [/TABLES=...]
           [/CELLS=COUNT ROW COLUMN TOTAL EXPECTED RESID SRESID ASRESID ALL NONE]
-          [/STATISTICS=CHISQ] [/MISSING=TABLE | INCLUDE] [/FORMAT=AVALUE | DVALUE].
+          [/STATISTICS=CHISQ] [/MISSING=TABLE | INCLUDE]
+          [/FORMAT=AVALUE | DVALUE TABLES | NOTABLES].
 ```
 
 One table per pair of row and column variable; layer variables split it into blocks.
+
+NOTABLES leaves out the tables, as CELLS=NONE does, keeping the statistics.
 
 CELLS defaults to COUNT; CELLS alone is COUNT ROW COLUMN TOTAL. Percentages are 0 to 100.
 

@@ -89,7 +89,7 @@ A session is a named dataset kept on disk between runs, in `.statscraft/sessions
 
 - The first run of a new session starts without data; its syntax usually begins with `GET FILE`.
 - The session also keeps its named datasets, and its macros with the SET values that steer them (MEXPAND, MPRINT, MNEST, MITERATE) in `macros.sps`, so a macro library included in one run can be called in the next. With `--lines`, only the macros defined on those lines are kept; a macro defined elsewhere in the file still serves the run, as before.
-- A run saves the session when it changed the dataset, its named datasets or its macros, or when the session file did not exist yet.
+- A run saves the session when it changed the dataset, its named datasets or its macros, or when the session file did not exist yet. A dataset keeps the encoding of the file it came from; when a label or value no longer fits that code page (a letter of another language), the session keeps it in UTF-8 instead.
 - `check` and `describe` never write it.
 - Delete the session's folder to start over.
 
@@ -98,7 +98,7 @@ statscraft run -s demo --lines 1-1 job.sps
 statscraft run -s demo --lines 4-6 job.sps
 ```
 
-`--lines` selects the commands that lie inside the range. Blank lines and comments inside it are fine, but the range must cover whole commands. A range that cuts through one fails:
+`--lines` selects the commands that lie inside the range. Blank lines and comments inside it are fine, and a syntax error on a line outside the range does not stop it, but the range must cover whole commands. A range that cuts through one fails:
 
 ```
 error: line 1, column 1: line range 2-3 cuts through command FREQUENCIES, which occupies lines 1-2; hint: use lines 1-3 to include the whole command

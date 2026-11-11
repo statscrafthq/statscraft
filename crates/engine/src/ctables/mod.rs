@@ -308,21 +308,46 @@ struct Tally {
     total_only_squares: f64,
 }
 
-impl Tally {
-    fn add(&mut self, weight: f64, valid: bool, value: Option<f64>, keep_values: bool) {
+/// Cases that add to a tally alike: how many there are, and their summed weights and squared
+/// weights.
+#[derive(Clone, Copy)]
+struct Mass {
+    cases: f64,
+    weight: f64,
+    squares: f64,
+}
+
+impl Mass {
+    fn one(weight: f64) -> Self {
+        Mass {
+            cases: 1.0,
+            weight,
+            squares: weight * weight,
+        }
+    }
+
+    fn add(&mut self, weight: f64) {
         self.cases += 1.0;
-        self.count += weight;
+        self.weight += weight;
         self.squares += weight * weight;
+    }
+}
+
+impl Tally {
+    fn add(&mut self, mass: Mass, valid: bool, value: Option<f64>, keep_values: bool) {
+        self.cases += mass.cases;
+        self.count += mass.weight;
+        self.squares += mass.squares;
         if valid {
-            self.valid_cases += 1.0;
-            self.valid += weight;
-            self.valid_squares += weight * weight;
+            self.valid_cases += mass.cases;
+            self.valid += mass.weight;
+            self.valid_squares += mass.squares;
         }
         if let Some(x) = value {
-            self.sum += weight * x;
-            self.unweighted_sum += x;
+            self.sum += mass.weight * x;
+            self.unweighted_sum += mass.cases * x;
             if keep_values {
-                self.values.push((x, weight));
+                self.values.push((x, mass.weight));
             }
         }
     }
@@ -942,7 +967,7 @@ fn sort_by_summary(
                 Some(_) => value.is_some(),
                 None => !list.categories[c].missing,
             };
-            tallies[c].add_case(weight, (valid, responses), value, true, false);
+            tallies[c].add_case(Mass::one(weight), (valid, responses), value, true, false);
         }
     }
     let values: Vec<Option<f64>> = tallies
@@ -990,6 +1015,31 @@ fn sort_by_summary(
 
 fn list_of<'l>(lists: &'l HashMap<String, CategoryList>, var: &TermVar) -> &'l CategoryList {
     &lists[&var.key()]
+}
+
+/// The categories of every case of a categorical variable or set, worked out once for all the
+/// sections of a table: an index into `distinct` per case, None for a case the table leaves out.
+struct Choices {
+    ids: Vec<Option<u32>>,
+    distinct: Vec<mrsets::Choice>,
+}
+
+impl Choices {
+    fn of(var: &TermVar, list: &CategoryList, cases: usize) -> Choices {
+        let mut seen: HashMap<Vec<(usize, u64)>, u32> = HashMap::new();
+        let mut distinct = Vec::new();
+        let ids = (0..cases)
+            .map(|case| {
+                let choice = mrsets::choice(var, list, case)?;
+                let key = choice.iter().map(|(c, r)| (*c, r.to_bits())).collect();
+                Some(*seen.entry(key).or_insert_with(|| {
+                    distinct.push(choice);
+                    (distinct.len() - 1) as u32
+                }))
+            })
+            .collect();
+        Choices { ids, distinct }
+    }
 }
 
 /// Every combination of the categories of the lists, the first list varying slowest.
@@ -1491,6 +1541,18 @@ impl Engine {
         }
 
         // gather the cases of every section
+        let mut choices: HashMap<String, Choices> = HashMap::new();
+        let all_terms = layout
+            .rows
+            .iter()
+            .chain(&layout.columns)
+            .chain(&layout.layers);
+        for var in all_terms.flatten().filter(|v| !v.scale) {
+            let list = list_of(var);
+            choices
+                .entry(var.key())
+                .or_insert_with(|| Choices::of(var, list, data.case_count()));
+        }
         let mut sections: HashMap<(usize, usize, usize), Section> = HashMap::new();
         let tested = table.sigtest.is_some() || !table.comparetests.is_empty();
         for (r, row_term) in layout.rows.iter().enumerate() {
@@ -1510,7 +1572,7 @@ impl Engine {
                         data,
                         weights,
                         [row_term, column_term, layer_term],
-                        &lists,
+                        (&lists, &choices),
                         (summaries, totals.as_deref()),
                         variable,
                         (tested, table.labels_moved, command.weight.is_some(), group),
@@ -1924,7 +1986,7 @@ impl Section {
         data: &Dataset,
         weights: Option<&[f64]>,
         terms: [&[TermVar<'a>]; 3],
-        lists: &HashMap<String, CategoryList>,
+        (lists, choices): (&HashMap<String, CategoryList>, &HashMap<String, Choices>),
         (summaries, total_summaries): (&[Indexed], Option<&[Indexed]>),
         summary_variable: &TermVar<'a>,
         (margins, moved, effective, listwise): (bool, LabelsMoved, bool, &[Variable]),
@@ -2017,12 +2079,19 @@ impl Section {
             && summary_variable.set.is_none()
             && total_summaries.is_some_and(|t| t.iter().any(|(_, s, _)| scale_only(s.function)));
         let keep_values = scale.is_some() || own_values;
+        let measured = scale.or(own_values.then_some(summary_variable));
+        let tables: Vec<&Choices> = cats.iter().map(|v| &choices[&v.key()]).collect();
+        // without a measured value, cases with the same categories add alike: they are added
+        // once, as a group, which keeps large tables fast
+        let mut groups: Vec<(Vec<u32>, Mass, Option<f64>)> = Vec::new();
+        let mut group_of: HashMap<Vec<u32>, usize> = HashMap::new();
+        let mut ids: Vec<u32> = Vec::with_capacity(cats.len());
         'cases: for case in 0..data.case_count() {
             // the categories of the case: one per variable, any number for a set
-            let mut choices = Vec::with_capacity(cats.len());
-            for (var, list) in cats.iter().zip(&lists) {
-                match mrsets::choice(var, list, case) {
-                    Some(choice) => choices.push(choice),
+            ids.clear();
+            for table in &tables {
+                match table.ids[case] {
+                    Some(id) => ids.push(id),
                     None => continue 'cases,
                 }
             }
@@ -2031,15 +2100,21 @@ impl Section {
             if weight <= 0.0 {
                 continue;
             }
-            let measured = scale.or(own_values.then_some(summary_variable));
-            let mut value = match measured {
-                Some(measured) => measured
-                    .variable
-                    .numeric()?
-                    .get(case)
-                    .filter(|v| !measured.variable.is_user_missing(*v)),
-                None => None,
+            let Some(measured) = measured else {
+                match group_of.get(&ids[..]) {
+                    Some(&g) => groups[g].1.add(weight),
+                    None => {
+                        group_of.insert(ids.clone(), groups.len());
+                        groups.push((ids.clone(), Mass::one(weight), None));
+                    }
+                }
+                continue;
             };
+            let mut value = measured
+                .variable
+                .numeric()?
+                .get(case)
+                .filter(|v| !measured.variable.is_user_missing(*v));
             for other in listwise {
                 if other
                     .numeric()?
@@ -2049,6 +2124,12 @@ impl Section {
                     value = None;
                 }
             }
+            groups.push((ids.clone(), Mass::one(weight), value));
+        }
+        for (ids, mass, value) in groups {
+            let choices: Vec<&mrsets::Choice> = (ids.iter().zip(&tables))
+                .map(|(id, table)| &table.distinct[*id as usize])
+                .collect();
             // whether the case is valid, and its responses, in one category of the summary
             // variable, or in all of them for None
             let judge = |of: Option<usize>| match (scale, summary_list) {
@@ -2061,7 +2142,7 @@ impl Section {
                     }),
                 (None, None) => (true, 1.0),
             };
-            let total_only = choices.iter().any(Vec::is_empty);
+            let total_only = choices.iter().any(|c| c.is_empty());
             // the cells of every variable the case adds to: its categories, the subtotals that
             // sum them and the total, each once
             let expanded: Vec<Vec<usize>> = choices
@@ -2099,7 +2180,7 @@ impl Section {
                     section.denominators[a]
                         .entry(area_key)
                         .or_default()
-                        .add_case(weight, stats, value, false, total_only);
+                        .add_case(mass, stats, value, false, total_only);
                 }
             }
             // the cells of the categories, and of the totals and subtotals in their place
@@ -2118,7 +2199,7 @@ impl Section {
                         .then_some(target[i])
                 });
                 section.cells.entry(target).or_default().add_case(
-                    weight,
+                    mass,
                     judge(of),
                     value,
                     keep_values,
@@ -2144,7 +2225,7 @@ impl Section {
                         for prefix in &shared {
                             let key = [&prefix[..], &pair[..]].concat();
                             section.pairs.entry(key).or_default().add_case(
-                                weight,
+                                mass,
                                 (value.is_some(), 1.0),
                                 value,
                                 false,

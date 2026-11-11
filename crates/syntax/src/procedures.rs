@@ -76,9 +76,7 @@ const UNSUPPORTED_STATISTICS: [&str; 14] = [
     "CMH", "ALL",
 ];
 
-const UNSUPPORTED_FORMATS: [&str; 8] = [
-    "TABLES", "NOTABLES", "PIVOT", "NOPIVOT", "BOX", "NOBOX", "INDEX", "NOINDEX",
-];
+const UNSUPPORTED_FORMATS: [&str; 6] = ["PIVOT", "NOPIVOT", "BOX", "NOBOX", "INDEX", "NOINDEX"];
 
 /// Error at a keyword of a subcommand: "not supported yet" for one of `unsupported`, otherwise
 /// "unexpected" with the supported keywords as the expected ones.
@@ -262,6 +260,7 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
         descending: false,
     };
     let mut cells: Option<Vec<CrosstabsCell>> = None;
+    let mut no_tables = false;
     p.eat(Punct::Slash);
     let mut more = true;
     if p.peek_at(1) != Some(&TokenKind::Punct(Punct::Eq)) {
@@ -312,7 +311,13 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
             command.include = chosen.last() == Some(&true);
         } else if p.eat_keyword("FORMAT") {
             p.eat(Punct::Eq);
-            const CHOICES: [(&str, &[bool]); 2] = [("AVALUE", &[false]), ("DVALUE", &[true])];
+            // the order of the rows, and TABLES (the default) or NOTABLES, the same as CELLS=NONE
+            const CHOICES: [(&str, &[u8]); 4] = [
+                ("AVALUE", &[0]),
+                ("DVALUE", &[1]),
+                ("TABLES", &[2]),
+                ("NOTABLES", &[3]),
+            ];
             let chosen = keywords(p, &CHOICES, |p| {
                 keyword_error(
                     p,
@@ -321,7 +326,9 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
                     &names(&CHOICES),
                 )
             })?;
-            command.descending = chosen.last() == Some(&true);
+            let last = |pair: [u8; 2]| chosen.iter().rfind(|c| pair.contains(*c)).copied();
+            command.descending = last([0, 1]).map_or(command.descending, |c| c == 1);
+            no_tables = last([2, 3]).map_or(no_tables, |c| c == 3);
         } else {
             return Err(p.subcommand_error("CROSSTABS", &CROSSTABS_SUBCOMMANDS));
         }
@@ -331,7 +338,10 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
     if command.tables.is_empty() {
         return Err(p.unexpected(&["TABLES=rows BY columns"]));
     }
-    let mut cells = cells.unwrap_or_else(|| vec![CrosstabsCell::Count]);
+    let mut cells = match no_tables {
+        true => Vec::new(),
+        false => cells.unwrap_or_else(|| vec![CrosstabsCell::Count]),
+    };
     cells.sort();
     cells.dedup();
     command.cells = cells;

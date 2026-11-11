@@ -816,3 +816,23 @@ IF ($CASENUM = 1) monthly_spend = $SYSMIS.",
     assert_eq!(number(&engine, "monthly_spend", 1), None);
     assert_eq!(number(&engine, "monthly_spend", 2), Some(127.1));
 }
+
+#[test]
+fn a_function_name_may_be_shortened_to_three_letters_that_start_only_it() {
+    let mut engine = Engine::default();
+    let data = "DATA LIST FREE /x.\nBEGIN DATA\n1 . 3\nEND DATA.\n";
+    let syntax = "COMPUTE y = 0.\nIF (sys(x)) y = 1.\nCOMPUTE n = NVAL(x, 2).\n\
+                  COMPUTE m = mea(x, 5).";
+    try_run(&mut engine, &format!("{data}{syntax}")).unwrap();
+    assert_eq!(numbers(&engine, "y"), [Some(0.0), Some(1.0), Some(0.0)]);
+    assert_eq!(numbers(&engine, "n"), [Some(2.0), Some(1.0), Some(2.0)]);
+    assert_eq!(numbers(&engine, "m"), [Some(3.0), Some(5.0), Some(4.0)]);
+    for (syntax, expected) in [
+        // STR starts STRING and STRUNC, SY is too short
+        ("COMPUTE z = STR(x, F2.0).", "unknown function STR"),
+        ("COMPUTE z = SY(x).", "unknown function SY"),
+    ] {
+        let message = try_run(&mut engine, syntax).unwrap_err();
+        assert_eq!(message, expected, "{syntax}");
+    }
+}

@@ -1536,3 +1536,52 @@ fn computed_labels_name_listed_categories() {
     let e = run_on(&mut Engine::default(), &source).unwrap_err();
     assert!(e.contains(")LABEL[4] names item 4"), "{e}");
 }
+
+// Stacked variables on both axes make a section for every pair; the categories of each case
+// are worked out once per variable and cases with the same categories are added together, so
+// every cell must still hold exactly its own cases and their weights.
+#[test]
+fn stacked_variables_count_every_pair_of_their_cases() {
+    let n = 3000;
+    let a = |k: usize, i: usize| {
+        (!i.is_multiple_of(11) || k > 0).then(|| 1 + (i * (k + 1) + i / 7) % 3)
+    };
+    let b = |j: usize, i: usize| 1 + (i * (j + 2) / 3) % 2;
+    let w = |i: usize| 0.5 + (i % 4) as f64 * 0.5;
+    let mut source = String::from("DATA LIST FREE /a1 a2 a3 a4 b1 b2 b3 w.\nBEGIN DATA\n");
+    for i in 0..n {
+        for k in 0..4 {
+            source.push_str(&a(k, i).map_or(".".into(), |v| v.to_string()));
+            source.push(' ');
+        }
+        for j in 0..3 {
+            source.push_str(&format!("{} ", b(j, i)));
+        }
+        source.push_str(&format!("{}\n", w(i)));
+    }
+    source.push_str("END DATA.\nWEIGHT BY w.\nCTABLES /TABLE a1 + a2 + a3 + a4 BY ");
+    source.push_str("b1 [COUNT, UCOUNT] + b2 [COUNT, UCOUNT] + b3 [COUNT, UCOUNT].");
+    let t = run_on(&mut Engine::default(), &source).unwrap().remove(0);
+    assert_eq!(t.rows.len(), 12);
+    for k in 0..4 {
+        for r in 1..=3 {
+            let row = numbers(&t, k * 3 + r - 1);
+            for j in 0..3 {
+                for c in 1..=2 {
+                    let cases: Vec<usize> = (0..n)
+                        .filter(|&i| a(k, i) == Some(r) && b(j, i) == c)
+                        .collect();
+                    let weighted: f64 = cases.iter().map(|&i| w(i)).sum();
+                    let at = j * 4 + (c - 1) * 2;
+                    assert_eq!(
+                        row[at..at + 2],
+                        [Some(weighted), Some(cases.len() as f64)],
+                        "a{} = {r}, b{} = {c}",
+                        k + 1,
+                        j + 1
+                    );
+                }
+            }
+        }
+    }
+}

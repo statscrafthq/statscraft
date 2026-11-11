@@ -457,6 +457,11 @@ pub fn split_commands_with(
 ) -> Result<Vec<RawCommand>, SyntaxError> {
     split_with(source, base, macros, range)
         .into_iter()
+        // an error on a line outside the range does not stop the lines that run
+        .filter(|c| match (c, range) {
+            (Err(e), Some((first, last))) => (first..=last).contains(&e.span.line),
+            _ => true,
+        })
         .collect()
 }
 

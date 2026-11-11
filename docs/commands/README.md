@@ -124,6 +124,7 @@ One page per supported command, generated from the same table that the parser an
   Comments: a command starting with * or COMMENT, or /* text */ inside a line.
   Expressions: + - * / **, = <> < > <= >= (or EQ NE LT GT LE GE), AND OR NOT (or & | ~),
   functions such as MEAN(a, b) or SUM(q1 TO q5); LAG(var [, n]) is the value n cases back.
+  A function name may be shortened to three or more letters that start no other function.
   Scratch variables start with #: they begin at 0 or blank, keep their value from case to case,
   are never saved and are gone when the next procedure starts. $CASENUM is the case number.
 ```

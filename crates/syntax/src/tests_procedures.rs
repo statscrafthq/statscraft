@@ -139,6 +139,26 @@ fn crosstabs() {
     );
     assert_eq!(err("CROSSTABS a b.").expected, ["BY"]);
     assert_eq!(err("CROSSTABS /TABLES=a.").expected, ["BY"]);
+    assert!(
+        err("CROSSTABS a BY b /FORMAT=NOBOX.")
+            .message
+            .contains("NOBOX in CROSSTABS /FORMAT is not supported yet")
+    );
+}
+
+#[test]
+fn crosstabs_format_tables_is_the_default_and_notables_is_cells_none() {
+    let crosstabs = |source: &str| match one(source) {
+        Command::Crosstabs(c) => c,
+        other => panic!("{other:?}"),
+    };
+    let tables = crosstabs("CROSSTABS a BY b /FORMAT=AVALUE TABLES.");
+    assert_eq!(tables.cells, [CrosstabsCell::Count]);
+    assert!(!tables.descending);
+    let none = crosstabs("CROSSTABS a BY b /CELLS=COUNT ROW /FORMAT=DVALUE NOTABLES /STAT=CHISQ.");
+    assert!(none.cells.is_empty() && none.descending && none.chisq);
+    // the last of TABLES and NOTABLES counts
+    assert!(crosstabs("CROSSTABS a BY b /FORMAT=NOTABLES TABLES.").cells == [CrosstabsCell::Count]);
 }
 
 #[test]

@@ -620,8 +620,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "Contingency tables with percentages, residuals and chi-square tests.",
         syntax: "CROSSTABS [/]TABLES=rowvars BY colvars [BY layervars ...] [/TABLES=...]\n\
                  \x20         [/CELLS=COUNT ROW COLUMN TOTAL EXPECTED RESID SRESID ASRESID ALL NONE]\n\
-                 \x20         [/STATISTICS=CHISQ] [/MISSING=TABLE | INCLUDE] [/FORMAT=AVALUE | DVALUE].\n\
+                 \x20         [/STATISTICS=CHISQ] [/MISSING=TABLE | INCLUDE]\n\
+                 \x20         [/FORMAT=AVALUE | DVALUE TABLES | NOTABLES].\n\
                  One table per pair of row and column variable; layer variables split it into blocks.\n\
+                 NOTABLES leaves out the tables, as CELLS=NONE does, keeping the statistics.\n\
                  CELLS defaults to COUNT; CELLS alone is COUNT ROW COLUMN TOTAL. Percentages are 0 to 100.\n\
                  STATISTICS alone is CHISQ. DVALUE orders the rows from the highest value; columns stay ascending.\n\
                  CHISQ: Pearson, likelihood ratio, linear-by-linear (numeric variables), and for a 2 x 2\n\
@@ -1393,6 +1395,7 @@ General rules:
   Comments: a command starting with * or COMMENT, or /* text */ inside a line.
   Expressions: + - * / **, = <> < > <= >= (or EQ NE LT GT LE GE), AND OR NOT (or & | ~),
   functions such as MEAN(a, b) or SUM(q1 TO q5); LAG(var [, n]) is the value n cases back.
+  A function name may be shortened to three or more letters that start no other function.
   Scratch variables start with #: they begin at 0 or blank, keep their value from case to case,
   are never saved and are gone when the next procedure starts. $CASENUM is the case number.
 ";
