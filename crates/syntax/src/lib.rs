@@ -40,6 +40,7 @@ mod rank;
 mod regression;
 mod reliability;
 mod restructure;
+mod save_translate;
 mod selection;
 mod session_commands;
 mod split;

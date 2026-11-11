@@ -1,4 +1,5 @@
-//! GET DATA /TYPE=TXT: a delimited or fixed-column text file as the new active dataset.
+//! GET DATA /TYPE=TXT: a delimited or fixed-column text file as the new active dataset. The
+//! workbook types are in `workbook`.
 //!
 //! Choices where the manual is silent:
 //! - Without DELIMITERS a tab or a comma separates values, and blanks around values go.
@@ -16,9 +17,10 @@ use statscraft_syntax::{Format, FormatType, GetData};
 
 const SHOWN_WARNINGS: usize = 20;
 
-/// Splits delimited text into records of values, honouring the qualifier across lines. Each
+/// Splits delimited text into records of values, honouring the qualifier across lines (GET DATA
+/// /TYPE=TXT, and the window when it looks at a file to open). Each
 /// record comes with its 1-based line number.
-fn delimited(
+pub fn delimited(
     text: &str,
     delimiters: &[char],
     qualifier: Option<char>,
@@ -131,7 +133,11 @@ fn any_date(text: &str) -> Result<Option<f64>, &'static str> {
 }
 
 /// One value in a numeric input format.
-fn number(text: &str, format: Format, comma_decimal: bool) -> Result<Option<f64>, &'static str> {
+pub(crate) fn number(
+    text: &str,
+    format: Format,
+    comma_decimal: bool,
+) -> Result<Option<f64>, &'static str> {
     let text = text.trim();
     if text.is_empty() || text == "." {
         return Ok(None);
@@ -163,6 +169,11 @@ fn number(text: &str, format: Format, comma_decimal: bool) -> Result<Option<f64>
 
 impl Engine {
     pub(crate) fn get_data(&mut self, command: &GetData) -> Result<(), Error> {
+        if let Some(options) = &command.spreadsheet {
+            let data = self.read_workbook(command, options)?;
+            self.make_active(data);
+            return Ok(());
+        }
         let path = self.path(&command.file);
         let bytes = std::fs::read(&path)
             .map_err(|e| Error(format!("GET DATA: cannot read {}: {e}", command.file)))?;
@@ -327,19 +338,28 @@ impl Engine {
                 }
             }
         }
+        self.warn_some(warnings);
+        self.make_active(data);
+        Ok(())
+    }
+
+    /// The first warnings about values, and how many more there are.
+    pub(crate) fn warn_some(&mut self, mut warnings: Vec<String>) {
         let hidden = warnings.len().saturating_sub(SHOWN_WARNINGS);
         warnings.truncate(SHOWN_WARNINGS);
         warnings.into_iter().for_each(|w| self.warn(w));
         if hidden > 0 {
             self.warn(format!("{hidden} more values could not be read"));
         }
+    }
+
+    fn make_active(&mut self, data: Dataset) {
         self.park_active();
         self.dataset = Some(data);
         self.scratch_assigned.clear();
         self.temporary = None;
         self.case_limit = None;
         self.default_measures();
-        Ok(())
     }
 }
 

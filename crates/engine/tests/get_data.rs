@@ -110,10 +110,13 @@ fn values_per_case_across_lines_and_other_types_refused() {
     assert_eq!(numbers(data, "a"), [Some(1.0), Some(3.0), Some(5.0)]);
     assert_eq!(numbers(data, "b"), [Some(2.0), Some(4.0), Some(6.0)]);
     let error = session
-        .run("GET DATA /TYPE=XLSX /FILE='a.xlsx' /SHEET=INDEX 1.", None)
+        .run(
+            "GET DATA /TYPE=ODBC /CONNECT='DSN=x' /SQL='SELECT 1'.",
+            None,
+        )
         .unwrap_err();
     assert!(
-        error[0].message.contains("TYPE=XLSX is not supported yet"),
+        error[0].message.contains("TYPE=ODBC is not supported yet"),
         "{error:?}"
     );
     std::fs::remove_dir_all(&dir).unwrap();

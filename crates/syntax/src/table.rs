@@ -21,6 +21,7 @@ use crate::rank;
 use crate::regression;
 use crate::reliability;
 use crate::restructure;
+use crate::save_translate;
 use crate::selection;
 use crate::session_commands;
 use crate::stats;
@@ -1448,23 +1449,68 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "GET DATA",
-        summary: "Read a text data file, delimited or in fixed columns, as the active dataset.",
+        summary: "Read a text data file or a sheet of a workbook as the active dataset.",
         syntax: "GET DATA /TYPE=TXT /FILE='path' [/ENCODING='name'] [/ARRANGEMENT=DELIMITED | FIXED]\n\
                  \x20        [/FIRSTCASE=n] [/DELCASE=LINE | VARIABLES n] [/FIXCASE=n] [/DELIMITERS=\"chars\"]\n\
                  \x20        [/QUALIFIER=\"c\"] [/IMPORTCASE=ALL | FIRST n] [/MULTIPLESPACES IGNORE=NO | YES]\n\
                  \x20        [/LEADINGSPACES IGNORE=NO | YES]\n\
                  \x20        /VARIABLES=name format [name format ...].\n\
-                 FIXED: /VARIABLES=[/record] name first-last format ..., columns counted from 0.\n\
+                 GET DATA /TYPE=XLSX | XLSM | XLS /FILE='path' [/SHEET=INDEX n | NAME 'name']\n\
+                 \x20        [/CELLRANGE=FULL | RANGE 'A1:K14'] [/READNAMES=ON | OFF] [/ASSUMEDSTRWIDTH=n]\n\
+                 \x20        [/HIDDEN IGNORE=NO | YES] [/LEADINGSPACES IGNORE=NO | YES]\n\
+                 \x20        [/TRAILINGSPACES IGNORE=NO | YES] [/DATATYPEMIN PERCENTAGE=n].\n\
+                 Text files. FIXED: /VARIABLES=[/record] name first-last format ..., columns counted from 0.\n\
                  format: F, A, DATE, ADATE, SDATE, DATETIME, DOLLAR, COMMA and the other input formats, with\n\
                  or without a width; AUTO reads a number when every value is one, else a string as wide as the\n\
                  longest value; X skips the field. DELIMITERS: \\t is a tab, \\\\ a backslash; two delimiters\n\
                  in a row leave a value empty. Default delimiters: tab and comma. A value between\n\
                  qualifiers may hold delimiters and line breaks; a doubled qualifier is one. SET DECIMAL=COMMA\n\
                  reads a comma as the decimal mark. ENCODING as for INSERT; a byte order mark wins.\n\
-                 Other types (XLS, XLSX, ODBC) are not supported yet.",
+                 Workbooks (XLSX and XLSM from Excel 2007 on, XLS from Excel 95 to 2003). The first sheet by\n\
+                 default; FULL reads from the first to the last cell with a value. READNAMES=ON (default)\n\
+                 takes the first row as names, made valid: other characters become _, a name that does not\n\
+                 start with a letter gets a V in front, a repeated one _2; OFF and an empty heading give V1,\n\
+                 V2, ... by the column in the range. A column is numeric (F, 0 or 2 decimals) when all its\n\
+                 values are numbers (TRUE and FALSE are 1 and 0), a date when all are dates or times (DATE11,\n\
+                 TIME8 or DATETIME20), else a string as wide as its longest value. DATATYPEMIN PERCENTAGE=n\n\
+                 (over 50) lets the kind of n percent of the values decide; the others become system-missing.\n\
+                 Empty rows and empty columns without a name are left out; error cells are empty. HIDDEN\n\
+                 IGNORE=YES leaves out hidden rows and columns (XLSX only). ASSUMEDSTRWIDTH cuts longer\n\
+                 strings (XLS: 255 by default). LEADINGSPACES IGNORE=YES removes leading blanks of strings;\n\
+                 TRAILINGSPACES IGNORE=YES leaves trailing blanks out of the width.\n\
+                 ODBC and OLEDB are not supported yet.",
         example: "GET DATA /TYPE=TXT /FILE='wave2.csv' /DELIMITERS=\",\" /QUALIFIER='\"' /FIRSTCASE=2\n\
-                  \x20 /VARIABLES=id F5 name A20 born SDATE10.",
+                  \x20 /VARIABLES=id F5 name A20 born SDATE10.\n\
+                  GET DATA /TYPE=XLSX /FILE='wave3.xlsx' /SHEET=NAME 'Answers' /CELLRANGE=RANGE 'A1:F200'.",
         parse: get_data::get_data,
+    },
+    CommandSpec {
+        name: "SAVE TRANSLATE",
+        summary: "Write the active dataset to a CSV or tab-delimited text file or an Excel workbook.",
+        syntax: "SAVE TRANSLATE OUTFILE='path' | handle /TYPE=CSV | TAB | XLS /VERSION=12 [/REPLACE]\n\
+                 \x20   [/FIELDNAMES [VALUE=NAMES | LABELS]] [/CELLS=VALUES | LABELS] [/MISSING=IGNORE | RECODE]\n\
+                 \x20   [/TEXTOPTIONS [DELIMITER='c'] [QUALIFIER='c'] [DECIMAL=DOT | COMMA] [FORMAT=PLAIN | VARIABLE]]\n\
+                 \x20   [/EXCELOPTIONS SHEET='name'] [/ENCODING='name' [BOM=YES | NO]] [/UNSELECTED=RETAIN | DELETE]\n\
+                 \x20   [/KEEP=varlist] [/DROP=varlist] [/RENAME=(old = new) ...].\n\
+                 TYPE may be left out for a .csv or .xlsx file; TYPE=XLSX is short for XLS /VERSION=12. An\n\
+                 existing file is overwritten only with REPLACE. FIELDNAMES writes a first row of names\n\
+                 (VALUE=LABELS: the variable labels, else the names). CELLS=LABELS writes the value label where\n\
+                 a value has one. MISSING=RECODE writes user-missing values as empty. UNSELECTED=DELETE leaves\n\
+                 out the cases FILTER leaves out. KEEP, DROP and RENAME shape the file only, in the order\n\
+                 written; KEEP does not change the order of the variables.\n\
+                 Text: system-missing is empty. FORMAT=PLAIN (default) writes numbers with the decimals they\n\
+                 need, dates as mm/dd/yyyy and times as hh:mm:ss; VARIABLE writes the display formats. The\n\
+                 decimal mark is DECIMAL's, else SET DECIMAL's. CSV separates values with a comma, or with a\n\
+                 semicolon when the decimal mark is a comma, and puts the qualifier (default \") around a value\n\
+                 that holds the delimiter, the qualifier (doubled inside) or a line break. TAB never qualifies.\n\
+                 ENCODING as for INSERT; the default is UTF-8 with a byte order mark, which BOM=NO leaves out.\n\
+                 Workbook: numbers keep their display format and dates and times are Excel dates;\n\
+                 system-missing is #NULL!. EXCELOPTIONS names the sheet (default Sheet1); more cases than a\n\
+                 sheet holds continue on further sheets.\n\
+                 Other types (SAS, STATA, dBASE, ODBC, 1-2-3, SYLK) and APPEND are not supported yet.",
+        example: "SAVE TRANSLATE OUTFILE='wave2.xlsx' /TYPE=XLS /VERSION=12 /FIELDNAMES /CELLS=LABELS /REPLACE.\n\
+                  SAVE TRANSLATE OUTFILE='wave2.csv' /TYPE=CSV /FIELDNAMES /TEXTOPTIONS DECIMAL=COMMA /REPLACE.",
+        parse: save_translate::save_translate,
     },
 ];
 
@@ -1514,7 +1560,6 @@ static UNSUPPORTED: &[&str] = &[
     "REPEATING DATA",
     "REPORT",
     "REREAD",
-    "SAVE TRANSLATE",
     "SUBTITLE",
     "SYSFILE INFO",
     "TITLE",

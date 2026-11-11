@@ -12,6 +12,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "GET",
             "GET DATA",
             "SAVE",
+            "SAVE TRANSLATE",
             "ADD FILES",
             "MATCH FILES",
             "STAR JOIN",

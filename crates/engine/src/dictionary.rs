@@ -521,11 +521,13 @@ impl Engine {
         Ok(())
     }
 
-    /// A copy of the active dataset with GET's or SAVE's KEEP, DROP and RENAME applied.
+    /// A copy of the active dataset with GET's or SAVE's KEEP, DROP and RENAME applied. With
+    /// `keep_order` (SAVE TRANSLATE) KEEP leaves the variables in their order.
     pub(crate) fn file_options(
         &self,
         data: Dataset,
         options: &[FileOption],
+        keep_order: bool,
     ) -> Result<Dataset, Error> {
         if options.is_empty() {
             return Ok(data);
@@ -542,6 +544,10 @@ impl Engine {
                         seen.push(n.clone());
                         fresh
                     });
+                    if keep_order {
+                        let data = engine.active()?;
+                        names.sort_by_key(|n| data.variable_index(n));
+                    }
                     let names: Vec<&str> = names.iter().map(String::as_str).collect();
                     engine.active_mut()?.keep_variables(&names)?;
                 }

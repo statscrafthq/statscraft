@@ -10,6 +10,7 @@ mod descriptives;
 mod dictionary;
 mod dist;
 mod examine;
+pub mod excel;
 mod expr;
 mod format;
 mod frequencies;
@@ -34,6 +35,7 @@ mod regression;
 mod reliability;
 mod restructure;
 mod rows;
+mod save_translate;
 pub mod session;
 mod session_commands;
 mod sort;
@@ -43,9 +45,11 @@ mod transform;
 mod tree;
 mod ttest;
 mod variables;
+pub mod workbook;
 
 pub use expr::functions;
 pub use format::{Currencies, currency_parts, format_value, is_date_time_or_currency};
+pub use get_data::delimited;
 pub use random::RandomState;
 use serde::{Deserialize, Serialize};
 use statscraft_data::{Dataset, Measure, MissingValues, Value};
@@ -415,7 +419,8 @@ impl Engine {
         }
         match command {
             Command::Get { file, options } => {
-                let data = self.file_options(Dataset::read_sav(self.path(file))?, options)?;
+                let data =
+                    self.file_options(Dataset::read_sav(self.path(file))?, options, false)?;
                 self.park_active();
                 self.dataset = Some(data);
                 self.scratch_assigned.clear();
@@ -431,10 +436,16 @@ impl Engine {
                     return Err(Error("SAVE /UNCOMPRESSED is not supported yet".into()));
                 }
                 self.begin_pass()?;
-                let data = self.file_options(self.active()?.clone(), options)?;
+                let data = self.file_options(self.active()?.clone(), options, false)?;
                 if !self.dry_run {
                     data.write_sav(self.path(outfile))?;
                 }
+                let before = self.dataset.clone();
+                self.end_pass(before.as_ref());
+            }
+            Command::SaveTranslate(command) => {
+                self.begin_pass()?;
+                self.save_translate(command)?;
                 let before = self.dataset.clone();
                 self.end_pass(before.as_ref());
             }

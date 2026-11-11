@@ -150,6 +150,7 @@ pub enum Command {
     AlterType(Vec<AlterType>),
     ApplyDictionary(ApplyDictionary),
     GetData(GetData),
+    SaveTranslate(SaveTranslate),
     /// `SORT VARIABLES BY key (A | D)`
     SortVariables {
         key: VariableKey,
@@ -263,6 +264,73 @@ pub struct GetData {
     /// LEADINGSPACES IGNORE=YES
     pub ignore_leading_spaces: bool,
     pub variables: Vec<GetDataVariable>,
+    /// TYPE=XLS, XLSX or XLSM; None is TYPE=TXT.
+    pub spreadsheet: Option<Spreadsheet>,
+}
+
+/// The settings of GET DATA for a workbook.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Spreadsheet {
+    /// TYPE=XLS, the binary workbook of Excel 95 to 2003.
+    pub binary: bool,
+    pub sheet: Sheet,
+    /// CELLRANGE=RANGE as (first row, first column, last row, last column), counted from 0;
+    /// None is FULL.
+    pub range: Option<(u32, u32, u32, u32)>,
+    pub read_names: bool,
+    pub assumed_width: Option<u32>,
+    /// HIDDEN IGNORE=YES
+    pub ignore_hidden: bool,
+    /// TRAILINGSPACES IGNORE=YES
+    pub ignore_trailing_spaces: bool,
+    /// DATATYPEMIN PERCENTAGE
+    pub type_min: Option<f64>,
+}
+
+/// SAVE TRANSLATE: the active dataset as a text file or a workbook.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SaveTranslate {
+    pub outfile: String,
+    pub kind: TranslateType,
+    /// FIELDNAMES: None writes no names, Some(false) the names, Some(true) the labels.
+    pub field_names: Option<bool>,
+    /// CELLS=LABELS
+    pub labels: bool,
+    /// TEXTOPTIONS DELIMITER; None is the default for the decimal mark.
+    pub delimiter: Option<char>,
+    /// TEXTOPTIONS QUALIFIER
+    pub qualifier: char,
+    /// TEXTOPTIONS DECIMAL: Some(true) is COMMA; None follows SET DECIMAL.
+    pub decimal_comma: Option<bool>,
+    /// TEXTOPTIONS FORMAT=VARIABLE; else PLAIN.
+    pub print_formats: bool,
+    /// EXCELOPTIONS SHEET
+    pub sheet: Option<String>,
+    pub replace: bool,
+    /// `/KEEP`, `/DROP` and `/RENAME` in the order written; the active dataset stays as is.
+    pub options: Vec<FileOption>,
+    /// MISSING=RECODE
+    pub recode_missing: bool,
+    /// UNSELECTED=DELETE
+    pub delete_unselected: bool,
+    pub encoding: Option<String>,
+    /// BOM=NO turns off the byte order mark of a UTF encoding.
+    pub bom: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TranslateType {
+    Csv,
+    Tab,
+    /// An Excel 2007 workbook (TYPE=XLS /VERSION=12).
+    Xlsx,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Sheet {
+    /// SHEET=INDEX n, from 1.
+    Index(u32),
+    Name(String),
 }
 
 #[derive(Debug, Clone, PartialEq)]

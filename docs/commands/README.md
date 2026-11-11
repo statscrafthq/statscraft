@@ -9,8 +9,9 @@ One page per supported command, generated from the same table that the parser an
 | Command | What it does |
 |---|---|
 | [GET](get.md) | Read a data file and make it the active dataset. |
-| [GET DATA](get-data.md) | Read a text data file, delimited or in fixed columns, as the active dataset. |
+| [GET DATA](get-data.md) | Read a text data file or a sheet of a workbook as the active dataset. |
 | [SAVE](save.md) | Write the active dataset to a data file. |
+| [SAVE TRANSLATE](save-translate.md) | Write the active dataset to a CSV or tab-delimited text file or an Excel workbook. |
 | [ADD FILES](add-files.md) | Append the cases of several data files, matching variables by name. |
 | [MATCH FILES](match-files.md) | Combine the variables of several data files case by case or by key. |
 | [STAR JOIN](star-join.md) | Add the fields of lookup files to every case of a data file, by keys, as an SQL left join. |
@@ -146,4 +147,4 @@ One page per supported command, generated from the same table that the parser an
 
 These commands of the language are recognised, but Statscraft does not run them yet. A script that uses one stops with the error "command ... is not supported yet" at its line, and nothing is changed.
 
-ANOVA, CLEAR TRANSFORMATIONS, CLUSTER, DATE, DISCRIMINANT, ECHO, END CASE, END DATA, END FILE, END FILE TYPE, END INPUT PROGRAM, END MATRIX, END REPEAT, ERASE, EXPORT, FACTOR, FILE TYPE, FINISH, GET TRANSLATE, GLM, GRAPH, HOST, IMPORT, INPUT PROGRAM, LEAVE, LOGISTIC REGRESSION, MATRIX, MATRIX DATA, NEW FILE, OUTPUT CLOSE, OUTPUT EXPORT, OUTPUT NEW, OUTPUT SAVE, PERMISSIONS, PRINT, PRINT EJECT, PRINT FORMATS, PRINT SPACE, QUICK CLUSTER, RECORD TYPE, REPEATING DATA, REPORT, REREAD, SAVE TRANSLATE, SUBTITLE, SYSFILE INFO, TITLE, UNIANOVA, WRITE, WRITE FORMATS, XSAVE
+ANOVA, CLEAR TRANSFORMATIONS, CLUSTER, DATE, DISCRIMINANT, ECHO, END CASE, END DATA, END FILE, END FILE TYPE, END INPUT PROGRAM, END MATRIX, END REPEAT, ERASE, EXPORT, FACTOR, FILE TYPE, FINISH, GET TRANSLATE, GLM, GRAPH, HOST, IMPORT, INPUT PROGRAM, LEAVE, LOGISTIC REGRESSION, MATRIX, MATRIX DATA, NEW FILE, OUTPUT CLOSE, OUTPUT EXPORT, OUTPUT NEW, OUTPUT SAVE, PERMISSIONS, PRINT, PRINT EJECT, PRINT FORMATS, PRINT SPACE, QUICK CLUSTER, RECORD TYPE, REPEATING DATA, REPORT, REREAD, SUBTITLE, SYSFILE INFO, TITLE, UNIANOVA, WRITE, WRITE FORMATS, XSAVE

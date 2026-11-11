@@ -29,7 +29,7 @@ fn file_path(p: &mut Parser, keyword: &str) -> PResult<String> {
 }
 
 /// `/KEEP=varlist`, `/DROP=varlist` or `/RENAME=(old = new)`, with the parser after the slash.
-fn file_option(p: &mut Parser) -> PResult<Option<FileOption>> {
+pub(crate) fn file_option(p: &mut Parser) -> PResult<Option<FileOption>> {
     Ok(Some(if p.eat_keyword("KEEP") {
         p.eat(Punct::Eq);
         FileOption::Keep(p.var_list()?)
