@@ -400,7 +400,7 @@ pub(crate) fn data_list(p: &mut Parser) -> PResult<Command> {
         }
         if p.eat_keyword("FILE") {
             p.eat(Punct::Eq);
-            file = Some(p.string("a quoted file path")?);
+            file = Some(p.file("a quoted file path or a file handle")?);
         } else if p.eat_keyword("ENCODING") {
             p.eat(Punct::Eq);
             let start = p.pos;

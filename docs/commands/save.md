@@ -7,7 +7,7 @@ Write the active dataset to a data file.
 ## Syntax
 
 ```text
-SAVE OUTFILE='path' [/COMPRESSED | /UNCOMPRESSED | /ZCOMPRESSED] [/KEEP=varlist] [/DROP=varlist]
+SAVE OUTFILE='path' | handle [/COMPRESSED | /UNCOMPRESSED | /ZCOMPRESSED] [/KEEP=varlist] [/DROP=varlist]
      [/RENAME=(old = new) ...].
 ```
 

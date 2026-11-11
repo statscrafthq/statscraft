@@ -118,6 +118,13 @@ pub enum Command {
     Cache,
     /// `CD 'folder'`
     Cd(String),
+    /// `FILE HANDLE name /NAME='path'`. `ignored` names the subcommands that have no effect.
+    FileHandle {
+        name: String,
+        path: String,
+        encoding: Option<String>,
+        ignored: Vec<String>,
+    },
     Dataset(DatasetCommand),
     /// `USE ALL` is None; else the first and last case number, and /PERMANENT.
     Use(Option<UseRange>),

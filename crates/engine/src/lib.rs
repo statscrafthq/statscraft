@@ -22,6 +22,7 @@ mod mrsets;
 mod nonpar_corr;
 mod oneway;
 mod pass;
+mod random;
 mod rank;
 mod recode;
 mod rows;
@@ -37,6 +38,7 @@ mod variables;
 
 pub use expr::functions;
 pub use format::{Currencies, currency_parts, format_value, is_date_time_or_currency};
+pub use random::RandomState;
 use serde::{Deserialize, Serialize};
 use statscraft_data::{Dataset, Measure, MissingValues, Value};
 use statscraft_syntax as syntax;
@@ -228,8 +230,8 @@ pub struct Engine {
     temporary: Option<Box<split::Saved>>,
     /// N OF CASES, waiting for the next data pass.
     case_limit: Option<usize>,
-    /// How many random numbers were drawn in this session.
-    random_draws: u64,
+    /// The random number generators; expressions draw from them through a shared reference.
+    random: std::cell::RefCell<random::Random>,
     /// While a procedure runs on a split group or the filtered cases: the case number in the
     /// whole dataset (0-based) of each case it sees.
     case_numbers: Option<Vec<usize>>,

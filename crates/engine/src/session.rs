@@ -297,13 +297,14 @@ impl Session {
             .map_err(|e| vec![Failure::plain("session", format!("settings: {e}"))])
     }
 
-    /// How many random numbers the runs so far drew: the next run goes on from there.
-    pub fn random_draws(&self) -> u64 {
-        self.engine.random_draws
+    /// Where the random numbers stand after the runs so far: the next run goes on from there.
+    pub fn random_state(&self) -> crate::RandomState {
+        self.engine.random_state()
     }
 
-    pub fn set_random_draws(&mut self, draws: u64) {
-        self.engine.random_draws = draws;
+    /// Goes on from `state`; call it after `restore_settings`, which puts back the seeds.
+    pub fn set_random_state(&mut self, state: crate::RandomState) {
+        self.engine.set_random_state(state);
     }
 
     /// What `statscraft describe --session` prints: the active dataset and what the session
@@ -477,7 +478,8 @@ fn run(
     lines: Option<(u32, u32)>,
 ) -> Result<(Engine, RunResult, String), Vec<Failure>> {
     // macros of earlier runs serve this one; those of the lines that run are kept after it
-    let mut macros = engine.macros().clone();
+    let start = engine.macros().clone();
+    let mut macros = start.clone();
     let all = statscraft_syntax::split_commands_with(
         source,
         engine.base_dir.as_deref(),
@@ -521,7 +523,7 @@ fn run(
         (datasets.to_vec(), active.map(str::to_string))
     };
     let named_before = named(&engine);
-    let kept = |engine: &Engine| (engine.settings_syntax(), engine.random_draws);
+    let kept = |engine: &Engine| (engine.settings_syntax(), engine.random_state());
     let kept_before = kept(&engine);
     let mut outputs = Vec::new();
     for (raw, command) in &commands {
@@ -564,7 +566,9 @@ fn run(
     engine
         .finish()
         .map_err(|e| vec![Failure::plain("run", e.to_string())])?;
-    let macros_changed = engine.macros() != &macros;
+    // the handles are those the FILE HANDLE commands that ran defined
+    macros.set_handles(engine.macros().handles().clone());
+    let macros_changed = macros != start;
     engine.set_macros(macros);
     let after = engine.dataset();
     let changes = Changes::between(before.as_ref(), after);
@@ -851,7 +855,9 @@ mod tests {
         assert_eq!(folder.settings_syntax(), "PRESERVE.\nCD 'it''s here'.\n");
         let wrong = folder.restore_settings("COMPUTE x = 1.").unwrap_err();
         assert!(
-            wrong[0].message.contains("only SET, PRESERVE and CD"),
+            wrong[0]
+                .message
+                .contains("only FILE HANDLE, SET, PRESERVE and CD"),
             "{wrong:?}"
         );
     }
@@ -913,10 +919,10 @@ mod tests {
             .unwrap();
         // the draws changed the session though the dataset did not
         assert!(result.saved);
-        let draws = session.random_draws();
-        assert!(draws > 0);
+        let state = session.random_state();
+        assert_ne!(state, survey().random_state());
         let mut next = survey();
-        next.set_random_draws(draws);
+        next.set_random_state(state);
         session.run("SAMPLE .5.", None).unwrap();
         next.run("SAMPLE .5.", None).unwrap();
         assert!(session.dataset() == next.dataset());

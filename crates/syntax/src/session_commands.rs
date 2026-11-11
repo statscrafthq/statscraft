@@ -35,7 +35,7 @@ fn insert_or_include(p: &mut Parser, include: bool) -> PResult<Command> {
     if p.eat_keyword("FILE") {
         p.eat(Punct::Eq);
     }
-    let file = p.string("a quoted file path")?;
+    let file = p.file("a quoted file path or a file handle")?;
     loop {
         p.eat(Punct::Slash);
         if p.eat_keyword("PASSWORD") || p.eat_keyword("ENCODING") {
@@ -123,7 +123,7 @@ pub const SETTINGS: &[(&str, &str, SettingEffect)] = &[
     ("MITERATE", "1000", Used),
     ("MNEST", "50", Used),
     ("MPRINT", "OFF", Used),
-    ("MTINDEX", "2000000", NotYet),
+    ("MTINDEX", "2000000", Used),
     ("MXCELLS", "AUTOMATIC", Silent),
     ("MXERRS", "100", Silent),
     ("MXLOOPS", "40", NotYet),
@@ -136,10 +136,10 @@ pub const SETTINGS: &[(&str, &str, SettingEffect)] = &[
     ("PRINTBACK", "NONE", Used),
     ("REPDEFER", "NO", Silent),
     ("RESULTS", "LISTING", Silent),
-    ("RNG", "MC", NotYet),
+    ("RNG", "MC", Used),
     ("ROWSBREAK", "100", Appearance),
     ("SCALEMIN", "24", NotYet),
-    ("SEED", "2000000", NotYet),
+    ("SEED", "2000000", Used),
     ("SIGLESS", "ON", Appearance),
     ("SMALL", "0", Appearance),
     ("SORT", "EXTERNAL", Silent),
@@ -286,9 +286,77 @@ pub(crate) fn cache(p: &mut Parser) -> PResult<Command> {
 }
 
 pub(crate) fn cd(p: &mut Parser) -> PResult<Command> {
-    let folder = p.string("a quoted folder")?;
+    let folder = p.file("a quoted folder or a file handle")?;
     p.finish(&[])?;
     Ok(Command::Cd(folder))
+}
+
+pub(crate) fn file_handle(p: &mut Parser) -> PResult<Command> {
+    let name = p.name("a handle name")?;
+    let (mut path, mut encoding, mut ignored) = (None, None, Vec::new());
+    loop {
+        p.eat(Punct::Slash);
+        if p.peek().is_none() {
+            break;
+        }
+        let start = p.pos;
+        if p.eat_keyword("NAME") {
+            p.eat(Punct::Eq);
+            path = Some(p.string("a quoted path")?);
+        } else if p.eat_keyword("ENCODING") {
+            p.eat(Punct::Eq);
+            encoding = Some(p.string("a quoted encoding")?);
+        } else if p.eat_keyword("MODE") {
+            p.eat(Punct::Eq);
+            if !p.eat_keyword("CHARACTER") {
+                let mode = match p.peek() {
+                    Some(TokenKind::Word(w)) => w.to_uppercase(),
+                    Some(TokenKind::Number(n)) => n.to_string(),
+                    _ => return Err(p.unexpected(&["CHARACTER"])),
+                };
+                let known = ["BINARY", "MULTIPUNCH", "IMAGE", "360"];
+                if !known.iter().any(|k| matches_keyword(&mode, k)) {
+                    return Err(p.unexpected(&[
+                        "CHARACTER",
+                        "BINARY",
+                        "MULTIPUNCH",
+                        "IMAGE",
+                        "360",
+                    ]));
+                }
+                let message = format!(
+                    "FILE HANDLE /MODE={mode} is for binary, column binary and EBCDIC files, which \
+                     Statscraft does not read; text files are MODE=CHARACTER"
+                );
+                return Err(SyntaxError::new(p.span(), message));
+            }
+        } else if p.eat_keyword("RECFORM") {
+            p.eat(Punct::Eq);
+            let forms = ["FIXED", "VARIABLE", "SPANNED", "F", "V", "VS"];
+            if !forms.iter().any(|f| p.eat_word(f) || p.eat_keyword(f)) {
+                return Err(p.unexpected(&["FIXED", "VARIABLE", "SPANNED"]));
+            }
+            ignored.push("RECFORM".to_string());
+        } else if p.eat_keyword("LRECL") {
+            p.eat(Punct::Eq);
+            if p.number().is_none() {
+                return Err(p.unexpected(&["a record length"]));
+            }
+            ignored.push("LRECL".to_string());
+        } else {
+            p.pos = start;
+            return Err(p.subcommand_error("FILE HANDLE", &[]));
+        }
+    }
+    let Some(path) = path else {
+        return Err(p.unexpected(&["/NAME='path'"]));
+    };
+    Ok(Command::FileHandle {
+        name,
+        path,
+        encoding,
+        ignored,
+    })
 }
 
 /// `[WINDOW=keyword]` after a dataset name.

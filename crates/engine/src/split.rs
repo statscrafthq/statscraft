@@ -13,7 +13,8 @@
 //! - TEMPORARY: everything after it is undone once the next command that reads the data has
 //!   run. Variables that command adds stay, when the temporary changes kept the cases.
 //! - N OF CASES keeps the first n cases at the next data pass, after case selection.
-//! - SAMPLE draws its random numbers from one generator per session with a fixed seed.
+//! - SAMPLE draws its random numbers from the session's generator, which SET SEED, RNG and
+//!   MTINDEX start.
 
 use crate::crosstabs::{Key, label};
 use crate::{Cell, Engine, Error, Table};
@@ -34,9 +35,6 @@ struct Group {
     cases: Vec<usize>,
 }
 
-/// The seed of the random numbers, the same in every session so that a run can be repeated.
-const SEED: u64 = 2_000_000;
-
 /// The value of every split variable at a case, to find where a group ends.
 fn keys(data: &Dataset, names: &[String], case: usize) -> Vec<Option<Key>> {
     names
@@ -52,14 +50,17 @@ fn keys(data: &Dataset, names: &[String], case: usize) -> Vec<Option<Key>> {
 }
 
 impl Engine {
-    /// A number from 0 (inclusive) to 1 (exclusive): SplitMix64.
+    pub(crate) fn random_state(&self) -> crate::RandomState {
+        self.random.borrow().state()
+    }
+
+    pub(crate) fn set_random_state(&mut self, state: crate::RandomState) {
+        self.random.get_mut().restore(state);
+    }
+
+    /// A number from 0 to 1 from the session's generator.
     pub(crate) fn random(&mut self) -> f64 {
-        self.random_draws += 1;
-        let mut z = SEED.wrapping_add(self.random_draws.wrapping_mul(0x9E37_79B9_7F4A_7C15));
-        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
-        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
-        z ^= z >> 31;
-        (z >> 11) as f64 / (1u64 << 53) as f64
+        self.random.get_mut().uniform()
     }
 
     pub(crate) fn temporary(&mut self) {

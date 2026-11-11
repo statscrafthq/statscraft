@@ -487,7 +487,7 @@ fn error_positions_of_typical_mistakes() {
 
 #[test]
 fn parse_collects_one_error_per_bad_command() {
-    let source = "GET FILE=a.sav.\n\
+    let source = "GET FILE=1.\n\
                   COMPUTE x = 1.\n\
                   FORMATS x (F8.2\n\
                   \n\
@@ -518,9 +518,10 @@ fn get_file() {
         expected("C:\\data\\my file.sav")
     );
 
-    let error = err("GET FILE=survey.sav.");
-    assert_eq!(error.message, "unexpected word survey.sav");
-    assert_eq!(error.expected, ["a quoted file path"]);
+    // a name without quotes is a file handle (FILE HANDLE)
+    assert_eq!(one("GET FILE=survey.sav."), expected("survey.sav"));
+    let error = err("GET FILE=1.");
+    assert_eq!(error.expected, ["a quoted file path or a file handle"]);
     assert_eq!(err("GET.").expected, ["FILE"]);
     let error = err("GET FILE='a.sav' /MAP.");
     assert_eq!(error.message, "subcommand MAP of GET is not supported yet");
@@ -1129,7 +1130,7 @@ fn command_names_resolve_from_their_words() {
 #[test]
 fn help_lists_every_command() {
     let overview = help(None).unwrap();
-    assert_eq!(command_names().len(), 86);
+    assert_eq!(command_names().len(), 87);
     for spec in table::COMMANDS {
         assert!(overview.contains(spec.name) && overview.contains(spec.summary));
     }

@@ -174,8 +174,8 @@ fn open_session(name: &str) -> Result<Session, Vec<Failure>> {
     if let Ok(text) = std::fs::read_to_string(settings_file(&path)) {
         session.restore_settings(&text)?;
     }
-    if let Some(state) = read_state(&path)? {
-        session.set_random_draws(state.random_draws);
+    if let Some(random) = read_state(&path)?.and_then(|state| state.random) {
+        session.set_random_state(random);
     }
     Ok(session)
 }
@@ -208,9 +208,10 @@ impl DataState {
 struct SessionState {
     #[serde(flatten)]
     data: DataState,
-    /// The random numbers drawn so far, so SAMPLE goes on where the last run stopped.
+    /// Where the random numbers stand, so SAMPLE and the random functions go on where the
+    /// last run stopped.
     #[serde(default)]
-    random_draws: u64,
+    random: Option<statscraft_engine::RandomState>,
 }
 
 fn read_state(data: &std::path::Path) -> Result<Option<SessionState>, Vec<Failure>> {
@@ -321,12 +322,12 @@ fn write_kept(dataset: &Dataset, path: &std::path::Path) -> Result<(), String> {
 fn save_dataset(
     path: &std::path::Path,
     dataset: &Dataset,
-    random_draws: u64,
+    random: Option<statscraft_engine::RandomState>,
 ) -> Result<(), String> {
     write_kept(dataset, path)?;
     let state = SessionState {
         data: DataState::of(dataset),
-        random_draws,
+        random,
     };
     let text = serde_json::to_string_pretty(&state).expect("plain data");
     std::fs::write(state_file(path), text).map_err(|e| e.to_string())
@@ -334,11 +335,8 @@ fn save_dataset(
 
 /// Replaces the active dataset of a session and keeps the rest of it.
 fn replace_dataset(path: &std::path::Path, dataset: &Dataset) -> Result<(), String> {
-    let draws = read_state(path)
-        .ok()
-        .flatten()
-        .map_or(0, |s| s.random_draws);
-    save_dataset(path, dataset, draws)
+    let random = read_state(path).ok().flatten().and_then(|s| s.random);
+    save_dataset(path, dataset, random)
 }
 
 /// Writes everything a session keeps. A session left without an active dataset keeps its
@@ -347,7 +345,7 @@ fn save_session(path: &std::path::Path, session: &Session) -> Result<(), String>
     std::fs::create_dir_all(path.parent().expect("session path has a parent"))
         .map_err(|e| e.to_string())?;
     if let Some(dataset) = session.dataset() {
-        save_dataset(path, dataset, session.random_draws())?;
+        save_dataset(path, dataset, Some(session.random_state()))?;
     }
     save_named(path, session)?;
     std::fs::write(macros_file(path), session.macros().to_syntax()).map_err(|e| e.to_string())?;

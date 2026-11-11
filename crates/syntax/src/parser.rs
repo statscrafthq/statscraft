@@ -182,6 +182,14 @@ impl<'a> Parser<'a> {
         Ok(text)
     }
 
+    /// A file: a quoted path, or a file handle name (FILE HANDLE) without quotes.
+    pub fn file(&mut self, what: &str) -> PResult<String> {
+        match self.peek() {
+            Some(TokenKind::Word(_)) => self.name(what),
+            _ => self.string(what),
+        }
+    }
+
     /// A number literal, with an optional minus sign directly in front of it.
     pub fn number(&mut self) -> Option<f64> {
         match (self.peek(), self.peek_at(1)) {

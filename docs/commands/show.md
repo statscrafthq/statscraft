@@ -10,7 +10,7 @@ Show the current settings.
 SHOW [ALL] [setting ...].
 ```
 
-Any SET subcommand, and N, WEIGHT, FILTER, SPLIT, DIRECTORY, SYSMIS, VERSION.
+Any SET subcommand, and N, WEIGHT, FILTER, SPLIT, DIRECTORY, SYSMIS, VERSION, HANDLES (the file handles). SEED shows where the MC generator stands.
 
 Without names: the main settings.
 

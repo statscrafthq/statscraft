@@ -40,9 +40,18 @@ const MAX_NESTING: usize = 5;
 /// How deep PRESERVE nests.
 const MAX_PRESERVE: usize = 5;
 
+/// A name for a file or folder, from FILE HANDLE.
+#[derive(Clone, Debug, PartialEq)]
+pub struct FileHandle {
+    pub path: String,
+    /// `/ENCODING`: the encoding of a text file read through the handle.
+    pub encoding: Option<String>,
+}
+
 /// The macros defined and the SET values that steer their expansion (MEXPAND, MPRINT, MNEST,
-/// MITERATE). A session keeps it between runs, so that a macro library included once serves
-/// the runs after it.
+/// MITERATE), and the file handles. A session keeps it between runs, so that a macro library
+/// included once serves the runs after it. The engine writes the handles out with the
+/// settings, not in `to_syntax`.
 #[derive(Clone, Debug)]
 pub struct MacroState {
     pub(crate) macros: Macros,
@@ -55,6 +64,8 @@ pub struct MacroState {
     /// What PRESERVE stored for RESTORE, innermost last: the settings above (MEXPAND, MPRINT,
     /// MNEST, MITERATE) and the folder INSERT starts from, which CD sets.
     preserved: Vec<(bool, bool, usize, usize, PathBuf)>,
+    /// FILE HANDLE, by upper-case name. INSERT and INCLUDE need them before the commands run.
+    handles: BTreeMap<String, FileHandle>,
 }
 
 impl Default for MacroState {
@@ -65,13 +76,14 @@ impl Default for MacroState {
             expand: true,
             print: false,
             preserved: Vec::new(),
+            handles: BTreeMap::new(),
         }
     }
 }
 
 impl PartialEq for MacroState {
     fn eq(&self, other: &Self) -> bool {
-        self.to_syntax() == other.to_syntax()
+        self.to_syntax() == other.to_syntax() && self.handles == other.handles
     }
 }
 
@@ -97,6 +109,32 @@ impl MacroState {
             self.macros.iterate
         ));
         out
+    }
+
+    /// The file handles, by upper-case name.
+    pub fn handles(&self) -> &BTreeMap<String, FileHandle> {
+        &self.handles
+    }
+
+    pub fn set_handle(&mut self, name: &str, handle: FileHandle) {
+        self.handles.insert(name.to_uppercase(), handle);
+    }
+
+    pub fn set_handles(&mut self, handles: BTreeMap<String, FileHandle>) {
+        self.handles = handles;
+    }
+
+    /// A file specification with a file handle replaced by its path, as the manual allows
+    /// quoted or not: the whole specification, or its part before the first / or \\, may name a
+    /// handle. The handle's encoding comes along.
+    pub fn resolve_file(&self, spec: &str) -> (String, Option<&str>) {
+        let (head, rest) = spec.split_at(spec.find(['/', '\\']).unwrap_or(spec.len()));
+        match self.handles.get(&head.to_uppercase()) {
+            Some(handle) if !head.is_empty() => {
+                (format!("{}{rest}", handle.path), handle.encoding.as_deref())
+            }
+            _ => (spec.to_string(), None),
+        }
     }
 
     /// The state that `to_syntax` wrote.
@@ -355,8 +393,18 @@ impl Pre {
                     continue;
                 }
                 Some("CD") => {
-                    if let Some(dir) = tokens.iter().find(|t| t.kind == Kind::Str) {
-                        *base = resolve_path(base, &crate::macros::unquote(&dir.text));
+                    let dir = tokens.iter().filter(|t| t.kind != Kind::Newline).nth(1);
+                    if let Some(dir) = dir.filter(|t| matches!(t.kind, Kind::Str | Kind::Id)) {
+                        let (dir, _) = self.state.resolve_file(&crate::macros::unquote(&dir.text));
+                        *base = resolve_path(base, &dir);
+                    }
+                }
+                Some("FILE HANDLE") => {
+                    if let Some((name, handle)) = file_handle(&tokens) {
+                        if self.runs(number) {
+                            self.kept.set_handle(&name, handle.clone());
+                        }
+                        self.state.set_handle(&name, handle);
                     }
                 }
                 Some("SET") => {
@@ -512,13 +560,17 @@ impl Pre {
             code.get(k).map(|t| crate::macros::unquote(&t.text))
         };
         // FILE may be left out, as the command's parser allows: the path then follows the name
-        let bare = code.get(1).filter(|t| t.kind == Kind::Str);
+        let bare = code
+            .get(1)
+            .filter(|t| t.kind == Kind::Str || (t.kind == Kind::Id && !t.is("FILE")));
         let Some(file) = setting("FILE").or_else(|| bare.map(|t| crate::macros::unquote(&t.text)))
         else {
             return;
         };
         let batch = include || setting("SYNTAX").is_some_and(|s| s.eq_ignore_ascii_case("BATCH"));
-        let path = resolve_path(base, &file);
+        let (resolved, handle_encoding) = self.state.resolve_file(&file);
+        let encoding = setting("ENCODING").or(handle_encoding.map(str::to_string));
+        let path = resolve_path(base, &resolved);
         let Ok(bytes) = std::fs::read(&path) else {
             return;
         };
@@ -536,7 +588,7 @@ impl Pre {
             );
             return;
         }
-        let text = match crate::encoding::decode_syntax(&bytes, setting("ENCODING").as_deref()) {
+        let text = match crate::encoding::decode_syntax(&bytes, encoding.as_deref()) {
             Ok(text) => text,
             Err(message) => {
                 self.error(line, 1, message, origin);
@@ -561,6 +613,28 @@ impl Pre {
             *base = folder;
         }
     }
+}
+
+/// The handle a FILE HANDLE command defines, if it names one with /NAME; the command itself
+/// reports any error.
+fn file_handle(tokens: &[Tok]) -> Option<(String, FileHandle)> {
+    let code: Vec<&Tok> = tokens.iter().filter(|t| t.kind != Kind::Newline).collect();
+    let name = code.get(2).filter(|t| t.kind == Kind::Id)?;
+    let value = |keyword: &str| {
+        let after = code[3..]
+            .iter()
+            .position(|t| t.kind == Kind::Id && crate::table::matches_keyword(&t.text, keyword));
+        let k = after? + 3;
+        let k = k + 1 + usize::from(code.get(k + 1).is_some_and(|t| t.is("=")));
+        code.get(k)
+            .filter(|t| t.kind == Kind::Str)
+            .map(|t| crate::macros::unquote(&t.text))
+    };
+    let handle = FileHandle {
+        path: value("NAME")?,
+        encoding: value("ENCODING"),
+    };
+    Some((name.text.clone(), handle))
 }
 
 /// SET MEXPAND, MPRINT, MNEST and MITERATE act while macros are expanded.

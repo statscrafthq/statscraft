@@ -673,7 +673,11 @@ fn temporary_ends_with_its_run_and_random_numbers_go_on() {
     let state = dir.0.join(".statscraft/sessions/t/state.json");
     let state: serde_json::Value =
         serde_json::from_str(&std::fs::read_to_string(state).unwrap()).unwrap();
-    assert!(state["random_draws"].as_u64().unwrap() > 0, "{state}");
+    assert_ne!(
+        state["random"]["seed"].as_u64().unwrap(),
+        2_000_000,
+        "{state}"
+    );
     // two samples in two runs keep the cases they keep in one run
     let split = dir.json(&["run", "-s", "t", "--json", "-e", "SAMPLE .5."]);
     let one_run = format!("{get}\n{sample}\nEXECUTE.\nSAMPLE .5.");

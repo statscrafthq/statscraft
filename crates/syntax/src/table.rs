@@ -59,7 +59,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "GET",
         summary: "Read a data file and make it the active dataset.",
-        syntax: "GET FILE='path' [/KEEP=varlist] [/DROP=varlist] [/RENAME=(old = new) ...].\n\
+        syntax: "GET FILE='path' | handle [/KEEP=varlist] [/DROP=varlist] [/RENAME=(old = new) ...].\n\
                  KEEP, DROP and RENAME work in the order written, as in ADD FILES.",
         example: "GET FILE='survey.sav'.",
         parse: commands::get,
@@ -67,7 +67,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "SAVE",
         summary: "Write the active dataset to a data file.",
-        syntax: "SAVE OUTFILE='path' [/COMPRESSED | /UNCOMPRESSED | /ZCOMPRESSED] [/KEEP=varlist] [/DROP=varlist]\n\
+        syntax: "SAVE OUTFILE='path' | handle [/COMPRESSED | /UNCOMPRESSED | /ZCOMPRESSED] [/KEEP=varlist] [/DROP=varlist]\n\
                  \x20    [/RENAME=(old = new) ...].\n\
                  KEEP, DROP and RENAME shape the saved file only; the active dataset stays as it is.",
         example: "SAVE OUTFILE='survey_clean.sav' /COMPRESSED.",
@@ -271,7 +271,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  SAMPLE n FROM m.\n\
                  A proportion between 0 and 1 keeps each case with that chance; n FROM m keeps exactly n\n\
                  of the first m cases (fewer when there are fewer than m). Inside DO IF only the cases of\n\
-                 the branch are sampled. The random numbers start from the same seed in every session.",
+                 the branch are sampled. The random numbers come from the generator SET RNG chooses, started\n\
+                 by SET SEED or MTINDEX; a new session starts from the default seed.",
         example: "SAMPLE 500 FROM 3420.",
         parse: selection::sample,
     },
@@ -890,7 +891,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "INSERT",
         summary: "Run the commands of another syntax file in place of this command.",
-        syntax: "INSERT FILE='path' [SYNTAX=INTERACTIVE | BATCH] [ERROR=CONTINUE | STOP] [CD=NO | YES]\n\
+        syntax: "INSERT FILE='path' | handle [SYNTAX=INTERACTIVE | BATCH] [ERROR=CONTINUE | STOP] [CD=NO | YES]\n\
                  \x20      [ENCODING='name'] [PASSWORD='text'].\n\
                  A relative path starts from the folder of the file that holds the INSERT, or from the\n\
                  folder CD named. BATCH: a line that starts in the first column starts a new command, and\n\
@@ -905,7 +906,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "INCLUDE",
         summary: "Run the commands of another syntax file, read by the batch rules.",
-        syntax: "INCLUDE [FILE=]'path' [ENCODING='name'] [PASSWORD='text'].\n\
+        syntax: "INCLUDE [FILE=]'path' | handle [ENCODING='name'] [PASSWORD='text'].\n\
                  Like INSERT SYNTAX=BATCH: a line that starts in the first column starts a new command.",
         example: "INCLUDE FILE='setup.sps'.",
         parse: session_commands::include,
@@ -930,12 +931,15 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  (decimal mark when reading text data), MPRINT, MEXPAND, MNEST, MITERATE (see DEFINE),\n\
                  LOCALE, UNICODE (Statscraft always works in Unicode), PRINTBACK, CCA to CCE='negative\n\
                  prefix,prefix,suffix,negative suffix' (custom currency formats; three commas, or three periods\n\
-                 when the decimal mark is a comma; ' before a period or comma makes it text).\n\
+                 when the decimal mark is a comma; ' before a period or comma makes it text), RNG=MC | MT\n\
+                 (the generator of random numbers), SEED=n | RANDOM (starts the MC generator again; a whole\n\
+                 number from 1 to 1999999999, default 2000000), MTINDEX=x | RANDOM (starts the MT generator,\n\
+                 the Mersenne Twister, again; any number, default 2000000). RANDOM takes the time of day.\n\
                  Settings for speed, memory and messages (CACHE, THREADS, WORKSPACE, MXWARNS ...) are\n\
                  accepted and have nothing to do. Settings that only change how output looks (TNUMBERS,\n\
                  TVARS, ONUMBERS, OVARS, TLOOK, WIDTH, LENGTH, DIGITGROUPING ...) are accepted with a\n\
-                 warning. BLANKS, EPOCH, FUZZBITS, MXLOOPS, RNG, SEED, MTINDEX and SCALEMIN are accepted with\n\
-                 a warning that results do not follow them yet. YES and ON, NO and OFF are the same.",
+                 warning. BLANKS, EPOCH, FUZZBITS, MXLOOPS and SCALEMIN are accepted with a warning that\n\
+                 results do not follow them yet. YES and ON, NO and OFF are the same.",
         example: "SET FORMAT=F10.3 MPRINT=YES /DECIMAL=DOT.",
         parse: session_commands::set,
     },
@@ -943,7 +947,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "SHOW",
         summary: "Show the current settings.",
         syntax: "SHOW [ALL] [setting ...].\n\
-                 Any SET subcommand, and N, WEIGHT, FILTER, SPLIT, DIRECTORY, SYSMIS, VERSION.\n\
+                 Any SET subcommand, and N, WEIGHT, FILTER, SPLIT, DIRECTORY, SYSMIS, VERSION, HANDLES (the file\n\
+                 handles). SEED shows where the MC generator stands.\n\
                  Without names: the main settings.",
         example: "SHOW FORMAT DECIMAL LOCALE.",
         parse: session_commands::show,
@@ -979,11 +984,26 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
         name: "CD",
         summary: "Change the folder relative file names start from.",
-        syntax: "CD 'folder'.\n\
+        syntax: "CD 'folder' | handle.\n\
                  A relative folder starts from the current one, which is the folder of the syntax file at\n\
                  first. When the last part names no existing folder it is taken as a file name and left out.",
         example: "CD 'data/2026'.",
         parse: session_commands::cd,
+    },
+    CommandSpec {
+        name: "FILE HANDLE",
+        summary: "Give a file or a folder a short name to use in place of its path.",
+        syntax: "FILE HANDLE handle /NAME='path' [/MODE=CHARACTER] [/ENCODING='name'] [/RECFORM=...]\n\
+                 \x20           [/LRECL=n].\n\
+                 Every command that takes a file (GET, SAVE, DATA LIST, GET DATA, MATCH FILES, ADD FILES,\n\
+                 APPLY DICTIONARY, AGGREGATE OUTFILE, INSERT, INCLUDE, CD) takes the handle in place of the\n\
+                 path, quoted or not; 'handle/name.sav' starts from the path of a folder handle. A dataset\n\
+                 of the same name comes before a handle. A relative NAME starts from the folder of the last\n\
+                 CD. ENCODING is the encoding of a text file read through the handle, when the command gives\n\
+                 none. RECFORM and LRECL are ignored with a warning; MODE other than CHARACTER (binary and\n\
+                 EBCDIC files) is refused. Handles last for the session.",
+        example: "FILE HANDLE wave2 /NAME='data/2026/wave2.sav'.\nGET FILE=wave2.",
+        parse: session_commands::file_handle,
     },
     CommandSpec {
         name: "DATASET NAME",
@@ -1216,7 +1236,6 @@ static UNSUPPORTED: &[&str] = &[
     "ERASE",
     "EXPORT",
     "FACTOR",
-    "FILE HANDLE",
     "FILE TYPE",
     "FINISH",
     "FLIP",

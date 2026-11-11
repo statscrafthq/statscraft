@@ -101,11 +101,18 @@ pub(crate) fn missing_text(missing: &MissingValues) -> String {
 
 impl Engine {
     /// A file name as the commands use it: relative names start from the folder of the last CD.
+    /// A file handle in it stands for its path.
     pub(crate) fn path(&self, file: &str) -> PathBuf {
+        let (file, _) = self.session.macros.resolve_file(file);
         match &self.session.cwd {
-            Some(dir) if Path::new(file).is_relative() => dir.join(file),
+            Some(dir) if Path::new(&file).is_relative() => dir.join(file),
             _ => PathBuf::from(file),
         }
+    }
+
+    /// The encoding FILE HANDLE gave the handle that `file` uses, if any.
+    pub(crate) fn handle_encoding(&self, file: &str) -> Option<String> {
+        self.session.macros.resolve_file(file).1.map(str::to_string)
     }
 
     /// The folder relative names of syntax files start from.
@@ -270,14 +277,26 @@ impl Engine {
         self.session.active_name = active;
     }
 
-    /// The SET values, PRESERVE levels and CD folder as syntax that `restore_settings` reads
-    /// back: the outermost level first, each later level after a PRESERVE with what it changed.
+    /// The file handles, SET values, PRESERVE levels and CD folder as syntax that
+    /// `restore_settings` reads back: the handles, then the outermost level first, each later
+    /// level after a PRESERVE with what it changed.
     pub fn settings_syntax(&self) -> String {
         let s = &self.session;
         let current = (&s.settings, &s.cwd);
         let levels = s.preserved.iter().map(|(set, cwd)| (set, cwd));
         let (mut settings_before, mut cwd_before) = (&BTreeMap::new(), &None);
         let mut out = String::new();
+        let quoted = |text: &str| format!("'{}'", text.replace('\'', "''"));
+        for (name, handle) in s.macros.handles() {
+            out.push_str(&format!(
+                "FILE HANDLE {name} /NAME={}",
+                quoted(&handle.path)
+            ));
+            if let Some(encoding) = &handle.encoding {
+                out.push_str(&format!(" /ENCODING={}", quoted(encoding)));
+            }
+            out.push_str(".\n");
+        }
         for (i, (settings, cwd)) in levels.chain([current]).enumerate() {
             if i > 0 {
                 out.push_str("PRESERVE.\n");
@@ -315,9 +334,22 @@ impl Engine {
                 }
                 // as written: the folder was checked when CD ran
                 Command::Cd(folder) => self.session.cwd = Some(PathBuf::from(folder)),
+                // the path was completed when FILE HANDLE ran
+                Command::FileHandle {
+                    name,
+                    path,
+                    encoding,
+                    ..
+                } => {
+                    let handle = statscraft_syntax::FileHandle {
+                        path: path.clone(),
+                        encoding: encoding.clone(),
+                    };
+                    self.session.macros.set_handle(name, handle);
+                }
                 _ => {
                     return Err(Error(format!(
-                        "line {}: only SET, PRESERVE and CD belong here",
+                        "line {}: only FILE HANDLE, SET, PRESERVE and CD belong here",
                         p.first_line
                     )));
                 }
@@ -348,7 +380,9 @@ impl Engine {
             Command::Insert { file, include } => {
                 // the commands of the file were read in already; here only a file that could
                 // not be read is reported
-                let path = self.syntax_folder().join(file);
+                let path = self
+                    .syntax_folder()
+                    .join(self.session.macros.resolve_file(file).0);
                 if let Err(e) = std::fs::metadata(&path) {
                     let name = if *include { "INCLUDE" } else { "INSERT" };
                     return Err(Error(format!("{name}: cannot read {file}: {e}")));
@@ -376,11 +410,39 @@ impl Engine {
                     Some((settings, cwd)) => {
                         self.session.settings = settings;
                         self.session.cwd = cwd;
+                        self.random.get_mut().mt_active = self.setting("RNG") == "MT";
                     }
                     None => self.warn("RESTORE without PRESERVE: there was nothing to restore"),
                 }
             }
             Command::Cd(folder) => self.cd(folder)?,
+            Command::FileHandle {
+                name,
+                path,
+                encoding,
+                ignored,
+            } => {
+                if !ignored.is_empty() {
+                    self.warn(format!(
+                        "{} ignored: Statscraft reads text files line by line, whatever their \
+                         record format and length",
+                        ignored.join(" and ")
+                    ));
+                }
+                // a relative name starts from the working folder of this moment
+                let (resolved, _) = self.session.macros.resolve_file(path);
+                let path = match &self.session.cwd {
+                    Some(dir) if Path::new(&resolved).is_relative() => {
+                        dir.join(&resolved).display().to_string()
+                    }
+                    _ => resolved,
+                };
+                let handle = statscraft_syntax::FileHandle {
+                    path,
+                    encoding: encoding.clone(),
+                };
+                self.session.macros.set_handle(name, handle);
+            }
             Command::Dataset(command) => return self.dataset_command(command),
             Command::Use(range) => self.use_cases(range.as_ref())?,
             Command::Display(display) => return self.display_command(display),
@@ -445,6 +507,45 @@ impl Engine {
                             "SET UNICODE=OFF has no effect: Statscraft always works in Unicode",
                         );
                     }
+                }
+                "SEED" => {
+                    let seed = match value.to_uppercase().as_str() {
+                        "RANDOM" => crate::random::time_seed(),
+                        _ => match value.parse::<f64>() {
+                            Ok(n) if (1.0..2e9).contains(&n) => n.trunc() as u64,
+                            _ => {
+                                return Err(Error(format!(
+                                    "SET SEED takes a whole number from 1 to 1999999999 or \
+                                     RANDOM, got {value}"
+                                )));
+                            }
+                        },
+                    };
+                    self.random.get_mut().seed = seed;
+                    // RANDOM is kept as the seed it chose, so a session can go on from it
+                    self.session.settings.insert(name.clone(), seed.to_string());
+                    continue;
+                }
+                "MTINDEX" => {
+                    let index = match value.to_uppercase().as_str() {
+                        "RANDOM" => crate::random::time_seed() as f64,
+                        _ => value.parse::<f64>().map_err(|_| {
+                            Error(format!("SET MTINDEX takes a number or RANDOM, got {value}"))
+                        })?,
+                    };
+                    self.random.get_mut().set_mtindex(index);
+                    self.session
+                        .settings
+                        .insert(name.clone(), index.to_string());
+                    continue;
+                }
+                "RNG" => {
+                    let mt = match value.to_uppercase().as_str() {
+                        "MC" => false,
+                        "MT" => true,
+                        _ => return Err(Error(format!("SET RNG takes MC or MT, got {value}"))),
+                    };
+                    self.random.get_mut().mt_active = mt;
                 }
                 "MNEST" | "MITERATE" if value.parse::<u32>().map_or(true, |n| n == 0) => {
                     return Err(Error(format!(
@@ -511,6 +612,19 @@ impl Engine {
                     ),
                     "DIRECTORY" => self.syntax_folder().display().to_string(),
                     "SYSMIS" => "System-missing".into(),
+                    "HANDLES" => {
+                        let handles = self.session.macros.handles().iter();
+                        let all: Vec<String> = handles
+                            .map(|(name, h)| format!("{name} = {}", h.path))
+                            .collect();
+                        if all.is_empty() {
+                            "none".into()
+                        } else {
+                            all.join("; ")
+                        }
+                    }
+                    // the state of the generator, as the description of SHOW SEED says
+                    "SEED" => self.random.borrow().seed.to_string(),
                     "VERSION" => format!("Statscraft {}", env!("CARGO_PKG_VERSION")),
                     "CC" => ["CCA", "CCB", "CCC", "CCD", "CCE"]
                         .iter()
@@ -528,7 +642,9 @@ impl Engine {
     }
 
     fn cd(&mut self, folder: &str) -> Result<(), Error> {
-        let path = self.syntax_folder().join(folder);
+        let path = self
+            .syntax_folder()
+            .join(self.session.macros.resolve_file(folder).0);
         // the last part may name a file, which is left out
         let dir = if path.is_dir() {
             path

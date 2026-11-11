@@ -100,6 +100,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "RESTORE",
             "CACHE",
             "CD",
+            "FILE HANDLE",
             "DATASET NAME",
             "DATASET ACTIVATE",
             "DATASET COPY",

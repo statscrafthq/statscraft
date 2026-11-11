@@ -42,9 +42,16 @@ impl Engine {
             self.pending_data = Some(list.clone());
             return Ok(());
         };
-        let bytes = std::fs::read(file).map_err(|e| Error(format!("cannot read {file}: {e}")))?;
-        let text = String::from_utf8(bytes)
-            .map_err(|_| Error(format!("{file} is not UTF-8 text; save it as UTF-8")))?;
+        let bytes = std::fs::read(self.path(file))
+            .map_err(|e| Error(format!("cannot read {file}: {e}")))?;
+        let text = match self.handle_encoding(file) {
+            // FILE HANDLE /ENCODING
+            Some(encoding) => {
+                statscraft_syntax::decode_syntax(&bytes, Some(&encoding)).map_err(Error)?
+            }
+            None => String::from_utf8(bytes)
+                .map_err(|_| Error(format!("{file} is not UTF-8 text; save it as UTF-8")))?,
+        };
         let records = text.lines().enumerate().map(|(i, line)| Record {
             place: format!("record {} of {file}", i + 1),
             text: line.to_string(),

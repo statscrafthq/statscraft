@@ -101,7 +101,7 @@ pub(crate) fn get_data(p: &mut Parser) -> PResult<Command> {
             }
         } else if p.eat_keyword("FILE") {
             equals(p);
-            command.file = p.string("a quoted file name")?;
+            command.file = p.file("a quoted file name or a file handle")?;
         } else if p.eat_keyword("ENCODING") {
             equals(p);
             command.encoding = Some(p.string("a quoted encoding")?);

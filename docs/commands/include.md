@@ -7,7 +7,7 @@ Run the commands of another syntax file, read by the batch rules.
 ## Syntax
 
 ```text
-INCLUDE [FILE=]'path' [ENCODING='name'] [PASSWORD='text'].
+INCLUDE [FILE=]'path' | handle [ENCODING='name'] [PASSWORD='text'].
 ```
 
 Like INSERT SYNTAX=BATCH: a line that starts in the first column starts a new command.

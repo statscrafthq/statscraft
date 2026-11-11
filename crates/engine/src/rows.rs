@@ -383,6 +383,7 @@ impl Engine {
         let template = first.dataset.take().expect("the engine keeps its dataset");
         let vectors_after = std::mem::take(&mut first.vectors);
 
+        let mut random = std::mem::take(&mut self.random);
         let mut kept: Vec<Dataset> = Vec::new();
         let mut kept_cases: Vec<Option<usize>> = Vec::new();
         let mut carry: Vec<(String, Carried)> = Vec::new();
@@ -396,12 +397,15 @@ impl Engine {
             }
             let previous = kept[kept.len().saturating_sub(lags)..].to_vec();
             let mut engine = engine(row, Some(case), previous);
+            // the random numbers go on from case to case
+            engine.random = std::mem::take(&mut random);
             for command in &commands {
                 engine
                     .execute(command)
                     .map_err(|e| earlier(Error(format!("case {}: {}", case + 1, e.0))))?;
                 warnings.extend(engine.warnings.iter().cloned());
             }
+            random = std::mem::take(&mut engine.random);
             let data = engine.dataset.take().expect("the engine keeps its dataset");
             let dropped = engine.row.and_then(|row| row.dropped);
             carry = dropped.unwrap_or_else(|| scratch_values(&data, 0));
@@ -440,6 +444,7 @@ impl Engine {
         }
         self.dataset = Some(result);
         self.vectors = vectors_after;
+        self.random = random;
         let mut seen = Vec::new();
         for warning in warnings {
             if !seen.contains(&warning) {

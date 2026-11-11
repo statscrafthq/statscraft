@@ -25,7 +25,7 @@ fn file_path(p: &mut Parser, keyword: &str) -> PResult<String> {
         return Err(p.unexpected(&[keyword]));
     }
     p.eat(Punct::Eq);
-    p.string("a quoted file path")
+    p.file("a quoted file path or a file handle")
 }
 
 /// `/KEEP=varlist`, `/DROP=varlist` or `/RENAME=(old = new)`, with the parser after the slash.

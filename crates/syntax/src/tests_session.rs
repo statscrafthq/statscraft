@@ -72,6 +72,33 @@ fn show_preserve_restore_cache_and_cd() {
     );
     assert_eq!(one("CACHE."), Command::Cache);
     assert_eq!(one("CD '/data/2026'."), Command::Cd("/data/2026".into()));
+    assert_eq!(one("CD data."), Command::Cd("data".into()));
+}
+
+#[test]
+fn file_handle_and_handles_in_place_of_paths() {
+    assert_eq!(
+        one("FILE HANDLE wave /NAME='w2.sav' /MODE=CHAR /RECFORM=V /LRECL=200 /ENCODING='1257'."),
+        Command::FileHandle {
+            name: "wave".into(),
+            path: "w2.sav".into(),
+            encoding: Some("1257".into()),
+            ignored: vec!["RECFORM".into(), "LRECL".into()],
+        }
+    );
+    // the old form without a slash
+    assert!(matches!(
+        one("FILE HANDLE w NAME='x'."),
+        Command::FileHandle { .. }
+    ));
+    assert!(err("FILE HANDLE w /NAME='x' /MODE=BINARY.").contains("binary"));
+    assert!(err("FILE HANDLE w /MODE=360 /NAME='x'.").contains("MODE=360"));
+    assert!(err("FILE HANDLE w.").contains("NAME"));
+    assert!(matches!(one("GET FILE=wave."), Command::Get { file, .. } if file == "wave"));
+    assert!(
+        matches!(one("SAVE OUTFILE wave."), Command::Save { outfile, .. } if outfile == "wave")
+    );
+    assert!(matches!(one("INCLUDE lib."), Command::Insert { file, .. } if file == "lib"));
 }
 
 #[test]

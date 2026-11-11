@@ -7,7 +7,7 @@ Change the folder relative file names start from.
 ## Syntax
 
 ```text
-CD 'folder'.
+CD 'folder' | handle.
 ```
 
 A relative folder starts from the current one, which is the folder of the syntax file at first. When the last part names no existing folder it is taken as a file name and left out.

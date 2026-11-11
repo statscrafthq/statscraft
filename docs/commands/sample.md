@@ -11,7 +11,7 @@ SAMPLE proportion.
 SAMPLE n FROM m.
 ```
 
-A proportion between 0 and 1 keeps each case with that chance; n FROM m keeps exactly n of the first m cases (fewer when there are fewer than m). Inside DO IF only the cases of the branch are sampled. The random numbers start from the same seed in every session.
+A proportion between 0 and 1 keeps each case with that chance; n FROM m keeps exactly n of the first m cases (fewer when there are fewer than m). Inside DO IF only the cases of the branch are sampled. The random numbers come from the generator SET RNG chooses, started by SET SEED or MTINDEX; a new session starts from the default seed.
 
 ## Example
 

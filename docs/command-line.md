@@ -91,10 +91,10 @@ A session is what one window would keep from one run to the next, stored on disk
 |---|---|---|
 | The active dataset: data, dictionary, weight, file label, documents, attributes, multiple response sets | yes | `data.zsav` |
 | SPLIT FILE and FILTER of the active dataset | yes | `state.json` |
-| Random numbers drawn so far (SAMPLE, random functions), so the next run goes on where the last one stopped | yes | `state.json` |
+| Where the random number generators stand (SAMPLE, UNIFORM, NORMAL, RV functions), so the next run goes on where the last one stopped | yes | `state.json` |
 | Named datasets (DATASET NAME, COPY, DECLARE) and which one is active, each with its split and filter | yes | `datasets/` |
 | Macros (DEFINE) and the macro settings MEXPAND, MPRINT, MNEST, MITERATE | yes | `macros.sps` |
-| SET values, PRESERVE levels not yet restored, the CD folder | yes | `settings.sps`, as SET, PRESERVE and CD commands |
+| File handles (FILE HANDLE), SET values, PRESERVE levels not yet restored, the CD folder | yes | `settings.sps`, as FILE HANDLE, SET, PRESERVE and CD commands |
 | TEMPORARY, N OF CASES, scratch variables, VECTOR | no: the end of a run is a data pass, so they take effect or end in the run that gives them | |
 | An open DO IF, LOOP, or a DATA LIST without its BEGIN DATA | no: the run fails | |
 | The folder of the syntax file, where INSERT and INCLUDE start | no: each run starts from its own file | |

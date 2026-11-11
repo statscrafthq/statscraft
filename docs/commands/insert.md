@@ -7,7 +7,7 @@ Run the commands of another syntax file in place of this command.
 ## Syntax
 
 ```text
-INSERT FILE='path' [SYNTAX=INTERACTIVE | BATCH] [ERROR=CONTINUE | STOP] [CD=NO | YES]
+INSERT FILE='path' | handle [SYNTAX=INTERACTIVE | BATCH] [ERROR=CONTINUE | STOP] [CD=NO | YES]
        [ENCODING='name'] [PASSWORD='text'].
 ```
 

@@ -68,6 +68,30 @@ const FUNCTIONS: &[(&str, &str)] = &[
     ("XDATE.YEAR", "XDATE.YEAR(date)"),
     ("XDATE.MONTH", "XDATE.MONTH(date)"),
     ("XDATE.MDAY", "XDATE.MDAY(date)"),
+    ("UNIFORM", "UNIFORM(max)"),
+    ("NORMAL", "NORMAL(sd)"),
+    ("RV.BERNOULLI", "RV.BERNOULLI(prob)"),
+    ("RV.BETA", "RV.BETA(shape1, shape2)"),
+    ("RV.BINOM", "RV.BINOM(n, prob)"),
+    ("RV.CAUCHY", "RV.CAUCHY(location, scale)"),
+    ("RV.CHISQ", "RV.CHISQ(df)"),
+    ("RV.EXP", "RV.EXP(rate)"),
+    ("RV.F", "RV.F(df1, df2)"),
+    ("RV.GAMMA", "RV.GAMMA(shape, rate)"),
+    ("RV.GEOM", "RV.GEOM(prob)"),
+    ("RV.HALFNRM", "RV.HALFNRM(mean, sd)"),
+    ("RV.HYPER", "RV.HYPER(total, sample, hits)"),
+    ("RV.IGAUSS", "RV.IGAUSS(location, scale)"),
+    ("RV.LAPLACE", "RV.LAPLACE(mean, scale)"),
+    ("RV.LOGISTIC", "RV.LOGISTIC(mean, scale)"),
+    ("RV.LNORMAL", "RV.LNORMAL(a, b)"),
+    ("RV.NEGBIN", "RV.NEGBIN(threshold, prob)"),
+    ("RV.NORMAL", "RV.NORMAL(mean, sd)"),
+    ("RV.PARETO", "RV.PARETO(threshold, shape)"),
+    ("RV.POISSON", "RV.POISSON(mean)"),
+    ("RV.T", "RV.T(df)"),
+    ("RV.UNIFORM", "RV.UNIFORM(min, max)"),
+    ("RV.WEIBULL", "RV.WEIBULL(a, b)"),
 ];
 
 /// The functions expressions evaluate, each with its call form, for completion and help.
@@ -97,8 +121,6 @@ const UNSUPPORTED: &[&str] = &[
     "TAN",
     "MEDIAN",
     "LNGAMMA",
-    "NORMAL",
-    "UNIFORM",
     "CDFNORM",
     "PROBIT",
     "YRMODA",
@@ -118,7 +140,6 @@ const UNSUPPORTED: &[&str] = &[
     "XDATE.",
     "TIME.",
     "CTIME.",
-    "RV.",
     "CDF.",
     "PDF.",
     "IDF.",
@@ -159,6 +180,8 @@ pub(crate) struct Evaluator<'a> {
     pub previous: &'a [Dataset],
     /// The vectors by lower-case name, with their variables.
     pub vectors: &'a std::collections::HashMap<String, Vec<String>>,
+    /// The generator that UNIFORM, NORMAL and the RV functions draw from.
+    pub random: &'a std::cell::RefCell<crate::random::Random>,
 }
 
 fn finite(value: f64) -> Option<f64> {
@@ -961,6 +984,18 @@ impl Evaluator<'_> {
             ("XDATE.YEAR", 1) => date_part(|(year, _, _)| year)?,
             ("XDATE.MONTH", 1) => date_part(|(_, month, _)| month)?,
             ("XDATE.MDAY", 1) => date_part(|(_, _, day)| day)?,
+            (_, count) if crate::random::arity(function) == Some(count) => {
+                let parameters = numbers()?;
+                let random = &mut *self.random.borrow_mut();
+                let value = |case: usize| {
+                    if self.active.is_some_and(|active| !active[case]) {
+                        return None;
+                    }
+                    let p: Option<Vec<f64>> = parameters.iter().map(|c| c[case]).collect();
+                    crate::random::draw(random, function, &p?).and_then(finite)
+                };
+                Column::Number((0..cases).map(value).collect())
+            }
 
             (_, count) => {
                 let known = FUNCTIONS.iter().find(|(known, _)| *known == function);

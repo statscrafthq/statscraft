@@ -7,7 +7,7 @@ Read a data file and make it the active dataset.
 ## Syntax
 
 ```text
-GET FILE='path' [/KEEP=varlist] [/DROP=varlist] [/RENAME=(old = new) ...].
+GET FILE='path' | handle [/KEEP=varlist] [/DROP=varlist] [/RENAME=(old = new) ...].
 ```
 
 KEEP, DROP and RENAME work in the order written, as in ADD FILES.

@@ -166,9 +166,11 @@ impl Engine {
         let path = self.path(&command.file);
         let bytes = std::fs::read(&path)
             .map_err(|e| Error(format!("GET DATA: cannot read {}: {e}", command.file)))?;
+        let handle = self.handle_encoding(&command.file);
         let encoding = command
             .encoding
             .as_deref()
+            .or(handle.as_deref())
             .filter(|e| !e.eq_ignore_ascii_case("locale"));
         let text = statscraft_syntax::decode_syntax(&bytes, encoding).map_err(Error)?;
         let comma = self.setting("DECIMAL").eq_ignore_ascii_case("COMMA");
