@@ -18,7 +18,7 @@ statscraft-gui tests/fixtures/survey_basic.sav job.sps        the desktop window
 
 (`job.sps` is the example from [Getting started](docs/getting-started.md#run-a-syntax-file).)
 
-What runs today: reading and writing data files, labels and missing values, transformations (COMPUTE, IF, DO IF, RECODE, COUNT, SELECT IF, AGGREGATE, SORT CASES, merging files), FREQUENCIES, DESCRIPTIVES, CROSSTABS, MEANS, T-TEST, ONEWAY, CORRELATIONS, NONPAR CORR, PARTIAL CORR, NPAR TESTS, EXAMINE, classification trees (TREE by CHAID and exhaustive CHAID), and custom tables (CTABLES) with multiple response sets and significance tests. The [command pages](docs/commands/README.md) list every command.
+What runs today: reading and writing data files, labels and missing values, transformations (COMPUTE, IF, DO IF, RECODE, COUNT, SELECT IF, AGGREGATE, SORT CASES, merging files), FREQUENCIES, DESCRIPTIVES, CROSSTABS, MEANS, T-TEST, ONEWAY, CORRELATIONS, NONPAR CORR, PARTIAL CORR, NPAR TESTS, EXAMINE, linear regression (REGRESSION, with stepwise selection, residuals and diagnostics), scale reliability (RELIABILITY: alpha, split-half and other models, intraclass correlations), classification trees (TREE by CHAID and exhaustive CHAID), and custom tables (CTABLES) with multiple response sets and significance tests. The [command pages](docs/commands/README.md) list every command.
 
 DATA LIST reads text data in fixed columns, freefield (FREE) or one case per line (LIST), inline between BEGIN DATA and END DATA or from a file, and warns with the line number of every value it cannot read.
 
