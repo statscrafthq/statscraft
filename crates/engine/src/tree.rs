@@ -540,6 +540,7 @@ impl Engine {
         for message in &command.ignored {
             self.warn(message.clone());
         }
+        let currencies = self.currencies();
         let data = self.active()?;
         let mut warnings: Vec<String> = Vec::new();
         let dependent = data.variable(&command.dependent)?;
@@ -655,7 +656,7 @@ impl Engine {
                                     warnings.push(format!(
                                         "{} is user-missing and the dependent is ordinal; \
                                          it is left out",
-                                        label(&dependent, &key)
+                                        label(&dependent, &key, &currencies)
                                     ));
                                 } else {
                                     chosen.push(key);
@@ -663,7 +664,7 @@ impl Engine {
                             } else {
                                 warnings.push(format!(
                                     "category {} of {} does not occur in the data",
-                                    label(&dependent, &key),
+                                    label(&dependent, &key, &currencies),
                                     dependent.name()
                                 ));
                             }
@@ -690,7 +691,7 @@ impl Engine {
             if !classes.contains(&key) {
                 warnings.push(format!(
                     "target category {} is not a category of the analysis; it has no gain table",
-                    label(&dependent, &key)
+                    label(&dependent, &key, &currencies)
                 ));
             }
         }
@@ -708,7 +709,7 @@ impl Engine {
                         None => {
                             return Err(Error(format!(
                                 "SCORES gives no score for category {}",
-                                label(&dependent, class)
+                                label(&dependent, class, &currencies)
                             )));
                         }
                     }
@@ -833,7 +834,10 @@ impl Engine {
                 Predictor {
                     name: variable.name().to_string(),
                     nominal: *level == Level::Nominal,
-                    labels: keys.iter().map(|k| label(variable, k)).collect(),
+                    labels: keys
+                        .iter()
+                        .map(|k| label(variable, k, &currencies))
+                        .collect(),
                     breaks: None,
                     codes,
                 }
@@ -984,7 +988,10 @@ impl Engine {
         let dependent_width = dependent.string_width();
         let dependent_labels: Vec<(Value, String)> = dependent.value_labels().to_vec();
         let dependent_measure = dependent.measure();
-        let class_labels: Vec<String> = classes.iter().map(|k| label(&dependent, k)).collect();
+        let class_labels: Vec<String> = classes
+            .iter()
+            .map(|k| label(&dependent, k, &currencies))
+            .collect();
         if command.display {
             warnings.push(
                 "the tree diagram is shown as a table, one row per node; charts are not \
@@ -1097,7 +1104,11 @@ impl Engine {
         classes: &[Key],
         dependent: &Variable,
     ) -> Result<Vec<Table>, Error> {
-        let class_labels: Vec<String> = classes.iter().map(|k| label(dependent, k)).collect();
+        let currencies = self.currencies();
+        let class_labels: Vec<String> = classes
+            .iter()
+            .map(|k| label(dependent, k, &currencies))
+            .collect();
         let root_n = nodes[0].n;
         let terminals: Vec<usize> = (0..nodes.len())
             .filter(|&t| nodes[t].children.is_empty())
