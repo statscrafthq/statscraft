@@ -16,6 +16,7 @@ mod frequencies;
 mod get_data;
 pub mod live;
 mod loops;
+mod matrix;
 mod means;
 mod merge;
 mod mrsets;
@@ -29,6 +30,8 @@ mod pass;
 mod random;
 mod rank;
 mod recode;
+mod regression;
+mod reliability;
 mod restructure;
 mod rows;
 pub mod session;
@@ -510,6 +513,8 @@ impl Engine {
             | Command::NparTests(_)
             | Command::PartialCorr(_)
             | Command::Examine(_)
+            | Command::Regression(_)
+            | Command::Reliability(_)
             | Command::Tree(_)
             | Command::Rank(_)
             | Command::Aggregate(_) => return self.procedure(command),
@@ -679,6 +684,8 @@ impl Engine {
             Command::NparTests(command) => self.npar_tests(command),
             Command::PartialCorr(command) => self.partial_corr(command),
             Command::Examine(command) => self.examine(command),
+            Command::Regression(command) => self.regression(command),
+            Command::Reliability(command) => self.reliability(command),
             Command::Tree(command) => self.tree(command),
             Command::Rank(command) => self.rank(command),
             Command::Aggregate(command) => self.aggregate(command).map(|()| Vec::new()),

@@ -90,6 +90,8 @@ One page per supported command, generated from the same table that the parser an
 | [PARTIAL CORR](partial-corr.md) | Partial correlations of variables controlling for others, with significance. |
 | [NPAR TESTS](npar-tests.md) | Nonparametric tests: one-sample, two and k related samples, two and k independent samples. |
 | [EXAMINE](examine.md) | Descriptives, percentiles, M-estimators, extreme values and normality tests, by factor cells. |
+| [REGRESSION](regression.md) | Linear regression with forced entry or removal and stepwise selection, residuals and diagnostics. |
+| [RELIABILITY](reliability.md) | Reliability of a scale: Cronbach's alpha, split-half and other models, item statistics and ICC. |
 | [TREE](tree.md) | A classification tree grown by CHAID or exhaustive CHAID. |
 
 ## Custom tables
@@ -144,4 +146,4 @@ One page per supported command, generated from the same table that the parser an
 
 These commands of the language are recognised, but Statscraft does not run them yet. A script that uses one stops with the error "command ... is not supported yet" at its line, and nothing is changed.
 
-ANOVA, CLEAR TRANSFORMATIONS, CLUSTER, DATE, DISCRIMINANT, ECHO, END CASE, END DATA, END FILE, END FILE TYPE, END INPUT PROGRAM, END MATRIX, END REPEAT, ERASE, EXPORT, FACTOR, FILE TYPE, FINISH, GET TRANSLATE, GLM, GRAPH, HOST, IMPORT, INPUT PROGRAM, LEAVE, LOGISTIC REGRESSION, MATRIX, MATRIX DATA, NEW FILE, OUTPUT CLOSE, OUTPUT EXPORT, OUTPUT NEW, OUTPUT SAVE, PERMISSIONS, PRINT, PRINT EJECT, PRINT FORMATS, PRINT SPACE, QUICK CLUSTER, RECORD TYPE, REGRESSION, RELIABILITY, REPEATING DATA, REPORT, REREAD, SAVE TRANSLATE, SUBTITLE, SYSFILE INFO, TITLE, UNIANOVA, WRITE, WRITE FORMATS, XSAVE
+ANOVA, CLEAR TRANSFORMATIONS, CLUSTER, DATE, DISCRIMINANT, ECHO, END CASE, END DATA, END FILE, END FILE TYPE, END INPUT PROGRAM, END MATRIX, END REPEAT, ERASE, EXPORT, FACTOR, FILE TYPE, FINISH, GET TRANSLATE, GLM, GRAPH, HOST, IMPORT, INPUT PROGRAM, LEAVE, LOGISTIC REGRESSION, MATRIX, MATRIX DATA, NEW FILE, OUTPUT CLOSE, OUTPUT EXPORT, OUTPUT NEW, OUTPUT SAVE, PERMISSIONS, PRINT, PRINT EJECT, PRINT FORMATS, PRINT SPACE, QUICK CLUSTER, RECORD TYPE, REPEATING DATA, REPORT, REREAD, SAVE TRANSLATE, SUBTITLE, SYSFILE INFO, TITLE, UNIANOVA, WRITE, WRITE FORMATS, XSAVE

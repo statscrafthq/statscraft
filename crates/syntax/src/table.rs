@@ -18,6 +18,8 @@ use crate::npar;
 use crate::parser::{PResult, Parser};
 use crate::procedures;
 use crate::rank;
+use crate::regression;
+use crate::reliability;
 use crate::restructure;
 use crate::selection;
 use crate::session_commands;
@@ -913,6 +915,65 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: examine::examine,
     },
     CommandSpec {
+        name: "REGRESSION",
+        summary: "Linear regression with forced entry or removal and stepwise selection, residuals and diagnostics.",
+        syntax: "REGRESSION [/VARIABLES=varlist | (COLLECT)] [/DESCRIPTIVES=[DEFAULTS MEAN STDDEV VARIANCE CORR SIG\n\
+                 \x20          BADCORR COV XPROD N ALL NONE]] [/MISSING=LISTWISE | PAIRWISE | MEANSUBSTITUTION [INCLUDE]]\n\
+                 \x20          [/REGWGT=var] [/STATISTICS=[DEFAULTS R ANOVA COEFF OUTS ZPP CHANGE CI[(95)] BCOV COLLIN TOL\n\
+                 \x20          F SES XTX SELECTION LABEL ALL]] [/CRITERIA=[DEFAULTS PIN[(0.05)] | FIN[(3.84)] POUT[(0.10)] |\n\
+                 \x20          FOUT[(2.71)] TOLERANCE[(0.0001)] MAXSTEPS(n) CIN[(95)]]] [/ORIGIN | NOORIGIN]\n\
+                 \x20          /DEPENDENT=varlist /[METHOD=]ENTER [varlist] | REMOVE varlist | STEPWISE [varlist] |\n\
+                 \x20          FORWARD [varlist] | BACKWARD [varlist] [/METHOD=...]\n\
+                 \x20          [/RESIDUALS=[DEFAULTS DURBIN OUTLIERS(tempvars) ID(var) HISTOGRAM NORMPROB]]\n\
+                 \x20          [/CASEWISE=[DEFAULTS OUTLIERS(3) | ALL PLOT(tempvar) DEPENDENT tempvars]]\n\
+                 \x20          [/SAVE=tempvar[(name)] ... [FITS]] [/SCATTERPLOT ...] [/PARTIALPLOT ...].\n\
+                 tempvar: PRED RESID ZPRED ZRESID SRESID DRESID SDRESID ADJPRED SEPRED MAHAL COOK LEVER DFBETA SDBETA\n\
+                 DFFIT SDFIT COVRATIO MCIN ICIN. One equation per dependent; each METHOD works on the equation the\n\
+                 ones before it left, and each step is a model. ENTER takes the variables in order of tolerance;\n\
+                 STEPWISE removes the weakest variable while its F-to-remove fails POUT, then enters the strongest\n\
+                 that passes PIN; FORWARD only enters, BACKWARD only removes (entering its list first when the\n\
+                 equation is empty). A variable enters only when it and the variables in the equation keep the\n\
+                 TOLERANCE. Without keywords STATISTICS is R ANOVA COEFF OUTS and DESCRIPTIVES is MEAN STDDEV CORR.\n\
+                 The tables: Variables Entered/Removed, Model Summary (CHANGE, DURBIN, SELECTION add columns),\n\
+                 ANOVA, Coefficients (CI, ZPP, TOL, COLLIN, SES, F add columns), Excluded Variables, Coefficient\n\
+                 Correlations (BCOV), Collinearity Diagnostics (COLLIN), the swept correlation matrix (XTX),\n\
+                 Residuals Statistics (with RESIDUALS, CASEWISE or a plot), Casewise Diagnostics and Outlier\n\
+                 Statistics. LISTWISE (default) uses the cases valid on every variable; PAIRWISE builds the\n\
+                 correlations pair by pair, with the smallest pair count as N; MEANSUBSTITUTION puts the mean in\n\
+                 place of a missing value. SAVE adds variables named PRE_1, RES_1 and so on, or as given; DFBETA and\n\
+                 SDBETA save one per coefficient (name0, name1, ...), MCIN and ICIN a lower and an upper bound.\n\
+                 Weighted when a weight variable is set; REGWGT gives weighted least squares. HISTOGRAM, NORMPROB,\n\
+                 SCATTERPLOT, PARTIALPLOT and TEMPLATE are accepted with a warning that charts are not drawn yet.\n\
+                 LABEL changes nothing. Not supported yet: METHOD=TEST, SELECT, MATRIX, OUTFILE.",
+        example: "REGRESSION /STATISTICS=COEFF OUTS R ANOVA CHANGE /DEPENDENT=spend /METHOD=ENTER age /METHOD=STEPWISE q1 TO q5 /SAVE=PRED ZRESID.",
+        parse: regression::regression,
+    },
+    CommandSpec {
+        name: "RELIABILITY",
+        summary: "Reliability of a scale: Cronbach's alpha, split-half and other models, item statistics and ICC.",
+        syntax: "RELIABILITY /VARIABLES=varlist [/SCALE(label)=varlist | ALL]\n\
+                 \x20           [/MODEL=ALPHA | SPLIT[(n)] | GUTTMAN | PARALLEL | STRICTPARALLEL]\n\
+                 \x20           [/STATISTICS=DESCRIPTIVE SCALE CORR COV ANOVA [FRIEDMAN | COCHRAN] TUKEY HOTELLING ALL]\n\
+                 \x20           [/SUMMARY=MEANS VARIANCE COV CORR TOTAL ALL]\n\
+                 \x20           [/ICC=[MODEL(MIXED | RANDOM | ONEWAY)] [TYPE(CONSISTENCY | ABSOLUTE)] [CIN=95] [TESTVAL=0]]\n\
+                 \x20           [/METHOD=COVARIANCE] [/MISSING=EXCLUDE | INCLUDE].\n\
+                 A case missing on any variable of VARIABLES is left out. ALPHA (default) gives Cronbach's alpha\n\
+                 and the alpha of the standardized items; SPLIT puts n items (default half, the odd one in the\n\
+                 first part) in the second part and gives the alpha of each part, the correlation between them,\n\
+                 Spearman-Brown and Guttman's split-half; GUTTMAN gives lambda 1 to 6; PARALLEL and STRICTPARALLEL\n\
+                 give the maximum likelihood estimates and a chi-square test of the model. SUMMARY TOTAL is the\n\
+                 Item-Total Statistics: scale mean, variance and alpha if the item is deleted and the corrected\n\
+                 item-total correlation. ANOVA is the repeated measures table; FRIEDMAN (with Kendall's W) and\n\
+                 COCHRAN give their chi-square in place of F, computed from the values as they are (give ranks\n\
+                 or 0/1 items); TUKEY adds the test for nonadditivity; HOTELLING tests that the item means are\n\
+                 equal. ICC gives single and average measure coefficients with confidence intervals and F tests.\n\
+                 Items without variance are dropped, with a warning, when the model or a statistic needs the\n\
+                 covariance matrix (all but ALPHA and SPLIT with DESCRIPTIVE, SCALE, ANOVA and TOTAL).\n\
+                 Weighted when a weight variable is set. Not supported yet: MODEL=OMEGA, MATRIX.",
+        example: "RELIABILITY /VARIABLES=q1 TO q10 /SCALE('Satisfaction') ALL /MODEL=ALPHA /STATISTICS=DESCRIPTIVE SCALE /SUMMARY=TOTAL.",
+        parse: reliability::reliability,
+    },
+    CommandSpec {
         name: "TREE",
         summary: "A classification tree grown by CHAID or exhaustive CHAID.",
         syntax: "TREE dependent [level] BY predictor [level] ... [FORCE = var [level]]\n\
@@ -1450,8 +1511,6 @@ static UNSUPPORTED: &[&str] = &[
     "PRINT SPACE",
     "QUICK CLUSTER",
     "RECORD TYPE",
-    "REGRESSION",
-    "RELIABILITY",
     "REPEATING DATA",
     "REPORT",
     "REREAD",

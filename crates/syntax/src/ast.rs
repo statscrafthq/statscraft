@@ -66,6 +66,8 @@ pub enum Command {
     NparTests(Box<crate::npar::NparTests>),
     PartialCorr(crate::npar::PartialCorr),
     Examine(Examine),
+    Regression(Box<crate::regression::Regression>),
+    Reliability(Box<crate::reliability::Reliability>),
     Tree(Box<Tree>),
     Rank(Rank),
     AddFiles(Merge),

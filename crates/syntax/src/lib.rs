@@ -37,6 +37,8 @@ mod parser;
 mod preprocess;
 mod procedures;
 mod rank;
+mod regression;
+mod reliability;
 mod restructure;
 mod selection;
 mod session_commands;
@@ -53,6 +55,8 @@ mod tests_data;
 mod tests_data_list;
 #[cfg(test)]
 mod tests_loops;
+#[cfg(test)]
+mod tests_models;
 #[cfg(test)]
 mod tests_npar;
 #[cfg(test)]
@@ -83,6 +87,13 @@ pub use npar::{
     PartialFormat, PartialList, RelatedTest, RunsCut,
 };
 pub use preprocess::{FileHandle, MacroState};
+pub use regression::{
+    Casewise, Criterion, MethodKind, Regression, RegressionCriteria, RegressionDescriptives,
+    RegressionMethod, RegressionMissing, RegressionResiduals, RegressionStatistics, TempVar,
+};
+pub use reliability::{
+    AnovaTest, Icc, IccModel, Reliability, ReliabilityModel, ReliabilitySummary,
+};
 pub use session_commands::{SETTINGS, SettingEffect};
 pub use split::{RawCommand, select_lines, split_commands, split_commands_in, split_commands_with};
 pub use table::{
