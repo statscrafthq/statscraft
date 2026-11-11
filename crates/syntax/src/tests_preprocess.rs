@@ -302,6 +302,34 @@ fn mprint_shows_the_expanded_command() {
 }
 
 #[test]
+fn restore_brings_back_the_macro_settings_and_the_insert_folder() {
+    // PRESERVE stores MPRINT=YES; the SET after it is undone by RESTORE (abbreviated)
+    let source = "DEFINE !v () a b !ENDDEFINE.\nSET MPRINT=YES.\nPRESERVE.\nSET MPRINT=NO.\n\
+                  FREQUENCIES VARIABLES=!v.\nREST.\nFREQUENCIES VARIABLES=!v.";
+    let raw = split_commands(source).unwrap();
+    assert_eq!(raw[4].echo, None);
+    assert_eq!(raw[6].echo.as_deref(), Some("FREQUENCIES VARIABLES=A B"));
+    // the folder of CD comes back too: more.sps is found in lib only between CD and RESTORE
+    let dir = temp_dir("restore");
+    std::fs::write(dir.join("lib/more.sps"), "TITLE 'more'.\n").unwrap();
+    let source =
+        "PRESERVE.\nCD 'lib'.\nINSERT FILE='more.sps'.\nRESTORE.\nINSERT FILE='lib/more.sps'.";
+    let raw = split_commands_in(source, Some(&dir)).unwrap();
+    let names: Vec<&str> = raw.iter().map(|c| c.name.as_str()).collect();
+    assert_eq!(
+        names,
+        [
+            "PRESERVE", "CD", "INSERT", "TITLE", "RESTORE", "INSERT", "TITLE"
+        ]
+    );
+    // a RESTORE without PRESERVE changes nothing here; the run warns about it
+    let raw =
+        split_commands("SET MPRINT=YES.\nRESTORE.\nDEFINE !w () x !ENDDEFINE.\nTITLE !w.").unwrap();
+    assert_eq!(raw[3].echo.as_deref(), Some("TITLE X"));
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
 fn errors_in_an_expansion_point_at_the_call_and_name_the_macro() {
     let source = "DEFINE !bad () VARIABLE LEVEL x (HUGE) !ENDDEFINE.\nEXECUTE.\n!bad.";
     let (_, errors) = parse(source);

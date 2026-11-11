@@ -4,12 +4,13 @@
 //!
 //! Choices where the manual is silent:
 //! - Words after PRESERVE or RESTORE (`PRESERVE LOCALE.`, as survey tools write) are ignored
-//!   with a warning; RESTORE without PRESERVE does nothing, with a warning.
+//!   with a warning: the command stores or brings back every setting, LOCALE among them.
+//!   RESTORE without PRESERVE does nothing, with a warning.
 //! - DATASET ACTIVATE warns when the dataset it replaces has no name, since that one is closed.
 //! - SET FORMAT applies to the new numeric variables of the commands that follow, except those
 //!   that read a data file.
 
-use crate::format::{Currency, DEFAULT_CURRENCY};
+use crate::format::{Currencies, Currency};
 use crate::{Cell, Engine, Error, Table, format_value};
 use statscraft_data::{Dataset, MissingValues, Value, Values};
 use statscraft_syntax::{
@@ -124,18 +125,15 @@ impl Engine {
         })
     }
 
+    /// The SET CCA to CCE specifications, to show custom currency values.
+    pub fn currencies(&self) -> Currencies {
+        Currencies(["CCA", "CCB", "CCC", "CCD", "CCE"].map(|cc| self.setting(cc)))
+    }
+
     /// A display format with what `format_value` needs beyond its name: a custom currency
     /// format (CCA to CCE) gets the SET specification, when it is not the default, after a space.
     pub(crate) fn currency_format(&self, format: &str) -> String {
-        let kind = format.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.');
-        let kind = kind.to_ascii_uppercase();
-        if !["CCA", "CCB", "CCC", "CCD", "CCE"].contains(&kind.as_str()) {
-            return format.to_string();
-        }
-        match self.setting(&kind) {
-            spec if spec == DEFAULT_CURRENCY => format.to_string(),
-            spec => format!("{format} {spec}"),
-        }
+        self.currencies().resolve(format)
     }
 
     /// The format SET FORMAT gives new numeric variables, when it is not the default F8.2.
@@ -156,6 +154,7 @@ impl Engine {
             Command::Get { .. }
                 | Command::AddFiles(_)
                 | Command::MatchFiles(_)
+                | Command::StarJoin(_)
                 | Command::Dataset(_)
                 | Command::Set(_)
                 | Command::GetData(_)
@@ -199,11 +198,16 @@ impl Engine {
             .position(|(n, _)| n.eq_ignore_ascii_case(name))
     }
 
-    fn is_active_name(&self, name: &str) -> bool {
+    pub(crate) fn is_active_name(&self, name: &str) -> bool {
         self.session
             .active_name
             .as_deref()
             .is_some_and(|a| a.eq_ignore_ascii_case(name))
+    }
+
+    /// Whether `name` is the name of a dataset, open or only declared.
+    pub(crate) fn is_dataset_name(&self, name: &str) -> bool {
+        self.is_active_name(name) || self.find_dataset(name).is_some()
     }
 
     /// An open dataset by name: the active one or another named one with data.
@@ -281,12 +285,13 @@ impl Engine {
                 }
             }
             Command::BeginProgram => self.warn(
-                "the program block was not run: Statscraft runs no programs in other languages",
+                "the program block was not run: Statscraft runs no Python or R code, so what the \
+                 block would make (files, variables, commands) is missing",
             ),
             Command::Set(settings) => self.set(settings)?,
             Command::Show(names) => return Ok(vec![self.show(names)]),
             Command::Preserve(words) => {
-                self.ignored_words("PRESERVE", words);
+                self.ignored_words("PRESERVE", "stores", words);
                 if self.session.preserved.len() == MAX_PRESERVE {
                     return Err(Error(format!(
                         "PRESERVE nests at most {MAX_PRESERVE} levels: RESTORE first"
@@ -296,7 +301,7 @@ impl Engine {
                 self.session.preserved.push(state);
             }
             Command::Restore(words) => {
-                self.ignored_words("RESTORE", words);
+                self.ignored_words("RESTORE", "brings back", words);
                 match self.session.preserved.pop() {
                     Some((settings, cwd)) => {
                         self.session.settings = settings;
@@ -325,10 +330,11 @@ impl Engine {
         Ok(Vec::new())
     }
 
-    fn ignored_words(&mut self, command: &str, words: &[String]) {
+    /// The words after PRESERVE or RESTORE, which `does` every setting anyway.
+    fn ignored_words(&mut self, command: &str, does: &str, words: &[String]) {
         if !words.is_empty() {
             self.warn(format!(
-                "{command} takes no specifications; {} ignored",
+                "{command} takes no specifications and {does} every setting; {} ignored",
                 words.join(" ")
             ));
         }

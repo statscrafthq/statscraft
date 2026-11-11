@@ -29,6 +29,7 @@ use super::{
     Category, CategoryList, Key, Mass, Subtotal, Tally, TermVar, VlabelsDisplay, add_subtotals,
     add_total, categories,
 };
+use crate::format::Currencies;
 use crate::{Engine, Error};
 use statscraft_data::{Dataset, Value, Values, Variable};
 use statscraft_syntax::{
@@ -144,7 +145,11 @@ impl Engine {
 }
 
 /// The categories of a set in display order.
-pub(super) fn set_categories(set: &Set, spec: Option<&Categories>) -> Result<CategoryList, Error> {
+pub(super) fn set_categories(
+    set: &Set,
+    spec: Option<&Categories>,
+    currencies: &Currencies,
+) -> Result<CategoryList, Error> {
     let names = spec
         .and_then(|s| s.values.as_ref())
         .is_some_and(|items| items.iter().any(|i| matches!(i, CategoryItem::Name(_))));
@@ -155,7 +160,7 @@ pub(super) fn set_categories(set: &Set, spec: Option<&Categories>) -> Result<Cat
                 set.name
             )));
         }
-        return categories(set.name, &set.variables, spec, None);
+        return categories(set.name, &set.variables, spec, None, currencies);
     };
     let label = |v: &Variable| {
         let counted_label = v.value_labels().iter().find_map(|(value, label)| {

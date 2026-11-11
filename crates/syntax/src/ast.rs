@@ -67,6 +67,7 @@ pub enum Command {
     Rank(Rank),
     AddFiles(Merge),
     MatchFiles(Merge),
+    StarJoin(StarJoin),
     DataList(DataList),
     /// The lines between BEGIN DATA and END DATA, each with its line number in the source.
     BeginData(Vec<(u32, String)>),
@@ -897,6 +898,41 @@ pub struct Merge {
     pub by: Vec<VarItem>,
     /// `/KEEP` and `/DROP` in the order written, applied to the result.
     pub subsets: Vec<Subset>,
+}
+
+/// STAR JOIN: every case of the FROM source with the fields of the JOIN sources whose keys
+/// match it, as an SQL left outer join.
+#[derive(Debug, Clone, PartialEq)]
+pub struct StarJoin {
+    /// The SELECT fields in order; None for `SELECT *`.
+    pub select: Option<Vec<JoinField>>,
+    /// FROM, then every JOIN in order.
+    pub sources: Vec<JoinSource>,
+    /// OUTFILE FILE=: a file or a dataset; None is `*`, the active dataset.
+    pub outfile: Option<String>,
+    /// PASSPROTECT with a PASSWORD other than NONE: the output file is to be encrypted.
+    pub encrypt: bool,
+}
+
+/// A field of SELECT: `alias.name [AS new]`.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JoinField {
+    /// The index of its source in `StarJoin::sources`.
+    pub source: usize,
+    pub name: String,
+    pub rename: Option<String>,
+}
+
+/// The FROM source or a JOIN source: a data file, a dataset or `*`, with its alias.
+#[derive(Debug, Clone, PartialEq)]
+pub struct JoinSource {
+    /// None is `*`, the active dataset.
+    pub file: Option<String>,
+    pub alias: String,
+    /// JOIN: the key pairs of ON, (field of the FROM source, field of this source).
+    pub on: Vec<(String, String)>,
+    /// JOIN: `IN=name`, a new variable that is 1 when the case found a match here, else 0.
+    pub flag: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]

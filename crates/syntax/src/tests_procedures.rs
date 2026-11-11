@@ -1,5 +1,5 @@
-//! Parser tests of DESCRIPTIVES, CROSSTABS, MEANS, T-TEST, ONEWAY, CORRELATIONS, EXAMINE, ADD FILES and
-//! MATCH FILES.
+//! Parser tests of DESCRIPTIVES, CROSSTABS, MEANS, T-TEST, ONEWAY, CORRELATIONS, EXAMINE, ADD FILES,
+//! MATCH FILES and STAR JOIN.
 
 use super::*;
 
@@ -848,4 +848,94 @@ fn tree_errors() {
     assert!(message("TREE y BY x /FOO.").contains("unknown subcommand FOO of TREE"));
     assert_eq!(err("TREE y BY x [q].").expected, ["S", "O", "N", "C"]);
     assert_eq!(err("TREE y x.").expected, ["BY"]);
+}
+
+#[test]
+fn star_join() {
+    let field = |source: usize, name: &str, rename: Option<&str>| JoinField {
+        source,
+        name: name.into(),
+        rename: rename.map(str::to_string),
+    };
+    let source =
+        |file: Option<&str>, alias: &str, on: &[(&str, &str)], flag: Option<&str>| JoinSource {
+            file: file.map(str::to_string),
+            alias: alias.into(),
+            on: on
+                .iter()
+                .map(|(a, b)| (a.to_string(), b.to_string()))
+                .collect(),
+            flag: flag.map(str::to_string),
+        };
+    // every part: AS, PASSWORD, a key pair written the other way round, AND, IN, PASSPROTECT;
+    // a field named twice for one source is taken once
+    assert_eq!(
+        one("STAR JOIN /SELECT t1.id, t1.K9.1 AS k91, t2.city, t1.id\n\
+             /FROM 'fact.sav' PASSWORD='x' AS t1\n\
+             /JOIN towns AS t2 ON t2.first = t1.first AND t1.last=t2.last IN=found\n\
+             /JOIN * AS t3 ON t1.id = t3.id\n\
+             /OUTFILE FILE='out.sav' /PASSPROTECT PASSWORD='secret' ENCRYPTEDPW=YES."),
+        Command::StarJoin(StarJoin {
+            select: Some(vec![
+                field(0, "id", None),
+                field(0, "K9.1", Some("k91")),
+                field(1, "city", None),
+            ]),
+            sources: vec![
+                source(Some("fact.sav"), "t1", &[], None),
+                source(
+                    Some("towns"),
+                    "t2",
+                    &[("first", "first"), ("last", "last")],
+                    Some("found")
+                ),
+                source(None, "t3", &[("id", "id")], None),
+            ],
+            outfile: Some("out.sav".into()),
+            encrypt: true,
+        })
+    );
+    // SELECT *, the first slash left out, no password to protect with
+    let Command::StarJoin(join) = one(
+        "STAR JOIN SELECT * /FROM * AS a /JOIN 'DataSet4' AS b ON a.k = b.k \
+         /OUTFILE FILE=* /PASSPROTECT PASSWORD=NONE.",
+    ) else {
+        panic!()
+    };
+    assert_eq!(join.select, None);
+    assert_eq!(join.sources[1].file.as_deref(), Some("DataSet4"));
+    assert!(join.outfile.is_none() && !join.encrypt);
+
+    let message = |source: &str| err(source).message;
+    assert!(
+        err("STAR JOIN /SELECT a.x /FROM * AS a /OUTFILE FILE=*.")
+            .expected
+            .contains(&"/JOIN".to_string())
+    );
+    // keywords are written in full
+    assert!(
+        err("STAR JOIN /SEL a.x /FROM * AS a /JOIN b AS b ON a.k = b.k /OUTFILE FILE=*.")
+            .expected
+            .contains(&"/SELECT".to_string())
+    );
+    assert_eq!(
+        message("STAR JOIN /SELECT c.x /FROM * AS a /JOIN b AS b ON a.k = b.k /OUTFILE FILE=*."),
+        "c.x names no field of a source: write alias.name with an alias of FROM or JOIN (a, b)"
+    );
+    assert_eq!(
+        message(
+            "STAR JOIN /SELECT a.x /FROM * AS a /JOIN b AS b ON a.k = b.k \
+             /JOIN c AS c ON b.k = c.k /OUTFILE FILE=*."
+        ),
+        "ON compares a field of FROM (a) with one of this JOIN (c): b.k = c.k"
+    );
+    assert_eq!(
+        message("STAR JOIN /SELECT a.x /FROM * AS a /JOIN b AS A ON a.k = A.k /OUTFILE FILE=*."),
+        "the alias A is given twice; every FROM and JOIN needs its own"
+    );
+    assert!(
+        err("STAR JOIN /SELECT a.x /FROM * AS a /JOIN b AS b ON a.k = b.k /OUTFILE FILE=* /PASSPROTECT.")
+            .expected
+            .contains(&"PASSWORD=".to_string())
+    );
 }

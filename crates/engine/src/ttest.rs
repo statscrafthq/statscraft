@@ -17,6 +17,7 @@
 
 use crate::descriptives::{case_weights, number};
 use crate::dist::{hedges_j, noncentral_t_parameter, t_p, t_quantile};
+use crate::format::{Currencies, category_text};
 use crate::means::is_valid;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Value as Stored, Values, Variable};
@@ -140,15 +141,17 @@ fn same(variable: &Variable, case: usize, value: &Value) -> bool {
     }
 }
 
-fn shown(value: &Value) -> String {
+/// A group value as text: a number in `format`, the grouping variable's format as
+/// `Currencies::resolve` gives it.
+fn shown(value: &Value, format: &str) -> String {
     match value {
-        Value::Number(n) => n.to_string(),
+        Value::Number(n) => category_text(*n, format),
         Value::String(s) => s.trim_end().to_string(),
     }
 }
 
 /// The label of a group value: its value label, else the value.
-fn group_label(variable: &Variable, value: &Value) -> String {
+fn group_label(variable: &Variable, value: &Value, format: &str) -> String {
     let found = variable
         .value_labels()
         .iter()
@@ -157,7 +160,7 @@ fn group_label(variable: &Variable, value: &Value) -> String {
             (Stored::String(a), Value::String(b)) => a.trim_end() == b.trim_end(),
             _ => false,
         });
-    found.map_or_else(|| shown(value), |(_, label)| label.clone())
+    found.map_or_else(|| shown(value, format), |(_, label)| label.clone())
 }
 
 struct Run<'d> {
@@ -166,6 +169,7 @@ struct Run<'d> {
     include: bool,
     alpha: f64,
     ci: String,
+    currencies: Currencies,
     warnings: Vec<String>,
 }
 
@@ -213,6 +217,7 @@ impl Engine {
             include: command.include,
             alpha: 1.0 - command.ci,
             ci: ci_title(command.ci),
+            currencies: self.currencies(),
             warnings: Vec::new(),
         };
         let mut out = Vec::new();
@@ -392,6 +397,7 @@ fn independent(
     grouping: &Variable,
     groups: &TTestGroups,
 ) -> Result<Vec<Table>, Error> {
+    let format = run.currencies.resolve(grouping.format());
     let (first, second, labels) = match groups {
         TTestGroups::Default if grouping.is_string() => {
             return Err(Error(format!(
@@ -401,17 +407,26 @@ fn independent(
         }
         TTestGroups::Default => {
             let (a, b) = (Value::Number(1.0), Value::Number(2.0));
-            let labels = [group_label(grouping, &a), group_label(grouping, &b)];
+            let labels = [
+                group_label(grouping, &a, &format),
+                group_label(grouping, &b, &format),
+            ];
             (Some(a), Some(b), labels)
         }
         TTestGroups::Two(a, b) => {
-            let labels = [group_label(grouping, a), group_label(grouping, b)];
+            let labels = [
+                group_label(grouping, a, &format),
+                group_label(grouping, b, &format),
+            ];
             (Some(a.clone()), Some(b.clone()), labels)
         }
         TTestGroups::Cut(cut) => (
             Some(cut.clone()),
             None,
-            [format!(">= {}", shown(cut)), format!("< {}", shown(cut))],
+            [
+                format!(">= {}", shown(cut, &format)),
+                format!("< {}", shown(cut, &format)),
+            ],
         ),
     };
     let numeric_type = matches!(grouping.values(), Values::Numeric(_));

@@ -29,13 +29,14 @@ pub mod session;
 mod session_commands;
 mod sort;
 mod split;
+mod star_join;
 mod transform;
 mod tree;
 mod ttest;
 mod variables;
 
 pub use expr::functions;
-pub use format::{format_value, is_date_time_or_currency};
+pub use format::{Currencies, currency_parts, format_value, is_date_time_or_currency};
 use serde::{Deserialize, Serialize};
 use statscraft_data::{Dataset, Measure, MissingValues, Value};
 use statscraft_syntax as syntax;
@@ -569,6 +570,11 @@ impl Engine {
                 self.not_temporary("MATCH FILES")?;
                 self.begin_pass()?;
                 self.merge_files(merge, false)?
+            }
+            Command::StarJoin(join) => {
+                self.not_temporary("STAR JOIN")?;
+                self.begin_pass()?;
+                self.star_join(join)?
             }
             Command::DataList(list) => {
                 self.park_active();

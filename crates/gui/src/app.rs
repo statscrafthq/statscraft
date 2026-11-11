@@ -1192,11 +1192,12 @@ impl App {
             widths[c] = width;
         }
         let headers: Vec<String> = data.variable_names().map(str::to_string).collect();
+        let currencies = self.session.currencies();
         let cell = |r: usize, c: usize| {
             let variable = data.variable_at(c);
             let labelled = labels && !variable.value_labels().is_empty();
             (
-                edits::cell_text(&variable, r, labelled),
+                edits::cell_text(&variable, r, labelled, &currencies),
                 cell_align(&variable),
             )
         };
@@ -1489,8 +1490,9 @@ impl App {
             let headers: Vec<String> = data.variable_names().map(str::to_string).collect();
             let size = (data.case_count(), data.variable_count());
             let labels = self.value_labels;
+            let currencies = self.session.currencies();
             let text = grid::copy(s, size, &headers, |r, c| {
-                edits::cell_text(&data.variable_at(c), r, labels)
+                edits::cell_text(&data.variable_at(c), r, labels, &currencies)
             });
             (text, s.is_wide())
         };

@@ -167,6 +167,70 @@ fn ctables_summaries_take_date_time_and_currency_formats() {
     assert_eq!([row(t, 2)[1].as_str(), &row(t, 2)[6]], ["$2.33", "$7.00"]);
 }
 
+/// Every header and cell of the tables, as shown.
+fn texts(tables: &[Table]) -> Vec<String> {
+    let mut out = Vec::new();
+    for t in tables {
+        out.extend(t.columns.iter().cloned());
+        out.extend((0..t.rows.len()).flat_map(|r| row(t, r)));
+    }
+    out
+}
+
+#[test]
+fn groups_and_categories_show_in_their_date_or_currency_format() {
+    let groups = "DATA LIST LIST /y (F2.0) g (ADATE10) k (F2.0).
+BEGIN DATA
+1 01/01/2020 1
+2 01/01/2020 1
+3 03/15/2021 2
+5 03/15/2021 2
+END DATA.
+FORMATS k (CCA8.2).
+SET CCA='(,$,,)'.
+";
+    let has = |source: &str, wanted: &[&str]| {
+        let mut engine = Engine::default();
+        let (commands, errors) = parse(&format!("{groups}{source}"));
+        assert!(errors.is_empty(), "{errors:?}");
+        let mut tables = Vec::new();
+        for c in &commands {
+            tables.extend(engine.execute(&c.command).unwrap());
+        }
+        let texts = texts(&tables);
+        for text in wanted {
+            assert!(
+                texts.iter().any(|t| t == text),
+                "{source}: no {text} in {texts:?}"
+            );
+        }
+        // 2020-01-01 as seconds and the currency group as a bare number never show
+        assert!(
+            !texts.iter().any(|t| t.contains("13797")),
+            "{source}: {texts:?}"
+        );
+    };
+    has(
+        "ONEWAY y BY g /STATISTICS DESCRIPTIVES.",
+        &["01/01/2020", "03/15/2021"],
+    );
+    has(
+        "ONEWAY y BY k /STATISTICS DESCRIPTIVES.",
+        &["$1.00", "$2.00"],
+    );
+    has("T-TEST GROUPS=k(1 2) /VARIABLES=y.", &["$1.00", "$2.00"]);
+    has("T-TEST GROUPS=k(2) /VARIABLES=y.", &[">= $2.00", "< $2.00"]);
+    has(
+        "T-TEST GROUPS=g(13797216000) /VARIABLES=y.",
+        &[">= 01/01/2020"],
+    );
+    has("CROSSTABS g BY k.", &["01/01/2020", "$1.00", "$2.00"]);
+    has("MEANS y BY k.", &["$1.00", "$2.00"]);
+    has("EXAMINE y BY k.", &["$1.00", "$2.00"]);
+    has("CTABLES /TABLE k [COUNT].", &["$1.00", "$2.00"]);
+    has("SPLIT FILE BY k.\nDESCRIPTIVES y.", &["$1.00", "$2.00"]);
+}
+
 #[test]
 fn a_custom_currency_needs_three_commas_or_three_periods() {
     let mut engine = Engine::default();

@@ -822,6 +822,38 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: files::match_files,
     },
     CommandSpec {
+        name: "STAR JOIN",
+        summary: "Add the fields of lookup files to every case of a data file, by keys, as an SQL left join.",
+        syntax: "STAR JOIN /SELECT * | alias.field [AS name], alias.field [AS name], ...\n\
+                 \x20         /FROM 'path' [PASSWORD='text'] | dataset | * AS alias\n\
+                 \x20         /JOIN 'path' [PASSWORD='text'] | dataset | * AS alias\n\
+                 \x20               ON alias.key = alias.key [AND alias.key = alias.key ...] [IN=name]\n\
+                 \x20         [/JOIN ...] /OUTFILE FILE='path' | dataset | *\n\
+                 \x20         [/PASSPROTECT PASSWORD='text' | NONE [ENCRYPTEDPW=NO | YES]].\n\
+                 The subcommands come in this order and every keyword is written in full. A dataset\n\
+                 name, quoted or not, is that open dataset and comes before a file of the same name.\n\
+                 Every case of FROM is kept, in its order; a JOIN adds its fields to the cases whose keys\n\
+                 it holds and leaves them blank (system-missing, empty) elsewhere. The files need no\n\
+                 sorting, and each JOIN has its own keys. ON pairs a field of FROM with one of that JOIN,\n\
+                 numeric with numeric, string with string (widths may differ; trailing blanks do not\n\
+                 count). The keys of a JOIN must be unique there. A system-missing key matches nothing.\n\
+                 IN=name adds a variable that is 1 where the JOIN had the case and 0 where not.\n\
+                 The result holds the SELECT fields and every key: SELECT * is every field of every\n\
+                 source, and a JOIN key of the same name as its FROM key appears once, from FROM. Keys\n\
+                 not named on SELECT come first; the rest follow in SELECT order; IN variables last.\n\
+                 A name that two sources bring gets its alias in front (t1.name, t2.name) unless AS\n\
+                 names it. The dictionary comes from FROM (with its weight, filter and split); a key\n\
+                 without labels or missing values takes them from the first JOIN that has them; the\n\
+                 documents of every file are kept; the file label is dropped. Not after TEMPORARY.\n\
+                 OUTFILE=* replaces the active dataset, a dataset name (DATASET DECLARE) fills that\n\
+                 dataset, a path writes a data file. PASSWORD on FROM and JOIN is accepted for files that\n\
+                 are not encrypted (encrypted ones cannot be read); PASSPROTECT with a password is\n\
+                 refused for a file, since Statscraft writes no encrypted files, and ignored otherwise.",
+        example: "STAR JOIN /SELECT t1.id, t1.region, t2.name /FROM * AS t1\n\
+                  \x20 /JOIN 'regions.sav' AS t2 ON t1.region = t2.region /OUTFILE FILE=*.",
+        parse: files::star_join,
+    },
+    CommandSpec {
         name: "DEFINE",
         summary: "Define a macro: a name that stands for syntax, with arguments.",
         syntax: "DEFINE name ([argument [/ argument ...]])\n\
@@ -884,8 +916,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "BEGIN PROGRAM [language].\n\
                  code\n\
                  END PROGRAM.\n\
-                 Statscraft runs no programs in other languages. The block is read up to END PROGRAM and\n\
-                 not run; the run goes on with a warning.",
+                 Statscraft runs no Python or R code. The block is read up to END PROGRAM and not run;\n\
+                 the run goes on with one warning per block. Files, variables or commands the block would\n\
+                 make are missing, so later commands that need them fail.",
         example: "BEGIN PROGRAM PYTHON3.\nprint('not run')\nEND PROGRAM.",
         parse: session_commands::begin_program,
     },
@@ -919,7 +952,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "PRESERVE",
         summary: "Store the current settings and folder, to bring them back with RESTORE.",
         syntax: "PRESERVE.\n\
-                 PRESERVE and RESTORE nest up to five levels. Words after PRESERVE are ignored with a warning.",
+                 Stores every setting of SET (CCA to CCE, DECIMAL, FORMAT, LOCALE, MPRINT, MEXPAND, MNEST,\n\
+                 MITERATE and the rest) and the folder of CD. PRESERVE and RESTORE nest up to five levels.\n\
+                 Words after PRESERVE (PRESERVE LOCALE, as survey tools write it) are ignored with a\n\
+                 warning: every setting is stored anyway.",
         example: "PRESERVE.",
         parse: session_commands::preserve,
     },
@@ -927,7 +963,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "RESTORE",
         summary: "Bring back the settings and folder the last PRESERVE stored.",
         syntax: "RESTORE.\n\
-                 Words after RESTORE are ignored with a warning.",
+                 Every setting and the folder come back as the last PRESERVE stored them; a RESTORE without\n\
+                 PRESERVE does nothing, with a warning. Words after RESTORE (RESTORE LOCALE) are ignored with\n\
+                 a warning: every setting comes back.",
         example: "RESTORE.",
         parse: session_commands::restore,
     },
@@ -1214,7 +1252,6 @@ static UNSUPPORTED: &[&str] = &[
     "REREAD",
     "SAVE TRANSLATE",
     "SORT VARIABLES",
-    "STAR JOIN",
     "SUBTITLE",
     "SYSFILE INFO",
     "TITLE",

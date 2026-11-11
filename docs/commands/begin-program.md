@@ -12,7 +12,7 @@ BEGIN PROGRAM [language].
 
 code END PROGRAM.
 
-Statscraft runs no programs in other languages. The block is read up to END PROGRAM and not run; the run goes on with a warning.
+Statscraft runs no Python or R code. The block is read up to END PROGRAM and not run; the run goes on with one warning per block. Files, variables or commands the block would make are missing, so later commands that need them fail.
 
 ## Example
 

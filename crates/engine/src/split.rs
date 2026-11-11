@@ -168,6 +168,7 @@ impl Engine {
     /// The split groups of the cases the filter keeps; None when every case is used as it is.
     fn groups(&self, use_split: bool) -> Result<Option<Vec<Group>>, Error> {
         let data = self.active()?;
+        let currencies = self.currencies();
         let split = data.split_file().filter(|_| use_split);
         let filter = data.filter_variable();
         if split.is_none() && filter.is_none() {
@@ -193,7 +194,7 @@ impl Engine {
                 let values = split.variables.iter().zip(&key).map(|(name, key)| {
                     let variable = data.variable(name).expect("split variables exist");
                     key.as_ref()
-                        .map_or(".".to_string(), |key| label(&variable, key))
+                        .map_or(".".to_string(), |key| label(&variable, key, &currencies))
                 });
                 groups.push(Group {
                     values: values.collect(),
@@ -233,7 +234,8 @@ impl Engine {
         let split = full.split_file().filter(|_| use_split).cloned();
         let mut results: Vec<(Vec<String>, Vec<Table>)> = Vec::new();
         let mut afters: Vec<Dataset> = Vec::new();
-        let (mut warnings, mut errors) = (Vec::new(), Vec::new());
+        // the warnings of each group, with the group's name
+        let (mut given, mut errors) = (Vec::new(), Vec::new());
         for group in &groups {
             let mut part = full.clone();
             let cases: Vec<Option<usize>> = group.cases.iter().map(|&c| Some(c)).collect();
@@ -252,12 +254,12 @@ impl Engine {
                 Ok(tables) => results.push((group.values.clone(), tables)),
                 Err(error) => errors.push(prefix(&error.0)),
             }
-            warnings.extend(self.warnings.iter().map(|w| prefix(w)));
+            given.push((name, std::mem::take(&mut self.warnings)));
             afters.push(self.dataset.take().expect("procedures keep a dataset"));
         }
         self.case_numbers = None;
         self.warnings = earlier;
-        self.warnings.extend(warnings);
+        self.warnings.extend(group_warnings(given));
         if results.is_empty() && !errors.is_empty() {
             self.dataset = Some(full);
             return Err(Error(errors.swap_remove(0)));
@@ -277,6 +279,42 @@ impl Engine {
             Some(split) => layered(&split.variables, results),
         })
     }
+}
+
+/// The warnings of the split groups: one that every group gave, such as plots not drawn, once;
+/// the others after the name of their group.
+fn group_warnings(given: Vec<(String, Vec<String>)>) -> Vec<String> {
+    let every = |w: &String| given.len() > 1 && given.iter().all(|(_, ws)| ws.contains(w));
+    let common: Vec<String> = given.first().map_or(Vec::new(), |(_, ws)| {
+        ws.iter().filter(|w| every(w)).cloned().collect()
+    });
+    let mut out = common.clone();
+    for (name, warnings) in &given {
+        for warning in warnings.iter().filter(|w| !common.contains(w)) {
+            out.push(match name.is_empty() {
+                true => warning.clone(),
+                false => format!("{name}: {warning}"),
+            });
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+#[test]
+fn a_warning_of_every_group_comes_once_the_others_with_their_group() {
+    let given = |groups: &[(&str, &[&str])]| -> Vec<(String, Vec<String>)> {
+        let words = |ws: &[&str]| ws.iter().map(|w| w.to_string()).collect();
+        groups
+            .iter()
+            .map(|(n, ws)| (n.to_string(), words(ws)))
+            .collect()
+    };
+    let two = given(&[("g = 1", &["plots", "empty"]), ("g = 2", &["plots"])]);
+    assert_eq!(group_warnings(two), ["plots", "g = 1: empty"]);
+    // with one group the name stays, as nothing tells it apart
+    let one = given(&[("g = 1", &["plots"])]);
+    assert_eq!(group_warnings(one), ["g = 1: plots"]);
 }
 
 /// "region = North, gender = Female"

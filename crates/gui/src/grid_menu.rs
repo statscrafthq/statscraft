@@ -8,6 +8,7 @@ use crate::dialogs::{Crosstabs, CustomTables, Descriptives, Frequencies, Recode}
 use crate::edits::{self, Field, listed};
 use crate::syntax_text::{number, quote};
 use statscraft_data::{Dataset, Measure, Values};
+use statscraft_engine::Currencies;
 
 /// What a right click landed on.
 #[derive(Clone, Debug, PartialEq)]
@@ -349,8 +350,10 @@ fn cell_entries(
 ) -> Vec<Option<Entry>> {
     let variable = data.variable_at(column);
     let mut condition = short(&condition(data, case, column), 40);
-    let label = edits::cell_text(&variable, case, true);
-    if label != edits::cell_text(&variable, case, false) {
+    // only a value label differs from the value, so the currency settings do not matter here
+    let plain = Currencies::default();
+    let label = edits::cell_text(&variable, case, true, &plain);
+    if label != edits::cell_text(&variable, case, false, &plain) {
         condition.push_str(&format!(" ({})", short(&label, 30)));
     }
     let mut filter = entry(Item::Filter, &format!("Only cases where {condition}")).ready(runs);
@@ -1175,7 +1178,7 @@ mod tests {
         let data = data(&session);
         let column = index(&session, "monthly_spend");
         assert_eq!(
-            edits::cell_text(&data.variable_at(column), 3, false),
+            edits::cell_text(&data.variable_at(column), 3, false, &Currencies::default()),
             "12.35"
         );
         assert_eq!(condition(data, 3, column), "monthly_spend = 12.3456");

@@ -37,6 +37,8 @@ pub(crate) enum Piece {
 }
 
 const MAX_NESTING: usize = 5;
+/// How deep PRESERVE nests.
+const MAX_PRESERVE: usize = 5;
 
 /// The macros defined and the SET values that steer their expansion (MEXPAND, MPRINT, MNEST,
 /// MITERATE). A session keeps it between runs, so that a macro library included once serves
@@ -50,6 +52,9 @@ pub struct MacroState {
     pub(crate) expand: bool,
     /// SET MPRINT
     pub(crate) print: bool,
+    /// What PRESERVE stored for RESTORE, innermost last: the settings above (MEXPAND, MPRINT,
+    /// MNEST, MITERATE) and the folder INSERT starts from, which CD sets.
+    preserved: Vec<(bool, bool, usize, usize, PathBuf)>,
 }
 
 impl Default for MacroState {
@@ -59,6 +64,7 @@ impl Default for MacroState {
             sources: BTreeMap::new(),
             expand: true,
             print: false,
+            preserved: Vec::new(),
         }
     }
 }
@@ -98,6 +104,23 @@ impl MacroState {
         let mut state = Self::default();
         preprocess_with(text, None, &mut state, None);
         state
+    }
+
+    /// PRESERVE. Past five levels the engine reports the error, so nothing is stored here.
+    fn preserve(&mut self, folder: &Path) {
+        if self.preserved.len() < MAX_PRESERVE {
+            let (nest, iterate) = (self.macros.nest, self.macros.iterate);
+            let saved = (self.expand, self.print, nest, iterate, folder.to_path_buf());
+            self.preserved.push(saved);
+        }
+    }
+
+    /// RESTORE: the settings PRESERVE stored come back; the folder is returned.
+    fn restore(&mut self) -> Option<PathBuf> {
+        let (expand, print, nest, iterate, folder) = self.preserved.pop()?;
+        (self.expand, self.print) = (expand, print);
+        (self.macros.nest, self.macros.iterate) = (nest, iterate);
+        Some(folder)
     }
 
     fn define(&mut self, definition: crate::macros::Macro, text: String) {
@@ -341,6 +364,20 @@ impl Pre {
                     set(&mut self.state, &tokens);
                     if keep {
                         set(&mut self.kept, &tokens);
+                    }
+                }
+                Some("PRESERVE") => {
+                    self.state.preserve(base);
+                    if self.runs(number) {
+                        self.kept.preserve(base);
+                    }
+                }
+                Some("RESTORE") => {
+                    if let Some(folder) = self.state.restore() {
+                        *base = folder;
+                    }
+                    if self.runs(number) {
+                        self.kept.restore();
                     }
                 }
                 _ => {}

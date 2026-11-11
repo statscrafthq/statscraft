@@ -141,6 +141,27 @@ fn sort_cases_turns_the_split_off() {
 }
 
 #[test]
+fn a_warning_every_split_group_gives_shows_once() {
+    let mut session = session();
+    let result = run(
+        &mut session,
+        "SPLIT FILE BY g.\nEXAMINE x /PLOT BOXPLOT STEMLEAF NPPLOT.\nBEGIN PROGRAM PYTHON3.\nprint(1)\nEND PROGRAM.",
+    );
+    assert_eq!(
+        result.commands[1].warnings,
+        [
+            "plots are not drawn yet: BOXPLOT, STEMLEAF, NPPLOT left out; the statistics and the Tests of Normality table are shown"
+        ]
+    );
+    assert_eq!(
+        result.commands[2].warnings,
+        [
+            "the program block was not run: Statscraft runs no Python or R code, so what the block would make (files, variables, commands) is missing"
+        ]
+    );
+}
+
+#[test]
 fn temporary_changes_last_until_the_next_procedure() {
     let mut session = session();
     let result = run(

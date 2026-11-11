@@ -24,7 +24,7 @@ use crate::aggregate::median;
 use crate::crosstabs::{Key, categories, label};
 use crate::descriptives::{case_weights, number, summarize};
 use crate::dist::f_p;
-use crate::format::{Stat, formats_of, procedure_format};
+use crate::format::{Currencies, Stat, formats_of, procedure_format};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Values, Variable};
 use statscraft_syntax::{Means, MeansCell as M, MeansMissing};
@@ -263,6 +263,7 @@ struct GroupSums {
 impl Engine {
     pub(crate) fn means(&mut self, command: &Means) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
+        let currencies = self.currencies();
         let weights = case_weights(data)?;
         let weight = |case: usize| weights.as_ref().map_or(1.0, |w| w[case]);
         let counted: Vec<usize> = (0..data.case_count())
@@ -350,6 +351,7 @@ impl Engine {
                         &included,
                         &weight,
                         include_control,
+                        &currencies,
                         &mut warnings,
                     ));
                 }
@@ -388,6 +390,7 @@ fn report(
     included: &[usize],
     weight: &dyn Fn(usize) -> f64,
     include_control: bool,
+    currencies: &Currencies,
     warnings: &mut Vec<String>,
 ) -> Vec<Table> {
     let keys: Vec<Vec<Option<Key>>> = controls
@@ -442,7 +445,13 @@ fn report(
         let mut row: Vec<Cell> = group
             .iter()
             .zip(controls)
-            .map(|(choice, v)| Cell::Text(choice.as_ref().map_or("Total".into(), |k| label(v, k))))
+            .map(|(choice, v)| {
+                Cell::Text(
+                    choice
+                        .as_ref()
+                        .map_or("Total".into(), |k| label(v, k, currencies)),
+                )
+            })
             .collect();
         for &cell in &command.cells {
             row.push(if dependent.is_string() {

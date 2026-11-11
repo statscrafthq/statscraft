@@ -489,14 +489,54 @@ pub(crate) fn formats_of(
     }
 }
 
-/// A category value as a label: in its date or time format, else as a plain number.
-// shortcut: a custom currency category shows as a plain number, because the label is made
-// without the SET specification; pass the engine's currencies in when someone needs it
+/// A category value as a label: in its date, time or custom currency format, else as a plain
+/// number. `format` is the variable's format as `Currencies::resolve` gives it.
 pub(crate) fn category_text(value: f64, format: &str) -> String {
     match scale(format) {
-        Scale::Moment | Scale::Duration | Scale::Index => format_value(value, format, true),
-        _ => value.to_string(),
+        Scale::Plain => value.to_string(),
+        _ => format_value(value, format, true),
     }
+}
+
+/// The SET CCA to CCE specifications of a session, which every output that shows a custom
+/// currency needs.
+#[derive(Clone, Debug, PartialEq)]
+pub struct Currencies(pub(crate) [String; 5]);
+
+impl Default for Currencies {
+    fn default() -> Self {
+        Self(std::array::from_fn(|_| DEFAULT_CURRENCY.to_string()))
+    }
+}
+
+impl Currencies {
+    /// `format` as `format_value` takes it: a custom currency format (CCA to CCE) gets its
+    /// specification after a space when it is not the default; other formats stay as they are.
+    pub fn resolve(&self, format: &str) -> String {
+        let kind = format.trim_end_matches(|c: char| c.is_ascii_digit() || c == '.');
+        let letter = ["CCA", "CCB", "CCC", "CCD", "CCE"]
+            .iter()
+            .position(|cc| kind.eq_ignore_ascii_case(cc));
+        match letter.map(|i| &self.0[i]) {
+            Some(spec) if spec != DEFAULT_CURRENCY => format!("{format} {spec}"),
+            _ => format.to_string(),
+        }
+    }
+}
+
+/// The negative prefix, prefix, suffix and negative suffix of a custom currency format as
+/// `Currencies::resolve` gives it ("CCA8.2 -,$,,"), and whether a period groups thousands
+/// (the decimal point is then a comma). None for other formats or a broken specification.
+pub fn currency_parts(format: &str) -> Option<([String; 4], bool)> {
+    if scale(format) != Scale::Currency {
+        return None;
+    }
+    let spec = format
+        .split_once(' ')
+        .map_or(DEFAULT_CURRENCY, |(_, spec)| spec);
+    let c = Currency::parse(spec).ok()?;
+    let parts = [c.negative_prefix, c.prefix, c.suffix, c.negative_suffix];
+    Some((parts, c.grouping == '.'))
 }
 
 /// Whether a format turns its number into a date, time or currency text, which a spreadsheet

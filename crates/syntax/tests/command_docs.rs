@@ -14,6 +14,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "SAVE",
             "ADD FILES",
             "MATCH FILES",
+            "STAR JOIN",
             "VARIABLE LABELS",
             "VALUE LABELS",
             "MISSING VALUES",

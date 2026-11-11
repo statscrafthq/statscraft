@@ -194,7 +194,7 @@ fn examine_interval_robust_estimates_and_normality() {
     assert_eq!(
         engine.warnings(),
         [
-            "the normal probability plots of NPPLOT are not drawn; its Tests of Normality table is shown"
+            "plots are not drawn yet: NPPLOT left out; the statistics and the Tests of Normality table are shown"
         ]
     );
 }

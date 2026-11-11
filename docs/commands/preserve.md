@@ -8,8 +8,11 @@ Store the current settings and folder, to bring them back with RESTORE.
 
 ```text
 PRESERVE.
-PRESERVE and RESTORE nest up to five levels. Words after PRESERVE are ignored with a warning.
 ```
+
+Stores every setting of SET (CCA to CCE, DECIMAL, FORMAT, LOCALE, MPRINT, MEXPAND, MNEST, MITERATE and the rest) and the folder of CD. PRESERVE and RESTORE nest up to five levels.
+
+Words after PRESERVE (PRESERVE LOCALE, as survey tools write it) are ignored with a warning: every setting is stored anyway.
 
 ## Example
 

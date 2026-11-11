@@ -28,7 +28,7 @@
 use crate::crosstabs::{Key, categories, label};
 use crate::descriptives::{case_weights, number, summarize};
 use crate::dist::{erfc, normal_cdf, normal_quantile, t_quantile};
-use crate::format::{Stat, formats_of, procedure_format};
+use crate::format::{Currencies, Stat, formats_of, procedure_format};
 use crate::means::is_valid;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Values, Variable};
@@ -455,9 +455,9 @@ impl Level {
         }
     }
 
-    fn name(&self, variable: &Variable) -> String {
+    fn name(&self, variable: &Variable, currencies: &Currencies) -> String {
         match self {
-            Level::Value(key) => label(variable, key),
+            Level::Value(key) => label(variable, key, currencies),
             Level::System => "System Missing".into(),
         }
     }
@@ -490,13 +490,23 @@ struct CellResult {
 
 impl Engine {
     pub(crate) fn examine(&mut self, command: &Examine) -> Result<Vec<Table>, Error> {
-        if !command.plots.is_empty() {
+        // one warning for every plot asked for; NPPLOT still gives its tests
+        let mut plots = command.plots.clone();
+        if command.normality {
+            plots.push("NPPLOT".into());
+        }
+        if !plots.is_empty() {
+            let shown = match command.normality {
+                true => "the statistics and the Tests of Normality table are shown",
+                false => "the statistics are shown",
+            };
             self.warn(format!(
-                "plots are not drawn yet: {} left out; the statistics are shown",
-                command.plots.join(", ")
+                "plots are not drawn yet: {} left out; {shown}",
+                plots.join(", ")
             ));
         }
         let data = self.active()?;
+        let currencies = self.currencies();
         let mut dependents = self.expand(&command.dependents)?;
         dedup(&mut dependents);
         for name in &dependents {
@@ -540,12 +550,6 @@ impl Engine {
             ));
             95.0
         };
-        if command.normality {
-            warnings.push(
-                "the normal probability plots of NPPLOT are not drawn; its Tests of Normality table is shown"
-                    .into(),
-            );
-        }
         let factor_names: Vec<&String> = terms.iter().flatten().collect();
         let factor_levels: Vec<Vec<Option<Level>>> = factor_names
             .iter()
@@ -621,7 +625,11 @@ impl Engine {
                 results.extend(cells.iter().map(|cell| {
                     CellResult {
                         labels: std::iter::once(name.clone())
-                            .chain(cell.iter().zip(&factors).map(|(l, v)| l.name(v)))
+                            .chain(
+                                cell.iter()
+                                    .zip(&factors)
+                                    .map(|(l, v)| l.name(v, &currencies)),
+                            )
                             .collect(),
                         format: format.to_string(),
                         valid: 0.0,
@@ -652,6 +660,7 @@ impl Engine {
                 names: &model[..],
                 level,
                 id: id.as_ref(),
+                currencies: &currencies,
                 numbers: self.case_numbers.as_deref(),
             };
             let used: Vec<&CellResult> = results.iter().filter(|r| r.valid > 0.0).collect();
@@ -745,6 +754,7 @@ struct Tables<'a> {
     names: &'a [String],
     level: f64,
     id: Option<&'a Variable<'a>>,
+    currencies: &'a Currencies,
     /// The case numbers in the whole dataset when the procedure sees a part of it.
     numbers: Option<&'a [usize]>,
 }
@@ -954,7 +964,7 @@ impl Tables<'_> {
             Values::Numeric(values) => match values.get(case) {
                 None => Cell::Empty,
                 Some(v) => {
-                    let labelled = label(id, &Key::Number(v));
+                    let labelled = label(id, &Key::Number(v), self.currencies);
                     if labelled == v.to_string() {
                         Cell::Number(v)
                     } else {

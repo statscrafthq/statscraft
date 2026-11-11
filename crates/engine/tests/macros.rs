@@ -133,7 +133,10 @@ fn settings_are_kept_shown_preserved_and_restored() {
     let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
     assert_eq!(warnings.len(), 2, "{warnings:?}");
     assert!(warnings[0].contains("TNUMBERS only changes how output looks"));
-    assert!(warnings[1].contains("LOCALE ignored"));
+    assert_eq!(
+        warnings[1],
+        "PRESERVE takes no specifications and stores every setting; LOCALE ignored"
+    );
     let show = tables(&result)[0];
     assert_eq!(row(show, 0), "FORMAT|F5.1");
     assert_eq!(row(show, 1), "LOCALE|en_UK");
@@ -142,6 +145,45 @@ fn settings_are_kept_shown_preserved_and_restored() {
     assert!(error[0].message.contains("simple F format"));
     let error = session.run("SET WIBBLE=1.", None).unwrap_err();
     assert_eq!(error[0].message, "unknown SET subcommand WIBBLE");
+}
+
+#[test]
+fn restore_brings_back_every_setting_with_the_currencies_and_the_macro_settings() {
+    let mut session = Session::default();
+    run(
+        &mut session,
+        "DATA LIST LIST /price.\nBEGIN DATA\n-1.5\nEND DATA.\nFORMATS price (CCA8.2).\n\
+         SET CCA='(,$,,)' DECIMAL=COMMA.",
+    );
+    // a survey export: PRESERVE LOCALE, settings for reading its data, RESTORE LOCALE
+    let result = run(
+        &mut session,
+        "PRESERVE LOCALE.\n\
+         SET LOCALE='en_UK' DECIMAL=DOT CCA='-,,, EUR'.\n\
+         LIST.\n\
+         DEFINE !p () price !ENDDEFINE.\n\
+         SET MPRINT=YES.\n\
+         RESTORE LOCALE.\n\
+         LIST !p.\n\
+         SHOW DECIMAL LOCALE.",
+    );
+    let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
+    assert_eq!(
+        warnings,
+        [
+            "PRESERVE takes no specifications and stores every setting; LOCALE ignored",
+            "RESTORE takes no specifications and brings back every setting; LOCALE ignored"
+        ]
+    );
+    let lists = tables(&result);
+    assert_eq!(row(lists[0], 0), "-1.50 EUR");
+    assert_eq!(row(lists[1], 0), "($1.50)");
+    let show = lists[2];
+    assert_eq!(row(show, 0), "DECIMAL|COMMA");
+    assert_eq!(row(show, 1), "LOCALE|OSLOCALE");
+    // MPRINT=YES came after PRESERVE, so RESTORE turned it off before LIST !p
+    let titles: Vec<&str> = lists.iter().map(|t| t.title.as_str()).collect();
+    assert!(!titles.contains(&"Macro expansion"), "{titles:?}");
 }
 
 #[test]

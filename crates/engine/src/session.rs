@@ -263,6 +263,11 @@ impl Session {
         self.engine.dataset()
     }
 
+    /// The SET CCA to CCE specifications, to show custom currency values as the output does.
+    pub fn currencies(&self) -> crate::Currencies {
+        self.engine.currencies()
+    }
+
     /// Runs `source`, or with `lines` only the commands inside that inclusive line range. All or
     /// nothing: when one command fails, the dataset stays as it was. Every call is logged with
     /// the syntax that ran, which for a line range is just those lines.

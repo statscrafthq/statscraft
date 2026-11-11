@@ -487,3 +487,27 @@ fn one_sheet_puts_the_tables_one_below_the_other() {
     let widest = tables.iter().map(|t| t.columns.len()).max().unwrap();
     assert_eq!(sheet.widths.len(), widest);
 }
+
+#[test]
+fn dates_times_and_currencies_stay_numbers_with_an_excel_format() {
+    let source = "DATA LIST LIST /d (ADATE10) t c (F8.2).\nBEGIN DATA\n\
+                  01/01/2020 3600 1\n03/15/2021 9030 2\nEND DATA.\n\
+                  FORMATS t (TIME8) c (CCA8.2).\nSET CCA='(,$,,)'.\n\
+                  DESCRIPTIVES d t c /STATISTICS=MIN MAX.";
+    let result = Session::default().run(source, None).unwrap();
+    let tables: Vec<Table> = result.commands.into_iter().flat_map(|c| c.tables).collect();
+    let sheets = round_trip("dates", &tables, false);
+    let cells: Vec<(Value, String)> = sheets[0]
+        .cells
+        .values()
+        .map(|c| (c.value.clone(), c.format.clone()))
+        .collect();
+    let has = |value: f64, format: &str| {
+        let wanted = (Value::Number(value), format.to_string());
+        assert!(cells.contains(&wanted), "{wanted:?} in {cells:?}");
+    };
+    // 2020-01-01 is day 43 831 of Excel's calendar; one hour is 1/24 of a day
+    has(43_831.0, "mm\\/dd\\/yyyy");
+    has(1.0 / 24.0, "[hh]:mm:ss");
+    has(1.0, "\\$#,##0.00;\\(\\$#,##0.00\\)");
+}

@@ -2,7 +2,7 @@
 
 use crate::syntax_text::{number, quote, value};
 use statscraft_data::{Measure, MissingValues, Value, Values, Variable};
-use statscraft_engine::format_value;
+use statscraft_engine::{Currencies, format_value};
 
 /// Whether a format takes a typed date (true) or date and time (false) as yyyy-mm-dd and
 /// hh:mm:ss; None for other formats.
@@ -19,11 +19,10 @@ fn date_kind(format: &str) -> Option<bool> {
     }
 }
 
-/// A number shown in its variable's format.
-// shortcut: a custom currency shows with the default SET CCx specification, since the window
-// does not see the session's settings; ask the engine for them when someone needs it
-pub fn number_text(v: f64, format: &str) -> String {
-    format_value(v, format, true)
+/// A number shown in its variable's format; a custom currency with the session's SET CCA to
+/// CCE specification.
+pub fn number_text(v: f64, format: &str, currencies: &Currencies) -> String {
+    format_value(v, &currencies.resolve(format), true)
 }
 
 fn label_of<'a>(variable: &Variable<'a>, value: &Value) -> Option<&'a str> {
@@ -35,7 +34,12 @@ fn label_of<'a>(variable: &Variable<'a>, value: &Value) -> Option<&'a str> {
 }
 
 /// A cell of the Data View; `case` counts from 0. System-missing shows as an empty cell.
-pub fn cell_text(variable: &Variable, case: usize, labels: bool) -> String {
+pub fn cell_text(
+    variable: &Variable,
+    case: usize,
+    labels: bool,
+    currencies: &Currencies,
+) -> String {
     match variable.values() {
         Values::Numeric(values) => match values.get(case) {
             None => String::new(),
@@ -44,7 +48,7 @@ pub fn cell_text(variable: &Variable, case: usize, labels: bool) -> String {
                 .flatten()
             {
                 Some(label) => label.to_string(),
-                None => number_text(v, variable.format()),
+                None => number_text(v, variable.format(), currencies),
             },
         },
         Values::String(values) => {
@@ -823,6 +827,15 @@ mod tests {
     use super::*;
     use statscraft_engine::session::Session;
 
+    /// A cell with the default currency specifications.
+    fn cell_text(variable: &Variable, case: usize, labels: bool) -> String {
+        super::cell_text(variable, case, labels, &Currencies::default())
+    }
+
+    fn number_text(v: f64, format: &str) -> String {
+        super::number_text(v, format, &Currencies::default())
+    }
+
     fn survey() -> Session {
         let mut session = Session::default();
         let file = format!(
@@ -884,6 +897,20 @@ mod tests {
         with(&session, "signup_date", |v| {
             assert_eq!(cell_text(v, 0, false), "01-NOV-2023");
             assert_eq!(edit_text(v, 0), "2023-11-01");
+        });
+    }
+
+    #[test]
+    fn custom_currencies_follow_the_sessions_set() {
+        let mut session = survey();
+        let source = "COMPUTE price = -1234.5.\nFORMATS price (CCA10.2).\nSET CCA='-,$,,'.";
+        session.run(source, None).unwrap();
+        with(&session, "price", |v| {
+            assert_eq!(cell_text(v, 0, false), "-1,234.50");
+            assert_eq!(
+                super::cell_text(v, 0, false, &session.currencies()),
+                "-$1,234.50"
+            );
         });
     }
 

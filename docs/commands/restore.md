@@ -10,7 +10,7 @@ Bring back the settings and folder the last PRESERVE stored.
 RESTORE.
 ```
 
-Words after RESTORE are ignored with a warning.
+Every setting and the folder come back as the last PRESERVE stored them; a RESTORE without PRESERVE does nothing, with a warning. Words after RESTORE (RESTORE LOCALE) are ignored with a warning: every setting comes back.
 
 ## Example
 

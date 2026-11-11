@@ -2,7 +2,7 @@
 
 use crate::descriptives::case_weights;
 use crate::dist::chi_square_p;
-use crate::format::category_text;
+use crate::format::{Currencies, category_text};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Value, Values, Variable};
 use statscraft_syntax::{Crosstabs, CrosstabsCell as C, WeightCount};
@@ -43,8 +43,9 @@ pub(crate) fn categories(variable: &Variable, include: bool) -> Vec<Option<Key>>
     }
 }
 
-/// The value label of a category, else its value (a date or time in its format).
-pub(crate) fn label(variable: &Variable, key: &Key) -> String {
+/// The value label of a category, else its value (a date, time or custom currency in its
+/// format).
+pub(crate) fn label(variable: &Variable, key: &Key, currencies: &Currencies) -> String {
     let labelled = variable
         .value_labels()
         .iter()
@@ -55,7 +56,7 @@ pub(crate) fn label(variable: &Variable, key: &Key) -> String {
         });
     match (labelled, key) {
         (Some((_, label)), _) => label.clone(),
-        (None, Key::Number(n)) => category_text(*n, variable.format()),
+        (None, Key::Number(n)) => category_text(*n, &currencies.resolve(variable.format())),
         (None, Key::Text(text)) => text.clone(),
     }
 }
@@ -313,7 +314,12 @@ fn cell_name(statistic: C) -> &'static str {
 }
 
 /// The tables of one combination of variables: rows, columns, then layers.
-fn tables(data: &Dataset, names: &[String], command: &Crosstabs) -> Result<Vec<Table>, Error> {
+fn tables(
+    data: &Dataset,
+    names: &[String],
+    command: &Crosstabs,
+    currencies: &Currencies,
+) -> Result<Vec<Table>, Error> {
     let variables: Vec<Variable> = names
         .iter()
         .map(|name| data.variable(name))
@@ -334,7 +340,9 @@ fn tables(data: &Dataset, names: &[String], command: &Crosstabs) -> Result<Vec<T
     let layer_variables = &variables[2..];
     let layer_cells = |block: &Block| -> Vec<Cell> {
         let pairs = layer_variables.iter().zip(&block.layer);
-        pairs.map(|(v, k)| Cell::Text(label(v, k))).collect()
+        pairs
+            .map(|(v, k)| Cell::Text(label(v, k, currencies)))
+            .collect()
     };
     let layer_names = || layer_variables.iter().map(|v| v.name().to_string());
     let title = names.join(" by ");
@@ -348,7 +356,7 @@ fn tables(data: &Dataset, names: &[String], command: &Crosstabs) -> Result<Vec<T
         let mut columns: Vec<String> = layer_names().collect();
         columns.extend([variables[0].name().to_string(), "Statistic".into()]);
         let headers = columns.len();
-        columns.extend(union.iter().map(|k| label(&variables[1], k)));
+        columns.extend(union.iter().map(|k| label(&variables[1], k, currencies)));
         columns.push("Total".into());
         let mut column_groups = vec![Vec::new(); columns.len()];
         for group in &mut column_groups[headers..columns.len() - 1] {
@@ -369,7 +377,7 @@ fn tables(data: &Dataset, names: &[String], command: &Crosstabs) -> Result<Vec<T
                     }
                     let mut row = layer_cells(block);
                     row.push(Cell::Text(match i {
-                        Some(i) => label(&variables[0], &block.rows[i]),
+                        Some(i) => label(&variables[0], &block.rows[i], currencies),
                         None => "Total".into(),
                     }));
                     row.push(Cell::Text(cell_name(statistic).into()));
@@ -433,6 +441,7 @@ fn tables(data: &Dataset, names: &[String], command: &Crosstabs) -> Result<Vec<T
 impl Engine {
     pub(crate) fn crosstabs(&self, command: &Crosstabs) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
+        let currencies = self.currencies();
         let mut out = Vec::new();
         for dimensions in &command.tables {
             let lists: Vec<Vec<String>> = dimensions
@@ -454,7 +463,7 @@ impl Engine {
                     .collect();
             }
             for names in combinations {
-                out.extend(tables(data, &names, command)?);
+                out.extend(tables(data, &names, command, &currencies)?);
             }
         }
         Ok(out)

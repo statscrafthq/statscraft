@@ -26,6 +26,7 @@
 //!   ranges of r < k - 1 means. A subset's significance is the smallest alpha at which its range
 //!   would be significant; Tukey's b averages two critical values and has none.
 
+use crate::crosstabs;
 use crate::descriptives::{case_weights, number};
 use crate::dist::{
     dunnett_cdf, dunnett_quantile, f_p, f_quantile, maximum_modulus_cdf, maximum_modulus_quantile,
@@ -33,7 +34,7 @@ use crate::dist::{
 };
 use crate::means::is_valid;
 use crate::{Cell, Engine, Error, Table};
-use statscraft_data::{Value as Stored, Values, Variable};
+use statscraft_data::{Values, Variable};
 use statscraft_syntax::{DunnettSide, Oneway, Posthoc};
 use std::f64::consts::SQRT_2;
 
@@ -61,14 +62,6 @@ fn group(pairs: &[(f64, f64)]) -> Group {
         min: pairs.iter().map(|p| p.0).fold(f64::INFINITY, f64::min),
         max: pairs.iter().map(|p| p.0).fold(f64::NEG_INFINITY, f64::max),
     }
-}
-
-fn label(factor: &Variable, value: f64) -> String {
-    let found = factor
-        .value_labels()
-        .iter()
-        .find(|(v, _)| *v == Stored::Number(value));
-    found.map_or_else(|| value.to_string(), |(_, l)| l.clone())
 }
 
 fn test_name(test: Posthoc) -> &'static str {
@@ -369,6 +362,11 @@ impl Engine {
             .map(|n| data.variable(n))
             .collect::<Result<_, _>>()?;
         let factor = data.variable(&command.factor)?;
+        // a group's value label, else its value in the factor's format
+        let currencies = self.currencies();
+        let label = |factor: &Variable, value: f64| {
+            crosstabs::label(factor, &crosstabs::Key::Number(value), &currencies)
+        };
         for v in dependents.iter().chain([&factor]) {
             if v.is_string() {
                 return Err(Error(format!(
