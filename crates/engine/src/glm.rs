@@ -28,7 +28,7 @@ use crate::descriptives::{case_weights, number};
 use crate::dist::{f_p, f_quantile, noncentral_f_cdf, noncentral_t_cdf, t_p, t_quantile};
 use crate::examine::Distribution;
 use crate::format::category_text;
-use crate::matrix::{Matrix, sweep};
+use crate::matrix::{Matrix, multiply, sweep, transpose};
 use crate::npar_tests::text;
 use crate::oneway::{Group, group, posthoc_tables};
 use crate::regression::{plain, table};
@@ -142,25 +142,6 @@ fn ginverse(a: &Matrix, eps: f64) -> (Matrix, usize) {
     (out, swept.iter().filter(|&&s| s).count())
 }
 
-fn mat_mul(a: &Matrix, b: &Matrix) -> Matrix {
-    let inner = b.len();
-    let cols = b.first().map_or(0, Vec::len);
-    a.iter()
-        .map(|row| {
-            (0..cols)
-                .map(|j| (0..inner).map(|k| row[k] * b[k][j]).sum())
-                .collect()
-        })
-        .collect()
-}
-
-fn transpose(a: &Matrix) -> Matrix {
-    let cols = a.first().map_or(0, Vec::len);
-    (0..cols)
-        .map(|j| a.iter().map(|row| row[j]).collect())
-        .collect()
-}
-
 struct Fit {
     effects: Vec<Effect>,
     p: usize,
@@ -271,7 +252,7 @@ impl Fit {
         let xwx: Matrix = (0..self.p)
             .map(|i| self.zwz[i][..self.p].to_vec())
             .collect();
-        mat_mul(&self.ginv, &xwx)
+        multiply(&self.ginv, &xwx)
     }
 
     /// The hypothesis SSCP of L B = K and its degrees of freedom (the rank of L G L').
@@ -279,7 +260,7 @@ impl Fit {
         if l.is_empty() {
             return (vec![vec![0.0; self.r]; self.r], 0);
         }
-        let mut lb = mat_mul(l, &self.b);
+        let mut lb = multiply(l, &self.b);
         if let Some(k) = k {
             for (row, krow) in lb.iter_mut().zip(k) {
                 for (v, kv) in row.iter_mut().zip(krow) {
@@ -287,9 +268,9 @@ impl Fit {
                 }
             }
         }
-        let lgl = mat_mul(&mat_mul(l, &self.ginv), &transpose(l));
+        let lgl = multiply(&multiply(l, &self.ginv), &transpose(l));
         let (inv, rank) = ginverse(&lgl, 1e-10);
-        let ssh = mat_mul(&mat_mul(&transpose(&lb), &inv), &lb);
+        let ssh = multiply(&multiply(&transpose(&lb), &inv), &lb);
         (ssh, rank)
     }
 
@@ -376,9 +357,9 @@ impl Fit {
         }
         // G1 orthogonal to G0: G1 - G1 G0' (G0 G0')^- G0
         let g0t = transpose(&g0);
-        let (inv, _) = ginverse(&mat_mul(&g0, &g0t), 1e-10);
-        let projection = mat_mul(&mat_mul(&g0t, &inv), &g0);
-        let correction = mat_mul(&g1, &projection);
+        let (inv, _) = ginverse(&multiply(&g0, &g0t), 1e-10);
+        let projection = multiply(&multiply(&g0t, &inv), &g0);
+        let correction = multiply(&g1, &projection);
         g1.iter()
             .zip(&correction)
             .map(|(a, b)| a.iter().zip(b).map(|(x, y)| x - y).collect())
@@ -2276,7 +2257,7 @@ fn kronecker(parts: &[Matrix]) -> Matrix {
 
 /// M' A M.
 fn quadratic(m: &Matrix, a: &Matrix) -> Matrix {
-    mat_mul(&mat_mul(&transpose(m), a), m)
+    multiply(&multiply(&transpose(m), a), m)
 }
 
 fn trace(a: &Matrix) -> f64 {
@@ -2299,7 +2280,7 @@ fn relative_eigenvalues(sh: &Matrix, se: &Matrix) -> Vec<f64> {
             }
         }
     }
-    let middle = mat_mul(&mat_mul(&root, sh), &root);
+    let middle = multiply(&multiply(&root, sh), &root);
     let mut values: Vec<f64> = crate::matrix::symmetric_eigen(&middle)
         .into_iter()
         .map(|(v, _)| v.max(0.0))
@@ -2556,7 +2537,7 @@ impl Engine {
             let se_mv = quadratic(&m_mv, &fit.s);
             let se_avg = quadratic(&m_avg, &fit.s);
             // Mauchly's test and the epsilons
-            let gg = trace(&se_avg).powi(2) / (dd * trace(&mat_mul(&se_avg, &se_avg)));
+            let gg = trace(&se_avg).powi(2) / (dd * trace(&multiply(&se_avg, &se_avg)));
             let n = fit.n;
             let hf = ((n * dd * gg - 2.0) / (dd * dfe - dd * dd * gg)).min(1.0);
             let lb = 1.0 / dd;

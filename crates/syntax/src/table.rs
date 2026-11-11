@@ -11,8 +11,8 @@ use crate::factor;
 use crate::files;
 use crate::frequencies;
 use crate::get_data;
-use crate::input_program;
 use crate::glm;
+use crate::input_program;
 use crate::lexer::{Punct, Token, TokenKind};
 use crate::logistic;
 use crate::loops;
@@ -1976,9 +1976,6 @@ static UNSUPPORTED: &[&str] = &[
     "GET TRANSLATE",
     "GRAPH",
     "IMPORT",
-    "LOGISTIC REGRESSION",
-    "INPUT PROGRAM",
-    "LEAVE",
     "MATRIX",
     "MATRIX DATA",
     "OUTPUT CLOSE",
@@ -1986,8 +1983,6 @@ static UNSUPPORTED: &[&str] = &[
     "OUTPUT NEW",
     "OUTPUT SAVE",
     "REPORT",
-    "UNIANOVA",
-    "REREAD",
 ];
 
 fn names() -> impl Iterator<Item = (&'static str, Option<&'static CommandSpec>)> {

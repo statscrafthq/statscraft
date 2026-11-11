@@ -25,7 +25,7 @@
 
 use crate::descriptives::{case_weights, number};
 use crate::dist::{chi_square_p, t_p};
-use crate::matrix::{Matrix, inverse, symmetric_eigen};
+use crate::matrix::{Matrix, inverse, multiply, symmetric_eigen, transpose};
 use crate::means::is_valid;
 use crate::npar_tests::text;
 use crate::{Cell, Engine, Error, Table};
@@ -34,25 +34,6 @@ use statscraft_syntax::{
     Extraction, Factor, FactorCriteria, FactorMissing, MatrixKind, Rotation, ScoreMethod, Value,
     VarItem,
 };
-
-fn transpose(a: &Matrix) -> Matrix {
-    let cols = a.first().map_or(0, Vec::len);
-    (0..cols)
-        .map(|j| a.iter().map(|row| row[j]).collect())
-        .collect()
-}
-
-fn multiply(a: &Matrix, b: &Matrix) -> Matrix {
-    let inner = b.len();
-    let cols = b.first().map_or(0, Vec::len);
-    a.iter()
-        .map(|row| {
-            (0..cols)
-                .map(|j| (0..inner).map(|k| row[k] * b[k][j]).sum())
-                .collect()
-        })
-        .collect()
-}
 
 fn identity(n: usize) -> Matrix {
     (0..n)

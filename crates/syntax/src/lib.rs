@@ -28,8 +28,8 @@ mod factor;
 mod files;
 mod frequencies;
 mod get_data;
-mod input_program;
 mod glm;
+mod input_program;
 mod lexer;
 mod logistic;
 mod loops;
@@ -62,9 +62,9 @@ mod tests_data_list;
 #[cfg(test)]
 mod tests_factor;
 #[cfg(test)]
-mod tests_input_program;
-#[cfg(test)]
 mod tests_glm;
+#[cfg(test)]
+mod tests_input_program;
 #[cfg(test)]
 mod tests_loops;
 #[cfg(test)]

@@ -116,6 +116,9 @@ One page per supported command, generated from the same table that the parser an
 | [RELIABILITY](reliability.md) | Reliability of a scale: Cronbach's alpha, split-half and other models, item statistics and ICC. |
 | [FACTOR](factor.md) | Factor analysis: principal components and six factoring methods, rotations, factor scores. |
 | [QUICK CLUSTER](quick-cluster.md) | K-means clustering of cases into a given number of clusters. |
+| [LOGISTIC REGRESSION](logistic-regression.md) | Binary logistic regression with categorical covariates, stepwise selection and case diagnostics. |
+| [UNIANOVA](unianova.md) | General linear model of one dependent variable: factorial ANOVA, ANCOVA and regression. |
+| [GLM](glm.md) | General linear model: one dependent variable as in UNIANOVA, or repeated measures with WSFACTOR. |
 | [TREE](tree.md) | A classification tree grown by CHAID or exhaustive CHAID. |
 
 ## Custom tables
@@ -176,4 +179,4 @@ One page per supported command, generated from the same table that the parser an
 
 These commands of the language are recognised, but Statscraft does not run them yet. A script that uses one stops with the error "command ... is not supported yet" at its line, and nothing is changed.
 
-ANOVA, CLUSTER, DISCRIMINANT, END DATA, END MATRIX, END REPEAT, EXPORT, FINISH, GET TRANSLATE, GLM, GRAPH, IMPORT, LOGISTIC REGRESSION, MATRIX, MATRIX DATA, OUTPUT CLOSE, OUTPUT EXPORT, OUTPUT NEW, OUTPUT SAVE, REPORT, UNIANOVA
+ANOVA, CLUSTER, DISCRIMINANT, END DATA, END MATRIX, END REPEAT, EXPORT, FINISH, GET TRANSLATE, GRAPH, IMPORT, MATRIX, MATRIX DATA, OUTPUT CLOSE, OUTPUT EXPORT, OUTPUT NEW, OUTPUT SAVE, REPORT

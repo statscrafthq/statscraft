@@ -23,6 +23,27 @@ pub(crate) fn sweep(m: &mut Matrix, k: usize) {
     m[k][k] = 1.0 / pivot;
 }
 
+/// The transpose of a matrix.
+pub(crate) fn transpose(a: &Matrix) -> Matrix {
+    let cols = a.first().map_or(0, Vec::len);
+    (0..cols)
+        .map(|j| a.iter().map(|row| row[j]).collect())
+        .collect()
+}
+
+/// The product a b.
+pub(crate) fn multiply(a: &Matrix, b: &Matrix) -> Matrix {
+    let inner = b.len();
+    let cols = b.first().map_or(0, Vec::len);
+    a.iter()
+        .map(|row| {
+            (0..cols)
+                .map(|j| (0..inner).map(|k| row[k] * b[k][j]).sum())
+                .collect()
+        })
+        .collect()
+}
+
 /// The inverse and the determinant by Gauss-Jordan elimination with partial pivoting; None
 /// when the matrix is singular.
 pub(crate) fn inverse(a: &Matrix) -> Option<(Matrix, f64)> {
