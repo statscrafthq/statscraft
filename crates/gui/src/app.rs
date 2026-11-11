@@ -22,6 +22,7 @@ use crate::edits::{self, Field};
 use crate::output;
 use crate::output_view::{self, OutputView};
 use crate::settings::Settings;
+use crate::settings_window::{self, Section};
 use crate::stats_dialogs::{NparKind, NparTests, PartialCorr, Regression, Reliability, numeric};
 use crate::stats_dialogs_view;
 use crate::syntax_text::{number, quote};
@@ -34,7 +35,7 @@ use eframe::egui::{
 };
 use statscraft_data::{Dataset, Measure, Value, Values};
 use statscraft_engine::live::{self, Action, Request, Response};
-use statscraft_engine::session::{Done, Failure, RunResult, Session};
+use statscraft_engine::session::{CommandResult, Done, Failure, RunResult, Session};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
@@ -55,6 +56,15 @@ enum After {
     /// With the dialog's title, for the output.
     CloseDialog(&'static str),
     Remote(Remote),
+}
+
+/// Closing the window with unsaved work.
+enum Closing {
+    /// The question, with what is unsaved.
+    Asking(Vec<String>),
+    /// Save was chosen: the data file still to save once no run is going on; then the window
+    /// closes, unless a save failed.
+    Saving(Option<PathBuf>),
 }
 
 /// A run on a worker thread, so a large file or a long run leaves the window responsive.
@@ -405,7 +415,6 @@ pub struct App {
     syntax_file: Option<PathBuf>,
     syntax_errors: Vec<Failure>,
     selection: (usize, usize),
-    wrap: bool,
     /// The data file before the last change, which undo puts back too.
     file_before_change: Option<PathBuf>,
     /// The syntax of the run going on or done last, for the syntax of its output.
@@ -417,6 +426,15 @@ pub struct App {
     macros: Vec<String>,
     /// The About window is open.
     about: bool,
+    /// The Settings dialog is open at this section.
+    settings_section: Option<Section>,
+    /// The dataset as the last open or save left it, to tell whether the data changed since.
+    data_saved: Option<Dataset>,
+    /// The syntax text as last loaded or saved; empty for new syntax.
+    syntax_saved: String,
+    closing: Option<Closing>,
+    /// The user chose to close: the next close request goes through.
+    close_ok: bool,
     /// The app icon, shown in the About window.
     logo: egui::TextureHandle,
     editor_id: Option<egui::Id>,
@@ -478,7 +496,7 @@ impl App {
             tab: Tab::Data,
             data_file: None,
             value_labels: true,
-            show_log: true,
+            show_log: !settings.log_hidden,
             selected: None,
             follow: false,
             page: 20,
@@ -499,13 +517,17 @@ impl App {
             syntax_file: None,
             syntax_errors: Vec::new(),
             selection: (0, 0),
-            wrap: true,
             file_before_change: None,
             source: String::new(),
             help_window: None,
             completion: None,
             macros: Vec::new(),
             about: false,
+            settings_section: None,
+            data_saved: None,
+            syntax_saved: String::new(),
+            closing: None,
+            close_ok: false,
             logo,
             editor_id: None,
             output: OutputView::default(),
@@ -599,6 +621,7 @@ impl App {
         let changed = matches!(&result, Ok(r) if r.saved);
         let file = self.data_file.clone();
         let loaded = matches!(&result, Ok(r) if r.commands.iter().any(|c| c.name == "GET" || c.name == "GET DATA"));
+        let on_file = matches!(&result, Ok(r) if ends_on_file(&r.commands));
         if changed && loaded && !matches!(after, After::OpenData(_)) {
             // a GET typed or sent from the command line: Save must not write this data over
             // the file that was open before
@@ -656,6 +679,10 @@ impl App {
                     }
                 }
             }
+        }
+        // a check returned above: it writes no file
+        if on_file {
+            self.data_saved = self.session.dataset().cloned();
         }
     }
 
@@ -756,6 +783,7 @@ impl App {
         match text.and_then(|bytes| statscraft_syntax::decode_syntax(&bytes, None)) {
             Ok(text) => {
                 self.add_recent(&path);
+                self.syntax_saved = text.clone();
                 self.syntax = text;
                 self.syntax_file = Some(path);
                 self.syntax_errors.clear();
@@ -771,6 +799,7 @@ impl App {
                 self.add_recent(&path);
                 self.status = Ok(format!("syntax saved to {}", path.display()));
                 self.syntax_file = Some(path);
+                self.syntax_saved = self.syntax.clone();
             }
             Err(e) => self.status = Err(format!("{}: {e}", path.display())),
         }
@@ -821,6 +850,7 @@ impl App {
                 ui.separator();
                 if ui.button("New syntax").clicked() {
                     self.syntax.clear();
+                    self.syntax_saved.clear();
                     self.syntax_file = None;
                     self.syntax_errors.clear();
                     self.tab = Tab::Syntax;
@@ -884,6 +914,10 @@ impl App {
                         }
                     });
                 });
+                ui.separator();
+                if ui.button("Exit").clicked() {
+                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                }
             });
             ui.menu_button("Edit", |ui| {
                 let undo = self.busy.is_none() && self.session.undoable().is_some();
@@ -896,30 +930,13 @@ impl App {
                 if response.clicked() {
                     self.undo();
                 }
+                ui.separator();
+                if ui.button("Settings...").clicked() {
+                    self.settings_section = Some(Section::default());
+                }
             });
             ui.menu_button("View", |ui| {
                 ui.checkbox(&mut self.value_labels, "Value labels in Data View");
-                ui.checkbox(&mut self.show_log, "Log under Syntax and Output");
-                ui.checkbox(&mut self.wrap, "Wrap long lines in the syntax editor");
-                ui.separator();
-                ui.menu_button("Syntax colours", |ui| {
-                    for theme in &themes::THEMES {
-                        let on = themes::by_name(&self.settings.theme).name == theme.name;
-                        if ui.radio(on, theme.name).clicked() {
-                            self.settings.theme = theme.name.to_string();
-                            let _ = self.settings.save();
-                        }
-                    }
-                });
-                ui.separator();
-                ui.weak("Paper of the grids and the output");
-                let follow = &mut self.settings.paper_follows_system;
-                let changed = ui.radio_value(follow, false, "Always light").changed()
-                    | ui.radio_value(follow, true, "Follow the system theme")
-                        .changed();
-                if changed {
-                    let _ = self.settings.save();
-                }
             });
             ui.menu_button("Data", |ui| {
                 let data = self.session.dataset();
@@ -1095,7 +1112,7 @@ impl App {
                     self.about = true;
                 }
                 ui.separator();
-                self.updates.menu_items(ui, &mut self.settings);
+                self.updates.menu_items(ui);
             });
         });
     }
@@ -1124,14 +1141,128 @@ impl App {
     }
 
     fn save_data_as(&mut self) {
-        if let Some(path) = self
-            .file_dialog()
+        if let Some(path) = self.data_file_dialog() {
+            self.save_data(path);
+        }
+    }
+
+    fn data_file_dialog(&self) -> Option<PathBuf> {
+        self.file_dialog()
             .add_filter("Data file", &["sav"])
             .add_filter("Compressed data file", &["zsav"])
             .save_file()
-        {
-            self.save_data(path);
+    }
+
+    /// What would be lost if the window closed now.
+    fn unsaved(&self) -> Vec<String> {
+        unsaved_items(
+            self.session.dataset(),
+            self.data_saved.as_ref(),
+            self.data_file.as_deref(),
+            &self.syntax,
+            &self.syntax_saved,
+            self.syntax_file.as_deref(),
+        )
+    }
+
+    /// Every close comes here as a close request: the title bar, Alt+F4, File > Exit, and the
+    /// update installer or restart, which send `ViewportCommand::Close`. With unsaved work the
+    /// window stays open and asks; with Save chosen it closes once the saves are done.
+    fn close_request(&mut self, ctx: &egui::Context) {
+        if self.close_ok {
+            return;
         }
+        if let Some(Closing::Saving(pending)) = &mut self.closing
+            && self.busy.is_none()
+        {
+            match pending.take() {
+                Some(path) => self.save_data(path),
+                None if self.unsaved().is_empty() => {
+                    self.close_ok = true;
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
+                // a save failed, and the status bar says why
+                None => self.closing = None,
+            }
+        }
+        if self.closing.is_some() {
+            if ctx.input(|i| i.viewport().close_requested()) {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            }
+        } else if let Some(items) = hold_close(ctx, || self.unsaved()) {
+            self.closing = Some(Closing::Asking(items));
+        }
+    }
+
+    /// The question before closing with unsaved work: Save, Don't save or Cancel. Escape or a
+    /// click beside it cancels.
+    fn close_window(&mut self, ctx: &egui::Context) {
+        let Some(Closing::Asking(items)) = &self.closing else {
+            return;
+        };
+        enum Answer {
+            Save,
+            Discard,
+            Cancel,
+        }
+        let mut answer = None;
+        let modal = egui::Modal::new(egui::Id::unique("close")).show(ctx, |ui| {
+            ui.set_max_width(460.0);
+            ui.label("Save the changes before closing?");
+            ui.add_space(4.0);
+            for item in items {
+                ui.label(item);
+            }
+            ui.add_space(4.0);
+            ui.horizontal(|ui| {
+                if ui.add(crate::brand::primary(ui, "Save")).clicked() {
+                    answer = Some(Answer::Save);
+                }
+                if ui.button("Don't save").clicked() {
+                    answer = Some(Answer::Discard);
+                }
+                if ui.button("Cancel").clicked() {
+                    answer = Some(Answer::Cancel);
+                }
+            });
+        });
+        if answer.is_none() && modal.should_close() {
+            answer = Some(Answer::Cancel);
+        }
+        match answer {
+            Some(Answer::Save) => self.save_before_close(),
+            Some(Answer::Discard) => {
+                self.close_ok = true;
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
+            Some(Answer::Cancel) => self.closing = None,
+            None => {}
+        }
+    }
+
+    /// Saves the syntax, then the data, each to its file or to one chosen now; a cancelled
+    /// file dialog or a failed save keeps the window open.
+    fn save_before_close(&mut self) {
+        self.closing = None;
+        if self.syntax != self.syntax_saved {
+            match self.syntax_file.clone() {
+                Some(path) => self.save_syntax(path),
+                None => self.save_syntax_as(),
+            }
+            if self.syntax != self.syntax_saved {
+                return;
+            }
+        }
+        let data = self.session.dataset();
+        let pending = if data.is_some() && data != self.data_saved.as_ref() {
+            match self.data_file.clone().or_else(|| self.data_file_dialog()) {
+                Some(path) => Some(path),
+                None => return,
+            }
+        } else {
+            None
+        };
+        self.closing = Some(Closing::Saving(pending));
     }
 
     fn save_syntax_as(&mut self) {
@@ -2290,7 +2421,7 @@ impl App {
 
         let font = FontId::monospace(14.0);
         let error_lines: Vec<u32> = self.syntax_errors.iter().filter_map(|e| e.line).collect();
-        let wrap = self.wrap;
+        let wrap = !self.settings.wrap_off;
         let macros = self.macros.join(" ");
         let theme = themes::by_name(&self.settings.theme);
         let theme_index = themes::THEMES
@@ -2637,9 +2768,10 @@ impl App {
 }
 
 impl eframe::App for App {
-    fn logic(&mut self, _ctx: &egui::Context, _frame: &mut eframe::Frame) {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.poll();
         self.updates.poll();
+        self.close_request(ctx);
     }
 
     fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
@@ -2743,6 +2875,12 @@ impl eframe::App for App {
         let ctx = ui.ctx().clone();
         self.dialog_window(&ctx);
         self.confirm_window(&ctx);
+        self.close_window(&ctx);
+        let log_hidden = self.settings.log_hidden;
+        settings_window::show(&ctx, &mut self.settings_section, &mut self.settings);
+        if self.settings.log_hidden != log_hidden {
+            self.show_log = !self.settings.log_hidden;
+        }
         self.format_window(&ctx);
         self.labels_window(&ctx);
         self.missing_window(&ctx);
@@ -2841,6 +2979,53 @@ fn command_card(ui: &mut Ui, spec: &statscraft_syntax::CommandSpec) {
 
 /// What the status bar says about the warnings of the last run.
 /// The log panel shows under the syntax editor and the output; the grids get the whole height.
+/// The data and the syntax that differ from their files: the data when it is not what the last
+/// open or save left, the syntax when its text is not the file's (new syntax when not empty).
+fn unsaved_items(
+    data: Option<&Dataset>,
+    data_saved: Option<&Dataset>,
+    data_file: Option<&Path>,
+    syntax: &str,
+    syntax_saved: &str,
+    syntax_file: Option<&Path>,
+) -> Vec<String> {
+    let name = |file: Option<&Path>, none: &str| {
+        file.and_then(Path::file_name)
+            .map_or_else(|| none.to_string(), |n| n.to_string_lossy().into_owned())
+    };
+    let mut items = Vec::new();
+    if data.is_some_and(|d| Some(d) != data_saved) {
+        items.push(format!(
+            "Data: {}",
+            name(data_file, "not saved to a file yet")
+        ));
+    }
+    if syntax != syntax_saved {
+        items.push(format!("Syntax: {}", name(syntax_file, "new syntax")));
+    }
+    items
+}
+
+/// A run whose last command is GET, GET DATA or SAVE leaves the data as that file holds it.
+fn ends_on_file(commands: &[CommandResult]) -> bool {
+    commands
+        .last()
+        .is_some_and(|c| matches!(c.name.as_str(), "GET" | "GET DATA" | "SAVE"))
+}
+
+/// Answers a close request: with unsaved work it cancels the close and returns what is unsaved.
+fn hold_close(ctx: &egui::Context, unsaved: impl FnOnce() -> Vec<String>) -> Option<Vec<String>> {
+    if !ctx.input(|i| i.viewport().close_requested()) {
+        return None;
+    }
+    let items = unsaved();
+    if items.is_empty() {
+        return None;
+    }
+    ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+    Some(items)
+}
+
 fn shows_log(tab: Tab) -> bool {
     matches!(tab, Tab::Syntax | Tab::Output)
 }
@@ -4975,6 +5160,82 @@ mod tests {
         let warnings = &session.log.last().unwrap().warnings;
         assert_eq!(warnings.len(), 1, "{warnings:?}");
         assert!(warnings[0].contains("plan"));
+    }
+
+    #[test]
+    fn unsaved_data_and_syntax_are_listed() {
+        let mut session = open("survey_basic.sav");
+        let saved = session.dataset().cloned();
+        let file = Some(Path::new("/d/survey.sav"));
+        let data = |session: &Session| {
+            unsaved_items(session.dataset(), saved.as_ref(), file, "", "", None)
+        };
+        assert!(data(&session).is_empty());
+        // an analysis changes no data
+        run_in(&mut session, "FREQUENCIES q1_satisfaction.");
+        assert!(data(&session).is_empty());
+        run_in(&mut session, "COMPUTE x = 1.");
+        assert_eq!(data(&session), ["Data: survey.sav"]);
+        // undo puts back the data as it was saved
+        assert!(session.undo());
+        assert!(data(&session).is_empty());
+        // data never saved, such as an imported workbook
+        let never = unsaved_items(session.dataset(), None, None, "", "", None);
+        assert_eq!(never, ["Data: not saved to a file yet"]);
+        // no data at all: nothing to save
+        assert!(unsaved_items(None, saved.as_ref(), file, "", "", None).is_empty());
+        // syntax: new and not empty, or changed since its file was loaded or saved
+        let job = Some(Path::new("/d/job.sps"));
+        assert!(unsaved_items(None, None, None, "", "", None).is_empty());
+        let new = unsaved_items(None, None, None, "FREQ x.", "", None);
+        assert_eq!(new, ["Syntax: new syntax"]);
+        assert!(unsaved_items(None, None, None, "FREQ x.", "FREQ x.", job).is_empty());
+        let changed = unsaved_items(None, None, None, "FREQ y.", "FREQ x.", job);
+        assert_eq!(changed, ["Syntax: job.sps"]);
+    }
+
+    #[test]
+    fn a_run_ending_with_get_or_save_leaves_the_data_saved() {
+        let commands = |names: &[&str]| -> Vec<CommandResult> {
+            let command = |name: &&str| CommandResult {
+                name: name.to_string(),
+                first_line: 1,
+                last_line: 1,
+                tables: Vec::new(),
+                warnings: Vec::new(),
+            };
+            names.iter().map(command).collect()
+        };
+        assert!(ends_on_file(&commands(&["GET"])));
+        assert!(ends_on_file(&commands(&["GET DATA"])));
+        assert!(ends_on_file(&commands(&["COMPUTE", "SAVE"])));
+        assert!(!ends_on_file(&commands(&["GET", "COMPUTE"])));
+        assert!(!ends_on_file(&commands(&["SAVE TRANSLATE"])));
+        assert!(!ends_on_file(&[]));
+    }
+
+    /// The title bar, Alt+F4, File > Exit and the update installer all reach the window as a
+    /// close request (egui-winit turns `ViewportCommand::Close` into one).
+    #[test]
+    fn a_close_request_is_held_only_with_unsaved_work() {
+        let ctx = egui::Context::default();
+        let close = |requested: bool, unsaved: Vec<String>| {
+            let mut input = egui::RawInput::default();
+            if requested {
+                let root = input.viewports.get_mut(&egui::ViewportId::ROOT).unwrap();
+                root.events.push(egui::ViewportEvent::Close);
+            }
+            let mut held = None;
+            let mut out = ctx.run_ui(input, |ui| held = hold_close(ui.ctx(), || unsaved.clone()));
+            out.textures_delta.clear();
+            let commands = &out.viewport_output[&egui::ViewportId::ROOT].commands;
+            let cancelled = commands.contains(&egui::ViewportCommand::CancelClose);
+            (held, cancelled)
+        };
+        let items = vec!["Data: survey.sav".to_string()];
+        assert_eq!(close(true, items.clone()), (Some(items.clone()), true));
+        assert_eq!(close(true, Vec::new()), (None, false));
+        assert_eq!(close(false, items), (None, false));
     }
 
     #[test]

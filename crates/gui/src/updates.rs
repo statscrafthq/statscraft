@@ -54,7 +54,7 @@ fn now() -> u64 {
 
 impl Updates {
     /// Checks in the background when the last check is a day old, unless checks are turned off
-    /// (Help, Check for updates automatically). They are on by default and say nothing unless
+    /// (Edit > Settings, Updates). They are on by default and say nothing unless
     /// there is an update.
     pub fn new(ctx: &egui::Context, settings: &mut Settings) -> Self {
         // the Windows installer of the last update cannot delete itself
@@ -118,7 +118,7 @@ impl Updates {
                 Event::Checked(_, false) => continue,
                 Event::Updated(Ok((Done::InstallerStarted, _))) => {
                     // the installer replaces the programs once the window is gone, then
-                    // starts it again
+                    // starts it again; the close asks first when work is unsaved
                     self.ctx.send_viewport_cmd(egui::ViewportCommand::Close);
                     Bar::Hidden
                 }
@@ -224,23 +224,14 @@ impl Updates {
         }
     }
 
-    /// The Help menu.
-    /// The update items of the Help menu.
-    pub fn menu_items(&mut self, ui: &mut Ui, settings: &mut Settings) {
+    /// The update item of the Help menu.
+    pub fn menu_items(&mut self, ui: &mut Ui) {
         let busy = matches!(self.bar, Bar::Checking | Bar::Downloading(_));
         if ui
             .add_enabled(!busy, egui::Button::new("Check for updates"))
             .clicked()
         {
             self.check(true);
-        }
-        let mut on = settings.updates != Some(false);
-        if ui
-            .checkbox(&mut on, "Check for updates automatically")
-            .changed()
-        {
-            settings.updates = Some(on);
-            let _ = settings.save();
         }
     }
 }

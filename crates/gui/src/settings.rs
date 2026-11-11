@@ -1,6 +1,6 @@
 //! What the window remembers between starts: its size and position, the folder of the last
-//! file dialog, the recent files and the update check. Kept in the user's config folder as
-//! lines of text.
+//! file dialog, the recent files and the settings of Edit > Settings. Kept in the user's config
+//! folder as lines of text.
 
 use std::path::{Path, PathBuf};
 
@@ -25,6 +25,10 @@ pub struct Settings {
     pub variable_widths: Vec<f32>,
     /// The colour theme of the syntax editor, by name; empty for the default.
     pub theme: String,
+    /// Long lines of the syntax editor stay on one line instead of wrapping.
+    pub wrap_off: bool,
+    /// No log under the Syntax and Output views (a run with warnings still shows it).
+    pub log_hidden: bool,
 }
 
 impl Settings {
@@ -60,8 +64,8 @@ impl Settings {
     }
 
     /// Reads the lines `size W H`, `position X Y`, `folder PATH`, `recent PATH`,
-    /// `updates on|off`, `update-checked SECONDS`, `paper system`, `theme NAME` and
-    /// `variable_widths W ...`;
+    /// `updates on|off`, `update-checked SECONDS`, `paper system`, `theme NAME`, `wrap off`,
+    /// `log hidden` and `variable_widths W ...`;
     /// anything else is skipped.
     pub fn parse(text: &str) -> Self {
         let mut settings = Self::default();
@@ -79,6 +83,8 @@ impl Settings {
                 "position" => settings.position = pair(rest),
                 "paper" => settings.paper_follows_system = rest == "system",
                 "theme" => settings.theme = rest.to_string(),
+                "wrap" => settings.wrap_off = rest == "off",
+                "log" => settings.log_hidden = rest == "hidden",
                 "variable_widths" => {
                     let widths = rest.split_whitespace().map(str::parse::<f32>);
                     settings.variable_widths = widths.collect::<Result<_, _>>().unwrap_or_default();
@@ -111,6 +117,12 @@ impl Settings {
         }
         if !self.theme.is_empty() {
             text.push_str(&format!("theme {}\n", self.theme));
+        }
+        if self.wrap_off {
+            text.push_str("wrap off\n");
+        }
+        if self.log_hidden {
+            text.push_str("log hidden\n");
         }
         if !self.variable_widths.is_empty() {
             let widths: Vec<String> = self.variable_widths.iter().map(f32::to_string).collect();
@@ -161,6 +173,8 @@ mod tests {
             paper_follows_system: true,
             variable_widths: vec![150.0, 80.5],
             theme: "Solarized Dark".into(),
+            wrap_off: true,
+            log_hidden: true,
         };
         for i in 0..12 {
             settings.add_recent(Path::new(&format!("/data/f{i}.sav")));
