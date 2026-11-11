@@ -555,6 +555,7 @@ fn run(
             };
             tables.insert(0, table);
         }
+        engine.record_output(&raw.name, &tables);
         outputs.push(CommandResult {
             name: raw.name.clone(),
             first_line: raw.first_line,
@@ -569,6 +570,7 @@ fn run(
     // what the pass at the end of the run printed shows with the last command
     let printed = std::mem::take(&mut engine.flushed);
     if let Some(last) = outputs.last_mut() {
+        engine.record_output(&last.name, &printed);
         last.tables.extend(printed);
     }
     // the handles are those the FILE HANDLE commands that ran defined

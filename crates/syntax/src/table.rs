@@ -19,15 +19,18 @@ use crate::input_program;
 use crate::lexer::{Punct, Token, TokenKind};
 use crate::logistic;
 use crate::loops;
+use crate::matrix_data;
 use crate::mrsets;
 use crate::mult_response;
 use crate::npar;
 use crate::output;
+use crate::output_docs;
 use crate::parser::{PResult, Parser};
 use crate::procedures;
 use crate::rank;
 use crate::regression;
 use crate::reliability;
+use crate::report;
 use crate::restructure;
 use crate::save_translate;
 use crate::selection;
@@ -231,6 +234,33 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "END FILE TYPE.",
         example: "FILE TYPE MIXED RECORD=recid 1-2.\nRECORD TYPE 23.\nDATA LIST /sex 5 age 6-7.\nEND FILE TYPE.",
         parse: input_program::end_file_type,
+    },
+    CommandSpec {
+        name: "MATRIX DATA",
+        summary: "Read matrix materials (correlations, means, counts) as a matrix data file.",
+        syntax: "MATRIX DATA VARIABLES=varlist [/FILE=INLINE | 'path'] [/FORMAT=[LIST | FREE] [LOWER | UPPER | FULL]\n\
+                 \x20           [DIAGONAL | NODIAGONAL]] [/SPLIT=varlist] [/FACTORS=varlist] [/CELLS=n] [/N=n]\n\
+                 \x20           [/CONTENTS=[CORR] [COV] [MAT] [MSE] [DFE] [MEAN] [STDDEV | SD] [N_VECTOR | N] [N_SCALAR]\n\
+                 \x20           [N_MATRIX] [COUNT] [PROX] [(types of within-cells records) ...]].\n\
+                 The new active dataset holds the split variables (F4.0), ROWTYPE_ (A8), the factors (F4.0),\n\
+                 VARNAME_ (A8, wider for longer names) and the continuous variables (F10.4): those of\n\
+                 VARIABLES that are neither ROWTYPE_ nor a split or factor, which come last on VARIABLES.\n\
+                 With ROWTYPE_ on VARIABLES each record starts with its fields in the order of VARIABLES:\n\
+                 the record type (a name or a three-letter abbreviation, quoted or not) and the split and\n\
+                 factor values (. for a pooled record). Without it CONTENTS gives the records in order, CORR\n\
+                 when left out; types in parentheses are within-cells records, read for each of the CELLS\n\
+                 cells with the factor values first. A matrix has one record per variable: LOWER and UPPER\n\
+                 give a triangle, which is mirrored, FULL the whole matrix; with NODIAGONAL a correlation\n\
+                 diagonal is 1 and any other diagonal missing. N_SCALAR gives one value for every variable.\n\
+                 N=n adds an N record to each split. LIST starts each row on a new record (a row may go on\n\
+                 over the next records; values left on a record are ignored with a warning), FREE reads the\n\
+                 values as one stream. Values are separated by blanks or commas, and by + and - when not\n\
+                 after D or E; . is missing. SPLIT may name one variable that is not on VARIABLES: the sets\n\
+                 of materials are then numbered 1, 2, ... The result is split by the split variables. The\n\
+                 data follow between BEGIN DATA and END DATA, or come from FILE. FACTOR, CLUSTER and the\n\
+                 other procedures with MATRIX=IN(*) read it.",
+        [removed]
+        parse: matrix_data::matrix_data,
     },
     CommandSpec {
         name: "GET",
@@ -1367,6 +1397,45 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: tree::tree,
     },
     CommandSpec {
+        name: "REPORT",
+        summary: "Case listings and summary statistics by break groups, laid out as a report.",
+        syntax: "REPORT [FORMAT=[MANUAL | AUTOMATIC] [NOLIST | LIST[(n)]] [ALIGN(LEFT | CENTER | RIGHT)] [TSPACE(1)]\n\
+                 \x20       [CHDSPACE(1)] [FTSPACE(1)] [SUMSPACE(1)] [COLSPACE(4)] [BRKSPACE(n | -1)] [LENGTH(t,b)]\n\
+                 \x20       [MARGINS(l,r)] [CHALIGN(TOP | BOTTOM)] [UNDERSCORE(ON | OFF)] [PAGE1(1)] [MISSING '.']\n\
+                 \x20       [ONEBREAKCOLUMN ON | OFF] [INDENT(2)] [CHWRAP ON | OFF] [PREVIEW ON | OFF]]\n\
+                 \x20  [/OUTFILE='path'] [/STRING=name (var [(width)] [(BLANK)] 'literal' ...) ...]\n\
+                 \x20  /VARIABLES=var [(VALUE | LABEL | DUMMY)] [+ var ...] ['heading' ...] [(width)]\n\
+                 \x20     [(OFFSET(n | CENTER))] [(LEFT | CENTER | RIGHT)] ...\n\
+                 \x20  [/MISSING=VAR | NONE | LIST[([varlist] [n])]] [/TITLE=[LEFT | CENTER | RIGHT] 'line' ...]\n\
+                 \x20  [/FOOTNOTE=[LEFT | CENTER | RIGHT] 'line' ...]\n\
+                 \x20  [/BREAK=varlist | (TOTAL) ['heading' ...] [(width)] [(VALUE | LABEL)] [(TOTAL | NOTOTAL)]\n\
+                 \x20     [(SKIP(1))] [(PAGE)] [(OFFSET(n | CENTER))] [(UNDERSCORE[(varlist)])] [(LEFT | CENTER | RIGHT)]\n\
+                 \x20     [(NAME | NONAME)] [/SUMMARY=function ... ['title'] [(break column)] [SKIP(n)] | PREVIOUS[(n)]] ...] ...\n\
+                 functions: VALIDN SUM MIN MAX MEAN STDDEV (SD, STDEV) VARIANCE KURTOSIS SKEWNESS\n\
+                 MEDIAN(min,max) MODE(min,max) PGT(n) PLT(n) PIN(min,max) FREQUENCY(min,max) PERCENT(min,max),\n\
+                 each with an optional (var [(format | PLAIN)] [(decimals)] ...); composite functions\n\
+                 DIVIDE(a b [factor]) MULTIPLY PCT(a b) SUBTRACT(a b) ADD GREAT LEAST AVERAGE of aggregates\n\
+                 such as SUM(var) and numbers, with an optional (column [(format)] [(decimals)]).\n\
+                 The report is a table: a column for each BREAK (with ONEBREAKCOLUMN ON one for all, indented\n\
+                 by INDENT), then one for each report column, headed by its heading or the variable label or\n\
+                 name. LIST lists the cases, each value in its print format or with LABEL as its value label;\n\
+                 a stacked column lists each of its variables on a line of its own. A break group starts\n\
+                 when a value of its BREAK or an earlier one changes (sort the cases first): its values head\n\
+                 it, and its SUMMARY lines follow with their title (by default the function's) in the break\n\
+                 column. The statistics use the valid values and the weight; MISSING=NONE counts user-missing\n\
+                 values as valid, and MISSING=LIST leaves out the cases missing on n of the variables. MEDIAN,\n\
+                 MODE, FREQUENCY and PERCENT count the whole numbers of the range, cutting decimals off.\n\
+                 TOTAL on the first BREAK repeats its first SUMMARY for all cases at the end, under Grand\n\
+                 Total. Formats follow the manual's defaults for each function. TITLE and FOOTNOTE lines (by\n\
+                 default the text of the TITLE command) show above and below the report; )PAGE, )DATE and\n\
+                 )var in them give the page number, the date and the value label of the first case. OUTFILE\n\
+                 writes the report as text, with the column widths, spacing and alignment, instead of\n\
+                 showing it; a later REPORT of the same session appends to the file. The report is one\n\
+                 page, so LENGTH, PAGE and PREVIEW change nothing.",
+        example: "SORT CASES BY dept.\nREPORT FORMAT=LIST /VARIABLES=product (LABEL) sales 'Annual' 'Sales'\n  /BREAK=dept 'Department' (LABEL) /SUMMARY=VALIDN(product) MEAN(sales).",
+        parse: report::report,
+    },
+    CommandSpec {
         name: "ADD FILES",
         summary: "Append the cases of several data files, matching variables by name.",
         syntax: "ADD FILES /FILE=* | 'path' | dataset [/RENAME=(old = new) ...] [/IN=var]\n\
@@ -1661,6 +1730,82 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: session_commands::dataset_display,
     },
     CommandSpec {
+        name: "OUTPUT NEW",
+        summary: "Start a new output document, which gets the tables from now on.",
+        syntax: "OUTPUT NEW [NAME=name] [TYPE=VIEWER].\n\
+                 The tables of the commands that follow go to the new document until another one is\n\
+                 started or activated. Without NAME it is called Document1, Document2 and so on; a name\n\
+                 that another document had passes to the new one, and the other gets a new name. TYPE is\n\
+                 ignored. The window shows the tables of every document in its Output view; the documents\n\
+                 decide what OUTPUT EXPORT writes. The window session keeps its documents from run to run; a\n\
+                 command line run starts without one.",
+        example: "OUTPUT NEW NAME=women.",
+        parse: output_docs::output_new,
+    },
+    CommandSpec {
+        name: "OUTPUT NAME",
+        summary: "Name the output document that gets the tables.",
+        syntax: "OUTPUT NAME [NAME=]name.\n\
+                 The designated document (the one that gets the tables) takes the name, and a document that\n\
+                 had it gets a new one. Without any document yet, an empty one is started.",
+        example: "OUTPUT NAME men.",
+        parse: output_docs::output_name,
+    },
+    CommandSpec {
+        name: "OUTPUT ACTIVATE",
+        summary: "Send the tables from now on to an open output document.",
+        syntax: "OUTPUT ACTIVATE [NAME=]name.\n\
+                 A name that no open document has gives a warning, and the tables keep going where they went.",
+        example: "OUTPUT ACTIVATE men.",
+        parse: output_docs::output_activate,
+    },
+    CommandSpec {
+        name: "OUTPUT CLOSE",
+        summary: "Close an output document, or all of them.",
+        syntax: "OUTPUT CLOSE [NAME=]name | * | ALL.\n\
+                 * closes the designated document. Nothing is saved; the next table starts a new document.\n\
+                 A name that no open document has is ignored with a warning.",
+        example: "OUTPUT CLOSE *.",
+        parse: output_docs::output_close,
+    },
+    CommandSpec {
+        name: "OUTPUT DISPLAY",
+        summary: "List the open output documents.",
+        syntax: "OUTPUT DISPLAY.\n\
+                 One row per document with its number of tables; the designated one is marked.",
+        example: "OUTPUT DISPLAY.",
+        parse: output_docs::output_display,
+    },
+    CommandSpec {
+        name: "OUTPUT EXPORT",
+        summary: "Write the tables of an output document to an Excel workbook, web page, text or CSV file.",
+        syntax: "OUTPUT EXPORT [NAME=* | name] [/CONTENTS [EXPORT=ALL | VISIBLE] [LAYERS=...] [MODELVIEWS=...]]\n\
+                 \x20  [/XLSX DOCUMENTFILE='path' [OPERATION=CREATEFILE | CREATESHEET | MODIFYSHEET] [SHEET='name']\n\
+                 \x20         [LOCATION=LASTCOLUMN | LASTROW | STARTCELL('B2')] [NOTESCAPTIONS=YES | NO]]\n\
+                 \x20  [/HTML DOCUMENTFILE='path' [NOTESCAPTIONS=YES | NO] [STYLING=YES | NO] [IMAGEFORMAT=...]\n\
+                 \x20         [INTERACTIVELAYERS=NO | YES]]\n\
+                 \x20  [/TEXT DOCUMENTFILE='path' [ENCODING=LOCALE | UTF8 | UTF16] [NOTESCAPTIONS=YES | NO]\n\
+                 \x20         [COLUMNWIDTH=AUTOFIT | n] [SEPARATOR=SPACE | TAB] [ROWBORDER='-'] [COLUMNBORDER='|']]\n\
+                 \x20  [/CSV DOCUMENTFILE='path' [NOTESCAPTIONS=YES | NO]] [/BMP | /EMF | /EPS | /JPG | /PNG | /TIF ...].\n\
+                 Writes the tables that the designated document (NAME=*) or the named one holds so far, in\n\
+                 order; an existing file is replaced. Subcommands and keywords are spelled in full. Every\n\
+                 table is visible and has one layer, so CONTENTS changes nothing. NOTESCAPTIONS=NO leaves out\n\
+                 the notes under the tables. XLSX puts the tables one below the other on one sheet, named by\n\
+                 SHEET or Tables, laid out as the Excel export of the window. CREATESHEET and MODIFYSHEET add\n\
+                 to a workbook that OUTPUT EXPORT wrote earlier in the session and that has not changed since;\n\
+                 another workbook is refused, so its formulas and formatting cannot be lost. CREATESHEET\n\
+                 replaces or adds the sheet; MODIFYSHEET places the tables after the last column or row of\n\
+                 the sheet, one column or row apart, or from STARTCELL. HTML writes one web page; STYLING=NO\n\
+                 leaves out the style sheet. TEXT lines the columns up between the borders, or with\n\
+                 SEPARATOR=TAB separates the cells by tabs; COLUMNWIDTH=n wraps longer cells; LOCALE and UTF8\n\
+                 write UTF-8, UTF16 writes UTF-16 with a byte order mark. CSV, a Statscraft addition, writes\n\
+                 each table as comma-separated values after its title, with a blank line between tables.\n\
+                 Statscraft draws no charts, so the image subcommands change nothing. /DOC, /PDF, /PPT, /XLS\n\
+                 and /XLSM are refused.",
+        example: "OUTPUT EXPORT /XLSX DOCUMENTFILE='results.xlsx' SHEET='Region 1'.",
+        parse: output_docs::output_export,
+    },
+    CommandSpec {
         name: "USE",
         summary: "Use all cases, or a range of cases, in the commands that follow.",
         syntax: "USE ALL.\n\
@@ -1946,6 +2091,16 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: output::host,
     },
     CommandSpec {
+        name: "FINISH",
+        summary: "End the job: the commands after it are not read.",
+        syntax: "FINISH.\n\
+                 The run ends here, as at the end of the syntax. Nothing after FINISH is read, so it causes\n\
+                 no error. FINISH in an inserted file ends the whole run; when a range of lines runs, only a\n\
+                 FINISH inside it counts. The window and its session stay open.",
+        example: "FREQUENCIES VARIABLES=region.\nFINISH.",
+        parse: output::finish,
+    },
+    CommandSpec {
         name: "DATE",
         summary: "Add date variables that count the cases of a time series.",
         syntax: "DATE keyword [start [period]] [keyword ...] [BY n].\n\
@@ -2043,26 +2198,22 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
 /// Commands of the language that have no parser yet. They get "not supported yet" instead of
 /// "unknown command", and their bodies are not tokenised.
 static UNSUPPORTED: &[&str] = &[
-    "END DATA",
-    "END MATRIX",
-    "END REPEAT",
     "EXPORT",
-    "FINISH",
     "GET TRANSLATE",
     "GRAPH",
     "IMPORT",
     "MATRIX",
-    "MATRIX DATA",
-    "OUTPUT CLOSE",
-    "OUTPUT EXPORT",
-    "OUTPUT NEW",
     "OUTPUT SAVE",
-    "REPORT",
 ];
+
+/// The ends of blocks whose start reads them, such as END DATA after BEGIN DATA. Standing
+/// alone they are an error at their own line.
+static STRAY: &[&str] = &["END DATA", "END MATRIX", "END REPEAT"];
 
 fn names() -> impl Iterator<Item = (&'static str, Option<&'static CommandSpec>)> {
     let supported = COMMANDS.iter().map(|spec| (spec.name, Some(spec)));
-    supported.chain(UNSUPPORTED.iter().map(|&name| (name, None)))
+    let recognised = UNSUPPORTED.iter().chain(STRAY);
+    supported.chain(recognised.map(|&name| (name, None)))
 }
 
 /// True when `word` is `keyword` or an abbreviation of it with at least three letters.
@@ -2254,9 +2405,17 @@ pub fn help(command: Option<&str>) -> Option<String> {
                 spec.name, spec.summary, syntax, spec.example
             ))
         }
-        Resolution::Unsupported(name, used) if used == words.len() => Some(format!(
-            "{name} is a command of the language, but it is not supported yet.\n"
-        )),
+        Resolution::Unsupported(name, used) if used == words.len() => Some(match name {
+            "END DATA" => "END DATA ends the inline data that BEGIN DATA starts.\n".into(),
+            "END REPEAT" => "END REPEAT ends the commands that DO REPEAT repeats.\n".into(),
+            "END MATRIX" => {
+                "END MATRIX ends a MATRIX program; MATRIX is not supported yet.\n".into()
+            }
+            "OUTPUT SAVE" => "OUTPUT SAVE is a command of the language, but Statscraft has no \
+                              output document file of its own; OUTPUT EXPORT writes the tables.\n"
+                .into(),
+            _ => format!("{name} is a command of the language, but it is not supported yet.\n"),
+        }),
         _ => None,
     }
 }

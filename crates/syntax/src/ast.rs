@@ -153,6 +153,12 @@ pub enum Command {
         ignored: Vec<String>,
     },
     Dataset(DatasetCommand),
+    /// OUTPUT NEW, NAME, ACTIVATE, CLOSE, DISPLAY and EXPORT.
+    Output(crate::output_docs::OutputCommand),
+    MatrixData(Box<crate::matrix_data::MatrixData>),
+    Report(Box<crate::report::Report>),
+    /// FINISH: the commands after it are not read.
+    Finish,
     /// `USE ALL` is None; else the first and last case number, and /PERMANENT.
     Use(Option<UseRange>),
     Display(Display),

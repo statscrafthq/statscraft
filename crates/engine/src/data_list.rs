@@ -42,6 +42,7 @@ pub(crate) struct Record {
 pub(crate) enum Pending {
     List(DataList),
     Program(crate::input::Program),
+    Matrix(Box<statscraft_syntax::MatrixData>),
 }
 
 impl Engine {
@@ -89,8 +90,8 @@ impl Engine {
     pub(crate) fn begin_data(&mut self, lines: &[(u32, String)]) -> Result<Vec<Table>, Error> {
         let Some(pending) = self.pending_data.take() else {
             return Err(Error(
-                "BEGIN DATA needs a DATA LIST without FILE, or an input program that reads \
-                 inline data, before it"
+                "BEGIN DATA needs a DATA LIST or MATRIX DATA without FILE, or an input program \
+                 that reads inline data, before it"
                     .into(),
             ));
         };
@@ -104,6 +105,10 @@ impl Engine {
                 Vec::new()
             }
             Pending::Program(program) => self.run_program(program, Some(records.collect()))?,
+            Pending::Matrix(matrix) => {
+                self.read_matrix(&matrix, records.collect())?;
+                Vec::new()
+            }
         };
         let mut warnings = std::mem::take(&mut self.warnings);
         for command in std::mem::take(&mut self.queued) {

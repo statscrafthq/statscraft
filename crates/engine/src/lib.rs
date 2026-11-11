@@ -22,11 +22,13 @@ mod format;
 mod frequencies;
 mod get_data;
 mod glm;
+mod html;
 mod input;
 pub mod live;
 mod logistic;
 mod loops;
 mod matrix;
+mod matrix_data;
 mod means;
 mod merge;
 mod mrsets;
@@ -36,6 +38,7 @@ mod npar_groups;
 mod npar_tests;
 mod oneway;
 mod output;
+mod output_docs;
 mod partial_corr;
 mod pass;
 mod print;
@@ -45,6 +48,7 @@ mod rank;
 mod recode;
 mod regression;
 mod reliability;
+mod report;
 mod restructure;
 mod rows;
 mod save_translate;
@@ -58,6 +62,7 @@ mod tree;
 mod ttest;
 mod variables;
 pub mod workbook;
+pub mod xlsx;
 
 pub use expr::functions;
 pub use format::{Currencies, currency_parts, format_value, is_date_time_or_currency};
@@ -291,6 +296,8 @@ pub struct Engine {
     case_outputs: Vec<print::CaseOutput>,
     /// What CLEAR TRANSFORMATIONS returns to; None when nothing changed since the last pass.
     clean: Option<Box<output::Clean>>,
+    /// The output documents and the workbooks OUTPUT EXPORT wrote.
+    documents: output_docs::Documents,
 }
 
 impl Engine {
@@ -587,6 +594,7 @@ impl Engine {
             | Command::Discriminant(_)
             | Command::Anova(_)
             | Command::Tree(_)
+            | Command::Report(_)
             | Command::Rank(_)
             | Command::Aggregate(_) => return self.procedure(command),
             Command::Execute => {
@@ -683,7 +691,30 @@ impl Engine {
                 self.case_limit = None;
                 self.data_list(list)?
             }
+            Command::MatrixData(_) if self.input.is_some() => {
+                return Err(Error(
+                    "MATRIX DATA defines a dataset of its own and cannot stand inside an input \
+                     program"
+                        .into(),
+                ));
+            }
+            Command::MatrixData(matrix) => {
+                self.leave.clear();
+                self.park_active();
+                self.scratch_assigned.clear();
+                self.temporary = None;
+                self.case_limit = None;
+                match &matrix.file {
+                    None => self.pending_data = Some(data_list::Pending::Matrix(matrix.clone())),
+                    Some(file) => {
+                        let records = self.file_records(file)?;
+                        self.read_matrix(matrix, records)?;
+                    }
+                }
+            }
             Command::BeginData(lines) => return self.begin_data(lines),
+            Command::Output(output) => return self.output_command(output),
+            Command::Finish => {}
             Command::EndCase => self.end_case()?,
             Command::EndFile => self.end_file()?,
             Command::Reread { file, column } => self.reread(file.as_deref(), column.as_ref())?,
@@ -781,6 +812,7 @@ impl Engine {
             Command::Discriminant(command) => self.discriminant(command),
             Command::Anova(command) => self.anova(command),
             Command::Tree(command) => self.tree(command),
+            Command::Report(command) => self.report(command),
             Command::Rank(command) => self.rank(command),
             Command::Aggregate(command) => self.aggregate(command).map(|()| Vec::new()),
             Command::List(list) => self.list(list),

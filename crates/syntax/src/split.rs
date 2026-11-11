@@ -367,6 +367,14 @@ fn split_with(
         }
     }
     split_lines(&run, &mut out);
+    // nothing after FINISH is read; with a range only a FINISH inside it ends the run
+    let finish = out.iter().position(|c| {
+        matches!(c, Ok(c) if c.name == "FINISH"
+            && range.is_none_or(|(first, last)| (first..=last).contains(&c.first_line)))
+    });
+    if let Some(at) = finish {
+        out.truncate(at + 1);
+    }
     out
 }
 

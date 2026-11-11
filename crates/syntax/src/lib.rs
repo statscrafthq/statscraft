@@ -37,16 +37,19 @@ mod lexer;
 mod logistic;
 mod loops;
 mod macros;
+mod matrix_data;
 mod mrsets;
 mod mult_response;
 mod npar;
 mod output;
+mod output_docs;
 mod parser;
 mod preprocess;
 mod procedures;
 mod rank;
 mod regression;
 mod reliability;
+mod report;
 mod restructure;
 mod save_translate;
 mod selection;
@@ -83,6 +86,8 @@ mod tests_preprocess;
 #[cfg(test)]
 mod tests_procedures;
 #[cfg(test)]
+mod tests_report;
+#[cfg(test)]
 mod tests_restructure;
 #[cfg(test)]
 mod tests_session;
@@ -117,6 +122,7 @@ pub use logistic::{
     LogisticPrint, LogisticTemp, Removal,
 };
 pub use loops::{RepeatItem, command_text, substitute};
+pub use matrix_data::{MatrixData, MatrixShape, RowType};
 pub use mrsets::{Mrsets, MrsetsGroup};
 pub use npar::{
     BinomialSplit, GroupTest, KsDistribution, NparTest, NparTests, PairedTest, PartialCorr,
@@ -125,6 +131,9 @@ pub use npar::{
 pub use output::{
     DateSpec, DateUnit, FormatItem, Placement, Print, PrintItem, PrintKind, PrintSpace, Xsave,
 };
+pub use output_docs::{
+    ExportTarget, OutputCommand, OutputExport, SheetLocation, SheetOperation, TextEncoding,
+};
 pub use preprocess::{FileHandle, MacroState};
 pub use regression::{
     Casewise, Criterion, MethodKind, Regression, RegressionCriteria, RegressionDescriptives,
@@ -132,6 +141,11 @@ pub use regression::{
 };
 pub use reliability::{
     AnovaTest, Icc, IccModel, Reliability, ReliabilityModel, ReliabilitySummary,
+};
+pub use report::{
+    ColumnContents, Composite, CompositeArg, Report, ReportAlign, ReportBreak, ReportColumn,
+    ReportFormat, ReportFunction, ReportMissing, ReportOffset, ReportString, ReportSummary,
+    StringPart, SummaryFormat, SummaryItem,
 };
 pub use session_commands::{SETTINGS, SettingEffect};
 pub use split::{RawCommand, select_lines, split_commands, split_commands_in, split_commands_with};
@@ -282,6 +296,16 @@ fn parse_raw(raw: &RawCommand) -> Result<Command, SyntaxError> {
             "END DATA without BEGIN DATA",
         )
         .hint("inline data starts with a line that holds only BEGIN DATA")),
+        Resolution::Unsupported("END MATRIX", used) => Err(SyntaxError::new(
+            name_span(used),
+            "END MATRIX without MATRIX",
+        )
+        .hint("MATRIX programs are not supported yet")),
+        Resolution::Unsupported("OUTPUT SAVE", used) => Err(SyntaxError::new(
+            name_span(used),
+            "OUTPUT SAVE is not supported: Statscraft has no output document file of its own",
+        )
+        .hint("write the output with OUTPUT EXPORT and /XLSX, /HTML, /TEXT or /CSV")),
         Resolution::Unsupported(name, used) => Err(SyntaxError::new(
             name_span(used),
             format!("command {name} is not supported yet"),

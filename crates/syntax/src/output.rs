@@ -244,6 +244,12 @@ fn read_only(p: &mut Parser) -> PResult<bool> {
     }
 }
 
+/// FINISH. The commands after it are cut off when the syntax is split (`split::split_with`).
+pub(crate) fn finish(p: &mut Parser) -> PResult<Command> {
+    p.finish(&[])?;
+    Ok(Command::Finish)
+}
+
 /// `HOST COMMAND=['command' ...] [TIMELIMIT=n]`: read so that errors point at the right
 /// place; the engine never runs it.
 pub(crate) fn host(p: &mut Parser) -> PResult<Command> {

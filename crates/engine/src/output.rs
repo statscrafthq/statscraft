@@ -71,6 +71,8 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Get { .. }
         | Command::GetData(_)
         | Command::DataList(_)
+        | Command::MatrixData(_)
+        | Command::Report(_)
         | Command::BeginData(_)
         | Command::AddFiles(_)
         | Command::MatchFiles(_)
@@ -100,6 +102,8 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::BeginProgram
         | Command::Cache
         | Command::Display(_)
+        | Command::Output(_)
+        | Command::Finish
         | Command::ClearTransformations => Stage::Neutral,
         _ => Stage::Change,
     }
@@ -261,6 +265,9 @@ impl Engine {
                 let text = cut(text, 60);
                 if text.trim().is_empty() {
                     return Ok(Vec::new());
+                }
+                if !*subtitle {
+                    self.documents.title = Some(text.to_string());
                 }
                 let title = if *subtitle { "Subtitle" } else { "Title" };
                 return Ok(vec![one_line(title, text)]);
