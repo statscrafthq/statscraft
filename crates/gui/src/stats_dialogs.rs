@@ -19,7 +19,7 @@ pub fn numeric<'a>(
 }
 
 /// A percentage the user typed, above 0 and below 100.
-fn percent(text: &str) -> Result<f64, String> {
+pub(crate) fn percent(text: &str) -> Result<f64, String> {
     text.trim()
         .parse::<f64>()
         .ok()
@@ -28,7 +28,7 @@ fn percent(text: &str) -> Result<f64, String> {
 }
 
 /// A number the user typed, or an error naming the field.
-fn parse(text: &str, what: &str) -> Result<f64, String> {
+pub(crate) fn parse(text: &str, what: &str) -> Result<f64, String> {
     text.trim()
         .parse::<f64>()
         .ok()

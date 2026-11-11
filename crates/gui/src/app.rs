@@ -2,9 +2,9 @@
 //! with syntax built by the plain modules.
 
 use crate::analyze_dialogs::{
-    Correlations, DUNNETT_SIDES, EQUAL_VARIANCE_TESTS, Explore, ExploreMissing, MEANS_CELLS,
-    MULT_RESPONSE_CELLS, Means, MrGroup, MultResponse, ONEWAY_STATISTICS, Oneway, POST_HOC_TESTS,
-    STANDARDIZERS, TREE_LEVELS, TREE_SAVE, TTest, TTestKind, Tree,
+    Correlations, Explore, ExploreMissing, MEANS_CELLS, MULT_RESPONSE_CELLS, Means, MrGroup,
+    MultResponse, ONEWAY_STATISTICS, Oneway, STANDARDIZERS, TREE_LEVELS, TREE_SAVE, TTest,
+    TTestKind, Tree,
 };
 use crate::data_dialogs::{
     AGGREGATE_FUNCTIONS, Aggregate, AggregateTo, Aggregated, EXPORT_NAMES, ExportData,
@@ -19,6 +19,8 @@ use crate::dialogs::{
     RecodeRule, Subtotal, is_set, label_command,
 };
 use crate::edits::{self, Field};
+use crate::model_dialogs::{FactorAnalysis, KMeans, Logistic, RepeatedMeasures, Univariate};
+use crate::model_dialogs_view;
 use crate::output;
 use crate::output_view::{self, OutputView};
 use crate::settings::Settings;
@@ -139,6 +141,11 @@ pub(crate) enum Dialog {
     Reliability(Reliability),
     NparTests(NparTests),
     PartialCorr(PartialCorr),
+    FactorAnalysis(FactorAnalysis),
+    KMeans(KMeans),
+    Logistic(Logistic),
+    Univariate(Univariate),
+    RepeatedMeasures(RepeatedMeasures),
     Restructure(Restructure),
     SortVariables(SortVariables),
     ImportData(ImportData),
@@ -175,6 +182,11 @@ impl Dialog {
             Dialog::Reliability(_) => "Reliability Analysis",
             Dialog::NparTests(d) => d.title(),
             Dialog::PartialCorr(_) => "Partial Correlations",
+            Dialog::FactorAnalysis(_) => "Factor Analysis",
+            Dialog::KMeans(_) => "K-Means Cluster Analysis",
+            Dialog::Logistic(_) => "Logistic Regression",
+            Dialog::Univariate(_) => "Univariate",
+            Dialog::RepeatedMeasures(_) => "Repeated Measures",
             Dialog::Restructure(_) => "Restructure",
             Dialog::SortVariables(_) => "Sort Variables",
             Dialog::ImportData(_) => "Open Data",
@@ -221,6 +233,11 @@ impl Dialog {
             Dialog::Reliability(_) => Dialog::Reliability(Default::default()),
             Dialog::NparTests(d) => Dialog::NparTests(NparTests::new(d.kind)),
             Dialog::PartialCorr(_) => Dialog::PartialCorr(Default::default()),
+            Dialog::FactorAnalysis(_) => Dialog::FactorAnalysis(Default::default()),
+            Dialog::KMeans(_) => Dialog::KMeans(Default::default()),
+            Dialog::Logistic(_) => Dialog::Logistic(Default::default()),
+            Dialog::Univariate(_) => Dialog::Univariate(Default::default()),
+            Dialog::RepeatedMeasures(_) => Dialog::RepeatedMeasures(Default::default()),
             Dialog::Restructure(_) => Dialog::Restructure(Default::default()),
             Dialog::SortVariables(_) => Dialog::SortVariables(Default::default()),
             Dialog::ImportData(d) => Dialog::ImportData(ImportData::new(Path::new(&d.path))),
@@ -323,6 +340,18 @@ impl Dialog {
             Dialog::NparTests(d) => numeric(data, d.variables()).and_then(|()| d.syntax()),
             Dialog::PartialCorr(d) => {
                 numeric(data, d.variables.iter().chain(&d.controls)).and_then(|()| d.syntax())
+            }
+            Dialog::FactorAnalysis(d) => numeric(data, &d.variables).and_then(|()| d.syntax()),
+            Dialog::KMeans(d) => numeric(data, &d.variables).and_then(|()| d.syntax()),
+            // a string covariate is categorical, a string dependent has its two values
+            Dialog::Logistic(d) => d.syntax(),
+            // factors may be strings
+            Dialog::Univariate(d) => {
+                numeric(data, std::iter::once(&d.dependent).chain(&d.covariates))
+                    .and_then(|()| d.syntax())
+            }
+            Dialog::RepeatedMeasures(d) => {
+                numeric(data, d.dependents.iter().chain(&d.covariates)).and_then(|()| d.syntax())
             }
             Dialog::Restructure(d) => d.syntax(),
             Dialog::SortVariables(d) => d.syntax(),
@@ -1027,6 +1056,14 @@ impl App {
                             }
                         }
                     });
+                    ui.menu_button("General Linear Model", |ui| {
+                        if ui.button("Univariate...").clicked() {
+                            self.open_dialog(Dialog::Univariate(Default::default()));
+                        }
+                        if ui.button("Repeated Measures...").clicked() {
+                            self.open_dialog(Dialog::RepeatedMeasures(Default::default()));
+                        }
+                    });
                     ui.menu_button("Correlate", |ui| {
                         if ui.button("Bivariate...").clicked() {
                             self.open_dialog(Dialog::Correlations(Default::default()));
@@ -1039,10 +1076,21 @@ impl App {
                         if ui.button("Linear...").clicked() {
                             self.open_dialog(Dialog::Regression(Default::default()));
                         }
+                        if ui.button("Binary Logistic...").clicked() {
+                            self.open_dialog(Dialog::Logistic(Default::default()));
+                        }
                     });
                     ui.menu_button("Classify", |ui| {
+                        if ui.button("K-Means Cluster...").clicked() {
+                            self.open_dialog(Dialog::KMeans(Default::default()));
+                        }
                         if ui.button("Tree...").clicked() {
                             self.open_dialog(Dialog::Tree(Default::default()));
+                        }
+                    });
+                    ui.menu_button("Dimension Reduction", |ui| {
+                        if ui.button("Factor...").clicked() {
+                            self.open_dialog(Dialog::FactorAnalysis(Default::default()));
                         }
                     });
                     ui.menu_button("Scale", |ui| {
@@ -4185,24 +4233,13 @@ fn dialog_body(
             target_one(ui, "Factor", &mut d.factor, picked);
             ui.add_space(6.0);
             egui::CollapsingHeader::new("Post hoc comparisons").show(ui, |ui| {
-                let (equal, unequal) = POST_HOC_TESTS.split_at(EQUAL_VARIANCE_TESTS);
-                let (equal_flags, unequal_flags) = d.post_hoc.split_at_mut(EQUAL_VARIANCE_TESTS);
-                ui.weak("Equal variances assumed");
-                checkboxes(ui, equal, equal_flags);
-                ui.horizontal(|ui| {
-                    ui.checkbox(&mut d.dunnett, "Dunnett, control group");
-                    ui.add_enabled_ui(d.dunnett, |ui| {
-                        ui.radio_value(&mut d.dunnett_first, true, "first");
-                        ui.radio_value(&mut d.dunnett_first, false, "last");
-                        ComboBox::new("dunnett_side", "")
-                            .selected_text(DUNNETT_SIDES[d.dunnett_side].1)
-                            .show_index(ui, &mut d.dunnett_side, DUNNETT_SIDES.len(), |i| {
-                                DUNNETT_SIDES[i].1
-                            });
-                    });
-                });
-                ui.weak("Equal variances not assumed");
-                checkboxes(ui, unequal, unequal_flags);
+                model_dialogs_view::post_hoc_tests(
+                    ui,
+                    &mut d.post_hoc,
+                    &mut d.dunnett,
+                    &mut d.dunnett_first,
+                    &mut d.dunnett_side,
+                );
                 field(ui, "Significance level", &mut d.alpha, 60.0);
             });
             egui::CollapsingHeader::new("Options").show(ui, |ui| {
@@ -4757,6 +4794,11 @@ fn dialog_body(
         Dialog::Reliability(d) => stats_dialogs_view::reliability(ui, d, picked),
         Dialog::NparTests(d) => stats_dialogs_view::npar_tests(ui, d, picked),
         Dialog::PartialCorr(d) => stats_dialogs_view::partial_corr(ui, d, picked),
+        Dialog::FactorAnalysis(d) => model_dialogs_view::factor(ui, d, picked),
+        Dialog::KMeans(d) => model_dialogs_view::k_means(ui, d, picked),
+        Dialog::Logistic(d) => model_dialogs_view::logistic(ui, d, picked),
+        Dialog::Univariate(d) => model_dialogs_view::univariate(ui, d, picked),
+        Dialog::RepeatedMeasures(d) => model_dialogs_view::repeated_measures(ui, d, picked),
         Dialog::Restructure(d) => {
             ui.radio_value(
                 &mut d.kind,

@@ -3,7 +3,7 @@
 
 use crate::app::{checkboxes, choice, field, target_list, target_one};
 use crate::stats_dialogs::{
-    ICC_MODELS, NparKind, NparTests, PartialCorr, REGRESSION_METHODS, REGRESSION_MISSING,
+    Block, ICC_MODELS, NparKind, NparTests, PartialCorr, REGRESSION_METHODS, REGRESSION_MISSING,
     REGRESSION_SAVE, REGRESSION_SAVE_GROUPS, REGRESSION_STATISTICS, RELIABILITY_ANOVA,
     RELIABILITY_DESCRIPTIVES, RELIABILITY_INTER_ITEM, RELIABILITY_MODELS, RELIABILITY_SUMMARIES,
     Regression, Reliability,
@@ -11,37 +11,43 @@ use crate::stats_dialogs::{
 use eframe::egui::{self, TextEdit, Ui};
 
 /// A text field that takes part only when `on`.
-fn small_field(ui: &mut Ui, on: bool, text: &mut String) {
+pub(crate) fn small_field(ui: &mut Ui, on: bool, text: &mut String) {
     ui.add_enabled(on, TextEdit::singleline(text).desired_width(50.0));
+}
+
+/// Previous and Next through the blocks, with a new block after the last one that has
+/// variables; returns the block shown.
+pub(crate) fn blocks<'a>(ui: &mut Ui, blocks: &'a mut Vec<Block>, at: &mut usize) -> &'a mut Block {
+    ui.horizontal(|ui| {
+        let count = blocks.len();
+        ui.label(format!("Block {} of {count}", *at + 1));
+        if ui
+            .add_enabled(*at > 0, egui::Button::new("Previous").small())
+            .clicked()
+        {
+            *at -= 1;
+        }
+        let can_add = !blocks[*at].variables.is_empty();
+        if ui
+            .add_enabled(
+                *at + 1 < count || can_add,
+                egui::Button::new("Next").small(),
+            )
+            .clicked()
+        {
+            *at += 1;
+            if *at == count {
+                blocks.push(Default::default());
+            }
+        }
+    });
+    &mut blocks[*at]
 }
 
 pub fn regression(ui: &mut Ui, d: &mut Regression, picked: &mut Vec<String>) {
     target_one(ui, "Dependent variable", &mut d.dependent, picked);
     ui.add_space(6.0);
-    ui.horizontal(|ui| {
-        let count = d.blocks.len();
-        ui.label(format!("Block {} of {count}", d.block + 1));
-        if ui
-            .add_enabled(d.block > 0, egui::Button::new("Previous").small())
-            .clicked()
-        {
-            d.block -= 1;
-        }
-        let can_add = !d.blocks[d.block].variables.is_empty();
-        if ui
-            .add_enabled(
-                d.block + 1 < count || can_add,
-                egui::Button::new("Next").small(),
-            )
-            .clicked()
-        {
-            d.block += 1;
-            if d.block == count {
-                d.blocks.push(Default::default());
-            }
-        }
-    });
-    let block = &mut d.blocks[d.block];
+    let block = blocks(ui, &mut d.blocks, &mut d.block);
     target_list(ui, "Independent variables", &mut block.variables, picked);
     choice(ui, "Method", &REGRESSION_METHODS, &mut block.method);
     ui.add_space(6.0);

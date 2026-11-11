@@ -13,6 +13,8 @@ mod fonts;
 mod grid;
 mod grid_menu;
 mod highlight;
+mod model_dialogs;
+mod model_dialogs_view;
 mod output;
 mod output_view;
 mod settings;
