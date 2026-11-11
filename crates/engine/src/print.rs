@@ -265,7 +265,7 @@ impl Engine {
             for name in &all {
                 named.set_variable_label(name, Some(name))?;
             }
-            let named = self.file_options(named, &xsave.options)?;
+            let named = self.file_options(named, &xsave.options, false)?;
             let rows = named
                 .variables()
                 .map(|v| {
@@ -282,7 +282,7 @@ impl Engine {
                 ..Table::default()
             });
         }
-        let data = self.file_options(data, &xsave.options)?;
+        let data = self.file_options(data, &xsave.options, false)?;
         if open {
             self.case_outputs.push(CaseOutput::Case {
                 xsave: Box::new(xsave.clone()),

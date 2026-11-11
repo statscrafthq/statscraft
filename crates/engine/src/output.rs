@@ -62,6 +62,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::List(_)
         | Command::Execute
         | Command::Save { .. }
+        | Command::SaveTranslate(_)
         | Command::Get { .. }
         | Command::GetData(_)
         | Command::DataList(_)
