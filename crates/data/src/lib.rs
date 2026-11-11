@@ -4,6 +4,7 @@ mod edit;
 mod retype;
 mod sav;
 
+pub use edit::is_valid_name;
 pub use retype::{NewValues, cut_to};
 
 use arrow::array::{Array, ArrayRef, AsArray, Float64Array, StringViewArray};

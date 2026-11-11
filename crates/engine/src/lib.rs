@@ -26,6 +26,7 @@ mod pass;
 mod random;
 mod rank;
 mod recode;
+mod restructure;
 mod rows;
 pub mod session;
 mod session_commands;
@@ -580,6 +581,18 @@ impl Engine {
                 self.begin_pass()?;
                 self.star_join(join)?
             }
+            Command::Update(merge) => {
+                if merge.inputs.iter().any(|i| i.file.is_none()) {
+                    self.not_temporary("UPDATE with FILE=*")?;
+                }
+                self.begin_pass()?;
+                self.temporary = None;
+                return self.update_files(merge);
+            }
+            Command::SortVariables { key, descending } => self.sort_variables(key, *descending)?,
+            Command::Flip(flip) => return self.flip(flip),
+            Command::VarsToCases(command) => self.vars_to_cases(command)?,
+            Command::CasesToVars(command) => self.cases_to_vars(command)?,
             Command::DataList(list) => {
                 self.park_active();
                 self.scratch_assigned.clear();

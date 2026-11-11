@@ -334,9 +334,23 @@ impl Dataset {
         name: &str,
         cases: &[Option<usize>],
     ) -> Result<(), Error> {
-        self.check_length(cases.len())?;
         let index = from.index_of(name)?;
-        let def = from.dict.variables[index].clone();
+        self.copy_variable_as(from, name, &from.dict.variables[index].name, cases)
+    }
+
+    /// `copy_variable` under the name `new_name`.
+    pub fn copy_variable_as(
+        &mut self,
+        from: &Dataset,
+        name: &str,
+        new_name: &str,
+        cases: &[Option<usize>],
+    ) -> Result<(), Error> {
+        self.check_length(cases.len())?;
+        check_name(new_name)?;
+        let index = from.index_of(name)?;
+        let mut def = from.dict.variables[index].clone();
+        def.name = new_name.to_string();
         if self.variable_index(&def.name).is_some() {
             return Err(Error::DuplicateName(def.name));
         }
@@ -683,6 +697,11 @@ fn fitting(value: &str, width: usize, def: &VariableDef) -> Result<String, Error
         )));
     }
     Ok(value.to_string())
+}
+
+/// Whether `name` can name a variable of a data file.
+pub fn is_valid_name(name: &str) -> bool {
+    check_name(name).is_ok()
 }
 
 fn check_name(name: &str) -> Result<(), Error> {

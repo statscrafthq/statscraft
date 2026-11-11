@@ -1,8 +1,15 @@
-//! ADD FILES and MATCH FILES: one dataset from several, cases appended or joined.
+//! ADD FILES, MATCH FILES and UPDATE: one dataset from several, cases appended, joined or
+//! updated.
+//!
+//! UPDATE, from its description: the first file is the primary file and may hold each key
+//! once; a transaction value replaces the value of the case with the same key unless it is
+//! missing (system- or user-missing) or blank. Transactions apply in order, case by case and
+//! file by file, so the last value that is not missing wins. Keys and variables that only
+//! transactions have are added. IN variables go at the end and cannot be dropped.
 
-use crate::{Engine, Error};
-use statscraft_data::{Dataset, MissingValues, Values};
-use statscraft_syntax::{Merge, MergeInput, Subset};
+use crate::{Cell, Engine, Error, Table};
+use statscraft_data::{Dataset, MissingValues, Values, Variable};
+use statscraft_syntax::{Merge, MergeInput, Subset, VarItem};
 use std::cmp::Ordering;
 
 /// One value of the BY variables.
@@ -32,6 +39,8 @@ struct Input {
     name: String,
     data: Dataset,
     table: bool,
+    /// The name every variable had before the renames, in dictionary order.
+    old_names: Vec<String>,
 }
 
 impl Input {
@@ -198,6 +207,7 @@ impl Engine {
             None => ("FILE=*".to_string(), self.active()?.clone()),
             Some(file) => (format!("FILE='{file}'"), self.data_file(file)?),
         };
+        let old_names = data.variable_names().map(str::to_string).collect();
         let mut renamed = Engine::with_dataset(Some(data));
         if !input.rename.is_empty() {
             renamed
@@ -212,6 +222,7 @@ impl Engine {
             },
             data: renamed.dataset.expect("set above"),
             table: input.table,
+            old_names,
         })
     }
 
@@ -222,36 +233,7 @@ impl Engine {
             .map(|input| self.merge_input(input))
             .collect::<Result<_, _>>()?;
         let by = Engine::with_dataset(Some(inputs[0].data.clone())).expand(&merge.by)?;
-
-        // every variable once, in the order the files bring them, with the files that have it
-        let mut variables: Vec<(String, Vec<usize>)> = Vec::new();
-        for (index, input) in inputs.iter().enumerate() {
-            for name in input.data.variable_names() {
-                let seen = variables
-                    .iter_mut()
-                    .find(|(n, _)| n.eq_ignore_ascii_case(name));
-                match seen {
-                    Some((_, holders)) => holders.push(index),
-                    None => variables.push((name.to_string(), vec![index])),
-                }
-            }
-        }
-        for (name, holders) in &variables {
-            let first = &inputs[holders[0]];
-            let first_is_string = first.data.variable(name)?.is_string();
-            for &other in &holders[1..] {
-                if inputs[other].data.variable(name)?.is_string() != first_is_string {
-                    let kind = |string: bool| if string { "a string" } else { "numeric" };
-                    return Err(Error(format!(
-                        "{name} is {} in {} but {} in {}; rename one of them with /RENAME or change its type",
-                        kind(first_is_string),
-                        first.name,
-                        kind(!first_is_string),
-                        inputs[other].name
-                    )));
-                }
-            }
-        }
+        let variables = union(&inputs)?;
 
         let keys: Vec<Vec<Vec<Key>>> = if by.is_empty() {
             inputs.iter().map(|_| Vec::new()).collect()
@@ -287,45 +269,13 @@ impl Engine {
                 continue;
             }
             // the value of a case comes from the first file that has the case
-            let source = |output: usize| {
-                let holder = holders.iter().find(|&&h| cases[h][output].is_some())?;
-                Some((&inputs[*holder].data, cases[*holder][output]?))
-            };
-            let width = holders
-                .iter()
-                .map(|&h| inputs[h].data.variable(name).map(|v| v.string_width()))
-                .collect::<Result<Vec<_>, _>>()?
-                .into_iter()
-                .max()
-                .flatten();
-            match width {
-                Some(width) => {
-                    if out.variable(name)?.string_width() < Some(width) {
-                        out.set_string_width(name, width)?;
-                    }
-                    let values = (0..out.case_count())
-                        .map(|output| match source(output) {
-                            Some((data, case)) => {
-                                Ok(data.variable(name)?.string()?.get(case).to_string())
-                            }
-                            None => Ok(String::new()),
-                        })
-                        .collect::<Result<Vec<_>, Error>>()?;
-                    out.set_string_values(name, width, values)?;
-                }
-                None => {
-                    let values = (0..out.case_count())
-                        .map(|output| match source(output) {
-                            Some((data, case)) => Ok(data.variable(name)?.numeric()?.get(case)),
-                            None => Ok(None),
-                        })
-                        .collect::<Result<Vec<_>, Error>>()?;
-                    out.set_numeric_values(name, values)?;
-                }
-            }
-            for &later in &holders[1..] {
-                fill_dictionary(&mut out, name, &inputs[later].data)?;
-            }
+            let sources: Vec<Option<(usize, usize)>> = (0..out.case_count())
+                .map(|output| {
+                    let holder = holders.iter().find(|&&h| cases[h][output].is_some())?;
+                    Some((*holder, cases[*holder][output]?))
+                })
+                .collect();
+            set_from(&mut out, name, holders, &inputs, &sources)?;
         }
         // ADD FILES keeps the weighting when every file is weighted by the same variable
         let weight = |input: &Input| input.data.weight_variable().map(str::to_lowercase);
@@ -333,12 +283,151 @@ impl Engine {
         if !weighted {
             out.set_weight_variable(None)?;
         }
+        self.finish_merge(out, merge, &inputs).map(|_| ())
+    }
 
+    /// UPDATE: the primary file with the values of the transaction files, key by key.
+    pub(crate) fn update_files(&mut self, merge: &Merge) -> Result<Vec<Table>, Error> {
+        let inputs: Vec<Input> = merge
+            .inputs
+            .iter()
+            .map(|input| self.merge_input(input))
+            .collect::<Result<_, _>>()?;
+        let by = Engine::with_dataset(Some(inputs[0].data.clone())).expand(&merge.by)?;
+        let variables = union(&inputs)?;
+        let flags: Vec<(usize, &String)> = (merge.inputs.iter().enumerate())
+            .filter_map(|(i, input)| Some((i, input.flag.as_ref()?)))
+            .collect();
+        let subsets = merge.subsets.iter().filter_map(|subset| match subset {
+            Subset::Keep(items) | Subset::Drop(items) => Some(items),
+            Subset::Map => None,
+        });
+        for item in subsets.flatten() {
+            if let VarItem::Name(name) = item
+                && flags
+                    .iter()
+                    .any(|(_, flag)| flag.eq_ignore_ascii_case(name))
+            {
+                return Err(Error(format!(
+                    "{name} is an /IN variable: it goes at the end of the result and cannot be \
+                     named on KEEP or DROP"
+                )));
+            }
+        }
+        let keys: Vec<Vec<Vec<Key>>> = inputs
+            .iter()
+            .map(|i| i.keys(&by))
+            .collect::<Result<_, _>>()?;
+        if let Some(case) =
+            (1..keys[0].len()).find(|&c| compare(&keys[0][c - 1], &keys[0][c]).is_eq())
+        {
+            return Err(Error(format!(
+                "the primary file {} holds the same key twice (cases {case} and {}); UPDATE \
+                 needs each key once in it",
+                inputs[0].name,
+                case + 1
+            )));
+        }
+        // for every output case, the cases of each input with its key: `cases[input][output]`
+        let count = inputs.len();
+        let mut cases: Vec<Vec<Vec<usize>>> = vec![Vec::new(); count];
+        let mut next = vec![0; count];
+        loop {
+            let lowest = (0..count)
+                .filter(|&i| next[i] < keys[i].len())
+                .map(|i| &keys[i][next[i]])
+                .min_by(|a, b| compare(a, b));
+            let Some(lowest) = lowest else { break };
+            for input in 0..count {
+                let start = next[input];
+                while next[input] < keys[input].len()
+                    && compare(&keys[input][next[input]], lowest).is_eq()
+                {
+                    next[input] += 1;
+                }
+                cases[input].push((start..next[input]).collect());
+            }
+        }
+        drop(keys);
+        let outputs = cases[0].len();
+
+        let mut out = inputs[0].data.clone();
+        out.take_cases(
+            &cases[0]
+                .iter()
+                .map(|c| c.first().copied())
+                .collect::<Vec<_>>(),
+        )?;
+        for (name, holders) in &variables {
+            let owner = holders[0];
+            if owner != 0 {
+                out.copy_variable(&inputs[owner].data, name, &vec![None; outputs])?;
+            }
+            let key = by.iter().any(|b| b.eq_ignore_ascii_case(name));
+            let sources: Vec<Option<(usize, usize)>> = (0..outputs)
+                .map(|output| {
+                    let first = holders
+                        .iter()
+                        .find_map(|&h| Some((h, *cases[h][output].first()?)));
+                    if key {
+                        return first;
+                    }
+                    // the primary value, then every transaction value that is not missing
+                    let mut source = first.filter(|(h, _)| *h == 0);
+                    for &h in holders.iter().filter(|&&h| h != 0) {
+                        let variable = inputs[h].data.variable(name).expect("a holder has it");
+                        for &case in &cases[h][output] {
+                            if !missing_at(&variable, case) {
+                                source = Some((h, case));
+                            }
+                        }
+                    }
+                    source
+                })
+                .collect();
+            set_from(&mut out, name, holders, &inputs, &sources)?;
+        }
+        // choice: the primary file's weight stays while its variable does
+        let weight = inputs[0].data.weight_variable().map(str::to_string);
+        let tables = self.finish_merge(out, merge, &inputs)?;
+        let data = self.active_mut()?;
+        for (input, flag) in flags {
+            if data.variable_index(flag).is_some() {
+                return Err(Error(format!(
+                    "the /IN variable {flag} has the name of a variable of the result"
+                )));
+            }
+            let values = cases[input]
+                .iter()
+                .map(|c| Some(if c.is_empty() { 0.0 } else { 1.0 }))
+                .collect();
+            data.set_numeric_values(flag, values)?;
+            data.set_format(flag, "F1.0")?;
+        }
+        if let Some(weight) = weight.filter(|w| data.variable_index(w).is_some()) {
+            data.set_weight_variable(Some(&weight))?;
+        }
+        Ok(tables)
+    }
+
+    /// KEEP, DROP and MAP of a merge in the order written, then the filter and the split of the
+    /// active dataset when it was merged. The result becomes the active dataset.
+    fn finish_merge(
+        &mut self,
+        out: Dataset,
+        merge: &Merge,
+        inputs: &[Input],
+    ) -> Result<Vec<Table>, Error> {
+        let mut tables = Vec::new();
         let mut result = Engine::with_dataset(Some(out));
         for subset in &merge.subsets {
             let (items, keep) = match subset {
                 Subset::Keep(items) => (items, true),
                 Subset::Drop(items) => (items, false),
+                Subset::Map => {
+                    tables.push(map(result.active()?, inputs));
+                    continue;
+                }
             };
             let mut names = result.expand(items)?;
             // a variable named twice, as with `id ALL`, keeps its first place
@@ -371,6 +460,129 @@ impl Engine {
         let split = split.filter(|s| s.variables.iter().all(|n| out.variable_index(n).is_some()));
         out.set_split_file(split)?;
         self.dataset = Some(out);
-        Ok(())
+        Ok(tables)
+    }
+}
+
+/// Every variable once, in the order the files bring them, with the files that have it. A
+/// variable may not be numeric in one file and a string in another.
+fn union(inputs: &[Input]) -> Result<Vec<(String, Vec<usize>)>, Error> {
+    let mut variables: Vec<(String, Vec<usize>)> = Vec::new();
+    for (index, input) in inputs.iter().enumerate() {
+        for name in input.data.variable_names() {
+            let seen = variables
+                .iter_mut()
+                .find(|(n, _)| n.eq_ignore_ascii_case(name));
+            match seen {
+                Some((_, holders)) => holders.push(index),
+                None => variables.push((name.to_string(), vec![index])),
+            }
+        }
+    }
+    for (name, holders) in &variables {
+        let first = &inputs[holders[0]];
+        let first_is_string = first.data.variable(name)?.is_string();
+        for &other in &holders[1..] {
+            if inputs[other].data.variable(name)?.is_string() != first_is_string {
+                let kind = |string: bool| if string { "a string" } else { "numeric" };
+                return Err(Error(format!(
+                    "{name} is {} in {} but {} in {}; rename one of them with /RENAME or change its type",
+                    kind(first_is_string),
+                    first.name,
+                    kind(!first_is_string),
+                    inputs[other].name
+                )));
+            }
+        }
+    }
+    Ok(variables)
+}
+
+/// A system-missing, user-missing or blank value, which UPDATE does not take from a
+/// transaction.
+fn missing_at(variable: &Variable, case: usize) -> bool {
+    match variable.values() {
+        Values::Numeric(v) => v.get(case).is_none_or(|v| variable.is_user_missing(v)),
+        Values::String(v) => {
+            let value = v.get(case);
+            value.trim_end_matches(' ').is_empty() || variable.is_user_missing_str(value)
+        }
+    }
+}
+
+/// Gives variable `name` of `out` the values of `sources`: for every case the input and its
+/// case, None for a blank value. A string variable takes its widest width in the holders, and
+/// the later holders fill in its dictionary entry.
+fn set_from(
+    out: &mut Dataset,
+    name: &str,
+    holders: &[usize],
+    inputs: &[Input],
+    sources: &[Option<(usize, usize)>],
+) -> Result<(), Error> {
+    let width = holders
+        .iter()
+        .map(|&h| inputs[h].data.variable(name).map(|v| v.string_width()))
+        .collect::<Result<Vec<_>, _>>()?
+        .into_iter()
+        .max()
+        .flatten();
+    let variable = |input: usize| inputs[input].data.variable(name);
+    match width {
+        Some(width) => {
+            if out.variable(name)?.string_width() < Some(width) {
+                out.set_string_width(name, width)?;
+            }
+            let values = sources
+                .iter()
+                .map(|source| match *source {
+                    Some((input, case)) => Ok(variable(input)?.string()?.get(case).to_string()),
+                    None => Ok(String::new()),
+                })
+                .collect::<Result<Vec<_>, Error>>()?;
+            out.set_string_values(name, width, values)?;
+        }
+        None => {
+            let values = sources
+                .iter()
+                .map(|source| match *source {
+                    Some((input, case)) => Ok(variable(input)?.numeric()?.get(case)),
+                    None => Ok(None),
+                })
+                .collect::<Result<Vec<_>, Error>>()?;
+            out.set_numeric_values(name, values)?;
+        }
+    }
+    for &later in &holders[1..] {
+        fill_dictionary(out, name, &inputs[later].data)?;
+    }
+    Ok(())
+}
+
+/// MAP: the variables of the result as it is now, with their names in each input file.
+fn map(data: &Dataset, inputs: &[Input]) -> Table {
+    let mut columns = vec!["Result".to_string()];
+    columns.extend(inputs.iter().map(|input| input.name.clone()));
+    let rows = data
+        .variable_names()
+        .map(|name| {
+            let mut row = vec![Cell::Text(name.to_string())];
+            row.extend(
+                inputs
+                    .iter()
+                    .map(|input| match input.data.variable_index(name) {
+                        Some(index) => Cell::Text(input.old_names[index].clone()),
+                        None => Cell::Empty,
+                    }),
+            );
+            row
+        })
+        .collect();
+    Table {
+        title: "Variable Map".to_string(),
+        row_headers: 1,
+        columns,
+        rows,
+        ..Table::default()
     }
 }
