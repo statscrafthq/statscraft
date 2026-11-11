@@ -55,6 +55,8 @@ When a newer release is out, a small bar under the menu says so, with a link to 
 
 - installed with the Windows installer: closes the window, runs the new installer silently for the same per-user installation (same folder, file types and Start menu entry) and the installer opens the window again. Unsaved work is asked about first, as for any close.
 - installed from the tarball: replaces `statscraft` and `statscraft-gui` in its `bin` folder (each written next to the old one, then renamed over it) and offers **Restart now**, which closes the window (asking about unsaved work first) and then starts the new one; Cancel keeps this window and starts none.
+- unpacked from the portable Windows .zip (the folder with `LICENSE.txt` next to the programs): replaces `statscraft.exe` and `statscraft-gui.exe` in that folder the same way and offers **Restart now**. Windows cannot replace a running program, so the old one is renamed aside first and deleted the next time Statscraft starts.
+- Statscraft.app on macOS: there is no Update now but a **Download** link to the new macOS package; replace Statscraft.app with the one in it. The updater does not change files inside the app, which a signed app would not allow.
 - installed from the .deb: saves the package in `~/Downloads` and shows the one command that installs it, `sudo apt install ~/Downloads/statscraft_X_amd64.deb`, with a button that copies it. The window never runs sudo.
 - built from source or copied elsewhere: there is no Update now; the bar says to install the new version the way this copy was installed.
 

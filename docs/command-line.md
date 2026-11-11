@@ -332,11 +332,12 @@ The latest release is the newest published release on the GitHub repository; dra
 | Installed with | What `update` does |
 |---|---|
 | the Windows installer | downloads the new installer and starts it silently for the same per-user installation; it closes an open window first |
+| the portable Windows .zip, with `LICENSE.txt` next to the programs | downloads the .zip and replaces `statscraft.exe` and `statscraft-gui.exe` in that folder; the old ones are renamed aside and deleted on a later start |
 | the tarball, under a prefix such as `~/.local` | downloads the tarball and replaces `statscraft` and `statscraft-gui` in its `bin` folder |
 | the .deb | downloads the package into `~/Downloads` and prints the one command that installs it, `sudo apt install ~/Downloads/statscraft_X_amd64.deb`; it never runs sudo itself |
-| anything else (a build from source, a copy elsewhere) | refuses with exit code 1 and says to update it the way it was installed |
+| anything else (a build from source, a copy elsewhere, the command line from the macOS package) | refuses with exit code 1, says to update it the way it was installed and gives the release page |
 
-Every download is checked against the `SHA256SUMS` file of the release before anything is run or replaced; on a mismatch nothing changes and the file is deleted. The installer and the tarball go to a temporary folder that is removed after use. Errors print as for the other subcommands, exit code 1.
+Every download is checked against the `SHA256SUMS` file of the release before anything is run or replaced; on a mismatch nothing changes and the file is deleted. The installer, the tarball and the .zip go to a temporary folder that is removed after use. Errors print as for the other subcommands, exit code 1.
 
 The only requests go to GitHub over HTTPS: one to the API for the latest release and, on update, the download of `SHA256SUMS` and of the one package. They carry the User-Agent `statscraft/VERSION` and nothing else about you; there is no account, token or telemetry.
 

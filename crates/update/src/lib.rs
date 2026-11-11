@@ -432,8 +432,8 @@ fn unpack(file: &Path, name: &str, folder: &Path) -> Result<PathBuf> {
 /// Replaces the programs in `bin` with those in `from`. Each new program is first copied next
 /// to the old one, and only when both copies are there do they take the old ones' names, so
 /// a failure leaves the old programs as they were. Windows cannot overwrite or delete a running
-/// program but can rename it, so the old one is first moved aside; `clean` deletes it on a
-/// later start where it is still there.
+/// program but can rename it, so there the old one is first moved aside; `clean` deletes it on
+/// a later start where it is still there.
 pub fn replace(from: &Path, bin: &Path) -> Result<()> {
     let names = PROGRAMS.map(program);
     let staged = names.each_ref().map(|p| bin.join(format!(".{p}.new")));
@@ -450,9 +450,12 @@ pub fn replace(from: &Path, bin: &Path) -> Result<()> {
         let (old, aside) = (bin.join(name), aside(bin, name));
         let fail = |e: std::io::Error| format!("cannot replace {}: {e}", old.display());
         let _ = std::fs::remove_file(&aside);
-        match std::fs::rename(&old, &aside) {
-            Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(fail(e)),
-            _ => {}
+        // elsewhere the rename below replaces a running program at once
+        if cfg!(windows) {
+            match std::fs::rename(&old, &aside) {
+                Err(e) if e.kind() != std::io::ErrorKind::NotFound => return Err(fail(e)),
+                _ => {}
+            }
         }
         if let Err(e) = std::fs::rename(new, &old) {
             let _ = std::fs::rename(&aside, &old);
@@ -654,13 +657,45 @@ mod tests {
             .map(|e| e.unwrap().file_name().into_string().unwrap())
             .collect();
         names.sort();
-        assert_eq!(names, PROGRAMS.map(program));
+        let mut expected = PROGRAMS.map(program);
+        expected.sort();
+        assert_eq!(names, expected);
         for p in PROGRAMS {
             assert_eq!(
                 std::fs::read_to_string(bin.join(program(p))).unwrap(),
                 "new"
             );
         }
+        std::fs::remove_dir_all(root).unwrap();
+    }
+
+    /// Windows does not let a running program be overwritten; replace renames it aside.
+    #[cfg(windows)]
+    #[test]
+    fn replace_works_while_the_old_program_runs() {
+        let root = temp("running");
+        let (new, bin) = (root.join("new"), root.join("bin"));
+        std::fs::create_dir_all(&new).unwrap();
+        std::fs::create_dir_all(&bin).unwrap();
+        for p in PROGRAMS {
+            std::fs::write(new.join(program(p)), "new").unwrap();
+        }
+        // a copy of ping stands in for the running command line
+        let ping = Path::new(&std::env::var("SystemRoot").unwrap()).join("System32\\PING.EXE");
+        let old = bin.join(program("statscraft"));
+        std::fs::copy(&ping, &old).unwrap();
+        std::fs::write(bin.join(program("statscraft-gui")), "old").unwrap();
+        let mut running = Command::new(&old)
+            .args(["-n", "30", "127.0.0.1"])
+            .stdout(std::process::Stdio::null())
+            .spawn()
+            .unwrap();
+        assert!(running.try_wait().unwrap().is_none());
+        replace(&new, &bin).unwrap();
+        assert_eq!(std::fs::read_to_string(&old).unwrap(), "new");
+        assert!(aside(&bin, &program("statscraft")).is_file());
+        running.kill().unwrap();
+        running.wait().unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
 
@@ -681,7 +716,9 @@ mod tests {
             .map(|e| e.unwrap().file_name().into_string().unwrap())
             .collect();
         names.sort();
-        assert_eq!(names, PROGRAMS.map(program));
+        let mut expected = PROGRAMS.map(program);
+        expected.sort();
+        assert_eq!(names, expected);
         for p in PROGRAMS {
             assert_eq!(
                 std::fs::read_to_string(bin.join(program(p))).unwrap(),

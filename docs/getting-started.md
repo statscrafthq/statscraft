@@ -11,13 +11,16 @@ The command line works without the window.
 
 ### Getting the installer or package
 
-The installer and packages for x86_64 Windows and Linux are attached to a release on the GitHub repository's **Releases** page. They come from the **Release build** workflow, which runs only when someone starts it:
+The installer and packages for x86_64 Windows and Linux, and for macOS on Apple silicon and Intel, are attached to a release on the GitHub repository's **Releases** page. They come from the **Release build** workflow, which runs only when someone starts it:
 
 1. On GitHub open **Actions**, choose **Release build**, then **Run workflow** (with the GitHub CLI: `gh workflow run release.yml`). Tick **draft release** to also get a draft release with the files attached; a maintainer publishes it by hand.
 2. When the run has finished, its page lists the files below, where `X` is the version:
    - `statscraft-X-windows-x86_64-setup.exe`, the Windows installer
+   - `statscraft-X-windows-x86_64.zip`, the same programs for Windows without an installer
    - `statscraft_X_amd64.deb`, the package for Debian and Ubuntu
    - `statscraft-X-linux-x86_64.tar.gz`, the same files for any other Linux
+   - `statscraft-X-macos-universal.tar.gz`, Statscraft.app and the command line for macOS
+   - `SHA256SUMS`, the checksums of these files
 
 ### Windows
 
@@ -31,6 +34,45 @@ Run `statscraft-X-windows-x86_64-setup.exe`. It needs no administrator rights an
 Windows may warn that the installer comes from an unknown publisher, because it is not signed yet. Choose **More info**, then **Run anyway**.
 
 To uninstall, open **Settings**, **Apps**, **Installed apps**, find Statscraft and choose **Uninstall**. That removes the programs, the Start menu entry, the `PATH` entry and the file types.
+
+### Windows without an installer
+
+The portable `statscraft-X-windows-x86_64.zip` needs no installation and no administrator rights, so it also works where you may not install programs. Unpack it anywhere you can write, for example to a folder in Documents or on a USB stick (in Explorer: right-click, **Extract All**). The folder `statscraft-X-windows-x86_64` holds:
+
+- `statscraft-gui.exe`, the window: double-click it to start Statscraft
+- `statscraft.exe`, the command line: run it in a terminal from that folder, or add the folder to your `PATH`
+- `LICENSE.txt` and `README.md`
+
+Nothing is registered: there is no Start menu entry and no file types, so open files with File, Open or drag them onto `statscraft-gui.exe`. Windows may warn about an unknown publisher the first time, as for the installer: **More info**, then **Run anyway**. To remove it, delete the folder.
+
+Keep `LICENSE.txt` next to the programs: the updater recognises the portable copy by it, and updates the two programs in that folder.
+
+### macOS
+
+`statscraft-X-macos-universal.tar.gz` runs on Apple silicon and on Intel Macs. Double-click it in Finder to unpack it. The folder `statscraft-X-macos-universal` holds:
+
+- `Statscraft.app`, the window: drag it to **Applications**
+- `statscraft`, the command line
+- `LICENSE` and `README.md`
+
+Statscraft is not signed with an Apple Developer ID yet, so the first time you open it macOS says it cannot verify the app. Click **Done** (not **Move to Trash**), then:
+
+1. Choose Apple menu > **System Settings**, then **Privacy & Security** in the sidebar.
+2. Under **Security**, find the message about Statscraft and click **Open Anyway**. The button is there for about an hour after you tried to open the app.
+3. Enter your login password and click **OK**.
+
+After that, Statscraft.app opens with a double-click like any other app.
+
+The command line needs the same once. Move it to a folder on your `PATH`, for example:
+
+```
+mkdir -p ~/.local/bin
+mv ~/Downloads/statscraft-X-macos-universal/statscraft ~/.local/bin/
+```
+
+(add `export PATH="$HOME/.local/bin:$PATH"` to `~/.zshrc` if that folder is not on your `PATH` yet). The first `statscraft --version` is blocked; allow it under **Privacy & Security** as above and run it again. Instead of that, you can clear the download mark in the terminal: `xattr -d com.apple.quarantine ~/.local/bin/statscraft`.
+
+Finder offers Statscraft under **Open With** for .sav, .zsav and .sps files. The window does not yet open the file it was started for this way, so open it with File, Open. To uninstall, move Statscraft.app to the Bin and delete the `statscraft` program.
 
 ### Debian and Ubuntu
 
@@ -65,8 +107,10 @@ update-mime-database ~/.local/share/mime
 When a new version is published, the window says so in a bar under the menu: **Update now** installs it, Later hides the bar. From the command line, `statscraft update --check` tells whether there is one and `statscraft update` installs it. How it works for each kind of installation:
 
 - Windows: the new installer is downloaded, checked and run silently; the window closes and opens again in the new version. Save your work first.
+- Windows without an installer: the new .zip is downloaded and checked, and the two programs in its folder are replaced; restart the window to use the new one. The old programs are deleted the next time Statscraft starts.
 - Tarball under `~/.local`: the two programs in `~/.local/bin` are replaced; restart the window to use the new one.
 - Debian and Ubuntu: the new .deb is downloaded and checked into `~/Downloads`, and you install it with the command shown, `sudo apt install ~/Downloads/statscraft_X_amd64.deb`.
+- macOS: the bar has a **Download** link to the new `statscraft-X-macos-universal.tar.gz`. Unpack it and replace Statscraft.app in Applications (and the `statscraft` program) with the new ones. The first start of the new version needs **Open Anyway** again. The updater does not change files inside the app itself, which a later signed version would not allow. `statscraft update` on macOS says where the new release is.
 
 Every download is checked against the checksums published with the release before it is used. The window checks at most once a day, sending only one request to GitHub and nothing about you or your data. It is on by default and silent unless there is an update; Edit, Settings, Updates turns it off. See [the window](window.md#updates) and [the command line](command-line.md#update).
 
