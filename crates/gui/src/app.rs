@@ -707,8 +707,13 @@ impl App {
         if let Some(path) = drop.syntax {
             self.load_syntax(path);
         }
-        if let Some(path) = drop.data {
-            self.open_data(path);
+        match drop.data {
+            Some(path) if is_data_file(&path) => self.open_data(path),
+            Some(path) => {
+                self.settings.remember_folder(&path);
+                self.open_dialog(Dialog::ImportData(ImportData::new(&path)));
+            }
+            None => {}
         }
         if let Some(note) = drop.note {
             self.status = Err(note);
@@ -2646,7 +2651,7 @@ impl eframe::App for App {
             painter.text(
                 screen.center(),
                 Align2::CENTER_CENTER,
-                "Drop .sav, .zsav or .sps files to open them",
+                "Drop data, workbook, text or .sps files to open them",
                 FontId::proportional(20.0),
                 Color32::WHITE,
             );
@@ -2939,6 +2944,16 @@ fn import_body(ui: &mut Ui, d: &mut ImportData) {
     }
 }
 
+/// The files the window opens, for the note on files it leaves alone.
+const OPENS: &str =
+    "Statscraft opens .sav, .zsav, .xlsx, .xlsm, .xls, .csv, .txt, .tab, .dat and .sps files";
+
+/// A workbook or text file, which opens through the Open Data dialog.
+fn is_import_file(path: &Path) -> bool {
+    let extension = path.extension().map(|e| e.to_string_lossy().to_lowercase());
+    is_workbook(path) || matches!(extension.as_deref(), Some("csv" | "txt" | "tab" | "dat"))
+}
+
 fn is_data_file(path: &Path) -> bool {
     path.extension()
         .is_some_and(|e| e.eq_ignore_ascii_case("sav") || e.eq_ignore_ascii_case("zsav"))
@@ -2957,7 +2972,7 @@ fn dropped(paths: Vec<PathBuf>) -> Dropped {
     let mut drop = Dropped::default();
     let (mut extra, mut other) = (Vec::new(), Vec::new());
     for path in paths {
-        let slot = if is_data_file(&path) {
+        let slot = if is_data_file(&path) || is_import_file(&path) {
             &mut drop.data
         } else if is_syntax_file(&path) {
             &mut drop.syntax
@@ -2982,7 +2997,7 @@ fn dropped(paths: Vec<PathBuf>) -> Dropped {
         reasons.push("one data file and one syntax file open at a time");
     }
     if !other.is_empty() {
-        reasons.push("Statscraft opens .sav, .zsav and .sps files");
+        reasons.push(OPENS);
     }
     if !reasons.is_empty() {
         let names: Vec<String> = extra.iter().chain(&other).map(name).collect();
@@ -4824,19 +4839,22 @@ mod tests {
         assert_eq!(drop.data, Some(PathBuf::from("/d/a.SAV")));
         assert_eq!(drop.syntax, Some(PathBuf::from("/d/job.sps")));
         assert_eq!(drop.note, None);
-        let drop = dropped(paths(&["/d/b.zsav", "/d/c.sav", "/d/notes.txt"]));
+        let drop = dropped(paths(&["/d/b.zsav", "/d/c.sav", "/d/notes.pdf"]));
         assert_eq!(drop.data, Some(PathBuf::from("/d/b.zsav")));
         assert_eq!(drop.syntax, None);
         assert_eq!(
             drop.note.unwrap(),
-            "not opened: c.sav, notes.txt (one data file and one syntax file open at a time; \
-             Statscraft opens .sav, .zsav and .sps files)"
+            format!(
+                "not opened: c.sav, notes.pdf (one data file and one syntax file open at a time; \
+                 {OPENS})"
+            )
         );
-        let drop = dropped(paths(&["/d/table.csv"]));
-        assert_eq!(drop.data, None);
+        // a workbook or text file counts as the data file; it opens the Open Data dialog
+        let drop = dropped(paths(&["/d/table.csv", "/d/wave.XLSX"]));
+        assert_eq!(drop.data, Some(PathBuf::from("/d/table.csv")));
         assert_eq!(
             drop.note.unwrap(),
-            "not opened: table.csv (Statscraft opens .sav, .zsav and .sps files)"
+            "not opened: wave.XLSX (one data file and one syntax file open at a time)"
         );
     }
 
