@@ -49,6 +49,7 @@ One page per supported command, generated from the same table that the parser an
 | [APPLY DICTIONARY](apply-dictionary.md) | Copy dictionary information from a data file or dataset to the active dataset. |
 | [DATA LIST](data-list.md) | Define text data, inline or in a file, and read it as the new active dataset. |
 | [BEGIN DATA](begin-data.md) | Inline data for the DATA LIST before it, up to a line that holds END DATA. |
+| [MATRIX DATA](matrix-data.md) | Read matrix materials (correlations, means, counts) as a matrix data file. |
 | [INPUT PROGRAM](input-program.md) | Start an input program: commands that build the cases of a new active dataset. |
 | [END INPUT PROGRAM](end-input-program.md) | End an input program and run it. |
 | [END CASE](end-case.md) | In an input program: add the case built so far to the dataset and go on. |
@@ -123,6 +124,7 @@ One page per supported command, generated from the same table that the parser an
 | [GLM](glm.md) | General linear model: one dependent variable as in UNIANOVA, or repeated measures with WSFACTOR. |
 | [ANOVA](anova.md) | Analysis of variance for factorial designs with covariates, the older form with MCA tables. |
 | [TREE](tree.md) | A classification tree grown by CHAID or exhaustive CHAID. |
+| [REPORT](report.md) | Case listings and summary statistics by break groups, laid out as a report. |
 
 ## Custom tables
 
@@ -161,6 +163,13 @@ One page per supported command, generated from the same table that the parser an
 | [ERASE](erase.md) | Delete a file. |
 | [PERMISSIONS](permissions.md) | Make a file read-only, or writeable for its owner. |
 | [HOST](host.md) | Refused: Statscraft never runs operating system commands from syntax. |
+| [OUTPUT NEW](output-new.md) | Start a new output document, which gets the tables from now on. |
+| [OUTPUT NAME](output-name.md) | Name the output document that gets the tables. |
+| [OUTPUT ACTIVATE](output-activate.md) | Send the tables from now on to an open output document. |
+| [OUTPUT CLOSE](output-close.md) | Close an output document, or all of them. |
+| [OUTPUT DISPLAY](output-display.md) | List the open output documents. |
+| [OUTPUT EXPORT](output-export.md) | Write the tables of an output document to an Excel workbook, web page, text or CSV file. |
+| [FINISH](finish.md) | End the job: the commands after it are not read. |
 
 ## General rules of the language
 
@@ -182,4 +191,4 @@ One page per supported command, generated from the same table that the parser an
 
 These commands of the language are recognised, but Statscraft does not run them yet. A script that uses one stops with the error "command ... is not supported yet" at its line, and nothing is changed.
 
-END DATA, END MATRIX, END REPEAT, EXPORT, FINISH, GET TRANSLATE, GRAPH, IMPORT, MATRIX, MATRIX DATA, OUTPUT CLOSE, OUTPUT EXPORT, OUTPUT NEW, OUTPUT SAVE, REPORT
+EXPORT, GET TRANSLATE, GRAPH, IMPORT, MATRIX, OUTPUT SAVE

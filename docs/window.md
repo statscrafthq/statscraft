@@ -17,7 +17,7 @@ A right click opens a menu over what it lands on. On a column name (or the selec
 
 File, Open data opens a .sav or .zsav file at once. An Excel workbook (.xlsx, .xlsm, .xls) or a text file (.csv, .txt, .tab, .dat) opens the Open Data dialog first, which writes `GET DATA`: for a workbook the sheet, whether the first row holds the variable names, and a range such as A1:F200 (empty reads the whole sheet); for a text file the delimiter (comma, semicolon or tab, the one the first line uses most is chosen), whether the first line holds the names, with that line shown, and every variable read as `AUTO`. After it runs, File, Save data asks for a new .sav file. File, Export data writes `SAVE TRANSLATE` to an Excel workbook (.xlsx), a CSV file (.csv) or tab-delimited text (.txt), by the name chosen: a first row of variable names, variable labels or none, value labels instead of values, user-missing values as empty, and the variables to export (none: all, in the order of the dataset). An existing file is replaced once the file dialog has asked.
 
-File, Export output as HTML saves the whole output as one web page; File, Export output as Excel saves it as a workbook, with One sheet per table or All tables on one sheet, laid out as `--xlsx` does.
+File, Export output as HTML saves the whole output as one web page; File, Export output as Excel saves it as a workbook, with One sheet per table or All tables on one sheet, laid out as `--xlsx` does. From syntax, OUTPUT EXPORT writes the tables of an output document to a workbook, web page, text or CSV file; OUTPUT NEW, NAME, ACTIVATE and CLOSE group the tables into documents, which the Output view shows together, and the window keeps them from run to run.
 
 The menus have dialogs that build syntax:
 
