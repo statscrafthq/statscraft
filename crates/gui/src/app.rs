@@ -438,7 +438,7 @@ impl App {
             filter: String::new(),
             status,
             warnings: 0,
-            title: "StatsCraft".into(),
+            title: "Statscraft".into(),
             requests,
             busy: None,
             ctx: app_ctx,
@@ -946,7 +946,7 @@ impl App {
                 if ui.button("Documentation").on_hover_text(DOCS).clicked() {
                     ui.ctx().open_url(egui::OpenUrl::new_tab(DOCS));
                 }
-                if ui.button("About StatsCraft").clicked() {
+                if ui.button("About Statscraft").clicked() {
                     self.about = true;
                 }
                 ui.separator();
@@ -1587,7 +1587,7 @@ impl App {
                 }
                 ui.horizontal(|ui| {
                     if ui
-                        .add_enabled(syntax.is_ok(), egui::Button::new("OK"))
+                        .add_enabled(syntax.is_ok(), crate::brand::primary(ui, "OK"))
                         .clicked()
                     {
                         answer = Some(true);
@@ -2433,7 +2433,7 @@ impl App {
                 ui.horizontal(|ui| {
                     let ready = syntax.is_ok();
                     if ui
-                        .add_enabled(ready, egui::Button::new("OK"))
+                        .add_enabled(ready, crate::brand::primary(ui, "OK"))
                         .on_hover_text("Run the syntax")
                         .clicked()
                     {
@@ -2493,8 +2493,8 @@ impl eframe::App for App {
 
     fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
         let title = match self.data_file.as_ref().and_then(|p| p.file_name()) {
-            Some(name) => format!("{} - StatsCraft", name.to_string_lossy()),
-            None => "StatsCraft".to_string(),
+            Some(name) => format!("{} - Statscraft", name.to_string_lossy()),
+            None => "Statscraft".to_string(),
         };
         if title != self.title {
             ui.ctx()
@@ -2589,14 +2589,14 @@ impl eframe::App for App {
         self.format_window(&ctx);
         self.labels_window(&ctx);
         self.missing_window(&ctx);
-        egui::Window::new("About StatsCraft")
+        egui::Window::new("About Statscraft")
             .open(&mut self.about)
             .collapsible(false)
             .resizable(false)
             .show(&ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.add(egui::Image::new(&self.logo).fit_to_exact_size(egui::vec2(48.0, 48.0)));
-                    ui.heading("StatsCraft");
+                    ui.heading("Statscraft");
                 });
                 ui.label(format!("Version {}", env!("CARGO_PKG_VERSION")));
                 ui.label("Statistics with a command language, on .sav data files.");
@@ -2605,6 +2605,13 @@ impl eframe::App for App {
                 ui.hyperlink_to("Documentation", DOCS);
                 ui.collapsing("Colour themes", |ui| {
                     ui.add(egui::Label::new(RichText::new(themes::NOTICES).small()).wrap());
+                });
+                ui.collapsing("Fonts", |ui| {
+                    ScrollArea::vertical().max_height(240.0).show(ui, |ui| {
+                        ui.add(
+                            egui::Label::new(RichText::new(crate::fonts::NOTICES).small()).wrap(),
+                        );
+                    });
                 });
             });
     }
@@ -2646,8 +2653,10 @@ fn editor_paper(ui: &mut Ui, theme: &themes::Theme) {
     ui.painter().rect_filled(sheet, 0.0, theme.background);
 }
 
-/// Square corners for every control, menu and window, to match the square grids.
+/// Square corners for every control, menu and window, to match the square grids, and the
+/// brand's accent colour.
 pub(crate) fn square(visuals: &mut egui::Visuals) {
+    crate::brand::accent(visuals);
     let none = egui::CornerRadius::ZERO;
     let widgets = &mut visuals.widgets;
     for state in [
@@ -2813,7 +2822,7 @@ fn dropped(paths: Vec<PathBuf>) -> Dropped {
         reasons.push("one data file and one syntax file open at a time");
     }
     if !other.is_empty() {
-        reasons.push("StatsCraft opens .sav, .zsav and .sps files");
+        reasons.push("Statscraft opens .sav, .zsav and .sps files");
     }
     if !reasons.is_empty() {
         let names: Vec<String> = extra.iter().chain(&other).map(name).collect();
@@ -2839,7 +2848,7 @@ fn dialog_footer(ui: &mut Ui, syntax: &Result<String, String>, answer: &mut Opti
     }
     ui.horizontal(|ui| {
         if ui
-            .add_enabled(syntax.is_ok(), egui::Button::new("OK"))
+            .add_enabled(syntax.is_ok(), crate::brand::primary(ui, "OK"))
             .clicked()
         {
             *answer = Some(true);
@@ -4368,13 +4377,13 @@ mod tests {
         assert_eq!(
             drop.note.unwrap(),
             "not opened: c.sav, notes.txt (one data file and one syntax file open at a time; \
-             StatsCraft opens .sav, .zsav and .sps files)"
+             Statscraft opens .sav, .zsav and .sps files)"
         );
         let drop = dropped(paths(&["/d/table.csv"]));
         assert_eq!(drop.data, None);
         assert_eq!(
             drop.note.unwrap(),
-            "not opened: table.csv (StatsCraft opens .sav, .zsav and .sps files)"
+            "not opened: table.csv (Statscraft opens .sav, .zsav and .sps files)"
         );
     }
 

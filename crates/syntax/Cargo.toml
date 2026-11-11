@@ -1,6 +1,6 @@
 [package]
 name = "statscraft-syntax"
-description = "StatsCraft command language: command splitting, parser and AST"
+description = "Statscraft command language: command splitting, parser and AST"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

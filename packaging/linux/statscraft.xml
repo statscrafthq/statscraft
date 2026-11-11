@@ -2,13 +2,13 @@
 <!-- Our own types for data files (.sav, .zsav) and syntax files (.sps). -->
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
   <mime-type type="application/x-statscraft-data">
-    <comment>StatsCraft data file</comment>
+    <comment>Statscraft data file</comment>
     <!-- weight above the default 50 so these globs win over an older type for the same extensions -->
     <glob pattern="*.sav" weight="60"/>
     <glob pattern="*.zsav" weight="60"/>
   </mime-type>
   <mime-type type="text/x-statscraft-syntax">
-    <comment>StatsCraft syntax file</comment>
+    <comment>Statscraft syntax file</comment>
     <sub-class-of type="text/plain"/>
     <glob pattern="*.sps"/>
   </mime-type>

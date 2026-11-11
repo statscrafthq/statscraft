@@ -167,7 +167,7 @@ fn connection(
 /// Sends a request to the window named in `file` and waits for the reply, however long the run.
 pub fn send(file: &Path, mut request: Request) -> Response {
     let not_running = |why: String| {
-        let message = format!("no StatsCraft window is running ({why}); start statscraft-gui");
+        let message = format!("no Statscraft window is running ({why}); start statscraft-gui");
         vec![Failure::plain("session", message)]
     };
     let text = std::fs::read_to_string(file)

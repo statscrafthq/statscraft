@@ -194,7 +194,7 @@ pub fn table_html(table: &Table) -> String {
 fn page(body: &str) -> String {
     format!(
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
-         <title>StatsCraft output</title>\n<style>{STYLE}</style>\n</head>\n<body>\n{body}</body>\n</html>\n"
+         <title>Statscraft output</title>\n<style>{STYLE}</style>\n</head>\n<body>\n{body}</body>\n</html>\n"
     )
 }
 

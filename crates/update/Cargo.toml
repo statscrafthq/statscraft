@@ -1,6 +1,6 @@
 [package]
 name = "statscraft-update"
-description = "StatsCraft update check and update download, shared by the command line and the window"
+description = "Statscraft update check and update download, shared by the command line and the window"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

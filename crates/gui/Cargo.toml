@@ -1,6 +1,6 @@
 [package]
 name = "statscraft-gui"
-description = "StatsCraft desktop window: data editor, syntax, output and dialogs over the engine"
+description = "Statscraft desktop window: data editor, syntax, output and dialogs over the engine"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -14,8 +14,8 @@ statscraft-export = { path = "../export" }
 statscraft-syntax = { path = "../syntax" }
 statscraft-update = { path = "../update" }
 # glow instead of the default wgpu keeps the build small. links lets a click on a link open the
-# browser (webbrowser, MIT OR Apache-2.0). No default_fonts: the bundled fonts are not under MIT
-# or Apache, so fonts.rs loads system fonts at startup.
+# browser (webbrowser, MIT OR Apache-2.0). No default_fonts: fonts.rs bundles the brand fonts
+# (SIL Open Font License) instead of egui's.
 eframe = { version = "0.37.0", default-features = false, features = ["glow", "accesskit", "clipboard", "links", "wayland", "x11"] }
 rfd = "0.18.0"
 # rich text (HTML) on the clipboard, which egui cannot put there; already built for eframe

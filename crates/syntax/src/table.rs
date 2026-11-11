@@ -832,7 +832,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "BEGIN PROGRAM [language].\n\
                  code\n\
                  END PROGRAM.\n\
-                 StatsCraft runs no programs in other languages. The block is read up to END PROGRAM and\n\
+                 Statscraft runs no programs in other languages. The block is read up to END PROGRAM and\n\
                  not run; the run goes on with a warning.",
         example: "BEGIN PROGRAM PYTHON3.\nprint('not run')\nEND PROGRAM.",
         parse: session_commands::begin_program,
@@ -843,7 +843,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "SET subcommand[=]value [[/] subcommand[=]value ...].\n\
                  Followed: FORMAT=Fw.d (format of new numeric variables, default F8.2), DECIMAL=DOT | COMMA\n\
                  (decimal mark when reading text data), MPRINT, MEXPAND, MNEST, MITERATE (see DEFINE),\n\
-                 LOCALE, UNICODE (StatsCraft always works in Unicode), PRINTBACK.\n\
+                 LOCALE, UNICODE (Statscraft always works in Unicode), PRINTBACK.\n\
                  Settings for speed, memory and messages (CACHE, THREADS, WORKSPACE, MXWARNS ...) are\n\
                  accepted and have nothing to do. Settings that only change how output looks (TNUMBERS,\n\
                  TVARS, ONUMBERS, OVARS, TLOOK, WIDTH, LENGTH, DIGITGROUPING ...) are accepted with a\n\

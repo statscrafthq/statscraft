@@ -1,6 +1,6 @@
 [package]
 name = "statscraft-export"
-description = "StatsCraft export: result tables as an Excel workbook"
+description = "Statscraft export: result tables as an Excel workbook"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

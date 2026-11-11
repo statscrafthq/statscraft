@@ -1,8 +1,8 @@
-# StatsCraft
+# Statscraft
 
 A statistics workbench written in Rust: a command-line engine first, a desktop application after. It reads .sav files, runs the established statistics command syntax, and is built to be driven by people and AI agents alike: sessions that keep the data between partial runs, JSON output, errors with line and column, and help generated from the parser.
 
-StatsCraft is an independent project. It is not affiliated with the GNU PSPP project or the ArtCraft suite.
+Statscraft is an independent project. It is not affiliated with the GNU PSPP project or the ArtCraft suite.
 
 Status: early development. Licensed under MIT.
 
@@ -38,7 +38,7 @@ AUTORECODE turns the values of variables into consecutive codes in new variables
 - [Changelog](CHANGELOG.md): what is in each release.
 - [The window](docs/window.md): the data editor, syntax editor, output view, menus and dialogs.
 - [The command line](docs/command-line.md): every subcommand and flag, sessions, JSON output, exit codes, Excel export, the live window session, OpenStatSpec plans and SQLite.
-- [AI agents](docs/ai-agents.md): how an agent should work with StatsCraft, and instructions to paste into yours.
+- [AI agents](docs/ai-agents.md): how an agent should work with Statscraft, and instructions to paste into yours.
 - [Commands](docs/commands/README.md): one page per supported command, generated from the help table.
 - [Differences and limits](docs/differences.md): deliberate differences from other implementations, and what is not supported yet.
 

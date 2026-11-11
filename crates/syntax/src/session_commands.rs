@@ -68,7 +68,7 @@ pub(crate) fn include(p: &mut Parser) -> PResult<Command> {
     insert_or_include(p, true)
 }
 
-/// What a SET subcommand does in StatsCraft.
+/// What a SET subcommand does in Statscraft.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SettingEffect {
     /// Kept and followed.
@@ -77,7 +77,7 @@ pub enum SettingEffect {
     Silent,
     /// Only changes how output looks: accepted with a warning.
     Appearance,
-    /// Changes results, but StatsCraft does not follow it yet: accepted with a warning.
+    /// Changes results, but Statscraft does not follow it yet: accepted with a warning.
     NotYet,
 }
 

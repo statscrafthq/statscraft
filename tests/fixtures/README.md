@@ -1,6 +1,6 @@
 # Test fixtures for the .sav reader
 
-Small system files (`.sav`, `.zsav`) with known ground truth, used to test the StatsCraft reader.
+Small system files (`.sav`, `.zsav`) with known ground truth, used to test the Statscraft reader.
 
 All data is synthetic and was created for this project. The survey, its question texts, the provider
 names and every value are invented. Nothing was downloaded or copied from another dataset, and no

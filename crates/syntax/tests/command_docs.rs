@@ -208,7 +208,7 @@ fn index() -> String {
         rules
     ));
     out.push_str(
-        "\n## Not supported yet\n\nThese commands of the language are recognised, but StatsCraft \
+        "\n## Not supported yet\n\nThese commands of the language are recognised, but Statscraft \
          does not run them yet. A script that uses one stops with the error \
          \"command ... is not supported yet\" at its line, and nothing is changed.\n\n",
     );

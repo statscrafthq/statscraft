@@ -134,7 +134,7 @@ fn the_window_answers_exactly_like_a_file_session() {
     let (ok, _, stderr) = text(&dir.cli(&["run", "-s", "gui", "-e", "FREQUENCIES gender."]));
     assert!(!ok);
     assert!(
-        stderr.contains("no StatsCraft window is running"),
+        stderr.contains("no Statscraft window is running"),
         "{stderr}"
     );
 }

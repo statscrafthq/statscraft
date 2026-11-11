@@ -1,6 +1,6 @@
 # Getting started
 
-StatsCraft has two programs:
+Statscraft has two programs:
 
 - `statscraft`, the command line. It reads .sav and .zsav files, runs syntax and prints tables as Markdown or JSON.
 - `statscraft-gui`, the desktop window over the same engine.
@@ -23,14 +23,14 @@ The installer and packages for x86_64 Windows and Linux are attached to a releas
 
 Run `statscraft-X-windows-x86_64-setup.exe`. It needs no administrator rights and installs for your user only:
 
-- both programs go to `%LOCALAPPDATA%\Programs\StatsCraft`
-- the Start menu gets **StatsCraft**, which opens the window
+- both programs go to `%LOCALAPPDATA%\Programs\Statscraft`
+- the Start menu gets **Statscraft**, which opens the window
 - that folder is added to your `PATH`, so `statscraft` works in any terminal you open after the installation
-- .sav and .zsav files open in the window, and .sps files in its syntax editor. Where another program is already the default for one of these types, it stays the default, and StatsCraft is offered under **Open with**.
+- .sav and .zsav files open in the window, and .sps files in its syntax editor. Where another program is already the default for one of these types, it stays the default, and Statscraft is offered under **Open with**.
 
 Windows may warn that the installer comes from an unknown publisher, because it is not signed yet. Choose **More info**, then **Run anyway**.
 
-To uninstall, open **Settings**, **Apps**, **Installed apps**, find StatsCraft and choose **Uninstall**. That removes the programs, the Start menu entry, the `PATH` entry and the file types.
+To uninstall, open **Settings**, **Apps**, **Installed apps**, find Statscraft and choose **Uninstall**. That removes the programs, the Start menu entry, the `PATH` entry and the file types.
 
 ### Debian and Ubuntu
 
@@ -38,7 +38,7 @@ To uninstall, open **Settings**, **Apps**, **Installed apps**, find StatsCraft a
 sudo apt install ./statscraft_X_amd64.deb
 ```
 
-puts `statscraft` and `statscraft-gui` in `/usr/bin`, adds StatsCraft to the applications menu and opens .sav, .zsav and .sps files in the window. `sudo apt remove statscraft` uninstalls it.
+puts `statscraft` and `statscraft-gui` in `/usr/bin`, adds Statscraft to the applications menu and opens .sav, .zsav and .sps files in the window. `sudo apt remove statscraft` uninstalls it.
 
 ### Other Linux
 
@@ -187,7 +187,7 @@ statscraft-gui tests/fixtures/survey_basic.sav job.sps
 
 Everything the window does is syntax: the log under the Syntax and Output views lists every command it ran, and Copy syntax there gives a script that repeats your session with `statscraft run`. Edit, Undo last change (Ctrl+Z) takes back the last run that changed the data.
 
-The grid draws only the visible cells, so large files stay quick. Arrows, Page Up and Down, Home and End move the selection, Ctrl+Home and Ctrl+End go to the first and last cell, and Tab and Shift+Tab move to the next and previous cell, committing an edit on the way. Long lines in the syntax editor wrap; View turns that off. The window uses system fonts; set `STATSCRAFT_FONT` or `STATSCRAFT_MONO_FONT` to a .ttf file to choose others.
+The grid draws only the visible cells, so large files stay quick. Arrows, Page Up and Down, Home and End move the selection, Ctrl+Home and Ctrl+End go to the first and last cell, and Tab and Shift+Tab move to the next and previous cell, committing an edit on the way. Long lines in the syntax editor wrap; View turns that off. The window brings its own fonts; set `STATSCRAFT_FONT` or `STATSCRAFT_MONO_FONT` to a .ttf file to use another.
 
 While the window is open, the command line and AI agents can work in it as the session `gui`:
 
@@ -200,6 +200,6 @@ The table appears in the window's Output tab. See [the command line](command-lin
 ## Next
 
 - [The command line](command-line.md): every subcommand, flag, JSON shape and exit code.
-- [AI agents](ai-agents.md): how an agent should drive StatsCraft.
+- [AI agents](ai-agents.md): how an agent should drive Statscraft.
 - [Commands](commands/README.md): one page per supported command.
-- [Differences](differences.md): where StatsCraft differs from other implementations, and what is not supported yet.
+- [Differences](differences.md): where Statscraft differs from other implementations, and what is not supported yet.

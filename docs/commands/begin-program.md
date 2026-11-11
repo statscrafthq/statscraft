@@ -12,7 +12,7 @@ BEGIN PROGRAM [language].
 
 code END PROGRAM.
 
-StatsCraft runs no programs in other languages. The block is read up to END PROGRAM and not run; the run goes on with a warning.
+Statscraft runs no programs in other languages. The block is read up to END PROGRAM and not run; the run goes on with a warning.
 
 ## Example
 

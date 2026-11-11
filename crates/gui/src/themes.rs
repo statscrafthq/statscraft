@@ -1,6 +1,6 @@
-//! The colour themes of the syntax editor: ready-made palettes of code editors, each with its
-//! background, text and the colours of the kinds of words. The palettes and their licences are
-//! named in `NOTICES`, which Help, About shows.
+//! The colour themes of the syntax editor: the Statscraft colours by default, then ready-made
+//! palettes of code editors, each with its background, text and the colours of the kinds of
+//! words. The palettes and their licences are named in `NOTICES`, which Help, About shows.
 
 use crate::highlight::Kind;
 use eframe::egui::Color32;
@@ -60,7 +60,25 @@ const fn theme(name: &'static str, dark: bool, colors: [u32; 10]) -> Theme {
 }
 
 /// The themes in the order View offers them; the first is the default.
-pub const THEMES: [Theme; 7] = [
+pub const THEMES: [Theme; 9] = [
+    // the brand tokens: tint, ink, petrol (commands, subcommands), ink, amber for text,
+    // ink, muted, the stronger petrol, ink
+    theme(
+        "Statscraft Light",
+        false,
+        [
+            0xeef4f5, 0x12191c, 0x0b4f5c, 0x0b4f5c, 0x12191c, 0x8a5a12, 0x12191c, 0x55656a,
+            0x083b45, 0x12191c,
+        ],
+    ),
+    theme(
+        "Statscraft Dark",
+        true,
+        [
+            0x132024, 0xe4edef, 0x5cc2d2, 0x5cc2d2, 0xe4edef, 0xf0b54a, 0xe4edef, 0x93a9ae,
+            0x8ad6e2, 0xe4edef,
+        ],
+    ),
     // base, text, blue, teal, mauve, green, peach, overlay 1, yellow, red
     theme(
         "Catppuccin Latte",
@@ -131,6 +149,7 @@ pub fn by_name(name: &str) -> &'static Theme {
 
 /// Where the palettes come from, with the notices their MIT licences ask for.
 pub const NOTICES: &str = "\
+Statscraft Light and Dark: the Statscraft colours.
 Catppuccin Latte and Mocha: the Catppuccin palette, Copyright (c) 2021 Catppuccin, MIT License.
 One Dark: the One Dark syntax theme, Copyright (c) 2016 GitHub Inc., MIT License.
 Solarized Light and Dark: Copyright (c) 2011 Ethan Schoonover, MIT License.

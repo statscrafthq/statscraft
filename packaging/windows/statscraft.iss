@@ -1,11 +1,11 @@
-; Per-user Windows installer for StatsCraft, built with Inno Setup 6.
+; Per-user Windows installer for Statscraft, built with Inno Setup 6.
 ; From the repository root, after cargo build --release -p statscraft -p statscraft-gui:
 ;   iscc /DAppVersion=0.1.0 packaging\windows\statscraft.iss
 ; The installer lands in target\packages\.
 ;
 ; No administrator rights: everything goes to the user's own program folder and registry.
 ;
-; The updater in StatsCraft runs this installer as
+; The updater in Statscraft runs this installer as
 ;   setup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RELAUNCH=1
 ; It installs over the earlier version in the same folder (the AppId below and
 ; UsePreviousAppDir), rewrites the same file types, and with /RELAUNCH=1 starts the window again.
@@ -17,9 +17,9 @@
 [Setup]
 ; Keep this id: Windows uses it to recognise upgrades and the uninstaller.
 AppId={{249E004F-824E-428E-87A6-28EB9450BDEA}
-AppName=StatsCraft
+AppName=Statscraft
 AppVersion={#AppVersion}
-AppPublisher=StatsCraft
+AppPublisher=Statscraft
 AppPublisherURL=https://github.com/statscrafthq/statscraft
 ; paths below are relative to the repository root
 SourceDir=..\..
@@ -27,7 +27,7 @@ OutputDir=target\packages
 OutputBaseFilename=statscraft-{#AppVersion}-windows-x86_64-setup
 ; with lowest privileges {autopf} is %LOCALAPPDATA%\Programs and {autoprograms} the user's Start menu
 PrivilegesRequired=lowest
-DefaultDirName={autopf}\StatsCraft
+DefaultDirName={autopf}\Statscraft
 DisableProgramGroupPage=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -35,7 +35,7 @@ ChangesAssociations=yes
 ChangesEnvironment=yes
 SetupIconFile=crates\gui\icons\statscraft.ico
 UninstallDisplayIcon={app}\statscraft-gui.exe
-UninstallDisplayName=StatsCraft
+UninstallDisplayName=Statscraft
 WizardStyle=modern
 Compression=lzma2
 SolidCompression=yes
@@ -53,21 +53,23 @@ Source: "README.md"; DestDir: "{app}"; Flags: ignoreversion
 Source: "LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"; Flags: ignoreversion
 
 [Icons]
-Name: "{autoprograms}\StatsCraft"; Filename: "{app}\statscraft-gui.exe"
+Name: "{autoprograms}\Statscraft"; Filename: "{app}\statscraft-gui.exe"
 
 [Registry]
 ; the command line on the user's PATH; the [Code] below takes it off again on uninstall
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; Check: NeedsAddPath(ExpandConstant('{app}'))
 
 ; .sav and .zsav open in the window, .sps opens in its syntax editor
-Root: HKA; Subkey: "Software\Classes\StatsCraft.Data"; ValueType: string; ValueName: ""; ValueData: "StatsCraft data file"; Flags: uninsdeletekey
+; the ProgIDs StatsCraft.Data and StatsCraft.Syntax keep their first spelling, which installed
+; versions registered and FreeOrOurs looks for
+Root: HKA; Subkey: "Software\Classes\StatsCraft.Data"; ValueType: string; ValueName: ""; ValueData: "Statscraft data file"; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\Classes\StatsCraft.Data\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\statscraft-gui.exe,0"
 Root: HKA; Subkey: "Software\Classes\StatsCraft.Data\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\statscraft-gui.exe"" ""%1"""
-Root: HKA; Subkey: "Software\Classes\StatsCraft.Syntax"; ValueType: string; ValueName: ""; ValueData: "StatsCraft syntax file"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\StatsCraft.Syntax"; ValueType: string; ValueName: ""; ValueData: "Statscraft syntax file"; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\Classes\StatsCraft.Syntax\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\statscraft-gui.exe,0"
 Root: HKA; Subkey: "Software\Classes\StatsCraft.Syntax\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\statscraft-gui.exe"" ""%1"""
 
-; StatsCraft is offered under Open with for each type
+; Statscraft is offered under Open with for each type
 Root: HKA; Subkey: "Software\Classes\.sav\OpenWithProgids"; ValueType: string; ValueName: "StatsCraft.Data"; ValueData: ""; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Classes\.zsav\OpenWithProgids"; ValueType: string; ValueName: "StatsCraft.Data"; ValueData: ""; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Classes\.sps\OpenWithProgids"; ValueType: string; ValueName: "StatsCraft.Syntax"; ValueData: ""; Flags: uninsdeletevalue
@@ -82,7 +84,7 @@ Root: HKA; Subkey: "Software\Classes\.zsav"; ValueType: string; ValueName: ""; V
 Root: HKA; Subkey: "Software\Classes\.sps"; ValueType: string; ValueName: ""; ValueData: "StatsCraft.Syntax"; Flags: uninsdeletevalue; Check: FreeOrOurs('.sps', 'StatsCraft.Syntax')
 
 [Run]
-Filename: "{app}\statscraft-gui.exe"; Description: "Start StatsCraft"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\statscraft-gui.exe"; Description: "Start Statscraft"; Flags: nowait postinstall skipifsilent
 ; after an update from the window, which passes /RELAUNCH=1
 Filename: "{app}\statscraft-gui.exe"; Flags: nowait; Check: Relaunch
 

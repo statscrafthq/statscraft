@@ -35,22 +35,22 @@ pub fn run(check: bool, json: bool) -> Result<ExitCode, Vec<Failure>> {
     }
     let Some(release) = newer else {
         match latest {
-            Some(_) => println!("StatsCraft {} is up to date", current()),
-            None => println!("no StatsCraft release has been published yet"),
+            Some(_) => println!("Statscraft {} is up to date", current()),
+            None => println!("no Statscraft release has been published yet"),
         }
         return Ok(ExitCode::SUCCESS);
     };
-    println!("downloading StatsCraft {}", release.version);
+    println!("downloading Statscraft {}", release.version);
     match client
         .update(release, &Install::detect(), false)
         .map_err(fail)?
     {
         Done::InstallerStarted => println!(
-            "the installer is updating StatsCraft to {} in the background and closes an open window first",
+            "the installer is updating Statscraft to {} in the background and closes an open window first",
             release.version
         ),
         Done::Replaced(bin) => println!(
-            "updated the programs in {} to StatsCraft {}; restart an open window to use it",
+            "updated the programs in {} to Statscraft {}; restart an open window to use it",
             bin.display(),
             release.version
         ),

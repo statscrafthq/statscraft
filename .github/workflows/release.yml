@@ -64,4 +64,4 @@ jobs:
         run: |
           version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
           (cd packages && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
-          gh release create "v$version" packages/* --draft --target "$GITHUB_SHA" --title "StatsCraft $version" --generate-notes
+          gh release create "v$version" packages/* --draft --target "$GITHUB_SHA" --title "Statscraft $version" --generate-notes

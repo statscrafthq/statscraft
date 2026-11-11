@@ -11,8 +11,8 @@ fn main() {
         winresource::WindowsResource::new()
             .set_icon("icons/statscraft.ico")
             // Windows shows the file description as the program name, for example in Open with
-            .set("FileDescription", "StatsCraft")
-            .set("ProductName", "StatsCraft")
+            .set("FileDescription", "Statscraft")
+            .set("ProductName", "Statscraft")
             .compile()
             .expect("embedding the Windows icon needs the Windows SDK resource compiler");
     }

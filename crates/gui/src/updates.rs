@@ -108,8 +108,8 @@ impl Updates {
                     Bar::Available(release)
                 }
                 Event::Checked(Ok(latest), true) => Bar::Message(Ok(match latest {
-                    Some(_) => format!("StatsCraft {} is up to date.", current()),
-                    None => "No StatsCraft release has been published yet.".into(),
+                    Some(_) => format!("Statscraft {} is up to date.", current()),
+                    None => "No Statscraft release has been published yet.".into(),
                 })),
                 Event::Checked(Err(e), true) => {
                     Bar::Message(Err(format!("The update check failed: {e}")))
@@ -146,7 +146,7 @@ impl Updates {
             }
             Bar::Available(release) => {
                 ui.label(format!(
-                    "StatsCraft {} is available (you have {}).",
+                    "Statscraft {} is available (you have {}).",
                     release.version,
                     current()
                 ));
@@ -174,11 +174,11 @@ impl Updates {
             }
             Bar::Downloading(version) => {
                 ui.spinner();
-                ui.label(format!("Downloading and checking StatsCraft {version}"));
+                ui.label(format!("Downloading and checking Statscraft {version}"));
             }
             Bar::Restart(bin, version) => {
                 ui.label(format!(
-                    "StatsCraft {version} is installed. Restart the window to use it; save your \
+                    "Statscraft {version} is installed. Restart the window to use it; save your \
                      work first."
                 ));
                 if ui.button("Restart now").clicked() {
@@ -248,7 +248,7 @@ impl Updates {
 fn update_hint(install: &Install) -> String {
     match install {
         Install::Windows => "Downloads the installer and checks it against the release's \
-                             checksums. The window then closes, the installer updates StatsCraft \
+                             checksums. The window then closes, the installer updates Statscraft \
                              and opens the window again."
             .into(),
         Install::Tarball(bin) => format!(

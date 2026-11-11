@@ -1,6 +1,6 @@
 [package]
 name = "statscraft-data"
-description = "StatsCraft dataset and dictionary model, .sav reading and writing"
+description = "Statscraft dataset and dictionary model, .sav reading and writing"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

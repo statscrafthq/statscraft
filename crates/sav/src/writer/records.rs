@@ -96,7 +96,7 @@ pub(super) fn write_header<W: Write>(
     w.write_all(magic)?;
 
     // Product name (60 bytes, space-padded)
-    let product = format!("@(#) StatsCraft data file {}", env!("CARGO_PKG_VERSION"));
+    let product = format!("@(#) Statscraft data file {}", env!("CARGO_PKG_VERSION"));
     w.write_fixed_string(&product, 60)?;
 
     // Layout code (2 = little-endian)

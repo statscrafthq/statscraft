@@ -308,7 +308,7 @@ pub struct Tls {
 
 /// The TLS setting of the URL parameters `mode` and `ca` (`sslmode` and `sslrootcert` for
 /// PostgreSQL, `ssl-mode` and `ssl-ca` for MySQL). No mode and no CA file is plain TCP; a CA
-/// file alone means full verification. `require` verifies like `verify-full`: StatsCraft never
+/// file alone means full verification. `require` verifies like `verify-full`: Statscraft never
 /// makes an unverified TLS connection. Modes that fall back to plain TCP are refused.
 pub(crate) fn tls(mode: Option<&str>, ca: Option<String>) -> Result<Option<Tls>> {
     let ca = ca.filter(|c| !c.is_empty()).map(Into::into);

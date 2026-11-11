@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- The name is written Statscraft: window title, menus, messages, documentation, installers and the product string of written .sav files.
+- Window: the Statscraft colours (petrol) for selection, focus, links and OK buttons; Schibsted Grotesk and JetBrains Mono bundled, with digits of equal width so numbers line up; Statscraft Light and Dark syntax colours, Light the default.
+
 ## 0.1.1 (2026-11-10)
 
 - FREQUENCIES supports every subcommand (statistics with standard errors, formats, percentiles, ntiles, grouped data, order); chart requests give a warning instead of an error.

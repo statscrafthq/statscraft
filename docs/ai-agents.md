@@ -1,6 +1,6 @@
-# StatsCraft for AI agents
+# Statscraft for AI agents
 
-StatsCraft is built so that an AI agent with a shell can do the analysis work: everything is syntax, every result is JSON, every error has a line and a column, and a session keeps the data between steps. This page says how an agent should work, and gives a block of instructions you can paste into your agent.
+Statscraft is built so that an AI agent with a shell can do the analysis work: everything is syntax, every result is JSON, every error has a line and a column, and a session keeps the data between steps. This page says how an agent should work, and gives a block of instructions you can paste into your agent.
 
 ## The loop
 
@@ -57,14 +57,14 @@ statscraft check -s gui --json -e "COMPUTE x = age / 10."
 statscraft run -s gui --json job.sps
 ```
 
-The replies are the same JSON as for a file session, with `"session": "gui"`. Relative paths in the syntax are read from the folder where the agent runs `statscraft`. When no window is open, the reply is the error "no StatsCraft window is running".
+The replies are the same JSON as for a file session, with `"session": "gui"`. Relative paths in the syntax are read from the folder where the agent runs `statscraft`. When no window is open, the reply is the error "no Statscraft window is running".
 
 Because the person may also change the data in the window, the agent should run `statscraft describe -s gui --json` again before it relies on names or counts it saw earlier.
 
 ## Instructions to paste into your agent
 
 ```text
-You can analyse data with StatsCraft, a statistics program driven by the established
+You can analyse data with Statscraft, a statistics program driven by the established
 statistics command syntax (COMPUTE, RECODE, FREQUENCIES, CTABLES and so on). Use the `statscraft` command line in the shell.
 
 - Start with `statscraft describe <file> --json` to learn the variables, labels and missing values.
@@ -78,7 +78,7 @@ statistics command syntax (COMPUTE, RECODE, FREQUENCIES, CTABLES and so on). Use
 - Read the JSON. If "ok" is false, fix the line and column given in "errors" (use "expected" and
   "hint") and run the same lines again; a failed run changes nothing. Read "warnings" of every
   command and "changes" to confirm what happened to the data.
-- If I have the StatsCraft window open, use `-s gui` instead of `-s work`, so I see every result.
+- If I have the Statscraft window open, use `-s gui` instead of `-s work`, so I see every result.
 - Do not write data files unless I ask; nothing is saved to disk without a SAVE command.
 - Report numbers from the "tables" in the JSON; do not compute them yourself.
 ```

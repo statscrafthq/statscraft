@@ -113,7 +113,7 @@ fn scratch(what: &str) -> PathBuf {
 /// Every fixture in tests/fixtures goes to the database and back, and then to a .sav file and
 /// back. The dictionary and all values must be identical. The one lossy point the profile
 /// defines is the compression inside a .sav file: the catalog keeps "sav" or "zsav" only, so a
-/// sav dataset comes back as "bytecode" (what StatsCraft writes) and a zsav one as "zlib".
+/// sav dataset comes back as "bytecode" (what Statscraft writes) and a zsav one as "zlib".
 pub fn round_trip_fixtures(backend: &dyn Backend) {
     let dir = scratch("rt");
     let files = fixtures();

@@ -1,8 +1,8 @@
 # Differences and limits
 
-StatsCraft runs the established statistics command syntax. Its behaviour follows the published reference documentation of that syntax. GNU PSPP, another free program for the same language, is used only to compare numbers. This page lists where StatsCraft differs from either on purpose, the choices it made where the documentation says nothing, and what does not work yet.
+Statscraft runs the established statistics command syntax. Its behaviour follows the published reference documentation of that syntax. GNU PSPP, another free program for the same language, is used only to compare numbers. This page lists where Statscraft differs from either on purpose, the choices it made where the documentation says nothing, and what does not work yet.
 
-## Where StatsCraft follows the documentation and GNU PSPP does not
+## Where Statscraft follows the documentation and GNU PSPP does not
 
 - **RECODE ... INTO an existing variable** keeps the old value of a case that no rule matches. A new target variable gets system-missing.
 - **Fractional weights** are used as they are, not rounded, in counts, percentages and statistics. Only significance tests, confidence intervals, standard errors and T-TEST effect sizes round them, as documented.
@@ -22,7 +22,7 @@ StatsCraft runs the established statistics command syntax. Its behaviour follows
 - **DATA LIST**: the measurement level of the variables read follows the documented rules for unknown levels (the values decide, not the format).
 - **MEANS, CORRELATIONS, EXAMINE**: undefined skewness and kurtosis are left empty; the CORRELATIONS listwise descriptives, the EXAMINE hinges with small weights, percentiles of small groups, CINTERVAL, listwise totals and the default descriptives table follow the documentation.
 
-## Syntax StatsCraft accepts beyond the documentation
+## Syntax Statscraft accepts beyond the documentation
 
 These are accepted where the documented syntax refuses them. Results on documented syntax do not change.
 
@@ -62,10 +62,10 @@ These are accepted where the documented syntax refuses them. Results on document
 
 ## Not supported yet
 
-- **Commands.** The list of commands of the language that StatsCraft recognises but does not run is at the end of [the command index](commands/README.md#not-supported-yet). That list is generated from the program, so it is always current. A script that uses one stops at that line, and nothing is changed.
+- **Commands.** The list of commands of the language that Statscraft recognises but does not run is at the end of [the command index](commands/README.md#not-supported-yet). That list is generated from the program, so it is always current. A script that uses one stops at that line, and nothing is changed.
 - **Subcommands.** Every command page lists what it accepts. Notably: FREQUENCIES draws no charts (BARCHART, PIECHART and HISTOGRAM are accepted with a warning); ONEWAY has no POLYNOMIAL, RANGES, EFFECTS or WALLER; NONPAR CORR has no MATRIX or CI; EXAMINE computes the normality tests but draws no plots (STEMLEAF, BOXPLOT and HISTOGRAM are accepted with a warning, SPREADLEVEL is refused); USE takes case numbers only with /PERMANENT; GET DATA reads text only (no XLS, XLSX or ODBC); SET BLANKS, EPOCH, SEED and similar are kept but not followed yet.
 - **Transformations.** LEAVE, PRINT, WRITE, END CASE and input programs are not supported; DATA LIST reads only F, N, E, COMMA, DOT, DOLLAR, PCT, A, DATE, ADATE, EDATE and SDATE and UTF-8 files; commands such as VALUE LABELS cannot stand inside LOOP; AUTORECODE has no templates.
 - **Charts.** No command draws charts yet.
-- **Data files.** StatsCraft reads and writes .sav and .zsav files. Portable (.por) files and spreadsheets cannot be read yet; text files are read with DATA LIST. An old .sav file that does not state its code page is read as Western European (windows-1252); there is no way to choose another encoding yet.
+- **Data files.** Statscraft reads and writes .sav and .zsav files. Portable (.por) files and spreadsheets cannot be read yet; text files are read with DATA LIST. An old .sav file that does not state its code page is read as Western European (windows-1252); there is no way to choose another encoding yet.
 - **Output.** Tables come out as Markdown, JSON, HTML (from the window) and Excel workbooks.
 - **Installer.** The Windows installer is not signed yet, and there are no packages for macOS or for ARM processors.

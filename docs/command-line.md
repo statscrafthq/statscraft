@@ -81,7 +81,7 @@ statscraft help FREQUENCIES         syntax, notes and an example of one command
 statscraft help freq                names may be lowercase and shortened, as in syntax
 ```
 
-A command of the language that StatsCraft does not run yet (for example `statscraft help LIST`) gets "is a command of the language, but it is not supported yet". An unknown name is an error. The same text, one page per command, is in [commands](commands/README.md).
+A command of the language that Statscraft does not run yet (for example `statscraft help LIST`) gets "is a command of the language, but it is not supported yet". An unknown name is an error. The same text, one page per command, is in [commands](commands/README.md).
 
 ## Sessions and line ranges
 
@@ -237,7 +237,7 @@ warning: line 1: DESCRIPTIVES: no statistics for string variables: plan
   "compression": "bytecode",
   "case_count": 200,
   "variable_count": 19,
-  "file_label": "StatsCraft synthetic customer survey",
+  "file_label": "Statscraft synthetic customer survey",
   "weight_variable": "weight",
   "multiple_response_sets": [
     {"name": "$q5", "type": "dichotomy", "label": "Q5. Contact channels used", "counted_value": 1,
@@ -356,7 +356,7 @@ statscraft describe -s gui --json
 - The command line prints what it prints for a file session, with `"session": "gui"`. `saved` is true when the run changed the window's dataset; nothing is written to disk unless the syntax says `SAVE`.
 - Relative paths in the syntax are read from the folder where `statscraft` was started, and the window stays in that folder.
 - One run goes at a time. A request waits while the window is busy.
-- When no window is open, `-s gui` fails with "no StatsCraft window is running". With several windows open, the one started last answers.
+- When no window is open, `-s gui` fails with "no Statscraft window is running". With several windows open, the one started last answers.
 
 How it connects, and why it is safe: see [AI agents](ai-agents.md#safety-of-the-live-session).
 
@@ -431,7 +431,7 @@ statscraft db import --sqlite study.db --name survey -s work        or into a se
 statscraft plan job.sps --sqlite study.db --name survey --apply     apply syntax to it in place
 ```
 
-`db` stores a dataset the way OpenStatSpec's SAV/ZSAV profile 1.0 and its SQL dialect profiles specify: one table `data_<name>` with `__case_ordinal` (1, 2, 3, ... in case order) and one column per variable in variable order, numbers as binary64 with system-missing as NULL, strings as text that is never NULL, user-missing codes kept as values, dates as numbers. The dictionary (labels, value labels, missing values, formats, measurement level, role, display settings, attributes, documents, weight variable, multiple response sets) goes into the catalog tables. The database belongs to OpenStatSpec: `export` sets up the catalog in a new or empty one and refuses one that holds anything else. Before writing, a preflight checks the column limit, identifiers, value sizes and the row size against the profile and the server's settings. A failure leaves no table and no dataset row, only the failed operation and its diagnostic. The rows go in bulk inside the same transaction: PostgreSQL takes them with `COPY` in the binary format, MySQL and MariaDB in prepared multi-row INSERTs of at most 4 MiB, Dolt in multi-row INSERTs of literal values of at most 256 KiB, each within `max_allowed_packet`, SQLite through one prepared INSERT per case. Reading streams the rows from the server into the dataset instead of holding the whole result first. Variable names that are not plain ASCII get generated column names (`v<position>`); the catalog maps them back. Reading a dataset whose catalog holds items StatsCraft cannot keep (dataset attributes, variable sets, write formats other than the print format) fails unless `--allow-loss` is given; the losses are then listed in the output.
+`db` stores a dataset the way OpenStatSpec's SAV/ZSAV profile 1.0 and its SQL dialect profiles specify: one table `data_<name>` with `__case_ordinal` (1, 2, 3, ... in case order) and one column per variable in variable order, numbers as binary64 with system-missing as NULL, strings as text that is never NULL, user-missing codes kept as values, dates as numbers. The dictionary (labels, value labels, missing values, formats, measurement level, role, display settings, attributes, documents, weight variable, multiple response sets) goes into the catalog tables. The database belongs to OpenStatSpec: `export` sets up the catalog in a new or empty one and refuses one that holds anything else. Before writing, a preflight checks the column limit, identifiers, value sizes and the row size against the profile and the server's settings. A failure leaves no table and no dataset row, only the failed operation and its diagnostic. The rows go in bulk inside the same transaction: PostgreSQL takes them with `COPY` in the binary format, MySQL and MariaDB in prepared multi-row INSERTs of at most 4 MiB, Dolt in multi-row INSERTs of literal values of at most 256 KiB, each within `max_allowed_packet`, SQLite through one prepared INSERT per case. Reading streams the rows from the server into the dataset instead of holding the whole result first. Variable names that are not plain ASCII get generated column names (`v<position>`); the catalog maps them back. Reading a dataset whose catalog holds items Statscraft cannot keep (dataset attributes, variable sets, write formats other than the print format) fails unless `--allow-loss` is given; the losses are then listed in the output.
 
 | | SQLite | PostgreSQL | MySQL, MariaDB | Dolt |
 |---|---|---|---|---|
@@ -447,11 +447,11 @@ statscraft plan job.sps --sqlite study.db --name survey --apply     apply syntax
 
 MySQL, MariaDB and Dolt commit DDL implicitly, so `export` creates the table first, writes the rows and the catalog in one transaction, and drops the table again if that fails. A plan that would create a variable is refused before anything changes; create the column and its catalog variable in a separate step first.
 
-The product is decided by what the server says about itself, not by the protocol: `--mysql` refuses a Dolt server and `--dolt` refuses MySQL and MariaDB. On Dolt, StatsCraft never commits, branches, merges or resets. `db export` leaves its changes in the working set for you to commit; `db import` and the input schema of `plan` write nothing at all (OpenStatSpec's Database I/O Execution Policy v1, which `db capabilities` declares), so allowed losses are reported in the output instead of in the catalog. `plan --apply` on Dolt needs `--expected-branch` and `--expected-head`: the session must be on that branch at that commit with a clean working set, and the branch must still point at that commit when the apply completes; the audit row records both, and the changes stay uncommitted. The session's branch is the database's default branch, or the one named as `db/branch` in the URL.
+The product is decided by what the server says about itself, not by the protocol: `--mysql` refuses a Dolt server and `--dolt` refuses MySQL and MariaDB. On Dolt, Statscraft never commits, branches, merges or resets. `db export` leaves its changes in the working set for you to commit; `db import` and the input schema of `plan` write nothing at all (OpenStatSpec's Database I/O Execution Policy v1, which `db capabilities` declares), so allowed losses are reported in the output instead of in the catalog. `plan --apply` on Dolt needs `--expected-branch` and `--expected-head`: the session must be on that branch at that commit with a clean working set, and the branch must still point at that commit when the apply completes; the audit row records both, and the changes stay uncommitted. The session's branch is the database's default branch, or the one named as `db/branch` in the URL.
 
 A URL without a password takes it from the `STATSCRAFT_DB_PASSWORD` environment variable. Passwords are never printed.
 
-Connections use plain TCP unless the URL asks for TLS. TLS always verifies the server's certificate chain, against the CA file when one is given and otherwise against the bundled Mozilla root certificates, and also the host name unless the mode says otherwise. StatsCraft never makes an unverified TLS connection, and refuses the modes that fall back to plain TCP (`prefer`, `allow`, `PREFERRED`).
+Connections use plain TCP unless the URL asks for TLS. TLS always verifies the server's certificate chain, against the CA file when one is given and otherwise against the bundled Mozilla root certificates, and also the host name unless the mode says otherwise. Statscraft never makes an unverified TLS connection, and refuses the modes that fall back to plain TCP (`prefer`, `allow`, `PREFERRED`).
 
 ```
 statscraft db export survey.sav --postgres "postgres://analyst@db.example.org/study?sslmode=verify-full"

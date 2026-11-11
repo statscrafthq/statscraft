@@ -1,7 +1,7 @@
 //! Syntax frontend profiles 0.1, 0.2 and 0.3: request in, plan or diagnostic out.
 //!
 //! The profiles are bounded on purpose, so this module has its own lexer and parser instead of
-//! StatsCraft's command language: it must reject much that StatsCraft accepts, and its number
+//! Statscraft's command language: it must reject much that Statscraft accepts, and its number
 //! tokens have their own grammar.
 
 use crate::plan::{

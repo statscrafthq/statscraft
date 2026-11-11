@@ -1,6 +1,6 @@
 [package]
 name = "statscraft-engine"
-description = "StatsCraft engine: executes parsed commands on a dataset"
+description = "Statscraft engine: executes parsed commands on a dataset"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

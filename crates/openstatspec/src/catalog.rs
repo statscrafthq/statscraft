@@ -1356,7 +1356,7 @@ fn load(db: &mut dyn Db, name: &str) -> Result<(Dataset, Vec<String>, String)> {
     dataset.set_documents(documents);
     dataset.set_file_label(label.as_deref());
     // the catalog keeps "sav" or "zsav", not the compression inside a sav file: a sav dataset
-    // comes back bytecode-compressed, the way StatsCraft writes it
+    // comes back bytecode-compressed, the way Statscraft writes it
     let compression = if format == "zsav" { "zlib" } else { "bytecode" };
     dataset.set_source(encoding.as_deref().unwrap_or("UTF-8"), compression)?;
     Ok((dataset, losses, id))

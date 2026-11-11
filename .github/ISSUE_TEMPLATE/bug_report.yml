@@ -9,7 +9,7 @@ body:
   - type: input
     id: version
     attributes:
-      label: StatsCraft version
+      label: Statscraft version
       description: Help > About in the window, or `statscraft --version`.
       placeholder: "0.1.0"
     validations:

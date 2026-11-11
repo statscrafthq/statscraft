@@ -266,7 +266,7 @@ impl Engine {
                 }
             }
             Command::BeginProgram => self.warn(
-                "the program block was not run: StatsCraft runs no programs in other languages",
+                "the program block was not run: Statscraft runs no programs in other languages",
             ),
             Command::Set(settings) => self.set(settings)?,
             Command::Show(names) => return Ok(vec![self.show(names)]),
@@ -346,7 +346,7 @@ impl Engine {
                 "UNICODE" => {
                     if !on_off(name, value)? {
                         self.warn(
-                            "SET UNICODE=OFF has no effect: StatsCraft always works in Unicode",
+                            "SET UNICODE=OFF has no effect: Statscraft always works in Unicode",
                         );
                     }
                 }
@@ -359,7 +359,7 @@ impl Engine {
             }
             match effect {
                 Some(SettingEffect::Appearance) => self.warn(format!(
-                    "SET {name} only changes how output looks; StatsCraft ignores it"
+                    "SET {name} only changes how output looks; Statscraft ignores it"
                 )),
                 Some(SettingEffect::NotYet) => self.warn(format!(
                     "SET {name} is kept, but results do not follow it yet"
@@ -415,7 +415,7 @@ impl Engine {
                     ),
                     "DIRECTORY" => self.syntax_folder().display().to_string(),
                     "SYSMIS" => "System-missing".into(),
-                    "VERSION" => format!("StatsCraft {}", env!("CARGO_PKG_VERSION")),
+                    "VERSION" => format!("Statscraft {}", env!("CARGO_PKG_VERSION")),
                     "CC" => ["CCA", "CCB", "CCC", "CCD", "CCE"]
                         .iter()
                         .map(|c| format!("{c} {}", self.setting(c)))

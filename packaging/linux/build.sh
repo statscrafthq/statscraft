@@ -35,7 +35,7 @@ cat > "$deb/DEBIAN/control" <<EOF
 Package: statscraft
 Version: $version
 Architecture: amd64
-Maintainer: StatsCraft <https://github.com/statscrafthq/statscraft>
+Maintainer: Statscraft <https://github.com/statscrafthq/statscraft>
 Installed-Size: $(du -sk "$deb/usr" | cut -f1)
 Depends: libc6 (>= $glibc), libgcc-s1
 Recommends: libgl1, libegl1, libxkbcommon-x11-0, libwayland-client0, xdg-desktop-portal
@@ -43,7 +43,7 @@ Section: science
 Priority: optional
 Homepage: https://github.com/statscrafthq/statscraft
 Description: statistics workbench for data files and syntax
- StatsCraft reads and writes .sav and .zsav data files, runs syntax and
+ Statscraft reads and writes .sav and .zsav data files, runs syntax and
  prints tables as Markdown or JSON. The package holds the command line
  (statscraft) and the desktop window (statscraft-gui).
 EOF

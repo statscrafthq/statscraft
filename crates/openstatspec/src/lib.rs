@@ -4,7 +4,7 @@
 //! table plus the catalog in SQL, read back, and plans applied to it in place, over the
 //! dialect profiles in `db` and the connections in `sqlite`, `postgres` and `mysql`.
 //!
-//! This is a separate, strictly bounded frontend with its own lexer and parser. StatsCraft's
+//! This is a separate, strictly bounded frontend with its own lexer and parser. Statscraft's
 //! own engine does not run on these plans.
 
 pub mod apply;

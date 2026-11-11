@@ -3,6 +3,7 @@
 
 mod analyze_dialogs;
 mod app;
+mod brand;
 mod complete;
 mod data_dialogs;
 mod dialogs;
@@ -23,17 +24,11 @@ use eframe::egui;
 use std::process::ExitCode;
 
 fn main() -> ExitCode {
-    let fonts = match fonts::definitions() {
-        Ok(fonts) => fonts,
-        Err(e) => {
-            eprintln!("statscraft-gui: {e}");
-            return ExitCode::FAILURE;
-        }
-    };
+    let fonts = fonts::definitions();
     let args: Vec<String> = std::env::args().skip(1).collect();
     let settings = settings::Settings::load();
     let mut viewport = egui::ViewportBuilder::default()
-        .with_title("StatsCraft")
+        .with_title("Statscraft")
         .with_inner_size(settings.size.unwrap_or([1280.0, 820.0]))
         .with_min_inner_size([720.0, 480.0])
         .with_icon(icon());
@@ -45,6 +40,7 @@ fn main() -> ExitCode {
         ..Default::default()
     };
     let result = eframe::run_native(
+        // the app id (X11 class, Wayland app id) that installed launchers name; keep it
         "StatsCraft",
         options,
         Box::new(move |cc| {

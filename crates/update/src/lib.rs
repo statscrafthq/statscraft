@@ -1,4 +1,4 @@
-//! Update check and update for StatsCraft, shared by the command line and the window.
+//! Update check and update for Statscraft, shared by the command line and the window.
 //!
 //! The latest published release of the GitHub repository is the source of truth. The only
 //! requests are the one GitHub API call for that release and, on update, its `SHA256SUMS` and
@@ -96,7 +96,7 @@ pub fn sum_of<'a>(sums: &'a str, name: &str) -> Option<&'a str> {
     })
 }
 
-/// How this copy of StatsCraft was installed, which decides how it is updated.
+/// How this copy of Statscraft was installed, which decides how it is updated.
 #[derive(Debug, Clone, PartialEq)]
 pub enum Install {
     /// The per-user Windows installer; its uninstaller is next to the programs.
@@ -303,7 +303,7 @@ impl Client {
                 unreachable!("every other installation has a package")
             };
             return Err(format!(
-                "this copy runs from {}, which is not an installation from the StatsCraft \
+                "this copy runs from {}, which is not an installation from the Statscraft \
                  installer or packages; update it the way you installed it, or install a package \
                  from {}",
                 dir.display(),
@@ -402,7 +402,7 @@ mod tests {
         "url": "https://api.github.com/repos/statscrafthq/statscraft/releases/1",
         "html_url": "https://github.com/statscrafthq/statscraft/releases/tag/v0.2.0",
         "tag_name": "v0.2.0",
-        "name": "StatsCraft 0.2.0",
+        "name": "Statscraft 0.2.0",
         "draft": false,
         "prerelease": false,
         "assets": [
