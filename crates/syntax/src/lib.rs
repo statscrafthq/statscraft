@@ -33,6 +33,7 @@ mod macros;
 mod mrsets;
 mod mult_response;
 mod npar;
+mod output;
 mod parser;
 mod preprocess;
 mod procedures;
@@ -61,6 +62,8 @@ mod tests_models;
 #[cfg(test)]
 mod tests_npar;
 #[cfg(test)]
+mod tests_output;
+#[cfg(test)]
 mod tests_preprocess;
 #[cfg(test)]
 mod tests_procedures;
@@ -86,6 +89,9 @@ pub use mrsets::{Mrsets, MrsetsGroup};
 pub use npar::{
     BinomialSplit, GroupTest, KsDistribution, NparTest, NparTests, PairedTest, PartialCorr,
     PartialFormat, PartialList, RelatedTest, RunsCut,
+};
+pub use output::{
+    DateSpec, DateUnit, FormatItem, Placement, Print, PrintItem, PrintKind, PrintSpace, Xsave,
 };
 pub use preprocess::{FileHandle, MacroState};
 pub use regression::{

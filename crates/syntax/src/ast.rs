@@ -161,6 +161,31 @@ pub enum Command {
     Update(Merge),
     VarsToCases(VarsToCases),
     CasesToVars(CasesToVars),
+    /// TITLE, or SUBTITLE when `subtitle`.
+    Title {
+        text: String,
+        subtitle: bool,
+    },
+    Echo(String),
+    NewFile,
+    ClearTransformations,
+    /// `ERASE FILE='path'`
+    Erase(String),
+    /// `SYSFILE INFO FILE='path'`
+    SysfileInfo(String),
+    Permissions {
+        file: String,
+        read_only: bool,
+    },
+    /// HOST: the operating system commands, which are never run.
+    Host(Vec<String>),
+    Date(crate::output::DateSpec),
+    /// PRINT, PRINT EJECT or WRITE.
+    Print(Box<crate::output::Print>),
+    PrintSpace(crate::output::PrintSpace),
+    PrintFormats(Vec<(Vec<VarItem>, Format)>),
+    WriteFormats(Vec<(Vec<VarItem>, Format)>),
+    Xsave(Box<crate::output::Xsave>),
 }
 
 /// What SORT VARIABLES sorts by.

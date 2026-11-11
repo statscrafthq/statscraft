@@ -15,6 +15,7 @@ use crate::loops;
 use crate::mrsets;
 use crate::mult_response;
 use crate::npar;
+use crate::output;
 use crate::parser::{PResult, Parser};
 use crate::procedures;
 use crate::rank;
@@ -1512,17 +1513,186 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                   SAVE TRANSLATE OUTFILE='wave2.csv' /TYPE=CSV /FIELDNAMES /TEXTOPTIONS DECIMAL=COMMA /REPLACE.",
         parse: save_translate::save_translate,
     },
+    CommandSpec {
+        name: "TITLE",
+        summary: "Put a title in the output, above the output that follows.",
+        syntax: "TITLE [']text['].\n\
+                 Quotes are optional; with them the text may hold the other kind of quote. The title\n\
+                 is cut to 60 bytes and shows as a heading where the command stands.",
+        example: "TITLE 'Wave 2: cleaned data'.",
+        parse: output::title,
+    },
+    CommandSpec {
+        name: "SUBTITLE",
+        summary: "Put a subtitle in the output, above the output that follows.",
+        syntax: "SUBTITLE [']text['].\n\
+                 As TITLE, for a second heading. A blank subtitle (' ') shows nothing.",
+        example: "SUBTITLE \"Children's shoes only\".",
+        parse: output::subtitle,
+    },
+    CommandSpec {
+        name: "ECHO",
+        summary: "Show a text in the output.",
+        syntax: "ECHO 'text'.\n\
+                 Pieces joined with + show as one line.",
+        example: "ECHO 'Checks done'.",
+        parse: output::echo,
+    },
+    CommandSpec {
+        name: "NEW FILE",
+        summary: "Start a new, empty active dataset.",
+        syntax: "NEW FILE.\n\
+                 A named active dataset stays open under its name; an unnamed one is gone.",
+        example: "NEW FILE.",
+        parse: output::new_file,
+    },
+    CommandSpec {
+        name: "CLEAR TRANSFORMATIONS",
+        summary: "Undo the transformations and dictionary changes since the last data pass.",
+        syntax: "CLEAR TRANSFORMATIONS.\n\
+                 The dataset goes back to how it was after the last command that read the data\n\
+                 (a procedure, EXECUTE, SAVE, GET and the like) or the start of the run. Pending\n\
+                 PRINT, WRITE and XSAVE never run. Settings, titles and files stay as they are.",
+        example: "CLEAR TRANSFORMATIONS.",
+        parse: output::clear_transformations,
+    },
+    CommandSpec {
+        name: "ERASE",
+        summary: "Delete a file.",
+        syntax: "ERASE FILE [=] 'path'.\n\
+                 One file, named in full; no wildcards. A missing file is an error.",
+        example: "ERASE FILE='old_extract.txt'.",
+        parse: output::erase,
+    },
+    CommandSpec {
+        name: "SYSFILE INFO",
+        summary: "Show the dictionary of a data file without opening it as the active dataset.",
+        syntax: "SYSFILE INFO [FILE=] 'path'.\n\
+                 A table of the file (label, cases, variables, documents) and the tables of\n\
+                 DISPLAY DICTIONARY. PASSWORD (encrypted files) is not supported yet.",
+        example: "SYSFILE INFO FILE='survey.sav'.",
+        parse: output::sysfile_info,
+    },
+    CommandSpec {
+        name: "PERMISSIONS",
+        summary: "Make a file read-only, or writeable for its owner.",
+        syntax: "PERMISSIONS FILE='path' /PERMISSIONS READONLY | WRITEABLE.\n\
+                 READONLY takes the write permission from everyone; WRITEABLE gives it to the owner.\n\
+                 On a file system without such permissions READONLY sets the read-only flag.",
+        example: "PERMISSIONS FILE='final.sav' /PERMISSIONS READONLY.",
+        parse: output::permissions,
+    },
+    CommandSpec {
+        name: "HOST",
+        summary: "Refused: Statscraft never runs operating system commands from syntax.",
+        syntax: "HOST COMMAND=['command' ...] [TIMELIMIT=n].\n\
+                 Read and checked, then refused with an error: a command run from a syntax file\n\
+                 could do anything the user can, which makes shared syntax a security risk. Run the\n\
+                 commands outside Statscraft, before or after the syntax.",
+        example: "HOST COMMAND=['dir'].",
+        parse: output::host,
+    },
+    CommandSpec {
+        name: "DATE",
+        summary: "Add date variables that count the cases of a time series.",
+        syntax: "DATE keyword [start [period]] [keyword ...] [BY n].\n\
+                 keyword: YEAR QUARTER MONTH (long periods), WEEK DAY HOUR MINUTE SECOND (short periods),\n\
+                 CYCLE, OBS; any start of the word, MINUTE from MI. Long and short do not mix.\n\
+                 Each keyword makes a numeric variable named keyword_; DATE_ (a string) shows them all,\n\
+                 and CYCLE_ is added when the highest keyword has a period. Defaults: start 1 (HOUR,\n\
+                 MINUTE, SECOND 0), period QUARTER 4, MONTH 12, DAY 7, HOUR 24, MINUTE and SECOND 60,\n\
+                 none for the highest keyword except QUARTER. OBS needs a start and a period; CYCLE takes\n\
+                 no period. QUARTER and MONTH give each other their start; with MONTH the quarter\n\
+                 follows the month. BY n steps the lowest keyword and must divide its period. Earlier\n\
+                 DATE variables are replaced. A table lists the new variables and their labels.",
+        example: "DATE Y 1990 M 7.",
+        parse: output::date,
+    },
+    CommandSpec {
+        name: "PRINT",
+        summary: "Show the values of variables for every case, as lines of text.",
+        syntax: "PRINT [OUTFILE='path'] [ENCODING='name'] [RECORDS=n] [TABLE | NOTABLE]\n\
+                 \x20     /[line] item [item ...] [/[line] ...].\n\
+                 item: varlist, varlist first-last [(type[,decimals])], varlist (format list), 'text'\n\
+                 [column], or * to end the variables a format applies to. Format list: formats such as\n\
+                 F8.2, n(...) repeats, Tn goes to column n, nX skips n columns.\n\
+                 A transformation: the lines appear when the data are next read, case by case, one line\n\
+                 per slash. A variable in its own print format is followed by a blank; one with a given\n\
+                 format or columns is not. System-missing shows as a period. OUTFILE writes the lines to a\n\
+                 file, each starting with a blank (the carriage control), replaced on each data pass.\n\
+                 TABLE shows where each variable goes. Formats P, PK, IB, PIB, PIBHEX, RB, RBHEX and Z are\n\
+                 not supported yet.",
+        example: "PRINT /id name (A10) score (F6.2).",
+        parse: output::print,
+    },
+    CommandSpec {
+        name: "PRINT EJECT",
+        summary: "Like PRINT, starting a new page each time it runs.",
+        syntax: "PRINT EJECT [OUTFILE='path'] [ENCODING='name'] [RECORDS=n] [TABLE | NOTABLE] /item ....\n\
+                 As PRINT. In the output each new page is a new table; in a file its first line starts\n\
+                 with 1 in place of the blank. Usually inside DO IF, for headings.",
+        example: "DO IF $CASENUM = 1.\nPRINT EJECT /'Name' 1 'Score' 12.\nEND IF.",
+        parse: output::print_eject,
+    },
+    CommandSpec {
+        name: "PRINT SPACE",
+        summary: "Add blank lines to the PRINT output, for every case it runs on.",
+        syntax: "PRINT SPACE [OUTFILE='path'] [ENCODING='name'] [expression].\n\
+                 The expression gives the number of lines (default 1); a fraction is cut off; a missing\n\
+                 or negative number gives one line and a warning. Usually inside DO IF.",
+        example: "PRINT SPACE.",
+        parse: output::print_space,
+    },
+    CommandSpec {
+        name: "WRITE",
+        summary: "Write the values of variables for every case to a text file.",
+        syntax: "WRITE [OUTFILE='path'] [ENCODING='name'] [BOM=YES | NO] [RECORDS=n] [TABLE | NOTABLE]\n\
+                 \x20     /[line] item [item ...] [/[line] ...].\n\
+                 Items as on PRINT, in the write formats, with no blank between values and no carriage\n\
+                 control. System-missing is written as blanks. Without OUTFILE the lines go to the output.\n\
+                 The file is replaced on each data pass; commands that name the same file in one pass\n\
+                 write to it in case order. ENCODING: UTF-8 (default, no byte order mark), UTF-16,\n\
+                 UTF-16LE, UTF-16BE or a code page such as windows-1252; a UTF encoding given by name\n\
+                 gets a byte order mark unless BOM=NO.",
+        example: "WRITE OUTFILE='scores.txt' /id (F4) score (F6.2).",
+        parse: output::write,
+    },
+    CommandSpec {
+        name: "PRINT FORMATS",
+        summary: "Set the print format of variables: how procedures and PRINT show them.",
+        syntax: "PRINT FORMATS varlist (format) [[/] varlist (format) ...].\n\
+                 As FORMATS, but the write format stays as it is. A string variable keeps its width.",
+        example: "PRINT FORMATS salary (DOLLAR8) / rate (PCT5.1).",
+        parse: output::print_formats,
+    },
+    CommandSpec {
+        name: "WRITE FORMATS",
+        summary: "Set the write format of variables: how WRITE writes them.",
+        syntax: "WRITE FORMATS varlist (format) [[/] varlist (format) ...].\n\
+                 As FORMATS, but the print format stays as it is. Saved with the data file.",
+        example: "WRITE FORMATS salary (F10.2).",
+        parse: output::write_formats,
+    },
+    CommandSpec {
+        name: "XSAVE",
+        summary: "Write the cases to a data file as the next data pass reads them.",
+        syntax: "XSAVE OUTFILE='path' | handle [/KEEP=varlist] [/DROP=varlist] [/RENAME=(old = new) ...]\n\
+                 \x20     [/MAP] [/COMPRESSED | /ZCOMPRESSED] [/PERMISSIONS=READONLY | WRITEABLE].\n\
+                 A transformation: the file holds the cases as they reach XSAVE in the next procedure or\n\
+                 EXECUTE (or the end of the run), with the variables of that moment, scratch variables\n\
+                 left out. KEEP, DROP and RENAME as on SAVE. MAP lists the saved variables. Two XSAVE\n\
+                 commands cannot write the same file in one pass. /UNCOMPRESSED is not supported yet.",
+        example: "XSAVE OUTFILE='wave2.sav' /DROP=tmp1 TO tmp5.",
+        parse: output::xsave,
+    },
 ];
 
 /// Commands of the language that have no parser yet. They get "not supported yet" instead of
 /// "unknown command", and their bodies are not tokenised.
 static UNSUPPORTED: &[&str] = &[
     "ANOVA",
-    "CLEAR TRANSFORMATIONS",
     "CLUSTER",
-    "DATE",
     "DISCRIMINANT",
-    "ECHO",
     "END CASE",
     "END DATA",
     "END FILE",
@@ -1530,7 +1700,6 @@ static UNSUPPORTED: &[&str] = &[
     "END INPUT PROGRAM",
     "END MATRIX",
     "END REPEAT",
-    "ERASE",
     "EXPORT",
     "FACTOR",
     "FILE TYPE",
@@ -1538,35 +1707,22 @@ static UNSUPPORTED: &[&str] = &[
     "GET TRANSLATE",
     "GLM",
     "GRAPH",
-    "HOST",
     "IMPORT",
     "INPUT PROGRAM",
     "LEAVE",
     "LOGISTIC REGRESSION",
     "MATRIX",
     "MATRIX DATA",
-    "NEW FILE",
     "OUTPUT CLOSE",
     "OUTPUT EXPORT",
     "OUTPUT NEW",
     "OUTPUT SAVE",
-    "PERMISSIONS",
-    "PRINT",
-    "PRINT EJECT",
-    "PRINT FORMATS",
-    "PRINT SPACE",
     "QUICK CLUSTER",
     "RECORD TYPE",
     "REPEATING DATA",
     "REPORT",
     "REREAD",
-    "SUBTITLE",
-    "SYSFILE INFO",
-    "TITLE",
     "UNIANOVA",
-    "WRITE",
-    "WRITE FORMATS",
-    "XSAVE",
 ];
 
 fn names() -> impl Iterator<Item = (&'static str, Option<&'static CommandSpec>)> {

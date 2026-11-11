@@ -41,6 +41,16 @@ pub(crate) struct State {
     defined: Vec<String>,
 }
 
+impl State {
+    /// Only the settings, for the engines that run one case of a case-by-case pass.
+    pub(crate) fn settings_only(&self) -> State {
+        State {
+            settings: self.settings.clone(),
+            ..State::default()
+        }
+    }
+}
+
 fn table(title: &str, columns: &[&str], rows: Vec<Vec<Cell>>) -> Table {
     Table {
         title: title.into(),
@@ -461,7 +471,7 @@ impl Engine {
             | Command::Attribute(_)
             | Command::AlterType(_)
             | Command::ApplyDictionary(_) => self.execute_dictionary(command)?,
-            _ => return Err(Error("this command cannot run in the engine yet".into())),
+            _ => return self.execute_output(command),
         }
         Ok(Vec::new())
     }
@@ -792,7 +802,7 @@ impl Engine {
         Ok(())
     }
 
-    fn display_command(&mut self, display: &Display) -> Result<Vec<Table>, Error> {
+    pub(crate) fn display_command(&mut self, display: &Display) -> Result<Vec<Table>, Error> {
         let what = display.what.as_str();
         if what == "MACROS" {
             let mut names = self.session.macros.names();
@@ -883,7 +893,7 @@ impl Engine {
                             text(v.name()),
                             Cell::Number(p as f64),
                             text(v.format()),
-                            text(v.format()),
+                            text(v.write_format()),
                             text(missing_text(v.missing_values())),
                         ]
                     })
@@ -922,7 +932,7 @@ impl Engine {
                                 "right"
                             })),
                             text(v.format()),
-                            text(v.format()),
+                            text(v.write_format()),
                             text(missing_text(v.missing_values())),
                         ]
                     })

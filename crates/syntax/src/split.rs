@@ -158,10 +158,10 @@ fn build(lines: &[(u32, &str)], end: Span) -> Option<Result<RawCommand, SyntaxEr
         }
     }
     let name = match resolve_tokens(&tokens) {
-        // a quoted FILE LABEL follows the rules for strings
+        // a quoted FILE LABEL, TITLE or SUBTITLE follows the rules for strings
         Resolution::Supported(spec, used)
             if FREE_TEXT.contains(&spec.name)
-                && !(spec.name == "FILE LABEL"
+                && !(matches!(spec.name, "FILE LABEL" | "TITLE" | "SUBTITLE")
                     && matches!(tokens.get(used).map(|t| &t.kind), Some(TokenKind::Str(_)))) =>
         {
             tokens.truncate(used);
@@ -177,7 +177,8 @@ fn build(lines: &[(u32, &str)], end: Span) -> Option<Result<RawCommand, SyntaxEr
             spec.name.to_string()
         }
         Resolution::Supported(spec, _) => {
-            lexer.glued_words = spec.name == "DATA LIST";
+            lexer.glued_words =
+                matches!(spec.name, "DATA LIST" | "PRINT" | "PRINT EJECT" | "WRITE");
             // only a command with a parser has a body worth tokenising
             while lex_error.is_none() {
                 match lexer.next_token() {

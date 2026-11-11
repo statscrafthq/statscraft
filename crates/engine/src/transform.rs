@@ -121,6 +121,7 @@ impl Engine {
         }
         self.begin_pass()?;
         self.end_pass(None);
+        self.clean = None;
         Ok(())
     }
 
@@ -143,6 +144,9 @@ impl Engine {
                 | Command::ElseIf(_)
                 | Command::Else
                 | Command::EndIf
+                | Command::Print(_)
+                | Command::PrintSpace(_)
+                | Command::Xsave(_)
         );
         let open = match self.pending {
             Some(_) => self.pending_depth > 0,
@@ -153,7 +157,8 @@ impl Engine {
         }
         Err(Error(
             "this command cannot be used inside DO IF or LOOP; only COMPUTE, IF, RECODE, COUNT, \
-             SAMPLE, VECTOR, DO REPEAT, BREAK and nested DO IF and LOOP can"
+             SAMPLE, VECTOR, DO REPEAT, BREAK, PRINT, PRINT SPACE, WRITE, XSAVE and nested DO IF \
+             and LOOP can"
                 .into(),
         ))
     }

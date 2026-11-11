@@ -227,6 +227,8 @@ impl Engine {
                     }
                 }
             }
+            // they give something for every case, in case order
+            Command::Print(_) | Command::PrintSpace(_) | Command::Xsave(_) => return Ok(true),
             _ => return Ok(false),
         }
         let lag = match command {
@@ -351,6 +353,8 @@ impl Engine {
             projected
         };
         let lags = lag_depth(&commands);
+        // the settings show values as PRINT and WRITE give them
+        let session = self.session.settings_only();
 
         let engine = |data: Dataset, case: Option<usize>, previous: Vec<Dataset>| Engine {
             dataset: Some(data),
@@ -359,6 +363,7 @@ impl Engine {
                 .map(|b| b.slice(case.map_or(0..0, |c| c..c + 1)))
                 .collect(),
             vectors: self.vectors.clone(),
+            session: session.clone(),
             row: Some(Box::new(Row {
                 case: case.unwrap_or(0),
                 previous,
@@ -380,6 +385,7 @@ impl Engine {
                 .extend(first.execute(command).map_err(earlier)?);
             warnings.extend(first.warnings.iter().cloned());
         }
+        let mut outputs = std::mem::take(&mut first.case_outputs);
         let template = first.dataset.take().expect("the engine keeps its dataset");
         let vectors_after = std::mem::take(&mut first.vectors);
 
@@ -406,6 +412,7 @@ impl Engine {
                 warnings.extend(engine.warnings.iter().cloned());
             }
             random = std::mem::take(&mut engine.random);
+            outputs.append(&mut engine.case_outputs);
             let data = engine.dataset.take().expect("the engine keeps its dataset");
             let dropped = engine.row.and_then(|row| row.dropped);
             carry = dropped.unwrap_or_else(|| scratch_values(&data, 0));
@@ -445,6 +452,7 @@ impl Engine {
         self.dataset = Some(result);
         self.vectors = vectors_after;
         self.random = random;
+        self.emit_case_output(outputs)?;
         let mut seen = Vec::new();
         for warning in warnings {
             if !seen.contains(&warning) {

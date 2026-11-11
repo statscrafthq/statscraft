@@ -132,6 +132,9 @@ impl Engine {
                 }
                 // the body of DO REPEAT is only known once it runs
                 Command::DoRepeat(_) => return Ok(true),
+                Command::Print(_) | Command::PrintSpace(_) | Command::Xsave(_) => {
+                    return Ok(true);
+                }
                 Command::Recode(_) if self.needs_rows(command)? => return Ok(true),
                 _ => {}
             }

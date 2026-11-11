@@ -566,6 +566,11 @@ fn run(
     engine
         .finish()
         .map_err(|e| vec![Failure::plain("run", e.to_string())])?;
+    // what the pass at the end of the run printed shows with the last command
+    let printed = std::mem::take(&mut engine.flushed);
+    if let Some(last) = outputs.last_mut() {
+        last.tables.extend(printed);
+    }
     // the handles are those the FILE HANDLE commands that ran defined
     macros.set_handles(engine.macros().handles().clone());
     let macros_changed = macros != start;

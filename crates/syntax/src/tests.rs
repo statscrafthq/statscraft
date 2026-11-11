@@ -383,7 +383,7 @@ fn real_but_unsupported_commands_say_so() {
         ("QUICK CLUSTER a b.", "QUICK CLUSTER"),
         ("factor /variables=a.", "FACTOR"),
         ("GLM a BY b.", "GLM"),
-        ("TITLE Don't panic.", "TITLE"),
+        ("LEAVE total.", "LEAVE"),
         ("DISC /GROUPS=a(1,2).", "DISCRIMINANT"),
     ] {
         let error = err(source);
@@ -1126,7 +1126,7 @@ fn command_names_resolve_from_their_words() {
 #[test]
 fn help_lists_every_command() {
     let overview = help(None).unwrap();
-    assert_eq!(command_names().len(), 98);
+    assert_eq!(command_names().len(), 115);
     for spec in table::COMMANDS {
         assert!(overview.contains(spec.name) && overview.contains(spec.summary));
     }

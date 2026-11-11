@@ -6,6 +6,7 @@ mod correlations;
 mod crosstabs;
 mod ctables;
 mod data_list;
+mod date;
 mod descriptives;
 mod dictionary;
 mod dist;
@@ -26,8 +27,10 @@ mod nonpar_corr;
 mod npar_groups;
 mod npar_tests;
 mod oneway;
+mod output;
 mod partial_corr;
 mod pass;
+mod print;
 mod random;
 mod rank;
 mod recode;
@@ -267,6 +270,10 @@ pub struct Engine {
     pub base_dir: Option<std::path::PathBuf>,
     /// Settings, named datasets and the CD folder (see `session_commands`).
     session: session_commands::State,
+    /// What PRINT, WRITE and XSAVE gave in the case-by-case pass, in order.
+    case_outputs: Vec<print::CaseOutput>,
+    /// What CLEAR TRANSFORMATIONS returns to; None when nothing changed since the last pass.
+    clean: Option<Box<output::Clean>>,
 }
 
 impl Engine {
@@ -347,6 +354,7 @@ impl Engine {
 
     pub fn execute(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
         self.warnings.clear();
+        self.track_clean(command);
         if let Some(result) = self.collect_loop(command) {
             let tables = result?;
             let mut out = std::mem::take(&mut self.flushed);
@@ -354,6 +362,10 @@ impl Engine {
             return Ok(out);
         }
         self.check_block(command)?;
+        // neither runs the transformations that wait for the data pass
+        if matches!(command, Command::ClearTransformations | Command::NewFile) {
+            self.drop_pending();
+        }
         if self.row.is_none() && self.loop_depth == 0 {
             let transformation = matches!(
                 command,
@@ -372,6 +384,9 @@ impl Engine {
                     | Command::Vector(_)
                     | Command::VectorAssign { .. }
                     | Command::DoRepeat(_)
+                    | Command::Print(_)
+                    | Command::PrintSpace(_)
+                    | Command::Xsave(_)
             );
             if self.pending.is_none() && transformation && self.needs_rows(command)? {
                 self.pending = Some(Vec::new());
