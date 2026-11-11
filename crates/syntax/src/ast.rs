@@ -57,6 +57,7 @@ pub enum Command {
     Mrsets(Vec<crate::mrsets::Mrsets>),
     Descriptives(Descriptives),
     Crosstabs(Crosstabs),
+    MultResponse(Box<MultResponse>),
     Means(Means),
     TTest(TTest),
     Oneway(Oneway),
@@ -555,6 +556,51 @@ pub enum CrosstabsCell {
     Resid,
     Sresid,
     Asresid,
+}
+
+/// MULT RESPONSE: frequency tables and crosstabulations of multiple response groups.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MultResponse {
+    pub groups: Vec<MrGroup>,
+    /// VARIABLES: each list with the range of values it tabulates.
+    pub variables: Vec<(Vec<VarItem>, f64, f64)>,
+    /// FREQUENCIES: groups and variables; TO follows the order of GROUPS and VARIABLES.
+    pub frequencies: Vec<VarItem>,
+    pub tables: Vec<MrTable>,
+    /// MISSING=MDGROUP: a case missing on any variable of a dichotomy group is left out of it.
+    pub mdgroup: bool,
+    /// MISSING=MRGROUP: the same for category groups, also for a value out of range.
+    pub mrgroup: bool,
+    /// MISSING=INCLUDE: user-missing values in the range count.
+    pub include: bool,
+    /// FORMAT=NOLABELS: values instead of value labels.
+    pub no_labels: bool,
+    /// FORMAT=CONDENSE: the frequency tables of category groups and variables without labels.
+    pub condense: bool,
+    /// BASE=RESPONSES (Some(true)) or CASES (Some(false)); None when not given.
+    pub base_responses: Option<bool>,
+    /// CELLS in display order; the count always comes first.
+    pub cells: Vec<CrosstabsCell>,
+    /// FORMAT keywords that only change the printed layout (DOUBLE, ONEPAGE).
+    pub layout: Vec<String>,
+}
+
+/// A group of GROUPS: one value (a dichotomy group) or a range (a category group).
+#[derive(Debug, Clone, PartialEq)]
+pub struct MrGroup {
+    pub name: String,
+    pub label: Option<String>,
+    pub variables: Vec<VarItem>,
+    pub value: f64,
+    /// The top of the range of a category group; None for a dichotomy group.
+    pub max: Option<f64>,
+}
+
+/// One table list of TABLES: rows, columns, then control dimensions.
+#[derive(Debug, Clone, PartialEq)]
+pub struct MrTable {
+    pub dimensions: Vec<Vec<VarItem>>,
+    pub paired: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]

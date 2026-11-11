@@ -19,6 +19,7 @@ mod loops;
 mod means;
 mod merge;
 mod mrsets;
+mod mult_response;
 mod nonpar_corr;
 mod oneway;
 mod pass;
@@ -495,6 +496,7 @@ impl Engine {
             Command::Frequencies(_)
             | Command::Descriptives(_)
             | Command::Crosstabs(_)
+            | Command::MultResponse(_)
             | Command::Ctables(_)
             | Command::Means(_)
             | Command::TTest(_)
@@ -650,6 +652,7 @@ impl Engine {
             Command::Ctables(command) => self.ctables(command),
             Command::Descriptives(command) => self.descriptives(command),
             Command::Crosstabs(command) => self.crosstabs(command),
+            Command::MultResponse(command) => self.mult_response(command),
             Command::Means(command) => self.means(command),
             Command::TTest(command) => self.t_test(command),
             Command::Oneway(command) => self.oneway(command),

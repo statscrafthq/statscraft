@@ -76,6 +76,7 @@ One page per supported command, generated from the same table that the parser an
 | [FREQUENCIES](frequencies.md) | Frequency tables, summary statistics and percentiles. |
 | [DESCRIPTIVES](descriptives.md) | Summary statistics of numeric variables, optionally saved as z-scores. |
 | [CROSSTABS](crosstabs.md) | Contingency tables with percentages, residuals and chi-square tests. |
+| [MULT RESPONSE](mult-response.md) | Frequency tables and crosstabulations of multiple response groups and variables. |
 | [MEANS](means.md) | Statistics of dependent variables within groups of control variables. |
 | [T-TEST](t-test.md) | One-sample, independent-samples and paired-samples t tests with effect sizes. |
 | [ONEWAY](oneway.md) | One-way analysis of variance with contrasts and post hoc comparisons. |
@@ -136,4 +137,4 @@ One page per supported command, generated from the same table that the parser an
 
 These commands of the language are recognised, but Statscraft does not run them yet. A script that uses one stops with the error "command ... is not supported yet" at its line, and nothing is changed.
 
-ANOVA, CASESTOVARS, CLEAR TRANSFORMATIONS, CLUSTER, DATE, DISCRIMINANT, ECHO, END CASE, END DATA, END FILE, END FILE TYPE, END INPUT PROGRAM, END MATRIX, END REPEAT, ERASE, EXPORT, FACTOR, FILE TYPE, FINISH, FLIP, GET TRANSLATE, GLM, GRAPH, HOST, IMPORT, INPUT PROGRAM, LEAVE, LOGISTIC REGRESSION, MATRIX, MATRIX DATA, MULT RESPONSE, NEW FILE, NPAR TESTS, OUTPUT CLOSE, OUTPUT EXPORT, OUTPUT NEW, OUTPUT SAVE, PARTIAL CORR, PERMISSIONS, PRINT, PRINT EJECT, PRINT FORMATS, PRINT SPACE, QUICK CLUSTER, RECORD TYPE, REGRESSION, RELIABILITY, REPEATING DATA, REPORT, REREAD, SAVE TRANSLATE, SORT VARIABLES, SUBTITLE, SYSFILE INFO, TITLE, UNIANOVA, UPDATE, VARSTOCASES, WRITE, WRITE FORMATS, XSAVE
+ANOVA, CASESTOVARS, CLEAR TRANSFORMATIONS, CLUSTER, DATE, DISCRIMINANT, ECHO, END CASE, END DATA, END FILE, END FILE TYPE, END INPUT PROGRAM, END MATRIX, END REPEAT, ERASE, EXPORT, FACTOR, FILE TYPE, FINISH, FLIP, GET TRANSLATE, GLM, GRAPH, HOST, IMPORT, INPUT PROGRAM, LEAVE, LOGISTIC REGRESSION, MATRIX, MATRIX DATA, NEW FILE, NPAR TESTS, OUTPUT CLOSE, OUTPUT EXPORT, OUTPUT NEW, OUTPUT SAVE, PARTIAL CORR, PERMISSIONS, PRINT, PRINT EJECT, PRINT FORMATS, PRINT SPACE, QUICK CLUSTER, RECORD TYPE, REGRESSION, RELIABILITY, REPEATING DATA, REPORT, REREAD, SAVE TRANSLATE, SORT VARIABLES, SUBTITLE, SYSFILE INFO, TITLE, UNIANOVA, UPDATE, VARSTOCASES, WRITE, WRITE FORMATS, XSAVE

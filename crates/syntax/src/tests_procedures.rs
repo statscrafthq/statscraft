@@ -939,3 +939,42 @@ fn star_join() {
             .contains(&"PASSWORD=".to_string())
     );
 }
+
+#[test]
+fn mult_response() {
+    let Command::MultResponse(m) = one(
+        "MULT RESP GROUPS=mags 'Magazines' (time TO stone (2)) probs (p1 TO p3 (1,9))\n\
+         /VAR=sex (1,2) educ (1 3)\n\
+         /FREQ=mags TO probs sex\n\
+         /TAB=mags BY educ BY sex /educ BY sex (PAIRED)\n\
+         /MIS=MRGROUP INCLUDE /FORM=NOLAB CONDENSE ONEPAGE /BASE=RESPONSES /CELLS.",
+    ) else {
+        panic!("not MULT RESPONSE");
+    };
+    let name = |n: &str| VarItem::Name(n.into());
+    assert_eq!(m.groups.len(), 2);
+    assert_eq!(m.groups[0].label.as_deref(), Some("Magazines"));
+    assert_eq!((m.groups[0].value, m.groups[0].max), (2.0, None));
+    assert_eq!((m.groups[1].value, m.groups[1].max), (1.0, Some(9.0)));
+    assert_eq!(m.variables[1], (vec![name("educ")], 1.0, 3.0));
+    assert_eq!(
+        m.frequencies,
+        [VarItem::Range("mags".into(), "probs".into()), name("sex")]
+    );
+    assert_eq!(m.tables.len(), 2);
+    assert_eq!(m.tables[0].dimensions.len(), 3);
+    assert!(!m.tables[0].paired && m.tables[1].paired);
+    assert!(m.mrgroup && m.include && !m.mdgroup);
+    assert!(m.no_labels && m.condense);
+    assert_eq!(m.layout, ["ONEPAGE"]);
+    assert_eq!(m.base_responses, Some(true));
+    assert_eq!(
+        m.cells,
+        [
+            CrosstabsCell::Count,
+            CrosstabsCell::Row,
+            CrosstabsCell::Column,
+            CrosstabsCell::Total
+        ]
+    );
+}

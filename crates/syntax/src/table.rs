@@ -13,6 +13,7 @@ use crate::get_data;
 use crate::lexer::{Punct, Token, TokenKind};
 use crate::loops;
 use crate::mrsets;
+use crate::mult_response;
 use crate::parser::{PResult, Parser};
 use crate::procedures;
 use crate::rank;
@@ -640,6 +641,39 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: procedures::crosstabs,
     },
     CommandSpec {
+        name: "MULT RESPONSE",
+        summary: "Frequency tables and crosstabulations of multiple response groups and variables.",
+        syntax: "MULT RESPONSE [/]GROUPS=name ['label'] (varlist (value)) | (varlist (min, max)) [name ...]\n\
+                 \x20             [/VARIABLES=varlist (min, max) [varlist (min, max) ...]]\n\
+                 \x20             [/FREQUENCIES=items]\n\
+                 \x20             [/TABLES=items BY items [BY items ...] [(PAIRED)] [/items BY ...]]\n\
+                 \x20             [/MISSING=[TABLE | MDGROUP | MRGROUP] [INCLUDE]]\n\
+                 \x20             [/FORMAT=[LABELS | NOLABELS] [TABLE | CONDENSE | ONEPAGE] [DOUBLE]]\n\
+                 \x20             [/BASE=CASES | RESPONSES] [/CELLS=[COUNT] [ROW] [COLUMN] [TOTAL] [ALL]].\n\
+                 GROUPS, VARIABLES, FREQUENCIES and TABLES come in this order, before the others; at least\n\
+                 one of GROUPS and VARIABLES and one of FREQUENCIES and TABLES. One value makes a dichotomy\n\
+                 group (its categories are the variables with that value), two a category group (the values\n\
+                 from min to max, counted over all its variables). Groups exist only in this command.\n\
+                 items: groups, and variables named on VARIABLES; TO follows their order there. Values are\n\
+                 truncated to whole numbers; values out of range do not count. Empty categories are left out.\n\
+                 A case is missing for a group with no counted value; MDGROUP and MRGROUP leave out a case\n\
+                 missing on any variable of a dichotomy or category group (MRGROUP also for a value out of\n\
+                 range); INCLUDE counts user-missing values. FREQUENCIES: responses, percent of responses\n\
+                 and percent of cases. TABLES: counts, and the percentages CELLS asks for (ALL without\n\
+                 keywords), based on cases or with BASE=RESPONSES on responses. PAIRED pairs the first\n\
+                 variable of a category group with the first of another, and so on; its percentages are\n\
+                 based on responses. NOLABELS and CONDENSE show values for category groups and variables;\n\
+                 ONEPAGE and DOUBLE only change printed layout and are ignored with a warning. Weights count\n\
+                 as they are.",
+        example: "MULT RESPONSE GROUPS=media 'Media used' (tv radio web (1))\n\
+                  \x20 brands 'Brands known' (brand1 TO brand3 (1, 9))\n\
+                  \x20 /VARIABLES=gender (1, 2)\n\
+                  \x20 /FREQUENCIES=media brands\n\
+                  \x20 /TABLES=media brands BY gender\n\
+                  \x20 /CELLS=COLUMN.",
+        parse: mult_response::mult_response,
+    },
+    CommandSpec {
         name: "MEANS",
         summary: "Statistics of dependent variables within groups of control variables.",
         syntax: "MEANS [TABLES=]deps [BY controls [BY ...]] [/deps BY ...] [/CELLS=cell ...]\n\
@@ -1249,7 +1283,6 @@ static UNSUPPORTED: &[&str] = &[
     "LOGISTIC REGRESSION",
     "MATRIX",
     "MATRIX DATA",
-    "MULT RESPONSE",
     "NEW FILE",
     "NPAR TESTS",
     "OUTPUT CLOSE",
