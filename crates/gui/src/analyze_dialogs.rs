@@ -1,7 +1,8 @@
-//! The Explore, Compare Means and Correlate dialogs. Options left as they are add nothing to the
-//! syntax, so the command runs with its own defaults.
+//! The Explore, Compare Means, Correlate, Multiple Response and Tree dialogs. Options left as
+//! they are add nothing to the syntax, so the command runs with its own defaults.
 
-use crate::syntax_text::{confidence, names, number, probability, value};
+use crate::dialogs::whole;
+use crate::syntax_text::{confidence, names, number, probability, quote, value};
 
 /// Keyword and label of every cell statistic Means offers, in the order shown.
 pub const MEANS_CELLS: [(&str, &str); 21] = [
@@ -579,10 +580,272 @@ impl Explore {
     }
 }
 
+/// One group of MULT RESPONSE: a dichotomy group counts one value of its variables, a category
+/// group the values from `value` to `max`.
+#[derive(Clone, PartialEq, Debug)]
+pub struct MrGroup {
+    pub name: String,
+    pub label: String,
+    pub variables: Vec<String>,
+    pub dichotomy: bool,
+    pub value: String,
+    pub max: String,
+}
+
+impl Default for MrGroup {
+    fn default() -> Self {
+        Self {
+            name: String::new(),
+            label: String::new(),
+            variables: Vec::new(),
+            dichotomy: true,
+            value: "1".into(),
+            max: String::new(),
+        }
+    }
+}
+
+/// Keyword and label of every percentage of a multiple response crosstabulation.
+pub const MULT_RESPONSE_CELLS: [(&str, &str); 3] = [
+    ("ROW", "Row percentages"),
+    ("COLUMN", "Column percentages"),
+    ("TOTAL", "Total percentages"),
+];
+
+/// MULT RESPONSE: frequency tables of the groups, or crosstabulations of groups and variables.
+#[derive(Default, Clone, PartialEq, Debug)]
+pub struct MultResponse {
+    pub crosstabs: bool,
+    pub groups: Vec<MrGroup>,
+    /// Crosstabs: the groups and variables of each dimension.
+    pub rows: Vec<String>,
+    pub columns: Vec<String>,
+    pub layers: Vec<String>,
+    /// The range of every variable of the tables that is not a group: name, min and max.
+    pub ranges: Vec<(String, String, String)>,
+    /// One flag per entry of `MULT_RESPONSE_CELLS`; counts are always shown.
+    pub cells: [bool; 3],
+    pub base_responses: bool,
+    /// Leave out a case missing on any variable of a dichotomy group (MDGROUP) or of a
+    /// category group (MRGROUP).
+    pub missing_dichotomies: bool,
+    pub missing_categories: bool,
+}
+
+impl MultResponse {
+    pub fn title(&self) -> &'static str {
+        if self.crosstabs {
+            "Multiple Response Crosstabs"
+        } else {
+            "Multiple Response Frequencies"
+        }
+    }
+
+    pub fn is_group(&self, name: &str) -> bool {
+        self.groups
+            .iter()
+            .any(|g| g.name.trim().eq_ignore_ascii_case(name))
+    }
+
+    /// The variables of the tables that are not groups, each once, in order.
+    pub fn table_variables(&self) -> Vec<&String> {
+        let mut out: Vec<&String> = Vec::new();
+        for name in self.rows.iter().chain(&self.columns).chain(&self.layers) {
+            if !self.is_group(name) && !out.contains(&name) {
+                out.push(name);
+            }
+        }
+        out
+    }
+
+    pub fn syntax(&self) -> Result<String, String> {
+        let mut text = String::from("MULT RESPONSE");
+        for (i, g) in self.groups.iter().enumerate() {
+            let name = g.name.trim();
+            if name.is_empty() || name.contains(char::is_whitespace) {
+                return Err("give every group a name of one word".into());
+            }
+            let variables = names(&g.variables, &format!("the group {name}"))?;
+            text.push_str(if i == 0 { " GROUPS=" } else { "\n  " });
+            text.push_str(name);
+            if !g.label.trim().is_empty() {
+                text.push_str(&format!(" {}", quote(g.label.trim())));
+            }
+            let first = value(&g.value, false)?;
+            let values = match g.dichotomy {
+                true => first,
+                false => format!("{first}, {}", value(&g.max, false)?),
+            };
+            text.push_str(&format!(" ({variables} ({values}))"));
+        }
+        if self.crosstabs {
+            for (i, name) in self.table_variables().into_iter().enumerate() {
+                let Some((_, min, max)) = self.ranges.iter().find(|(n, ..)| n == name) else {
+                    return Err(format!("give the range of {name}"));
+                };
+                let (min, max) = (value(min, false)?, value(max, false)?);
+                text.push_str(if i == 0 { "\n  /VARIABLES=" } else { " " });
+                text.push_str(&format!("{name} ({min}, {max})"));
+            }
+            text.push_str(&format!(
+                "\n  /TABLES={} BY {}",
+                names(&self.rows, "Rows")?,
+                names(&self.columns, "Columns")?
+            ));
+            if !self.layers.is_empty() {
+                text.push_str(&format!(" BY {}", self.layers.join(" ")));
+            }
+        } else {
+            if self.groups.is_empty() {
+                return Err("define at least one group".into());
+            }
+            let groups: Vec<&str> = self.groups.iter().map(|g| g.name.trim()).collect();
+            text.push_str(&format!("\n  /FREQUENCIES={}", groups.join(" ")));
+        }
+        let missing: Vec<&str> = [
+            (self.missing_dichotomies, "MDGROUP"),
+            (self.missing_categories, "MRGROUP"),
+        ]
+        .into_iter()
+        .filter_map(|(on, keyword)| on.then_some(keyword))
+        .collect();
+        if !missing.is_empty() {
+            text.push_str(&format!("\n  /MISSING={}", missing.join(" ")));
+        }
+        if self.crosstabs && self.cells.contains(&true) {
+            if self.base_responses {
+                text.push_str("\n  /BASE=RESPONSES");
+            }
+            let cells: Vec<&str> = MULT_RESPONSE_CELLS
+                .iter()
+                .zip(self.cells)
+                .filter_map(|((keyword, _), on)| on.then_some(*keyword))
+                .collect();
+            text.push_str(&format!("\n  /CELLS=COUNT {}", cells.join(" ")));
+        }
+        text.push('.');
+        Ok(text)
+    }
+}
+
+/// The level written after a variable of TREE, the measure of the dictionary first.
+pub const TREE_LEVELS: [(&str, &str); 4] = [
+    ("", "Its measure"),
+    ("N", "Nominal"),
+    ("O", "Ordinal"),
+    ("S", "Scale"),
+];
+
+/// Keyword and label of every variable TREE saves.
+pub const TREE_SAVE: [(&str, &str); 3] = [
+    ("NODEID", "Terminal node"),
+    ("PREDVAL", "Predicted category"),
+    ("PREDPROB", "Predicted probabilities"),
+];
+
+/// TREE by CHAID or exhaustive CHAID.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Tree {
+    pub dependent: String,
+    /// Index into `TREE_LEVELS`; the dependent is never scale.
+    pub dependent_level: usize,
+    /// Each predictor with an index into `TREE_LEVELS`.
+    pub predictors: Vec<(String, usize)>,
+    pub exhaustive: bool,
+    /// Empty for the automatic depth.
+    pub max_depth: String,
+    pub min_parent: String,
+    pub min_child: String,
+    /// The target categories of the gain tables, separated by spaces.
+    pub targets: String,
+    /// One flag per entry of `TREE_SAVE`.
+    pub save: [bool; 3],
+}
+
+impl Default for Tree {
+    fn default() -> Self {
+        Self {
+            dependent: String::new(),
+            dependent_level: 0,
+            predictors: Vec::new(),
+            exhaustive: false,
+            max_depth: String::new(),
+            min_parent: "100".into(),
+            min_child: "50".into(),
+            targets: String::new(),
+            save: [false; 3],
+        }
+    }
+}
+
+impl Tree {
+    /// `string` tells whether the dependent is a string variable, so the targets get quotes.
+    pub fn syntax(&self, string: bool) -> Result<String, String> {
+        let level = |i: usize| match TREE_LEVELS[i].0 {
+            "" => String::new(),
+            level => format!(" [{level}]"),
+        };
+        if self.dependent.is_empty() {
+            return Err("choose the dependent variable".into());
+        }
+        if self.predictors.is_empty() {
+            return Err("add at least one variable to Predictors".into());
+        }
+        let mut text = format!("TREE {}{} BY", self.dependent, level(self.dependent_level));
+        for (name, l) in &self.predictors {
+            text.push_str(&format!(" {name}{}", level(*l)));
+        }
+        if self.exhaustive {
+            text.push_str("\n  /METHOD TYPE=EXHAUSTIVECHAID");
+        }
+        let depth = whole(&self.max_depth, 1, "the maximum depth")?;
+        let parent = whole(&self.min_parent, 1, "the parent node size")?.unwrap_or(100);
+        let child = whole(&self.min_child, 1, "the child node size")?.unwrap_or(50);
+        if child >= parent {
+            return Err("the child node size must be smaller than the parent node size".into());
+        }
+        let mut limits = String::new();
+        if let Some(depth) = depth {
+            limits.push_str(&format!(" MAXDEPTH={depth}"));
+        }
+        if parent != 100 {
+            limits.push_str(&format!(" MINPARENTSIZE={parent}"));
+        }
+        if child != 50 {
+            limits.push_str(&format!(" MINCHILDSIZE={child}"));
+        }
+        if !limits.is_empty() {
+            text.push_str(&format!("\n  /GROWTHLIMIT{limits}"));
+        }
+        let targets = self
+            .targets
+            .split([' ', ','])
+            .filter(|t| !t.is_empty())
+            .map(|t| value(t, string))
+            .collect::<Result<Vec<_>, _>>()?;
+        if !targets.is_empty() {
+            text.push_str(&format!(
+                "\n  /DEPCATEGORIES TARGET=[{}]",
+                targets.join(" ")
+            ));
+        }
+        let save: Vec<&str> = TREE_SAVE
+            .iter()
+            .zip(self.save)
+            .filter_map(|((keyword, _), on)| on.then_some(*keyword))
+            .collect();
+        if !save.is_empty() {
+            text.push_str(&format!("\n  /SAVE {}", save.join(" ")));
+        }
+        text.push('.');
+        Ok(text)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dialogs::testing::{runs, v};
+    use crate::dialogs::testing::{open, run_in, runs, v};
 
     #[test]
     fn means() {
@@ -989,5 +1252,148 @@ mod tests {
         );
         d.confidence = "40".into();
         assert!(d.syntax().is_err());
+    }
+
+    #[test]
+    fn mult_response_frequencies() {
+        let mut d = MultResponse::default();
+        assert_eq!(d.syntax().unwrap_err(), "define at least one group");
+        d.groups.push(MrGroup::default());
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "give every group a name of one word"
+        );
+        d.groups[0].name = "channels".into();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "add at least one variable to the group channels"
+        );
+        d.groups[0].variables = v(&["q5_1", "q5_2", "q5_3"]);
+        d.groups[0].label = "Contact channels".into();
+        d.groups.push(MrGroup {
+            name: "mentions".into(),
+            variables: v(&["q6_mention1", "q6_mention2", "q6_mention3"]),
+            dichotomy: false,
+            max: "6".into(),
+            ..Default::default()
+        });
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "MULT RESPONSE GROUPS=channels 'Contact channels' (q5_1 q5_2 q5_3 (1))\n  \
+             mentions (q6_mention1 q6_mention2 q6_mention3 (1, 6))\n  \
+             /FREQUENCIES=channels mentions."
+        );
+        // a case summary and a table for each group
+        assert_eq!(runs(&syntax), 3);
+        d.missing_categories = true;
+        let syntax = d.syntax().unwrap();
+        assert!(syntax.ends_with("/FREQUENCIES=channels mentions\n  /MISSING=MRGROUP."));
+        assert_eq!(runs(&syntax), 3);
+        d.groups[1].max = "x".into();
+        assert_eq!(d.syntax().unwrap_err(), "\"x\" is not a number");
+    }
+
+    #[test]
+    fn mult_response_crosstabs() {
+        let mut d = MultResponse {
+            crosstabs: true,
+            groups: vec![MrGroup {
+                name: "channels".into(),
+                variables: v(&["q5_1", "q5_2", "q5_3", "q5_4", "q5_5"]),
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+        assert_eq!(d.syntax().unwrap_err(), "add at least one variable to Rows");
+        d.rows = v(&["channels"]);
+        d.columns = v(&["gender"]);
+        assert_eq!(d.syntax().unwrap_err(), "give the range of gender");
+        d.ranges.push(("gender".into(), "1".into(), "3".into()));
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "MULT RESPONSE GROUPS=channels (q5_1 q5_2 q5_3 q5_4 q5_5 (1))\n  \
+             /VARIABLES=gender (1, 3)\n  /TABLES=channels BY gender."
+        );
+        assert_eq!(runs(&syntax), 2);
+        d.layers = v(&["region"]);
+        d.ranges.push(("region".into(), "1".into(), "5".into()));
+        d.cells = [false, true, false];
+        d.base_responses = true;
+        d.missing_dichotomies = true;
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "MULT RESPONSE GROUPS=channels (q5_1 q5_2 q5_3 q5_4 q5_5 (1))\n  \
+             /VARIABLES=gender (1, 3) region (1, 5)\n  \
+             /TABLES=channels BY gender BY region\n  /MISSING=MDGROUP\n  \
+             /BASE=RESPONSES\n  /CELLS=COUNT COLUMN."
+        );
+        assert!(runs(&syntax) >= 2);
+        // no groups: variables only
+        d.groups.clear();
+        d.rows = v(&["region"]);
+        d.layers.clear();
+        d.missing_dichotomies = false;
+        let syntax = d.syntax().unwrap();
+        assert!(syntax.starts_with("MULT RESPONSE\n  /VARIABLES=region (1, 5) gender (1, 3)"));
+        assert_eq!(runs(&syntax), 2);
+    }
+
+    #[test]
+    fn tree() {
+        let mut d = Tree::default();
+        assert_eq!(
+            d.syntax(false).unwrap_err(),
+            "choose the dependent variable"
+        );
+        d.dependent = "gender".into();
+        assert_eq!(
+            d.syntax(false).unwrap_err(),
+            "add at least one variable to Predictors"
+        );
+        d.predictors = vec![("region".into(), 0), ("age".into(), 3)];
+        let syntax = d.syntax(false).unwrap();
+        assert_eq!(syntax, "TREE gender BY region age [S].");
+        let mut session = open("survey_basic.sav");
+        assert!(run_in(&mut session, &syntax) >= 1);
+
+        d.dependent = "q1_satisfaction".into();
+        d.dependent_level = 2;
+        d.predictors[0].1 = 1;
+        d.exhaustive = true;
+        d.max_depth = "2".into();
+        d.min_parent = "40".into();
+        d.min_child = "20".into();
+        d.targets = "4, 5".into();
+        d.save = [true, true, true];
+        let syntax = d.syntax(false).unwrap();
+        assert_eq!(
+            syntax,
+            "TREE q1_satisfaction [O] BY region [N] age [S]\n  /METHOD TYPE=EXHAUSTIVECHAID\n  \
+             /GROWTHLIMIT MAXDEPTH=2 MINPARENTSIZE=40 MINCHILDSIZE=20\n  \
+             /DEPCATEGORIES TARGET=[4 5]\n  /SAVE NODEID PREDVAL PREDPROB."
+        );
+        assert!(run_in(&mut session, &syntax) >= 1);
+        let data = session.dataset().unwrap();
+        assert!(data.variable("NodeID").is_ok());
+        assert!(data.variable("PredictedValue").is_ok());
+
+        d.min_child = "40".into();
+        assert_eq!(
+            d.syntax(false).unwrap_err(),
+            "the child node size must be smaller than the parent node size"
+        );
+        d.min_child = "20".into();
+        d.max_depth = "0".into();
+        assert_eq!(
+            d.syntax(false).unwrap_err(),
+            "the maximum depth must be a whole number of at least 1"
+        );
+        d.max_depth.clear();
+        d.dependent = "plan".into();
+        d.targets = "BASIC".into();
+        assert!(d.syntax(true).unwrap().contains("TARGET=['BASIC']"));
     }
 }

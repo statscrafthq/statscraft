@@ -1,5 +1,5 @@
-//! The Data menu dialogs: multiple response sets, sorting, splitting, selecting and weighting
-//! cases, aggregating, and merging files.
+//! The Data menu dialogs: multiple response sets, sorting cases and variables, splitting,
+//! selecting and weighting cases, aggregating, merging files and restructuring.
 
 use crate::syntax_text::{names, quote, value};
 
@@ -420,6 +420,163 @@ impl MergeFiles {
     }
 }
 
+/// Keyword and label of every property Sort Variables orders by, in the order shown.
+pub const SORT_VARIABLES_KEYS: [(&str, &str); 10] = [
+    ("NAME", "Name"),
+    ("TYPE", "Type"),
+    ("FORMAT", "Format"),
+    ("LABEL", "Label"),
+    ("VALUES", "Value labels"),
+    ("MISSING", "Missing values"),
+    ("MEASURE", "Measure"),
+    ("ROLE", "Role"),
+    ("COLUMNS", "Columns"),
+    ("ALIGNMENT", "Alignment"),
+];
+
+/// SORT VARIABLES by a property of the dictionary.
+#[derive(Default, Clone, PartialEq, Debug)]
+pub struct SortVariables {
+    /// Index into `SORT_VARIABLES_KEYS`.
+    pub by: usize,
+    pub descending: bool,
+}
+
+impl SortVariables {
+    pub fn syntax(&self) -> Result<String, String> {
+        let direction = if self.descending { " (D)" } else { "" };
+        Ok(format!(
+            "SORT VARIABLES BY {}{direction}.",
+            SORT_VARIABLES_KEYS[self.by].0
+        ))
+    }
+}
+
+/// How Restructure changes the shape of the data.
+#[derive(Clone, Copy, PartialEq, Debug, Default)]
+pub enum RestructureKind {
+    /// Groups of variables become cases: VARSTOCASES.
+    #[default]
+    VariablesToCases,
+    /// Groups of cases become one case each: CASESTOVARS.
+    CasesToVariables,
+    /// Variables become cases and cases variables: FLIP.
+    Transpose,
+}
+
+/// One new variable of VARSTOCASES and the variables it is made from.
+#[derive(Default, Clone, PartialEq, Debug)]
+pub struct Make {
+    pub name: String,
+    pub from: Vec<String>,
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub struct Restructure {
+    pub kind: RestructureKind,
+    /// Variables to cases: the new variables, the index and the case number; empty for none.
+    pub makes: Vec<Make>,
+    pub index: String,
+    pub id: String,
+    /// The variables copied to every new case; empty for all.
+    pub keep: Vec<String>,
+    /// Cases to variables: the identifier and index variables.
+    pub ids: Vec<String>,
+    pub indexes: Vec<String>,
+    /// Sort the cases by the identifier and index variables first, as the groups must be
+    /// adjacent.
+    pub sort: bool,
+    /// GROUPBY=INDEX: the new variables in order of the index rather than of the variable.
+    pub by_index: bool,
+    /// Transpose: the variables, empty for all, and the variable that names the new ones.
+    pub variables: Vec<String>,
+    pub names: String,
+}
+
+impl Default for Restructure {
+    fn default() -> Self {
+        Self {
+            kind: RestructureKind::VariablesToCases,
+            makes: vec![Make::default()],
+            index: "index".into(),
+            id: String::new(),
+            keep: Vec::new(),
+            ids: Vec::new(),
+            indexes: Vec::new(),
+            sort: true,
+            by_index: false,
+            variables: Vec::new(),
+            names: String::new(),
+        }
+    }
+}
+
+impl Restructure {
+    pub fn syntax(&self) -> Result<String, String> {
+        match self.kind {
+            RestructureKind::VariablesToCases => {
+                let mut text = String::from("VARSTOCASES");
+                for make in &self.makes {
+                    let name = make.name.trim();
+                    if name.is_empty() {
+                        return Err("give every new variable a name".into());
+                    }
+                    let from = names(&make.from, name)?;
+                    if make.from.len() != self.makes[0].from.len() {
+                        return Err(
+                            "every new variable needs as many variables as the first".into()
+                        );
+                    }
+                    text.push_str(&format!(" /MAKE {name} FROM {from}"));
+                }
+                for (keyword, name) in [("INDEX", &self.index), ("ID", &self.id)] {
+                    if !name.trim().is_empty() {
+                        text.push_str(&format!("\n  /{keyword}={}", name.trim()));
+                    }
+                }
+                if !self.keep.is_empty() {
+                    text.push_str(&format!("\n  /KEEP={}", self.keep.join(" ")));
+                }
+                text.push('.');
+                Ok(text)
+            }
+            RestructureKind::CasesToVariables => {
+                let ids = names(&self.ids, "Identifier variables")?;
+                let mut text = String::new();
+                if self.sort {
+                    let keys: Vec<&str> = self
+                        .ids
+                        .iter()
+                        .chain(&self.indexes)
+                        .map(String::as_str)
+                        .collect();
+                    text.push_str(&format!("SORT CASES BY {}.\n", keys.join(" ")));
+                }
+                text.push_str(&format!("CASESTOVARS /ID={ids}"));
+                if !self.indexes.is_empty() {
+                    text.push_str(&format!(" /INDEX={}", self.indexes.join(" ")));
+                }
+                if self.by_index {
+                    text.push_str(" /GROUPBY=INDEX");
+                }
+                text.push('.');
+                Ok(text)
+            }
+            RestructureKind::Transpose => {
+                let mut text = String::from("FLIP");
+                if !self.variables.is_empty() {
+                    text.push_str(&format!(" VARIABLES={}", self.variables.join(" ")));
+                }
+                if !self.names.is_empty() {
+                    text.push_str(&format!(" /NEWNAMES={}", self.names));
+                }
+                text.push('.');
+                Ok(text)
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -756,5 +913,97 @@ mod tests {
             d.syntax().unwrap_err(),
             "add at least one variable to Key variables"
         );
+    }
+
+    #[test]
+    fn sort_variables() {
+        let mut d = SortVariables::default();
+        assert_eq!(d.syntax().unwrap(), "SORT VARIABLES BY NAME.");
+        d.descending = true;
+        let syntax = d.syntax().unwrap();
+        assert_eq!(syntax, "SORT VARIABLES BY NAME (D).");
+        let mut session = open("survey_basic.sav");
+        run_in(&mut session, &syntax);
+        assert_eq!(session.dataset().unwrap().variable_at(0).name(), "weight");
+        d.by = 6;
+        assert_eq!(d.syntax().unwrap(), "SORT VARIABLES BY MEASURE (D).");
+        run_in(&mut session, &d.syntax().unwrap());
+    }
+
+    #[test]
+    fn restructure() {
+        let mut d = Restructure::default();
+        assert_eq!(d.syntax().unwrap_err(), "give every new variable a name");
+        d.makes[0].name = "channel".into();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "add at least one variable to channel"
+        );
+        d.makes[0].from = v(&["q5_1", "q5_2", "q5_3"]);
+        d.makes.push(Make {
+            name: "mention".into(),
+            from: v(&["q6_mention1", "q6_mention2"]),
+        });
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "every new variable needs as many variables as the first"
+        );
+        d.makes[1].from.push("q6_mention3".into());
+        d.id = "case".into();
+        d.keep = v(&["resp_id", "gender"]);
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "VARSTOCASES /MAKE channel FROM q5_1 q5_2 q5_3 /MAKE mention FROM q6_mention1 \
+             q6_mention2 q6_mention3\n  /INDEX=index\n  /ID=case\n  /KEEP=resp_id gender."
+        );
+        let mut session = open("survey_basic.sav");
+        let cases = session.dataset().unwrap().case_count();
+        run_in(&mut session, &syntax);
+        let data = session.dataset().unwrap();
+        let names: Vec<&str> = (0..data.variable_count())
+            .map(|i| data.variable_at(i).name())
+            .collect();
+        assert_eq!(
+            names,
+            ["case", "resp_id", "gender", "index", "channel", "mention"]
+        );
+        assert!(data.case_count() > cases);
+
+        d.kind = RestructureKind::CasesToVariables;
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "add at least one variable to Identifier variables"
+        );
+        d.ids = v(&["resp_id"]);
+        d.indexes = v(&["index"]);
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "SORT CASES BY resp_id index.\nCASESTOVARS /ID=resp_id /INDEX=index."
+        );
+        run_in(&mut session, &syntax);
+        assert_eq!(session.dataset().unwrap().case_count(), cases);
+        d.sort = false;
+        d.by_index = true;
+        assert_eq!(
+            d.syntax().unwrap(),
+            "CASESTOVARS /ID=resp_id /INDEX=index /GROUPBY=INDEX."
+        );
+
+        d.kind = RestructureKind::Transpose;
+        assert_eq!(d.syntax().unwrap(), "FLIP.");
+        d.variables = v(&["age", "monthly_spend"]);
+        d.names = "resp_id".into();
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "FLIP VARIABLES=age monthly_spend /NEWNAMES=resp_id."
+        );
+        let mut session = open("survey_basic.sav");
+        run_in(&mut session, &syntax);
+        let data = session.dataset().unwrap();
+        assert_eq!(data.case_count(), 2);
+        assert_eq!(data.variable_count(), cases + 1);
     }
 }

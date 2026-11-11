@@ -2,12 +2,14 @@
 //! with syntax built by the plain modules.
 
 use crate::analyze_dialogs::{
-    Correlations, DUNNETT_SIDES, EQUAL_VARIANCE_TESTS, Explore, ExploreMissing, MEANS_CELLS, Means,
-    ONEWAY_STATISTICS, Oneway, POST_HOC_TESTS, STANDARDIZERS, TTest, TTestKind,
+    Correlations, DUNNETT_SIDES, EQUAL_VARIANCE_TESTS, Explore, ExploreMissing, MEANS_CELLS,
+    MULT_RESPONSE_CELLS, Means, MrGroup, MultResponse, ONEWAY_STATISTICS, Oneway, POST_HOC_TESTS,
+    STANDARDIZERS, TREE_LEVELS, TREE_SAVE, TTest, TTestKind, Tree,
 };
 use crate::data_dialogs::{
     AGGREGATE_FUNCTIONS, Aggregate, AggregateTo, Aggregated, FILTER_VARIABLE, MergeFiles, Mrsets,
-    SelectCases, SelectMode, SortCases, SplitFile, SplitMode, WeightCases,
+    Restructure, RestructureKind, SORT_VARIABLES_KEYS, SelectCases, SelectMode, SortCases,
+    SortVariables, SplitFile, SplitMode, WeightCases,
 };
 use crate::dialogs::{
     Adjust, Autorecode, CROSSTABS_CELLS, Categories, Compute, Count, Crosstabs, CustomTables,
@@ -27,7 +29,7 @@ use eframe::egui::{
     ScrollArea, Sense, Stroke, StrokeKind, TextEdit, TextStyle, Ui, UiBuilder, pos2,
     text::LayoutJob, vec2,
 };
-use statscraft_data::{Dataset, Value, Values};
+use statscraft_data::{Dataset, Measure, Value, Values};
 use statscraft_engine::live::{self, Action, Request, Response};
 use statscraft_engine::session::{Done, Failure, RunResult, Session};
 use std::collections::BTreeSet;
@@ -111,6 +113,10 @@ pub(crate) enum Dialog {
     /// With the function chosen for the next aggregated variables.
     Aggregate(Aggregate, usize),
     MergeFiles(MergeFiles),
+    MultResponse(MultResponse),
+    Tree(Tree),
+    Restructure(Restructure),
+    SortVariables(SortVariables),
 }
 
 impl Dialog {
@@ -137,6 +143,10 @@ impl Dialog {
             Dialog::WeightCases(_) => "Weight Cases",
             Dialog::Aggregate(..) => "Aggregate",
             Dialog::MergeFiles(d) => d.title(),
+            Dialog::MultResponse(d) => d.title(),
+            Dialog::Tree(_) => "Classification Tree",
+            Dialog::Restructure(_) => "Restructure",
+            Dialog::SortVariables(_) => "Sort Variables",
         }
     }
 
@@ -170,6 +180,13 @@ impl Dialog {
                 add_variables: d.add_variables,
                 ..Default::default()
             }),
+            Dialog::MultResponse(d) => Dialog::MultResponse(MultResponse {
+                crosstabs: d.crosstabs,
+                ..Default::default()
+            }),
+            Dialog::Tree(_) => Dialog::Tree(Default::default()),
+            Dialog::Restructure(_) => Dialog::Restructure(Default::default()),
+            Dialog::SortVariables(_) => Dialog::SortVariables(Default::default()),
         }
     }
 
@@ -241,6 +258,30 @@ impl Dialog {
             Dialog::WeightCases(d) => d.syntax(),
             Dialog::Aggregate(d, _) => d.syntax(),
             Dialog::MergeFiles(d) => d.syntax(),
+            Dialog::MultResponse(d) => {
+                let mut names = d.groups.iter().flat_map(|g| &g.variables);
+                match names
+                    .find(|n| is_string(data, n))
+                    .or_else(|| d.table_variables().into_iter().find(|n| is_string(data, n)))
+                {
+                    Some(name) => Err(format!("{name} is a string; the command counts numbers")),
+                    None => d.syntax(),
+                }
+            }
+            Dialog::Tree(d) => {
+                let scale = data
+                    .variable(&d.dependent)
+                    .is_ok_and(|v| v.measure() == Measure::Scale);
+                if scale && TREE_LEVELS[d.dependent_level].0.is_empty() {
+                    return Err(format!(
+                        "{} is a scale variable; choose Nominal or Ordinal",
+                        d.dependent
+                    ));
+                }
+                d.syntax(is_string(data, &d.dependent))
+            }
+            Dialog::Restructure(d) => d.syntax(),
+            Dialog::SortVariables(d) => d.syntax(),
         }
     }
 }
@@ -354,6 +395,8 @@ pub struct App {
     settings: Settings,
     updates: Updates,
     dialog: Option<Dialog>,
+    /// The multiple response groups of the last Multiple Response dialog, for the next one.
+    groups: Vec<MrGroup>,
     picked: Vec<String>,
     filter: String,
     status: Result<String, String>,
@@ -434,6 +477,7 @@ impl App {
             settings,
             updates,
             dialog: None,
+            groups: Vec::new(),
             picked: Vec::new(),
             filter: String::new(),
             status,
@@ -828,6 +872,11 @@ impl App {
                         Dialog::Mrsets(Default::default()),
                     ),
                     ("Sort Cases...", Dialog::SortCases(Default::default())),
+                    (
+                        "Sort Variables...",
+                        Dialog::SortVariables(Default::default()),
+                    ),
+                    ("Restructure...", Dialog::Restructure(Default::default())),
                     ("Split File...", Dialog::SplitFile(split)),
                     ("Select Cases...", Dialog::SelectCases(Default::default())),
                     (
@@ -904,6 +953,23 @@ impl App {
                             self.open_dialog(Dialog::Correlations(Default::default()));
                         }
                     });
+                    ui.menu_button("Classify", |ui| {
+                        if ui.button("Tree...").clicked() {
+                            self.open_dialog(Dialog::Tree(Default::default()));
+                        }
+                    });
+                    ui.menu_button("Multiple Response", |ui| {
+                        for (label, crosstabs) in
+                            [("Frequencies...", false), ("Crosstabs...", true)]
+                        {
+                            if ui.button(label).clicked() {
+                                self.open_dialog(Dialog::MultResponse(MultResponse {
+                                    crosstabs,
+                                    ..Default::default()
+                                }));
+                            }
+                        }
+                    });
                 });
             });
             ui.menu_button("Transform", |ui| {
@@ -969,7 +1035,10 @@ impl App {
         let _ = self.settings.save();
     }
 
-    fn open_dialog(&mut self, dialog: Dialog) {
+    fn open_dialog(&mut self, mut dialog: Dialog) {
+        if let Dialog::MultResponse(d) = &mut dialog {
+            d.groups = self.groups.clone();
+        }
         self.dialog = Some(dialog);
         self.picked.clear();
         self.filter.clear();
@@ -2404,13 +2473,17 @@ impl App {
                 let row = ui.text_style_height(&TextStyle::Monospace);
                 let height = (ctx.content_rect().height() - 150.0 - lines * row).max(160.0);
                 ui.horizontal_top(|ui| {
-                    ui.vertical(|ui| {
-                        ui.set_width(230.0);
-                        let sets = matches!(dialog, Dialog::CustomTables(..));
-                        let list = (height - 90.0).clamp(80.0, 320.0);
-                        variable_picker(ui, data, sets, &mut self.filter, &mut self.picked, list);
-                    });
-                    ui.add_space(12.0);
+                    // Sort Variables takes no variables
+                    if !matches!(dialog, Dialog::SortVariables(_)) {
+                        ui.vertical(|ui| {
+                            ui.set_width(230.0);
+                            let sets = matches!(dialog, Dialog::CustomTables(..));
+                            let list = (height - 90.0).clamp(80.0, 320.0);
+                            let (filter, picked) = (&mut self.filter, &mut self.picked);
+                            variable_picker(ui, data, sets, filter, picked, list);
+                        });
+                        ui.add_space(12.0);
+                    }
                     ScrollArea::vertical()
                         .id_salt("dialog_body")
                         .max_height(height)
@@ -2458,6 +2531,9 @@ impl App {
             });
         if !open {
             action = Some(DialogAction::Cancel);
+        }
+        if let Some(Dialog::MultResponse(d)) = &self.dialog {
+            self.groups.clone_from(&d.groups);
         }
         match (action, syntax) {
             (Some(DialogAction::Ok), Ok(text)) => {
@@ -4025,6 +4101,270 @@ fn dialog_body(
             } else {
                 ui.weak("Variables are matched by name; a variable missing from a file is blank.");
             }
+        }
+        Dialog::MultResponse(d) => {
+            ui.horizontal(|ui| {
+                ui.strong("Groups");
+                if ui
+                    .add_enabled(!picked.is_empty(), egui::Button::new("Add").small())
+                    .clicked()
+                {
+                    d.groups.push(MrGroup {
+                        variables: std::mem::take(picked),
+                        ..Default::default()
+                    });
+                }
+            });
+            if d.groups.is_empty() {
+                ui.weak("empty");
+            }
+            let mut remove = None;
+            for (i, g) in d.groups.iter_mut().enumerate() {
+                ui.push_id(("group", i), |ui| {
+                    egui::Frame::group(ui.style()).show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Name");
+                            ui.add(TextEdit::singleline(&mut g.name).desired_width(110.0));
+                            ui.label("Label");
+                            ui.add(TextEdit::singleline(&mut g.label).desired_width(170.0));
+                            if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
+                                remove = Some(i);
+                            }
+                        });
+                        ui.horizontal(|ui| {
+                            ui.radio_value(&mut g.dichotomy, true, "Dichotomies, counted value");
+                            ui.add_enabled(
+                                g.dichotomy,
+                                TextEdit::singleline(&mut g.value).desired_width(40.0),
+                            );
+                        });
+                        ui.horizontal(|ui| {
+                            ui.radio_value(&mut g.dichotomy, false, "Categories from");
+                            if !g.dichotomy {
+                                ui.add(TextEdit::singleline(&mut g.value).desired_width(40.0));
+                                ui.label("through");
+                                ui.add(TextEdit::singleline(&mut g.max).desired_width(40.0));
+                            }
+                        });
+                        target_list(ui, "Variables", &mut g.variables, picked);
+                    });
+                });
+            }
+            if let Some(i) = remove {
+                d.groups.remove(i);
+            }
+            if d.crosstabs {
+                ui.add_space(6.0);
+                let groups: Vec<String> = d
+                    .groups
+                    .iter()
+                    .map(|g| g.name.trim().to_string())
+                    .filter(|n| !n.is_empty())
+                    .collect();
+                for (title, list) in [
+                    ("Rows", &mut d.rows),
+                    ("Columns", &mut d.columns),
+                    ("Layers", &mut d.layers),
+                ] {
+                    target_list(ui, title, list, picked);
+                    if !groups.is_empty() {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label("Add group");
+                            for name in &groups {
+                                if ui.small_button(name).clicked() && !list.contains(name) {
+                                    list.push(name.clone());
+                                }
+                            }
+                        });
+                    }
+                }
+                let variables: Vec<String> = d.table_variables().into_iter().cloned().collect();
+                if !variables.is_empty() {
+                    ui.add_space(6.0);
+                    ui.strong("Ranges of the variables");
+                }
+                for name in variables {
+                    if !d.ranges.iter().any(|(n, ..)| *n == name) {
+                        // the lowest and highest labelled values, as a start
+                        let codes: Vec<f64> = data
+                            .variable(&name)
+                            .map(|v| {
+                                v.value_labels()
+                                    .iter()
+                                    .filter_map(|(value, _)| match value {
+                                        Value::Number(n) => Some(*n),
+                                        Value::String(_) => None,
+                                    })
+                                    .collect()
+                            })
+                            .unwrap_or_default();
+                        let bound = |f: fn(f64, f64) -> f64| {
+                            codes
+                                .iter()
+                                .copied()
+                                .reduce(f)
+                                .map(number)
+                                .unwrap_or_default()
+                        };
+                        d.ranges
+                            .push((name.clone(), bound(f64::min), bound(f64::max)));
+                    }
+                    if let Some((_, min, max)) = d.ranges.iter_mut().find(|(n, ..)| *n == name) {
+                        ui.horizontal(|ui| {
+                            ui.label(name.as_str());
+                            ui.add(TextEdit::singleline(min).desired_width(40.0));
+                            ui.label("through");
+                            ui.add(TextEdit::singleline(max).desired_width(40.0));
+                        });
+                    }
+                }
+                ui.add_space(6.0);
+                ui.strong("Cells");
+                checkboxes(ui, &MULT_RESPONSE_CELLS, &mut d.cells);
+                ui.add_enabled_ui(d.cells.contains(&true), |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Percentages based on");
+                        ui.radio_value(&mut d.base_responses, false, "cases");
+                        ui.radio_value(&mut d.base_responses, true, "responses");
+                    });
+                });
+            }
+            ui.add_space(6.0);
+            ui.strong("Missing values");
+            ui.checkbox(
+                &mut d.missing_dichotomies,
+                "Leave out a case missing on any variable of a dichotomy group",
+            );
+            ui.checkbox(
+                &mut d.missing_categories,
+                "Leave out a case missing on any variable of a category group",
+            );
+        }
+        Dialog::Tree(d) => {
+            target_one(ui, "Dependent variable", &mut d.dependent, picked);
+            choice(ui, "Level", &TREE_LEVELS[..3], &mut d.dependent_level);
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.strong("Predictors");
+                if ui
+                    .add_enabled(!picked.is_empty(), egui::Button::new("Add").small())
+                    .clicked()
+                {
+                    for name in picked.drain(..) {
+                        if !d.predictors.iter().any(|(p, _)| p == &name) {
+                            d.predictors.push((name, 0));
+                        }
+                    }
+                }
+            });
+            if d.predictors.is_empty() {
+                ui.weak("empty");
+            }
+            let mut remove = None;
+            egui::Grid::new("predictors").num_columns(3).show(ui, |ui| {
+                for (i, (name, level)) in d.predictors.iter_mut().enumerate() {
+                    ui.label(name.as_str());
+                    ComboBox::from_id_salt(("predictor level", i))
+                        .selected_text(TREE_LEVELS[*level].1)
+                        .show_index(ui, level, TREE_LEVELS.len(), |i| TREE_LEVELS[i].1);
+                    if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
+                        remove = Some(i);
+                    }
+                    ui.end_row();
+                }
+            });
+            if let Some(i) = remove {
+                d.predictors.remove(i);
+            }
+            ui.add_space(6.0);
+            ui.horizontal(|ui| {
+                ui.strong("Method");
+                ui.radio_value(&mut d.exhaustive, false, "CHAID");
+                ui.radio_value(&mut d.exhaustive, true, "Exhaustive CHAID");
+            });
+            ui.add_space(6.0);
+            ui.strong("Growth limits");
+            field(
+                ui,
+                "Maximum depth, empty for automatic",
+                &mut d.max_depth,
+                40.0,
+            );
+            field(ui, "Fewest cases in a parent node", &mut d.min_parent, 50.0);
+            field(ui, "Fewest cases in a child node", &mut d.min_child, 50.0);
+            ui.add_space(6.0);
+            field(ui, "Target categories", &mut d.targets, 160.0);
+            ui.add_space(6.0);
+            ui.strong("Save");
+            checkboxes(ui, &TREE_SAVE, &mut d.save);
+        }
+        Dialog::Restructure(d) => {
+            ui.radio_value(
+                &mut d.kind,
+                RestructureKind::VariablesToCases,
+                "Variables to cases",
+            );
+            ui.radio_value(
+                &mut d.kind,
+                RestructureKind::CasesToVariables,
+                "Cases to variables",
+            );
+            ui.radio_value(
+                &mut d.kind,
+                RestructureKind::Transpose,
+                "Transpose cases and variables",
+            );
+            ui.add_space(6.0);
+            match d.kind {
+                RestructureKind::VariablesToCases => {
+                    let mut remove = None;
+                    for (i, make) in d.makes.iter_mut().enumerate() {
+                        ui.push_id(("make", i), |ui| {
+                            ui.horizontal(|ui| {
+                                ui.label("New variable");
+                                ui.add(TextEdit::singleline(&mut make.name).desired_width(120.0));
+                                if i > 0
+                                    && ui.small_button("\u{d7}").on_hover_text("Remove").clicked()
+                                {
+                                    remove = Some(i);
+                                }
+                            });
+                            target_list(ui, "Made from", &mut make.from, picked);
+                        });
+                    }
+                    if let Some(i) = remove {
+                        d.makes.remove(i);
+                    }
+                    if ui.button("Another new variable").clicked() {
+                        d.makes.push(Default::default());
+                    }
+                    ui.add_space(6.0);
+                    field(ui, "Index variable", &mut d.index, 120.0);
+                    field(ui, "Case number variable", &mut d.id, 120.0);
+                    target_list(ui, "Copied variables, empty for all", &mut d.keep, picked);
+                }
+                RestructureKind::CasesToVariables => {
+                    target_list(ui, "Identifier variables", &mut d.ids, picked);
+                    target_list(ui, "Index variables", &mut d.indexes, picked);
+                    ui.checkbox(&mut d.sort, "Sort the cases by these variables first");
+                    ui.horizontal(|ui| {
+                        ui.label("New variables in order of the");
+                        ui.radio_value(&mut d.by_index, false, "variable");
+                        ui.radio_value(&mut d.by_index, true, "index");
+                    });
+                }
+                RestructureKind::Transpose => {
+                    target_list(ui, "Variables, empty for all", &mut d.variables, picked);
+                    target_one(ui, "Name the new variables by", &mut d.names, picked);
+                }
+            }
+        }
+        Dialog::SortVariables(d) => {
+            choice(ui, "Sort the variables by", &SORT_VARIABLES_KEYS, &mut d.by);
+            ui.horizontal(|ui| {
+                ui.radio_value(&mut d.descending, false, "Ascending");
+                ui.radio_value(&mut d.descending, true, "Descending");
+            });
         }
         Dialog::Rank(d) => {
             target_list(ui, "Variables", &mut d.variables, picked);

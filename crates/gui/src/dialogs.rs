@@ -57,7 +57,7 @@ impl Default for Frequencies {
 }
 
 /// A whole number of at least `least` the user typed, or None for an empty field.
-fn whole(text: &str, least: u32, what: &str) -> Result<Option<u32>, String> {
+pub(crate) fn whole(text: &str, least: u32, what: &str) -> Result<Option<u32>, String> {
     let text = text.trim();
     if text.is_empty() {
         return Ok(None);
