@@ -26,7 +26,7 @@ use statscraft_syntax::{CorrelationsLayout, NonparCorr};
 
 /// The average ranks of `values` (each standing for `weights` cases), and over the groups of
 /// t tied cases the sums of t^2 - t, (t^2 - t)(t - 2) and (t^2 - t)(2t + 5).
-fn ranks(values: &[f64], weights: &[f64]) -> (Vec<f64>, [f64; 3]) {
+pub(crate) fn ranks(values: &[f64], weights: &[f64]) -> (Vec<f64>, [f64; 3]) {
     let mut order: Vec<usize> = (0..values.len()).collect();
     order.sort_by(|&a, &b| values[a].total_cmp(&values[b]));
     let mut ranks = vec![0.0; values.len()];

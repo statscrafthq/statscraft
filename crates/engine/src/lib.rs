@@ -21,7 +21,10 @@ mod merge;
 mod mrsets;
 mod mult_response;
 mod nonpar_corr;
+mod npar_groups;
+mod npar_tests;
 mod oneway;
+mod partial_corr;
 mod pass;
 mod random;
 mod rank;
@@ -504,6 +507,8 @@ impl Engine {
             | Command::Oneway(_)
             | Command::Correlations(_)
             | Command::NonparCorr(_)
+            | Command::NparTests(_)
+            | Command::PartialCorr(_)
             | Command::Examine(_)
             | Command::Tree(_)
             | Command::Rank(_)
@@ -671,6 +676,8 @@ impl Engine {
             Command::Oneway(command) => self.oneway(command),
             Command::Correlations(command) => self.correlations(command),
             Command::NonparCorr(command) => self.nonpar_corr(command),
+            Command::NparTests(command) => self.npar_tests(command),
+            Command::PartialCorr(command) => self.partial_corr(command),
             Command::Examine(command) => self.examine(command),
             Command::Tree(command) => self.tree(command),
             Command::Rank(command) => self.rank(command),
