@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.0 (2026-11-11)
+
+- Closing the window asks about unsaved data and syntax (Save, Don't save, Cancel); so do New syntax, Open syntax and Restart now. Nothing unsaved closes without asking.
+- One Settings dialog (Edit > Settings) for the editor, grids and output, and updates; the quick menus no longer hold settings.
+- Grids: select with the mouse by clicking or dragging over cells, headers and row numbers; Delete clears the selected cells; system-missing shows as a grey dot; numbers stay right-aligned when their labels are too long for the cell; no shadows anywhere.
+- A shorter right-click menu on columns and Variable View rows: sort, Frequencies, Descriptives, rename, insert, copy, delete.
+- Analyze dialogs for Linear Regression, Reliability Analysis, the Nonparametric Tests and Partial Correlations.
+- New commands: TITLE, SUBTITLE, ECHO, NEW FILE, CLEAR TRANSFORMATIONS, ERASE, SYSFILE INFO, PERMISSIONS, DATE, PRINT, PRINT EJECT, PRINT SPACE, WRITE, PRINT FORMATS, WRITE FORMATS and XSAVE. HOST is refused for safety.
+
 ## 0.3.0 (2026-11-11)
 
 - New procedures: REGRESSION (linear, with stepwise methods, statistics and saved variables), RELIABILITY (alpha, split-half, Guttman, parallel models, intraclass correlations), NPAR TESTS (every one-sample, independent and related samples test, exact where the manual says), PARTIAL CORR, MULT RESPONSE and TREE (CHAID and exhaustive CHAID).
