@@ -127,8 +127,10 @@ jobs:
       contents: write
     steps:
       - uses: actions/checkout@v7
+      # skip-decompress: every artifact is one file as it is, and the .zip must stay a .zip
       - uses: actions/download-artifact@v8
         with:
+          skip-decompress: true
           path: packages
           merge-multiple: true
       - run: cd packages && sha256sum -- * > SHA256SUMS && cat SHA256SUMS
