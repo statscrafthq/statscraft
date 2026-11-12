@@ -899,6 +899,8 @@ impl Tables<'_> {
             column_groups,
             rows,
             caption: Some(format!("Weighting constants: {}.", constants.join("; "))),
+            outline: None,
+            hidden: false,
         }
     }
 

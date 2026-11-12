@@ -1788,6 +1788,8 @@ impl Engine {
                 rows: out_rows,
                 formats,
                 caption: caption.clone(),
+                outline: None,
+                hidden: false,
             };
             // the tests do not depend on the summary of a layer, so they run once per category
             let tests = if tested_layers.contains(&(layer.term, &layer.combo[..])) {

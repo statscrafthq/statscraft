@@ -1119,6 +1119,8 @@ mod tests {
             error_bars: None,
             second_axis: None,
             plot: None,
+            outline: None,
+            hidden: false,
         }
     }
 

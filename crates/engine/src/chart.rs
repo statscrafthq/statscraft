@@ -52,6 +52,12 @@ pub struct Chart {
     /// and series are then empty, and the category axis is the horizontal one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub plot: Option<crate::plot::Plot>,
+    /// The label in the window's outline when OUTPUT MODIFY gave one; else the title shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outline: Option<String>,
+    /// Hidden by OUTPUT MODIFY, as a table can be.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -291,7 +297,16 @@ impl Chart {
 
     /// The chart's numbers as a table: a row per category, a column per series; the caption
     /// says what kind of chart it is. The text output and the window show charts this way.
+    /// The chart as a table of its numbers, outline label and hidden state included.
     pub fn data_table(&self) -> Table {
+        Table {
+            outline: self.outline.clone(),
+            hidden: self.hidden,
+            ..self.numbers_table()
+        }
+    }
+
+    fn numbers_table(&self) -> Table {
         let mut caption = format!("{}.", self.kind_text());
         if let Some(subtitle) = &self.subtitle {
             caption = format!("{caption} {subtitle}.");
@@ -364,6 +379,8 @@ impl Chart {
             rows,
             formats,
             caption: Some(caption),
+            outline: None,
+            hidden: false,
         }
     }
 }

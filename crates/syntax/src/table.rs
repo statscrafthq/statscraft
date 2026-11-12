@@ -28,6 +28,7 @@ use crate::nomreg;
 use crate::npar;
 use crate::output;
 use crate::output_docs;
+use crate::output_modify;
 use crate::parser::{PResult, Parser};
 use crate::portable;
 use crate::procedures;
@@ -2021,8 +2022,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/BMP [IMAGEROOT='root'] [PERCENTSIZE=n] [COMPRESS=NO | YES]]\n\
                  \x20  [/TIF [IMAGEROOT='root'] [PERCENTSIZE=n]] [/EMF ...] [/EPS ...].\n\
                  Writes the tables and charts that the designated document (NAME=*) or the named one holds so\n\
-                 far, in order; an existing file is replaced. Subcommands and keywords are spelled in full. Every\n\
-                 table is visible and has one layer, so CONTENTS changes nothing. NOTESCAPTIONS=NO leaves out\n\
+                 far, in order; an existing file is replaced. Subcommands and keywords are spelled in full.\n\
+                 CONTENTS EXPORT=VISIBLE leaves out what OUTPUT MODIFY hid; every table has one layer, so\n\
+                 LAYERS and MODELVIEWS change nothing. NOTESCAPTIONS=NO leaves out\n\
                  the notes under the tables. XLSX puts the tables one below the other on one sheet, named by\n\
                  SHEET or Tables, laid out as the Excel export of the window. CREATESHEET and MODIFYSHEET add\n\
                  to a workbook that OUTPUT EXPORT wrote earlier in the session and that has not changed since;\n\
@@ -2084,6 +2086,50 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  read. LOCK and PASSWORD change nothing.",
         example: "OUTPUT OPEN FILE='wave2-results.scout' NAME=wave2.",
         parse: output_docs::output_open,
+    },
+    CommandSpec {
+        name: "OUTPUT MODIFY",
+        summary: "Delete, hide, rename, sort, transpose or reformat items of an output document.",
+        syntax: "OUTPUT MODIFY [NAME=* | ALL | name] [/REPORT PRINTREPORT=NO | YES]\n\
+                 \x20  /SELECT kinds | ALL [EXCEPT (kinds)]\n\
+                 \x20  [/IF [COMMANDS=['name' 'name(n)' 'name(LAST)' LAST]] [SUBTYPES=['title' ...]]\n\
+                 \x20       [LABELS=[EXACT('t') BEGINS('t') ENDS('t') CONTAINS('t')]] [INSTANCES=[n ... LAST]]\n\
+                 \x20       [VISIBLEONLY=NO | YES]]\n\
+                 \x20  [/DELETEOBJECT DELETE=NO | YES]\n\
+                 \x20  [/INDEXING [INDEXTYPE=NUMBER | LETTERLOW | LETTERCAP | ROMANLOW | ROMANCAP] [INDEXSTART=n | 'a']]\n\
+                 \x20  [/OBJECTPROPERTIES [VISIBLE=ASIS | YES | NO] [OUTLINELABEL='text'] [SIZE=...]]\n\
+                 \x20  [/TABLE [TABLETITLE='text'] [TRANSPOSE=NO | YES] [SORT=COLLABEL('label') | COLPOSITION(n)]\n\
+                 \x20       [SORTDIRECTION=ASCENDING | DESCENDING] [TLOOK=...] [SELECTEDLAYER=[...]] [TABLESUMMARY='text'] [PIVOT=[...]]]\n\
+                 \x20  [/TABLECELLS SELECT=['label' POSITION(n) BODY HEADERS TITLE CAPTION FOOTNOTES COUNT MEAN ...]\n\
+                 \x20       [SELECTDIMENSION=BOTH | COLUMNS | ROWS] [SELECTCONDITION=[ALL 'x<0.05' TOP(n) BOTTOM(n)]]\n\
+                 \x20       [APPLYTO=CELL | COLUMN | ROW | COLUMNDATA | ROWDATA | COLUMNHEADER | ROWHEADER]\n\
+                 \x20       [FORMAT=F8.2] [REPLACE='text' | number] [HIDE=NO | YES] [style keywords]]\n\
+                 \x20  [/GRAPHS ...] [/TEXTS [TEXT='text'] ...]\n\
+                 \x20  [/SELECT ... another block].\n\
+                 Works on the items the designated document (or NAME, or ALL documents) holds when it runs.\n\
+                 Each block begins with /SELECT and runs on what the blocks before it left. Kinds: TABLES,\n\
+                 CHARTS, HEADINGS and OUTLINEHEADERS (the heading over each command's items), PAGETITLE (the\n\
+                 output of TITLE and SUBTITLE) and UNKNOWN; LOGS, TEXTS, WARNINGS, NOTES, MODELS, TREES and\n\
+                 OTHER pick nothing, as Statscraft documents have no such items. /IF keeps the items that meet\n\
+                 every condition: COMMANDS names commands as written in the outline, such as 'Means', with (n)\n\
+                 for the nth run or (LAST); LAST alone is the document's last command. SUBTYPES match table\n\
+                 titles, any case. LABELS test the outline text, case counts. INSTANCES pick the nth item\n\
+                 within each command. DELETE=YES removes the items; a heading goes with its command's items.\n\
+                 VISIBLE=NO hides items: the window and OUTPUT EXPORT with /CONTENTS EXPORT=VISIBLE leave them\n\
+                 out, the document and its file keep them. OUTLINELABEL, TABLETITLE and TEXT take )LABEL (the\n\
+                 text so far), )INDEX (from INDEXING, else 1, 2, 3), )DATE, )ADATE, )SDATE, )EDATE, )TIME and\n\
+                 )ETIME. SORT orders the rows by a column; empty cells go last, rows labelled Total stay, and a\n\
+                 table with nested row labels stays as it is. TABLECELLS picks rows or columns by label (any\n\
+                 header level) or position, keeps the cells that meet every comparison on x (ABS(x), SYSMIS,\n\
+                 numbers or quoted text) and then TOP or BOTTOM, and changes what APPLYTO names: FORMAT\n\
+                 changes how numbers show, REPLACE puts in a value, HIDE takes the picked rows or columns out.\n\
+                 Keywords may be shortened to three letters. Fonts, colors, styles, sizes, column widths,\n\
+                 table looks, layers, PIVOT, UNGROUP and chart templates change nothing and say so in a\n\
+                 warning. PARENT and CHILD conditions are not supported. PRINTREPORT=YES adds a table of\n\
+                 what changed.",
+        example: "OUTPUT MODIFY /SELECT TABLES /IF COMMANDS=['Means'] /TABLE SORT=COLLABEL('Mean')\n\
+                 \x20 SORTDIRECTION=DESCENDING /TABLECELLS SELECT=['Mean'] SELECTDIMENSION=COLUMNS FORMAT=F8.1.",
+        parse: output_modify::output_modify,
     },
     CommandSpec {
         name: "USE",
@@ -2529,7 +2575,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
 
 /// Commands of the language that have no parser yet. They get "not supported yet" instead of
 /// "unknown command", and their bodies are not tokenised.
-static UNSUPPORTED: &[&str] = &["OUTPUT MODIFY"];
+static UNSUPPORTED: &[&str] = &[];
 
 /// The ends of blocks whose start reads them, such as END DATA after BEGIN DATA. Standing
 /// alone they are an error at their own line.

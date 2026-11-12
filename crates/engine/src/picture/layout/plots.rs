@@ -605,6 +605,8 @@ mod tests {
             error_bars: None,
             second_axis: None,
             plot: Some(plot),
+            outline: None,
+            hidden: false,
         }
     }
 

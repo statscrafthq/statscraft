@@ -46,6 +46,7 @@ mod nomreg;
 mod npar;
 mod output;
 mod output_docs;
+mod output_modify;
 mod parser;
 mod portable;
 mod preprocess;
@@ -157,6 +158,11 @@ pub use output::{
 pub use output_docs::{
     ExportTarget, ImageExport, ImageFormat, ImageTone, OutputCommand, OutputExport, OutputOpen,
     OutputSave, SheetLocation, SheetOperation, TextEncoding,
+};
+pub use output_modify::{
+    ApplyTo, CellArea, CellCondition, CommandPick, CompareOp, CompareValue, Dimension, IndexStyle,
+    Indexing, Instance, ItemKind, LabelTest, ModifyBlock, ModifyTarget, OutputModify, SortColumn,
+    TableCells, letters, roman,
 };
 pub use preprocess::{FileHandle, MacroState};
 pub use regression::{

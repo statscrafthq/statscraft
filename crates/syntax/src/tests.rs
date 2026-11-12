@@ -378,19 +378,9 @@ fn unknown_command_gets_a_did_you_mean_hint() {
 }
 
 #[test]
-fn real_but_unsupported_commands_say_so() {
-    for (source, name) in [
-        ("output modify /select tables.", "OUTPUT MODIFY"),
-        ("OUTPUT MOD /SELECT TABLES.", "OUTPUT MODIFY"),
-    ] {
-        let error = err(source);
-        assert_eq!(
-            error.message,
-            format!("{name} is not supported yet; run `statscraft help` for the commands")
-        );
-        assert_eq!(at(&error), (1, 1));
-        assert_eq!(error.hint, None);
-    }
+fn every_recognised_command_runs() {
+    // the list of commands recognised before they run is empty now; a new entry gets a test here
+    assert!(crate::unsupported_commands().is_empty());
 }
 
 #[test]

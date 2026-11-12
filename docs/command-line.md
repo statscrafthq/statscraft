@@ -109,7 +109,7 @@ statscraft help FREQUENCIES         syntax, notes and an example of one command
 statscraft help freq                names may be lowercase and shortened, as in syntax
 ```
 
-A command of the language that Statscraft does not run yet (for example `statscraft help OUTPUT MODIFY`) gets "is a command of the language, but it is not supported yet". An unknown name is an error. The same text, one page per command, is in [commands](commands/README.md).
+An unknown name is an error. The same text, one page per command, is in [commands](commands/README.md).
 
 ## Sessions and line ranges
 

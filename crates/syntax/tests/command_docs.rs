@@ -172,6 +172,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "OUTPUT EXPORT",
             "OUTPUT SAVE",
             "OUTPUT OPEN",
+            "OUTPUT MODIFY",
             "FINISH",
         ],
     ),
@@ -273,13 +274,16 @@ fn index() -> String {
         "\n## General rules of the language\n\n```text\n{}```\n",
         rules
     ));
-    out.push_str(
-        "\n## Not supported yet\n\nThese commands of the language are recognized, but Statscraft \
-         does not run them yet. A script that uses one stops with the error \
-         \"... is not supported yet\" at its line, and nothing is changed.\n\n",
-    );
-    out.push_str(&escape(&unsupported_commands().join(", ")));
-    out.push('\n');
+    // the section is left out while every recognized command runs
+    if !unsupported_commands().is_empty() {
+        out.push_str(
+            "\n## Not supported yet\n\nThese commands of the language are recognized, but Statscraft \
+             does not run them yet. A script that uses one stops with the error \
+             \"... is not supported yet\" at its line, and nothing is changed.\n\n",
+        );
+        out.push_str(&escape(&unsupported_commands().join(", ")));
+        out.push('\n');
+    }
     out
 }
 

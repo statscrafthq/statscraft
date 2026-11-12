@@ -631,6 +631,8 @@ impl Context<'_> {
             plot: None,
             error_bars,
             second_axis: None,
+            outline: None,
+            hidden: false,
         })
     }
 
@@ -713,6 +715,8 @@ impl Context<'_> {
             plot: None,
             error_bars: None,
             second_axis: None,
+            outline: None,
+            hidden: false,
         })
     }
 

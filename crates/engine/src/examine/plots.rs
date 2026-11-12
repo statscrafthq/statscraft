@@ -554,6 +554,8 @@ fn levene_table(rows: Vec<Vec<(f64, f64)>>, r: &CellResult, power: Option<f64>) 
             0.0 => "On the natural logs of the values.".to_string(),
             a => format!("On the values raised to the power {}.", short(a)),
         }),
+        outline: None,
+        hidden: false,
     }
 }
 

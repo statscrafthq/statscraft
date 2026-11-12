@@ -173,6 +173,8 @@ impl Chart {
             error_bars: None,
             second_axis: None,
             plot: Some(plot),
+            outline: None,
+            hidden: false,
         }
     }
 
@@ -201,6 +203,8 @@ impl Chart {
             error_bars: None,
             second_axis: None,
             plot: None,
+            outline: None,
+            hidden: false,
         }
     }
 }
@@ -825,6 +829,8 @@ impl Table {
             rows,
             formats,
             caption: Some(caption),
+            outline: None,
+            hidden: false,
         }
     }
 }

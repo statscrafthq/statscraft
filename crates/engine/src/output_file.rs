@@ -34,6 +34,8 @@
 //!   under the key `chart`, as it has a `kind` of its own).
 //!   Any kind may stand at the top level. An item of another kind is kept as it was read and
 //!   written back unchanged; the window shows it as one line naming the kind.
+//! - What OUTPUT MODIFY changes is kept in optional fields: `label` on a command (its new
+//!   heading), `outline` and `hidden` on a table or a chart.
 //! - The writer puts keys in a fixed order, an array of plain values on one line (so a table
 //!   row is one line), whole numbers without a fraction and no date, so files diff well.
 //! - A table cell holding a number that is not finite is written as its text; a chart number
@@ -70,9 +72,18 @@ pub enum Item {
 #[derive(Debug, Clone, Default)]
 pub struct CommandItem {
     pub command: String,
+    /// The heading OUTPUT MODIFY gave it; None shows the command name.
+    pub label: Option<String>,
     pub syntax: String,
     pub warnings: Vec<String>,
     pub items: Vec<Item>,
+}
+
+impl CommandItem {
+    /// The heading it shows under: its label, else the command name.
+    pub fn heading(&self) -> &str {
+        self.label.as_deref().unwrap_or(&self.command)
+    }
 }
 
 impl Item {
@@ -96,7 +107,7 @@ impl Item {
             }
             Item::Command(c) => (
                 Table {
-                    title: c.command.clone(),
+                    title: c.heading().to_string(),
                     ..Table::default()
                 },
                 None,
@@ -132,7 +143,7 @@ pub fn by_command(items: &[Item]) -> Vec<Shown> {
         .map(|item| match item {
             Item::Command(c) => {
                 let shown = leaves(&c.items).into_iter().map(|(_, l)| l.shown());
-                (c.command.clone(), c.syntax.clone(), shown.collect())
+                (c.heading().to_string(), c.syntax.clone(), shown.collect())
             }
             leaf => {
                 let shown = leaf.shown();
@@ -148,21 +159,38 @@ pub(crate) fn remove(items: &mut Vec<Item>, positions: &[usize]) -> bool {
     if positions.iter().any(|&p| p >= leaves(items).len()) {
         return false;
     }
-    fn walk(items: &mut Vec<Item>, positions: &[usize], next: &mut usize) {
+    retain(items, |_| true, |p| !positions.contains(&p));
+    true
+}
+
+/// Keeps the commands (numbered depth first, from 0) and the leaves (numbered as `leaves`
+/// numbers them) that `command` and `leaf` keep. A command goes with all it holds, and a
+/// command left without leaves goes too.
+pub(crate) fn retain(
+    items: &mut Vec<Item>,
+    command: impl Fn(usize) -> bool,
+    leaf: impl Fn(usize) -> bool,
+) {
+    fn walk(
+        items: &mut Vec<Item>,
+        keep: &(impl Fn(usize) -> bool, impl Fn(usize) -> bool),
+        next: &mut (usize, usize),
+    ) {
         items.retain_mut(|item| match item {
             Item::Command(c) => {
+                next.0 += 1;
+                let kept = keep.0(next.0 - 1);
                 let before = leaves(&c.items).len();
-                walk(&mut c.items, positions, next);
-                before == 0 || !leaves(&c.items).is_empty()
+                walk(&mut c.items, keep, next);
+                kept && (before == 0 || !leaves(&c.items).is_empty())
             }
             _ => {
-                *next += 1;
-                !positions.contains(&(*next - 1))
+                next.1 += 1;
+                keep.1(next.1 - 1)
             }
         });
     }
-    walk(items, positions, &mut 0);
-    true
+    walk(items, &(command, leaf), &mut (0, 0));
 }
 
 /// The text of an output file holding `items`.
@@ -194,6 +222,9 @@ fn item_value(item: &Item) -> Value {
             let mut map = Map::new();
             map.insert("kind".into(), "command".into());
             map.insert("command".into(), c.command.clone().into());
+            if let Some(label) = &c.label {
+                map.insert("label".into(), label.clone().into());
+            }
             map.insert("syntax".into(), c.syntax.clone().into());
             map.insert("warnings".into(), c.warnings.clone().into());
             map.insert("items".into(), c.items.iter().map(item_value).collect());
@@ -330,6 +361,10 @@ fn read_item(value: &Value) -> Result<Item, ReadError> {
             }?;
             Ok(Item::Command(CommandItem {
                 command: text("command").into(),
+                label: value
+                    .get("label")
+                    .and_then(Value::as_str)
+                    .map(str::to_string),
                 syntax: text("syntax").into(),
                 warnings: warnings.unwrap_or_default(),
                 items,

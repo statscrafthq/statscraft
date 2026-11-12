@@ -60,8 +60,8 @@ use std::time::SystemTime;
 /// The open output documents.
 #[derive(Clone, Default)]
 pub(crate) struct Documents {
-    open: Vec<Document>,
-    designated: Option<usize>,
+    pub(crate) open: Vec<Document>,
+    pub(crate) designated: Option<usize>,
     /// The number of the last DocumentN name given.
     numbered: usize,
     /// The workbooks OUTPUT EXPORT wrote, by path, which later exports may add sheets to.
@@ -73,17 +73,19 @@ pub(crate) struct Documents {
     /// What the last OUTPUT OPEN read: the document's name, the file as written and its items,
     /// for the command's result.
     opened: Option<(String, String, Vec<output_file::Item>)>,
+    /// What the last OUTPUT MODIFY changed, for the command's result.
+    pub(crate) modified: Vec<crate::output_modify::Modified>,
 }
 
 #[derive(Clone)]
-struct Document {
-    name: String,
+pub(crate) struct Document {
+    pub(crate) name: String,
     /// The output of each command, in order, as an output file holds it.
-    items: Vec<output_file::Item>,
+    pub(crate) items: Vec<output_file::Item>,
     /// The file it was opened from or last saved to.
     file: Option<PathBuf>,
-    /// Items were added or deleted since it was opened, saved or started.
-    changed: bool,
+    /// Items were added, changed or deleted since it was opened, saved or started.
+    pub(crate) changed: bool,
 }
 
 impl Document {
@@ -314,6 +316,7 @@ impl Engine {
             Some(Out::Command(last)) if append => last.items.extend(items),
             _ => document.items.push(Out::Command(CommandItem {
                 command: command.to_string(),
+                label: None,
                 syntax: syntax.to_string(),
                 warnings,
                 items,
@@ -373,8 +376,17 @@ impl Engine {
         Ok(titles)
     }
 
+    /// What the last OUTPUT MODIFY changed, taken.
+    pub(crate) fn take_modified(&mut self) -> Vec<crate::output_modify::Modified> {
+        std::mem::take(&mut self.documents.modified)
+    }
+
     /// The document `name` names, else the designated one; None when none is open.
-    fn document_at(&self, command: &str, name: Option<&str>) -> Result<Option<usize>, Error> {
+    pub(crate) fn document_at(
+        &self,
+        command: &str,
+        name: Option<&str>,
+    ) -> Result<Option<usize>, Error> {
         let documents = &self.documents;
         match name {
             None => Ok(documents.designated),
@@ -522,13 +534,16 @@ impl Engine {
             OutputCommand::Export(export) => self.export(export)?,
             OutputCommand::Save(save) => self.save_output(save)?,
             OutputCommand::Open(open) => self.open_output(open)?,
+            OutputCommand::Modify(modify) => return self.output_modify(modify),
         }
         Ok(Vec::new())
     }
 
     fn export(&mut self, export: &OutputExport) -> Result<(), Error> {
         let at = self.document_at("OUTPUT EXPORT", export.name.as_deref())?;
-        let all = at.map_or_else(Vec::new, |at| self.documents.open[at].shown());
+        let mut all = at.map_or_else(Vec::new, |at| self.documents.open[at].shown());
+        // CONTENTS EXPORT=VISIBLE leaves out what OUTPUT MODIFY hid
+        all.retain(|(_, (table, _))| !(export.visible_only && table.hidden));
         let shown: Vec<Shown> = all.iter().map(|(_, s)| s.clone()).collect();
         let tables: Vec<(String, Arc<Table>)> = all
             .iter()

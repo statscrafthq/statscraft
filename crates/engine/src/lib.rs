@@ -50,6 +50,7 @@ mod oneway;
 mod output;
 mod output_docs;
 pub mod output_file;
+pub mod output_modify;
 mod partial_corr;
 mod pass;
 pub mod picture;
@@ -126,6 +127,13 @@ pub struct Table {
     pub formats: Vec<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub caption: Option<String>,
+    /// The label in the window's outline when OUTPUT MODIFY gave one; else the title shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outline: Option<String>,
+    /// Hidden by OUTPUT MODIFY: kept in the document and its file, left out of the window's
+    /// pages and of OUTPUT EXPORT with CONTENTS EXPORT=VISIBLE.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
 }
 
 impl Table {

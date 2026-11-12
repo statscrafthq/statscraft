@@ -1609,6 +1609,8 @@ impl Context<'_> {
                 error_bars: None,
                 second_axis: None,
                 plot: None,
+                outline: None,
+                hidden: false,
             });
         }
         charts

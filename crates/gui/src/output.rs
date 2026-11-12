@@ -280,6 +280,8 @@ mod tests {
                 s(""),
             ]],
             caption: Some(s("Chi-square p = 0.512")),
+            outline: None,
+            hidden: false,
         }
     }
 

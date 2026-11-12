@@ -177,6 +177,7 @@ One page per supported command, generated from the same table that the parser an
 | [OUTPUT EXPORT](output-export.md) | Write the tables and charts of an output document to a workbook, document, presentation, web page, text or CSV file. |
 | [OUTPUT SAVE](output-save.md) | Save an output document as a Statscraft output file (.scout). |
 | [OUTPUT OPEN](output-open.md) | Open a Statscraft output file (.scout) as a new output document. |
+| [OUTPUT MODIFY](output-modify.md) | Delete, hide, rename, sort, transpose or reformat items of an output document. |
 | [FINISH](finish.md) | End the job: the commands after it are not read. |
 
 ## General rules of the language
@@ -213,9 +214,3 @@ Functions of expressions (COMPUTE, IF, SELECT IF, DO IF, ELSE IF, LOOP IF, END L
   (NCDF and NPDF: BETA CHISQ F T; SIG: CHISQ F). UNIFORM(max), NORMAL(sd) and the RV functions
   draw random numbers. An argument out of range gives system-missing.
 ```
-
-## Not supported yet
-
-These commands of the language are recognized, but Statscraft does not run them yet. A script that uses one stops with the error "... is not supported yet" at its line, and nothing is changed.
-
-OUTPUT MODIFY

@@ -515,6 +515,8 @@ fn chart(
         error_bars: None,
         second_axis: None,
         plot: None,
+        outline: None,
+        hidden: false,
     })
 }
 
@@ -637,6 +639,8 @@ impl Histogram<'_> {
             error_bars: None,
             second_axis: None,
             plot: None,
+            outline: None,
+            hidden: false,
         })
     }
 }
@@ -850,7 +854,7 @@ impl Engine {
                         "Several values share the highest frequency ({}); the mode shown is the smallest.",
                         tied.join(", ")
                     )
-                }),
+                }), outline: None, hidden: false,
             }
         };
         self.charts.extend(charts);

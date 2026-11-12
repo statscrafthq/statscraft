@@ -1295,6 +1295,8 @@ impl Engine {
                     "Dependent variable: {}.",
                     shown.variable(dependent)
                 )),
+                outline: None,
+                hidden: false,
             }
         };
         if command.display {
@@ -1374,6 +1376,8 @@ impl Engine {
                     },
                     shown.variable(dependent)
                 )),
+                outline: None,
+                hidden: false,
             });
         }
         if command.print.classification {
@@ -1411,6 +1415,8 @@ impl Engine {
                 rows,
                 formats,
                 caption: None,
+                outline: None,
+                hidden: false,
             });
         }
 
@@ -1509,6 +1515,8 @@ impl Engine {
                         class_labels[j],
                         shown.variable(dependent)
                     )),
+                    outline: None,
+                    hidden: false,
                 });
             }
         }

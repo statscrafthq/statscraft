@@ -44,6 +44,8 @@ pub enum OutputCommand {
     Save(OutputSave),
     /// Read a Statscraft output file into a new document.
     Open(OutputOpen),
+    /// Change, hide or delete items of a document.
+    Modify(Box<crate::output_modify::OutputModify>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -67,6 +69,8 @@ pub struct OutputExport {
     pub targets: Vec<ExportTarget>,
     /// The image subcommands, in their order.
     pub images: Vec<ImageExport>,
+    /// CONTENTS EXPORT=VISIBLE: hidden items are left out.
+    pub visible_only: bool,
 }
 
 /// The picture formats of the image subcommands and of IMAGEFORMAT.
@@ -483,6 +487,7 @@ pub(crate) fn output_export(p: &mut Parser) -> PResult<Command> {
         name: None,
         targets: Vec::new(),
         images: Vec::new(),
+        visible_only: false,
     };
     let start = p.pos;
     if p.eat_word("NAME") {
@@ -521,13 +526,13 @@ pub(crate) fn output_export(p: &mut Parser) -> PResult<Command> {
         let mut notes = true;
         match word.as_str() {
             "CONTENTS" => {
-                // every table is visible and has one layer, so all choices give the same
+                // every table has one layer, so the LAYERS and MODELVIEWS choices give the same
                 keywords(p, &word, &["EXPORT", "LAYERS", "MODELVIEWS"], |p, k| {
-                    let choices: &[&str] = match k {
-                        "EXPORT" => &["ALL", "VISIBLE"],
-                        _ => &["PRINTSETTING", "ALL", "VISIBLE"],
-                    };
-                    choice(p, choices).map(|_| ())
+                    if k == "EXPORT" {
+                        export.visible_only = choice(p, &["ALL", "VISIBLE"])? == 1;
+                        return Ok(());
+                    }
+                    choice(p, &["PRINTSETTING", "ALL", "VISIBLE"]).map(|_| ())
                 })?;
             }
             "XLSX" => {
