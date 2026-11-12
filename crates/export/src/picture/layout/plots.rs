@@ -135,7 +135,8 @@ fn clip(line: &ReferenceLine, x: &Axis, y: &Axis) -> Option<[[f64; 2]; 2]> {
     } else if b < y.lo || b > y.hi {
         return None;
     }
-    (from < to && b.is_finite() && m.is_finite()).then(|| [[from, b + m * from], [to, b + m * to]])
+    (from < to && b.is_finite() && m.is_finite())
+        .then_some([[from, b + m * from], [to, b + m * to]])
 }
 
 /// Points in groups with their reference lines, such as a normal Q-Q plot with the line of

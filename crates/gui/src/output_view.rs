@@ -49,7 +49,7 @@ pub enum Request {
     Delete,
     /// Save a chart as a picture, PNG or SVG, on this paper.
     SaveChart {
-        chart: Chart,
+        chart: Box<Chart>,
         png: bool,
         paper: Paper,
     },
@@ -705,7 +705,7 @@ impl OutputView {
                 let chart = output::tables(&self.runs).find(|t| t.id == id);
                 let chart = chart.and_then(|t| t.chart.clone())?;
                 Some(Request::SaveChart {
-                    chart,
+                    chart: Box::new(chart),
                     png,
                     paper: self.paper(),
                 })
