@@ -340,6 +340,20 @@ fn check_shape(kind: ChartKind, plot: &Plot, limits: &Limits) -> Result<(), Stri
                 false => wrong("too many regions or corners"),
             }
         }
+        (Plot::Matrix { variables, groups }, ChartKind::Scatter) => {
+            let k = variables.len();
+            let cases = || groups.iter().flat_map(|g| &g.cases);
+            if k < 2 || k > limits.series || groups.len() > limits.series {
+                return wrong(&format!(
+                    "a matrix of 2 to {0} variables in at most {0} groups",
+                    limits.series
+                ));
+            }
+            if cases().count() * k > limits.values || cases().any(|c| c.values.len() != k) {
+                return wrong("every case gives a value per variable, null where missing");
+            }
+            Ok(())
+        }
         (Plot::StemLeaf(s), ChartKind::StemLeaf) => match s.lines.len() <= limits.values {
             true => Ok(()),
             false => wrong("too many lines"),
@@ -384,10 +398,14 @@ fn check_categories(chart: &Chart, kind: &str, limits: &Limits) -> Result<(), St
         ));
     }
     if let Some(bars) = &chart.error_bars {
-        let wrong = bars.margins.iter().any(|m| !m.is_empty() && m.len() != n);
-        if bars.margins.len() > m || wrong {
+        let lists = [&bars.margins, &bars.lower];
+        let wrong = lists
+            .iter()
+            .any(|l| l.len() > m || l.iter().any(|v| !v.is_empty() && v.len() != n));
+        if wrong {
             return Err(format!(
-                "error_bars: a list of margins per series, each empty or with {n} numbers"
+                "error_bars: a list of margins per series, each empty or with {n} numbers, and \
+                 the same for lower when given"
             ));
         }
     }

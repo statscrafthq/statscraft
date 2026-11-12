@@ -225,6 +225,15 @@ pub struct ErrorBars {
     /// a reference line; null where there is no bar.
     #[serde(deserialize_with = "number_lists")]
     pub margins: Vec<Vec<f64>>,
+    /// For a bar that reaches less far below the value than above it, such as the interval of
+    /// a median: per series the length below, laid out as `margins`, which is then the length
+    /// above. Empty for a series whose bars are symmetric.
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        deserialize_with = "number_lists"
+    )]
+    pub lower: Vec<Vec<f64>>,
 }
 
 fn is_empty(cell: &Cell) -> bool {
@@ -237,7 +246,7 @@ fn number<'de, D: serde::Deserializer<'de>>(d: D) -> Result<f64, D::Error> {
     Ok(Option::<f64>::deserialize(d)?.unwrap_or(f64::NAN))
 }
 
-fn numbers<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<f64>, D::Error> {
+pub(crate) fn numbers<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<f64>, D::Error> {
     let values = Vec::<Option<f64>>::deserialize(d)?;
     Ok(values.into_iter().map(|v| v.unwrap_or(f64::NAN)).collect())
 }
@@ -254,9 +263,15 @@ impl Chart {
     /// The error bar of series `j` at category `i`, from its lower to its upper end; None
     /// where there is none.
     pub fn error_bar(&self, j: usize, i: usize) -> Option<[f64; 2]> {
-        let margin = *self.error_bars.as_ref()?.margins.get(j)?.get(i)?;
+        let bars = self.error_bars.as_ref()?;
+        let margin = *bars.margins.get(j)?.get(i)?;
+        let below = match bars.lower.get(j).filter(|l| !l.is_empty()) {
+            Some(lower) => *lower.get(i)?,
+            None => margin,
+        };
         let value = *self.series.get(j)?.values.get(i)?;
-        (value.is_finite() && margin.is_finite()).then_some([value - margin, value + margin])
+        (value.is_finite() && margin.is_finite() && below.is_finite())
+            .then_some([value - below, value + margin])
     }
 
     /// What kind of chart it is, in words: "Clustered bar chart".
@@ -265,6 +280,15 @@ impl Chart {
             Some(Orientation::Horizontal) => "bar chart (horizontal)",
             _ => "bar chart",
         };
+        match &self.plot {
+            Some(crate::plot::Plot::Matrix { .. }) => return "Scatterplot matrix".into(),
+            Some(crate::plot::Plot::Points {
+                z_axis: Some(_), ..
+            }) if self.kind == ChartKind::Scatter => {
+                return "Scatter plot in three dimensions".into();
+            }
+            _ => {}
+        }
         if self.kind == ChartKind::Bar && self.second_axis.is_some() {
             let kind = match self.grouping {
                 Some(Grouping::Stacked) => "Stacked bar chart",
@@ -342,17 +366,26 @@ impl Chart {
                 .iter()
                 .map(|_| self.legend.iter().cloned().collect()),
         );
-        // after the values, the half length of each series' error bars: the office chart reads
-        // its bars from these columns
-        let margins: Vec<&Vec<f64>> = match &self.error_bars {
-            Some(bars) => bars.margins.iter().filter(|m| !m.is_empty()).collect(),
-            None => Vec::new(),
-        };
+        // after the values, the half length of each series' error bars, then the length below
+        // of the bars that are not symmetric: the office chart reads its bars from these columns
+        let mut margins: Vec<&Vec<f64>> = Vec::new();
         if let Some(bars) = &self.error_bars {
-            for (s, m) in self.series.iter().zip(&bars.margins) {
+            let uneven = |s: usize| bars.lower.get(s).is_some_and(|l| !l.is_empty());
+            for (s, (series, m)) in self.series.iter().zip(&bars.margins).enumerate() {
                 if !m.is_empty() {
-                    columns.push(s.name.clone());
-                    column_groups.push(vec![format!("Error bar \u{b1} {}", bars.label)]);
+                    margins.push(m);
+                    columns.push(series.name.clone());
+                    column_groups.push(vec![match uneven(s) {
+                        true => format!("Error bar above, {}", bars.label),
+                        false => format!("Error bar \u{b1} {}", bars.label),
+                    }]);
+                }
+            }
+            for (series, lower) in self.series.iter().zip(&bars.lower) {
+                if !lower.is_empty() {
+                    margins.push(lower);
+                    columns.push(series.name.clone());
+                    column_groups.push(vec![format!("Error bar below, {}", bars.label)]);
                 }
             }
         }

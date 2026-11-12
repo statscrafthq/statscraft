@@ -1163,6 +1163,7 @@ mod tests {
         c.error_bars = Some(ErrorBars {
             label: "95% CI".into(),
             margins: vec![vec![2.0, 25.0]],
+            lower: Vec::new(),
         });
         let s = scene(&c, 600.0, Paper::Light).unwrap();
         let petrol = Palette::of(Paper::Light).ramp[0];
@@ -1231,6 +1232,7 @@ mod tests {
         c.error_bars = Some(ErrorBars {
             label: "2 SE".into(),
             margins: vec![vec![1.0, 2.0], vec![1.0, 1.0]],
+            lower: Vec::new(),
         });
         let s = scene(&c, 600.0, Paper::Light).unwrap();
         let dots = circles(&s);

@@ -2070,6 +2070,7 @@ fn profile_plots(
         chart.error_bars = bars.as_ref().map(|(label, _)| ErrorBars {
             label: label.clone(),
             margins,
+            lower: Vec::new(),
         });
         chart.footnote = Some(notes.join(". "));
         charts.push(chart);

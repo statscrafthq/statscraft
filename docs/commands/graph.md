@@ -2,7 +2,7 @@
 
 # GRAPH
 
-One chart: summaries by category as bars, lines, areas, a pie, points with error bars, a Pareto chart or ranges, a histogram or a scatterplot.
+One chart: summaries by category as bars, lines, areas, a pie, points with error bars, a Pareto chart or ranges, a histogram, a scatterplot or a scatterplot matrix.
 
 ## Syntax
 
@@ -12,7 +12,10 @@ GRAPH [/TITLE='line' ['line']] [/SUBTITLE='line'] [/FOOTNOTE='line' ['line']]
       | /LINE[(SIMPLE | MULTIPLE | AREA | DROP | DIFFERENCE)]=spec | /HILO[(SIMPLE | GROUPED)]=spec
       | /PARETO[(CUM | NOCUM)][(SIMPLE | STACKED)]=spec
       | /ERRORBAR[(CI [95] | STERROR [2] | STDDEV [2])]=varlist [BY var] | var BY var BY var
-      | /HISTOGRAM[(NORMAL)]=var | /SCATTERPLOT[(BIVARIATE)]=x WITH y [BY group] [BY id (NAME | IDENTIFY)]
+      | /HISTOGRAM[(NORMAL)]=var
+      | /SCATTERPLOT[(BIVARIATE | OVERLAY | MATRIX | XYZ)]=x WITH y | xlist WITH ylist [(PAIR)]
+          | varlist | x WITH y WITH z, then [BY group] [BY id (NAME | IDENTIFY)]
+      [/INTERVAL CI[(95)] | SE[(2)] | STDDEV[(2)]]
       [/PANEL [COLVAR=varlist [COLOP=CROSS | NEST]] [ROWVAR=varlist [ROWOP=CROSS | NEST]]]
       [/MISSING=[LISTWISE | VARIABLE] [NOREPORT | REPORT] [EXCLUDE | INCLUDE]].
 ```
@@ -33,17 +36,19 @@ ERRORBAR shows each mean as a point with a bar around it, laid out as MEAN(varli
 
 A mean whose cases weigh 1 or less in total has no bar.
 
+INTERVAL adds such bars to a simple or clustered bar or line chart of MEAN or MEDIAN: CI, SE and STDDEV for a mean as on ERRORBAR, CI only for a median. A median's interval runs between order statistics, interpolated (Hettmansperger and Sheather), so it need not be symmetric; it needs whole case weights. Counts, percentages and the other functions get no bars yet.
+
 PARETO counts (COUNT or a bare variable) or adds up (SUM, VALUE), puts the largest category first and stacks several series. CUM, the default, draws the running total as a percentage of the grand total: a line against a second axis from 0 to 100 on the right. NOCUM drops the line and the axis.
 
 The range charts read their ends from the series: BAR(RANGE) floats a bar between each pair (two functions, or a second BY variable with two values); LINE(DROP) joins the lowest and the highest series of a category; LINE(DIFFERENCE) shades between two series; HILO takes high, low and an optional close as two or three series.
 
-HISTOGRAM bins the valid values as FREQUENCIES does; NORMAL adds the normal curve. SCATTERPLOT draws each case valid on both variables once, colored by the BY group variable; BY id (NAME) labels the points with that variable's values, (IDENTIFY) leaves them off.
+HISTOGRAM bins the valid values as FREQUENCIES does; NORMAL adds the normal curve. SCATTERPLOT draws each case valid on both variables once, colored by the BY group variable; BY id (NAME) labels the points with that variable's values, (IDENTIFY) leaves them off. The variables set the kind, as for bars: lists around WITH lay a colored group of points for each pair into one frame, the variable before WITH across (every pair of the two lists, or with PAIR the first with the first and so on; no BY group). A list alone draws a matrix: a cell for each pair, the column's variable across and the row's up, the names on the diagonal. x WITH y WITH z has a third axis; it is not drawn yet and shows as the table of its points. LISTWISE leaves out a case missing on any of the variables; with VARIABLE a pair takes the cases valid on both.
 
 PANEL repeats the chart for each combination of the categories of the ROWVAR and COLVAR variables, rows first, each a separate chart named in its title. Combinations without cases get no chart, so COLOP and ROWOP change nothing. A case missing on a panel variable is left out unless REPORT.
 
 TITLE names the chart (otherwise it is named after what it shows); SUBTITLE goes under the title and FOOTNOTE below the chart. Lines have at most 72 characters. With SPLIT FILE each group gets a chart. Weighted when a weight variable is set; cases with a zero or missing weight are left out.
 
-Not supported yet: INTERVAL, TEMPLATE, HILO with more than three series (GROUPED), and OVERLAY, MATRIX and XYZ scatterplots; each gives an error.
+Not supported yet: TEMPLATE and HILO with more than three series (GROUPED); each gives an error.
 
 ## Example
 

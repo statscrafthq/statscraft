@@ -13,14 +13,20 @@
 //!   category variables; a bare variable, which is COUNT BY that variable; one or more summary
 //!   functions, each over a variable list (SUM(a b) is SUM(a) SUM(b)), with up to two BY
 //!   variables; or VALUE(varlist) [BY var], one category per case.
-//! - HISTOGRAM [(NORMAL)] = one variable. SCATTERPLOT [(BIVARIATE)] = x WITH y, then BY a
-//!   control variable and BY a variable with (NAME) or (IDENTIFY) whose values label points.
+//! - HISTOGRAM [(NORMAL)] = one variable. SCATTERPLOT [(BIVARIATE | OVERLAY | MATRIX | XYZ)]:
+//!   x WITH y is one plot; lists on both sides of WITH overlay a plot per pair (every
+//!   combination, or in order with (PAIR)); a list alone is a matrix of plots; x WITH y WITH z
+//!   has three axes. As for bars, the variables decide and the keyword changes nothing. BY a
+//!   control variable (not for an overlay) and BY a variable with (NAME) or (IDENTIFY) whose
+//!   values label points may follow.
 //! - ERRORBAR [(CI [level] | STERROR [n] | STDDEV [n])] = varlist [BY var] or var BY var BY var:
 //!   means with bars of a confidence interval (level 50 to 99.9, default 95) or of n standard
 //!   errors or deviations (n above 0, default 2). The number may stand in parentheses.
 //! - PARETO [(CUM | NOCUM)] [(SIMPLE | STACKED)] takes COUNT, SUM or VALUE only.
 //! - BAR (RANGE), LINE (DROP), LINE (DIFFERENCE) and HILO [(SIMPLE | GROUPED)] take a function
 //!   specification; the series give the ends of each range.
+//! - INTERVAL CI [(level)] | SE [(n)] | STDDEV [(n)]: error bars on a bar or line chart, read
+//!   as on ERRORBAR.
 //! - PANEL COLVAR=varlist [COLOP=CROSS | NEST] ROWVAR=varlist [ROWOP=CROSS | NEST].
 //! - MISSING: LISTWISE (default) or VARIABLE, NOREPORT (default) or REPORT, EXCLUDE (default)
 //!   or INCLUDE.
@@ -112,6 +118,28 @@ pub enum GraphChart {
         /// The variable whose values label the points (NAME); IDENTIFY leaves them off.
         names: Option<String>,
     },
+    /// Lists on both sides of WITH: a group of points for each pair of a variable on the left
+    /// (across) and one on the right (up), every combination or, with `pair`, in order.
+    Overlay {
+        x: Vec<VarItem>,
+        y: Vec<VarItem>,
+        pair: bool,
+        names: Option<String>,
+    },
+    /// A variable list without WITH: a cell for each ordered pair of the variables.
+    Matrix {
+        variables: Vec<VarItem>,
+        control: Option<String>,
+        names: Option<String>,
+    },
+    /// `x WITH y WITH z`: one plot with three axes.
+    Xyz {
+        x: String,
+        y: String,
+        z: String,
+        control: Option<String>,
+        names: Option<String>,
+    },
     /// Means of the variables by up to two BY variables, with error bars.
     ErrorBar {
         interval: GraphInterval,
@@ -164,6 +192,8 @@ pub struct Graph {
     pub report: bool,
     pub include: bool,
     pub panel: Option<GraphPanel>,
+    /// INTERVAL: error bars around the values of a bar or line chart.
+    pub interval: Option<GraphInterval>,
 }
 
 const CHARTS: [&str; 8] = [
@@ -195,7 +225,7 @@ const SUBCOMMANDS: [&str; 15] = [
     "MISSING",
 ];
 
-const NOT_YET: [&str; 2] = ["INTERVAL", "TEMPLATE"];
+const NOT_YET: [&str; 1] = ["TEMPLATE"];
 
 const COUNTS: [(&str, GraphFunction); 4] = [
     ("COUNT", GraphFunction::Count),
@@ -427,29 +457,8 @@ fn data(p: &mut Parser) -> PResult<GraphData> {
     Ok(GraphData::Summary { functions, by })
 }
 
-/// `x WITH y [BY control] [BY id (NAME | IDENTIFY)]`
-fn scatter(p: &mut Parser) -> PResult<GraphChart> {
-    p.eat(Punct::Eq);
-    let x = p.name("a variable")?;
-    if !p.eat_word("WITH") {
-        if matches!(p.peek(), Some(TokenKind::Word(_))) {
-            return Err(not_yet(
-                p,
-                "a variable list (OVERLAY or MATRIX scatterplots)",
-            ));
-        }
-        return Err(p.unexpected(&["WITH"]));
-    }
-    let y = p.name("a variable")?;
-    if matches!(p.peek(), Some(TokenKind::Word(w)) if w.eq_ignore_ascii_case("WITH")) {
-        return Err(not_yet(p, "a third axis (XYZ scatterplots)"));
-    }
-    if matches!(p.peek(), Some(TokenKind::Word(w)) if !w.eq_ignore_ascii_case("BY")) {
-        return Err(not_yet(
-            p,
-            "a variable list (OVERLAY or MATRIX scatterplots)",
-        ));
-    }
+/// `[BY control] [BY id (NAME | IDENTIFY)]` after the variables of a scatterplot.
+fn scatter_by(p: &mut Parser) -> PResult<(Option<String>, Option<String>)> {
     let (mut control, mut names) = (None, None);
     let mut labels_given = false;
     while p.eat_word("BY") {
@@ -477,20 +486,90 @@ fn scatter(p: &mut Parser) -> PResult<GraphChart> {
             control = Some(name);
         }
     }
-    Ok(GraphChart::Scatter {
-        x,
-        y,
-        control,
-        names,
-    })
+    Ok((control, names))
 }
 
-/// `[(CI [level] | STERROR [n] | SE [n] | STDDEV [n])]` after ERRORBAR; the number may stand in
-/// parentheses.
+/// `varlist [WITH varlist [(PAIR)] [WITH varlist]]`, then the BY variables. The lists decide
+/// the plot whatever keyword was given: one list is a matrix, one variable on each side of WITH
+/// a bivariate plot, longer lists an overlay, three single variables a plot with three axes.
+fn scatter(p: &mut Parser) -> PResult<GraphChart> {
+    p.eat(Punct::Eq);
+    let start = p.pos;
+    let mut lists = vec![variables(p)?];
+    while p.eat_word("WITH") {
+        lists.push(variables(p)?);
+    }
+    let mut pair = false;
+    if lists.len() == 2 && p.eat(Punct::LParen) {
+        if !p.eat_keyword("PAIR") {
+            return Err(p.unexpected(&["PAIR"]));
+        }
+        p.expect(Punct::RParen)?;
+        pair = true;
+    }
+    let span = p.span_from(start);
+    let (control, names) = scatter_by(p)?;
+    let one = |list: &[VarItem]| match list {
+        [VarItem::Name(name)] => Some(name.clone()),
+        _ => None,
+    };
+    let bad = |message: &str| Err(SyntaxError::new(span, message));
+    match &lists[..] {
+        [variables] => {
+            if one(variables).is_some() {
+                return bad("a scatterplot matrix needs two variables or more");
+            }
+            Ok(GraphChart::Matrix {
+                variables: variables.clone(),
+                control,
+                names,
+            })
+        }
+        [x, y] => match (one(x), one(y), control) {
+            (Some(x), Some(y), control) => Ok(GraphChart::Scatter {
+                x,
+                y,
+                control,
+                names,
+            }),
+            (_, _, Some(_)) => bad(
+                "an overlay scatterplot takes no control variable; its pairs are told apart \
+                 by color",
+            ),
+            (_, _, None) => Ok(GraphChart::Overlay {
+                x: x.clone(),
+                y: y.clone(),
+                pair,
+                names,
+            }),
+        },
+        [x, y, z] => match (one(x), one(y), one(z)) {
+            (Some(x), Some(y), Some(z)) => Ok(GraphChart::Xyz {
+                x,
+                y,
+                z,
+                control,
+                names,
+            }),
+            _ => bad("a three-axis scatterplot takes one variable on each axis"),
+        },
+        _ => bad("a scatterplot has at most three axes"),
+    }
+}
+
+/// `[(CI [level] | STERROR [n] | SE [n] | STDDEV [n])]` after ERRORBAR.
 fn interval(p: &mut Parser) -> PResult<GraphInterval> {
     if !p.eat(Punct::LParen) {
         return Ok(GraphInterval::Ci(95.0));
     }
+    let interval = interval_spec(p)?;
+    p.expect(Punct::RParen)?;
+    Ok(interval)
+}
+
+/// `CI [level] | STERROR [n] | SE [n] | STDDEV [n]`, the number bare or in parentheses: the
+/// interval of ERRORBAR and of INTERVAL.
+fn interval_spec(p: &mut Parser) -> PResult<GraphInterval> {
     let keywords = ["CI", "STERROR", "SE", "STDDEV"];
     let Some(k) = keywords.iter().position(|k| p.at_keyword(k)) else {
         return Err(p.unexpected(&keywords));
@@ -502,7 +581,6 @@ fn interval(p: &mut Parser) -> PResult<GraphInterval> {
     if inner {
         p.expect(Punct::RParen)?;
     }
-    p.expect(Punct::RParen)?;
     let bad = |message: String| Err(SyntaxError::new(p.span_from(start), message));
     Ok(match (k, given) {
         (0, None) => GraphInterval::Ci(95.0),
@@ -585,6 +663,7 @@ pub(crate) fn graph(p: &mut Parser) -> PResult<Command> {
     let mut footnote = Vec::new();
     let mut chart: Option<GraphChart> = None;
     let mut panel_given = None;
+    let mut bars = None;
     let (mut listwise, mut report, mut include) = (true, false, false);
     p.eat(Punct::Slash);
     loop {
@@ -705,9 +784,14 @@ pub(crate) fn graph(p: &mut Parser) -> PResult<Command> {
                 }
                 Some(GraphChart::Histogram { variable, normal })
             }
+            "INTERVAL" => {
+                p.eat(Punct::Eq);
+                bars = Some(interval_spec(p)?);
+                None
+            }
             _ => {
-                let unsupported = ["OVERLAY", "MATRIX", "XYZ"];
-                chart_keyword(p, "SCATTERPLOT", &["BIVARIATE"], &unsupported)?;
+                let kinds = ["BIVARIATE", "OVERLAY", "MATRIX", "XYZ"];
+                chart_keyword(p, "SCATTERPLOT", &kinds, &[])?;
                 Some(scatter(p)?)
             }
         };
@@ -736,5 +820,6 @@ pub(crate) fn graph(p: &mut Parser) -> PResult<Command> {
         report,
         include,
         panel: panel_given,
+        interval: bars,
     })))
 }

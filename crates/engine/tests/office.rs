@@ -154,6 +154,19 @@ UNIANOVA spend BY cup /PLOT=PROFILE(cup) ERRORBAR=SE.";
 }
 
 #[test]
+fn uneven_error_bars_take_their_length_below_from_a_column_of_its_own() {
+    let chart = &charts("GRAPH /BAR=MEDIAN(drink) BY cup /INTERVAL CI(90).")[0];
+    let book = chart_workbook(chart).unwrap();
+    let cells = cells(&book);
+    assert_eq!(cells[1][2], "Error bar above, 90% CI");
+    assert_eq!(cells[1][3], "Error bar below, 90% CI");
+    let part = text(&book, "xl/charts/chart1.xml");
+    assert!(part.contains("<c:errValType val=\"cust\"/>"), "{part}");
+    assert_eq!(part.matches("!$C$4:$C$5</c:f>").count(), 1, "plus: {part}");
+    assert_eq!(part.matches("!$D$4:$D$5</c:f>").count(), 1, "minus: {part}");
+}
+
+#[test]
 fn graph_charts_as_office_charts() {
     let chart = |source: &str| charts(source).remove(0);
     // a Pareto chart: columns, and the cumulative line on the second axis from 0 to 100

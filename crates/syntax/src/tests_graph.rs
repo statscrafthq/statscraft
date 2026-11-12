@@ -174,6 +174,112 @@ fn scatterplots_with_groups_and_point_labels() {
 }
 
 #[test]
+fn overlay_matrix_and_three_axis_scatterplots() {
+    // lists on both sides of WITH overlay the pairs, whatever keyword stands
+    let g = graph("GRAPH /SCATTERPLOT(OVERLAY)=wait queue WITH tip (PAIR) BY receipt (NAME).");
+    assert_eq!(
+        g.chart,
+        GraphChart::Overlay {
+            x: vec![var("wait"), var("queue")],
+            y: vec![var("tip")],
+            pair: true,
+            names: Some("receipt".into()),
+        }
+    );
+    let g = graph("graph /scat(ove)=wait to queue with tip basket.");
+    assert_eq!(
+        g.chart,
+        GraphChart::Overlay {
+            x: vec![VarItem::Range("wait".into(), "queue".into())],
+            y: vec![var("tip"), var("basket")],
+            pair: false,
+            names: None,
+        }
+    );
+    // one variable on each side is a plain scatterplot, even under OVERLAY
+    assert!(matches!(
+        graph("GRAPH /SCATTERPLOT(OVERLAY)=wait WITH tip.").chart,
+        GraphChart::Scatter { .. }
+    ));
+    let g = graph("GRAPH /SCATTERPLOT(MAT)=tip wait basket BY store BY receipt (IDENTIFY).");
+    assert_eq!(
+        g.chart,
+        GraphChart::Matrix {
+            variables: vec![var("tip"), var("wait"), var("basket")],
+            control: Some("store".into()),
+            names: None,
+        }
+    );
+    assert!(matches!(
+        graph("GRAPH /SCATTERPLOT=ALL.").chart,
+        GraphChart::Matrix { .. }
+    ));
+    let g = graph("GRAPH /SCATTERPLOT(XYZ)=wait WITH tip WITH basket BY store.");
+    assert_eq!(
+        g.chart,
+        GraphChart::Xyz {
+            x: "wait".into(),
+            y: "tip".into(),
+            z: "basket".into(),
+            control: Some("store".into()),
+            names: None,
+        }
+    );
+    let message = |source: &str| err(source).message;
+    assert_eq!(
+        message("GRAPH /SCATTERPLOT(OVERLAY)=wait queue WITH tip BY store."),
+        "an overlay scatterplot takes no control variable; its pairs are told apart by color"
+    );
+    assert_eq!(
+        message("GRAPH /SCATTERPLOT(MATRIX)=tip."),
+        "a scatterplot matrix needs two variables or more"
+    );
+    assert_eq!(
+        message("GRAPH /SCATTERPLOT=a b WITH c WITH d."),
+        "a three-axis scatterplot takes one variable on each axis"
+    );
+    assert_eq!(
+        message("GRAPH /SCATTERPLOT=a WITH b WITH c WITH d."),
+        "a scatterplot has at most three axes"
+    );
+    assert!(
+        err("GRAPH /SCATTERPLOT=a WITH b (PAIRS).")
+            .expected
+            .contains(&"PAIR".to_string())
+    );
+}
+
+#[test]
+fn interval_puts_error_bars_on_bars_and_lines() {
+    let interval = |source: &str| graph(source).interval;
+    assert_eq!(interval("GRAPH /BAR=MEAN(tip) BY store."), None);
+    assert_eq!(
+        interval("GRAPH /BAR=MEAN(tip) BY store /INTERVAL CI(90)."),
+        Some(GraphInterval::Ci(90.0))
+    );
+    assert_eq!(
+        interval("GRAPH /INT CI /LINE=MEDIAN(tip) BY week."),
+        Some(GraphInterval::Ci(95.0))
+    );
+    assert_eq!(
+        interval("graph /bar=mean(tip) by store /interval se(1)."),
+        Some(GraphInterval::Se(1.0))
+    );
+    assert_eq!(
+        interval("GRAPH /BAR=MEAN(tip) BY store /INTERVAL STD(1.5)."),
+        Some(GraphInterval::StdDev(1.5))
+    );
+    assert_eq!(
+        interval("GRAPH /BAR=MEAN(tip) BY store /INTERVAL STDDEV."),
+        Some(GraphInterval::StdDev(2.0))
+    );
+    assert_eq!(
+        err("GRAPH /BAR=MEAN(tip) BY store /INTERVAL CI(30).").message,
+        "CI needs a level from 50 to 99.9 percent, got 30"
+    );
+}
+
+#[test]
 fn error_bars_with_their_intervals() {
     let g = graph("GRAPH /ERRORBAR(CI 90)=tip BY store.");
     assert_eq!(
@@ -343,31 +449,10 @@ fn panels_by_column_and_row_variables() {
 
 #[test]
 fn unsupported_parts_name_themselves() {
-    for (source, what) in [
-        ("GRAPH /BAR=store /INTERVAL CI(95).", "subcommand INTERVAL"),
-        (
-            "GRAPH /BAR=store /TEMPLATE='old.sgt'.",
-            "subcommand TEMPLATE",
-        ),
-        (
-            "GRAPH /SCATTERPLOT(MATRIX)=tip wait basket.",
-            "SCATTERPLOT(MATRIX)",
-        ),
-        (
-            "GRAPH /SCATTERPLOT(XYZ)=tip WITH wait WITH basket.",
-            "SCATTERPLOT(XYZ)",
-        ),
-        (
-            "GRAPH /SCATTERPLOT=tip WITH wait WITH basket.",
-            "a third axis (XYZ scatterplots)",
-        ),
-    ] {
-        assert_eq!(
-            err(source).message,
-            format!("{what} of GRAPH is not supported yet"),
-            "{source}"
-        );
-    }
+    assert_eq!(
+        err("GRAPH /BAR=store /TEMPLATE='old.sgt'.").message,
+        "subcommand TEMPLATE of GRAPH is not supported yet"
+    );
 }
 
 #[test]

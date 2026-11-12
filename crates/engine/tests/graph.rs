@@ -536,3 +536,208 @@ fn panels_give_a_chart_per_combination() {
         engine.warnings()
     );
 }
+
+#[test]
+fn interval_puts_error_bars_on_bars_and_lines_of_means() {
+    // the same bars as ERRORBAR(STERROR 2), on bars of the means
+    let chart = one("GRAPH /BAR=MEAN(basket) BY store /INTERVAL SE(2).");
+    assert_eq!(chart.kind, ChartKind::Bar);
+    assert_eq!(chart.kind_text(), "Simple bar chart");
+    close(&margins(&chart)[0], &[8.0, 2.0 * 379f64.sqrt() / 3.0, 4.0]);
+    assert!(chart.error_bars.as_ref().unwrap().lower.is_empty());
+    assert_eq!(chart.error_bar(0, 2), Some([4.0, 12.0]));
+    let chart = one("GRAPH /LINE=MEAN(basket) BY store /INTERVAL CI.");
+    assert_eq!(chart.kind, ChartKind::Line);
+    near(
+        &margins(&chart)[0],
+        &[T1 * 4.0, T2 * 379f64.sqrt() / 3.0, T1 * 2.0],
+    );
+    // clustered bars carry a bar per series
+    let chart = one("GRAPH /BAR(GROUPED)=MEAN(basket tip) BY daypart /INTERVAL STDDEV(1).");
+    assert_eq!(margins(&chart).len(), 2);
+    assert_eq!(chart.vega_lite()["layer"][1]["mark"]["type"], "errorbar");
+}
+
+#[test]
+fn interval_of_a_median_is_interpolated_between_order_statistics() {
+    // morning baskets 6, 8, 12, 15, 25 (median 12): at 90% the interval lies between the
+    // first two and the last two order statistics with weight 6 / 17 on the inner ones;
+    // evening baskets 10, 18, 20, 30 (median 19): the interval is the whole range
+    let chart = one("GRAPH /BAR=MEDIAN(basket) BY daypart /INTERVAL CI(90).");
+    assert_eq!(labels(&chart), ["e", "m"]);
+    close(&chart.series[0].values, &[19.0, 12.0]);
+    let bars = chart.error_bars.as_ref().unwrap();
+    close(&bars.margins[0], &[11.0, 161.0 / 17.0]);
+    close(&bars.lower[0], &[9.0, 90.0 / 17.0]);
+    let [lo, hi] = chart.error_bar(0, 1).unwrap();
+    close(&[lo, hi], &[114.0 / 17.0, 365.0 / 17.0]);
+    // the data table has the length above and then the length below
+    let table = chart.data_table();
+    assert_eq!(table.columns.len(), 4);
+    assert_eq!(
+        table.column_groups[2..],
+        [
+            vec!["Error bar above, 90% CI".to_string()],
+            vec!["Error bar below, 90% CI".to_string()]
+        ]
+    );
+    // a mean beside it keeps symmetric bars
+    let chart = one("GRAPH /BAR=MEAN(basket) MEDIAN(basket) BY daypart /INTERVAL CI(90).");
+    let bars = chart.error_bars.as_ref().unwrap();
+    assert!(bars.lower[0].is_empty() && bars.lower[1].len() == 2);
+    assert_eq!(chart.data_table().columns.len(), 6);
+    assert_eq!(
+        error("WEIGHT BY wt.\nGRAPH /BAR=MEDIAN(basket) BY daypart /INTERVAL CI."),
+        "GRAPH: the confidence interval of a median needs whole case weights"
+    );
+}
+
+#[test]
+fn interval_needs_a_chart_and_a_function_it_fits() {
+    for (source, message) in [
+        (
+            "GRAPH /PIE=MEAN(basket) BY store /INTERVAL CI.",
+            "GRAPH: INTERVAL adds error bars to bar and line charts only; ERRORBAR draws means \
+             with their bars",
+        ),
+        (
+            "GRAPH /BAR(STACKED)=MEAN(basket) BY store BY daypart /INTERVAL CI.",
+            "GRAPH: INTERVAL takes simple and clustered charts; stacked bars and areas have no \
+             error bars",
+        ),
+        (
+            "GRAPH /BAR=COUNT BY store /INTERVAL CI.",
+            "GRAPH: INTERVAL draws error bars around means and medians; Count is not supported \
+             yet",
+        ),
+        (
+            "GRAPH /BAR=MEDIAN(basket) BY store /INTERVAL SE(1).",
+            "GRAPH: the error bars of a median are its confidence interval; give INTERVAL CI, \
+             or use MEAN for SE and STDDEV",
+        ),
+        (
+            "GRAPH /BAR=VALUE(basket) /INTERVAL CI.",
+            "GRAPH: INTERVAL needs a summary function; a VALUE chart shows single cases",
+        ),
+    ] {
+        assert_eq!(error(source), message, "{source}");
+    }
+}
+
+fn points_of(chart: &Chart) -> Vec<(String, Vec<(f64, f64)>)> {
+    let Some(Plot::Points { groups, .. }) = &chart.plot else {
+        panic!("{chart:?}")
+    };
+    groups
+        .iter()
+        .map(|g| {
+            let points = g.points.iter().map(|p| (p.x, p.y)).collect();
+            (g.name.clone(), points)
+        })
+        .collect()
+}
+
+#[test]
+fn overlay_scatterplots_draw_a_group_per_pair() {
+    // every combination: basket across, tip and wt up; the case without a tip is left out of
+    // both pairs (LISTWISE)
+    let chart = one("GRAPH /SCATTERPLOT(OVERLAY)=basket WITH tip wt.");
+    assert_eq!(chart.title, "tip, wt by basket");
+    assert_eq!(chart.category_axis.title, "basket");
+    assert_eq!(chart.value_axis.title, "tip, wt");
+    let groups = points_of(&chart);
+    assert_eq!(groups[0].0, "tip by basket");
+    assert_eq!(groups[1].0, "wt by basket");
+    assert_eq!(groups[0].1.len(), 8);
+    assert_eq!(groups[1].1[..2], [(12.0, 1.0), (20.0, 2.0)]);
+    assert_eq!(groups[1].1.len(), 8);
+    // VARIABLE keeps a case in the pairs it is valid on
+    let chart = one("GRAPH /SCATTERPLOT(OVERLAY)=basket WITH tip wt /MISSING=VARIABLE.");
+    let groups = points_of(&chart);
+    assert_eq!((groups[0].1.len(), groups[1].1.len()), (8, 9));
+    // PAIR: the first with the first, the second with the second; a missing store leaves the
+    // case out of both
+    let chart = one("GRAPH /SCATTERPLOT(OVERLAY)=basket store WITH tip wt (PAIR).");
+    let groups = points_of(&chart);
+    assert_eq!(groups[0].0, "tip by basket");
+    assert_eq!(groups[1].0, "wt by store");
+    assert_eq!(
+        groups[1].1,
+        [
+            (1.0, 1.0),
+            (1.0, 2.0),
+            (2.0, 1.0),
+            (2.0, 1.0),
+            (3.0, 0.5),
+            (3.0, 0.0)
+        ]
+    );
+    assert_eq!(groups[0].1.len(), 6);
+    // an axis of several variables takes the format with the most decimals
+    assert_eq!(chart.value_axis.format, "F5.1");
+    assert_eq!(chart.category_axis.format, "F6.1");
+    assert_eq!(
+        error("GRAPH /SCATTERPLOT(OVERLAY)=basket store WITH tip (PAIR)."),
+        "GRAPH: PAIR needs as many variables after WITH as before; got 2 and 1"
+    );
+}
+
+#[test]
+fn a_scatterplot_matrix_keeps_every_case_once() {
+    let chart = one("GRAPH /SCATTERPLOT(MATRIX)=basket tip store BY daypart.");
+    assert_eq!(chart.kind_text(), "Scatterplot matrix");
+    assert_eq!(chart.title, "Scatterplot matrix of basket, tip, store");
+    assert_eq!(chart.legend.as_deref(), Some("daypart"));
+    let Some(Plot::Matrix { variables, groups }) = &chart.plot else {
+        panic!("{chart:?}")
+    };
+    let titles: Vec<&str> = variables.iter().map(|v| v.title.as_str()).collect();
+    assert_eq!(titles, ["basket", "tip", "store"]);
+    // LISTWISE: no missing tip and a valid store; 3 evening and 3 morning cases
+    assert_eq!(groups[0].name, "e");
+    let evening: Vec<&[f64]> = groups[0].cases.iter().map(|c| &c.values[..]).collect();
+    assert_eq!(
+        evening,
+        [&[20.0, 2.5, 1.0][..], &[30.0, 4.0, 2.0], &[10.0, 1.5, 3.0]]
+    );
+    assert_eq!(groups[1].cases.len(), 3);
+    let table = chart.data_table();
+    assert_eq!(table.columns, ["daypart", "basket", "tip", "store"]);
+    assert_eq!(table.rows.len(), 6);
+    // VARIABLE keeps a case valid on two of the variables, empty where it is missing
+    let chart = one("GRAPH /SCATTERPLOT(MATRIX)=basket tip store /MISSING=VARIABLE.");
+    let Some(Plot::Matrix { groups, .. }) = &chart.plot else {
+        panic!()
+    };
+    assert_eq!(groups.len(), 1);
+    assert_eq!(groups[0].cases.len(), 9);
+    close(&groups[0].cases[3].values, &[15.0, f64::NAN, 2.0]);
+    let spec = chart.vega_lite();
+    let fields = &spec["repeat"]["row"];
+    assert_eq!(fields, &serde_json::json!(["basket", "tip", "store"]));
+    assert_eq!(spec["data"]["values"][0]["tip"], 1.0);
+    assert!(spec["data"]["values"][3]["tip"].is_null());
+    assert_eq!(
+        error("GRAPH /SCATTERPLOT(MATRIX)=basket TO basket."),
+        "GRAPH: a scatterplot matrix needs two variables or more"
+    );
+}
+
+#[test]
+fn a_three_axis_scatterplot_lists_its_points() {
+    let chart = one("GRAPH /SCATTERPLOT(XYZ)=basket WITH tip WITH store.");
+    assert_eq!(chart.kind_text(), "Scatter plot in three dimensions");
+    assert_eq!(chart.title, "tip by basket and store");
+    assert_eq!(
+        chart.footnote.as_deref(),
+        Some("The third axis, store, is not drawn; the table lists every point.")
+    );
+    let Some(Plot::Points { groups, z_axis, .. }) = &chart.plot else {
+        panic!("{chart:?}")
+    };
+    assert_eq!(z_axis.as_ref().map(|z| z.title.as_str()), Some("store"));
+    let zs: Vec<Option<f64>> = groups[0].points.iter().map(|p| p.z).collect();
+    let want = [1.0, 1.0, 2.0, 2.0, 3.0, 3.0].map(Some);
+    assert_eq!(zs, want);
+    assert_eq!(chart.data_table().columns, ["basket", "tip", "store"]);
+}

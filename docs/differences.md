@@ -598,7 +598,7 @@ Where the documentation is silent:
 
 ### GRAPH
 
-- BAR, LINE, PIE, ERRORBAR, PARETO, HILO, HISTOGRAM and SCATTERPLOT (BIVARIATE, with a control variable and point labels) make one chart, as data and as a picture like the charts of the procedures. The chart's layout follows the function specification; a SIMPLE or GROUPED keyword that does not fit it changes nothing, as the manual says. Several areas stack.
+- BAR, LINE, PIE, ERRORBAR, PARETO, HILO, HISTOGRAM and SCATTERPLOT (BIVARIATE, OVERLAY, MATRIX and XYZ, with a control variable and point labels) make one chart, as data and as a picture like the charts of the procedures. The chart's layout follows the function specification; a SIMPLE or GROUPED keyword that does not fit it changes nothing, as the manual says. Several areas stack.
 - Categories ascend by value. With MISSING=REPORT the categories of missing values come after the valid ones, user-missing values first and system-missing last.
 - PCT is a share of all cases in the chart. CUFREQ, CUSUM and CUPCT add up along the categories within each series, and CUPCT is a share of that series' total, so each series ends at 100.
 - MEDIAN and PTILE use (W + 1) p as FREQUENCIES does. MODE shows the smallest of tied values. GMEDIAN treats the values as group midpoints.
@@ -609,8 +609,12 @@ Where the documentation is silent:
 - PARETO: categories with equal totals keep their order by value. NOCUM leaves out the right axis together with the line, although the manual keeps the axis; the axis means nothing without the line.
 - BAR(RANGE), LINE(DROP), LINE(DIFFERENCE) and HILO take their series as the ends of the ranges and check that their number fits: pairs for RANGE, two or more for DROP, two for DIFFERENCE, two or three for HILO.
 - PANEL draws a separate chart for each combination of the panel categories, named in its title, not a grid of panels sharing axes; each chart scales its own axes. A combination without cases gets no chart, so CROSS and NEST give the same charts. A case missing on a panel variable is left out unless MISSING=REPORT. A panel whose chart cannot be made gives a warning and the others are drawn.
+- SCATTERPLOT: the variables decide the kind of plot, as the function specification does for bars, whatever keyword is given. In an overlay the variables before WITH run across and those after it up, as in a single plot; each pair is a group named "y by x", and an axis of several variables is titled by them all and shows the format with the most decimals. LISTWISE leaves out a case missing on any variable of the plot; VARIABLE keeps it in every pair, or every cell of a matrix, where both values are valid.
+- The scatterplot matrix is one chart: a square cell for each pair, the column's variable across and the row's up, the variable names on the diagonal. A case needs valid values on two of the variables.
+- A scatterplot with three axes (XYZ) is not drawn yet: it shows as the table of its points, with a footnote that says so. Vega-Lite draws its first two axes.
+- INTERVAL adds error bars to simple and clustered bar and line charts of MEAN (CI, SE and STDDEV, computed as for ERRORBAR) and of MEDIAN (CI only). The median's interval comes from interpolated order statistics, so its ends need not lie at the same distance; it needs whole case weights. Counts, percentages and the other functions give an error, as do stacked bars and areas: the documented formulas cover means and medians only.
 - In the office files a difference area chart, and range bars with more than one pair, go in as pictures; drop-line and high-low charts are line charts of points with high-low lines, error bar charts line charts of points with custom error bars, side by side only in the picture and in Vega-Lite.
-- Not supported yet, each with an error: INTERVAL, TEMPLATE, HILO with more than three series (GROUPED), and OVERLAY, MATRIX and XYZ scatterplots.
+- Not supported yet, each with an error: TEMPLATE, HILO with more than three series (GROUPED), and INTERVAL around counts, percentages and functions other than MEAN and MEDIAN.
 
 ### PPLOT
 

@@ -138,6 +138,27 @@ fn chart_type(chart: &Chart) -> Option<ChartType> {
     })
 }
 
+/// For each series with error bars, in order, the column of its lengths below when they differ
+/// from those above; `from` is the first error bar column of the data table.
+fn below_columns(chart: &Chart, from: u16) -> Vec<Option<u16>> {
+    let Some(bars) = &chart.error_bars else {
+        return Vec::new();
+    };
+    let with_bars: Vec<usize> = (0..bars.margins.len())
+        .filter(|&s| !bars.margins[s].is_empty())
+        .collect();
+    let mut next = from + with_bars.len() as u16;
+    with_bars
+        .iter()
+        .map(|&s| {
+            bars.lower.get(s).filter(|l| !l.is_empty()).map(|_| {
+                next += 1;
+                next - 1
+            })
+        })
+        .collect()
+}
+
 /// The office chart of `chart` over its data table `table`, written on the sheet `sheet` from
 /// `(top, left)` by `put_table`. With `titled` false the chart shows no title of its own.
 fn drawn(
@@ -155,6 +176,7 @@ fn drawn(
     // the data table holds the half lengths of the error bars after the values, a column for
     // each series that has bars
     let mut margin_column = left + 1 + chart.series.len() as u16;
+    let mut below_columns = below_columns(chart, margin_column).into_iter();
     let points = matches!(
         chart.kind,
         ChartKind::ErrorBar | ChartKind::DropLine | ChartKind::HighLow | ChartKind::RangeBar
@@ -185,10 +207,14 @@ fn drawn(
             .as_ref()
             .is_some_and(|e| e.margins.get(s).is_some_and(|m| !m.is_empty()));
         if has_bars {
-            let range =
-                || ChartRange::new_from_range(sheet, first, margin_column, last, margin_column);
+            let range = |c: u16| ChartRange::new_from_range(sheet, first, c, last, c);
+            // a bar shorter below has its length below in a column after all the others
+            let below = below_columns.next().flatten().unwrap_or(margin_column);
             let mut bars = ChartErrorBars::new();
-            bars.set_type(ChartErrorBarsType::Custom(range(), range()));
+            bars.set_type(ChartErrorBarsType::Custom(
+                range(margin_column),
+                range(below),
+            ));
             // the writer keeps the bars that fit the chart type: x for lying bars, y otherwise
             series.set_x_error_bars(&bars).set_y_error_bars(&bars);
             margin_column += 1;

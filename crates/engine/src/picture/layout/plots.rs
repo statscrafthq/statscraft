@@ -6,7 +6,9 @@ use super::{Along, Anchor, Axis, Draw, Frame, LINE, PAD, SMALL, Unit, fit};
 use crate::Cell;
 use crate::chart::{Chart, ChartKind, Orientation};
 use crate::picture::{Shape, text_width};
-use crate::plot::{BoxSummary, Merge, Plot, PointGroup, ReferenceLine, Region, TreeNode};
+use crate::plot::{
+    BoxSummary, CaseGroup, Merge, Plot, PointGroup, ReferenceLine, Region, TreeNode,
+};
 
 /// The plot below `top`; returns the y below it, or None when it shows as its data table.
 pub(super) fn plot(d: &mut Draw, chart: &Chart, plot: &Plot, top: f32) -> Option<f32> {
@@ -35,6 +37,7 @@ pub(super) fn plot(d: &mut Draw, chart: &Chart, plot: &Plot, top: f32) -> Option
             }
         }
         Plot::Tree { nodes } => tree(d, nodes, top),
+        Plot::Matrix { variables, groups } => matrix(d, chart, variables, groups, top),
         // shortcut: a stem-and-leaf display is text, and points with a third axis have no flat
         // drawing; both show as their data table until a drawing is asked for
         Plot::StemLeaf(_) | Plot::Points { .. } => None,
@@ -259,6 +262,118 @@ fn points(
         }
     }
     Some(bottom)
+}
+
+/// A scatterplot matrix: a square cell for each pair of variables, the row's variable up and
+/// the column's across, so the cells below the diagonal mirror those above it. The diagonal
+/// names the variables; the ticks of a row are on the left, those of a column at the bottom.
+fn matrix(
+    d: &mut Draw,
+    chart: &Chart,
+    variables: &[crate::chart::Axis],
+    groups: &[CaseGroup],
+    top: f32,
+) -> Option<f32> {
+    let n = variables.len();
+    let all = || groups.iter().flat_map(|g| &g.cases);
+    let axes: Vec<Axis> = (0..n)
+        .map(|v| {
+            let (lo, hi) = range(all().filter_map(|c| c.values.get(v).copied()))?;
+            Some(Axis::new(lo, hi, None, Unit::Plain))
+        })
+        .collect::<Option<_>>()?;
+    let colors = d.pal.series(groups.len());
+    let names: Vec<&str> = groups.iter().map(|g| g.name.as_str()).collect();
+    let top = d.swatches(chart.legend.as_deref(), &names, &colors, top) + 4.0;
+    let labels: Vec<Vec<String>> = axes.iter().map(Axis::labels).collect();
+    let widest = labels
+        .iter()
+        .flatten()
+        .map(|l| text_width(l, SMALL))
+        .fold(0.0f32, f32::max);
+    let (gap, x0) = (6.0, PAD + widest + 6.0);
+    let side = ((d.width - PAD - x0 - gap * (n - 1) as f32) / n as f32).max(20.0);
+    let start = |k: usize| k as f32 * (side + gap);
+    let (rule, muted, ink) = (d.pal.rule, d.pal.muted, d.pal.ink);
+    let labelled = all().filter(|c| c.label.is_some()).count() <= 40;
+    // a tick label that would run into the one before it, at the meeting of two cells, is left
+    // out
+    let mut last_y = f32::MIN;
+    for r in 0..n {
+        let (y0, y1) = (top + start(r), top + start(r) + side);
+        for (t, label) in axes[r].ticks.iter().zip(&labels[r]).rev() {
+            let y = axes[r].at(*t, y1, y0);
+            if y - last_y >= LINE * 0.75 {
+                d.text(x0 - 6.0, y, label.clone(), SMALL, muted, Anchor::End);
+                last_y = y;
+            }
+        }
+        for c in 0..n {
+            let (cx0, cx1) = (x0 + start(c), x0 + start(c) + side);
+            let corners = vec![[cx0, y0], [cx1, y0], [cx1, y1], [cx0, y1], [cx0, y0]];
+            d.line(corners, 1.0, rule);
+            if r == c {
+                let title = fit(&variables[r].title, SMALL, side - 8.0);
+                d.text(
+                    (cx0 + cx1) / 2.0,
+                    (y0 + y1) / 2.0,
+                    title,
+                    SMALL,
+                    ink,
+                    Anchor::Middle,
+                );
+                continue;
+            }
+            for (group, &color) in groups.iter().zip(&colors) {
+                for case in &group.cases {
+                    let (Some(&vx), Some(&vy)) = (case.values.get(c), case.values.get(r)) else {
+                        continue;
+                    };
+                    if !vx.is_finite() || !vy.is_finite() {
+                        continue;
+                    }
+                    let center = [axes[c].at(vx, cx0, cx1), axes[r].at(vy, y1, y0)];
+                    d.shapes.push(Shape::Circle {
+                        center,
+                        radius: 2.5,
+                        fill: color.alpha(220),
+                    });
+                    if let Some(label) = case.label.clone().filter(|_| labelled) {
+                        d.text(
+                            center[0] + 5.0,
+                            center[1],
+                            label,
+                            SMALL,
+                            muted,
+                            Anchor::Start,
+                        );
+                    }
+                }
+            }
+        }
+    }
+    let bottom = top + start(n) - gap;
+    let mut last_x = f32::MIN;
+    for c in 0..n {
+        let (cx0, cx1) = (x0 + start(c), x0 + start(c) + side);
+        for (t, label) in axes[c].ticks.iter().zip(&labels[c]) {
+            let x = axes[c].at(*t, cx0, cx1);
+            d.line(vec![[x, bottom], [x, bottom + 4.0]], 1.0, muted);
+            let half = text_width(label, SMALL) / 2.0;
+            if x - half >= last_x + 4.0 {
+                d.text(
+                    x,
+                    bottom + 12.0,
+                    label.clone(),
+                    SMALL,
+                    muted,
+                    Anchor::Middle,
+                );
+                last_x = x + half;
+            }
+        }
+    }
+    Some(bottom + 12.0 + LINE / 2.0)
 }
 
 /// The labels of the items down the left, in their order, and where that column ends.
@@ -864,6 +979,38 @@ mod tests {
             assert_eq!(centers.count(), 3);
             let t = texts(&s);
             assert!(t.contains(&"Walk") && t.contains(&"Cycle") && t.contains(&"Bus"));
+        }
+    }
+
+    #[test]
+    fn a_scatterplot_matrix_draws_each_case_in_every_cell_off_the_diagonal() {
+        let axis = |title: &str| ChartAxis::titled(title);
+        let case = |values: [f64; 3]| crate::plot::CaseValues {
+            values: values.to_vec(),
+            label: None,
+        };
+        let plot = Plot::Matrix {
+            variables: vec![axis("Speed"), axis("Load"), axis("Heat")],
+            groups: vec![CaseGroup {
+                name: String::new(),
+                // the last case misses Load, so it shows only in the two cells of Speed and Heat
+                cases: vec![
+                    case([1.0, 4.0, 7.0]),
+                    case([2.0, 6.0, 5.0]),
+                    case([3.0, f64::NAN, 9.0]),
+                ],
+            }],
+        };
+        let s = scene(&plot_chart(ChartKind::Scatter, plot), 600.0, Paper::Light).unwrap();
+        let dots = s
+            .shapes
+            .iter()
+            .filter(|s| matches!(s, Shape::Circle { .. }))
+            .count();
+        assert_eq!(dots, 2 * 6 + 2);
+        let texts = texts(&s);
+        for name in ["Speed", "Load", "Heat"] {
+            assert!(texts.contains(&name), "{texts:?}");
         }
     }
 

@@ -128,7 +128,7 @@ One page per supported command, generated from the same table that the parser an
 | [GLM](glm.md) | General linear model: one dependent variable as in UNIANOVA, or repeated measures with WSFACTOR. |
 | [ANOVA](anova.md) | Analysis of variance for factorial designs with covariates, the older form with MCA tables. |
 | [TREE](tree.md) | A classification tree grown by CHAID or exhaustive CHAID. |
-| [GRAPH](graph.md) | One chart: summaries by category as bars, lines, areas, a pie, points with error bars, a Pareto chart or ranges, a histogram or a scatterplot. |
+| [GRAPH](graph.md) | One chart: summaries by category as bars, lines, areas, a pie, points with error bars, a Pareto chart or ranges, a histogram, a scatterplot or a scatterplot matrix. |
 | [PPLOT](pplot.md) | Probability plots: Q-Q or P-P plots of variables against a test distribution. |
 | [NPPLOT](npplot.md) | Another name for PPLOT. |
 | [ROC](roc.md) | ROC curve of test variables against a state, with the area under the curve. |

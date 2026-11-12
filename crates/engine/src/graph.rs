@@ -46,17 +46,17 @@ use crate::chart::{
 };
 use crate::crosstabs::Key;
 use crate::descriptives::case_weights;
-use crate::dist::t_quantile;
+use crate::dist::{beta_i, t_quantile};
 use crate::examine::Distribution;
 use crate::format::{Stat, procedure_format};
 use crate::frequencies::Histogram;
-use crate::plot::{Plot, Point, PointGroup};
+use crate::plot::{CaseGroup, CaseValues, Plot, Point, PointGroup};
 use crate::shown::Shown;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Values, Variable};
 use statscraft_syntax::{
     AggregateFunction as A, Graph, GraphChart, GraphData, GraphFunction as F, GraphInterval,
-    GraphSummary,
+    GraphSummary, VarItem,
 };
 use std::cmp::Ordering;
 
@@ -273,6 +273,96 @@ fn margin(interval: GraphInterval, pairs: &[(f64, f64)]) -> f64 {
     }
 }
 
+/// The interval of the median of the (value, weight) pairs at `level` percent, interpolated
+/// between order statistics (Hettmansperger and Sheather): each case counts its weight times,
+/// so the weights must be whole numbers. None without cases.
+fn median_interval(level: f64, pairs: &[(f64, f64)]) -> Result<Option<[f64; 2]>, Error> {
+    if pairs.iter().any(|p| p.1.fract() != 0.0) {
+        return Err(Error(
+            "GRAPH: the confidence interval of a median needs whole case weights".into(),
+        ));
+    }
+    let mut sorted = pairs.to_vec();
+    sorted.sort_by(|a, b| a.0.total_cmp(&b.0));
+    let n = sorted.iter().map(|p| p.1).sum::<f64>() as usize;
+    if n == 0 {
+        return Ok(None);
+    }
+    // the i-th smallest value, 1-based, with each case repeated by its weight; the ends stand
+    // for the indices 0 and n + 1, which come in with a factor of 0
+    let x = |i: usize| {
+        let i = i.clamp(1, n) as f64;
+        let mut seen = 0.0;
+        sorted
+            .iter()
+            .find(|p| {
+                seen += p.1;
+                seen >= i
+            })
+            .map_or(f64::NAN, |p| p.0)
+    };
+    // P(B >= i) and P(i <= B <= n - i) for B binomial with n trials and chance 1/2
+    let at_least = |i: usize| match i {
+        0 => 1.0,
+        _ if i > n => 0.0,
+        _ => beta_i(i as f64, (n - i + 1) as f64, 0.5),
+    };
+    let between = |i: usize| match i > n / 2 {
+        true => 0.0,
+        false => at_least(i) - at_least(n - i + 1),
+    };
+    let p = level / 100.0;
+    // the coverage falls with k, so the first k whose next one is at most p
+    let k = (0..=n / 2).find(|&k| between(k + 1) <= p).unwrap_or(n / 2);
+    let (above, below) = (between(k), between(k + 1));
+    let l = (above - p) / (above - below);
+    let (nf, kf) = (n as f64, k as f64);
+    let lambda = (nf - kf) * l / (kf + (nf - 2.0 * kf) * l);
+    Ok(Some([
+        lambda * x(k + 1) + (1.0 - lambda) * x(k),
+        lambda * x(n - k) + (1.0 - lambda) * x(n - k + 1),
+    ]))
+}
+
+/// How far the error bar of `function` reaches below and above its value over the pairs: a
+/// mean's by `margin`, a median's to the ends of its interval. NaN where there is no bar.
+fn bar_lengths(
+    interval: GraphInterval,
+    function: F,
+    pairs: &[(f64, f64)],
+) -> Result<[f64; 2], Error> {
+    match (function, interval) {
+        (F::Median, GraphInterval::Ci(level)) => {
+            let value = compute(F::Median, pairs);
+            Ok(match median_interval(level, pairs)? {
+                Some([lo, hi]) => [value - lo, hi - value],
+                None => [f64::NAN; 2],
+            })
+        }
+        _ => {
+            let m = margin(interval, pairs);
+            Ok([m, m])
+        }
+    }
+}
+
+/// INTERVAL takes means, and medians with a confidence interval: the functions the error bars
+/// have a formula for.
+fn check_interval(interval: GraphInterval, function: F) -> Result<(), Error> {
+    match (function, interval) {
+        (F::Mean, _) | (F::Median, GraphInterval::Ci(_)) => Ok(()),
+        (F::Median, _) => Err(Error(
+            "GRAPH: the error bars of a median are its confidence interval; give INTERVAL CI, \
+             or use MEAN for SE and STDDEV"
+                .into(),
+        )),
+        (other, _) => Err(Error(format!(
+            "GRAPH: INTERVAL draws error bars around means and medians; {} is not supported yet",
+            function_name(other, None)
+        ))),
+    }
+}
+
 /// Pareto: the categories by their total over the series, largest first, and the cumulative
 /// percentage as a last series on a second axis when `cumulative`.
 fn pareto(chart: &mut Chart, cumulative: bool) {
@@ -421,6 +511,11 @@ impl Context<'_> {
     ) -> Result<Chart, Error> {
         let (include, report) = (self.command.include, self.command.report);
         let items = self.items(functions)?;
+        if let Some(interval) = interval {
+            for item in &items {
+                check_interval(interval, item.function)?;
+            }
+        }
         let counting = items.iter().any(|i| i.function.counts_cases());
         if counting && by.is_empty() {
             return Err(Error("GRAPH: a count function needs a BY variable".into()));
@@ -505,13 +600,37 @@ impl Context<'_> {
                     .collect()
             })
             .collect();
-        let error_bars = interval.map(|interval| ErrorBars {
-            label: interval_label(interval),
-            margins: cells
-                .iter()
-                .map(|series| series.iter().map(|pairs| margin(interval, pairs)).collect())
-                .collect(),
-        });
+        let error_bars = match interval {
+            None => None,
+            Some(interval) => {
+                let mut margins = vec![vec![f64::NAN; n_categories]; n_series];
+                let mut lower = margins.clone();
+                for s in 0..n_series {
+                    for k in 0..n_categories {
+                        let function = items[item_of(s, k)].function;
+                        [lower[s][k], margins[s][k]] =
+                            bar_lengths(interval, function, &cells[s][k])?;
+                    }
+                }
+                // only a series with a median has bars that differ below and above
+                let uneven = |s: usize| {
+                    (0..n_categories).any(|k| items[item_of(s, k)].function == F::Median)
+                };
+                for (s, l) in lower.iter_mut().enumerate() {
+                    if !uneven(s) {
+                        l.clear();
+                    }
+                }
+                if lower.iter().all(Vec::is_empty) {
+                    lower.clear();
+                }
+                Some(ErrorBars {
+                    label: interval_label(interval),
+                    margins,
+                    lower,
+                })
+            }
+        };
         // shares of the whole chart, and sums along the categories
         let whole: f64 = values.iter().flatten().filter(|v| v.is_finite()).sum();
         for (s, series) in values.iter_mut().enumerate() {
@@ -748,10 +867,63 @@ impl Context<'_> {
             .map_err(|e| Error(format!("GRAPH: {}: {e}", variable.name())))
     }
 
+    /// The numeric variables of a list.
+    fn numeric_list(&self, list: &[VarItem]) -> Result<Vec<Variable<'_>>, Error> {
+        crate::expand_in(self.data, list)?
+            .iter()
+            .map(|name| numeric(self.data, name, "SCATTERPLOT"))
+            .collect()
+    }
+
+    /// The label of a case's point: the value of the NAME variable; none when it is
+    /// system-missing, while a user-missing value shows.
+    fn point_label(&self, names: Option<&Variable>, case: usize) -> Option<String> {
+        let v = names?;
+        let class = class_of(v, case, true);
+        class.key.map(|key| self.shown.value(v, &key))
+    }
+
+    /// The items in groups by the classes of the control variable, in category order; one
+    /// group named `single` without a control variable.
+    fn grouped<T: Clone>(
+        &self,
+        control: Option<&Variable>,
+        items: Vec<(Option<Class>, T)>,
+        single: String,
+    ) -> Vec<(String, Vec<T>)> {
+        match control {
+            None => vec![(single, items.into_iter().map(|(_, t)| t).collect())],
+            Some(v) => distinct(items.iter().filter_map(|(c, _)| c.as_ref()))
+                .into_iter()
+                .map(|class| {
+                    let members = items
+                        .iter()
+                        .filter(|(c, _)| c.as_ref() == Some(&class))
+                        .map(|(_, t)| t.clone())
+                        .collect();
+                    (category(v, &class, &self.shown).label, members)
+                })
+                .collect(),
+        }
+    }
+
+    /// The class of a case on the control variable; Err(()) when the case is left out because
+    /// that class is missing and MISSING is not REPORT.
+    fn control_class(&self, control: Option<&Variable>, case: usize) -> Result<Option<Class>, ()> {
+        let class = control.map(|v| class_of(v, case, self.command.include));
+        match class.as_ref().is_some_and(|c| c.missing) && !self.command.report {
+            true => Err(()),
+            false => Ok(class),
+        }
+    }
+
+    /// One plot of y against x, with a third axis z when given: a point per case valid on
+    /// all of them.
     fn scatter(
         &self,
         x: &str,
         y: &str,
+        z: Option<&str>,
         control: Option<&str>,
         names: Option<&str>,
     ) -> Result<Chart, Error> {
@@ -760,6 +932,9 @@ impl Context<'_> {
             numeric(self.data, x, "SCATTERPLOT")?,
             numeric(self.data, y, "SCATTERPLOT")?,
         );
+        let zv = z
+            .map(|name| numeric(self.data, name, "SCATTERPLOT"))
+            .transpose()?;
         let control = control.map(|name| self.data.variable(name)).transpose()?;
         let names = names.map(|name| self.data.variable(name)).transpose()?;
         let mut points: Vec<(Option<Class>, Point)> = Vec::new();
@@ -771,50 +946,39 @@ impl Context<'_> {
             else {
                 continue;
             };
-            let class = control.as_ref().map(|v| class_of(v, case, include));
-            if class.as_ref().is_some_and(|c| c.missing) && !self.command.report {
+            let pz = zv.as_ref().map(|v| valid(v, case, include));
+            if pz == Some(None) {
                 continue;
             }
-            // a system-missing name shows no label; a user-missing one does
-            let label = names.as_ref().and_then(|v| {
-                let class = class_of(v, case, true);
-                class.key.map(|key| self.shown.value(v, &key))
-            });
+            let Ok(class) = self.control_class(control.as_ref(), case) else {
+                continue;
+            };
             points.push((
                 class,
                 Point {
                     x: px,
                     y: py,
-                    z: None,
-                    label,
+                    z: pz.flatten(),
+                    label: self.point_label(names.as_ref(), case),
                 },
             ));
         }
         if points.is_empty() {
-            return Err(Error("GRAPH: no case has valid values on both axes".into()));
+            return Err(Error("GRAPH: no case has valid values on all axes".into()));
         }
-        let groups = match &control {
-            None => vec![PointGroup {
-                name: self.shown.variable(&yv),
-                points: points.into_iter().map(|(_, p)| p).collect(),
-            }],
-            Some(v) => distinct(points.iter().filter_map(|(c, _)| c.as_ref()))
-                .into_iter()
-                .map(|class| PointGroup {
-                    name: category(v, &class, &self.shown).label,
-                    points: points
-                        .iter()
-                        .filter(|(c, _)| c.as_ref() == Some(&class))
-                        .map(|(_, p)| p.clone())
-                        .collect(),
-                })
-                .collect(),
-        };
-        let made = format!(
+        let groups = self
+            .grouped(control.as_ref(), points, self.shown.variable(&yv))
+            .into_iter()
+            .map(|(name, points)| PointGroup { name, points })
+            .collect();
+        let mut made = format!(
             "{} by {}",
             self.outline.variable(&yv),
             self.outline.variable(&xv)
         );
+        if let Some(zv) = &zv {
+            made = format!("{made} and {}", self.outline.variable(zv));
+        }
         let mut chart = Chart::plot(
             ChartKind::Scatter,
             self.title(made),
@@ -823,7 +987,187 @@ impl Context<'_> {
             Plot::Points {
                 groups,
                 lines: Vec::new(),
+                z_axis: zv.as_ref().map(|v| self.axis(v, true)),
+            },
+        );
+        chart.legend = control.as_ref().map(|v| self.shown.variable(v));
+        if let Some(zv) = &zv {
+            // shortcut: a plot with three axes is not drawn; its table lists the points until
+            // a projected drawing is made
+            chart.footnote = Some(format!(
+                "The third axis, {}, is not drawn; the table lists every point.",
+                self.shown.variable(zv)
+            ));
+        }
+        Ok(chart)
+    }
+
+    /// Several plots in one frame: a group of points per pair of an x and a y variable, every
+    /// combination or, with `pair`, the first with the first and so on.
+    fn overlay(
+        &self,
+        x: &[VarItem],
+        y: &[VarItem],
+        pair: bool,
+        names: Option<&str>,
+    ) -> Result<Chart, Error> {
+        let include = self.command.include;
+        let (xs, ys) = (self.numeric_list(x)?, self.numeric_list(y)?);
+        let pairs: Vec<(usize, usize)> = match pair {
+            true if xs.len() != ys.len() => {
+                return Err(Error(format!(
+                    "GRAPH: PAIR needs as many variables after WITH as before; got {} and {}",
+                    xs.len(),
+                    ys.len()
+                )));
+            }
+            true => (0..xs.len()).map(|i| (i, i)).collect(),
+            false => (0..xs.len())
+                .flat_map(|i| (0..ys.len()).map(move |j| (i, j)))
+                .collect(),
+        };
+        let names = names.map(|name| self.data.variable(name)).transpose()?;
+        let shown = &self.shown;
+        let mut groups: Vec<PointGroup> = pairs
+            .iter()
+            .map(|&(i, j)| PointGroup {
+                name: format!("{} by {}", shown.variable(&ys[j]), shown.variable(&xs[i])),
+                points: Vec::new(),
+            })
+            .collect();
+        for case in 0..self.data.case_count() {
+            if self.weight(case) <= 0.0 {
+                continue;
+            }
+            let xv: Vec<Option<f64>> = xs.iter().map(|v| valid(v, case, include)).collect();
+            let yv: Vec<Option<f64>> = ys.iter().map(|v| valid(v, case, include)).collect();
+            if self.command.listwise && xv.iter().chain(&yv).any(Option::is_none) {
+                continue;
+            }
+            let label = self.point_label(names.as_ref(), case);
+            for (group, &(i, j)) in groups.iter_mut().zip(&pairs) {
+                if let (Some(px), Some(py)) = (xv[i], yv[j]) {
+                    group.points.push(Point {
+                        x: px,
+                        y: py,
+                        z: None,
+                        label: label.clone(),
+                    });
+                }
+            }
+        }
+        if groups.iter().all(|g| g.points.is_empty()) {
+            return Err(Error(
+                "GRAPH: no case has valid values on both variables of a pair".into(),
+            ));
+        }
+        // an axis is titled by its variables, each once
+        let titled = |vars: &[Variable], names: &Shown| -> Vec<String> {
+            let mut titles: Vec<String> = Vec::new();
+            for v in vars {
+                let title = names.variable(v);
+                if !titles.contains(&title) {
+                    titles.push(title);
+                }
+            }
+            titles
+        };
+        // the axis shows its numbers in the format of its variable with the most decimals
+        let decimals = |v: &Variable| {
+            let format = v.format();
+            let after = format.rsplit_once('.').map_or("", |(_, d)| d);
+            after.parse::<usize>().unwrap_or(0)
+        };
+        let list_axis = |vars: &[Variable]| {
+            // the first of equals: max_by_key keeps the last, so the list is read backwards
+            let finest = vars
+                .iter()
+                .rev()
+                .max_by_key(|v| decimals(v))
+                .unwrap_or(&vars[0]);
+            let mut axis = self.axis(finest, true);
+            let titles = titled(vars, shown);
+            if titles.len() > 1 {
+                axis.title = titles.join(", ");
+                axis.variable = None;
+            }
+            axis
+        };
+        let made = format!(
+            "{} by {}",
+            titled(&ys, &self.outline).join(", "),
+            titled(&xs, &self.outline).join(", ")
+        );
+        Ok(Chart::plot(
+            ChartKind::Scatter,
+            self.title(made),
+            list_axis(&xs),
+            list_axis(&ys),
+            Plot::Points {
+                groups,
+                lines: Vec::new(),
                 z_axis: None,
+            },
+        ))
+    }
+
+    /// A scatterplot matrix: every case with a valid value on two of the variables or more,
+    /// grouped by the control variable.
+    fn matrix(
+        &self,
+        variables: &[VarItem],
+        control: Option<&str>,
+        names: Option<&str>,
+    ) -> Result<Chart, Error> {
+        let include = self.command.include;
+        let vars = self.numeric_list(variables)?;
+        if vars.len() < 2 {
+            return Err(Error(
+                "GRAPH: a scatterplot matrix needs two variables or more".into(),
+            ));
+        }
+        let control = control.map(|name| self.data.variable(name)).transpose()?;
+        let names = names.map(|name| self.data.variable(name)).transpose()?;
+        let mut cases: Vec<(Option<Class>, CaseValues)> = Vec::new();
+        for case in 0..self.data.case_count() {
+            if self.weight(case) <= 0.0 {
+                continue;
+            }
+            let values: Vec<Option<f64>> = vars.iter().map(|v| valid(v, case, include)).collect();
+            let known = values.iter().flatten().count();
+            if known < 2 || (self.command.listwise && known < values.len()) {
+                continue;
+            }
+            let Ok(class) = self.control_class(control.as_ref(), case) else {
+                continue;
+            };
+            cases.push((
+                class,
+                CaseValues {
+                    values: values.iter().map(|v| v.unwrap_or(f64::NAN)).collect(),
+                    label: self.point_label(names.as_ref(), case),
+                },
+            ));
+        }
+        if cases.is_empty() {
+            return Err(Error(
+                "GRAPH: no case has valid values on two of the variables".into(),
+            ));
+        }
+        let groups = self
+            .grouped(control.as_ref(), cases, String::new())
+            .into_iter()
+            .map(|(name, cases)| CaseGroup { name, cases })
+            .collect();
+        let listed: Vec<String> = vars.iter().map(|v| self.outline.variable(v)).collect();
+        let mut chart = Chart::plot(
+            ChartKind::Scatter,
+            self.title(format!("Scatterplot matrix of {}", listed.join(", "))),
+            Axis::titled(String::new()),
+            Axis::titled(String::new()),
+            Plot::Matrix {
+                variables: vars.iter().map(|v| self.axis(v, true)).collect(),
+                groups,
             },
         );
         chart.legend = control.as_ref().map(|v| self.shown.variable(v));
@@ -923,16 +1267,29 @@ impl Context<'_> {
     /// The chart of the command over the cases with a positive weight.
     fn chart(&self) -> Result<Chart, Error> {
         let command = self.command;
+        let interval = command.interval;
+        if interval.is_some()
+            && !matches!(
+                command.chart,
+                GraphChart::Bar { .. } | GraphChart::Line { .. }
+            )
+        {
+            return Err(Error(
+                "GRAPH: INTERVAL adds error bars to bar and line charts only; ERRORBAR draws \
+                 means with their bars"
+                    .into(),
+            ));
+        }
         let mut chart = match &command.chart {
             GraphChart::Bar { stacked, data } => {
-                let mut chart = self.categorical(data)?;
+                let mut chart = self.categorical(data, interval)?;
                 if *stacked && chart.series.len() > 1 {
                     chart.grouping = Some(Grouping::Stacked);
                 }
                 chart
             }
             GraphChart::Line { area, data } => {
-                let mut chart = self.categorical(data)?;
+                let mut chart = self.categorical(data, interval)?;
                 let several = chart.series.len() > 1;
                 chart.kind = match area {
                     true => ChartKind::Area,
@@ -943,7 +1300,7 @@ impl Context<'_> {
                 chart
             }
             GraphChart::Pie(data) => {
-                let mut chart = self.categorical(data)?;
+                let mut chart = self.categorical(data, None)?;
                 if chart.series.len() > 1 {
                     return Err(Error(
                         "GRAPH: a pie takes one function by one BY variable, or summary \
@@ -962,7 +1319,22 @@ impl Context<'_> {
                 y,
                 control,
                 names,
-            } => self.scatter(x, y, control.as_deref(), names.as_deref())?,
+            } => self.scatter(x, y, None, control.as_deref(), names.as_deref())?,
+            GraphChart::Xyz {
+                x,
+                y,
+                z,
+                control,
+                names,
+            } => self.scatter(x, y, Some(z), control.as_deref(), names.as_deref())?,
+            GraphChart::Overlay { x, y, pair, names } => {
+                self.overlay(x, y, *pair, names.as_deref())?
+            }
+            GraphChart::Matrix {
+                variables,
+                control,
+                names,
+            } => self.matrix(variables, control.as_deref(), names.as_deref())?,
             GraphChart::ErrorBar {
                 interval,
                 variables,
@@ -977,7 +1349,7 @@ impl Context<'_> {
                 chart
             }
             GraphChart::Pareto { cumulative, data } => {
-                let mut chart = self.categorical(data)?;
+                let mut chart = self.categorical(data, None)?;
                 pareto(&mut chart, *cumulative);
                 chart
             }
@@ -986,6 +1358,13 @@ impl Context<'_> {
             GraphChart::Difference(data) => self.ranges(data, ChartKind::Difference)?,
             GraphChart::Hilo(data) => self.ranges(data, ChartKind::HighLow)?,
         };
+        if interval.is_some() && chart.grouping == Some(Grouping::Stacked) {
+            return Err(Error(
+                "GRAPH: INTERVAL takes simple and clustered charts; stacked bars and areas have \
+                 no error bars"
+                    .into(),
+            ));
+        }
         chart.subtitle = command.subtitle.clone();
         if !command.footnote.is_empty() {
             let given = command.footnote.join(" ");
@@ -1001,7 +1380,7 @@ impl Context<'_> {
     /// A range bar, drop-line, difference or high-low chart: the series are the ends of the
     /// ranges, so their number must fit the kind.
     fn ranges(&self, data: &GraphData, kind: ChartKind) -> Result<Chart, Error> {
-        let mut chart = self.categorical(data)?;
+        let mut chart = self.categorical(data, None)?;
         let n = chart.series.len();
         let problem = match kind {
             ChartKind::RangeBar if n < 2 || n % 2 == 1 => Some(
@@ -1035,9 +1414,16 @@ impl Context<'_> {
         Ok(chart)
     }
 
-    fn categorical(&self, data: &GraphData) -> Result<Chart, Error> {
+    fn categorical(
+        &self,
+        data: &GraphData,
+        interval: Option<GraphInterval>,
+    ) -> Result<Chart, Error> {
         match data {
-            GraphData::Summary { functions, by } => self.summary(functions, by, None),
+            GraphData::Summary { functions, by } => self.summary(functions, by, interval),
+            GraphData::Values { .. } if interval.is_some() => Err(Error(
+                "GRAPH: INTERVAL needs a summary function; a VALUE chart shows single cases".into(),
+            )),
             GraphData::Values { variables, by } => self.values(variables, by.as_deref()),
         }
     }
