@@ -5,6 +5,11 @@
 - Charts as data: FREQUENCIES BARCHART, PIECHART and HISTOGRAM (with a normal curve) and CROSSTABS BARCHART now make charts. `--json` gives each chart's kind, labels and numbers under `commands[].charts`, `--vega-lite` adds a Vega-Lite specification, and the text output and the window show the chart's numbers as a table until the window draws charts. See [the command line](docs/command-line.md#charts).
 - Charts in the office programs: a bar, pie, line or area chart becomes a real, editable office chart with its numbers in a workbook inside it, in the theme of where it lands. In the window a right click on a chart offers Open in PowerPoint, Open in Excel and Open in Word, and on Windows Copy puts it on the clipboard so that PowerPoint and Word paste it as their own chart. `--xlsx` and OUTPUT EXPORT /XLSX put each chart beside its data table, and OUTPUT EXPORT now writes Word documents (/DOC) and presentations (/PPT) with the tables and charts. See [the window](docs/window.md#charts-in-the-office-programs).
 
+## 0.8.1 (2026-11-12)
+
+- Help > Connect an AI agent in the window: connects Statscraft to the AI apps on this computer, or removes it, with clicks instead of `statscraft connect`, and says what to restart. See [Connect your AI agent](docs/connect.md).
+- The Data View keeps rows and columns evenly spaced in files with a million cases.
+
 ## 0.8.0 (2026-11-12)
 
 - `statscraft mcp`: an MCP server over standard input and output, so an AI agent app can describe data, look up commands, check and run syntax through tools. Calls go to the open window when there is one, else to a session in the user data folder. See [the MCP server](docs/mcp.md).

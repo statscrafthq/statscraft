@@ -8,6 +8,7 @@ license.workspace = true
 repository.workspace = true
 
 [dependencies]
+statscraft-connect = { path = "../connect" }
 statscraft-data = { path = "../data" }
 statscraft-engine = { path = "../engine" }
 statscraft-export = { path = "../export" }

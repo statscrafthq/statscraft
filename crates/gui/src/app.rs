@@ -6,6 +6,7 @@ use crate::analyze_dialogs::{
     MultResponse, ONEWAY_STATISTICS, Oneway, STANDARDIZERS, TREE_LEVELS, TREE_SAVE, TTest,
     TTestKind, Tree,
 };
+use crate::connect_window::ConnectWindow;
 use crate::data_dialogs::{
     AGGREGATE_FUNCTIONS, Aggregate, AggregateTo, Aggregated, EXPORT_NAMES, ExportData,
     FILTER_VARIABLE, ImportData, MergeFiles, Mrsets, Restructure, RestructureKind,
@@ -522,6 +523,8 @@ pub struct App {
     about: bool,
     /// The Settings dialog is open at this section.
     settings_section: Option<Section>,
+    /// Help > Connect an AI agent.
+    connect: ConnectWindow,
     /// The dataset as the last open or save left it, to tell whether the data changed since.
     data_saved: Option<Dataset>,
     /// The data file and saved data of the named datasets that are not active, so Save never
@@ -606,6 +609,7 @@ impl App {
             macros: Vec::new(),
             about: false,
             settings_section: None,
+            connect: ConnectWindow::default(),
             data_saved: None,
             data_files: Default::default(),
             ask: None,
@@ -1478,6 +1482,10 @@ impl App {
                 }
                 if ui.button("About Statscraft").clicked() {
                     self.about = true;
+                    self.popups = self.here;
+                }
+                if ui.button("Connect an AI agent...").clicked() {
+                    self.connect.open();
                     self.popups = self.here;
                 }
                 ui.separator();
@@ -3299,7 +3307,7 @@ impl App {
         run
     }
 
-    /// The dialogs, Settings and About, in the window they were opened from.
+    /// The dialogs, Settings, Connect an AI agent and About, in the window they were opened from.
     fn popups(&mut self, ctx: &egui::Context) {
         self.dialog_window(ctx);
         let log_hidden = self.settings.log_hidden;
@@ -3315,6 +3323,7 @@ impl App {
         if self.settings.log_hidden != log_hidden {
             self.show_log = !self.settings.log_hidden;
         }
+        self.connect.show(ctx);
         egui::Window::new("About Statscraft")
             .open(&mut self.about)
             .collapsible(false)

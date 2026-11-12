@@ -405,3 +405,19 @@ fn a_failing_claude_command_is_reported() {
         .unwrap_err();
     assert!(err.contains("not logged in"), "{err}");
 }
+
+#[test]
+fn plain_path_drops_only_the_local_prefix() {
+    use statscraft_connect::plain_path;
+    let plain = |s: &str| plain_path(PathBuf::from(s));
+    assert_eq!(
+        plain(r"\\?\C:\Programs\statscraft.exe"),
+        PathBuf::from(r"C:\Programs\statscraft.exe")
+    );
+    // a network share keeps its long form: without the prefix it would be a different path
+    assert_eq!(
+        plain(r"\\?\UNC\server\share\statscraft.exe"),
+        PathBuf::from(r"\\?\UNC\server\share\statscraft.exe")
+    );
+    assert_eq!(plain(SERVER), PathBuf::from(SERVER));
+}
