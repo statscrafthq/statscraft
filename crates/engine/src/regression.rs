@@ -45,15 +45,54 @@ struct PairSums {
     cxy: f64,
 }
 
-fn pair_sums(rows: &[(f64, f64, f64, f64)], origin: bool) -> PairSums {
-    let c: f64 = rows.iter().map(|r| r.2).sum();
-    let w: f64 = rows.iter().map(|r| r.2 * r.3).sum();
-    let mx = rows.iter().map(|r| r.0 * r.2 * r.3).sum::<f64>() / w;
-    let my = rows.iter().map(|r| r.1 * r.2 * r.3).sum::<f64>() / w;
+/// Groups columns by the cases where they are valid (not NaN): the class of every column, and
+/// the valid cases of every class in case order. Columns of one class share every sum over
+/// their common cases, so pairwise statistics can take those sums once per column.
+pub(crate) fn valid_classes<C: AsRef<[f64]>>(columns: &[C]) -> (Vec<usize>, Vec<Vec<usize>>) {
+    let mut first: Vec<usize> = Vec::new();
+    let mut class = Vec::with_capacity(columns.len());
+    for (i, column) in columns.iter().enumerate() {
+        let same = |&f: &usize| {
+            let (a, b) = (columns[f].as_ref(), column.as_ref());
+            a.iter().zip(b).all(|(x, y)| x.is_nan() == y.is_nan())
+        };
+        match first.iter().position(same) {
+            Some(c) => class.push(c),
+            None => {
+                class.push(first.len());
+                first.push(i);
+            }
+        }
+    }
+    let valid = (first.iter())
+        .map(|&f| {
+            let column = columns[f].as_ref();
+            (0..column.len()).filter(|&k| !column[k].is_nan()).collect()
+        })
+        .collect();
+    (class, valid)
+}
+
+/// The sums of one pair over `cases`, the cases where both values are valid, in case order.
+/// `known` holds c, w and the two weighted means when the caller has them for these cases.
+fn pair_sums(
+    (x, y): (&[f64], &[f64]),
+    (cw, g): (&[f64], &[f64]),
+    cases: &[usize],
+    known: Option<(f64, f64, f64, f64)>,
+    origin: bool,
+) -> PairSums {
+    let (c, w, mx, my) = known.unwrap_or_else(|| {
+        let c: f64 = cases.iter().map(|&k| cw[k]).sum();
+        let w: f64 = cases.iter().map(|&k| cw[k] * g[k]).sum();
+        let mx = cases.iter().map(|&k| x[k] * cw[k] * g[k]).sum::<f64>() / w;
+        let my = cases.iter().map(|&k| y[k] * cw[k] * g[k]).sum::<f64>() / w;
+        (c, w, mx, my)
+    });
     let (ox, oy) = if origin { (0.0, 0.0) } else { (mx, my) };
     let (mut cxx, mut cyy, mut cxy) = (0.0, 0.0, 0.0);
-    for &(x, y, cw, g) in rows {
-        let w = cw * g;
+    for &k in cases {
+        let (x, y, w) = (x[k], y[k], cw[k] * g[k]);
         cxx += w * (x - ox) * (x - ox);
         cyy += w * (y - oy) * (y - oy);
         cxy += w * (x - ox) * (y - oy);
@@ -89,13 +128,30 @@ fn moments(columns: &[Vec<f64>], c: &[f64], g: &[f64], origin: bool) -> Moments 
         c: vec![vec![0.0; m]; m],
         w: vec![0.0; m],
     };
+    // a pair of variables valid in the same cases has the sums of its class, taken once per
+    // variable in the same order, so the results stay the same
+    let (class, valid) = valid_classes(columns);
+    let own: Vec<(f64, f64, f64)> = (0..m)
+        .map(|i| {
+            let (x, cases) = (&columns[i], &valid[class[i]]);
+            let sum_c: f64 = cases.iter().map(|&k| c[k]).sum();
+            let w: f64 = cases.iter().map(|&k| c[k] * g[k]).sum();
+            let mean = cases.iter().map(|&k| x[k] * c[k] * g[k]).sum::<f64>() / w;
+            (sum_c, w, mean)
+        })
+        .collect();
     for i in 0..m {
         for j in i..m {
-            let rows: Vec<(f64, f64, f64, f64)> = (0..c.len())
-                .filter(|&k| !columns[i][k].is_nan() && !columns[j][k].is_nan())
-                .map(|k| (columns[i][k], columns[j][k], c[k], g[k]))
-                .collect();
-            let s = pair_sums(&rows, origin);
+            let (x, y) = (&columns[i][..], &columns[j][..]);
+            let s = if class[i] == class[j] {
+                let known = (own[i].0, own[i].1, own[i].2, own[j].2);
+                pair_sums((x, y), (c, g), &valid[class[i]], Some(known), origin)
+            } else {
+                let both: Vec<usize> = (0..c.len())
+                    .filter(|&k| !x[k].is_nan() && !y[k].is_nan())
+                    .collect();
+                pair_sums((x, y), (c, g), &both, None, origin)
+            };
             if i == j {
                 out.mean[i] = s.mx;
                 out.w[i] = s.w;

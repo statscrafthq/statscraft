@@ -268,16 +268,32 @@ impl Engine {
         let mut pair_n = vec![vec![0.0; p]; p];
         let mut r = vec![vec![1.0; p]; p];
         let mut cov = vec![vec![0.0; p]; p];
+        // variables valid in the same cases share n and their means over the common cases:
+        // taken once per variable, in the same order, so the results stay the same
+        let (class, valid) = crate::regression::valid_classes(&used);
+        let alone: Vec<(f64, f64)> = (0..p)
+            .map(|i| {
+                let both = &valid[class[i]];
+                let n: f64 = both.iter().map(|&k| w[k]).sum();
+                (n, both.iter().map(|&k| w[k] * used[i][k]).sum::<f64>() / n)
+            })
+            .collect();
         for i in 0..p {
             for j in 0..=i {
-                let both: Vec<usize> = (0..cases)
-                    .filter(|&k| !used[i][k].is_nan() && !used[j][k].is_nan())
-                    .collect();
-                let n: f64 = both.iter().map(|&k| w[k]).sum();
-                let mi = both.iter().map(|&k| w[k] * used[i][k]).sum::<f64>() / n;
-                let mj = both.iter().map(|&k| w[k] * used[j][k]).sum::<f64>() / n;
+                let shared;
+                let (both, n, mi, mj) = if class[i] == class[j] {
+                    (&valid[class[i]], alone[i].0, alone[i].1, alone[j].1)
+                } else {
+                    shared = (0..cases)
+                        .filter(|&k| !used[i][k].is_nan() && !used[j][k].is_nan())
+                        .collect::<Vec<usize>>();
+                    let n: f64 = shared.iter().map(|&k| w[k]).sum();
+                    let mi = shared.iter().map(|&k| w[k] * used[i][k]).sum::<f64>() / n;
+                    let mj = shared.iter().map(|&k| w[k] * used[j][k]).sum::<f64>() / n;
+                    (&shared, n, mi, mj)
+                };
                 let (mut sij, mut sii, mut sjj) = (0.0, 0.0, 0.0);
-                for &k in &both {
+                for &k in both {
                     let (a, b) = (used[i][k] - mi, used[j][k] - mj);
                     sij += w[k] * a * b;
                     sii += w[k] * a * a;
