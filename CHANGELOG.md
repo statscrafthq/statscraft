@@ -1,13 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 (2026-11-12)
 
 - Connecting AI apps moved to Edit > Settings > AI agents; Help > Connect an AI agent opens it there. For Claude Desktop, **Install extension** downloads the extension (.mcpb) of this version for your system, checks it against SHA256SUMS and opens it, so Claude Desktop offers to install it; this does not depend on Claude Desktop's settings file, which some versions rewrite. **Connect via config file** stays as the second way and now says where it wrote. **Check** on each app reads its settings files again and shows whether the Statscraft entry is still there. See [Connect your AI agent](docs/connect.md).
 - A change of Claude Desktop's settings file while Claude Desktop runs now comes with a warning, in the window and in `statscraft connect`: quit it completely and connect again.
 - Codex is listed as Codex, also the Codex view of the ChatGPT app, with a note that ordinary ChatGPT chats cannot use tools on this computer.
-
-## 0.9.0 (2026-11-12)
-
 - Every step leaves syntax. Each run that works and is sent to the open window, by an agent or with `statscraft run -s gui`, is added to a syntax window named Agent under a comment line with the time, so the person can read, change, rerun and save it. A file session adds the same to `syntax.sps` in its folder, with the date. `trail` in the JSON says where; failed runs and checks leave nothing. See [the MCP server](docs/mcp.md#every-step-leaves-syntax).
 - The MCP server works in the person's syntax windows: `list_syntax_windows`, `read_syntax`, `edit_syntax` (the change shows at once and Ctrl+Z in the editor takes it back), `new_syntax_window`, `open_syntax_file` and `save_syntax`, which never replaces another file unless told to. `run_syntax` with `window` and `lines` runs from a syntax window as its own Run does. These need a window of this release; an older window answers that it needs an update. See [syntax windows](docs/mcp.md#syntax-windows).
 - Saved output: the output window can be saved as a Statscraft output file (.scout) and opened again, with each command's syntax, warnings, tables and charts. File > Save output, Save output as and Open output in the window; OUTPUT SAVE and OUTPUT OPEN in syntax, so `OUTPUT OPEN` followed by `OUTPUT EXPORT` converts a saved file to a workbook, document or web page without the window. Deleting tables in an output window now deletes them from its document too, and closing a window with unsaved output asks first. The file is plain JSON that agents read directly; .scout files open by double-click after installing. See [output files](docs/command-line.md#output-files).
