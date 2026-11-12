@@ -120,7 +120,7 @@ Each syntax window holds one syntax file, or new syntax, in an editor with line 
 - Save syntax and Save syntax as save the window they are chosen in.
 - File > Close or the window's close button closes it. When its text is unsaved, a question offers **Save**, **Don't save** and **Cancel**.
 - The toolbar has **Run all**, **Run selection** and the **Active** list. The Active list shows the datasets of the session, with the active one chosen. Choosing another runs `DATASET ACTIVATE name.`, which shows in the log like any run.
-- Every window runs on the same session and the same active dataset. A run started while another goes on waits its turn, and the status bar of its window says so.
+- Every window runs on the same session and the same active dataset. A run started while another goes on waits its turn, and the status bar says how many runs wait.
 - **Paste** in a dialog or the output puts the syntax at the end of the designated syntax window: the one opened last, or the one chosen with Window > Designate window. With no syntax window open, a new one opens.
 
 ### The editor
@@ -366,7 +366,7 @@ Every dialog that builds syntax ends the same way. That holds for the menus' dia
 
 The status bar:
 
-- shows what is running, and in a syntax window whose run waits, that it is waiting;
+- shows what is running, and how many runs wait after it;
 - says how many warnings a run gave (the warnings appear under their command in the log); a click there shows the log, in the Output tab when you are in the Data or Variables tab;
 - shows errors, whatever the tab;
 - names, at its right, the split, filter and weight in force, such as `Split by region (layered)`, `Filter: filter_$` and `Weight: weight`. A click on one opens Split File, Select Cases or Weight Cases.
@@ -383,13 +383,13 @@ The Data and Variables tabs have no log, so the grid gets the whole height.
 
 Every change and every result in the window comes from syntax run by the engine, exactly as `statscraft run` runs it.
 
-- Opening a file runs `GET FILE`.
+- Opening a file runs `GET FILE` and `DATASET NAME` with the next free name (DataSet1, DataSet2 and so on), so the data open before stays open in the session.
 - Editing a cell runs `IF ($CASENUM = n) var = value.`
 - Editing a label runs `VARIABLE LABELS`, and so on.
 - Macros defined by one run (DEFINE, or INCLUDE of a macro library) stay defined for the later runs while the window is open, with the macro settings of SET.
 - Edit > Undo last change (Ctrl+Z outside a text field) puts back the dataset from before the last run that changed it. It goes one step back. The log marks that run as undone, and Copy syntax leaves it out.
 - Opening a file and every run happen off the drawing thread. The status bar shows what is running, and the window stays responsive.
-- One run goes at a time. Runs from syntax windows and requests from the command line wait their turn.
+- One run goes at a time. Runs from every window and requests from the command line wait their turn, in the order they came.
 
 ## Settings
 

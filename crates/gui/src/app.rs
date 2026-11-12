@@ -32,7 +32,7 @@ use crate::stats_dialogs_view;
 use crate::syntax_text::{number, quote};
 use crate::syntax_window;
 use crate::updates::Updates;
-use crate::windows::{Closing, Kind, Registry, RunQueue, WindowId};
+use crate::windows::{Closing, Kind, Registry, WindowId};
 use crate::{editor, grid, grid_menu, highlight, themes};
 use eframe::egui::{
     self, Align, Align2, Color32, ComboBox, FocusDirection, FontId, Key, Modifiers, Rect, RichText,
@@ -40,7 +40,7 @@ use eframe::egui::{
 };
 use statscraft_data::{Dataset, Measure, Value, Values};
 use statscraft_engine::live::{self, Action, Request, Response};
-use statscraft_engine::session::{CommandResult, Done, Failure, RunResult, Session};
+use statscraft_engine::session::{CommandResult, Failure, Queued, RunQueue, RunResult, Session};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc};
@@ -90,18 +90,10 @@ impl Then {
     }
 }
 
-/// A run from a syntax window that waits for the one going on.
-struct Queued {
+/// A run in the queue: what to do when it ends, and its syntax, for the output.
+struct Run {
+    after: After,
     source: String,
-    lines: Option<(u32, u32)>,
-    after: After,
-}
-
-/// A run on a worker thread, so a large file or a long run leaves the window responsive.
-struct Busy {
-    label: String,
-    after: After,
-    done: mpsc::Receiver<Done>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -474,8 +466,6 @@ pub struct App {
     rows_before_click: BTreeSet<usize>,
     /// The open windows: the main window and the syntax windows.
     windows: Registry,
-    /// Runs from syntax windows that wait for the one going on.
-    queue: RunQueue<Queued>,
     /// The window being drawn, which its menu acts on.
     here: WindowId,
     /// The window that shows the dialogs, Settings and About: the one they were opened from.
@@ -494,6 +484,9 @@ pub struct App {
     settings_section: Option<Section>,
     /// The dataset as the last open or save left it, to tell whether the data changed since.
     data_saved: Option<Dataset>,
+    /// The data file and saved data of the named datasets that are not active, so Save never
+    /// writes one dataset over another's file.
+    data_files: std::collections::HashMap<String, DataFile>,
     ask: Option<Ask>,
     /// The user chose to close: the next close request goes through.
     close_ok: bool,
@@ -514,7 +507,11 @@ pub struct App {
     warnings: usize,
     title: String,
     requests: mpsc::Receiver<Remote>,
-    busy: Option<Busy>,
+    /// Every run of every window and of the command line, one at a time in turn.
+    runs: RunQueue<Run>,
+    /// Data files to open once nothing runs: the name of a new dataset (DataSet2) is taken when
+    /// its open starts, so files opened together do not get the same name.
+    opens: std::collections::VecDeque<PathBuf>,
     ctx: egui::Context,
     /// The listener for `--session gui`; dropping it removes the endpoint file.
     server: Option<live::Server>,
@@ -552,6 +549,8 @@ impl App {
             style.spacing.scroll.fade.strength = 0.0;
         });
         let updates = Updates::new(&app_ctx, &mut settings);
+        let repaint = app_ctx.clone();
+        let runs = RunQueue::new(move || repaint.request_repaint());
         let mut app = App {
             session: Session::default(),
             tab: Tab::Data,
@@ -575,7 +574,6 @@ impl App {
             missing_dialog: None,
             rows_before_click: BTreeSet::new(),
             windows: Registry::new(),
-            queue: RunQueue::default(),
             here: 0,
             popups: 0,
             icon: Arc::new(crate::icon()),
@@ -585,6 +583,7 @@ impl App {
             about: false,
             settings_section: None,
             data_saved: None,
+            data_files: Default::default(),
             ask: None,
             close_ok: false,
             logo,
@@ -599,7 +598,8 @@ impl App {
             warnings: 0,
             title: String::new(),
             requests,
-            busy: None,
+            runs,
+            opens: Default::default(),
             ctx: app_ctx,
             server: server.ok(),
         };
@@ -623,14 +623,9 @@ impl App {
         app
     }
 
-    /// Starts syntax on a worker thread; `finish` shows the result. One run at a time: requests
-    /// from the command line wait their turn, the window's own actions are turned away.
+    /// Puts syntax in the one run queue of the session; it runs on a worker thread once the
+    /// runs before it are done, and `finish` shows the result.
     fn run(&mut self, source: &str, lines: Option<(u32, u32)>, after: After) {
-        if self.busy.is_some() {
-            self.status = Err("wait for the running command to finish".into());
-            return;
-        }
-        self.warnings = 0;
         let check = matches!(&after, After::Remote((r, _)) if r.action == Action::Check);
         // relative file names: from the folder of the syntax that runs, or of the designated
         // syntax window
@@ -639,66 +634,42 @@ impl App {
             _ => self.windows.designated_syntax(),
         };
         let file = window.and_then(|id| self.windows.syntax(id)?.file.as_deref());
-        self.session
-            .set_base_dir(file.and_then(Path::parent).map(Path::to_path_buf));
-        let job = self.session.job(source, lines, check);
-        self.source = source.to_string();
-        let label = match &after {
-            After::OpenData(path) => format!("Opening {}", path.display()),
-            _ => format!("Running {}", job.label()),
+        let base_dir = file.and_then(Path::parent).map(Path::to_path_buf);
+        let tag = Run {
+            after,
+            source: source.to_string(),
         };
-        let (sender, done) = mpsc::channel();
-        let ctx = self.ctx.clone();
-        std::thread::spawn(move || {
-            let _ = sender.send(job.execute());
-            ctx.request_repaint();
-        });
-        self.busy = Some(Busy { label, after, done });
+        let run = Queued {
+            source: source.to_string(),
+            lines,
+            check,
+            base_dir,
+            tag,
+        };
+        self.runs.push(&mut self.session, run);
     }
 
-    /// A run from a syntax window: it waits in the queue while another run goes on.
-    fn run_from(
-        &mut self,
-        window: WindowId,
-        source: String,
-        lines: Option<(u32, u32)>,
-        after: After,
-    ) {
-        if self.busy.is_some() {
-            self.queue.push(
-                window,
-                Queued {
-                    source,
-                    lines,
-                    after,
-                },
-            );
-        } else {
-            self.run(&source, lines, after);
-        }
-    }
-
-    /// Takes a finished run off the worker thread, then the next waiting run of a syntax window
-    /// or request from the command line.
+    /// Shows a finished run, then takes the next request from the command line when nothing
+    /// runs.
     fn poll(&mut self) {
-        if let Some(busy) = &self.busy {
-            let result = match busy.done.try_recv() {
-                Ok(done) => self.session.apply(done),
-                Err(mpsc::TryRecvError::Empty) => return,
-                Err(mpsc::TryRecvError::Disconnected) => {
-                    Err(vec![Failure::plain("run", "the run stopped unexpectedly")])
-                }
-            };
-            let busy = self.busy.take().expect("checked above");
-            self.finish(busy.after, result);
+        let active = active_name(&self.session);
+        if let Some((run, result)) = self.runs.poll(&mut self.session) {
+            let now = active_name(&self.session);
+            if now != active {
+                let current = (self.data_file.take(), self.data_saved.take());
+                (self.data_file, self.data_saved) =
+                    switch_data(&mut self.data_files, current, active, now);
+            }
+            self.source = run.source;
+            self.finish(run.after, result);
             self.macros = session_macros(&self.session.log);
         }
-        while self.busy.is_none()
-            && let Some((_, q)) = self.queue.pop()
+        while self.runs.is_idle()
+            && let Some(path) = self.opens.pop_front()
         {
-            self.run(&q.source, q.lines, q.after);
+            self.open_data(path);
         }
-        while self.busy.is_none()
+        while self.runs.is_idle()
             && let Ok(remote) = self.requests.try_recv()
         {
             self.answer(remote);
@@ -706,7 +677,8 @@ impl App {
     }
 
     /// Answers `statscraft run --session gui` and the like. A run shows in the window like one
-    /// of its own; describe and check change nothing.
+    /// of its own; describe and check change nothing. A request is taken only when nothing
+    /// runs, so it starts at once, in the caller's folder.
     fn answer(&mut self, (mut request, reply): Remote) {
         if request.action == Action::Describe {
             let _ = reply.send(live::describe(&self.session, request.json));
@@ -717,9 +689,9 @@ impl App {
         let lines = request.lines;
         self.run(&source, lines, After::Remote((request, reply)));
     }
-
     fn finish(&mut self, after: After, mut result: Result<RunResult, Vec<Failure>>) {
         self.data_resize = None;
+        self.warnings = 0;
         let changed = matches!(&result, Ok(r) if r.saved);
         let file = self.data_file.clone();
         let loaded = matches!(&result, Ok(r) if r.commands.iter().any(|c| c.name == "GET" || c.name == "GET DATA"));
@@ -790,7 +762,7 @@ impl App {
 
     /// Puts back the dataset and the data file from before the last change.
     fn undo(&mut self) {
-        if self.busy.is_some() {
+        if !self.runs.is_idle() {
             return;
         }
         let syntax = self.session.undoable().unwrap_or_default().to_string();
@@ -850,7 +822,13 @@ impl App {
     }
 
     fn open_data(&mut self, path: PathBuf) {
-        let syntax = format!("GET FILE={}.", quote(&path.to_string_lossy()));
+        if !self.runs.is_idle() {
+            self.opens.push_back(path);
+            return;
+        }
+        // with a dataset name, so the data open before stays open
+        let get = format!("GET FILE={}.", quote(&path.to_string_lossy()));
+        let syntax = self.session.open_syntax(&get);
         self.run(&syntax, None, After::OpenData(path));
     }
 
@@ -1066,7 +1044,7 @@ impl App {
                 }
             });
             ui.menu_button("Edit", |ui| {
-                let undo = self.busy.is_none() && self.session.undoable().is_some();
+                let undo = self.runs.is_idle() && self.session.undoable().is_some();
                 let button = egui::Button::new("Undo last change").shortcut_text("Ctrl+Z");
                 let response = ui.add_enabled(undo, button);
                 let response = match self.session.undoable() {
@@ -1388,7 +1366,6 @@ impl App {
     fn drop_window(&mut self, id: WindowId) {
         let root = self.windows.root();
         self.windows.close(id);
-        self.queue.drop_window(id);
         if self.popups == id {
             self.popups = self.windows.root();
         }
@@ -1438,7 +1415,7 @@ impl App {
             return;
         }
         if let Some(Ask::SavingToClose(pending)) = &mut self.ask
-            && self.busy.is_none()
+            && self.runs.is_idle()
         {
             match pending.take() {
                 Some(path) => self.save_data(path),
@@ -1619,12 +1596,17 @@ impl App {
     }
 
     fn status_bar(&mut self, ui: &mut Ui) {
-        if let Some(busy) = &self.busy {
+        if let Some((run, label)) = self.runs.running() {
+            let text = match &run.after {
+                After::OpenData(path) => format!("Opening {}", path.display()),
+                _ => format!("Running {label}"),
+            };
+            let waiting = self.runs.waiting();
             ui.horizontal(|ui| {
                 ui.spinner();
-                ui.label(&busy.label);
-                if self.queue.waits(self.here) {
-                    ui.strong("This window's run is waiting");
+                ui.label(text);
+                if waiting > 0 {
+                    ui.strong(format!("{waiting} waiting"));
                 }
             });
             return;
@@ -2404,7 +2386,7 @@ impl App {
         else {
             return ui.close();
         };
-        let entries = grid_menu::entries(data, &target, self.busy.is_some());
+        let entries = grid_menu::entries(data, &target, !self.runs.is_idle());
         if entries.is_empty() {
             return ui.close();
         }
@@ -2822,7 +2804,7 @@ impl App {
         {
             let lines = selection.then(|| w.selected_lines());
             let source = w.text.clone();
-            self.run_from(id, source, lines, After::Editor(id));
+            self.run(&source, lines, After::Editor(id));
         }
         let ctx = ui.ctx().clone();
         if main {
@@ -2902,7 +2884,7 @@ impl App {
             }
         });
         if let Some(name) = chosen {
-            self.run_from(id, syntax_window::activate(&name), None, After::Show);
+            self.run(&syntax_window::activate(&name), None, After::Show);
         }
         run
     }
@@ -3041,6 +3023,32 @@ pub(crate) fn square(visuals: &mut egui::Visuals) {
 }
 
 /// The data when it differs from its file: when it is not what the last open or save left.
+/// The file a dataset was opened from or saved to, and the data as that left it.
+type DataFile = (Option<PathBuf>, Option<Dataset>);
+
+fn active_name(session: &Session) -> Option<String> {
+    session.named_datasets().1.map(str::to_string)
+}
+
+/// The file and saved data when the active dataset changes from `old` to `new`: the current
+/// ones are kept under the old name and the new dataset's come back. A name given to the
+/// unnamed active dataset keeps its file.
+fn switch_data(
+    kept: &mut std::collections::HashMap<String, DataFile>,
+    current: DataFile,
+    old: Option<String>,
+    new: Option<String>,
+) -> DataFile {
+    let restored = new.and_then(|name| kept.remove(&name));
+    match old {
+        Some(old) => {
+            kept.insert(old, current);
+            restored.unwrap_or_default()
+        }
+        None => restored.unwrap_or(current),
+    }
+}
+
 fn unsaved_data(
     data: Option<&Dataset>,
     data_saved: Option<&Dataset>,
@@ -3055,10 +3063,12 @@ fn unsaved_data(
         .collect()
 }
 
-/// A run whose last command is GET, GET DATA or SAVE leaves the data as that file holds it.
+/// A run whose last command is GET, GET DATA or SAVE leaves the data as that file holds it;
+/// a DATASET NAME after it, as opening a file from the window adds, changes no data.
 fn ends_on_file(commands: &[CommandResult]) -> bool {
     commands
-        .last()
+        .iter()
+        .rfind(|c| c.name != "DATASET NAME")
         .is_some_and(|c| matches!(c.name.as_str(), "GET" | "GET DATA" | "SAVE"))
 }
 
@@ -5217,6 +5227,24 @@ mod tests {
     }
 
     #[test]
+    fn each_named_dataset_keeps_its_own_file() {
+        let mut kept = std::collections::HashMap::new();
+        let file = |name: &str| (Some(PathBuf::from(name)), None::<Dataset>);
+        let name = |n: &str| Some(n.to_string());
+        // DATASET NAME on the unnamed data keeps its file
+        let now = switch_data(&mut kept, file("a.sav"), None, name("DataSet1"));
+        assert_eq!(now.0.as_deref(), Some(Path::new("a.sav")));
+        // a second file opened: the first keeps its file under its name
+        let now = switch_data(&mut kept, now, name("DataSet1"), name("DataSet2"));
+        assert_eq!(now.0, None);
+        // back to the first: its file, never the second's
+        let now = switch_data(&mut kept, file("b.sav"), name("DataSet2"), name("DataSet1"));
+        assert_eq!(now.0.as_deref(), Some(Path::new("a.sav")));
+        let now = switch_data(&mut kept, now, name("DataSet1"), name("DataSet2"));
+        assert_eq!(now.0.as_deref(), Some(Path::new("b.sav")));
+    }
+
+    #[test]
     fn a_run_ending_with_get_or_save_leaves_the_data_saved() {
         let commands = |names: &[&str]| -> Vec<CommandResult> {
             let command = |name: &&str| CommandResult {
@@ -5235,6 +5263,8 @@ mod tests {
         assert!(!ends_on_file(&commands(&["GET", "COMPUTE"])));
         assert!(!ends_on_file(&commands(&["SAVE TRANSLATE"])));
         assert!(!ends_on_file(&[]));
+        assert!(ends_on_file(&commands(&["GET", "DATASET NAME"])));
+        assert!(!ends_on_file(&commands(&["DATASET NAME"])));
     }
 
     #[test]

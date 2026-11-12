@@ -1,4 +1,4 @@
-//! The open windows of the one session, and the queue of syntax runs waiting for the session.
+//! The open windows of the one session.
 //!
 //! Every window is an egui viewport (a native window). eframe has one root viewport, and the
 //! program ends when it closes. Its role passes along instead of staying with one window: the
@@ -13,7 +13,6 @@
 
 use crate::syntax_window::SyntaxWindow;
 use eframe::egui::{Pos2, Vec2, ViewportId};
-use std::collections::VecDeque;
 use std::path::Path;
 
 pub(crate) type WindowId = u64;
@@ -224,39 +223,6 @@ impl Registry {
     }
 }
 
-/// Runs from syntax windows that wait while another run goes on, first come first run.
-pub(crate) struct RunQueue<T> {
-    waiting: VecDeque<(WindowId, T)>,
-}
-
-impl<T> Default for RunQueue<T> {
-    fn default() -> Self {
-        RunQueue {
-            waiting: VecDeque::new(),
-        }
-    }
-}
-
-impl<T> RunQueue<T> {
-    pub fn push(&mut self, window: WindowId, run: T) {
-        self.waiting.push_back((window, run));
-    }
-
-    pub fn pop(&mut self) -> Option<(WindowId, T)> {
-        self.waiting.pop_front()
-    }
-
-    /// Whether a run of this window waits.
-    pub fn waits(&self, window: WindowId) -> bool {
-        self.waiting.iter().any(|(w, _)| *w == window)
-    }
-
-    /// A closed window's runs do not run.
-    pub fn drop_window(&mut self, window: WindowId) {
-        self.waiting.retain(|(w, _)| *w != window);
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -336,20 +302,5 @@ mod tests {
         r.close(c);
         // the last window: the question covers everything, so closing it quits
         assert_eq!(r.closing(a), Closing::Quit);
-    }
-
-    #[test]
-    fn queued_runs_go_in_order_and_leave_with_their_window() {
-        let mut q = RunQueue::default();
-        q.push(1, "FREQ a.");
-        q.push(2, "FREQ b.");
-        q.push(1, "FREQ c.");
-        assert!(q.waits(1) && q.waits(2) && !q.waits(3));
-        assert_eq!(q.pop(), Some((1, "FREQ a.")));
-        q.drop_window(2);
-        assert!(!q.waits(2));
-        assert_eq!(q.pop(), Some((1, "FREQ c.")));
-        assert_eq!(q.pop(), None);
-        assert!(!q.waits(1));
     }
 }
