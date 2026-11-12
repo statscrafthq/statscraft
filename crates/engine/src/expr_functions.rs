@@ -46,8 +46,6 @@ pub(crate) fn date_parts(value: f64) -> Option<(i64, i64, i64)> {
 pub(crate) fn date(day: f64, month: f64, year: f64) -> Option<f64> {
     let whole = |v: f64| (v.fract() == 0.0 && v.abs() < 1e6).then_some(v as i64);
     let (day, month, year) = (whole(day)?, whole(month)?, whole(year)?);
-    // shortcut: a two-digit year is missing instead of being moved into a century window,
-    // add the window when SET EPOCH is supported
     if !(0..=31).contains(&day) || !(1..=13).contains(&month) || year < 1582 {
         return None;
     }
@@ -60,8 +58,14 @@ fn whole_in(value: f64, low: f64, high: f64) -> Option<f64> {
     (value.fract() == 0.0 && (low..=high).contains(&value)).then_some(value)
 }
 
-/// DATE.MOYR, DATE.QYR, DATE.WKYR and DATE.YRDAY.
-pub(crate) fn date_of(function: &str, a: f64, b: f64) -> Option<f64> {
+/// DATE.MOYR, DATE.QYR, DATE.WKYR and DATE.YRDAY; a two-digit year falls in the SET EPOCH
+/// window.
+pub(crate) fn date_of(function: &str, a: f64, b: f64, epoch: Option<f64>) -> Option<f64> {
+    let year = |y: f64| crate::data_list::full_year(y, epoch);
+    let (a, b) = match function {
+        "DATE.YRDAY" => (year(a), b),
+        _ => (a, year(b)),
+    };
     match function {
         "DATE.MOYR" => date(1.0, a, b),
         "DATE.QYR" => date(1.0, whole_in(a, 1.0, 4.0)? * 3.0 - 2.0, b),

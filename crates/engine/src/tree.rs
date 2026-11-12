@@ -510,10 +510,16 @@ fn sorted_unique(mut keys: Vec<Key>) -> Vec<Key> {
 }
 
 /// The measurement level of a variable: the one written, else the dictionary's, else the one
-/// its data give it (the rule of a data pass, as the manual says for an unknown level).
-fn level_of(data: &Dataset, variable: &Variable, written: Option<Level>) -> Level {
+/// its data give it (the rule of a data pass, as the manual says for an unknown level, with SET
+/// SCALEMIN as `scale_min`).
+fn level_of(
+    data: &Dataset,
+    variable: &Variable,
+    written: Option<Level>,
+    scale_min: usize,
+) -> Level {
     let measure = match (variable.measure(), data.variable_index(variable.name())) {
-        (Measure::Unknown, Some(index)) => default_measure(data, index),
+        (Measure::Unknown, Some(index)) => default_measure(data, index, scale_min),
         (known, _) => known,
     };
     written.unwrap_or(match measure {
@@ -541,10 +547,11 @@ impl Engine {
             self.warn(message.clone());
         }
         let currencies = self.currencies();
+        let scale_min = self.scale_min();
         let data = self.active()?;
         let mut warnings: Vec<String> = Vec::new();
         let dependent = data.variable(&command.dependent)?;
-        let dependent_level = level_of(data, &dependent, command.dependent_level);
+        let dependent_level = level_of(data, &dependent, command.dependent_level, scale_min);
         if dependent_level == Level::Scale {
             if dependent.is_string() {
                 warnings.push(format!(
@@ -731,7 +738,7 @@ impl Engine {
         let mut variables = Vec::new();
         for (name, written) in &predictors {
             let variable = data.variable(name)?;
-            let mut level = level_of(data, &variable, *written);
+            let mut level = level_of(data, &variable, *written, scale_min);
             if level == Level::Scale && variable.is_string() {
                 warnings.push(format!(
                     "the string variable {name} cannot be scale; it is nominal"

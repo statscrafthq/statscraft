@@ -68,7 +68,7 @@ fn cell(data: Option<&Data>) -> Cell {
                 width: 20,
                 decimals: 0,
             };
-            match crate::get_data::number(s, format, false) {
+            match crate::get_data::number(s, format, false, None) {
                 Ok(Some(v)) if v % DAY == 0.0 => Cell::Date(v),
                 Ok(Some(v)) => Cell::DateTime(v),
                 _ => Cell::Text(s.clone()),

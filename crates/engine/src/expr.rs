@@ -295,6 +295,11 @@ pub(crate) struct Evaluator<'a> {
     pub vectors: &'a std::collections::HashMap<String, Vec<String>>,
     /// The generator that UNIFORM, NORMAL and the RV functions draw from.
     pub random: &'a std::cell::RefCell<crate::random::Random>,
+    /// SET FUZZBITS: the third argument of RND and TRUNC when it is left out.
+    pub fuzzbits: f64,
+    /// SET BLANKS and EPOCH: NUMBER reads a blank string as BLANKS, and NUMBER and the DATE
+    /// functions put a two-digit year in the EPOCH window.
+    pub reading: crate::data_list::Reading,
 }
 
 fn finite(value: f64) -> Option<f64> {
@@ -531,14 +536,23 @@ fn format_arg(function: &str, expr: &Expr) -> Result<(String, usize, usize), Err
     }
 }
 
-/// The first `width` characters of `text` read in the format `kind`; None when they are blank
-/// or cannot be read.
-fn read_number(text: &str, kind: &str, width: usize, decimals: usize) -> Option<f64> {
+/// The first `width` characters of `text` read in the format `kind`; the SET BLANKS value when
+/// they are blank, None when they cannot be read.
+fn read_number(
+    text: &str,
+    kind: &str,
+    width: usize,
+    decimals: usize,
+    reading: crate::data_list::Reading,
+) -> Option<f64> {
     let field: String = text.chars().take(width).collect();
     let (_, kind) = NUMBER_FORMATS.iter().find(|(k, _)| *k == kind)?;
+    if field.trim().is_empty() {
+        return reading.blanks;
+    }
     let read = match kind {
         FormatType::Date | FormatType::Adate | FormatType::Edate | FormatType::Sdate => {
-            crate::data_list::date(&field, *kind)
+            crate::data_list::date(&field, *kind, reading.epoch)
         }
         _ => crate::data_list::number(&field, *kind, decimals as u8),
     };
@@ -943,7 +957,8 @@ impl Evaluator<'_> {
             None => Ok(constant(default)),
         };
         let rounded = |half: f64| -> Result<Column, Error> {
-            let (x, multiple, fuzzbits) = (number(0)?, optional(1, 1.0)?, optional(2, 6.0)?);
+            let (x, multiple, fuzzbits) =
+                (number(0)?, optional(1, 1.0)?, optional(2, self.fuzzbits)?);
             let results = x.into_iter().zip(multiple).zip(fuzzbits);
             let results = results.map(|((x, m), f)| round(x, m, f, half).and_then(finite));
             Ok(Column::Number(results.collect()))
@@ -1211,7 +1226,7 @@ impl Evaluator<'_> {
             ("VALUELABEL", 1) => self.value_label(&args[0])?,
             ("NUMBER", 2) => {
                 let (kind, width, decimals) = format_arg(function, &args[1])?;
-                let read = |v: &String| read_number(v, &kind, width, decimals);
+                let read = |v: &String| read_number(v, &kind, width, decimals, self.reading);
                 Column::Number(text(0)?.iter().map(read).collect())
             }
             ("STRING", 2) => {
@@ -1228,11 +1243,17 @@ impl Evaluator<'_> {
                 let dmy = function == "DATE.DMY";
                 each_case(&numbers()?, cases, |p| {
                     let (day, month) = if dmy { (p[0], p[1]) } else { (p[1], p[0]) };
-                    f::date(day, month, p[2])
+                    f::date(
+                        day,
+                        month,
+                        crate::data_list::full_year(p[2], self.reading.epoch),
+                    )
                 })
             }
             ("DATE.MOYR" | "DATE.QYR" | "DATE.WKYR" | "DATE.YRDAY", 2) => {
-                each_case(&numbers()?, cases, |p| f::date_of(function, p[0], p[1]))
+                each_case(&numbers()?, cases, |p| {
+                    f::date_of(function, p[0], p[1], self.reading.epoch)
+                })
             }
             ("YRMODA", 3) => each_case(&numbers()?, cases, |p| f::yrmoda(p[0], p[1], p[2])),
             ("TIME.DAYS", 1) => one(|days| days * f::DAY)?,

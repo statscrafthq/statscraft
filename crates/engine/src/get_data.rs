@@ -117,26 +117,28 @@ fn time_of_day(text: &str) -> Option<f64> {
 
 /// A date in any of the usual orders: year first, day first with a month name or number,
 /// or month/day/year.
-fn any_date(text: &str) -> Result<Option<f64>, &'static str> {
+fn any_date(text: &str, epoch: Option<f64>) -> Result<Option<f64>, &'static str> {
     let year_first = text
         .trim()
         .split(['-', '/', '.'])
         .next()
         .is_some_and(|p| p.len() == 4 && p.bytes().all(|b| b.is_ascii_digit()));
     if year_first {
-        return crate::data_list::date(text, FormatType::Sdate);
+        return crate::data_list::date(text, FormatType::Sdate, epoch);
     }
     if text.contains('/') {
-        return crate::data_list::date(text, FormatType::Adate);
+        return crate::data_list::date(text, FormatType::Adate, epoch);
     }
-    crate::data_list::date(text, FormatType::Date)
+    crate::data_list::date(text, FormatType::Date, epoch)
 }
 
-/// One value in a numeric input format.
+/// One value in a numeric input format; a two-digit year falls in the window from `epoch`
+/// (SET EPOCH, None: AUTOMATIC).
 pub(crate) fn number(
     text: &str,
     format: Format,
     comma_decimal: bool,
+    epoch: Option<f64>,
 ) -> Result<Option<f64>, &'static str> {
     let text = text.trim();
     if text.is_empty() || text == "." {
@@ -148,7 +150,7 @@ pub(crate) fn number(
                 Some(at) => (&text[..at], text[at + 1..].trim()),
                 None => (text, ""),
             };
-            let day = any_date(date)?.ok_or("is not a date")?;
+            let day = any_date(date, epoch)?.ok_or("is not a date")?;
             let time = if time.is_empty() {
                 0.0
             } else {
@@ -158,7 +160,7 @@ pub(crate) fn number(
         }
         FormatType::Time | FormatType::Mtime => time_of_day(text).map(Some).ok_or("is not a time"),
         FormatType::Date | FormatType::Adate | FormatType::Edate | FormatType::Sdate => {
-            crate::data_list::date(text, format.kind)
+            crate::data_list::date(text, format.kind, epoch)
         }
         FormatType::F | FormatType::N | FormatType::E if comma_decimal => {
             crate::data_list::number(&text.replace('.', "").replace(',', "."), FormatType::F, 0)
@@ -185,6 +187,7 @@ impl Engine {
             .filter(|e| !e.eq_ignore_ascii_case("locale"));
         let text = statscraft_syntax::decode_syntax(&bytes, encoding).map_err(Error)?;
         let comma = self.setting("DECIMAL").eq_ignore_ascii_case("COMMA");
+        let reading = self.reading();
         let wanted = |count: usize| command.first_cases.map_or(count, |n| count.min(n as usize));
         // the values of every case, each with the line it starts on
         let mut cases: Vec<(usize, Vec<Option<String>>)> = Vec::new();
@@ -271,6 +274,7 @@ impl Engine {
                                     decimals: 2,
                                 },
                                 comma,
+                                reading.epoch,
                             )
                             .is_ok()
                         })
@@ -311,17 +315,22 @@ impl Engine {
                 data.set_string_values(&variable.name, width, values)?;
             } else {
                 let values = column()
-                    .map(|(line, v)| match v.map(|v| number(&v, format, comma)) {
-                        None | Some(Ok(None)) => None,
-                        Some(Ok(value)) => value,
-                        Some(Err(why)) => {
-                            warnings.push(format!(
-                                "line {line}: {} is system-missing: the value {why}",
-                                variable.name
-                            ));
-                            None
-                        }
-                    })
+                    .map(|(line, v)| (line, v.filter(|v| !v.trim().is_empty())))
+                    .map(
+                        |(line, v)| match v.map(|v| number(&v, format, comma, reading.epoch)) {
+                            // an empty value is a blank field
+                            None => reading.blanks,
+                            Some(Ok(None)) => None,
+                            Some(Ok(value)) => value,
+                            Some(Err(why)) => {
+                                warnings.push(format!(
+                                    "line {line}: {} is system-missing: the value {why}",
+                                    variable.name
+                                ));
+                                None
+                            }
+                        },
+                    )
                     .collect();
                 data.set_numeric_values(&variable.name, values)?;
                 let shown = match (format.width, format.kind) {
@@ -395,25 +404,25 @@ mod tests {
             width: 23,
             decimals: 2,
         };
-        let a = number("2024-03-05 10:30:15", format, false)
+        let a = number("2024-03-05 10:30:15", format, false, None)
             .unwrap()
             .unwrap();
-        let b = number("05-MAR-2024 10:30:15", format, false)
+        let b = number("05-MAR-2024 10:30:15", format, false, None)
             .unwrap()
             .unwrap();
-        let c = number("03/05/2024 10:30:15", format, false)
+        let c = number("03/05/2024 10:30:15", format, false, None)
             .unwrap()
             .unwrap();
         assert_eq!(a, b);
         assert_eq!(a, c);
-        let midnight = number("2024-03-05", format, false).unwrap().unwrap();
+        let midnight = number("2024-03-05", format, false, None).unwrap().unwrap();
         assert_eq!(a - midnight, 10.0 * 3600.0 + 30.0 * 60.0 + 15.0);
-        assert!(number("yesterday", format, false).is_err());
+        assert!(number("yesterday", format, false, None).is_err());
         let f = Format {
             kind: FormatType::F,
             width: 8,
             decimals: 2,
         };
-        assert_eq!(number("1.234,5", f, true), Ok(Some(1234.5)));
+        assert_eq!(number("1.234,5", f, true, None), Ok(Some(1234.5)));
     }
 }

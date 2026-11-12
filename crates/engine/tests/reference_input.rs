@@ -306,3 +306,49 @@ fn matrix_data_layouts() {
         compare(&format!("matrix-{case}"), job, &[]);
     }
 }
+
+/// SET settings that change how data are read and computed. PSPP reads a lone period and a
+/// blank date field as system-missing whatever BLANKS says, and goes wrong after SET
+/// EPOCH=AUTOMATIC, so those cases are checked against the manual only (tests/settings.rs).
+const SETTING_CASES: [(&str, &str); 6] = [
+    (
+        "blanks-fixed",
+        "SET BLANKS=-9.\nDATA LIST FIXED /x 1-3 s 4-5 (A).\nBEGIN DATA\n  1ab\n\n  2\nEND DATA.",
+    ),
+    (
+        "blanks-list",
+        "SET BLANKS=-9.\nDATA LIST LIST (',') /a b c.\nBEGIN DATA\n1,,3\n4, ,6\nEND DATA.",
+    ),
+    (
+        "blanks-free-number",
+        "SET BLANKS=0.\nDATA LIST FREE /a b.\nBEGIN DATA\n1,,3,4\nEND DATA.\n\
+         COMPUTE n = NUMBER('   ', F3).",
+    ),
+    (
+        "epoch-1900",
+        "SET EPOCH=1900.\nDATA LIST LIST /d (DATE11) a (ADATE8).\nBEGIN DATA\n\
+         1-JAN-05 01/01/85\nEND DATA.\nCOMPUTE f = DATE.DMY(1,1,85).\n\
+         COMPUTE g = NUMBER('1-JAN-05', DATE9).\nCOMPUTE m = DATE.MOYR(2,30).\n\
+         COMPUTE y = YRMODA(85,1,1).",
+    ),
+    (
+        "epoch-1980",
+        "SET EPOCH=1980.\nDATA LIST LIST /d (DATE11) a (ADATE8).\nBEGIN DATA\n\
+         1-JAN-05 01/01/85\nEND DATA.\nCOMPUTE f = DATE.DMY(1,1,79).\n\
+         COMPUTE g = NUMBER('1-JAN-80', DATE9).",
+    ),
+    (
+        "fuzzbits-0",
+        "SET FUZZBITS=0.\nDATA LIST LIST /x.\nBEGIN DATA\n0.285\n0.29\nEND DATA.\n\
+         COMPUTE r = RND(x * 100).\nCOMPUTE t = TRUNC(x * 100).\n\
+         COMPUTE r6 = RND(x * 100, 1, 6).\nCOMPUTE t6 = TRUNC(x * 100, 1, 6).",
+    ),
+];
+
+#[test]
+#[ignore = "needs PSPP"]
+fn settings_that_change_results() {
+    for (case, job) in SETTING_CASES {
+        compare(&format!("set-{case}"), job, &[]);
+    }
+}

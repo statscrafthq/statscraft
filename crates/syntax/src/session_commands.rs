@@ -77,16 +77,14 @@ pub enum SettingEffect {
     Silent,
     /// Only changes how output looks: accepted with a warning.
     Appearance,
-    /// Changes results, but Statscraft does not follow it yet: accepted with a warning.
-    NotYet,
 }
 
-use SettingEffect::{Appearance, NotYet, Silent, Used};
+use SettingEffect::{Appearance, Silent, Used};
 
 /// Every SET subcommand with its default as SHOW prints it.
 pub const SETTINGS: &[(&str, &str, SettingEffect)] = &[
     ("BASETEXTDIRECTION", "AUTOMATIC", Appearance),
-    ("BLANKS", "SYSMIS", NotYet),
+    ("BLANKS", "SYSMIS", Used),
     ("BLOCK", "X'2A'", Appearance),
     ("BOX", "X'2D7C2B2B2B2B2B2B2B2B2B'", Appearance),
     ("CACHE", "20", Silent),
@@ -101,11 +99,11 @@ pub const SETTINGS: &[(&str, &str, SettingEffect)] = &[
     ("DECIMAL", "DOT", Used),
     ("DEFOLANG", "ENGLISH", Appearance),
     ("DIGITGROUPING", "NO", Appearance),
-    ("EPOCH", "AUTOMATIC", NotYet),
+    ("EPOCH", "AUTOMATIC", Used),
     ("ERRORS", "LISTING", Silent),
     ("FOOTNOTE", "YES", Appearance),
     ("FORMAT", "F8.2", Used),
-    ("FUZZBITS", "6", NotYet),
+    ("FUZZBITS", "6", Used),
     ("HEADER", "NO", Appearance),
     ("JOURNAL", "", Silent),
     ("LEADZERO", "NO", Appearance),
@@ -138,7 +136,7 @@ pub const SETTINGS: &[(&str, &str, SettingEffect)] = &[
     ("RESULTS", "LISTING", Silent),
     ("RNG", "MC", Used),
     ("ROWSBREAK", "100", Appearance),
-    ("SCALEMIN", "24", NotYet),
+    ("SCALEMIN", "24", Used),
     ("SEED", "2000000", Used),
     ("SIGLESS", "ON", Appearance),
     ("SMALL", "0", Appearance),

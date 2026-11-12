@@ -253,9 +253,14 @@ fn id_field(id: &IdField, columns: Option<(u32, u32)>) -> DataField {
     }
 }
 
-fn read_id(field: &DataField, record: &Record, warnings: &mut Vec<String>) -> Read {
+fn read_id(
+    field: &DataField,
+    record: &Record,
+    reading: data_list::Reading,
+    warnings: &mut Vec<String>,
+) -> Read {
     let text = data_list::columns(&record.text, field);
-    data_list::read(&text, field, true, &record.place, warnings)
+    data_list::read(&text, field, true, reading, &record.place, warnings)
 }
 
 /// One RECORD TYPE of a FILE TYPE with the commands after it.
@@ -664,6 +669,7 @@ impl Engine {
             return Ok(());
         }
         let mut warnings = Vec::new();
+        let reading = self.reading();
         let state = self.state();
         if let Some(key) = state.file_type.clone() {
             if list.layout != (DataLayout::Fixed { records: 1 }) {
@@ -675,7 +681,7 @@ impl Engine {
             let source = &state.sources[&key];
             let index = source.current.expect("the record of the RECORD TYPE");
             let record = from_column(&source.records[index], column);
-            let case = data_list::fixed(list, &[record], 1, &mut warnings).pop();
+            let case = data_list::fixed(list, &[record], 1, reading, &mut warnings).pop();
             state.warnings.extend(warnings);
             return self.store(&list.fields, case.unwrap_or_default());
         }
@@ -725,7 +731,7 @@ impl Engine {
                     None
                 } else {
                     source.current = first;
-                    data_list::fixed(list, &chunk, records, &mut warnings).pop()
+                    data_list::fixed(list, &chunk, records, reading, &mut warnings).pop()
                 }
             }
             DataLayout::List => {
@@ -735,7 +741,7 @@ impl Engine {
                 });
                 record.map(|(index, record)| {
                     source.current = Some(index);
-                    let case = data_list::free(list, &[record], &mut warnings).pop();
+                    let case = data_list::free(list, &[record], reading, &mut warnings).pop();
                     case.unwrap_or_default()
                 })
             }
@@ -771,9 +777,11 @@ impl Engine {
                     let values = found.into_iter().zip(&list.fields);
                     let read = |((value, place), field): ((Option<String>, String), _)| match value
                     {
-                        Some(text) => data_list::read(&text, field, false, &place, &mut warnings),
+                        Some(text) => {
+                            data_list::read(&text, field, false, reading, &place, &mut warnings)
+                        }
                         None if field.format.kind == FormatType::A => Read::Text(String::new()),
-                        None => Read::Number(None),
+                        None => Read::Number(reading.blanks),
                     };
                     Some(values.map(read).collect())
                 }
@@ -859,6 +867,7 @@ impl Engine {
     }
 
     pub(crate) fn repeating_data(&mut self, repeating: &RepeatingData) -> Result<(), Error> {
+        let reading = self.reading();
         self.in_program("REPEATING DATA")?;
         if self.active()?.case_count() == 0 {
             self.declare_fields(&repeating.fields, None)?;
@@ -1004,7 +1013,7 @@ impl Engine {
                 read += 1;
                 record = next;
                 if let Some((field, value)) = &id {
-                    let found = read_id(field, &record, &mut warnings);
+                    let found = read_id(field, &record, reading, &mut warnings);
                     if !same(&found, value) {
                         return Err(Error(format!(
                             "{}: the ID {} of this continuation record is not {}, the ID of its \
@@ -1041,7 +1050,7 @@ impl Engine {
                     ..field.clone()
                 };
                 let text = data_list::columns(&record.text, &at);
-                data_list::read(&text, field, true, &record.place, &mut warnings)
+                data_list::read(&text, field, true, reading, &record.place, &mut warnings)
             });
             groups.push(values.collect());
             position += length;
@@ -1137,6 +1146,7 @@ impl Engine {
     /// The next record of a FILE TYPE, made the current one, with the index of its RECORD
     /// TYPE: None for a type that is not defined (after a warning when WILD=WARN).
     fn next_record(&mut self, walk: &Walk) -> Option<(Record, Option<usize>, Read)> {
+        let reading = self.reading();
         let state = self.state();
         let key = state.file_type.clone().expect("a FILE TYPE");
         let source = state.sources.get_mut(&key).expect("read before");
@@ -1147,6 +1157,7 @@ impl Engine {
         let id = read_id(
             &id_field(&walk.file_type.record, None),
             &record,
+            reading,
             &mut warnings,
         );
         let found = (walk.sections.iter()).position(|s| s.spec.values.is_empty() || s.matches(&id));
@@ -1193,6 +1204,7 @@ impl Engine {
     }
 
     fn grouped(&mut self, walk: &Walk) -> Result<(), Error> {
+        let reading = self.reading();
         let file_type = walk.file_type;
         let case = file_type.case.as_ref().expect("GROUPED has CASE");
         let sections = walk.sections;
@@ -1210,7 +1222,7 @@ impl Engine {
             };
             let case_id = record.as_ref().map(|(record, s, _)| {
                 let field = id_field(case, sections[*s].spec.case);
-                read_id(&field, record, &mut warnings)
+                read_id(&field, record, reading, &mut warnings)
             });
             let new_group = match (&group, &case_id) {
                 (Some(old), Some(new)) => !same(old, new),
@@ -1271,6 +1283,7 @@ impl Engine {
     }
 
     fn nested(&mut self, walk: &Walk) -> Result<(), Error> {
+        let reading = self.reading();
         let file_type = walk.file_type;
         let levels: Vec<usize> = (0..walk.sections.len())
             .filter(|&s| !walk.sections[s].spec.skip)
@@ -1305,7 +1318,7 @@ impl Engine {
             let mut warnings = Vec::new();
             if let Some(case) = &file_type.case {
                 let field = id_field(case, walk.sections[s].spec.case);
-                let value = read_id(&field, &record, &mut warnings);
+                let value = read_id(&field, &record, reading, &mut warnings);
                 if level == 0 {
                     top = Some(match &value {
                         Read::Number(n) => Read::Number(*n),

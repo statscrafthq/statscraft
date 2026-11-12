@@ -1664,11 +1664,15 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  number from 1 to 1999999999, default 2000000), MTINDEX=x | RANDOM (starts the MT generator,\n\
                  the Mersenne Twister, again; any number, default 2000000). RANDOM takes the time of day.\n\
                  MXLOOPS=n: the iterations of a LOOP without an index, and of every loop of MATRIX\n\
-                 (default 40). Settings for speed, memory and messages (CACHE, THREADS, WORKSPACE, MXWARNS ...) are\n\
+                 (default 40). BLANKS=n | SYSMIS: the value of a completely blank numeric field read from\n\
+                 text (DATA LIST, GET DATA, NUMBER); it is not made a missing value. EPOCH=year | AUTOMATIC:\n\
+                 two-digit years in dates and the DATE. functions fall in the 100 years from that year\n\
+                 (AUTOMATIC: from 69 years before the current year). FUZZBITS=n (0 to 20, default 6): the\n\
+                 fuzzbits of RND and TRUNC without a third argument. SCALEMIN=n (default 24): a new numeric\n\
+                 variable read from text with at least n different values is scale. Settings for speed, memory and messages (CACHE, THREADS, WORKSPACE, MXWARNS ...) are\n\
                  accepted and have nothing to do. Settings that only change how output looks (TNUMBERS,\n\
                  TVARS, ONUMBERS, OVARS, TLOOK, WIDTH, LENGTH, DIGITGROUPING ...) are accepted with a\n\
-                 warning. BLANKS, EPOCH, FUZZBITS and SCALEMIN are accepted with a warning that\n\
-                 results do not follow them yet. YES and ON, NO and OFF are the same.",
+                 warning. YES and ON, NO and OFF are the same.",
         example: "SET FORMAT=F10.3 MPRINT=YES /DECIMAL=DOT.",
         parse: session_commands::set,
     },

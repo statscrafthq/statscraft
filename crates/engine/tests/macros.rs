@@ -304,7 +304,7 @@ fn show_takes_every_keyword_of_the_manual() {
             "UNICODE|ON|Statscraft always works in Unicode",
             "CACHE|20|about speed, memory or messages: no effect",
             "TNUMBERS|LABELS|output does not follow it",
-            "FUZZBITS|6|results do not follow it yet",
+            "FUZZBITS|6|",
             "$VARS|$CASENUM = the case number; $SYSMIS = system-missing|$DATE, $JDATE, $TIME, \
              $LENGTH and $WIDTH are not supported yet",
         ]

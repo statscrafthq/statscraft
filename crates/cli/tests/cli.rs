@@ -626,6 +626,38 @@ fn a_session_keeps_its_settings_preserve_levels_and_folder_between_runs() {
 }
 
 #[test]
+fn settings_that_change_results_steer_the_next_run() {
+    let dir = Workdir::new("settings-results");
+    dir.ok(&[
+        "run",
+        "-s",
+        "s",
+        "-e",
+        "SET BLANKS=9 EPOCH=1900 FUZZBITS=0 SCALEMIN=2.",
+    ]);
+    let text = std::fs::read_to_string(dir.0.join(".statscraft/sessions/s/settings.sps")).unwrap();
+    assert!(
+        text.contains("SET BLANKS='9' EPOCH='1900' FUZZBITS='0' SCALEMIN='2'.\n"),
+        "{text}"
+    );
+    let data = "DATA LIST FIXED /x 1-2 d 4-11 (ADATE).\nBEGIN DATA\n 1 1/1/05\n\n 2 1/1/05\n\
+                END DATA.\nCOMPUTE r = RND(0.285 * 100).";
+    dir.ok(&["run", "-s", "s", "-e", data]);
+    let saved = dir.0.join(".statscraft/sessions/s/data.zsav");
+    let saved = statscraft_data::Dataset::read_sav(&saved).unwrap();
+    assert_eq!(numbers(&saved, "x"), [Some(1.0), Some(9.0), Some(2.0)]);
+    // 1 January 1905, in seconds from 14 October 1582
+    assert_eq!(numbers(&saved, "d")[0], Some(117_687.0 * 86_400.0));
+    assert_eq!(numbers(&saved, "r"), [Some(28.0); 3]);
+    // x has three different values below 10: nominal by default, scale with SCALEMIN=2
+    let description = dir.json(&["describe", "-s", "s", "--json"]);
+    assert_eq!(
+        description["variables"][0]["measure"], "scale",
+        "{description}"
+    );
+}
+
+#[test]
 fn a_failed_run_or_a_check_keeps_no_settings() {
     let dir = Workdir::new("settings-atomic");
     dir.ok(&["run", "-s", "s", "-e", "SET FORMAT=F6.1."]);

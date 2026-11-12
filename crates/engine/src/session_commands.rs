@@ -152,6 +152,24 @@ impl Engine {
             .map_or(40, |n| n.max(1))
     }
 
+    /// SET BLANKS and EPOCH, as reading text data and dates follows them.
+    pub(crate) fn reading(&self) -> crate::data_list::Reading {
+        crate::data_list::Reading {
+            blanks: self.setting("BLANKS").parse().ok(),
+            epoch: self.setting("EPOCH").parse().ok(),
+        }
+    }
+
+    /// SET FUZZBITS: the bits RND and TRUNC allow when their third argument is left out.
+    pub(crate) fn fuzzbits(&self) -> f64 {
+        self.setting("FUZZBITS").parse().unwrap_or(6.0)
+    }
+
+    /// SET SCALEMIN: the different valid values that make a new numeric variable scale.
+    pub(crate) fn scale_min(&self) -> usize {
+        self.setting("SCALEMIN").parse().unwrap_or(24)
+    }
+
     /// The SET CCA to CCE specifications, to show custom currency values.
     pub fn currencies(&self) -> Currencies {
         Currencies(["CCA", "CCB", "CCC", "CCD", "CCE"].map(|cc| self.setting(cc)))
@@ -647,7 +665,29 @@ impl Engine {
                     };
                     self.random.get_mut().mt_active = mt;
                 }
-                "MNEST" | "MITERATE" | "MXLOOPS"
+                "BLANKS"
+                    if !value.eq_ignore_ascii_case("SYSMIS") && value.parse::<f64>().is_err() =>
+                {
+                    return Err(Error(format!(
+                        "SET BLANKS takes a number or SYSMIS, got {value}"
+                    )));
+                }
+                "EPOCH"
+                    if !value.eq_ignore_ascii_case("AUTOMATIC")
+                        && !value
+                            .parse::<u16>()
+                            .is_ok_and(|y| (1582..=9999).contains(&y)) =>
+                {
+                    return Err(Error(format!(
+                        "SET EPOCH takes a year from 1582 to 9999 or AUTOMATIC, got {value}"
+                    )));
+                }
+                "FUZZBITS" if !value.parse::<u8>().is_ok_and(|n| n <= 20) => {
+                    return Err(Error(format!(
+                        "SET FUZZBITS takes a whole number from 0 to 20, got {value}"
+                    )));
+                }
+                "MNEST" | "MITERATE" | "MXLOOPS" | "SCALEMIN"
                     if value.parse::<u32>().map_or(true, |n| n == 0) =>
                 {
                     return Err(Error(format!(
@@ -656,14 +696,10 @@ impl Engine {
                 }
                 _ => {}
             }
-            match effect {
-                Some(SettingEffect::Appearance) => self.warn(format!(
+            if effect == Some(SettingEffect::Appearance) {
+                self.warn(format!(
                     "SET {name} only changes how output looks; Statscraft ignores it"
-                )),
-                Some(SettingEffect::NotYet) => self.warn(format!(
-                    "SET {name} is kept, but results do not follow it yet"
-                )),
-                _ => {}
+                ));
             }
             let value = match effect {
                 Some(SettingEffect::Used) if name != "LOCALE" => value.to_uppercase(),
@@ -759,7 +795,6 @@ impl Engine {
                     other => match SETTINGS.iter().find(|s| s.0 == other).map(|s| s.2) {
                         Some(SettingEffect::Silent) => "about speed, memory or messages: no effect",
                         Some(SettingEffect::Appearance) => "output does not follow it",
-                        Some(SettingEffect::NotYet) => "results do not follow it yet",
                         _ => "",
                     },
                 };

@@ -187,6 +187,8 @@ impl Engine {
             active,
             vectors: &self.vectors,
             random: &self.random,
+            fuzzbits: self.fuzzbits(),
+            reading: self.reading(),
             first_case: self.row.as_ref().map_or(0, |row| row.case),
             previous: self.row.as_ref().map_or(&[], |row| &row.previous[..]),
         })

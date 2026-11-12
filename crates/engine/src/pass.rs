@@ -3,14 +3,12 @@
 use crate::Engine;
 use statscraft_data::{Dataset, Measure, Values};
 
-/// A numeric variable with this many different valid values or more is a scale variable.
-const SCALE_MIN: usize = 24;
-
 /// The measurement level a variable of unknown level gets from its data, by the first rule
 /// that applies: dollar formats and dates are scale; a variable without valid values is
-/// nominal; a fraction, a negative value, no value below 10000, at least 24 different values
-/// or no value below 10 make it scale; anything else is nominal. Strings are nominal.
-pub(crate) fn default_measure(data: &Dataset, index: usize) -> Measure {
+/// nominal; a fraction, a negative value, no value below 10000, at least `scale_min` (SET
+/// SCALEMIN) different values or no value below 10 make it scale; anything else is nominal.
+/// Strings are nominal.
+pub(crate) fn default_measure(data: &Dataset, index: usize, scale_min: usize) -> Measure {
     let variable = data.variable_at(index);
     let Values::Numeric(values) = variable.values() else {
         return Measure::Nominal;
@@ -37,7 +35,7 @@ pub(crate) fn default_measure(data: &Dataset, index: usize) -> Measure {
     }
     valid.sort_by(f64::total_cmp);
     valid.dedup();
-    if valid.len() >= SCALE_MIN || valid.iter().all(|v| *v >= 10.0) {
+    if valid.len() >= scale_min || valid.iter().all(|v| *v >= 10.0) {
         Measure::Scale
     } else {
         Measure::Nominal
@@ -48,6 +46,7 @@ impl Engine {
     /// Variables of unknown measurement level get one from their values, as data read from
     /// text do.
     pub(crate) fn default_measures(&mut self) {
+        let scale_min = self.scale_min();
         let Some(data) = self.dataset.as_mut() else {
             return;
         };
@@ -55,7 +54,7 @@ impl Engine {
             .filter(|&i| data.variable_at(i).measure() == Measure::Unknown)
             .collect();
         for index in unknown {
-            let measure = default_measure(data, index);
+            let measure = default_measure(data, index, scale_min);
             let name = data.variable_at(index).name().to_string();
             data.set_measure(&name, measure)
                 .expect("the variable was just found");
