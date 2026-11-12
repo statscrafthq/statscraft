@@ -1607,6 +1607,7 @@ impl Context<'_> {
                 series,
                 normal: None,
                 error_bars: None,
+                second_axis: None,
                 plot: None,
             });
         }

@@ -127,7 +127,9 @@ pub use glm::{
     Adjustment, Contrast, Emmeans, ErrorBar, Glm, GlmPlot, GlmPrint, GlmTemp, LMatrix, LRow,
     Profile, Term, WsFactor,
 };
-pub use graph::{Graph, GraphChart, GraphData, GraphFunction, GraphSummary};
+pub use graph::{
+    Graph, GraphChart, GraphData, GraphFunction, GraphInterval, GraphPanel, GraphSummary,
+};
 pub use lexer::{Punct, Token, TokenKind};
 pub use logistic::{
     Logistic, LogisticCasewise, LogisticCriteria, LogisticMethod, LogisticMethodKind,

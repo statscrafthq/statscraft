@@ -44,6 +44,10 @@ pub struct Chart {
     /// Bars and lines: an error bar around each value, such as a confidence interval.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub error_bars: Option<ErrorBars>,
+    /// Bars: a second value axis on the right for the last series, which is drawn as a line
+    /// with points over the bars, such as the cumulative percentage of a Pareto chart.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub second_axis: Option<Axis>,
     /// Statistical plots other than the histogram: their data in its own shape; categories
     /// and series are then empty, and the category axis is the horizontal one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -59,6 +63,19 @@ pub enum ChartKind {
     Area,
     /// Categories hold the x values (numbers), series the y values.
     Scatter,
+    /// A point at each value with its error bar; several series side by side as bars are.
+    ErrorBar,
+    /// A floating bar between each pair of series: the first and second, the third and
+    /// fourth, and so on.
+    RangeBar,
+    /// A point at each value and a line from the lowest to the highest value of each
+    /// category.
+    DropLine,
+    /// The same marks for high and low values and an optional close, which is the third
+    /// series.
+    HighLow,
+    /// Two lines with the area between them filled.
+    Difference,
     /// Categories are bins with their bounds; one series of counts.
     Histogram,
     /// The kinds below carry their data in `plot`. Boxes.
@@ -230,11 +247,25 @@ impl Chart {
             Some(Orientation::Horizontal) => "bar chart (horizontal)",
             _ => "bar chart",
         };
+        if self.kind == ChartKind::Bar && self.second_axis.is_some() {
+            let kind = match self.grouping {
+                Some(Grouping::Stacked) => "Stacked bar chart",
+                _ => "Bar chart",
+            };
+            return format!("{kind} with a line on a second axis");
+        }
         match (self.kind, self.grouping) {
             (ChartKind::Bar, Some(Grouping::Stacked)) => format!("Stacked {bars}"),
             (ChartKind::Bar, Some(Grouping::Percent)) => format!("100% stacked {bars}"),
             (ChartKind::Bar, _) if self.series.len() > 1 => format!("Clustered {bars}"),
             (ChartKind::Bar, _) => format!("Simple {bars}"),
+            (ChartKind::ErrorBar, _) if self.series.len() > 1 => "Clustered error bar chart".into(),
+            (ChartKind::ErrorBar, _) => "Simple error bar chart".into(),
+            (ChartKind::RangeBar, _) => "Range bar chart".into(),
+            (ChartKind::DropLine, _) => "Drop-line chart".into(),
+            (ChartKind::HighLow, _) if self.series.len() > 2 => "High-low-close chart".into(),
+            (ChartKind::HighLow, _) => "High-low chart".into(),
+            (ChartKind::Difference, _) => "Difference area chart".into(),
             (ChartKind::Pie, _) => "Pie chart".into(),
             (ChartKind::Line, _) => "Line chart".into(),
             (ChartKind::Area, Some(Grouping::Percent)) => "100% stacked area chart".into(),
@@ -316,7 +347,13 @@ impl Chart {
         let format = |r: usize, c: usize| match c {
             0 => String::new(),
             _ if c > self.series.len() => self.value_axis.format.clone(),
-            _ => series_format(&self.series[c - 1], &self.value_axis.format, &rows, r, c),
+            _ => {
+                let axis = match &self.second_axis {
+                    Some(second) if c == self.series.len() => &second.format,
+                    _ => &self.value_axis.format,
+                };
+                series_format(&self.series[c - 1], axis, &rows, r, c)
+            }
         };
         let formats = crate::format::formats_of(&rows, format);
         Table {

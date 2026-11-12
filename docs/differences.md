@@ -598,14 +598,19 @@ Where the documentation is silent:
 
 ### GRAPH
 
-- BAR, LINE (SIMPLE, MULTIPLE and AREA), PIE, HISTOGRAM and SCATTERPLOT (BIVARIATE, with a control variable and point labels) make one chart, as data and as a picture like the charts of the procedures. The chart's layout follows the function specification; a SIMPLE or GROUPED keyword that does not fit it changes nothing, as the manual says. Several areas stack.
+- BAR, LINE, PIE, ERRORBAR, PARETO, HILO, HISTOGRAM and SCATTERPLOT (BIVARIATE, with a control variable and point labels) make one chart, as data and as a picture like the charts of the procedures. The chart's layout follows the function specification; a SIMPLE or GROUPED keyword that does not fit it changes nothing, as the manual says. Several areas stack.
 - Categories ascend by value. With MISSING=REPORT the categories of missing values come after the valid ones, user-missing values first and system-missing last.
 - PCT is a share of all cases in the chart. CUFREQ, CUSUM and CUPCT add up along the categories within each series, and CUPCT is a share of that series' total, so each series ends at 100.
 - MEDIAN and PTILE use (W + 1) p as FREQUENCIES does. MODE shows the smallest of tied values. GMEDIAN treats the values as group midpoints.
 - Weights count in every function. VALUE and SCATTERPLOT draw each case once, unweighted, and leave out cases whose weight is zero, negative or missing.
 - Without TITLE the chart is named after what it shows (for example "Mean of price by region"), so the output has a name for it; a two-line title or footnote becomes one line. With SPLIT FILE the group goes in the title, as for the other charts. A histogram keeps its line with the mean, standard deviation and N after a FOOTNOTE.
 - The limit of 3000 categories is checked; a chart with a single category is drawn.
-- Not supported yet, each with an error: ERRORBAR, PARETO, HILO, PANEL, INTERVAL, TEMPLATE, BAR(RANGE), LINE(DROP), LINE(DIFFERENCE), and OVERLAY, MATRIX and XYZ scatterplots.
+- ERRORBAR accepts SE as another name for STERROR, as INTERVAL spells it, and the number in parentheses as well as after the keyword. A category whose cases weigh 1 or less in total shows its mean without a bar.
+- PARETO: categories with equal totals keep their order by value. NOCUM leaves out the right axis together with the line, although the manual keeps the axis; the axis means nothing without the line.
+- BAR(RANGE), LINE(DROP), LINE(DIFFERENCE) and HILO take their series as the ends of the ranges and check that their number fits: pairs for RANGE, two or more for DROP, two for DIFFERENCE, two or three for HILO.
+- PANEL draws a separate chart for each combination of the panel categories, named in its title, not a grid of panels sharing axes; each chart scales its own axes. A combination without cases gets no chart, so CROSS and NEST give the same charts. A case missing on a panel variable is left out unless MISSING=REPORT. A panel whose chart cannot be made gives a warning and the others are drawn.
+- In the office files a difference area chart, and range bars with more than one pair, go in as pictures; drop-line and high-low charts are line charts of points with high-low lines, error bar charts line charts of points with custom error bars, side by side only in the picture and in Vega-Lite.
+- Not supported yet, each with an error: INTERVAL, TEMPLATE, HILO with more than three series (GROUPED), and OVERLAY, MATRIX and XYZ scatterplots.
 
 ## Custom tables and multiple response
 

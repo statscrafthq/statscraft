@@ -174,34 +174,180 @@ fn scatterplots_with_groups_and_point_labels() {
 }
 
 #[test]
+fn error_bars_with_their_intervals() {
+    let g = graph("GRAPH /ERRORBAR(CI 90)=tip BY store.");
+    assert_eq!(
+        g.chart,
+        GraphChart::ErrorBar {
+            interval: GraphInterval::Ci(90.0),
+            variables: vec![var("tip")],
+            by: by(&["store"]),
+        }
+    );
+    // no keyword is a 95% interval; the number may stand in parentheses
+    let interval = |source: &str| match graph(source).chart {
+        GraphChart::ErrorBar { interval, .. } => interval,
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(interval("GRAPH /ERRORBAR=tip."), GraphInterval::Ci(95.0));
+    assert_eq!(interval("GRAPH /ERR(CI)=tip."), GraphInterval::Ci(95.0));
+    assert_eq!(
+        interval("GRAPH /ERRORBAR(CI(99))=tip."),
+        GraphInterval::Ci(99.0)
+    );
+    assert_eq!(
+        interval("GRAPH /ERRORBAR(STERROR)=tip."),
+        GraphInterval::Se(2.0)
+    );
+    assert_eq!(
+        interval("graph /errorbar(ste 1.5)=tip."),
+        GraphInterval::Se(1.5)
+    );
+    assert_eq!(
+        interval("GRAPH /ERRORBAR(SE(3))=tip."),
+        GraphInterval::Se(3.0)
+    );
+    assert_eq!(
+        interval("GRAPH /ERRORBAR(STD)=tip."),
+        GraphInterval::StdDev(2.0)
+    );
+    assert_eq!(
+        interval("GRAPH /ERRORBAR(STDDEV 1)=tip."),
+        GraphInterval::StdDev(1.0)
+    );
+    let g = graph("GRAPH /ERRORBAR(STDDEV 1)=tip basket BY daypart.");
+    let GraphChart::ErrorBar {
+        variables, by: b, ..
+    } = g.chart
+    else {
+        panic!()
+    };
+    assert_eq!(
+        (variables, b),
+        (vec![var("tip"), var("basket")], by(&["daypart"]))
+    );
+    let g = graph("GRAPH /ERRORBAR=tip BY store BY daypart.");
+    let GraphChart::ErrorBar { by: b, .. } = g.chart else {
+        panic!()
+    };
+    assert_eq!(b, by(&["store", "daypart"]));
+}
+
+#[test]
+fn pareto_charts_with_and_without_the_cumulative_line() {
+    let g = graph("GRAPH /PARETO=store.");
+    assert_eq!(
+        g.chart,
+        GraphChart::Pareto {
+            cumulative: true,
+            data: GraphData::Summary {
+                functions: vec![summary(GraphFunction::Count, &[])],
+                by: by(&["store"]),
+            },
+        }
+    );
+    let g = graph("GRAPH /PAR(NOCUM)(STACKED)=SUM(tip) BY store BY daypart.");
+    assert_eq!(
+        g.chart,
+        GraphChart::Pareto {
+            cumulative: false,
+            data: GraphData::Summary {
+                functions: vec![summary(GraphFunction::Sum, &["tip"])],
+                by: by(&["store", "daypart"]),
+            },
+        }
+    );
+    let g = graph("GRAPH /PARETO(SIMPLE)(CUM)=VALUE(tip).");
+    let GraphChart::Pareto { cumulative, data } = g.chart else {
+        panic!()
+    };
+    assert!(cumulative);
+    assert!(matches!(data, GraphData::Values { .. }));
+    assert_eq!(
+        err("GRAPH /PARETO=MEAN(tip) BY store.").message,
+        "PARETO takes COUNT, SUM or VALUE"
+    );
+    assert_eq!(
+        err("GRAPH /PARETO=PCT BY store.").message,
+        "PARETO takes COUNT, SUM or VALUE"
+    );
+}
+
+#[test]
+fn ranges_drop_lines_differences_and_high_low_charts() {
+    let data = GraphData::Summary {
+        functions: vec![
+            summary(GraphFunction::Minimum, &["tip"]),
+            summary(GraphFunction::Maximum, &["tip"]),
+        ],
+        by: by(&["week"]),
+    };
+    let chart = |source: &str| graph(source).chart;
+    assert_eq!(
+        chart("GRAPH /BAR(RANGE)=MIN(tip) MAX(tip) BY week."),
+        GraphChart::Range(data.clone())
+    );
+    assert_eq!(
+        chart("GRAPH /LINE(DROP)=MIN(tip) MAX(tip) BY week."),
+        GraphChart::Drop(data.clone())
+    );
+    assert_eq!(
+        chart("GRAPH /LINE(DIFF)=MIN(tip) MAX(tip) BY week."),
+        GraphChart::Difference(data.clone())
+    );
+    assert_eq!(
+        chart("GRAPH /HILO=MIN(tip) MAX(tip) BY week."),
+        GraphChart::Hilo(data.clone())
+    );
+    assert_eq!(
+        chart("GRAPH /HIL(SIM)=MIN(tip) MAX(tip) BY week."),
+        GraphChart::Hilo(data)
+    );
+    assert!(matches!(
+        chart("GRAPH /HILO(GROUPED)=VALUE(a b c)."),
+        GraphChart::Hilo(GraphData::Values { .. })
+    ));
+}
+
+#[test]
+fn panels_by_column_and_row_variables() {
+    let g =
+        graph("GRAPH /BAR=store /PANEL COLVAR=daypart COLOP=NEST ROWVAR=size zone ROWOP=CROSS.");
+    assert_eq!(
+        g.panel,
+        Some(GraphPanel {
+            columns: by(&["daypart"]),
+            rows: by(&["size", "zone"]),
+        })
+    );
+    let g = graph("GRAPH /PANEL ROWVAR=zone /HISTOGRAM=tip.");
+    assert_eq!(
+        g.panel,
+        Some(GraphPanel {
+            columns: Vec::new(),
+            rows: by(&["zone"]),
+        })
+    );
+    assert_eq!(graph("GRAPH /BAR=store.").panel, None);
+    assert!(
+        err("GRAPH /BAR=store /PANEL COLOP=NEST.")
+            .expected
+            .contains(&"COLVAR".to_string())
+    );
+    assert!(
+        err("GRAPH /BAR=store /PANEL COLVAR=zone COLOP=SIDE.")
+            .expected
+            .contains(&"NEST".to_string())
+    );
+}
+
+#[test]
 fn unsupported_parts_name_themselves() {
     for (source, what) in [
-        (
-            "GRAPH /ERRORBAR(CI 95)=tip BY store.",
-            "subcommand ERRORBAR",
-        ),
-        ("GRAPH /PARETO=store.", "subcommand PARETO"),
-        (
-            "GRAPH /HILO=MAX(tip) MIN(tip) MEAN(tip) BY week.",
-            "subcommand HILO",
-        ),
-        (
-            "GRAPH /BAR=store /PANEL COLVAR=daypart.",
-            "subcommand PANEL",
-        ),
         ("GRAPH /BAR=store /INTERVAL CI(95).", "subcommand INTERVAL"),
         (
             "GRAPH /BAR=store /TEMPLATE='old.sgt'.",
             "subcommand TEMPLATE",
-        ),
-        ("GRAPH /BAR(RANGE)=MIN(tip) MAX(tip) BY week.", "BAR(RANGE)"),
-        (
-            "GRAPH /LINE(DROP)=MEAN(tip) MEAN(wait) BY week.",
-            "LINE(DROP)",
-        ),
-        (
-            "GRAPH /LINE(DIFF)=MEAN(tip) MEAN(wait) BY week.",
-            "LINE(DIFFERENCE)",
         ),
         (
             "GRAPH /SCATTERPLOT(MATRIX)=tip wait basket.",
@@ -230,7 +376,8 @@ fn mistakes_are_errors() {
     assert!(message("GRAPH /TITLE='x'.").starts_with("unexpected end of command"));
     assert_eq!(
         message("GRAPH /BAR=store /PIE=store."),
-        "GRAPH draws one chart; give only one of BAR, LINE, PIE, HISTOGRAM and SCATTERPLOT"
+        "GRAPH draws one chart; give only one of BAR, LINE, PIE, HISTOGRAM, SCATTERPLOT, \
+         ERRORBAR, PARETO and HILO"
     );
     assert_eq!(
         message("GRAPH /BAR=COUNT BY a BY b BY c."),
@@ -272,6 +419,14 @@ fn mistakes_are_errors() {
     assert_eq!(
         message("GRAPH /BAR=store /COLORS=red."),
         "unknown subcommand COLORS of GRAPH"
+    );
+    assert_eq!(
+        message("GRAPH /ERRORBAR(CI 40)=tip."),
+        "CI needs a level from 50 to 99.9 percent, got 40"
+    );
+    assert_eq!(
+        message("GRAPH /ERRORBAR(STDDEV 0)=tip."),
+        "STDDEV needs a number above 0, got 0"
     );
     let error = err("GRAPH /BAR=MEAN(tip) FOO(tip) BY week.");
     assert!(error.expected.contains(&"MEDIAN".to_string()), "{error:?}");

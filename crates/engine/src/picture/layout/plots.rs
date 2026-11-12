@@ -603,6 +603,7 @@ mod tests {
             series: Vec::new(),
             normal: None,
             error_bars: None,
+            second_axis: None,
             plot: Some(plot),
         }
     }

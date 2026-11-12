@@ -9,7 +9,9 @@
 //! series, a base font size and the link to the embedded workbook. Nothing sets a color, so a
 //! chart takes the theme of the file it lands in.
 //!
-//! Presentation charts of the kinds bar, pie, line and area are office charts. Statistical
+//! Presentation charts of the kinds bar, pie, line and area are office charts, and so are the
+//! error bar, drop-line and high-low charts (line charts of points) and range bars of one pair.
+//! A bar chart's line on a second axis is a line chart combined with it. Statistical
 //! plots (the histogram, the boxplot and the rest) and scatter plots are not: those go out as
 //! a picture, beside their data table on a sheet, and as their data table while their kind is
 //! not drawn.
@@ -20,8 +22,8 @@ use crate::picture::{FILE_WIDTH, Paper};
 use crate::xlsx::{put_table, set_widths, sheet_name};
 use crate::{Error, Table, cell_text, header_rows};
 use rust_xlsxwriter::{
-    Chart as Drawn, ChartAxis, ChartAxisTickType, ChartErrorBars, ChartErrorBarsType, ChartRange,
-    ChartType, Image, Workbook, Worksheet, XlsxError,
+    Chart as Drawn, ChartAxis, ChartAxisTickType, ChartErrorBars, ChartErrorBarsType, ChartFormat,
+    ChartMarker, ChartRange, ChartType, Image, Workbook, Worksheet, XlsxError,
 };
 use std::fmt::Write as _;
 use std::io::{Cursor, Read, Write};
@@ -104,6 +106,13 @@ fn chart_type(chart: &Chart) -> Option<ChartType> {
         (ChartKind::Area, Some(Grouping::Stacked), _) => ChartType::AreaStacked,
         (ChartKind::Area, Some(Grouping::Percent), _) => ChartType::AreaPercentStacked,
         (ChartKind::Area, ..) => ChartType::Area,
+        // points without lines: with their error bars, with a line from the lowest to the
+        // highest point, or with a bar between the two series
+        (ChartKind::ErrorBar | ChartKind::DropLine | ChartKind::HighLow, ..) => ChartType::Line,
+        (ChartKind::RangeBar, ..) if chart.series.len() == 2 => ChartType::Line,
+        // shortcut: several pairs of range bars and the difference area have no office form
+        // here and go out as pictures; office charts could stack invisible areas for them.
+        (ChartKind::RangeBar | ChartKind::Difference, ..) => return None,
         // shortcut: scatter categories are written as text, which an office scatter cannot
         // plot; write them as numbers when a command makes scatter plots.
         (ChartKind::Scatter | ChartKind::Histogram, ..) => return None,
@@ -134,15 +143,35 @@ fn drawn(
     titled: bool,
 ) -> Option<Drawn> {
     let mut drawn = Drawn::new(chart_type(chart)?);
+    // the line on the second axis, the last series, is a line chart combined with the bars
+    let mut second = Drawn::new(ChartType::Line);
     let first = top + 1 + header_rows(table).len() as u32;
     let last = first + chart.categories.len() as u32 - 1;
     // the data table holds the half lengths of the error bars after the values, a column for
     // each series that has bars
     let mut margin_column = left + 1 + chart.series.len() as u16;
+    let points = matches!(
+        chart.kind,
+        ChartKind::ErrorBar | ChartKind::DropLine | ChartKind::HighLow | ChartKind::RangeBar
+    );
     for s in 0..chart.series.len() {
         let column = left + 1 + s as u16;
-        let series = drawn
-            .add_series()
+        let on_second = chart.second_axis.is_some() && s + 1 == chart.series.len();
+        let series = match on_second {
+            true => second.add_series().set_secondary_axis(true),
+            false => drawn.add_series(),
+        };
+        if points {
+            let mut marker = ChartMarker::new();
+            match chart.kind {
+                ChartKind::RangeBar => marker.set_none(),
+                _ => marker.set_automatic(),
+            };
+            series
+                .set_format(ChartFormat::new().set_no_line())
+                .set_marker(&marker);
+        }
+        let series = series
             .set_name((sheet, first - 1, column))
             .set_categories((sheet, first, left, last, left))
             .set_values((sheet, first, column, last, column));
@@ -158,6 +187,23 @@ fn drawn(
             // the writer keeps the bars that fit the chart type: x for lying bars, y otherwise
             series.set_x_error_bars(&bars).set_y_error_bars(&bars);
             margin_column += 1;
+        }
+    }
+    match chart.kind {
+        ChartKind::DropLine | ChartKind::HighLow => {
+            drawn.set_high_low_lines(true);
+        }
+        ChartKind::RangeBar => {
+            drawn.set_up_down_bars(true);
+        }
+        _ => {}
+    }
+    if let Some(axis) = &chart.second_axis {
+        drawn.combine(&second);
+        let y2 = drawn.y2_axis();
+        y2.set_name(&axis.title);
+        if let Some(maximum) = axis.maximum {
+            y2.set_min(0.0).set_max(maximum);
         }
     }
     if titled {

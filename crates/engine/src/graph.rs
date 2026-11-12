@@ -15,6 +15,14 @@
 //! - A histogram counts the valid values in equal bins; NORMAL adds the normal curve. A
 //!   scatterplot draws a point per case valid on both variables, grouped by the control
 //!   variable.
+//! - ERRORBAR lays out means as a summary chart of MEAN does. A confidence interval is the mean
+//!   plus and minus t at (1 + level) / 2 with W - 1 degrees of freedom times the standard
+//!   error; STERROR and STDDEV reach n standard errors or deviations.
+//! - PARETO sorts the categories by their total, largest first; the cumulative line is the
+//!   running total as a percentage of the grand total, on a second axis from 0 to 100.
+//! - BAR (RANGE) takes its series in pairs; LINE (DROP) needs two series or more, LINE
+//!   (DIFFERENCE) two; HILO takes high, low and an optional close.
+//! - PANEL draws a chart for each combination of the panel variables' categories.
 //!
 //! Where the manual is silent (recorded in the planning notes):
 //! - Weights count in every function; VALUE and scatterplots draw cases unweighted, leaving
@@ -26,13 +34,19 @@
 //! - Percentiles use the rule of FREQUENCIES, (W + 1) p; MEDIAN is the 50th; MODE is the
 //!   smallest of tied values; GMEDIAN treats the values as midpoints of groups.
 //! - Without TITLE the chart is named after what it shows, such as "Mean of price by region".
+//! - Each panel is a chart of its own, named in its title; a combination without cases has no
+//!   chart. A case missing on a panel variable is left out unless REPORT.
+//! - Pareto categories with equal totals keep their order by value. NOCUM leaves out the right
+//!   axis with the line.
 
 use crate::aggregate::{median, statistic};
 use crate::chart::{
-    self, Axis, Category, Chart, ChartKind, Grouping, Orientation, Series, Statistic, Tier,
+    self, Axis, Category, Chart, ChartKind, ErrorBars, Grouping, Orientation, Series, Statistic,
+    Tier,
 };
 use crate::crosstabs::Key;
 use crate::descriptives::case_weights;
+use crate::dist::t_quantile;
 use crate::examine::Distribution;
 use crate::format::{Stat, procedure_format};
 use crate::frequencies::Histogram;
@@ -41,7 +55,8 @@ use crate::shown::Shown;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Values, Variable};
 use statscraft_syntax::{
-    AggregateFunction as A, Graph, GraphChart, GraphData, GraphFunction as F, GraphSummary,
+    AggregateFunction as A, Graph, GraphChart, GraphData, GraphFunction as F, GraphInterval,
+    GraphSummary,
 };
 use std::cmp::Ordering;
 
@@ -234,6 +249,80 @@ fn compute(function: F, pairs: &[(f64, f64)]) -> f64 {
     value.unwrap_or(f64::NAN)
 }
 
+/// What an error bar spans, in words.
+fn interval_label(interval: GraphInterval) -> String {
+    match interval {
+        GraphInterval::Ci(level) => format!("{}% CI", plain(level)),
+        GraphInterval::Se(n) => format!("{} SE", plain(n)),
+        GraphInterval::StdDev(n) => format!("{} SD", plain(n)),
+    }
+}
+
+/// The half length of the error bar around the mean of the (value, weight) pairs; NaN with a
+/// total weight of 1 or less, where the spread is undefined.
+fn margin(interval: GraphInterval, pairs: &[(f64, f64)]) -> f64 {
+    let w: f64 = pairs.iter().map(|p| p.1).sum();
+    let Some(sd) = statistic(A::Sd, pairs).filter(|_| w > 1.0) else {
+        return f64::NAN;
+    };
+    let se = sd / w.sqrt();
+    match interval {
+        GraphInterval::Ci(level) => t_quantile((1.0 - level / 100.0) / 2.0, w - 1.0) * se,
+        GraphInterval::Se(n) => n * se,
+        GraphInterval::StdDev(n) => n * sd,
+    }
+}
+
+/// Pareto: the categories by their total over the series, largest first, and the cumulative
+/// percentage as a last series on a second axis when `cumulative`.
+fn pareto(chart: &mut Chart, cumulative: bool) {
+    let total = |i: usize| -> f64 {
+        chart
+            .series
+            .iter()
+            .map(|s| s.values[i])
+            .filter(|v| v.is_finite())
+            .sum()
+    };
+    let totals: Vec<f64> = (0..chart.categories.len()).map(total).collect();
+    let mut order: Vec<usize> = (0..totals.len()).collect();
+    // stable, and with -0.0 equal to 0.0 (an empty sum): equal totals keep their order by value
+    order.sort_by(|&a, &b| totals[b].partial_cmp(&totals[a]).unwrap_or(Ordering::Equal));
+    chart.categories = order.iter().map(|&i| chart.categories[i].clone()).collect();
+    for series in &mut chart.series {
+        series.values = order.iter().map(|&i| series.values[i]).collect();
+    }
+    if chart.series.len() > 1 {
+        chart.grouping = Some(Grouping::Stacked);
+    }
+    if !cumulative {
+        return;
+    }
+    let grand: f64 = totals.iter().sum();
+    let mut running = 0.0;
+    let values = order
+        .iter()
+        .map(|&i| {
+            running += totals[i];
+            100.0 * running / grand
+        })
+        .collect();
+    let title = "Cumulative Percent".to_string();
+    chart.series.push(Series {
+        name: title.clone(),
+        statistic: Statistic::Percent,
+        variable: None,
+        value: Cell::Empty,
+        values,
+    });
+    chart.second_axis = Some(Axis {
+        title,
+        format: chart::PERCENT_FORMAT.into(),
+        maximum: Some(100.0),
+        variable: None,
+    });
+}
+
 /// One function over one variable (none for a count function).
 struct Item<'a> {
     function: F,
@@ -322,8 +411,14 @@ impl Context<'_> {
         Ok(items)
     }
 
-    /// The categories and series of a summary chart, with the axes and the made-up title.
-    fn summary(&self, functions: &[GraphSummary], by: &[String]) -> Result<Chart, Error> {
+    /// The categories and series of a summary chart, with the axes and the made-up title, and
+    /// error bars around the values when an `interval` is given.
+    fn summary(
+        &self,
+        functions: &[GraphSummary],
+        by: &[String],
+        interval: Option<GraphInterval>,
+    ) -> Result<Chart, Error> {
         let (include, report) = (self.command.include, self.command.report);
         let items = self.items(functions)?;
         let counting = items.iter().any(|i| i.function.counts_cases());
@@ -410,6 +505,13 @@ impl Context<'_> {
                     .collect()
             })
             .collect();
+        let error_bars = interval.map(|interval| ErrorBars {
+            label: interval_label(interval),
+            margins: cells
+                .iter()
+                .map(|series| series.iter().map(|pairs| margin(interval, pairs)).collect())
+                .collect(),
+        });
         // shares of the whole chart, and sums along the categories
         let whole: f64 = values.iter().flatten().filter(|v| v.is_finite()).sum();
         for (s, series) in values.iter_mut().enumerate() {
@@ -527,7 +629,8 @@ impl Context<'_> {
             series,
             normal: None,
             plot: None,
-            error_bars: None,
+            error_bars,
+            second_axis: None,
         })
     }
 
@@ -609,6 +712,7 @@ impl Context<'_> {
             normal: None,
             plot: None,
             error_bars: None,
+            second_axis: None,
         })
     }
 
@@ -726,7 +830,7 @@ impl Context<'_> {
 impl Engine {
     pub(crate) fn graph(&mut self, command: &Graph) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
-        let context = Context {
+        let mut context = Context {
             data,
             shown: self.shown(),
             outline: self.outline(),
@@ -734,16 +838,97 @@ impl Engine {
             command,
             case_numbers: self.case_numbers.as_deref(),
         };
+        let Some(panel) = &command.panel else {
+            let chart = context.chart()?;
+            self.charts.push(chart);
+            return Ok(Vec::new());
+        };
+        // a chart per panel: the cases outside it weigh nothing, which leaves them out
+        let vars: Vec<Variable> = panel
+            .rows
+            .iter()
+            .chain(&panel.columns)
+            .map(|name| data.variable(name))
+            .collect::<Result<_, _>>()?;
+        let classes: Vec<Option<Vec<Class>>> = (0..data.case_count())
+            .map(|case| {
+                let classes: Vec<Class> = vars
+                    .iter()
+                    .map(|v| class_of(v, case, command.include))
+                    .collect();
+                (command.report || classes.iter().all(|c| !c.missing)).then_some(classes)
+            })
+            .collect();
+        let mut panels: Vec<&Vec<Class>> = Vec::new();
+        for cell in classes.iter().flatten() {
+            if !panels.contains(&cell) {
+                panels.push(cell);
+            }
+        }
+        panels.sort_by(|a, b| {
+            a.iter()
+                .zip(b.iter())
+                .map(|(x, y)| order(x, y))
+                .find(|o| o.is_ne())
+                .unwrap_or(Ordering::Equal)
+        });
+        let weights = context.weights.take();
+        let (mut charts, mut failed) = (Vec::new(), Vec::new());
+        for cell in panels {
+            context.weights = Some(
+                (0..data.case_count())
+                    .map(|case| match classes[case].as_ref() == Some(cell) {
+                        true => weights.as_ref().map_or(1.0, |w| w[case]),
+                        false => 0.0,
+                    })
+                    .collect(),
+            );
+            let name = vars
+                .iter()
+                .zip(cell)
+                .map(|(v, class)| {
+                    let value = category(v, class, &context.outline).label;
+                    format!("{} = {value}", context.outline.variable(v))
+                })
+                .collect::<Vec<_>>()
+                .join(", ");
+            match context.chart() {
+                Ok(mut chart) => {
+                    chart.title = format!("{} ({name})", chart.title);
+                    charts.push(chart);
+                }
+                Err(e) => failed.push(format!("{name}: {}", e.0)),
+            }
+        }
+        let Some(first) = failed.first().cloned() else {
+            self.charts.extend(charts);
+            return Ok(Vec::new());
+        };
+        if charts.is_empty() {
+            return Err(Error(first));
+        }
+        self.charts.extend(charts);
+        for message in failed {
+            self.warn(message);
+        }
+        Ok(Vec::new())
+    }
+}
+
+impl Context<'_> {
+    /// The chart of the command over the cases with a positive weight.
+    fn chart(&self) -> Result<Chart, Error> {
+        let command = self.command;
         let mut chart = match &command.chart {
             GraphChart::Bar { stacked, data } => {
-                let mut chart = context.categorical(data)?;
+                let mut chart = self.categorical(data)?;
                 if *stacked && chart.series.len() > 1 {
                     chart.grouping = Some(Grouping::Stacked);
                 }
                 chart
             }
             GraphChart::Line { area, data } => {
-                let mut chart = context.categorical(data)?;
+                let mut chart = self.categorical(data)?;
                 let several = chart.series.len() > 1;
                 chart.kind = match area {
                     true => ChartKind::Area,
@@ -754,7 +939,7 @@ impl Engine {
                 chart
             }
             GraphChart::Pie(data) => {
-                let mut chart = context.categorical(data)?;
+                let mut chart = self.categorical(data)?;
                 if chart.series.len() > 1 {
                     return Err(Error(
                         "GRAPH: a pie takes one function by one BY variable, or summary \
@@ -767,13 +952,35 @@ impl Engine {
                 chart.grouping = None;
                 chart
             }
-            GraphChart::Histogram { variable, normal } => context.histogram(variable, *normal)?,
+            GraphChart::Histogram { variable, normal } => self.histogram(variable, *normal)?,
             GraphChart::Scatter {
                 x,
                 y,
                 control,
                 names,
-            } => context.scatter(x, y, control.as_deref(), names.as_deref())?,
+            } => self.scatter(x, y, control.as_deref(), names.as_deref())?,
+            GraphChart::ErrorBar {
+                interval,
+                variables,
+                by,
+            } => {
+                let means = [GraphSummary {
+                    function: F::Mean,
+                    variables: variables.clone(),
+                }];
+                let mut chart = self.summary(&means, by, Some(*interval))?;
+                chart.kind = ChartKind::ErrorBar;
+                chart
+            }
+            GraphChart::Pareto { cumulative, data } => {
+                let mut chart = self.categorical(data)?;
+                pareto(&mut chart, *cumulative);
+                chart
+            }
+            GraphChart::Range(data) => self.ranges(data, ChartKind::RangeBar)?,
+            GraphChart::Drop(data) => self.ranges(data, ChartKind::DropLine)?,
+            GraphChart::Difference(data) => self.ranges(data, ChartKind::Difference)?,
+            GraphChart::Hilo(data) => self.ranges(data, ChartKind::HighLow)?,
         };
         chart.subtitle = command.subtitle.clone();
         if !command.footnote.is_empty() {
@@ -784,15 +991,49 @@ impl Engine {
                 None => given,
             });
         }
-        self.charts.push(chart);
-        Ok(Vec::new())
+        Ok(chart)
     }
-}
 
-impl Context<'_> {
+    /// A range bar, drop-line, difference or high-low chart: the series are the ends of the
+    /// ranges, so their number must fit the kind.
+    fn ranges(&self, data: &GraphData, kind: ChartKind) -> Result<Chart, Error> {
+        let mut chart = self.categorical(data)?;
+        let n = chart.series.len();
+        let problem = match kind {
+            ChartKind::RangeBar if n < 2 || n % 2 == 1 => Some(
+                "BAR(RANGE) takes its ends in pairs: an even number of functions or variables, \
+                 or a second BY variable with two values",
+            ),
+            ChartKind::DropLine if n < 2 => Some(
+                "LINE(DROP) needs two series or more: several functions, or a second BY variable",
+            ),
+            ChartKind::Difference if n != 2 => Some(
+                "LINE(DIFFERENCE) needs two series: two functions, or a second BY variable with \
+                 two values",
+            ),
+            ChartKind::HighLow if n < 2 => Some(
+                "HILO needs a high and a low series: two or three functions, or a second BY \
+                 variable with two or three values",
+            ),
+            ChartKind::HighLow if n > 3 => {
+                return Err(Error(format!(
+                    "GRAPH: HILO with {n} series (GROUPED) is not supported yet; give two or \
+                     three"
+                )));
+            }
+            _ => None,
+        };
+        if let Some(problem) = problem {
+            return Err(Error(format!("GRAPH: {problem}; this chart has {n}")));
+        }
+        chart.kind = kind;
+        chart.grouping = None;
+        Ok(chart)
+    }
+
     fn categorical(&self, data: &GraphData) -> Result<Chart, Error> {
         match data {
-            GraphData::Summary { functions, by } => self.summary(functions, by),
+            GraphData::Summary { functions, by } => self.summary(functions, by, None),
             GraphData::Values { variables, by } => self.values(variables, by.as_deref()),
         }
     }

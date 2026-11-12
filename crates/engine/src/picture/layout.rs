@@ -34,10 +34,21 @@ pub fn scene(chart: &Chart, width: f32, paper: Paper) -> Option<Scene> {
     if let Some(subtitle) = &chart.subtitle {
         top = d.footnote(Some(subtitle), top - 4.0) + 4.0;
     }
+    let horizontal = chart.orientation == Some(Orientation::Horizontal);
+    if chart.second_axis.is_some() && (chart.kind != ChartKind::Bar || horizontal) {
+        // a second axis is drawn on the right of upright bars only
+        return None;
+    }
     let bottom = match (&chart.plot, chart.kind) {
         (Some(plot), _) => plots::plot(&mut d, chart, plot, top)?,
         (None, ChartKind::Bar) => bars(&mut d, chart, top),
-        (None, ChartKind::Line | ChartKind::Area) => lines(&mut d, chart, top),
+        (None, ChartKind::Line | ChartKind::Area | ChartKind::Difference) => {
+            lines(&mut d, chart, top)
+        }
+        (
+            None,
+            ChartKind::ErrorBar | ChartKind::RangeBar | ChartKind::DropLine | ChartKind::HighLow,
+        ) => spans(&mut d, chart, top),
         (None, ChartKind::Scatter) => scatter(&mut d, chart, top)?,
         (None, ChartKind::Histogram) => histogram(&mut d, chart, top)?,
         (None, ChartKind::Pie) => pie(&mut d, chart, top)?,
@@ -386,10 +397,16 @@ impl Frame {
         let x0 = PAD + widest(&value_labels) + 8.0;
         let x1 = match &along {
             Some(_) => right - widest(&labels[labels.len().saturating_sub(1)..]) / 2.0,
+            // the labels of a second axis on the right
+            None if chart.second_axis.is_some() => right - widest(&["100.0%".into()]) - 8.0,
             None => right,
         };
-        let title = fit(&chart.value_axis.title, SMALL, right - PAD);
+        let title = fit(&chart.value_axis.title, SMALL, (right - PAD) / 2.0);
         d.text(PAD, top + LINE / 2.0, title, SMALL, muted, Anchor::Start);
+        if let Some(second) = &chart.second_axis {
+            let title = fit(&second.title, SMALL, (right - PAD) / 2.0);
+            d.text(right, top + LINE / 2.0, title, SMALL, muted, Anchor::End);
+        }
         let y0 = top + LINE + 10.0;
         let y1 = y0 + (d.width * 0.42).clamp(140.0, 340.0);
         let frame = Frame {
@@ -536,10 +553,17 @@ fn stacked(chart: &Chart) -> bool {
     matches!(chart.grouping, Some(Grouping::Stacked | Grouping::Percent))
 }
 
-/// The lowest and highest value the marks reach, with zero: stacked marks reach the sums of
-/// their positive and of their negative values.
+/// The lowest and highest value the marks reach, with zero for the marks that stand on it:
+/// stacked marks reach the sums of their positive and of their negative values.
 fn value_range(chart: &Chart, values: &[Vec<f64>]) -> (f64, f64) {
-    let (mut lo, mut hi) = (0.0f64, 0.0f64);
+    let floating = matches!(
+        chart.kind,
+        ChartKind::ErrorBar | ChartKind::RangeBar | ChartKind::DropLine | ChartKind::HighLow
+    );
+    let (mut lo, mut hi) = match floating {
+        true => (f64::INFINITY, f64::NEG_INFINITY),
+        false => (0.0f64, 0.0f64),
+    };
     for i in 0..chart.categories.len() {
         let column = values.iter().map(|s| s[i]);
         match stacked(chart) {
@@ -547,13 +571,18 @@ fn value_range(chart: &Chart, values: &[Vec<f64>]) -> (f64, f64) {
                 hi = hi.max(column.clone().filter(|v| *v > 0.0).sum());
                 lo = lo.min(column.filter(|v| *v < 0.0).sum());
             }
-            false => column.for_each(|v| (lo, hi) = (lo.min(v), hi.max(v))),
+            false => column
+                .filter(|v| v.is_finite())
+                .for_each(|v| (lo, hi) = (lo.min(v), hi.max(v))),
         }
         for [a, b] in error_bars(chart, i).map(|(_, bar)| bar) {
             (lo, hi) = (lo.min(a), hi.max(b));
         }
     }
-    (lo, hi)
+    match lo <= hi {
+        true => (lo, hi),
+        false => (0.0, 0.0),
+    }
 }
 
 /// The error bars at category `i` with their series; none on stacked marks, where a bar
@@ -606,10 +635,69 @@ fn value_axis(chart: &Chart, values: &[Vec<f64>]) -> Axis {
     axis
 }
 
-/// Bars, vertical or horizontal, side by side or stacked.
-fn bars(d: &mut Draw, chart: &Chart, top: f32) -> f32 {
-    let colors = d.pal.series(chart.series.len());
-    let top = d.legend(chart, &colors, top);
+/// The chart without the series of its second axis, the last one.
+fn first_axis(chart: &Chart) -> Chart {
+    let mut first = chart.clone();
+    if first.second_axis.is_some() {
+        first.series.pop();
+        if let Some(bars) = &mut first.error_bars {
+            bars.margins.truncate(first.series.len());
+        }
+    }
+    first
+}
+
+/// The last series as a line with points over the frame, against a second value axis on the
+/// right with its ticks and labels.
+fn second_line(d: &mut Draw, frame: &Frame, chart: &Chart, color: Color) {
+    let (Some(second), Some(series)) = (&chart.second_axis, chart.series.last()) else {
+        return;
+    };
+    let finite: Vec<f64> = series
+        .values
+        .iter()
+        .copied()
+        .filter(|v| v.is_finite())
+        .collect();
+    let hi = finite.iter().copied().fold(0.0, f64::max);
+    let lo = finite.iter().copied().fold(0.0, f64::min);
+    let unit = match second.format.starts_with("PCT") {
+        true => Unit::Percent,
+        false => Unit::Plain,
+    };
+    let axis = Axis::new(lo, hi, second.maximum, unit);
+    let muted = d.pal.muted;
+    for (t, label) in axis.ticks.iter().zip(axis.labels()) {
+        let y = axis.at(*t, frame.y1, frame.y0);
+        d.line(vec![[frame.x1, y], [frame.x1 + 4.0, y]], 1.0, muted);
+        d.text(frame.x1 + 6.0, y, label, SMALL, muted, Anchor::Start);
+    }
+    let points: Vec<[f32; 2]> = series
+        .values
+        .iter()
+        .enumerate()
+        .filter(|(_, v)| v.is_finite())
+        .map(|(i, v)| {
+            let (b0, b1) = frame.band(i);
+            [(b0 + b1) / 2.0, axis.at(*v, frame.y1, frame.y0)]
+        })
+        .collect();
+    d.line(points.clone(), 2.0, color);
+    for center in points {
+        d.shapes.push(Shape::Circle {
+            center,
+            radius: 3.0,
+            fill: color,
+        });
+    }
+}
+
+/// Bars, vertical or horizontal, side by side or stacked; a line on a second axis over them.
+fn bars(d: &mut Draw, whole: &Chart, top: f32) -> f32 {
+    let colors = d.pal.series(whole.series.len());
+    let top = d.legend(whole, &colors, top);
+    let first = first_axis(whole);
+    let chart = &first;
     let values = shown_values(chart);
     let axis = value_axis(chart, &values);
     let horizontal = chart.orientation == Some(Orientation::Horizontal);
@@ -658,6 +746,88 @@ fn bars(d: &mut Draw, chart: &Chart, top: f32) -> f32 {
         }
     }
     frame.baseline(d);
+    second_line(d, &frame, whole, colors[colors.len() - 1]);
+    bottom
+}
+
+/// Marks that float over a span at each category: points with error bars, range bars between
+/// pairs of series, or points joined by a line from the lowest to the highest (drop-line and
+/// high-low charts). Several series or pairs sit side by side within the band.
+fn spans(d: &mut Draw, chart: &Chart, top: f32) -> f32 {
+    let n = chart.series.len();
+    let colors = d.pal.series(n);
+    let range = chart.kind == ChartKind::RangeBar;
+    let top = match range {
+        true => {
+            let names: Vec<String> = chart
+                .series
+                .chunks(2)
+                .map(|pair| {
+                    let names: Vec<&str> = pair.iter().map(|s| s.name.as_str()).collect();
+                    names.join(" to ")
+                })
+                .collect();
+            let names: Vec<&str> = names.iter().map(String::as_str).collect();
+            let pair_colors: Vec<Color> = colors.iter().step_by(2).copied().collect();
+            d.swatches(chart.legend.as_deref(), &names, &pair_colors, top)
+        }
+        false => d.legend(chart, &colors, top),
+    };
+    let values: Vec<Vec<f64>> = chart.series.iter().map(|s| s.values.clone()).collect();
+    let axis = value_axis(chart, &values);
+    let (frame, bottom) = Frame::new(d, chart, top, Along::Bands(labels(chart)), axis, false);
+    let ink = d.pal.ink;
+    // the marks side by side in a band: series, or pairs of a range bar chart
+    let slots = match chart.kind {
+        ChartKind::RangeBar => n / 2,
+        ChartKind::ErrorBar => n,
+        _ => 1,
+    };
+    for i in 0..chart.categories.len() {
+        let (b0, b1) = frame.band(i);
+        let group = (b1 - b0) * if slots > 1 { 0.8 } else { 0.6 };
+        let width = group / slots as f32;
+        let at = |k: usize| b0 + (b1 - b0 - group) / 2.0 + width * (k as f32 + 0.5);
+        let column: Vec<f64> = values.iter().map(|v| v[i]).collect();
+        if range {
+            for (k, pair) in column.chunks(2).enumerate() {
+                if pair.iter().all(|v| v.is_finite()) {
+                    let half = width * 0.4;
+                    let (v0, v1) = (frame.value(pair[0]), frame.value(pair[1]));
+                    d.rect([at(k) - half, v0], [at(k) + half, v1], colors[2 * k]);
+                }
+            }
+            continue;
+        }
+        if chart.kind != ChartKind::ErrorBar {
+            let finite: Vec<f64> = column.iter().copied().filter(|v| v.is_finite()).collect();
+            if finite.len() > 1 {
+                let lo = finite.iter().copied().fold(f64::INFINITY, f64::min);
+                let hi = finite.iter().copied().fold(f64::NEG_INFINITY, f64::max);
+                d.line(
+                    vec![[at(0), frame.value(lo)], [at(0), frame.value(hi)]],
+                    1.5,
+                    ink,
+                );
+            }
+        }
+        for (j, v) in column.iter().enumerate() {
+            let x = match chart.kind {
+                ChartKind::ErrorBar => at(j),
+                _ => at(0),
+            };
+            if let Some(bar) = chart.error_bar(j, i) {
+                whisker(d, &frame, x, bar, (width * 0.4).min(12.0), colors[j]);
+            }
+            if v.is_finite() {
+                d.shapes.push(Shape::Circle {
+                    center: [x, frame.value(*v)],
+                    radius: 3.5,
+                    fill: colors[j],
+                });
+            }
+        }
+    }
     bottom
 }
 
@@ -677,6 +847,19 @@ fn lines(d: &mut Draw, chart: &Chart, top: f32) -> f32 {
         })
         .collect();
     let area = chart.kind == ChartKind::Area;
+    if let (ChartKind::Difference, [a, b]) = (chart.kind, &values[..]) {
+        // the area between the two lines, in the first series' color
+        let at = |s: &[f64]| -> Vec<[f32; 2]> {
+            (0..n)
+                .map(|i| frame.point(centers[i], frame.value(s[i])))
+                .collect()
+        };
+        d.shapes.push(Shape::Band {
+            upper: at(a),
+            lower: at(b),
+            fill: colors[0].alpha(90),
+        });
+    }
     let mut below = vec![0.0; n];
     for (j, series) in values.iter().enumerate() {
         let base: Vec<f64> = match area && stacked(chart) {
@@ -934,6 +1117,7 @@ mod tests {
                 .collect(),
             normal: None,
             error_bars: None,
+            second_axis: None,
             plot: None,
         }
     }
@@ -1015,6 +1199,123 @@ mod tests {
         assert_eq!(stems(&scene(&c, 600.0, Paper::Dark).unwrap(), ink).len(), 2);
         c.grouping = Some(Grouping::Stacked);
         assert!(stems(&scene(&c, 600.0, Paper::Dark).unwrap(), ink).is_empty());
+    }
+
+    fn circles(scene: &Scene) -> Vec<[f32; 2]> {
+        scene
+            .shapes
+            .iter()
+            .filter_map(|s| match s {
+                Shape::Circle { center, .. } => Some(*center),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn texts(scene: &Scene) -> Vec<&str> {
+        scene
+            .shapes
+            .iter()
+            .filter_map(|s| match s {
+                Shape::Text { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn error_bar_points_sit_side_by_side_off_zero() {
+        let mut c = chart(ChartKind::ErrorBar, None, &[&[50.0, 60.0], &[52.0, 58.0]]);
+        c.error_bars = Some(ErrorBars {
+            label: "2 SE".into(),
+            margins: vec![vec![1.0, 2.0], vec![1.0, 1.0]],
+        });
+        let s = scene(&c, 600.0, Paper::Light).unwrap();
+        let dots = circles(&s);
+        assert_eq!(dots.len(), 4);
+        // the two series of a category apart along the axis, each on its whisker
+        assert!(dots[1][0] > dots[0][0] + 10.0);
+        let petrol = Palette::of(Paper::Light).ramp[0];
+        assert_eq!(stems(&s, petrol).len(), 2);
+        // the axis does not reach down to zero
+        assert!(!texts(&s).contains(&"0"), "{:?}", texts(&s));
+    }
+
+    #[test]
+    fn range_bars_float_between_their_pair() {
+        let c = chart(ChartKind::RangeBar, None, &[&[10.0, 30.0], &[20.0, 35.0]]);
+        let s = scene(&c, 600.0, Paper::Light).unwrap();
+        let petrol = Palette::of(Paper::Light).ramp[0];
+        let bars = bars_of(&s, &[petrol]);
+        assert_eq!(bars.len(), 2);
+        // 10 units tall against 5
+        assert!((bars[0].3 / bars[1].3 - 2.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn drop_lines_join_the_lowest_and_highest_points() {
+        let c = chart(
+            ChartKind::DropLine,
+            None,
+            &[&[10.0, 30.0], &[20.0, 35.0], &[15.0, 32.0]],
+        );
+        let s = scene(&c, 600.0, Paper::Light).unwrap();
+        assert_eq!(circles(&s).len(), 6);
+        let ink = Palette::of(Paper::Light).ink;
+        let joins: Vec<&Vec<[f32; 2]>> = s
+            .shapes
+            .iter()
+            .filter_map(|s| match s {
+                Shape::Line {
+                    points,
+                    width,
+                    color,
+                } if *width == 1.5 && *color == ink => Some(points),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(joins.len(), 2);
+        // from 10 to 20 and from 30 to 35: twice as long
+        let length = |p: &Vec<[f32; 2]>| (p[0][1] - p[1][1]).abs();
+        assert!((length(joins[0]) / length(joins[1]) - 2.0).abs() < 1e-3);
+    }
+
+    #[test]
+    fn a_difference_chart_fills_between_its_lines() {
+        let c = chart(ChartKind::Difference, None, &[&[10.0, 30.0], &[20.0, 25.0]]);
+        let s = scene(&c, 600.0, Paper::Light).unwrap();
+        let bands = s
+            .shapes
+            .iter()
+            .filter(|s| matches!(s, Shape::Band { .. }))
+            .count();
+        assert_eq!(bands, 1);
+    }
+
+    #[test]
+    fn a_line_on_the_second_axis_reaches_its_own_scale() {
+        let mut c = chart(ChartKind::Bar, None, &[&[30.0, 10.0], &[75.0, 100.0]]);
+        c.series[1].statistic = Statistic::Percent;
+        c.second_axis = Some(ChartAxis {
+            title: "Cumulative Percent".into(),
+            format: "PCT8.1".into(),
+            maximum: Some(100.0),
+            variable: None,
+        });
+        let s = scene(&c, 600.0, Paper::Light).unwrap();
+        let colors = Palette::of(Paper::Light).series(2);
+        // one bar per category: the line's series has none
+        assert_eq!(bars_of(&s, &colors).len(), 2);
+        let dots = circles(&s);
+        assert_eq!(dots.len(), 2);
+        let labels = texts(&s);
+        assert!(labels.contains(&"100%") && labels.contains(&"Cumulative Percent"));
+        // 100 on the right axis is the top of the plot; the first bar, 30 of 30, reaches it too
+        let top = bars_of(&s, &colors)[0].1;
+        assert!((dots[1][1] - top).abs() < 0.5, "{dots:?} {top}");
+        // lying bars have no second axis yet
+        c.orientation = Some(Orientation::Horizontal);
+        assert!(scene(&c, 600.0, Paper::Light).is_none());
     }
 
     #[test]

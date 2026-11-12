@@ -1549,15 +1549,19 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "GRAPH",
-        summary: "One chart: summaries by category as bars, lines, areas or a pie, a histogram or a scatterplot.",
+        summary: "One chart: summaries by category as bars, lines, areas, a pie, points with error bars, a Pareto chart or ranges, a histogram or a scatterplot.",
         syntax: "GRAPH [/TITLE='line' ['line']] [/SUBTITLE='line'] [/FOOTNOTE='line' ['line']]\n\
-                 \x20     /BAR[(SIMPLE | GROUPED | STACKED)]=spec | /LINE[(SIMPLE | MULTIPLE | AREA)]=spec | /PIE=spec\n\
+                 \x20     /BAR[(SIMPLE | GROUPED | STACKED | RANGE)]=spec | /PIE=spec\n\
+                 \x20     | /LINE[(SIMPLE | MULTIPLE | AREA | DROP | DIFFERENCE)]=spec | /HILO[(SIMPLE | GROUPED)]=spec\n\
+                 \x20     | /PARETO[(CUM | NOCUM)][(SIMPLE | STACKED)]=spec\n\
+                 \x20     | /ERRORBAR[(CI [95] | STERROR [2] | STDDEV [2])]=varlist [BY var] | var BY var BY var\n\
                  \x20     | /HISTOGRAM[(NORMAL)]=var | /SCATTERPLOT[(BIVARIATE)]=x WITH y [BY group] [BY id (NAME | IDENTIFY)]\n\
+                 \x20     [/PANEL [COLVAR=varlist [COLOP=CROSS | NEST]] [ROWVAR=varlist [ROWOP=CROSS | NEST]]]\n\
                  \x20     [/MISSING=[LISTWISE | VARIABLE] [NOREPORT | REPORT] [EXCLUDE | INCLUDE]].\n\
                  spec: COUNT | PCT | CUFREQ | CUPCT BY var [BY var]; var alone (COUNT BY var); func(varlist) ...\n\
                  [BY var [BY var]]; VALUE(varlist) [BY var]. func: MEAN MEDIAN GMEDIAN MODE SUM CUSUM N MINIMUM\n\
                  MAXIMUM STDDEV VARIANCE, PTILE(varlist, p), PLT PGT NLT NGT(varlist, x), PIN NIN(varlist, low, high).\n\
-                 Keywords may be cut to three letters (MIN, MAX); the first subcommand needs no slash.\n\
+                 Keywords may be cut to three letters (MIN, MAX, ERR, STE); the first subcommand needs no slash.\n\
                  The shape of the spec sets the layout: one function by one variable gives one series; one function\n\
                  by two variables gives a series per value of the second; several functions by one variable give a\n\
                  series per function; several functions without BY give one bar or slice each. A list such as\n\
@@ -1573,14 +1577,29 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  categories for missing values after the valid ones. LISTWISE drops a case missing on any function\n\
                  variable of the chart, VARIABLE only from that variable's functions; INCLUDE makes user-missing\n\
                  values valid. A category empty in every series is left out; at most 3000 categories.\n\
+                 ERRORBAR shows each mean as a point with a bar around it, laid out as MEAN(varlist) would be: a\n\
+                 list by one BY variable or one variable by two puts the points side by side. CI is a confidence\n\
+                 interval at the level (50 to 99.9) from Student's t with W - 1 degrees of freedom; STERROR (also\n\
+                 SE) and STDDEV reach n standard errors or deviations each way. The number may sit in parentheses.\n\
+                 A mean whose cases weigh 1 or less in total has no bar.\n\
+                 PARETO counts (COUNT or a bare variable) or adds up (SUM, VALUE), puts the largest category first\n\
+                 and stacks several series. CUM, the default, draws the running total as a percentage of the grand\n\
+                 total: a line against a second axis from 0 to 100 on the right. NOCUM drops the line and the axis.\n\
+                 The range charts read their ends from the series: BAR(RANGE) floats a bar between each pair (two\n\
+                 functions, or a second BY variable with two values); LINE(DROP) joins the lowest and the highest\n\
+                 series of a category; LINE(DIFFERENCE) shades between two series; HILO takes high, low and an\n\
+                 optional close as two or three series.\n\
                  HISTOGRAM bins the valid values as FREQUENCIES does; NORMAL adds the normal curve. SCATTERPLOT\n\
                  draws each case valid on both variables once, colored by the BY group variable; BY id (NAME)\n\
                  labels the points with that variable's values, (IDENTIFY) leaves them off.\n\
+                 PANEL repeats the chart for each combination of the categories of the ROWVAR and COLVAR variables,\n\
+                 rows first, each a separate chart named in its title. Combinations without cases get no chart, so\n\
+                 COLOP and ROWOP change nothing. A case missing on a panel variable is left out unless REPORT.\n\
                  TITLE names the chart (otherwise it is named after what it shows); SUBTITLE goes under the title\n\
                  and FOOTNOTE below the chart. Lines have at most 72 characters. With SPLIT FILE each group gets a\n\
                  chart. Weighted when a weight variable is set; cases with a zero or missing weight are left out.\n\
-                 Not supported yet: ERRORBAR, PARETO, HILO, PANEL, INTERVAL, TEMPLATE, BAR(RANGE), LINE(DROP)\n\
-                 and LINE(DIFFERENCE), and OVERLAY, MATRIX and XYZ scatterplots; each gives an error.",
+                 Not supported yet: INTERVAL, TEMPLATE, HILO with more than three series (GROUPED), and OVERLAY,\n\
+                 MATRIX and XYZ scatterplots; each gives an error.",
         example: "GRAPH /TITLE='Visits per store' /BAR(STACKED)=COUNT BY store BY daypart.",
         parse: graph::graph,
     },

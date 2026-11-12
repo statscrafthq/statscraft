@@ -383,6 +383,7 @@ fn bar_chart(
             .collect(),
         normal: None,
         error_bars: None,
+        second_axis: None,
         plot: None,
     }
 }

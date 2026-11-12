@@ -154,6 +154,41 @@ UNIANOVA spend BY cup /PLOT=PROFILE(cup) ERRORBAR=SE.";
 }
 
 #[test]
+fn graph_charts_as_office_charts() {
+    let chart = |source: &str| charts(source).remove(0);
+    // a Pareto chart: columns, and the cumulative line on the second axis from 0 to 100
+    let pareto = chart("GRAPH /PARETO=drink.");
+    let book = chart_workbook(&pareto).unwrap();
+    keep("pareto.xlsx", &book);
+    let part = text(&book, "xl/charts/chart1.xml");
+    assert!(
+        part.contains("<c:barChart>") && part.contains("<c:lineChart>"),
+        "{part}"
+    );
+    assert_eq!(part.matches("<c:valAx>").count(), 2, "{part}");
+    assert!(part.contains("<c:max val=\"100\"/>"), "{part}");
+    // error bars: points without a line, with their bars
+    let errors = chart("GRAPH /ERRORBAR(STERROR 1)=cup BY drink.");
+    let part = text(&chart_workbook(&errors).unwrap(), "xl/charts/chart1.xml");
+    assert!(
+        part.contains("<c:lineChart>") && part.contains("<c:errBars>"),
+        "{part}"
+    );
+    assert!(part.contains("<a:ln><a:noFill/></a:ln>"), "{part}");
+    // drop lines and high-low charts: high-low lines; one pair of range bars: up and down bars
+    let drop = chart("GRAPH /LINE(DROP)=MIN(cup) MAX(cup) BY drink.");
+    let part = text(&chart_workbook(&drop).unwrap(), "xl/charts/chart1.xml");
+    assert!(part.contains("<c:hiLowLines"), "{part}");
+    let range = chart("GRAPH /BAR(RANGE)=MIN(cup) MAX(cup) BY drink.");
+    let part = text(&chart_workbook(&range).unwrap(), "xl/charts/chart1.xml");
+    assert!(part.contains("<c:upDownBars"), "{part}");
+    // a difference area goes in as a picture
+    let difference = chart("GRAPH /LINE(DIFFERENCE)=COUNT BY drink BY cup.");
+    assert!(!is_office_chart(&difference));
+    assert!(names(&chart_workbook(&difference).unwrap()).contains("xl/media/image1.png"));
+}
+
+#[test]
 fn presentation_has_a_slide_per_item_and_each_chart_its_workbook() {
     let all = charts(
         "FREQUENCIES drink /BARCHART.\nFREQUENCIES cup /PIECHART.\nFREQUENCIES drink /HISTOGRAM /FORMAT=NOTABLE.",

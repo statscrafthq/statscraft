@@ -15,6 +15,13 @@
 //!   variables; or VALUE(varlist) [BY var], one category per case.
 //! - HISTOGRAM [(NORMAL)] = one variable. SCATTERPLOT [(BIVARIATE)] = x WITH y, then BY a
 //!   control variable and BY a variable with (NAME) or (IDENTIFY) whose values label points.
+//! - ERRORBAR [(CI [level] | STERROR [n] | STDDEV [n])] = varlist [BY var] or var BY var BY var:
+//!   means with bars of a confidence interval (level 50 to 99.9, default 95) or of n standard
+//!   errors or deviations (n above 0, default 2). The number may stand in parentheses.
+//! - PARETO [(CUM | NOCUM)] [(SIMPLE | STACKED)] takes COUNT, SUM or VALUE only.
+//! - BAR (RANGE), LINE (DROP), LINE (DIFFERENCE) and HILO [(SIMPLE | GROUPED)] take a function
+//!   specification; the series give the ends of each range.
+//! - PANEL COLVAR=varlist [COLOP=CROSS | NEST] ROWVAR=varlist [ROWOP=CROSS | NEST].
 //! - MISSING: LISTWISE (default) or VARIABLE, NOREPORT (default) or REPORT, EXCLUDE (default)
 //!   or INCLUDE.
 
@@ -105,6 +112,44 @@ pub enum GraphChart {
         /// The variable whose values label the points (NAME); IDENTIFY leaves them off.
         names: Option<String>,
     },
+    /// Means of the variables by up to two BY variables, with error bars.
+    ErrorBar {
+        interval: GraphInterval,
+        variables: Vec<VarItem>,
+        by: Vec<String>,
+    },
+    /// Bars in descending order, with the cumulative percentage as a line unless `cumulative`
+    /// is false (NOCUM).
+    Pareto {
+        cumulative: bool,
+        data: GraphData,
+    },
+    /// BAR (RANGE): a floating bar between each pair of series.
+    Range(GraphData),
+    /// LINE (DROP): a line from the lowest to the highest series at each category.
+    Drop(GraphData),
+    /// LINE (DIFFERENCE): the area between two series.
+    Difference(GraphData),
+    /// HILO: high, low and optionally close as series.
+    Hilo(GraphData),
+}
+
+/// What an error bar spans.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum GraphInterval {
+    /// A confidence interval of the mean at this level in percent.
+    Ci(f64),
+    /// This many standard errors of the mean on each side.
+    Se(f64),
+    /// This many standard deviations on each side.
+    StdDev(f64),
+}
+
+/// PANEL: a chart for each combination of the categories of these variables.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct GraphPanel {
+    pub columns: Vec<String>,
+    pub rows: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -118,9 +163,19 @@ pub struct Graph {
     /// REPORT: categories of missing values are kept.
     pub report: bool,
     pub include: bool,
+    pub panel: Option<GraphPanel>,
 }
 
-const CHARTS: [&str; 5] = ["BAR", "LINE", "PIE", "HISTOGRAM", "SCATTERPLOT"];
+const CHARTS: [&str; 8] = [
+    "BAR",
+    "LINE",
+    "PIE",
+    "HISTOGRAM",
+    "SCATTERPLOT",
+    "ERRORBAR",
+    "PARETO",
+    "HILO",
+];
 
 const SUBCOMMANDS: [&str; 15] = [
     "TITLE",
@@ -140,9 +195,7 @@ const SUBCOMMANDS: [&str; 15] = [
     "MISSING",
 ];
 
-const NOT_YET: [&str; 6] = [
-    "ERRORBAR", "PARETO", "HILO", "PANEL", "INTERVAL", "TEMPLATE",
-];
+const NOT_YET: [&str; 2] = ["INTERVAL", "TEMPLATE"];
 
 const COUNTS: [(&str, GraphFunction); 4] = [
     ("COUNT", GraphFunction::Count),
@@ -432,11 +485,106 @@ fn scatter(p: &mut Parser) -> PResult<GraphChart> {
     })
 }
 
+/// `[(CI [level] | STERROR [n] | SE [n] | STDDEV [n])]` after ERRORBAR; the number may stand in
+/// parentheses.
+fn interval(p: &mut Parser) -> PResult<GraphInterval> {
+    if !p.eat(Punct::LParen) {
+        return Ok(GraphInterval::Ci(95.0));
+    }
+    let keywords = ["CI", "STERROR", "SE", "STDDEV"];
+    let Some(k) = keywords.iter().position(|k| p.at_keyword(k)) else {
+        return Err(p.unexpected(&keywords));
+    };
+    p.pos += 1;
+    let inner = p.eat(Punct::LParen);
+    let start = p.pos;
+    let given = p.number();
+    if inner {
+        p.expect(Punct::RParen)?;
+    }
+    p.expect(Punct::RParen)?;
+    let bad = |message: String| Err(SyntaxError::new(p.span_from(start), message));
+    Ok(match (k, given) {
+        (0, None) => GraphInterval::Ci(95.0),
+        (0, Some(level)) if (50.0..=99.9).contains(&level) => GraphInterval::Ci(level),
+        (0, Some(level)) => {
+            return bad(format!(
+                "CI needs a level from 50 to 99.9 percent, got {level}"
+            ));
+        }
+        (_, Some(n)) if n <= 0.0 => {
+            return bad(format!("{} needs a number above 0, got {n}", keywords[k]));
+        }
+        (3, n) => GraphInterval::StdDev(n.unwrap_or(2.0)),
+        (_, n) => GraphInterval::Se(n.unwrap_or(2.0)),
+    })
+}
+
+/// The variables of a PANEL keyword: names up to the next `KEYWORD =` or the end.
+fn panel_variables(p: &mut Parser) -> PResult<Vec<String>> {
+    p.eat(Punct::Eq);
+    let mut names = Vec::new();
+    while matches!(p.peek(), Some(TokenKind::Word(_)))
+        && p.peek_at(1) != Some(&TokenKind::Punct(Punct::Eq))
+    {
+        names.push(p.name("a variable")?);
+        p.eat(Punct::Comma);
+    }
+    if names.is_empty() {
+        return Err(p.unexpected(&["a variable"]));
+    }
+    Ok(names)
+}
+
+/// `COLVAR=varlist [COLOP=CROSS | NEST] ROWVAR=varlist [ROWOP=CROSS | NEST]`, at least one of
+/// COLVAR and ROWVAR. A panel is a chart of its own, so CROSS and NEST both give a chart per
+/// combination that has cases.
+fn panel(p: &mut Parser) -> PResult<GraphPanel> {
+    let mut panel = GraphPanel::default();
+    let keywords = ["COLVAR", "ROWVAR", "COLOP", "ROWOP"];
+    while !at_end(p) {
+        let Some(k) = keywords.iter().position(|k| p.at_keyword(k)) else {
+            return Err(p.unexpected(&keywords));
+        };
+        p.pos += 1;
+        match k {
+            0 => panel.columns = panel_variables(p)?,
+            1 => panel.rows = panel_variables(p)?,
+            _ => {
+                p.eat(Punct::Eq);
+                if !p.eat_keyword("CROSS") && !p.eat_keyword("NEST") {
+                    return Err(p.unexpected(&["CROSS", "NEST"]));
+                }
+            }
+        }
+    }
+    if panel.columns.is_empty() && panel.rows.is_empty() {
+        return Err(p.unexpected(&["COLVAR", "ROWVAR"]));
+    }
+    Ok(panel)
+}
+
+/// PARETO allows COUNT (or a bare variable), SUM and VALUE.
+fn pareto_data(p: &mut Parser) -> PResult<GraphData> {
+    let start = p.pos;
+    let data = data(p)?;
+    if let GraphData::Summary { functions, .. } = &data
+        && functions
+            .iter()
+            .any(|f| !matches!(f.function, GraphFunction::Count | GraphFunction::Sum))
+    {
+        let message = "PARETO takes COUNT, SUM or VALUE";
+        return Err(SyntaxError::new(p.span_from(start), message));
+    }
+    Ok(data)
+}
+
 pub(crate) fn graph(p: &mut Parser) -> PResult<Command> {
     let mut title = Vec::new();
     let mut subtitle = None;
     let mut footnote = Vec::new();
     let mut chart: Option<GraphChart> = None;
+    let mut panel_given = None;
     let (mut listwise, mut report, mut include) = (true, false, false);
     p.eat(Punct::Slash);
     loop {
@@ -486,19 +634,64 @@ pub(crate) fn graph(p: &mut Parser) -> PResult<Command> {
                 }
                 None
             }
+            "PANEL" => {
+                panel_given = Some(panel(p)?);
+                None
+            }
             "BAR" => {
-                let k = chart_keyword(p, "BAR", &["SIMPLE", "GROUPED", "STACKED"], &["RANGE"])?;
-                Some(GraphChart::Bar {
-                    stacked: k == Some(2),
-                    data: data(p)?,
+                let allowed = ["SIMPLE", "GROUPED", "STACKED", "RANGE"];
+                let k = chart_keyword(p, "BAR", &allowed, &[])?;
+                Some(match k {
+                    Some(3) => GraphChart::Range(data(p)?),
+                    _ => GraphChart::Bar {
+                        stacked: k == Some(2),
+                        data: data(p)?,
+                    },
                 })
             }
             "LINE" => {
-                let allowed = ["SIMPLE", "MULTIPLE", "AREA"];
-                let k = chart_keyword(p, "LINE", &allowed, &["DROP", "DIFFERENCE"])?;
-                Some(GraphChart::Line {
-                    area: k == Some(2),
-                    data: data(p)?,
+                let allowed = ["SIMPLE", "MULTIPLE", "AREA", "DROP", "DIFFERENCE"];
+                let k = chart_keyword(p, "LINE", &allowed, &[])?;
+                Some(match k {
+                    Some(3) => GraphChart::Drop(data(p)?),
+                    Some(4) => GraphChart::Difference(data(p)?),
+                    _ => GraphChart::Line {
+                        area: k == Some(2),
+                        data: data(p)?,
+                    },
+                })
+            }
+            "HILO" => {
+                chart_keyword(p, "HILO", &["SIMPLE", "GROUPED"], &[])?;
+                Some(GraphChart::Hilo(data(p)?))
+            }
+            "ERRORBAR" => {
+                let interval = interval(p)?;
+                p.eat(Punct::Eq);
+                let variables = variables(p)?;
+                let by = by_list(p, 2)?;
+                Some(GraphChart::ErrorBar {
+                    interval,
+                    variables,
+                    by,
+                })
+            }
+            "PARETO" => {
+                let mut cumulative = true;
+                while p.eat(Punct::LParen) {
+                    let keywords = ["CUM", "NOCUM", "SIMPLE", "STACKED"];
+                    let Some(k) = keywords.iter().position(|k| p.at_keyword(k)) else {
+                        return Err(p.unexpected(&keywords));
+                    };
+                    p.pos += 1;
+                    p.expect(Punct::RParen)?;
+                    if k < 2 {
+                        cumulative = k == 0;
+                    }
+                }
+                Some(GraphChart::Pareto {
+                    cumulative,
+                    data: pareto_data(p)?,
                 })
             }
             "PIE" => Some(GraphChart::Pie(data(p)?)),
@@ -521,7 +714,7 @@ pub(crate) fn graph(p: &mut Parser) -> PResult<Command> {
         if let Some(made) = made {
             if chart.is_some() {
                 let message = "GRAPH draws one chart; give only one of BAR, LINE, PIE, \
-                               HISTOGRAM and SCATTERPLOT";
+                               HISTOGRAM, SCATTERPLOT, ERRORBAR, PARETO and HILO";
                 return Err(SyntaxError::new(p.span_from(start), message));
             }
             chart = Some(made);
@@ -542,5 +735,6 @@ pub(crate) fn graph(p: &mut Parser) -> PResult<Command> {
         listwise,
         report,
         include,
+        panel: panel_given,
     })))
 }
