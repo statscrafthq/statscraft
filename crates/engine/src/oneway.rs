@@ -270,7 +270,8 @@ fn simple(title: String, columns: &[&str], rows: Vec<Vec<Cell>>) -> Table {
 
 /// Mean difference, standard error, significance and interval of one pair by one test.
 /// `ranges` holds, for Dunnett's C, the studentized ranges of k groups with n_a - 1 and n_b - 1
-/// df exceeded with probability alpha.
+/// df exceeded with probability alpha. `critical` is the test's critical value, the same for
+/// every pair (Tukey, GT2, Gabriel), worked out once since each is a costly root search.
 #[allow(clippy::too_many_arguments)]
 fn compare(
     test: Posthoc,
@@ -281,6 +282,7 @@ fn compare(
     df: f64,
     alpha: f64,
     ranges: (f64, f64),
+    critical: f64,
 ) -> [f64; 5] {
     let diff = a.mean - b.mean;
     let pairs = k * (k - 1.0) / 2.0;
@@ -311,8 +313,7 @@ fn compare(
         Posthoc::Tukey => {
             let q = diff.abs() / pooled * std::f64::consts::SQRT_2;
             let p = 1.0 - studentized_range_cdf(q, k, df);
-            let critical = studentized_range_quantile(alpha, k, df) / std::f64::consts::SQRT_2;
-            (pooled, p, critical * pooled)
+            (pooled, p, critical / std::f64::consts::SQRT_2 * pooled)
         }
         Posthoc::GamesHowell => {
             let q = diff.abs() / separate * std::f64::consts::SQRT_2;
@@ -328,13 +329,11 @@ fn compare(
         }
         Posthoc::Gt2 => {
             let p = 1.0 - maximum_modulus_cdf(diff.abs() / pooled, pairs, df);
-            let critical = maximum_modulus_quantile(alpha, pairs, df);
             (pooled, p, critical * pooled)
         }
         Posthoc::Gabriel => {
             let scale = within.sqrt() * (1.0 / (2.0 * a.w).sqrt() + 1.0 / (2.0 * b.w).sqrt());
             let p = 1.0 - maximum_modulus_cdf(diff.abs() / scale, pairs, df);
-            let critical = maximum_modulus_quantile(alpha, pairs, df);
             (pooled, p, critical * scale)
         }
         Posthoc::T3 => {
@@ -413,6 +412,12 @@ pub(crate) fn posthoc_tables(
                     }
                 })
                 .collect();
+            let pairs = k * (k - 1.0) / 2.0;
+            let critical = match test {
+                Posthoc::Tukey => studentized_range_quantile(alpha, k, df),
+                Posthoc::Gt2 | Posthoc::Gabriel => maximum_modulus_quantile(alpha, pairs, df),
+                _ => f64::NAN,
+            };
             // each unordered pair once; the reverse direction mirrors it
             let mut found = vec![vec![[f64::NAN; 5]; groups.len()]; groups.len()];
             for i in 0..groups.len() {
@@ -426,6 +431,7 @@ pub(crate) fn posthoc_tables(
                         df,
                         alpha,
                         (ranges[i], ranges[j]),
+                        critical,
                     );
                     found[i][j] = r;
                     found[j][i] = [-r[0], r[1], r[2], -r[4], -r[3]];
