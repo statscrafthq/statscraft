@@ -1,0 +1,15 @@
+[package]
+name = "statscraft-connect"
+description = "Adds the Statscraft MCP server to the AI agents installed on this computer, shared by the command line and the window"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+# preserve_order: a merged config keeps its keys in the order the file had them
+serde_json = { version = "1", features = ["preserve_order"] }
+# MIT OR Apache-2.0; edits the Codex config.toml and keeps its comments and order
+toml_edit = "0.25.19"

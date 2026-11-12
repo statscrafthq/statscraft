@@ -8,6 +8,7 @@ statscraft help       syntax of a command, or the list of commands
 statscraft plan       lower syntax to an OpenStatSpec transformation plan
 statscraft db         store datasets in an OpenStatSpec database and read them back
 statscraft update     check for a newer release, or update this installation to it
+statscraft connect    add the Statscraft MCP server to the AI agents on this computer
 ```
 
 `statscraft --version` prints the version, and `statscraft <subcommand> --help` lists the flags of a subcommand. The examples run from the root of the repository and use the synthetic files in `tests/fixtures/`; `job.sps` is the file from [Getting started](getting-started.md#run-a-syntax-file).
@@ -363,6 +364,10 @@ The latest release is the newest published release on the GitHub repository; dra
 Every download is checked against the `SHA256SUMS` file of the release before anything is run or replaced; on a mismatch nothing changes and the file is deleted. The installer, the tarball and the .zip go to a temporary folder that is removed after use. Errors print as for the other subcommands, exit code 1.
 
 The only requests go to GitHub over HTTPS: one to the API for the latest release and, on update, the download of `SHA256SUMS` and of the one package. They carry the User-Agent `statscraft/VERSION` and nothing else about you; there is no account, token or telemetry.
+
+## connect
+
+`statscraft connect` adds an entry that starts `statscraft mcp` to every AI agent installed on this computer and says what to restart. `statscraft connect AGENT` connects one, `--list` only shows the state, `--remove [AGENT]` takes the entry out again, and `--json` prints the result as JSON. [Connect your AI agent](connect.md) lists the agents, the files it changes and how to make the same change by hand.
 
 ## Excel export
 

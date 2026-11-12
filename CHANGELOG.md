@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `statscraft connect` adds the Statscraft MCP server to the AI agents installed on your computer: Claude Desktop, Claude Code, ChatGPT desktop and Codex, Cursor, VS Code with Copilot, Gemini CLI and Antigravity. It changes only its own entry, keeps a copy of each file before the first change, and says what to restart; `--list` shows the state, `--remove` undoes it. See [Connect your AI agent](docs/connect.md).
+
 ## 0.7.0 (2026-11-12)
 
 - Tables show variable and value labels, names or both, following SET TVARS, TNUMBERS, OVARS and ONUMBERS (labels by default, as the manual says). Edit > Settings has the two choices and keeps them.

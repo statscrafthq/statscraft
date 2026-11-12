@@ -4105,6 +4105,7 @@ dependencies = [
  "clap",
  "serde",
  "serde_json",
+ "statscraft-connect",
  "statscraft-data",
  "statscraft-engine",
  "statscraft-export",
@@ -4112,6 +4113,15 @@ dependencies = [
  "statscraft-syntax",
  "statscraft-update",
  "zip",
+]
+
+[[package]]
+name = "statscraft-connect"
+version = "0.7.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "toml_edit",
 ]
 
 [[package]]
@@ -4480,6 +4490,7 @@ dependencies = [
  "indexmap",
  "toml_datetime",
  "toml_parser",
+ "toml_writer",
  "winnow",
 ]
 
@@ -4491,6 +4502,12 @@ checksum = "baa693a8032d7e1cada7d0041e96126df243179ff061456783ac7f12bda4744c"
 dependencies = [
  "winnow",
 ]
+
+[[package]]
+name = "toml_writer"
+version = "1.2.0+spec-1.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "009dbb7700f11c55ef83aebbe4c0e9cf1f1ac0844bd8d6f00dc38f302026e13a"
 
 [[package]]
 name = "tracing"
