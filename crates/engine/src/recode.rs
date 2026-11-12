@@ -52,14 +52,15 @@ fn check_inputs<'a>(
 
 /// A value or a range also matches a user-missing value; only system-missing needs MISSING,
 /// SYSMIS or ELSE. A range written high THRU low is read the other way round.
-fn matches(input: &RecodeInput, variable: &Variable, case: usize) -> bool {
+/// `values` are the values of `variable`, taken once by the caller rather than for every case.
+fn matches(input: &RecodeInput, variable: &Variable, values: Values, case: usize) -> bool {
     let within = |low: &Bound, high: &Bound, v: f64| match (low, high) {
         (Bound::Number(a), Bound::Number(b)) => a.min(*b) <= v && v <= a.max(*b),
         (Bound::Number(low), _) => *low <= v,
         (_, Bound::Number(high)) => v <= *high,
         _ => true,
     };
-    match variable.values() {
+    match values {
         Values::Numeric(values) => match (input, values.get(case)) {
             (RecodeInput::Else, _) => true,
             (RecodeInput::Sysmis, v) => v.is_none(),
@@ -207,9 +208,11 @@ impl Engine {
             )));
         }
 
+        let values = source.values();
         let output = |case: usize| {
-            let hit =
-                |m: &&RecodeMapping| m.inputs.iter().any(|input| matches(input, &source, case));
+            let hit = |m: &&RecodeMapping| {
+                (m.inputs.iter()).any(|input| matches(input, &source, values, case))
+            };
             group.mappings.iter().find(hit).map(|m| &m.output)
         };
         let cases = 0..data.case_count();
@@ -304,13 +307,19 @@ impl Engine {
             })?),
             Err(_) => None,
         };
+        // variable by variable: each column is read in one pass
+        let mut hits = vec![0usize; data.case_count()];
+        for (variable, inputs) in &tests {
+            let values = variable.values();
+            for (case, hits) in hits.iter_mut().enumerate() {
+                if inputs.iter().any(|i| matches(i, variable, values, case)) {
+                    *hits += 1;
+                }
+            }
+        }
         Ok((0..data.case_count())
             .map(|case| {
-                let hits = tests
-                    .iter()
-                    .filter(|(variable, inputs)| inputs.iter().any(|i| matches(i, variable, case)))
-                    .count();
-                assign(mask, case, Some(hits as f64), || {
+                assign(mask, case, Some(hits[case] as f64), || {
                     old.and_then(|values| values.get(case))
                 })
             })

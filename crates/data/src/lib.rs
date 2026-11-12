@@ -146,6 +146,7 @@ pub enum MissingValues {
 }
 
 impl MissingValues {
+    #[inline]
     fn contains_number(&self, value: f64) -> bool {
         match self {
             MissingValues::Numbers(discrete) => discrete.contains(&value),
@@ -196,6 +197,7 @@ impl<'a> Variable<'a> {
         &self.def.missing
     }
 
+    #[inline]
     pub fn is_string(&self) -> bool {
         self.def.width.is_some()
     }
@@ -205,6 +207,7 @@ impl<'a> Variable<'a> {
         self.def.width
     }
 
+    #[inline]
     pub fn values(&self) -> Values<'a> {
         match self.def.width {
             None => Values::Numeric(NumericValues(self.column.as_primitive())),
@@ -212,6 +215,7 @@ impl<'a> Variable<'a> {
         }
     }
 
+    #[inline]
     pub fn numeric(&self) -> Result<NumericValues<'a>, Error> {
         match self.values() {
             Values::Numeric(values) => Ok(values),
@@ -227,6 +231,7 @@ impl<'a> Variable<'a> {
     }
 
     /// True when `value` is one of the variable's user-missing numbers or lies in its range.
+    #[inline]
     pub fn is_user_missing(&self, value: f64) -> bool {
         self.def.missing.contains_number(value)
     }
@@ -266,6 +271,7 @@ pub struct NumericValues<'a>(&'a Float64Array);
 
 impl<'a> NumericValues<'a> {
     /// Panics when `case` is out of range.
+    #[inline]
     pub fn get(&self, case: usize) -> Option<f64> {
         self.0.is_valid(case).then(|| self.0.value(case))
     }
@@ -281,6 +287,7 @@ pub struct StringValues<'a>(&'a StringViewArray);
 
 impl<'a> StringValues<'a> {
     /// Panics when `case` is out of range.
+    #[inline]
     pub fn get(&self, case: usize) -> &'a str {
         self.0.value(case).trim_end_matches(' ')
     }

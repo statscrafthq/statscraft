@@ -144,14 +144,19 @@ impl Engine {
         }
         let weights = case_weights(data)?;
         let weight = |case: usize| weights.as_ref().map_or(1.0, |w| w[case]);
+        let numbers: Vec<_> = columns_of.iter().map(|v| v.numeric().ok()).collect();
         let valid = |index: usize, case: usize| {
             let variable = &columns_of[index];
-            let value = variable.numeric().ok()?.get(case)?;
+            let value = numbers[index]?.get(case)?;
             (command.include || !variable.is_user_missing(value)).then_some(value)
         };
-        let complete: Vec<bool> = (0..data.case_count())
-            .map(|case| (0..variables.len()).all(|index| valid(index, case).is_some()))
-            .collect();
+        // variable by variable: each column is read in one pass
+        let mut complete = vec![true; data.case_count()];
+        for index in 0..variables.len() {
+            for (case, complete) in complete.iter_mut().enumerate() {
+                *complete = *complete && valid(index, case).is_some();
+            }
+        }
         let counted = |case: usize| !command.listwise || complete[case];
 
         let total: f64 = (0..data.case_count()).map(weight).sum();
