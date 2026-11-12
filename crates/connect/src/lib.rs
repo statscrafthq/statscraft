@@ -2,12 +2,19 @@
 //! again. Each agent gets an entry named `statscraft` that starts `<binary> mcp` directly, without
 //! a shell. Config files are parsed, merged and written back atomically; a file that does not
 //! parse is left alone, and the first change of a file keeps a copy of it next to it.
+//!
+//! On Windows the agents inside WSL are listed too, once per distribution: their config files are
+//! reached through `\\wsl$`, and their entries start the Windows program through the
+//! distribution's `/mnt/c` path, so the server keeps its link to the open Windows window.
 
 use serde::Serialize;
 use serde_json::{Map, Value};
+use std::cell::RefCell;
 use std::fs;
-use std::io;
+use std::io::{self, Read};
 use std::path::{Path, PathBuf};
+use std::process::{Command, Stdio};
+use std::time::{Duration, Instant};
 use toml_edit::DocumentMut;
 
 /// The name of our entry in every agent's list of servers.
@@ -16,6 +23,16 @@ pub const KEY: &str = "statscraft";
 pub const BACKUP_SUFFIX: &str = ".statscraft-backup";
 /// The page that explains every change and how to make it by hand.
 pub const DOCS: &str = "https://docs.statscraft.org/connect.html";
+/// Set in the entry of an agent inside WSL to the distribution's name, so the server knows it was
+/// started from there and can translate the Linux paths it is given.
+pub const WSL_DISTRO_ENV: &str = "STATSCRAFT_WSL_DISTRO";
+/// The longest a command may take; WSL may first have to start its virtual machine.
+pub const TIMEOUT: Duration = Duration::from_secs(30);
+/// Between an agent's id and a distribution's name in the id of an agent inside WSL:
+/// `codex-wsl:Ubuntu`.
+const WSL_MARK: &str = "-wsl:";
+/// The agents that keep their settings in the Linux home, so they can be connected inside WSL.
+const WSL_CLIENTS: [&str; 4] = ["claude-code", "codex", "gemini", "antigravity"];
 
 /// `path` without the `\\?\` prefix Windows adds when it resolves a path, which some agents
 /// cannot start. The command line and the window both name the server this way, so an entry one
@@ -55,6 +72,10 @@ pub struct Places {
     pub claude_config_dir: Option<PathBuf>,
     /// The folders of PATH, searched for the `claude` command
     pub path: Vec<PathBuf>,
+    /// wsl.exe, on Windows where it is installed; None skips WSL
+    pub wsl: Option<PathBuf>,
+    /// The folder that holds each WSL distribution's files under its name: `\\wsl$`
+    pub wsl_root: PathBuf,
 }
 
 impl Places {
@@ -64,7 +85,7 @@ impl Places {
                 .filter(|v| !v.is_empty())
                 .map(PathBuf::from)
         };
-        Places {
+        let mut places = Places {
             os: if cfg!(windows) {
                 Os::Windows
             } else if cfg!(target_os = "macos") {
@@ -82,7 +103,14 @@ impl Places {
             path: std::env::var_os("PATH")
                 .map(|p| std::env::split_paths(&p).collect())
                 .unwrap_or_default(),
+            wsl: None,
+            // works on every Windows version with WSL; \\wsl.localhost only on newer ones
+            wsl_root: PathBuf::from(r"\\wsl$"),
+        };
+        if places.os == Os::Windows {
+            places.wsl = places.which("wsl");
         }
+        places
     }
 
     fn which(&self, program: &str) -> Option<PathBuf> {
@@ -103,18 +131,50 @@ impl Places {
 /// Runs a program with arguments and returns whether it succeeded and what it printed.
 pub type Runner = Box<dyn Fn(&Path, &[&str]) -> io::Result<(bool, String)>>;
 
-/// Runs the program for real, without a shell.
+/// Runs the program for real, without a shell, and stops it after [`TIMEOUT`].
 pub fn system_runner() -> Runner {
     Box::new(|program, args| {
-        let mut command = std::process::Command::new(program);
-        command.args(args);
-        // no console window flashing up over the Statscraft window
+        let mut command = Command::new(program);
+        command
+            .args(args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped());
         #[cfg(windows)]
-        std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000);
-        let out = command.output()?;
-        let mut text = String::from_utf8_lossy(&out.stderr).into_owned();
-        text.push_str(&String::from_utf8_lossy(&out.stdout));
-        Ok((out.status.success(), text.trim().to_string()))
+        {
+            // no console window flashing up over the Statscraft window
+            std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000);
+            // wsl.exe prints its own messages in UTF-16 without this
+            command.env("WSL_UTF8", "1");
+        }
+        let mut child = command.spawn()?;
+        let reader = |mut pipe: Box<dyn Read + Send>| {
+            std::thread::spawn(move || {
+                let mut bytes = Vec::new();
+                let _ = pipe.read_to_end(&mut bytes);
+                bytes
+            })
+        };
+        let out = reader(Box::new(child.stdout.take().expect("piped")));
+        let err = reader(Box::new(child.stderr.take().expect("piped")));
+        let deadline = Instant::now() + TIMEOUT;
+        let status = loop {
+            if let Some(status) = child.try_wait()? {
+                break status;
+            }
+            if Instant::now() > deadline {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    format!("it gave no answer in {} seconds", TIMEOUT.as_secs()),
+                ));
+            }
+            std::thread::sleep(Duration::from_millis(20));
+        };
+        let mut text = String::from_utf8_lossy(&err.join().unwrap_or_default()).into_owned();
+        text.push_str(&String::from_utf8_lossy(&out.join().unwrap_or_default()));
+        Ok((status.success(), text.trim().to_string()))
     })
 }
 
@@ -215,21 +275,41 @@ pub fn ids() -> Vec<&'static str> {
     CLIENTS.iter().map(|c| c.id).collect()
 }
 
-fn client(id: &str) -> Result<&'static Client, String> {
-    let id = id.to_ascii_lowercase();
-    let id = ALIASES
+/// The agent an id names, and the WSL distribution it names after `-wsl:`, if any.
+fn client(id: &str) -> Result<(&'static Client, Option<&str>), String> {
+    let lower = id.to_ascii_lowercase();
+    let (base, distro) = match lower.find(WSL_MARK) {
+        Some(at) => (&lower[..at], Some(&id[at + WSL_MARK.len()..])),
+        None => (lower.as_str(), None),
+    };
+    let base = ALIASES
         .iter()
-        .find(|(alias, _)| *alias == id)
-        .map_or(id.as_str(), |(_, to)| to);
-    CLIENTS
+        .find(|(alias, _)| *alias == base)
+        .map_or(base, |(_, to)| to);
+    let client = CLIENTS
         .iter()
-        .find(|c| c.id == id)
-        .ok_or_else(|| format!("unknown agent {id}; the agents are {}", ids().join(", ")))
+        .find(|c| c.id == base)
+        .ok_or_else(|| format!("unknown agent {id}; the agents are {}", ids().join(", ")))?;
+    if distro.is_some() && !WSL_CLIENTS.contains(&client.id) {
+        return Err(format!(
+            "{} does not run inside WSL; the agents there are {}",
+            client.name,
+            WSL_CLIENTS.join(", ")
+        ));
+    }
+    Ok((client, distro))
 }
+
+/// Said about Codex inside WSL.
+const WSL_CODEX_NOTE: &str = "The Codex view of the ChatGPT app reads this file when Codex runs \
+     in WSL. Ordinary ChatGPT chats cannot use tools on this computer.";
 
 /// What the user should know about where an agent shows the tools, if anything.
 pub fn note(id: &str) -> Option<&'static str> {
-    client(id).ok()?.note
+    match client(id).ok()? {
+        (client, None) => client.note,
+        (client, Some(_)) => (client.id == "codex").then_some(WSL_CODEX_NOTE),
+    }
 }
 
 /// Said after a change of Claude Desktop's settings file while Claude Desktop runs.
@@ -249,8 +329,10 @@ pub fn entry_in(path: &Path) -> Result<Option<String>, String> {
 /// What `clients` knows about one agent.
 #[derive(Serialize, Debug, Clone)]
 pub struct ClientStatus {
-    pub id: &'static str,
-    pub name: &'static str,
+    /// `codex`, or `codex-wsl:Ubuntu` for Codex inside a WSL distribution
+    pub id: String,
+    /// `Codex`, or `Codex (WSL: Ubuntu)`
+    pub name: String,
     /// The agent is installed: its config folder exists (Claude Code: `claude` is on PATH).
     pub detected: bool,
     /// The config files our entry goes into (Claude Desktop on Windows can have two).
@@ -267,15 +349,15 @@ pub struct ClientStatus {
 /// What `connect` or `disconnect` did for one agent.
 #[derive(Serialize, Debug, Clone)]
 pub struct Outcome {
-    pub id: &'static str,
-    pub name: &'static str,
+    pub id: String,
+    pub name: String,
     /// Something was written or run; false when the agent was already as asked.
     pub changed: bool,
     /// Config files written.
     pub files: Vec<PathBuf>,
     /// Copies made before the first change of a file.
     pub backups: Vec<PathBuf>,
-    /// The command run (Claude Code).
+    /// The command run (Claude Code); inside WSL, the command run there.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<String>,
     /// What the user must do before the agent sees the change.
@@ -286,14 +368,32 @@ pub struct Outcome {
     pub warning: Option<&'static str>,
 }
 
+/// A WSL distribution with the places of its Linux home, as Windows reaches them.
+#[derive(Clone, Debug)]
+struct Distro {
+    name: String,
+    /// The home through `\\wsl$`; no environment of the distribution is known here
+    places: Places,
+    /// `claude` is on the PATH of a login shell there
+    claude: bool,
+    /// The Windows server as the distribution names it, such as /mnt/c/...; empty when not asked
+    server: String,
+}
+
 pub struct Connector {
     places: Places,
     runner: Runner,
+    /// The WSL distributions found, for the server they were asked about
+    wsl: RefCell<Option<(String, Vec<Distro>)>>,
 }
 
 impl Connector {
     pub fn new(places: Places, runner: Runner) -> Connector {
-        Connector { places, runner }
+        Connector {
+            places,
+            runner,
+            wsl: RefCell::new(None),
+        }
     }
 
     /// The real places of this computer, and real commands.
@@ -301,37 +401,85 @@ impl Connector {
         Connector::new(Places::from_env(), system_runner())
     }
 
-    /// Every supported agent with its state; `server` is the binary an entry should start.
+    /// Whether listing the agents asks WSL, which can take a few seconds while it starts.
+    pub fn looks_into_wsl(&self) -> bool {
+        self.places.wsl.is_some()
+    }
+
+    /// Every supported agent with its state; `server` is the binary an entry should start. The
+    /// agents inside WSL are listed only where they are installed.
     pub fn clients(&self, server: &Path) -> Vec<ClientStatus> {
-        CLIENTS.iter().map(|c| self.status(c, server)).collect()
+        let mut list: Vec<ClientStatus> = CLIENTS
+            .iter()
+            .map(|c| self.status(c, None, server))
+            .collect();
+        for distro in self.distros(server.to_str().unwrap_or("")) {
+            for client in CLIENTS.iter().filter(|c| WSL_CLIENTS.contains(&c.id)) {
+                let status = self.status(client, Some(&distro), server);
+                if status.detected {
+                    list.push(status);
+                }
+            }
+        }
+        list
+    }
+
+    /// The agent an id names, with its distribution when it runs inside WSL.
+    fn target(&self, id: &str, server: &str) -> Result<(&'static Client, Option<Distro>), String> {
+        let (client, distro) = client(id)?;
+        let Some(name) = distro else {
+            return Ok((client, None));
+        };
+        let distro = self
+            .distros(server)
+            .into_iter()
+            .find(|d| d.name.eq_ignore_ascii_case(name))
+            .ok_or_else(|| format!("no WSL distribution named {name} was found"))?;
+        Ok((client, Some(distro)))
     }
 
     /// Adds or updates the entry that starts `<server> mcp` in one agent's config.
     pub fn connect(&self, id: &str, server: &Path) -> Result<Outcome, String> {
-        let client = client(id)?;
         let server = server
             .to_str()
             .ok_or_else(|| format!("the path {} is not valid text", server.display()))?;
-        let (files, detected) = self.configs(client);
+        let (client, wsl) = self.target(id, server)?;
+        let wsl = wsl.as_ref();
+        let (files, detected) = self.configs(client, wsl);
+        let mut outcome = outcome(client, wsl);
         if !detected {
-            return Err(format!("{} was not found on this computer", client.name));
+            return Err(format!("{} was not found on this computer", outcome.name));
         }
-        let mut outcome = outcome(client);
+        let server = wsl.map_or(server, |d| d.server.as_str());
+        let distro = wsl.map(|d| d.name.as_str());
         match client.format {
             Format::Json(entry) => {
                 for file in &files {
-                    edit_json(file, Some(entry_json(entry, server)), &mut outcome)?;
+                    edit_json(file, Some(entry_json(entry, server, distro)), &mut outcome)?;
                 }
             }
-            Format::Toml => edit_toml(&files[0], Some(server), &mut outcome)?,
+            Format::Toml => edit_toml(&files[0], Some((server, distro)), &mut outcome)?,
             Format::ClaudeCode => {
-                let state = claude_code_entry(&files[0])?;
-                if state.as_deref() != Some(server) {
+                let state = json_server(&files[0])?;
+                let same = state.as_ref().is_some_and(|e| {
+                    e.get("command").and_then(Value::as_str) == Some(server)
+                        && distro.is_none_or(|d| env_names(e.get("env"), d))
+                });
+                if !same {
                     if state.is_some() {
-                        self.claude(&["mcp", "remove", "--scope", "user", KEY], &mut outcome)?;
+                        self.claude(
+                            &["mcp", "remove", "--scope", "user", KEY],
+                            wsl,
+                            &mut outcome,
+                        )?;
                     }
-                    let args = ["mcp", "add", "--scope", "user", KEY, "--", server, "mcp"];
-                    self.claude(&args, &mut outcome)?;
+                    let mut args = vec!["mcp", "add", "--scope", "user", KEY];
+                    let env = distro.map(|d| (format!("{WSL_DISTRO_ENV}={d}"), wslenv()));
+                    if let Some((name, pass)) = &env {
+                        args.extend(["-e", name, "-e", pass]);
+                    }
+                    args.extend(["--", server, "mcp"]);
+                    self.claude(&args, wsl, &mut outcome)?;
                 }
             }
         }
@@ -341,9 +489,10 @@ impl Connector {
 
     /// Takes our entry out of one agent's config; everything else stays.
     pub fn disconnect(&self, id: &str) -> Result<Outcome, String> {
-        let client = client(id)?;
-        let (files, _) = self.configs(client);
-        let mut outcome = outcome(client);
+        let (client, wsl) = self.target(id, "")?;
+        let wsl = wsl.as_ref();
+        let (files, _) = self.configs(client, wsl);
+        let mut outcome = outcome(client, wsl);
         match client.format {
             Format::Json(_) => {
                 for file in &files {
@@ -352,15 +501,18 @@ impl Connector {
             }
             Format::Toml => edit_toml(&files[0], None, &mut outcome)?,
             Format::ClaudeCode => {
-                if claude_code_entry(&files[0])?.is_some() {
-                    self.claude(&["mcp", "remove", "--scope", "user", KEY], &mut outcome)?;
+                if json_server(&files[0])?.is_some() {
+                    self.claude(
+                        &["mcp", "remove", "--scope", "user", KEY],
+                        wsl,
+                        &mut outcome,
+                    )?;
                 }
             }
         }
         self.finish(client, &mut outcome);
         Ok(outcome)
     }
-
     fn finish(&self, client: &Client, outcome: &mut Outcome) {
         outcome.restart = outcome.changed.then_some(client.restart);
         if outcome.changed && client.id == "claude-desktop" && self.desktop_running() {
@@ -404,13 +556,33 @@ impl Connector {
         }
     }
 
-    fn claude(&self, args: &[&str], outcome: &mut Outcome) -> Result<(), String> {
-        let program = self
-            .places
-            .which("claude")
-            .ok_or("Claude Code was not found on this computer")?;
+    /// Runs `claude` with `args`: here, or inside a WSL distribution through a login shell,
+    /// where it finds the PATH the user's own terminal has.
+    fn claude(
+        &self,
+        args: &[&str],
+        wsl: Option<&Distro>,
+        outcome: &mut Outcome,
+    ) -> Result<(), String> {
         let shown = format!("claude {}", args.join(" "));
-        let (ok, text) = (self.runner)(&program, args)
+        let script;
+        let (program, run, shown) = match wsl {
+            None => (
+                self.places
+                    .which("claude")
+                    .ok_or("Claude Code was not found on this computer")?,
+                args.to_vec(),
+                shown,
+            ),
+            Some(d) => {
+                let quoted: Vec<String> = args.iter().map(|a| sh_quote(a)).collect();
+                script = format!("claude {}", quoted.join(" "));
+                let wsl = self.places.wsl.clone().ok_or("wsl.exe was not found")?;
+                let run = vec!["-d", d.name.as_str(), "-e", "sh", "-lc", script.as_str()];
+                (wsl, run, format!("{shown} (in WSL: {})", d.name))
+            }
+        };
+        let (ok, text) = (self.runner)(&program, &run)
             .map_err(|e| format!("could not run {}: {e}", program.display()))?;
         if !ok {
             return Err(format!("{shown} failed: {text}"));
@@ -420,11 +592,12 @@ impl Connector {
         Ok(())
     }
 
-    fn status(&self, client: &'static Client, server: &Path) -> ClientStatus {
-        let (configs, detected) = self.configs(client);
+    fn status(&self, client: &'static Client, wsl: Option<&Distro>, server: &Path) -> ClientStatus {
+        let (configs, detected) = self.configs(client, wsl);
+        let named = outcome(client, wsl);
         let mut status = ClientStatus {
-            id: client.id,
-            name: client.name,
+            id: named.id,
+            name: named.name,
             detected,
             configs: configs.clone(),
             connected: false,
@@ -438,12 +611,14 @@ impl Connector {
             // The user-scope list lives in this file; `claude mcp get` would start every server to check it.
             status.configs.clear();
         }
-        let server = server.to_str();
+        let server = match wsl {
+            Some(d) => Some(d.server.as_str()),
+            None => server.to_str(),
+        };
         for file in &configs {
             let found = match client.format {
-                Format::Json(_) => json_entry(file),
+                Format::Json(_) | Format::ClaudeCode => json_entry(file),
                 Format::Toml => toml_entry(file),
-                Format::ClaudeCode => claude_code_entry(file),
             };
             match found {
                 Ok(Some(command)) => {
@@ -458,8 +633,8 @@ impl Connector {
     }
 
     /// The agent's config files, and whether the agent is installed.
-    fn configs(&self, client: &Client) -> (Vec<PathBuf>, bool) {
-        let p = &self.places;
+    fn configs(&self, client: &Client, wsl: Option<&Distro>) -> (Vec<PathBuf>, bool) {
+        let p = wsl.map_or(&self.places, |d| &d.places);
         let home = &p.home;
         let in_folder = |folder: PathBuf, file: &str| {
             let detected = folder.is_dir();
@@ -479,10 +654,8 @@ impl Connector {
             }
             "claude-code" => {
                 let folder = p.claude_config_dir.clone().unwrap_or_else(|| home.clone());
-                (
-                    vec![folder.join(".claude.json")],
-                    p.which("claude").is_some(),
-                )
+                let detected = wsl.map_or_else(|| p.which("claude").is_some(), |d| d.claude);
+                (vec![folder.join(".claude.json")], detected)
             }
             "codex" => in_folder(
                 p.codex_home.clone().unwrap_or_else(|| home.join(".codex")),
@@ -507,6 +680,76 @@ impl Connector {
             }
             _ => unreachable!("every client has its places"),
         }
+    }
+
+    /// The WSL distributions with a Linux home, each asked once per connector; `server` is
+    /// translated to the distribution's form. A disconnect, which needs no server, takes what an
+    /// earlier listing found.
+    fn distros(&self, server: &str) -> Vec<Distro> {
+        let Some(wsl) = &self.places.wsl else {
+            return Vec::new();
+        };
+        if let Some((asked, found)) = &*self.wsl.borrow()
+            && (asked == server || server.is_empty())
+        {
+            return found.clone();
+        }
+        let names = match (self.runner)(wsl, &["-l", "-q"]) {
+            Ok((true, text)) => distro_names(&text),
+            _ => Vec::new(),
+        };
+        let found: Vec<Distro> = names
+            .into_iter()
+            .filter_map(|name| self.probe(wsl, name, server))
+            .collect();
+        *self.wsl.borrow_mut() = Some((server.to_string(), found.clone()));
+        found
+    }
+
+    /// One call into a distribution for its home, its `claude` and the server's Linux path.
+    /// Each answer comes on its own marked line, so whatever a login script prints is skipped.
+    fn probe(&self, wsl: &Path, name: String, server: &str) -> Option<Distro> {
+        let translate = if server.is_empty() {
+            String::new()
+        } else {
+            format!("wslpath -u {} 2>/dev/null", sh_quote(server))
+        };
+        let script = format!(
+            "printf 'home:%s\\n' \"$HOME\"; printf 'claude:%s\\n' \"$(command -v claude)\"; \
+             printf 'server:%s\\n' \"$({translate})\""
+        );
+        let (_, text) = (self.runner)(wsl, &["-d", &name, "-e", "sh", "-lc", &script]).ok()?;
+        let field = |key: &str| {
+            text.lines()
+                .find_map(|line| line.trim_end_matches('\r').strip_prefix(key))
+                .map(str::trim)
+        };
+        let home = field("home:").filter(|h| h.starts_with('/'))?;
+        let mut folder = self.places.wsl_root.join(&name);
+        folder.extend(home.split('/').filter(|part| !part.is_empty()));
+        let server = match field("server:") {
+            Some(path) if path.starts_with('/') => path.to_string(),
+            _ => windows_to_linux(server),
+        };
+        Some(Distro {
+            claude: field("claude:").is_some_and(|c| !c.is_empty()),
+            places: Places {
+                os: Os::Linux,
+                home: folder,
+                appdata: None,
+                local_appdata: None,
+                xdg_config: None,
+                // the variables of the distribution are not known from here: the defaults
+                codex_home: None,
+                copilot_home: None,
+                claude_config_dir: None,
+                path: Vec::new(),
+                wsl: None,
+                wsl_root: PathBuf::new(),
+            },
+            server,
+            name,
+        })
     }
 
     fn desktop_folders(&self) -> Vec<PathBuf> {
@@ -545,10 +788,14 @@ impl Connector {
     }
 }
 
-fn outcome(client: &'static Client) -> Outcome {
+fn outcome(client: &'static Client, wsl: Option<&Distro>) -> Outcome {
     Outcome {
-        id: client.id,
-        name: client.name,
+        id: wsl.map_or(client.id.to_string(), |d| {
+            format!("{}{WSL_MARK}{}", client.id, d.name)
+        }),
+        name: wsl.map_or(client.name.to_string(), |d| {
+            format!("{} (WSL: {})", client.name, d.name)
+        }),
         changed: false,
         files: Vec::new(),
         backups: Vec::new(),
@@ -558,7 +805,8 @@ fn outcome(client: &'static Client) -> Outcome {
     }
 }
 
-fn entry_json(entry: Entry, server: &str) -> Map<String, Value> {
+/// Our entry; inside WSL with the env that tells the server the distribution.
+fn entry_json(entry: Entry, server: &str, distro: Option<&str>) -> Map<String, Value> {
     let mut map = Map::new();
     if entry != Entry::Plain {
         map.insert("type".into(), "stdio".into());
@@ -567,6 +815,12 @@ fn entry_json(entry: Entry, server: &str) -> Map<String, Value> {
     map.insert("args".into(), vec!["mcp"].into());
     if entry == Entry::Copilot {
         map.insert("tools".into(), vec!["*"].into());
+    }
+    if let Some(distro) = distro {
+        let mut env = Map::new();
+        env.insert(WSL_DISTRO_ENV.into(), distro.into());
+        env.insert("WSLENV".into(), WSL_DISTRO_ENV.into());
+        map.insert("env".into(), env.into());
     }
     map
 }
@@ -628,9 +882,87 @@ fn json_entry(path: &Path) -> Result<Option<String>, String> {
     }))
 }
 
-/// Claude Code keeps its user-scope servers under `mcpServers` in `.claude.json`.
-fn claude_code_entry(path: &Path) -> Result<Option<String>, String> {
-    json_entry(path)
+/// Our whole entry in a JSON file, such as Claude Code's `.claude.json`, which keeps its
+/// user-scope servers under `mcpServers`.
+fn json_server(path: &Path) -> Result<Option<Value>, String> {
+    let root = parse_json(path, read(path)?.as_ref())?;
+    Ok(root.get("mcpServers").and_then(|s| s.get(KEY)).cloned())
+}
+
+/// `WSLENV`, which makes WSL hand our variable over to the Windows program it starts.
+fn wslenv() -> String {
+    format!("WSLENV={WSL_DISTRO_ENV}")
+}
+
+/// Whether an entry's env names the distribution, and passes it on to Windows.
+fn env_names(env: Option<&Value>, distro: &str) -> bool {
+    env.is_some_and(|e| {
+        e.get(WSL_DISTRO_ENV).and_then(Value::as_str) == Some(distro)
+            && e.get("WSLENV").and_then(Value::as_str) == Some(WSL_DISTRO_ENV)
+    })
+}
+
+/// The names `wsl.exe -l -q` prints, one per line; older versions print UTF-16 whatever
+/// WSL_UTF8 says, which arrives here with a zero byte after each letter. Docker Desktop's own
+/// distributions hold no user's agents.
+fn distro_names(text: &str) -> Vec<String> {
+    text.replace(['\0', '\u{feff}', '\u{fffd}'], "")
+        .lines()
+        .map(str::trim)
+        .filter(|name| !name.is_empty() && !name.starts_with("docker-desktop"))
+        .map(str::to_string)
+        .collect()
+}
+
+/// A word for `sh`: in single quotes, a single quote inside closed, escaped and reopened.
+fn sh_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', r"'\''"))
+}
+
+/// A Windows path as WSL mounts it, `C:\x\y` as `/mnt/c/x/y`; a path inside WSL,
+/// `\\wsl$\Ubuntu\home\anna` or `\\wsl.localhost\Ubuntu\home\anna`, as `/home/anna`.
+/// Anything else stays as it is. Used where `wslpath` cannot be asked.
+pub fn windows_to_linux(path: &str) -> String {
+    let bytes = path.as_bytes();
+    if bytes.len() >= 2 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' {
+        let rest = path[2..].replace('\\', "/");
+        let rest = rest.trim_matches('/');
+        let drive = path[..1].to_ascii_lowercase();
+        return if rest.is_empty() {
+            format!("/mnt/{drive}")
+        } else {
+            format!("/mnt/{drive}/{rest}")
+        };
+    }
+    let lower = path.to_ascii_lowercase();
+    for share in [r"\\wsl$\", r"\\wsl.localhost\"] {
+        if lower.starts_with(share) {
+            let rest = &path[share.len()..];
+            let inside = rest.find('\\').map_or("", |at| &rest[at..]);
+            return if inside.is_empty() {
+                "/".into()
+            } else {
+                inside.replace('\\', "/")
+            };
+        }
+    }
+    path.to_string()
+}
+
+/// A Linux path an agent inside WSL gives, as Windows reaches it: `/mnt/c/x` as `C:\x`, any
+/// other absolute path through `\\wsl$\<distro>`. A path that does not start with `/` stays.
+pub fn linux_to_windows(path: &str, distro: &str) -> String {
+    if !path.starts_with('/') {
+        return path.to_string();
+    }
+    if let Some(rest) = path.strip_prefix("/mnt/") {
+        let (drive, tail) = rest.split_at(rest.find('/').unwrap_or(rest.len()));
+        if drive.len() == 1 && drive.as_bytes()[0].is_ascii_alphabetic() {
+            let tail = tail.trim_start_matches('/').replace('/', "\\");
+            return format!("{}:\\{tail}", drive.to_ascii_uppercase());
+        }
+    }
+    format!(r"\\wsl$\{distro}{}", path.replace('/', "\\"))
 }
 
 /// Sets our entry (`Some`) or takes it out (`None`), keeping every other key.
@@ -654,10 +986,17 @@ fn edit_json(
     };
     match entry {
         Some(fields) => {
-            // Fields the user added to our entry (env, for example) stay.
+            // Fields the user added to our entry stay, and so do the variables they added to env.
             let old = servers.get(KEY);
             let mut new = old.and_then(Value::as_object).cloned().unwrap_or_default();
-            new.extend(fields);
+            for (key, value) in fields {
+                match (new.get_mut(&key), value) {
+                    (Some(Value::Object(had)), Value::Object(add)) => had.extend(add),
+                    (_, value) => {
+                        new.insert(key, value);
+                    }
+                }
+            }
             let new = Value::Object(new);
             if old == Some(&new) {
                 return Ok(());
@@ -710,19 +1049,32 @@ fn toml_entry(path: &Path) -> Result<Option<String>, String> {
     }))
 }
 
-/// Sets our `[mcp_servers.statscraft]` table (`Some`) or takes it out (`None`).
-fn edit_toml(path: &Path, server: Option<&str>, outcome: &mut Outcome) -> Result<(), String> {
+/// Sets our `[mcp_servers.statscraft]` table (`Some`, with the WSL distribution for its env) or
+/// takes it out (`None`).
+fn edit_toml(
+    path: &Path,
+    entry: Option<(&str, Option<&str>)>,
+    outcome: &mut Outcome,
+) -> Result<(), String> {
     let path = &real_path(path);
     let text = read(path)?;
     let mut doc = parse_toml(path, text.as_ref())?;
-    match server {
-        Some(server) => {
+    match entry {
+        Some((server, distro)) => {
             let old = doc.get("mcp_servers").and_then(|s| s.get(KEY));
             let same = old.is_some_and(|e| {
                 let args = e.get("args").and_then(|a| a.as_array());
+                let env = |key| {
+                    e.get("env")
+                        .and_then(|v| v.get(key))
+                        .and_then(|v| v.as_str())
+                };
                 e.get("command").and_then(|c| c.as_str()) == Some(server)
                     && args.is_some_and(|a| {
                         a.len() == 1 && a.get(0).and_then(|v| v.as_str()) == Some("mcp")
+                    })
+                    && distro.is_none_or(|d| {
+                        env(WSL_DISTRO_ENV) == Some(d) && env("WSLENV") == Some(WSL_DISTRO_ENV)
                     })
             });
             if same {
@@ -744,6 +1096,21 @@ fn edit_toml(path: &Path, server: Option<&str>, outcome: &mut Outcome) -> Result
             }
             entry["command"] = toml_edit::value(server);
             entry["args"] = toml_edit::value(toml_edit::Array::from_iter(["mcp"]));
+            if let Some(distro) = distro {
+                let env = entry
+                    .as_table_like_mut()
+                    .expect("checked above")
+                    .entry("env")
+                    .or_insert(toml_edit::value(toml_edit::InlineTable::new()));
+                let Some(env) = env.as_table_like_mut() else {
+                    return Err(not_parsed(
+                        path,
+                        "mcp_servers.statscraft.env is not a table",
+                    ));
+                };
+                env.insert(WSL_DISTRO_ENV, toml_edit::value(distro));
+                env.insert("WSLENV", toml_edit::value(WSL_DISTRO_ENV));
+            }
         }
         None => {
             let removed = doc

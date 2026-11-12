@@ -8,7 +8,8 @@ use std::process::ExitCode;
 #[derive(Args)]
 pub struct ConnectArgs {
     /// The agent: claude-desktop, claude-code, codex (also the Codex view of the ChatGPT app),
-    /// cursor, copilot (VS Code), gemini or antigravity. Default: every agent found on this computer
+    /// cursor, copilot (VS Code), gemini or antigravity. On Windows, the agents inside WSL as
+    /// --list names them, such as codex-wsl:Ubuntu. Default: every agent found on this computer
     client: Option<String>,
     /// Take Statscraft out of the agent's settings (every agent when none is named)
     #[arg(long)]
@@ -32,6 +33,11 @@ pub fn run(args: ConnectArgs) -> ExitCode {
         }
     };
     let connector = Connector::from_env();
+    if connector.looks_into_wsl() && !args.json {
+        eprintln!(
+            "Looking for agents inside WSL too; this can take a few seconds while WSL starts."
+        );
+    }
     let clients = connector.clients(&server);
     if args.list {
         if args.json {
@@ -76,8 +82,8 @@ pub fn run(args: ConnectArgs) -> ExitCode {
     if !args.json && args.client.is_none() {
         let names: Vec<&str> = clients
             .iter()
-            .filter(|c| targets.iter().any(|t| t == c.id))
-            .map(|c| c.name)
+            .filter(|c| targets.contains(&c.id))
+            .map(|c| c.name.as_str())
             .collect();
         let verb = if args.remove {
             "Removing Statscraft from"
@@ -154,14 +160,14 @@ fn print_list(clients: &[ClientStatus]) {
             String::new()
         };
         println!("{:width$}  {state}{files}", c.name);
-        if let Some(note) = note(c.id) {
+        if let Some(note) = note(&c.id) {
             println!("{:width$}  {note}", "");
         }
     }
 }
 
 fn print_outcome(outcome: &Outcome, remove: bool) {
-    let name = outcome.name;
+    let name = &outcome.name;
     if !outcome.changed {
         let state = if remove {
             "not connected"
@@ -192,7 +198,7 @@ fn print_outcome(outcome: &Outcome, remove: bool) {
     if let Some(warning) = outcome.warning {
         println!("  Note: {warning}.");
     }
-    if let Some(note) = note(outcome.id).filter(|_| !remove) {
+    if let Some(note) = note(&outcome.id).filter(|_| !remove) {
         println!("  {note}");
     }
 }

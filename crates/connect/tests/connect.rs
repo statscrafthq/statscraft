@@ -34,6 +34,8 @@ fn places(home: &Path, os: Os) -> Places {
         copilot_home: None,
         claude_config_dir: None,
         path: Vec::new(),
+        wsl: None,
+        wsl_root: PathBuf::new(),
     }
 }
 
@@ -515,4 +517,294 @@ fn codex_tells_where_the_tools_show_up() {
     assert!(note("codex").unwrap().contains("Codex view"));
     assert_eq!(note("chatgpt"), note("codex"));
     assert_eq!(note("cursor"), None);
+}
+
+const WIN_SERVER: &str = r"C:\Users\anna\AppData\Local\Programs\StatsCraft\statscraft.exe";
+const WSL_SERVER: &str = "/mnt/c/Users/anna/AppData/Local/Programs/StatsCraft/statscraft.exe";
+
+/// A Windows computer with WSL: `wsl.exe` is a fake that lists Ubuntu and Docker Desktop's
+/// distribution (in UTF-16, as older versions print it), answers the probe of Ubuntu and keeps
+/// Claude Code's list in the fake home; `\\wsl$` is a folder in the temporary home. Every
+/// command line wsl.exe gets is logged.
+fn with_wsl(home: &Path, wslpath_works: bool) -> (Connector, PathBuf, Rc<RefCell<Vec<String>>>) {
+    let root = home.join("wsl");
+    let linux = root.join("Ubuntu/home/anna");
+    fs::create_dir_all(&linux).unwrap();
+    let wsl = home.join("System32/wsl.exe");
+    write(&wsl, "");
+    let mut places = places(home, Os::Windows);
+    places.wsl = Some(wsl.clone());
+    places.wsl_root = root;
+    let calls: Rc<RefCell<Vec<String>>> = Rc::default();
+    let log = calls.clone();
+    let claude_json = linux.join(".claude.json");
+    let runner: Runner = Box::new(move |program, args| {
+        match program.to_str() {
+            Some("powershell") => return Ok((true, String::new())),
+            _ => assert_eq!(program, wsl),
+        }
+        log.borrow_mut().push(args.join(" "));
+        if args == ["-l", "-q"] {
+            let utf16: String = "\u{feff}Ubuntu\r\ndocker-desktop\r\n"
+                .chars()
+                .flat_map(|c| [c, '\0'])
+                .collect();
+            return Ok((true, utf16));
+        }
+        assert_eq!(&args[..5], ["-d", "Ubuntu", "-e", "sh", "-lc"]);
+        let script = args[5];
+        if script.starts_with("printf") {
+            assert!(
+                script.contains(&format!("wslpath -u '{WIN_SERVER}'")),
+                "{script}"
+            );
+            let server = if wslpath_works { WSL_SERVER } else { "" };
+            // a login script that prints a greeting
+            return Ok((
+                true,
+                format!(
+                    "Welcome!\nhome:/home/anna\nclaude:/home/anna/.local/bin/claude\nserver:{server}\n"
+                ),
+            ));
+        }
+        let mut root = fs::read_to_string(&claude_json)
+            .map(|t| serde_json::from_str(&t).unwrap())
+            .unwrap_or(json!({"mcpServers": {}}));
+        if script.starts_with("claude 'mcp' 'add'") {
+            let words: Vec<&str> = script.split(' ').collect();
+            let unquote = |w: &str| w.trim_matches('\'').to_string();
+            let env = |w: &str| {
+                let (k, v) = w.trim_matches('\'').split_once('=').unwrap();
+                (k.to_string(), Value::from(v))
+            };
+            root["mcpServers"]["statscraft"] = json!({
+                "command": unquote(words[words.len() - 2]),
+                "args": ["mcp"],
+                "env": serde_json::Map::from_iter([env(words[7]), env(words[9])]),
+            });
+        } else {
+            assert_eq!(
+                script,
+                "claude 'mcp' 'remove' '--scope' 'user' 'statscraft'"
+            );
+            root["mcpServers"]
+                .as_object_mut()
+                .unwrap()
+                .remove("statscraft");
+        }
+        fs::write(&claude_json, root.to_string()).unwrap();
+        Ok((true, String::new()))
+    });
+    (Connector::new(places, runner), linux, calls)
+}
+
+#[test]
+fn agents_inside_wsl_are_listed_by_distribution() {
+    let home = temp_home();
+    let (connector, linux, calls) = with_wsl(&home, true);
+    fs::create_dir_all(linux.join(".codex")).unwrap();
+    fs::create_dir_all(linux.join(".gemini")).unwrap();
+    let list = connector.clients(Path::new(WIN_SERVER));
+    let wsl: Vec<(&str, &str)> = list
+        .iter()
+        .skip(7)
+        .map(|c| (c.id.as_str(), c.name.as_str()))
+        .collect();
+    // Antigravity has no folder there, Docker Desktop's distribution is not asked
+    assert_eq!(
+        wsl,
+        [
+            ("claude-code-wsl:Ubuntu", "Claude Code (WSL: Ubuntu)"),
+            ("codex-wsl:Ubuntu", "Codex (WSL: Ubuntu)"),
+            ("gemini-wsl:Ubuntu", "Gemini CLI (WSL: Ubuntu)"),
+        ]
+    );
+    assert!(list[7..].iter().all(|c| c.detected && !c.connected));
+    assert_eq!(list[8].configs, [linux.join(".codex/config.toml")]);
+    assert!(
+        statscraft_connect::note("codex-wsl:Ubuntu")
+            .unwrap()
+            .contains("WSL")
+    );
+    assert_eq!(statscraft_connect::note("gemini-wsl:Ubuntu"), None);
+    // WSL is asked once per connector, also when connecting afterwards
+    connector
+        .connect("codex-wsl:ubuntu", Path::new(WIN_SERVER))
+        .unwrap();
+    connector.clients(Path::new(WIN_SERVER));
+    assert_eq!(calls.borrow().len(), 2);
+    assert!(
+        connector
+            .connect("cursor-wsl:Ubuntu", Path::new(WIN_SERVER))
+            .unwrap_err()
+            .contains("does not run inside WSL")
+    );
+    assert!(
+        connector
+            .connect("codex-wsl:Debian", Path::new(WIN_SERVER))
+            .unwrap_err()
+            .contains("no WSL distribution named Debian")
+    );
+}
+
+#[test]
+fn codex_and_gemini_inside_wsl_start_the_windows_program_with_the_distribution() {
+    let home = temp_home();
+    let (connector, linux, _) = with_wsl(&home, true);
+    let toml = linux.join(".codex/config.toml");
+    // the entry the owner wrote by hand: right command, no env yet
+    write(
+        &toml,
+        &format!(
+            "model = \"x\"\n\n[mcp_servers.statscraft]\ncommand = \"{WSL_SERVER}\"\nargs = [\"mcp\"]\n"
+        ),
+    );
+    let gemini = linux.join(".gemini/settings.json");
+    write(
+        &gemini,
+        r#"{"mcpServers":{"statscraft":{"command":"old","env":{"LANG":"et_EE.UTF-8"}}}}"#,
+    );
+
+    let out = connector
+        .connect("codex-wsl:Ubuntu", Path::new(WIN_SERVER))
+        .unwrap();
+    assert!(out.changed, "the env is added to a hand-written entry");
+    assert_eq!(out.name, "Codex (WSL: Ubuntu)");
+    assert_eq!(
+        fs::read_to_string(&toml).unwrap(),
+        format!(
+            "model = \"x\"\n\n[mcp_servers.statscraft]\ncommand = \"{WSL_SERVER}\"\nargs = [\"mcp\"]\n\
+             env = {{ STATSCRAFT_WSL_DISTRO = \"Ubuntu\", WSLENV = \"STATSCRAFT_WSL_DISTRO\" }}\n"
+        )
+    );
+    let again = connector
+        .connect("codex-wsl:Ubuntu", Path::new(WIN_SERVER))
+        .unwrap();
+    assert!(!again.changed);
+
+    connector
+        .connect("gemini-wsl:Ubuntu", Path::new(WIN_SERVER))
+        .unwrap();
+    assert_eq!(
+        read_json(&gemini)["mcpServers"]["statscraft"],
+        json!({"command": WSL_SERVER, "args": ["mcp"], "env": {
+            "LANG": "et_EE.UTF-8",
+            "STATSCRAFT_WSL_DISTRO": "Ubuntu",
+            "WSLENV": "STATSCRAFT_WSL_DISTRO",
+        }})
+    );
+    // files of the Linux side keep Linux line endings
+    assert!(!fs::read_to_string(&gemini).unwrap().contains('\r'));
+
+    let list = connector.clients(Path::new(WIN_SERVER));
+    let codex = list.iter().find(|c| c.id == "codex-wsl:Ubuntu").unwrap();
+    assert!(codex.connected && codex.points_here);
+    // the Windows Codex is another agent, untouched
+    assert!(!list.iter().find(|c| c.id == "codex").unwrap().connected);
+
+    connector.disconnect("codex-wsl:Ubuntu").unwrap();
+    assert_eq!(fs::read_to_string(&toml).unwrap(), "model = \"x\"\n");
+}
+
+#[test]
+fn claude_code_inside_wsl_runs_its_command_there() {
+    let home = temp_home();
+    let (connector, _, calls) = with_wsl(&home, false);
+    let out = connector
+        .connect("claude-code-wsl:Ubuntu", Path::new(WIN_SERVER))
+        .unwrap();
+    // without wslpath the drive path is translated by rule
+    let add = format!(
+        "-d Ubuntu -e sh -lc claude 'mcp' 'add' '--scope' 'user' 'statscraft' '-e' \
+         'STATSCRAFT_WSL_DISTRO=Ubuntu' '-e' 'WSLENV=STATSCRAFT_WSL_DISTRO' '--' '{WSL_SERVER}' 'mcp'"
+    );
+    assert_eq!(calls.borrow()[2], add);
+    assert!(out.command.unwrap().ends_with("(in WSL: Ubuntu)"));
+    let list = connector.clients(Path::new(WIN_SERVER));
+    let code = list
+        .iter()
+        .find(|c| c.id == "claude-code-wsl:Ubuntu")
+        .unwrap();
+    assert!(code.connected && code.points_here);
+    assert!(
+        !connector
+            .connect("claude-code-wsl:Ubuntu", Path::new(WIN_SERVER))
+            .unwrap()
+            .changed
+    );
+    assert!(
+        connector
+            .disconnect("claude-code-wsl:Ubuntu")
+            .unwrap()
+            .changed
+    );
+    assert_eq!(calls.borrow().len(), 4);
+}
+
+#[test]
+fn a_failed_or_missing_wsl_lists_no_wsl_agents() {
+    let home = temp_home();
+    let mut places = places(&home, Os::Windows);
+    places.wsl = Some(home.join("wsl.exe"));
+    let silent = Connector::new(
+        places.clone(),
+        Box::new(|program, _| match program.to_str() {
+            Some("powershell") => Ok((false, String::new())),
+            _ => Err(std::io::Error::new(
+                std::io::ErrorKind::TimedOut,
+                "no answer",
+            )),
+        }),
+    );
+    assert!(silent.looks_into_wsl());
+    assert_eq!(silent.clients(Path::new(WIN_SERVER)).len(), 7);
+    places.wsl = None;
+    let none = Connector::new(places, no_commands());
+    assert!(!none.looks_into_wsl());
+    assert_eq!(none.clients(Path::new(WIN_SERVER)).len(), 7);
+}
+
+#[test]
+fn paths_between_windows_and_wsl() {
+    use statscraft_connect::{linux_to_windows, windows_to_linux};
+    assert_eq!(windows_to_linux(WIN_SERVER), WSL_SERVER);
+    assert_eq!(windows_to_linux(r"D:\"), "/mnt/d");
+    assert_eq!(
+        windows_to_linux(r"\\wsl$\Ubuntu\home\anna\a.sav"),
+        "/home/anna/a.sav"
+    );
+    assert_eq!(
+        windows_to_linux(r"\\WSL.localhost\Ubuntu\home\anna"),
+        "/home/anna"
+    );
+    assert_eq!(
+        windows_to_linux("syntax window Agent"),
+        "syntax window Agent"
+    );
+    assert_eq!(linux_to_windows(WSL_SERVER, "Ubuntu"), WIN_SERVER);
+    assert_eq!(linux_to_windows("/mnt/d", "Ubuntu"), r"D:\");
+    assert_eq!(
+        linux_to_windows("/home/anna/data/a.sav", "Ubuntu"),
+        r"\\wsl$\Ubuntu\home\anna\data\a.sav"
+    );
+    // /mnt/wsl is not a drive
+    assert_eq!(
+        linux_to_windows("/mnt/wsl/x", "Ubuntu"),
+        r"\\wsl$\Ubuntu\mnt\wsl\x"
+    );
+    assert_eq!(
+        linux_to_windows(r"C:\data\a.sav", "Ubuntu"),
+        r"C:\data\a.sav"
+    );
+    assert_eq!(linux_to_windows("data/a.sav", "Ubuntu"), "data/a.sav");
+}
+
+#[test]
+fn the_system_runner_reads_both_outputs_of_a_real_program() {
+    let (ok, text) =
+        statscraft_connect::system_runner()(Path::new("rustc"), &["--version"]).unwrap();
+    assert!(ok && text.starts_with("rustc "), "{text}");
+    let (ok, _) =
+        statscraft_connect::system_runner()(Path::new("rustc"), &["--no-such-flag"]).unwrap();
+    assert!(!ok);
 }

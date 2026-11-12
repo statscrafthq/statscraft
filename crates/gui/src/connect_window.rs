@@ -10,17 +10,28 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 use std::sync::mpsc;
 
-/// What a click asks for; it runs on a worker thread, as Claude Code's command and the download
-/// can take a while.
+/// What a click asks for; it runs on a worker thread, as Claude Code's command, the download and
+/// asking WSL can take a while.
 enum Job {
-    Connect(Vec<&'static str>),
-    Remove(&'static str),
+    /// Look at the apps again.
+    List,
+    Connect(Vec<String>),
+    Remove(String),
+    /// Read one app's settings files again.
+    Check(String),
     /// Download Claude Desktop's extension and open it.
     Install,
 }
 
 /// One line per app about what an action did; an error is Err.
 type Messages = Vec<Result<String, String>>;
+
+/// What a job gives back: its messages, every app's state after it, and what Check read.
+struct Done {
+    messages: Messages,
+    clients: Vec<ClientStatus>,
+    checked: Option<(String, Vec<String>)>,
+}
 
 /// The id of the app that gets the extension rather than a config entry.
 const DESKTOP: &str = "claude-desktop";
@@ -33,29 +44,32 @@ pub struct Connect {
     clients: Vec<ClientStatus>,
     messages: Messages,
     /// The app whose files Check read last, with a line per file.
-    checked: Option<(&'static str, Vec<String>)>,
+    checked: Option<(String, Vec<String>)>,
     /// The action running now, with its result to come.
-    running: Option<mpsc::Receiver<(Messages, Vec<ClientStatus>)>>,
+    running: Option<mpsc::Receiver<Done>>,
+    /// Listing the apps asks WSL too, which may first have to start.
+    wsl: bool,
 }
 
 impl Connect {
-    /// A fresh look at the apps, each time the section opens.
+    /// A fresh look at the apps, each time the section opens; the next frame starts it.
     pub fn refresh(&mut self) {
         self.messages.clear();
         self.checked = None;
-        let server = this_server();
-        self.clients = Connector::from_env().clients(server.as_deref().unwrap_or(Path::new("")));
-        self.server = Some(server);
+        self.server = None;
     }
 
     /// The section in the Settings dialog.
     pub fn ui(&mut self, ui: &mut Ui) {
         if self.server.is_none() {
-            self.refresh();
+            self.server = Some(this_server());
+            self.wsl = Connector::from_env().looks_into_wsl();
+            self.start(Job::List, ui.ctx().clone());
         }
-        if let Some(Ok((messages, clients))) = self.running.as_ref().map(|r| r.try_recv()) {
-            self.messages = messages;
-            self.clients = clients;
+        if let Some(Ok(done)) = self.running.as_ref().map(|r| r.try_recv()) {
+            self.messages = done.messages;
+            self.clients = done.clients;
+            self.checked = done.checked;
             self.running = None;
         }
         if let Some(job) = self.body(ui) {
@@ -88,10 +102,10 @@ impl Connect {
             .show(ui, |ui| {
                 for c in &self.clients {
                     ui.horizontal(|ui| {
-                        ui.label(RichText::new(c.name).strong());
+                        ui.label(RichText::new(&c.name).strong());
                         ui.weak(state(c, server_ok));
                     });
-                    if let Some(note) = note(c.id) {
+                    if let Some(note) = note(&c.id) {
                         ui.weak(note);
                     }
                     ui.horizontal_wrapped(|ui| {
@@ -120,31 +134,31 @@ impl Connect {
                                     )
                                     .clicked()
                             {
-                                job = Some(Job::Connect(vec![c.id]));
+                                job = Some(Job::Connect(vec![c.id.clone()]));
                             }
                         } else if !here
                             && ui
                                 .add_enabled(can_connect, egui::Button::new("Connect"))
                                 .clicked()
                         {
-                            job = Some(Job::Connect(vec![c.id]));
+                            job = Some(Job::Connect(vec![c.id.clone()]));
                         }
                         if c.connected
                             && ui
                                 .add_enabled(idle && server_ok, egui::Button::new("Remove"))
                                 .clicked()
                         {
-                            job = Some(Job::Remove(c.id));
+                            job = Some(Job::Remove(c.id.clone()));
                         }
                         if ui
-                            .button("Check")
+                            .add_enabled(idle, egui::Button::new("Check"))
                             .on_hover_text(
                                 "Reads the settings files again and shows whether the \
                                  Statscraft entry is in them now.",
                             )
                             .clicked()
                         {
-                            check = Some(c.id);
+                            check = Some(c.id.clone());
                         }
                     });
                     if let Some(problem) = &c.problem {
@@ -159,11 +173,7 @@ impl Connect {
                 }
             });
         if let Some(id) = check {
-            let server = server.unwrap_or_default();
-            self.clients = Connector::from_env().clients(&server);
-            if let Some(c) = self.clients.iter().find(|c| c.id == id) {
-                self.checked = Some((id, check_lines(c)));
-            }
+            job = Some(Job::Check(id));
         }
         let waiting = connect_all(&self.clients);
         ui.horizontal(|ui| {
@@ -182,6 +192,9 @@ impl Connect {
             }
             if self.running.is_some() {
                 ui.spinner();
+                if self.wsl {
+                    ui.weak("Asking WSL too; this can take a few seconds while it starts.");
+                }
             }
         });
         for message in &self.messages {
@@ -206,7 +219,9 @@ impl Connect {
         let (sender, receiver) = mpsc::channel();
         self.running = Some(receiver);
         self.messages.clear();
-        self.checked = None;
+        if !matches!(job, Job::List) {
+            self.checked = None;
+        }
         std::thread::spawn(move || {
             // the connector holds a runner that cannot cross threads, so the worker makes its own
             let _ = sender.send(work(&Connector::from_env(), &server, &job));
@@ -216,8 +231,23 @@ impl Connect {
 }
 
 /// Runs the job, then reads every app's state again.
-fn work(connector: &Connector, server: &Path, job: &Job) -> (Messages, Vec<ClientStatus>) {
+fn work(connector: &Connector, server: &Path, job: &Job) -> Done {
     let done: Vec<(&str, Result<Outcome, String>, bool)> = match job {
+        Job::List | Job::Check(_) => {
+            let clients = connector.clients(server);
+            let checked = match job {
+                Job::Check(id) => clients
+                    .iter()
+                    .find(|c| c.id == *id)
+                    .map(|c| (id.clone(), check_lines(c))),
+                _ => None,
+            };
+            return Done {
+                messages: Vec::new(),
+                clients,
+                checked,
+            };
+        }
         Job::Install => {
             let clients = connector.clients(server);
             let mut messages = vec![install()];
@@ -229,32 +259,43 @@ fn work(connector: &Connector, server: &Path, job: &Job) -> (Messages, Vec<Clien
                         .into(),
                 ));
             }
-            return (messages, clients);
+            return Done {
+                messages,
+                clients,
+                checked: None,
+            };
         }
         Job::Connect(ids) => ids
             .iter()
-            .map(|id| (*id, connector.connect(id, server), false))
+            .map(|id| (id.as_str(), connector.connect(id, server), false))
             .collect(),
-        Job::Remove(id) => vec![(*id, connector.disconnect(id), true)],
+        Job::Remove(id) => vec![(id.as_str(), connector.disconnect(id), true)],
     };
     let clients = connector.clients(server);
     let messages = done
         .into_iter()
         .map(|(id, result, remove)| {
-            let name = clients.iter().find(|c| c.id == id).map_or(id, |c| c.name);
+            let name = clients
+                .iter()
+                .find(|c| c.id == id)
+                .map_or(id, |c| c.name.as_str());
             message(name, result, remove)
         })
         .collect();
-    (messages, clients)
+    Done {
+        messages,
+        clients,
+        checked: None,
+    }
 }
 
 /// The installed apps that are not connected yet; one whose settings file cannot be read would
 /// only fail again.
-fn connect_all(clients: &[ClientStatus]) -> Vec<&'static str> {
+fn connect_all(clients: &[ClientStatus]) -> Vec<String> {
     clients
         .iter()
         .filter(|c| c.detected && !c.connected && c.problem.is_none() && c.id != DESKTOP)
-        .map(|c| c.id)
+        .map(|c| c.id.clone())
         .collect()
 }
 
@@ -464,8 +505,8 @@ mod tests {
 
     fn status(detected: bool, connected: bool, points_here: bool) -> ClientStatus {
         ClientStatus {
-            id: "cursor",
-            name: "Cursor",
+            id: "cursor".into(),
+            name: "Cursor".into(),
             detected,
             configs: Vec::new(),
             connected,
@@ -497,20 +538,20 @@ mod tests {
             status(true, true, true),
             status(true, true, false),
         ];
-        clients[1].id = "gemini";
+        clients[1].id = "gemini".into();
         assert_eq!(connect_all(&clients), ["gemini"]);
         clients[1].problem = Some("not plain JSON".into());
         assert!(connect_all(&clients).is_empty());
         // Claude Desktop gets the extension from its own button, not a config entry
         clients[1].problem = None;
-        clients[1].id = DESKTOP;
+        clients[1].id = DESKTOP.into();
         assert!(connect_all(&clients).is_empty());
     }
 
     fn outcome(changed: bool) -> Outcome {
         Outcome {
-            id: "cursor",
-            name: "Cursor",
+            id: "cursor".into(),
+            name: "Cursor".into(),
             changed,
             files: Vec::new(),
             backups: Vec::new(),
@@ -624,6 +665,8 @@ mod tests {
             copilot_home: None,
             claude_config_dir: None,
             path: Vec::new(),
+            wsl: None,
+            wsl_root: PathBuf::new(),
         };
         let connector = Connector::new(
             places,
@@ -632,7 +675,23 @@ mod tests {
         let server = Path::new("/opt/statscraft/bin/statscraft");
         let waiting = connect_all(&connector.clients(server));
         assert_eq!(waiting, ["cursor", "gemini"]);
-        let (messages, clients) = work(&connector, server, &Job::Connect(waiting));
+        let listed = work(&connector, server, &Job::List);
+        assert!(listed.messages.is_empty() && listed.checked.is_none());
+        assert_eq!(listed.clients.len(), 7);
+        let checked = work(&connector, server, &Job::Check("cursor".into()));
+        assert_eq!(
+            checked.checked.unwrap(),
+            (
+                "cursor".to_string(),
+                vec![format!(
+                    "{}: no such file",
+                    home.join(".cursor/mcp.json").display()
+                )]
+            )
+        );
+        let Done {
+            messages, clients, ..
+        } = work(&connector, server, &Job::Connect(waiting));
         assert_eq!(messages.len(), 2);
         assert!(
             messages[0]
@@ -642,7 +701,9 @@ mod tests {
         );
         assert!(home.join(".cursor/mcp.json").is_file());
         assert!(connect_all(&clients).is_empty());
-        let (messages, clients) = work(&connector, server, &Job::Remove("gemini"));
+        let Done {
+            messages, clients, ..
+        } = work(&connector, server, &Job::Remove("gemini".into()));
         assert_eq!(
             messages[0].as_ref().unwrap(),
             &format!(
