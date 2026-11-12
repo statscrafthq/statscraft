@@ -4010,226 +4010,322 @@ fn paint_grid(
     let header_height = row_height + 2.0;
     let number_width = (rows.max(1).to_string().len() as f32 * font.size * 0.6 + 20.0).max(48.0);
     let offsets = grid::offsets(widths);
-    let total = *offsets.last().unwrap_or(&0.0);
-    let size = vec2(
-        number_width + total,
-        header_height + rows as f32 * row_height,
+    // the cells' full size in f64; it is never laid out, only the visible part is drawn
+    let content = (
+        *offsets.last().unwrap_or(&0.0),
+        grid::row_top(rows, row_height),
     );
     let mut events = GridEvents::default();
-    ScrollArea::both()
-        .id_salt(id)
-        .auto_shrink(false)
-        .show_viewport(ui, |ui, viewport| {
-            let (rect, response) = ui.allocate_exact_size(size, Sense::click_and_drag());
-            let origin = rect.min;
-            let clip = ui.clip_rect();
-            let painter = ui.painter().with_clip_rect(clip);
-            let visuals = ui.visuals().clone();
-            let line = Stroke::new(1.0, visuals.widgets.noninteractive.bg_stroke.color);
-            let header_fill = visuals.widgets.noninteractive.weak_bg_fill;
-            let visible_rows = grid::visible_rows(
-                viewport.min.y,
-                viewport.max.y - header_height,
-                row_height,
-                rows,
-            );
-            let visible_columns =
-                grid::visible_columns(&offsets, viewport.min.x, viewport.max.x - number_width);
-            let x = |c: usize| origin.x + number_width + offsets[c];
-            let y = |r: usize| origin.y + header_height + r as f32 * row_height;
-            let cell_rect = |r: usize, c: usize| {
-                Rect::from_min_max(pos2(x(c), y(r)), pos2(x(c + 1), y(r) + row_height))
+
+    let (rect, response) = ui.allocate_exact_size(ui.available_size(), Sense::click_and_drag());
+    // scroll bars only where the cells do not fit, each taking room from the other's view
+    let bar = 10.0;
+    let fits = |room: f32, used: f64| used <= f64::from(room);
+    let mut vertical = !fits(rect.height() - header_height, content.1);
+    let horizontal = !fits(
+        rect.width() - number_width - vertical as u8 as f32 * bar,
+        content.0,
+    );
+    vertical = vertical || !fits(rect.height() - header_height - bar, content.1) && horizontal;
+    let view = Rect::from_min_max(
+        rect.min,
+        rect.max - vec2(vertical as u8 as f32 * bar, horizontal as u8 as f32 * bar),
+    );
+    let body = (
+        f64::from((view.width() - number_width).max(0.0)),
+        f64::from((view.height() - header_height).max(0.0)),
+    );
+
+    // the scroll is kept in f64 points: a million rows lie further down than f32 holds exactly
+    let scroll_id = ui.make_persistent_id((id, "scroll"));
+    let (mut sx, mut sy) = ui.data(|d| d.get_temp::<(f64, f64)>(scroll_id).unwrap_or_default());
+    if ui.is_enabled() && ui.rect_contains_pointer(rect) {
+        let delta = ui.input(|i| i.smooth_scroll_delta);
+        if delta != egui::Vec2::ZERO {
+            sx -= f64::from(delta.x);
+            sy -= f64::from(delta.y);
+            ui.input_mut(|i| i.smooth_scroll_delta = egui::Vec2::ZERO);
+        }
+    }
+    if follow && let Some((r, c)) = selected.map(|s| s.cursor) {
+        // in the cells' own points: the header and the row numbers lie outside them
+        let top = grid::row_top(r.min(rows.saturating_sub(1)), row_height);
+        sy = grid::scroll_to(top, top + f64::from(row_height), body.1, sy);
+        let c = c.min(widths.len().saturating_sub(1));
+        if c + 1 < offsets.len() {
+            sx = grid::scroll_to(offsets[c], offsets[c + 1], body.0, sx);
+        }
+    }
+    if vertical {
+        let track = Rect::from_min_max(
+            pos2(view.right(), rect.top()),
+            pos2(rect.right(), view.bottom()),
+        );
+        scroll_bar(
+            ui,
+            scroll_id.with("v"),
+            track,
+            true,
+            &mut sy,
+            content.1,
+            body.1,
+        );
+    }
+    if horizontal {
+        let track = Rect::from_min_max(
+            pos2(rect.left(), view.bottom()),
+            pos2(view.right(), rect.bottom()),
+        );
+        scroll_bar(
+            ui,
+            scroll_id.with("h"),
+            track,
+            false,
+            &mut sx,
+            content.0,
+            body.0,
+        );
+    }
+    sx = grid::clamp_scroll(sx, content.0, body.0);
+    sy = grid::clamp_scroll(sy, content.1, body.1);
+    ui.data_mut(|d| d.insert_temp(scroll_id, (sx, sy)));
+
+    let clip = view.intersect(ui.clip_rect());
+    let painter = ui.painter().with_clip_rect(clip);
+    let visuals = ui.visuals().clone();
+    let line = Stroke::new(1.0, visuals.widgets.noninteractive.bg_stroke.color);
+    let header_fill = visuals.widgets.noninteractive.weak_bg_fill;
+    let visible_rows = grid::visible_rows(sy, sy + body.1, row_height, rows);
+    let visible_columns = grid::visible_columns(&offsets, sx, sx + body.0);
+    // every position is taken relative to the view, so it stays a small f32
+    let cells = view.min + vec2(number_width, header_height);
+    let x = |c: usize| cells.x + grid::on_screen(offsets[c], sx);
+    let y = |r: usize| cells.y + grid::on_screen(grid::row_top(r, row_height), sy);
+    let cell_rect = |r: usize, c: usize| {
+        Rect::from_min_max(pos2(x(c), y(r)), pos2(x(c + 1), y(r) + row_height))
+    };
+    // a text too wide for its cell shows its start and ends in an ellipsis, so a number
+    // cut short never reads as a different number, and it keeps the alignment of its
+    // column: a right-aligned column stays flush at the right
+    let text_in =
+        |painter: &egui::Painter, rect: Rect, text: String, align: Align, color: Color32| {
+            let painter = painter.with_clip_rect(rect.shrink(1.0).intersect(painter.clip_rect()));
+            let format = egui::TextFormat::simple(font.clone(), color);
+            let mut job = egui::text::LayoutJob::single_section(text, format);
+            job.wrap = egui::text::TextWrapping::truncate_at_width(rect.width() - 12.0);
+            let galley = painter.layout_job(job);
+            let width = galley.size().x;
+            let x = match align {
+                Align::Max => rect.right() - 6.0 - width,
+                Align::Center => rect.center().x - width / 2.0,
+                Align::Min => rect.left() + 6.0,
             };
-            // a text too wide for its cell shows its start and ends in an ellipsis, so a number
-            // cut short never reads as a different number, and it keeps the alignment of its
-            // column: a right-aligned column stays flush at the right
-            let text_in = |painter: &egui::Painter,
-                           rect: Rect,
-                           text: String,
-                           align: Align,
-                           color: Color32| {
-                let painter = painter.with_clip_rect(rect.shrink(1.0).intersect(clip));
-                let format = egui::TextFormat::simple(font.clone(), color);
-                let mut job = egui::text::LayoutJob::single_section(text, format);
-                job.wrap = egui::text::TextWrapping::truncate_at_width(rect.width() - 12.0);
-                let galley = painter.layout_job(job);
-                let width = galley.size().x;
-                let x = match align {
-                    Align::Max => rect.right() - 6.0 - width,
-                    Align::Center => rect.center().x - width / 2.0,
-                    Align::Min => rect.left() + 6.0,
-                };
-                let y = rect.center().y - galley.size().y / 2.0;
-                painter.galley(pos2(x, y), galley, color);
-            };
+            let y = rect.center().y - galley.size().y / 2.0;
+            painter.galley(pos2(x, y), galley, color);
+        };
 
-            let (left, right) = (x(visible_columns.start), x(visible_columns.end));
-            // a selection of more than one cell is shaded, the cursor framed
-            let wide = selected.filter(|s| s.is_wide());
-            let marked = visuals.selection.bg_fill.gamma_multiply(0.3);
-            for r in visible_rows.clone() {
-                if r % 2 == 1 {
-                    let band = Rect::from_min_max(pos2(left, y(r)), pos2(right, y(r) + row_height));
-                    painter.rect_filled(band, 0.0, visuals.faint_bg_color);
+    let (left, right) = (x(visible_columns.start), x(visible_columns.end));
+    // a selection of more than one cell is shaded, the cursor framed
+    let wide = selected.filter(|s| s.is_wide());
+    let marked = visuals.selection.bg_fill.gamma_multiply(0.3);
+    for r in visible_rows.clone() {
+        if r % 2 == 1 {
+            let band = Rect::from_min_max(pos2(left, y(r)), pos2(right, y(r) + row_height));
+            painter.rect_filled(band, 0.0, visuals.faint_bg_color);
+        }
+        for c in visible_columns.clone() {
+            if wide.is_some_and(|s| s.contains(r, c)) {
+                painter.rect_filled(cell_rect(r, c), 0.0, marked);
+            }
+            let rect = cell_rect(r, c);
+            match cell(r, c) {
+                (Some(text), _) if text.is_empty() => {}
+                (Some(text), align) => text_in(&painter, rect, text, align, visuals.text_color()),
+                (None, align) => {
+                    let x = match align {
+                        Align::Max => rect.right() - 8.0,
+                        Align::Center => rect.center().x,
+                        Align::Min => rect.left() + 8.0,
+                    };
+                    let dot = pos2(x, rect.center().y);
+                    painter.circle_filled(dot, 1.5, visuals.weak_text_color());
                 }
-                for c in visible_columns.clone() {
-                    if wide.is_some_and(|s| s.contains(r, c)) {
-                        painter.rect_filled(cell_rect(r, c), 0.0, marked);
-                    }
-                    let rect = cell_rect(r, c);
-                    match cell(r, c) {
-                        (Some(text), _) if text.is_empty() => {}
-                        (Some(text), align) => {
-                            text_in(&painter, rect, text, align, visuals.text_color())
-                        }
-                        (None, align) => {
-                            let x = match align {
-                                Align::Max => rect.right() - 8.0,
-                                Align::Center => rect.center().x,
-                                Align::Min => rect.left() + 8.0,
-                            };
-                            let dot = pos2(x, rect.center().y);
-                            painter.circle_filled(dot, 1.5, visuals.weak_text_color());
-                        }
-                    }
-                }
-                painter.hline(left..=right, y(r) + row_height, line);
             }
-            let bottom = y(rows).min(clip.bottom());
-            for c in visible_columns.clone() {
-                painter.vline(x(c + 1), clip.top()..=bottom, line);
-            }
-            if let Some((r, c)) = selected.map(|s| s.cursor)
-                && visible_rows.contains(&r)
-                && visible_columns.contains(&c)
-            {
-                let stroke = Stroke::new(2.0, visuals.selection.stroke.color);
-                painter.rect_stroke(cell_rect(r, c), 0.0, stroke, StrokeKind::Inside);
-            }
-            events.page = visible_rows.len().saturating_sub(1);
-            if follow && let Some((r, c)) = selected.map(|s| s.cursor) {
-                // room for the header row and the row numbers, which cover the grid's top left
-                let rect = cell_rect(r, c);
-                let room =
-                    Rect::from_min_max(rect.min - vec2(number_width, header_height), rect.max);
-                ui.scroll_to_rect(room, None);
-            }
-            if let Some((r, c)) = editing
-                && visible_rows.contains(&r)
-                && visible_columns.contains(&c)
-            {
-                editor(ui, cell_rect(r, c));
-            }
+        }
+        painter.hline(left..=right, y(r) + row_height, line);
+    }
+    let bottom = y(visible_rows.end).min(clip.bottom());
+    for c in visible_columns.clone() {
+        painter.vline(x(c + 1), clip.top()..=bottom, line);
+    }
+    if let Some((r, c)) = selected.map(|s| s.cursor)
+        && visible_rows.contains(&r)
+        && visible_columns.contains(&c)
+    {
+        let stroke = Stroke::new(2.0, visuals.selection.stroke.color);
+        painter.rect_stroke(cell_rect(r, c), 0.0, stroke, StrokeKind::Inside);
+    }
+    events.page = visible_rows.len().saturating_sub(1);
+    if let Some((r, c)) = editing
+        && visible_rows.contains(&r)
+        && visible_columns.contains(&c)
+    {
+        ui.scope_builder(UiBuilder::new().max_rect(view), |ui| {
+            ui.set_clip_rect(clip);
+            editor(ui, cell_rect(r, c));
+        });
+    }
 
-            // the header row and the row numbers stay in view while scrolling
-            let top = origin.y + viewport.min.y;
-            let side = origin.x + viewport.min.x;
-            let header = Rect::from_min_max(
-                pos2(clip.left(), top),
-                pos2(clip.right(), top + header_height),
-            );
-            painter.rect_filled(header, 0.0, header_fill);
-            for c in visible_columns.clone() {
-                let rect = Rect::from_min_max(pos2(x(c), top), pos2(x(c + 1), top + header_height));
-                if selected.is_some_and(|s| s.columns.contains(&c)) {
-                    painter.rect_filled(rect, 0.0, visuals.selection.bg_fill);
-                }
-                text_in(
-                    &painter,
-                    rect,
-                    headers[c].clone(),
-                    Align::Min,
-                    visuals.strong_text_color(),
-                );
-                painter.vline(x(c + 1), rect.y_range(), line);
-                // drag a column's right border in the header to change its width
-                let border = Rect::from_center_size(
-                    pos2(x(c + 1), rect.center().y),
-                    vec2(8.0, header_height),
-                );
-                let handle = ui.interact(
-                    border,
-                    ui.make_persistent_id((id, "resize", c)),
-                    Sense::drag(),
-                );
-                if handle.hovered() || handle.dragged() {
-                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeColumn);
-                }
-                if let Some(pointer) = handle.interact_pointer_pos()
-                    && (handle.dragged() || handle.drag_stopped())
-                {
-                    let width = (pointer.x - x(c)).max(MIN_COLUMN);
-                    events.resized = Some((c, width, handle.drag_stopped()));
-                }
-            }
-            painter.hline(clip.x_range(), top + header_height, line);
-            let numbers = Rect::from_min_max(
-                pos2(side, top + header_height),
-                pos2(side + number_width, bottom),
-            );
-            painter.rect_filled(numbers, 0.0, header_fill);
-            for r in visible_rows.clone() {
-                let rect = Rect::from_min_max(
-                    pos2(side, y(r)),
-                    pos2(side + number_width, y(r) + row_height),
-                );
-                if rect.bottom() > top + header_height {
-                    if selected.is_some_and(|s| s.rows.contains(&r)) {
-                        painter.rect_filled(rect, 0.0, visuals.selection.bg_fill);
-                    }
-                    text_in(
-                        &painter,
-                        rect,
-                        (r + 1).to_string(),
-                        Align::Max,
-                        visuals.weak_text_color(),
-                    );
-                    if struck(r) {
-                        let shrunk = rect.shrink2(vec2(6.0, 3.0));
-                        let stroke = Stroke::new(1.5, visuals.text_color());
-                        painter.line_segment([shrunk.left_bottom(), shrunk.right_top()], stroke);
-                    }
-                }
-            }
-            painter.vline(side + number_width, clip.top()..=bottom, line);
-            painter.rect_filled(
-                Rect::from_min_size(pos2(side, top), vec2(number_width, header_height)),
-                0.0,
-                header_fill,
-            );
+    // the header row and the row numbers stay in view while the cells scroll
+    let (top, side) = (view.top(), view.left());
+    let header = Rect::from_min_max(view.min, pos2(view.right(), top + header_height));
+    painter.rect_filled(header, 0.0, header_fill);
+    for c in visible_columns.clone() {
+        let rect = Rect::from_min_max(pos2(x(c), top), pos2(x(c + 1), top + header_height));
+        if selected.is_some_and(|s| s.columns.contains(&c)) {
+            painter.rect_filled(rect, 0.0, visuals.selection.bg_fill);
+        }
+        text_in(
+            &painter,
+            rect,
+            headers[c].clone(),
+            Align::Min,
+            visuals.strong_text_color(),
+        );
+        painter.vline(x(c + 1), rect.y_range(), line);
+        // drag a column's right border in the header to change its width
+        let border =
+            Rect::from_center_size(pos2(x(c + 1), rect.center().y), vec2(8.0, header_height))
+                .intersect(clip);
+        let handle = ui.interact(
+            border,
+            ui.make_persistent_id((id, "resize", c)),
+            Sense::drag(),
+        );
+        if handle.hovered() || handle.dragged() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeColumn);
+        }
+        if let Some(pointer) = handle.interact_pointer_pos()
+            && (handle.dragged() || handle.drag_stopped())
+        {
+            let width = (pointer.x - x(c)).max(MIN_COLUMN);
+            events.resized = Some((c, width, handle.drag_stopped()));
+        }
+    }
+    painter.hline(view.x_range(), top + header_height, line);
+    let numbers = Rect::from_min_max(
+        pos2(side, top + header_height),
+        pos2(side + number_width, bottom),
+    );
+    painter.rect_filled(numbers, 0.0, header_fill);
+    // a row scrolled half under the header shows only the part below it
+    let number_painter = painter.with_clip_rect(numbers.intersect(clip));
+    for r in visible_rows.clone() {
+        let rect = Rect::from_min_max(
+            pos2(side, y(r)),
+            pos2(side + number_width, y(r) + row_height),
+        );
+        if selected.is_some_and(|s| s.rows.contains(&r)) {
+            number_painter.rect_filled(rect, 0.0, visuals.selection.bg_fill);
+        }
+        text_in(
+            &number_painter,
+            rect,
+            (r + 1).to_string(),
+            Align::Max,
+            visuals.weak_text_color(),
+        );
+        if struck(r) {
+            let shrunk = rect.shrink2(vec2(6.0, 3.0));
+            let stroke = Stroke::new(1.5, visuals.text_color());
+            number_painter.line_segment([shrunk.left_bottom(), shrunk.right_top()], stroke);
+        }
+    }
+    painter.vline(side + number_width, clip.top()..=bottom, line);
+    painter.rect_filled(
+        Rect::from_min_size(view.min, vec2(number_width, header_height)),
+        0.0,
+        header_fill,
+    );
 
-            let sizes = (number_width, header_height, row_height);
-            let at = |pos: egui::Pos2| grid::hit(pos - origin, viewport.min, sizes, &offsets, rows);
-            let hit = response.interact_pointer_pos().and_then(at);
-            let left = egui::PointerButton::Primary;
-            if response.dragged_by(left) {
-                let from = ui.input(|i| i.pointer.press_origin()).and_then(at);
-                // the press that began the drag selects as a click would
-                if response.drag_started_by(left) {
-                    match from {
-                        Some(grid::Hit::Header(c)) => events.column_clicked = Some(c),
-                        Some(grid::Hit::Number(r)) => events.row_clicked = Some(r),
-                        Some(grid::Hit::Cell(r, c)) => events.clicked = Some((r, c)),
-                        _ => {}
-                    }
-                }
-                events.dragged = from.zip(hit);
-            }
-            match hit {
-                Some(grid::Hit::Header(c)) if response.clicked() => events.column_clicked = Some(c),
-                Some(grid::Hit::Number(r)) if response.clicked() => events.row_clicked = Some(r),
-                Some(grid::Hit::Cell(r, c)) if response.double_clicked() => {
-                    events.double_clicked = Some((r, c))
-                }
-                Some(grid::Hit::Cell(r, c)) if response.clicked() => events.clicked = Some((r, c)),
+    let sizes = (number_width, header_height, row_height);
+    let at = |pos: egui::Pos2| grid::hit(pos - view.min, (sx, sy), sizes, &offsets, rows);
+    let hit = response.interact_pointer_pos().and_then(at);
+    let left = egui::PointerButton::Primary;
+    if response.dragged_by(left) {
+        let from = ui.input(|i| i.pointer.press_origin()).and_then(at);
+        // the press that began the drag selects as a click would
+        if response.drag_started_by(left) {
+            match from {
+                Some(grid::Hit::Header(c)) => events.column_clicked = Some(c),
+                Some(grid::Hit::Number(r)) => events.row_clicked = Some(r),
+                Some(grid::Hit::Cell(r, c)) => events.clicked = Some((r, c)),
                 _ => {}
             }
-            if response.secondary_clicked() {
-                events.secondary = hit;
-            }
-            events.response = Some(response);
-        });
+        }
+        events.dragged = from.zip(hit);
+    }
+    match hit {
+        Some(grid::Hit::Header(c)) if response.clicked() => events.column_clicked = Some(c),
+        Some(grid::Hit::Number(r)) if response.clicked() => events.row_clicked = Some(r),
+        Some(grid::Hit::Cell(r, c)) if response.double_clicked() => {
+            events.double_clicked = Some((r, c))
+        }
+        Some(grid::Hit::Cell(r, c)) if response.clicked() => events.clicked = Some((r, c)),
+        _ => {}
+    }
+    if response.secondary_clicked() {
+        events.secondary = hit;
+    }
+    events.response = Some(response);
     events
+}
+
+/// A scroll bar along `track` for cells `content` points long in a view `view` long: drag the
+/// thumb to move, or click beside it to move a page.
+fn scroll_bar(
+    ui: &mut Ui,
+    id: egui::Id,
+    track: Rect,
+    vertical: bool,
+    scroll: &mut f64,
+    content: f64,
+    view: f64,
+) {
+    let along = |v: egui::Vec2| if vertical { v.y } else { v.x };
+    let length = along(track.size());
+    let thumb = (f64::from(length) * view / content)
+        .clamp(20.0_f64.min(f64::from(length)), f64::from(length)) as f32;
+    let (room, range) = (f64::from(length - thumb), (content - view).max(0.0));
+    let start = if range > 0.0 {
+        (*scroll / range * room) as f32
+    } else {
+        0.0
+    };
+    let thumb_rect = if vertical {
+        Rect::from_min_size(track.min + vec2(0.0, start), vec2(track.width(), thumb))
+    } else {
+        Rect::from_min_size(track.min + vec2(start, 0.0), vec2(thumb, track.height()))
+    };
+    let response = ui.interact(track, id, Sense::click_and_drag());
+    if response.dragged() && room > 0.0 {
+        *scroll += f64::from(along(response.drag_delta())) / room * range;
+    } else if response.clicked()
+        && let Some(pointer) = response.interact_pointer_pos()
+    {
+        let at = along(pointer.to_vec2());
+        if at < along(thumb_rect.min.to_vec2()) {
+            *scroll -= view;
+        } else if at > along(thumb_rect.max.to_vec2()) {
+            *scroll += view;
+        }
+    }
+    *scroll = scroll.clamp(0.0, range);
+    let visuals = ui.visuals();
+    let painter = ui.painter();
+    painter.rect_filled(track, 0.0, visuals.extreme_bg_color);
+    let fill = ui.style().interact(&response).bg_fill;
+    painter.rect_filled(thumb_rect.shrink(2.0), 3.0, fill);
 }
 
 /// The dataset's variables, filtered by name or label, and with `sets` its multiple response
