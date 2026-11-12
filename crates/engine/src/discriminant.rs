@@ -286,7 +286,20 @@ fn statistic_name(method: M) -> &'static str {
 fn method_text(method: M) -> &'static str {
     match method {
         M::Direct => "",
-        [removed]
+        M::Wilks => {
+            "Each step adds the variable that gives the lowest Wilks' Lambda for the model."
+        }
+        M::Mahal => {
+            "Each step adds the variable that pushes the nearest pair of groups furthest apart in Mahalanobis distance."
+        }
+        M::MaxMinF => {
+            "Each step adds the variable that gives the highest value to the lowest pairwise group F."
+        }
+        M::MinResid => {
+            "Each step adds the variable that leaves the least unexplained variation, summed over every pair of groups."
+        }
+        M::Rao => {
+            "Each step adds the variable that raises Rao's V the most."
         }
     }
 }
@@ -727,7 +740,7 @@ impl Engine {
                         plain(&["", "Within-Groups Variance", "Tolerance", "Minimum Tolerance"]),
                         rows,
                         Some(format!(
-                            [removed]
+                            "Every variable that meets the tolerance limits goes into the model in one step. Minimum tolerance level is {}.",
                             options.tolerance
                         )),
                     ));
@@ -1358,7 +1371,7 @@ impl Engine {
                         ));
                     }
                     if cross.is_some() {
-                        [removed]
+                        notes.push("Cross validation: every case is classified by functions estimated without that case.".into());
                     }
                     let mut columns = plain(&["", "", ""]);
                     columns.extend(

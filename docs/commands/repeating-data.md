@@ -21,9 +21,9 @@ OCCURS missing or below 1 gives no case.
 ## Example
 
 ```text
-DATA LIST /seqnum 2-4 numveh 9-10.
-REPEATING DATA STARTS=12 /OCCURS=numveh
- /DATA=make 1-8 (A) model 9 (A) numcyl 10.
+DATA LIST /truck 1-3 nload 7-8.
+REPEATING DATA STARTS=10 /OCCURS=nload
+ /DATA=cargo 1-6 (A) crates 8-9.
 ```
 
 `statscraft help REPEATING DATA` prints the same text in the terminal. [All commands](README.md)

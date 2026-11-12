@@ -10,7 +10,8 @@
 //!   decimals the format gives when the width has room. What does not fit is cut off, never
 //!   rounded: 1:20:59 in TIME5 is 01:20. Hours, and the minutes of MTIME, have no upper limit.
 //! - WKDAY and MONTH show the name cut to the width (WKDAY2: SU, MONTH3: JAN).
-[removed]
+//! - A custom currency (SET CCA to CCE) has four parts: what goes before a negative number,
+//!   before any number, after any number and after a negative number, separated by three commas or three periods; the other character is the
 //!   decimal point and the separator groups thousands. A ' makes the next period or comma part
 //!   of the text. A negative number shows as negative prefix, prefix, number, suffix, negative
 //!   suffix. The default, "-,,,", looks like COMMA.

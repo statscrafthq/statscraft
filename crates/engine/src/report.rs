@@ -1696,8 +1696,8 @@ mod tests {
     #[test]
     fn titles_wrap() {
         assert_eq!(
-            wrap_text("Annual Sales 1981", 6),
-            ["Annual", "Sales", "1981"]
+            wrap_text("Weekly Units 2024", 6),
+            ["Weekly", "Units", "2024"]
         );
         assert_eq!(wrap_text("", 6), [""]);
     }

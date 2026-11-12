@@ -20,11 +20,11 @@ MIXED: each record of a listed type is a case; others are skipped. GROUPED: the 
 ## Example
 
 ```text
-FILE TYPE GROUPED RECORD=#test 6 CASE=student 1-4.
+FILE TYPE GROUPED RECORD=#kind 6 CASE=runner 1-4.
 RECORD TYPE 1.
-DATA LIST /english 8-9 (A).
+DATA LIST /club 8-9 (A).
 RECORD TYPE 2.
-DATA LIST /reading 8-10.
+DATA LIST /sprint 8-10.
 END FILE TYPE.
 ```
 

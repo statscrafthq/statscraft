@@ -236,7 +236,7 @@ See [The Window menu](#the-window-menu).
 
 - Rows, columns and layers of variables and multiple response sets.
 - Means, percentages and totals.
-[removed]
+- Significance tests, their letters shown in the table itself or in a table of their own.
 - Hiding small counts, and an effective base weight with the effective count.
 - Per variable: the order of the categories (sorted by value, label, count or a mean), the total with its label and position, subtotals over chosen categories that can hide them, and missing and other categories.
 

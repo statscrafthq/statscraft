@@ -16,8 +16,8 @@ Values are numbers, or quoted strings for a string record identifier. OTHER stan
 ## Example
 
 ```text
-RECORD TYPE 21, 22, 23.
-DATA LIST /sex 5 age 6-7.
+RECORD TYPE 11, 12, 13.
+DATA LIST /team 4 age 5-6.
 ```
 
 `statscraft help RECORD TYPE` prints the same text in the terminal. [All commands](README.md)

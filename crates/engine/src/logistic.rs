@@ -13,7 +13,7 @@
 //!   stops when every coefficient changes by less than BCON, the log likelihood by less than
 //!   LCON percent, or after ITERATE iterations; when every case has pi (1 - pi) below 1e-8 it
 //!   stops with all predictions 0 or 1.
-[removed]
+//! - Entry uses the score statistic; removal uses one of three: conditional, Wald or
 //!   likelihood ratio. FSTEP enters the term with the smallest score significance below PIN,
 //!   then removes while the largest removal significance is above POUT; BSTEP starts with every
 //!   term of its list and removes, then enters. A step that would return to a model already

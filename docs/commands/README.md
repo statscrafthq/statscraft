@@ -62,7 +62,7 @@ One page per supported command, generated from the same table that the parser an
 | [FILE TYPE](file-type.md) | Start the definition of a file with several kinds of records. |
 | [RECORD TYPE](record-type.md) | Inside FILE TYPE: the record types the following DATA LIST reads. |
 | [END FILE TYPE](end-file-type.md) | End a FILE TYPE definition and read the file. |
-[removed]
+| [SPLIT FILE](split-file.md) | Run each procedure once per run of consecutive cases that share the split values. |
 | [FILTER](filter.md) | Leave out of procedures the cases whose filter value is 0 or missing. |
 | [TEMPORARY](temporary.md) | Make the changes that follow last only until the next procedure. |
 | [N OF CASES](n-of-cases.md) | Keep only the first n cases from the next data pass on. |

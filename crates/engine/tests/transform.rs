@@ -962,12 +962,12 @@ fn distribution_functions() {
 
 #[test]
 fn date_aggregation_and_conversion() {
-    // the manual's example: 28 October 2006, 23:54:30 and 1.5 days
-    assert_eq!(constant("DATE.DMY(28, 10, 2006)"), Some(13_381_372_800.0));
-    assert_eq!(constant("DATE.MDY(10, 28, 2006)"), Some(13_381_372_800.0));
-    assert_eq!(constant("DATE.MOYR(10, 2006)"), Some(13_379_040_000.0));
-    assert_eq!(constant("TIME.HMS(23, 54, 30)"), Some(86_070.0));
-    assert_eq!(constant("TIME.DAYS(1.5)"), Some(129_600.0));
+    // 14 March 2011 is day 156 475 after 14 October 1582; 07:18:45 and 2.25 days
+    assert_eq!(constant("DATE.DMY(14, 3, 2011)"), Some(13_519_440_000.0));
+    assert_eq!(constant("DATE.MDY(3, 14, 2011)"), Some(13_519_440_000.0));
+    assert_eq!(constant("DATE.MOYR(3, 2011)"), Some(13_518_316_800.0));
+    assert_eq!(constant("TIME.HMS(7, 18, 45)"), Some(26_325.0));
+    assert_eq!(constant("TIME.DAYS(2.25)"), Some(194_400.0));
     assert_eq!(constant("TIME.HMS(25.5)"), Some(91_800.0));
     assert_eq!(constant("TIME.HMS(0, 90, 25.5)"), Some(5_425.5));
     assert_eq!(constant("TIME.HMS(25.5, 30)"), None);
@@ -997,21 +997,21 @@ fn date_aggregation_and_conversion() {
 
 #[test]
 fn date_extraction() {
-    // the manual's example: 29 October 2003 at 11:23:02, a Wednesday
-    let at = "(DATE.DMY(29, 10, 2003) + 40982)";
+    // 6 August 2009 at 16:41:37, a Thursday, day 218 of its year
+    let at = "(DATE.DMY(6, 8, 2009) + 60097)";
     let part = |f: &str| constant(&format!("XDATE.{f}({at})"));
-    assert_eq!(part("DATE"), constant("DATE.DMY(29, 10, 2003)"));
-    assert_eq!(part("TIME"), Some(40_982.0));
-    assert_eq!(part("HOUR"), Some(11.0));
-    assert_eq!(part("MINUTE"), Some(23.0));
-    assert_eq!(part("SECOND"), Some(2.0));
-    assert_eq!(part("WKDAY"), Some(4.0));
-    assert_eq!(part("JDAY"), Some(302.0));
-    assert_eq!(part("WEEK"), Some(44.0));
-    assert_eq!(part("QUARTER"), Some(4.0));
-    assert_eq!(part("YEAR"), Some(2003.0));
-    assert_eq!(part("MONTH"), Some(10.0));
-    assert_eq!(part("MDAY"), Some(29.0));
+    assert_eq!(part("DATE"), constant("DATE.DMY(6, 8, 2009)"));
+    assert_eq!(part("TIME"), Some(60_097.0));
+    assert_eq!(part("HOUR"), Some(16.0));
+    assert_eq!(part("MINUTE"), Some(41.0));
+    assert_eq!(part("SECOND"), Some(37.0));
+    assert_eq!(part("WKDAY"), Some(5.0));
+    assert_eq!(part("JDAY"), Some(218.0));
+    assert_eq!(part("WEEK"), Some(32.0));
+    assert_eq!(part("QUARTER"), Some(3.0));
+    assert_eq!(part("YEAR"), Some(2009.0));
+    assert_eq!(part("MONTH"), Some(8.0));
+    assert_eq!(part("MDAY"), Some(6.0));
     assert_eq!(constant("XDATE.WEEK(DATE.DMY(31, 12, 2004))"), Some(53.0));
     assert_eq!(constant("XDATE.TDAY(129600)"), Some(1.0));
     // a negative time splits into parts with its sign: -1:30:00 and -0:01:30.5
@@ -1031,15 +1031,15 @@ fn date_differences_and_sums() {
     let diff = |a: &str, b: &str, unit: &str| {
         constant(&format!("DATEDIFF(DATE.MDY({a}), DATE.MDY({b}), '{unit}')"))
     };
-    // the manual's examples
-    assert_eq!(diff("2, 1, 2005", "1, 1, 2004", "years"), Some(1.0));
-    assert_eq!(diff("2, 15, 2005", "1, 1, 2004", "years"), Some(1.0));
-    assert_eq!(diff("1, 29, 2005", "1, 30, 2004", "years"), Some(0.0));
-    assert_eq!(diff("2, 15, 2004", "1, 1, 2004", "months"), Some(1.0));
-    assert_eq!(diff("2, 1, 2004", "1, 30, 2004", "months"), Some(0.0));
-    assert_eq!(diff("10, 28, 2006", "6, 20, 2006", "Days"), Some(130.0));
-    assert_eq!(diff("1, 1, 2004", "2, 1, 2005", "quarter"), Some(-4.0));
-    assert_eq!(diff("3, 31, 2004", "1, 31, 2004", "weeks"), Some(8.0));
+    // whole units only: a day short of three years is two
+    assert_eq!(diff("3, 11, 2012", "3, 11, 2009", "years"), Some(3.0));
+    assert_eq!(diff("3, 10, 2012", "3, 11, 2009", "years"), Some(2.0));
+    assert_eq!(diff("8, 2, 2012", "8, 3, 2011", "years"), Some(0.0));
+    assert_eq!(diff("5, 21, 2015", "2, 21, 2015", "months"), Some(3.0));
+    assert_eq!(diff("5, 20, 2015", "2, 21, 2015", "months"), Some(2.0));
+    assert_eq!(diff("9, 1, 2019", "7, 4, 2019", "Days"), Some(59.0));
+    assert_eq!(diff("4, 1, 2018", "10, 1, 2019", "quarter"), Some(-6.0));
+    assert_eq!(diff("6, 30, 2020", "5, 12, 2020", "weeks"), Some(7.0));
     assert_eq!(constant("DATEDIFF(5400, 0, 'hours')"), Some(1.0));
     assert_eq!(constant("DATEDIFF(0, 5400, 'minutes')"), Some(-90.0));
     assert_eq!(constant("DATEDIFF($SYSMIS, 0, 'seconds')"), None);
@@ -1048,29 +1048,29 @@ fn date_differences_and_sums() {
     let sum = |date: &str, rest: &str| constant(&format!("DATESUM(DATE.MDY({date}), {rest})"));
     let mdy = |date: &str| constant(&format!("DATE.MDY({date})"));
     assert_eq!(
-        sum("2, 29, 2004", "1, 'years', 'rollover'"),
-        mdy("3, 1, 2005")
+        sum("2, 29, 2012", "1, 'years', 'rollover'"),
+        mdy("3, 1, 2013")
     );
     assert_eq!(
-        sum("2, 29, 2004", "1, 'years', 'closest'"),
-        mdy("2, 28, 2005")
+        sum("2, 29, 2012", "1, 'years', 'closest'"),
+        mdy("2, 28, 2013")
     );
-    assert_eq!(sum("2, 29, 2004", "1.5, 'years'"), mdy("2, 28, 2005"));
+    assert_eq!(sum("2, 29, 2012", "1.5, 'years'"), mdy("2, 28, 2013"));
     assert_eq!(
-        sum("1, 31, 2003", "1, 'months', 'rollover'"),
-        mdy("3, 3, 2003")
+        sum("10, 31, 2017", "1, 'months', 'rollover'"),
+        mdy("12, 1, 2017")
     );
     assert_eq!(
-        sum("3, 31, 2004", "-1, 'months', 'rollover'"),
-        mdy("3, 2, 2004")
+        sum("3, 30, 2016", "-1, 'months', 'rollover'"),
+        mdy("3, 1, 2016")
     );
-    assert_eq!(sum("3, 31, 2004", "-1, 'months'"), mdy("2, 29, 2004"));
-    assert_eq!(sum("4, 30, 2004", "-1, 'months'"), mdy("3, 30, 2004"));
-    assert_eq!(sum("1, 31, 2004", "1, 'quarters'"), mdy("4, 30, 2004"));
-    assert_eq!(sum("1, 1, 2004", "-2, 'weeks'"), mdy("12, 18, 2003"));
+    assert_eq!(sum("3, 30, 2016", "-1, 'months'"), mdy("2, 29, 2016"));
+    assert_eq!(sum("6, 30, 2016", "-1, 'months'"), mdy("5, 30, 2016"));
+    assert_eq!(sum("8, 31, 2016", "1, 'quarters'"), mdy("11, 30, 2016"));
+    assert_eq!(sum("1, 5, 2016", "-2, 'weeks'"), mdy("12, 22, 2015"));
     assert_eq!(
-        sum("1, 1, 2004", "1.5, 'days'"),
-        mdy("1, 2, 2004").map(|d| d + 43_200.0)
+        sum("3, 10, 2016", "1.5, 'days'"),
+        mdy("3, 11, 2016").map(|d| d + 43_200.0)
     );
     assert_eq!(constant("DATESUM(60, 2, 'minutes')"), Some(180.0));
     assert_eq!(constant("DATESUM($SYSMIS, 2, 'days')"), None);

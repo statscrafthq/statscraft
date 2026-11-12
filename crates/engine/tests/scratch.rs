@@ -31,27 +31,26 @@ fn data(source: &str) -> Session {
     session
 }
 
-const THREE: &str = "DATA LIST FREE /Var1.\nBEGIN DATA\n2 2 2\nEND DATA.\n";
+const THREE: &str = "DATA LIST FREE /amt.\nBEGIN DATA\n3 3 3\nEND DATA.\n";
 
 #[test]
 fn a_scratch_variable_starts_at_zero_and_carries_from_case_to_case() {
-    // the example of the manual: a new variable starts missing in every case, a scratch
-    // variable only once
+    // a new variable starts missing in every case, a scratch variable only once
     let session = data(&format!(
-        "{THREE}COMPUTE Var2 = Var1 + Var2.\nCOMPUTE #s = Var1 + #s.\nCOMPUTE Var4 = #s."
+        "{THREE}COMPUTE sumnew = amt + sumnew.\nCOMPUTE #acc = amt + #acc.\nCOMPUTE running = #acc."
     ));
     let data = session.dataset().unwrap();
-    assert_eq!(show(data, "Var2"), ". . .");
-    assert_eq!(show(data, "Var4"), "2 4 6");
+    assert_eq!(show(data, "sumnew"), ". . .");
+    assert_eq!(show(data, "running"), "3 6 9");
     assert!(data.variable_names().all(|n| !n.starts_with('#')));
 }
 
 #[test]
 fn a_scratch_variable_assigned_before_use_needs_no_earlier_case() {
     let session = data(&format!(
-        "{THREE}COMPUTE #t = Var1 * $CASENUM.\nCOMPUTE t = #t + 1."
+        "{THREE}COMPUTE #t = amt * $CASENUM.\nCOMPUTE t = #t + 1."
     ));
-    assert_eq!(show(session.dataset().unwrap(), "t"), "3 5 7");
+    assert_eq!(show(session.dataset().unwrap(), "t"), "4 7 10");
 }
 
 #[test]
@@ -68,15 +67,15 @@ fn a_value_kept_inside_do_if_fills_the_cases_after_it() {
 
 #[test]
 fn lag_counts_the_kept_cases_and_casenum_every_case_read() {
-    let source = "DATA LIST FREE /x.\nBEGIN DATA\n1 2 3 4 5\nEND DATA.\n\
+    let source = "DATA LIST FREE /x.\nBEGIN DATA\n4 2 9 6 1\nEND DATA.\n\
         COMPUTE #n = #n + 1.\nSELECT IF x <> 2.\nCOMPUTE n = #n.\nCOMPUTE c = $CASENUM.\n\
         COMPUTE back = LAG(x).\nCOMPUTE back2 = LAG(x, 2).";
     let session = data(source);
     let data = session.dataset().unwrap();
     assert_eq!(show(data, "n"), "1 3 4 5");
     assert_eq!(show(data, "c"), "1 3 4 5");
-    assert_eq!(show(data, "back"), ". 1 3 4");
-    assert_eq!(show(data, "back2"), ". . 1 3");
+    assert_eq!(show(data, "back"), ". 4 9 6");
+    assert_eq!(show(data, "back2"), ". . 4 9");
 }
 
 #[test]
@@ -133,23 +132,23 @@ fn scratch_variables_have_no_labels_weights_or_splits() {
         "SPLIT FILE cannot name the scratch variable #a"
     );
     assert_eq!(
-        message(&mut session, "COUNT n = Var1 TO #a (1)."),
-        "a TO list cannot hold scratch and other variables at once (Var1 TO #a)"
+        message(&mut session, "COUNT n = amt TO #a (1)."),
+        "a TO list cannot hold scratch and other variables at once (amt TO #a)"
     );
     // ALL leaves scratch variables out
-    run(&mut session, "COMPUTE #a = 2.\nCOUNT n = ALL (2).");
+    run(&mut session, "COMPUTE #a = 3.\nCOUNT n = ALL (3).");
     assert_eq!(show(session.dataset().unwrap(), "n"), "1 1 1");
 }
 
 #[test]
 fn numeric_and_string_declare_scratch_variables_that_keep_their_value() {
     let source = format!(
-        "{THREE}NUMERIC #n.\nSTRING #s (A4).\nCOMPUTE #n = #n + Var1.\n\
+        "{THREE}NUMERIC #n.\nSTRING #s (A4).\nCOMPUTE #n = #n + amt.\n\
          IF ($CASENUM = 2) #s = 'two'.\nCOMPUTE n = #n.\nSTRING s (A4).\nCOMPUTE s = #s."
     );
     let session = data(&source);
     let data = session.dataset().unwrap();
-    assert_eq!(show(data, "n"), "2 4 6");
+    assert_eq!(show(data, "n"), "3 6 9");
     assert_eq!(show(data, "s"), "|two|two");
 }
 
@@ -158,7 +157,7 @@ fn an_error_case_by_case_names_the_case() {
     let mut session = data(THREE);
     let message = error(
         &mut session,
-        "COMPUTE #a = #a + 1.\nCOMPUTE b = (#a > 1) AND Var1.",
+        "COMPUTE #a = #a + 1.\nCOMPUTE b = (#a > 1) AND amt.",
     );
     assert!(
         message.contains("run case by case before this command: case 1: the right operand of AND"),

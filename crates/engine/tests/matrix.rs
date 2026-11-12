@@ -1,7 +1,6 @@
-//! MATRIX ... END MATRIX: the examples of the manual and synthetic programs with exact expected
-//! matrices. The expected values follow from the rules of the language: elementwise operators
-//! with scalar expansion, the matrix product and power, the definitions of the functions, and
-//! closed forms for the decompositions of small matrices (the symmetric 2 x 2 matrix
+//! MATRIX ... END MATRIX: synthetic programs with exact expected matrices. The expected values
+//! follow from the rules of the language: elementwise operators with scalar expansion, the
+//! matrix product and power, the definitions of the functions, and closed forms for the decompositions of small matrices (the symmetric 2 x 2 matrix
 //! {a, b; b, a} has the eigenvalues a + b and a - b with the vectors (1, 1) and (-1, 1) over
 //! the square root of 2).
 
@@ -121,99 +120,95 @@ fn names(data: &Dataset) -> Vec<String> {
 const R2: f64 = std::f64::consts::FRAC_1_SQRT_2;
 
 #[test]
-fn the_operator_examples_of_the_manual() {
+fn elementwise_operators_expand_scalars() {
     let tables = matrix(
-        [removed]
-         PRINT B.\nPRINT C.\nPRINT D.\nPRINT E.\nPRINT F.",
+        "COMPUTE P = {2, 0, 5; 1, 3, 4}.\nCOMPUTE Q = P + 10.\nCOMPUTE R = P &** 3.\n\
+         COMPUTE S = 3 &** P.\nCOMPUTE G = P > 2.\nCOMPUTE H = (R &/ 4) >= Q.\n\
+         PRINT Q.\nPRINT R.\nPRINT S.\nPRINT G.\nPRINT H.",
     );
     close(
         &numbers(&tables[0]),
-        &[&[5.0, 6.0, 7.0], &[8.0, 9.0, 10.0]],
-        "B",
+        &[&[12.0, 10.0, 15.0], &[11.0, 13.0, 14.0]],
+        "Q",
     );
     close(
         &numbers(&tables[1]),
-        &[&[1.0, 4.0, 9.0], &[16.0, 25.0, 36.0]],
-        "C",
+        &[&[8.0, 0.0, 125.0], &[1.0, 27.0, 64.0]],
+        "R",
     );
     close(
         &numbers(&tables[2]),
-        &[&[2.0, 4.0, 8.0], &[16.0, 32.0, 64.0]],
-        "D",
+        &[&[9.0, 1.0, 243.0], &[3.0, 27.0, 81.0]],
+        "S",
     );
     close(
         &numbers(&tables[3]),
-        &[&[1.0, 1.0, 1.0], &[1.0, 0.0, 0.0]],
-        "E",
+        &[&[0.0, 0.0, 1.0], &[0.0, 1.0, 1.0]],
+        "G",
     );
-    // C/2 = .5 2 4.5 8 12.5 18 against B = 5 6 7 8 9 10
+    // R/4 = 2 0 31.25 .25 6.75 16 against Q = 12 10 15 11 13 14
     close(
         &numbers(&tables[4]),
-        &[&[1.0, 1.0, 1.0], &[0.0, 0.0, 0.0]],
-        "F",
+        &[&[0.0, 0.0, 1.0], &[0.0, 0.0, 1.0]],
+        "H",
     );
-    assert_eq!(tables[0].title, "B");
+    assert_eq!(tables[0].title, "Q");
     assert_eq!(tables[0].columns, ["", "col1", "col2", "col3"]);
     assert_eq!(texts(&tables[0])[1][0], "row2");
 }
 
 #[test]
-fn the_compute_examples_of_the_manual() {
+fn compute_builds_scalars_products_flags_and_joined_columns() {
     let tables = matrix(
-        "COMPUTE PI = 3.14159265.\nCOMPUTE R = {1, 2; 3, 4}.\nCOMPUTE RSQ = R * R.\n\
-         COMPUTE EIGENVAL = {2.5; 1; .3}.\nCOMPUTE FLAGS = EIGENVAL >= 1.\n\
-         COMPUTE OBS = {1; 2}.\nCOMPUTE PRED = {1.5; 1.5}.\nCOMPUTE ERR = OBS - PRED.\n\
-         COMPUTE ESTIM = {OBS, PRED, ERR}.\n\
-         PRINT PI.\nPRINT RSQ.\nPRINT FLAGS.\nPRINT ESTIM.",
+        "COMPUTE E1 = 2.71828183.\nCOMPUTE M = {2, 1; 0, 3}.\nCOMPUTE MSQ = M * M.\n\
+         COMPUTE VALS = {.4; 3; 1}.\nCOMPUTE BIG = VALS >= 1.\n\
+         COMPUTE ACT = {4; 7}.\nCOMPUTE FIT = {5; 6}.\nCOMPUTE DIFF = ACT - FIT.\n\
+         COMPUTE ALLC = {ACT, FIT, DIFF}.\n\
+         PRINT E1.\nPRINT MSQ.\nPRINT BIG.\nPRINT ALLC.",
     );
     close(
         &numbers(&tables[0]),
-        &[&["3.14159265".parse::<f64>().unwrap()]],
-        "PI",
+        &[&["2.71828183".parse::<f64>().unwrap()]],
+        "E1",
     );
-    close(&numbers(&tables[1]), &[&[7.0, 10.0], &[15.0, 22.0]], "RSQ");
-    close(&numbers(&tables[2]), &[&[1.0], &[1.0], &[0.0]], "FLAGS");
+    close(&numbers(&tables[1]), &[&[4.0, 5.0], &[0.0, 9.0]], "MSQ");
+    close(&numbers(&tables[2]), &[&[0.0], &[1.0], &[1.0]], "BIG");
     close(
         &numbers(&tables[3]),
-        &[&[1.0, 1.5, -0.5], &[2.0, 1.5, 0.5]],
-        "ESTIM",
+        &[&[4.0, 5.0, -1.0], &[7.0, 6.0, 1.0]],
+        "ALLC",
     );
 }
 
 #[test]
-fn the_first_example_of_the_manual_reads_a_file_and_prints_large_eigenvalues() {
+fn read_a_file_and_print_the_large_eigenvalues() {
     let dir = folder("eigen");
-    // three blocks {2,1;1,2}, {5,2;2,2}, {.5,.1;.1,.5}: eigenvalues 3 1, 6 1, .6 .4
-    let rows = [
-        "2 1 0 0 0 0",
-        "1 2 0 0 0 0",
-        "0 0 5 2 0 0",
-        "0 0 2 2 0 0",
-        "0 0 0 0 .5 .1",
-        "0 0 0 0 .1 .5",
-    ];
-    std::fs::write(dir.join("matrdata.txt"), rows.join("\n")).unwrap();
+    // two blocks {4,2;2,1} and {2,1;1,2}: eigenvalues 5 0 and 3 1
+    let rows = ["4 2 0 0", "2 1 0 0", "0 0 2 1", "0 0 1 2"];
+    std::fs::write(dir.join("symm.txt"), rows.join("\n")).unwrap();
     let (_, tables, _) = run(&format!(
-        "FILE HANDLE MATRDATA /NAME='{}'.\n\
-         [removed]
-        dir.join("matrdata.txt").display()
+        "FILE HANDLE SYMFILE /NAME='{}'.\n\
+         MATRIX.\n\
+         READ S /FILE=SYMFILE /FIELD=1 TO 40 /SIZE={{4,4}}.\n\
+         CALL EIGEN(S, VECS, VALS).\n\
+         LOOP K = 1 TO NROW(VALS).\n\
+         DO IF VALS(K) > 1.5.\n\
+         PRINT VALS(K) /TITLE='Root' /SPACE=2.\n\
+         PRINT T(VECS(:, K)) /TITLE='Vector'.\n\
+         END IF.\n\
+         END LOOP.\n\
+         END MATRIX.",
+        dir.join("symm.txt").display()
     ));
     let titles: Vec<&str> = tables.iter().map(|t| t.title.as_str()).collect();
-    assert_eq!(
-        titles,
-        ["Eigenvalue:", "Eigenvector:", "Eigenvalue:", "Eigenvector:"]
-    );
-    close(&numbers(&tables[0]), &[&[6.0]], "first eigenvalue");
+    assert_eq!(titles, ["Root", "Vector", "Root", "Vector"]);
+    close(&numbers(&tables[0]), &[&[5.0]], "first eigenvalue");
     let (a, b) = (2.0 / 5f64.sqrt(), 1.0 / 5f64.sqrt());
-    close(
-        &numbers(&tables[1]),
-        &[&[0.0, 0.0, a, b, 0.0, 0.0]],
-        "first eigenvector",
-    );
+    close(&numbers(&tables[1]), &[&[a, b, 0.0, 0.0]], "first eigenvector");
     close(&numbers(&tables[2]), &[&[3.0]], "second eigenvalue");
     close(
         &numbers(&tables[3]),
-        &[&[R2, R2, 0.0, 0.0, 0.0, 0.0]],
+        &[&[0.0, 0.0, R2, R2]],
         "second eigenvector",
     );
     std::fs::remove_dir_all(dir).unwrap();
@@ -222,12 +217,12 @@ fn the_first_example_of_the_manual_reads_a_file_and_prints_large_eigenvalues() {
 #[test]
 fn strings_print_with_a_format_and_labels_name_rows_and_columns() {
     let tables = matrix(
-        "COMPUTE LABELS={\"Observe\", \"Predict\", \"Error\"}.\nPRINT LABELS /FORMAT=A7.\n\
+        "COMPUTE HEADS={\"Before\", \"After\", \"Change\"}.\nPRINT HEADS /FORMAT=A6.\n\
          PRINT {1, 2; 3, 4} /RLABELS=first, 'second' /CLABELS='x'.\n\
          COMPUTE NAMES = {'alpha'; 'beta'}.\nPRINT {5, 6} /CNAMES=NAMES /FORMAT=F4.1 /TITLE='Named'.\n\
          PRINT /TITLE='Only a title'.",
     );
-    assert_eq!(texts(&tables[0]), [["row1", "Observe", "Predict", "Error"]]);
+    assert_eq!(texts(&tables[0]), [["row1", "Before", "After", "Change"]]);
     assert_eq!(tables[1].columns, ["", "x", ""]);
     assert_eq!(texts(&tables[1])[0][0], "FIRST");
     assert_eq!(texts(&tables[1])[1][0], "second");
@@ -239,11 +234,11 @@ fn strings_print_with_a_format_and_labels_name_rows_and_columns() {
 }
 
 #[test]
-fn the_scaling_example_of_the_manual() {
+fn a_power_of_ten_scales_a_wide_range_of_values() {
     let tables = matrix(
-        "COMPUTE M = {.0000000001357, 2.468, 3690000000}.\n\
-         PRINT M /TITLE \"Default format\".\n\
-         PRINT M /FORMAT \"E13\" /TITLE \"Explicit exponential format\".",
+        "COMPUTE W = {.0000000002841, 5.937, 4120000000}.\n\
+         PRINT W /TITLE \"Scaled\".\n\
+         PRINT W /FORMAT \"E13\" /TITLE \"In E13\".",
     );
     // a power of 10 lets the largest value show; small values become 0
     assert_eq!(
@@ -252,26 +247,26 @@ fn the_scaling_example_of_the_manual() {
     );
     close(
         &numbers(&tables[0]),
-        &[&[1.357e-19, 2.468e-9, 3.69]],
+        &[&[2.841e-19, 5.937e-9, 4.12]],
         "scaled",
     );
     assert_eq!(statscraft_engine::cell_text(&tables[0], 0, 1), ".000000000");
-    assert_eq!(statscraft_engine::cell_text(&tables[0], 0, 2), ".000000002");
+    assert_eq!(statscraft_engine::cell_text(&tables[0], 0, 2), ".000000006");
     assert_eq!(tables[1].caption, None);
     close(
         &numbers(&tables[1]),
-        &[&[1.357e-10, 2.468, 3.69e9]],
+        &[&[2.841e-10, 5.937, 4.12e9]],
         "exact",
     );
     assert_eq!(tables[1].formats[0][1], "E13");
 }
 
 #[test]
-fn control_flow_and_the_break_example() {
+fn control_flow_and_break() {
     let tables = matrix(
-        "COMPUTE VEC = {5; 8; 13; 21}.\nCOMPUTE TARGET = 13.\n\
-         LOOP LOCATION = 1, NROW(VEC).\n+ DO IF (VEC(LOCATION) = TARGET).\n+     BREAK.\n+ END IF.\nEND LOOP.\n\
-         PRINT LOCATION.\n\
+        "COMPUTE LIST = {4; 9; 16; 25; 36}.\nCOMPUTE WANT = 25.\n\
+         LOOP POS = 1, NROW(LIST).\nDO IF (LIST(POS) = WANT).\nBREAK.\nEND IF.\nEND LOOP.\n\
+         PRINT POS.\n\
          COMPUTE S = 0.\nLOOP I = 1 TO 10 BY 3.\nDO IF I = 4.\nCOMPUTE S = S + 100.\n\
          ELSE IF I > 6.\nCOMPUTE S = S + 1000.\nELSE.\nCOMPUTE S = S + 1.\nEND IF.\nEND LOOP.\n\
          PRINT {S, I}.\n\
@@ -280,7 +275,7 @@ fn control_flow_and_the_break_example() {
          COMPUTE D = 0.\nLOOP J = 5 TO 1 BY -2.\nCOMPUTE D = D * 10 + J.\nEND LOOP.\nPRINT D.\n\
          COMPUTE Z = 0.\nLOOP J = 1 TO 0.\nCOMPUTE Z = 1.\nEND LOOP.\nPRINT Z.",
     );
-    close(&numbers(&tables[0]), &[&[3.0]], "LOCATION");
+    close(&numbers(&tables[0]), &[&[4.0]], "POS");
     // I = 1, 4, 7, 10: 1 + 100 + 1000 + 1000; the index keeps its last value
     close(&numbers(&tables[1]), &[&[2101.0, 10.0]], "S and I");
     close(&numbers(&tables[2]), &[&[6.0]], "K");
@@ -524,8 +519,8 @@ fn get_reads_cases_as_rows_with_the_missing_value_rules() {
     let data = "DATA LIST LIST /test1 test2 test3 (F8) name (A4).\nBEGIN DATA\n1 2 3 a\n4 5 6 b\n7 . 9 c\n10 11 12 d\nEND DATA.\n\
                 MISSING VALUES test3 (12).\n";
     let (_, tables, warnings) = run(&format!(
-        "{data}MATRIX.\nGET SCORES /VARIABLES = TEST1,TEST2,TEST3 /NAMES = VARNAMES /MISSING = ACCEPT /SYSMIS = -1.0.\n\
-         PRINT SCORES /CNAMES=VARNAMES.\nGET B /VARIABLES=test1 TO test3 /MISSING=OMIT.\nPRINT B.\n\
+        "{data}MATRIX.\nGET RATES /VARIABLES = TEST1,TEST2,TEST3 /NAMES = LABS /MISSING = ACCEPT /SYSMIS = -5.0.\n\
+         PRINT RATES /CNAMES=LABS.\nGET B /VARIABLES=test1 TO test3 /MISSING=OMIT.\nPRINT B.\n\
          GET C /FILE=* /MISSING=99.\nPRINT C.\nGET D /MISSING=ACCEPT /SYSMIS=OMIT.\nPRINT D.\n\
          COMPUTE E = MAKE(4, 3, 0).\nGET E(:, 2) /VARIABLES=test2 /MISSING=0.\nPRINT E.\nEND MATRIX."
     ));
@@ -534,7 +529,7 @@ fn get_reads_cases_as_rows_with_the_missing_value_rules() {
         &[
             &[1.0, 2.0, 3.0],
             &[4.0, 5.0, 6.0],
-            &[7.0, -1.0, 9.0],
+            &[7.0, -5.0, 9.0],
             &[10.0, 11.0, 12.0],
         ],
         "ACCEPT",

@@ -13,9 +13,9 @@ END FILE TYPE.
 ## Example
 
 ```text
-FILE TYPE MIXED RECORD=recid 1-2.
-RECORD TYPE 23.
-DATA LIST /sex 5 age 6-7.
+FILE TYPE MIXED RECORD=rectype 1-2.
+RECORD TYPE 13.
+DATA LIST /team 4 minutes 7-9.
 END FILE TYPE.
 ```
 

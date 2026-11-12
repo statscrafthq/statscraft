@@ -1,7 +1,7 @@
 //! Input programs, REREAD, LEAVE and MATRIX DATA compared with GNU PSPP, run as a black box on the same
 //! syntax: the data files both programs save must hold the same variables, formats and
-//! values. PSPP has no REPEATING DATA or FILE TYPE, so those are checked against the manual
-//! only (tests/input_program.rs). Ignored by default because they need the PSPP program:
+//! values. PSPP has no REPEATING DATA or FILE TYPE, so those are checked by hand only
+//! (tests/input_program.rs). Ignored by default because they need the PSPP program:
 //!
 //! ```text
 //! STATSCRAFT_PSPP=/path/to/pspp cargo test -p statscraft-engine --test reference_input -- --ignored
@@ -93,23 +93,23 @@ fn same_data(case: &str, theirs: &Path, ours: &Path) {
 #[test]
 #[ignore = "needs PSPP"]
 fn end_case_after_a_loop() {
-    // after END CASE inside the loop, GNU PSPP resets the scratch variables the manual keeps
+    // after END CASE inside the loop, GNU PSPP resets the scratch variables we keep
     compare(
         "items",
         "INPUT PROGRAM.\n\
-         DATA LIST /#X1 TO #X3 (3(F1,1X)).\n\
-         VECTOR V=#X1 TO #X3.\n\
-         COMPUTE X=0.\n\
-         LOOP #I=1 TO 3.\n\
-         COMPUTE X=X+V(#I).\n\
+         DATA LIST /#S1 TO #S4 (4(F1,1X)).\n\
+         VECTOR SCORE=#S1 TO #S4.\n\
+         COMPUTE PTS=0.\n\
+         LOOP #K=1 TO 4.\n\
+         COMPUTE PTS=PTS+SCORE(#K).\n\
          END LOOP.\n\
          END CASE.\n\
          END INPUT PROGRAM.\n\
          BEGIN DATA\n\
-         2 1 1\n\
-         3 5 1\n\
+         4 0 7 2\n\
+         9 3 3 8\n\
          END DATA.\n\
-         FORMATS X (F1.0).",
+         FORMATS PTS (F2.0).",
         &[],
     );
 }
@@ -119,7 +119,24 @@ fn end_case_after_a_loop() {
 fn one_case_per_run_without_end_case() {
     compare(
         "headers",
-        [removed]
+        "INPUT PROGRAM.\n\
+         DATA LIST /#N 1 BLDG LEVEL 3-4(A).\n\
+         LOOP #I=1 TO #N.\n\
+         DATA LIST /TEMP 1-3(1).\n\
+         END LOOP.\n\
+         END INPUT PROGRAM.\n\
+         BEGIN DATA\n\
+         2 NE\n\
+         215\n\
+         198\n\
+         0 ZZ\n\
+         1 SW\n\
+         224\n\
+         3 NW\n\
+         187\n\
+         203\n\
+         211\n\
+         END DATA.",
         &[],
     );
 }
@@ -127,41 +144,41 @@ fn one_case_per_run_without_end_case() {
 #[test]
 #[ignore = "needs PSPP"]
 fn end_file_with_and_without_end_case() {
-    let prices = "1878 1 1234\n1879 2 1301\n1880 3 1420\n1881 4 1530\n1882 1 1600\n";
+    let meter = "01 1  4520\n02 2  4877\n03 1  5012\n04 2  5190\n05 1  5333\n";
     compare(
         "end-file",
         "INPUT PROGRAM.\n\
-         DATA LIST FILE='prices.txt' /YEAR 1-4 QUARTER 6 PRICE 8-12(2).\n\
-         DO IF (YEAR GE 1881).\n\
+         DATA LIST FILE='meter.txt' /DAY 1-2 SHIFT 4 KWH 6-10(1).\n\
+         DO IF (DAY GE 4).\n\
          END FILE.\n\
          END IF.\n\
          END INPUT PROGRAM.",
-        &[("prices.txt", prices)],
+        &[("meter.txt", meter)],
     );
     compare(
         "end-file-case",
         "INPUT PROGRAM.\n\
-         DATA LIST FILE='prices.txt' /YEAR 1-4 QUARTER 6 PRICE 8-12(2).\n\
-         DO IF (YEAR GE 1881).\n\
+         DATA LIST FILE='meter.txt' /DAY 1-2 SHIFT 4 KWH 6-10(1).\n\
+         DO IF (DAY GE 4).\n\
          END CASE.\n\
          END FILE.\n\
          ELSE.\n\
          END CASE.\n\
          END IF.\n\
          END INPUT PROGRAM.",
-        &[("prices.txt", prices)],
+        &[("meter.txt", meter)],
     );
 }
 
 #[test]
 #[ignore = "needs PSPP"]
 fn a_generated_index() {
-    // the skip example of the manual differs: see docs/differences.md
+    // the program that skips its first records differs: see docs/differences.md
     compare(
         "generated",
         "INPUT PROGRAM.\n\
-         LOOP I=1 TO 20.\n\
-         COMPUTE SQUARE=I*I.\n\
+         LOOP K=3 TO 30 BY 3.\n\
+         COMPUTE CUBE=K**3.\n\
          END CASE.\n\
          END LOOP.\n\
          END FILE.\n\
@@ -172,25 +189,37 @@ fn a_generated_index() {
 
 #[test]
 #[ignore = "needs PSPP"]
-fn end_variables_concatenate_files() {
+fn end_variables_join_files() {
     compare(
         "three-files",
         "INPUT PROGRAM.\n\
-         NUMERIC #EOF1 TO #EOF3.\n\
-         [removed]
+         NUMERIC #DONE1 #DONE2 #DONE3.\n\
+         DO IF NOT #DONE1.\n\
+         DATA LIST FILE='north.txt' END=#DONE1 NOTABLE /1 SHOP 1-12(A) STAFF 14-15 TOWN 17-18(A).\n\
+         DO IF NOT #DONE1.\n\
+         END CASE.\n\
+         END IF.\n\
+         ELSE IF NOT #DONE2.\n\
+         DATA LIST FILE='south.txt' END=#DONE2 NOTABLE / SHOP 1-12(A) STAFF 20-21 TOWN 23-24(A).\n\
+         DO IF NOT #DONE2.\n\
+         END CASE.\n\
+         END IF.\n\
+         ELSE IF NOT #DONE3.\n\
+         DATA LIST FILE='east.txt' END=#DONE3 NOTABLE / SHOP 3-14(A) STAFF 16-17 TOWN 19-20 (A).\n\
+         DO IF NOT #DONE3.\n\
+         END CASE.\n\
+         END IF.\n\
+         ELSE.\n\
+         END FILE.\n\
+         END IF.\n\
+         END INPUT PROGRAM.",
         &[
-            (
-                "one.txt",
-                "Ann                 34 F\nBob                 45 M\n",
-            ),
-            ("two.txt", "Cy                  29 M\n"),
-            (
-                "three.txt",
-                "Di                      51  F\nEd                      62  M\n",
-            ),
+            ("north.txt", "Harbour      12 TA\nMill Lane     7 TA\n"),
+            ("south.txt", "Riverside           9 PA\n"),
+            ("east.txt", "  Old Square   15 NA\n  Station       4 TA\n"),
         ],
     );
-    // the running total of the manual differs: see docs/differences.md
+    // the running total kept with LEAVE differs: see docs/differences.md
 }
 
 #[test]
@@ -198,7 +227,59 @@ fn end_variables_concatenate_files() {
 fn reread_by_kind_and_by_column() {
     compare(
         "reread",
-        [removed]
+        "INPUT PROGRAM.\n\
+         DATA LIST /SHELF 1-2 KIND 10-14 (A).\n\
+         DO IF (KIND EQ 'GEAR').\n\
+         REREAD.\n\
+         DATA LIST /COST 3-6 (DOLLAR,2) STOCK 7-9.\n\
+         END CASE.\n\
+         ELSE IF (KIND EQ 'BELT').\n\
+         REREAD.\n\
+         DATA LIST /COST 15-18 (DOLLAR,2) STOCK 19-21.\n\
+         END CASE.\n\
+         END IF.\n\
+         END INPUT PROGRAM.\n\
+         BEGIN DATA\n\
+         04 875012GEAR      SPROCKET 12T\n\
+         061999004PULLY     CAST IRON\n\
+         05 450120GEAR      SPUR 20T\n\
+         04       BELT 1450 30  V-BELT A40\n\
+         06       PULLY       DOUBLE GROOVE\n\
+         05       BELT  725  8  FLAT 25MM\n\
+         05       BELT 2100 15  TIMING\n\
+         07 990  1CHAIN     ROLLER\n\
+         END DATA.",
+        &[],
+    );
+    compare(
+        "reread-twice",
+        "INPUT PROGRAM.\n\
+         DATA LIST NOTABLE /LINE 1-15(A).\n\
+         REREAD COLUMN = 4.\n\
+         REREAD COLUMN = 9.\n\
+         DATA LIST NOTABLE /CODE 1-2(A).\n\
+         END INPUT PROGRAM.\n\
+         BEGIN DATA\n\
+         10 aa   pq\n\
+         20 bb   rs\n\
+         30 cc   tu\n\
+         END DATA.",
+        &[],
+    );
+    compare(
+        "reread-list",
+        "INPUT PROGRAM.\n\
+         DATA LIST NOTABLE FIXED /TAG 1-10(A).\n\
+         REREAD COLUMN = 11.\n\
+         DATA LIST LIST /P Q R.\n\
+         END INPUT PROGRAM.\n\
+         BEGIN DATA\n\
+         alpha one 4 8 15 16\n\
+         beta      7 1\n\
+         gamma     2 9 3\n\
+         delta\n\
+         zeta-final6 7 8\n\
+         END DATA.",
         &[],
     );
 }
@@ -208,33 +289,34 @@ fn reread_by_kind_and_by_column() {
 fn leave_outside_an_input_program() {
     compare(
         "leave",
-        "DATA LIST LIST /Var1 Var2 Var3.\n\
+        "DATA LIST LIST /Visits Spend Tips.\n\
          BEGIN DATA\n\
-         1 2 3\n\
-         4 5 6\n\
-         7 8 9\n\
+         2 30 4\n\
+         1 12 0\n\
+         3 45 6\n\
          END DATA.\n\
-         COMPUTE TotalVar1=TotalVar1+Var1.\n\
-         LEAVE TotalVar1.\n\
-         IF (Var1 = 4) other = 10.\n\
-         LEAVE other.",
+         COMPUTE RunVisits=RunVisits+Visits.\n\
+         LEAVE RunVisits.\n\
+         IF (Visits = 1) bonus = 5.\n\
+         LEAVE bonus.",
         &[],
     );
     compare(
         "leave-lag",
-        "DATA LIST LIST /DEPT SALARY.\n\
+        "DATA LIST LIST /TEAM POINTS.\n\
          BEGIN DATA\n\
-         2 100\n\
-         1 50\n\
-         2 30\n\
-         1 20\n\
-         1 5\n\
+         3 12\n\
+         1 7\n\
+         3 9\n\
+         1 4\n\
+         2 10\n\
+         1 1\n\
          END DATA.\n\
-         SORT CASES DEPT.\n\
-         IF DEPT NE LAG(DEPT,1) TSALARY=0.\n\
-         COMPUTE TSALARY=TSALARY+SALARY.\n\
-         LEAVE TSALARY.\n\
-         FORMATS TSALARY (DOLLAR8)/ SALARY (DOLLAR7).",
+         SORT CASES TEAM.\n\
+         IF (TEAM NE LAG(TEAM)) RUNPTS=0.\n\
+         COMPUTE RUNPTS=RUNPTS+POINTS.\n\
+         LEAVE RUNPTS.\n\
+         FORMATS RUNPTS (COMMA6)/ POINTS (F3).",
         &[],
     );
 }
@@ -243,19 +325,19 @@ fn leave_outside_an_input_program() {
 const MATRIX_CASES: [(&str, &str); 14] = [
     (
         "explicit",
-        "MATRIX DATA VARIABLES=ROWTYPE_ a b c.\nBEGIN DATA\n'MEAN' 9.67 35.08 2.29\nSD 4.48 9.15 1.29\nN 50 50 50\nCORR 1\nCORR -.45 1\nCORR .31 -.90 1\nEND DATA.",
+        "MATRIX DATA VARIABLES=ROWTYPE_ a b c.\nBEGIN DATA\n'MEAN' 3.25 41.5 0.82\nSD 1.1 7.4 0.35\nN 60 60 60\nCORR 1\nCORR -.21 1\nCORR .48 -.66 1\nEND DATA.",
     ),
     (
         "upper-nodiagonal",
-        "MATRIX DATA VARIABLES=a b c d /CONTENTS=MEAN SD N CORR /FORMAT=UPPER NODIAGONAL.\nBEGIN DATA\n9.6 35.1 2.3 1106.8\n4.5 9.2 1.3 990.9\n50 50 50 50\n-.45 .31 .22\n-.91 -.76\n.79\nEND DATA.",
+        "MATRIX DATA VARIABLES=a b c d /CONTENTS=MEAN SD N CORR /FORMAT=UPPER NODIAGONAL.\nBEGIN DATA\n3.2 41.5 0.8 512.4\n1.1 7.4 0.4 88.2\n60 60 60 60\n-.21 .48 .15\n-.66 -.33\n.57\nEND DATA.",
     ),
     (
         "within-together",
-        [removed]
+        "MATRIX DATA VARIABLES=f a b c /FACTORS=f /CELLS=2 /CONTENTS=(MEAN SD N) CORR.\nBEGIN DATA\n1 10 20 30\n1 1 2 3\n1 15 15 15\n2 11 18 33\n2 1.2 2.5 2.8\n2 12 12 12\n1\n.25 1\n.4 -.3 1\nEND DATA.",
     ),
     (
         "within-apart",
-        [removed]
+        "MATRIX DATA VARIABLES=f a b c /FACTORS=f /CELLS=2 /CONTENTS=(MEAN) (SD) (N) CORR.\nBEGIN DATA\n1 10 20 30\n2 11 18 33\n1 1 2 3\n2 1.2 2.5 2.8\n1 15 15 15\n2 12 12 12\n1\n.25 1\n.4 -.3 1\nEND DATA.",
     ),
     (
         "two-factors-implicit",
@@ -263,35 +345,35 @@ const MATRIX_CASES: [(&str, &str); 14] = [
     ),
     (
         "explicit-factor",
-        "MATRIX DATA VARIABLES=world ROWTYPE_ food appl /FACTORS=world.\nBEGIN DATA\n1 N 25 25\n1 MEAN 76.64 77.32\n2 N 7 7\n2 MEAN 76.14 85.28\n. SD 16.46 22.55\n. CORR 1\n. CORR .14 1\nEND DATA.",
+        "MATRIX DATA VARIABLES=site ROWTYPE_ heat cost /FACTORS=site.\nBEGIN DATA\n1 N 18 18\n1 MEAN 21.4 63.1\n2 N 9 9\n2 MEAN 19.85 70.25\n. SD 3.2 11.7\n. CORR 1\n. CORR -.37 1\nEND DATA.",
     ),
     (
         "mse-dfe",
-        "MATRIX DATA VARIABLES=educ ROWTYPE_ well /FACTORS=educ.\nBEGIN DATA\n1 N 65\n2 N 95\n1 MEAN 2.6462\n2 MEAN 2.7737\n. MSE 6.2699\n. DFE 494\nEND DATA.",
+        "MATRIX DATA VARIABLES=dose ROWTYPE_ gain /FACTORS=dose.\nBEGIN DATA\n1 N 24\n2 N 31\n1 MEAN 4.125\n2 MEAN 5.0484\n. MSE 2.3317\n. DFE 53\nEND DATA.",
     ),
     (
         "split-generated",
-        [removed]
+        "MATRIX DATA VARIABLES=a b c /CONTENTS=MEAN SD N CORR /SPLIT=spl.\nBEGIN DATA\n12 7 30\n2 1.5 4\n40 40 40\n1\n.25 1\n.4 -.3 1\n14 6 28\n2.5 1 3\n35 35 35\n1\n.1 1\n.2 .15 1\nEND DATA.",
     ),
     (
         "split-in-data",
-        [removed]
+        "MATRIX DATA VARIABLES=s1 ROWTYPE_ a b c /SPLIT=s1.\nBEGIN DATA\n3 MEAN 12 7 30\n3 SD 2 1.5 4\n3 N 40 40 40\n3 CORR 1\n3 CORR .25 1\n3 CORR .4 -.3 1\n4 MEAN 14 6 28\n4 SD 2.5 1 3\n4 N 35 35 35\n4 CORR 1\n4 CORR .1 1\n4 CORR .2 .15 1\nEND DATA.",
     ),
     (
         "n-subcommand",
-        "MATRIX DATA VARIABLES=a b c /CONTENTS=MEAN SD CORR /N=99.\nBEGIN DATA\n5 4 3\n3 4 5\n1\n.6 1\n.7 .8 1\nEND DATA.",
+        "MATRIX DATA VARIABLES=a b c /CONTENTS=MEAN SD CORR /N=55.\nBEGIN DATA\n12 7 30\n4 3 2.5\n1\n.25 1\n.4 -.3 1\nEND DATA.",
     ),
     (
         "n-scalar",
-        "MATRIX DATA VARIABLES=a b c /CONTENTS=MEAN SD N_SCALAR CORR.\nBEGIN DATA\n5 4 3\n3 2 1\n9\n1\n.6 1\n.7 .8 1\nEND DATA.",
+        "MATRIX DATA VARIABLES=a b c /CONTENTS=MEAN SD N_SCALAR CORR.\nBEGIN DATA\n12 7 30\n2 1.5 4\n40\n1\n.25 1\n.4 -.3 1\nEND DATA.",
     ),
     (
         "full",
-        "MATRIX DATA VARIABLES=ROWTYPE_ a b c /FORMAT=FULL.\nBEGIN DATA\nMEAN 5 4 3\nCOV 4 1.2 .5\nCOV 1.2 9 2.1\nCOV .5 2.1 1\nEND DATA.",
+        "MATRIX DATA VARIABLES=ROWTYPE_ a b c /FORMAT=FULL.\nBEGIN DATA\nMEAN 12 7 30\nCOV 4 1.2 .5\nCOV 1.2 9 2.1\nCOV .5 2.1 1\nEND DATA.",
     ),
     (
         "lower-nodiagonal",
-        "MATRIX DATA VARIABLES=ROWTYPE_ a b c /FORMAT=LOWER NODIAGONAL.\nBEGIN DATA\nN 9 9 9\nCORR .6\nCORR .7 .8\nEND DATA.",
+        "MATRIX DATA VARIABLES=ROWTYPE_ a b c /FORMAT=LOWER NODIAGONAL.\nBEGIN DATA\nN 40 40 40\nCORR .25\nCORR .4 -.3\nEND DATA.",
     ),
     (
         "free-prox",

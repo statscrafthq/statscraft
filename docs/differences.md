@@ -497,7 +497,7 @@ Where the documentation is silent:
 - The weight variable is used. SPLIT(n) puts n items in the second part, and SPLIT alone splits in halves, the odd item going to the first part (GNU PSPP differs).
 - The standardized alpha is always shown with ALPHA.
 - The summaries of inter-item covariances and correlations run over every ordered pair of items, the variance dividing by k(k - 1) - 1, as the formula reads.
-[removed]
+- The goodness-of-fit test of PARALLEL and STRICTPARALLEL uses the determinant of the constrained matrix, as the manual's text describes (its likelihood ratio formula prints k + 1 and 1/k where that matrix has k - 1 and 1/(k - 1)).
 - FRIEDMAN and COCHRAN use the values as they are, so the items must be ranks within each case, or 0 and 1.
 - With ICC MODEL(MIXED), the average measures are computed as if there were no interaction, with a caption saying so.
 - Cases with a zero or missing weight are not counted in the Case Processing Summary.

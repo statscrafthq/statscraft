@@ -15,7 +15,7 @@ Usually inside DO IF. Put END CASE before it to keep the case being built.
 ## Example
 
 ```text
-DO IF year >= 1881.
+DO IF day > 30.
 END FILE.
 END IF.
 ```

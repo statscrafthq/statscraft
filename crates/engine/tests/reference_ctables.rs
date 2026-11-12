@@ -521,10 +521,10 @@ fn computed_categories() {
     // list holds it as written, where the manual computes every summary and totals the listed
     // categories in a range, so those are checked in ctables.rs
     survey(&[
-        "CTABLES /PCOMPUTE &x=EXPR([2]-[1]) /PPROPERTIES &x LABEL='Female - Male'\n\
-         /TABLE gender /CATEGORIES VARIABLES=gender [1, 2, &x].",
-        "CTABLES /PCOMPUTE &x=EXPR([2]/[1]) /PPROPERTIES &x LABEL='Female / Male' FORMAT=COUNT F8.3\n\
-         /TABLE gender /CATEGORIES VARIABLES=gender [1, 2, &x].",
+        "CTABLES /PCOMPUTE &gap=EXPR([1]-[2]) /PPROPERTIES &gap LABEL='Gap 1 to 2'\n\
+         /TABLE gender /CATEGORIES VARIABLES=gender [1, 2, &gap].",
+        "CTABLES /PCOMPUTE &ratio=EXPR([1]/[2]) /PPROPERTIES &ratio LABEL='Ratio 1 to 2' FORMAT=COUNT F8.3\n\
+         /TABLE gender /CATEGORIES VARIABLES=gender [&ratio, 1, 2].",
         "CTABLES /PCOMPUTE &top=EXPR([4] + [5]) /PPROPERTIES &top LABEL='Top two'\n\
          /TABLE q1_satisfaction [COUNT, COLPCT] BY gender\n\
          /CATEGORIES VARIABLES=q1_satisfaction [1, 2, 3, 4, 5, &top] TOTAL=YES.",

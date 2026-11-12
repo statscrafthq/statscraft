@@ -343,7 +343,7 @@ fn labels(t: &Table) -> Vec<String> {
 // OTHERNM and MISSING in an explicit list (CATEGORIES, "Explicit Category Specification", page
 // 494): OTHERNM stands for every valid value the list does not name, ascending, where it
 // stands; MISSING for every user-missing value. A value named twice takes its last place, so
-// [OTHERNM, 3] is [1, 2, 4, 5, 3], as the manual's example says.
+// [OTHERNM, 3] is [1, 2, 4, 5, 3].
 #[test]
 fn othernm_and_missing_stand_for_the_values_not_named() {
     let file = "survey_basic.sav";
