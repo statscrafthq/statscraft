@@ -2995,7 +2995,7 @@ impl eframe::App for App {
                 ui.label("License: MIT");
                 ui.hyperlink_to("Source code", REPOSITORY);
                 ui.hyperlink_to("Documentation", DOCS);
-                ui.collapsing("Colour themes", |ui| {
+                ui.collapsing("Color themes", |ui| {
                     ui.add(egui::Label::new(RichText::new(themes::NOTICES).small()).wrap());
                 });
                 ui.collapsing("Fonts", |ui| {

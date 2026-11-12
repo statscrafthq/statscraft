@@ -143,7 +143,7 @@ fn body(ui: &mut Ui, section: Section, settings: &mut Settings) -> bool {
     let mut changed = false;
     match section {
         Section::Editor => {
-            ui.label("Syntax colours");
+            ui.label("Syntax colors");
             let current = themes::by_name(&settings.theme).name;
             ComboBox::from_id_salt("syntax colours")
                 .selected_text(current)
