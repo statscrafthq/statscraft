@@ -1,6 +1,7 @@
 //! Edit > Settings: every setting of the window in one dialog, by section. A change applies at
 //! once and is saved. How tables show variables and values are settings of the session: a
-//! choice there runs SET TVARS or SET TNUMBERS like any other command, and the session keeps it.
+//! choice there runs SET TVARS or SET TNUMBERS like any other command, the session keeps it, and
+//! the window saves it to run the same SET when it starts again.
 
 use crate::settings::Settings;
 use crate::themes;
@@ -83,7 +84,12 @@ pub fn show(
                     changed = body(ui, *current, settings);
                     if *current == Section::GridsAndOutput {
                         ui.add_space(8.0);
-                        run = table_labels(ui, labels);
+                        if let Some((subcommand, keyword)) = table_labels(ui, labels) {
+                            // kept for the next start, and run now like any SET
+                            settings.keep_table_labels(subcommand, keyword);
+                            changed = true;
+                            run = Some(set_syntax(subcommand, keyword));
+                        }
                     }
                 });
             });
@@ -100,8 +106,8 @@ pub fn show(
     run
 }
 
-/// How tables show variables and values; a new choice gives its SET command.
-fn table_labels(ui: &mut Ui, labels: &TableLabels) -> Option<String> {
+/// How tables show variables and values; a new choice gives its SET subcommand and keyword.
+fn table_labels(ui: &mut Ui, labels: &TableLabels) -> Option<(&'static str, &'static str)> {
     let mut run = None;
     for (title, current, (subcommand, choices)) in [
         ("Variables in tables", &labels.variables, VARIABLE_CHOICES),
@@ -119,7 +125,7 @@ fn table_labels(ui: &mut Ui, labels: &TableLabels) -> Option<String> {
                 for (keyword, name) in choices {
                     let selected = keyword.eq_ignore_ascii_case(current);
                     if ui.selectable_label(selected, name).clicked() && !selected {
-                        run = Some(set_syntax(subcommand, keyword));
+                        run = Some((subcommand, keyword));
                     }
                 }
             });

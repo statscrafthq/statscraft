@@ -1,11 +1,16 @@
 //! What the window remembers between starts: its size and position, the folder of the last
 //! file dialog, the recent files and the settings of Edit > Settings. Kept in the user's config
-//! folder as lines of text.
+//! folder as lines of text. How tables show variables and values (SET TVARS and TNUMBERS) is
+//! kept here too, and a new session of the window starts by running that SET.
 
 use std::path::{Path, PathBuf};
 
 /// The most recent files kept.
 const RECENT: usize = 10;
+
+/// The values of SET TVARS and TNUMBERS that the window keeps.
+const TVARS: [&str; 3] = ["NAMES", "LABELS", "BOTH"];
+const TNUMBERS: [&str; 3] = ["VALUES", "LABELS", "BOTH"];
 
 #[derive(Default, Debug, PartialEq)]
 pub struct Settings {
@@ -29,6 +34,9 @@ pub struct Settings {
     pub wrap_off: bool,
     /// No log under the Syntax and Output views (a run with warnings still shows it).
     pub log_hidden: bool,
+    /// SET TVARS and TNUMBERS chosen in Edit > Settings, in upper case; `None` until chosen.
+    pub tvars: Option<String>,
+    pub tnumbers: Option<String>,
 }
 
 impl Settings {
@@ -65,8 +73,8 @@ impl Settings {
 
     /// Reads the lines `size W H`, `position X Y`, `folder PATH`, `recent PATH`,
     /// `updates on|off`, `update-checked SECONDS`, `paper system`, `theme NAME`, `wrap off`,
-    /// `log hidden` and `variable_widths W ...`;
-    /// anything else is skipped.
+    /// `log hidden`, `variable_widths W ...`, `tvars names|labels|both` and
+    /// `tnumbers values|labels|both`; anything else is skipped.
     pub fn parse(text: &str) -> Self {
         let mut settings = Self::default();
         let pair = |rest: &str| {
@@ -95,6 +103,8 @@ impl Settings {
                 }
                 "updates" if rest == "on" || rest == "off" => settings.updates = Some(rest == "on"),
                 "update-checked" => settings.update_checked = rest.parse().ok(),
+                "tvars" => settings.tvars = keyword(&TVARS, rest),
+                "tnumbers" => settings.tnumbers = keyword(&TNUMBERS, rest),
                 _ => {}
             }
         }
@@ -137,7 +147,31 @@ impl Settings {
         if let Some(time) = self.update_checked {
             text.push_str(&format!("update-checked {time}\n"));
         }
+        for (key, value) in [("tvars", &self.tvars), ("tnumbers", &self.tnumbers)] {
+            if let Some(value) = value {
+                text.push_str(&format!("{key} {}\n", value.to_lowercase()));
+            }
+        }
         text
+    }
+
+    /// Keeps a choice of SET TVARS or TNUMBERS from Edit > Settings.
+    pub fn keep_table_labels(&mut self, subcommand: &str, value: &str) {
+        match subcommand {
+            "TVARS" => self.tvars = keyword(&TVARS, value),
+            "TNUMBERS" => self.tnumbers = keyword(&TNUMBERS, value),
+            _ => {}
+        }
+    }
+
+    /// The SET command a new session of the window starts with, when TVARS or TNUMBERS was
+    /// chosen; the session then holds them like any SET.
+    pub fn startup_syntax(&self) -> Option<String> {
+        let set: Vec<String> = [("TVARS", &self.tvars), ("TNUMBERS", &self.tnumbers)]
+            .into_iter()
+            .filter_map(|(name, value)| Some(format!("{name}={}", value.as_ref()?)))
+            .collect();
+        (!set.is_empty()).then(|| format!("SET {}.", set.join(" ")))
     }
 
     /// Notes the folder of a file chosen in a file dialog.
@@ -155,6 +189,12 @@ impl Settings {
         self.recent.insert(0, file);
         self.recent.truncate(RECENT);
     }
+}
+
+/// `word` in upper case when it is one of `allowed`.
+fn keyword(allowed: &[&str], word: &str) -> Option<String> {
+    let word = word.trim().to_uppercase();
+    allowed.contains(&word.as_str()).then_some(word)
 }
 
 #[cfg(test)]
@@ -175,6 +215,8 @@ mod tests {
             theme: "Solarized Dark".into(),
             wrap_off: true,
             log_hidden: true,
+            tvars: Some("NAMES".into()),
+            tnumbers: Some("BOTH".into()),
         };
         for i in 0..12 {
             settings.add_recent(Path::new(&format!("/data/f{i}.sav")));
@@ -202,5 +244,29 @@ mod tests {
         // a relative path is kept as the folder it means now
         settings.remember_folder(Path::new("job.sps"));
         assert_eq!(settings.folder, Some(std::env::current_dir().unwrap()));
+    }
+
+    #[test]
+    fn table_labels_are_kept_and_set_when_a_session_starts() {
+        let mut settings = Settings::default();
+        assert_eq!(settings.startup_syntax(), None);
+        settings.keep_table_labels("TVARS", "NAMES");
+        settings.keep_table_labels("TNUMBERS", "both");
+        let text = settings.text();
+        assert_eq!(text, "tvars names\ntnumbers both\n");
+        let read = Settings::parse(&text);
+        assert_eq!(read, settings);
+        // a value SET would refuse is not kept
+        assert_eq!(
+            Settings::parse("tvars values\ntnumbers names\n"),
+            Settings::default()
+        );
+        let syntax = read.startup_syntax().unwrap();
+        assert_eq!(syntax, "SET TVARS=NAMES TNUMBERS=BOTH.");
+        let mut session = statscraft_engine::session::Session::default();
+        session.run(&syntax, None).unwrap();
+        assert_eq!(session.setting("TVARS"), "NAMES");
+        assert_eq!(session.setting("TNUMBERS"), "BOTH");
+        assert!(session.settings_syntax().contains("TVARS='NAMES'"));
     }
 }

@@ -592,6 +592,13 @@ impl App {
             ctx: app_ctx,
             server: server.ok(),
         };
+        // the table labels chosen in Edit > Settings, as a SET the session then holds
+        if let Some(syntax) = app.settings.startup_syntax() {
+            app.source = syntax.clone();
+            if let Err(errors) = app.session.run(&syntax, None) {
+                app.status = Err(error_text(&errors));
+            }
+        }
         for arg in args {
             let path = PathBuf::from(arg);
             if is_syntax_file(&path) {
