@@ -2,9 +2,9 @@
 
 use crate::descriptives::case_weights;
 use crate::dist::chi_square_p;
-use crate::format::{Currencies, category_text};
+use crate::shown::Shown;
 use crate::{Cell, Engine, Error, Table};
-use statscraft_data::{Dataset, Value, Values, Variable};
+use statscraft_data::{Dataset, Values, Variable};
 use statscraft_syntax::{Crosstabs, CrosstabsCell as C, WeightCount};
 use std::cmp::Ordering;
 
@@ -40,24 +40,6 @@ pub(crate) fn categories(variable: &Variable, include: bool) -> Vec<Option<Key>>
             .iter()
             .map(|v| (include || !variable.is_user_missing_str(v)).then(|| Key::Text(v.into())))
             .collect(),
-    }
-}
-
-/// The value label of a category, else its value (a date, time or custom currency in its
-/// format).
-pub(crate) fn label(variable: &Variable, key: &Key, currencies: &Currencies) -> String {
-    let labelled = variable
-        .value_labels()
-        .iter()
-        .find(|(value, _)| match (value, key) {
-            (Value::Number(a), Key::Number(b)) => a == b,
-            (Value::String(a), Key::Text(b)) => a == b,
-            _ => false,
-        });
-    match (labelled, key) {
-        (Some((_, label)), _) => label.clone(),
-        (None, Key::Number(n)) => category_text(*n, &currencies.resolve(variable.format())),
-        (None, Key::Text(text)) => text.clone(),
     }
 }
 
@@ -318,7 +300,7 @@ fn tables(
     data: &Dataset,
     names: &[String],
     command: &Crosstabs,
-    currencies: &Currencies,
+    (shown, outline): (&Shown, &Shown),
 ) -> Result<Vec<Table>, Error> {
     let variables: Vec<Variable> = names
         .iter()
@@ -340,12 +322,11 @@ fn tables(
     let layer_variables = &variables[2..];
     let layer_cells = |block: &Block| -> Vec<Cell> {
         let pairs = layer_variables.iter().zip(&block.layer);
-        pairs
-            .map(|(v, k)| Cell::Text(label(v, k, currencies)))
-            .collect()
+        pairs.map(|(v, k)| Cell::Text(shown.value(v, k))).collect()
     };
-    let layer_names = || layer_variables.iter().map(|v| v.name().to_string());
-    let title = names.join(" by ");
+    let layer_names = || layer_variables.iter().map(|v| shown.variable(v));
+    let title: Vec<String> = variables.iter().map(|v| outline.variable(v)).collect();
+    let title = title.join(" by ");
     let mut out = Vec::new();
 
     if !command.cells.is_empty() && !blocks.is_empty() {
@@ -354,13 +335,13 @@ fn tables(
         union.sort_by(|a, b| a.compare(b));
         union.dedup();
         let mut columns: Vec<String> = layer_names().collect();
-        columns.extend([variables[0].name().to_string(), "Statistic".into()]);
+        columns.extend([shown.variable(&variables[0]), "Statistic".into()]);
         let headers = columns.len();
-        columns.extend(union.iter().map(|k| label(&variables[1], k, currencies)));
+        columns.extend(union.iter().map(|k| shown.value(&variables[1], k)));
         columns.push("Total".into());
         let mut column_groups = vec![Vec::new(); columns.len()];
         for group in &mut column_groups[headers..columns.len() - 1] {
-            group.push(variables[1].name().to_string());
+            group.push(shown.variable(&variables[1]));
         }
         let mut rows = Vec::new();
         for block in &blocks {
@@ -377,7 +358,7 @@ fn tables(
                     }
                     let mut row = layer_cells(block);
                     row.push(Cell::Text(match i {
-                        Some(i) => label(&variables[0], &block.rows[i], currencies),
+                        Some(i) => shown.value(&variables[0], &block.rows[i]),
                         None => "Total".into(),
                     }));
                     row.push(Cell::Text(cell_name(statistic).into()));
@@ -441,7 +422,7 @@ fn tables(
 impl Engine {
     pub(crate) fn crosstabs(&self, command: &Crosstabs) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
-        let currencies = self.currencies();
+        let (shown, outline) = (self.shown(), self.outline());
         let mut out = Vec::new();
         for dimensions in &command.tables {
             let lists: Vec<Vec<String>> = dimensions
@@ -463,7 +444,7 @@ impl Engine {
                     .collect();
             }
             for names in combinations {
-                out.extend(tables(data, &names, command, &currencies)?);
+                out.extend(tables(data, &names, command, (&shown, &outline))?);
             }
         }
         Ok(out)

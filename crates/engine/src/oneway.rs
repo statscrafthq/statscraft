@@ -26,7 +26,6 @@
 //!   ranges of r < k - 1 means. A subset's significance is the smallest alpha at which its range
 //!   would be significant; Tukey's b averages two critical values and has none.
 
-use crate::crosstabs;
 use crate::descriptives::{case_weights, number};
 use crate::dist::{
     dunnett_cdf, dunnett_quantile, f_p, f_quantile, maximum_modulus_cdf, maximum_modulus_quantile,
@@ -354,11 +353,13 @@ fn compare(
 }
 
 /// The post hoc tables of one dependent variable: Multiple Comparisons and Homogeneous Subsets.
+/// `dependent` is the name for warnings and the text for titles, `factor` and `labels` as
+/// tables show them (see `shown`).
 /// `groups` are the groups in ascending order of the factor, `labels` their names; `within`
 /// and `df` the error mean square and its degrees of freedom.
 #[allow(clippy::too_many_arguments)]
 pub(crate) fn posthoc_tables(
-    dependent: &str,
+    (dependent, title): (&str, &str),
     factor: &str,
     labels: &[String],
     groups: &[Group],
@@ -452,7 +453,7 @@ pub(crate) fn posthoc_tables(
             }
         }
         let mut table = simple(
-            format!("Multiple Comparisons: {}", dependent),
+            format!("Multiple Comparisons: {title}"),
             &[
                 "",
                 "(I) group",
@@ -520,7 +521,7 @@ pub(crate) fn posthoc_tables(
             ));
         }
         subset = Some(Table {
-            title: format!("Homogeneous Subsets: {}", dependent),
+            title: format!("Homogeneous Subsets: {title}"),
             row_headers: 2,
             columns,
             column_groups,
@@ -541,11 +542,8 @@ impl Engine {
             .map(|n| data.variable(n))
             .collect::<Result<_, _>>()?;
         let factor = data.variable(&command.factor)?;
-        // a group's value label, else its value in the factor's format
-        let currencies = self.currencies();
-        let label = |factor: &Variable, value: f64| {
-            crosstabs::label(factor, &crosstabs::Key::Number(value), &currencies)
-        };
+        let (shown, outline) = (self.shown(), self.outline());
+        let label = |factor: &Variable, value: f64| shown.number(factor, value);
         for v in dependents.iter().chain([&factor]) {
             if v.is_string() {
                 return Err(Error(format!(
@@ -624,7 +622,7 @@ impl Engine {
                 .sum();
             let df_within = w - k;
             let ms_within = within / df_within;
-            let name = || Cell::Text(dependent.name().to_string());
+            let name = || Cell::Text(shown.variable(dependent));
             if k < 2.0 {
                 warnings.push(format!(
                     "no analysis of variance for {}: it needs at least two groups",
@@ -812,8 +810,8 @@ impl Engine {
             let groups: Vec<Group> = present.iter().map(|(_, g)| *g).collect();
             let labels: Vec<String> = present.iter().map(|(l, _)| label(&factor, *l)).collect();
             let (comparison, subset) = posthoc_tables(
-                dependent.name(),
-                factor.name(),
+                (dependent.name(), &outline.variable(dependent)),
+                &shown.variable(&factor),
                 &labels,
                 &groups,
                 &command.posthoc,
@@ -843,7 +841,7 @@ impl Engine {
                 ],
                 descriptives,
             );
-            table.columns[1] = factor.name().to_string();
+            table.columns[1] = shown.variable(&factor);
             let level = format!("{ci} for Mean");
             table.column_groups[6] = vec![level.clone()];
             table.column_groups[7] = vec![level];
@@ -886,7 +884,7 @@ impl Engine {
                 })
                 .collect();
             let mut groups = vec![Vec::new()];
-            groups.extend(vec![vec![factor.name().to_string()]; levels.len()]);
+            groups.extend(vec![vec![shown.variable(&factor)]; levels.len()]);
             out.push(Table {
                 title: "Contrast Coefficients".into(),
                 row_headers: 1,

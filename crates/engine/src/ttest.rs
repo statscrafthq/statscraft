@@ -15,12 +15,14 @@
 //! - Effect sizes: Cohen's d and Hedges' correction, with Glass's delta for independent
 //!   samples; intervals from the noncentral t, except the corrected d of paired samples.
 
+use crate::crosstabs::Key;
 use crate::descriptives::{case_weights, number};
 use crate::dist::{hedges_j, noncentral_t_parameter, t_p, t_quantile};
 use crate::format::{Currencies, category_text};
 use crate::means::is_valid;
+use crate::shown::Shown;
 use crate::{Cell, Engine, Error, Table};
-use statscraft_data::{Dataset, Value as Stored, Values, Variable};
+use statscraft_data::{Dataset, Values, Variable};
 use statscraft_syntax::{Standardizer, TTest, TTestGroups, Value};
 
 /// Weighted count, mean and variance of (value, weight) pairs.
@@ -150,17 +152,13 @@ fn shown(value: &Value, format: &str) -> String {
     }
 }
 
-/// The label of a group value: its value label, else the value.
-fn group_label(variable: &Variable, value: &Value, format: &str) -> String {
-    let found = variable
-        .value_labels()
-        .iter()
-        .find(|(v, _)| match (v, value) {
-            (Stored::Number(a), Value::Number(b)) => a == b,
-            (Stored::String(a), Value::String(b)) => a.trim_end() == b.trim_end(),
-            _ => false,
-        });
-    found.map_or_else(|| shown(value, format), |(_, label)| label.clone())
+/// A group value as SET TNUMBERS shows it.
+fn group_label(run: &Run, variable: &Variable, value: &Value) -> String {
+    let key = match value {
+        Value::Number(n) => Key::Number(*n),
+        Value::String(s) => Key::Text(s.trim_end().to_string()),
+    };
+    run.shown.value(variable, &key)
 }
 
 struct Run<'d> {
@@ -170,6 +168,7 @@ struct Run<'d> {
     alpha: f64,
     ci: String,
     currencies: Currencies,
+    shown: Shown,
     warnings: Vec<String>,
 }
 
@@ -218,6 +217,7 @@ impl Engine {
             alpha: 1.0 - command.ci,
             ci: ci_title(command.ci),
             currencies: self.currencies(),
+            shown: self.shown(),
             warnings: Vec::new(),
         };
         let mut out = Vec::new();
@@ -313,7 +313,7 @@ fn one_sample(run: &mut Run, command: &TTest, variables: &[Variable], value: f64
             run.cases().filter(|&c| run.valid(variable, c)).collect()
         };
         let m = moments(&run.pairs(variable, &cases, false));
-        let name = Cell::Text(variable.name().to_string());
+        let name = Cell::Text(run.shown.variable(variable));
         let se = m.sd() / m.w.sqrt();
         statistics.push(vec![
             name.clone(),
@@ -408,16 +408,13 @@ fn independent(
         TTestGroups::Default => {
             let (a, b) = (Value::Number(1.0), Value::Number(2.0));
             let labels = [
-                group_label(grouping, &a, &format),
-                group_label(grouping, &b, &format),
+                group_label(run, grouping, &a),
+                group_label(run, grouping, &b),
             ];
             (Some(a), Some(b), labels)
         }
         TTestGroups::Two(a, b) => {
-            let labels = [
-                group_label(grouping, a, &format),
-                group_label(grouping, b, &format),
-            ];
+            let labels = [group_label(run, grouping, a), group_label(run, grouping, b)];
             (Some(a.clone()), Some(b.clone()), labels)
         }
         TTestGroups::Cut(cut) => (
@@ -489,7 +486,7 @@ fn independent(
         };
         let cases = [in_group(0), in_group(1)];
         let m = [0, 1].map(|g| moments(&run.pairs(variable, &cases[g], false)));
-        let name = Cell::Text(variable.name().to_string());
+        let name = Cell::Text(run.shown.variable(variable));
         for g in 0..2 {
             statistics.push(vec![
                 if g == 0 { name.clone() } else { Cell::Empty },
@@ -668,7 +665,7 @@ fn paired(run: &mut Run, command: &TTest, pairs: &[(Variable, Variable)]) -> Vec
         for (i, (v, m)) in [(a, mx), (b, my)].into_iter().enumerate() {
             statistics.push(vec![
                 if i == 0 { pair.clone() } else { Cell::Empty },
-                Cell::Text(v.name().to_string()),
+                Cell::Text(run.shown.variable(v)),
                 number(Some(m.mean)),
                 Cell::Number(m.w),
                 number(Some(m.sd())),
@@ -680,7 +677,11 @@ fn paired(run: &mut Run, command: &TTest, pairs: &[(Variable, Variable)]) -> Vec
         let tr = r * ((w - 2.0) / (1.0 - r * r)).sqrt();
         correlations.push(vec![
             pair.clone(),
-            Cell::Text(format!("{} & {}", a.name(), b.name())),
+            Cell::Text(format!(
+                "{} & {}",
+                run.shown.variable(a),
+                run.shown.variable(b)
+            )),
             Cell::Number(w),
             number(Some(r)),
             number(Some(t_p(tr, w - 2.0))),
@@ -691,7 +692,11 @@ fn paired(run: &mut Run, command: &TTest, pairs: &[(Variable, Variable)]) -> Vec
         let t = d / se;
         let df = w - 1.0;
         let half = t_quantile(run.alpha / 2.0, df) * se;
-        let label = Cell::Text(format!("{} - {}", a.name(), b.name()));
+        let label = Cell::Text(format!(
+            "{} - {}",
+            run.shown.variable(a),
+            run.shown.variable(b)
+        ));
         let mut row = vec![pair.clone(), label.clone()];
         row.extend([d, sd, se, d - half, d + half, t, df, t_p(t, df)].map(|v| number(Some(v))));
         tests.push(row);

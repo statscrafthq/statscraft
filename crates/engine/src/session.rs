@@ -285,6 +285,11 @@ impl Session {
         self.engine.currencies()
     }
 
+    /// The value of a SET subcommand, such as TVARS: as SET gave it, else its default.
+    pub fn setting(&self, name: &str) -> String {
+        self.engine.setting(name)
+    }
+
     /// The SET values, PRESERVE levels and CD folder, as SET, PRESERVE and CD commands.
     pub fn settings_syntax(&self) -> String {
         self.engine.settings_syntax()

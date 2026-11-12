@@ -21,7 +21,6 @@
 //!   the functions); Fisher's classification functions; cross-validation leaves each case out
 //!   of the means and the pooled covariance matrix.
 
-use crate::crosstabs::{Key, label};
 use crate::descriptives::{case_weights, number};
 use crate::dist::{chi_square_p, f_p};
 use crate::matrix::{Matrix, inverse, symmetric_eigen};
@@ -554,11 +553,12 @@ impl Engine {
         group_values.sort_by(f64::total_cmp);
         group_values.dedup();
         let g = group_values.len();
-        let currencies = self.currencies();
+        let shown = self.shown();
         let group_labels: Vec<String> = group_values
             .iter()
-            .map(|v| label(&group_var, &Key::Number(*v), &currencies))
+            .map(|v| shown.number(&group_var, *v))
             .collect();
+        let group_name = shown.variable(&group_var);
         let mut tables = Vec::new();
         let mut warnings: Vec<String> = Vec::new();
         let class_format = group_var.format().to_string();
@@ -672,7 +672,10 @@ impl Engine {
                     .collect(),
             };
             let s = sums(&sample, g, p);
-            let block_names: Vec<String> = block.iter().map(|&(i, _)| names[i].clone()).collect();
+            let block_names: Vec<String> = block
+                .iter()
+                .map(|&(i, _)| shown.variable(&variables[i]))
+                .collect();
             if s.n <= g as f64 {
                 return Err(Error(format!(
                     "DISCRIMINANT: the {} weighted cases do not exceed the {g} groups",
@@ -765,11 +768,7 @@ impl Engine {
                         }
                     }
                     let mut columns = plain(&["", ""]);
-                    columns.extend(
-                        group_labels
-                            .iter()
-                            .map(|l| (command.group.clone(), l.clone())),
-                    );
+                    columns.extend(group_labels.iter().map(|l| (group_name.clone(), l.clone())));
                     tables.push(table(
                         "Pairwise Group Comparisons",
                         2,
@@ -1039,7 +1038,7 @@ impl Engine {
                     row
                 })
                 .collect();
-            let mut columns = plain(&[&command.group]);
+            let mut columns = plain(&[&group_name]);
             columns.extend((1..=kf).map(|f| ("Function".to_string(), f.to_string())));
             tables.push(table(
                 "Functions at Group Centroids",
@@ -1266,11 +1265,7 @@ impl Engine {
                 }));
                 rows.push(last);
                 let mut columns = plain(&[""]);
-                columns.extend(
-                    group_labels
-                        .iter()
-                        .map(|l| (command.group.clone(), l.clone())),
-                );
+                columns.extend(group_labels.iter().map(|l| (group_name.clone(), l.clone())));
                 tables.push(table(
                     "Classification Function Coefficients",
                     1,

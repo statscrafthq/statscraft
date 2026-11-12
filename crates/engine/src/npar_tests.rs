@@ -29,13 +29,13 @@
 //! - Friedman with the tie correction; Kendall's W = chi-square / (N (k - 1)); Cochran's Q on two
 //!   values (the choice of success does not change Q).
 
-use crate::crosstabs::{Key, label};
 use crate::descriptives::{case_weights, number};
 use crate::dist::{beta_i, chi_square_p, gamma_q, ln_gamma, normal_cdf, normal_p};
 use crate::examine::{Distribution, lilliefors};
 use crate::format::Currencies;
 use crate::means::is_valid;
 use crate::nonpar_corr::ranks;
+use crate::shown::Shown;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Values, Variable};
 use statscraft_syntax::{
@@ -52,6 +52,9 @@ pub(crate) struct Run<'d> {
     /// With LISTWISE, the cases valid on every variable of the command.
     pub complete: Option<Vec<bool>>,
     pub currencies: Currencies,
+    /// How tables and titles show variables and values (see `shown`).
+    pub shown: Shown,
+    pub outline: Shown,
     pub exact: bool,
     pub warnings: Vec<String>,
 }
@@ -82,7 +85,7 @@ impl Run<'_> {
     }
 
     pub fn label(&self, variable: &Variable, value: f64) -> String {
-        label(variable, &Key::Number(value), &self.currencies)
+        self.shown.number(variable, value)
     }
 
     /// Warns once that METHOD gives no exact significance for `test`.
@@ -416,6 +419,8 @@ impl Engine {
             include: command.include,
             complete,
             currencies: self.currencies(),
+            shown: self.shown(),
+            outline: self.outline(),
             exact: command.exact,
             warnings,
         };
@@ -518,7 +523,7 @@ fn descriptives(run: &Run, variables: &[&Variable], command: &NparTests) -> Tabl
         let cases = run.cases(&[v]);
         let pairs = run.pairs(v, &cases);
         let w: f64 = pairs.iter().map(|p| p.1).sum();
-        let mut row = vec![text(v.name()), Cell::Number(w)];
+        let mut row = vec![text(run.shown.variable(v)), Cell::Number(w)];
         if command.descriptives {
             let mean = pairs.iter().map(|(x, w)| x * w).sum::<f64>() / w;
             let squares: f64 = pairs.iter().map(|(x, w)| w * (x - mean).powi(2)).sum();
@@ -566,7 +571,7 @@ fn chi_square(
     expected: &[f64],
 ) -> Result<Vec<Table>, Error> {
     let mut out = Vec::new();
-    let names: Vec<String> = variables.iter().map(|v| v.name().to_string()).collect();
+    let names: Vec<String> = variables.iter().map(|v| run.shown.variable(v)).collect();
     let mut stats = vec![
         ("Chi-Square".to_string(), Vec::new()),
         ("df".to_string(), Vec::new()),
@@ -659,7 +664,7 @@ fn chi_square(
             ]);
             let columns = ["", "Observed N", "Expected N", "Residual"].map(String::from);
             out.push(table(
-                format!("Chi-Square Frequencies: {}", v.name()),
+                format!("Chi-Square Frequencies: {}", run.outline.variable(v)),
                 1,
                 columns.to_vec(),
                 rows,
@@ -778,7 +783,7 @@ fn binomial(run: &mut Run, variables: &[Variable], p: f64, split: BinomialSplit)
         };
         let [l1, l2] = labels;
         rows.push(vec![
-            text(v.name()),
+            text(run.shown.variable(v)),
             text("Group 1"),
             text(l1),
             Cell::Number(n1),
@@ -838,7 +843,7 @@ pub(crate) fn middle(pairs: &[(f64, f64)]) -> Option<f64> {
 }
 
 fn runs(run: &mut Run, variables: &[Variable], cut: RunsCut) -> Vec<Table> {
-    let names: Vec<String> = variables.iter().map(|v| v.name().to_string()).collect();
+    let names: Vec<String> = variables.iter().map(|v| run.shown.variable(v)).collect();
     let mut rows: Vec<(String, Vec<Option<f64>>)> = [
         "Test Value",
         "Cases < Test Value",
@@ -943,7 +948,7 @@ fn one_sample_ks(
     };
     let lilliefors_used = distribution == KsDistribution::Normal && parameters.is_empty();
     let mut columns = vec![String::new(), String::new()];
-    columns.extend(variables.iter().map(|v| v.name().to_string()));
+    columns.extend(variables.iter().map(|v| run.shown.variable(v)));
     let mut row_labels: Vec<(String, String)> = vec![("N".into(), String::new())];
     for (i, l) in labels.iter().enumerate() {
         row_labels.push((
@@ -1092,10 +1097,11 @@ fn one_sample_ks(
 }
 
 /// The pairs whose label joins the two names with `between`.
-fn pair_names(pairs: &[(Variable, Variable)], between: &str) -> Vec<String> {
+fn pair_names(run: &Run, pairs: &[(Variable, Variable)], between: &str) -> Vec<String> {
+    let name = |v: &Variable| run.shown.variable(v);
     pairs
         .iter()
-        .map(|(x, y)| format!("{}{between}{}", x.name(), y.name()))
+        .map(|(x, y)| format!("{}{between}{}", name(x), name(y)))
         .collect()
 }
 
@@ -1178,7 +1184,7 @@ pub(crate) fn exact_tails(p: &[f64], observed: usize, mean: f64) -> [f64; 3] {
 }
 
 fn wilcoxon(run: &mut Run, pairs: &[(Variable, Variable)]) -> Vec<Table> {
-    let names = pair_names(pairs, " - ");
+    let names = pair_names(run, pairs, " - ");
     let columns = ["", "", "N", "Mean Rank", "Sum of Ranks"]
         .map(String::from)
         .to_vec();
@@ -1289,7 +1295,7 @@ fn wilcoxon(run: &mut Run, pairs: &[(Variable, Variable)]) -> Vec<Table> {
 }
 
 fn sign(run: &mut Run, pairs: &[(Variable, Variable)]) -> Vec<Table> {
-    let names = pair_names(pairs, " - ");
+    let names = pair_names(run, pairs, " - ");
     let mut rows = Vec::new();
     let mut stats: Vec<(String, Vec<Option<f64>>)> = [
         "Z",
@@ -1394,10 +1400,10 @@ fn mcnemar(run: &mut Run, pairs: &[(Variable, Variable)]) -> Vec<Table> {
         }
         let mut columns = vec![String::new()];
         columns.extend(values.iter().map(|&b| run.label(y, b)));
-        let mut groups = vec![vec![x.name().to_string()]];
-        groups.extend(values.iter().map(|_| vec![y.name().to_string()]));
+        let mut groups = vec![vec![run.shown.variable(x)]];
+        groups.extend(values.iter().map(|_| vec![run.shown.variable(y)]));
         out.push(Table {
-            title: format!("{} & {}", x.name(), y.name()),
+            title: format!("{} & {}", run.outline.variable(x), run.outline.variable(y)),
             row_headers: 1,
             columns,
             column_groups: groups,
@@ -1422,7 +1428,11 @@ fn mcnemar(run: &mut Run, pairs: &[(Variable, Variable)]) -> Vec<Table> {
         for (row, value) in stats.iter_mut().zip(values) {
             row.1.push(value);
         }
-        names.push(format!("{} & {}", x.name(), y.name()));
+        names.push(format!(
+            "{} & {}",
+            run.shown.variable(x),
+            run.shown.variable(y)
+        ));
     }
     if !names.is_empty() {
         let mut test = statistics_table("McNemar Test", &names, used(stats));
@@ -1486,7 +1496,11 @@ fn marginal_homogeneity(run: &mut Run, pairs: &[(Variable, Variable)]) -> Vec<Ta
         for (row, value) in stats.iter_mut().zip(values) {
             row.1.push(value);
         }
-        names.push(format!("{} & {}", x.name(), y.name()));
+        names.push(format!(
+            "{} & {}",
+            run.shown.variable(x),
+            run.shown.variable(y)
+        ));
     }
     let mut out = Vec::new();
     if !names.is_empty() {
@@ -1539,7 +1553,11 @@ fn related(run: &mut Run, variables: &[Variable], test: RelatedTest) -> Vec<Tabl
                 .sum();
             sum_c += c;
             sum_c2 += c * c;
-            frequency_rows.push(vec![text(v.name()), Cell::Number(n - c), Cell::Number(c)]);
+            frequency_rows.push(vec![
+                text(run.shown.variable(v)),
+                Cell::Number(n - c),
+                Cell::Number(c),
+            ]);
         }
         let sum_r2: f64 = cases
             .iter()
@@ -1599,7 +1617,7 @@ fn related(run: &mut Run, variables: &[Variable], test: RelatedTest) -> Vec<Tabl
         rows: variables
             .iter()
             .zip(&sums)
-            .map(|(v, s)| vec![text(v.name()), number(Some(s / n))])
+            .map(|(v, s)| vec![text(run.shown.variable(v)), number(Some(s / n))])
             .collect(),
         ..Table::default()
     };

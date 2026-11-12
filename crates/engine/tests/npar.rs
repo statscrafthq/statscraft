@@ -29,7 +29,8 @@ fn run(source: &str) -> (Vec<Table>, Vec<String>) {
 
 fn survey(syntax: &str) -> Vec<Table> {
     run(&format!(
-        "GET FILE='{}'.\n{syntax}",
+        // these tests find rows and tables by variable name; table_labels.rs covers the labels
+        "GET FILE='{}'.\nSET TVARS=NAMES OVARS=NAMES.\n{syntax}",
         fixture("survey_basic.sav")
     ))
     .0

@@ -48,6 +48,7 @@ pub(crate) fn pair(x: &[(f64, f64, f64)]) -> Pair {
 impl Engine {
     pub(crate) fn correlations(&mut self, command: &Correlations) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
+        let shown = self.shown();
         let mut lists: Vec<(Vec<String>, Option<Vec<String>>)> = Vec::new();
         for (rows, columns) in &command.lists {
             let rows = self.expand(rows)?;
@@ -117,7 +118,7 @@ impl Engine {
                         .collect();
                     let s = crate::descriptives::summarize(&pairs);
                     vec![
-                        Cell::Text(v.name().to_string()),
+                        Cell::Text(shown.variable(v)),
                         number(s.mean),
                         number(s.sd),
                         Cell::Number(s.n),
@@ -194,7 +195,7 @@ impl Engine {
                 for (k, (name, cells)) in statistics.into_iter().enumerate() {
                     let mut row = vec![
                         if k == 0 {
-                            Cell::Text(row_name.clone())
+                            Cell::Text(shown.named(data, row_name))
                         } else {
                             Cell::Empty
                         },
@@ -219,7 +220,7 @@ impl Engine {
                 captions.push(format!("Listwise N = {listwise_n}."));
             }
             let mut header = vec![String::new(), String::new()];
-            header.extend(columns.iter().cloned());
+            header.extend(columns.iter().map(|n| shown.named(data, n)));
             out.push(Table {
                 title: "Correlations".into(),
                 row_headers: 2,

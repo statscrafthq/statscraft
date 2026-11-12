@@ -31,6 +31,8 @@ fn run(engine: &mut Engine, source: &str) -> Vec<Table> {
 fn loaded(name: &str) -> Engine {
     let mut engine = Engine::default();
     run(&mut engine, &format!("GET FILE='{}'.", fixture(name)));
+    // these tests find rows and tables by variable name; table_labels.rs covers the labels
+    run(&mut engine, "SET TVARS=NAMES OVARS=NAMES.");
     engine
 }
 

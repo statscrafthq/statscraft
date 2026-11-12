@@ -16,7 +16,7 @@
 //! - SAMPLE draws its random numbers from the session's generator, which SET SEED, RNG and
 //!   MTINDEX start.
 
-use crate::crosstabs::{Key, label};
+use crate::crosstabs::Key;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Values};
 use statscraft_syntax::{Command, Sample};
@@ -30,8 +30,10 @@ pub(crate) struct Saved {
 
 /// One split group: the values that name it and its cases.
 struct Group {
-    /// One text per split variable: the value label, else the value.
+    /// One text per split variable as tables show it (SET TNUMBERS) and as titles do
+    /// (ONUMBERS).
     values: Vec<String>,
+    titles: Vec<String>,
     cases: Vec<usize>,
 }
 
@@ -170,7 +172,7 @@ impl Engine {
     /// The split groups of the cases the filter keeps; None when every case is used as it is.
     fn groups(&self, use_split: bool) -> Result<Option<Vec<Group>>, Error> {
         let data = self.active()?;
-        let currencies = self.currencies();
+        let (shown, outline) = (self.shown(), self.outline());
         let split = data.split_file().filter(|_| use_split);
         let filter = data.filter_variable();
         if split.is_none() && filter.is_none() {
@@ -185,6 +187,7 @@ impl Engine {
         let Some(split) = split else {
             return Ok(Some(vec![Group {
                 values: Vec::new(),
+                titles: Vec::new(),
                 cases: kept,
             }]));
         };
@@ -193,13 +196,18 @@ impl Engine {
         for case in kept {
             let key = keys(data, &split.variables, case);
             if previous.as_ref() != Some(&key) {
-                let values = split.variables.iter().zip(&key).map(|(name, key)| {
-                    let variable = data.variable(name).expect("split variables exist");
-                    key.as_ref()
-                        .map_or(".".to_string(), |key| label(&variable, key, &currencies))
-                });
+                let values = |shown: &crate::shown::Shown| {
+                    let pairs = split.variables.iter().zip(&key);
+                    let texts = pairs.map(|(name, key)| {
+                        let variable = data.variable(name).expect("split variables exist");
+                        key.as_ref()
+                            .map_or(".".to_string(), |key| shown.value(&variable, key))
+                    });
+                    texts.collect()
+                };
                 groups.push(Group {
-                    values: values.collect(),
+                    values: values(&shown),
+                    titles: values(&outline),
                     cases: Vec::new(),
                 });
                 previous = Some(key);
@@ -234,6 +242,17 @@ impl Engine {
         let full = self.dataset.take().expect("checked by groups");
         let earlier = std::mem::take(&mut self.warnings);
         let split = full.split_file().filter(|_| use_split).cloned();
+        // LAYERED puts the groups in the tables, SEPARATE in the titles
+        let layered_split = split.as_ref().is_some_and(|s| s.layered);
+        let shown = match layered_split {
+            true => self.shown(),
+            false => self.outline(),
+        };
+        let split_names: Vec<String> = split
+            .iter()
+            .flat_map(|s| &s.variables)
+            .map(|name| shown.named(&full, name))
+            .collect();
         let mut results: Vec<(Vec<String>, Vec<Table>)> = Vec::new();
         let mut afters: Vec<Dataset> = Vec::new();
         // the warnings of each group, with the group's name
@@ -247,13 +266,18 @@ impl Engine {
             self.dataset = Some(part);
             self.case_numbers = Some(group.cases.clone());
             self.warnings.clear();
-            let name = group_name(split.as_ref().map(|s| &s.variables[..]), &group.values);
+            let texts = if layered_split {
+                &group.values
+            } else {
+                &group.titles
+            };
+            let name = group_name(Some(split_names.as_slice()), texts);
             let prefix = |message: &str| match name.is_empty() {
                 true => message.to_string(),
                 false => format!("{name}: {message}"),
             };
             match self.run_procedure(command) {
-                Ok(tables) => results.push((group.values.clone(), tables)),
+                Ok(tables) => results.push((texts.clone(), tables)),
                 Err(error) => errors.push(prefix(&error.0)),
             }
             given.push((name, std::mem::take(&mut self.warnings)));
@@ -277,8 +301,8 @@ impl Engine {
         self.dataset = Some(write_back(full, &groups, &afters)?);
         Ok(match split {
             None => results.into_iter().flat_map(|(_, tables)| tables).collect(),
-            Some(split) if !split.layered => separate(&split.variables, results),
-            Some(split) => layered(&split.variables, results),
+            Some(_) if !layered_split => separate(&split_names, results),
+            Some(_) => layered(&split_names, results),
         })
     }
 }

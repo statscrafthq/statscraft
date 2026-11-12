@@ -25,11 +25,12 @@
 //!   at 50 cases, below the 5000 the manual itself allows, and its coefficients drift from the
 //!   exact ones as n grows (W of 0.92 where the standard algorithm gives 0.95 at 181 cases).
 
-use crate::crosstabs::{Key, categories, label};
+use crate::crosstabs::{Key, categories};
 use crate::descriptives::{case_weights, number, summarize};
 use crate::dist::{erfc, normal_cdf, normal_quantile, t_quantile};
-use crate::format::{Currencies, Stat, formats_of, procedure_format};
+use crate::format::{Stat, formats_of, procedure_format};
 use crate::means::is_valid;
+use crate::shown::Shown;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Values, Variable};
 use statscraft_syntax::{Examine, MEstimator, PercentileMethod as Method};
@@ -455,9 +456,9 @@ impl Level {
         }
     }
 
-    fn name(&self, variable: &Variable, currencies: &Currencies) -> String {
+    fn name(&self, variable: &Variable, shown: &Shown) -> String {
         match self {
-            Level::Value(key) => label(variable, key, currencies),
+            Level::Value(key) => shown.value(variable, key),
             Level::System => "System Missing".into(),
         }
     }
@@ -506,7 +507,7 @@ impl Engine {
             ));
         }
         let data = self.active()?;
-        let currencies = self.currencies();
+        let shown = self.shown();
         let mut dependents = self.expand(&command.dependents)?;
         dedup(&mut dependents);
         for name in &dependents {
@@ -624,12 +625,8 @@ impl Engine {
                 let first = results.len();
                 results.extend(cells.iter().map(|cell| {
                     CellResult {
-                        labels: std::iter::once(name.clone())
-                            .chain(
-                                cell.iter()
-                                    .zip(&factors)
-                                    .map(|(l, v)| l.name(v, &currencies)),
-                            )
+                        labels: std::iter::once(shown.variable(&dependent))
+                            .chain(cell.iter().zip(&factors).map(|(l, v)| l.name(v, &shown)))
                             .collect(),
                         format: format.to_string(),
                         valid: 0.0,
@@ -654,13 +651,14 @@ impl Engine {
                     }
                 }
             }
-            out.push(summary_table(&model[..], &results));
+            let model: Vec<String> = model.iter().map(|n| shown.named(data, n)).collect();
+            out.push(summary_table(&model, &results));
             let tables = Tables {
                 command,
-                names: &model[..],
+                names: &model,
                 level,
                 id: id.as_ref(),
-                currencies: &currencies,
+                shown: &shown,
                 numbers: self.case_numbers.as_deref(),
             };
             let used: Vec<&CellResult> = results.iter().filter(|r| r.valid > 0.0).collect();
@@ -754,7 +752,7 @@ struct Tables<'a> {
     names: &'a [String],
     level: f64,
     id: Option<&'a Variable<'a>>,
-    currencies: &'a Currencies,
+    shown: &'a Shown,
     /// The case numbers in the whole dataset when the procedure sees a part of it.
     numbers: Option<&'a [usize]>,
 }
@@ -964,7 +962,7 @@ impl Tables<'_> {
             Values::Numeric(values) => match values.get(case) {
                 None => Cell::Empty,
                 Some(v) => {
-                    let labelled = label(id, &Key::Number(v), self.currencies);
+                    let labelled = self.shown.number(id, v);
                     if labelled == v.to_string() {
                         Cell::Number(v)
                     } else {
@@ -1003,7 +1001,7 @@ impl Tables<'_> {
         }
         let id = self
             .id
-            .map_or("Case Number".to_string(), |v| v.name().to_string());
+            .map_or("Case Number".to_string(), |v| self.shown.variable(v));
         let (columns, column_groups) = header(
             self.names,
             2,

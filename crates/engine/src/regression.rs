@@ -119,6 +119,8 @@ fn moments(columns: &[Vec<f64>], c: &[f64], g: &[f64], origin: bool) -> Moments 
 /// matrix variables, with what the statistics need.
 struct Equation {
     names: Vec<String>,
+    /// The names as tables show them (SET TVARS); `names` go into saved variable labels.
+    texts: Vec<String>,
     /// Correlations of the candidates and the dependent (last).
     r: Matrix,
     /// Variances (S_kk) and means.
@@ -678,6 +680,7 @@ impl Engine {
             )));
         }
         let index = |name: &str| names.iter().position(|n| n == name).expect("collected");
+        let shown = self.shown();
         let mut warnings = Vec::new();
         // the blocks of each method as matrix indices; an empty list is VARIABLES minus the
         // dependents
@@ -810,8 +813,9 @@ impl Engine {
             // the descriptive statistics use the cases valid on each variable unless LISTWISE
             let own = (command.missing == RegressionMissing::MeanSubstitution)
                 .then(|| moments(&raw, &c, &g, command.origin));
+            let texts: Vec<String> = variables.iter().map(|v| shown.variable(v)).collect();
             tables.extend(descriptive_tables(
-                &names,
+                &texts,
                 own.as_ref().unwrap_or(&mo),
                 &mo,
                 d,
@@ -846,6 +850,10 @@ impl Engine {
                 .flat_map(|&i| order.iter().map(move |&j| (i, j)));
             let eq = Equation {
                 names: order.iter().map(|&i| names[i].clone()).collect(),
+                texts: order
+                    .iter()
+                    .map(|&i| shown.variable(&variables[i]))
+                    .collect(),
                 r: sub(&mo.corr),
                 var: order.iter().map(|&i| mo.cov[i][i]).collect(),
                 mean: order.iter().map(|&i| mo.mean[i]).collect(),
@@ -944,7 +952,7 @@ fn equation_tables(
 ) -> Vec<Table> {
     let s = &command.statistics;
     let y = eq.y();
-    let dependent = &eq.names[y];
+    let dependent = &eq.texts[y];
     let caption = Some(format!("Dependent variable: {dependent}."));
     let model_cell = |i: usize| Cell::Number((i + 1) as f64);
     let mut out = Vec::new();
@@ -954,7 +962,7 @@ fn equation_tables(
         } else {
             Cell::Text(
                 list.iter()
-                    .map(|&k| eq.names[k].as_str())
+                    .map(|&k| eq.texts[k].as_str())
                     .collect::<Vec<_>>()
                     .join(", "),
             )
@@ -986,7 +994,7 @@ fn equation_tables(
             if !eq.origin {
                 list.push("(Constant)");
             }
-            list.extend((0..y).filter(|&j| m.set[j]).map(|j| eq.names[j].as_str()));
+            list.extend((0..y).filter(|&j| m.set[j]).map(|j| eq.texts[j].as_str()));
             format!("model {}: {}", i + 1, list.join(", "))
         })
         .collect();
@@ -1238,7 +1246,7 @@ fn equation_tables(
                 push("(Constant)".into(), b0, se0, None);
             }
             for &(j, b, se) in &f.b {
-                push(eq.names[j].clone(), b, se, Some((m[y][j], j)));
+                push(eq.texts[j].clone(), b, se, Some((m[y][j], j)));
             }
         }
         out.push(table("Coefficients", 2, columns, rows, caption.clone()));
@@ -1277,7 +1285,7 @@ fn equation_tables(
                     .fold(r_kk, f64::min);
                 let mut row = vec![
                     if first { model_cell(i) } else { Cell::Empty },
-                    Cell::Text(eq.names[k].clone()),
+                    Cell::Text(eq.texts[k].clone()),
                     number(beta),
                     number(usable.then_some(if s.f { fv } else { t })),
                     number(usable.then(|| t_p(t, df))),
@@ -1310,7 +1318,7 @@ fn equation_tables(
         .collect();
     if s.bcov {
         let mut columns = plain(&["Model", "", ""]);
-        columns.extend(used.iter().map(|&j| (String::new(), eq.names[j].clone())));
+        columns.extend(used.iter().map(|&j| (String::new(), eq.texts[j].clone())));
         let mut rows = Vec::new();
         for (i, (model, f)) in models.iter().zip(fits).enumerate() {
             let in_: Vec<usize> = (0..y).filter(|&j| model.set[j]).collect();
@@ -1320,7 +1328,7 @@ fn equation_tables(
                     let mut row = vec![
                         if first { model_cell(i) } else { Cell::Empty },
                         if n == 0 { text(block) } else { Cell::Empty },
-                        Cell::Text(eq.names[a].clone()),
+                        Cell::Text(eq.texts[a].clone()),
                     ];
                     first = false;
                     for &c in &used {
@@ -1353,7 +1361,7 @@ fn equation_tables(
         }
         columns.extend(
             used.iter()
-                .map(|&j| ("Variance Proportions".into(), eq.names[j].clone())),
+                .map(|&j| ("Variance Proportions".into(), eq.texts[j].clone())),
         );
         let mut rows = Vec::new();
         for (i, model) in models.iter().enumerate() {
@@ -1418,9 +1426,9 @@ fn equation_tables(
     if s.xtx {
         let last = fits.last().expect("a model");
         let mut columns = plain(&[""]);
-        columns.extend(eq.names.iter().map(|n| (String::new(), n.clone())));
+        columns.extend(eq.texts.iter().map(|n| (String::new(), n.clone())));
         let rows = eq
-            .names
+            .texts
             .iter()
             .enumerate()
             .map(|(i, name)| {
@@ -1657,7 +1665,7 @@ impl Engine {
     ) -> Result<Vec<Table>, Error> {
         use TempVar as T;
         let data = self.active()?;
-        let dependent = &eq.names[eq.y()];
+        let dependent = &eq.texts[eq.y()];
         let caption = Some(format!("Dependent variable: {dependent}."));
         let number_of = |k: usize| self.case_numbers.as_ref().map_or(k, |n| n[k]) + 1;
         let id = command.residuals.as_ref().and_then(|r| r.id.as_ref());

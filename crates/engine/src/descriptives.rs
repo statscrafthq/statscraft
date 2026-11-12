@@ -213,7 +213,7 @@ impl Engine {
                 _ => String::new(),
             }
         });
-        let table = Table {
+        let mut table = Table {
             title: "Descriptive Statistics".into(),
             formats,
             row_headers: 2,
@@ -222,6 +222,10 @@ impl Engine {
             rows,
             ..Table::default()
         };
+        // the name and the label have columns of their own; SET TVARS=NAMES leaves out the label
+        if self.shown().variables == crate::shown::Show::Plain {
+            crate::shown::drop_label_column(&mut table, 1);
+        }
 
         // SAVE gives every variable a z-score; without it only those with a name in parentheses
         let scored: Vec<usize> = (0..variables.len())

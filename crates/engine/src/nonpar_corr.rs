@@ -129,6 +129,7 @@ fn coefficient(cases: &[(f64, f64, f64)], kendall: bool) -> [f64; 3] {
 impl Engine {
     pub(crate) fn nonpar_corr(&mut self, command: &NonparCorr) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
+        let shown = self.shown();
         let mut lists: Vec<(Vec<String>, Vec<String>, bool)> = Vec::new();
         for (rows, columns) in &command.lists {
             let rows = self.expand(rows)?;
@@ -232,7 +233,7 @@ impl Engine {
                         };
                         let mut row = vec![
                             first(method, i == 0 && k == 0),
-                            first(x.name(), k == 0),
+                            first(&shown.variable(x), k == 0),
                             Cell::Text(name.to_string()),
                         ];
                         row.extend(cells);
@@ -255,7 +256,7 @@ impl Engine {
                 captions.push(format!("Listwise N = {listwise_n}."));
             }
             let mut header = vec![String::new(); 3];
-            header.extend(columns.iter().cloned());
+            header.extend(column_vars.iter().map(|v| shown.variable(v)));
             out.push(Table {
                 title: "Correlations".into(),
                 row_headers: 3,

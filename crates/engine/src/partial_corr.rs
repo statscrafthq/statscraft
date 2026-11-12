@@ -78,6 +78,7 @@ fn partial(
 impl Engine {
     pub(crate) fn partial_corr(&mut self, command: &PartialCorr) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
+        let shown = self.shown();
         let weights = case_weights(data)?;
         let weight = |c: usize| weights.as_ref().map_or(1.0, |w| w[c]);
         let value = |v: &Variable, c: usize| match v.values() {
@@ -168,7 +169,7 @@ impl Engine {
                         let squares: f64 = used.iter().map(|(x, w)| w * (x - mean).powi(2)).sum();
                         let sd = (n > 1.0).then(|| (squares / (n - 1.0)).sqrt());
                         vec![
-                            Cell::Text(v.name().to_string()),
+                            Cell::Text(shown.variable(v)),
                             number(Some(mean)),
                             number(sd),
                             Cell::Number(n),
@@ -209,7 +210,7 @@ impl Engine {
                 for chosen in choices(controls.len(), order) {
                     let label = chosen
                         .iter()
-                        .map(|&k| controls[k].as_str())
+                        .map(|&k| shown.named(data, &controls[k]))
                         .collect::<Vec<_>>()
                         .join(" & ");
                     let set = chosen.iter().map(|&k| index(&controls[k])).collect();
@@ -223,9 +224,9 @@ impl Engine {
             };
             let mut table_rows = Vec::new();
             let mut flagged = false;
-            for (label, set, shown) in &blocks {
+            for (label, set, count) in &blocks {
                 let mut memo = HashMap::new();
-                for (ri, row_name) in row_names.iter().take(*shown).enumerate() {
+                for (ri, row_name) in row_names.iter().take(*count).enumerate() {
                     let i = index(row_name);
                     let mut cells: Vec<Vec<Cell>> = vec![Vec::new(); statistics.len()];
                     for (ci, column_name) in column_names.iter().enumerate() {
@@ -287,7 +288,7 @@ impl Engine {
                         };
                         let mut row = vec![
                             first(label, ri == 0 && k == 0),
-                            first(row_name, k == 0),
+                            first(&shown.named(data, row_name), k == 0),
                             Cell::Text(statistic.to_string()),
                         ];
                         row.extend(values);
@@ -300,7 +301,7 @@ impl Engine {
                 String::new(),
                 String::new(),
             ];
-            header.extend(column_names.iter().cloned());
+            header.extend(column_names.iter().map(|n| shown.named(data, n)));
             let mut captions = Vec::new();
             if flagged {
                 let side = if command.one_tailed {

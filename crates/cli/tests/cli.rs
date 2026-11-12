@@ -224,7 +224,7 @@ fn session_split_and_filter_survive_a_separate_run() {
         .collect();
     assert_eq!(titles.len(), 3, "{titles:?}");
     assert!(
-        titles[0].starts_with("Descriptive Statistics (gender = "),
+        titles[0].starts_with("Descriptive Statistics (Gender = "),
         "{titles:?}"
     );
     dir.ok(&["run", "-s", "t1", "-e", "SPLIT FILE OFF.\nFILTER OFF."]);
@@ -424,9 +424,9 @@ fn run_writes_every_table_to_a_workbook() {
     assert_eq!(
         sheet_names(&dir.0.join("out.xlsx")),
         [
-            "gender Gender",
-            "gender by region",
-            "Chi-Square Tests gender by regi"
+            "Gender",
+            "Gender by Region of residence",
+            "Chi-Square Tests Gender by Regi"
         ]
     );
     dir.ok(&[
@@ -454,7 +454,7 @@ fn run_writes_every_table_to_a_workbook() {
         "FREQUENCIES gender.",
     ]);
     assert_eq!(report["ok"], true);
-    assert_eq!(sheet_names(&dir.0.join("session.xlsx")), ["gender Gender"]);
+    assert_eq!(sheet_names(&dir.0.join("session.xlsx")), ["Gender"]);
     let first_sheet = |file: &str| {
         workbook_parts(&dir.0.join(file))
             .into_iter()

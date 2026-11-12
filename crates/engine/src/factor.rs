@@ -1388,7 +1388,13 @@ impl Engine {
                 self.factor_matrix(command, *kind, source.as_ref())?
             }
         };
-        let names = &input.names;
+        // the variables as tables show them (SET TVARS)
+        let shown = self.shown();
+        let texts: Vec<String> = match self.dataset.as_ref() {
+            Some(data) => input.names.iter().map(|n| shown.named(data, n)).collect(),
+            None => input.names.clone(),
+        };
+        let names = &texts;
         let p = names.len();
         if p < 2 {
             return Err(Error("FACTOR needs at least two variables".into()));

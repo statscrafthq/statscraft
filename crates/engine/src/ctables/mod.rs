@@ -24,7 +24,8 @@ mod mrsets;
 mod pcompute;
 mod sigtest;
 
-use crate::format::{Currencies, Stat, format_value, statistic_format};
+use crate::format::{Stat, format_value, statistic_format};
+use crate::shown::{Show, Shown};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Measure, Value as DataValue, Values, Variable};
 use statscraft_syntax::{
@@ -546,18 +547,19 @@ fn guess_scale(variable: &Variable) -> bool {
     distinct.len() >= 24 || distinct[0] >= 10.0
 }
 
-/// The value of `key` as the dictionary shows it: the value label of the first variable that
-/// has one, or the value in the format of the first variable.
-fn category_label(variables: &[Variable], key: &Key, currencies: &Currencies) -> String {
+/// The value of `key` as SET TNUMBERS shows it, with the value label of the first variable
+/// that has one and the value in the format of the first variable.
+fn category_label(variables: &[Variable], key: &Key, shown: &Shown) -> String {
     let label = variables
         .iter()
         .flat_map(|variable| variable.value_labels())
         .find(|(v, _)| Key::of(v) == *key)
-        .map(|(_, l)| l.clone());
-    label.unwrap_or_else(|| match key {
-        Key::Number(n) => format_value(*n, &currencies.resolve(variables[0].format()), false),
+        .map(|(_, l)| l.as_str());
+    let value = match key {
+        Key::Number(n) => format_value(*n, &shown.currencies.resolve(variables[0].format()), false),
         Key::Text(s) => s.clone(),
-    })
+    };
+    shown.values.join(&value, label)
 }
 
 fn in_range(key: &Key, low: &Bound, high: &Bound) -> bool {
@@ -603,7 +605,7 @@ fn categories(
     variables: &[Variable],
     spec: Option<&Categories>,
     command: Option<&Ctables>,
-    currencies: &Currencies,
+    shown: &Shown,
 ) -> Result<CategoryList, Error> {
     let variable = &variables[0];
     let mut seen: Vec<Key> = Vec::new();
@@ -733,7 +735,9 @@ fn categories(
                 .map(|(_, k)| k.clone())
                 .collect();
             if spec.is_some_and(|s| s.key == CategoryOrder::Label) {
-                keys.sort_by_cached_key(|k| category_label(variables, k, currencies));
+                // KEY=LABEL sorts by the value labels, whatever the table shows
+                let labels = Shown::labels(shown.currencies.clone());
+                keys.sort_by_cached_key(|k| category_label(variables, k, &labels));
             } else {
                 keys.sort_by(Key::compare);
             }
@@ -778,11 +782,11 @@ fn categories(
         if duplicate {
             return Err(Error(format!(
                 "/CATEGORIES for {name}: the value {} is listed twice",
-                category_label(variables, &key, currencies)
+                category_label(variables, &key, shown)
             )));
         }
         list.categories.push(Category {
-            label: category_label(variables, &key, currencies),
+            label: category_label(variables, &key, shown),
             missing: is_missing(&key),
             key: Some(key),
             other,
@@ -795,7 +799,7 @@ fn categories(
         let written = spec.and_then(|s| s.values.as_deref()).unwrap_or_default();
         let item_labels: Vec<String> = written
             .iter()
-            .map(|item| item_label(variables, item, currencies))
+            .map(|item| item_label(variables, item, shown))
             .collect();
         pcompute::resolve(
             name,
@@ -812,8 +816,8 @@ fn categories(
 /// The label of an item of an explicit category list, for `)LABEL[n]`: a value's label, a range
 /// as `low THRU high` with the labels of its ends, a subtotal's label, and the keywords and
 /// names as written.
-fn item_label(variables: &[Variable], item: &CategoryItem, currencies: &Currencies) -> String {
-    let number = |n: f64| category_label(variables, &Key::Number(n + 0.0), currencies);
+fn item_label(variables: &[Variable], item: &CategoryItem, shown: &Shown) -> String {
+    let number = |n: f64| category_label(variables, &Key::Number(n + 0.0), shown);
     let bound = |b: &Bound| match b {
         Bound::Lowest => "LOWEST".to_string(),
         Bound::Highest => "HIGHEST".to_string(),
@@ -822,7 +826,7 @@ fn item_label(variables: &[Variable], item: &CategoryItem, currencies: &Currenci
     match item {
         CategoryItem::Value(SyntaxValue::Number(n)) => number(*n),
         CategoryItem::Value(SyntaxValue::String(s)) => {
-            category_label(variables, &Key::Text(s.trim_end().to_string()), currencies)
+            category_label(variables, &Key::Text(s.trim_end().to_string()), shown)
         }
         CategoryItem::Range(low, high) => format!("{} THRU {}", bound(low), bound(high)),
         CategoryItem::Name(n) => n.clone(),
@@ -1284,6 +1288,18 @@ impl Engine {
             .map(|tables| tables.into_iter().flatten().collect())
     }
 
+    /// The header of a variable or set: /VLABELS, else SET TVARS (DISPLAY=DEFAULT).
+    fn vlabel(&self, display: VlabelsDisplay, name: &str, label: Option<&str>) -> Option<String> {
+        let show = match display {
+            VlabelsDisplay::None => return None,
+            VlabelsDisplay::Default => self.shown().variables,
+            VlabelsDisplay::Name => Show::Plain,
+            VlabelsDisplay::Label => Show::Labels,
+            VlabelsDisplay::Both => Show::Both,
+        };
+        Some(show.join(name, label))
+    }
+
     fn display(&self, command: &Ctables, name: &str) -> Result<VlabelsDisplay, Error> {
         let mut display = VlabelsDisplay::Default;
         for (vars, choice) in &command.vlabels {
@@ -1326,16 +1342,8 @@ impl Engine {
                                 variable.name()
                             )));
                         }
-                        let name = variable.name().to_string();
-                        let label = match self.display(command, variable.name())? {
-                            VlabelsDisplay::None => None,
-                            VlabelsDisplay::Name => Some(name),
-                            VlabelsDisplay::Both => Some(match variable.label() {
-                                Some(label) => format!("{name} {label}"),
-                                None => name,
-                            }),
-                            _ => Some(variable.label().map_or(name, str::to_string)),
-                        };
+                        let display = self.display(command, variable.name())?;
+                        let label = self.vlabel(display, variable.name(), variable.label());
                         Ok(TermVar {
                             variable,
                             syntax,
@@ -1377,7 +1385,7 @@ impl Engine {
         };
 
         // categories of every categorical variable, by name
-        let currencies = self.currencies();
+        let shown = self.shown();
         let mut lists: HashMap<String, CategoryList> = HashMap::new();
         let all_terms = layout
             .rows
@@ -1399,13 +1407,13 @@ impl Engine {
                 }
             }
             let mut list = match &var.set {
-                Some(set) => mrsets::set_categories(set, spec, &currencies)?,
+                Some(set) => mrsets::set_categories(set, spec, &shown)?,
                 None => categories(
                     var.variable.name(),
                     &[var.variable],
                     spec,
                     Some(command),
-                    &currencies,
+                    &shown,
                 )?,
             };
             if let Some(spec) = spec.filter(|s| s.values.is_none()) {

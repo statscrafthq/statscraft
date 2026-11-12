@@ -36,7 +36,7 @@ fn frequencies_of_a_labelled_variable() {
         "FREQUENCIES VARIABLES=gender.",
     );
     let t = &tables[0];
-    assert_eq!(t.title, "gender: Gender");
+    assert_eq!(t.title, "Gender");
     let counts: Vec<f64> = t.rows.iter().map(|r| number(&r[3])).collect();
     assert_eq!(counts, [106.0, 88.0, 6.0, 200.0]);
     assert_eq!(t.rows[0][2], Cell::Text("Male".into()));
@@ -131,11 +131,9 @@ FORMATS monthly_spend (F10.1).",
 
 #[test]
 fn variable_lists_expand_in_file_order() {
-    let tables = run(&mut loaded("survey_basic.sav"), "FREQUENCIES q5_1 TO q5_3.");
-    let names: Vec<&str> = tables
-        .iter()
-        .map(|t| t.title.split(':').next().unwrap())
-        .collect();
+    let source = "SET OVARS=NAMES.\nFREQUENCIES q5_1 TO q5_3.";
+    let tables = run(&mut loaded("survey_basic.sav"), source);
+    let names: Vec<&str> = tables.iter().map(|t| t.title.as_str()).collect();
     assert_eq!(names, ["q5_1", "q5_2", "q5_3"]);
 }
 

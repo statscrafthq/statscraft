@@ -232,7 +232,13 @@ impl Engine {
             ));
             return Ok(tables);
         }
-        let mut scale = Scale::new(unique, rows);
+        // the items as tables show them (SET TVARS)
+        let shown = self.shown();
+        let texts = positions
+            .iter()
+            .map(|&i| shown.variable(&variables[i]))
+            .collect();
+        let mut scale = Scale::new(texts, rows);
         let s = &command.summary;
         let method2 = !matches!(
             command.model,

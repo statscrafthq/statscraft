@@ -71,7 +71,7 @@ fn frequencies_of_a_dichotomy_and_a_category_group() {
     assert_eq!(t.len(), 3);
     // md: valid cases 1, 3, 4, 5, 7; mc: valid 1, 2, 3, 5, 6, 7
     assert_eq!(
-        numbers(t[0], &["md"]),
+        numbers(t[0], &["Drinks"]),
         s(&[5.0, 62.5, 3.0, 37.5, 8.0, 100.0])
     );
     assert_eq!(
@@ -79,7 +79,7 @@ fn frequencies_of_a_dichotomy_and_a_category_group() {
         s(&[6.0, 75.0, 2.0, 25.0, 8.0, 100.0])
     );
     // m1 in cases 1, 3, 5, 7; m2 in 3, 4, 5; m3 in 1, 4, 5
-    assert_eq!(t[1].title, "md Frequencies");
+    assert_eq!(t[1].title, "Drinks Frequencies");
     assert_eq!(t[1].columns[0], "Drinks");
     assert_eq!(numbers(t[1], &["Tea"]), s(&[4.0, 40.0, 80.0]));
     assert_eq!(numbers(t[1], &["Coffee"]), s(&[3.0, 30.0, 60.0]));

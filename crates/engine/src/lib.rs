@@ -59,6 +59,7 @@ mod rows;
 mod save_translate;
 pub mod session;
 mod session_commands;
+mod shown;
 mod sort;
 mod split;
 mod star_join;

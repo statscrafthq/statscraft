@@ -36,11 +36,12 @@
 //! - Gains per target class: node size, target count and percent of all target cases, response
 //!   (target share in the node) and index (response over the overall share).
 
-use crate::crosstabs::{Key, label};
+use crate::crosstabs::Key;
 use crate::descriptives::case_weights;
 use crate::dist::chi_square_p;
 use crate::format::category_text;
 use crate::pass::default_measure;
+use crate::shown::Shown;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Measure, Value, Values, Variable};
 use statscraft_syntax::{Level, Tree, TreeCategory, TreeSave, VarItem};
@@ -546,7 +547,7 @@ impl Engine {
         for message in &command.ignored {
             self.warn(message.clone());
         }
-        let currencies = self.currencies();
+        let (shown, labels) = (self.shown(), Shown::labels(self.currencies()));
         let scale_min = self.scale_min();
         let data = self.active()?;
         let mut warnings: Vec<String> = Vec::new();
@@ -663,7 +664,7 @@ impl Engine {
                                     warnings.push(format!(
                                         "{} is user-missing and the dependent is ordinal; \
                                          it is left out",
-                                        label(&dependent, &key, &currencies)
+                                        labels.value(&dependent, &key)
                                     ));
                                 } else {
                                     chosen.push(key);
@@ -671,7 +672,7 @@ impl Engine {
                             } else {
                                 warnings.push(format!(
                                     "category {} of {} does not occur in the data",
-                                    label(&dependent, &key, &currencies),
+                                    labels.value(&dependent, &key),
                                     dependent.name()
                                 ));
                             }
@@ -698,7 +699,7 @@ impl Engine {
             if !classes.contains(&key) {
                 warnings.push(format!(
                     "target category {} is not a category of the analysis; it has no gain table",
-                    label(&dependent, &key, &currencies)
+                    labels.value(&dependent, &key)
                 ));
             }
         }
@@ -716,7 +717,7 @@ impl Engine {
                         None => {
                             return Err(Error(format!(
                                 "SCORES gives no score for category {}",
-                                label(&dependent, class, &currencies)
+                                labels.value(&dependent, class)
                             )));
                         }
                     }
@@ -812,7 +813,7 @@ impl Engine {
                     })
                     .collect();
                 Predictor {
-                    name: variable.name().to_string(),
+                    name: shown.variable(variable),
                     nominal: false,
                     labels: vec![String::new(); missing],
                     breaks: Some(
@@ -839,12 +840,9 @@ impl Engine {
                     })
                     .collect();
                 Predictor {
-                    name: variable.name().to_string(),
+                    name: shown.variable(variable),
                     nominal: *level == Level::Nominal,
-                    labels: keys
-                        .iter()
-                        .map(|k| label(variable, k, &currencies))
-                        .collect(),
+                    labels: keys.iter().map(|k| shown.value(variable, k)).collect(),
                     breaks: None,
                     codes,
                 }
@@ -997,7 +995,7 @@ impl Engine {
         let dependent_measure = dependent.measure();
         let class_labels: Vec<String> = classes
             .iter()
-            .map(|k| label(&dependent, k, &currencies))
+            .map(|k| labels.value(&dependent, k))
             .collect();
         if command.display {
             warnings.push(
@@ -1111,11 +1109,8 @@ impl Engine {
         classes: &[Key],
         dependent: &Variable,
     ) -> Result<Vec<Table>, Error> {
-        let currencies = self.currencies();
-        let class_labels: Vec<String> = classes
-            .iter()
-            .map(|k| label(dependent, k, &currencies))
-            .collect();
+        let shown = self.shown();
+        let class_labels: Vec<String> = classes.iter().map(|k| shown.value(dependent, k)).collect();
         let root_n = nodes[0].n;
         let terminals: Vec<usize> = (0..nodes.len())
             .filter(|&t| nodes[t].children.is_empty())
@@ -1141,7 +1136,7 @@ impl Engine {
             let row = |group: &str, name: &str, value: Cell| vec![text(group), text(name), value];
             let mut rows = vec![
                 row("Specifications", "Growing Method", text(method)),
-                row("", "Dependent Variable", text(dependent.name())),
+                row("", "Dependent Variable", text(shown.variable(dependent))),
                 row(
                     "",
                     "Independent Variables",
@@ -1292,7 +1287,10 @@ impl Engine {
                 column_groups: groups,
                 rows,
                 formats,
-                caption: Some(format!("Dependent variable: {}.", dependent.name())),
+                caption: Some(format!(
+                    "Dependent variable: {}.",
+                    shown.variable(dependent)
+                )),
             }
         };
         if command.display {
@@ -1330,7 +1328,7 @@ impl Engine {
                     } else {
                         "CHAID"
                     },
-                    dependent.name()
+                    shown.variable(dependent)
                 )),
             });
         }
@@ -1474,7 +1472,7 @@ impl Engine {
                     caption: Some(format!(
                         "Target category: {}. Dependent variable: {}.",
                         class_labels[j],
-                        dependent.name()
+                        shown.variable(dependent)
                     )),
                 });
             }

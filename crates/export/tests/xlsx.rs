@@ -329,8 +329,7 @@ fn frequencies_keep_numbers_and_repeated_titles_get_their_own_sheet() {
     let tables = tables("FREQUENCIES gender gender.");
     let sheets = round_trip("frequencies", &tables, false);
     let names: Vec<&str> = sheets.iter().map(|s| s.name.as_str()).collect();
-    // "gender: Gender": the colon is not allowed in a sheet name
-    assert_eq!(names, ["gender Gender", "gender Gender (2)"]);
+    assert_eq!(names, ["Gender", "Gender (2)"]);
     let sheet = &sheets[0];
     check_table(sheet, &tables[0], 0);
     assert_eq!(sheet.value("A2"), Value::Text("Category".into()));
@@ -401,7 +400,10 @@ fn crosstabs_with_chi_square() {
     let names: Vec<&str> = sheets.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(
         names,
-        ["gender by region", "Chi-Square Tests gender by regi"]
+        [
+            "Gender by Region of residence",
+            "Chi-Square Tests Gender by Regi"
+        ]
     );
     for (sheet, table) in sheets.iter().zip(&tables) {
         check_table(sheet, table, 0);
@@ -411,7 +413,10 @@ fn crosstabs_with_chi_square() {
         counts.merges.contains(&"C2:G2".to_string()),
         "region over its 5 columns"
     );
-    assert_eq!(counts.value("C2"), Value::Text("region".into()));
+    assert_eq!(
+        counts.value("C2"),
+        Value::Text("Region of residence".into())
+    );
     assert_eq!(counts.value("H3"), Value::Text("Total".into()));
     assert_eq!(counts.value("C4"), Value::Number(23.0));
     assert_eq!(counts.value("H7"), Value::Number(200.0));

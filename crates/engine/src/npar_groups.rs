@@ -257,7 +257,7 @@ pub(crate) fn groups(
             .collect();
         data.push(Grouped { keys, groups });
     }
-    let names: Vec<String> = variables.iter().map(|v| v.name().to_string()).collect();
+    let names: Vec<String> = variables.iter().map(|v| run.shown.variable(v)).collect();
     let label = |run: &Run, key: f64| run.label(group, key);
     Ok(match test {
         GroupTest::MannWhitney => mann_whitney(run, &names, &data, group),
@@ -571,7 +571,7 @@ pub(crate) fn groups(
             }
             let columns = vec![
                 String::new(),
-                format!("Number of Levels in {}", group.name()),
+                format!("Number of Levels in {}", run.shown.variable(group)),
                 "N".into(),
                 "Observed J-T Statistic".into(),
                 "Mean J-T Statistic".into(),
@@ -682,7 +682,7 @@ fn mann_whitney(run: &mut Run, names: &[String], data: &[Grouped], group: &Varia
     let mut test = statistics_table("Mann-Whitney Test", names, used(stats));
     test.caption = Some(format!(
         "Grouping variable: {}. The exact significance [2*(1-tailed Sig.)] is not corrected for ties.",
-        group.name()
+        run.shown.variable(group)
     ));
     vec![
         table(
@@ -827,7 +827,7 @@ fn median(
                 if i < 2 {
                     Vec::new()
                 } else {
-                    vec![group.name().to_string()]
+                    vec![run.shown.variable(group)]
                 }
             })
             .collect(),

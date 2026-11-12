@@ -594,6 +594,18 @@ impl Engine {
                 "MPRINT" | "MEXPAND" => {
                     on_off(name, value)?;
                 }
+                "TVARS" | "OVARS" | "TNUMBERS" | "ONUMBERS" => {
+                    let choices = match name.ends_with("VARS") {
+                        true => crate::shown::VARIABLE_CHOICES,
+                        false => crate::shown::VALUE_CHOICES,
+                    };
+                    if !choices.contains(&value.to_uppercase().as_str()) {
+                        return Err(Error(format!(
+                            "SET {name} takes {}, got {value}",
+                            choices.join(", ")
+                        )));
+                    }
+                }
                 "CCA" | "CCB" | "CCC" | "CCD" | "CCE" => {
                     Currency::parse(value).map_err(|e| Error(format!("SET {name}: {e}")))?;
                     self.session.settings.insert(name.clone(), value.clone());

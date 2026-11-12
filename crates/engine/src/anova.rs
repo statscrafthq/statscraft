@@ -20,7 +20,6 @@
 //! The fits reuse the general linear model of UNIANOVA (glm.rs): its design matrix of level
 //! combinations, its sweep and its Type III hypotheses.
 
-use crate::crosstabs::{Key, label};
 use crate::descriptives::{case_weights, number};
 use crate::dist::f_p;
 use crate::glm::{Data, Effect, Fit, Part};
@@ -142,10 +141,6 @@ struct Source {
     coefficient: Option<f64>,
 }
 
-fn level_text(variable: &Variable, value: f64, currencies: &crate::Currencies) -> String {
-    label(variable, &Key::Number(value), currencies)
-}
-
 impl Engine {
     pub(crate) fn anova(&mut self, command: &Anova) -> Result<Vec<Table>, Error> {
         let mut tables = Vec::new();
@@ -236,15 +231,21 @@ impl Engine {
                 )));
             }
         }
-        let currencies = self.currencies();
+        let shown = self.shown();
         let level_labels: Vec<Vec<String>> = (0..nf)
             .map(|i| {
                 levels[i]
                     .iter()
-                    .map(|v| level_text(&factor_vars[i], *v, &currencies))
+                    .map(|v| shown.number(&factor_vars[i], *v))
                     .collect()
             })
             .collect();
+        // from here on the variables as tables show them
+        let show = |names: &[String]| -> Vec<String> {
+            names.iter().map(|n| shown.named(data, n)).collect()
+        };
+        let (dependents, factor_names) = (show(&dependents), show(&factor_names));
+        let covariate_names = show(&covariate_names);
         let mut terms: Vec<Term> = (0..covariate_names.len()).map(Term::Covariate).collect();
         let top = command.max_order.min(nf);
         for k in 1..=top {
@@ -253,6 +254,7 @@ impl Engine {
         let make = |terms: &[Term], dep: usize| -> Model {
             let d = Data {
                 factors: factor_names.clone(),
+                factor_texts: factor_names.clone(),
                 values: level_labels.clone(),
                 labels: level_labels.clone(),
                 labelled: false,

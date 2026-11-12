@@ -336,7 +336,9 @@ fn descriptives_errors() {
 fn crosstabs_cells_and_chi_square() {
     let tables = run(
         &mut survey(),
-        "CROSSTABS /TABLES=gender BY q5_1 /CELLS=COUNT ROW EXPECTED ASRESID /STATISTICS=CHISQ.",
+        // names, as the expectations below give them
+        "SET TVARS=NAMES OVARS=NAMES.\n\
+         CROSSTABS /TABLES=gender BY q5_1 /CELLS=COUNT ROW EXPECTED ASRESID /STATISTICS=CHISQ.",
     );
     let [table, tests] = &tables[..] else {
         panic!("{tables:?}")
@@ -459,7 +461,8 @@ fn crosstabs_layers_and_several_tables() {
     let mut engine = survey();
     let tables = run(
         &mut engine,
-        "SELECT IF resp_id <= 1012.\nCROSSTABS q5_1 BY gender BY q5_2 /STATISTICS=CHISQ.",
+        "SET TVARS=NAMES OVARS=NAMES.\nSELECT IF resp_id <= 1012.\n\
+         CROSSTABS q5_1 BY gender BY q5_2 /STATISTICS=CHISQ.",
     );
     let table = &tables[0];
     assert_eq!(table.row_headers, 3);

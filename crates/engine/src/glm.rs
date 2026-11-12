@@ -23,7 +23,7 @@
 //!   (t) at ALPHA.
 
 use crate::contrast::contrast_rows;
-use crate::crosstabs::{Key, categories, label};
+use crate::crosstabs::{Key, categories};
 use crate::descriptives::{case_weights, number};
 use crate::dist::{f_p, f_quantile, noncentral_f_cdf, noncentral_t_cdf, t_p, t_quantile};
 use crate::examine::Distribution;
@@ -32,6 +32,7 @@ use crate::matrix::{Matrix, multiply, sweep, transpose};
 use crate::npar_tests::text;
 use crate::oneway::{Group, group, posthoc_tables};
 use crate::regression::{plain, table};
+use crate::shown::{Show, Shown};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Measure, Values, Variable};
 use statscraft_syntax::{
@@ -77,6 +78,8 @@ impl Effect {
 pub(crate) struct Data {
     /// The names of the factors, the value of each level as text and its label.
     pub(crate) factors: Vec<String>,
+    /// The factors as tables show them (SET TVARS).
+    pub(crate) factor_texts: Vec<String>,
     pub(crate) values: Vec<Vec<String>>,
     pub(crate) labels: Vec<Vec<String>>,
     pub(crate) labelled: bool,
@@ -726,7 +729,7 @@ fn key_value_text(variable: &Variable, key: &Key) -> String {
 impl Engine {
     pub(crate) fn glm(&mut self, command: &Glm) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
-        let currencies = self.currencies();
+        let shown = self.shown();
         let dependents = self.expand(&command.dependents)?;
         let factor_names = self.expand(&command.factors)?;
         let covariate_names = self.expand(&command.covariates)?;
@@ -832,8 +835,16 @@ impl Engine {
             found.sort_by(|a, b| a.compare(b));
             levels.push(found);
         }
+        // the levels as tables show them (SET TNUMBERS)
+        let level_texts: Vec<Vec<String>> = factor_vars
+            .iter()
+            .zip(&levels)
+            .map(|(v, ls)| ls.iter().map(|k| shown.value(v, k)).collect())
+            .collect();
+        let labels = Shown::labels(shown.currencies.clone());
         let d = Data {
             factors: factor_names.clone(),
+            factor_texts: factor_vars.iter().map(|v| shown.variable(v)).collect(),
             values: factor_vars
                 .iter()
                 .zip(&levels)
@@ -842,9 +853,11 @@ impl Engine {
             labels: factor_vars
                 .iter()
                 .zip(&levels)
-                .map(|(v, ls)| ls.iter().map(|k| label(v, k, &currencies)).collect())
+                .map(|(v, ls)| ls.iter().map(|k| labels.value(v, k)).collect())
                 .collect(),
-            labelled: factor_vars.iter().any(|v| !v.value_labels().is_empty()),
+            // the Value Label column, which SET TNUMBERS=VALUES leaves out
+            labelled: factor_vars.iter().any(|v| !v.value_labels().is_empty())
+                && shown.values != Show::Plain,
             covariates: covariate_names.clone(),
             level: rows
                 .iter()
@@ -903,7 +916,19 @@ impl Engine {
             }
             None => default_terms(&factor_names, &covariate_names, command.intercept),
         };
-        let effects = effects_of(&terms, &factor_names, &covariate_names)?;
+        let mut effects = effects_of(&terms, &factor_names, &covariate_names)?;
+        // an effect that is not nested shows its variables as tables do; a nested one as written
+        let covariate_texts: Vec<String> = cov_vars.iter().map(|v| shown.variable(v)).collect();
+        for e in effects
+            .iter_mut()
+            .filter(|e| !e.is_intercept() && !e.label.contains('('))
+        {
+            let parts = e.parts.iter().map(|p| match p {
+                Part::Factor(f) => d.factor_texts[*f].clone(),
+                Part::Covariate(c) => covariate_texts[*c].clone(),
+            });
+            e.label = parts.collect::<Vec<_>>().join(" * ");
+        }
         if effects.is_empty() {
             return Err(Error(format!("{name}: the design has no effects")));
         }
@@ -911,14 +936,15 @@ impl Engine {
         if !command.charts.is_empty() {
             warnings.push(format!("{name}: PLOT accepted; charts are not drawn yet"));
         }
-        let label_of = |f: usize, l: usize| d.labels[f][l].clone();
+        let label_of = |f: usize, l: usize| level_texts[f][l].clone();
+        let dependent_texts: Vec<String> = dep_vars.iter().map(|v| shown.variable(v)).collect();
         let mut tables = Vec::new();
         if !command.wsfactors.is_empty() {
             tables.extend(self.repeated_measures(
                 command,
                 &d,
                 effects,
-                &dependents,
+                &dependent_texts,
                 &mut warnings,
                 &label_of,
             )?);
@@ -929,7 +955,7 @@ impl Engine {
                 command,
                 &d,
                 &fit,
-                &dependents[0],
+                &dependent_texts[0],
                 &label_of,
                 &mut warnings,
             )?);
@@ -1377,8 +1403,8 @@ fn univariate(
                 .collect();
             let labels: Vec<String> = (0..d.values[f].len()).map(|l| label_of(f, l)).collect();
             let (comparison, subsets) = posthoc_tables(
-                dependent,
-                d.factors[f].as_str(),
+                (dependent, dependent),
+                d.factor_texts[f].as_str(),
                 &labels,
                 &groups,
                 &kept,
@@ -1431,7 +1457,7 @@ fn between_factors(d: &Data) -> Table {
     }
     columns.extend(plain(&["N"]));
     let mut rows = Vec::new();
-    for (f, name) in d.factors.iter().enumerate() {
+    for (f, name) in d.factor_texts.iter().enumerate() {
         for l in 0..d.values[f].len() {
             let n: f64 = (0..d.rows())
                 .filter(|&i| d.level[i][f] == l)
@@ -1467,7 +1493,7 @@ fn descriptive_table(
 ) -> Table {
     let k = d.factors.len();
     let mut columns: Vec<(String, String)> = d
-        .factors
+        .factor_texts
         .iter()
         .map(|v| (String::new(), v.clone()))
         .collect();
@@ -1894,7 +1920,7 @@ fn emmeans_tables(
     };
     let mut columns: Vec<(String, String)> = factors
         .iter()
-        .map(|&f| (String::new(), d.factors[f].as_str().to_string()))
+        .map(|&f| (String::new(), d.factor_texts[f].clone()))
         .collect();
     columns.extend(plain(&["Mean", "Std. Error"]));
     let group = format!("{level} Confidence Interval");
@@ -2011,9 +2037,9 @@ fn emmeans_tables(
     let tcrit = adjusted_t(command.alpha, m, dfe, e.adjustment);
     let mut columns: Vec<(String, String)> = others
         .iter()
-        .map(|&i| (String::new(), d.factors[factors[i]].as_str().to_string()))
+        .map(|&i| (String::new(), d.factor_texts[factors[i]].clone()))
         .collect();
-    let name = d.factors[compared].as_str();
+    let name = d.factor_texts[compared].as_str();
     columns.push((String::new(), format!("(I) {name}")));
     columns.push((String::new(), format!("(J) {name}")));
     columns.extend(plain(&["Mean Difference (I-J)", "Std. Error", "Sig."]));
@@ -2077,7 +2103,7 @@ fn emmeans_tables(
             .map(|(&o, &lv)| {
                 format!(
                     "{} = {}",
-                    d.factors[factors[o]].as_str(),
+                    d.factor_texts[factors[o]].as_str(),
                     label_of(factors[o], lv)
                 )
             })

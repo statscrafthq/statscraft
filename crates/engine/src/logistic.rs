@@ -27,7 +27,7 @@
 //!   normalized residuals, Cook's analog z^2 h / (1 - h) and DFBETA as the manual gives them.
 
 use crate::contrast::coding;
-use crate::crosstabs::{Key, categories, label};
+use crate::crosstabs::{Key, categories};
 use crate::descriptives::{case_weights, number};
 use crate::dist::{chi_square_p, normal_quantile};
 use crate::matrix::{Matrix, inverse};
@@ -536,7 +536,7 @@ fn hosmer_lemeshow(design: &Design, fit: &Fit) -> Vec<(f64, f64, f64)> {
 impl Engine {
     pub(crate) fn logistic(&mut self, command: &Logistic) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
-        let currencies = self.currencies();
+        let shown = self.shown();
         let criteria = command.criteria;
         let mut warnings = Vec::new();
         let dependent = data.variable(&command.dependent)?;
@@ -693,8 +693,8 @@ impl Engine {
                 let name = combo
                     .iter()
                     .map(|&(v, c)| match c {
-                        Some(c) => format!("{}({})", variables[v].name(), c + 1),
-                        None => variables[v].name().to_string(),
+                        Some(c) => format!("{}({})", shown.variable(&variables[v]), c + 1),
+                        None => shown.variable(&variables[v]),
                     })
                     .collect::<Vec<_>>()
                     .join(" by ");
@@ -706,7 +706,7 @@ impl Engine {
             terms.push(TermInfo {
                 label: parts
                     .iter()
-                    .map(|&v| variables[v].name())
+                    .map(|&v| shown.variable(&variables[v]))
                     .collect::<Vec<_>>()
                     .join(" by "),
                 columns,
@@ -761,7 +761,7 @@ impl Engine {
                 Key::Text(t) => Key::Text(t.clone()),
                 Key::Number(n) => Key::Number(*n),
             };
-            label(&dependent, &original, &currencies)
+            shown.value(&dependent, &original)
         };
         let mut tables = Vec::new();
 
@@ -837,8 +837,12 @@ impl Engine {
                         .map(|i| design.c[i])
                         .sum();
                     let mut row = vec![
-                        if at == 0 { text(v.name()) } else { Cell::Empty },
-                        text(label(v, level, &currencies)),
+                        if at == 0 {
+                            text(shown.variable(v))
+                        } else {
+                            Cell::Empty
+                        },
+                        text(shown.value(v, level)),
                         Cell::Number(frequency),
                     ];
                     row.extend((0..width).map(|j| number(m[at].get(j).copied())));
@@ -1205,7 +1209,7 @@ impl Engine {
         let id = command.id.as_ref().map(|n| data.variable(n)).transpose()?;
         let mut columns = plain(&["Case"]);
         if let Some(v) = &id {
-            columns.extend(plain(&[v.name()]));
+            columns.extend(plain(&[&self.shown().variable(v)]));
         }
         columns.extend(plain(&["Selected Status", "Observed"]));
         let coefficient_names = coefficient_names(design, fit);

@@ -26,10 +26,10 @@
 //! - The case weight weighs every response of the case.
 
 use super::{
-    Category, CategoryList, Key, Mass, Subtotal, Tally, TermVar, VlabelsDisplay, add_subtotals,
-    add_total, categories,
+    Category, CategoryList, Key, Mass, Subtotal, Tally, TermVar, add_subtotals, add_total,
+    categories,
 };
-use crate::format::Currencies;
+use crate::shown::Shown;
 use crate::{Engine, Error};
 use statscraft_data::{Dataset, Value, Values, Variable};
 use statscraft_syntax::{
@@ -95,13 +95,8 @@ impl Engine {
             })?)),
         };
         let name = set.name.as_str();
-        let label = match self.display(command, name)? {
-            VlabelsDisplay::None => None,
-            VlabelsDisplay::Name => Some(name.to_string()),
-            VlabelsDisplay::Both if !set.label.is_empty() => Some(format!("{name} {}", set.label)),
-            _ if set.label.is_empty() => Some(name.to_string()),
-            _ => Some(set.label.clone()),
-        };
+        let display = self.display(command, name)?;
+        let label = self.vlabel(display, name, Some(&set.label));
         Ok(TermVar {
             variable: variables[0],
             syntax,
@@ -148,7 +143,7 @@ impl Engine {
 pub(super) fn set_categories(
     set: &Set,
     spec: Option<&Categories>,
-    currencies: &Currencies,
+    shown: &Shown,
 ) -> Result<CategoryList, Error> {
     let names = spec
         .and_then(|s| s.values.as_ref())
@@ -160,7 +155,7 @@ pub(super) fn set_categories(
                 set.name
             )));
         }
-        return categories(set.name, &set.variables, spec, None, currencies);
+        return categories(set.name, &set.variables, spec, None, shown);
     };
     let label = |v: &Variable| {
         let counted_label = v.value_labels().iter().find_map(|(value, label)| {
@@ -174,7 +169,7 @@ pub(super) fn set_categories(
         // a variable whose counted value lost its label falls back to the variable label
         counted_label
             .filter(|_| set.counted_value_labels)
-            .unwrap_or_else(|| v.label().unwrap_or(v.name()).to_string())
+            .unwrap_or_else(|| shown.variable(v))
     };
     // a variable by position, or a subtotal (Err)
     let mut order: Vec<Result<usize, (String, bool)>> = match spec.and_then(|s| s.values.as_ref()) {

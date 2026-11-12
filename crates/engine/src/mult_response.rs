@@ -29,10 +29,10 @@
 //!   is left out, also from the missing cases.
 //! - PAIRED pairs as many variables as the shortest category group of the table has.
 
-use crate::crosstabs::{Key, label};
 use crate::descriptives::case_weights;
 use crate::format::category_text;
-use crate::{Cell, Currencies, Engine, Error, Table};
+use crate::shown::Shown;
+use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Variable};
 use statscraft_syntax::{CrosstabsCell as C, MultResponse, VarItem};
 use std::collections::BTreeMap;
@@ -69,26 +69,22 @@ fn value(
 }
 
 impl Item<'_> {
-    fn category(&self, category: i64, show_labels: bool, currencies: &Currencies) -> String {
+    /// A category: a variable of a dichotomy group, else a value; FORMAT=NOLABELS shows the
+    /// value whatever SET TNUMBERS says.
+    fn category(&self, category: i64, show_labels: bool, shown: &Shown) -> String {
         match self.kind {
-            Kind::Dichotomy(_) => {
-                let variable = &self.variables[category as usize];
-                variable.label().unwrap_or(variable.name()).to_string()
-            }
-            _ if show_labels => label(
-                &self.variables[0],
-                &Key::Number(category as f64),
-                currencies,
-            ),
+            Kind::Dichotomy(_) => shown.variable(&self.variables[category as usize]),
+            _ if show_labels => shown.number(&self.variables[0], category as f64),
             _ => category_text(
                 category as f64,
-                &currencies.resolve(self.variables[0].format()),
+                &shown.currencies.resolve(self.variables[0].format()),
             ),
         }
     }
 
-    fn title(&self) -> String {
-        self.label.clone().unwrap_or_else(|| self.name.clone())
+    /// The group or variable with its label, as SET TVARS (OVARS for titles) says.
+    fn title(&self, shown: &Shown) -> String {
+        shown.variables.join(&self.name, self.label.as_deref())
     }
 
     fn note(&self) -> Option<String> {
@@ -218,7 +214,7 @@ impl Engine {
             .filter(|&c| weight(c) > 0.0)
             .collect();
         let show_labels = !command.no_labels;
-        let currencies = &self.currencies();
+        let (shown, outline) = (&self.shown(), &self.outline());
         let mut out = Vec::new();
 
         let chosen = resolve(&items, &command.frequencies)?;
@@ -241,7 +237,7 @@ impl Engine {
                         }
                     }
                 }
-                let mut row = vec![text(&item.name)];
+                let mut row = vec![text(item.title(shown))];
                 row.extend(summary_cells(valid, missing));
                 summary.push(row);
                 let responses: f64 = counts.values().sum();
@@ -250,7 +246,7 @@ impl Engine {
                     .iter()
                     .map(|(&category, &n)| {
                         vec![
-                            text(item.category(category, labels, currencies)),
+                            text(item.category(category, labels, shown)),
                             number(n),
                             number(100.0 * n / responses),
                             number(100.0 * n / valid),
@@ -264,10 +260,10 @@ impl Engine {
                     number(100.0 * responses / valid),
                 ]);
                 tables.push(Table {
-                    title: format!("{} Frequencies", item.name),
+                    title: format!("{} Frequencies", item.title(outline)),
                     row_headers: 1,
                     columns: vec![
-                        item.title(),
+                        item.title(shown),
                         "N".into(),
                         "Percent".into(),
                         "Percent of Cases".into(),
@@ -298,14 +294,14 @@ impl Engine {
             let mut tables = Vec::new();
             for combination in product(&dimensions) {
                 let parts: Vec<&Item> = combination.iter().map(|&i| &items[i]).collect();
-                let title = parts
-                    .iter()
-                    .map(|p| p.name.as_str())
-                    .collect::<Vec<_>>()
-                    .join(" by ");
+                let names = |shown: &Shown| -> String {
+                    let names: Vec<String> = parts.iter().map(|p| p.title(shown)).collect();
+                    names.join(" by ")
+                };
+                let title = names(outline);
                 let (valid, missing, layers) =
                     crosstab(&parts, &cases, &weight, table.paired, responses);
-                let mut row = vec![text(&title)];
+                let mut row = vec![text(names(shown))];
                 row.extend(summary_cells(valid, missing));
                 summary.push(row);
                 tables.push(crosstab_table(
@@ -314,7 +310,7 @@ impl Engine {
                     layers,
                     command,
                     (table.paired, responses, show_labels),
-                    currencies,
+                    shown,
                 ));
             }
             out.push(case_summary(summary));
@@ -583,7 +579,7 @@ fn crosstab_table(
     layers: BTreeMap<Vec<i64>, Layer>,
     command: &MultResponse,
     (paired, responses, show_labels): (bool, bool, bool),
-    currencies: &Currencies,
+    shown: &Shown,
 ) -> Table {
     let (row_item, column_item, layer_items) = (parts[0], parts[1], &parts[2..]);
     let mut union: Vec<i64> = layers
@@ -592,32 +588,32 @@ fn crosstab_table(
         .collect();
     union.sort_unstable();
     union.dedup();
-    let mut columns: Vec<String> = layer_items.iter().map(|i| i.title()).collect();
-    columns.extend([row_item.title(), "Statistic".into()]);
+    let mut columns: Vec<String> = layer_items.iter().map(|i| i.title(shown)).collect();
+    columns.extend([row_item.title(shown), "Statistic".into()]);
     let headers = columns.len();
     columns.extend(
         union
             .iter()
-            .map(|&c| column_item.category(c, show_labels, currencies)),
+            .map(|&c| column_item.category(c, show_labels, shown)),
     );
     columns.push("Total".into());
     let mut column_groups = vec![Vec::new(); columns.len()];
     for group in &mut column_groups[headers..columns.len() - 1] {
-        group.push(column_item.title());
+        group.push(column_item.title(shown));
     }
     let mut rows = Vec::new();
     for (key, layer) in &layers {
         let layer_cells: Vec<Cell> = layer_items
             .iter()
             .zip(key)
-            .map(|(item, &k)| text(item.category(k, show_labels, currencies)))
+            .map(|(item, &k)| text(item.category(k, show_labels, shown)))
             .collect();
         let row_keys = layer.rows.keys().map(|&r| Some(r)).chain([None]);
         for r in row_keys {
             for &statistic in &command.cells {
                 let mut row = layer_cells.clone();
                 row.push(text(match r {
-                    Some(r) => row_item.category(r, show_labels, currencies),
+                    Some(r) => row_item.category(r, show_labels, shown),
                     None => "Total".into(),
                 }));
                 row.push(text(cell_name(statistic)));

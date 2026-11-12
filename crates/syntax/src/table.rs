@@ -1669,11 +1669,16 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  two-digit years in dates and the DATE. functions fall in the 100 years from that year\n\
                  (AUTOMATIC: from 69 years before the current year). FUZZBITS=n (0 to 20, default 6): the\n\
                  fuzzbits of RND and TRUNC without a third argument. SCALEMIN=n (default 24): a new numeric\n\
-                 variable read from text with at least n different values is scale. Settings for speed, memory and messages (CACHE, THREADS, WORKSPACE, MXWARNS ...) are\n\
-                 accepted and have nothing to do. Settings that only change how output looks (TNUMBERS,\n\
-                 TVARS, ONUMBERS, OVARS, TLOOK, WIDTH, LENGTH, DIGITGROUPING ...) are accepted with a\n\
-                 warning. YES and ON, NO and OFF are the same.",
-        example: "SET FORMAT=F10.3 MPRINT=YES /DECIMAL=DOT.",
+                 variable read from text with at least n different values is scale. TVARS=NAMES | LABELS |\n\
+                 BOTH: variables in tables as names, labels (default; the name when there is no label) or\n\
+                 both, name then label (\"q1 Satisfaction\"). TNUMBERS=VALUES | LABELS | BOTH: values in\n\
+                 tables as values, value labels (default; the value when there is no label) or both, value\n\
+                 then label (\"1 A great deal\"). OVARS and ONUMBERS do the same for the titles of tables.\n\
+                 CTABLES /VLABELS and MULT RESPONSE /FORMAT=NOLABELS win over them. Settings for speed,\n\
+                 memory and messages (CACHE, THREADS, WORKSPACE, MXWARNS ...) are accepted and have nothing\n\
+                 to do. Settings that only change how output looks (TLOOK, WIDTH, LENGTH, DIGITGROUPING ...)\n\
+                 are accepted with a warning. YES and ON, NO and OFF are the same.",
+        example: "SET FORMAT=F10.3 MPRINT=YES /DECIMAL=DOT TVARS=BOTH TNUMBERS=BOTH.",
         parse: session_commands::set,
     },
     CommandSpec {

@@ -21,10 +21,11 @@
 //!   a numeric control. What cannot be done is reported as a warning.
 
 use crate::aggregate::median;
-use crate::crosstabs::{Key, categories, label};
+use crate::crosstabs::{Key, categories};
 use crate::descriptives::{case_weights, number, summarize};
 use crate::dist::f_p;
-use crate::format::{Currencies, Stat, formats_of, procedure_format};
+use crate::format::{Stat, formats_of, procedure_format};
+use crate::shown::Shown;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Values, Variable};
 use statscraft_syntax::{Means, MeansCell as M, MeansMissing};
@@ -263,7 +264,7 @@ struct GroupSums {
 impl Engine {
     pub(crate) fn means(&mut self, command: &Means) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
-        let currencies = self.currencies();
+        let (shown, outline) = (self.shown(), self.outline());
         let weights = case_weights(data)?;
         let weight = |case: usize| weights.as_ref().map_or(1.0, |w| w[case]);
         let counted: Vec<usize> = (0..data.case_count())
@@ -332,8 +333,8 @@ impl Engine {
                         }
                     }
                     let n: f64 = included.iter().map(|&c| weight(c)).sum();
-                    let mut name = vec![dependent.clone()];
-                    name.extend(combo.iter().cloned());
+                    let mut name = vec![shown.named(data, dependent)];
+                    name.extend(combo.iter().map(|c| shown.named(data, c)));
                     let mut row = vec![Cell::Text(name.join(" * "))];
                     for value in [n, total - n, total] {
                         row.push(Cell::Number(value));
@@ -351,7 +352,7 @@ impl Engine {
                         &included,
                         &weight,
                         include_control,
-                        &currencies,
+                        (&shown, &outline),
                         &mut warnings,
                     ));
                 }
@@ -390,7 +391,7 @@ fn report(
     included: &[usize],
     weight: &dyn Fn(usize) -> f64,
     include_control: bool,
-    currencies: &Currencies,
+    (shown, outline): (&Shown, &Shown),
     warnings: &mut Vec<String>,
 ) -> Vec<Table> {
     let keys: Vec<Vec<Option<Key>>> = controls
@@ -449,7 +450,7 @@ fn report(
                 Cell::Text(
                     choice
                         .as_ref()
-                        .map_or("Total".into(), |k| label(v, k, currencies)),
+                        .map_or("Total".into(), |k| shown.value(v, k)),
                 )
             })
             .collect();
@@ -462,9 +463,9 @@ fn report(
         }
         rows.push(row);
     }
-    let mut names = vec![dependent.name().to_string()];
-    names.extend(controls.iter().map(|v| v.name().to_string()));
-    let mut columns: Vec<String> = controls.iter().map(|v| v.name().to_string()).collect();
+    let mut names = vec![outline.variable(dependent)];
+    names.extend(controls.iter().map(|v| outline.variable(v)));
+    let mut columns: Vec<String> = controls.iter().map(|v| shown.variable(v)).collect();
     columns.extend(command.cells.iter().map(|c| cell_name(*c, &command.within)));
     let formats = formats_of(&rows, |_, c| {
         let cell = c.checked_sub(controls.len()).map(|i| command.cells[i]);
@@ -487,18 +488,33 @@ fn report(
             names[0],
             names.get(1).map_or("", String::as_str)
         );
+        // warnings name the variables
+        let name = dependent.name();
+        let named = format!("{name} by {}", controls.first().map_or("", |c| c.name()));
         match controls.first() {
             None => warnings.push(format!(
-                "no analysis of variance for {}: the table has no control variable",
-                names[0]
+                "no analysis of variance for {name}: the table has no control variable"
             )),
             Some(_) if dependent.is_string() => warnings.push(format!(
-                "no analysis of variance for {title}: {} is a string variable",
-                names[0]
+                "no analysis of variance for {named}: {name} is a string variable"
             )),
-            Some(control) => out.extend(anova(
-                command, control, &keys[0], included, &values, weight, &title, warnings,
-            )),
+            Some(control) => {
+                let cell = format!(
+                    "{} * {}",
+                    shown.variable(dependent),
+                    shown.variable(control)
+                );
+                out.extend(anova(
+                    command,
+                    control,
+                    &keys[0],
+                    included,
+                    &values,
+                    weight,
+                    [&title, &cell, &named],
+                    warnings,
+                ))
+            }
         }
     }
     out
@@ -513,7 +529,7 @@ fn anova(
     included: &[usize],
     values: &[f64],
     weight: &dyn Fn(usize) -> f64,
-    title: &str,
+    [title, cell, named]: [&str; 3],
     warnings: &mut Vec<String>,
 ) -> Vec<Table> {
     let mut found: Vec<&Key> = included.iter().filter_map(|&c| keys[c].as_ref()).collect();
@@ -544,7 +560,7 @@ fn anova(
     let j = sums.len() as f64;
     if sums.len() < 2 {
         warnings.push(format!(
-            "no analysis of variance for {title}: it needs at least two groups"
+            "no analysis of variance for {named}: it needs at least two groups"
         ));
         return Vec::new();
     }
@@ -573,7 +589,7 @@ fn anova(
     let linearity = command.linearity && numeric && sums.len() >= 3;
     if command.linearity && !linearity {
         warnings.push(format!(
-            "no test of linearity for {title}: it needs three or more groups of a numeric control variable"
+            "no test of linearity for {named}: it needs three or more groups of a numeric control variable"
         ));
     }
     let wx: f64 = sums.iter().map(|g| g.w * g.x).sum();
@@ -606,7 +622,7 @@ fn anova(
     }];
     let eta_squared = between / total_ss;
     let mut columns = vec!["".to_string()];
-    let mut row = vec![Cell::Text(title.replace(" by ", " * "))];
+    let mut row = vec![Cell::Text(cell.to_string())];
     if linearity {
         let r = sxy / (sxx * total_ss).sqrt();
         columns.extend(["R".to_string(), "R Squared".to_string()]);

@@ -771,7 +771,7 @@ impl Engine {
             taken.insert(name.to_lowercase());
             name
         };
-        let currencies = self.currencies();
+        let labels = crate::shown::Shown::labels(self.currencies());
         let separator = &command.separator;
         let string_index = index.len() == 1 && index_columns[0].is_string();
         let parts = |values: &[Key]| -> Vec<String> { values.iter().map(key_text).collect() };
@@ -779,13 +779,10 @@ impl Engine {
             if index.is_empty() {
                 return key_text(&values[0]);
             }
-            let pairs = index_columns.iter().zip(values).map(|(v, key)| {
-                format!(
-                    "{} = {}",
-                    v.name(),
-                    crate::crosstabs::label(v, key, &currencies)
-                )
-            });
+            let pairs = index_columns
+                .iter()
+                .zip(values)
+                .map(|(v, key)| format!("{} = {}", v.name(), labels.value(v, key)));
             pairs.collect::<Vec<_>>().join(", ")
         };
         let mut names: HashMap<(usize, usize), String> = HashMap::new();

@@ -117,7 +117,7 @@ fn settings_are_kept_shown_preserved_and_restored() {
     run(&mut session, DATA);
     let result = run(
         &mut session,
-        "SET FORMAT=F5.1 TNUMBERS=BOTH LOCALE='en_UK'.\n\
+        "SET FORMAT=F5.1 WIDTH=100 LOCALE='en_UK'.\n\
          COMPUTE y = q1 * 2.\n\
          PRESERVE LOCALE WIBBLE.\n\
          SET FORMAT F3.0.\n\
@@ -132,7 +132,7 @@ fn settings_are_kept_shown_preserved_and_restored() {
     assert_eq!(data.variable("q1").unwrap().format(), "F8.2");
     let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
     assert_eq!(warnings.len(), 2, "{warnings:?}");
-    assert!(warnings[0].contains("TNUMBERS only changes how output looks"));
+    assert!(warnings[0].contains("WIDTH only changes how output looks"));
     assert_eq!(
         warnings[1],
         "PRESERVE takes no specifications and stores every setting; WIBBLE ignored"
@@ -303,7 +303,8 @@ fn show_takes_every_keyword_of_the_manual() {
             "LICENSE|MIT|open source: every part of Statscraft is included",
             "UNICODE|ON|Statscraft always works in Unicode",
             "CACHE|20|about speed, memory or messages: no effect",
-            "TNUMBERS|LABELS|output does not follow it",
+            // tables follow TNUMBERS, so it has no note
+            "TNUMBERS|LABELS|",
             "FUZZBITS|6|",
             "$VARS|$CASENUM = the case number; $SYSMIS = system-missing|$DATE, $JDATE, $TIME, \
              $LENGTH and $WIDTH are not supported yet",

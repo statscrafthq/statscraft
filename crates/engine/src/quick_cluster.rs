@@ -166,6 +166,9 @@ impl Engine {
         }
         let (k, v) = (command.clusters, names.len());
         let cases = data.case_count();
+        // the variables as tables show them (SET TVARS)
+        let shown = self.shown();
+        let texts: Vec<String> = variables.iter().map(|v| shown.variable(v)).collect();
         let weights = case_weights(data)?;
         let value = |var: &Variable, case: usize| -> f64 {
             if !is_valid(var, case, command.include) {
@@ -249,7 +252,7 @@ impl Engine {
         };
         let mut tables = Vec::new();
         if command.print_initial {
-            tables.push(centers_table("Initial Cluster Centers", &names, &initial));
+            tables.push(centers_table("Initial Cluster Centers", &texts, &initial));
         }
         let rows: Vec<(Vec<f64>, f64)> = usable.iter().map(|&c| (x[c].clone(), w[c])).collect();
         let (_, _, initial_gap) = closest_pair(&initial);
@@ -371,9 +374,10 @@ impl Engine {
                 Some(name) => Some(data.variable(name)?),
                 None => None,
             };
+            let id_text = id.as_ref().map(|v| shown.variable(v));
             let mut columns = vec!["Case Number"];
-            if let Some(var) = &id {
-                columns.push(var.name());
+            if let Some(text) = &id_text {
+                columns.push(text);
             }
             columns.extend(["Cluster", "Distance"]);
             let table_rows = usable
@@ -394,7 +398,7 @@ impl Engine {
                 .collect();
             tables.push(plain_table("Cluster Membership", 0, &columns, table_rows));
         }
-        tables.push(centers_table("Final Cluster Centers", &names, &finals));
+        tables.push(centers_table("Final Cluster Centers", &texts, &finals));
         if command.print_distance {
             let rows = (0..k)
                 .map(|i| {
@@ -443,7 +447,7 @@ impl Engine {
                     let (ms1, ms2) = (between / df1, within / df2);
                     let f = ms1 / ms2;
                     vec![
-                        text(names[i].clone()),
+                        text(texts[i].clone()),
                         number(Some(ms1)),
                         Cell::Number(df1),
                         number(Some(ms2)),

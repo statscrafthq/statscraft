@@ -28,6 +28,7 @@
 use crate::descriptives::{case_weights, number, summarize};
 use crate::examine::{Distribution, short};
 use crate::format::{Stat, formats_of, procedure_format};
+use crate::shown::{Show, Shown, drop_label_column};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Value, Values, Variable};
 use statscraft_syntax::{Frequencies, FrequencyOrder as Order, FrequencyStatistic as S, Grouping};
@@ -43,7 +44,9 @@ struct Row {
 /// What one variable gives.
 struct Analysis {
     name: String,
+    /// The title (SET OVARS) and the column header of the Statistics table (TVARS).
     title: String,
+    heading: String,
     /// Valid values first, then missing ones, each in ascending order.
     rows: Vec<Row>,
     numeric: bool,
@@ -65,6 +68,7 @@ fn label_of(variable: &Variable<'_>, is_value: impl Fn(&Value) -> bool) -> Optio
 
 fn analyse(
     data: &Dataset,
+    (shown, outline): (&Shown, &Shown),
     name: &str,
     weights: &Option<Vec<f64>>,
     include: bool,
@@ -150,10 +154,8 @@ fn analyse(
         .collect();
     Ok(Analysis {
         name: name.to_string(),
-        title: match variable.label() {
-            Some(label) => format!("{name}: {label}"),
-            None => name.to_string(),
-        },
+        title: outline.variable(&variable),
+        heading: shown.variable(&variable),
         numeric: !variable.is_string(),
         format: variable.format().to_string(),
         valid: rows.iter().filter(|r| !r.missing).map(|r| r.count).sum(),
@@ -184,7 +186,9 @@ fn order_rows(rows: &mut [Row], order: Order) {
     });
 }
 
-fn frequency_table(analysis: &Analysis) -> Table {
+/// `labels`: the Label column, which SET TNUMBERS=VALUES leaves out; the Value column
+/// stays whatever the setting, so the value is never lost.
+fn frequency_table(analysis: &Analysis, labels: bool) -> Table {
     let (total, valid) = (analysis.total, analysis.valid);
     let percent = |part: f64, whole: f64| {
         if whole > 0.0 {
@@ -225,7 +229,7 @@ fn frequency_table(analysis: &Analysis) -> Table {
         Cell::Empty,
     ]);
     let value_format = procedure_format(&analysis.format, Stat::Value);
-    Table {
+    let mut table = Table {
         formats: formats_of(&out, |_, c| match c {
             1 => value_format.clone(),
             _ => String::new(),
@@ -246,7 +250,11 @@ fn frequency_table(analysis: &Analysis) -> Table {
         .to_vec(),
         rows: out,
         ..Table::default()
+    };
+    if !labels {
+        drop_label_column(&mut table, 2);
     }
+    table
 }
 
 fn statistic_name(stat: S) -> &'static str {
@@ -397,10 +405,11 @@ impl Engine {
             }
         }
         let data = self.active()?;
+        let (shown, outline) = (self.shown(), self.outline());
         let weights = case_weights(data)?;
         let mut analyses: Vec<Analysis> = names
             .iter()
-            .map(|name| analyse(data, name, &weights, command.include))
+            .map(|name| analyse(data, (&shown, &outline), name, &weights, command.include))
             .collect::<Result<_, _>>()?;
 
         let mut warnings = Vec::new();
@@ -428,13 +437,13 @@ impl Engine {
 
         let mut tables_of: Vec<Option<Table>> = Vec::new();
         for analysis in &mut analyses {
-            let shown = !command.notable
+            let table = !command.notable
                 && command
                     .limit
                     .is_none_or(|limit| analysis.rows.len() <= limit);
-            tables_of.push(shown.then(|| {
+            tables_of.push(table.then(|| {
                 order_rows(&mut analysis.rows, order);
-                frequency_table(analysis)
+                frequency_table(analysis, shown.values != Show::Plain)
             }));
         }
         let wanted = !statistics.is_empty()
@@ -490,7 +499,7 @@ impl Engine {
                 })
                 .collect();
             let mut headers = vec!["Statistic".to_string(), String::new()];
-            headers.extend(indices.iter().map(|&i| analyses[i].name.clone()));
+            headers.extend(indices.iter().map(|&i| analyses[i].heading.clone()));
             let tied: Vec<&str> = indices
                 .iter()
                 .map(|&i| analyses[i].name.as_str())

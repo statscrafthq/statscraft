@@ -3008,7 +3008,19 @@ impl eframe::App for App {
         self.confirm_window(&ctx);
         self.unsaved_window(&ctx);
         let log_hidden = self.settings.log_hidden;
-        settings_window::show(&ctx, &mut self.settings_section, &mut self.settings);
+        let labels = settings_window::TableLabels {
+            variables: self.session.setting("TVARS"),
+            values: self.session.setting("TNUMBERS"),
+        };
+        let set = settings_window::show(
+            &ctx,
+            &mut self.settings_section,
+            &mut self.settings,
+            &labels,
+        );
+        if let Some(syntax) = set {
+            self.run(&syntax, None, After::Show);
+        }
         if self.settings.log_hidden != log_hidden {
             self.show_log = !self.settings.log_hidden;
         }
