@@ -50,7 +50,7 @@ Good habits:
 
 ## Working in the open window
 
-When the person has `statscraft-gui` open, the agent can work in it instead of a file session: the session name `gui` sends the syntax to the window, which runs it like its own Run button. The person sees each table appear in the Output tab and each command in the log, and can keep working in the window between the agent's runs.
+When the person has `statscraft-gui` open, the agent can work in it instead of a file session: the session name `gui` sends the syntax to the window, which runs it like its own Run button. The person sees each table appear in the output window and each command in the log, and can keep working in the window between the agent's runs.
 
 ```
 statscraft run -s gui --json -e "GET FILE='tests/fixtures/survey_basic.sav'."

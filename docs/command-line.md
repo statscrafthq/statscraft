@@ -395,7 +395,7 @@ statscraft check -s gui -e "COMPUTE x = age / 10."
 statscraft describe -s gui --json
 ```
 
-- The window runs the syntax as its own Run button does: the tables appear in the Output tab, the commands in the log, and the grid shows the new data.
+- The window runs the syntax as its own Run button does: the tables appear in the designated output window, the commands in the log, and the data windows show the new data.
 - The command line prints what it prints for a file session, with `"session": "gui"`. `saved` is true when the run changed the window's session (the table under [Sessions](#sessions-and-line-ranges)); nothing is written to disk unless the syntax says `SAVE`.
 - The window keeps the same state between runs as a file session, in memory until it closes; `describe -s gui` shows it the same way.
 - Relative paths in the syntax are read from the folder where `statscraft` was started, and the window stays in that folder.

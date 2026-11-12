@@ -630,7 +630,7 @@ Significance tests:
 - **Beyond the documentation:** OUTPUT EXPORT takes /CSV DOCUMENTFILE='file' [NOTESCAPTIONS=YES | NO], a Statscraft addition: each table as comma-separated values after its title, a blank line between tables.
 - Documents are named Document1, Document2 and so on.
 - In the JSON of a run, each command names the document its tables went to (`commands[].document`), and `describe` lists the open documents and the designated one.
-- The window shows the tables of every document in its one Output tab. The documents decide what OUTPUT EXPORT writes, including tables deleted from the view.
+- The window shows each output document in an output window of its own. The documents decide what OUTPUT EXPORT writes, including tables deleted from the view.
 - The window session keeps its documents from run to run; a command-line run starts without any.
 - OUTPUT ACTIVATE of a name no document has, and OUTPUT CLOSE of one, give a warning, so the run goes on.
 - OUTPUT EXPORT /XLSX puts the tables one below the other on one sheet (SHEET, or Tables), a blank row between. MODIFYSHEET leaves one blank column (LASTCOLUMN) or row (LASTROW) before the new tables.

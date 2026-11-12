@@ -223,13 +223,15 @@ statscraft-gui tests/fixtures/survey_basic.sav job.sps
 
 (Both are optional. From a source checkout `cargo run -p statscraft-gui -- tests/fixtures/survey_basic.sav job.sps` does the same.)
 
-1. The **Data** tab shows the cases. Double-click a cell, or press Enter, to change it. **Show value labels**, above the grid, switches value labels on and off.
-2. The **Variables** tab has one row per variable. Double-click a label, a format or the missing values to change them.
-3. The **Syntax** tab holds `job.sps`. Select lines 4 to 6 and press Ctrl+Enter to run only those commands. F1 shows help for the command at the cursor. An error is marked at its line and column.
-4. The **Output** tab collects every table. **Copy** puts a table on the clipboard for a spreadsheet; File > Export output as Excel saves all tables as a workbook.
-5. The menus **Data**, **Analyze** and **Transform** open dialogs that build syntax. **OK** runs it, **Paste** puts it in the syntax editor.
+Each file opens in a window of its own, and all windows work on one session:
 
-Everything the window does is syntax. The log under the Syntax and Output tabs lists every command it ran, and **Copy syntax** there gives a script that repeats your session with `statscraft run`. Edit > Undo last change (Ctrl+Z) takes back the last run that changed the data.
+1. The data window shows the dataset. Its **Data** tab shows the cases: double-click a cell, or press Enter, to change it. **Show value labels**, above the grid, switches value labels on and off. Its **Variables** tab has one row per variable: double-click a label, a format or the missing values to change them.
+2. The syntax window holds `job.sps`. Select lines 4 to 6 and press Ctrl+Enter to run only those commands. F1 shows help for the command at the cursor. An error is marked at its line and column.
+3. The output window opens with the first table and collects every table after it. **Copy** puts a table on the clipboard for a spreadsheet; File > Export output as Excel saves all its tables as a workbook.
+4. The menus **Data**, **Analyze** and **Transform** open dialogs that build syntax. **OK** runs it, **Paste** puts it in the syntax window.
+5. Open a second data file and it gets a second data window. A click in a data window makes its dataset the active one, the one every command works on.
+
+Everything the window does is syntax. The log in the syntax and output windows lists every command it ran, and **Copy syntax** there gives a script that repeats your session with `statscraft run`. Edit > Undo last change (Ctrl+Z) takes back the last run that changed the data.
 
 A few more things to know:
 
@@ -238,7 +240,7 @@ A few more things to know:
 - Long lines in the syntax editor wrap; Edit > Settings > Editor > Wrap long lines turns that off.
 - The window brings its own fonts. Set `STATSCRAFT_FONT` or `STATSCRAFT_MONO_FONT` to a .ttf file to use another.
 
-[The window](window.md) describes every tab, menu and dialog.
+[The window](window.md) describes every window, menu and dialog.
 
 While the window is open, the command line and AI agents can work in it as the session `gui`:
 
@@ -246,11 +248,11 @@ While the window is open, the command line and AI agents can work in it as the s
 statscraft run -s gui -e "FREQUENCIES VARIABLES=age_group."
 ```
 
-The table appears in the window's Output tab. See [the command line](command-line.md#the-live-window-session) and [AI agents](ai-agents.md).
+The table appears in the output window. See [the command line](command-line.md#the-live-window-session) and [AI agents](ai-agents.md).
 
 ## Next
 
-- [The window](window.md): every tab, menu, dialog and setting.
+- [The window](window.md): every window, menu, dialog and setting.
 - [The command line](command-line.md): every subcommand, flag, JSON shape and exit code.
 - [AI agents](ai-agents.md): how an agent should drive Statscraft.
 - [Commands](commands/README.md): one page per supported command.

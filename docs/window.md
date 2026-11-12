@@ -4,13 +4,21 @@
 statscraft-gui survey.sav job.sps     open a data file and a syntax file
 ```
 
-`statscraft-gui` is a desktop window over the same engine as the command line. The main window has three tabs: **Data**, **Variables** and **Output**. Syntax opens in [syntax windows](#syntax-windows) of its own. All windows work on one session. Every change and every result in them comes from syntax (see [Syntax is the only command layer](#syntax-is-the-only-command-layer)).
+`statscraft-gui` is a desktop window over the same engine as the command line. It has three kinds of window, all on one session:
+
+- a [data window](#data-windows) for each open dataset, with the **Data** and **Variables** tabs;
+- a [syntax window](#syntax-windows) for each syntax file;
+- an [output window](#output-windows) for each output document.
+
+The session has one active dataset, and every command, from any window, works on it. Every change and every result in the windows comes from syntax (see [Syntax is the only command layer](#syntax-is-the-only-command-layer)).
+
+With no data given, the program starts with one empty data window, a place to open files from.
 
 ## Opening files
 
 - Give a data file, a syntax file or both on the command line, as above.
-- File > Open data opens a .sav or .zsav file at once.
-- An Excel workbook (.xlsx, .xlsm, .xls) or a text file (.csv, .txt, .tab, .dat) opens the Open Data dialog first. It writes `GET DATA`:
+- File > Open data opens a .sav or .zsav file at once, in a data window of its own. The empty data window takes the first file.
+- An Excel workbook (.xlsx, .xlsm, .xls) or a text file (.csv, .txt, .tab, .dat) opens the Open Data dialog first. It writes `GET DATA`, with `DATASET NAME` after it as for a .sav file:
   - for a workbook: the sheet, whether the first row holds the variable names, and a range such as A1:F200 (empty reads the whole sheet);
   - for a text file: the delimiter (comma, semicolon or tab; the one the first line uses most is chosen), and whether the first line holds the names, with that line shown. Every variable is read as `AUTO`.
 - After an Open Data run, File > Save data asks for a new .sav file.
@@ -28,6 +36,19 @@ File > Export data writes `SAVE TRANSLATE`. The file name chosen sets the type: 
 - the variables to export (none chosen: all, in the order of the dataset).
 
 An existing file is replaced once the file dialog has asked.
+
+## Data windows
+
+Each dataset of the session that holds data has a data window. The title names the file and the dataset, such as `survey.sav [DataSet1]`, and the window of the active dataset says `(active)`.
+
+- Opening a data file opens its window. A file opened from the window gets the next free dataset name (DataSet1, DataSet2 and so on), so the data open before stays open.
+- A dataset made by syntax gets a window too: `DATASET COPY`, `DATASET DECLARE` once a command has written data to it, and a `GET` typed in syntax without `DATASET NAME`. A dataset that `DATASET CLOSE` closes loses its window, and `DATASET NAME` keeps the window under the new name.
+- A click anywhere in a data window, its menus included, makes its dataset active. That runs `DATASET ACTIVATE name.`, which shows in the log like any run. A click in the window of the active dataset runs nothing.
+- Dialogs opened from a data window work on its dataset, which is active by then.
+- Each window keeps its own tab, selection and find bar. Grid edits, right-click menus and Delete work in every data window.
+- The data a typed `GET` reads without `DATASET NAME` has no name. As the manual describes, such a dataset closes when another one becomes active (a click in another data window, the Active list, opening a file). When it holds unsaved changes, a question comes first: **Save** saves it and goes on, **Don't save** goes on without it, **Cancel** keeps everything as it is.
+- File > Close or the window's close button closes the dataset. When its data is unsaved, a question offers **Save**, **Don't save** and **Cancel**. Closing runs `DATASET CLOSE name.`. When the dataset is the active one, another open dataset is activated first, as `DATASET CLOSE` of the active dataset only takes its name away; when it is the last one, `NEW FILE.` follows.
+- Closing the last data window does not end the program while other windows are open. Opening a file opens a data window again.
 
 ## The Data tab
 
@@ -116,7 +137,7 @@ How the items behave:
 
 Each syntax window holds one syntax file, or new syntax, in an editor with line numbers.
 
-- File > New syntax opens a new window, named Syntax1, Syntax2 and so on until it is saved. File > Open syntax, Recent files and a dropped .sps file open the file in a new window; a file that is open already brings its window to the front.
+- File > New > Syntax opens a new window, named Syntax1, Syntax2 and so on until it is saved. File > Open syntax, Recent files and a dropped .sps file open the file in a new window; a file that is open already brings its window to the front.
 - Save syntax and Save syntax as save the window they are chosen in.
 - File > Close or the window's close button closes it. When its text is unsaved, a question offers **Save**, **Don't save** and **Cancel**.
 - The toolbar has **Run all**, **Run selection** and the **Active** list. The Active list shows the datasets of the session, with the active one chosen. Choosing another runs `DATASET ACTIVATE name.`, which shows in the log like any run.
@@ -151,13 +172,20 @@ Ctrl+Space opens the list at any point. Arrows choose, Enter or Tab puts the cho
 
 ## The Window menu
 
-Every window has the same menu bar. The Window menu lists the open windows; a click brings one to the front. The designated syntax window is marked `+`. **Designate window** makes the syntax window it is chosen in the designated one.
+Every window has the same menu bar. The Window menu lists the open windows; a click brings one to the front. The designated syntax window and the designated output window are marked `+`. **Designate window** makes the syntax or output window it is chosen in the designated one of its kind; for an output window it runs `OUTPUT ACTIVATE name.`.
 
-The program ends when the last window closes. The main window can close while syntax windows stay open; opening data or a new result opens it again.
+The program ends when the last window closes, whatever its kind.
 
-## The Output tab
+## Output windows
 
-Every result table, beside a navigator that groups the tables by run and command. A click on a run in the navigator folds it away.
+Each output document of the session has an output window, named after the document (Document1, Document2 and so on, or the name `OUTPUT NAME` gave). The tables of every run go to the designated document, so they appear in its window.
+
+- The first tables of a session start Document1, and its window opens.
+- File > New > Output runs `OUTPUT NEW.`: a new window opens and becomes the designated one.
+- Window > Designate window, in an output window, runs `OUTPUT ACTIVATE name.`. `OUTPUT NEW`, `OUTPUT ACTIVATE` and `OUTPUT NAME` typed in syntax change the windows the same way.
+- File > Close or the window's close button runs `OUTPUT CLOSE name.`. Output cannot be saved yet, so nothing is asked; export what you want to keep first. The next tables after the designated window closed start a new document and window.
+
+Each output window shows its tables beside a navigator that groups them by run and command. A click on a run in the navigator folds it away.
 
 ### How tables look
 
@@ -186,15 +214,15 @@ The buttons over the tables act on the selected tables. A right click on a table
 
 ### Exporting all output
 
-- File > Export output as HTML saves the whole output as one web page.
-- File > Export output as Excel saves it as a workbook, with **One sheet per table** or **All tables on one sheet**, laid out as `--xlsx` does.
-- From syntax, OUTPUT EXPORT writes the tables of an output document to a workbook, web page, text or CSV file. OUTPUT NEW, NAME, ACTIVATE and CLOSE group the tables into documents. The Output tab shows all documents together, and the window keeps them from run to run.
+- File > Export output as HTML saves all the tables of the output window as one web page. Chosen in a data or syntax window, it exports the designated output window.
+- File > Export output as Excel saves them as a workbook, with **One sheet per table** or **All tables on one sheet**, laid out as `--xlsx` does.
+- From syntax, OUTPUT EXPORT writes the tables of an output document to a workbook, web page, text or CSV file.
 
 ## Menus
 
 ### File
 
-Open data, Save data, Save data as, Export data; New syntax, Open syntax, Recent files, Save syntax, Save syntax as; Export output as HTML, Export output as Excel; Close, Exit.
+Open data, Save data, Save data as, Export data; New (Syntax, Output), Open syntax, Recent files, Save syntax, Save syntax as; Export output as HTML, Export output as Excel; Close, Exit. Save data saves the dataset of the data window it is chosen in, and the active dataset elsewhere.
 
 ### Window
 
@@ -367,17 +395,17 @@ Every dialog that builds syntax ends the same way. That holds for the menus' dia
 The status bar:
 
 - shows what is running, and how many runs wait after it;
-- says how many warnings a run gave (the warnings appear under their command in the log); a click there shows the log, in the Output tab when you are in the Data or Variables tab;
+- says how many warnings a run gave (the warnings appear under their command in the log); a click there shows the log, and from a data window it brings the designated output window to the front;
 - shows errors, whatever the tab;
 - names, at its right, the split, filter and weight in force, such as `Split by region (layered)`, `Filter: filter_$` and `Weight: weight`. A click on one opens Split File, Select Cases or Weight Cases.
 
-The log, in every syntax window and under the Output tab:
+The log, in every syntax window and output window:
 
 - lists every command with what it changed;
 - has **Copy syntax**, which gives a script that repeats the session with `statscraft run`;
 - is turned off by Edit > Settings > Grids and output > Log under Syntax and Output. A run with warnings shows the log even when it is off.
 
-The Data and Variables tabs have no log, so the grid gets the whole height.
+Data windows have no log, so the grid gets the whole height.
 
 ## Syntax is the only command layer
 
@@ -409,7 +437,7 @@ Edit > Settings holds every setting of the window in one dialog, with its sectio
 
 The window keeps these in `statscraft/window.txt` in the user's config folder (`%APPDATA%` on Windows, `$XDG_CONFIG_HOME` or `~/.config` elsewhere):
 
-- its size and position;
+- the size and position of the last data window, syntax window and output window, which a new window of that kind opens with (a little lower and to the right of the windows of its kind already open);
 - the folder of the last file dialog;
 - the ten files opened or saved last (File > Recent files);
 - the settings of Edit > Settings;
@@ -419,14 +447,14 @@ The window keeps these in `statscraft/window.txt` in the user's config folder (`
 
 The program ends when the last window closes, or with File > Exit, the Windows installer of an update, or Restart now. It first checks for unsaved work in every window.
 
-- Unsaved work is data changed since it was last opened or saved, syntax whose text differs from its file, and new syntax that is not empty.
+- Unsaved work is a dataset changed since it was last opened or saved, syntax whose text differs from its file, and new syntax that is not empty.
 - Data counts as saved after a run that ends with `GET`, `GET DATA` or `SAVE`, whether from a menu, a syntax window or the command line.
 - With nothing unsaved, the program ends at once.
 - Otherwise one question lists what is unsaved, with **Save**, **Don't save** and **Cancel**.
-  - Save saves the syntax of every window and the data, each to its file, or with a file dialog when there is none yet. The program ends once all are written. A canceled file dialog or a failed save keeps it open.
+  - Save saves the syntax of every window and every changed dataset, each to its file, or with a file dialog when there is none yet. The program ends once all are written. A canceled file dialog or a failed save keeps it open.
   - Cancel, Escape or a click beside the question keeps it open.
 
-Closing one syntax window while others stay open asks only about its own syntax. Closing the main window then loses nothing: the data stays in the session.
+Closing one window while others stay open asks only about its own work: the syntax of a syntax window, the data of a data window. An output window asks nothing.
 
 ## Updates
 
@@ -458,7 +486,7 @@ statscraft check -s gui -e "COMPUTE x = age / 10."       validates against the w
 statscraft describe -s gui --json                        dictionary of the window's dataset
 ```
 
-- The window runs the syntax exactly as its own Run button does. The tables appear in the Output tab, the commands in the log, and the data grid shows the result.
+- The window runs the syntax exactly as its own Run button does. The tables appear in the designated output window, the commands in the log, and the data windows show the result.
 - The command line prints what it prints for a file session, with `"session": "gui"`. `saved` is true when the run changed the window's dataset. Nothing is written to disk unless the syntax says SAVE.
 - Relative paths in the syntax are read from the folder where `statscraft` was started. The window stays in that folder.
 
