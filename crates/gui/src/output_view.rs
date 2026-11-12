@@ -223,7 +223,6 @@ impl OutputView {
             ui.add_space(40.0);
             ui.vertical_centered(|ui| {
                 ui.heading("No output yet");
-                ui.label("Results of FREQUENCIES, CROSSTABS, CTABLES and the other procedures appear here.");
             });
             return None;
         }
@@ -345,11 +344,7 @@ impl OutputView {
                         ui.ctx().copy_text(item.syntax.clone());
                         request = Some(Request::Status(Ok("syntax copied".into())));
                     }
-                    if ui
-                        .small_button("Paste")
-                        .on_hover_text("Put it in the syntax editor")
-                        .clicked()
-                    {
+                    if ui.small_button("Paste").clicked() {
                         request = Some(Request::Paste(item.syntax.clone()));
                     }
                     if ui.small_button("Run again").clicked() {

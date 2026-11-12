@@ -313,7 +313,11 @@ impl Dialog {
                 if strings > 0 && strings < d.variables.len() {
                     return Err("the variables of a set must be all numeric or all strings".into());
                 }
-                d.syntax(strings > 0)
+                let text = d.syntax(strings > 0)?;
+                if !d.delete && d.dichotomy && d.counted_value_labels {
+                    counted_labels(data, &d.variables, &d.value)?;
+                }
+                Ok(text)
             }
             Dialog::SortCases(d) => d.syntax(),
             Dialog::SplitFile(d) => d.syntax(),
@@ -896,7 +900,6 @@ impl App {
                 }
                 if ui
                     .add_enabled(has_data, egui::Button::new("Export data..."))
-                    .on_hover_text("Write the data to an Excel workbook, CSV or text file")
                     .clicked()
                 {
                     self.open_dialog(Dialog::ExportData(Default::default()));
@@ -984,9 +987,6 @@ impl App {
                 if ui.button("Settings...").clicked() {
                     self.settings_section = Some(Section::default());
                 }
-            });
-            ui.menu_button("View", |ui| {
-                ui.checkbox(&mut self.value_labels, "Value labels in Data View");
             });
             ui.menu_button("Data", |ui| {
                 let data = self.session.dataset();
@@ -1483,7 +1483,7 @@ impl App {
             if let Some(states) = self.session.dataset().map(data_states) {
                 ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
                     for (text, dialog) in states.into_iter().rev() {
-                        if ui.link(text).on_hover_text("Change it").clicked() {
+                        if ui.link(text).clicked() {
                             open = Some(dialog);
                         }
                     }
@@ -1562,7 +1562,6 @@ impl App {
         ui.add_space(40.0);
         ui.vertical_centered(|ui| {
             ui.heading("No data yet");
-            ui.label("Open a .sav or .zsav file from the File menu, or run GET FILE in the syntax editor.");
         });
     }
 
@@ -2006,34 +2005,10 @@ impl App {
                         "A new type drops the value labels and missing values.",
                     );
                 }
-                ui.separator();
-                match &syntax {
-                    Ok(text) => {
-                        ui.label(RichText::new(text).monospace());
-                    }
-                    Err(message) => {
-                        ui.colored_label(ui.visuals().warn_fg_color, message);
-                    }
-                }
-                ui.horizontal(|ui| {
-                    if ui
-                        .add_enabled(syntax.is_ok(), crate::brand::primary(ui, "OK"))
-                        .clicked()
-                    {
-                        answer = Some(true);
-                    }
-                    if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
-                        answer = Some(false);
-                    }
-                });
+                answer = dialog_footer(ui, &syntax, false);
             });
-        match (answer, syntax) {
-            (Some(true), Ok(text)) => {
-                self.format_dialog = None;
-                self.run(&text, None, After::Show);
-            }
-            (Some(false), _) => self.format_dialog = None,
-            _ => {}
+        if self.finish_small(answer, syntax) {
+            self.format_dialog = None;
         }
     }
 
@@ -2060,37 +2035,42 @@ impl App {
                         TextEdit::multiline(&mut d.pasted)
                             .desired_width(f32::INFINITY)
                             .desired_rows(8)
-                            .hint_text("1\tVery satisfied\n2\tSatisfied")
                             .font(TextStyle::Monospace),
                     );
-                    ui.weak("A code and its label on each line, with a tab, semicolon, = or comma between.");
                     ui.radio_value(
                         &mut d.replace,
                         false,
                         "Update: add new codes, change the labels of codes there are",
                     );
-                    ui.radio_value(&mut d.replace, true, "Replace: the pasted list is the whole set");
+                    ui.radio_value(
+                        &mut d.replace,
+                        true,
+                        "Replace: the pasted list is the whole set",
+                    );
                 } else {
                     let mut remove = None;
                     ScrollArea::vertical()
                         .max_height(300.0)
                         .auto_shrink([false, true])
                         .show(ui, |ui| {
-                        let row = ui.text_style_height(&TextStyle::Body) + 6.0;
-                        ui.horizontal(|ui| {
-                            ui.add_sized([80.0, row], egui::Label::new(RichText::new("Code").strong()));
-                            ui.strong("Label");
-                        });
-                        for (i, (code, label)) in d.pairs.iter_mut().enumerate() {
+                            let row = ui.text_style_height(&TextStyle::Body) + 6.0;
                             ui.horizontal(|ui| {
-                                ui.add_sized([80.0, row], TextEdit::singleline(code));
-                                ui.add_sized([320.0, row], TextEdit::singleline(label));
-                                if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
-                                    remove = Some(i);
-                                }
+                                ui.add_sized(
+                                    [80.0, row],
+                                    egui::Label::new(RichText::new("Code").strong()),
+                                );
+                                ui.strong("Label");
                             });
-                        }
-                    });
+                            for (i, (code, label)) in d.pairs.iter_mut().enumerate() {
+                                ui.horizontal(|ui| {
+                                    ui.add_sized([80.0, row], TextEdit::singleline(code));
+                                    ui.add_sized([320.0, row], TextEdit::singleline(label));
+                                    if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
+                                        remove = Some(i);
+                                    }
+                                });
+                            }
+                        });
                     if let Some(i) = remove {
                         d.pairs.remove(i);
                     }
@@ -2104,16 +2084,10 @@ impl App {
                         format!("Also for {}", edits::listed(&d.others)),
                     );
                 }
-                ui.separator();
-                dialog_footer(ui, &syntax, &mut answer);
+                answer = dialog_footer(ui, &syntax, false);
             });
-        match (answer, syntax) {
-            (Some(true), Ok(text)) => {
-                self.labels_dialog = None;
-                self.run(&text, None, After::Show);
-            }
-            (Some(false), _) => self.labels_dialog = None,
-            _ => {}
+        if self.finish_small(answer, syntax) {
+            self.labels_dialog = None;
         }
     }
 
@@ -2156,7 +2130,6 @@ impl App {
                             TextEdit::singleline(&mut d.extra).desired_width(70.0),
                         );
                     });
-                    ui.weak("LO and HI stand for the lowest and highest value.");
                 }
                 if !d.others.is_empty() {
                     ui.checkbox(
@@ -2164,17 +2137,32 @@ impl App {
                         format!("Also for {}", edits::listed(&d.others)),
                     );
                 }
-                ui.separator();
-                dialog_footer(ui, &syntax, &mut answer);
+                answer = dialog_footer(ui, &syntax, false);
             });
-        match (answer, syntax) {
-            (Some(true), Ok(text)) => {
-                self.missing_dialog = None;
-                self.run(&text, None, After::Show);
-            }
-            (Some(false), _) => self.missing_dialog = None,
-            _ => {}
+        if self.finish_small(answer, syntax) {
+            self.missing_dialog = None;
         }
+    }
+
+    /// Does what OK, Paste or Cancel of a small dialog asks for; true when the dialog closes.
+    fn finish_small(
+        &mut self,
+        action: Option<DialogAction>,
+        syntax: Result<String, String>,
+    ) -> bool {
+        match (action, syntax) {
+            (Some(DialogAction::Ok), Ok(text)) => self.run(&text, None, After::Show),
+            (Some(DialogAction::Paste), Ok(text)) => self.paste(&text),
+            (Some(DialogAction::Cancel), _) => {}
+            _ => return false,
+        }
+        true
+    }
+
+    /// Puts syntax at the end of the syntax editor and shows it.
+    fn paste(&mut self, text: &str) {
+        editor::append(&mut self.syntax, text);
+        self.tab = Tab::Syntax;
     }
 
     /// The question before syntax that deletes or reorders runs: the question, the syntax, the
@@ -2261,9 +2249,6 @@ impl App {
             return ui.close();
         }
         ui.weak(grid_menu::heading(data, &target));
-        for (state, _) in data_states(data) {
-            ui.weak(state);
-        }
         ui.separator();
         let mut chosen = None;
         for e in &entries {
@@ -2503,7 +2488,7 @@ impl App {
             run_all = ui.button("Run all").clicked();
             run_selection |= ui
                 .button("Run selection")
-                .on_hover_text("Runs the commands on the selected lines, or the command at the cursor (Ctrl+Enter). Ctrl+Space completes, F1 shows the help of the command at the cursor.")
+                .on_hover_text("Ctrl+Enter")
                 .clicked();
             let name = self
                 .syntax_file
@@ -2594,7 +2579,6 @@ impl App {
                         .desired_rows(4)
                         .min_size(vec2(0.0, height))
                         .margin(vec2(6.0, 4.0))
-                        .hint_text("Type syntax here, for example FREQUENCIES VARIABLES=gender.")
                         .layouter(&mut layouter)
                         .show(ui);
                     self.editor_id = Some(output.response.id);
@@ -2838,40 +2822,7 @@ impl App {
                             });
                         });
                 });
-                ui.separator();
-                ui.weak("Syntax");
-                match &syntax {
-                    Ok(text) => {
-                        ui.add(egui::Label::new(RichText::new(text).monospace()).wrap());
-                    }
-                    Err(message) => {
-                        ui.colored_label(ui.visuals().warn_fg_color, message);
-                    }
-                }
-                ui.add_space(6.0);
-                ui.horizontal(|ui| {
-                    let ready = syntax.is_ok();
-                    if ui
-                        .add_enabled(ready, crate::brand::primary(ui, "OK"))
-                        .on_hover_text("Run the syntax")
-                        .clicked()
-                    {
-                        action = Some(DialogAction::Ok);
-                    }
-                    if ui
-                        .add_enabled(ready, egui::Button::new("Paste"))
-                        .on_hover_text("Put the syntax in the syntax editor")
-                        .clicked()
-                    {
-                        action = Some(DialogAction::Paste);
-                    }
-                    if ui.button("Reset").clicked() {
-                        action = Some(DialogAction::Reset);
-                    }
-                    if ui.button("Cancel").clicked() {
-                        action = Some(DialogAction::Cancel);
-                    }
-                });
+                action = dialog_footer(ui, &syntax, true);
             });
         if !open {
             action = Some(DialogAction::Cancel);
@@ -2885,9 +2836,8 @@ impl App {
                 self.run(&text, None, After::CloseDialog(title));
             }
             (Some(DialogAction::Paste), Ok(text)) => {
-                editor::append(&mut self.syntax, &text);
+                self.paste(&text);
                 self.dialog = None;
-                self.tab = Tab::Syntax;
             }
             (Some(DialogAction::Reset), _) => {
                 if let Some(d) = self.dialog.as_mut() {
@@ -2999,10 +2949,7 @@ impl eframe::App for App {
                         self.export_xlsx(one_sheet, true)
                     }
                     Some(output_view::Request::Status(status)) => self.status = status,
-                    Some(output_view::Request::Paste(syntax)) => {
-                        editor::append(&mut self.syntax, &syntax);
-                        self.tab = Tab::Syntax;
-                    }
+                    Some(output_view::Request::Paste(syntax)) => self.paste(&syntax),
                     Some(output_view::Request::Run(syntax)) => {
                         self.run(&syntax, None, After::Show);
                     }
@@ -3248,6 +3195,33 @@ fn session_macros(log: &[statscraft_engine::session::LogEntry]) -> Vec<String> {
 }
 
 /// Whether the dataset has a string variable of that name.
+/// Labelling the categories of a set by the counted value needs a label for that value in
+/// every variable, a different one each (ignoring case), as MRSETS checks when it runs.
+fn counted_labels(data: &Dataset, variables: &[String], counted: &str) -> Result<(), String> {
+    let mut seen: Vec<String> = Vec::new();
+    for name in variables {
+        let label = data.variable(name).ok().and_then(|v| {
+            v.value_labels().iter().find_map(|(value, label)| {
+                let hit = match value {
+                    Value::Number(n) => counted.trim().parse::<f64>() == Ok(*n),
+                    Value::String(s) => s.trim_end() == counted.trim_end(),
+                };
+                hit.then(|| label.to_lowercase())
+            })
+        });
+        match label {
+            None => return Err(format!("{name} has no value label for the counted value")),
+            Some(label) if seen.contains(&label) => {
+                return Err(format!(
+                    "{name} has the same label for the counted value as another variable"
+                ));
+            }
+            Some(label) => seen.push(label),
+        }
+    }
+    Ok(())
+}
+
 fn is_string(data: &Dataset, name: &str) -> bool {
     data.variable(name.trim()).is_ok_and(|v| v.is_string())
 }
@@ -3302,7 +3276,6 @@ fn import_body(ui: &mut Ui, d: &mut ImportData) {
                     .hint_text("whole sheet")
                     .desired_width(120.0),
             );
-            ui.weak("such as A1:F200");
         });
     } else {
         ui.horizontal(|ui| {
@@ -3314,7 +3287,6 @@ fn import_body(ui: &mut Ui, d: &mut ImportData) {
         ui.checkbox(&mut d.names, "Read variable names from the first line");
         ui.weak("First line");
         ui.label(RichText::new(&d.first_line).monospace());
-        ui.weak("Each variable is a number when all its values are numbers, else a string.");
     }
 }
 
@@ -3384,28 +3356,46 @@ fn dropped(paths: Vec<PathBuf>) -> Dropped {
     drop
 }
 
-/// The syntax of a small dialog, or why it has none yet, and OK and Cancel; `answer` becomes
-/// true for OK, false for Cancel or Escape.
-fn dialog_footer(ui: &mut Ui, syntax: &Result<String, String>, answer: &mut Option<bool>) {
+/// The foot of every dialog that writes syntax: the syntax, or why it has none yet, then OK,
+/// Paste, Reset when `reset`, and Cancel. Escape cancels, unless it closes a list.
+fn dialog_footer(
+    ui: &mut Ui,
+    syntax: &Result<String, String>,
+    reset: bool,
+) -> Option<DialogAction> {
+    // a list drawn open in this frame, above, takes the Escape
+    let escape = ui.input(|i| i.key_pressed(Key::Escape)) && !ui.ctx().any_popup_open();
+    ui.separator();
+    ui.weak("Syntax");
     match syntax {
         Ok(text) => {
-            ui.label(RichText::new(text).monospace());
+            ui.add(egui::Label::new(RichText::new(text).monospace()).wrap());
         }
         Err(message) => {
             ui.colored_label(ui.visuals().warn_fg_color, message);
         }
     }
+    ui.add_space(6.0);
+    let mut action = escape.then_some(DialogAction::Cancel);
     ui.horizontal(|ui| {
+        let ready = syntax.is_ok();
         if ui
-            .add_enabled(syntax.is_ok(), crate::brand::primary(ui, "OK"))
+            .add_enabled(ready, crate::brand::primary(ui, "OK"))
             .clicked()
         {
-            *answer = Some(true);
+            action = Some(DialogAction::Ok);
         }
-        if ui.button("Cancel").clicked() || ui.input(|i| i.key_pressed(Key::Escape)) {
-            *answer = Some(false);
+        if ui.add_enabled(ready, egui::Button::new("Paste")).clicked() {
+            action = Some(DialogAction::Paste);
+        }
+        if reset && ui.button("Reset").clicked() {
+            action = Some(DialogAction::Reset);
+        }
+        if ui.button("Cancel").clicked() {
+            action = Some(DialogAction::Cancel);
         }
     });
+    action
 }
 
 /// A click in a grid changes its selection: a cell (with Shift the block to it), a row number
@@ -3824,7 +3814,6 @@ fn variable_picker(
             }
         }
     }
-    ui.weak("Click to pick, then Add to a list.");
 }
 
 /// A list of variables in a dialog, with Add (the picked variables) and a remove button each.
@@ -3956,7 +3945,6 @@ fn dialog_body(
             ui.checkbox(&mut d.quartiles, "Quartiles");
             field(ui, "Cut points for equal groups:", &mut d.ntiles, 50.0);
             field(ui, "Percentiles:", &mut d.percentiles, 180.0);
-            ui.weak("For example 10 90 or 2.5, 97.5.");
         }
         Dialog::Descriptives(d) => {
             target_list(ui, "Variables", &mut d.variables, picked);
@@ -4030,8 +4018,7 @@ fn dialog_body(
             ui.strong("Summaries");
             ui.horizontal_wrapped(|ui| {
                 ui.checkbox(&mut d.count, "Count");
-                ui.checkbox(&mut d.effective_count, "Effective count")
-                    .on_hover_text("The effective base of the weighted count");
+                ui.checkbox(&mut d.effective_count, "Effective count");
                 ui.checkbox(&mut d.column_percent, "Column %");
                 ui.checkbox(&mut d.row_percent, "Row %");
                 ui.checkbox(&mut d.mean, "Mean");
@@ -4045,9 +4032,11 @@ fn dialog_body(
                 );
             });
             target_one(ui, "Effective base weight", &mut d.effective_weight, picked);
-            egui::CollapsingHeader::new("Categories, totals and subtotals")
-                .show(ui, |ui| categories_panel(ui, data, d, draft));
-            ui.strong("Significance tests (need column variables)");
+            if !(d.rows.is_empty() && d.columns.is_empty() && d.layers.is_empty()) {
+                egui::CollapsingHeader::new("Categories, totals and subtotals")
+                    .show(ui, |ui| categories_panel(ui, data, d, draft));
+            }
+            ui.strong("Significance tests");
             ui.checkbox(&mut d.chi_square, "Chi-square test of independence");
             ui.checkbox(&mut d.compare_proportions, "Compare column proportions");
             ui.checkbox(&mut d.compare_means, "Compare column means");
@@ -4082,18 +4071,10 @@ fn dialog_body(
                 ui.text_edit_singleline(label);
                 ui.end_row();
                 ui.label("Expression");
-                ui.add(
-                    TextEdit::singleline(&mut d.expression)
-                        .desired_width(320.0)
-                        .hint_text("age / 10"),
-                );
+                ui.add(TextEdit::singleline(&mut d.expression).desired_width(320.0));
                 ui.end_row();
                 ui.label("Only where (optional)");
-                ui.add(
-                    TextEdit::singleline(&mut d.condition)
-                        .desired_width(320.0)
-                        .hint_text("gender = 1"),
-                );
+                ui.add(TextEdit::singleline(&mut d.condition).desired_width(320.0));
                 ui.end_row();
             });
             if ui
@@ -4155,7 +4136,6 @@ fn dialog_body(
                     *draft = RuleDraft::default();
                 }
             });
-            ui.weak("A value or range also counts user-missing values.");
         }
         Dialog::Means(d) => {
             target_list(ui, "Dependent variables", &mut d.dependents, picked);
@@ -4174,7 +4154,6 @@ fn dialog_body(
                         d.layer + 1 < count || can_add,
                         egui::Button::new("Next").small(),
                     )
-                    .on_hover_text("The next layer is nested in this one")
                     .clicked()
                 {
                     d.layer += 1;
@@ -4237,9 +4216,6 @@ fn dialog_body(
                     }
                     ui.radio_value(&mut d.cut_point, true, "Cut point");
                 });
-                if d.cut_point {
-                    ui.weak("Cases at or above the cut point form one group.");
-                }
                 t_test_options(ui, d);
             }
             TTestKind::Paired => {
@@ -4258,7 +4234,6 @@ fn dialog_body(
                 }
                 if ui
                     .add_enabled(picked.len() >= 2, egui::Button::new("Add pair"))
-                    .on_hover_text("Pairs the first two picked variables")
                     .clicked()
                 {
                     let first = picked.remove(0);
@@ -4346,18 +4321,12 @@ fn dialog_body(
                 return;
             }
             ui.horizontal(|ui| {
-                ui.radio_value(&mut d.dichotomy, true, "Dichotomies")
-                    .on_hover_text("Each variable is a category, counted when it holds one value");
-                ui.radio_value(&mut d.dichotomy, false, "Categories")
-                    .on_hover_text("The values of the variables are the categories");
+                ui.radio_value(&mut d.dichotomy, true, "Dichotomies");
+                ui.radio_value(&mut d.dichotomy, false, "Categories");
             });
             ui.horizontal(|ui| {
                 ui.label("Name");
-                ui.add(
-                    TextEdit::singleline(&mut d.name)
-                        .desired_width(160.0)
-                        .hint_text("$channels"),
-                );
+                ui.add(TextEdit::singleline(&mut d.name).desired_width(160.0));
             });
             target_list(ui, "Variables", &mut d.variables, picked);
             if d.dichotomy {
@@ -4379,10 +4348,7 @@ fn dialog_body(
             }
             if !sets.is_empty() {
                 let names: Vec<&str> = sets.iter().map(|s| s.name.as_str()).collect();
-                ui.weak(format!(
-                    "Sets now: {}. A set with the same name is replaced.",
-                    names.join(", ")
-                ));
+                ui.weak(format!("Sets now: {}", names.join(", ")));
             }
         }
         Dialog::SortCases(d) => {
@@ -4411,11 +4377,7 @@ fn dialog_body(
                     } else {
                         "ascending"
                     };
-                    if ui
-                        .small_button(order)
-                        .on_hover_text("Switch the order")
-                        .clicked()
-                    {
+                    if ui.small_button(order).clicked() {
                         *descending = !*descending;
                     }
                     if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
@@ -4426,7 +4388,6 @@ fn dialog_body(
             if let Some(i) = remove {
                 d.keys.remove(i);
             }
-            ui.weak("Cases with equal keys keep their order.");
         }
         Dialog::SplitFile(d) => {
             ui.radio_value(&mut d.mode, SplitMode::Off, "Analyze all cases together");
@@ -4443,9 +4404,6 @@ fn dialog_body(
             if d.mode != SplitMode::Off {
                 target_list(ui, "Groups based on", &mut d.variables, picked);
                 ui.checkbox(&mut d.sort, "Sort the cases by these variables first");
-                if !d.sort {
-                    ui.weak("A group is a run of adjacent cases with the same values.");
-                }
             }
             ui.weak(match data.split_file() {
                 Some(split) => format!("Now split by {}.", split.variables.join(" ")),
@@ -4466,8 +4424,7 @@ fn dialog_body(
                 ui.add(
                     TextEdit::multiline(&mut d.condition)
                         .desired_width(360.0)
-                        .desired_rows(3)
-                        .hint_text("age >= 18 AND gender = 2"),
+                        .desired_rows(3),
                 );
                 if ui.button("Add picked variables to the condition").clicked() {
                     for name in picked.drain(..) {
@@ -4481,7 +4438,7 @@ fn dialog_body(
             if d.mode == SelectMode::Delete {
                 ui.colored_label(
                     ui.visuals().warn_fg_color,
-                    "The other cases are deleted from the dataset. Edit, Undo last change brings them back.",
+                    "The other cases are deleted from the dataset.",
                 );
             }
             ui.weak(match data.filter_variable() {
@@ -4588,7 +4545,6 @@ fn dialog_body(
                 }
             });
             ui.add(TextEdit::singleline(&mut d.path).desired_width(360.0));
-            ui.weak("The type follows the name: .xlsx, .csv or .txt (tab-delimited).");
             ui.add_space(6.0);
             ui.strong("First row");
             ui.horizontal(|ui| {
@@ -4624,13 +4580,6 @@ fn dialog_body(
                     "The file is a lookup table: one case per key, adds no cases",
                 );
                 target_list(ui, "Key variables", &mut d.by, picked);
-                ui.weak(if d.by.is_empty() {
-                    "Without keys the cases are joined in file order."
-                } else {
-                    "Both files must be sorted by the keys (Data, Sort Cases)."
-                });
-            } else {
-                ui.weak("Variables are matched by name; a variable missing from a file is blank.");
             }
         }
         Dialog::MultResponse(d) => {
@@ -4918,7 +4867,6 @@ fn dialog_body(
             });
             ui.add_space(6.0);
             ui.strong("New variables");
-            ui.weak("New names, one per variable; empty for names made from the variable.");
             egui::Grid::new("rank functions")
                 .num_columns(2)
                 .show(ui, |ui| {
@@ -5028,7 +4976,6 @@ fn categories_panel(ui: &mut Ui, data: &Dataset, d: &mut CustomTables, draft: &m
         }
     }
     if names.is_empty() {
-        ui.weak("Add variables to Rows, Columns or Layers first.");
         return;
     }
     if !names.contains(&draft.variable) {
@@ -5056,7 +5003,6 @@ fn categories_panel(ui: &mut Ui, data: &Dataset, d: &mut CustomTables, draft: &m
             d.categories
                 .push(Categories::new(&draft.variable, d.totals));
         }
-        ui.weak("Until then it follows Totals under Summaries.");
         return;
     };
     let scale = d.scale_rows.clone();
@@ -5084,9 +5030,6 @@ fn categories_panel(ui: &mut Ui, data: &Dataset, d: &mut CustomTables, draft: &m
             ui.radio_value(&mut c.descending, true, "descending");
         });
     });
-    if listed {
-        ui.weak("With subtotals the categories keep their value order.");
-    }
     ui.horizontal(|ui| {
         ui.checkbox(&mut c.total, "Total, labelled");
         ui.add_enabled(
@@ -5103,9 +5046,7 @@ fn categories_panel(ui: &mut Ui, data: &Dataset, d: &mut CustomTables, draft: &m
         ui.label("their categories");
     });
     ui.checkbox(&mut c.missing, "Show user-missing values as categories");
-    if is_set(&c.variable) {
-        ui.weak("Subtotals are for variables, not sets.");
-    } else {
+    if !is_set(&c.variable) {
         ui.strong("Subtotals");
         let mut remove = None;
         for (s, subtotal) in c.subtotals.iter().enumerate() {
@@ -5242,6 +5183,9 @@ fn t_test_options(ui: &mut Ui, d: &mut TTest) {
         }
     });
 }
+
+#[cfg(test)]
+mod dialog_walk;
 
 #[cfg(test)]
 mod tests {

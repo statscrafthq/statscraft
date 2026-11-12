@@ -223,7 +223,7 @@ statscraft-gui tests/fixtures/survey_basic.sav job.sps
 
 (Both are optional. From a source checkout `cargo run -p statscraft-gui -- tests/fixtures/survey_basic.sav job.sps` does the same.)
 
-1. **Data** shows the cases. Double-click a cell, or press Enter, to change it. View, Value labels in Data View switches value labels on and off.
+1. **Data** shows the cases. Double-click a cell, or press Enter, to change it. Show value labels, over the grid, switches value labels on and off.
 2. **Variables** has one row per variable. Double-click a label, a format or the missing values to change them.
 3. **Syntax** holds `job.sps`. Select lines 4 to 6 and press Ctrl+Enter to run only those commands. F1 shows help for the command under the cursor. An error is marked at its line and column.
 4. **Output** collects every table. Copy puts a table on the clipboard for a spreadsheet; File, Export output as Excel saves all tables as a workbook.
