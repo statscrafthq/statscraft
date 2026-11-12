@@ -549,8 +549,43 @@ fn value_range(chart: &Chart, values: &[Vec<f64>]) -> (f64, f64) {
             }
             false => column.for_each(|v| (lo, hi) = (lo.min(v), hi.max(v))),
         }
+        for [a, b] in error_bars(chart, i).map(|(_, bar)| bar) {
+            (lo, hi) = (lo.min(a), hi.max(b));
+        }
     }
     (lo, hi)
+}
+
+/// The error bars at category `i` with their series; none on stacked marks, where a bar
+/// around a share of the stack would mislead.
+fn error_bars(chart: &Chart, i: usize) -> impl Iterator<Item = (usize, [f64; 2])> + '_ {
+    let n = if stacked(chart) {
+        0
+    } else {
+        chart.series.len()
+    };
+    (0..n).filter_map(move |j| chart.error_bar(j, i).map(|bar| (j, bar)))
+}
+
+/// An error bar along the value axis at `along`, with a cap `cap` pixels wide at each end.
+fn whisker(d: &mut Draw, frame: &Frame, along: f32, [lo, hi]: [f64; 2], cap: f32, color: Color) {
+    let (a, b) = (frame.value(lo), frame.value(hi));
+    d.line(
+        vec![frame.point(along, a), frame.point(along, b)],
+        1.0,
+        color,
+    );
+    for end in [a, b] {
+        let half = cap / 2.0;
+        d.line(
+            vec![
+                frame.point(along - half, end),
+                frame.point(along + half, end),
+            ],
+            1.0,
+            color,
+        );
+    }
 }
 
 fn labels(chart: &Chart) -> Vec<String> {
@@ -608,6 +643,17 @@ fn bars(d: &mut Draw, chart: &Chart, top: f32) -> f32 {
                     frame.point(b, frame.value(v)),
                     colors[j],
                 );
+                if let Some(bar) = chart.error_bar(j, i) {
+                    let ink = d.pal.ink;
+                    whisker(
+                        d,
+                        &frame,
+                        (a + b) / 2.0,
+                        bar,
+                        ((b - a) * 0.4).min(12.0),
+                        ink,
+                    );
+                }
             }
         }
     }
@@ -668,6 +714,11 @@ fn lines(d: &mut Draw, chart: &Chart, top: f32) -> f32 {
             }
         }
         below.iter_mut().zip(series).for_each(|(b, v)| *b += v);
+    }
+    for (i, &center) in centers.iter().enumerate() {
+        for (j, bar) in error_bars(chart, i) {
+            whisker(d, &frame, center, bar, 8.0, colors[j]);
+        }
     }
     frame.baseline(d);
     bottom
@@ -837,7 +888,7 @@ fn pie(d: &mut Draw, chart: &Chart, top: f32) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::chart::{Axis as ChartAxis, Category, NormalCurve, Series, Tier};
+    use crate::chart::{Axis as ChartAxis, Category, ErrorBars, NormalCurve, Series, Tier};
 
     pub(crate) fn chart(kind: ChartKind, grouping: Option<Grouping>, series: &[&[f64]]) -> Chart {
         let n = series[0].len();
@@ -882,6 +933,7 @@ mod tests {
                 })
                 .collect(),
             normal: None,
+            error_bars: None,
             plot: None,
         }
     }
@@ -898,6 +950,71 @@ mod tests {
                 _ => None,
             })
             .collect()
+    }
+
+    /// Upright lines of width 1 in `color`: the stems of error bars, top and bottom y.
+    fn stems(scene: &Scene, color: Color) -> Vec<(f32, f32)> {
+        scene
+            .shapes
+            .iter()
+            .filter_map(|s| match s {
+                Shape::Line {
+                    points,
+                    width,
+                    color: c,
+                } if *width == 1.0 && *c == color && points[0][0] == points[1][0] => Some((
+                    points[0][1].min(points[1][1]),
+                    points[0][1].max(points[1][1]),
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
+    #[test]
+    fn error_bars_reach_their_half_length_on_both_sides_of_the_value() {
+        let mut c = chart(ChartKind::Line, None, &[&[10.0, 20.0]]);
+        c.error_bars = Some(ErrorBars {
+            label: "95% CI".into(),
+            margins: vec![vec![2.0, 25.0]],
+        });
+        let s = scene(&c, 600.0, Paper::Light).unwrap();
+        let petrol = Palette::of(Paper::Light).ramp[0];
+        let bars = stems(&s, petrol);
+        assert_eq!(bars.len(), 2);
+        let length = |(top, bottom): (f32, f32)| bottom - top;
+        assert!((length(bars[1]) / length(bars[0]) - 12.5).abs() < 1e-3);
+        // each dot sits in the middle of its bar
+        let dots: Vec<f32> = s
+            .shapes
+            .iter()
+            .filter_map(|s| match s {
+                Shape::Circle { center, .. } => Some(center[1]),
+                _ => None,
+            })
+            .collect();
+        for (dot, (top, bottom)) in dots.iter().zip(&bars) {
+            assert!((dot - (top + bottom) / 2.0).abs() < 0.01);
+        }
+        // the axis reaches the top of the longer bar, 45, and the bottom of it, -5
+        let labels: Vec<&str> = s
+            .shapes
+            .iter()
+            .filter_map(|s| match s {
+                Shape::Text { text, .. } => Some(text.as_str()),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            labels.contains(&"50") && labels.contains(&"-10"),
+            "{labels:?}"
+        );
+        // bars carry theirs in ink; stacked marks none
+        c.kind = ChartKind::Bar;
+        let ink = Palette::of(Paper::Dark).ink;
+        assert_eq!(stems(&scene(&c, 600.0, Paper::Dark).unwrap(), ink).len(), 2);
+        c.grouping = Some(Grouping::Stacked);
+        assert!(stems(&scene(&c, 600.0, Paper::Dark).unwrap(), ink).is_empty());
     }
 
     #[test]

@@ -20,7 +20,8 @@ use crate::picture::{FILE_WIDTH, Paper};
 use crate::xlsx::{put_table, set_widths, sheet_name};
 use crate::{Error, Table, cell_text, header_rows};
 use rust_xlsxwriter::{
-    Chart as Drawn, ChartAxis, ChartAxisTickType, ChartType, Image, Workbook, Worksheet, XlsxError,
+    Chart as Drawn, ChartAxis, ChartAxisTickType, ChartErrorBars, ChartErrorBarsType, ChartRange,
+    ChartType, Image, Workbook, Worksheet, XlsxError,
 };
 use std::fmt::Write as _;
 use std::io::{Cursor, Read, Write};
@@ -135,13 +136,29 @@ fn drawn(
     let mut drawn = Drawn::new(chart_type(chart)?);
     let first = top + 1 + header_rows(table).len() as u32;
     let last = first + chart.categories.len() as u32 - 1;
+    // the data table holds the half lengths of the error bars after the values, a column for
+    // each series that has bars
+    let mut margin_column = left + 1 + chart.series.len() as u16;
     for s in 0..chart.series.len() {
         let column = left + 1 + s as u16;
-        drawn
+        let series = drawn
             .add_series()
             .set_name((sheet, first - 1, column))
             .set_categories((sheet, first, left, last, left))
             .set_values((sheet, first, column, last, column));
+        let has_bars = chart
+            .error_bars
+            .as_ref()
+            .is_some_and(|e| e.margins.get(s).is_some_and(|m| !m.is_empty()));
+        if has_bars {
+            let range =
+                || ChartRange::new_from_range(sheet, first, margin_column, last, margin_column);
+            let mut bars = ChartErrorBars::new();
+            bars.set_type(ChartErrorBarsType::Custom(range(), range()));
+            // the writer keeps the bars that fit the chart type: x for lying bars, y otherwise
+            series.set_x_error_bars(&bars).set_y_error_bars(&bars);
+            margin_column += 1;
+        }
     }
     if titled {
         drawn.title().set_name(&chart.title);

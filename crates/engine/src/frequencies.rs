@@ -512,6 +512,7 @@ fn chart(
             values,
         }],
         normal: None,
+        error_bars: None,
         plot: None,
     })
 }
@@ -632,6 +633,7 @@ impl Histogram<'_> {
                 values: counts,
             }],
             normal,
+            error_bars: None,
             plot: None,
         })
     }

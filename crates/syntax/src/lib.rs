@@ -124,8 +124,8 @@ pub use factor::{
     FactorPrint, FactorSave, MatrixKind, QuickCluster, Rotation, ScoreMethod,
 };
 pub use glm::{
-    Adjustment, Contrast, Emmeans, Glm, GlmPlot, GlmPrint, GlmTemp, LMatrix, LRow, Profile, Term,
-    WsFactor,
+    Adjustment, Contrast, Emmeans, ErrorBar, Glm, GlmPlot, GlmPrint, GlmTemp, LMatrix, LRow,
+    Profile, Term, WsFactor,
 };
 pub use graph::{Graph, GraphChart, GraphData, GraphFunction, GraphSummary};
 pub use lexer::{Punct, Token, TokenKind};

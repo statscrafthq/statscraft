@@ -1606,6 +1606,7 @@ impl Context<'_> {
                 categories: categories.clone(),
                 series,
                 normal: None,
+                error_bars: None,
                 plot: None,
             });
         }

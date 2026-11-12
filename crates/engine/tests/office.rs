@@ -131,6 +131,29 @@ fn chart_workbook_holds_the_data_and_the_chart() {
 }
 
 #[test]
+fn error_bars_read_their_half_lengths_from_the_data_table() {
+    let source = "COMPUTE spend = drink * 2 + cup.
+UNIANOVA spend BY cup /PLOT=PROFILE(cup) ERRORBAR=SE.";
+    let chart = &charts(source)[0];
+    let bars = chart.error_bars.as_ref().unwrap();
+    let book = chart_workbook(chart).unwrap();
+    keep("profile-error-bars.xlsx", &book);
+    let cells = cells(&book);
+    // the category, the mean, then the half length under what it spans
+    assert_eq!(cells[1][2], "Error bar \u{b1} 2 SE");
+    let margin: f64 = cells[3][2].parse().unwrap();
+    assert!((margin - bars.margins[0][0]).abs() < 1e-9);
+    let part = text(&book, "xl/charts/chart1.xml");
+    assert!(part.contains("<c:errBars>"), "{part}");
+    assert!(part.contains("<c:errValType val=\"cust\"/>"));
+    assert_eq!(
+        part.matches("!$C$4:$C$5</c:f>").count(),
+        2,
+        "plus and minus: {part}"
+    );
+}
+
+#[test]
 fn presentation_has_a_slide_per_item_and_each_chart_its_workbook() {
     let all = charts(
         "FREQUENCIES drink /BARCHART.\nFREQUENCIES cup /PIECHART.\nFREQUENCIES drink /HISTOGRAM /FORMAT=NOTABLE.",

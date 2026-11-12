@@ -41,6 +41,9 @@ pub struct Chart {
     /// Histogram: the normal curve drawn over the bars.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub normal: Option<NormalCurve>,
+    /// Bars and lines: an error bar around each value, such as a confidence interval.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub error_bars: Option<ErrorBars>,
     /// Statistical plots other than the histogram: their data in its own shape; categories
     /// and series are then empty, and the category axis is the horizontal one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -177,6 +180,18 @@ pub struct NormalCurve {
     pub total: f64,
 }
 
+/// Error bars around the values of the series, the same length on both sides.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ErrorBars {
+    /// What a bar spans, such as "95% CI" or "2 SE".
+    pub label: String,
+    /// For each series in order, the half length of the bar at each category: the bar goes
+    /// from the value less it to the value plus it. Empty for a series without bars, such as
+    /// a reference line; null where there is no bar.
+    #[serde(deserialize_with = "number_lists")]
+    pub margins: Vec<Vec<f64>>,
+}
+
 fn is_empty(cell: &Cell) -> bool {
     *cell == Cell::Empty
 }
@@ -192,7 +207,23 @@ fn numbers<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<f64>, D::Error>
     Ok(values.into_iter().map(|v| v.unwrap_or(f64::NAN)).collect())
 }
 
+fn number_lists<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Vec<f64>>, D::Error> {
+    let lists = Vec::<Vec<Option<f64>>>::deserialize(d)?;
+    Ok(lists
+        .into_iter()
+        .map(|l| l.into_iter().map(|v| v.unwrap_or(f64::NAN)).collect())
+        .collect())
+}
+
 impl Chart {
+    /// The error bar of series `j` at category `i`, from its lower to its upper end; None
+    /// where there is none.
+    pub fn error_bar(&self, j: usize, i: usize) -> Option<[f64; 2]> {
+        let margin = *self.error_bars.as_ref()?.margins.get(j)?.get(i)?;
+        let value = *self.series.get(j)?.values.get(i)?;
+        (value.is_finite() && margin.is_finite()).then_some([value - margin, value + margin])
+    }
+
     /// What kind of chart it is, in words: "Clustered bar chart".
     pub fn kind_text(&self) -> String {
         let bars = match self.orientation {
@@ -242,36 +273,56 @@ impl Chart {
         }
         let mut columns = vec![self.category_axis.title.clone()];
         columns.extend(self.series.iter().map(|s| s.name.clone()));
+        let mut column_groups = vec![Vec::new()];
+        column_groups.extend(
+            self.series
+                .iter()
+                .map(|_| self.legend.iter().cloned().collect()),
+        );
+        // after the values, the half length of each series' error bars: the office chart reads
+        // its bars from these columns
+        let margins: Vec<&Vec<f64>> = match &self.error_bars {
+            Some(bars) => bars.margins.iter().filter(|m| !m.is_empty()).collect(),
+            None => Vec::new(),
+        };
+        if let Some(bars) = &self.error_bars {
+            for (s, m) in self.series.iter().zip(&bars.margins) {
+                if !m.is_empty() {
+                    columns.push(s.name.clone());
+                    column_groups.push(vec![format!("Error bar \u{b1} {}", bars.label)]);
+                }
+            }
+        }
+        // a value the command could not compute, such as a mean that is not estimable
+        let cell = |v: f64| match v.is_nan() {
+            true => Cell::Empty,
+            false => Cell::Number(v),
+        };
         let rows: Vec<Vec<Cell>> = self
             .categories
             .iter()
             .enumerate()
             .map(|(i, category)| {
                 let mut row = vec![Cell::Text(category.label.clone())];
-                // a value the command could not compute, such as a mean that is not estimable
-                row.extend(self.series.iter().map(|s| match s.values[i].is_nan() {
-                    true => Cell::Empty,
-                    false => Cell::Number(s.values[i]),
-                }));
+                row.extend(self.series.iter().map(|s| cell(s.values[i])));
+                row.extend(
+                    margins
+                        .iter()
+                        .map(|m| cell(m.get(i).copied().unwrap_or(f64::NAN))),
+                );
                 row
             })
             .collect();
         let format = |r: usize, c: usize| match c {
             0 => String::new(),
+            _ if c > self.series.len() => self.value_axis.format.clone(),
             _ => series_format(&self.series[c - 1], &self.value_axis.format, &rows, r, c),
         };
         let formats = crate::format::formats_of(&rows, format);
         Table {
             title: self.title.clone(),
             row_headers: 1,
-            column_groups: match &self.legend {
-                Some(legend) => {
-                    let mut groups = vec![Vec::new()];
-                    groups.extend(self.series.iter().map(|_| vec![legend.clone()]));
-                    groups
-                }
-                None => vec![Vec::new(); columns.len()],
-            },
+            column_groups,
             columns,
             rows,
             formats,

@@ -170,6 +170,7 @@ impl Chart {
             categories: Vec::new(),
             series: Vec::new(),
             normal: None,
+            error_bars: None,
             plot: Some(plot),
         }
     }
@@ -196,6 +197,7 @@ impl Chart {
             categories,
             series,
             normal: None,
+            error_bars: None,
             plot: None,
         }
     }

@@ -270,7 +270,7 @@ FACTOR /VARIABLES score group a b /CRITERIA FACTORS(3) /PLOT EIGEN ROTATION.
 REGRESSION /DEPENDENT score /METHOD ENTER group a /RESIDUALS /SCATTERPLOT (*ZRESID, *ZPRED) /PARTIALPLOT.
 CLUSTER score group /PLOT DENDROGRAM VICICLE HICICLE.
 TREE side [n] BY group [n] /GROWTHLIMIT MINPARENTSIZE=2 MINCHILDSIZE=1 /DEPCATEGORIES TARGET=['l'] /PLOT GAIN.
-UNIANOVA score BY group side WITH a /PLOT SPREADLEVEL RESIDUALS PROFILE(group*side) MEANREFERENCE=YES.
+UNIANOVA score BY group side WITH a /PLOT SPREADLEVEL RESIDUALS PROFILE(group*side) MEANREFERENCE=YES ERRORBAR=CI PROFILE(group) TYPE=BAR ERRORBAR=SE.
 DISCRIMINANT GROUPS=group(1,3) /VARIABLES score a b /PLOT ALL.
 ";
     let (commands, errors) = parse(source);
@@ -306,6 +306,19 @@ fn every_statistical_plot_gives_a_valid_specification() {
     ] {
         assert!(kinds.contains(kind), "{kind} missing from {kinds:?}");
     }
+    // a profile plot's error bars: a layer from each mean's lower to its upper end
+    let profile = charts.iter().find(|c| c.error_bars.is_some()).unwrap();
+    let spec = profile.vega_lite();
+    let ends = &spec["layer"][1];
+    assert_eq!(ends["mark"]["type"], "errorbar");
+    assert_eq!(ends["encoding"]["y"]["field"], "lower");
+    assert_eq!(ends["encoding"]["y2"]["field"], "upper");
+    let row = &spec["data"]["values"][0];
+    let [lower, upper] = profile.error_bar(0, 0).unwrap();
+    assert_eq!(
+        (row["lower"].as_f64(), row["upper"].as_f64()),
+        (Some(lower), Some(upper))
+    );
     for chart in charts {
         let spec = chart.vega_lite();
         assert!(

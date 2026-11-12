@@ -276,6 +276,7 @@ GRAPH, FREQUENCIES (BARCHART, PIECHART, HISTOGRAM), CROSSTABS (BARCHART), EXAMIN
 | `categories` | in drawing order: the `label`, the `value` it stands for (`null` for a slice of all missing values), `missing` when it holds missing values, and `bin` (`[from, to]`) for a histogram bin, which holds its lower bound but not its upper one |
 | `series` | each with its `name`, the `statistic` its numbers are (`count`, weighted when a weight is set, `percent`, `mean` or `value`), the `variable` and `value` it stands for, and `values`, one number per category |
 | `normal` | a histogram's normal curve: `mean`, `std_dev` and `total`; its height at x is total times the bin width times the normal density |
+| `error_bars` | bars and lines with error bars, such as a profile plot with ERRORBAR: a `label` saying what a bar spans (`95% CI`, `2 SE`) and `margins`, for each series a list with the half length of its bar at each category (the bar runs from the value minus it to the value plus it; an empty list for a series without bars, `null` where a value has none) |
 | `plot` | the data of a statistical plot other than the histogram, by its `shape`; `categories` and `series` are then empty, the category axis is the horizontal one and the value axis the vertical one |
 
 The shapes of `plot`:

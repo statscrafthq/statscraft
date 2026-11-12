@@ -90,8 +90,9 @@ macro_rules! glm_syntax {
                  of Within-Subjects Contrasts and Tests of Between-Subjects Effects on the average.\n\
                  PLOT gives chart data. PROFILE draws the estimated marginal means as a line chart (bars with\n\
                  TYPE=BAR) over the levels of the first factor, one line per level of a second factor and one chart\n\
-                 per level of a third; MEANREFERENCE adds the grand mean as a flat line; error bars are not drawn\n\
-                 yet (a warning says so) and YAXIS is left to the drawing. SPREADLEVEL plots the mean of every\n\
+                 per level of a third; MEANREFERENCE adds the grand mean as a flat line. ERRORBAR=CI spans each\n\
+                 mean's confidence interval at 1 minus CRITERIA ALPHA, ERRORBAR=SE(n) n standard errors on each\n\
+                 side (2 by default); YAXIS is left to the drawing. SPREADLEVEL plots the mean of every\n\
                  cell with two cases or more against its standard deviation, then against its variance. RESIDUALS\n\
                  gives every case's predicted value, observed value and standardized residual. With WSFACTOR, PLOT\n\
                  is ignored with a warning. Not supported yet: GLM with several\n\
@@ -1385,7 +1386,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  first n) in a Casewise Statistics table: actual group, the two most likely groups with their\n\
                  posterior probabilities and squared distances to the centroid, the chi-square significance of\n\
                  the first one's distance, and the scores. MAP splits the plane of the first two functions into\n\
-                 the territory of each group, a convex polygon, under the pooled rule with the priors; there is no\n\
+                 the territory of each group, a convex polygon, under the pooled rule with the priors, drawn as\n\
+                 tinted polygons with the centroids named; there is no\n\
                  map with one function or CLASSIFY=SEPARATE. Not supported yet: ROTATE=COEFF and STRUCTURE, MATRIX,\n\
                  OUTFILE, cross-validated rows in the casewise listing.",
         example: "DISCRIMINANT GROUPS=segment(1,3) /VARIABLES=q1 TO q6 /METHOD=WILKS /PRIORS=SIZE /STATISTICS=MEAN STDDEV UNIVF BOXM TABLE /SAVE=CLASS SCORES PROBS.",

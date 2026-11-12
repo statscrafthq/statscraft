@@ -382,6 +382,7 @@ fn bar_chart(
             })
             .collect(),
         normal: None,
+        error_bars: None,
         plot: None,
     }
 }

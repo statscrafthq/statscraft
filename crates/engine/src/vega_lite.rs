@@ -55,6 +55,10 @@ impl Chart {
                 if let Cell::Number(x) = category.value {
                     row["x"] = x.into();
                 }
+                if let Some([lower, upper]) = self.error_bar(j, i) {
+                    row["lower"] = lower.into();
+                    row["upper"] = upper.into();
+                }
                 rows.push(row);
             }
         }
@@ -144,8 +148,26 @@ impl Chart {
         };
         let mut out = Map::new();
         out.insert("data".into(), json!({ "values": self.rows() }));
-        out.insert("mark".into(), mark);
-        out.insert("encoding".into(), Value::Object(encoding));
+        if self.error_bars.is_none() {
+            out.insert("mark".into(), mark);
+            out.insert("encoding".into(), Value::Object(encoding));
+            return out;
+        }
+        // the bars from each row's lower to its upper end, over the same categories, colors and
+        // offsets as the marks; rows without bars have no ends and draw none
+        let mut ends = encoding.clone();
+        ends.insert(
+            value_channel.into(),
+            json!({ "field": "lower", "type": "quantitative", "title": self.value_axis.title }),
+        );
+        ends.insert(format!("{value_channel}2"), json!({ "field": "upper" }));
+        out.insert(
+            "layer".into(),
+            json!([
+                { "mark": mark, "encoding": encoding },
+                { "mark": { "type": "errorbar", "ticks": true }, "encoding": ends },
+            ]),
+        );
         out
     }
 

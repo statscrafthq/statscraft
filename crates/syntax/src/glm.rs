@@ -172,8 +172,17 @@ pub struct Profile {
     pub bar: bool,
     /// `MEANREFERENCE=YES`
     pub mean_reference: bool,
-    /// `ERRORBAR=CI` or `SE`, which are not drawn yet.
-    pub error_bars: bool,
+    /// `ERRORBAR=CI` or `SE(n)`; None is NO.
+    pub error_bar: Option<ErrorBar>,
+}
+
+/// What the error bars of a profile plot span.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum ErrorBar {
+    /// From the lower to the upper confidence limit, at the level CRITERIA ALPHA sets.
+    Ci,
+    /// This many standard errors on each side of the mean.
+    Se(f64),
 }
 
 /// A variable list that ends at one of the words of `stop`, such as BY and WITH.
@@ -408,7 +417,7 @@ fn plot(p: &mut Parser) -> PResult<Vec<GlmPlot>> {
                 with: Vec::new(),
                 bar: false,
                 mean_reference: false,
-                error_bars: false,
+                error_bar: None,
             };
             loop {
                 if p.eat_word("WITH") {
@@ -429,14 +438,15 @@ fn plot(p: &mut Parser) -> PResult<Vec<GlmPlot>> {
                     };
                 } else if p.eat_keyword("ERRORBAR") {
                     p.eat(Punct::Eq);
-                    options.error_bars = match () {
-                        _ if p.eat_keyword("NO") => false,
-                        _ if p.eat_keyword("CI") => true,
+                    options.error_bar = match () {
+                        _ if p.eat_keyword("NO") => None,
+                        _ if p.eat_keyword("CI") => Some(ErrorBar::Ci),
                         _ if p.eat_keyword("SE") => {
+                            let mut times = 2.0;
                             if p.eat(Punct::LParen) {
                                 let start = p.pos;
                                 match p.number() {
-                                    Some(n) if n > 0.0 => {}
+                                    Some(n) if n > 0.0 => times = n,
                                     _ => {
                                         return Err(SyntaxError::new(
                                             p.span_from(start),
@@ -446,7 +456,7 @@ fn plot(p: &mut Parser) -> PResult<Vec<GlmPlot>> {
                                 }
                                 p.expect(Punct::RParen)?;
                             }
-                            true
+                            Some(ErrorBar::Se(times))
                         }
                         _ => return Err(p.unexpected(&["NO", "CI", "SE"])),
                     };
