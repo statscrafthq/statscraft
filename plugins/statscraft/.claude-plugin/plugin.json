@@ -1,7 +1,7 @@
 {
   "name": "statscraft",
   "displayName": "Statscraft",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Analyze .sav data with Statscraft: the MCP server (describe, look up, check and run syntax) and a skill with the working loop",
   "author": {
     "name": "Statscraft",
