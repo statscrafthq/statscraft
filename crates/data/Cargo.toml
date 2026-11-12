@@ -13,3 +13,7 @@ arrow = { version = "57", default-features = false }
 serde = { version = "1", features = ["derive"] }
 # float_roundtrip: exact f64 parsing; preserve_order: value labels keep file order
 serde_json = { version = "1", features = ["float_roundtrip", "preserve_order"] }
+# MIT OR Apache-2.0; the creation time in portable files (already built for the engine)
+chrono = { version = "0.4", default-features = false, features = ["clock"] }
+# MIT OR Apache-2.0; portable file text that is not UTF-8 (already built for the syntax crate)
+encoding_rs = "0.8"

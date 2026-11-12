@@ -4119,6 +4119,8 @@ name = "statscraft-data"
 version = "0.7.0"
 dependencies = [
  "arrow",
+ "chrono",
+ "encoding_rs",
  "serde",
  "serde_json",
  "statscraft-sav",

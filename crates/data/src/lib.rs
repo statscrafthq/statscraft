@@ -1,10 +1,12 @@
 //! Dataset and dictionary model, with reading and writing of `.sav` / `.zsav` files.
 
 mod edit;
+mod por;
 mod retype;
 mod sav;
 
 pub use edit::is_valid_name;
+pub use por::portable_names;
 pub use retype::{NewValues, cut_to};
 
 use arrow::array::{Array, ArrayRef, AsArray, Float64Array, StringViewArray};
