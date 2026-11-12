@@ -14,8 +14,14 @@ const TNUMBERS: [&str; 3] = ["VALUES", "LABELS", "BOTH"];
 
 #[derive(Default, Debug, PartialEq)]
 pub struct Settings {
+    /// The size and position of the last data window (the first window of a start).
     pub size: Option<[f32; 2]>,
     pub position: Option<[f32; 2]>,
+    /// Of the last syntax window and output window.
+    pub syntax_size: Option<[f32; 2]>,
+    pub syntax_position: Option<[f32; 2]>,
+    pub output_size: Option<[f32; 2]>,
+    pub output_position: Option<[f32; 2]>,
     pub folder: Option<PathBuf>,
     /// Data and syntax files, the most recent first.
     pub recent: Vec<PathBuf>,
@@ -71,7 +77,26 @@ impl Settings {
         std::fs::write(file, self.text())
     }
 
-    /// Reads the lines `size W H`, `position X Y`, `folder PATH`, `recent PATH`,
+    /// The size and position a window of a kind (data, syntax or output) opens with.
+    pub fn window(&self, kind: &str) -> (Option<[f32; 2]>, Option<[f32; 2]>) {
+        match kind {
+            "syntax" => (self.syntax_size, self.syntax_position),
+            "output" => (self.output_size, self.output_position),
+            _ => (self.size, self.position),
+        }
+    }
+
+    pub fn window_mut(&mut self, kind: &str) -> (&mut Option<[f32; 2]>, &mut Option<[f32; 2]>) {
+        match kind {
+            "syntax" => (&mut self.syntax_size, &mut self.syntax_position),
+            "output" => (&mut self.output_size, &mut self.output_position),
+            _ => (&mut self.size, &mut self.position),
+        }
+    }
+
+    /// Reads the lines `size W H`, `position X Y` (of the data window; `syntax-size`,
+    /// `syntax-position`, `output-size` and `output-position` of the others), `folder PATH`,
+    /// `recent PATH`,
     /// `updates on|off`, `update-checked SECONDS`, `paper system`, `theme NAME`, `wrap off`,
     /// `log hidden`, `variable_widths W ...`, `tvars names|labels|both` and
     /// `tnumbers values|labels|both`; anything else is skipped.
@@ -89,6 +114,10 @@ impl Settings {
             match key {
                 "size" => settings.size = pair(rest),
                 "position" => settings.position = pair(rest),
+                "syntax-size" => settings.syntax_size = pair(rest),
+                "syntax-position" => settings.syntax_position = pair(rest),
+                "output-size" => settings.output_size = pair(rest),
+                "output-position" => settings.output_position = pair(rest),
                 "paper" => settings.paper_follows_system = rest == "system",
                 "theme" => settings.theme = rest.to_string(),
                 "wrap" => settings.wrap_off = rest == "off",
@@ -113,11 +142,17 @@ impl Settings {
 
     pub fn text(&self) -> String {
         let mut text = String::new();
-        if let Some([w, h]) = self.size {
-            text.push_str(&format!("size {w} {h}\n"));
-        }
-        if let Some([x, y]) = self.position {
-            text.push_str(&format!("position {x} {y}\n"));
+        for (key, pair) in [
+            ("size", self.size),
+            ("position", self.position),
+            ("syntax-size", self.syntax_size),
+            ("syntax-position", self.syntax_position),
+            ("output-size", self.output_size),
+            ("output-position", self.output_position),
+        ] {
+            if let Some([a, b]) = pair {
+                text.push_str(&format!("{key} {a} {b}\n"));
+            }
         }
         if let Some(folder) = &self.folder {
             text.push_str(&format!("folder {}\n", folder.display()));
@@ -206,6 +241,10 @@ mod tests {
         let mut settings = Settings {
             size: Some([1200.0, 800.5]),
             position: Some([-10.0, 40.0]),
+            syntax_size: Some([900.0, 600.0]),
+            syntax_position: None,
+            output_size: Some([1000.0, 700.0]),
+            output_position: Some([30.0, 60.0]),
             folder: Some(PathBuf::from("/data/my surveys")),
             recent: Vec::new(),
             updates: Some(false),

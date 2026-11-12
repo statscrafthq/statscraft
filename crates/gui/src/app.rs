@@ -24,7 +24,7 @@ use crate::model_dialogs::{
 };
 use crate::model_dialogs_view;
 use crate::output;
-use crate::output_view::{self, OutputView};
+use crate::output_view;
 use crate::settings::Settings;
 use crate::settings_window::{self, Section};
 use crate::stats_dialogs::{NparKind, NparTests, PartialCorr, Regression, Reliability, numeric};
@@ -32,7 +32,7 @@ use crate::stats_dialogs_view;
 use crate::syntax_text::{number, quote};
 use crate::syntax_window;
 use crate::updates::Updates;
-use crate::windows::{Closing, Kind, Registry, WindowId};
+use crate::windows::{Closing, Kind, Registry, WindowId, same};
 use crate::{editor, grid, grid_menu, highlight, themes};
 use eframe::egui::{
     self, Align, Align2, Color32, ComboBox, FocusDirection, FontId, Key, Modifiers, Rect, RichText,
@@ -61,6 +61,10 @@ enum After {
     SaveData(PathBuf),
     /// With the dialog's title, for the output.
     CloseDialog(&'static str),
+    /// A click in the window of this dataset made it active.
+    Activate(String),
+    /// The dataset or output document of this window was closed: the window goes.
+    CloseWindow(WindowId),
     Remote(Remote),
 }
 
@@ -68,24 +72,27 @@ enum After {
 enum Ask {
     /// The question, with what is unsaved and what follows the answer.
     Unsaved(Vec<String>, Then),
-    /// Save was chosen before quitting: the data file still to save once no run is going on;
-    /// then the program ends, unless a save failed.
-    SavingToClose(Option<PathBuf>),
+    /// Save was chosen before quitting: the datasets still to save once no run is going on,
+    /// each by name (None for the active one) and file; then the program ends, unless a save
+    /// failed.
+    SavingToClose(Vec<(Option<String>, PathBuf)>),
 }
 
 /// What follows the question about unsaved work.
-#[derive(Clone, Copy)]
 enum Then {
     /// The program ends; the question shows in this window.
     Quit(WindowId),
     /// This window closes, and the question shows in it.
     Close(WindowId),
+    /// This syntax runs and closes the active dataset without a name, which is lost unless
+    /// saved first. The question shows in the window.
+    Replace(WindowId, String, After),
 }
 
 impl Then {
-    fn window(self) -> WindowId {
+    fn window(&self) -> WindowId {
         match self {
-            Then::Quit(id) | Then::Close(id) => id,
+            Then::Quit(id) | Then::Close(id) | Then::Replace(id, ..) => *id,
         }
     }
 }
@@ -100,7 +107,62 @@ struct Run {
 enum Tab {
     Data,
     Variables,
-    Output,
+}
+
+/// What a data window shows of its dataset beyond the data itself: the tab, the selections,
+/// the cell or field being edited, the find bar and the small dialogs of its grids. The window
+/// being drawn lends its view to `App::view`.
+pub(crate) struct DataView {
+    tab: Tab,
+    selected: Option<grid::Selection>,
+    /// Scroll the selected cell into view on the next frame.
+    follow: bool,
+    page: usize,
+    cell_edit: Option<CellEdit>,
+    /// A Data View column being dragged to a new width, until its VARIABLE WIDTH has run.
+    data_resize: Option<(usize, f32)>,
+    variable_selected: Option<grid::Selection>,
+    variable_follow: bool,
+    field_edit: Option<CellEdit>,
+    /// The text of the find bar over the grids, while it is open.
+    find: Option<String>,
+    /// Put the keyboard in the find bar on the next frame.
+    find_focus: bool,
+    /// A question before syntax runs, such as deleting variables: it runs once the user says yes.
+    confirm: Option<grid_menu::Confirm>,
+    /// What the open right-click menu of a grid acts on, and whether it is the Variable View's.
+    menu: Option<(grid_menu::Target, bool)>,
+    /// The Type and Format dialog of a variable.
+    format_dialog: Option<edits::FormatChoice>,
+    labels_dialog: Option<edits::LabelsEditor>,
+    missing_dialog: Option<edits::MissingEditor>,
+    /// The Variable View rows selected before the last plain click, which the first click of
+    /// a double-click on one of them takes away.
+    rows_before_click: BTreeSet<usize>,
+}
+
+impl Default for DataView {
+    fn default() -> Self {
+        DataView {
+            tab: Tab::Data,
+            selected: None,
+            follow: false,
+            page: 20,
+            cell_edit: None,
+            data_resize: None,
+            variable_selected: None,
+            variable_follow: false,
+            field_edit: None,
+            find: None,
+            find_focus: false,
+            confirm: None,
+            menu: None,
+            format_dialog: None,
+            labels_dialog: None,
+            missing_dialog: None,
+            rows_before_click: BTreeSet::new(),
+        }
+    }
 }
 
 /// The categories panel of Custom Tables: the variable shown, its categories as (syntax
@@ -435,36 +497,14 @@ const GRID_KEYS: [Key; 9] = [
 
 pub struct App {
     session: Session,
-    tab: Tab,
-    data_file: Option<PathBuf>,
+    /// The view of the data window being drawn; the other windows keep theirs.
+    view: DataView,
     value_labels: bool,
     show_log: bool,
-    selected: Option<grid::Selection>,
-    /// Scroll the selected cell into view on the next frame.
-    follow: bool,
-    page: usize,
-    cell_edit: Option<CellEdit>,
-    /// A Data View column being dragged to a new width, until its VARIABLE WIDTH has run.
-    data_resize: Option<(usize, f32)>,
-    variable_selected: Option<grid::Selection>,
-    variable_follow: bool,
-    field_edit: Option<CellEdit>,
-    /// The text of the find bar over the grids, while it is open.
-    find: Option<String>,
-    /// Put the keyboard in the find bar on the next frame.
-    find_focus: bool,
-    /// A question before syntax runs, such as deleting variables: it runs once the user says yes.
-    confirm: Option<grid_menu::Confirm>,
-    /// What the open right-click menu of a grid acts on, and whether it is the Variable View's.
-    menu: Option<(grid_menu::Target, bool)>,
-    /// The Type and Format dialog of a variable.
-    format_dialog: Option<edits::FormatChoice>,
-    labels_dialog: Option<edits::LabelsEditor>,
-    missing_dialog: Option<edits::MissingEditor>,
-    /// The Variable View rows selected before the last plain click, which the first click of
-    /// a double-click on one of them takes away.
-    rows_before_click: BTreeSet<usize>,
-    /// The open windows: the main window and the syntax windows.
+    /// The dataset a click in its window is activating, until that run is done.
+    activating: Option<String>,
+    data_file: Option<PathBuf>,
+    /// The open windows: data, syntax and output.
     windows: Registry,
     /// The window being drawn, which its menu acts on.
     here: WindowId,
@@ -492,7 +532,6 @@ pub struct App {
     close_ok: bool,
     /// The app icon, shown in the About window.
     logo: egui::TextureHandle,
-    output: OutputView,
     /// Window size and position, the last folder, the recent files and the update check, kept
     /// between starts.
     settings: Settings,
@@ -509,9 +548,9 @@ pub struct App {
     requests: mpsc::Receiver<Remote>,
     /// Every run of every window and of the command line, one at a time in turn.
     runs: RunQueue<Run>,
-    /// Data files to open once nothing runs: the name of a new dataset (DataSet2) is taken when
-    /// its open starts, so files opened together do not get the same name.
-    opens: std::collections::VecDeque<PathBuf>,
+    /// Data to open once nothing runs, as syntax that reads it: the name of a new dataset
+    /// (DataSet2) is taken when its open starts, so data opened together gets different names.
+    opens: std::collections::VecDeque<(String, After)>,
     ctx: egui::Context,
     /// The listener for `--session gui`; dropping it removes the endpoint file.
     server: Option<live::Server>,
@@ -553,26 +592,11 @@ impl App {
         let runs = RunQueue::new(move || repaint.request_repaint());
         let mut app = App {
             session: Session::default(),
-            tab: Tab::Data,
-            data_file: None,
+            view: DataView::default(),
             value_labels: true,
             show_log: !settings.log_hidden,
-            selected: None,
-            follow: false,
-            page: 20,
-            cell_edit: None,
-            data_resize: None,
-            variable_selected: None,
-            variable_follow: false,
-            field_edit: None,
-            find: None,
-            find_focus: false,
-            confirm: None,
-            menu: None,
-            format_dialog: None,
-            labels_dialog: None,
-            missing_dialog: None,
-            rows_before_click: BTreeSet::new(),
+            activating: None,
+            data_file: None,
             windows: Registry::new(),
             here: 0,
             popups: 0,
@@ -587,7 +611,6 @@ impl App {
             ask: None,
             close_ok: false,
             logo,
-            output: OutputView::default(),
             settings,
             updates,
             dialog: None,
@@ -627,6 +650,11 @@ impl App {
     /// runs before it are done, and `finish` shows the result.
     fn run(&mut self, source: &str, lines: Option<(u32, u32)>, after: After) {
         let check = matches!(&after, After::Remote((r, _)) if r.action == Action::Check);
+        if let After::CloseWindow(id) = after
+            && let Some(w) = self.windows.get_mut(id)
+        {
+            w.closing = true;
+        }
         // relative file names: from the folder of the syntax that runs, or of the designated
         // syntax window
         let window = match &after {
@@ -653,21 +681,19 @@ impl App {
     /// runs.
     fn poll(&mut self) {
         let active = active_name(&self.session);
+        let designated = self.session.designated_output().map(str::to_string);
         if let Some((run, result)) = self.runs.poll(&mut self.session) {
-            let now = active_name(&self.session);
-            if now != active {
-                let current = (self.data_file.take(), self.data_saved.take());
-                (self.data_file, self.data_saved) =
-                    switch_data(&mut self.data_files, current, active, now);
-            }
+            let named = |r: &RunResult| r.commands.iter().any(|c| c.name == "OUTPUT NAME");
+            let renamed = designated.filter(|_| matches!(&result, Ok(r) if named(r)));
+            self.follow_session(active, renamed);
             self.source = run.source;
             self.finish(run.after, result);
             self.macros = session_macros(&self.session.log);
         }
         while self.runs.is_idle()
-            && let Some(path) = self.opens.pop_front()
+            && let Some((open, after)) = self.opens.pop_front()
         {
-            self.open_data(path);
+            self.open_named(open, after);
         }
         while self.runs.is_idle()
             && let Ok(remote) = self.requests.try_recv()
@@ -689,8 +715,42 @@ impl App {
         let lines = request.lines;
         self.run(&source, lines, After::Remote((request, reply)));
     }
+    /// After a run or an undo, from the active dataset `was` before it: the file of each
+    /// dataset follows it, and the data and output windows follow the session's datasets and
+    /// documents. `renamed` is the document an OUTPUT NAME of the run renamed.
+    fn follow_session(&mut self, was: Option<String>, renamed: Option<String>) {
+        let now = active_name(&self.session);
+        if now != was {
+            let current = (self.data_file.take(), self.data_saved.take());
+            (self.data_file, self.data_saved) =
+                switch_data(&mut self.data_files, current, was.clone(), now.clone());
+        }
+        let shown = shown_datasets(&self.session);
+        // a closed name given again later starts without the old file
+        self.data_files
+            .retain(|name, _| shown.iter().any(|s| same(s.as_deref(), Some(name))));
+        let root = self.windows.root();
+        let (_, mut closed) = self
+            .windows
+            .sync_data(&shown, was.as_deref(), now.as_deref());
+        let documents: Vec<String> = self
+            .session
+            .output_documents()
+            .into_iter()
+            .map(|d| d.name)
+            .collect();
+        let designated = self.session.designated_output();
+        let (_, gone) = self
+            .windows
+            .sync_output(&documents, designated, renamed.as_deref());
+        closed.extend(gone);
+        self.windows_closed(root, &closed);
+    }
+
     fn finish(&mut self, after: After, mut result: Result<RunResult, Vec<Failure>>) {
-        self.data_resize = None;
+        for view in self.windows.data_views() {
+            view.data_resize = None;
+        }
         self.warnings = 0;
         let changed = matches!(&result, Ok(r) if r.saved);
         let file = self.data_file.clone();
@@ -718,12 +778,28 @@ impl App {
                     return;
                 }
                 // the data may have changed under an open cell editor
-                self.cell_edit = None;
-                self.field_edit = None;
+                for view in self.windows.data_views() {
+                    view.cell_edit = None;
+                    view.field_edit = None;
+                }
                 self.show(result, "command line", None);
             }
             After::Show => {
                 self.show(result, "window", None);
+            }
+            After::Activate(name) => {
+                if same(self.activating.as_deref(), Some(&name)) {
+                    self.activating = None;
+                }
+                self.show(result, "window", None);
+            }
+            After::CloseWindow(id) => {
+                if self.show(result, "window", None) {
+                    self.drop_window(id);
+                } else if let Some(w) = self.windows.get_mut(id) {
+                    // the close failed: the window stays, and can be closed again
+                    w.closing = false;
+                }
             }
             After::Editor(id) => {
                 self.show(result, "syntax editor", Some(id));
@@ -732,10 +808,7 @@ impl App {
                 if self.show(result, "open file", None) {
                     self.add_recent(&path);
                     self.data_file = Some(path);
-                    self.selected = None;
-                    self.cell_edit = None;
-                    self.field_edit = None;
-                    self.show_tab(Tab::Data);
+                    self.front_active_data();
                 }
             }
             After::SaveData(path) => {
@@ -748,8 +821,7 @@ impl App {
                 if self.show(result, title, None) {
                     self.dialog = None;
                     if title == "Open Data" {
-                        self.selected = None;
-                        self.show_tab(Tab::Data);
+                        self.front_active_data();
                     }
                 }
             }
@@ -766,11 +838,17 @@ impl App {
             return;
         }
         let syntax = self.session.undoable().unwrap_or_default().to_string();
+        let was = active_name(&self.session);
         if self.session.undo() {
             self.macros = session_macros(&self.session.log);
+            self.follow_session(was, None);
             self.data_file = self.file_before_change.take();
-            self.cell_edit = None;
-            self.field_edit = None;
+            self.view.cell_edit = None;
+            self.view.field_edit = None;
+            for view in self.windows.data_views() {
+                view.cell_edit = None;
+                view.field_edit = None;
+            }
             let first = syntax.lines().next().unwrap_or_default();
             self.status = Ok(format!("undone: {first}"));
         }
@@ -790,7 +868,8 @@ impl App {
         }
         match result.map(|r| r.commands) {
             Ok(outputs) => {
-                let mut commands = Vec::new();
+                // the tables of each command go to the window of their document
+                let mut documents: Vec<(Option<String>, Vec<_>)> = Vec::new();
                 for out in outputs {
                     let heading = match (from_editor, out.first_line == out.last_line) {
                         (false, _) => out.name,
@@ -800,10 +879,23 @@ impl App {
                         }
                     };
                     let syntax = output::source_lines(&self.source, out.first_line, out.last_line);
-                    commands.push((heading, syntax, out.tables));
+                    let command = (heading, syntax, out.tables);
+                    match documents.iter_mut().find(|(d, _)| *d == out.document) {
+                        Some((_, commands)) => commands.push(command),
+                        None => documents.push((out.document, vec![command])),
+                    }
                 }
-                if self.output.add_run(origin, commands) {
-                    self.show_tab(Tab::Output);
+                let mut shown = None;
+                for (document, commands) in documents {
+                    if let Some(id) = output_window(&self.windows, document.as_deref())
+                        && let Some(o) = self.windows.output_mut(id)
+                        && o.view.add_run(origin, commands)
+                    {
+                        shown = Some(id);
+                    }
+                }
+                if let Some(id) = shown {
+                    self.front(id);
                 }
                 let last = self.session.log.last();
                 let summary = last.and_then(|e| e.result.as_ref().ok());
@@ -822,14 +914,114 @@ impl App {
     }
 
     fn open_data(&mut self, path: PathBuf) {
+        let get = format!("GET FILE={}.", quote(&path.to_string_lossy()));
+        self.open_named(get, After::OpenData(path));
+    }
+
+    /// Runs syntax that reads data (GET, GET DATA) with a DATASET NAME after it, so the data
+    /// open before stays open. It waits until nothing runs: the name (DataSet2) is taken when
+    /// the open starts, so data opened together does not get the same name.
+    fn open_named(&mut self, open: String, after: After) {
         if !self.runs.is_idle() {
-            self.opens.push_back(path);
+            self.opens.push_back((open, after));
             return;
         }
-        // with a dataset name, so the data open before stays open
-        let get = format!("GET FILE={}.", quote(&path.to_string_lossy()));
-        let syntax = self.session.open_syntax(&get);
-        self.run(&syntax, None, After::OpenData(path));
+        let syntax = self.session.open_syntax(&open);
+        self.run_replacing(syntax, after);
+    }
+
+    /// Runs syntax that makes another dataset active (DATASET ACTIVATE, GET). The active
+    /// dataset closes then when it has no name, as the manual describes; when it holds changes
+    /// not saved, the question comes first.
+    fn run_replacing(&mut self, syntax: String, after: After) {
+        let lost = match active_name(&self.session) {
+            Some(_) => None,
+            None => self.unsaved_of(None),
+        };
+        match lost {
+            None => self.run(&syntax, None, after),
+            Some(item) if self.ask.is_none() => {
+                let then = Then::Replace(self.here, syntax, after);
+                self.ask = Some(Ask::Unsaved(vec![item], then));
+            }
+            // another question is open: this waits for nothing and is dropped
+            Some(_) => self.drop_activation(&after),
+        }
+    }
+
+    /// An activation that will not run after all.
+    fn drop_activation(&mut self, after: &After) {
+        if let After::Activate(name) = after
+            && same(self.activating.as_deref(), Some(name))
+        {
+            self.activating = None;
+        }
+    }
+
+    /// A click in a data window makes its dataset active, through syntax, unless it is active
+    /// or being activated already, or a question is open.
+    fn click_activate(&mut self, id: WindowId) {
+        if self.ask.is_some() {
+            return;
+        }
+        let Some(name) = self.windows.data(id).and_then(|w| w.dataset.clone()) else {
+            return;
+        };
+        let active = active_name(&self.session);
+        if let Some(syntax) = activation(&name, active.as_deref(), self.activating.as_deref()) {
+            self.activating = Some(name.clone());
+            self.run_replacing(syntax, After::Activate(name));
+        }
+    }
+
+    /// The active dataset once the activation clicked for has run.
+    fn will_be_active(&self) -> Option<String> {
+        self.activating
+            .clone()
+            .or_else(|| active_name(&self.session))
+    }
+
+    /// Brings the data window of the active dataset to the front.
+    fn front_active_data(&mut self) {
+        let active = active_name(&self.session);
+        if let Some(id) = self.windows.with_dataset(active.as_deref()) {
+            self.front(id);
+        }
+    }
+
+    /// The file a dataset was opened from or saved to, and its data as that left it. None
+    /// names the active dataset without a name.
+    fn file_of(&self, name: Option<&str>) -> (Option<&Path>, Option<&Dataset>) {
+        if same(name, active_name(&self.session).as_deref()) {
+            return (self.data_file.as_deref(), self.data_saved.as_ref());
+        }
+        let kept = self
+            .data_files
+            .iter()
+            .find(|(n, _)| same(Some(n), name))
+            .map(|(_, f)| f);
+        kept.map_or((None, None), |(file, saved)| {
+            (file.as_deref(), saved.as_ref())
+        })
+    }
+
+    /// What closing a dataset would lose: its changes since its file was opened or saved.
+    fn unsaved_of(&self, name: Option<&str>) -> Option<String> {
+        let data = dataset_named(&self.session, name);
+        let (file, saved) = self.file_of(name);
+        unsaved_data(data, saved, file, name).pop()
+    }
+
+    /// The syntax that closes the dataset of a data window; None for an empty window.
+    fn close_data(&self, name: Option<&str>) -> Option<String> {
+        let shown = shown_datasets(&self.session);
+        let other = shown
+            .iter()
+            .flatten()
+            .find(|o| !same(Some(o), name))
+            .map(String::as_str);
+        let has_data = dataset_named(&self.session, name).is_some();
+        close_data(name, self.will_be_active().as_deref(), has_data, other)
     }
 
     /// Files dropped on the window from the file manager.
@@ -913,22 +1105,40 @@ impl App {
         }
     }
 
-    /// Brings a window to the front.
+    /// Brings a window to the front. A window not drawn yet opens in front anyway; a command
+    /// to it now would make egui start its viewport without its title and size, and eframe
+    /// would then have to make that native window again.
     fn front(&self, id: WindowId) {
+        if self.windows.get(id).is_none_or(|w| w.size.is_none()) {
+            return;
+        }
         let viewport = self.windows.viewport(id);
         self.ctx
             .send_viewport_cmd_to(viewport, egui::ViewportCommand::Focus);
     }
 
-    /// Shows a tab of the main window, which opens again if it was closed.
-    fn show_tab(&mut self, tab: Tab) {
-        self.tab = tab;
-        let main = self.windows.open_main();
-        self.front(main);
+    /// The dataset that File > Save data saves: the one of the data window, else the active one.
+    fn data_here(&self) -> Option<String> {
+        match self.windows.data(self.here) {
+            Some(w) => w.dataset.clone(),
+            None => active_name(&self.session),
+        }
+    }
+
+    /// The output window that File > Export output exports: this one, else the designated one.
+    fn output_here(&self) -> Option<WindowId> {
+        match self.windows.output(self.here) {
+            Some(_) => Some(self.here),
+            None => self.windows.designated_output(),
+        }
     }
 
     fn menu(&mut self, ui: &mut Ui) {
-        let has_data = self.session.dataset().is_some();
+        let has_data = window_data(&self.session, &self.windows, self.here).is_some();
+        let output = self.output_here();
+        let has_output = output
+            .and_then(|id| self.windows.output(id))
+            .is_some_and(|o| !o.view.is_empty());
         egui::MenuBar::new().ui(ui, |ui| {
             ui.menu_button("File", |ui| {
                 if ui.button("Open data...").clicked()
@@ -951,7 +1161,8 @@ impl App {
                     .add_enabled(has_data, egui::Button::new("Save data"))
                     .clicked()
                 {
-                    match self.data_file.clone() {
+                    let name = self.data_here();
+                    match self.file_of(name.as_deref()).0.map(Path::to_path_buf) {
                         Some(path) => self.save_data(path),
                         None => self.save_data_as(),
                     }
@@ -969,9 +1180,14 @@ impl App {
                     self.open_dialog(Dialog::ExportData(Default::default()));
                 }
                 ui.separator();
-                if ui.button("New syntax").clicked() {
-                    self.windows.open_syntax(String::new(), None);
-                }
+                ui.menu_button("New", |ui| {
+                    if ui.button("Syntax").clicked() {
+                        self.windows.open_syntax(String::new(), None);
+                    }
+                    if ui.button("Output").clicked() {
+                        self.run("OUTPUT NEW.", None, After::Show);
+                    }
+                });
                 if ui.button("Open syntax...").clicked()
                     && let Some(path) = self
                         .file_dialog()
@@ -1017,21 +1233,21 @@ impl App {
                 }
                 ui.separator();
                 if ui
-                    .add_enabled(
-                        !self.output.is_empty(),
-                        egui::Button::new("Export output as HTML..."),
-                    )
+                    .add_enabled(has_output, egui::Button::new("Export output as HTML..."))
                     .clicked()
+                    && let Some(id) = output
                 {
-                    self.export_html(false);
+                    self.export_html(id, false);
                 }
-                ui.add_enabled_ui(!self.output.is_empty(), |ui| {
+                ui.add_enabled_ui(has_output, |ui| {
                     ui.menu_button("Export output as Excel", |ui| {
-                        if ui.button("One sheet per table...").clicked() {
-                            self.export_xlsx(false, false);
-                        }
-                        if ui.button("All tables on one sheet...").clicked() {
-                            self.export_xlsx(true, false);
+                        if let Some(id) = output {
+                            if ui.button("One sheet per table...").clicked() {
+                                self.export_xlsx(id, false, false);
+                            }
+                            if ui.button("All tables on one sheet...").clicked() {
+                                self.export_xlsx(id, true, false);
+                            }
                         }
                     });
                 });
@@ -1057,10 +1273,11 @@ impl App {
                 ui.separator();
                 if ui.button("Settings...").clicked() {
                     self.settings_section = Some(Section::default());
+                    self.popups = self.here;
                 }
             });
             ui.menu_button("Data", |ui| {
-                let data = self.session.dataset();
+                let data = window_data(&self.session, &self.windows, self.here);
                 let weight = data.and_then(|d| d.weight_variable()).map(str::to_string);
                 let split = SplitFile::current(data.and_then(|d| d.split_file()));
                 for (label, dialog) in [
@@ -1257,6 +1474,7 @@ impl App {
                 }
                 if ui.button("About Statscraft").clicked() {
                     self.about = true;
+                    self.popups = self.here;
                 }
                 ui.separator();
                 self.updates.menu_items(ui);
@@ -1282,6 +1500,8 @@ impl App {
         if let Dialog::MultResponse(d) = &mut dialog {
             d.groups = self.groups.clone();
         }
+        // the dialogs show in the window they were opened from, and work on its data
+        self.popups = self.here;
         self.dialog = Some(dialog);
         self.picked.clear();
         self.filter.clear();
@@ -1300,10 +1520,21 @@ impl App {
             .save_file()
     }
 
-    /// What would be lost if the program ended now: the data, then the syntax of every window.
+    /// The datasets with changes not saved, the active one first.
+    fn unsaved_datasets(&self) -> Vec<Option<String>> {
+        let shown = shown_datasets(&self.session).into_iter();
+        shown
+            .filter(|name| self.unsaved_of(name.as_deref()).is_some())
+            .collect()
+    }
+
+    /// What would be lost if the program ended now: every dataset, then the syntax of every
+    /// window.
     fn unsaved(&self) -> Vec<String> {
-        let data = self.session.dataset();
-        let mut items = unsaved_data(data, self.data_saved.as_ref(), self.data_file.as_deref());
+        let data = self.unsaved_datasets().into_iter();
+        let mut items: Vec<String> = data
+            .filter_map(|name| self.unsaved_of(name.as_deref()))
+            .collect();
         items.extend(self.windows.unsaved());
         items
     }
@@ -1327,49 +1558,139 @@ impl App {
             self.front(id);
         }
         ui.separator();
-        let designate = self.windows.syntax(self.here).is_some()
-            && self.windows.designated_syntax() != Some(self.here);
+        let designated = self.windows.get(self.here).is_some_and(|w| w.designated);
+        let output = self.windows.output(self.here).map(|o| o.document.clone());
+        let designate =
+            (self.windows.syntax(self.here).is_some() || output.is_some()) && !designated;
         if ui
             .add_enabled(designate, egui::Button::new("Designate window"))
             .clicked()
         {
-            self.windows.designate(self.here);
+            match output {
+                // the session's designated document follows, and the window with it
+                Some(document) => {
+                    let syntax = format!("OUTPUT ACTIVATE {document}.");
+                    self.run(&syntax, None, After::Show);
+                }
+                None => self.windows.designate(self.here),
+            }
         }
     }
 
-    /// The name of a window, in its title bar and the Window menu.
+    /// The name of a window, in its title bar and the Window menu. A data window names its
+    /// file and dataset, and says when its dataset is the active one.
     fn window_name(&self, id: WindowId) -> String {
         match self.windows.get(id).map(|w| &w.kind) {
             Some(Kind::Syntax(s)) => s.name(),
-            _ => match self.data_file.as_ref().and_then(|p| p.file_name()) {
-                Some(name) => name.to_string_lossy().into_owned(),
-                None => "Data and output".into(),
-            },
+            Some(Kind::Output(o)) => o.document.clone(),
+            Some(Kind::Data(d)) => {
+                let name = d.dataset.as_deref();
+                if dataset_named(&self.session, name).is_none() {
+                    return "Data".into();
+                }
+                let file = self.file_of(name).0.and_then(Path::file_name);
+                let file = file.map(|f| f.to_string_lossy().into_owned());
+                let title = match (file, name) {
+                    (Some(file), Some(name)) => format!("{file} [{name}]"),
+                    (Some(file), None) => file,
+                    (None, Some(name)) => name.to_string(),
+                    (None, None) => "Untitled".into(),
+                };
+                match same(name, active_name(&self.session).as_deref()) {
+                    true => format!("{title} (active)"),
+                    false => title,
+                }
+            }
+            None => String::new(),
         }
     }
 
-    /// File > Close and the close button of a window. Closing the last window quits; a syntax
-    /// window with unsaved text asks first.
+    /// File > Close and the close button of a window. Closing the last window quits; a window
+    /// with unsaved syntax or data asks first.
     fn close_window(&mut self, id: WindowId) {
-        if self.ask.is_some() {
+        if self.ask.is_some() || self.windows.get(id).is_some_and(|w| w.closing) {
             return;
         }
-        match self.windows.closing(id) {
+        let data = self.windows.data(id).map(|w| w.dataset.clone());
+        let item = data.and_then(|name| self.unsaved_of(name.as_deref()));
+        match self.windows.closing(id, item) {
             Closing::Quit => self.quit(id),
             Closing::Ask(items) => self.ask = Some(Ask::Unsaved(items, Then::Close(id))),
-            Closing::Close => self.drop_window(id),
+            Closing::Close => self.close_now(id),
         }
+    }
+
+    /// Closes a window without a question. A data window closes its dataset and an output
+    /// window its document, through syntax; the window goes once that has run.
+    fn close_now(&mut self, id: WindowId) {
+        if let Some(name) = self.windows.data(id).map(|w| w.dataset.clone()) {
+            match self.close_data(name.as_deref()) {
+                Some(syntax) => self.run(&syntax, None, After::CloseWindow(id)),
+                None => self.drop_window(id),
+            }
+        } else if let Some(document) = self.windows.output(id).map(|o| o.document.clone()) {
+            let syntax = format!("OUTPUT CLOSE {document}.");
+            self.run(&syntax, None, After::CloseWindow(id));
+        } else {
+            self.drop_window(id);
+        }
+    }
+
+    /// Save chosen before a data window closes: its dataset is saved, made active first when
+    /// it is not, then closed. False when no file was chosen.
+    fn save_and_close(&mut self, id: WindowId) -> bool {
+        let Some(name) = self.windows.data(id).map(|w| w.dataset.clone()) else {
+            return false;
+        };
+        let file = self.file_of(name.as_deref()).0.map(Path::to_path_buf);
+        let Some(path) = file.or_else(|| self.data_file_dialog()) else {
+            return false;
+        };
+        let activate = !same(name.as_deref(), self.will_be_active().as_deref());
+        let mut syntax = String::new();
+        if let Some(name) = name.as_deref().filter(|_| activate) {
+            syntax = syntax_window::activate(name) + "\n";
+        }
+        syntax.push_str(&format!("SAVE OUTFILE={}.", quote(&path.to_string_lossy())));
+        // closed as the active dataset, which it is by then
+        let shown = shown_datasets(&self.session);
+        let other = shown
+            .iter()
+            .flatten()
+            .find(|o| !same(Some(o), name.as_deref()));
+        if let Some(close) = close_data(
+            name.as_deref(),
+            name.as_deref(),
+            true,
+            other.map(|o| o.as_str()),
+        ) {
+            syntax = format!("{syntax}\n{close}");
+        }
+        match activate {
+            true => self.run_replacing(syntax, After::CloseWindow(id)),
+            false => self.run(&syntax, None, After::CloseWindow(id)),
+        }
+        true
     }
 
     /// Takes a window away. When the root drew it, the root draws the next window, in that
-    /// window's place.
+    /// window's place. The last window is never taken away: the program ends with it.
     fn drop_window(&mut self, id: WindowId) {
+        if self.windows.ids() == [id] {
+            return self.quit(id);
+        }
         let root = self.windows.root();
         self.windows.close(id);
-        if self.popups == id {
+        self.windows_closed(root, &[id]);
+    }
+
+    /// After windows closed: the dialogs show in the root when theirs closed, and when the root
+    /// drew one of them, it draws the next window, in that window's place.
+    fn windows_closed(&mut self, root: WindowId, closed: &[WindowId]) {
+        if closed.contains(&self.popups) {
             self.popups = self.windows.root();
         }
-        if id == root {
+        if closed.contains(&root) {
             let viewport = egui::ViewportId::ROOT;
             if let Some(w) = self.windows.get(self.windows.root()) {
                 if let Some(position) = w.position {
@@ -1417,8 +1738,17 @@ impl App {
         if let Some(Ask::SavingToClose(pending)) = &mut self.ask
             && self.runs.is_idle()
         {
-            match pending.take() {
-                Some(path) => self.save_data(path),
+            let next = (!pending.is_empty()).then(|| pending.remove(0));
+            match next {
+                Some((name, path)) => {
+                    // a dataset that is not active is saved as the active one
+                    let active = active_name(&self.session);
+                    let mut syntax = format!("SAVE OUTFILE={}.", quote(&path.to_string_lossy()));
+                    if let Some(name) = name.filter(|n| !same(Some(n), active.as_deref())) {
+                        syntax = format!("{}\n{syntax}", syntax_window::activate(&name));
+                    }
+                    self.run(&syntax, None, After::SaveData(path));
+                }
                 None if self.unsaved().is_empty() => self.end(),
                 // a save failed, and the status bar says why
                 None => self.keep_open(),
@@ -1462,11 +1792,13 @@ impl App {
             Cancel,
         }
         let mut answer = None;
+        let syntax = matches!(then, Then::Close(id) if self.windows.syntax(*id).is_some());
         let modal = egui::Modal::new(egui::Id::unique("unsaved")).show(ctx, |ui| {
             ui.set_max_width(460.0);
             ui.label(match then {
                 Then::Quit(_) => "Save the changes before closing?",
-                Then::Close(_) => "Save the changes to the syntax first?",
+                Then::Close(_) if syntax => "Save the changes to the syntax first?",
+                Then::Close(_) | Then::Replace(..) => "Save the changes to the data first?",
             });
             ui.add_space(4.0);
             for item in items {
@@ -1498,13 +1830,28 @@ impl App {
             (Answer::Save, Then::Quit(_)) => self.save_before_close(),
             (Answer::Discard, Then::Quit(_)) => self.end(),
             (Answer::Cancel, Then::Quit(_)) => self.keep_open(),
+            (Answer::Save, Then::Close(id)) if self.windows.data(id).is_some() => {
+                self.save_and_close(id);
+            }
             (Answer::Save, Then::Close(id)) => {
                 if self.save_syntax_now(id) {
                     self.drop_window(id);
                 }
             }
-            (Answer::Discard, Then::Close(id)) => self.drop_window(id),
+            (Answer::Discard, Then::Close(id)) => self.close_now(id),
             (Answer::Cancel, Then::Close(_)) => {}
+            (Answer::Save, Then::Replace(_, syntax, after)) => {
+                let file = self.data_file.clone();
+                match file.or_else(|| self.data_file_dialog()) {
+                    Some(path) => {
+                        let save = format!("SAVE OUTFILE={}.", quote(&path.to_string_lossy()));
+                        self.run(&format!("{save}\n{syntax}"), None, after);
+                    }
+                    None => self.drop_activation(&after),
+                }
+            }
+            (Answer::Discard, Then::Replace(_, syntax, after)) => self.run(&syntax, None, after),
+            (Answer::Cancel, Then::Replace(_, _, after)) => self.drop_activation(&after),
         }
     }
 
@@ -1521,31 +1868,30 @@ impl App {
                 return;
             }
         }
-        let data = self.session.dataset();
-        let pending = if data.is_some() && data != self.data_saved.as_ref() {
-            match self.data_file.clone().or_else(|| self.data_file_dialog()) {
-                Some(path) => Some(path),
-                None => {
-                    self.keep_open();
-                    return;
-                }
+        let mut pending = Vec::new();
+        for name in self.unsaved_datasets() {
+            let file = self.file_of(name.as_deref()).0.map(Path::to_path_buf);
+            match file.or_else(|| self.data_file_dialog()) {
+                Some(path) => pending.push((name, path)),
+                None => return self.keep_open(),
             }
-        } else {
-            None
-        };
+        }
         self.ask = Some(Ask::SavingToClose(pending));
     }
 
-    /// Exports the whole output, or with `selected` only the selected tables.
-    fn export_html(&mut self, selected: bool) {
+    /// Exports the whole output of a window, or with `selected` only the selected tables.
+    fn export_html(&mut self, id: WindowId, selected: bool) {
         if let Some(path) = self
             .file_dialog()
             .add_filter("Web page", &["html"])
             .save_file()
         {
             self.settings.remember_folder(&path);
-            let chosen = &self.output.selected;
-            let page = output::html(&self.output.runs, |id| !selected || chosen.contains(&id));
+            let Some(view) = self.windows.output(id).map(|o| &o.view) else {
+                return;
+            };
+            let chosen = &view.selected;
+            let page = output::html(&view.runs, |id| !selected || chosen.contains(&id));
             self.status = match std::fs::write(&path, page) {
                 Ok(()) => Ok(format!("output exported to {}", path.display())),
                 Err(e) => Err(format!("{}: {e}", path.display())),
@@ -1553,15 +1899,18 @@ impl App {
         }
     }
 
-    fn export_xlsx(&mut self, one_sheet: bool, selected: bool) {
+    fn export_xlsx(&mut self, id: WindowId, one_sheet: bool, selected: bool) {
         if let Some(path) = self
             .file_dialog()
             .add_filter("Excel workbook", &["xlsx"])
             .save_file()
         {
             self.settings.remember_folder(&path);
-            let chosen = &self.output.selected;
-            let tables = output::tables(&self.output.runs)
+            let Some(view) = self.windows.output(id).map(|o| &o.view) else {
+                return;
+            };
+            let chosen = &view.selected;
+            let tables = output::tables(&view.runs)
                 .filter(|t| !selected || chosen.contains(&t.id))
                 .map(|t| &t.table);
             self.status = match statscraft_export::write_xlsx(&path, tables, one_sheet) {
@@ -1573,23 +1922,16 @@ impl App {
 
     fn tabs(&mut self, ui: &mut Ui) {
         ui.horizontal(|ui| {
-            for (tab, label) in [
-                (Tab::Data, "Data"),
-                (Tab::Variables, "Variables"),
-                (Tab::Output, "Output"),
-            ] {
-                ui.selectable_value(&mut self.tab, tab, RichText::new(label).size(15.0));
+            for (tab, label) in [(Tab::Data, "Data"), (Tab::Variables, "Variables")] {
+                ui.selectable_value(&mut self.view.tab, tab, RichText::new(label).size(15.0));
             }
             ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
-                if let Some(data) = self.session.dataset() {
+                if let Some(data) = window_data(&self.session, &self.windows, self.here) {
                     ui.weak(format!(
                         "{} cases, {} variables",
                         data.case_count(),
                         data.variable_count()
                     ));
-                    if let Some(name) = self.data_file.as_ref().and_then(|p| p.file_name()) {
-                        ui.label(name.to_string_lossy());
-                    }
                 }
             });
         });
@@ -1614,7 +1956,8 @@ impl App {
         ui.horizontal(|ui| {
             // the split, filter and weight in force, each opening its dialog
             let mut open = None;
-            if let Some(states) = self.session.dataset().map(data_states) {
+            let data = window_data(&self.session, &self.windows, self.here);
+            if let Some(states) = data.map(data_states) {
                 ui.with_layout(egui::Layout::right_to_left(Align::Center), |ui| {
                     for (text, dialog) in states.into_iter().rev() {
                         if ui.link(text).clicked() {
@@ -1633,7 +1976,7 @@ impl App {
     }
 
     /// The result of the last run and its warnings; a click on the warnings shows the log,
-    /// from the Data and Variable Views in the Output view.
+    /// from a data window in the designated output window.
     fn status_line(&mut self, ui: &mut Ui) {
         ui.with_layout(egui::Layout::left_to_right(Align::Center), |ui| {
             if let Some(note) = warning_note(self.warnings)
@@ -1642,8 +1985,10 @@ impl App {
                     .clicked()
             {
                 self.show_log = true;
-                if self.windows.main() == Some(self.here) && !shows_log(self.tab) {
-                    self.tab = Tab::Output;
+                if self.windows.data(self.here).is_some()
+                    && let Some(id) = self.windows.designated_output()
+                {
+                    self.front(id);
                 }
             }
             // a long message is cut at the links of the split, filter and weight
@@ -1700,7 +2045,7 @@ impl App {
     }
 
     fn data_view(&mut self, ui: &mut Ui) {
-        if self.session.dataset().is_none() {
+        if window_data(&self.session, &self.windows, self.here).is_none() {
             return Self::no_data(ui);
         }
         ui.horizontal(|ui| {
@@ -1708,7 +2053,7 @@ impl App {
             self.find_bar(ui);
         });
         paper(ui, !self.settings.paper_follows_system);
-        let data = self.session.dataset().expect("checked above");
+        let data = window_data(&self.session, &self.windows, self.here).expect("checked above");
         let char_width = TextStyle::Body.resolve(ui.style()).size * 0.6;
         let labels = self.value_labels;
         let mut widths: Vec<f32> = data
@@ -1732,7 +2077,7 @@ impl App {
                 grid::column_width(v.name(), width, char_width)
             })
             .collect();
-        if let Some((c, width)) = self.data_resize
+        if let Some((c, width)) = self.view.data_resize
             && c < widths.len()
         {
             widths[c] = width;
@@ -1748,15 +2093,15 @@ impl App {
         };
         let mut commit = false;
         let mut cancel = false;
-        let edit = &mut self.cell_edit;
+        let edit = &mut self.view.cell_edit;
         let events = paint_grid(
             ui,
             "data",
             &headers,
             &widths,
             data.case_count(),
-            self.selected.as_ref(),
-            std::mem::take(&mut self.follow),
+            self.view.selected.as_ref(),
+            std::mem::take(&mut self.view.follow),
             &cell,
             &filtered_out(data),
             edit.as_ref().map(|e| (e.row, e.column)),
@@ -1766,19 +2111,20 @@ impl App {
                 }
             },
         );
-        self.page = events.page.max(1);
+        self.view.page = events.page.max(1);
         let modifiers = ui.input(|i| i.modifiers);
-        if select(&mut self.selected, &events, modifiers) {
-            self.follow = true;
+        if select(&mut self.view.selected, &events, modifiers) {
+            self.view.follow = true;
         }
         self.open_menu(events.secondary);
         if let Some(response) = &events.response {
             response.context_menu(|ui| self.grid_menu(ui));
         }
         if let Some((c, width, done)) = events.resized {
-            self.data_resize = Some((c, width));
+            self.view.data_resize = Some((c, width));
             if done {
-                let data = self.session.dataset().expect("checked above");
+                let data =
+                    window_data(&self.session, &self.windows, self.here).expect("checked above");
                 let name = data.variable_at(c).name().to_string();
                 self.run(
                     &grid::width_command(&name, width, char_width),
@@ -1791,7 +2137,7 @@ impl App {
             self.edit_cell(at);
         }
         if cancel {
-            self.cell_edit = None;
+            self.view.cell_edit = None;
         }
         if commit {
             self.commit_cell();
@@ -1799,12 +2145,12 @@ impl App {
     }
 
     fn edit_cell(&mut self, (row, column): (usize, usize)) {
-        let Some(data) = self.session.dataset() else {
+        let Some(data) = window_data(&self.session, &self.windows, self.here) else {
             return;
         };
         let text = edits::edit_text(&data.variable_at(column), row);
-        self.selected = Some(grid::Selection::cell((row, column)));
-        self.cell_edit = Some(CellEdit {
+        self.view.selected = Some(grid::Selection::cell((row, column)));
+        self.view.cell_edit = Some(CellEdit {
             row,
             column,
             original: text.clone(),
@@ -1814,7 +2160,10 @@ impl App {
     }
 
     fn commit_cell(&mut self) {
-        let (Some(e), Some(data)) = (self.cell_edit.take(), self.session.dataset()) else {
+        let (Some(e), Some(data)) = (
+            self.view.cell_edit.take(),
+            window_data(&self.session, &self.windows, self.here),
+        ) else {
             return;
         };
         if e.text == e.original {
@@ -1833,25 +2182,24 @@ impl App {
     /// edited, Tab and the up and down arrows commit it and move on; Enter commits and Escape
     /// cancels in the editor itself.
     fn grid_keys(&mut self, ui: &mut Ui) {
-        let Some(data) = self.session.dataset() else {
+        let Some(data) = window_data(&self.session, &self.windows, self.here) else {
             return;
         };
-        let variables = self.tab == Tab::Variables;
-        let (rows, columns, editing) = match self.tab {
+        let variables = self.view.tab == Tab::Variables;
+        let (rows, columns, editing) = match self.view.tab {
             Tab::Data => (
                 data.case_count(),
                 data.variable_count(),
-                self.cell_edit.is_some(),
+                self.view.cell_edit.is_some(),
             ),
             Tab::Variables => (data.variable_count(), Field::ALL.len(), false),
-            _ => return,
         };
         if self.dialog.is_some()
-            || self.confirm.is_some()
-            || self.format_dialog.is_some()
-            || self.labels_dialog.is_some()
-            || self.missing_dialog.is_some()
-            || (variables && self.field_edit.is_some())
+            || self.view.confirm.is_some()
+            || self.view.format_dialog.is_some()
+            || self.view.labels_dialog.is_some()
+            || self.view.missing_dialog.is_some()
+            || (variables && self.view.field_edit.is_some())
             || rows == 0
             || columns == 0
             || (!editing && ui.ctx().egui_wants_keyboard_input())
@@ -1897,9 +2245,12 @@ impl App {
             self.commit_cell();
         }
         let (selection, follow) = if variables {
-            (&mut self.variable_selected, &mut self.variable_follow)
+            (
+                &mut self.view.variable_selected,
+                &mut self.view.variable_follow,
+            )
         } else {
-            (&mut self.selected, &mut self.follow)
+            (&mut self.view.selected, &mut self.view.follow)
         };
         let s = selection.get_or_insert_with(Default::default);
         for (key, ctrl, shift) in moves {
@@ -1910,7 +2261,7 @@ impl App {
                 shift && tab,
                 s.cursor,
                 (rows, columns),
-                self.page,
+                self.view.page,
             );
             if shift && !tab {
                 s.extend_to(at);
@@ -1929,7 +2280,7 @@ impl App {
 
     /// Ctrl+F opens the find bar, F3 goes to the next match.
     fn find_keys(&mut self, ui: &mut Ui) {
-        if !matches!(self.tab, Tab::Data | Tab::Variables) || self.dialog.is_some() {
+        if !matches!(self.view.tab, Tab::Data | Tab::Variables) || self.dialog.is_some() {
             return;
         }
         let (open, next) = ui.input_mut(|i| {
@@ -1939,8 +2290,8 @@ impl App {
             )
         });
         if open {
-            self.find.get_or_insert_with(String::new);
-            self.find_focus = true;
+            self.view.find.get_or_insert_with(String::new);
+            self.view.find_focus = true;
         }
         if next {
             self.find_next(false);
@@ -1950,7 +2301,7 @@ impl App {
     /// The find bar, while it is open: typing goes to the first match from the current
     /// variable, Enter to the next one, Escape closes it.
     fn find_bar(&mut self, ui: &mut Ui) {
-        let Some(text) = self.find.as_mut() else {
+        let Some(text) = self.view.find.as_mut() else {
             return;
         };
         let response = ui.add(
@@ -1958,7 +2309,7 @@ impl App {
                 .hint_text("Find a variable by name or label")
                 .desired_width(260.0),
         );
-        if std::mem::take(&mut self.find_focus) {
+        if std::mem::take(&mut self.view.find_focus) {
             response.request_focus();
         }
         let (enter, escape) = ui.input(|i| (i.key_pressed(Key::Enter), i.key_pressed(Key::Escape)));
@@ -1970,14 +2321,17 @@ impl App {
             response.request_focus();
         }
         if (response.lost_focus() || response.has_focus()) && escape {
-            self.find = None;
+            self.view.find = None;
         }
     }
 
     /// Goes to the next variable that matches the find text: its row in the Variable View, its
     /// column in the Data View. `here` counts the current variable as a match too.
     fn find_next(&mut self, here: bool) {
-        let (Some(needle), Some(data)) = (self.find.clone(), self.session.dataset()) else {
+        let (Some(needle), Some(data)) = (
+            self.view.find.clone(),
+            window_data(&self.session, &self.windows, self.here),
+        ) else {
             return;
         };
         let items: Vec<(String, String)> = data
@@ -1989,11 +2343,11 @@ impl App {
                 )
             })
             .collect();
-        let variables = self.tab == Tab::Variables;
+        let variables = self.view.tab == Tab::Variables;
         let cursor = if variables {
-            self.variable_selected.as_ref().map(|s| s.cursor.0)
+            self.view.variable_selected.as_ref().map(|s| s.cursor.0)
         } else {
-            self.selected.as_ref().map(|s| s.cursor.1)
+            self.view.selected.as_ref().map(|s| s.cursor.1)
         };
         let after = if here {
             cursor.and_then(|c| c.checked_sub(1))
@@ -2002,13 +2356,13 @@ impl App {
         };
         match grid::find(&items, &needle, after) {
             Some(i) if variables => {
-                self.variable_selected = Some(grid::Selection::cell((i, 0)));
-                self.variable_follow = true;
+                self.view.variable_selected = Some(grid::Selection::cell((i, 0)));
+                self.view.variable_follow = true;
             }
             Some(i) => {
-                let row = self.selected.as_ref().map_or(0, |s| s.cursor.0);
-                self.selected = Some(grid::Selection::cell((row, i)));
-                self.follow = true;
+                let row = self.view.selected.as_ref().map_or(0, |s| s.cursor.0);
+                self.view.selected = Some(grid::Selection::cell((row, i)));
+                self.view.follow = true;
             }
             None if needle.trim().is_empty() => {}
             None => self.status = Err(format!("no variable name or label holds {needle:?}")),
@@ -2017,11 +2371,11 @@ impl App {
 
     /// Puts the selection of the grid in view on the clipboard as tab-separated text.
     fn copy_selection(&mut self, ctx: &egui::Context) {
-        let Some(data) = self.session.dataset() else {
+        let Some(data) = window_data(&self.session, &self.windows, self.here) else {
             return;
         };
-        let (text, wide) = if self.tab == Tab::Variables {
-            let Some(s) = &self.variable_selected else {
+        let (text, wide) = if self.view.tab == Tab::Variables {
+            let Some(s) = &self.view.variable_selected else {
                 return;
             };
             let headers: Vec<String> = Field::ALL.iter().map(|f| f.title().to_string()).collect();
@@ -2031,7 +2385,7 @@ impl App {
             });
             (text, s.is_wide())
         } else {
-            let Some(s) = &self.selected else {
+            let Some(s) = &self.view.selected else {
                 return;
             };
             let headers: Vec<String> = data.variable_names().map(str::to_string).collect();
@@ -2058,12 +2412,12 @@ impl App {
     /// Delete: asks before deleting the variables whose rows (Variable View) or columns (Data
     /// View) are selected; in the Data View it clears the selected cells otherwise.
     fn ask_delete(&mut self) {
-        let Some(data) = self.session.dataset() else {
+        let Some(data) = window_data(&self.session, &self.windows, self.here) else {
             return;
         };
-        let variable_view = self.tab == Tab::Variables;
+        let variable_view = self.view.tab == Tab::Variables;
         if !variable_view
-            && let Some(s) = &self.selected
+            && let Some(s) = &self.view.selected
             && s.rows.is_empty()
             && s.columns.is_empty()
         {
@@ -2076,8 +2430,8 @@ impl App {
             return;
         }
         let picked = match variable_view {
-            true => self.variable_selected.as_ref().map(|s| &s.rows),
-            false => self.selected.as_ref().map(|s| &s.columns),
+            true => self.view.variable_selected.as_ref().map(|s| &s.rows),
+            false => self.view.selected.as_ref().map(|s| &s.columns),
         };
         let picked: Vec<usize> = picked.into_iter().flatten().copied().collect();
         if picked.is_empty() {
@@ -2090,13 +2444,13 @@ impl App {
         if let Ok(grid_menu::Action::Ask(confirm)) =
             grid_menu::action(data, &target, grid_menu::Item::Delete)
         {
-            self.confirm = Some(confirm);
+            self.view.confirm = Some(confirm);
         }
     }
 
     /// The Type and Format dialog: a format from a list, its width and decimals.
     fn format_window(&mut self, ctx: &egui::Context) {
-        let Some(d) = self.format_dialog.as_mut() else {
+        let Some(d) = self.view.format_dialog.as_mut() else {
             return;
         };
         let mut answer = None;
@@ -2142,13 +2496,13 @@ impl App {
                 answer = dialog_footer(ui, &syntax, false);
             });
         if self.finish_small(answer, syntax) {
-            self.format_dialog = None;
+            self.view.format_dialog = None;
         }
     }
 
     /// The value labels dialog: a list of codes and labels, or many pasted at once.
     fn labels_window(&mut self, ctx: &egui::Context) {
-        let Some(d) = self.labels_dialog.as_mut() else {
+        let Some(d) = self.view.labels_dialog.as_mut() else {
             return;
         };
         let syntax = d.syntax();
@@ -2221,13 +2575,13 @@ impl App {
                 answer = dialog_footer(ui, &syntax, false);
             });
         if self.finish_small(answer, syntax) {
-            self.labels_dialog = None;
+            self.view.labels_dialog = None;
         }
     }
 
     /// The missing values dialog: up to three values, or a range and one more value.
     fn missing_window(&mut self, ctx: &egui::Context) {
-        let Some(d) = self.missing_dialog.as_mut() else {
+        let Some(d) = self.view.missing_dialog.as_mut() else {
             return;
         };
         let syntax = d.syntax();
@@ -2274,7 +2628,7 @@ impl App {
                 answer = dialog_footer(ui, &syntax, false);
             });
         if self.finish_small(answer, syntax) {
-            self.missing_dialog = None;
+            self.view.missing_dialog = None;
         }
     }
 
@@ -2312,7 +2666,7 @@ impl App {
     /// Escape or a click beside the window cancels. A yes clears the selections, which may
     /// point at other variables or cases afterwards.
     fn confirm_window(&mut self, ctx: &egui::Context) {
-        let Some(c) = &self.confirm else {
+        let Some(c) = &self.view.confirm else {
             return;
         };
         let mut answer = None;
@@ -2336,12 +2690,17 @@ impl App {
         }
         match answer {
             Some(true) => {
-                let syntax = self.confirm.take().map(|c| c.syntax).unwrap_or_default();
-                self.selected = None;
-                self.variable_selected = None;
+                let syntax = self
+                    .view
+                    .confirm
+                    .take()
+                    .map(|c| c.syntax)
+                    .unwrap_or_default();
+                self.view.selected = None;
+                self.view.variable_selected = None;
                 self.run(&syntax, None, After::Show);
             }
-            Some(false) => self.confirm = None,
+            Some(false) => self.view.confirm = None,
             None => {}
         }
     }
@@ -2351,10 +2710,10 @@ impl App {
         let Some(hit) = hit else {
             return;
         };
-        let variable_view = self.tab == Tab::Variables;
+        let variable_view = self.view.tab == Tab::Variables;
         let selection = match variable_view {
-            true => &self.variable_selected,
-            false => &self.selected,
+            true => &self.view.variable_selected,
+            false => &self.view.selected,
         };
         let picked = |set: &BTreeSet<usize>| set.iter().copied().collect();
         let target = match (hit, variable_view, selection) {
@@ -2375,15 +2734,16 @@ impl App {
             }
             _ => None,
         };
-        self.menu = target.map(|t| (t, variable_view));
+        self.view.menu = target.map(|t| (t, variable_view));
     }
 
     /// The right-click menu of a grid: its target and the split, filter and weight in force
     /// at the top, then the items.
     fn grid_menu(&mut self, ui: &mut Ui) {
-        let (Some((target, variable_view)), Some(data)) =
-            (self.menu.clone(), self.session.dataset())
-        else {
+        let (Some((target, variable_view)), Some(data)) = (
+            self.view.menu.clone(),
+            window_data(&self.session, &self.windows, self.here),
+        ) else {
             return ui.close();
         };
         let entries = grid_menu::entries(data, &target, !self.runs.is_idle());
@@ -2426,14 +2786,14 @@ impl App {
         if variable_view {
             let mut s = grid::Selection::cell((index, 0));
             s.click_row(index, false, false);
-            self.variable_selected = Some(s);
-            self.variable_follow = true;
+            self.view.variable_selected = Some(s);
+            self.view.variable_follow = true;
         } else {
-            let row = self.selected.as_ref().map_or(0, |s| s.cursor.0);
+            let row = self.view.selected.as_ref().map_or(0, |s| s.cursor.0);
             let mut s = grid::Selection::cell((row, index));
             s.click_column(index, false, false);
-            self.selected = Some(s);
-            self.follow = true;
+            self.view.selected = Some(s);
+            self.view.follow = true;
         }
     }
 
@@ -2441,27 +2801,27 @@ impl App {
     fn act(&mut self, action: grid_menu::Action, ctx: &egui::Context) {
         match action {
             grid_menu::Action::Run(syntax) => self.run(&syntax, None, After::Show),
-            grid_menu::Action::Ask(confirm) => self.confirm = Some(confirm),
+            grid_menu::Action::Ask(confirm) => self.view.confirm = Some(confirm),
             grid_menu::Action::Open(dialog) => self.open_dialog(*dialog),
             grid_menu::Action::Copy => self.copy_selection(ctx),
             grid_menu::Action::EditCell(case, column) => self.edit_cell((case, column)),
             grid_menu::Action::EditField(row, field) => {
-                self.tab = Tab::Variables;
-                self.variable_follow = true;
+                self.view.tab = Tab::Variables;
+                self.view.variable_follow = true;
                 self.edit_field((row, field));
             }
         }
     }
 
     fn variable_view(&mut self, ui: &mut Ui) {
-        if self.session.dataset().is_none() {
+        if window_data(&self.session, &self.windows, self.here).is_none() {
             return Self::no_data(ui);
         }
-        if self.find.is_some() {
+        if self.view.find.is_some() {
             ui.horizontal(|ui| self.find_bar(ui));
         }
         paper(ui, !self.settings.paper_follows_system);
-        let data = self.session.dataset().expect("checked above");
+        let data = window_data(&self.session, &self.windows, self.here).expect("checked above");
         let headers: Vec<String> = Field::ALL.iter().map(|f| f.title().to_string()).collect();
         let mut widths = vec![
             // all twelve fit a window 1280 points wide
@@ -2478,15 +2838,15 @@ impl App {
         };
         let mut commit = false;
         let mut cancel = false;
-        let edit = &mut self.field_edit;
+        let edit = &mut self.view.field_edit;
         let events = paint_grid(
             ui,
             "variables",
             &headers,
             &widths,
             data.variable_count(),
-            self.variable_selected.as_ref(),
-            std::mem::take(&mut self.variable_follow),
+            self.view.variable_selected.as_ref(),
+            std::mem::take(&mut self.view.variable_follow),
             &cell,
             &|_| false,
             edit.as_ref().map(|e| (e.row, e.column)),
@@ -2523,14 +2883,15 @@ impl App {
         }
         let modifiers = ui.input(|i| i.modifiers);
         if events.clicked.is_some() {
-            self.rows_before_click = self
+            self.view.rows_before_click = self
+                .view
                 .variable_selected
                 .as_ref()
                 .map(|s| s.rows.clone())
                 .unwrap_or_default();
         }
-        if select(&mut self.variable_selected, &events, modifiers) {
-            self.variable_follow = true;
+        if select(&mut self.view.variable_selected, &events, modifiers) {
+            self.view.variable_follow = true;
         }
         self.open_menu(events.secondary);
         if let Some(response) = &events.response {
@@ -2540,21 +2901,22 @@ impl App {
             // a text edit commits when it loses focus; a list just closes
             let list = |e: &CellEdit| Field::ALL[e.column].choices().is_some();
             if self
+                .view
                 .field_edit
                 .as_ref()
                 .is_some_and(|e| list(e) && (e.row, e.column) != at)
             {
-                self.field_edit = None;
+                self.view.field_edit = None;
             }
         }
         if let Some(at) = events.double_clicked {
             self.edit_field(at);
         }
         if cancel {
-            self.field_edit = None;
+            self.view.field_edit = None;
         }
-        if commit && let Some(e) = self.field_edit.take() {
-            let data = self.session.dataset().expect("checked above");
+        if commit && let Some(e) = self.view.field_edit.take() {
+            let data = window_data(&self.session, &self.windows, self.here).expect("checked above");
             match edits::field_edit(&data.variable_at(e.row), Field::ALL[e.column], &e.text) {
                 Ok(Some(syntax)) => {
                     self.run(&syntax, None, After::Show);
@@ -2567,15 +2929,15 @@ impl App {
 
     /// Starts editing a cell of the Variable View.
     fn edit_field(&mut self, (row, column): (usize, usize)) {
-        let Some(data) = self.session.dataset() else {
+        let Some(data) = window_data(&self.session, &self.windows, self.here) else {
             return;
         };
         let variable = data.variable_at(row);
         let field = Field::ALL[column];
         // the other variables of the same type whose rows are selected can get the same labels
-        let rows = match &self.variable_selected {
+        let rows = match &self.view.variable_selected {
             Some(s) if s.rows.contains(&row) => &s.rows,
-            _ => &self.rows_before_click,
+            _ => &self.view.rows_before_click,
         };
         let others: Vec<String> = match rows.contains(&row) {
             true => rows
@@ -2589,23 +2951,23 @@ impl App {
         };
         match field {
             Field::Type | Field::Format => {
-                self.format_dialog = Some(edits::FormatChoice::of(&variable));
+                self.view.format_dialog = Some(edits::FormatChoice::of(&variable));
                 return;
             }
             Field::Values => {
-                self.labels_dialog = Some(edits::LabelsEditor::of(&variable, others));
+                self.view.labels_dialog = Some(edits::LabelsEditor::of(&variable, others));
                 return;
             }
             Field::Missing => {
-                self.missing_dialog = Some(edits::MissingEditor::of(&variable, others));
+                self.view.missing_dialog = Some(edits::MissingEditor::of(&variable, others));
                 return;
             }
             _ => {}
         }
-        self.variable_selected = Some(grid::Selection::cell((row, column)));
+        self.view.variable_selected = Some(grid::Selection::cell((row, column)));
         if field.editable(variable.is_string()) {
             let text = edits::field_text(&variable, field);
-            self.field_edit = Some(CellEdit {
+            self.view.field_edit = Some(CellEdit {
                 row,
                 column,
                 original: text.clone(),
@@ -2623,7 +2985,7 @@ impl App {
         };
         // opening a file needs no data
         let empty;
-        let data = match self.session.dataset() {
+        let data = match window_data(&self.session, &self.windows, self.popups) {
             Some(data) => data,
             None if matches!(dialog, Dialog::ImportData(_)) => {
                 empty = Dataset::new(0);
@@ -2636,7 +2998,13 @@ impl App {
         };
         let mut action = None;
         let mut open = true;
-        let syntax = dialog.syntax(data);
+        let import = matches!(dialog, Dialog::ImportData(_));
+        let mut syntax = dialog.syntax(data);
+        let raw = syntax.clone();
+        if import {
+            // with a dataset name, as a data file opened from the window gets
+            syntax = syntax.map(|text| self.session.open_syntax(&text));
+        }
         egui::Window::new(dialog.title())
             .open(&mut open)
             .collapsible(false)
@@ -2681,7 +3049,10 @@ impl App {
         match (action, syntax) {
             (Some(DialogAction::Ok), Ok(text)) => {
                 let title = self.dialog.as_ref().map_or("dialog", Dialog::title);
-                self.run(&text, None, After::CloseDialog(title));
+                match (import, raw) {
+                    (true, Ok(raw)) => self.open_named(raw, After::CloseDialog(title)),
+                    _ => self.run(&text, None, After::CloseDialog(title)),
+                }
             }
             (Some(DialogAction::Paste), Ok(text)) => {
                 self.paste(&text);
@@ -2700,18 +3071,38 @@ impl App {
 }
 
 impl App {
-    /// One window, in the root viewport or its own. Every window has the menu bar, the status
-    /// bar and its question about unsaved work; the dialogs show in the window they were opened
-    /// from.
+    /// One window, in the root viewport or its own. A data window lends its view to
+    /// `self.view` while it is drawn.
     fn window(&mut self, ui: &mut Ui, id: WindowId) {
-        if self.windows.get(id).is_none() {
-            return;
+        if let Some(w) = self.windows.data_mut(id) {
+            std::mem::swap(&mut self.view, &mut w.view);
         }
+        self.draw(ui, id);
+        match self.windows.data_mut(id) {
+            Some(w) => std::mem::swap(&mut self.view, &mut w.view),
+            // the window closed while it was drawn
+            None => self.view = DataView::default(),
+        }
+    }
+
+    /// Every window has the menu bar, the status bar and its question about unsaved work; the
+    /// dialogs show in the window they were opened from.
+    fn draw(&mut self, ui: &mut Ui, id: WindowId) {
+        let Some(kind) = self.windows.get(id).map(|w| WindowKind::of(&w.kind)) else {
+            return;
+        };
         self.here = id;
-        let main = self.windows.main() == Some(id);
-        let (outer, inner, focused, close) = ui.input(|i| {
+        let data = kind == WindowKind::Data;
+        let (outer, inner, focused, close, pressed) = ui.input(|i| {
             let v = i.viewport();
-            (v.outer_rect, v.inner_rect, v.focused, v.close_requested())
+            let pressed = i.pointer.any_pressed();
+            (
+                v.outer_rect,
+                v.inner_rect,
+                v.focused,
+                v.close_requested(),
+                pressed,
+            )
         });
         if let Some(w) = self.windows.get_mut(id) {
             w.position = outer.map(|r| r.min);
@@ -2719,15 +3110,18 @@ impl App {
         }
         if focused == Some(true) {
             self.windows.focused = Some(id);
-        }
-        if main {
-            // the size and position to open with next time (no position under Wayland)
+            // the size and position a window of its kind opens with (no position on Wayland)
+            let (size, position) = self.settings.window_mut(kind.name());
             if let Some(inner) = inner {
-                self.settings.size = Some([inner.width(), inner.height()]);
+                *size = Some([inner.width(), inner.height()]);
             }
             if let Some(outer) = outer {
-                self.settings.position = Some([outer.min.x, outer.min.y]);
+                *position = Some([outer.min.x, outer.min.y]);
             }
+        }
+        // a click anywhere in a data window makes its dataset the active one
+        if data && pressed {
+            self.click_activate(id);
         }
         let (files, hovering) = ui.input(|i| {
             let files: Vec<PathBuf> = i
@@ -2759,7 +3153,7 @@ impl App {
                 Color32::WHITE,
             );
         }
-        if main {
+        if data {
             self.find_keys(ui);
             self.grid_keys(ui);
         }
@@ -2772,32 +3166,44 @@ impl App {
         let mut run = None;
         egui::Panel::top(("menu", id)).show(ui, |ui| {
             self.menu(ui);
-            ui.add_space(2.0);
-            if main {
-                self.tabs(ui);
-            } else {
-                run = self.syntax_toolbar(ui, id);
+            match kind {
+                WindowKind::Data => {
+                    ui.add_space(2.0);
+                    self.tabs(ui);
+                }
+                WindowKind::Syntax => {
+                    ui.add_space(2.0);
+                    run = self.syntax_toolbar(ui, id);
+                }
+                WindowKind::Output => {}
             }
         });
         if id == self.windows.root() && self.updates.visible() {
             egui::Panel::top("update").show(ui, |ui| self.updates.bar(ui));
         }
         egui::Panel::bottom(("status", id)).show(ui, |ui| self.status_bar(ui));
-        if self.show_log && (!main || shows_log(self.tab)) {
+        // the log shows under the syntax and the output; the grids get the whole height
+        if self.show_log && !data {
             egui::Panel::bottom(("log", id))
                 .resizable(true)
                 .default_size(150.0)
                 .show(ui, |ui| self.log(ui));
         }
         egui::CentralPanel::default().show(ui, |ui| {
-            if main {
-                self.main_view(ui);
-            } else if let Some(w) = self.windows.syntax_mut(id) {
-                let data = self.session.dataset();
-                if w.ui(ui, id, data, &self.macros, &self.settings) {
-                    run = Some(true);
+            // the scroll positions and selections of each window are its own
+            ui.push_id(("window", id), |ui| match kind {
+                WindowKind::Data if self.view.tab == Tab::Variables => self.variable_view(ui),
+                WindowKind::Data => self.data_view(ui),
+                WindowKind::Syntax => {
+                    if let Some(w) = self.windows.syntax_mut(id) {
+                        let data = self.session.dataset();
+                        if w.ui(ui, id, data, &self.macros, &self.settings) {
+                            run = Some(true);
+                        }
+                    }
                 }
-            }
+                WindowKind::Output => self.output_view(ui, id),
+            });
         });
         if let Some(selection) = run
             && let Some(w) = self.windows.syntax(id)
@@ -2807,7 +3213,7 @@ impl App {
             self.run(&source, lines, After::Editor(id));
         }
         let ctx = ui.ctx().clone();
-        if main {
+        if data {
             self.confirm_window(&ctx);
             self.format_window(&ctx);
             self.labels_window(&ctx);
@@ -2823,27 +3229,24 @@ impl App {
         }
     }
 
-    /// The Data, Variables and Output tabs of the main window.
-    fn main_view(&mut self, ui: &mut Ui) {
-        match self.tab {
-            Tab::Data => self.data_view(ui),
-            Tab::Variables => self.variable_view(ui),
-            Tab::Output => {
-                self.output.light_paper = !self.settings.paper_follows_system;
-                let request = self.output.ui(ui);
-                match request {
-                    Some(output_view::Request::ExportHtml) => self.export_html(true),
-                    Some(output_view::Request::ExportXlsx { one_sheet }) => {
-                        self.export_xlsx(one_sheet, true)
-                    }
-                    Some(output_view::Request::Status(status)) => self.status = status,
-                    Some(output_view::Request::Paste(syntax)) => self.paste(&syntax),
-                    Some(output_view::Request::Run(syntax)) => {
-                        self.run(&syntax, None, After::Show);
-                    }
-                    None => {}
-                }
+    /// The tables of an output window, with its navigator.
+    fn output_view(&mut self, ui: &mut Ui, id: WindowId) {
+        let light = !self.settings.paper_follows_system;
+        let Some(o) = self.windows.output_mut(id) else {
+            return;
+        };
+        o.view.light_paper = light;
+        match o.view.ui(ui) {
+            Some(output_view::Request::ExportHtml) => self.export_html(id, true),
+            Some(output_view::Request::ExportXlsx { one_sheet }) => {
+                self.export_xlsx(id, one_sheet, true)
             }
+            Some(output_view::Request::Status(status)) => self.status = status,
+            Some(output_view::Request::Paste(syntax)) => self.paste(&syntax),
+            Some(output_view::Request::Run(syntax)) => {
+                self.run(&syntax, None, After::Show);
+            }
+            None => {}
         }
     }
 
@@ -2949,7 +3352,7 @@ impl eframe::App for App {
 
     /// The root draws the first window of the registry, and every other window as an
     /// immediate viewport (see windows.rs).
-    fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut Ui, frame: &mut eframe::Frame) {
         let root = self.windows.root();
         let title = format!("{} - Statscraft", self.window_name(root));
         if title != self.title {
@@ -2957,26 +3360,96 @@ impl eframe::App for App {
                 .send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
             self.title = title;
         }
+        // eframe 0.37 paints the root outside its event loop while the root is hidden (its
+        // first frame) or minimized. A window that has no native window yet cannot get one
+        // there (eframe panics), so it opens on the first frame the root is shown. Windows
+        // open already are drawn every frame, or eframe would drop them.
+        let hidden = frame
+            .winit_window()
+            .is_some_and(|w| w.is_visible() == Some(false) || w.is_minimized() == Some(true));
         for id in self.windows.ids() {
             if id == root {
                 continue;
             }
-            let size = match self.windows.main() == Some(id) {
-                true => [1100.0, 760.0],
-                false => [900.0, 680.0],
-            };
-            let builder = egui::ViewportBuilder::default()
-                .with_title(format!("{} - Statscraft", self.window_name(id)))
-                // the same X11 class and Wayland app id as the root (main.rs)
-                .with_app_id("statscraft")
-                .with_inner_size(size)
-                .with_min_inner_size([480.0, 320.0])
-                .with_icon(Arc::clone(&self.icon));
             let viewport = self.windows.viewport(id);
+            let made = ui.input(|i| {
+                let info = i.raw.viewports.get(&viewport);
+                info.is_some_and(|v| v.inner_rect.is_some())
+            });
+            if hidden && !made {
+                ui.ctx().request_repaint();
+                continue;
+            }
+            let builder = self.builder(id);
             ui.ctx()
                 .show_viewport_immediate(viewport, builder, |ui, _| self.window(ui, id));
         }
         self.window(ui, root);
+    }
+}
+
+impl App {
+    /// The native window of a window that is not the root. A new one opens with the size and
+    /// position the last window of its kind had, a little lower and to the right for each
+    /// window of that kind open already; once open, the window keeps what the user gives it.
+    fn builder(&self, id: WindowId) -> egui::ViewportBuilder {
+        let mut builder = egui::ViewportBuilder::default()
+            .with_title(format!("{} - Statscraft", self.window_name(id)))
+            // the same X11 class and Wayland app id as the root (main.rs)
+            .with_app_id("statscraft")
+            .with_min_inner_size([480.0, 320.0])
+            .with_icon(Arc::clone(&self.icon));
+        let Some(w) = self.windows.get(id) else {
+            return builder;
+        };
+        if w.size.is_some() {
+            return builder;
+        }
+        let kind = WindowKind::of(&w.kind);
+        let (size, position) = self.settings.window(kind.name());
+        builder = builder.with_inner_size(size.unwrap_or(kind.size()));
+        if let Some([x, y]) = position {
+            let open = self.windows.iter().filter(|o| o.id != id);
+            let others = open.filter(|o| WindowKind::of(&o.kind) == kind).count() as f32;
+            builder = builder.with_position([x + 30.0 * others, y + 30.0 * others]);
+        }
+        builder
+    }
+}
+
+/// The kinds of window, without what they hold.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum WindowKind {
+    Data,
+    Syntax,
+    Output,
+}
+
+impl WindowKind {
+    fn of(kind: &Kind) -> WindowKind {
+        match kind {
+            Kind::Data(_) => WindowKind::Data,
+            Kind::Syntax(_) => WindowKind::Syntax,
+            Kind::Output(_) => WindowKind::Output,
+        }
+    }
+
+    /// Its name in the window settings.
+    fn name(self) -> &'static str {
+        match self {
+            WindowKind::Data => "data",
+            WindowKind::Syntax => "syntax",
+            WindowKind::Output => "output",
+        }
+    }
+
+    /// The size a window of this kind opens with the first time.
+    fn size(self) -> [f32; 2] {
+        match self {
+            WindowKind::Data => [1100.0, 760.0],
+            WindowKind::Syntax => [900.0, 680.0],
+            WindowKind::Output => [1000.0, 760.0],
+        }
     }
 }
 
@@ -3022,12 +3495,79 @@ pub(crate) fn square(visuals: &mut egui::Visuals) {
     visuals.popup_shadow = egui::Shadow::NONE;
 }
 
-/// The data when it differs from its file: when it is not what the last open or save left.
 /// The file a dataset was opened from or saved to, and the data as that left it.
 type DataFile = (Option<PathBuf>, Option<Dataset>);
 
 fn active_name(session: &Session) -> Option<String> {
     session.named_datasets().1.map(str::to_string)
+}
+
+/// The data of a dataset by name; None names the active dataset when it has no name.
+fn dataset_named<'a>(session: &'a Session, name: Option<&str>) -> Option<&'a Dataset> {
+    let (others, active) = session.named_datasets();
+    if same(name, active) {
+        return session.dataset();
+    }
+    let name = name?;
+    let other = others.iter().find(|(n, _)| n.eq_ignore_ascii_case(name));
+    other.and_then(|(_, data)| data.as_ref())
+}
+
+/// The data a window shows: a data window its dataset's, every other window the active one.
+fn window_data<'a>(session: &'a Session, windows: &Registry, id: WindowId) -> Option<&'a Dataset> {
+    match windows.data(id) {
+        Some(w) => dataset_named(session, w.dataset.as_deref()),
+        None => session.dataset(),
+    }
+}
+
+/// The datasets that hold data, each of which has a data window: the active one first (None
+/// when it has no name), then the other named ones.
+fn shown_datasets(session: &Session) -> Vec<Option<String>> {
+    let (others, active) = session.named_datasets();
+    let active = session.dataset().map(|_| active.map(str::to_string));
+    let others = others.iter().filter(|(_, data)| data.is_some());
+    active
+        .into_iter()
+        .chain(others.map(|(name, _)| Some(name.clone())))
+        .collect()
+}
+
+/// The syntax a click in the window of dataset `shown` runs: DATASET ACTIVATE, unless the
+/// dataset is active or a click has asked for it already.
+fn activation(shown: &str, active: Option<&str>, activating: Option<&str>) -> Option<String> {
+    let busy = same(Some(shown), active) || same(Some(shown), activating);
+    (!busy).then(|| syntax_window::activate(shown))
+}
+
+/// The syntax that closes the dataset `name` of a data window, with `active` the active
+/// dataset when it runs and `other` another dataset with data. DATASET CLOSE of the active
+/// dataset only takes its name away (the manual), so another dataset is activated first, or
+/// NEW FILE empties the session when there is none. The active dataset without a name closes
+/// the same way. None when the window shows no data.
+fn close_data(
+    name: Option<&str>,
+    active: Option<&str>,
+    has_data: bool,
+    other: Option<&str>,
+) -> Option<String> {
+    let close = |n: &str| format!("DATASET CLOSE {n}.");
+    match (name, other) {
+        (Some(n), _) if !same(Some(n), active) => Some(close(n)),
+        (Some(n), Some(o)) => Some(format!("{}\n{}", syntax_window::activate(o), close(n))),
+        (Some(n), None) => Some(format!("{}\nNEW FILE.", close(n))),
+        (None, _) if !has_data => None,
+        (None, Some(o)) => Some(format!("NEW FILE.\n{}", syntax_window::activate(o))),
+        (None, None) => Some("NEW FILE.".into()),
+    }
+}
+
+/// The output window that shows the tables of a command: the window of their document, else
+/// the designated output window (a document renamed or closed later in the same run).
+fn output_window(windows: &Registry, document: Option<&str>) -> Option<WindowId> {
+    document
+        .and_then(|d| windows.with_document(d))
+        .or_else(|| windows.designated_output())
 }
 
 /// The file and saved data when the active dataset changes from `old` to `new`: the current
@@ -3049,14 +3589,20 @@ fn switch_data(
     }
 }
 
+/// The data when it differs from its file: when it is not what the last open or save left.
+/// It is named by its file, else by its dataset name.
 fn unsaved_data(
     data: Option<&Dataset>,
     data_saved: Option<&Dataset>,
     data_file: Option<&Path>,
+    dataset: Option<&str>,
 ) -> Vec<String> {
-    let name = data_file
-        .and_then(Path::file_name)
-        .map_or_else(|| "not saved to a file yet".into(), |n| n.to_string_lossy());
+    let file = data_file.and_then(Path::file_name);
+    let name = match (file, dataset) {
+        (Some(file), _) => file.to_string_lossy().into_owned(),
+        (None, Some(dataset)) => format!("{dataset}, not saved to a file yet"),
+        (None, None) => "not saved to a file yet".into(),
+    };
     data.is_some_and(|d| Some(d) != data_saved)
         .then(|| format!("Data: {name}"))
         .into_iter()
@@ -3070,12 +3616,6 @@ fn ends_on_file(commands: &[CommandResult]) -> bool {
         .iter()
         .rfind(|c| c.name != "DATASET NAME")
         .is_some_and(|c| matches!(c.name.as_str(), "GET" | "GET DATA" | "SAVE"))
-}
-
-/// The log panel shows under the output (and in every syntax window); the grids get the whole
-/// height.
-fn shows_log(tab: Tab) -> bool {
-    tab == Tab::Output
 }
 
 /// What the status bar says about the warnings of the last run.
@@ -5209,7 +5749,7 @@ mod tests {
         let mut session = open("survey_basic.sav");
         let saved = session.dataset().cloned();
         let file = Some(Path::new("/d/survey.sav"));
-        let data = |session: &Session| unsaved_data(session.dataset(), saved.as_ref(), file);
+        let data = |session: &Session| unsaved_data(session.dataset(), saved.as_ref(), file, None);
         assert!(data(&session).is_empty());
         // an analysis changes no data
         run_in(&mut session, "FREQUENCIES q1_satisfaction.");
@@ -5220,10 +5760,163 @@ mod tests {
         assert!(session.undo());
         assert!(data(&session).is_empty());
         // data never saved, such as an imported workbook
-        let never = unsaved_data(session.dataset(), None, None);
+        let never = unsaved_data(session.dataset(), None, None, None);
         assert_eq!(never, ["Data: not saved to a file yet"]);
+        let named = unsaved_data(session.dataset(), None, None, Some("DataSet2"));
+        assert_eq!(named, ["Data: DataSet2, not saved to a file yet"]);
         // no data at all: nothing to save
-        assert!(unsaved_data(None, saved.as_ref(), file).is_empty());
+        assert!(unsaved_data(None, saved.as_ref(), file, None).is_empty());
+    }
+
+    /// The windows a session's datasets and documents give, as `follow_session` makes them.
+    fn follow(r: &mut Registry, session: &Session, was: Option<&str>) {
+        let now = active_name(session);
+        r.sync_data(&shown_datasets(session), was, now.as_deref());
+        let documents: Vec<String> = session
+            .output_documents()
+            .into_iter()
+            .map(|d| d.name)
+            .collect();
+        r.sync_output(&documents, session.designated_output(), None);
+    }
+
+    fn opened(session: &mut Session, file: &str) {
+        let get = format!(
+            "GET FILE={}.",
+            quote(&crate::dialogs::testing::fixture(file))
+        );
+        let syntax = session.open_syntax(&get);
+        run_in(session, &syntax);
+    }
+
+    #[test]
+    fn a_click_in_a_data_window_writes_dataset_activate_once() {
+        let mut session = Session::default();
+        let mut r = Registry::new();
+        opened(&mut session, "survey_basic.sav");
+        follow(&mut r, &session, None);
+        opened(&mut session, "survey_basic.sav");
+        follow(&mut r, &session, Some("DataSet1"));
+        let first = r.with_dataset(Some("DataSet1")).unwrap();
+        let second = r.with_dataset(Some("DataSet2")).unwrap();
+        assert_eq!(r.ids(), [first, second]);
+        // each window shows its own dataset, active or not
+        assert_eq!(active_name(&session).as_deref(), Some("DataSet2"));
+        assert!(window_data(&session, &r, first).is_some());
+        // a click in the active dataset's window runs nothing
+        assert_eq!(activation("DataSet2", Some("DataSet2"), None), None);
+        // the first click in the other one activates it; more clicks while it runs add nothing
+        let syntax = activation("DataSet1", Some("DataSet2"), None).unwrap();
+        assert_eq!(syntax, "DATASET ACTIVATE DataSet1.");
+        assert_eq!(
+            activation("DataSet1", Some("DataSet2"), Some("DataSet1")),
+            None
+        );
+        run_in(&mut session, &syntax);
+        follow(&mut r, &session, Some("DataSet2"));
+        assert_eq!(activation("DataSet1", Some("DataSet1"), None), None);
+        let log: Vec<&str> = session.log.iter().map(|e| e.syntax.as_str()).collect();
+        let activations = log.iter().filter(|s| s.starts_with("DATASET ACTIVATE"));
+        assert_eq!(activations.count(), 1);
+        // the windows stay as they were
+        assert_eq!(r.ids(), [first, second]);
+    }
+
+    #[test]
+    fn closing_a_data_window_closes_its_dataset_and_leaves_the_others() {
+        let mut session = Session::default();
+        let mut r = Registry::new();
+        opened(&mut session, "survey_basic.sav");
+        follow(&mut r, &session, None);
+        opened(&mut session, "survey_basic.sav");
+        follow(&mut r, &session, Some("DataSet1"));
+        // a dataset that is not active: DATASET CLOSE alone
+        let other = close_data(Some("DataSet1"), Some("DataSet2"), true, Some("DataSet2"));
+        assert_eq!(other.as_deref(), Some("DATASET CLOSE DataSet1."));
+        // the active one: another is activated first, as closing the active dataset only
+        // takes its name away
+        let syntax = close_data(Some("DataSet2"), Some("DataSet2"), true, Some("DataSet1"));
+        let syntax = syntax.unwrap();
+        assert_eq!(
+            syntax,
+            "DATASET ACTIVATE DataSet1.\nDATASET CLOSE DataSet2."
+        );
+        run_in(&mut session, &syntax);
+        assert_eq!(shown_datasets(&session), [Some("DataSet1".to_string())]);
+        // no warning about data lost
+        assert!(session.log.last().unwrap().warnings.is_empty());
+        follow(&mut r, &session, Some("DataSet2"));
+        assert_eq!(r.iter().count(), 1);
+        // the last dataset: NEW FILE empties the session, and the window stays, empty
+        let syntax = close_data(Some("DataSet1"), Some("DataSet1"), true, None).unwrap();
+        assert_eq!(syntax, "DATASET CLOSE DataSet1.\nNEW FILE.");
+        run_in(&mut session, &syntax);
+        assert!(shown_datasets(&session).is_empty());
+        follow(&mut r, &session, Some("DataSet1"));
+        assert_eq!(r.data(r.root()).unwrap().dataset, None);
+        // the active dataset without a name, from a GET typed in syntax
+        let get = format!(
+            "GET FILE={}.",
+            quote(&crate::dialogs::testing::fixture("survey_basic.sav"))
+        );
+        run_in(&mut session, &get);
+        assert_eq!(shown_datasets(&session), [None]);
+        assert_eq!(
+            close_data(None, None, true, None).as_deref(),
+            Some("NEW FILE.")
+        );
+        let syntax = close_data(None, None, true, Some("DataSet3")).unwrap();
+        assert_eq!(syntax, "NEW FILE.\nDATASET ACTIVATE DataSet3.");
+        // an empty window closes without syntax
+        assert_eq!(close_data(None, None, false, None), None);
+    }
+
+    #[test]
+    fn tables_go_to_the_window_of_the_designated_document() {
+        let mut session = open("survey_basic.sav");
+        let mut r = Registry::new();
+        let outputs = |r: &Registry| -> Vec<WindowId> {
+            let ids = r.iter().map(|w| w.id);
+            ids.filter(|&id| r.output(id).is_some()).collect()
+        };
+        let run = |session: &mut Session, syntax: &str| -> Vec<CommandResult> {
+            session.run(syntax, None).unwrap().commands
+        };
+        let out = run(&mut session, "FREQUENCIES gender.");
+        follow(&mut r, &session, None);
+        let one = r.with_document("Document1").unwrap();
+        assert_eq!(output_window(&r, out[0].document.as_deref()), Some(one));
+        // OUTPUT NEW: a new window, which the next tables go to
+        let out = run(&mut session, "OUTPUT NEW.\nFREQUENCIES region.");
+        follow(&mut r, &session, None);
+        let two = r.with_document("Document2").unwrap();
+        assert_eq!(outputs(&r), [one, two]);
+        assert_eq!(r.designated_output(), Some(two));
+        assert_eq!(output_window(&r, out[1].document.as_deref()), Some(two));
+        // Window > Designate on the first window runs OUTPUT ACTIVATE
+        let out = run(
+            &mut session,
+            "OUTPUT ACTIVATE Document1.\nFREQUENCIES gender.",
+        );
+        follow(&mut r, &session, None);
+        assert_eq!(r.designated_output(), Some(one));
+        assert_eq!(output_window(&r, out[1].document.as_deref()), Some(one));
+        // closing a window runs OUTPUT CLOSE, and the window goes
+        run(&mut session, "OUTPUT CLOSE Document2.");
+        follow(&mut r, &session, None);
+        assert_eq!(r.with_document("Document2"), None);
+        assert_eq!(outputs(&r), [one]);
+        // a document renamed after its tables in the same run: the designated window shows them
+        let out = run(&mut session, "FREQUENCIES gender.\nOUTPUT NAME men.");
+        assert!(out.iter().any(|c| c.name == "OUTPUT NAME"));
+        let documents: Vec<String> = session
+            .output_documents()
+            .into_iter()
+            .map(|d| d.name)
+            .collect();
+        r.sync_output(&documents, session.designated_output(), Some("Document1"));
+        assert_eq!(r.with_document("men"), Some(one));
+        assert_eq!(output_window(&r, out[0].document.as_deref()), Some(one));
     }
 
     #[test]
@@ -5265,12 +5958,6 @@ mod tests {
         assert!(!ends_on_file(&[]));
         assert!(ends_on_file(&commands(&["GET", "DATASET NAME"])));
         assert!(!ends_on_file(&commands(&["DATASET NAME"])));
-    }
-
-    #[test]
-    fn the_log_shows_under_the_output_only() {
-        assert!(shows_log(Tab::Output));
-        assert!(!shows_log(Tab::Data) && !shows_log(Tab::Variables));
     }
 
     #[test]

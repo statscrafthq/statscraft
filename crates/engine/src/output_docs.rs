@@ -11,8 +11,8 @@
 //!   default), after the last row or from a cell; a sheet that does not exist is created.
 //!
 //! Choices where the manual is silent:
-//! - Documents get the names Document1, Document2, ... The window shows the tables of all
-//!   documents in one Output view; the documents decide what OUTPUT EXPORT writes.
+//! - Documents get the names Document1, Document2, ... The window shows each document in an
+//!   output window of its own; the documents decide what OUTPUT EXPORT writes.
 //! - OUTPUT ACTIVATE of a name that no document has and OUTPUT CLOSE of one are warnings, so
 //!   the run goes on, as the manual has processing continue.
 //! - The tables of an export stand one below the other with a blank row between, on one
