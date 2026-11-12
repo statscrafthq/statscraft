@@ -235,7 +235,7 @@ A custom table with two header levels, from `CTABLES /TABLE region [COUNT, COLPC
 
 ### Charts
 
-FREQUENCIES (BARCHART, PIECHART, HISTOGRAM) and CROSSTABS (BARCHART) make charts. A chart is data: its kind, its labels and its numbers, with nothing about colors or layout. Labels follow SET TVARS, TNUMBERS and OVARS as tables do. `statscraft run --json -e "..."` with `CROSSTABS /TABLES=region BY gender /BARCHART.` gives (shortened):
+FREQUENCIES (BARCHART, PIECHART, HISTOGRAM), CROSSTABS (BARCHART), EXAMINE (PLOT), ONEWAY (PLOT MEANS), REGRESSION (RESIDUALS, SCATTERPLOT, PARTIALPLOT), FACTOR (PLOT), CLUSTER (PLOT) and TREE (the tree diagram) make charts. A chart is data: its kind, its labels and its numbers, with nothing about colors or layout. Labels follow SET TVARS, TNUMBERS and OVARS as tables do. `statscraft run --json -e "..."` with `CROSSTABS /TABLES=region BY gender /BARCHART.` gives (shortened):
 
 ```json
 {
@@ -260,7 +260,7 @@ FREQUENCIES (BARCHART, PIECHART, HISTOGRAM) and CROSSTABS (BARCHART) make charts
 
 | Field | Meaning |
 |---|---|
-| `kind` | `bar`, `pie`, `line`, `area`, `scatter` or `histogram` |
+| `kind` | `bar`, `pie`, `line`, `area`, `scatter`, `histogram`, `boxplot`, `stem_leaf`, `normal_qq`, `detrended_normal_qq`, `normal_pp`, `spread_level`, `dendrogram`, `icicle` or `tree_diagram` |
 | `tier` | `presentation` (a chart the office programs can hold as an editable chart) or `statistical` (a plot drawn exactly, such as the histogram) |
 | `orientation` | `vertical` (categories along the bottom) or `horizontal`; absent for a pie |
 | `grouping` | `clustered`, `stacked` or `percent` (stacked to 100%); bars, lines and areas only |
@@ -268,8 +268,17 @@ FREQUENCIES (BARCHART, PIECHART, HISTOGRAM) and CROSSTABS (BARCHART) make charts
 | `category_axis`, `value_axis` | each with its `title`, the display `format` of its numbers, `maximum` when the syntax set the top of the axis, and the `variable` it shows |
 | `legend` | what tells the series apart, such as the column variable; absent with one series |
 | `categories` | in drawing order: the `label`, the `value` it stands for (`null` for a slice of all missing values), `missing` when it holds missing values, and `bin` (`[from, to]`) for a histogram bin, which holds its lower bound but not its upper one |
-| `series` | each with its `name`, the `statistic` its numbers are (`count`, weighted when a weight is set, or `percent`), the `variable` and `value` it stands for, and `values`, one number per category |
+| `series` | each with its `name`, the `statistic` its numbers are (`count`, weighted when a weight is set, `percent`, `mean` or `value`), the `variable` and `value` it stands for, and `values`, one number per category |
 | `normal` | a histogram's normal curve: `mean`, `std_dev` and `total`; its height at x is total times the bin width times the normal density |
+| `plot` | the data of a statistical plot other than the histogram, by its `shape`; `categories` and `series` are then empty, the category axis is the horizontal one and the value axis the vertical one |
+
+The shapes of `plot`:
+
+- `boxes`: `boxes`, each with its `label`, `group` (the cluster, when boxes are grouped), `n`, `lower_whisker`, `lower_hinge`, `median`, `upper_hinge`, `upper_whisker`, and the marked cases in `outliers` and `extremes` (each a `value` and its `case` label).
+- `stem_leaf`: `stem_width`, `each_leaf` (cases per leaf), `lines` (each a `frequency`, the `stem` as shown and the `leaves` as digits) and `low_extremes`, `high_extremes` (a `frequency` and the `bound`).
+- `points`: `groups`, each a `name` and `points` (`x`, `y`, an optional `z` and `label`); `lines`, straight reference lines `y = intercept + slope x`; and `z_axis` when the points have depth. Q-Q, P-P, spread-versus-level, scatter, partial regression and loading plots use it.
+- `merges`: `items` (the case labels), `order` (the layout of the items, so that no branches cross), `merges` (each joins cluster `right` into cluster `left`, both named by an item index, at `height`, with `rescaled` from 1 to 25) and, for an icicle plot, `solutions`, the numbers of clusters it shows.
+- `tree`: `nodes`, each with its `id`, `parent`, the `split` condition that leads to it, and `statistics` as name and value pairs.
 
 With `--vega-lite` each chart also has a member `vega_lite`: a [Vega-Lite](https://vega.github.io/vega-lite/) v5 specification with the numbers inline, which any Vega-Lite viewer draws as it is. In Markdown output the specification follows the chart's data table as a `json` code block. SPLIT FILE gives a chart per split group, the group named in the title.
 

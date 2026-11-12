@@ -57,7 +57,7 @@ This page lists, by topic and command:
 - Syntax files: one that is valid UTF-8 is read as UTF-8, any other in the system's legacy code page (on Windows its ANSI code page; elsewhere the locale's character set, else windows-1252) unless `--encoding` names one.
 - INSERT and INCLUDE paths are relative to the folder of the file that holds them, or to the folder of the last CD. **Beyond the documentation:** INCLUDE accepts the file name without FILE=.
 - BEGIN PROGRAM blocks are skipped with one warning per block; the run goes on.
-- A warning that every SPLIT FILE group gives (EXAMINE plots not drawn, for one) is shown once, without a group name.
+- A warning that every SPLIT FILE group gives (SPREADLEVEL without a factor in EXAMINE, for one) is shown once, without a group name.
 - END DATA, END REPEAT and END MATRIX standing alone are errors at their line, saying which command they belong to.
 - FINISH ends the run as the end of the syntax does: nothing after it is read. A window or command-line session stays open, with its dataset. With a line range only a FINISH inside the range counts. Macros that the lines after FINISH define are still defined, since macros are expanded before the commands are read.
 - HOST is read and checked, then refused: a syntax file that runs operating system commands could do anything the user can.
@@ -399,6 +399,10 @@ This page lists, by topic and command:
 - The Lilliefors significance comes from a published table and shows ">0.200" beyond it.
 - M-estimators start from the median, and a cell is empty when the absolute deviation is 0.
 - Percentiles below the first or above the last value take the minimum or maximum.
+- Plots come as chart data. Boxplot whiskers stop at the furthest values that are neither outliers nor extremes, never inside the box; a value equal to a hinge is never marked, which matters when the box has no length. Weighted cases are marked once each.
+- Stem-and-leaf: the cases past the boxplot's outlier bounds are listed as extremes. There are about 10 log10(n) lines, each 1, 2 or 5 times a power of ten wide (one, five or two lines per stem). A leaf is the next digit, cut rather than rounded, in ascending order on every line, negative lines included. A leaf stands for one case, or for 2, 5, 10 and so on when a line would hold more than 50 leaves; weighted cases give their weight in leaves, rounded.
+- Normal Q-Q plots need two cases with different values; otherwise a warning says so. With weights, the rank of a value is the mean rank of its weight.
+- Spread versus level without a power also shows 1 minus the slope as the power to try. The Test of Homogeneity of Variance shows Levene's tests based on the mean, the median (also with adjusted df) and the trimmed mean.
 
 ### NPAR TESTS
 
@@ -447,6 +451,7 @@ Where the documentation is silent:
 - XTX shows the swept correlation matrix of the last model.
 - The casewise and outlier tables cover the cases of the analysis.
 - LABEL changes nothing.
+- Charts come as data and cover the cases of the analysis. The normal P-P plot puts the cumulative share of the weight up to each distinct value against the normal probability of that value. Partial regression plots use the weights of the analysis and keep the constant (none under ORIGIN). The Residuals Statistics table shows whenever a chart is asked for. TEMPLATE is ignored with a warning.
 
 ### LOGISTIC REGRESSION
 
@@ -520,6 +525,7 @@ Where the documentation is silent:
 - For oblique rotations, the Rotation Sums of Squared Loadings are those of the structure matrix.
 - Image factoring keeps only the factors whose eigenvalues are above 1.
 - With one factor the rotation is skipped with a warning.
+- The scree plot shows the eigenvalues of the correlation matrix whatever the extraction. The loading plot shows the rotated loadings (the pattern for oblique rotations) when there is a rotation, else the extracted ones; with one factor there is none, with a warning.
 
 ### QUICK CLUSTER
 
@@ -539,7 +545,7 @@ Where the documentation is silent:
 - A proximity that the measure leaves undefined (such as JACCARD of two cases with no presence) stops the command with an error naming the cases.
 - The Proximity Matrix leaves its diagonal empty.
 - With CENTROID, MEDIAN and WARD on a similarity measure, the most similar pair joins and the update formulas stay those of the manual.
-- Without PLOT no chart is asked for, so there is no warning. With VICICLE, HICICLE or DENDROGRAM the command warns that charts are not drawn yet.
+- Plots come as chart data. The cases are laid out so that no branches cross: a join puts the second cluster's cases after the first's. The dendrogram rescales the heights to 1 at the first join and 25 at the last, so the first joins stay apart from the cases. Icicle clusters are numbered along that layout.
 - Saved memberships are F8.0 nominal variables labeled with the method and the number of clusters.
 
 ### DISCRIMINANT
@@ -568,6 +574,7 @@ Where the documentation is silent:
 - USEVALUES categories that do not occur get a warning and no row.
 - The gain tables of the TARGET categories show without /GAIN too, unless CATEGORYTABLE=NO, as the subcommand's defaults read.
 - The case processing summary counts weighted cases.
+- The tree diagram comes as chart data with the statistics of every node; its orientation (DISPLAY) and NODES are not kept.
 
 ## Custom tables and multiple response
 
@@ -717,13 +724,12 @@ Where the documentation is silent:
   - ONEWAY has no POLYNOMIAL, RANGES, EFFECTS or WALLER.
   - NONPAR CORR has no MATRIX or CI. PARTIAL CORR has no MATRIX.
   - NPAR TESTS has no exact significance for K-S, the median, Kruskal-Wallis, Jonckheere-Terpstra, Friedman, Kendall, Cochran and marginal homogeneity tests.
-  - EXAMINE computes the normality tests but draws no plots (STEMLEAF, BOXPLOT and HISTOGRAM are accepted with a warning, SPREADLEVEL is refused).
-  - REGRESSION has no METHOD=TEST, SELECT, MATRIX or OUTFILE and draws no plots (HISTOGRAM, NORMPROB, SCATTERPLOT, PARTIALPLOT and TEMPLATE are accepted with a warning).
+  - REGRESSION has no METHOD=TEST, SELECT, MATRIX or OUTFILE.
   - RELIABILITY has no MODEL=OMEGA or MATRIX.
   - LOGISTIC REGRESSION has no SELECT or OUTFILE and draws no CLASSPLOT (accepted with a warning).
   - UNIANOVA and GLM have no multivariate model (GLM with several dependents without WSFACTOR), RANDOM, TEST, ROBUST, OUTFILE, MMATRIX, MEASURE, POSTHOC VS, CONTRAST SPECIAL or the heteroskedasticity tests, and draw no plots (PLOT is accepted with a warning). With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX or SAVE.
-  - FACTOR has no METHOD=COVARIANCE, MATRIX=OUT or MATRIX=IN(FAC=...) and draws no plots (PLOT is accepted with a warning).
-  - CLUSTER has no MATRIX=OUT and draws no icicle plot or dendrogram (PLOT is accepted with a warning).
+  - FACTOR has no METHOD=COVARIANCE, MATRIX=OUT or MATRIX=IN(FAC=...).
+  - CLUSTER has no MATRIX=OUT.
   - DISCRIMINANT has no ROTATE=COEFF or STRUCTURE, MATRIX or OUTFILE. PLOT (charts, the territorial map and the casewise listing) is accepted with a warning.
   - USE takes case numbers only with /PERMANENT.
   - ADD FILES, MATCH FILES and UPDATE take no PASSWORD.
@@ -732,7 +738,7 @@ Where the documentation is silent:
   - FILE HANDLE refuses MODE=BINARY, MULTIPUNCH, IMAGE and 360, since only text and data files are read.
 - **Expression functions.** APPLYMODEL and STRAPPLYMODEL, which need MODEL HANDLE. NUMBER reads the formats DATA LIST reads (F, N, E, COMMA, DOT, DOLLAR, PCT, DATE, ADATE, EDATE and SDATE). STRING writes the number, date and time formats, but not the custom currencies CCA to CCE.
 - **Transformations.** PRINT and WRITE have no binary formats (P, PK, IB, PIB, PIBHEX, RB, RBHEX, Z). DATA LIST reads only F, N, E, COMMA, DOT, DOLLAR, PCT, A, DATE, ADATE, EDATE and SDATE, and only UTF-8 files. Commands such as VALUE LABELS cannot stand inside LOOP. AUTORECODE has no templates.
-- **Charts.** FREQUENCIES and CROSSTABS give their charts as data: the window and the text output show each chart's numbers as a table, `--json` gives its description and `--vega-lite` a Vega-Lite specification, and workbooks, Word documents and presentations hold them as editable charts, but the window does not draw them yet. The other procedures accept their chart subcommands with a warning. TREE shows its tree diagram as a table, one row per node indented by depth, and says so in a warning.
+- **Charts.** FREQUENCIES, CROSSTABS, EXAMINE, ONEWAY, REGRESSION, FACTOR, CLUSTER and TREE give their charts as data: the window and the text output show each chart's numbers as a table, `--json` gives its description and `--vega-lite` a Vega-Lite specification, but the window does not draw them yet. Workbooks, Word documents and presentations hold the bar, pie and line charts (the means and scree plots among them) as editable charts and the statistical plots as their data tables. The other procedures (GLM and UNIANOVA PLOT, LOGISTIC REGRESSION CLASSPLOT, DISCRIMINANT PLOT, the TREE gain charts) accept their chart subcommands with a warning.
 - **TREE.** CHAID and exhaustive CHAID with a nominal or ordinal dependent. Not supported yet: CRT, QUEST, a scale dependent, split-sample and cross-validation, SPLITMERGED=YES, custom costs, profits, percentile gain tables, rules, influence variables, model files and TARGETRESPONSE.
 - **Data files.** Statscraft reads and writes .sav and .zsav files, and portable (.por) files with IMPORT and EXPORT.
   - Text files are read with DATA LIST, GET DATA and GET TRANSLATE /TYPE=TAB; workbooks (.xlsx, .xlsm, .xls) with GET DATA and GET TRANSLATE; dBASE III and IV files with GET TRANSLATE. 1-2-3, Symphony, SYLK and dBASE II files are not read.
