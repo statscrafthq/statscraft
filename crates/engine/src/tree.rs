@@ -942,7 +942,9 @@ impl Engine {
             nodes[id].split = Some(split);
         }
 
-        let mut tables = self.tree_output(command, &nodes, &coded, &classes, &dependent)?;
+        let mut charts = Vec::new();
+        let mut tables =
+            self.tree_output(command, &nodes, &coded, &classes, &dependent, &mut charts)?;
         let total_n: f64 = in_use.iter().map(|&c| weight(c)).sum();
         if command.print.case_summary {
             let included = nodes[0].n;
@@ -997,13 +999,7 @@ impl Engine {
             .iter()
             .map(|k| labels.value(&dependent, k))
             .collect();
-        if command.display {
-            warnings.push(
-                "the tree diagram is shown as a table, one row per node; charts are not \
-                 drawn yet"
-                    .into(),
-            );
-        }
+        self.charts.extend(charts);
         for warning in warnings {
             self.warn(warning);
         }
@@ -1108,6 +1104,7 @@ impl Engine {
         predictors: &[Predictor],
         classes: &[Key],
         dependent: &Variable,
+        charts: &mut Vec<crate::Chart>,
     ) -> Result<Vec<Table>, Error> {
         let shown = self.shown();
         let class_labels: Vec<String> = classes.iter().map(|k| shown.value(dependent, k)).collect();
@@ -1294,7 +1291,47 @@ impl Engine {
             }
         };
         if command.display {
-            out.push(node_table("Tree", true));
+            // the diagram: every node with what its box shows, the branch condition above it
+            // and the split of its children
+            let mut diagram = Vec::new();
+            for (id, node) in nodes.iter().enumerate() {
+                let mut statistics: Vec<(String, Cell)> = Vec::new();
+                for (class, &count) in class_labels.iter().zip(&node.counts) {
+                    statistics.push((format!("{class} %"), percent(count, node.n)));
+                    statistics.push((format!("{class} n"), Cell::Number(count)));
+                }
+                statistics.push(("Total %".into(), percent(node.n, root_n)));
+                statistics.push(("Total n".into(), Cell::Number(node.n)));
+                statistics.push(("Predicted".into(), text(&class_labels[node.predicted()])));
+                if let Some(split) = &node.split {
+                    statistics.push(("Split by".into(), text(&predictors[split.predictor].name)));
+                    statistics.push(("Adj. Sig.".into(), Cell::Number(split.sig)));
+                    statistics.push(("Chi-Square".into(), Cell::Number(split.statistic)));
+                    statistics.push(("df".into(), Cell::Number(split.df)));
+                }
+                diagram.push(crate::plot::TreeNode {
+                    id,
+                    parent: node.parent,
+                    split: match &node.definition {
+                        Some((p, group)) => format!(
+                            "{} = {}",
+                            predictors[*p].name,
+                            predictors[*p].describe(group)
+                        ),
+                        None => String::new(),
+                    },
+                    statistics,
+                });
+            }
+            let mut chart = crate::Chart::plot(
+                crate::chart::ChartKind::TreeDiagram,
+                format!("Tree of {}", shown.variable(dependent)),
+                crate::chart::Axis::titled(""),
+                crate::chart::Axis::titled(""),
+                crate::plot::Plot::Tree { nodes: diagram },
+            );
+            chart.footnote = Some(format!("Dependent variable: {}", shown.variable(dependent)));
+            charts.push(chart);
         }
         if command.print.tree_table {
             out.push(node_table("Tree Table", false));

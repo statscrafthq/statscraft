@@ -2201,15 +2201,9 @@ fn default_statistics_give_the_four_tables_and_charts_warn() {
             "Residuals Statistics"
         ]
     );
-    let warnings = engine.warnings();
-    assert!(
-        warnings
-            .iter()
-            .any(|w| w.contains("charts are not drawn yet")
-                && w.contains("SCATTERPLOT")
-                && w.contains("RESIDUALS HISTOGRAM")),
-        "{warnings:?}"
-    );
+    assert!(engine.warnings().is_empty(), "{:?}", engine.warnings());
+    // the histogram, the P-P plot and the scatterplot
+    assert_eq!(engine.take_charts().len(), 3);
     // model 2 holds every variable, so only model 1 lists x2 as excluded
     assert_eq!(row_keys(&tables[4]), ["1 / x2"]);
     let entered = &tables[0];

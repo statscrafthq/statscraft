@@ -568,6 +568,7 @@ impl Engine {
         levels.sort_by(f64::total_cmp);
         levels.dedup();
         let mut warnings = Vec::new();
+        let mut charts = Vec::new();
         for (i, coefficients) in command.contrasts.iter().enumerate() {
             if coefficients.len() != levels.len() {
                 warnings.push(format!(
@@ -623,6 +624,18 @@ impl Engine {
             let df_within = w - k;
             let ms_within = within / df_within;
             let name = || Cell::Text(shown.variable(dependent));
+            if command.plot_means && !present.is_empty() {
+                charts.push(means_plot(
+                    &shown.variable(dependent),
+                    dependent.format(),
+                    &shown.variable(&factor),
+                    &command.factor,
+                    present
+                        .iter()
+                        .map(|(l, g)| (label(&factor, *l), *l, g.mean))
+                        .collect(),
+                ));
+            }
             if k < 2.0 {
                 warnings.push(format!(
                     "no analysis of variance for {}: it needs at least two groups",
@@ -911,9 +924,44 @@ impl Engine {
         }
         out.extend(comparisons);
         out.extend(subset_tables);
+        self.charts.extend(charts);
         for warning in warnings {
             self.warn(warning);
         }
         Ok(out)
     }
+}
+
+/// The means plot of one dependent: a line through the (weighted) mean of every group with
+/// cases, the groups in ascending order of the factor.
+fn means_plot(
+    dependent: &str,
+    format: &str,
+    factor: &str,
+    factor_name: &str,
+    groups: Vec<(String, f64, f64)>,
+) -> crate::Chart {
+    use crate::chart::{Axis, Category, Series, Statistic};
+    let title = format!("Means plot of {dependent} by {factor}");
+    let categories = groups
+        .iter()
+        .map(|(label, value, _)| Category {
+            label: label.clone(),
+            value: Cell::Number(*value),
+            missing: false,
+            bin: None,
+        })
+        .collect();
+    let mut x = Axis::titled(factor);
+    x.variable = Some(factor_name.to_string());
+    let mut y = Axis::titled(format!("Mean of {dependent}"));
+    y.format = crate::format::procedure_format(format, crate::format::Stat::Value);
+    let series = vec![Series {
+        name: format!("Mean of {dependent}"),
+        statistic: Statistic::Mean,
+        variable: None,
+        value: Cell::Empty,
+        values: groups.iter().map(|g| g.2).collect(),
+    }];
+    crate::Chart::lines(title, x, y, categories, series)
 }

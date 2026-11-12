@@ -42,7 +42,8 @@ fn cluster_defaults() {
     assert_eq!(c.variables, [VarItem::Range("v1".into(), "v4".into())]);
     assert_eq!(c.measure, Proximity::SEuclid);
     assert_eq!(c.methods, [(Linkage::BetweenGroups, None)]);
-    assert!(c.schedule && !c.distance && c.membership.is_none() && !c.plot);
+    assert!(c.schedule && !c.distance && c.membership.is_none());
+    assert!(c.plot.vertical && !c.plot.horizontal && !c.plot.dendrogram);
     assert!(c.save.is_none() && c.matrix_in.is_none() && !c.include);
 }
 
@@ -50,7 +51,11 @@ fn cluster_defaults() {
 fn cluster_abbreviations_and_method_lists() {
     let c = cluster("CLUSTER s1 TO s5 /PLOT=DENDROGRAM /PRINT=CLUSTER (3 6).");
     assert_eq!(c.membership, Some((3, 6)));
-    assert!(!c.schedule && c.plot);
+    assert!(!c.schedule && c.plot.dendrogram && !c.plot.vertical);
+    let c = cluster("CLUSTER a b /PLOT=VICICLE(2,9,3) HICICLE.");
+    assert!(c.plot.vertical && c.plot.horizontal && c.plot.range == (1, None, 1));
+    let c = cluster("CLUSTER a b /PLOT=HICICLE(2,9,3).");
+    assert_eq!((c.plot.range, c.plot.vertical), ((2, Some(9), 3), false));
     let c = cluster("CLUSTER p q r /METHOD=COMPLETE WARDS SINGLE.");
     assert_eq!(
         c.methods.iter().map(|m| m.0).collect::<Vec<_>>(),
@@ -111,7 +116,7 @@ fn cluster_abbreviations_and_method_lists() {
     }
     // PRINT=NONE overrides the others; PLOT=NONE asks for no chart
     let c = cluster("CLUSTER a b /PRINT=DISTANCE NONE /PLOT=NONE.");
-    assert!(!c.schedule && !c.distance && !c.plot);
+    assert!(!c.schedule && !c.distance && !c.plot.any());
     // matrix input without a variable list
     let c = cluster("CLUSTER /MATRIX=IN(*) /ID=city.");
     assert!(c.variables.is_empty());

@@ -391,3 +391,273 @@ fn default_plots_are_the_stem_and_leaf_and_the_boxplot() {
     let (_, charts, _) = run(STOPS, "EXAMINE wait /PLOT NONE.");
     assert!(charts.is_empty());
 }
+
+#[test]
+fn oneway_means_plot_has_a_point_per_group() {
+    let (_, charts, warnings) = run(STOPS, "ONEWAY wait BY depot /PLOT MEANS.");
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(charts.len(), 1);
+    let chart = &charts[0];
+    assert_eq!(
+        (chart.kind, chart.tier),
+        (ChartKind::Line, Tier::Presentation)
+    );
+    assert_eq!(chart.title, "Means plot of wait by depot");
+    let labels: Vec<&str> = chart.categories.iter().map(|c| c.label.as_str()).collect();
+    assert_eq!(labels, ["Harbour", "Airport"]);
+    // 80 / 9 and 87 / 6
+    close(chart.series[0].values[0], 80.0 / 9.0);
+    close(chart.series[0].values[1], 14.5);
+    let (_, charts, _) = run(STOPS, "ONEWAY wait BY depot.");
+    assert!(charts.is_empty());
+}
+
+/// Eight made-up shoppers rate four store traits.
+const RATINGS: &str = "DATA LIST LIST /price range staff parking (F1).
+BEGIN DATA
+3 4 2 5
+5 6 3 4
+2 2 4 6
+6 7 5 3
+4 5 6 2
+7 6 2 4
+1 3 5 5
+5 4 6 1
+END DATA.
+";
+
+#[test]
+fn factor_scree_and_loading_plots() {
+    let (_, charts, warnings) = run(
+        RATINGS,
+        "FACTOR /VARIABLES price range staff parking /CRITERIA FACTORS(2) /ROTATION NOROTATE /PLOT EIGEN ROTATION.",
+    );
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(charts.len(), 2);
+    // the eigenvalues of the correlation matrix, from numpy
+    let scree = &charts[0];
+    assert_eq!(scree.kind, ChartKind::Line);
+    let want = [
+        2.2512347449536207,
+        1.46716335201886,
+        0.20557824126548718,
+        0.07602366176203187,
+    ];
+    for (got, want) in scree.series[0].values.iter().zip(want) {
+        close(*got, want);
+    }
+    assert_eq!(scree.category_axis.title, "Component Number");
+    // unrotated loadings: eigenvectors times the roots of the eigenvalues, signs aside
+    let loadings = &charts[1];
+    assert_eq!(loadings.title, "Component Plot");
+    let p = points(loadings);
+    let want = [
+        (0.9134773514513892, 0.32711875160108284),
+        (0.8819814887186661, 0.3368878781107229),
+        (0.15891144022496595, 0.9627724449332391),
+        (0.7833579520641957, 0.5654488935608044),
+    ];
+    for (p, (x, y)) in p.iter().zip(want) {
+        close(p.x.abs(), x);
+        close(p.y.abs(), y);
+        assert!(p.z.is_none());
+    }
+    assert_eq!(p[2].label.as_deref(), Some("staff"));
+    // three factors: one plot with depth; pairs: one plot each
+    let (_, charts, _) = run(
+        RATINGS,
+        "FACTOR /VARIABLES price range staff parking /CRITERIA FACTORS(3) /PLOT ROTATION.",
+    );
+    assert_eq!(charts[0].title, "Rotated Component Plot");
+    assert!(points(&charts[0])[0].z.is_some());
+    let (_, charts, warnings) = run(
+        RATINGS,
+        "FACTOR /VARIABLES price range staff parking /CRITERIA FACTORS(2) /PLOT ROTATION(1,2)(1,3).",
+    );
+    assert_eq!(charts.len(), 1);
+    assert_eq!(
+        warnings,
+        ["FACTOR: no loading plot of component 1 and 3: the solution has 2"]
+    );
+}
+
+/// Visits to a made-up museum by two promotions.
+const VISITS: &str = "DATA LIST LIST /visits posters flyers (F2).
+BEGIN DATA
+3 1 2
+4 2 1
+8 3 4
+7 4 3
+12 5 6
+11 6 5
+15 7 8
+19 8 9
+END DATA.
+";
+
+#[test]
+fn regression_residual_plots_and_partial_plots() {
+    let (_, charts, warnings) = run(
+        VISITS,
+        "REGRESSION /DEPENDENT visits /METHOD ENTER posters flyers /RESIDUALS HISTOGRAM NORMPROB \
+         /SCATTERPLOT (*ZRESID, *ZPRED) (visits, posters) /PARTIALPLOT.",
+    );
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let kinds: Vec<ChartKind> = charts.iter().map(|c| c.kind).collect();
+    use ChartKind::*;
+    assert_eq!(
+        kinds,
+        [Histogram, NormalPp, Scatter, Scatter, Scatter, Scatter]
+    );
+    // the histogram of the 8 standardized residuals, with its normal curve
+    assert_eq!(charts[0].series[0].values.iter().sum::<f64>(), 8.0);
+    assert!(charts[0].normal.is_some());
+    // P-P: k / 8 against the normal probability of each standardized residual (numpy)
+    let pp = points(&charts[1]);
+    let expected = [
+        0.11997270604607779,
+        0.25260744782062333,
+        0.28045031513691576,
+        0.34020677474559957,
+        0.5910235748458692,
+        0.655342264308017,
+        0.8397432378277568,
+        0.8871418130240516,
+    ];
+    for (k, (p, y)) in pp.iter().zip(expected).enumerate() {
+        close(p.x, (k + 1) as f64 / 8.0);
+        close(p.y, y);
+    }
+    assert_eq!(charts[2].value_axis.title, "Standardized Residual");
+    assert_eq!(
+        charts[2].category_axis.title,
+        "Standardized Predicted Value"
+    );
+    let scatter = points(&charts[3]);
+    assert_eq!((scatter[2].x, scatter[2].y), (3.0, 8.0));
+    // partial plots: the slope through the residuals is the coefficient (0.8627 for posters)
+    let partial = points(&charts[4]);
+    close(partial[0].x, -1.2702702702702702);
+    close(partial[0].y, -1.6351351351351342);
+    let sxy: f64 = partial.iter().map(|p| p.x * p.y).sum();
+    let sxx: f64 = partial.iter().map(|p| p.x * p.x).sum();
+    close(sxy / sxx, 0.8627450980392164);
+    assert_eq!(
+        charts[5].title,
+        "Partial regression plot of visits and flyers"
+    );
+    // one independent: no partial plot
+    let (_, charts, warnings) = run(
+        VISITS,
+        "REGRESSION /DEPENDENT visits /METHOD ENTER posters /PARTIALPLOT.",
+    );
+    assert!(charts.is_empty());
+    assert_eq!(
+        warnings,
+        [
+            "PARTIALPLOT needs two independents in the equation of visits, so no partial plot is made"
+        ]
+    );
+}
+
+#[test]
+fn cluster_dendrogram_and_icicle() {
+    let data = "DATA LIST LIST /x (F2).\nBEGIN DATA\n1\n2\n4\n8\n9\nEND DATA.\n";
+    let (_, charts, warnings) = run(data, "CLUSTER x /METHOD SINGLE /PLOT DENDROGRAM VICICLE.");
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let kinds: Vec<ChartKind> = charts.iter().map(|c| c.kind).collect();
+    assert_eq!(kinds, [ChartKind::Icicle, ChartKind::Dendrogram]);
+    // squared distances: 1 and 2 join at 1, 8 and 9 at 1, 4 joins at 4, the rest at 16
+    let Some(Plot::Merges { order, merges, .. }) = &charts[1].plot else {
+        panic!()
+    };
+    assert_eq!(order, &[0, 1, 2, 3, 4]);
+    let joins: Vec<(usize, usize, f64)> =
+        merges.iter().map(|m| (m.left, m.right, m.height)).collect();
+    assert_eq!(joins, [(0, 1, 1.0), (3, 4, 1.0), (0, 2, 4.0), (0, 3, 16.0)]);
+    // rescaled: 1 at the first join, 25 at the last, 4 lies 3/15 of the way
+    let rescaled: Vec<f64> = merges.iter().map(|m| m.rescaled).collect();
+    for (got, want) in rescaled
+        .iter()
+        .zip([1.0, 1.0, 1.0 + 24.0 * 3.0 / 15.0, 25.0])
+    {
+        close(*got, want);
+    }
+    // the icicle as a table: the cluster of every case at 1 to 4 clusters
+    let table = charts[0].data_table();
+    let rows: Vec<Vec<f64>> = table
+        .rows
+        .iter()
+        .map(|r| {
+            r.iter()
+                .map(|c| match c {
+                    Cell::Number(n) => *n,
+                    _ => panic!(),
+                })
+                .collect()
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            vec![1.0, 1.0, 1.0, 1.0, 1.0, 1.0],
+            vec![2.0, 1.0, 1.0, 1.0, 2.0, 2.0],
+            vec![3.0, 1.0, 1.0, 2.0, 3.0, 3.0],
+            vec![4.0, 1.0, 1.0, 2.0, 3.0, 4.0],
+        ]
+    );
+    // the default is a vertical icicle plot; a range keeps some solutions
+    let (_, charts, _) = run(data, "CLUSTER x /METHOD SINGLE.");
+    assert_eq!(charts.len(), 1);
+    let (_, charts, _) = run(data, "CLUSTER x /METHOD SINGLE /PLOT HICICLE(2,4,2).");
+    assert_eq!(charts[0].data_table().rows.len(), 2);
+    let (_, charts, _) = run(data, "CLUSTER x /METHOD SINGLE /PLOT NONE.");
+    assert!(charts.is_empty());
+}
+
+#[test]
+fn tree_diagram_nodes_carry_their_statistics() {
+    // a made-up loyalty survey: renewing (1) or not (2) by plan (1 to 3), with counts
+    let data = "DATA LIST LIST /plan renew w (F3).
+BEGIN DATA
+1 1 40
+1 2 10
+2 1 15
+2 2 35
+3 1 25
+3 2 25
+END DATA.
+WEIGHT BY w.
+";
+    let (tables, charts, _) = run(data, "TREE renew [n] BY plan [n].");
+    assert_eq!(charts.len(), 1);
+    assert_eq!(charts[0].kind, ChartKind::TreeDiagram);
+    let Some(Plot::Tree { nodes }) = &charts[0].plot else {
+        panic!()
+    };
+    let summary = tables.iter().find(|t| t.title == "Model Summary").unwrap();
+    let count = summary
+        .rows
+        .iter()
+        .find(|r| r[1] == Cell::Text("Number of Nodes".into()))
+        .map(|r| r[2].clone());
+    assert_eq!(count, Some(Cell::Number(nodes.len() as f64)));
+    let root = &nodes[0];
+    assert_eq!(root.parent, None);
+    let stat = |node: &statscraft_engine::plot::TreeNode, name: &str| {
+        node.statistics
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, v)| v.clone())
+    };
+    assert_eq!(stat(root, "Total n"), Some(Cell::Number(150.0)));
+    assert_eq!(stat(root, "Split by"), Some(Cell::Text("plan".into())));
+    assert!(
+        nodes[1..]
+            .iter()
+            .all(|n| n.parent == Some(0) && n.split.starts_with("plan = "))
+    );
+    let table = charts[0].data_table();
+    assert_eq!(table.columns[..3], ["Node", "Parent", "Split"]);
+    assert_eq!(table.rows.len(), nodes.len());
+}

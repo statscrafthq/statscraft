@@ -150,8 +150,8 @@ pub struct Factor {
     pub select: Option<(String, Value)>,
     pub analysis: Option<Vec<VarItem>>,
     pub print: FactorPrint,
-    /// PLOT was given; charts are not drawn.
-    pub plot: bool,
+    /// `/PLOT`: the scree plot and the loading plots; None without one.
+    pub plot: Option<FactorPlot>,
     pub diagonal: Option<Vec<f64>>,
     pub sort: bool,
     pub blank: Option<f64>,
@@ -165,6 +165,14 @@ pub struct Factor {
 }
 
 /// Notes a subcommand that a later one cancelled.
+/// `/PLOT`: EIGEN, the scree plot; ROTATION, the loading plots, by the pairs of factors given
+/// (an empty list: the first two, or the first three in one plot).
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct FactorPlot {
+    pub eigen: bool,
+    pub rotation: Option<Vec<(usize, usize)>>,
+}
+
 fn cancel(ignored: &mut Vec<String>, what: &str, set: bool) {
     if set {
         ignored.push(what.to_string());
@@ -180,6 +188,24 @@ fn paren_number(p: &mut Parser) -> PResult<(f64, usize)> {
     };
     p.expect(Punct::RParen)?;
     Ok((n, start))
+}
+
+/// `(a,b)`: two whole numbers in parentheses, and where they start.
+fn paren_pair(p: &mut Parser) -> PResult<((usize, usize), usize)> {
+    p.expect(Punct::LParen)?;
+    let start = p.pos;
+    let mut pair = [0usize; 2];
+    for (i, slot) in pair.iter_mut().enumerate() {
+        if i == 1 {
+            p.eat(Punct::Comma);
+        }
+        let n = p
+            .number()
+            .ok_or_else(|| p.unexpected(&["a factor number"]))?;
+        *slot = whole(p, start, n, "a factor number")?;
+    }
+    p.expect(Punct::RParen)?;
+    Ok(((pair[0], pair[1]), start))
 }
 
 fn check(p: &Parser, start: usize, ok: bool, message: String) -> PResult<()> {
@@ -529,7 +555,7 @@ pub(crate) fn factor(p: &mut Parser) -> PResult<Command> {
         select: None,
         analysis: None,
         print: FactorPrint::DEFAULT,
-        plot: false,
+        plot: None,
         diagonal: None,
         sort: false,
         blank: None,
@@ -607,11 +633,7 @@ pub(crate) fn factor(p: &mut Parser) -> PResult<Command> {
             command.analysis = Some(p.var_list()?);
             analysis_seen = true;
             cancel(&mut command.ignored, "PRINT", print.take().is_some());
-            cancel(
-                &mut command.ignored,
-                "PLOT",
-                std::mem::take(&mut command.plot),
-            );
+            cancel(&mut command.ignored, "PLOT", command.plot.take().is_some());
             cancel(
                 &mut command.ignored,
                 "DIAGONAL",
@@ -627,10 +649,33 @@ pub(crate) fn factor(p: &mut Parser) -> PResult<Command> {
         } else if p.eat_keyword("PRINT") {
             print = Some(self::print(p)?);
         } else if p.eat_keyword("PLOT") {
+            p.eat(Punct::Eq);
+            let mut plot = FactorPlot::default();
             while !at_end(p) {
-                p.pos += 1;
+                if p.eat_keyword("EIGEN") {
+                    plot.eigen = true;
+                } else if p.eat_keyword("ROTATION") {
+                    let mut pairs = Vec::new();
+                    while p.at(Punct::LParen) {
+                        let (a, start) = paren_pair(p)?;
+                        check(
+                            p,
+                            start,
+                            a.0 >= 1 && a.1 >= 1 && a.0 != a.1,
+                            "ROTATION takes pairs of two different factor numbers from 1 up".into(),
+                        )?;
+                        pairs.push(a);
+                    }
+                    plot.rotation = Some(pairs);
+                } else {
+                    return Err(p.unexpected(&["EIGEN", "ROTATION"]));
+                }
+                p.eat(Punct::Comma);
             }
-            command.plot = true;
+            // PLOT without a keyword is ignored; the last PLOT counts
+            if plot.eigen || plot.rotation.is_some() {
+                command.plot = Some(plot);
+            }
         } else if p.eat_keyword("DIAGONAL") {
             command.diagonal = diagonal(p)?;
         } else if p.eat_keyword("FORMAT") {

@@ -152,6 +152,10 @@ pub enum Statistic {
     Count,
     /// Percentages, 0 to 100.
     Percent,
+    /// Means of a variable.
+    Mean,
+    /// Any other number, such as an eigenvalue.
+    Value,
 }
 
 /// A normal curve with the mean and standard deviation of the values, scaled to the bars: at

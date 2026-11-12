@@ -16,16 +16,16 @@ REGRESSION [/VARIABLES=varlist | (COLLECT)] [/DESCRIPTIVES=[DEFAULTS MEAN STDDEV
            FORWARD [varlist] | BACKWARD [varlist] [/METHOD=...]
            [/RESIDUALS=[DEFAULTS DURBIN OUTLIERS(tempvars) ID(var) HISTOGRAM NORMPROB]]
            [/CASEWISE=[DEFAULTS OUTLIERS(3) | ALL PLOT(tempvar) DEPENDENT tempvars]]
-           [/SAVE=tempvar[(name)] ... [FITS]] [/SCATTERPLOT ...] [/PARTIALPLOT ...].
+           [/SAVE=tempvar[(name)] ... [FITS]] [/SCATTERPLOT=(y, x) ...] [/PARTIALPLOT=[ALL | varlist]].
 ```
 
 tempvar: PRED RESID ZPRED ZRESID SRESID DRESID SDRESID ADJPRED SEPRED MAHAL COOK LEVER DFBETA SDBETA DFFIT SDFIT COVRATIO MCIN ICIN. One equation per dependent; each METHOD works on the equation the ones before it left, and each step is a model. ENTER takes the variables in order of tolerance; STEPWISE removes the weakest variable while its F-to-remove fails POUT, then enters the strongest that passes PIN; FORWARD only enters, BACKWARD only removes (entering its list first when the equation is empty). A variable enters only when it and the variables in the equation keep the TOLERANCE. Without keywords STATISTICS is R ANOVA COEFF OUTS and DESCRIPTIVES is MEAN STDDEV CORR.
 
 The tables: Variables Entered/Removed, Model Summary (CHANGE, DURBIN, SELECTION add columns), ANOVA, Coefficients (CI, ZPP, TOL, COLLIN, SES, F add columns), Excluded Variables, Coefficient Correlations (BCOV), Collinearity Diagnostics (COLLIN), the swept correlation matrix (XTX), Residuals Statistics (with RESIDUALS, CASEWISE or a plot), Casewise Diagnostics and Outlier Statistics. LISTWISE (default) uses the cases valid on every variable; PAIRWISE builds the correlations pair by pair, with the smallest pair count as N; MEANSUBSTITUTION puts the mean in place of a missing value. SAVE adds variables named PRE\_1, RES\_1 and so on, or as given; DFBETA and SDBETA save one per coefficient (name0, name1, ...), MCIN and ICIN a lower and an upper bound.
 
-Weighted when a weight variable is set; REGWGT gives weighted least squares. HISTOGRAM, NORMPROB, SCATTERPLOT, PARTIALPLOT and TEMPLATE are accepted with a warning that charts are not drawn yet.
+Weighted when a weight variable is set; REGWGT gives weighted least squares. Charts come as data: HISTOGRAM(tempvars) a histogram with a normal curve; NORMPROB(tempvars) a normal P-P plot (PRED, RESID and DRESID are plotted standardized); RESIDUALS alone gives both of ZRESID. SCATTERPLOT plots each pair, the first on the vertical axis; a temporary variable takes a star (\*ZRESID).
 
-LABEL changes nothing. Not supported yet: METHOD=TEST, SELECT, MATRIX, OUTFILE.
+PARTIALPLOT plots, for each independent (or those listed), the dependent's residuals against the independent's, both regressed on the other independents; it needs two in the equation. TEMPLATE is ignored with a warning. LABEL changes nothing. Not supported yet: METHOD=TEST, SELECT, MATRIX, OUTFILE.
 
 ## Example
 

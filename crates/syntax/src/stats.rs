@@ -399,7 +399,7 @@ pub(crate) fn t_test(p: &mut Parser) -> PResult<Command> {
     Ok(Command::TTest(command))
 }
 
-const ONEWAY_UNSUPPORTED: [&str; 6] = ["POLYNOMIAL", "RANGES", "PLOT", "MATRIX", "TEMPLATE", "ES"];
+const ONEWAY_UNSUPPORTED: [&str; 5] = ["POLYNOMIAL", "RANGES", "MATRIX", "TEMPLATE", "ES"];
 
 const POSTHOCS: [(&str, &[Posthoc]); 19] = [
     ("LSD", &[Posthoc::Lsd]),
@@ -486,6 +486,7 @@ pub(crate) fn oneway(p: &mut Parser) -> PResult<Command> {
         listwise: false,
         include: false,
         ci: 0.95,
+        plot_means: false,
     };
     while p.eat(Punct::Slash) {
         if p.eat_keyword("POSTHOC") {
@@ -579,6 +580,12 @@ pub(crate) fn oneway(p: &mut Parser) -> PResult<Command> {
                 return Err(p.unexpected(&["CILEVEL(value)"]));
             }
             command.ci = level(p, "CILEVEL")?;
+        } else if p.eat_keyword("PLOT") {
+            p.eat(Punct::Eq);
+            if !p.eat_keyword("MEANS") {
+                return Err(p.unexpected(&["MEANS"]));
+            }
+            command.plot_means = true;
         } else {
             return Err(p.subcommand_error("ONEWAY", &ONEWAY_UNSUPPORTED));
         }

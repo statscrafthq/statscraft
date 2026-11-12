@@ -599,10 +599,8 @@ impl Engine {
                 "CLUSTER needs at least 2 items to cluster, but there are {n}"
             )));
         }
-        if command.plot {
-            self.warn("CLUSTER: the icicle plot and the dendrogram are not drawn yet");
-        }
         let mut tables = Vec::new();
+        let mut charts = Vec::new();
         let measure = match command.matrix_in {
             Some(_) => match items.similarity {
                 true => "a similarity matrix".to_string(),
@@ -666,6 +664,12 @@ impl Engine {
             if command.schedule {
                 tables.push(schedule_table(&stages, *method));
             }
+            charts.extend(cluster_plots(
+                &command.plot,
+                &items.labels,
+                &stages,
+                method_name(*method),
+            ));
             if let Some(range) = command.membership {
                 let levels = solutions(n, range);
                 let members: Vec<Vec<usize>> =
@@ -740,6 +744,84 @@ impl Engine {
                 Ok(())
             })?;
         }
+        self.charts.extend(charts);
         Ok(tables)
     }
+}
+
+/// The icicle plots and the dendrogram of one method. The items are laid out so that no
+/// branches cross: a merge puts the second cluster's items after the first's. The dendrogram
+/// rescales the heights to 1 at the first merge and 25 at the last (the manual says only that
+/// it is scaled by the joining distances), so the leaves at 0 stay apart from the first joins.
+fn cluster_plots(
+    plot: &statscraft_syntax::ClusterPlot,
+    labels: &[String],
+    stages: &[Stage],
+    method: &str,
+) -> Vec<crate::Chart> {
+    use crate::chart::{Axis, ChartKind, Orientation};
+    use crate::plot::{Merge, Plot};
+    let n = labels.len();
+    let mut lists: Vec<Vec<usize>> = (0..n).map(|i| vec![i]).collect();
+    for s in stages {
+        let moved = std::mem::take(&mut lists[s.p]);
+        lists[s.q].extend(moved);
+    }
+    let order = lists.into_iter().find(|l| l.len() == n).unwrap_or_default();
+    let (first, last) = match (stages.first(), stages.last()) {
+        (Some(a), Some(b)) => (a.coefficient, b.coefficient),
+        _ => (0.0, 0.0),
+    };
+    let merges: Vec<Merge> = stages
+        .iter()
+        .map(|s| {
+            let t = match last != first {
+                true => (s.coefficient - first) / (last - first),
+                false => 1.0,
+            };
+            Merge {
+                left: s.q,
+                right: s.p,
+                height: s.coefficient,
+                rescaled: 1.0 + 24.0 * t,
+            }
+        })
+        .collect();
+    let (from, to, step) = plot.range;
+    let to = to.unwrap_or(n.saturating_sub(1)).min(n.saturating_sub(1));
+    let solutions: Vec<usize> = (from..=to).step_by(step.max(1)).collect();
+    let solutions: Vec<usize> = solutions.into_iter().rev().collect();
+    let shape = |solutions: Vec<usize>| Plot::Merges {
+        items: labels.to_vec(),
+        order: order.clone(),
+        merges: merges.clone(),
+        solutions,
+    };
+    let mut charts = Vec::new();
+    for (wanted, orientation) in [
+        (plot.vertical, Orientation::Vertical),
+        (plot.horizontal, Orientation::Horizontal),
+    ] {
+        if wanted {
+            let mut chart = crate::Chart::plot(
+                ChartKind::Icicle,
+                format!("Icicle plot: {method}"),
+                Axis::titled("Number of clusters"),
+                Axis::titled("Case"),
+                shape(solutions.clone()),
+            );
+            chart.orientation = Some(orientation);
+            charts.push(chart);
+        }
+    }
+    if plot.dendrogram {
+        charts.push(crate::Chart::plot(
+            ChartKind::Dendrogram,
+            format!("Dendrogram: {method}"),
+            Axis::titled("Rescaled distance at which clusters combine"),
+            Axis::titled("Case"),
+            shape(Vec::new()),
+        ));
+    }
+    charts
 }

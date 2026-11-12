@@ -31,6 +31,9 @@ pub enum Plot {
         /// Indices into `items`, top to bottom, so that no branches cross.
         order: Vec<usize>,
         merges: Vec<Merge>,
+        /// Icicle plot: the numbers of clusters it shows, largest first; empty for all.
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        solutions: Vec<usize>,
     },
     /// A tree of nodes; the root comes first, every other node after its parent.
     Tree { nodes: Vec<TreeNode> },
@@ -156,6 +159,31 @@ impl Chart {
             series: Vec::new(),
             normal: None,
             plot: Some(plot),
+        }
+    }
+
+    /// A line chart over categories, one series per line: a means plot, a scree plot.
+    pub(crate) fn lines(
+        title: String,
+        x: Axis,
+        y: Axis,
+        categories: Vec<crate::chart::Category>,
+        series: Vec<crate::chart::Series>,
+    ) -> Chart {
+        Chart {
+            kind: ChartKind::Line,
+            tier: Tier::Presentation,
+            orientation: Some(crate::chart::Orientation::Vertical),
+            grouping: None,
+            title,
+            footnote: None,
+            category_axis: x,
+            value_axis: y,
+            legend: None,
+            categories,
+            series,
+            normal: None,
+            plot: None,
         }
     }
 }
@@ -319,9 +347,11 @@ impl Plot {
                 items,
                 order,
                 merges,
+                solutions,
             } => match chart.kind {
                 ChartKind::Icicle => {
-                    // a row per number of clusters, a column per item: the cluster it is in
+                    // a row per number of clusters, a column per item in the order of the plot:
+                    // its cluster, numbered from 1 along that order
                     columns.push("Number of clusters".into());
                     columns.extend(order.iter().map(|&i| items[i].clone()));
                     let n = items.len();
@@ -337,8 +367,22 @@ impl Plot {
                         by_count.push(cluster.clone());
                     }
                     for (step, state) in by_count.iter().enumerate().skip(1).rev() {
-                        let mut row = vec![Cell::Number((n - step) as f64)];
-                        row.extend(order.iter().map(|&i| Cell::Number(state[i] as f64 + 1.0)));
+                        let k = n - step;
+                        if !solutions.is_empty() && !solutions.contains(&k) {
+                            continue;
+                        }
+                        let mut row = vec![Cell::Number(k as f64)];
+                        let mut seen: Vec<usize> = Vec::new();
+                        for &i in order {
+                            let number = match seen.iter().position(|&c| c == state[i]) {
+                                Some(at) => at + 1,
+                                None => {
+                                    seen.push(state[i]);
+                                    seen.len()
+                                }
+                            };
+                            row.push(Cell::Number(number as f64));
+                        }
                         rows.push(row);
                     }
                 }
@@ -530,6 +574,7 @@ impl Plot {
                 items,
                 order,
                 merges,
+                ..
             } => {
                 let position = |i: usize| order.iter().position(|&o| o == i).unwrap_or(0) as f64;
                 let labels: Vec<Value> = order
@@ -538,24 +583,34 @@ impl Plot {
                     .map(|(p, &i)| json!({ "y": p, "label": items[i] }))
                     .collect();
                 let mut segments = Vec::new();
-                let mut rects = Vec::new();
                 // every cluster: where it sits and the height it was formed at
                 let mut place: Vec<(f64, f64)> =
                     (0..items.len()).map(|i| (position(i), 0.0)).collect();
-                let mut span: Vec<(f64, f64)> = place.iter().map(|p| (p.0, p.0)).collect();
-                for (step, m) in merges.iter().enumerate() {
+                for m in merges {
                     let (a, b) = (place[m.left], place[m.right]);
                     let h = m.rescaled;
                     segments.push(json!({ "x": a.1, "x2": h, "y": a.0, "y2": a.0 }));
                     segments.push(json!({ "x": b.1, "x2": h, "y": b.0, "y2": b.0 }));
                     segments.push(json!({ "x": h, "x2": h, "y": a.0, "y2": b.0 }));
-                    let joined = (
-                        span[m.left].0.min(span[m.right].0),
-                        span[m.left].1.max(span[m.right].1),
-                    );
-                    rects.push(json!({ "clusters": items.len() - step - 1, "from": joined.0 - 0.4, "to": joined.1 + 0.4 }));
                     place[m.left] = ((a.0 + b.0) / 2.0, h);
-                    span[m.left] = joined;
+                }
+                // icicle: a bar over each run of items in one cluster, per number of clusters
+                let mut rects = Vec::new();
+                if chart.kind == ChartKind::Icicle {
+                    let (_, rows, _) = self.table(chart);
+                    for row in rows {
+                        let mut start = 1;
+                        for end in 2..=row.len() {
+                            if end == row.len() || row[end] != row[start] {
+                                rects.push(json!({
+                                    "clusters": row[0],
+                                    "from": start as f64 - 1.4,
+                                    "to": end as f64 - 1.6,
+                                }));
+                                start = end;
+                            }
+                        }
+                    }
                 }
                 let y = json!({ "field": "y", "type": "quantitative", "axis": null });
                 let layers = match chart.kind {

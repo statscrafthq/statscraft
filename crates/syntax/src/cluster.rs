@@ -94,10 +94,35 @@ pub struct Cluster {
     /// `PRINT=CLUSTER(min,max)`
     pub membership: Option<(usize, usize)>,
     pub distance: bool,
-    /// PLOT asked for a chart; charts are not drawn.
-    pub plot: bool,
+    /// `/PLOT`: a vertical icicle plot without the subcommand.
+    pub plot: ClusterPlot,
     /// `MATRIX=IN(...)`: the file or dataset, None for `*`.
     pub matrix_in: Option<Option<String>>,
+}
+
+/// The plots of CLUSTER for each method.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ClusterPlot {
+    /// `VICICLE`
+    pub vertical: bool,
+    /// `HICICLE`
+    pub horizontal: bool,
+    /// The solutions the icicle plots show: from, to (None: the number of items minus 1), step.
+    pub range: (usize, Option<usize>, usize),
+    pub dendrogram: bool,
+}
+
+impl ClusterPlot {
+    pub const NONE: ClusterPlot = ClusterPlot {
+        vertical: false,
+        horizontal: false,
+        range: (1, None, 1),
+        dendrogram: false,
+    };
+
+    pub fn any(&self) -> bool {
+        self.vertical || self.horizontal || self.dendrogram
+    }
 }
 
 const BINARY: [(&str, BinaryMeasure); 27] = [
@@ -334,7 +359,10 @@ pub(crate) fn cluster(p: &mut Parser) -> PResult<Command> {
         schedule: true,
         membership: None,
         distance: false,
-        plot: false,
+        plot: ClusterPlot {
+            vertical: true,
+            ..ClusterPlot::NONE
+        },
         matrix_in: None,
     };
     if matches!(p.peek(), Some(TokenKind::Word(_))) {
@@ -385,20 +413,43 @@ pub(crate) fn cluster(p: &mut Parser) -> PResult<Command> {
                 (schedule, membership, distance);
         } else if p.eat_keyword("PLOT") {
             p.eat(Punct::Eq);
-            let mut plot = at_end(p);
+            // PLOT alone keeps the default; keywords name every plot wanted
+            let mut plot = match at_end(p) {
+                true => command.plot,
+                false => ClusterPlot::NONE,
+            };
             while !at_end(p) {
-                if p.eat_keyword("VICICLE") || p.eat_keyword("HICICLE") {
-                    plot = true;
+                let vertical = p.eat_keyword("VICICLE");
+                if vertical || p.eat_keyword("HICICLE") {
+                    match vertical {
+                        true => plot.vertical = true,
+                        false => plot.horizontal = true,
+                    }
+                    // the last icicle keyword's range counts for both, its defaults included
+                    plot.range = (1, None, 1);
                     if p.eat(Punct::LParen) {
-                        while p.number().is_some() {
+                        let start = p.pos;
+                        let mut numbers = Vec::new();
+                        while let Some(n) = p.number() {
+                            numbers.push(n);
                             p.eat(Punct::Comma);
                         }
                         p.expect(Punct::RParen)?;
+                        if numbers.is_empty()
+                            || numbers.len() > 3
+                            || numbers.iter().any(|n| *n < 1.0 || n.fract() != 0.0)
+                        {
+                            let message =
+                                "an icicle range is min[,max[,inc]], whole numbers from 1";
+                            return Err(SyntaxError::new(p.span_from(start), message));
+                        }
+                        let n = |i: usize| numbers.get(i).map(|n| *n as usize);
+                        plot.range = (n(0).unwrap_or(1), n(1), n(2).unwrap_or(1));
                     }
                 } else if p.eat_keyword("DENDROGRAM") {
-                    plot = true;
+                    plot.dendrogram = true;
                 } else if p.eat_keyword("NONE") {
-                    plot = false;
+                    plot = ClusterPlot::NONE;
                 } else {
                     return Err(p.unexpected(&["VICICLE", "HICICLE", "DENDROGRAM", "NONE"]));
                 }

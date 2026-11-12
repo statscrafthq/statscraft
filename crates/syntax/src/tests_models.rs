@@ -72,9 +72,54 @@ fn regression_defaults_and_the_pasted_dialog_syntax() {
         ]
     );
     assert_eq!(
-        r.charts,
-        ["SCATTERPLOT", "RESIDUALS HISTOGRAM", "RESIDUALS NORMPROB"]
+        r.scatterplots,
+        [(
+            PlotVariable::Temp(TempVar::Zresid),
+            PlotVariable::Temp(TempVar::Zpred)
+        )]
     );
+    assert_eq!(
+        (r.histograms, r.normprobs),
+        (vec![TempVar::Zresid], vec![TempVar::Zresid])
+    );
+    let r = regression(
+        "REGRESSION /DEP=y /METHOD=ENTER a b /SCAT (y, *SRE) (*PRE a) /PARTIAL /RESID HIST(PRED SDR) \
+         /TEMPLATE='x.sgt'.",
+    );
+    assert_eq!(
+        r.scatterplots,
+        [
+            (
+                PlotVariable::Variable("y".into()),
+                PlotVariable::Temp(TempVar::Sresid)
+            ),
+            (
+                PlotVariable::Temp(TempVar::Pred),
+                PlotVariable::Variable("a".into())
+            )
+        ]
+    );
+    assert_eq!(r.partial, Some(Vec::new()));
+    assert_eq!(r.histograms, [TempVar::Pred, TempVar::Sdresid]);
+    assert!(r.normprobs.is_empty() && r.template);
+    let r = regression("REGRESSION /DEP=y /METHOD=ENTER a b /PARTIALPLOT b.");
+    assert_eq!(r.partial, Some(vec![var("b")]));
+    assert!(
+        one_err("REGRESSION /DEP=y /METHOD=ENTER a /SCATTERPLOT (*COOK, *DFBETA).")
+            .contains("cannot be used in SCATTERPLOT")
+    );
+    assert!(
+        one_err("REGRESSION /DEP=y /METHOD=ENTER a /RESIDUALS NORMPROB(MAHAL).")
+            .contains("cannot be used in NORMPROB")
+    );
+}
+
+fn one_err(source: &str) -> String {
+    crate::parse(source)
+        .1
+        .first()
+        .map(|e| e.message.clone())
+        .unwrap_or_default()
 }
 
 #[test]

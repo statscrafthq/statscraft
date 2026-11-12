@@ -702,10 +702,10 @@ fn ignored_subcommands_and_one_factor_warn() {
         warnings.iter().any(|w| w.contains("cannot be rotated")),
         "{warnings:?}"
     );
-    assert!(
-        warnings.iter().any(|w| w.contains("charts are not drawn")),
-        "{warnings:?}"
-    );
+    // the scree plot of the three eigenvalues
+    let charts = engine.take_charts();
+    assert_eq!(charts.len(), 1);
+    assert_eq!(charts[0].series[0].values.len(), 3);
 }
 
 #[test]

@@ -44,8 +44,23 @@ pub struct Regression {
     pub casewise: Option<Casewise>,
     /// `/SAVE`: each temporary variable with the name given for it.
     pub save: Vec<(TempVar, Option<String>)>,
-    /// Subcommands and keywords that ask for charts, which are not drawn yet.
-    pub charts: Vec<String>,
+    /// `/RESIDUALS HISTOGRAM(...)`: a histogram of each, with a normal curve.
+    pub histograms: Vec<TempVar>,
+    /// `/RESIDUALS NORMPROB(...)`: a normal P-P plot of each, standardized.
+    pub normprobs: Vec<TempVar>,
+    /// `/SCATTERPLOT`: (vertical, horizontal) pairs.
+    pub scatterplots: Vec<(PlotVariable, PlotVariable)>,
+    /// `/PARTIALPLOT`: the independents to plot, empty for every one in the equation.
+    pub partial: Option<Vec<VarItem>>,
+    /// `/TEMPLATE` was given; it styles charts and is ignored.
+    pub template: bool,
+}
+
+/// A variable of a scatterplot: a temporary variable (written with `*`) or one of the data.
+#[derive(Debug, Clone, PartialEq)]
+pub enum PlotVariable {
+    Temp(TempVar),
+    Variable(String),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -223,27 +238,6 @@ pub struct Casewise {
     /// The temporary variables listed besides it.
     pub listed: Vec<TempVar>,
 }
-
-const SUBCOMMANDS: [&str; 18] = [
-    "VARIABLES",
-    "DESCRIPTIVES",
-    "SELECT",
-    "MISSING",
-    "REGWGT",
-    "STATISTICS",
-    "CRITERIA",
-    "ORIGIN",
-    "NOORIGIN",
-    "DEPENDENT",
-    "METHOD",
-    "RESIDUALS",
-    "CASEWISE",
-    "SCATTERPLOT",
-    "PARTIALPLOT",
-    "OUTFILE",
-    "SAVE",
-    "TEMPLATE",
-];
 
 const METHODS: [(&str, MethodKind); 5] = [
     ("ENTER", MethodKind::Enter),
@@ -619,7 +613,16 @@ fn methods(p: &mut Parser, out: &mut Vec<RegressionMethod>) -> PResult<()> {
     Ok(())
 }
 
-fn residuals(p: &mut Parser, charts: &mut Vec<String>) -> PResult<RegressionResiduals> {
+/// Adds `vars` to `list` once each.
+fn add_once(list: &mut Vec<TempVar>, vars: Vec<TempVar>) {
+    for var in vars {
+        if !list.contains(&var) {
+            list.push(var);
+        }
+    }
+}
+
+fn residuals(p: &mut Parser, command: &mut Regression) -> PResult<RegressionResiduals> {
     p.eat(Punct::Eq);
     let mut r = RegressionResiduals {
         durbin: false,
@@ -627,13 +630,14 @@ fn residuals(p: &mut Parser, charts: &mut Vec<String>) -> PResult<RegressionResi
         id: None,
     };
     use TempVar as T;
-    let defaults = |r: &mut RegressionResiduals, charts: &mut Vec<String>| {
+    let defaults = |r: &mut RegressionResiduals, command: &mut Regression| {
         r.durbin = true;
         r.outliers = vec![T::Zresid];
-        charts.push("RESIDUALS HISTOGRAM and NORMPROB".into());
+        add_once(&mut command.histograms, vec![T::Zresid]);
+        add_once(&mut command.normprobs, vec![T::Zresid]);
     };
     if at_end(p) {
-        defaults(&mut r, charts);
+        defaults(&mut r, command);
         return Ok(r);
     }
     const KEYWORDS: [&str; 9] = [
@@ -657,7 +661,7 @@ fn residuals(p: &mut Parser, charts: &mut Vec<String>) -> PResult<RegressionResi
         };
         p.pos += 1;
         match i {
-            0 => defaults(&mut r, charts),
+            0 => defaults(&mut r, command),
             1 => r.durbin = true,
             2 => {
                 let allowed = [
@@ -680,24 +684,22 @@ fn residuals(p: &mut Parser, charts: &mut Vec<String>) -> PResult<RegressionResi
                 r.id = Some(p.name("a variable name")?);
                 p.expect(Punct::RParen)?;
             }
-            4 | 5 => {
+            4 => {
                 let allowed = [
                     T::Pred,
                     T::Resid,
                     T::Zpred,
                     T::Zresid,
                     T::Dresid,
-                    T::AdjPred,
                     T::Sresid,
                     T::Sdresid,
-                    T::Sepred,
-                    T::Mahal,
-                    T::Cook,
-                    T::Lever,
                 ];
-                let place = KEYWORDS[i];
-                temp_vars(p, &allowed, place, T::Zresid)?;
-                charts.push(format!("RESIDUALS {place}"));
+                let vars = temp_vars(p, &allowed, "NORMPROB", T::Zresid)?;
+                add_once(&mut command.normprobs, vars);
+            }
+            5 => {
+                let vars = temp_vars(p, &PLOTTED, "HISTOGRAM", T::Zresid)?;
+                add_once(&mut command.histograms, vars);
             }
             6 => {
                 p.expect(Punct::LParen)?;
@@ -712,6 +714,47 @@ fn residuals(p: &mut Parser, charts: &mut Vec<String>) -> PResult<RegressionResi
         p.eat(Punct::Comma);
     }
     Ok(r)
+}
+
+/// The temporary variables that HISTOGRAM and SCATTERPLOT take.
+const PLOTTED: [TempVar; 12] = [
+    TempVar::Pred,
+    TempVar::Resid,
+    TempVar::Zpred,
+    TempVar::Zresid,
+    TempVar::Dresid,
+    TempVar::AdjPred,
+    TempVar::Sresid,
+    TempVar::Sdresid,
+    TempVar::Sepred,
+    TempVar::Mahal,
+    TempVar::Cook,
+    TempVar::Lever,
+];
+
+/// `(y, x) (y, x) ...`, each a variable or `*tempvar`.
+fn scatterplots(p: &mut Parser, out: &mut Vec<(PlotVariable, PlotVariable)>) -> PResult<()> {
+    p.eat(Punct::Eq);
+    let one = |p: &mut Parser| -> PResult<PlotVariable> {
+        if p.eat(Punct::Star) {
+            Ok(PlotVariable::Temp(temp_var(p, &PLOTTED, "SCATTERPLOT")?))
+        } else {
+            Ok(PlotVariable::Variable(p.name("a variable or *tempvar")?))
+        }
+    };
+    let mut any = false;
+    while p.eat(Punct::LParen) {
+        let y = one(p)?;
+        p.eat(Punct::Comma);
+        let x = one(p)?;
+        p.expect(Punct::RParen)?;
+        out.push((y, x));
+        any = true;
+    }
+    if !any {
+        return Err(p.unexpected(&["(y, x)"]));
+    }
+    Ok(())
 }
 
 fn casewise(p: &mut Parser) -> PResult<Casewise> {
@@ -817,7 +860,11 @@ pub(crate) fn regression(p: &mut Parser) -> PResult<Command> {
         residuals: None,
         casewise: None,
         save: Vec::new(),
-        charts: Vec::new(),
+        histograms: Vec::new(),
+        normprobs: Vec::new(),
+        scatterplots: Vec::new(),
+        partial: None,
+        template: false,
     };
     let mut first = true;
     loop {
@@ -896,7 +943,7 @@ pub(crate) fn regression(p: &mut Parser) -> PResult<Command> {
             p.eat(Punct::Eq);
             methods(p, &mut command.methods)?;
         } else if p.eat_keyword("RESIDUALS") {
-            let mut r = residuals(p, &mut command.charts)?;
+            let mut r = residuals(p, &mut command)?;
             if let Some(old) = command.residuals.take() {
                 r.durbin |= old.durbin;
                 r.id = r.id.or(old.id);
@@ -911,16 +958,16 @@ pub(crate) fn regression(p: &mut Parser) -> PResult<Command> {
             command.casewise = Some(casewise(p)?);
         } else if p.eat_keyword("SAVE") {
             save(p, &mut command.save)?;
-        } else if p.at_keyword("SCATTERPLOT")
-            || p.at_keyword("PARTIALPLOT")
-            || p.at_keyword("TEMPLATE")
-        {
-            let name = SUBCOMMANDS
-                .iter()
-                .find(|s| p.at_keyword(s))
-                .expect("checked above");
-            command.charts.push(name.to_string());
-            p.pos += 1;
+        } else if p.eat_keyword("SCATTERPLOT") {
+            scatterplots(p, &mut command.scatterplots)?;
+        } else if p.eat_keyword("PARTIALPLOT") {
+            p.eat(Punct::Eq);
+            let list = command.partial.get_or_insert_with(Vec::new);
+            if !p.eat_word("ALL") && !at_end(p) {
+                list.extend(p.var_list()?);
+            }
+        } else if p.eat_keyword("TEMPLATE") {
+            command.template = true;
             skip(p);
         } else {
             return Err(p.subcommand_error("REGRESSION", &["SELECT", "OUTFILE", "MATRIX"]));

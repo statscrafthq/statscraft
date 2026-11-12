@@ -263,6 +263,13 @@ BEGIN DATA
 END DATA.
 EXAMINE score BY group /ID=id /PLOT ALL.
 EXAMINE score BY side /PLOT BOXPLOT /COMPARE VARIABLES.
+ONEWAY score BY group /PLOT MEANS.
+COMPUTE a = score * score / 10 + group.
+COMPUTE b = group * group + score / 4.
+FACTOR /VARIABLES score group a b /CRITERIA FACTORS(3) /PLOT EIGEN ROTATION.
+REGRESSION /DEPENDENT score /METHOD ENTER group a /RESIDUALS /SCATTERPLOT (*ZRESID, *ZPRED) /PARTIALPLOT.
+CLUSTER score group /PLOT DENDROGRAM VICICLE HICICLE.
+TREE side [n] BY group [n] /GROWTHLIMIT MINPARENTSIZE=2 MINCHILDSIZE=1.
 ";
     let (commands, errors) = parse(source);
     assert!(errors.is_empty(), "{errors:?}");
@@ -286,7 +293,13 @@ fn every_statistical_plot_gives_a_valid_specification() {
         "Normal Q-Q plot",
         "Detrended normal Q-Q plot",
         "Spread-versus-level plot",
-        "Histogram",
+        "Histogram with a normal curve",
+        "Line chart",
+        "Scatter plot",
+        "Normal P-P plot",
+        "Dendrogram",
+        "Icicle plot",
+        "Tree diagram",
     ] {
         assert!(kinds.contains(kind), "{kind} missing from {kinds:?}");
     }

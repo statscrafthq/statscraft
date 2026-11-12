@@ -28,6 +28,8 @@ use crate::means::is_valid;
 use crate::npar_tests::text;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Measure, Values, Variable};
+
+mod plots;
 use statscraft_syntax::{
     Criterion, MethodKind, Regression, RegressionCriteria, RegressionDescriptives,
     RegressionMissing, TempVar,
@@ -883,6 +885,15 @@ impl Engine {
             &raw
         };
         let mut per_case: Vec<PerCase> = Vec::new();
+        let mut charts = Vec::new();
+        let charted = !command.histograms.is_empty()
+            || !command.normprobs.is_empty()
+            || !command.scatterplots.is_empty()
+            || command.partial.is_some();
+        let partial = match &command.partial {
+            Some(items) => self.expand(items)?,
+            None => Vec::new(),
+        };
         for dependent in &dependents {
             let yi = index(dependent);
             // candidates: every variable named on a method, in matrix order, but the dependent
@@ -945,7 +956,7 @@ impl Engine {
             let wants_cases = !command.save.is_empty()
                 || command.residuals.is_some()
                 || command.casewise.is_some()
-                || !command.charts.is_empty();
+                || charted;
             let in_fit: Vec<bool> = (0..cases)
                 .map(|k| match command.missing {
                     RegressionMissing::Listwise => complete[k],
@@ -966,6 +977,26 @@ impl Engine {
                 .and_then(|rows| durbin_watson(rows, &c, &g, &in_fit));
             tables.extend(equation_tables(command, &eq, &models, &fits, &criteria, dw));
             if let Some(rows) = rows {
+                if charted {
+                    let x = |j: usize, k: usize| source[order[j]][k];
+                    let variable = |name: &str| {
+                        let i = names.iter().position(|n| n.eq_ignore_ascii_case(name))?;
+                        Some((shown.variable(&variables[i]), source[i].clone()))
+                    };
+                    let plots = plots::Plots {
+                        command,
+                        eq: &eq,
+                        fit: last,
+                        x: &x,
+                        rows: &rows,
+                        c: &c,
+                        g: &g,
+                        in_fit: &in_fit,
+                        variable: &variable,
+                        partial: &partial,
+                    };
+                    charts.extend(plots.charts(&mut warnings));
+                }
                 let coefficients = coefficient_names(&eq, last);
                 tables.extend(self.residual_tables(
                     command,
@@ -982,15 +1013,13 @@ impl Engine {
                 });
             }
         }
+        if command.template {
+            warnings.push("REGRESSION: TEMPLATE is ignored; charts come as data".into());
+        }
         for warning in warnings {
             self.warn(warning);
         }
-        if !command.charts.is_empty() {
-            self.warn(format!(
-                "REGRESSION: {} accepted; charts are not drawn yet",
-                command.charts.join(", ")
-            ));
-        }
+        self.charts.extend(charts);
         if !command.save.is_empty() {
             self.save_regression(command, &per_case)?;
         }

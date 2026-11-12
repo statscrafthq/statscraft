@@ -1058,6 +1058,8 @@ pub struct Oneway {
     pub include: bool,
     /// `/CRITERIA=CILEVEL(value)`: the level of the confidence intervals.
     pub ci: f64,
+    /// `/PLOT MEANS`: a line chart of the group means of every dependent.
+    pub plot_means: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

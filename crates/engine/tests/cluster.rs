@@ -503,7 +503,7 @@ fn errors_and_warnings() {
     );
     let warnings = engine.warnings().join(" | ");
     assert!(warnings.contains("weight"), "{warnings}");
-    assert!(warnings.contains("not drawn yet"), "{warnings}");
+    assert_eq!(engine.take_charts().len(), 1);
     assert!(error("CLUSTER name x.").contains("string variable"));
     // all zero vectors: the Jaccard measure of two cases without presence is undefined
     let e = error(

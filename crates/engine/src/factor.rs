@@ -1255,6 +1255,114 @@ fn sorted_rows(l: &Matrix) -> Vec<usize> {
     order
 }
 
+/// What the plots of FACTOR show.
+struct FactorSolution<'a> {
+    /// "Component" or "Factor".
+    word: &'a str,
+    names: &'a [String],
+    /// The eigenvalues of the correlation matrix, in descending order.
+    eigenvalues: &'a [f64],
+    /// The loadings plotted: the rotated pattern, else the extracted loadings; None when
+    /// nothing was extracted.
+    pattern: Option<&'a Matrix>,
+    rotated: bool,
+}
+
+/// The scree plot (EIGEN): every eigenvalue of the correlation matrix against its number. The
+/// loading plots (ROTATION): every variable as a point at its loadings, in the rotated space
+/// when there is a rotation. Without pairs: the first two factors, with the third as depth
+/// when there are three or more; nothing with one factor.
+fn factor_plots(
+    plot: &statscraft_syntax::FactorPlot,
+    s: FactorSolution,
+    warnings: &mut Vec<String>,
+) -> Vec<crate::Chart> {
+    use crate::chart::{Axis, Category, ChartKind, Series, Statistic};
+    use crate::plot::{Plot, Point, PointGroup};
+    let mut charts = Vec::new();
+    if plot.eigen {
+        let categories = (1..=s.eigenvalues.len())
+            .map(|k| Category {
+                label: k.to_string(),
+                value: Cell::Number(k as f64),
+                missing: false,
+                bin: None,
+            })
+            .collect();
+        let series = vec![Series {
+            name: "Eigenvalue".into(),
+            statistic: Statistic::Value,
+            variable: None,
+            value: Cell::Empty,
+            values: s.eigenvalues.to_vec(),
+        }];
+        charts.push(crate::Chart::lines(
+            "Scree Plot".into(),
+            Axis::titled(format!("{} Number", s.word)),
+            Axis::titled("Eigenvalue"),
+            categories,
+            series,
+        ));
+    }
+    let (Some(pairs), Some(pattern)) = (&plot.rotation, s.pattern) else {
+        return charts;
+    };
+    let m = pattern.first().map_or(0, Vec::len);
+    if m < 2 {
+        warnings.push(format!(
+            "FACTOR: one {} only, so there is no loading plot",
+            s.word.to_lowercase()
+        ));
+        return charts;
+    }
+    let mut wanted: Vec<(usize, usize, Option<usize>)> =
+        pairs.iter().map(|&(a, b)| (a, b, None)).collect();
+    if wanted.is_empty() {
+        wanted.push((1, 2, (m > 2).then_some(3)));
+    }
+    let space = match s.rotated {
+        true => format!("Rotated {} Plot", s.word),
+        false => format!("{} Plot", s.word),
+    };
+    for (a, b, c) in wanted {
+        if a > m || b > m {
+            warnings.push(format!(
+                "FACTOR: no loading plot of {} {a} and {b}: the solution has {m}",
+                s.word.to_lowercase()
+            ));
+            continue;
+        }
+        let points = (0..s.names.len())
+            .map(|i| Point {
+                x: pattern[i][a - 1],
+                y: pattern[i][b - 1],
+                z: c.map(|c| pattern[i][c - 1]),
+                label: Some(s.names[i].clone()),
+            })
+            .collect();
+        let axis = |k: usize| {
+            let mut axis = Axis::titled(format!("{} {k}", s.word));
+            axis.format = "F8.3".into();
+            axis
+        };
+        charts.push(crate::Chart::plot(
+            ChartKind::Scatter,
+            space.clone(),
+            axis(a),
+            axis(b),
+            Plot::Points {
+                groups: vec![PointGroup {
+                    name: "Loadings".into(),
+                    points,
+                }],
+                lines: Vec::new(),
+                z_axis: c.map(axis),
+            },
+        ));
+    }
+    charts
+}
+
 fn label(names: &[String], i: usize) -> Cell {
     text(names[i].clone())
 }
@@ -1854,6 +1962,17 @@ impl Engine {
         }
 
         let Some(extracted) = extracted else {
+            if let Some(plot) = &command.plot {
+                let solution = FactorSolution {
+                    word,
+                    names,
+                    eigenvalues: &eigenvalues,
+                    pattern: None,
+                    rotated: false,
+                };
+                let charts = factor_plots(plot, solution, &mut warnings);
+                self.charts.extend(charts);
+            }
             self.warn_all(warnings);
             return Ok(tables);
         };
@@ -2048,8 +2167,20 @@ impl Engine {
                 }
             }
         }
-        if command.plot {
-            warnings.push("FACTOR: PLOT accepted; charts are not drawn yet".into());
+        if let Some(plot) = &command.plot {
+            let pattern = rotated.as_ref().map_or(loadings, |rot| &rot.pattern);
+            let charts = factor_plots(
+                plot,
+                FactorSolution {
+                    word,
+                    names,
+                    eigenvalues: &eigenvalues,
+                    pattern: Some(pattern),
+                    rotated: rotated.is_some(),
+                },
+                &mut warnings,
+            );
+            self.charts.extend(charts);
         }
         self.warn_all(warnings);
         Ok(tables)

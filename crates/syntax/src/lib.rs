@@ -99,7 +99,7 @@ mod tree;
 
 pub use anova::{Anova, AnovaList, AnovaMethod, CovariateOrder};
 pub use ast::*;
-pub use cluster::{BinaryMeasure, Cluster, Linkage, Proximity};
+pub use cluster::{BinaryMeasure, Cluster, ClusterPlot, Linkage, Proximity};
 pub use ctables::{
     Adjust, AxisExpr, AxisVariable, Categories, CategoryItem, CategoryOrder, CompareKind,
     CompareStyle, Comparetest, Ctables, CtablesTable, EmptyCells, Estimate, LabelsMoved,
@@ -114,8 +114,8 @@ pub use discriminant::{
 pub use encoding::{decode_syntax, encoding_for, legacy_encoding};
 pub use error::{Span, SyntaxError};
 pub use factor::{
-    ClusterMethod, ClusterSave, Extraction, Factor, FactorCriteria, FactorMissing, FactorPrint,
-    FactorSave, MatrixKind, QuickCluster, Rotation, ScoreMethod,
+    ClusterMethod, ClusterSave, Extraction, Factor, FactorCriteria, FactorMissing, FactorPlot,
+    FactorPrint, FactorSave, MatrixKind, QuickCluster, Rotation, ScoreMethod,
 };
 pub use glm::{
     Adjustment, Contrast, Emmeans, Glm, GlmPrint, GlmTemp, LMatrix, LRow, Term, WsFactor,
@@ -146,8 +146,9 @@ pub use output_docs::{
 };
 pub use preprocess::{FileHandle, MacroState};
 pub use regression::{
-    Casewise, Criterion, MethodKind, Regression, RegressionCriteria, RegressionDescriptives,
-    RegressionMethod, RegressionMissing, RegressionResiduals, RegressionStatistics, TempVar,
+    Casewise, Criterion, MethodKind, PlotVariable, Regression, RegressionCriteria,
+    RegressionDescriptives, RegressionMethod, RegressionMissing, RegressionResiduals,
+    RegressionStatistics, TempVar,
 };
 pub use reliability::{
     AnovaTest, Icc, IccModel, Reliability, ReliabilityModel, ReliabilitySummary,

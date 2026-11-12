@@ -1061,7 +1061,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "One-way analysis of variance with contrasts and post hoc comparisons.",
         syntax: "ONEWAY deps BY factor [/STATISTICS=DESCRIPTIVES HOMOGENEITY WELCH BROWNFORSYTHE ALL NONE]\n\
                  \x20      [/CONTRAST=coefficients] [/POSTHOC=test ... [ALPHA(0.05)]]\n\
-                 \x20      [/MISSING=ANALYSIS | LISTWISE [INCLUDE | EXCLUDE]] [/CRITERIA=CILEVEL(0.95)].\n\
+                 \x20      [/MISSING=ANALYSIS | LISTWISE [INCLUDE | EXCLUDE]] [/CRITERIA=CILEVEL(0.95)] [/PLOT MEANS].\n\
                  test: LSD BONFERRONI SIDAK TUKEY SCHEFFE GT2 GABRIEL GH T2 T3 C (pairwise comparisons),\n\
                  DUNNETT DUNNETTL DUNNETTR [(refcat)] (each group against the reference group, by default the last;\n\
                  L: smaller, R: larger), SNK BTUKEY DUNCAN FREGW QREGW (homogeneous subsets only); TUKEY SCHEFFE\n\
@@ -1070,7 +1070,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  times); it is tested with pooled and separate variances. HOMOGENEITY is Levene's test based on\n\
                  the mean. Multiple Comparisons show every ordered pair of groups (Dunnett C has no significance).\n\
                  Homogeneous subsets use the harmonic mean of the group sizes (the R-E-G-W tests the sizes\n\
-                 themselves); Tukey B shows no significance. Weighted when a weight variable is set.\n\
+                 themselves); Tukey B shows no significance. Weighted when a weight variable is set. PLOT MEANS\n\
+                 gives each dependent a line chart through the mean of every group, as chart data.\n\
                  Not supported yet: POLYNOMIAL, RANGES, EFFECTS, WALLER.",
         example: "ONEWAY income BY region /STATISTICS=DESCRIPTIVES HOMOGENEITY WELCH /POSTHOC=TUKEY GH.",
         parse: stats::oneway,
@@ -1200,7 +1201,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20          FORWARD [varlist] | BACKWARD [varlist] [/METHOD=...]\n\
                  \x20          [/RESIDUALS=[DEFAULTS DURBIN OUTLIERS(tempvars) ID(var) HISTOGRAM NORMPROB]]\n\
                  \x20          [/CASEWISE=[DEFAULTS OUTLIERS(3) | ALL PLOT(tempvar) DEPENDENT tempvars]]\n\
-                 \x20          [/SAVE=tempvar[(name)] ... [FITS]] [/SCATTERPLOT ...] [/PARTIALPLOT ...].\n\
+                 \x20          [/SAVE=tempvar[(name)] ... [FITS]] [/SCATTERPLOT=(y, x) ...] [/PARTIALPLOT=[ALL | varlist]].\n\
                  tempvar: PRED RESID ZPRED ZRESID SRESID DRESID SDRESID ADJPRED SEPRED MAHAL COOK LEVER DFBETA SDBETA\n\
                  DFFIT SDFIT COVRATIO MCIN ICIN. One equation per dependent; each METHOD works on the equation the\n\
                  ones before it left, and each step is a model. ENTER takes the variables in order of tolerance;\n\
@@ -1216,9 +1217,13 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  correlations pair by pair, with the smallest pair count as N; MEANSUBSTITUTION puts the mean in\n\
                  place of a missing value. SAVE adds variables named PRE_1, RES_1 and so on, or as given; DFBETA and\n\
                  SDBETA save one per coefficient (name0, name1, ...), MCIN and ICIN a lower and an upper bound.\n\
-                 Weighted when a weight variable is set; REGWGT gives weighted least squares. HISTOGRAM, NORMPROB,\n\
-                 SCATTERPLOT, PARTIALPLOT and TEMPLATE are accepted with a warning that charts are not drawn yet.\n\
-                 LABEL changes nothing. Not supported yet: METHOD=TEST, SELECT, MATRIX, OUTFILE.",
+                 Weighted when a weight variable is set; REGWGT gives weighted least squares. Charts come as data:\n\
+                 HISTOGRAM(tempvars) a histogram with a normal curve; NORMPROB(tempvars) a normal P-P plot (PRED,\n\
+                 RESID and DRESID are plotted standardized); RESIDUALS alone gives both of ZRESID. SCATTERPLOT\n\
+                 plots each pair, the first on the vertical axis; a temporary variable takes a star (*ZRESID).\n\
+                 PARTIALPLOT plots, for each independent (or those listed), the dependent's residuals against the\n\
+                 independent's, both regressed on the other independents; it needs two in the equation. TEMPLATE\n\
+                 is ignored with a warning. LABEL changes nothing. Not supported yet: METHOD=TEST, SELECT, MATRIX, OUTFILE.",
         example: "REGRESSION /STATISTICS=COEFF OUTS R ANOVA CHANGE /DEPENDENT=spend /METHOD=ENTER age /METHOD=STEPWISE q1 TO q5 /SAVE=PRED ZRESID.",
         parse: regression::regression,
     },
@@ -1255,7 +1260,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20      [/ANALYSIS=varlist] [/METHOD=CORRELATION]\n\
                  \x20      [/PRINT=[DEFAULT] [INITIAL] [EXTRACTION] [ROTATION] [UNIVARIATE] [CORRELATION] [COVARIANCE]\n\
                  \x20              [SIG] [DET] [INV] [REPR] [AIC] [KMO] [FSCORE] [ALL]]\n\
-                 \x20      [/FORMAT=[SORT] [BLANK(n)] [DEFAULT]] [/DIAGONAL=values | DEFAULT] [/PLOT=...]\n\
+                 \x20      [/FORMAT=[SORT] [BLANK(n)] [DEFAULT]] [/DIAGONAL=values | DEFAULT]\n\
+                 \x20      [/PLOT=[EIGEN] [ROTATION[(f1,f2) ...]]]\n\
                  \x20      [/CRITERIA=[FACTORS(n)] [MINEIGEN(1)] [ITERATE(25)] [ECONVERGE(.001)] [RCONVERGE(.0001)]\n\
                  \x20                 [KAISER | NOKAISER] [DELTA(0)] [KAPPA(4)] [DEFAULT]]\n\
                  \x20      [/EXTRACTION=PC | PAF | ALPHA | IMAGE | ULS | GLS | ML]\n\
@@ -1278,8 +1284,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  n in absolute value. SAVE adds scores by regression, Bartlett or Anderson-Rubin, named FAC1_1,\n\
                  FAC2_1 and so on, or rootname1, rootname2. MATRIX=IN reads a matrix file (ROWTYPE_ N, MEAN,\n\
                  STDDEV, CORR or COV, VARNAME_) from the active dataset or a file. Weighted when a weight variable\n\
-                 is set. PLOT is accepted with a warning that charts are not drawn yet. Not supported yet:\n\
-                 METHOD=COVARIANCE, MATRIX=OUT, MATRIX=IN(FAC=...).",
+                 is set. PLOT gives chart data: EIGEN the scree plot, every eigenvalue of the correlation matrix\n\
+                 against its number; ROTATION the loading plot, each variable at its loadings (rotated when there\n\
+                 is a rotation) on the first two factors, with the third as depth when there are three or more, or\n\
+                 one plot per pair given. Not supported yet: METHOD=COVARIANCE, MATRIX=OUT, MATRIX=IN(FAC=...).",
         example: "FACTOR VARIABLES=q1 TO q10 /PRINT=INITIAL EXTRACTION ROTATION KMO /FORMAT=SORT BLANK(.3) /CRITERIA=MINEIGEN(1) /EXTRACTION=PC /ROTATION=VARIMAX /SAVE=REG(ALL).",
         parse: factor::factor,
     },
@@ -1328,8 +1336,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  squares) and Cluster Membership (CLUSTER), the clusters of a solution numbered in the order of their\n\
                  first case. ID labels the cases. SAVE adds the membership of each solution, named rootname plus the\n\
                  number of clusters, or CLUn_m. MATRIX=IN reads the rows of type PROX of a matrix file, a dissimilarity\n\
-                 matrix unless the value label of PROX says SIMILARITY. PLOT is accepted with a warning that charts\n\
-                 are not drawn yet. Not supported yet: MATRIX=OUT, SAVE with MATRIX=IN.",
+                 matrix unless the value label of PROX says SIMILARITY. Plots come as chart data for each method; a\n\
+                 vertical icicle plot unless PLOT names others. The icicle plot shows the cluster of every case at\n\
+                 each number of clusters, from min to max by inc (default 1 to the number of cases minus 1). The\n\
+                 dendrogram holds every join with its coefficient, rescaled from 1 at the first join to 25 at\n\
+                 the last. Not supported yet: MATRIX=OUT, SAVE with MATRIX=IN.",
         example: "CLUSTER q1 TO q5 /MEASURE=SEUCLID /METHOD=WARD /PRINT=SCHEDULE CLUSTER(2,4) /SAVE=CLUSTER(3).",
         parse: cluster::cluster,
     },
@@ -1456,8 +1467,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  smaller than MINCHILDSIZE is merged with its most similar neighbor. The predictor with the\n\
                  smallest Bonferroni-adjusted significance splits the node when that is at most ALPHASPLIT. A node\n\
                  is not split when it is pure, smaller than MINPARENTSIZE or at MAXDEPTH (AUTO is 3). Exhaustive\n\
-                 CHAID merges down to two categories and keeps the most significant set. The tree is shown as a\n\
-                 table with one row per node, indented by depth; charts are not drawn yet. TREETABLE lists the nodes\n\
+                 CHAID merges down to two categories and keeps the most significant set. The tree diagram comes as\n\
+                 chart data: every node with its parent, the condition that leads to it, its category counts and\n\
+                 percentages, its share of all cases, its predicted category and the split below it. TREETABLE lists the nodes\n\
                  in order with their parents. Gain tables (one per TARGET category) show terminal nodes by index.\n\
                  SAVE adds the terminal node, the predicted category and one probability per category for the\n\
                  cases in the analysis (default names NodeID, PredictedValue, PredictedProbability_1, ...).\n\
