@@ -5,6 +5,7 @@ mod analyze_dialogs;
 mod app;
 mod brand;
 mod complete;
+mod connect_window;
 mod data_dialogs;
 mod dialogs;
 mod editor;
