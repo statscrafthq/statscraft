@@ -3,6 +3,7 @@
 
 use statscraft_engine::Chart;
 use statscraft_engine::office::{self, Item};
+use statscraft_export::picture::Paper;
 use std::path::Path;
 use std::sync::atomic::{AtomicU64, Ordering};
 
@@ -77,10 +78,10 @@ fn open_with_system(path: &Path) -> std::io::Result<()> {
 
 /// Puts the chart on the clipboard as an editable chart with its workbook, which the
 /// presentation and word processing programs paste as their own chart in their theme, with the
-/// data table as tab-separated text beside it for every other program. False when the chart
-/// is not an office chart.
+/// data table as tab-separated text and its picture as PNG (on the window's paper) beside it for
+/// every other program. False when the chart is not an office chart.
 #[cfg(windows)]
-pub fn copy(chart: &Chart, text: &str) -> Result<bool, String> {
+pub fn copy(chart: &Chart, text: &str, paper: Paper) -> Result<bool, String> {
     use clipboard_win::{options::NoClear, raw};
     let Some(package) = office::clipboard_package(chart).map_err(|e| e.to_string())? else {
         return Ok(false);
@@ -92,8 +93,12 @@ pub fn copy(chart: &Chart, text: &str) -> Result<bool, String> {
     raw::empty().map_err(failed)?;
     raw::set_without_clear(format.get(), &package).map_err(failed)?;
     raw::set_string_with(text, NoClear).map_err(failed)?;
-    // shortcut: no picture beside the package until the window draws charts (charts-plan.md
-    // step 4); programs that take only pictures paste the text then.
+    // "PNG" is the name the office programs, browsers and image editors read a picture under
+    if let Some(Ok(png)) = statscraft_export::picture::chart_png(chart, paper) {
+        let format = clipboard_win::register_format("PNG")
+            .ok_or("the clipboard format PNG could not be registered")?;
+        raw::set_without_clear(format.get(), &png).map_err(failed)?;
+    }
     Ok(true)
 }
 
@@ -101,6 +106,6 @@ pub fn copy(chart: &Chart, text: &str) -> Result<bool, String> {
 /// which needs a Mac to test (charts-slice1.md section 7); until then Copy puts the data table
 /// as text, as on Linux.
 #[cfg(not(windows))]
-pub fn copy(_chart: &Chart, _text: &str) -> Result<bool, String> {
+pub fn copy(_chart: &Chart, _text: &str, _paper: Paper) -> Result<bool, String> {
     Ok(false)
 }

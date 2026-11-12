@@ -214,9 +214,18 @@ The buttons over the tables act on the selected tables. A right click on a table
 - **Export selection** saves only them, as a web page or an Excel workbook (one sheet per table, or all tables on one sheet).
 - **Clear output** deletes every table, the same way.
 
+### Charts
+
+A chart shows in the output as a picture, as wide as the window up to about 760 pixels: flat bars, lines, areas, dots and slices in the brand's petrol and amber, with muted labels and thin rule lines, on light or dark paper as the output shows its tables. Bar charts (upright or lying, side by side, stacked or stacked to 100%), pie, line, area and scatter charts and the histogram with its normal curve are drawn; a kind of chart that has no drawing yet shows as its data table.
+
+A right click on a chart offers, besides Copy, Copy as text and Delete:
+
+- **Show data**: the chart's numbers as a table in its place; **Show chart** brings the picture back.
+- **Save chart as PNG...** and **Save chart as SVG...**: the picture as a file, 640 pixels wide (a PNG has twice the pixels), on the paper the output shows.
+
 ### Charts in the office programs
 
-A chart shows in the output as its data table for now. Its office form is a real chart of the office programs, with its numbers in a workbook inside it, so Edit Data opens them, and with no colors of its own, so it takes the theme of the presentation or document it goes into. Bar, pie, line and area charts have one; a histogram has none and goes out as its table.
+A chart's office form is a real chart of the office programs, with its numbers in a workbook inside it, so Edit Data opens them, and with no colors of its own, so it takes the theme of the presentation or document it goes into. Bar, pie, line and area charts have one; a histogram has none and goes out as its table.
 
 A right click on such a chart offers:
 
@@ -226,7 +235,7 @@ A right click on such a chart offers:
 
 Each writes the file to a temporary folder and opens it with the program the system uses for that type of file, so it may be another office suite. Save it from there to keep it.
 
-**Copy** on a single selected chart puts it on the Windows clipboard as an editable chart, with its data as tab-separated text beside it. Pasted into PowerPoint or Word it becomes their own chart, in the theme of the slide or document, and Edit Data opens its numbers. Excel pastes such a chart without its data, as it does with a chart copied in PowerPoint; use Open in Excel instead. On macOS and Linux, Copy puts the chart's data table on the clipboard, as for any table.
+**Copy** on a single selected chart puts it on the Windows clipboard as an editable chart, with its data as tab-separated text and its picture as a PNG beside it, so a program that takes only pictures pastes the picture. Pasted into PowerPoint or Word it becomes their own chart, in the theme of the slide or document, and Edit Data opens its numbers. Excel pastes such a chart without its data, as it does with a chart copied in PowerPoint; use Open in Excel instead. On macOS and Linux, Copy puts the chart's data table on the clipboard, as for any table.
 
 ### Saving output
 

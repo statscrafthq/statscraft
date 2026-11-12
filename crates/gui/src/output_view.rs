@@ -10,6 +10,7 @@ use eframe::egui::{
 };
 use statscraft_engine::office::is_office_chart;
 use statscraft_engine::{Chart, Table};
+use statscraft_export::picture::{self, Paper, Scene};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -28,6 +29,8 @@ const HEADING: f32 = 30.0;
 const GAP: f32 = 22.0;
 /// Space around the output, so a table's border stands off the edge.
 const MARGIN: f32 = 14.0;
+/// The narrowest and widest a chart is drawn; between them it takes the window's width.
+const CHART_WIDTH: (f32, f32) = (320.0, 760.0);
 
 /// What an output window asks of the app.
 pub enum Request {
@@ -44,6 +47,12 @@ pub enum Request {
     /// Delete the selected tables, from the engine's document first (`positions`), then from
     /// the view (`delete_selected`), so both always hold the same items.
     Delete,
+    /// Save a chart as a picture, PNG or SVG, on this paper.
+    SaveChart {
+        chart: Chart,
+        png: bool,
+        paper: Paper,
+    },
 }
 
 /// A table, or a chart as its data table with the chart.
@@ -57,6 +66,12 @@ enum Menu {
     Delete,
     /// The chart of the table the menu belongs to, in an office program.
     Open(Program),
+    /// Show the chart as its data table, or as a picture again.
+    ShowData,
+    /// Save the chart as a picture: PNG or SVG.
+    Save {
+        png: bool,
+    },
 }
 
 /// Where everything of one table goes, measured once.
@@ -113,6 +128,12 @@ pub struct OutputView {
     pub light_paper: bool,
     /// A table of the command whose syntax shows under the navigator.
     syntax_of: Option<u64>,
+    /// Every chart laid out as a picture, or None for a kind that has no drawing yet.
+    scenes: HashMap<u64, Option<Scene>>,
+    /// The width and paper (dark or not) the scenes were laid out for.
+    scenes_at: (f32, bool),
+    /// Charts shown as their data table instead of a picture.
+    as_data: HashSet<u64>,
 }
 
 impl OutputView {
@@ -162,6 +183,16 @@ impl OutputView {
         let selected = std::mem::take(&mut self.selected);
         output::retain(&mut self.runs, |id| !selected.contains(&id));
         self.layouts.retain(|id, _| !selected.contains(id));
+        self.scenes.retain(|id, _| !selected.contains(id));
+        self.as_data.retain(|id| !selected.contains(id));
+    }
+
+    /// The paper the charts were drawn on last.
+    fn paper(&self) -> Paper {
+        match self.scenes_at.1 {
+            true => Paper::Dark,
+            false => Paper::Light,
+        }
     }
 
     /// The places of the selected tables among all, in order: as the engine counts the items
@@ -199,7 +230,7 @@ impl OutputView {
             _ => None,
         };
         if let Some(chart) = chart.filter(|_| rich) {
-            match office::copy(chart, &text) {
+            match office::copy(chart, &text, self.paper()) {
                 Ok(true) => return Ok("chart copied: it pastes as an editable chart".into()),
                 Ok(false) => {}
                 Err(e) => return Err(e),
@@ -474,20 +505,47 @@ impl OutputView {
             self.layouts.clear();
             self.measured_at = scale;
         }
-        // where every table goes: (top, heading of its command if it is the first, table)
-        let mut blocks: Vec<(f32, Option<&str>, &OutputTable)> = Vec::new();
+        // charts as pictures as wide as the window allows, on the paper it shows
+        let chart_width = (ui.available_width() - 2.0 * MARGIN - 16.0)
+            .clamp(CHART_WIDTH.0, CHART_WIDTH.1)
+            .round();
+        let dark = ui.visuals().dark_mode;
+        if self.scenes_at != (chart_width, dark) {
+            self.scenes.clear();
+            self.scenes_at = (chart_width, dark);
+        }
+        let paper = self.paper();
+        for t in output::tables(&self.runs) {
+            if let Some(chart) = &t.chart {
+                let scene = || picture::scene(chart, chart_width, paper);
+                self.scenes.entry(t.id).or_insert_with(scene);
+            }
+        }
+        // where every table goes: (top, heading of its command if it is the first, table, and
+        // the picture of its chart when it shows as one)
+        let mut blocks: Vec<(f32, Option<&str>, &OutputTable, Option<&Scene>)> = Vec::new();
         let (mut bottom, mut width) = (0.0f32, 0.0f32);
         for item in self.runs.iter().flat_map(|run| &run.items) {
             for (i, t) in item.tables.iter().enumerate() {
-                let layout = self
-                    .layouts
-                    .entry(t.id)
-                    .or_insert_with(|| measure(ui, &t.table, &font));
+                let scene = match self.as_data.contains(&t.id) {
+                    true => None,
+                    false => self.scenes.get(&t.id).and_then(Option::as_ref),
+                };
+                let size = match scene {
+                    Some(scene) => vec2(scene.width, scene.height),
+                    None => {
+                        let layout = self
+                            .layouts
+                            .entry(t.id)
+                            .or_insert_with(|| measure(ui, &t.table, &font));
+                        vec2(layout.block_width, layout.block_height())
+                    }
+                };
                 let heading = (i == 0).then_some(item.heading.as_str());
-                blocks.push((bottom, heading, t));
+                blocks.push((bottom, heading, t, scene));
                 let above = if heading.is_some() { HEADING } else { 0.0 };
-                bottom += above + layout.block_height() + GAP;
-                width = width.max(layout.block_width + 8.0);
+                bottom += above + size.y + GAP;
+                width = width.max(size.x + 8.0);
             }
         }
         let mut clicked = None;
@@ -496,6 +554,8 @@ impl OutputView {
         let mut deselect = false;
         let layouts = &self.layouts;
         let selected = &self.selected;
+        let scenes = &self.scenes;
+        let as_data = &self.as_data;
         let scroll_to = &mut self.scroll_to;
         ScrollArea::both()
             .auto_shrink(false)
@@ -512,11 +572,10 @@ impl OutputView {
                 let first = blocks
                     .partition_point(|(top, ..)| *top <= viewport.min.y)
                     .saturating_sub(1);
-                for &(top, heading, t) in &blocks[first..] {
+                for &(top, heading, t, scene) in &blocks[first..] {
                     if top > viewport.max.y {
                         break;
                     }
-                    let layout = &layouts[&t.id];
                     let mut y = area.top() + top;
                     if let Some(heading) = heading {
                         ui.painter().text(
@@ -528,11 +587,27 @@ impl OutputView {
                         );
                         y += HEADING;
                     }
-                    let rect = Rect::from_min_size(
-                        pos2(area.left(), y),
-                        vec2(layout.block_width, layout.block_height()),
-                    );
-                    paint_block(ui, &t.table, layout, rect, &font);
+                    let rect = match scene {
+                        Some(scene) => {
+                            let rect = Rect::from_min_size(
+                                pos2(area.left(), y),
+                                vec2(scene.width, scene.height),
+                            );
+                            let clip = rect.expand(1.0).intersect(ui.clip_rect());
+                            let painter = ui.painter().with_clip_rect(clip);
+                            crate::chart_paint::paint(&painter, scene, rect.min);
+                            rect
+                        }
+                        None => {
+                            let layout = &layouts[&t.id];
+                            let rect = Rect::from_min_size(
+                                pos2(area.left(), y),
+                                vec2(layout.block_width, layout.block_height()),
+                            );
+                            paint_block(ui, &t.table, layout, rect, &font);
+                            rect
+                        }
+                    };
                     if selected.contains(&t.id) {
                         let stroke = Stroke::new(2.0, ui.visuals().selection.stroke.color);
                         let frame = rect.expand(4.0);
@@ -551,6 +626,7 @@ impl OutputView {
                         secondary = Some(t.id);
                     }
                     let office = t.chart.as_ref().is_some_and(is_office_chart);
+                    let drawn = matches!(scenes.get(&t.id), Some(Some(_)));
                     response.context_menu(|ui| {
                         for (label, action) in [
                             ("Copy", Menu::Copy),
@@ -560,6 +636,23 @@ impl OutputView {
                             if ui.button(label).clicked() {
                                 menu = Some((action, t.id));
                                 ui.close();
+                            }
+                        }
+                        if drawn {
+                            ui.separator();
+                            let show = match as_data.contains(&t.id) {
+                                true => "Show chart",
+                                false => "Show data",
+                            };
+                            for (label, action) in [
+                                (show, Menu::ShowData),
+                                ("Save chart as PNG...", Menu::Save { png: true }),
+                                ("Save chart as SVG...", Menu::Save { png: false }),
+                            ] {
+                                if ui.button(label).clicked() {
+                                    menu = Some((action, t.id));
+                                    ui.close();
+                                }
                             }
                         }
                         if office {
@@ -574,7 +667,7 @@ impl OutputView {
                     });
                 }
                 if let Some((id, frames)) = *scroll_to
-                    && let Some(&(top, ..)) = blocks.iter().find(|(.., t)| t.id == id)
+                    && let Some(&(top, ..)) = blocks.iter().find(|(_, _, t, _)| t.id == id)
                 {
                     let at = area.top() + top;
                     let room = Rect::from_min_size(pos2(area.left(), at), vec2(1.0, 40.0));
@@ -601,6 +694,21 @@ impl OutputView {
                 let chart = output::tables(&self.runs).find(|t| t.id == id);
                 let chart = chart.and_then(|t| t.chart.as_ref())?;
                 Some(Request::Status(office::open(chart, program)))
+            }
+            Some((Menu::ShowData, id)) => {
+                if !self.as_data.remove(&id) {
+                    self.as_data.insert(id);
+                }
+                None
+            }
+            Some((Menu::Save { png }, id)) => {
+                let chart = output::tables(&self.runs).find(|t| t.id == id);
+                let chart = chart.and_then(|t| t.chart.clone())?;
+                Some(Request::SaveChart {
+                    chart,
+                    png,
+                    paper: self.paper(),
+                })
             }
             None => None,
         }

@@ -4,6 +4,7 @@
 mod analyze_dialogs;
 mod app;
 mod brand;
+mod chart_paint;
 mod complete;
 mod connect_window;
 mod data_dialogs;

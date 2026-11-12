@@ -40,8 +40,10 @@ use eframe::egui::{
     ScrollArea, Sense, Stroke, StrokeKind, TextEdit, TextStyle, Ui, UiBuilder, pos2, vec2,
 };
 use statscraft_data::{Dataset, Measure, Value, Values};
+use statscraft_engine::Chart;
 use statscraft_engine::live::{self, Action, Request, Response};
 use statscraft_engine::session::{CommandResult, Failure, Queued, RunQueue, RunResult, Session};
+use statscraft_export::picture::{self, Paper};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc};
@@ -2079,6 +2081,41 @@ impl App {
         }
     }
 
+    /// Saves a chart as a PNG or SVG picture on the paper the window shows it on.
+    fn save_chart(&mut self, chart: &Chart, png: bool, paper: Paper) {
+        let (kind, extension) = match png {
+            true => ("PNG image", "png"),
+            false => ("SVG image", "svg"),
+        };
+        let name: String = chart
+            .title
+            .chars()
+            .filter(|c| c.is_alphanumeric() || " -_".contains(*c))
+            .take(60)
+            .collect();
+        let Some(path) = self
+            .file_dialog()
+            .add_filter(kind, &[extension])
+            .set_file_name(format!("{}.{extension}", name.trim()))
+            .save_file()
+        else {
+            return;
+        };
+        self.settings.remember_folder(&path);
+        let bytes = match png {
+            true => picture::chart_png(chart, paper),
+            false => picture::chart_svg(chart, paper).map(|svg| Ok(svg.into_bytes())),
+        };
+        self.status = match bytes {
+            Some(Ok(bytes)) => match std::fs::write(&path, bytes) {
+                Ok(()) => Ok(format!("chart saved to {}", path.display())),
+                Err(e) => Err(format!("{}: {e}", path.display())),
+            },
+            Some(Err(e)) => Err(e),
+            None => Err("this kind of chart has no picture yet".into()),
+        };
+    }
+
     fn export_xlsx(&mut self, id: WindowId, one_sheet: bool, selected: bool) {
         if let Some(path) = self
             .file_dialog()
@@ -3424,6 +3461,9 @@ impl App {
             Some(output_view::Request::ExportXlsx { one_sheet }) => {
                 self.export_xlsx(id, one_sheet, true)
             }
+            Some(output_view::Request::SaveChart { chart, png, paper }) => {
+                self.save_chart(&chart, png, paper)
+            }
             Some(output_view::Request::Status(status)) => self.status = status,
             Some(output_view::Request::Paste(syntax)) => self.paste(&syntax),
             Some(output_view::Request::Run(syntax)) => {
@@ -3772,7 +3812,7 @@ fn output_groups(outputs: Vec<CommandResult>, source: &str, from_editor: bool) -
             }
         };
         let syntax = output::source_lines(source, out.first_line, out.last_line);
-        // shortcut: a chart shows as its data table until the window draws charts
+        // a chart keeps its data table: for Show data, Copy and a kind not drawn yet
         let mut tables: Vec<_> = out.tables.into_iter().map(|t| (t, None)).collect();
         let charts = out.charts.into_iter();
         tables.extend(charts.map(|chart| (chart.data_table(), Some(chart))));
