@@ -1134,7 +1134,11 @@ fn help_lists_every_command() {
     // its summary
     for spec in table::COMMANDS {
         let line = format!("  {}  ", spec.name);
-        assert!(overview.contains(&line), "{} runs into its summary", spec.name);
+        assert!(
+            overview.contains(&line),
+            "{} runs into its summary",
+            spec.name
+        );
     }
     assert!(overview.contains("  LOGISTIC REGRESSION"));
     assert!(!overview.contains("REGRESSIONBinary"));
