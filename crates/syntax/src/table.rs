@@ -31,6 +31,7 @@ use crate::output_docs;
 use crate::output_modify;
 use crate::parser::{PResult, Parser};
 use crate::portable;
+use crate::pplot;
 use crate::procedures;
 use crate::rank;
 use crate::regression;
@@ -103,6 +104,32 @@ macro_rules! glm_syntax {
                  PARAMETER, HOMOGENEITY and LOF.")
     };
 }
+
+/// The help syntax of PPLOT and its other name NPPLOT.
+const PPLOT_SYNTAX: &str = "PPLOT [VARIABLES=] varlist\n\
+                 \x20  [/DISTRIBUTION=NORMAL[(a,b)] | EXPONENTIAL[(a)] | WEIBULL[(a,b)] | PARETO[(a,b)] |\n\
+                 \x20   LNORMAL[(a,b)] | BETA[(a,b)] | GAMMA[(a,b)] | LOGISTIC[(a,b)] | LAPLACE[(a,b)] |\n\
+                 \x20   UNIFORM[(a,b)] | HNORMAL[(a)] | CHI(df) | STUDENT(df)]\n\
+                 \x20  [/FRACTION=BLOM | RANKIT | TUKEY | VW] [/TIES=MEAN | LOW | HIGH | BREAK]\n\
+                 \x20  [/TYPE=Q-Q | P-P] [/PLOT=BOTH | NORMAL | DETRENDED] [/STANDARDIZE | /NOSTANDARDIZE]\n\
+                 \x20  [/LN | /NOLOG] [/DIFF[=n]] [/SDIFF[=n]] [/PERIOD=n] [/APPLY].\n\
+                 Parameters: NORMAL, LOGISTIC, LAPLACE location and scale; EXPONENTIAL rate; WEIBULL,\n\
+                 LNORMAL scale and shape; PARETO threshold and shape; BETA two shapes; GAMMA shape and rate;\n\
+                 UNIFORM minimum and maximum; HNORMAL scale (location 0). Without them they are estimated\n\
+                 from the plotted values (moments; Weibull by least squares on the ranks; Pareto from the\n\
+                 minimum and the mean log; half-normal by maximum likelihood) and listed in a table. Each\n\
+                 variable is a series in case order: missing values are left out, LN logs it first (0 and\n\
+                 below become missing), DIFF and SDIFF (over PERIOD cases; without PERIOD SDIFF is left\n\
+                 out) difference it, STANDARDIZE makes z-scores of the result. Ranks of tied values follow\n\
+                 TIES (BREAK numbers the distinct values 1, 2, ...); FRACTION turns rank r of n into a\n\
+                 proportion p: BLOM (r-3/8)/(n+1/4), RANKIT (r-1/2)/n, TUKEY (r-1/3)/(n+1/3), VW r/(n+1).\n\
+                 Q-Q (the default) plots each value against the distribution's quantile at p, P-P plots p\n\
+                 against the distribution function at the value, both with the line y = x; the detrended\n\
+                 plot shows observed minus expected, with the line y = 0. BOTH draws both plots. Values the\n\
+                 distribution cannot take leave the variable out with a warning. Weights are not used.\n\
+                 APPLY repeats the previous PPLOT (its distribution without the parameters, and its\n\
+                 variables unless new ones are given); the subcommands given with it override.\n\
+                 Not supported yet: APPLY of a named model, TEMPLATE.";
 
 pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
@@ -1603,6 +1630,44 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  MATRIX and XYZ scatterplots; each gives an error.",
         example: "GRAPH /TITLE='Visits per store' /BAR(STACKED)=COUNT BY store BY daypart.",
         parse: graph::graph,
+    },
+    CommandSpec {
+        name: "PPLOT",
+        summary: "Probability plots: Q-Q or P-P plots of variables against a test distribution.",
+        syntax: PPLOT_SYNTAX,
+        example: "PPLOT VARIABLES=wait_min /DISTRIBUTION=GAMMA /TYPE=P-P /PLOT=NORMAL.",
+        parse: pplot::pplot,
+    },
+    CommandSpec {
+        name: "NPPLOT",
+        summary: "Another name for PPLOT.",
+        syntax: "NPPLOT [VARIABLES=] varlist [/subcommands of PPLOT].\n\
+                 The same command as PPLOT, with the same subcommands and defaults.",
+        example: "NPPLOT battery_hours /DISTRIBUTION=WEIBULL /FRACTION=VW.",
+        parse: pplot::pplot,
+    },
+    CommandSpec {
+        name: "ROC",
+        summary: "ROC curve of test variables against a state, with the area under the curve.",
+        syntax: "ROC testvars BY state(value)\n\
+                 \x20  [/MISSING=EXCLUDE | INCLUDE]\n\
+                 \x20  [/CRITERIA=[CUTOFF(INCLUDE | EXCLUDE)] [TESTPOS(LARGE | SMALL)] [CI(95)]\n\
+                 \x20             [DISTRIBUTION(FREE | NEGEXPO)]]\n\
+                 \x20  [/PLOT=CURVE[(REFERENCE)] | NONE] [/PRINT=[SE[(MODELQUALITY)]] [COORDINATES]].\n\
+                 The test variables are numeric; the state variable may be a string, and the value in\n\
+                 parentheses is its positive state, every other valid state negative. Cases with a missing\n\
+                 state or test value are left out of every curve (MISSING=INCLUDE keeps user-missing values);\n\
+                 weights count cases. TESTPOS(SMALL) makes low test values point to the positive state. Each\n\
+                 cutoff lies halfway between neighboring test values, plus one below the smallest and one\n\
+                 above the largest; a value equal to a cutoff tests positive unless CUTOFF(EXCLUDE).\n\
+                 Tables: Case Processing Summary; Area Under the Curve, which counts every positive and\n\
+                 negative pair (a tie as half) and with SE adds the nonparametric standard error (or the\n\
+                 bi-negative exponential one under NEGEXPO when both groups are equally large), the\n\
+                 two-sided test of area 0.5 and the CI interval; COORDINATES lists sensitivity and\n\
+                 1 - specificity at every cutoff. CURVE draws the curves in one chart, REFERENCE adds the\n\
+                 diagonal; MODELQUALITY adds a bar chart of the lower bounds of the intervals.",
+        example: "ROC risk_score lab_index BY relapsed (1) /PLOT=CURVE(REFERENCE) /PRINT=SE COORDINATES.",
+        parse: pplot::roc,
     },
     CommandSpec {
         name: "REPORT",

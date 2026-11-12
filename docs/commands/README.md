@@ -129,6 +129,9 @@ One page per supported command, generated from the same table that the parser an
 | [ANOVA](anova.md) | Analysis of variance for factorial designs with covariates, the older form with MCA tables. |
 | [TREE](tree.md) | A classification tree grown by CHAID or exhaustive CHAID. |
 | [GRAPH](graph.md) | One chart: summaries by category as bars, lines, areas, a pie, points with error bars, a Pareto chart or ranges, a histogram or a scatterplot. |
+| [PPLOT](pplot.md) | Probability plots: Q-Q or P-P plots of variables against a test distribution. |
+| [NPPLOT](npplot.md) | Another name for PPLOT. |
+| [ROC](roc.md) | ROC curve of test variables against a state, with the area under the curve. |
 | [REPORT](report.md) | Case listings and summary statistics by break groups, laid out as a report. |
 | [MATRIX](matrix.md) | Run a program in the matrix language, up to END MATRIX. |
 

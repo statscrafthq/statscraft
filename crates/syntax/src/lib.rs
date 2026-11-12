@@ -49,6 +49,7 @@ mod output_docs;
 mod output_modify;
 mod parser;
 mod portable;
+mod pplot;
 mod preprocess;
 mod procedures;
 mod rank;
@@ -92,6 +93,8 @@ mod tests_nomreg;
 mod tests_npar;
 #[cfg(test)]
 mod tests_output;
+#[cfg(test)]
+mod tests_pplot;
 #[cfg(test)]
 mod tests_preprocess;
 #[cfg(test)]
@@ -164,6 +167,7 @@ pub use output_modify::{
     Indexing, Instance, ItemKind, LabelTest, ModifyBlock, ModifyTarget, OutputModify, SortColumn,
     TableCells, letters, roman,
 };
+pub use pplot::{Pplot, PplotPlot, Roc, TestDistribution};
 pub use preprocess::{FileHandle, MacroState};
 pub use regression::{
     Casewise, Criterion, MethodKind, PlotVariable, Regression, RegressionCriteria,

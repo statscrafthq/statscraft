@@ -123,6 +123,11 @@ fn chart_type(chart: &Chart) -> Option<ChartType> {
             | ChartKind::NormalQq
             | ChartKind::DetrendedNormalQq
             | ChartKind::NormalPp
+            | ChartKind::Qq
+            | ChartKind::DetrendedQq
+            | ChartKind::Pp
+            | ChartKind::DetrendedPp
+            | ChartKind::Roc
             | ChartKind::SpreadLevel
             | ChartKind::Dendrogram
             | ChartKind::Icicle

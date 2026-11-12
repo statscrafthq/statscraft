@@ -96,6 +96,18 @@ pub enum ChartKind {
     /// Points: the observed cumulative probability against the expected one, with the
     /// diagonal.
     NormalPp,
+    /// Points: observed values against the expected quantiles of a test distribution, with
+    /// the diagonal.
+    Qq,
+    /// Points: observed values against their deviation from the expected quantiles.
+    DetrendedQq,
+    /// Points: the observed cumulative proportion against the expected one of a test
+    /// distribution, with the diagonal.
+    Pp,
+    /// Points: the observed cumulative proportion against its deviation from the expected one.
+    DetrendedPp,
+    /// Points joined in order, one line per group: sensitivity against 1 - specificity.
+    Roc,
     /// Points: the spread of every cell against its level, with the regression line.
     SpreadLevel,
     /// Merges: the clustering as a tree with heights.
@@ -283,6 +295,11 @@ impl Chart {
             (ChartKind::NormalQq, _) => "Normal Q-Q plot".into(),
             (ChartKind::DetrendedNormalQq, _) => "Detrended normal Q-Q plot".into(),
             (ChartKind::NormalPp, _) => "Normal P-P plot".into(),
+            (ChartKind::Qq, _) => "Q-Q plot".into(),
+            (ChartKind::DetrendedQq, _) => "Detrended Q-Q plot".into(),
+            (ChartKind::Pp, _) => "P-P plot".into(),
+            (ChartKind::DetrendedPp, _) => "Detrended P-P plot".into(),
+            (ChartKind::Roc, _) => "ROC curve".into(),
             (ChartKind::SpreadLevel, _) => "Spread-versus-level plot".into(),
             (ChartKind::Dendrogram, _) => "Dendrogram".into(),
             (ChartKind::Icicle, _) => "Icicle plot".into(),

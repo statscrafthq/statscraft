@@ -612,6 +612,28 @@ Where the documentation is silent:
 - In the office files a difference area chart, and range bars with more than one pair, go in as pictures; drop-line and high-low charts are line charts of points with high-low lines, error bar charts line charts of points with custom error bars, side by side only in the picture and in Vega-Lite.
 - Not supported yet, each with an error: INTERVAL, TEMPLATE, HILO with more than three series (GROUPED), and OVERLAY, MATRIX and XYZ scatterplots.
 
+### PPLOT
+
+- The plots come as chart data and pictures, one per variable and kind: Q-Q (observed value against the expected quantile, both in data units) or P-P (observed against expected cumulative proportion), each with the line y = x, and their detrended forms with the line y = 0. The points are listed by observed value.
+- Case weights are not used; the Case Processing Summary says so when a weight is set.
+- The half-normal scale is estimated as the square root of the mean square (maximum likelihood), not of the sum of squares.
+- The exponential parameter and the second gamma parameter are rates (1 / mean and mean / S^2), as the estimates and the CDF functions of transformations take them; the tables call them Rate.
+- Lognormal, Pareto and Weibull estimates take logs, so they need positive values; with parameters given, values of 0 are allowed. Values a distribution cannot take, and a series whose parameters cannot be estimated (one that does not vary), leave the variable out with a warning.
+- SDIFF without PERIOD is left out with a warning: there is no TSET, and DATE keeps no periodicity for it.
+- Not supported yet: APPLY of a named model (APPLY alone uses the previous PPLOT) and TEMPLATE, each with an error.
+
+### ROC
+
+- Weights count cases in every statistic, not only in the Case Processing Summary, and need not be whole numbers.
+- The Case Processing Summary adds a Missing row: the weighted cases left out because the state or any test variable is missing.
+- The confidence interval is two-sided at the CI level. The interval is not cut at 0 or 1.
+- With TESTPOS(SMALL) and DISTRIBUTION(NEGEXPO), the bi-negative exponential error is computed from the area in the larger-is-positive direction and kept for the turned area, as the formulas give it.
+- The curves of all test variables share one chart; the points are joined in order from (0, 0) to (1, 1). PLOT=CURVE draws no diagonal unless REFERENCE is given. PRINT=SE(MODELQUALITY) adds a horizontal bar chart of the lower bounds of the intervals, cut at 0.
+
+Where GNU PSPP differs:
+
+- Its interval uses the one-sided normal quantile (at 90 percent its interval is that of 80 percent) and its coordinates table misses some cutoffs; the area, the standard error and the significance agree.
+
 ## Custom tables and multiple response
 
 ### CTABLES

@@ -558,11 +558,15 @@ impl Plot {
                 );
             }
             Plot::Points { groups, lines, .. } => {
+                let roc = chart.kind == ChartKind::Roc;
                 let rows: Vec<Value> = groups
                     .iter()
                     .flat_map(|g| {
-                        g.points.iter().map(move |p| {
+                        g.points.iter().enumerate().map(move |(k, p)| {
                             let mut row = json!({ "group": g.name, "x": p.x, "y": p.y });
+                            if roc {
+                                row["order"] = k.into();
+                            }
                             if let Some(z) = p.z {
                                 row["z"] = z.into();
                             }
@@ -575,11 +579,20 @@ impl Plot {
                     .collect();
                 let x = json!({ "field": "x", "type": "quantitative", "title": xt, "scale": { "zero": false } });
                 let y = json!({ "field": "y", "type": "quantitative", "title": yt, "scale": { "zero": false } });
+                let mark = match chart.kind {
+                    ChartKind::Roc => json!({ "type": "line", "point": true }),
+                    _ => json!({ "type": "point" }),
+                };
                 let mut points = json!({
                     "data": { "values": rows },
-                    "mark": { "type": "point" },
+                    "mark": mark,
                     "encoding": { "x": x, "y": y },
                 });
+                if roc {
+                    // the curve runs through the points in their order, also up a vertical step
+                    points["encoding"]["order"] =
+                        json!({ "field": "order", "type": "quantitative" });
+                }
                 if groups.len() > 1 {
                     points["encoding"]["color"] = json!({
                         "field": "group", "type": "nominal",

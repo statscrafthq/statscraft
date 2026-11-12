@@ -62,6 +62,8 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::QuickCluster(_)
         | Command::Tree(_)
         | Command::Graph(_)
+        | Command::Pplot(_)
+        | Command::Roc(_)
         | Command::Rank(_)
         | Command::Aggregate(_)
         | Command::Autorecode(_)

@@ -218,13 +218,22 @@ fn points(
         let x = along.at(*t, frame.x0, frame.x1);
         d.line(vec![[x, frame.y0], [x, frame.y1]], 1.0, d.pal.rule);
     }
+    // a ROC curve's colors include amber, so its diagonal is quiet
+    let line_color = match chart.kind {
+        ChartKind::Roc => d.pal.neutral,
+        _ => d.pal.amber,
+    };
     for line in lines {
         if let Some([a, b]) = clip(line, along, &frame.value) {
-            d.line(vec![at(a), at(b)], 1.5, d.pal.amber);
+            d.line(vec![at(a), at(b)], 1.5, line_color);
         }
     }
     let labelled = all().filter(|p| p.label.is_some()).count() <= 40;
     for (group, &color) in groups.iter().zip(&colors) {
+        if chart.kind == ChartKind::Roc {
+            let path = group.points.iter().map(|p| at([p.x, p.y])).collect();
+            d.line(path, 2.0, color);
+        }
         for p in group
             .points
             .iter()

@@ -56,6 +56,7 @@ mod pass;
 pub mod picture;
 pub mod plot;
 mod portable;
+mod pplot;
 mod print;
 mod quick_cluster;
 mod random;
@@ -65,6 +66,7 @@ mod regression;
 mod reliability;
 mod report;
 mod restructure;
+mod roc;
 mod rows;
 mod save_translate;
 pub mod session;
@@ -339,6 +341,8 @@ pub struct Engine {
     documents: output_docs::Documents,
     /// See `error_position`.
     error_at: Option<(u32, u32)>,
+    /// The specifications of the last PPLOT, for PPLOT APPLY.
+    pplot_model: Option<Box<statscraft_syntax::Pplot>>,
 }
 
 impl Engine {
@@ -653,6 +657,8 @@ impl Engine {
             | Command::QuickCluster(_)
             | Command::Logistic(_)
             | Command::Nomreg(_)
+            | Command::Pplot(_)
+            | Command::Roc(_)
             | Command::Glm(_)
             | Command::Cluster(_)
             | Command::Discriminant(_)
@@ -874,6 +880,8 @@ impl Engine {
             Command::QuickCluster(command) => self.quick_cluster(command),
             Command::Logistic(command) => self.logistic(command),
             Command::Nomreg(command) => self.nomreg(command),
+            Command::Pplot(command) => self.pplot(command),
+            Command::Roc(command) => self.roc(command),
             Command::Glm(command) => self.glm(command),
             Command::Cluster(command) => self.cluster(command),
             Command::Discriminant(command) => self.discriminant(command),
