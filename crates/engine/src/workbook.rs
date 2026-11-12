@@ -152,6 +152,54 @@ pub fn variable_name(heading: &str, column: usize, used: &mut HashSet<String>) -
     unique
 }
 
+/// A grid this large is read only when its cells fill a good part of it.
+const SPARSE_CELLS: u64 = 20_000_000;
+
+/// The cells of sheet `name`, those inside `bounds` (first row, first column, last row, last
+/// column) when given. Calamine keeps a sheet as a grid from its first to its last cell, so the
+/// cells of an XLSX sheet are taken one by one first: a damaged or odd sheet with a cell at A1
+/// and one at XFD1048576 would need a grid larger than the memory, and is refused unless the
+/// range asked for holds a grid that fits. Other kinds are read as calamine reads them (an XLS
+/// sheet has at most 65536 by 256 cells).
+fn sheet_range(
+    book: &mut calamine::Sheets<Cursor<&[u8]>>,
+    name: &str,
+    bounds: Option<(u32, u32, u32, u32)>,
+) -> Result<calamine::Range<Data>, String> {
+    let calamine::Sheets::Xlsx(xlsx) = book else {
+        return book.worksheet_range(name).map_err(|e| e.to_string());
+    };
+    let mut reader = match xlsx.worksheet_cells_reader(name) {
+        Ok(reader) => reader,
+        // a chart sheet holds no cells, as calamine reads it too
+        Err(calamine::XlsxError::NotAWorksheet(_)) => return Ok(calamine::Range::default()),
+        Err(e) => return Err(e.to_string()),
+    };
+    let mut cells = Vec::new();
+    let (mut low, mut high) = ((u32::MAX, u32::MAX), (0, 0));
+    while let Some(found) = reader.next_cell().map_err(|e| e.to_string())? {
+        let (r, c) = found.get_position();
+        let outside = bounds.is_some_and(|(r0, c0, r1, c1)| r < r0 || r > r1 || c < c0 || c > c1);
+        if outside || matches!(found.get_value(), calamine::DataRef::Empty) {
+            continue;
+        }
+        (low, high) = ((low.0.min(r), low.1.min(c)), (high.0.max(r), high.1.max(c)));
+        cells.push(calamine::Cell::new((r, c), Data::from(found.get_value().clone())));
+    }
+    let count = cells.len() as u64;
+    if count > 0 {
+        let (rows, columns) = (u64::from(high.0 - low.0) + 1, u64::from(high.1 - low.1) + 1);
+        if rows * columns > SPARSE_CELLS && rows * columns > 10 * count {
+            return Err(format!(
+                "the {count} cells of sheet '{name}' lie {rows} rows and {columns} columns \
+                 apart, a grid too large to read; name the part to read with \
+                 /CELLRANGE=RANGE"
+            ));
+        }
+    }
+    Ok(calamine::Range::from_sparse(cells))
+}
+
 /// The sheets of a workbook in their order, for a dialog that offers them.
 pub fn workbook_sheets(path: &std::path::Path) -> Result<Vec<String>, String> {
     let bytes = std::fs::read(path).map_err(|e| e.to_string())?;
@@ -252,9 +300,7 @@ impl Engine {
                     ))
                 })?,
         };
-        let range = book
-            .worksheet_range(&names[index])
-            .map_err(|e| fail(e.to_string()))?;
+        let range = sheet_range(&mut book, &names[index], options.range).map_err(fail)?;
         let (hidden_rows, hidden_columns) =
             if options.ignore_hidden && matches!(book, calamine::Sheets::Xlsx(_)) {
                 hidden_cells(&bytes, index).map_err(fail)?
@@ -266,30 +312,40 @@ impl Engine {
             (None, Some((r0, c0)), Some((r1, c1))) => (r0, c0, r1, c1),
             _ => return Err(fail(format!("sheet '{}' is empty", names[index]))),
         };
-        let columns: Vec<u32> = (c0..=c1).filter(|c| !hidden_columns.contains(c)).collect();
-        let mut rows = (r0..=r1).filter(|r| !hidden_rows.contains(r)).map(|r| {
-            let row: Vec<Cell> = columns
-                .iter()
-                .map(|&c| cell(range.get_value((r, c))))
-                .collect();
-            (r, row)
-        });
+        // only the rows and columns of the range that hold cells are read, the rest is blank;
+        // a range as large as the sheet must not cost a pass over every position
+        let holding = range.start().zip(range.end());
+        let row_holds = |r: &u32| holding.is_some_and(|((a, _), (b, _))| (a..=b).contains(r));
+        let column_holds = |c: &u32| holding.is_some_and(|((_, a), (_, b))| (a..=b).contains(c));
+        // (place in the range, which names V1, V2, ..., column)
+        let columns: Vec<(usize, u32)> = (c0..=c1)
+            .filter(|c| !hidden_columns.contains(c))
+            .enumerate()
+            .filter(|(_, c)| column_holds(c))
+            .collect();
+        let read = |r: u32| -> Vec<Cell> {
+            let cells = columns.iter().map(|&(_, c)| cell(range.get_value((r, c))));
+            cells.collect()
+        };
+        let mut rows = (r0..=r1).filter(|r| !hidden_rows.contains(r));
         let headings: Vec<String> = match options.read_names {
             true => rows
                 .next()
-                .map(|(_, row)| row.iter().map(text).collect())
+                .map(|r| read(r).iter().map(text).collect())
                 .unwrap_or_default(),
             false => Vec::new(),
         };
         let rows: Vec<(u32, Vec<Cell>)> = rows
+            .filter(row_holds)
+            .map(|r| (r, read(r)))
             .filter(|(_, row)| row.iter().any(|c| *c != Cell::Blank))
             .collect();
         let mut data = Dataset::new(rows.len());
         let mut used = HashSet::new();
         let mut warnings = Vec::new();
-        for (k, _) in columns.iter().enumerate() {
-            let heading = headings.get(k).map_or("", |h| h.trim());
-            let values: Vec<&Cell> = rows.iter().map(|(_, row)| &row[k]).collect();
+        for (j, &(k, _)) in columns.iter().enumerate() {
+            let heading = headings.get(j).map_or("", |h| h.trim());
+            let values: Vec<&Cell> = rows.iter().map(|(_, row)| &row[j]).collect();
             if heading.is_empty() && values.iter().all(|c| **c == Cell::Blank) {
                 continue;
             }
