@@ -1,4 +1,5 @@
-//! OUTPUT NEW, NAME, ACTIVATE, CLOSE, DISPLAY and EXPORT: the output documents of a session.
+//! OUTPUT NEW, NAME, ACTIVATE, CLOSE, DISPLAY, EXPORT, SAVE and OPEN: the output documents of
+//! a session.
 //!
 //! Rules, from the descriptions of these commands:
 //! - The tables of every command go to the designated document; OUTPUT NEW and OUTPUT
@@ -9,6 +10,11 @@
 //! - OUTPUT EXPORT writes the designated or the named document, replacing the file.
 //!   CREATESHEET adds or replaces a sheet; MODIFYSHEET adds after the last column (the
 //!   default), after the last row or from a cell; a sheet that does not exist is created.
+//! - OUTPUT SAVE writes the designated or the named document and leaves it open; a file that
+//!   exists is replaced; a name no document has is an error.
+//! - OUTPUT OPEN reads a file into a new document, which becomes the designated one, named by
+//!   NAME (taken from a document that had it) or with a new name. A file that is missing or of
+//!   another kind lets the run go on with the designation as it was.
 //!
 //! Choices where the manual is silent:
 //! - Documents get the names Document1, Document2, ... The window shows each document in an
@@ -22,13 +28,21 @@
 //!   what Statscraft did not write (formulas, charts, formatting) would be lost.
 //! - TEXT writes UTF-8 for LOCALE. Columns are as wide as their widest cell, or with
 //!   COLUMNWIDTH=n wrap at n characters; numbers align right.
+//! - Documents are saved as Statscraft output files (`output_file`). A path with the extension
+//!   of another program's output files is written with .scout instead, with a warning, and
+//!   OUTPUT OPEN reads the .scout file of that name: their files are never overwritten.
+//! - OUTPUT OPEN of a file that cannot be read is a warning, so the run goes on.
+//! - A document remembers the file it was opened from or saved to, and whether items were
+//!   added or deleted since, so the window can ask before closing it.
 
 use crate::office::{CHART_COLUMNS, CHART_ROWS, Item, is_office_chart, put_chart};
+use crate::output_file::{self, CommandItem};
 use crate::xlsx::{put_table, set_widths, sheet_name};
 use crate::{Cell, Chart, Engine, Error, Table, cell_text, header_rows};
 use rust_xlsxwriter::{Workbook, XlsxError};
 use statscraft_syntax::{
-    ExportTarget, OutputCommand, OutputExport, SheetLocation, SheetOperation, TextEncoding,
+    ExportTarget, OutputCommand, OutputExport, OutputOpen, OutputSave, SheetLocation,
+    SheetOperation, TextEncoding,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -48,13 +62,54 @@ pub(crate) struct Documents {
     pub(crate) title: Option<String>,
     /// The files REPORT /OUTFILE wrote in this session, which later reports append to.
     pub(crate) report_files: std::collections::HashSet<PathBuf>,
+    /// What the last OUTPUT OPEN read: the document's name, the file as written and its items,
+    /// for the command's result.
+    opened: Option<(String, String, Vec<output_file::Item>)>,
 }
 
 #[derive(Clone)]
 struct Document {
     name: String,
-    /// Each table with the command that made it; a chart as its data table and itself.
-    tables: Vec<(String, Shown)>,
+    /// The output of each command, in order, as an output file holds it.
+    items: Vec<output_file::Item>,
+    /// The file it was opened from or last saved to.
+    file: Option<PathBuf>,
+    /// Items were added or deleted since it was opened, saved or started.
+    changed: bool,
+}
+
+impl Document {
+    /// Its tables and charts, each with the command that made it; a chart as its data table
+    /// and itself. Items of an unknown kind are left out.
+    fn shown(&self) -> Vec<(String, Shown)> {
+        let leaves = output_file::leaves(&self.items).into_iter();
+        leaves
+            .filter_map(|(command, item)| {
+                let shown = match item {
+                    output_file::Item::Table(t) => (t.clone(), None),
+                    output_file::Item::Chart(c) => (Arc::new(c.data_table()), Some(c.clone())),
+                    _ => return None,
+                };
+                Some((command.to_string(), shown))
+            })
+            .collect()
+    }
+
+    fn count(&self) -> usize {
+        output_file::leaves(&self.items).len()
+    }
+}
+
+/// The extensions of another program's output files, which OUTPUT SAVE never writes.
+const FOREIGN: [&str; 3] = ["spv", "spo", "spw"];
+
+/// `path` with the .scout extension when it has one of another program's output files.
+fn ours(path: &Path) -> Option<PathBuf> {
+    let extension = path.extension()?.to_str()?;
+    FOREIGN
+        .iter()
+        .any(|f| f.eq_ignore_ascii_case(extension))
+        .then(|| path.with_extension(output_file::EXTENSION))
 }
 
 /// A workbook as OUTPUT EXPORT wrote it, and when.
@@ -184,7 +239,9 @@ impl Documents {
         };
         self.open.push(Document {
             name,
-            tables: Vec::new(),
+            items: Vec::new(),
+            file: None,
+            changed: false,
         });
         self.designated = Some(self.open.len() - 1);
         self.open.len() - 1
@@ -211,29 +268,50 @@ impl Documents {
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
 pub struct OutputDocument {
     pub name: String,
-    /// The number of tables it holds.
+    /// The number of tables it holds; a chart counts as one.
     pub tables: usize,
+    /// The file it was opened from or last saved to.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub file: Option<PathBuf>,
+    /// Output was added or deleted since it was opened, saved or started.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub unsaved: bool,
 }
 
 impl Engine {
     /// Adds the tables and the charts of one command (those it made so far, before
-    /// `take_charts`) to the designated document and returns its name; None when there were
-    /// none.
-    pub(crate) fn record_output(&mut self, command: &str, tables: &[Table]) -> Option<String> {
+    /// `take_charts`), with its syntax and warnings, to the designated document and returns its
+    /// name; None when there were none. With `append` they join the document's last command,
+    /// which is this one.
+    pub(crate) fn record_output(
+        &mut self,
+        command: &str,
+        syntax: &str,
+        tables: &[Table],
+        append: bool,
+    ) -> Option<String> {
         if tables.is_empty() && self.charts.is_empty() {
             return None;
         }
-        let tables = tables.iter().map(|t| (Arc::new(t.clone()), None));
-        let charts = self.charts.iter().map(|c| {
-            let chart = Arc::new(c.clone());
-            (Arc::new(c.data_table()), Some(chart))
-        });
-        let shown: Vec<Shown> = tables.chain(charts).collect();
+        use output_file::Item as Out;
+        let tables = tables.iter().map(|t| Out::Table(Arc::new(t.clone())));
+        let charts = self.charts.iter().map(|c| Out::Chart(Arc::new(c.clone())));
+        let items: Vec<Out> = tables.chain(charts).collect();
+        let warnings = self.warnings.clone();
         let documents = &mut self.documents;
         let at = documents.designated();
-        let tables = shown.into_iter().map(|s| (command.to_string(), s));
-        documents.open[at].tables.extend(tables);
-        Some(documents.open[at].name.clone())
+        let document = &mut documents.open[at];
+        document.changed = true;
+        match document.items.last_mut() {
+            Some(Out::Command(last)) if append => last.items.extend(items),
+            _ => document.items.push(Out::Command(CommandItem {
+                command: command.to_string(),
+                syntax: syntax.to_string(),
+                warnings,
+                items,
+            })),
+        }
+        Some(document.name.clone())
     }
 
     /// The open output documents, in the order they were opened.
@@ -241,9 +319,134 @@ impl Engine {
         let open = self.documents.open.iter();
         open.map(|d| OutputDocument {
             name: d.name.clone(),
-            tables: d.tables.len(),
+            tables: d.count(),
+            file: d.file.clone(),
+            unsaved: d.changed,
         })
         .collect()
+    }
+
+    /// The items of an open output document, as an output file holds them.
+    pub fn output_items(&self, name: &str) -> Option<&[output_file::Item]> {
+        let d = &self.documents;
+        d.find(name).map(|at| d.open[at].items.as_slice())
+    }
+
+    /// What the last OUTPUT OPEN read, taken: the document, the file as written, the items.
+    pub(crate) fn take_opened(&mut self) -> Option<(String, String, Vec<output_file::Item>)> {
+        self.documents.opened.take()
+    }
+
+    /// Deletes the tables, charts and other items at `positions` (counted as
+    /// `output_file::leaves` counts them) from a document, as the output window does. Returns
+    /// the titles of what went.
+    pub(crate) fn delete_output(
+        &mut self,
+        name: &str,
+        positions: &[usize],
+    ) -> Result<Vec<String>, Error> {
+        let d = &mut self.documents;
+        let at = d
+            .find(name)
+            .ok_or_else(|| Error(format!("no open output document is named {name}")))?;
+        let document = &mut d.open[at];
+        let leaves = output_file::leaves(&document.items);
+        let titles = positions
+            .iter()
+            .filter_map(|&p| leaves.get(p).map(|(_, item)| item.shown().0.title))
+            .collect();
+        if !output_file::remove(&mut document.items, positions) {
+            return Err(Error(format!(
+                "the output window and the document {name} hold different items; nothing was \
+                 deleted"
+            )));
+        }
+        document.changed |= !positions.is_empty();
+        Ok(titles)
+    }
+
+    /// The document `name` names, else the designated one; None when none is open.
+    fn document_at(&self, command: &str, name: Option<&str>) -> Result<Option<usize>, Error> {
+        let documents = &self.documents;
+        match name {
+            None => Ok(documents.designated),
+            Some(name) => documents.find(name).map(Some).ok_or_else(|| {
+                Error(format!(
+                    "{command}: no open output document is named {name}"
+                ))
+            }),
+        }
+    }
+
+    /// Where the tables go now, for a warning.
+    fn tables_go(&self) -> String {
+        let d = &self.documents;
+        let current = d.designated.map(|at| d.open[at].name.clone());
+        current.unwrap_or_else(|| "a new document".into())
+    }
+
+    fn save_output(&mut self, save: &OutputSave) -> Result<(), Error> {
+        let at = self.document_at("OUTPUT SAVE", save.name.as_deref())?;
+        let mut path = self.path(&save.file);
+        if let Some(scout) = ours(&path) {
+            self.warn(format!(
+                "{} is the name of another program's output file; Statscraft wrote its own \
+                 output file {} instead and left {} alone",
+                save.file,
+                scout.display(),
+                save.file
+            ));
+            path = scout;
+        }
+        if at.is_none() {
+            self.warn("no output document is open; the file holds no output");
+        }
+        if self.dry_run {
+            return Ok(());
+        }
+        let items = at.map_or(&[][..], |at| &self.documents.open[at].items[..]);
+        std::fs::write(&path, output_file::write(items))
+            .map_err(|e| Error(format!("OUTPUT SAVE: cannot write {}: {e}", save.file)))?;
+        if let Some(at) = at {
+            let document = &mut self.documents.open[at];
+            document.file = Some(path);
+            document.changed = false;
+        }
+        Ok(())
+    }
+
+    fn open_output(&mut self, open: &OutputOpen) -> Result<(), Error> {
+        let file = &open.file;
+        let mut path = self.path(file);
+        if let Some(scout) = ours(&path) {
+            if !scout.exists() {
+                self.warn(format!(
+                    "{file} is an output file of another program, which Statscraft cannot read; \
+                     the tables still go to {}",
+                    self.tables_go()
+                ));
+                return Ok(());
+            }
+            path = scout;
+        }
+        let read = std::fs::read_to_string(&path).map_err(|e| e.to_string());
+        let items = match read.and_then(|t| output_file::read(&t).map_err(|e| e.to_string())) {
+            Ok(items) => items,
+            Err(e) => {
+                self.warn(format!(
+                    "cannot open {file}: {e}; the tables still go to {}",
+                    self.tables_go()
+                ));
+                return Ok(());
+            }
+        };
+        let documents = &mut self.documents;
+        let at = documents.start(open.name.as_deref());
+        let document = &mut documents.open[at];
+        document.items = items.clone();
+        document.file = Some(path);
+        documents.opened = Some((document.name.clone(), file.clone(), items));
+        Ok(())
     }
 
     /// The name of the designated document, where the next tables go (OUTPUT NEW and OUTPUT
@@ -292,7 +495,7 @@ impl Engine {
                 let rows = documents.open.iter().enumerate().map(|(i, d)| {
                     vec![
                         Cell::Text(d.name.clone()),
-                        Cell::Number(d.tables.len() as f64),
+                        Cell::Number(d.count() as f64),
                         Cell::Text(if documents.designated == Some(i) {
                             "Yes".into()
                         } else {
@@ -309,28 +512,20 @@ impl Engine {
                 }]);
             }
             OutputCommand::Export(export) => self.export(export)?,
+            OutputCommand::Save(save) => self.save_output(save)?,
+            OutputCommand::Open(open) => self.open_output(open)?,
         }
         Ok(Vec::new())
     }
 
     fn export(&mut self, export: &OutputExport) -> Result<(), Error> {
-        let documents = &self.documents;
-        let at = match &export.name {
-            None => documents.designated,
-            Some(name) => Some(documents.find(name).ok_or_else(|| {
-                Error(format!(
-                    "OUTPUT EXPORT: no open output document is named {name}"
-                ))
-            })?),
-        };
-        let shown: Vec<Shown> = at.map_or_else(Vec::new, |at| {
-            let tables = documents.open[at].tables.iter();
-            tables.map(|(_, shown)| shown.clone()).collect()
-        });
-        let tables: Vec<(String, Arc<Table>)> = at.map_or_else(Vec::new, |at| {
-            let tables = documents.open[at].tables.iter();
-            tables.map(|(c, (t, _))| (c.clone(), t.clone())).collect()
-        });
+        let at = self.document_at("OUTPUT EXPORT", export.name.as_deref())?;
+        let all = at.map_or_else(Vec::new, |at| self.documents.open[at].shown());
+        let shown: Vec<Shown> = all.iter().map(|(_, s)| s.clone()).collect();
+        let tables: Vec<(String, Arc<Table>)> = all
+            .iter()
+            .map(|(c, (t, _))| (c.clone(), t.clone()))
+            .collect();
         if tables.is_empty() {
             self.warn("the output document holds no tables yet; the files have none");
         }

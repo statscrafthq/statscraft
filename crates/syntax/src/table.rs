@@ -1920,6 +1920,35 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: output_docs::output_export,
     },
     CommandSpec {
+        name: "OUTPUT SAVE",
+        summary: "Save an output document as a Statscraft output file (.scout).",
+        syntax: "OUTPUT SAVE [NAME=* | name] OUTFILE='path' [TYPE=SPV] [LOCK=NO | YES] [STOREMODEL=YES | NO]\n\
+                 \x20  [/PASSPROTECT PASSWORD=NONE [ENCRYPTEDPW=NO | YES]].\n\
+                 Writes the designated document (NAME=*), or the named one, with every command's syntax,\n\
+                 warnings, tables and charts, as JSON that File > Open, OUTPUT OPEN and any JSON tool read.\n\
+                 A file that exists is replaced; the document stays open and keeps getting tables. An\n\
+                 unknown NAME is an error. A path ending in .spv, .spo or .spw (another program's output\n\
+                 files) is written with .scout in its place and a warning, so such a file is never\n\
+                 overwritten. TYPE, LOCK and STOREMODEL change nothing. A password on /PASSPROTECT is an\n\
+                 error and nothing is saved: Statscraft output files are never encrypted.",
+        example: "OUTPUT SAVE OUTFILE='wave2-results.scout'.",
+        parse: output_docs::output_save,
+    },
+    CommandSpec {
+        name: "OUTPUT OPEN",
+        summary: "Open a Statscraft output file (.scout) as a new output document.",
+        syntax: "OUTPUT OPEN FILE='path' [NAME=name] [LOCK=YES | NO] [PASSWORD='text'].\n\
+                 Reads the file into a new document, named by NAME or Document1, Document2 and so on, and\n\
+                 sends the tables of the commands that follow to it; OUTPUT SAVE then writes old and new\n\
+                 together, and OUTPUT EXPORT converts the file to a workbook, document or web page. A name\n\
+                 another document has passes to the new one. A file that is missing, is no Statscraft\n\
+                 output file or comes from a newer Statscraft gives a warning, and the tables keep going\n\
+                 where they went. For a path ending in .spv, .spo or .spw the .scout file of that name is\n\
+                 read. LOCK and PASSWORD change nothing.",
+        example: "OUTPUT OPEN FILE='wave2-results.scout' NAME=wave2.",
+        parse: output_docs::output_open,
+    },
+    CommandSpec {
         name: "USE",
         summary: "Use all cases, or a range of cases, in the commands that follow.",
         syntax: "USE ALL.\n\
@@ -2363,7 +2392,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
 
 /// Commands of the language that have no parser yet. They get "not supported yet" instead of
 /// "unknown command", and their bodies are not tokenised.
-static UNSUPPORTED: &[&str] = &["GRAPH", "OUTPUT MODIFY", "OUTPUT OPEN", "OUTPUT SAVE"];
+static UNSUPPORTED: &[&str] = &["GRAPH", "OUTPUT MODIFY"];
 
 /// The ends of blocks whose start reads them, such as END DATA after BEGIN DATA. Standing
 /// alone they are an error at their own line.
@@ -2570,9 +2599,6 @@ pub fn help(command: Option<&str>) -> Option<String> {
             "END DATA" => "END DATA ends the inline data that BEGIN DATA starts.\n".into(),
             "END REPEAT" => "END REPEAT ends the commands that DO REPEAT repeats.\n".into(),
             "END MATRIX" => "END MATRIX ends the program that MATRIX starts.\n".into(),
-            "OUTPUT SAVE" => "OUTPUT SAVE is a command of the language, but Statscraft has no \
-                              output document file of its own; OUTPUT EXPORT writes the tables.\n"
-                .into(),
             _ => format!("{name} is a command of the language, but it is not supported yet.\n"),
         }),
         _ => None,

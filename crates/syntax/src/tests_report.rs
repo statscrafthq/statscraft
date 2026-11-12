@@ -264,13 +264,54 @@ fn output_export_errors() {
 }
 
 #[test]
-fn output_save_is_refused_clearly() {
-    let error = err("OUTPUT SAVE OUTFILE='a.spv'.");
-    assert!(
-        error.contains("no output document file of its own"),
-        "{error}"
+fn output_save_and_open_read_their_keywords() {
+    let save = |source: &str| match one(source) {
+        Command::Output(OutputCommand::Save(s)) => (s.name, s.file),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        save("OUTPUT SAVE OUTFILE='a.scout'."),
+        (None, "a.scout".into())
     );
-    assert!(error.contains("OUTPUT EXPORT"), "{error}");
+    assert_eq!(
+        save(
+            "output save name=men outfile='b.spv' type=spv lock=yes storemodel=no\n\
+             /passprotect password=none encryptedpw=no."
+        ),
+        (Some("men".into()), "b.spv".into())
+    );
+    assert_eq!(save("OUTPUT SAVE NAME=* OUTFILE=h."), (None, "h".into()));
+    let open = |source: &str| match one(source) {
+        Command::Output(OutputCommand::Open(o)) => (o.file, o.name),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        open("OUTPUT OPEN FILE='a.scout' NAME=wave2 LOCK=NO PASSWORD='x'."),
+        ("a.scout".into(), Some("wave2".into()))
+    );
+    for (source, message) in [
+        ("OUTPUT SAVE NAME=men.", "needs OUTFILE"),
+        (
+            "OUTPUT SAVE OUTFILE='a' OUTFILE='b'.",
+            "OUTFILE is given twice on OUTPUT SAVE",
+        ),
+        ("OUTPUT SAVE OUTF='a'.", "expected"),
+        ("OUTPUT SAVE OUTFILE 'a'.", "'='"),
+        ("OUTPUT OPEN NAME=x.", "needs FILE"),
+        ("OUTPUT OPEN FILE='a' /LOCK=NO.", "end of command"),
+    ] {
+        let error = err(source);
+        assert!(error.contains(message), "{source}: {error}");
+    }
+    // a password is refused at the password, so nothing is saved unprotected
+    let (_, errors) = parse("OUTPUT SAVE OUTFILE='a.scout' /PASSPROTECT PASSWORD='secret'.");
+    let error = errors[0].clone();
+    assert!(
+        error.message.contains("cannot be protected by a password"),
+        "{error:?}"
+    );
+    assert_eq!((error.span.line, error.span.column), (1, 53));
+    assert!(error.hint.unwrap().contains("PASSWORD=NONE"));
 }
 
 #[test]
@@ -469,6 +510,6 @@ fn stray_ends_of_blocks_say_where_they_belong() {
     assert!(!unsupported_commands().contains(&"END DATA"));
     assert!(!unsupported_commands().contains(&"FINISH"));
     assert!(help(Some("END DATA")).unwrap().contains("BEGIN DATA"));
-    assert!(help(Some("output save")).unwrap().contains("OUTPUT EXPORT"));
+    assert!(help(Some("output save")).unwrap().contains(".scout"));
     assert!(help(Some("GRAPH")).unwrap().contains("not supported yet"));
 }

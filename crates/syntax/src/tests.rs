@@ -382,7 +382,6 @@ fn real_but_unsupported_commands_say_so() {
     for (source, name) in [
         ("GRAPH /BAR=COUNT BY a.", "GRAPH"),
         ("graph /scatterplot=x WITH y.", "GRAPH"),
-        ("OUTPUT OPEN FILE='old'.", "OUTPUT OPEN"),
         ("output modify /select tables.", "OUTPUT MODIFY"),
     ] {
         let error = err(source);
@@ -1126,7 +1125,7 @@ fn command_names_resolve_from_their_words() {
 #[test]
 fn help_lists_every_command() {
     let overview = help(None).unwrap();
-    assert_eq!(command_names().len(), 146);
+    assert_eq!(command_names().len(), 148);
     for spec in table::COMMANDS {
         assert!(overview.contains(spec.name) && overview.contains(spec.summary));
     }

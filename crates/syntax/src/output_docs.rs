@@ -1,5 +1,5 @@
 //! Parsers of the output document commands: OUTPUT NEW, OUTPUT NAME, OUTPUT ACTIVATE,
-//! OUTPUT CLOSE, OUTPUT DISPLAY and OUTPUT EXPORT.
+//! OUTPUT CLOSE, OUTPUT DISPLAY, OUTPUT EXPORT, OUTPUT SAVE and OUTPUT OPEN.
 //!
 //! Rules from the descriptions of these commands:
 //! - A document name follows the rules for variable names. NAME= is optional on OUTPUT NAME,
@@ -13,6 +13,11 @@
 //!   PowerPoint formats (.docx, .pptx) whatever the file is called; their page and slide
 //!   sizes, margins and wide-table settings are accepted and not applied. /PDF, /XLS and /XLSM
 //!   are refused; the image subcommands write no files, as Statscraft draws no pictures yet.
+//! - OUTPUT SAVE and OUTPUT OPEN: keywords spelled in full, each at most once, equals signs
+//!   required; OUTFILE and FILE are required. TYPE, LOCK and STOREMODEL are read and change
+//!   nothing. A password on /PASSPROTECT is refused here, so nothing is written unprotected
+//!   that the analyst wanted protected; PASSWORD=NONE is fine. The PASSWORD of OUTPUT OPEN is
+//!   read and ignored, as a Statscraft output file is never encrypted.
 
 use crate::ast::Command;
 use crate::error::SyntaxError;
@@ -30,6 +35,23 @@ pub enum OutputCommand {
     CloseAll,
     Display,
     Export(Box<OutputExport>),
+    /// Write a document to a Statscraft output file.
+    Save(OutputSave),
+    /// Read a Statscraft output file into a new document.
+    Open(OutputOpen),
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct OutputSave {
+    /// None is `*`, the designated document.
+    pub name: Option<String>,
+    pub file: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct OutputOpen {
+    pub file: String,
+    pub name: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -231,6 +253,16 @@ fn keywords(
     p: &mut Parser,
     subcommand: &str,
     known: &[&str],
+    read: impl FnMut(&mut Parser, &str) -> PResult<()>,
+) -> PResult<()> {
+    keywords_on(p, &format!("/{subcommand}"), known, read)
+}
+
+/// `keywords`, for those of `place`: a subcommand such as /XLSX or a command.
+fn keywords_on(
+    p: &mut Parser,
+    place: &str,
+    known: &[&str],
     mut read: impl FnMut(&mut Parser, &str) -> PResult<()>,
 ) -> PResult<()> {
     let mut seen: Vec<&str> = Vec::new();
@@ -248,7 +280,7 @@ fn keywords(
         if seen.contains(keyword) {
             return Err(SyntaxError::new(
                 p.span(),
-                format!("{keyword} is given twice on /{subcommand}"),
+                format!("{keyword} is given twice on {place}"),
             ));
         }
         seen.push(keyword);
@@ -639,6 +671,105 @@ pub(crate) fn output_export(p: &mut Parser) -> PResult<Command> {
         ));
     }
     Ok(Command::Output(OutputCommand::Export(Box::new(export))))
+}
+
+/// `= name`, or `= *` (None).
+fn document_or_star(p: &mut Parser) -> PResult<Option<String>> {
+    p.expect(Punct::Eq)?;
+    if p.eat(Punct::Star) {
+        return Ok(None);
+    }
+    p.name("a document name or *").map(Some)
+}
+
+fn file_value(p: &mut Parser) -> PResult<String> {
+    p.expect(Punct::Eq)?;
+    p.file("a file name in quotes")
+}
+
+pub(crate) fn output_save(p: &mut Parser) -> PResult<Command> {
+    let start = p.pos;
+    let (mut name, mut file) = (None, None);
+    keywords_on(
+        p,
+        "OUTPUT SAVE",
+        &["NAME", "OUTFILE", "TYPE", "LOCK", "STOREMODEL"],
+        |p, k| {
+            match k {
+                "NAME" => name = document_or_star(p)?,
+                "OUTFILE" => file = Some(file_value(p)?),
+                "TYPE" => {
+                    choice(p, &["SPV", "SPW"])?;
+                }
+                _ => {
+                    yes_no(p)?;
+                }
+            }
+            Ok(())
+        },
+    )?;
+    let file = file
+        .ok_or_else(|| SyntaxError::new(p.span_from(start), "OUTPUT SAVE needs OUTFILE='file'"))?;
+    if p.eat(Punct::Slash) {
+        if !p.eat_word("PASSPROTECT") {
+            return Err(p.unexpected(&["PASSPROTECT"]));
+        }
+        keywords(p, "PASSPROTECT", &["PASSWORD", "ENCRYPTEDPW"], |p, k| {
+            if k == "ENCRYPTEDPW" {
+                return yes_no(p).map(|_| ());
+            }
+            p.expect(Punct::Eq)?;
+            if p.eat_word("NONE") {
+                return Ok(());
+            }
+            let at = p.pos;
+            p.string("NONE or a password in quotes")?;
+            Err(SyntaxError::new(
+                p.span_from(at),
+                "Statscraft output files cannot be protected by a password, so nothing is saved",
+            )
+            .hint("leave out /PASSPROTECT, or write PASSWORD=NONE"))
+        })?;
+    }
+    p.finish(&[])?;
+    Ok(Command::Output(OutputCommand::Save(OutputSave {
+        name,
+        file,
+    })))
+}
+
+pub(crate) fn output_open(p: &mut Parser) -> PResult<Command> {
+    let start = p.pos;
+    let (mut name, mut file) = (None, None);
+    keywords_on(
+        p,
+        "OUTPUT OPEN",
+        &["FILE", "NAME", "LOCK", "PASSWORD"],
+        |p, k| {
+            match k {
+                "FILE" => file = Some(file_value(p)?),
+                "NAME" => {
+                    p.expect(Punct::Eq)?;
+                    name = Some(p.name("a document name")?);
+                }
+                "LOCK" => {
+                    yes_no(p)?;
+                }
+                _ => {
+                    p.expect(Punct::Eq)?;
+                    p.string("a password in quotes")?;
+                }
+            }
+            Ok(())
+        },
+    )?;
+    p.finish(&[])?;
+    let file =
+        file.ok_or_else(|| SyntaxError::new(p.span_from(start), "OUTPUT OPEN needs FILE='file'"))?;
+    Ok(Command::Output(OutputCommand::Open(OutputOpen {
+        file,
+        name,
+    })))
 }
 
 #[cfg(test)]

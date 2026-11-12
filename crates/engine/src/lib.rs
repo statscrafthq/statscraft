@@ -47,6 +47,7 @@ pub mod office;
 mod oneway;
 mod output;
 mod output_docs;
+pub mod output_file;
 mod partial_corr;
 mod pass;
 pub mod plot;

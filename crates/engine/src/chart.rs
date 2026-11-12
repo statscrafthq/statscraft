@@ -141,6 +141,7 @@ pub struct Series {
     pub variable: Option<String>,
     #[serde(default, skip_serializing_if = "is_empty")]
     pub value: Cell,
+    #[serde(deserialize_with = "numbers")]
     pub values: Vec<f64>,
 }
 
@@ -162,13 +163,27 @@ pub enum Statistic {
 /// x its height is `total` times the bin width times the normal density.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NormalCurve {
+    #[serde(deserialize_with = "number")]
     pub mean: f64,
+    #[serde(deserialize_with = "number")]
     pub std_dev: f64,
+    #[serde(deserialize_with = "number")]
     pub total: f64,
 }
 
 fn is_empty(cell: &Cell) -> bool {
     *cell == Cell::Empty
+}
+
+/// A number that is not finite has no JSON form: it is written as null, which reads back as
+/// NaN, so a saved output file with such a chart opens again.
+fn number<'de, D: serde::Deserializer<'de>>(d: D) -> Result<f64, D::Error> {
+    Ok(Option::<f64>::deserialize(d)?.unwrap_or(f64::NAN))
+}
+
+fn numbers<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<f64>, D::Error> {
+    let values = Vec::<Option<f64>>::deserialize(d)?;
+    Ok(values.into_iter().map(|v| v.unwrap_or(f64::NAN)).collect())
 }
 
 impl Chart {

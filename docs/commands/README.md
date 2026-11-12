@@ -173,6 +173,8 @@ One page per supported command, generated from the same table that the parser an
 | [OUTPUT CLOSE](output-close.md) | Close an output document, or all of them. |
 | [OUTPUT DISPLAY](output-display.md) | List the open output documents. |
 | [OUTPUT EXPORT](output-export.md) | Write the tables and charts of an output document to a workbook, document, presentation, web page, text or CSV file. |
+| [OUTPUT SAVE](output-save.md) | Save an output document as a Statscraft output file (.scout). |
+| [OUTPUT OPEN](output-open.md) | Open a Statscraft output file (.scout) as a new output document. |
 | [FINISH](finish.md) | End the job: the commands after it are not read. |
 
 ## General rules of the language
@@ -214,4 +216,4 @@ Functions of expressions (COMPUTE, IF, SELECT IF, DO IF, ELSE IF, LOOP IF, END L
 
 These commands of the language are recognized, but Statscraft does not run them yet. A script that uses one stops with the error "... is not supported yet" at its line, and nothing is changed.
 
-GRAPH, OUTPUT MODIFY, OUTPUT OPEN, OUTPUT SAVE
+GRAPH, OUTPUT MODIFY

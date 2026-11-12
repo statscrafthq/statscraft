@@ -89,6 +89,21 @@ pub struct CommandResult {
     /// made no tables.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub document: Option<String>,
+    /// OUTPUT OPEN: the file as written and the items it read into `document`, for the window
+    /// to show. Agents read the file itself, so it is not in the JSON.
+    #[serde(skip)]
+    pub opened: Option<(String, Vec<crate::output_file::Item>)>,
+}
+
+/// Lines `first` to `last` (from 1, inclusive) of a source: the syntax of one command.
+pub fn source_lines(source: &str, first: u32, last: u32) -> String {
+    let count = last.saturating_sub(first) as usize + 1;
+    let lines: Vec<&str> = source
+        .lines()
+        .skip(first.saturating_sub(1) as usize)
+        .take(count)
+        .collect();
+    lines.join("\n")
 }
 
 /// What a run did. Serialized, it is the JSON that `statscraft run --json` prints; the command
@@ -334,6 +349,40 @@ impl Session {
         self.engine.designated_output()
     }
 
+    /// The items of an open output document, as OUTPUT SAVE writes them.
+    pub fn output_items(&self, document: &str) -> Option<&[crate::output_file::Item]> {
+        self.engine.output_items(document)
+    }
+
+    /// Deletes items from an output document, as the output window does: `positions` count its
+    /// tables, charts and other items in order (`output_file::leaves`). The log shows it as a
+    /// comment, so a script made from the log still runs. Call it only while no run goes on: a
+    /// run works on a copy of the session and would bring the items back.
+    pub fn delete_output(&mut self, document: &str, positions: &[usize]) -> Result<(), String> {
+        let titles = self
+            .engine
+            .delete_output(document, positions)
+            .map_err(|e| e.0)?;
+        let what = match titles.len() {
+            1 => "1 item".to_string(),
+            n => format!("{n} items"),
+        };
+        let titles: Vec<String> = titles
+            .iter()
+            .map(|t| t.replace(['\n', '\r'], " "))
+            .collect();
+        self.log.push(LogEntry {
+            syntax: format!(
+                "* The output window deleted {what} from {document}: {}.",
+                titles.join("; ")
+            ),
+            result: Ok(format!("deleted {what} from {document}")),
+            warnings: Vec::new(),
+            undone: false,
+        });
+        Ok(())
+    }
+
     /// The macros and macro settings the runs so far defined.
     pub fn macros(&self) -> &statscraft_syntax::MacroState {
         self.engine.macros()
@@ -533,7 +582,10 @@ impl Session {
         let Some((engine, entry)) = self.previous.take() else {
             return false;
         };
+        // the output stays: the window keeps showing it, and undo is about the data
+        let documents = std::mem::take(&mut self.engine.documents);
         self.engine = engine;
+        self.engine.documents = documents;
         self.log[entry].undone = true;
         true
     }
@@ -776,7 +828,12 @@ fn run(
             };
             tables.insert(0, table);
         }
-        let document = engine.record_output(&raw.name, &tables);
+        let syntax = source_lines(source, raw.first_line, raw.last_line);
+        let mut document = engine.record_output(&raw.name, &syntax, &tables, false);
+        let opened = engine.take_opened().map(|(name, file, items)| {
+            document = Some(name);
+            (file, items)
+        });
         outputs.push(CommandResult {
             name: raw.name.clone(),
             first_line: raw.first_line,
@@ -785,6 +842,7 @@ fn run(
             charts: engine.take_charts(),
             warnings: engine.warnings().to_vec(),
             document,
+            opened,
         });
     }
     engine
@@ -793,7 +851,9 @@ fn run(
     // what the pass at the end of the run printed shows with the last command
     let printed = std::mem::take(&mut engine.flushed);
     if let Some(last) = outputs.last_mut() {
-        if let Some(document) = engine.record_output(&last.name, &printed) {
+        let syntax = source_lines(source, last.first_line, last.last_line);
+        let append = last.document.is_some() && last.opened.is_none();
+        if let Some(document) = engine.record_output(&last.name, &syntax, &printed, append) {
             last.document = Some(document);
         }
         last.tables.extend(printed);
@@ -1353,7 +1413,10 @@ mod tests {
         );
         assert_eq!(
             state["output_documents"],
-            serde_json::json!([{"name": "Document1", "tables": 1}, {"name": "men", "tables": 0}])
+            serde_json::json!([
+                {"name": "Document1", "tables": 1, "unsaved": true},
+                {"name": "men", "tables": 0}
+            ])
         );
         assert_eq!(state["designated_output"], "men");
         let text = session.describe(false).unwrap();

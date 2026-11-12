@@ -1,0 +1,98 @@
+{
+  "format": "statscraft-output",
+  "version": 1,
+  "written_by": "statscraft 0.8.0",
+  "items": [
+    {
+      "kind": "command",
+      "command": "FREQUENCIES",
+      "syntax": "FREQUENCIES branch\n  /BARCHART.",
+      "warnings": ["branch: 2 cases have no value"],
+      "items": [
+        {
+          "kind": "table",
+          "title": "Library branch",
+          "row_headers": 2,
+          "columns": ["", "", "Frequency", "Percent"],
+          "column_groups": [
+            [],
+            [],
+            [],
+            []
+          ],
+          "rows": [
+            ["Valid", "Harbor", 14, 46.666666666666664],
+            ["Valid", "Old Town", 16, 53.333333333333336],
+            ["Total", "", 30, 100]
+          ],
+          "formats": [
+            ["", "", "F8.0", "F5.1"],
+            ["", "", "F8.0", "F5.1"],
+            ["", "", "F8.0", "F5.1"]
+          ],
+          "caption": "Visits in March"
+        },
+        {
+          "kind": "chart",
+          "chart": {
+            "kind": "bar",
+            "tier": "presentation",
+            "orientation": "vertical",
+            "grouping": "clustered",
+            "title": "Library branch",
+            "category_axis": {
+              "title": "Library branch",
+              "variable": "branch"
+            },
+            "value_axis": {
+              "title": "Frequency",
+              "format": "F8.0"
+            },
+            "categories": [
+              {
+                "label": "Harbor",
+                "value": 1
+              },
+              {
+                "label": "Old Town",
+                "value": 2
+              }
+            ],
+            "series": [
+              {
+                "name": "Frequency",
+                "statistic": "count",
+                "values": [14, null]
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "kind": "note",
+      "text": "Typed in the window by a later Statscraft",
+      "style": {
+        "bold": true,
+        "size": 12.5,
+        "marks": [1, "two", null]
+      }
+    },
+    {
+      "kind": "table",
+      "title": "Every kind of cell",
+      "row_headers": 1,
+      "columns": ["Label", "Number", "Empty", "Not finite"],
+      "column_groups": [
+        [""],
+        ["Values"],
+        ["Values"],
+        [""]
+      ],
+      "rows": [
+        ["Row \"one\"", -0.000125, null, "Infinity"],
+        ["Ünicode, ☂", 12345678901234, "text", "NaN"]
+      ]
+    }
+  ]
+}

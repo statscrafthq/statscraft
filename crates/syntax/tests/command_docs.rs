@@ -168,6 +168,8 @@ const AREAS: &[(&str, &[&str])] = &[
             "OUTPUT CLOSE",
             "OUTPUT DISPLAY",
             "OUTPUT EXPORT",
+            "OUTPUT SAVE",
+            "OUTPUT OPEN",
             "FINISH",
         ],
     ),

@@ -142,7 +142,8 @@ pub use output::{
     DateSpec, DateUnit, FormatItem, Placement, Print, PrintItem, PrintKind, PrintSpace, Xsave,
 };
 pub use output_docs::{
-    ExportTarget, OutputCommand, OutputExport, SheetLocation, SheetOperation, TextEncoding,
+    ExportTarget, OutputCommand, OutputExport, OutputOpen, OutputSave, SheetLocation,
+    SheetOperation, TextEncoding,
 };
 pub use preprocess::{FileHandle, MacroState};
 pub use regression::{
@@ -345,11 +346,6 @@ fn parse_raw(raw: &RawCommand) -> Result<Command, SyntaxError> {
             "END MATRIX without MATRIX",
         )
         .hint("a matrix program starts with MATRIX")),
-        Resolution::Unsupported("OUTPUT SAVE", used) => Err(SyntaxError::new(
-            name_span(used),
-            "OUTPUT SAVE is not supported: Statscraft has no output document file of its own",
-        )
-        .hint("write the output with OUTPUT EXPORT and /XLSX, /HTML, /TEXT or /CSV")),
         Resolution::Unsupported(name, used) => Err(SyntaxError::new(
             name_span(used),
             format!("{name} is not supported yet; run `statscraft help` for the commands"),
