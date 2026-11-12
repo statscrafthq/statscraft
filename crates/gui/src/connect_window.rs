@@ -685,7 +685,7 @@ mod tests {
                 "cursor".to_string(),
                 vec![format!(
                     "{}: no such file",
-                    home.join(".cursor/mcp.json").display()
+                    home.join(".cursor").join("mcp.json").display()
                 )]
             )
         );
