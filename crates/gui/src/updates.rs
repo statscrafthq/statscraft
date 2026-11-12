@@ -46,6 +46,8 @@ pub struct Updates {
     install: Install,
     /// The new window to start once this one has closed, after Restart now.
     restart: Option<PathBuf>,
+    /// The program should end, for the installer or Restart now (`take_quit`).
+    quit: bool,
 }
 
 fn now() -> u64 {
@@ -70,6 +72,7 @@ impl Updates {
             ctx: ctx.clone(),
             install: Install::detect(),
             restart: None,
+            quit: false,
         };
         let due = settings
             .update_checked
@@ -122,8 +125,8 @@ impl Updates {
                 Event::Checked(_, false) => continue,
                 Event::Updated(Ok((Done::InstallerStarted, _))) => {
                     // the installer replaces the programs once the window is gone, then
-                    // starts it again; the close asks first when work is unsaved
-                    self.ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                    // starts it again; the quit asks first when work is unsaved
+                    self.quit = true;
                     Bar::Hidden
                 }
                 Event::Updated(Ok((Done::Replaced(bin), version))) => Bar::Restart(bin, version),
@@ -228,9 +231,10 @@ impl Updates {
                 let gui = format!("statscraft-gui{}", std::env::consts::EXE_SUFFIX);
                 let program = bin.join(gui);
                 if program.is_file() {
-                    // the close asks about unsaved work first; the new window starts on exit
+                    // the quit asks about unsaved work first; the new window starts on exit
                     self.restart = Some(program);
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    self.quit = true;
+                    ui.ctx().request_repaint();
                 } else {
                     let missing = format!("cannot restart: {} is missing", program.display());
                     self.bar = Bar::Message(Err(missing));
@@ -238,6 +242,11 @@ impl Updates {
             }
             None => {}
         }
+    }
+
+    /// Whether the program should end now, for the installer or Restart now; asked once.
+    pub fn take_quit(&mut self) -> bool {
+        std::mem::take(&mut self.quit)
     }
 
     /// The close after Restart now was cancelled: no new window.

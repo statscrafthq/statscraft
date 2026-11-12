@@ -30,19 +30,20 @@ use crate::settings_window::{self, Section};
 use crate::stats_dialogs::{NparKind, NparTests, PartialCorr, Regression, Reliability, numeric};
 use crate::stats_dialogs_view;
 use crate::syntax_text::{number, quote};
+use crate::syntax_window;
 use crate::updates::Updates;
-use crate::{complete, editor, grid, grid_menu, highlight, themes};
+use crate::windows::{Closing, Kind, Registry, RunQueue, WindowId};
+use crate::{editor, grid, grid_menu, highlight, themes};
 use eframe::egui::{
     self, Align, Align2, Color32, ComboBox, FocusDirection, FontId, Key, Modifiers, Rect, RichText,
-    ScrollArea, Sense, Stroke, StrokeKind, TextEdit, TextStyle, Ui, UiBuilder, pos2,
-    text::LayoutJob, vec2,
+    ScrollArea, Sense, Stroke, StrokeKind, TextEdit, TextStyle, Ui, UiBuilder, pos2, vec2,
 };
 use statscraft_data::{Dataset, Measure, Value, Values};
 use statscraft_engine::live::{self, Action, Request, Response};
 use statscraft_engine::session::{CommandResult, Done, Failure, RunResult, Session};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
-use std::sync::mpsc;
+use std::sync::{Arc, mpsc};
 
 const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
 /// The documentation online.
@@ -54,7 +55,8 @@ type Remote = (Request, mpsc::Sender<Response>);
 /// What to do when a run finishes.
 enum After {
     Show,
-    Editor,
+    /// A run from this syntax window, whose errors it lists.
+    Editor(WindowId),
     OpenData(PathBuf),
     SaveData(PathBuf),
     /// With the dialog's title, for the output.
@@ -62,20 +64,37 @@ enum After {
     Remote(Remote),
 }
 
-/// The question about unsaved work, and the saves before the window closes.
+/// The question about unsaved work, and the saves before the program ends.
 enum Ask {
     /// The question, with what is unsaved and what follows the answer.
     Unsaved(Vec<String>, Then),
-    /// Save was chosen before closing: the data file still to save once no run is going on;
-    /// then the window closes, unless a save failed.
+    /// Save was chosen before quitting: the data file still to save once no run is going on;
+    /// then the program ends, unless a save failed.
     SavingToClose(Option<PathBuf>),
 }
 
 /// What follows the question about unsaved work.
+#[derive(Clone, Copy)]
 enum Then {
-    Close,
-    /// The syntax of this file, or new syntax, takes the editor.
-    Syntax(Option<PathBuf>),
+    /// The program ends; the question shows in this window.
+    Quit(WindowId),
+    /// This window closes, and the question shows in it.
+    Close(WindowId),
+}
+
+impl Then {
+    fn window(self) -> WindowId {
+        match self {
+            Then::Quit(id) | Then::Close(id) => id,
+        }
+    }
+}
+
+/// A run from a syntax window that waits for the one going on.
+struct Queued {
+    source: String,
+    lines: Option<(u32, u32)>,
+    after: After,
 }
 
 /// A run on a worker thread, so a large file or a long run leaves the window responsive.
@@ -89,7 +108,6 @@ struct Busy {
 enum Tab {
     Data,
     Variables,
-    Syntax,
     Output,
 }
 
@@ -391,14 +409,6 @@ struct CellEdit {
     started: bool,
 }
 
-/// The completion list of the syntax editor.
-struct Completion {
-    list: Vec<complete::Candidate>,
-    /// The bytes of the text a candidate replaces.
-    range: std::ops::Range<usize>,
-    selected: usize,
-}
-
 #[derive(Default)]
 struct GridEvents {
     clicked: Option<(usize, usize)>,
@@ -462,17 +472,20 @@ pub struct App {
     /// The Variable View rows selected before the last plain click, which the first click of
     /// a double-click on one of them takes away.
     rows_before_click: BTreeSet<usize>,
-    syntax: String,
-    syntax_file: Option<PathBuf>,
-    syntax_errors: Vec<Failure>,
-    selection: (usize, usize),
+    /// The open windows: the main window and the syntax windows.
+    windows: Registry,
+    /// Runs from syntax windows that wait for the one going on.
+    queue: RunQueue<Queued>,
+    /// The window being drawn, which its menu acts on.
+    here: WindowId,
+    /// The window that shows the dialogs, Settings and About: the one they were opened from.
+    popups: WindowId,
+    /// The icon of every window.
+    icon: Arc<egui::IconData>,
     /// The data file before the last change, which undo puts back too.
     file_before_change: Option<PathBuf>,
     /// The syntax of the run going on or done last, for the syntax of its output.
     source: String,
-    /// The full help of a command, from F1.
-    help_window: Option<String>,
-    completion: Option<Completion>,
     /// The macros defined by the runs of the session, for completion and colours.
     macros: Vec<String>,
     /// The About window is open.
@@ -481,14 +494,11 @@ pub struct App {
     settings_section: Option<Section>,
     /// The dataset as the last open or save left it, to tell whether the data changed since.
     data_saved: Option<Dataset>,
-    /// The syntax text as last loaded or saved; empty for new syntax.
-    syntax_saved: String,
     ask: Option<Ask>,
     /// The user chose to close: the next close request goes through.
     close_ok: bool,
     /// The app icon, shown in the About window.
     logo: egui::TextureHandle,
-    editor_id: Option<egui::Id>,
     output: OutputView,
     /// Window size and position, the last folder, the recent files and the update check, kept
     /// between starts.
@@ -564,23 +574,20 @@ impl App {
             labels_dialog: None,
             missing_dialog: None,
             rows_before_click: BTreeSet::new(),
-            syntax: String::new(),
-            syntax_file: None,
-            syntax_errors: Vec::new(),
-            selection: (0, 0),
+            windows: Registry::new(),
+            queue: RunQueue::default(),
+            here: 0,
+            popups: 0,
+            icon: Arc::new(crate::icon()),
             file_before_change: None,
             source: String::new(),
-            help_window: None,
-            completion: None,
             macros: Vec::new(),
             about: false,
             settings_section: None,
             data_saved: None,
-            syntax_saved: String::new(),
             ask: None,
             close_ok: false,
             logo,
-            editor_id: None,
             output: OutputView::default(),
             settings,
             updates,
@@ -590,12 +597,14 @@ impl App {
             filter: String::new(),
             status,
             warnings: 0,
-            title: "Statscraft".into(),
+            title: String::new(),
             requests,
             busy: None,
             ctx: app_ctx,
             server: server.ok(),
         };
+        app.here = app.windows.root();
+        app.popups = app.here;
         // the table labels chosen in Edit > Settings, as a SET the session then holds
         if let Some(syntax) = app.settings.startup_syntax() {
             app.source = syntax.clone();
@@ -623,8 +632,15 @@ impl App {
         }
         self.warnings = 0;
         let check = matches!(&after, After::Remote((r, _)) if r.action == Action::Check);
-        let folder = self.syntax_file.as_ref().and_then(|f| f.parent());
-        self.session.set_base_dir(folder.map(Path::to_path_buf));
+        // relative file names: from the folder of the syntax that runs, or of the designated
+        // syntax window
+        let window = match &after {
+            After::Editor(id) => Some(*id),
+            _ => self.windows.designated_syntax(),
+        };
+        let file = window.and_then(|id| self.windows.syntax(id)?.file.as_deref());
+        self.session
+            .set_base_dir(file.and_then(Path::parent).map(Path::to_path_buf));
         let job = self.session.job(source, lines, check);
         self.source = source.to_string();
         let label = match &after {
@@ -640,7 +656,30 @@ impl App {
         self.busy = Some(Busy { label, after, done });
     }
 
-    /// Takes a finished run off the worker thread, then the next request from the command line.
+    /// A run from a syntax window: it waits in the queue while another run goes on.
+    fn run_from(
+        &mut self,
+        window: WindowId,
+        source: String,
+        lines: Option<(u32, u32)>,
+        after: After,
+    ) {
+        if self.busy.is_some() {
+            self.queue.push(
+                window,
+                Queued {
+                    source,
+                    lines,
+                    after,
+                },
+            );
+        } else {
+            self.run(&source, lines, after);
+        }
+    }
+
+    /// Takes a finished run off the worker thread, then the next waiting run of a syntax window
+    /// or request from the command line.
     fn poll(&mut self) {
         if let Some(busy) = &self.busy {
             let result = match busy.done.try_recv() {
@@ -653,6 +692,11 @@ impl App {
             let busy = self.busy.take().expect("checked above");
             self.finish(busy.after, result);
             self.macros = session_macros(&self.session.log);
+        }
+        while self.busy.is_none()
+            && let Some((_, q)) = self.queue.pop()
+        {
+            self.run(&q.source, q.lines, q.after);
         }
         while self.busy.is_none()
             && let Ok(remote) = self.requests.try_recv()
@@ -704,36 +748,36 @@ impl App {
                 // the data may have changed under an open cell editor
                 self.cell_edit = None;
                 self.field_edit = None;
-                self.show(result, "command line", false);
+                self.show(result, "command line", None);
             }
             After::Show => {
-                self.show(result, "window", false);
+                self.show(result, "window", None);
             }
-            After::Editor => {
-                self.show(result, "syntax editor", true);
+            After::Editor(id) => {
+                self.show(result, "syntax editor", Some(id));
             }
             After::OpenData(path) => {
-                if self.show(result, "open file", false) {
+                if self.show(result, "open file", None) {
                     self.add_recent(&path);
                     self.data_file = Some(path);
                     self.selected = None;
                     self.cell_edit = None;
                     self.field_edit = None;
-                    self.tab = Tab::Data;
+                    self.show_tab(Tab::Data);
                 }
             }
             After::SaveData(path) => {
-                if self.show(result, "save file", false) {
+                if self.show(result, "save file", None) {
                     self.add_recent(&path);
                     self.data_file = Some(path);
                 }
             }
             After::CloseDialog(title) => {
-                if self.show(result, title, false) {
+                if self.show(result, title, None) {
                     self.dialog = None;
                     if title == "Open Data" {
                         self.selected = None;
-                        self.tab = Tab::Data;
+                        self.show_tab(Tab::Data);
                     }
                 }
             }
@@ -760,19 +804,20 @@ impl App {
         }
     }
 
-    /// Puts the tables of a run in the output, or its errors in the status bar and, for the
-    /// syntax editor, in the editor's error list.
+    /// Puts the tables of a run in the output, or its errors in the status bar and, for a
+    /// syntax window, in the window's error list.
     fn show(
         &mut self,
         result: Result<RunResult, Vec<Failure>>,
         origin: &str,
-        from_editor: bool,
+        editor: Option<WindowId>,
     ) -> bool {
+        let from_editor = editor.is_some();
+        if let Some(w) = editor.and_then(|id| self.windows.syntax_mut(id)) {
+            w.errors = result.as_ref().err().cloned().unwrap_or_default();
+        }
         match result.map(|r| r.commands) {
             Ok(outputs) => {
-                if from_editor {
-                    self.syntax_errors.clear();
-                }
                 let mut commands = Vec::new();
                 for out in outputs {
                     let heading = match (from_editor, out.first_line == out.last_line) {
@@ -786,7 +831,7 @@ impl App {
                     commands.push((heading, syntax, out.tables));
                 }
                 if self.output.add_run(origin, commands) {
-                    self.tab = Tab::Output;
+                    self.show_tab(Tab::Output);
                 }
                 let last = self.session.log.last();
                 let summary = last.and_then(|e| e.result.as_ref().ok());
@@ -799,9 +844,6 @@ impl App {
             }
             Err(errors) => {
                 self.status = Err(error_text(&errors));
-                if from_editor {
-                    self.syntax_errors = errors;
-                }
                 false
             }
         }
@@ -816,7 +858,7 @@ impl App {
     fn open_dropped(&mut self, paths: Vec<PathBuf>) {
         let drop = dropped(paths);
         if let Some(path) = drop.syntax {
-            self.replace_syntax(Some(path));
+            self.load_syntax(path);
         }
         match drop.data {
             Some(path) if is_data_file(&path) => self.open_data(path),
@@ -836,31 +878,75 @@ impl App {
         self.run(&syntax, None, After::SaveData(path));
     }
 
+    /// Opens a syntax file in a new syntax window, or brings the window that has it to the
+    /// front.
     fn load_syntax(&mut self, path: PathBuf) {
+        if let Some(id) = self.windows.with_file(&path) {
+            self.front(id);
+            return;
+        }
         let text = std::fs::read(&path).map_err(|e| e.to_string());
         match text.and_then(|bytes| statscraft_syntax::decode_syntax(&bytes, None)) {
             Ok(text) => {
                 self.add_recent(&path);
-                self.syntax_saved = text.clone();
-                self.syntax = text;
-                self.syntax_file = Some(path);
-                self.syntax_errors.clear();
-                self.tab = Tab::Syntax;
+                self.windows.open_syntax(text, Some(&path));
             }
             Err(e) => self.status = Err(format!("{}: {e}", path.display())),
         }
     }
 
-    fn save_syntax(&mut self, path: PathBuf) {
-        match std::fs::write(&path, &self.syntax) {
+    /// Saves the syntax of a window to a file; false when it was not saved.
+    fn save_syntax(&mut self, id: WindowId, path: PathBuf) -> bool {
+        let Some(w) = self.windows.syntax_mut(id) else {
+            return false;
+        };
+        match std::fs::write(&path, &w.text) {
             Ok(()) => {
-                self.add_recent(&path);
+                w.saved = w.text.clone();
                 self.status = Ok(format!("syntax saved to {}", path.display()));
-                self.syntax_file = Some(path);
-                self.syntax_saved = self.syntax.clone();
+                w.file = Some(path.clone());
+                self.add_recent(&path);
+                true
             }
-            Err(e) => self.status = Err(format!("{}: {e}", path.display())),
+            Err(e) => {
+                self.status = Err(format!("{}: {e}", path.display()));
+                false
+            }
         }
+    }
+
+    /// Saves a syntax window to its file, or to one chosen now; false when it was not saved.
+    fn save_syntax_now(&mut self, id: WindowId) -> bool {
+        match self.windows.syntax(id).map(|w| w.file.clone()) {
+            Some(Some(path)) => self.save_syntax(id, path),
+            Some(None) => self.save_syntax_as(id),
+            None => false,
+        }
+    }
+
+    fn save_syntax_as(&mut self, id: WindowId) -> bool {
+        match self
+            .file_dialog()
+            .add_filter("Syntax", &["sps"])
+            .save_file()
+        {
+            Some(path) => self.save_syntax(id, path),
+            None => false,
+        }
+    }
+
+    /// Brings a window to the front.
+    fn front(&self, id: WindowId) {
+        let viewport = self.windows.viewport(id);
+        self.ctx
+            .send_viewport_cmd_to(viewport, egui::ViewportCommand::Focus);
+    }
+
+    /// Shows a tab of the main window, which opens again if it was closed.
+    fn show_tab(&mut self, tab: Tab) {
+        self.tab = tab;
+        let main = self.windows.open_main();
+        self.front(main);
     }
 
     fn menu(&mut self, ui: &mut Ui) {
@@ -906,7 +992,7 @@ impl App {
                 }
                 ui.separator();
                 if ui.button("New syntax").clicked() {
-                    self.replace_syntax(None);
+                    self.windows.open_syntax(String::new(), None);
                 }
                 if ui.button("Open syntax...").clicked()
                     && let Some(path) = self
@@ -914,7 +1000,7 @@ impl App {
                         .add_filter("Syntax", &["sps"])
                         .pick_file()
                 {
-                    self.replace_syntax(Some(path));
+                    self.load_syntax(path);
                 }
                 let recent = self.settings.recent.clone();
                 ui.add_enabled_ui(!recent.is_empty(), |ui| {
@@ -930,7 +1016,7 @@ impl App {
                                 .clicked()
                             {
                                 if is_syntax_file(&path) {
-                                    self.replace_syntax(Some(path));
+                                    self.load_syntax(path);
                                 } else {
                                     self.open_data(path);
                                 }
@@ -938,14 +1024,18 @@ impl App {
                         }
                     });
                 });
-                if ui.button("Save syntax").clicked() {
-                    match self.syntax_file.clone() {
-                        Some(path) => self.save_syntax(path),
-                        None => self.save_syntax_as(),
-                    }
+                let syntax = self.windows.syntax(self.here).is_some();
+                if ui
+                    .add_enabled(syntax, egui::Button::new("Save syntax"))
+                    .clicked()
+                {
+                    self.save_syntax_now(self.here);
                 }
-                if ui.button("Save syntax as...").clicked() {
-                    self.save_syntax_as();
+                if ui
+                    .add_enabled(syntax, egui::Button::new("Save syntax as..."))
+                    .clicked()
+                {
+                    self.save_syntax_as(self.here);
                 }
                 ui.separator();
                 if ui
@@ -968,8 +1058,11 @@ impl App {
                     });
                 });
                 ui.separator();
+                if ui.button("Close").clicked() {
+                    self.close_window(self.here);
+                }
                 if ui.button("Exit").clicked() {
-                    ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                    self.quit(self.here);
                 }
             });
             ui.menu_button("Edit", |ui| {
@@ -1179,6 +1272,7 @@ impl App {
                     }
                 }
             });
+            ui.menu_button("Window", |ui| self.window_menu(ui));
             ui.menu_button("Help", |ui| {
                 if ui.button("Documentation").on_hover_text(DOCS).clicked() {
                     ui.ctx().open_url(egui::OpenUrl::new_tab(DOCS));
@@ -1228,21 +1322,117 @@ impl App {
             .save_file()
     }
 
-    /// What would be lost if the window closed now.
+    /// What would be lost if the program ended now: the data, then the syntax of every window.
     fn unsaved(&self) -> Vec<String> {
-        unsaved_items(
-            self.session.dataset(),
-            self.data_saved.as_ref(),
-            self.data_file.as_deref(),
-            &self.syntax,
-            &self.syntax_saved,
-            self.syntax_file.as_deref(),
-        )
+        let data = self.session.dataset();
+        let mut items = unsaved_data(data, self.data_saved.as_ref(), self.data_file.as_deref());
+        items.extend(self.windows.unsaved());
+        items
     }
 
-    /// Every close comes here as a close request: the title bar, Alt+F4, File > Exit, and the
-    /// update installer or restart, which send `ViewportCommand::Close`. With unsaved work the
-    /// window stays open and asks; with Save chosen it closes once the saves are done.
+    /// The Window menu: every open window, where a click brings it to the front, and the
+    /// designated syntax window (marked +), which takes pasted syntax.
+    fn window_menu(&mut self, ui: &mut Ui) {
+        let mut chosen = None;
+        for w in self.windows.iter() {
+            let name = self.window_name(w.id);
+            let name = if w.designated {
+                format!("{name} +")
+            } else {
+                name
+            };
+            if ui.selectable_label(w.id == self.here, name).clicked() {
+                chosen = Some(w.id);
+            }
+        }
+        if let Some(id) = chosen {
+            self.front(id);
+        }
+        ui.separator();
+        let designate = self.windows.syntax(self.here).is_some()
+            && self.windows.designated_syntax() != Some(self.here);
+        if ui
+            .add_enabled(designate, egui::Button::new("Designate window"))
+            .clicked()
+        {
+            self.windows.designate(self.here);
+        }
+    }
+
+    /// The name of a window, in its title bar and the Window menu.
+    fn window_name(&self, id: WindowId) -> String {
+        match self.windows.get(id).map(|w| &w.kind) {
+            Some(Kind::Syntax(s)) => s.name(),
+            _ => match self.data_file.as_ref().and_then(|p| p.file_name()) {
+                Some(name) => name.to_string_lossy().into_owned(),
+                None => "Data and output".into(),
+            },
+        }
+    }
+
+    /// File > Close and the close button of a window. Closing the last window quits; a syntax
+    /// window with unsaved text asks first.
+    fn close_window(&mut self, id: WindowId) {
+        if self.ask.is_some() {
+            return;
+        }
+        match self.windows.closing(id) {
+            Closing::Quit => self.quit(id),
+            Closing::Ask(items) => self.ask = Some(Ask::Unsaved(items, Then::Close(id))),
+            Closing::Close => self.drop_window(id),
+        }
+    }
+
+    /// Takes a window away. When the root drew it, the root draws the next window, in that
+    /// window's place.
+    fn drop_window(&mut self, id: WindowId) {
+        let root = self.windows.root();
+        self.windows.close(id);
+        self.queue.drop_window(id);
+        if self.popups == id {
+            self.popups = self.windows.root();
+        }
+        if id == root {
+            let viewport = egui::ViewportId::ROOT;
+            if let Some(w) = self.windows.get(self.windows.root()) {
+                if let Some(position) = w.position {
+                    let command = egui::ViewportCommand::OuterPosition(position);
+                    self.ctx.send_viewport_cmd_to(viewport, command);
+                }
+                if let Some(size) = w.size {
+                    let command = egui::ViewportCommand::InnerSize(size);
+                    self.ctx.send_viewport_cmd_to(viewport, command);
+                }
+            }
+            self.ctx
+                .send_viewport_cmd_to(viewport, egui::ViewportCommand::Focus);
+        }
+    }
+
+    /// File > Exit, the close of the last window and the update installer: with unsaved work
+    /// anywhere, the question comes first, in window `here`.
+    fn quit(&mut self, here: WindowId) {
+        if self.ask.is_some() {
+            return;
+        }
+        let items = self.unsaved();
+        if items.is_empty() {
+            self.end();
+        } else {
+            self.ask = Some(Ask::Unsaved(items, Then::Quit(here)));
+        }
+    }
+
+    /// Ends the program: the root closes, and every window with it.
+    fn end(&mut self) {
+        self.close_ok = true;
+        self.ctx
+            .send_viewport_cmd_to(egui::ViewportId::ROOT, egui::ViewportCommand::Close);
+    }
+
+    /// The root's close requests (its title bar, Alt+F4) close only the window it draws; the
+    /// program ends with the last window. With Save chosen before quitting, the program ends
+    /// once the saves are done.
     fn close_request(&mut self, ctx: &egui::Context) {
         if self.close_ok {
             return;
@@ -1252,76 +1442,43 @@ impl App {
         {
             match pending.take() {
                 Some(path) => self.save_data(path),
-                None if self.unsaved().is_empty() => {
-                    self.close_ok = true;
-                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-                }
+                None if self.unsaved().is_empty() => self.end(),
                 // a save failed, and the status bar says why
                 None => self.keep_open(),
             }
         }
-        if self.ask.is_some() {
-            if ctx.input(|i| i.viewport().close_requested()) {
-                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                // a close during the syntax question is dropped, a restart with it
-                if matches!(self.ask, Some(Ask::Unsaved(_, Then::Syntax(_)))) {
-                    self.updates.cancel_restart();
-                }
+        if self.close_ok {
+            return;
+        }
+        if ctx.input(|i| i.viewport().close_requested()) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.close_window(self.windows.root());
+        }
+        if self.updates.take_quit() {
+            if self.ask.is_some() {
+                // a quit during a question is dropped, a restart with it
+                self.updates.cancel_restart();
+            } else {
+                self.quit(self.windows.root());
             }
-        } else if let Some(items) = hold_close(ctx, || self.unsaved()) {
-            self.ask = Some(Ask::Unsaved(items, Then::Close));
         }
     }
 
-    /// The window stays open after all: no saves wait, and no restart.
+    /// The program goes on after all: no saves wait, and no restart.
     fn keep_open(&mut self) {
         self.ask = None;
         self.updates.cancel_restart();
     }
 
-    /// New syntax (`None`) or a syntax file takes the editor; unsaved syntax is asked about
-    /// first.
-    fn replace_syntax(&mut self, next: Option<PathBuf>) {
-        if self.ask.is_some() {
-            return;
-        }
-        let file = self.syntax_file.as_deref();
-        let items = unsaved_items(None, None, None, &self.syntax, &self.syntax_saved, file);
-        if items.is_empty() {
-            self.take_syntax(next);
-        } else {
-            self.ask = Some(Ask::Unsaved(items, Then::Syntax(next)));
-        }
-    }
-
-    fn take_syntax(&mut self, next: Option<PathBuf>) {
-        match next {
-            Some(path) => self.load_syntax(path),
-            None => {
-                self.syntax.clear();
-                self.syntax_saved.clear();
-                self.syntax_file = None;
-                self.syntax_errors.clear();
-                self.tab = Tab::Syntax;
-            }
-        }
-    }
-
-    /// Saves the syntax to its file, or to one chosen now; false when it was not saved.
-    fn save_syntax_now(&mut self) -> bool {
-        match self.syntax_file.clone() {
-            Some(path) => self.save_syntax(path),
-            None => self.save_syntax_as(),
-        }
-        self.syntax == self.syntax_saved
-    }
-
-    /// The question about unsaved work, before closing or before other syntax takes the
-    /// editor: Save, Don't save or Cancel. Escape or a click beside it cancels.
+    /// The question about unsaved work, before a window closes or the program ends: Save,
+    /// Don't save or Cancel. Escape or a click beside it cancels. It shows in its own window.
     fn unsaved_window(&mut self, ctx: &egui::Context) {
         let Some(Ask::Unsaved(items, then)) = &self.ask else {
             return;
         };
+        if then.window() != self.here {
+            return;
+        }
         enum Answer {
             Save,
             Discard,
@@ -1331,8 +1488,8 @@ impl App {
         let modal = egui::Modal::new(egui::Id::unique("unsaved")).show(ctx, |ui| {
             ui.set_max_width(460.0);
             ui.label(match then {
-                Then::Close => "Save the changes before closing?",
-                Then::Syntax(_) => "Save the changes to the syntax first?",
+                Then::Quit(_) => "Save the changes before closing?",
+                Then::Close(_) => "Save the changes to the syntax first?",
             });
             ui.add_space(4.0);
             for item in items {
@@ -1361,28 +1518,31 @@ impl App {
             return;
         };
         match (answer, then) {
-            (Answer::Save, Then::Close) => self.save_before_close(),
-            (Answer::Discard, Then::Close) => {
-                self.close_ok = true;
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
-            }
-            (Answer::Cancel, Then::Close) => self.keep_open(),
-            (Answer::Save, Then::Syntax(next)) => {
-                if self.save_syntax_now() {
-                    self.take_syntax(next);
+            (Answer::Save, Then::Quit(_)) => self.save_before_close(),
+            (Answer::Discard, Then::Quit(_)) => self.end(),
+            (Answer::Cancel, Then::Quit(_)) => self.keep_open(),
+            (Answer::Save, Then::Close(id)) => {
+                if self.save_syntax_now(id) {
+                    self.drop_window(id);
                 }
             }
-            (Answer::Discard, Then::Syntax(next)) => self.take_syntax(next),
-            (Answer::Cancel, Then::Syntax(_)) => {}
+            (Answer::Discard, Then::Close(id)) => self.drop_window(id),
+            (Answer::Cancel, Then::Close(_)) => {}
         }
     }
 
-    /// Saves the syntax, then the data, each to its file or to one chosen now; a cancelled
-    /// file dialog or a failed save keeps the window open.
+    /// Saves the syntax of every window, then the data, each to its file or to one chosen now;
+    /// a cancelled file dialog or a failed save keeps the program open.
     fn save_before_close(&mut self) {
-        if self.syntax != self.syntax_saved && !self.save_syntax_now() {
-            self.keep_open();
-            return;
+        for id in self.windows.ids() {
+            let unsaved = self
+                .windows
+                .syntax(id)
+                .is_some_and(|w| w.unsaved().is_some());
+            if unsaved && !self.save_syntax_now(id) {
+                self.keep_open();
+                return;
+            }
         }
         let data = self.session.dataset();
         let pending = if data.is_some() && data != self.data_saved.as_ref() {
@@ -1397,16 +1557,6 @@ impl App {
             None
         };
         self.ask = Some(Ask::SavingToClose(pending));
-    }
-
-    fn save_syntax_as(&mut self) {
-        if let Some(path) = self
-            .file_dialog()
-            .add_filter("Syntax", &["sps"])
-            .save_file()
-        {
-            self.save_syntax(path);
-        }
     }
 
     /// Exports the whole output, or with `selected` only the selected tables.
@@ -1449,7 +1599,6 @@ impl App {
             for (tab, label) in [
                 (Tab::Data, "Data"),
                 (Tab::Variables, "Variables"),
-                (Tab::Syntax, "Syntax"),
                 (Tab::Output, "Output"),
             ] {
                 ui.selectable_value(&mut self.tab, tab, RichText::new(label).size(15.0));
@@ -1474,6 +1623,9 @@ impl App {
             ui.horizontal(|ui| {
                 ui.spinner();
                 ui.label(&busy.label);
+                if self.queue.waits(self.here) {
+                    ui.strong("This window's run is waiting");
+                }
             });
             return;
         }
@@ -1499,7 +1651,7 @@ impl App {
     }
 
     /// The result of the last run and its warnings; a click on the warnings shows the log,
-    /// from the Data and Variable Views in the Syntax view.
+    /// from the Data and Variable Views in the Output view.
     fn status_line(&mut self, ui: &mut Ui) {
         ui.with_layout(egui::Layout::left_to_right(Align::Center), |ui| {
             if let Some(note) = warning_note(self.warnings)
@@ -1508,8 +1660,8 @@ impl App {
                     .clicked()
             {
                 self.show_log = true;
-                if !shows_log(self.tab) {
-                    self.tab = Tab::Syntax;
+                if self.windows.main() == Some(self.here) && !shows_log(self.tab) {
+                    self.tab = Tab::Output;
                 }
             }
             // a long message is cut at the links of the split, filter and weight
@@ -2160,9 +2312,17 @@ impl App {
     }
 
     /// Puts syntax at the end of the syntax editor and shows it.
+    /// Puts syntax from a dialog or the output at the end of the designated syntax window, or
+    /// of a new one.
     fn paste(&mut self, text: &str) {
-        editor::append(&mut self.syntax, text);
-        self.tab = Tab::Syntax;
+        let id = match self.windows.designated_syntax() {
+            Some(id) => id,
+            None => self.windows.open_syntax(String::new(), None),
+        };
+        if let Some(w) = self.windows.syntax_mut(id) {
+            editor::append(&mut w.text, text);
+        }
+        self.front(id);
     }
 
     /// The question before syntax that deletes or reorders runs: the question, the syntax, the
@@ -2475,300 +2635,6 @@ impl App {
         }
     }
 
-    fn syntax_view(&mut self, ui: &mut Ui) {
-        let run_selection_key = ui.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Enter));
-        if ui.input(|i| i.key_pressed(Key::F1)) {
-            let line = editor::line_of(&self.syntax, self.selection.0.max(self.selection.1));
-            let command = editor::command_at(&self.syntax, line);
-            self.help_window = statscraft_syntax::help(command.as_deref());
-        }
-        let mut run_all = false;
-        let mut run_selection = run_selection_key;
-        ui.horizontal(|ui| {
-            run_all = ui.button("Run all").clicked();
-            run_selection |= ui
-                .button("Run selection")
-                .on_hover_text("Ctrl+Enter")
-                .clicked();
-            let name = self
-                .syntax_file
-                .as_ref()
-                .map_or("unsaved syntax".into(), |p| p.display().to_string());
-            ui.weak(name);
-        });
-        if !self.syntax_errors.is_empty() {
-            egui::Panel::bottom("syntax_errors")
-                .resizable(true)
-                .default_size(80.0)
-                .show(ui, |ui| {
-                    ScrollArea::vertical().show(ui, |ui| {
-                        for error in &self.syntax_errors {
-                            ui.colored_label(ui.visuals().error_fg_color, error.text());
-                        }
-                    });
-                });
-        }
-
-        // keys of an open completion list, before the editor sees them
-        let explicit = ui.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Space));
-        let mut accept = None;
-        if let Some(c) = self.completion.as_mut() {
-            ui.input_mut(|i| {
-                if i.consume_key(Modifiers::NONE, Key::ArrowDown) {
-                    c.selected = (c.selected + 1).min(c.list.len() - 1);
-                }
-                if i.consume_key(Modifiers::NONE, Key::ArrowUp) {
-                    c.selected = c.selected.saturating_sub(1);
-                }
-                if i.consume_key(Modifiers::NONE, Key::Enter)
-                    || i.consume_key(Modifiers::NONE, Key::Tab)
-                {
-                    accept = Some(c.selected);
-                }
-            });
-            if ui.input_mut(|i| i.consume_key(Modifiers::NONE, Key::Escape)) {
-                self.completion = None;
-                // Escape also takes the focus from a text field: give it back
-                if let Some(id) = self.editor_id {
-                    ui.memory_mut(|m| m.request_focus(id));
-                }
-            }
-        }
-        if let Some(index) = accept {
-            self.accept_completion(ui.ctx(), index);
-        }
-
-        let font = FontId::monospace(14.0);
-        let error_lines: Vec<u32> = self.syntax_errors.iter().filter_map(|e| e.line).collect();
-        let wrap = !self.settings.wrap_off;
-        let macros = self.macros.join(" ");
-        let theme = themes::by_name(&self.settings.theme);
-        let theme_index = themes::THEMES
-            .iter()
-            .position(|t| t.name == theme.name)
-            .unwrap_or(0);
-        let mut layouter = |ui: &Ui, text: &dyn egui::TextBuffer, wrap_width: f32| {
-            let mut job =
-                highlight::cached_job(ui.ctx(), text.as_str(), &macros, theme_index, 14.0);
-            job.wrap.max_width = if wrap { wrap_width } else { f32::INFINITY };
-            ui.ctx().fonts_mut(|f| f.layout_job(job))
-        };
-        let gutter = ui.ctx().fonts_mut(|f| f.glyph_width(&font, '0')) * 5.0 + 4.0;
-        let area = if wrap {
-            ScrollArea::vertical()
-        } else {
-            ScrollArea::both()
-        };
-        let mut popup_at = None;
-        let mut hovered_command = None;
-        egui::CentralPanel::default().show(ui, |ui| {
-            editor_paper(ui, theme);
-            // the text fills the tab however tall the window is
-            let height = ui.available_height();
-            area.auto_shrink(false).show(ui, |ui| {
-                ui.horizontal_top(|ui| {
-                    let left = ui.cursor().left();
-                    ui.add_space(gutter);
-                    let output = TextEdit::multiline(&mut self.syntax)
-                        .id_salt("syntax_editor")
-                        .code_editor()
-                        // no frame: the paper behind it sets the text apart
-                        .frame(egui::Frame::NONE.inner_margin(egui::Margin::symmetric(6, 4)))
-                        .lock_focus(true)
-                        .desired_width(f32::INFINITY)
-                        .desired_rows(4)
-                        .min_size(vec2(0.0, height))
-                        .margin(vec2(6.0, 4.0))
-                        .layouter(&mut layouter)
-                        .show(ui);
-                    self.editor_id = Some(output.response.id);
-                    // a line number beside the first row of every line, which may wrap
-                    let mut line = 1;
-                    let mut starts_line = true;
-                    for row in &output.galley.rows {
-                        if starts_line {
-                            let error = error_lines.contains(&line);
-                            let color = if error {
-                                ui.visuals().error_fg_color
-                            } else {
-                                ui.visuals().weak_text_color()
-                            };
-                            ui.painter().text(
-                                pos2(left + gutter, output.galley_pos.y + row.pos.y),
-                                Align2::RIGHT_TOP,
-                                format!("{}{line}", if error { "!" } else { "" }),
-                                font.clone(),
-                                color,
-                            );
-                            line += 1;
-                        }
-                        starts_line = row.ends_with_newline;
-                    }
-                    let mut moved = false;
-                    if let Some(range) = output.cursor_range {
-                        let selection = (range.secondary.index.0, range.primary.index.0);
-                        moved = selection != self.selection;
-                        self.selection = selection;
-                        let cursor = output.galley.pos_from_cursor(range.primary);
-                        popup_at = Some(output.galley_pos + cursor.left_bottom().to_vec2());
-                    }
-                    let changed = output.response.changed();
-                    if changed || explicit {
-                        self.complete(explicit);
-                    } else if moved {
-                        self.completion = None;
-                    }
-                    if output.response.hovered()
-                        && let Some(pointer) = ui.input(|i| i.pointer.hover_pos())
-                    {
-                        let at = output.galley.cursor_from_pos(pointer - output.galley_pos);
-                        let byte = editor::byte_of(&self.syntax, at.index.0);
-                        hovered_command = complete::command_at_byte(&self.syntax, byte)
-                            .map(|spec| (spec, egui::Response::clone(&output.response)));
-                    }
-                });
-            });
-        });
-        if let Some((spec, response)) = hovered_command
-            && self.completion.is_none()
-        {
-            response.on_hover_ui_at_pointer(|ui| command_card(ui, spec));
-        }
-        if let Some(at) = popup_at {
-            self.completion_popup(ui.ctx(), at);
-        }
-        if let Some(text) = &self.help_window {
-            let mut open = true;
-            egui::Window::new("Command help")
-                .open(&mut open)
-                .default_size([560.0, 420.0])
-                .show(ui.ctx(), |ui| {
-                    // the help text is laid out in lines and indents, so it scrolls instead of wrapping
-                    ScrollArea::both().auto_shrink(false).show(ui, |ui| {
-                        ui.add(egui::Label::new(RichText::new(text).monospace()).extend());
-                    });
-                });
-            if !open || ui.input(|i| i.key_pressed(Key::Escape)) {
-                self.help_window = None;
-            }
-        }
-
-        if run_all {
-            let source = self.syntax.clone();
-            self.run(&source, None, After::Editor);
-        } else if run_selection {
-            let lines = editor::selected_lines(&self.syntax, self.selection.0, self.selection.1);
-            let lines = editor::whole_commands(&self.syntax, lines);
-            let source = self.syntax.clone();
-            self.run(&source, Some(lines), After::Editor);
-        }
-    }
-
-    /// Opens, updates or closes the completion list for the text at the cursor.
-    fn complete(&mut self, explicit: bool) {
-        let cursor = editor::byte_of(&self.syntax, self.selection.1);
-        if self.selection.0 != self.selection.1 {
-            self.completion = None;
-            return;
-        }
-        let variables: Vec<(String, String)> = self
-            .session
-            .dataset()
-            .map(|data| {
-                data.variables()
-                    .map(|v| {
-                        (
-                            v.name().to_string(),
-                            v.label().unwrap_or_default().to_string(),
-                        )
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let (list, range) =
-            complete::candidates(&self.syntax, cursor, &variables, &self.macros, explicit);
-        self.completion = (!list.is_empty()).then_some(Completion {
-            list,
-            range,
-            selected: 0,
-        });
-    }
-
-    /// Puts a candidate of the completion list in the text and the cursor after it.
-    fn accept_completion(&mut self, ctx: &egui::Context, index: usize) {
-        let Some(c) = self.completion.take() else {
-            return;
-        };
-        let Some(candidate) = c.list.get(index) else {
-            return;
-        };
-        let (text, cursor) = complete::accept(&self.syntax, c.range, candidate);
-        self.syntax = text;
-        let at = self.syntax[..cursor].chars().count();
-        self.selection = (at, at);
-        if let Some(id) = self.editor_id {
-            let mut state = egui::text_edit::TextEditState::load(ctx, id).unwrap_or_default();
-            let cursor = egui::text::CCursor::new(at);
-            state
-                .cursor
-                .set_char_range(Some(egui::text::CCursorRange::one(cursor)));
-            state.store(ctx, id);
-            ctx.memory_mut(|m| m.request_focus(id));
-        }
-    }
-
-    /// The completion list under the cursor, with the summary and syntax of a command in it.
-    fn completion_popup(&mut self, ctx: &egui::Context, at: egui::Pos2) {
-        let Some(c) = self.completion.as_ref() else {
-            return;
-        };
-        let mut clicked = None;
-        egui::Area::new(egui::Id::unique("completion"))
-            .order(egui::Order::Foreground)
-            .fixed_pos(at + vec2(0.0, 2.0))
-            .show(ctx, |ui| {
-                egui::Frame::popup(ui.style()).show(ui, |ui| {
-                    ui.set_max_width(520.0);
-                    ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
-                        for (i, candidate) in c.list.iter().enumerate() {
-                            let mut text = LayoutJob::default();
-                            let mono = egui::TextFormat {
-                                font_id: FontId::monospace(13.0),
-                                color: ui.visuals().strong_text_color(),
-                                ..Default::default()
-                            };
-                            text.append(&candidate.text, 0.0, mono);
-                            if !candidate.detail.is_empty() {
-                                let weak = egui::TextFormat {
-                                    font_id: FontId::proportional(12.0),
-                                    color: ui.visuals().weak_text_color(),
-                                    ..Default::default()
-                                };
-                                text.append(&candidate.detail, 12.0, weak);
-                            }
-                            let row = ui.selectable_label(i == c.selected, text);
-                            if i == c.selected {
-                                row.scroll_to_me(None);
-                            }
-                            if row.clicked() {
-                                clicked = Some(i);
-                            }
-                        }
-                    });
-                    let selected = &c.list[c.selected];
-                    if selected.what == complete::What::Command
-                        && let Some(spec) = complete::spec(&selected.text)
-                    {
-                        ui.separator();
-                        command_card(ui, spec);
-                    }
-                });
-            });
-        if let Some(i) = clicked {
-            self.accept_completion(ctx, i);
-        }
-    }
-
     fn dialog_window(&mut self, ctx: &egui::Context) {
         let Some(dialog) = self.dialog.as_mut() else {
             return;
@@ -2851,37 +2717,35 @@ impl App {
     }
 }
 
-impl eframe::App for App {
-    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        self.poll();
-        self.updates.poll();
-        self.close_request(ctx);
-    }
-
-    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
-        // removes the endpoint file, so the command line says at once that no window runs
-        self.server = None;
-        let _ = self.settings.save();
-        self.updates.restart();
-    }
-
-    fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
-        let title = match self.data_file.as_ref().and_then(|p| p.file_name()) {
-            Some(name) => format!("{} - Statscraft", name.to_string_lossy()),
-            None => "Statscraft".to_string(),
-        };
-        if title != self.title {
-            ui.ctx()
-                .send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
-            self.title = title;
+impl App {
+    /// One window, in the root viewport or its own. Every window has the menu bar, the status
+    /// bar and its question about unsaved work; the dialogs show in the window they were opened
+    /// from.
+    fn window(&mut self, ui: &mut Ui, id: WindowId) {
+        if self.windows.get(id).is_none() {
+            return;
         }
-        // the size and position to open with next time (no position under Wayland)
-        let (outer, inner) = ui.input(|i| (i.viewport().outer_rect, i.viewport().inner_rect));
-        if let Some(inner) = inner {
-            self.settings.size = Some([inner.width(), inner.height()]);
+        self.here = id;
+        let main = self.windows.main() == Some(id);
+        let (outer, inner, focused, close) = ui.input(|i| {
+            let v = i.viewport();
+            (v.outer_rect, v.inner_rect, v.focused, v.close_requested())
+        });
+        if let Some(w) = self.windows.get_mut(id) {
+            w.position = outer.map(|r| r.min);
+            w.size = inner.map(|r| r.size());
         }
-        if let Some(outer) = outer {
-            self.settings.position = Some([outer.min.x, outer.min.y]);
+        if focused == Some(true) {
+            self.windows.focused = Some(id);
+        }
+        if main {
+            // the size and position to open with next time (no position under Wayland)
+            if let Some(inner) = inner {
+                self.settings.size = Some([inner.width(), inner.height()]);
+            }
+            if let Some(outer) = outer {
+                self.settings.position = Some([outer.min.x, outer.min.y]);
+            }
         }
         let (files, hovering) = ui.input(|i| {
             let files: Vec<PathBuf> = i
@@ -2913,33 +2777,75 @@ impl eframe::App for App {
                 Color32::WHITE,
             );
         }
-        self.find_keys(ui);
-        self.grid_keys(ui);
+        if main {
+            self.find_keys(ui);
+            self.grid_keys(ui);
+        }
         // Ctrl+Z inside a text field is that field's own undo
         if !ui.ctx().egui_wants_keyboard_input()
             && ui.input_mut(|i| i.consume_key(Modifiers::COMMAND, Key::Z))
         {
             self.undo();
         }
-        egui::Panel::top("menu").show(ui, |ui| {
+        let mut run = None;
+        egui::Panel::top(("menu", id)).show(ui, |ui| {
             self.menu(ui);
             ui.add_space(2.0);
-            self.tabs(ui);
+            if main {
+                self.tabs(ui);
+            } else {
+                run = self.syntax_toolbar(ui, id);
+            }
         });
-        if self.updates.visible() {
+        if id == self.windows.root() && self.updates.visible() {
             egui::Panel::top("update").show(ui, |ui| self.updates.bar(ui));
         }
-        egui::Panel::bottom("status").show(ui, |ui| self.status_bar(ui));
-        if self.show_log && shows_log(self.tab) {
-            egui::Panel::bottom("log")
+        egui::Panel::bottom(("status", id)).show(ui, |ui| self.status_bar(ui));
+        if self.show_log && (!main || shows_log(self.tab)) {
+            egui::Panel::bottom(("log", id))
                 .resizable(true)
                 .default_size(150.0)
                 .show(ui, |ui| self.log(ui));
         }
-        egui::CentralPanel::default().show(ui, |ui| match self.tab {
+        egui::CentralPanel::default().show(ui, |ui| {
+            if main {
+                self.main_view(ui);
+            } else if let Some(w) = self.windows.syntax_mut(id) {
+                let data = self.session.dataset();
+                if w.ui(ui, id, data, &self.macros, &self.settings) {
+                    run = Some(true);
+                }
+            }
+        });
+        if let Some(selection) = run
+            && let Some(w) = self.windows.syntax(id)
+        {
+            let lines = selection.then(|| w.selected_lines());
+            let source = w.text.clone();
+            self.run_from(id, source, lines, After::Editor(id));
+        }
+        let ctx = ui.ctx().clone();
+        if main {
+            self.confirm_window(&ctx);
+            self.format_window(&ctx);
+            self.labels_window(&ctx);
+            self.missing_window(&ctx);
+        }
+        if self.popups == id {
+            self.popups(&ctx);
+        }
+        self.unsaved_window(&ctx);
+        // the root's close requests come to `close_request`
+        if close && id != self.windows.root() {
+            self.close_window(id);
+        }
+    }
+
+    /// The Data, Variables and Output tabs of the main window.
+    fn main_view(&mut self, ui: &mut Ui) {
+        match self.tab {
             Tab::Data => self.data_view(ui),
             Tab::Variables => self.variable_view(ui),
-            Tab::Syntax => self.syntax_view(ui),
             Tab::Output => {
                 self.output.light_paper = !self.settings.paper_follows_system;
                 let request = self.output.ui(ui);
@@ -2956,36 +2862,72 @@ impl eframe::App for App {
                     None => {}
                 }
             }
+        }
+    }
+
+    /// The toolbar of a syntax window: Run all, Run selection, the Active list and the file.
+    /// Returns a run asked for: `true` for the selection.
+    fn syntax_toolbar(&mut self, ui: &mut Ui, id: WindowId) -> Option<bool> {
+        let mut run = None;
+        let mut chosen = None;
+        ui.horizontal(|ui| {
+            if ui.button("Run all").clicked() {
+                run = Some(false);
+            }
+            if ui
+                .button("Run selection")
+                .on_hover_text("Ctrl+Enter")
+                .clicked()
+            {
+                run = Some(true);
+            }
+            ui.separator();
+            ui.label("Active");
+            let (names, active) = syntax_window::datasets(&self.session);
+            ui.add_enabled_ui(!names.is_empty(), |ui| {
+                ComboBox::from_id_salt(("active", id))
+                    .selected_text(active.clone().unwrap_or_default())
+                    .show_ui(ui, |ui| {
+                        for name in names {
+                            let is_active = active.as_ref() == Some(&name);
+                            if ui.selectable_label(is_active, &name).clicked() && !is_active {
+                                chosen = Some(name);
+                            }
+                        }
+                    });
+            });
+            if let Some(file) = self.windows.syntax(id).and_then(|w| w.file.as_ref()) {
+                ui.separator();
+                ui.weak(file.display().to_string());
+            }
         });
-        let ctx = ui.ctx().clone();
-        self.dialog_window(&ctx);
-        self.confirm_window(&ctx);
-        self.unsaved_window(&ctx);
+        if let Some(name) = chosen {
+            self.run_from(id, syntax_window::activate(&name), None, After::Show);
+        }
+        run
+    }
+
+    /// The dialogs, Settings and About, in the window they were opened from.
+    fn popups(&mut self, ctx: &egui::Context) {
+        self.dialog_window(ctx);
         let log_hidden = self.settings.log_hidden;
         let labels = settings_window::TableLabels {
             variables: self.session.setting("TVARS"),
             values: self.session.setting("TNUMBERS"),
         };
-        let set = settings_window::show(
-            &ctx,
-            &mut self.settings_section,
-            &mut self.settings,
-            &labels,
-        );
+        let set =
+            settings_window::show(ctx, &mut self.settings_section, &mut self.settings, &labels);
         if let Some(syntax) = set {
             self.run(&syntax, None, After::Show);
         }
         if self.settings.log_hidden != log_hidden {
             self.show_log = !self.settings.log_hidden;
         }
-        self.format_window(&ctx);
-        self.labels_window(&ctx);
-        self.missing_window(&ctx);
         egui::Window::new("About Statscraft")
             .open(&mut self.about)
             .collapsible(false)
             .resizable(false)
-            .show(&ctx, |ui| {
+            .show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.add(egui::Image::new(&self.logo).fit_to_exact_size(egui::vec2(48.0, 48.0)));
                     ui.heading("Statscraft");
@@ -3006,6 +2948,53 @@ impl eframe::App for App {
                     });
                 });
             });
+    }
+}
+
+impl eframe::App for App {
+    fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        self.poll();
+        self.updates.poll();
+        self.close_request(ctx);
+    }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        // removes the endpoint file, so the command line says at once that no window runs
+        self.server = None;
+        let _ = self.settings.save();
+        self.updates.restart();
+    }
+
+    /// The root draws the first window of the registry, and every other window as an
+    /// immediate viewport (see windows.rs).
+    fn ui(&mut self, ui: &mut Ui, _frame: &mut eframe::Frame) {
+        let root = self.windows.root();
+        let title = format!("{} - Statscraft", self.window_name(root));
+        if title != self.title {
+            ui.ctx()
+                .send_viewport_cmd(egui::ViewportCommand::Title(title.clone()));
+            self.title = title;
+        }
+        for id in self.windows.ids() {
+            if id == root {
+                continue;
+            }
+            let size = match self.windows.main() == Some(id) {
+                true => [1100.0, 760.0],
+                false => [900.0, 680.0],
+            };
+            let builder = egui::ViewportBuilder::default()
+                .with_title(format!("{} - Statscraft", self.window_name(id)))
+                // the same X11 class and Wayland app id as the root (main.rs)
+                .with_app_id("statscraft")
+                .with_inner_size(size)
+                .with_min_inner_size([480.0, 320.0])
+                .with_icon(Arc::clone(&self.icon));
+            let viewport = self.windows.viewport(id);
+            ui.ctx()
+                .show_viewport_immediate(viewport, builder, |ui, _| self.window(ui, id));
+        }
+        self.window(ui, root);
     }
 }
 
@@ -3030,21 +3019,6 @@ pub(crate) fn paper(ui: &mut Ui, light: bool) {
         .rect_filled(sheet, 0.0, ui.visuals().extreme_bg_color);
 }
 
-/// The rest of `ui` as the syntax editor's sheet, in the colours of its theme.
-fn editor_paper(ui: &mut Ui, theme: &themes::Theme) {
-    let visuals = &mut ui.style_mut().visuals;
-    *visuals = if theme.dark {
-        egui::Visuals::dark()
-    } else {
-        egui::Visuals::light()
-    };
-    square(visuals);
-    visuals.extreme_bg_color = theme.background;
-    visuals.text_cursor.stroke.color = theme.text;
-    let sheet = ui.available_rect_before_wrap();
-    ui.painter().rect_filled(sheet, 0.0, theme.background);
-}
-
 /// Square corners and no shadows for every control, menu and window, to match the flat square
 /// grids, and the brand's accent colour.
 pub(crate) fn square(visuals: &mut egui::Visuals) {
@@ -3066,41 +3040,19 @@ pub(crate) fn square(visuals: &mut egui::Visuals) {
     visuals.popup_shadow = egui::Shadow::NONE;
 }
 
-/// The summary and syntax of a command, in the completion list and over a command name.
-fn command_card(ui: &mut Ui, spec: &statscraft_syntax::CommandSpec) {
-    ui.set_max_width(560.0);
-    ui.strong(spec.name);
-    ui.label(spec.summary);
-    ui.add(egui::Label::new(RichText::new(spec.syntax).monospace().size(12.0)).wrap());
-}
-
-/// What the status bar says about the warnings of the last run.
-/// The log panel shows under the syntax editor and the output; the grids get the whole height.
-/// The data and the syntax that differ from their files: the data when it is not what the last
-/// open or save left, the syntax when its text is not the file's (new syntax when not empty).
-fn unsaved_items(
+/// The data when it differs from its file: when it is not what the last open or save left.
+fn unsaved_data(
     data: Option<&Dataset>,
     data_saved: Option<&Dataset>,
     data_file: Option<&Path>,
-    syntax: &str,
-    syntax_saved: &str,
-    syntax_file: Option<&Path>,
 ) -> Vec<String> {
-    let name = |file: Option<&Path>, none: &str| {
-        file.and_then(Path::file_name)
-            .map_or_else(|| none.to_string(), |n| n.to_string_lossy().into_owned())
-    };
-    let mut items = Vec::new();
-    if data.is_some_and(|d| Some(d) != data_saved) {
-        items.push(format!(
-            "Data: {}",
-            name(data_file, "not saved to a file yet")
-        ));
-    }
-    if syntax != syntax_saved {
-        items.push(format!("Syntax: {}", name(syntax_file, "new syntax")));
-    }
-    items
+    let name = data_file
+        .and_then(Path::file_name)
+        .map_or_else(|| "not saved to a file yet".into(), |n| n.to_string_lossy());
+    data.is_some_and(|d| Some(d) != data_saved)
+        .then(|| format!("Data: {name}"))
+        .into_iter()
+        .collect()
 }
 
 /// A run whose last command is GET, GET DATA or SAVE leaves the data as that file holds it.
@@ -3110,23 +3062,13 @@ fn ends_on_file(commands: &[CommandResult]) -> bool {
         .is_some_and(|c| matches!(c.name.as_str(), "GET" | "GET DATA" | "SAVE"))
 }
 
-/// Answers a close request: with unsaved work it cancels the close and returns what is unsaved.
-fn hold_close(ctx: &egui::Context, unsaved: impl FnOnce() -> Vec<String>) -> Option<Vec<String>> {
-    if !ctx.input(|i| i.viewport().close_requested()) {
-        return None;
-    }
-    let items = unsaved();
-    if items.is_empty() {
-        return None;
-    }
-    ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-    Some(items)
-}
-
+/// The log panel shows under the output (and in every syntax window); the grids get the whole
+/// height.
 fn shows_log(tab: Tab) -> bool {
-    matches!(tab, Tab::Syntax | Tab::Output)
+    tab == Tab::Output
 }
 
+/// What the status bar says about the warnings of the last run.
 fn warning_note(warnings: usize) -> Option<String> {
     match warnings {
         0 => None,
@@ -5253,13 +5195,11 @@ mod tests {
     }
 
     #[test]
-    fn unsaved_data_and_syntax_are_listed() {
+    fn unsaved_data_is_listed() {
         let mut session = open("survey_basic.sav");
         let saved = session.dataset().cloned();
         let file = Some(Path::new("/d/survey.sav"));
-        let data = |session: &Session| {
-            unsaved_items(session.dataset(), saved.as_ref(), file, "", "", None)
-        };
+        let data = |session: &Session| unsaved_data(session.dataset(), saved.as_ref(), file);
         assert!(data(&session).is_empty());
         // an analysis changes no data
         run_in(&mut session, "FREQUENCIES q1_satisfaction.");
@@ -5270,18 +5210,10 @@ mod tests {
         assert!(session.undo());
         assert!(data(&session).is_empty());
         // data never saved, such as an imported workbook
-        let never = unsaved_items(session.dataset(), None, None, "", "", None);
+        let never = unsaved_data(session.dataset(), None, None);
         assert_eq!(never, ["Data: not saved to a file yet"]);
         // no data at all: nothing to save
-        assert!(unsaved_items(None, saved.as_ref(), file, "", "", None).is_empty());
-        // syntax: new and not empty, or changed since its file was loaded or saved
-        let job = Some(Path::new("/d/job.sps"));
-        assert!(unsaved_items(None, None, None, "", "", None).is_empty());
-        let new = unsaved_items(None, None, None, "FREQ x.", "", None);
-        assert_eq!(new, ["Syntax: new syntax"]);
-        assert!(unsaved_items(None, None, None, "FREQ x.", "FREQ x.", job).is_empty());
-        let changed = unsaved_items(None, None, None, "FREQ y.", "FREQ x.", job);
-        assert_eq!(changed, ["Syntax: job.sps"]);
+        assert!(unsaved_data(None, saved.as_ref(), file).is_empty());
     }
 
     #[test]
@@ -5305,33 +5237,9 @@ mod tests {
         assert!(!ends_on_file(&[]));
     }
 
-    /// The title bar, Alt+F4, File > Exit and the update installer all reach the window as a
-    /// close request (egui-winit turns `ViewportCommand::Close` into one).
     #[test]
-    fn a_close_request_is_held_only_with_unsaved_work() {
-        let ctx = egui::Context::default();
-        let close = |requested: bool, unsaved: Vec<String>| {
-            let mut input = egui::RawInput::default();
-            if requested {
-                let root = input.viewports.get_mut(&egui::ViewportId::ROOT).unwrap();
-                root.events.push(egui::ViewportEvent::Close);
-            }
-            let mut held = None;
-            let mut out = ctx.run_ui(input, |ui| held = hold_close(ui.ctx(), || unsaved.clone()));
-            out.textures_delta.clear();
-            let commands = &out.viewport_output[&egui::ViewportId::ROOT].commands;
-            let cancelled = commands.contains(&egui::ViewportCommand::CancelClose);
-            (held, cancelled)
-        };
-        let items = vec!["Data: survey.sav".to_string()];
-        assert_eq!(close(true, items.clone()), (Some(items.clone()), true));
-        assert_eq!(close(true, Vec::new()), (None, false));
-        assert_eq!(close(false, items), (None, false));
-    }
-
-    #[test]
-    fn the_log_shows_under_the_syntax_and_the_output_only() {
-        assert!(shows_log(Tab::Syntax) && shows_log(Tab::Output));
+    fn the_log_shows_under_the_output_only() {
+        assert!(shows_log(Tab::Output));
         assert!(!shows_log(Tab::Data) && !shows_log(Tab::Variables));
     }
 

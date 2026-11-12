@@ -24,8 +24,10 @@ mod settings_window;
 mod stats_dialogs;
 mod stats_dialogs_view;
 mod syntax_text;
+mod syntax_window;
 mod themes;
 mod updates;
+mod windows;
 
 use eframe::egui;
 use std::process::ExitCode;
