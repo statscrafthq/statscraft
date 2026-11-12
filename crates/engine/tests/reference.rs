@@ -364,6 +364,140 @@ fn constants() {
 
 #[test]
 #[ignore = "needs STATSCRAFT_PSPP"]
+fn more_numeric_and_statistical_functions() {
+    survey(&[
+        "COMPUTE r1 = LNGAMMA(age / 10).\nCOMPUTE r2 = LNGAMMA(q5_1).\nCOMPUTE r3 = SIN(age).\n\
+         COMPUTE r4 = COS(monthly_spend).\nCOMPUTE r5 = ARSIN((q1_satisfaction - 3) / 2).\n\
+         COMPUTE r6 = ARTAN(monthly_spend - 100).",
+        "COMPUTE r1 = MEDIAN(q6_mention1 TO q6_mention3).\nCOMPUTE r2 = MEDIAN(q5_1 TO q5_5, age).\n\
+         COMPUTE r3 = MEDIAN.2(q6_mention1 TO q6_mention3).\n\
+         COMPUTE r4 = MEDIAN(q1_satisfaction, q2_recommend).",
+        "STRING s1 s2 (A10).\nCOMPUTE s1 = MIN(plan, 'C').\nCOMPUTE s2 = MAX(plan, 'C', 'BASICS').",
+    ]);
+}
+
+#[test]
+#[ignore = "needs STATSCRAFT_PSPP"]
+fn distribution_functions() {
+    // GNU PSPP counts the failures of NEGBIN and has its own BVNOR and PDF.LAPLACE, which the
+    // matrix comparison already notes, and has no HALFNRM, IGAUSS, SMOD, SRANGE or noncentral
+    // chi-square, F and t; they are left out here. Its NPDF.BETA is not the derivative of its
+    // NCDF.BETA (ours is, and its NCDF.BETA agrees with ours), so NPDF.BETA is left out too.
+    survey(&[
+        "COMPUTE r1 = CDF.NORMAL(age, 45, 12).\nCOMPUTE r2 = PDF.NORMAL(age, 45, 12).\n\
+         COMPUTE r3 = IDF.NORMAL(weight / 3, 0, 1).\nCOMPUTE r4 = CDFNORM((age - 45) / 12).\n\
+         COMPUTE r5 = PROBIT(weight / 3).\nCOMPUTE r6 = CDF.NORMAL(age, 45, q5_1 - 1).",
+        "COMPUTE r1 = CDF.T(age / 10 - 4, q6_mention1).\nCOMPUTE r2 = IDF.T(weight / 3, region).\n\
+         COMPUTE r3 = PDF.T(q2_recommend - 5, 3).\nCOMPUTE r4 = CDF.CHISQ(monthly_spend / 20, region).\n\
+         COMPUTE r5 = SIG.CHISQ(monthly_spend / 20, region).\nCOMPUTE r6 = IDF.CHISQ(weight / 3, 4).\n\
+         COMPUTE r7 = PDF.CHISQ(age / 10, 3).",
+        "COMPUTE r1 = CDF.F(monthly_spend / 50, region, 20).\nCOMPUTE r2 = SIG.F(monthly_spend / 50, 3, age).\n\
+         COMPUTE r3 = IDF.F(weight / 3, 3, 100).\nCOMPUTE r4 = PDF.F(monthly_spend / 50, 4, 12).\n\
+         COMPUTE r5 = CDF.BETA(weight / 3, region, 2).\nCOMPUTE r6 = IDF.BETA(weight / 3, 2, 3).\n\
+         COMPUTE r7 = PDF.BETA(weight / 3, 2, q6_mention1).",
+        "COMPUTE r1 = CDF.GAMMA(monthly_spend / 50, 2, 1.5).\nCOMPUTE r2 = IDF.GAMMA(weight / 3, 3, 2).\n\
+         COMPUTE r3 = PDF.GAMMA(age / 20, region, 1).\nCOMPUTE r4 = CDF.EXP(age / 30, 0.5).\n\
+         COMPUTE r5 = IDF.EXP(weight / 3, 2).\nCOMPUTE r6 = PDF.EXP(age / 30, 2).",
+        "COMPUTE r1 = CDF.UNIFORM(age, 0, 100).\nCOMPUTE r2 = IDF.UNIFORM(weight / 3, 1, 5).\n\
+         COMPUTE r3 = PDF.UNIFORM(age, 0, 100).\nCOMPUTE r4 = CDF.CAUCHY(age, 45, 10).\n\
+         COMPUTE r5 = IDF.CAUCHY(weight / 3, 0, 2).\nCOMPUTE r6 = PDF.CAUCHY(age, 45, 10).\n\
+         COMPUTE r7 = CDF.LAPLACE(age, 45, 10).\nCOMPUTE r8 = IDF.LAPLACE(weight / 3, 0, 2).",
+        "COMPUTE r1 = CDF.LOGISTIC(age, 45, 10).\nCOMPUTE r2 = IDF.LOGISTIC(weight / 3, 0, 2).\n\
+         COMPUTE r3 = PDF.LOGISTIC(age, 45, 10).\nCOMPUTE r4 = CDF.LNORMAL(monthly_spend, 100, 0.5).\n\
+         COMPUTE r5 = IDF.LNORMAL(weight / 3, 100, 0.5).\nCOMPUTE r6 = PDF.LNORMAL(monthly_spend, 100, 0.5).",
+        "COMPUTE r1 = CDF.PARETO(monthly_spend, 50, 2).\nCOMPUTE r2 = IDF.PARETO(weight / 3, 50, 2).\n\
+         COMPUTE r3 = PDF.PARETO(monthly_spend, 50, 2).\nCOMPUTE r4 = CDF.WEIBULL(monthly_spend, 100, 2).\n\
+         COMPUTE r5 = IDF.WEIBULL(weight / 3, 100, 2).\nCOMPUTE r6 = PDF.WEIBULL(monthly_spend, 100, 2).",
+        "COMPUTE r1 = CDF.BINOM(q6_mention1, 6, 0.3).\nCOMPUTE r2 = PDF.BINOM(q6_mention1, 6, 0.3).\n\
+         COMPUTE r3 = CDF.POISSON(region, 2.5).\nCOMPUTE r4 = PDF.POISSON(region, 2.5).\n\
+         COMPUTE r5 = CDF.GEOM(region, 0.3).\nCOMPUTE r6 = PDF.GEOM(region, 0.3).\n\
+         COMPUTE r7 = CDF.BERNOULLI(q5_1, 0.3).\nCOMPUTE r8 = PDF.BERNOULLI(q5_1, 0.3).",
+        "COMPUTE r1 = CDF.HYPER(q6_mention1, 20, 6, 8).\nCOMPUTE r2 = PDF.HYPER(q6_mention1, 20, 6, 8).\n\
+         COMPUTE r3 = NCDF.BETA(weight / 3, 2, 3, 1).",
+        "COMPUTE r1 = CDF.NORMAL(0, 0, 0).\nCOMPUTE r2 = IDF.NORMAL(1.5, 0, 1).\n\
+         COMPUTE r3 = PROBIT(0).\nCOMPUTE r4 = CDF.BINOM(1, 2.5, 0.5).\nCOMPUTE r5 = IDF.CHISQ(-0.1, 2).\n\
+         COMPUTE r6 = CDF.CHISQ(-1, 2).\nCOMPUTE r7 = PDF.EXP(-1, 2).\nCOMPUTE r8 = CDF.UNIFORM(81, 18, 80).\n\
+         COMPUTE r9 = CDF.POISSON(1.5, 2).\nCOMPUTE r10 = CDF.GEOM(0, 0.5).",
+    ]);
+}
+
+#[test]
+#[ignore = "needs STATSCRAFT_PSPP"]
+fn more_date_functions() {
+    // GNU PSPP takes TIME.HMS with three arguments only and accepts some the manual calls
+    // invalid; the parts of negative times differ on purpose
+    survey(&[
+        "COMPUTE r1 = DATE.MOYR(region, 1990 + age).\nCOMPUTE r2 = DATE.QYR(q5_1 + 1, 2000 + age).\n\
+         COMPUTE r3 = DATE.WKYR(age, 2004).\nCOMPUTE r4 = DATE.YRDAY(2003, age * 5).\n\
+         COMPUTE r5 = YRMODA(1900 + age, region * 2, q6_mention1 * 5).\nCOMPUTE r6 = YRMODA(age, 1, 1).",
+        "COMPUTE r1 = TIME.HMS(age, q6_mention1 * 9, MOD(monthly_spend, 60)).\nCOMPUTE r2 = TIME.DAYS(monthly_spend / 7).\n\
+         COMPUTE r3 = TIME.HMS(-age, -region, 0).\nCOMPUTE r4 = CTIME.DAYS(signup_date).\n\
+         COMPUTE r5 = CTIME.HOURS(monthly_spend * 1000).\nCOMPUTE r6 = CTIME.MINUTES(monthly_spend * 100).\n\
+         COMPUTE r7 = CTIME.SECONDS(age).",
+        "COMPUTE t = signup_date + monthly_spend * 1000.\nCOMPUTE r1 = XDATE.DATE(t).\n\
+         COMPUTE r2 = XDATE.TIME(t).\nCOMPUTE r3 = XDATE.HOUR(t).\nCOMPUTE r4 = XDATE.MINUTE(t).\n\
+         COMPUTE r5 = XDATE.SECOND(t).\nCOMPUTE r6 = XDATE.TDAY(t).\nCOMPUTE r7 = XDATE.JDAY(t).\n\
+         COMPUTE r8 = XDATE.WEEK(t).\nCOMPUTE r9 = XDATE.WKDAY(t).\nCOMPUTE r10 = XDATE.QUARTER(t).",
+        "COMPUTE later = DATESUM(signup_date, age * 7 + monthly_spend, 'days').\n\
+         COMPUTE r1 = DATEDIFF(later, signup_date, 'years').\nCOMPUTE r2 = DATEDIFF(later, signup_date, 'quarters').\n\
+         COMPUTE r3 = DATEDIFF(later, signup_date, 'months').\nCOMPUTE r4 = DATEDIFF(signup_date, later, 'months').\n\
+         COMPUTE r5 = DATEDIFF(later, signup_date, 'weeks').\nCOMPUTE r6 = DATEDIFF(later, signup_date, 'days').\n\
+         COMPUTE r7 = DATEDIFF(later, signup_date, 'hours').\nCOMPUTE r8 = DATEDIFF(signup_date, later, 'minutes').\n\
+         COMPUTE r9 = DATEDIFF(later, signup_date, 'seconds').",
+        "COMPUTE r1 = DATESUM(signup_date, age, 'months').\nCOMPUTE r2 = DATESUM(signup_date, -age, 'months', 'rollover').\n\
+         COMPUTE r3 = DATESUM(signup_date, region + 0.7, 'years', 'closest').\n\
+         COMPUTE r4 = DATESUM(signup_date, -region, 'quarters', 'rollover').\n\
+         COMPUTE r5 = DATESUM(signup_date, monthly_spend, 'hours').\n\
+         COMPUTE r6 = DATESUM(signup_date, -age, 'weeks').\nCOMPUTE r7 = DATESUM(signup_date, age, 'minutes').\n\
+         COMPUTE r8 = DATESUM(signup_date, monthly_spend, 'seconds').",
+        "COMPUTE d = DATE.DMY(31, region * 2 - 1, 2000 + age).\n\
+         COMPUTE r1 = DATESUM(d, q6_mention1, 'months', 'rollover').\nCOMPUTE r2 = DATESUM(d, q6_mention1, 'months').\n\
+         COMPUTE r3 = DATESUM(d, -q6_mention2, 'months', 'rollover').\nCOMPUTE r4 = DATESUM(d, -q6_mention2, 'months').\n\
+         COMPUTE r5 = DATEDIFF(d, signup_date, 'months').\nCOMPUTE r6 = DATEDIFF(signup_date, d, 'years').",
+    ]);
+}
+
+#[test]
+#[ignore = "needs STATSCRAFT_PSPP"]
+fn more_string_functions() {
+    // GNU PSPP has no CHAR. functions (the byte forms here count characters too), NTRIM or
+    // NORMALIZE, and gives back the string for a missing padding length (the manual: the null
+    // string); those are left out. A length with a fraction is missing in both.
+    survey(&[
+        "COMPUTE r1 = INDEX(q3_comment, 'aeiou', 1).\nCOMPUTE r2 = RINDEX(q3_comment, 'aeiou', 1).\n\
+         COMPUTE r3 = RINDEX(q3_comment, 'the').\nCOMPUTE r4 = INDEX(plan, 'ASIC', 2).\n\
+         COMPUTE r5 = RINDEX(q3_comment, 'e').\nCOMPUTE r6 = INDEX(plan, 'ABC', 2).\n\
+         COMPUTE r7 = RINDEX(plan, ' ').\nCOMPUTE r8 = INDEX(plan, 'S', q5_1).",
+        "STRING s1 s2 s3 s4 s5 s6 (A20).\nCOMPUTE s1 = LPAD(plan, 14).\nCOMPUTE s2 = RPAD(RTRIM(plan), 15, 'ab').\n\
+         COMPUTE s3 = LPAD(RTRIM(plan), TRUNC(age / 4), '*').\nCOMPUTE s4 = RPAD(RTRIM(plan), 9, '-').\n\
+         COMPUTE s5 = LPAD(plan, 3, 'x').\nCOMPUTE s6 = CONCAT(LPAD(RTRIM(plan), region + 5, 'xy'), '|').",
+        "STRING s1 s2 s3 s4 (A20).\nCOMPUTE s1 = LTRIM(plan, 'B').\nCOMPUTE s2 = RTRIM(RTRIM(plan), 'S').\n\
+         COMPUTE s3 = CONCAT(RTRIM(plan, ' '), '|').\nCOMPUTE s4 = LTRIM(LOWER(plan), 'p').",
+        "STRING s1 s2 s3 s4 s5 (A200).\nCOMPUTE s1 = REPLACE(q3_comment, 'the', 'THE').\n\
+         COMPUTE s2 = REPLACE(q3_comment, ' ', '_', 2).\nCOMPUTE s3 = REPLACE(plan, 'S', '').\n\
+         COMPUTE s4 = REPLACE(q3_comment, 'e', 'ee', region).\nCOMPUTE s5 = REPLACE(plan, '', 'x').",
+        "STRING s1 s2 s3 (A20).\nCOMPUTE s1 = STRUNC(q3_comment, 7).\nCOMPUTE s2 = STRUNC(plan, TRUNC(age / 10)).\n\
+         COMPUTE s3 = CONCAT(STRUNC(plan, 3), '|').\nCOMPUTE r1 = MBLEN.BYTE(plan, 2).\n\
+         COMPUTE r2 = MBLEN.BYTE(q3_comment, region).\nCOMPUTE r3 = MBLEN.BYTE(plan, 11).",
+        "STRING s1 s2 (A40).\nCOMPUTE s1 = VALUELABEL(region).\nCOMPUTE s2 = VALUELABEL(q1_satisfaction).",
+        "STRING s1 s2 s3 s4 s5 (A20).\nCOMPUTE s1 = STRING(signup_date, DATE11).\n\
+         COMPUTE s2 = STRING(signup_date, ADATE10).\nCOMPUTE s3 = STRING(monthly_spend * 1000, COMMA12.2).\n\
+         COMPUTE s4 = STRING(age, N5).\nCOMPUTE s5 = STRING(monthly_spend, DOLLAR10.2).\n\
+         COMPUTE r1 = NUMBER(s1, DATE11).\nCOMPUTE r2 = NUMBER(s2, ADATE10).\nCOMPUTE r3 = NUMBER(s3, COMMA12.2).\n\
+         COMPUTE r4 = NUMBER(s4, N5).\nCOMPUTE r5 = NUMBER(s5, DOLLAR10.2).",
+    ]);
+    // STRUNC drops a cut character as the manual says, where GNU PSPP keeps its first bytes;
+    // GNU PSPP's MBLEN.BYTE is 1 for every character of these UTF-8 strings, and its INDEX
+    // counts bytes where ours counts characters
+    check(
+        "unicode.sav",
+        "STRING s1 s2 (A60).\nCOMPUTE s1 = REPLACE(tervitus, ',', ';').\n\
+         COMPUTE s2 = REPLACE(tervitus, 'o', '0', 1).",
+    );
+}
+
+#[test]
+#[ignore = "needs STATSCRAFT_PSPP"]
 fn do_if_blocks() {
     survey(&[
         "DO IF (age < 30).\nCOMPUTE g = 1.\nELSE.\nCOMPUTE g = 2.\nEND IF.",
