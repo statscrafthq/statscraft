@@ -470,24 +470,27 @@ pub(crate) fn noncentral_t_cdf(t: f64, df: f64, delta: f64) -> f64 {
         p * beta_i(j + 0.5, df / 2.0, x) + q * beta_i(j + 1.0, df / 2.0, x)
     };
     let top = lambda.floor();
-    let mut sum = 0.0;
-    let mut j = top;
-    loop {
-        let value = term(j);
-        sum += value;
-        if j == 0.0 || (j < top - 5.0 && value.abs() < 1e-17 * sum.abs()) {
-            break;
-        }
-        j -= 1.0;
+    // a noncentrality this large has no next term in floating point; the probability is at
+    // its limit
+    if !(top + 1.0 > top) {
+        return if delta > 0.0 { 0.0 } else { 1.0 };
     }
-    let mut j = top + 1.0;
-    loop {
+    let mut sum = 0.0;
+    for k in 0..=100_000 {
+        let j = top - f64::from(k);
         let value = term(j);
         sum += value;
-        if (j > top + 5.0 && value.abs() < 1e-17 * sum.abs()) || j > top + 100_000.0 {
+        if j == 0.0 || (k > 5 && value.abs() < 1e-17 * sum.abs()) {
             break;
         }
-        j += 1.0;
+    }
+    for k in 1..=100_000 {
+        let j = top + f64::from(k);
+        let value = term(j);
+        sum += value;
+        if k > 5 && value.abs() < 1e-17 * sum.abs() {
+            break;
+        }
     }
     (base + sum / 2.0).clamp(0.0, 1.0)
 }
@@ -520,26 +523,27 @@ pub(crate) fn noncentral_f_cdf(f: f64, d1: f64, d2: f64, lambda: f64) -> f64 {
         (-half + j * half.ln() - ln_gamma(j + 1.0)).exp() * beta_i(d1 / 2.0 + j, d2 / 2.0, x)
     };
     let top = half.floor();
+    // a noncentrality this large has no next term in floating point; the probability is at
+    // its limit 0 (an infinite one, from a perfect fit, too)
+    if !(top + 1.0 > top) {
+        return 0.0;
+    }
     let mut sum = 0.0;
-    let mut j = top;
-    loop {
+    for k in 0..=100_000 {
+        let j = top - f64::from(k);
         let value = term(j);
         sum += value;
         // the probability is wanted to an absolute precision, so tiny terms end the sum
-        if j == 0.0 || (j < top - 5.0 && (value < 1e-17 * sum || value < 1e-25)) {
+        if j == 0.0 || (k > 5 && (value < 1e-17 * sum || value < 1e-25)) {
             break;
         }
-        j -= 1.0;
     }
-    let mut j = top + 1.0;
-    loop {
-        let value = term(j);
+    for k in 1..=100_000 {
+        let value = term(top + f64::from(k));
         sum += value;
-        let small = value < 1e-17 * sum || value < 1e-25;
-        if (j > top + 5.0 && small) || j > top + 100_000.0 {
+        if k > 5 && (value < 1e-17 * sum || value < 1e-25) {
             break;
         }
-        j += 1.0;
     }
     sum.clamp(0.0, 1.0)
 }

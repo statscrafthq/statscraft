@@ -516,8 +516,9 @@ impl Job {
             Some((first, last)) => self
                 .source
                 .lines()
-                .skip(first as usize - 1)
-                .take((last - first + 1) as usize)
+                // a range from 0 or reversed (from a client of the window) fails in `run`
+                .skip(first.saturating_sub(1) as usize)
+                .take(last.saturating_sub(first) as usize + 1)
                 .collect::<Vec<_>>()
                 .join("\n"),
             None => self.source.trim_end().to_string(),

@@ -285,8 +285,23 @@ impl Engine {
                     }
                 }
                 if header.index.is_some() {
-                    for case in (0..cases).filter(|&case| running[case]) {
-                        counter[case] = counter[case].zip(step[case]).map(|(c, s)| c + s);
+                    let mut stuck = false;
+                    for case in 0..cases {
+                        if !running[case] {
+                            continue;
+                        }
+                        let next = counter[case].zip(step[case]).map(|(c, s)| c + s);
+                        // a step too small to change the index would loop for ever
+                        if next.is_some() && next == counter[case] {
+                            running[case] = false;
+                            stuck = true;
+                        }
+                        counter[case] = next;
+                    }
+                    let message = "the LOOP step is too small to change the index at its size; \
+                                   the loop stops there";
+                    if stuck && !warnings.iter().any(|w| w == message) {
+                        warnings.push(message.to_string());
                     }
                 }
                 iterations += 1;

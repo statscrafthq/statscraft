@@ -145,24 +145,26 @@ fn poisson_mixture(mean: f64, term: impl Fn(f64) -> f64) -> f64 {
     }
     let weight = |j: f64| (-mean + j * mean.ln() - ln_gamma(j + 1.0)).exp();
     let top = mean.floor();
-    let mut sum = 0.0;
-    let mut j = top;
-    loop {
-        let value = weight(j) * term(j);
-        sum += value;
-        if j == 0.0 || (j < top - 5.0 && weight(j) < 1e-17) {
-            break;
-        }
-        j -= 1.0;
+    // a mean this large has no next term in floating point, so the sum cannot be taken
+    if !(top + 1.0 > top) {
+        return f64::NAN;
     }
-    let mut j = top + 1.0;
-    loop {
+    let mut sum = 0.0;
+    for k in 0..=100_000 {
+        let j = top - f64::from(k);
         let w = weight(j);
         sum += w * term(j);
-        if (j > top + 5.0 && w < 1e-17) || j > top + 100_000.0 {
+        if j == 0.0 || (k > 5 && w < 1e-17) {
             break;
         }
-        j += 1.0;
+    }
+    for k in 1..=100_000 {
+        let j = top + f64::from(k);
+        let w = weight(j);
+        sum += w * term(j);
+        if k > 5 && w < 1e-17 {
+            break;
+        }
     }
     sum
 }

@@ -514,7 +514,11 @@ impl Machine<'_> {
                         }
                     }
                     if let Some((_, _, _, step)) = index {
-                        value += step;
+                        // an index past the largest whole number ends the loop
+                        let Some(next) = value.checked_add(step) else {
+                            break;
+                        };
+                        value = next;
                     }
                 }
             }
