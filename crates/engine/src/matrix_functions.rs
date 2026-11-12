@@ -33,7 +33,7 @@
 //!   largest element; RANK and GINV ignore singular values below max(r, c) * largest * 2.2e-16.
 //! - A distribution or random function whose parameters are out of range is an error.
 
-use crate::matrix_lang::Mat;
+use crate::matrix_lang::{Mat, fits};
 use crate::random::Random;
 use std::cell::RefCell;
 
@@ -232,6 +232,7 @@ pub(crate) fn call(
                 return Err(format!("MDIAG needs a vector, but it is {}", a.dims()));
             }
             let n = a.data.len();
+            fits(n, n)?;
             let mut m = Mat::filled(n, n, 0.0);
             for (i, v) in a.data.iter().enumerate() {
                 m.set(i, i, *v);
@@ -244,6 +245,7 @@ pub(crate) fn call(
                 Some(b) => count(b, name, "second", 0.0)?,
                 None => rows,
             };
+            fits(rows, cols)?;
             let mut m = Mat::filled(rows, cols, 0.0);
             for i in 0..rows.min(cols) {
                 m.set(i, i, 1.0);
@@ -254,6 +256,7 @@ pub(crate) fn call(
             let rows = count(a, name, "first", 0.0)?;
             let cols = count(&args[1], name, "second", 0.0)?;
             let value = scalar(&args[2], name, "third")?;
+            fits(rows, cols)?;
             one(Mat::filled(rows, cols, value))
         }
         "RESHAPE" => {
@@ -293,7 +296,11 @@ pub(crate) fn call(
         }
         "KRONEKER" => {
             let b = &args[1];
-            let mut out = Mat::filled(a.rows * b.rows, a.cols * b.cols, 0.0);
+            let too_big = || format!("KRONEKER of {} and {} is too large", a.dims(), b.dims());
+            let rows = a.rows.checked_mul(b.rows).ok_or_else(too_big)?;
+            let cols = a.cols.checked_mul(b.cols).ok_or_else(too_big)?;
+            fits(rows, cols)?;
+            let mut out = Mat::filled(rows, cols, 0.0);
             for i in 0..a.rows {
                 for j in 0..a.cols {
                     for k in 0..b.rows {
@@ -305,7 +312,10 @@ pub(crate) fn call(
             }
             one(out)
         }
-        "SSCP" => one(a.transpose().product(a)),
+        "SSCP" => {
+            fits(a.cols, a.cols)?;
+            one(a.transpose().product(a))
+        }
         "DET" => {
             square(a, name)?;
             s(determinant(a))
@@ -368,11 +378,13 @@ pub(crate) fn call(
         "RNKORDER" => one(ranks(a, true)),
         "MAGIC" => {
             let n = count(a, name, "first", 3.0)?;
+            fits(n, n)?;
             one(magic(n))
         }
         "UNIFORM" | "NORMAL" if args.len() == 2 => {
             let rows = count(a, name, "first", 0.0)?;
             let cols = count(&args[1], name, "second", 0.0)?;
+            fits(rows, cols)?;
             let mut random = random.borrow_mut();
             let data = (0..rows * cols)
                 .map(|_| {

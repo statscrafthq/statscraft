@@ -67,6 +67,20 @@ use statscraft_syntax::{
 };
 use std::collections::BTreeMap;
 
+/// The most elements a matrix made from sizes may hold: 800 MB of numbers.
+pub(crate) const MAX_ELEMENTS: usize = 100_000_000;
+
+/// Fails when a `rows` by `cols` matrix would hold more than MAX_ELEMENTS, before the memory
+/// for it is asked for.
+pub(crate) fn fits(rows: usize, cols: usize) -> Result<(), String> {
+    match rows.checked_mul(cols) {
+        Some(n) if n <= MAX_ELEMENTS => Ok(()),
+        _ => Err(format!(
+            "a {rows}x{cols} matrix would hold more than {MAX_ELEMENTS} elements"
+        )),
+    }
+}
+
 /// A matrix, its elements by rows.
 #[derive(Debug, Clone, PartialEq)]
 pub(crate) struct Mat {
@@ -1822,6 +1836,7 @@ fn binary(op: MatrixOp, a: &Mat, b: &Mat) -> Result<Mat, String> {
                     b.dims()
                 ));
             }
+            fits(a.rows, b.cols)?;
             Ok(a.product(b))
         }
         MatrixOp::Pow => {

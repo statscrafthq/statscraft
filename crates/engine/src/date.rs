@@ -89,6 +89,13 @@ impl Engine {
         let highest = keywords[0].0;
         let given = |unit: DateUnit| keywords.iter().find(|k| k.0 == unit);
         let as_int = |n: f64| n as i64;
+        // larger starts, periods and steps would overflow the counting below
+        let numbers = keywords.iter().flat_map(|k| [k.1, k.2]).chain([spec.by]);
+        if let Some(n) = numbers.flatten().find(|n| n.abs() > 1e9) {
+            return Err(Error(format!(
+                "{n:e} is too large for DATE: starts, periods and BY lie within 1e9"
+            )));
+        }
 
         // QUARTER and MONTH give each other their start
         let (quarter, month) = (given(DateUnit::Quarter), given(DateUnit::Month));

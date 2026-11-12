@@ -220,7 +220,11 @@ struct Build<'a> {
 impl Build<'_> {
     fn rows_needed(&self) -> usize {
         let n = self.names.len();
-        if self.md.diagonal { n } else { n - 1 }
+        if self.md.diagonal {
+            n
+        } else {
+            n.saturating_sub(1)
+        }
     }
 
     /// Reads the values of one record of type `kind` after its leading fields.
@@ -234,6 +238,13 @@ impl Build<'_> {
         let n = self.names.len();
         if kind.is_matrix() {
             let needed = self.rows_needed();
+            if needed == 0 {
+                return Err(Error(format!(
+                    "{}: a {} record has no cells to hold with {n} variable(s) and NODIAGONAL",
+                    reader.place(),
+                    kind.value()
+                )));
+            }
             let goes_on = self.open.is_some_and(|i| {
                 let m = &self.matrices[i];
                 m.kind == kind && m.split == split && m.factors == factors && m.rows_read < needed

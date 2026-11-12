@@ -578,7 +578,14 @@ fn chi_square(
         ("Asymp. Sig.".to_string(), Vec::new()),
     ];
     let mut notes = Vec::new();
-    // the categories of the range, when there is one
+    // the categories of the range, when there is one; every whole number in it is a row
+    if let Some((lo, hi)) = range
+        && hi.trunc() - lo.trunc() >= 100_000.0
+    {
+        return Err(Error(format!(
+            "the range {lo} to {hi} of CHISQUARE holds more than 100 000 categories"
+        )));
+    }
     let fixed: Option<Vec<f64>> = range.map(|(lo, hi)| {
         (lo.trunc() as i64..=hi.trunc() as i64)
             .map(|v| v as f64)
