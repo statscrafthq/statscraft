@@ -223,14 +223,7 @@ fn check(chart: &Chart, limits: &Limits) -> Result<(), String> {
             );
         }
     }
-    let points_kind = matches!(
-        chart.kind,
-        ChartKind::Scatter
-            | ChartKind::NormalQq
-            | ChartKind::DetrendedNormalQq
-            | ChartKind::NormalPp
-            | ChartKind::SpreadLevel
-    );
+    let points_kind = data_of(chart.kind) == Data::Points;
     match &chart.plot {
         Some(Plot::Points { groups, lines, .. }) if points_kind => {
             let points: usize = groups.iter().map(|g| g.points.len()).sum();
@@ -242,7 +235,7 @@ fn check(chart: &Chart, limits: &Limits) -> Result<(), String> {
             }
             Ok(())
         }
-        Some(Plot::Boxes { boxes }) if chart.kind == ChartKind::Boxplot => {
+        Some(Plot::Boxes { boxes }) if data_of(chart.kind) == Data::Boxes => {
             let marks: usize = boxes
                 .iter()
                 .map(|b| b.outliers.len() + b.extremes.len())
@@ -262,10 +255,34 @@ fn check(chart: &Chart, limits: &Limits) -> Result<(), String> {
             Err(format!(
                 "plot: a chart of kind {kind} with plot shape {shape} is not read; a chart from \
                  outside takes plot shape points (kinds scatter, normal_qq, detrended_normal_qq, \
-                 normal_pp, spread_level) or boxes (kind boxplot)"
+                 normal_pp, qq, detrended_qq, pp, detrended_pp, roc, spread_level) or boxes \
+                 (kind boxplot)"
             ))
         }
         None => check_categories(chart, &kind, limits),
+    }
+}
+
+/// Where a kind gives its data.
+#[derive(PartialEq)]
+enum Data {
+    Categories,
+    Points,
+    Boxes,
+    /// A plot shape only procedures make: merges, tree, regions or stem-and-leaf lines.
+    Procedure,
+}
+
+/// Every kind, deliberately: a new kind does not compile until it is placed here.
+fn data_of(kind: ChartKind) -> Data {
+    use ChartKind::*;
+    match kind {
+        Bar | Pie | Line | Area | ErrorBar | RangeBar | DropLine | HighLow | Difference
+        | Histogram => Data::Categories,
+        Scatter | NormalQq | DetrendedNormalQq | NormalPp | Qq | DetrendedQq | Pp | DetrendedPp
+        | Roc | SpreadLevel => Data::Points,
+        Boxplot => Data::Boxes,
+        StemLeaf | Dendrogram | Icicle | TreeDiagram | TerritorialMap => Data::Procedure,
     }
 }
 
@@ -338,20 +355,7 @@ fn check_shape(kind: ChartKind, plot: &Plot, limits: &Limits) -> Result<(), Stri
 /// kind's own needs are met.
 fn check_categories(chart: &Chart, kind: &str, limits: &Limits) -> Result<(), String> {
     use ChartKind::*;
-    if matches!(
-        chart.kind,
-        Scatter
-            | Boxplot
-            | StemLeaf
-            | NormalQq
-            | DetrendedNormalQq
-            | NormalPp
-            | SpreadLevel
-            | Dendrogram
-            | Icicle
-            | TreeDiagram
-            | TerritorialMap
-    ) {
+    if data_of(chart.kind) != Data::Categories {
         // a scatter plot from outside gives its points in plot, as GRAPH does
         return Err(format!(
             "a chart of kind {kind} gives its data in plot; Statscraft reads plot shape points \

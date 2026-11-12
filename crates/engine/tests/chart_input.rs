@@ -72,11 +72,23 @@ fn the_chart_json_of_procedures_reads_back_as_the_same_chart() {
          GRAPH /ERRORBAR(STERROR 2)=loaves BY shop.\nGRAPH /PARETO=shop.\n\
          GRAPH /BAR(RANGE)=MIN(loaves) MAX(loaves) BY shop.\n\
          GRAPH /LINE(DIFFERENCE)=SUM(loaves) SUM(tip) BY shop.\n\
-         GRAPH /SCATTERPLOT=loaves WITH tip BY shop.\nEXAMINE loaves BY shop /PLOT=BOXPLOT."
+         GRAPH /SCATTERPLOT=loaves WITH tip BY shop.\nEXAMINE loaves BY shop /PLOT=BOXPLOT.\nPPLOT loaves /DISTRIBUTION=UNIFORM.\n\
+         PPLOT loaves /TYPE=P-P /DISTRIBUTION=EXPONENTIAL.\nCOMPUTE big = loaves > 4.\n\
+         ROC tip BY big (1) /PLOT=CURVE(REFERENCE)."
     );
     let result = session.run(&source, None).unwrap();
     let charts: Vec<Chart> = result.commands.into_iter().flat_map(|c| c.charts).collect();
-    assert!(charts.len() >= 12, "{}", charts.len());
+    let kinds: Vec<String> = charts.iter().map(|c| c.kind_text()).collect();
+    for kind in [
+        "Q-Q plot",
+        "Detrended Q-Q plot",
+        "P-P plot",
+        "Detrended P-P plot",
+        "ROC curve",
+    ] {
+        assert!(kinds.iter().any(|k| k == kind), "{kind} in {kinds:?}");
+    }
+    assert!(charts.len() >= 17, "{}", charts.len());
     for chart in charts {
         let written = serde_json::to_value(&chart).unwrap();
         let text = serde_json::to_string_pretty(&written).unwrap();

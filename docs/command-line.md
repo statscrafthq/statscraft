@@ -306,7 +306,7 @@ cat sales.json | statscraft chart - --json
 
 The JSON is one of two forms.
 
-The chart JSON above, as `--json` writes it. A chart from a run reads back as the same chart, so the simplest way to make one is to take a procedure's chart and change it. `"version": 1` may be given; a higher version is refused. The member `vega_lite` that `--vega-lite` adds is ignored. A field the chart does not have is an error, so a misspelt one is not lost silently; a field that is `null`, `false` or empty counts as left out. `kind`, `tier`, `title`, `category_axis` and `value_axis` (each with a `title`), `categories` and `series` (each with `name`, `statistic` and `values`) are required. A number may be `null` where there is none. A statistical plot gives its data in `plot` with the shape `points` (kinds `scatter`, `normal_qq`, `detrended_normal_qq`, `normal_pp`, `spread_level`) or `boxes` (kind `boxplot`); the other shapes are made only by their procedures.
+The chart JSON above, as `--json` writes it. A chart from a run reads back as the same chart, so the simplest way to make one is to take a procedure's chart and change it. `"version": 1` may be given; a higher version is refused. The member `vega_lite` that `--vega-lite` adds is ignored. A field the chart does not have is an error, so a misspelt one is not lost silently; a field that is `null`, `false` or empty counts as left out. `kind`, `tier`, `title`, `category_axis` and `value_axis` (each with a `title`), `categories` and `series` (each with `name`, `statistic` and `values`) are required. A number may be `null` where there is none. A statistical plot gives its data in `plot` with the shape `points` (kinds `scatter`, `normal_qq`, `detrended_normal_qq`, `normal_pp`, `qq`, `detrended_qq`, `pp`, `detrended_pp`, `roc`, `spread_level`) or `boxes` (kind `boxplot`); the other shapes are made only by their procedures.
 
 A [Vega-Lite](https://vega.github.io/vega-lite/) specification of one view, the part that maps cleanly to a Statscraft chart:
 
@@ -493,6 +493,8 @@ OUTPUT EXPORT /XLSX DOCUMENTFILE='region.xlsx' /HTML DOCUMENTFILE='region.html'.
 ```
 
 The second run converts the saved output without the data: OUTPUT OPEN makes the file's document the designated one, and OUTPUT EXPORT writes it. Tables of commands after OUTPUT OPEN join that document, so open, run and save again adds to the file.
+
+A file may come from anyone, so OUTPUT OPEN checks every table and chart before anything shows it. A chart passes the checks of [charts as input](#charts-as-input), with limits wide enough for what procedures make (100000 categories, 2000000 values, strings of 32768 characters), and the indexes of a dendrogram, an icicle plot and a tree diagram must point where they should. A table's rows must have a cell for every column and its formats the shape of its rows, within 1000000 rows, 10000 columns and 10000000 cells. An item that fails is not shown: a warning names it and says why, the rest of the file opens, and OUTPUT SAVE writes the item back as it was read. Fields a newer Statscraft added are dropped.
 
 The file is UTF-8 JSON, so an agent or a script reads it directly, with no Statscraft call (shortened here):
 
