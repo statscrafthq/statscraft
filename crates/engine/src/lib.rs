@@ -14,6 +14,7 @@ mod descriptives;
 mod dictionary;
 mod discriminant;
 mod dist;
+mod distributions;
 mod examine;
 pub mod excel;
 mod expr;
@@ -30,6 +31,8 @@ mod logistic;
 mod loops;
 mod matrix;
 mod matrix_data;
+mod matrix_functions;
+mod matrix_lang;
 mod means;
 mod merge;
 mod mrsets;
@@ -299,6 +302,8 @@ pub struct Engine {
     clean: Option<Box<output::Clean>>,
     /// The output documents and the workbooks OUTPUT EXPORT wrote.
     documents: output_docs::Documents,
+    /// See `error_position`.
+    error_at: Option<(u32, u32)>,
 }
 
 impl Engine {
@@ -337,48 +342,61 @@ impl Engine {
 
     /// Variable names in dictionary order and spelling for a syntax variable list.
     fn expand(&self, items: &[VarItem]) -> Result<Vec<String>, Error> {
-        let data = self.active()?;
-        let index = |name: &str| {
-            data.variable_index(name)
-                .ok_or_else(|| Error(format!("unknown variable {name}")))
+        expand_in(self.active()?, items)
+    }
+
+    /// Where a failed `execute` went wrong inside its command, as (line, column), when the
+    /// command knows: a statement of a MATRIX program.
+    pub fn error_position(&mut self) -> Option<(u32, u32)> {
+        self.error_at.take()
+    }
+}
+
+/// Variable names of `data` in dictionary order and spelling for a syntax variable list.
+pub(crate) fn expand_in(data: &Dataset, items: &[VarItem]) -> Result<Vec<String>, Error> {
+    let index = |name: &str| {
+        data.variable_index(name)
+            .ok_or_else(|| Error(format!("unknown variable {name}")))
+    };
+    let mut names = Vec::new();
+    for item in items {
+        let (first, last) = match item {
+            VarItem::All => (0, data.variable_count().saturating_sub(1)),
+            VarItem::Name(name) => (index(name)?, index(name)?),
+            VarItem::Range(a, b) => (index(a)?, index(b)?),
         };
-        let mut names = Vec::new();
-        for item in items {
-            let (first, last) = match item {
-                VarItem::All => (0, data.variable_count().saturating_sub(1)),
-                VarItem::Name(name) => (index(name)?, index(name)?),
-                VarItem::Range(a, b) => (index(a)?, index(b)?),
-            };
-            if first > last {
+        if first > last {
+            return Err(Error(format!(
+                "in a TO list the first variable must come before the second in the file ({} TO {})",
+                data.variable_at(first).name(),
+                data.variable_at(last).name()
+            )));
+        }
+        let in_range = (first..=last).map(|i| data.variable_at(i).name());
+        let scratch = in_range.clone().filter(|n| rows::is_scratch(n)).count();
+        match item {
+            VarItem::All => names.extend(
+                in_range
+                    .filter(|n| !rows::is_scratch(n))
+                    .map(str::to_string),
+            ),
+            _ if scratch > 0 && scratch <= last - first => {
                 return Err(Error(format!(
-                    "in a TO list the first variable must come before the second in the file ({} TO {})",
+                    "a TO list cannot hold scratch and other variables at once ({} TO {})",
                     data.variable_at(first).name(),
                     data.variable_at(last).name()
                 )));
             }
-            let in_range = (first..=last).map(|i| data.variable_at(i).name());
-            let scratch = in_range.clone().filter(|n| rows::is_scratch(n)).count();
-            match item {
-                VarItem::All => names.extend(
-                    in_range
-                        .filter(|n| !rows::is_scratch(n))
-                        .map(str::to_string),
-                ),
-                _ if scratch > 0 && scratch <= last - first => {
-                    return Err(Error(format!(
-                        "a TO list cannot hold scratch and other variables at once ({} TO {})",
-                        data.variable_at(first).name(),
-                        data.variable_at(last).name()
-                    )));
-                }
-                _ => names.extend(in_range.map(str::to_string)),
-            }
+            _ => names.extend(in_range.map(str::to_string)),
         }
-        Ok(names)
     }
+    Ok(names)
+}
 
+impl Engine {
     pub fn execute(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
         self.warnings.clear();
+        self.error_at = None;
         if let Some(result) = self.collect_input(command) {
             let tables = result?;
             let mut out = std::mem::take(&mut self.flushed);
@@ -765,6 +783,7 @@ impl Engine {
             }
             Command::Sample(sample) => self.sample(sample)?,
             Command::DoRepeat(repeat) => return self.do_repeat(repeat),
+            Command::Matrix(program) => return self.matrix(program),
             Command::Loop(_) => unreachable!("collect_loop takes LOOP"),
             Command::EndLoop(_) => return Err(Error("END LOOP without LOOP".into())),
             Command::Break => self.break_loop()?,

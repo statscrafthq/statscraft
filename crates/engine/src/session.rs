@@ -542,7 +542,18 @@ fn run(
             }),
             None => Vec::new(),
         };
-        let mut tables = engine.execute(command).map_err(fail)?;
+        let mut tables = match engine.execute(command) {
+            Ok(tables) => tables,
+            Err(e) => {
+                let mut failure = fail(e);
+                // a statement of a MATRIX program knows its own place
+                if let Some((line, column)) = engine.error_position() {
+                    failure[0].line = Some(line);
+                    failure[0].column = Some(column);
+                }
+                return Err(failure);
+            }
+        };
         engine.format_new_variables(command, &names).map_err(fail)?;
         // SET MPRINT=YES: the command as macro expansion made it, before its results
         if let Some(echo) = &raw.echo {

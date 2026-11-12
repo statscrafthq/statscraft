@@ -113,7 +113,7 @@ impl Random {
         }
     }
 
-    fn normal(&mut self) -> f64 {
+    pub fn normal(&mut self) -> f64 {
         normal_quantile(self.open())
     }
 
