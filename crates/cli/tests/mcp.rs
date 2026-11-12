@@ -218,7 +218,13 @@ fn describe_help_check_and_runs_that_build_on_each_other() {
     );
     assert_eq!(check["structuredContent"]["ok"], true, "{check}");
     assert!(!dir.0.join("copy.sav").exists());
-    let sessions = dir.0.join("data/statscraft/sessions");
+    // the server's per-user folder: Statscraft under LOCALAPPDATA, statscraft under XDG_DATA_HOME
+    let name = if cfg!(windows) {
+        "Statscraft"
+    } else {
+        "statscraft"
+    };
+    let sessions = dir.0.join("data").join(name).join("sessions");
     assert!(!sessions.join("t1").exists());
 
     let syntax = format!(
@@ -234,7 +240,7 @@ fn describe_help_check_and_runs_that_build_on_each_other() {
     assert_eq!(result["dataset"], json!([200, 20]));
     assert!(text(&first).starts_with("ok: true\n"));
     // the session's folder keeps the syntax of every run that worked
-    let trail = sessions.join("t1/syntax.sps");
+    let trail = sessions.join("t1").join("syntax.sps");
     assert_eq!(result["trail"], trail.to_str().unwrap());
     assert!(text(&first).contains(&format!("syntax kept in: {}\n", trail.display())));
     assert!(text(&first).contains("### "), "tables as Markdown");
