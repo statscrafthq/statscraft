@@ -34,6 +34,9 @@ pub(crate) struct Collecting {
     nested: usize,
 }
 
+/// The deepest nesting of LOOPs: a run's thread has a 2 MiB stack.
+const MAX_NESTED_LOOPS: usize = 100;
+
 impl Engine {
     /// LOOP, END LOOP and the commands between them: collected, then run as one. Returns
     /// None when the command is not part of a loop.
@@ -53,6 +56,13 @@ impl Engine {
             return None;
         };
         match command {
+            // each level runs one level deeper on the stack
+            Command::Loop(_) if collecting.nested + 2 > MAX_NESTED_LOOPS => {
+                self.collecting = None;
+                return Some(Err(Error(format!(
+                    "LOOP is nested more than {MAX_NESTED_LOOPS} levels deep"
+                ))));
+            }
             Command::Loop(_) => collecting.nested += 1,
             Command::EndLoop(until) if collecting.nested == 0 => {
                 let done = self.collecting.take().expect("checked above");

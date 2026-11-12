@@ -274,7 +274,7 @@ fn nested(p: &mut Parser, variables: &mut Vec<String>) -> PResult<String> {
     let name = p.name("a factor or covariate")?;
     variables.push(name.clone());
     if p.eat(Punct::LParen) {
-        let inner = joined(p, variables)?;
+        let inner = p.nested(|p| joined(p, variables))?;
         p.expect(Punct::RParen)?;
         if p.at(Punct::LParen) {
             return Err(SyntaxError::new(
@@ -285,7 +285,7 @@ fn nested(p: &mut Parser, variables: &mut Vec<String>) -> PResult<String> {
         return Ok(format!("{name}({inner})"));
     }
     if p.eat_keyword("WITHIN") {
-        let inner = nested(p, variables)?;
+        let inner = p.nested(|p| nested(p, variables))?;
         return Ok(format!("{name}({inner})"));
     }
     Ok(name)

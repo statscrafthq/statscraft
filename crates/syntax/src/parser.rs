@@ -76,8 +76,10 @@ impl<'a> Parser<'a> {
     /// Runs one level of a recursive rule. The limit turns runaway nesting into an error
     /// instead of a stack overflow, which would take the whole process down.
     pub fn nested<T>(&mut self, rule: impl FnOnce(&mut Self) -> PResult<T>) -> PResult<T> {
-        if self.depth == 100 {
-            let message = "expression is nested too deeply (more than 100 levels)";
+        // MATRIX expressions take about 20 KiB of stack per level in a debug build, and a run's
+        // thread has 2 MiB
+        if self.depth == 64 {
+            let message = "expression is nested too deeply (more than 64 levels)";
             return Err(SyntaxError::new(self.span(), message));
         }
         self.depth += 1;

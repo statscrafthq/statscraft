@@ -627,7 +627,7 @@ pub(crate) fn program(raws: &[RawCommand]) -> Result<MatrixProgram, Vec<SyntaxEr
         return Err(errors);
     }
     let mut items = flat.into_iter().peekable();
-    let statements = block(&mut items, &mut errors, 0, None)?;
+    let statements = block(&mut items, &mut errors, 0, 0, None)?;
     if let Some((item, span)) = items.next() {
         let message = match item {
             Flat::EndLoop(_) => "END LOOP without LOOP",
@@ -646,13 +646,20 @@ pub(crate) fn program(raws: &[RawCommand]) -> Result<MatrixProgram, Vec<SyntaxEr
 type Items = std::iter::Peekable<std::vec::IntoIter<(Flat, Span)>>;
 
 /// Statements up to the end of the block that `opened` (DO IF or LOOP, with its place)
-/// started, which the caller consumes. `loops` counts the loops around.
+/// started, which the caller consumes. `loops` counts the loops around, `depth` all blocks.
 fn block(
     items: &mut Items,
     errors: &mut Vec<SyntaxError>,
     loops: usize,
+    depth: usize,
     opened: Option<(&str, Span)>,
 ) -> Result<Vec<MatrixStatement>, Vec<SyntaxError>> {
+    // each level parses and runs one level deeper on the stack, which has 2 MiB
+    if let Some((name, span)) = opened.filter(|_| depth > 100) {
+        let message = format!("{name} is nested more than 100 levels deep");
+        errors.push(SyntaxError::new(span, message));
+        return Err(std::mem::take(errors));
+    }
     let mut out = Vec::new();
     loop {
         let Some((item, _)) = items.peek() else {
@@ -691,7 +698,7 @@ fn block(
                 let mut otherwise = None;
                 let mut condition = Some(condition);
                 loop {
-                    let body = block(items, errors, loops, Some(("DO IF", span)))?;
+                    let body = block(items, errors, loops, depth + 1, Some(("DO IF", span)))?;
                     match condition.take() {
                         Some(c) => branches.push((c, body)),
                         None => otherwise = Some(body),
@@ -726,7 +733,7 @@ fn block(
                 }
             }
             Flat::Loop(index, condition) => {
-                let body = block(items, errors, loops + 1, Some(("LOOP", span)))?;
+                let body = block(items, errors, loops + 1, depth + 1, Some(("LOOP", span)))?;
                 let (next, at) = items.next().expect("block stops at an item");
                 let Flat::EndLoop(until) = next else {
                     errors.push(
