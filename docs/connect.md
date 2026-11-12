@@ -2,6 +2,18 @@
 
 Statscraft has an MCP server built in: `statscraft mcp`. An AI agent that speaks MCP can then look at your data, look up syntax and run it through Statscraft, without a shell. Your data stay on your computer.
 
+## From the window: Help > Connect an AI agent
+
+The easiest way needs no terminal. In the Statscraft window, open **Help > Connect an AI agent...**. The dialog lists every supported agent app with its state: not installed, not connected, connected, or connected to another Statscraft copy (an older install in another folder, for example).
+
+- **Connect** adds Statscraft to one app, **Remove** takes it out again, and **Connect all** connects every installed app that does not have it yet.
+- After each change the dialog says what it did and what to restart, for example to quit Claude Desktop completely and open it again.
+- The entry starts the `statscraft` command-line program that came with the window, from the same folder (on macOS, the folder that holds Statscraft.app). If that program is missing there, the dialog says so and changes nothing.
+
+The dialog makes exactly the changes `statscraft connect` makes, described below.
+
+## From a terminal: statscraft connect
+
 One command adds the server to every agent installed on your computer:
 
 ```
@@ -66,7 +78,7 @@ Then ask the agent what tools Statscraft gives it, or ask it to describe a data 
 
 ## Undo
 
-`statscraft connect --remove` takes the `statscraft` entry out again and leaves everything else as it is. To go back to the file exactly as it was before the first change, put the `.statscraft-backup` copy back in its place. Settings you changed in the meantime are then lost too.
+**Remove** in the window, or `statscraft connect --remove`, takes the `statscraft` entry out again and leaves everything else as it is. To go back to the file exactly as it was before the first change, put the `.statscraft-backup` copy back in its place. Settings you changed in the meantime are then lost too.
 
 ## Claude Desktop: double-click the bundle
 

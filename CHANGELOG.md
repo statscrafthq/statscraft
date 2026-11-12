@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.8.1 (2026-11-12)
+
+- Help > Connect an AI agent in the window: connects Statscraft to the AI apps on this computer, or removes it, with clicks instead of `statscraft connect`, and says what to restart. See [Connect your AI agent](docs/connect.md).
+- The Data View keeps rows and columns evenly spaced in files with a million cases.
+
 ## 0.8.0 (2026-11-12)
 
 - `statscraft mcp`: an MCP server over standard input and output, so an AI agent app can describe data, look up commands, check and run syntax through tools. Calls go to the open window when there is one, else to a session in the user data folder. See [the MCP server](docs/mcp.md).
