@@ -30,7 +30,10 @@ pub fn scene(chart: &Chart, width: f32, paper: Paper) -> Option<Scene> {
         pal: Palette::of(paper),
         shapes: Vec::new(),
     };
-    let top = d.title(&chart.title);
+    let mut top = d.title(&chart.title);
+    if let Some(subtitle) = &chart.subtitle {
+        top = d.footnote(Some(subtitle), top - 4.0) + 4.0;
+    }
     let bottom = match (&chart.plot, chart.kind) {
         (Some(plot), _) => plots::plot(&mut d, chart, plot, top)?,
         (None, ChartKind::Bar) => bars(&mut d, chart, top),
@@ -844,6 +847,7 @@ mod tests {
             orientation: Some(Orientation::Vertical),
             grouping,
             title: "Fruit eaten per week".into(),
+            subtitle: None,
             footnote: None,
             category_axis: ChartAxis {
                 title: "Fruit".into(),

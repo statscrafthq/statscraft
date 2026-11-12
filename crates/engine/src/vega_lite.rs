@@ -19,8 +19,15 @@ impl Chart {
         spec.insert("$schema".into(), SCHEMA.into());
         spec.insert("description".into(), self.kind_text().into());
         let mut title = json!({ "text": self.title });
-        if let Some(footnote) = &self.footnote {
-            title["subtitle"] = footnote.as_str().into();
+        let lines: Vec<&str> = [&self.subtitle, &self.footnote]
+            .into_iter()
+            .flatten()
+            .map(String::as_str)
+            .collect();
+        match lines[..] {
+            [] => {}
+            [one] => title["subtitle"] = one.into(),
+            _ => title["subtitle"] = lines.into(),
         }
         spec.insert("title".into(), title);
         let body = match (&self.plot, self.kind) {

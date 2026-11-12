@@ -1592,6 +1592,7 @@ impl Context<'_> {
                 orientation: Some(Orientation::Vertical),
                 grouping: Some(Grouping::Stacked),
                 title: format!("Classification plot, step {n}"),
+                subtitle: None,
                 footnote: Some(format!(
                     "Predicted probability of {}; the cut value is {cut}",
                     (self.dep_label)(1)

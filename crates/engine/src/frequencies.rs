@@ -484,6 +484,7 @@ fn chart(
         orientation: (!pie).then_some(Orientation::Vertical),
         grouping: (!pie).then_some(chart::Grouping::Clustered),
         title: analysis.title.clone(),
+        subtitle: None,
         footnote: None,
         category_axis: Axis {
             title: analysis.heading.clone(),
@@ -607,6 +608,7 @@ impl Histogram<'_> {
             orientation: Some(Orientation::Vertical),
             grouping: None,
             title: self.title.to_string(),
+            subtitle: None,
             footnote: Some(footnote),
             category_axis: Axis {
                 title: self.heading.to_string(),

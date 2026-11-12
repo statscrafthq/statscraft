@@ -77,6 +77,7 @@ pub enum Command {
     Discriminant(Box<crate::discriminant::Discriminant>),
     Anova(Box<crate::anova::Anova>),
     Tree(Box<Tree>),
+    Graph(Box<crate::graph::Graph>),
     Rank(Rank),
     AddFiles(Merge),
     MatchFiles(Merge),

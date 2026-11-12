@@ -129,6 +129,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "GLM",
             "ANOVA",
             "TREE",
+            "GRAPH",
             "REPORT",
             "MATRIX",
         ],

@@ -22,6 +22,9 @@ pub struct Chart {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub grouping: Option<Grouping>,
     pub title: String,
+    /// A line under the title.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subtitle: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub footnote: Option<String>,
     /// The axis of the categories; for a pie, what the slices are.
@@ -228,6 +231,9 @@ impl Chart {
     /// says what kind of chart it is. The text output and the window show charts this way.
     pub fn data_table(&self) -> Table {
         let mut caption = format!("{}.", self.kind_text());
+        if let Some(subtitle) = &self.subtitle {
+            caption = format!("{caption} {subtitle}.");
+        }
         if let Some(footnote) = &self.footnote {
             caption = format!("{caption} {footnote}");
         }

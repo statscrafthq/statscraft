@@ -61,6 +61,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Anova(_)
         | Command::QuickCluster(_)
         | Command::Tree(_)
+        | Command::Graph(_)
         | Command::Rank(_)
         | Command::Aggregate(_)
         | Command::Autorecode(_)

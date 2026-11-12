@@ -511,5 +511,10 @@ fn stray_ends_of_blocks_say_where_they_belong() {
     assert!(!unsupported_commands().contains(&"FINISH"));
     assert!(help(Some("END DATA")).unwrap().contains("BEGIN DATA"));
     assert!(help(Some("output save")).unwrap().contains(".scout"));
-    assert!(help(Some("GRAPH")).unwrap().contains("not supported yet"));
+    assert!(
+        help(Some("OUTPUT MODIFY"))
+            .unwrap()
+            .contains("not supported yet")
+    );
+    assert!(help(Some("GRAPH")).unwrap().starts_with("GRAPH: "));
 }

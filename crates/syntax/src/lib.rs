@@ -32,6 +32,7 @@ mod files;
 mod frequencies;
 mod get_data;
 mod glm;
+mod graph;
 mod input_program;
 mod lexer;
 mod logistic;
@@ -72,6 +73,8 @@ mod tests_data_list;
 mod tests_factor;
 #[cfg(test)]
 mod tests_glm;
+#[cfg(test)]
+mod tests_graph;
 #[cfg(test)]
 mod tests_input_program;
 #[cfg(test)]
@@ -124,6 +127,7 @@ pub use glm::{
     Adjustment, Contrast, Emmeans, Glm, GlmPlot, GlmPrint, GlmTemp, LMatrix, LRow, Profile, Term,
     WsFactor,
 };
+pub use graph::{Graph, GraphChart, GraphData, GraphFunction, GraphSummary};
 pub use lexer::{Punct, Token, TokenKind};
 pub use logistic::{
     Logistic, LogisticCasewise, LogisticCriteria, LogisticMethod, LogisticMethodKind,

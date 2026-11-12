@@ -94,7 +94,7 @@ fn kind(cell: M) -> Option<Stat> {
 /// The grouped median (Algorithms manual, appendix Grouped Percentiles): each distinct value is
 /// the midpoint of its interval, and the cumulative weight up to the midpoints, cc_l = the
 /// weight below value l plus half its own, is interpolated linearly at half the total.
-fn grouped_median(cells: &[(f64, f64)]) -> Option<f64> {
+pub(crate) fn grouped_median(cells: &[(f64, f64)]) -> Option<f64> {
     let mut cells: Vec<(f64, f64)> = cells.iter().copied().filter(|(_, w)| *w > 0.0).collect();
     cells.sort_by(|a, b| a.0.total_cmp(&b.0));
     cells.dedup_by(|next, kept| {

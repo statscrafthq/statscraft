@@ -128,6 +128,7 @@ One page per supported command, generated from the same table that the parser an
 | [GLM](glm.md) | General linear model: one dependent variable as in UNIANOVA, or repeated measures with WSFACTOR. |
 | [ANOVA](anova.md) | Analysis of variance for factorial designs with covariates, the older form with MCA tables. |
 | [TREE](tree.md) | A classification tree grown by CHAID or exhaustive CHAID. |
+| [GRAPH](graph.md) | One chart: summaries by category as bars, lines, areas or a pie, a histogram or a scatterplot. |
 | [REPORT](report.md) | Case listings and summary statistics by break groups, laid out as a report. |
 | [MATRIX](matrix.md) | Run a program in the matrix language, up to END MATRIX. |
 
@@ -217,4 +218,4 @@ Functions of expressions (COMPUTE, IF, SELECT IF, DO IF, ELSE IF, LOOP IF, END L
 
 These commands of the language are recognized, but Statscraft does not run them yet. A script that uses one stops with the error "... is not supported yet" at its line, and nothing is changed.
 
-GRAPH, OUTPUT MODIFY
+OUTPUT MODIFY

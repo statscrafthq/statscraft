@@ -346,6 +346,7 @@ fn bar_chart(
         orientation: Some(Orientation::Vertical),
         grouping: Some(Grouping::Clustered),
         title,
+        subtitle: None,
         footnote: None,
         category_axis: Axis {
             title: shown.variable(&variables[0]),

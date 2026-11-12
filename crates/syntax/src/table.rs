@@ -15,6 +15,7 @@ use crate::files;
 use crate::frequencies;
 use crate::get_data;
 use crate::glm;
+use crate::graph;
 use crate::input_program;
 use crate::lexer::{Punct, Token, TokenKind};
 use crate::logistic;
@@ -1545,6 +1546,43 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: tree::tree,
     },
     CommandSpec {
+        name: "GRAPH",
+        summary: "One chart: summaries by category as bars, lines, areas or a pie, a histogram or a scatterplot.",
+        syntax: "GRAPH [/TITLE='line' ['line']] [/SUBTITLE='line'] [/FOOTNOTE='line' ['line']]\n\
+                 \x20     /BAR[(SIMPLE | GROUPED | STACKED)]=spec | /LINE[(SIMPLE | MULTIPLE | AREA)]=spec | /PIE=spec\n\
+                 \x20     | /HISTOGRAM[(NORMAL)]=var | /SCATTERPLOT[(BIVARIATE)]=x WITH y [BY group] [BY id (NAME | IDENTIFY)]\n\
+                 \x20     [/MISSING=[LISTWISE | VARIABLE] [NOREPORT | REPORT] [EXCLUDE | INCLUDE]].\n\
+                 spec: COUNT | PCT | CUFREQ | CUPCT BY var [BY var]; var alone (COUNT BY var); func(varlist) ...\n\
+                 [BY var [BY var]]; VALUE(varlist) [BY var]. func: MEAN MEDIAN GMEDIAN MODE SUM CUSUM N MINIMUM\n\
+                 MAXIMUM STDDEV VARIANCE, PTILE(varlist, p), PLT PGT NLT NGT(varlist, x), PIN NIN(varlist, low, high).\n\
+                 Keywords may be cut to three letters (MIN, MAX); the first subcommand needs no slash.\n\
+                 The shape of the spec sets the layout: one function by one variable gives one series; one function\n\
+                 by two variables gives a series per value of the second; several functions by one variable give a\n\
+                 series per function; several functions without BY give one bar or slice each. A list such as\n\
+                 SUM(a b) is SUM(a) SUM(b). SIMPLE, GROUPED and MULTIPLE change nothing; STACKED stacks the series\n\
+                 and AREA fills under the lines and stacks them. A pie takes a single series.\n\
+                 COUNT and N add up the case weights; PCT is a share of all cases in the chart; CUFREQ, CUSUM and\n\
+                 CUPCT add up along the categories of each series, CUPCT ending at 100 per series. PLT, PGT and PIN\n\
+                 give the share of a category's valid values below x, above x or from low to high; NLT, NGT and NIN\n\
+                 the weighted count. MEDIAN and PTILE use (W + 1) p as FREQUENCIES does; MODE is the smallest of\n\
+                 tied values; GMEDIAN takes the values as group midpoints. VALUE draws a bar per case and a series\n\
+                 per variable, unweighted; missing values leave a gap and the BY variable names the cases.\n\
+                 Categories ascend by value. A case missing a category value is left out unless REPORT, which adds\n\
+                 categories for missing values after the valid ones. LISTWISE drops a case missing on any function\n\
+                 variable of the chart, VARIABLE only from that variable's functions; INCLUDE makes user-missing\n\
+                 values valid. A category empty in every series is left out; at most 3000 categories.\n\
+                 HISTOGRAM bins the valid values as FREQUENCIES does; NORMAL adds the normal curve. SCATTERPLOT\n\
+                 draws each case valid on both variables once, colored by the BY group variable; BY id (NAME)\n\
+                 labels the points with that variable's values, (IDENTIFY) leaves them off.\n\
+                 TITLE names the chart (otherwise it is named after what it shows); SUBTITLE goes under the title\n\
+                 and FOOTNOTE below the chart. Lines have at most 72 characters. With SPLIT FILE each group gets a\n\
+                 chart. Weighted when a weight variable is set; cases with a zero or missing weight are left out.\n\
+                 Not supported yet: ERRORBAR, PARETO, HILO, PANEL, INTERVAL, TEMPLATE, BAR(RANGE), LINE(DROP)\n\
+                 and LINE(DIFFERENCE), and OVERLAY, MATRIX and XYZ scatterplots; each gives an error.",
+        example: "GRAPH /TITLE='Visits per store' /BAR(STACKED)=COUNT BY store BY daypart.",
+        parse: graph::graph,
+    },
+    CommandSpec {
         name: "REPORT",
         summary: "Case listings and summary statistics by break groups, laid out as a report.",
         syntax: "REPORT [FORMAT=[MANUAL | AUTOMATIC] [NOLIST | LIST[(n)]] [ALIGN(LEFT | CENTER | RIGHT)] [TSPACE(1)]\n\
@@ -2454,7 +2492,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
 
 /// Commands of the language that have no parser yet. They get "not supported yet" instead of
 /// "unknown command", and their bodies are not tokenised.
-static UNSUPPORTED: &[&str] = &["GRAPH", "OUTPUT MODIFY"];
+static UNSUPPORTED: &[&str] = &["OUTPUT MODIFY"];
 
 /// The ends of blocks whose start reads them, such as END DATA after BEGIN DATA. Standing
 /// alone they are an error at their own line.

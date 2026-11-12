@@ -26,6 +26,7 @@ mod frequencies;
 mod get_data;
 mod get_translate;
 mod glm;
+mod graph;
 mod html;
 mod input;
 pub mod live;
@@ -648,6 +649,7 @@ impl Engine {
             | Command::Discriminant(_)
             | Command::Anova(_)
             | Command::Tree(_)
+            | Command::Graph(_)
             | Command::Report(_)
             | Command::Rank(_)
             | Command::Aggregate(_) => return self.procedure(command),
@@ -868,6 +870,7 @@ impl Engine {
             Command::Discriminant(command) => self.discriminant(command),
             Command::Anova(command) => self.anova(command),
             Command::Tree(command) => self.tree(command),
+            Command::Graph(command) => self.graph(command),
             Command::Report(command) => self.report(command),
             Command::Rank(command) => self.rank(command),
             Command::Aggregate(command) => self.aggregate(command).map(|()| Vec::new()),

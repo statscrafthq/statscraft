@@ -531,6 +531,7 @@ mod tests {
             orientation: None,
             grouping: None,
             title: "Waiting minutes".into(),
+            subtitle: None,
             footnote: None,
             category_axis: ChartAxis {
                 title: "Depot".into(),
