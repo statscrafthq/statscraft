@@ -879,7 +879,10 @@ impl App {
                         }
                     };
                     let syntax = output::source_lines(&self.source, out.first_line, out.last_line);
-                    let command = (heading, syntax, out.tables);
+                    // shortcut: a chart shows as its data table until the window draws charts
+                    let mut tables = out.tables;
+                    tables.extend(out.charts.iter().map(|chart| chart.data_table()));
+                    let command = (heading, syntax, tables);
                     match documents.iter_mut().find(|(d, _)| *d == out.document) {
                         Some((_, commands)) => commands.push(command),
                         None => documents.push((out.document, vec![command])),
@@ -5945,6 +5948,7 @@ mod tests {
                 first_line: 1,
                 last_line: 1,
                 tables: Vec::new(),
+                charts: Vec::new(),
                 warnings: Vec::new(),
                 document: None,
             };

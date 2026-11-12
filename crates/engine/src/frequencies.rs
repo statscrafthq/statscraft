@@ -18,20 +18,33 @@
 //!   open group (a value below the first or above the last boundary) it is undefined.
 //! - DVALUE, AFREQ and DFREQ are ignored when percentiles or a histogram are asked for; the
 //!   median is ignored when AFREQ or DFREQ order the table.
+//! - Charts, one per variable for each chart subcommand: a bar per valid value, a slice per
+//!   valid value plus one for all missing values (MISSING, the default), a histogram of a
+//!   numeric variable over its valid values. MIN and MAX leave out values outside them. The
+//!   normal curve takes the mean and standard deviation of all valid values, MIN and MAX aside.
 //!
-//! Where the manual is silent: the Statistics table appears only when statistics or
+//! Where the manual is silent: bars and slices follow the order of the table; bar percentages
+//! are of the valid cases, slice percentages of the whole pie; the histogram bins (`bins`).
+//! The Statistics table appears only when statistics or
 //! percentiles are asked for or a frequency table is left out (the manual's basic
 //! specification gives frequency tables alone); LIMIT counts every row of values, missing
 //! ones too; values with equal frequencies keep ascending order of value; a value on a group
 //! boundary belongs to the group above it, except the last boundary, which closes the last group.
 
+use crate::chart::{
+    self, Axis, Category, Chart, NormalCurve, Orientation, Series, Statistic, Tier,
+};
+use crate::crosstabs::Key;
 use crate::descriptives::{case_weights, number, summarize};
 use crate::examine::{Distribution, short};
 use crate::format::{Stat, formats_of, procedure_format};
 use crate::shown::{Show, Shown, drop_label_column};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Value, Values, Variable};
-use statscraft_syntax::{Frequencies, FrequencyOrder as Order, FrequencyStatistic as S, Grouping};
+use statscraft_syntax::{
+    Frequencies, FrequencyChart, FrequencyChartKind as ChartKind, FrequencyOrder as Order,
+    FrequencyStatistic as S, Grouping,
+};
 use std::cmp::Ordering;
 
 struct Row {
@@ -389,6 +402,271 @@ fn grouped_percentile(
     Ok(Some(lower + share * (upper - lower)))
 }
 
+/// The chart `spec` asks for of one variable, or why there is none.
+fn chart(
+    analysis: &Analysis,
+    variable: &Variable,
+    shown: &Shown,
+    spec: &FrequencyChart,
+) -> Result<Chart, String> {
+    let in_range = |value: f64| {
+        spec.minimum.is_none_or(|m| value >= m) && spec.maximum.is_none_or(|m| value <= m)
+    };
+    if spec.kind == ChartKind::Histogram {
+        return histogram(analysis, spec, &in_range);
+    }
+    let category = |row: &Row| {
+        let key = match &row.value {
+            Cell::Number(n) => Key::Number(*n),
+            Cell::Text(t) => Key::Text(t.clone()),
+            Cell::Empty => Key::Text(String::new()),
+        };
+        Category {
+            label: shown.value(variable, &key),
+            value: row.value.clone(),
+            missing: false,
+            bin: None,
+        }
+    };
+    // MIN and MAX bound the numeric values; the rows keep the order of the table
+    let plotted = analysis.rows.iter().filter(|r| match r.value {
+        Cell::Number(v) => !r.missing && in_range(v),
+        _ => !r.missing,
+    });
+    let mut categories: Vec<Category> = plotted.clone().map(category).collect();
+    let mut counts: Vec<f64> = plotted.map(|r| r.count).collect();
+    let missing: f64 = analysis
+        .rows
+        .iter()
+        .filter(|r| r.missing)
+        .map(|r| r.count)
+        .sum();
+    let pie = spec.kind == ChartKind::Pie;
+    // a pie shows the missing values as one slice unless NOMISSING
+    if pie && spec.missing && missing > 0.0 {
+        categories.push(Category {
+            label: "Missing".into(),
+            value: Cell::Empty,
+            missing: true,
+            bin: None,
+        });
+        counts.push(missing);
+    }
+    if categories.is_empty() {
+        return Err("no values to chart".into());
+    }
+    // bars: percent of the valid cases; slices: percent of the whole pie
+    let whole = match pie {
+        true => counts.iter().sum(),
+        false => analysis.valid,
+    };
+    let (name, statistic, values, format) = match spec.percent {
+        true => (
+            "Percent",
+            Statistic::Percent,
+            counts.iter().map(|c| 100.0 * c / whole).collect(),
+            chart::PERCENT_FORMAT.to_string(),
+        ),
+        false => (
+            "Frequency",
+            Statistic::Count,
+            counts.clone(),
+            chart::count_format(counts.iter().copied()),
+        ),
+    };
+    let top = values.iter().copied().fold(0.0, f64::max);
+    Ok(Chart {
+        kind: match pie {
+            true => chart::ChartKind::Pie,
+            false => chart::ChartKind::Bar,
+        },
+        tier: Tier::Presentation,
+        orientation: (!pie).then_some(Orientation::Vertical),
+        grouping: (!pie).then_some(chart::Grouping::Clustered),
+        title: analysis.title.clone(),
+        footnote: None,
+        category_axis: Axis {
+            title: analysis.heading.clone(),
+            format: match analysis.numeric {
+                true => analysis.format.clone(),
+                false => String::new(),
+            },
+            maximum: None,
+            variable: Some(analysis.name.clone()),
+        },
+        value_axis: Axis {
+            title: name.into(),
+            format,
+            // a top below the highest bar is too small and left to the drawing
+            maximum: spec.scale.filter(|n| !pie && *n >= top),
+            variable: None,
+        },
+        legend: None,
+        categories,
+        series: vec![Series {
+            name: name.into(),
+            statistic,
+            variable: None,
+            value: Cell::Empty,
+            values,
+        }],
+        normal: None,
+    })
+}
+
+/// The histogram of a numeric variable: equal bins over the valid values MIN and MAX keep,
+/// counted with their weights; NORMAL adds the curve of all valid values.
+fn histogram(
+    analysis: &Analysis,
+    spec: &FrequencyChart,
+    in_range: &dyn Fn(f64) -> bool,
+) -> Result<Chart, String> {
+    if !analysis.numeric {
+        return Err("a string variable gets no histogram".into());
+    }
+    let pairs: Vec<(f64, f64)> = analysis
+        .pairs
+        .iter()
+        .copied()
+        .filter(|(v, _)| in_range(*v))
+        .collect();
+    if pairs.is_empty() {
+        return Err("no values to chart".into());
+    }
+    let (first, width, counts) = bins(&pairs);
+    let edge = |i: usize| tidy((first + i as f64) * width);
+    let categories: Vec<Category> = (0..counts.len())
+        .map(|i| {
+            let (lower, upper) = (edge(i), edge(i + 1));
+            Category {
+                label: format!("{lower} to under {upper}"),
+                value: Cell::Number(tidy((lower + upper) / 2.0)),
+                missing: false,
+                bin: Some([lower, upper]),
+            }
+        })
+        .collect();
+    let summary = summarize(&analysis.pairs);
+    let sd = summary.sd.filter(|sd| summary.n > 1.0 && *sd > 0.0);
+    let normal = match (spec.normal, summary.mean, sd) {
+        (false, ..) => None,
+        (true, Some(mean), Some(std_dev)) => Some(NormalCurve {
+            mean,
+            std_dev,
+            total: analysis.valid,
+        }),
+        (true, ..) => return Err("the normal curve needs values that vary".into()),
+    };
+    let text = |value: Option<f64>, kind: Stat| {
+        value.map_or(".".into(), |v| {
+            chart::number_text(v, &procedure_format(&analysis.format, kind))
+        })
+    };
+    let footnote = format!(
+        "Mean = {}, Std. Dev. = {}, N = {}",
+        text(summary.mean, Stat::Value),
+        text(sd, Stat::Spread),
+        chart::number_text(analysis.valid, "")
+    );
+    let top = counts.iter().copied().fold(0.0, f64::max);
+    Ok(Chart {
+        kind: chart::ChartKind::Histogram,
+        tier: Tier::Statistical,
+        orientation: Some(Orientation::Vertical),
+        grouping: None,
+        title: analysis.title.clone(),
+        footnote: Some(footnote),
+        category_axis: Axis {
+            title: analysis.heading.clone(),
+            format: analysis.format.clone(),
+            maximum: None,
+            variable: Some(analysis.name.clone()),
+        },
+        value_axis: Axis {
+            title: "Frequency".into(),
+            format: chart::count_format(counts.iter().copied()),
+            maximum: spec.scale.filter(|n| *n >= top),
+            variable: None,
+        },
+        legend: None,
+        categories,
+        series: vec![Series {
+            name: "Frequency".into(),
+            statistic: Statistic::Count,
+            variable: None,
+            value: Cell::Empty,
+            values: counts,
+        }],
+        normal,
+    })
+}
+
+/// Equal bins over (value, weight) pairs in ascending order: the index of the first bin's
+/// lower bound in widths, the width, and the summed weight in every bin. A bin holds its lower
+/// bound, not its upper one.
+///
+/// The manuals leave the bins open. Sturges' rule gives the number, 1 + log2 of the summed
+/// weight, rounded up; the width is the range over that number moved to the nearest of 1, 2 or
+/// 5 times a power of ten, at least 1 when every value is whole, and the bins start at a
+/// multiple of it.
+fn bins(pairs: &[(f64, f64)]) -> (f64, f64, Vec<f64>) {
+    let (min, max) = (pairs[0].0, pairs[pairs.len() - 1].0);
+    let total: f64 = pairs.iter().map(|p| p.1).sum();
+    let count = (total.max(1.0).log2().ceil() + 1.0).max(1.0);
+    let raw = (max - min) / count;
+    let mut width = match raw > 0.0 {
+        true => {
+            let power = 10f64.powf(raw.log10().floor());
+            [1.0, 2.0, 5.0, 10.0]
+                .map(|m| tidy(m * power))
+                .into_iter()
+                .min_by(|a, b| (a - raw).abs().total_cmp(&(b - raw).abs()))
+                .expect("four widths")
+        }
+        false => 1.0,
+    };
+    if pairs.iter().all(|(v, _)| v.fract() == 0.0) {
+        width = width.max(1.0);
+    }
+    let first = (min / width + 1e-9).floor();
+    let index = |v: f64| ((v / width - first) + 1e-9).floor().max(0.0) as usize;
+    let mut counts = vec![0.0; index(max) + 1];
+    for &(v, w) in pairs {
+        counts[index(v)] += w;
+    }
+    (first, width, counts)
+}
+
+/// A bound without the noise of binary fractions: 0.30000000000000004 is 0.3.
+fn tidy(x: f64) -> f64 {
+    format!("{x:.10}").parse().unwrap_or(x)
+}
+
+#[cfg(test)]
+#[test]
+fn bins_follow_sturges_with_round_widths() {
+    // 8 cases: 4 bins over 1.2 to 9.7, width 2.125 moved to 2, from 0
+    let pairs: Vec<(f64, f64)> = [1.2, 2.0, 3.5, 4.4, 5.0, 6.1, 8.0, 9.7]
+        .iter()
+        .map(|v| (*v, 1.0))
+        .collect();
+    let (first, width, counts) = bins(&pairs);
+    assert_eq!((first, width), (0.0, 2.0));
+    assert_eq!(counts, [1.0, 2.0, 2.0, 1.0, 2.0]);
+    // 2 bins over 14.4: 7.2 is nearer 5 than 10
+    let (_, width, _) = bins(&[(0.0, 1.0), (14.4, 1.0)]);
+    assert_eq!(width, 5.0);
+    // whole values never get bins narrower than 1
+    let (first, width, counts) = bins(&[(1.0, 300.0), (2.0, 300.0), (3.0, 400.0)]);
+    assert_eq!(
+        (first, width, counts),
+        (1.0, 1.0, vec![300.0, 300.0, 400.0])
+    );
+    // one value: one bin of width 1
+    assert_eq!(bins(&[(0.25, 3.0)]), (0.0, 1.0, vec![3.0]));
+    assert_eq!(tidy(0.1 * 3.0), 0.3);
+}
+
 impl Engine {
     pub(crate) fn frequencies(&mut self, command: &Frequencies) -> Result<Vec<Table>, Error> {
         let names = self.expand(&command.variables)?;
@@ -413,13 +691,10 @@ impl Engine {
             .collect::<Result<_, _>>()?;
 
         let mut warnings = Vec::new();
-        if !command.charts.is_empty() {
-            warnings.push(format!(
-                "charts are not drawn yet: {} left out; the tables and statistics are shown",
-                command.charts.join(", ")
-            ));
-        }
-        let histogram = command.charts.iter().any(|c| c == "HISTOGRAM");
+        let histogram = command
+            .charts
+            .iter()
+            .any(|c| c.kind == ChartKind::Histogram);
         let mut order = command.order;
         if order != Order::AValue && (histogram || !command.percentiles.is_empty()) {
             warnings.push(
@@ -436,15 +711,21 @@ impl Engine {
         }
 
         let mut tables_of: Vec<Option<Table>> = Vec::new();
+        let mut charts = Vec::new();
         for analysis in &mut analyses {
+            order_rows(&mut analysis.rows, order);
             let table = !command.notable
                 && command
                     .limit
                     .is_none_or(|limit| analysis.rows.len() <= limit);
-            tables_of.push(table.then(|| {
-                order_rows(&mut analysis.rows, order);
-                frequency_table(analysis, shown.values != Show::Plain)
-            }));
+            tables_of.push(table.then(|| frequency_table(analysis, shown.values != Show::Plain)));
+            let variable = data.variable(&analysis.name)?;
+            for spec in &command.charts {
+                match chart(analysis, &variable, &shown, spec) {
+                    Ok(chart) => charts.push(chart),
+                    Err(warning) => warnings.push(format!("{}: {warning}", analysis.name)),
+                }
+            }
         }
         let wanted = !statistics.is_empty()
             || !command.percentiles.is_empty()
@@ -532,6 +813,7 @@ impl Engine {
                 }),
             }
         };
+        self.charts.extend(charts);
         let mut out = Vec::new();
         if command.by_variable {
             for (i, table) in tables_of.into_iter().enumerate() {

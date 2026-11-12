@@ -80,6 +80,9 @@ pub struct CommandResult {
     pub first_line: u32,
     pub last_line: u32,
     pub tables: Vec<Table>,
+    /// The charts it made, each with its numbers and labels.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub charts: Vec<crate::Chart>,
     /// What the command did differently from what was asked, without failing.
     pub warnings: Vec<String>,
     /// The output document its tables went to: the designated one when it ran. None when it
@@ -108,13 +111,27 @@ pub struct RunResult {
 impl RunResult {
     /// What `statscraft run` prints: pretty JSON, or Markdown tables and a summary.
     pub fn output(&self, json: bool, check_only: bool) -> String {
+        self.output_with(json, check_only, false)
+    }
+
+    /// `output`, and with `vega_lite` the Vega-Lite specification of every chart: in JSON as
+    /// its member `vega_lite`, in Markdown as a code block after its data table.
+    pub fn output_with(&self, json: bool, check_only: bool, vega_lite: bool) -> String {
         if json {
-            return serde_json::to_string_pretty(self).expect("plain data") + "\n";
+            let value = self.to_json(vega_lite);
+            return serde_json::to_string_pretty(&value).expect("plain data") + "\n";
         }
         let mut out = String::new();
         for command in &self.commands {
             for table in &command.tables {
                 markdown(&mut out, table);
+            }
+            for chart in &command.charts {
+                markdown(&mut out, &chart.data_table());
+                if vega_lite {
+                    let spec = serde_json::to_string_pretty(&chart.vega_lite());
+                    let _ = writeln!(out, "```json\n{}\n```\n", spec.expect("plain data"));
+                }
             }
             for warning in &command.warnings {
                 let _ = writeln!(
@@ -154,6 +171,22 @@ impl RunResult {
             if self.saved { ", session saved" } else { "" }
         );
         out
+    }
+}
+
+impl RunResult {
+    /// The result as JSON; with `vega_lite` every chart also holds its Vega-Lite specification.
+    pub fn to_json(&self, vega_lite: bool) -> serde_json::Value {
+        let mut value = serde_json::to_value(self).expect("plain data");
+        if !vega_lite {
+            return value;
+        }
+        for (i, command) in self.commands.iter().enumerate() {
+            for (j, chart) in command.charts.iter().enumerate() {
+                value["commands"][i]["charts"][j]["vega_lite"] = chart.vega_lite();
+            }
+        }
+        value
     }
 }
 
@@ -745,6 +778,7 @@ fn run(
             first_line: raw.first_line,
             last_line: raw.last_line,
             tables,
+            charts: engine.take_charts(),
             warnings: engine.warnings().to_vec(),
             document,
         });

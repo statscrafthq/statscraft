@@ -91,6 +91,7 @@ fn crosstabs() {
             descending: false,
             count: WeightCount::Asis,
             truncate: false,
+            barchart: false,
         })
     );
     assert_eq!(
@@ -108,6 +109,7 @@ fn crosstabs() {
             descending: true,
             count: WeightCount::Asis,
             truncate: false,
+            barchart: false,
         })
     );
     let Command::Crosstabs(c) = one("CROSSTABS a BY b /CELLS=NONE.") else {
@@ -141,6 +143,10 @@ fn crosstabs() {
             .message
             .contains("WRITE of CROSSTABS is not supported yet")
     );
+    let Command::Crosstabs(c) = one("CROSSTABS a BY b /BARCHART.") else {
+        panic!()
+    };
+    assert!(c.barchart);
     assert_eq!(err("CROSSTABS a b.").expected, ["BY"]);
     assert_eq!(err("CROSSTABS /TABLES=a.").expected, ["BY"]);
     assert!(
@@ -673,9 +679,29 @@ fn frequencies_grouped_and_charts() {
         ]
     );
     let f = freq("FREQUENCIES a /BARCHART /PIE=MIN(1) MAX(10) PERCENT NOMISSING /BAR=FREQ(50).");
-    assert_eq!(f.charts, ["BARCHART", "PIECHART"]);
+    let kinds: Vec<FrequencyChartKind> = f.charts.iter().map(|c| c.kind).collect();
+    // a repeated subcommand replaces the earlier one
+    assert_eq!(kinds, [FrequencyChartKind::Pie, FrequencyChartKind::Bar]);
+    let pie = &f.charts[0];
+    assert_eq!((pie.minimum, pie.maximum), (Some(1.0), Some(10.0)));
+    assert!(pie.percent && !pie.missing);
+    assert_eq!(
+        (f.charts[1].percent, f.charts[1].scale),
+        (false, Some(50.0))
+    );
     let f = freq("FREQUENCIES a /HIST=NORMAL FREQ(20) MINIMUM(0).");
-    assert_eq!(f.charts, ["HISTOGRAM"]);
+    let histogram = &f.charts[0];
+    assert_eq!(histogram.kind, FrequencyChartKind::Histogram);
+    assert!(histogram.normal);
+    assert_eq!(
+        (histogram.scale, histogram.minimum),
+        (Some(20.0), Some(0.0))
+    );
+    // of FREQ and PERCENT, MISSING and NOMISSING, NORMAL and NONORMAL the first counts
+    let f = freq("FREQUENCIES a /PIE=FREQ PERCENT NOMISSING MISSING /BAR=PERCENT(40) FREQ.");
+    assert!(!f.charts[0].percent && !f.charts[0].missing);
+    assert_eq!((f.charts[1].percent, f.charts[1].scale), (true, Some(40.0)));
+    assert!(!freq("FREQUENCIES a /HIST=NONORMAL NORMAL.").charts[0].normal);
 }
 
 #[test]

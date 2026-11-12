@@ -42,7 +42,7 @@ const STATISTICS: [(&str, &[Stat]); 14] = [
     ),
 ];
 
-const CROSSTABS_SUBCOMMANDS: [&str; 5] = ["VARIABLES", "WRITE", "METHOD", "BARCHART", "EXACT"];
+const CROSSTABS_SUBCOMMANDS: [&str; 4] = ["VARIABLES", "WRITE", "METHOD", "EXACT"];
 
 const CELLS: [(&str, &[CrosstabsCell]); 10] = [
     ("COUNT", &[CrosstabsCell::Count]),
@@ -260,6 +260,7 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
         descending: false,
         count: WeightCount::Asis,
         truncate: false,
+        barchart: false,
     };
     let mut cells: Option<Vec<CrosstabsCell>> = None;
     let mut no_tables = false;
@@ -351,6 +352,8 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
             let last = |pair: [u8; 2]| chosen.iter().rfind(|c| pair.contains(*c)).copied();
             command.descending = last([0, 1]).map_or(command.descending, |c| c == 1);
             no_tables = last([2, 3]).map_or(no_tables, |c| c == 3);
+        } else if p.eat_keyword("BARCHART") {
+            command.barchart = true;
         } else {
             return Err(p.subcommand_error("CROSSTABS", &CROSSTABS_SUBCOMMANDS));
         }

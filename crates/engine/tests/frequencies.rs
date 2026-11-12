@@ -310,12 +310,11 @@ fn limit_notable_and_order() {
 }
 
 #[test]
-fn charts_are_accepted_with_a_warning() {
+fn a_histogram_keeps_the_values_ascending() {
     let (tables, warnings) = run("FREQUENCIES x /HISTOGRAM=NORMAL /PIECHART /FORMAT=DVALUE.");
     assert_eq!(tables.len(), 1);
-    assert!(warnings[0].contains("HISTOGRAM, PIECHART"), "{warnings:?}");
-    // a histogram keeps the values ascending
-    assert!(warnings[1].contains("ignored"), "{warnings:?}");
+    assert_eq!(warnings.len(), 1, "{warnings:?}");
+    assert!(warnings[0].contains("ignored"), "{warnings:?}");
     assert_eq!(rows(&tables[0])[0].1, "10");
 }
 

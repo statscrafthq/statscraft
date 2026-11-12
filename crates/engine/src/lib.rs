@@ -3,6 +3,7 @@
 mod aggregate;
 mod anova;
 mod autorecode;
+pub mod chart;
 mod cluster;
 mod contrast;
 mod correlations;
@@ -69,9 +70,11 @@ mod transform;
 mod tree;
 mod ttest;
 mod variables;
+pub mod vega_lite;
 pub mod workbook;
 pub mod xlsx;
 
+pub use chart::Chart;
 pub use expr::functions;
 pub use format::{Currencies, currency_parts, format_value, is_date_time_or_currency};
 pub use get_data::delimited;
@@ -199,11 +202,12 @@ pub fn cell_text(table: &Table, row: usize, column: usize) -> String {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 #[serde(untagged)]
 pub enum Cell {
     Text(String),
     Number(f64),
+    #[default]
     Empty,
 }
 
@@ -272,6 +276,8 @@ pub struct Engine {
     blocks: Vec<transform::Block>,
     /// What the last command did differently from what was asked, without failing.
     warnings: Vec<String>,
+    /// The charts of the last command.
+    charts: Vec<Chart>,
     /// A DATA LIST without FILE or an input program, waiting for its BEGIN DATA, and the
     /// commands that came in between, to run after the data.
     pending_data: Option<data_list::Pending>,
@@ -343,6 +349,11 @@ impl Engine {
         self.warnings.push(message.into());
     }
 
+    /// The charts of the last `execute`, taken out of the engine.
+    pub fn take_charts(&mut self) -> Vec<Chart> {
+        std::mem::take(&mut self.charts)
+    }
+
     fn active(&self) -> Result<&Dataset, Error> {
         self.dataset
             .as_ref()
@@ -411,6 +422,7 @@ pub(crate) fn expand_in(data: &Dataset, items: &[VarItem]) -> Result<Vec<String>
 impl Engine {
     pub fn execute(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
         self.warnings.clear();
+        self.charts.clear();
         self.error_at = None;
         if let Some(result) = self.collect_input(command) {
             let tables = result?;

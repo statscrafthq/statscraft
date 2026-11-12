@@ -8,11 +8,14 @@
 //! - PERCENTILES lists values from 0 to 100; NTILES=n adds the n - 1 cut points; several of
 //!   both may be given and duplicates are shown once.
 //! - GROUPED=varlist [(width) | (boundaries)], more lists after '/' or in one subcommand.
-//! - BARCHART and HISTOGRAM exclude each other; PIECHART goes with either. Their options are
-//!   checked, but the charts are not drawn yet.
+//! - BARCHART and HISTOGRAM exclude each other; PIECHART goes with either. MIN(n) and MAX(n)
+//!   bound the values plotted. Bar: FREQ(n) or PERCENT(n), n the top of the axis. Pie: FREQ or
+//!   PERCENT, MISSING (one slice for the missing values, the default) or NOMISSING; of each
+//!   pair the first given counts. Histogram: FREQ(n), NORMAL or NONORMAL (the default).
 
 use crate::ast::{
-    Command, Frequencies, FrequencyOrder, FrequencyStatistic as S, Grouping, VarItem,
+    Command, Frequencies, FrequencyChart, FrequencyChartKind, FrequencyChartKind as Kind,
+    FrequencyOrder, FrequencyStatistic as S, Grouping, VarItem,
 };
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
@@ -32,6 +35,12 @@ const SUBCOMMANDS: [&str; 11] = [
     "HISTOGRAM",
     "GROUPED",
     "ORDER",
+];
+
+const CHARTS: [(&str, Kind); 3] = [
+    ("BARCHART", Kind::Bar),
+    ("PIECHART", Kind::Pie),
+    ("HISTOGRAM", Kind::Histogram),
 ];
 
 const ALL: [S; 14] = [
@@ -234,23 +243,67 @@ fn grouped(p: &mut Parser, command: &mut Frequencies) -> PResult<()> {
     }
 }
 
-/// The options of a chart subcommand: `numbered` take `(n)`, `optional` may.
-fn chart(p: &mut Parser, keywords: &[&str], numbered: &[&str], optional: &[&str]) -> PResult<()> {
+/// The options of a chart subcommand, those of `kind` only. Of FREQ and PERCENT, MISSING and
+/// NOMISSING, NORMAL and NONORMAL the first given counts; FREQ and PERCENT may take `(n)`.
+fn chart(p: &mut Parser, kind: FrequencyChartKind) -> PResult<FrequencyChart> {
+    let keywords: &[&str] = match kind {
+        Kind::Bar => &["MINIMUM", "MAXIMUM", "FREQ", "PERCENT"],
+        Kind::Pie => &[
+            "MINIMUM",
+            "MAXIMUM",
+            "FREQ",
+            "PERCENT",
+            "MISSING",
+            "NOMISSING",
+        ],
+        Kind::Histogram => &["MINIMUM", "MAXIMUM", "FREQ", "NORMAL", "NONORMAL"],
+    };
+    let mut chart = FrequencyChart {
+        kind,
+        minimum: None,
+        maximum: None,
+        percent: false,
+        scale: None,
+        missing: true,
+        normal: false,
+    };
+    let (mut scaled, mut missing, mut normal) = (false, false, false);
     while !at_end(p) {
         let Some(keyword) = keywords.iter().find(|k| p.at_keyword(k)) else {
             return Err(p.unexpected(keywords));
         };
         p.pos += 1;
-        if numbered.contains(keyword) || (optional.contains(keyword) && p.at(Punct::LParen)) {
+        let number = |p: &mut Parser| -> PResult<f64> {
             p.expect(Punct::LParen)?;
-            if p.number().is_none() {
-                return Err(p.unexpected(&["a number"]));
-            }
+            let n = p.number().ok_or_else(|| p.unexpected(&["a number"]))?;
             p.expect(Punct::RParen)?;
+            Ok(n)
+        };
+        match *keyword {
+            "MINIMUM" => chart.minimum = Some(number(p)?),
+            "MAXIMUM" => chart.maximum = Some(number(p)?),
+            "FREQ" | "PERCENT" => {
+                // the pie chart has no axis to scale
+                let n = match kind != Kind::Pie && p.at(Punct::LParen) {
+                    true => Some(number(p)?),
+                    false => None,
+                };
+                if !std::mem::replace(&mut scaled, true) {
+                    chart.percent = *keyword == "PERCENT";
+                    chart.scale = n;
+                }
+            }
+            "MISSING" | "NOMISSING" if !std::mem::replace(&mut missing, true) => {
+                chart.missing = *keyword == "MISSING"
+            }
+            "NORMAL" | "NONORMAL" if !std::mem::replace(&mut normal, true) => {
+                chart.normal = *keyword == "NORMAL"
+            }
+            _ => {}
         }
         p.eat(Punct::Comma);
     }
-    Ok(())
+    Ok(chart)
 }
 
 pub(crate) fn frequencies(p: &mut Parser) -> PResult<Command> {
@@ -279,7 +332,6 @@ pub(crate) fn frequencies(p: &mut Parser) -> PResult<Command> {
     }
     while more {
         let start = p.pos;
-        let mut chosen = None;
         if p.eat_keyword("VARIABLES") {
             p.eat(Punct::Eq);
             command.variables.extend(p.var_list()?);
@@ -313,40 +365,19 @@ pub(crate) fn frequencies(p: &mut Parser) -> PResult<Command> {
             } else if !at_end(p) {
                 return Err(p.unexpected(&["ANALYSIS", "VARIABLE"]));
             }
-        } else if p.eat_keyword("BARCHART") {
+        } else if let Some((_, kind)) = CHARTS.iter().find(|(k, _)| p.at_keyword(k)) {
+            p.pos += 1;
             p.eat(Punct::Eq);
-            let keywords = ["MINIMUM", "MAXIMUM", "FREQ", "PERCENT"];
-            chart(p, &keywords, &["MINIMUM", "MAXIMUM"], &["FREQ", "PERCENT"])?;
-            chosen = Some("BARCHART");
-        } else if p.eat_keyword("PIECHART") {
-            p.eat(Punct::Eq);
-            let keywords = [
-                "MINIMUM",
-                "MAXIMUM",
-                "FREQ",
-                "PERCENT",
-                "MISSING",
-                "NOMISSING",
-            ];
-            chart(p, &keywords, &["MINIMUM", "MAXIMUM"], &[])?;
-            chosen = Some("PIECHART");
-        } else if p.eat_keyword("HISTOGRAM") {
-            p.eat(Punct::Eq);
-            let keywords = ["MINIMUM", "MAXIMUM", "FREQ", "NORMAL", "NONORMAL"];
-            chart(p, &keywords, &["MINIMUM", "MAXIMUM"], &["FREQ"])?;
-            chosen = Some("HISTOGRAM");
+            let chart = chart(p, *kind)?;
+            command.charts.retain(|c| c.kind != chart.kind);
+            command.charts.push(chart);
+            let has = |kind: Kind| command.charts.iter().any(|c| c.kind == kind);
+            if has(Kind::Bar) && has(Kind::Histogram) {
+                let message = "BARCHART and HISTOGRAM cannot be used together";
+                return Err(SyntaxError::new(p.span_from(start), message));
+            }
         } else {
             return Err(p.subcommand_error("FREQUENCIES", &[]));
-        }
-        if let Some(chart) = chosen
-            && !command.charts.iter().any(|c| c == chart)
-        {
-            command.charts.push(chart.to_string());
-        }
-        let has = |chart: &str| command.charts.iter().any(|c| c == chart);
-        if has("BARCHART") && has("HISTOGRAM") {
-            let message = "BARCHART and HISTOGRAM cannot be used together";
-            return Err(SyntaxError::new(p.span_from(start), message));
         }
         more = p.eat(Punct::Slash);
     }

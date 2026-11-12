@@ -699,10 +699,34 @@ pub struct Frequencies {
     pub percentiles: Vec<f64>,
     /// `/GROUPED`: variables whose values stand for groups, with how the groups are bounded.
     pub grouped: Vec<(Vec<VarItem>, Grouping)>,
-    /// The chart subcommands given (BARCHART, PIECHART, HISTOGRAM); charts are not drawn yet.
-    pub charts: Vec<String>,
+    /// The chart subcommands given, in the order given; a repeated one replaces the earlier.
+    pub charts: Vec<FrequencyChart>,
     /// `/ORDER=VARIABLE`: a statistics table per variable instead of one for all.
     pub by_variable: bool,
+}
+
+/// `/BARCHART`, `/PIECHART` or `/HISTOGRAM` of FREQUENCIES with its options.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FrequencyChart {
+    pub kind: FrequencyChartKind,
+    /// `MIN(n)` and `MAX(n)`: values outside are not plotted.
+    pub minimum: Option<f64>,
+    pub maximum: Option<f64>,
+    /// `PERCENT`: the chart shows percentages instead of counts (bar and pie).
+    pub percent: bool,
+    /// The n of `FREQ(n)` or `PERCENT(n)`: the top of the value axis.
+    pub scale: Option<f64>,
+    /// Pie: one slice for the missing values (`MISSING`, the default) or none (`NOMISSING`).
+    pub missing: bool,
+    /// Histogram: `NORMAL`, a normal curve over the bars.
+    pub normal: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FrequencyChartKind {
+    Bar,
+    Pie,
+    Histogram,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -832,6 +856,8 @@ pub struct Crosstabs {
     pub count: WeightCount,
     /// `/COUNT TRUNCATE`: truncate instead of rounding.
     pub truncate: bool,
+    /// `/BARCHART`: a clustered bar chart per table.
+    pub barchart: bool,
 }
 
 /// How CROSSTABS turns case weights into counts.

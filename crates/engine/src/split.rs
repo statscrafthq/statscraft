@@ -276,9 +276,16 @@ impl Engine {
                 true => message.to_string(),
                 false => format!("{name}: {message}"),
             };
+            let charts = self.charts.len();
             match self.run_procedure(command) {
                 Ok(tables) => results.push((texts.clone(), tables)),
                 Err(error) => errors.push(prefix(&error.0)),
+            }
+            // a chart per group, the group named in the title as SEPARATE names it in tables
+            for chart in &mut self.charts[charts..] {
+                if !name.is_empty() {
+                    chart.title = format!("{} ({name})", chart.title);
+                }
             }
             given.push((name, std::mem::take(&mut self.warnings)));
             afters.push(self.dataset.take().expect("procedures keep a dataset"));

@@ -24,3 +24,8 @@ zip = { version = "9.5.0", default-features = false, features = ["deflate"] }
 rust_xlsxwriter = "0.102.0"
 # MIT OR Apache-2.0; NFC for the NORMALIZE function (already built for stringprep)
 unicode-normalization = "0.1.26"
+
+[dev-dependencies]
+# MIT OR Apache-2.0; reads the compressed Vega-Lite schema the chart tests check against
+# (already built for zip)
+flate2 = "1"

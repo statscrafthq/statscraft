@@ -1,5 +1,9 @@
-//! CROSSTABS: contingency tables, their cell statistics and chi-square tests.
+//! CROSSTABS: contingency tables, their cell statistics and chi-square tests, and the
+//! clustered bar chart of BARCHART.
 
+use crate::chart::{
+    self, Axis, Category, Chart, ChartKind, Grouping, Orientation, Series, Statistic, Tier,
+};
 use crate::descriptives::case_weights;
 use crate::dist::chi_square_p;
 use crate::shown::Shown;
@@ -295,13 +299,98 @@ fn cell_name(statistic: C) -> &'static str {
     }
 }
 
-/// The tables of one combination of variables: rows, columns, then layers.
+/// The clustered bar chart of a table: a cluster per row category, a bar per column category,
+/// the counts summed over the layers. Only the categories of valid values take part, as in the
+/// table.
+///
+/// The two manuals word the roles differently; the dialog manual's reading, clusters by the
+/// row variable and bars by the column variable, is the one followed here.
+fn bar_chart(
+    blocks: &[Block],
+    variables: &[Variable],
+    shown: &Shown,
+    (title, descending): (String, bool),
+) -> Chart {
+    let union = |of: &dyn Fn(&Block) -> &Vec<Key>, descending: bool| {
+        let mut keys: Vec<&Key> = blocks.iter().flat_map(of).collect();
+        keys.sort_by(|a, b| ordered(a, b, descending));
+        keys.dedup();
+        keys.into_iter().cloned().collect::<Vec<Key>>()
+    };
+    let rows = union(&|b| &b.rows, descending);
+    let columns = union(&|b| &b.columns, false);
+    let mut counts = vec![vec![0.0; rows.len()]; columns.len()];
+    for block in blocks {
+        for (i, row) in block.rows.iter().enumerate() {
+            let r = rows.iter().position(|k| k == row).expect("in the union");
+            for (j, column) in block.columns.iter().enumerate() {
+                let c = columns
+                    .iter()
+                    .position(|k| k == column)
+                    .expect("in the union");
+                counts[c][r] += block.counts[i][j];
+            }
+        }
+    }
+    let value = |key: &Key| match key {
+        Key::Number(n) => Cell::Number(*n),
+        Key::Text(t) => Cell::Text(t.clone()),
+    };
+    let numeric_format = |v: &Variable| match v.is_string() {
+        true => String::new(),
+        false => v.format().to_string(),
+    };
+    Chart {
+        kind: ChartKind::Bar,
+        tier: Tier::Presentation,
+        orientation: Some(Orientation::Vertical),
+        grouping: Some(Grouping::Clustered),
+        title,
+        footnote: None,
+        category_axis: Axis {
+            title: shown.variable(&variables[0]),
+            format: numeric_format(&variables[0]),
+            maximum: None,
+            variable: Some(variables[0].name().to_string()),
+        },
+        value_axis: Axis {
+            title: "Count".into(),
+            format: chart::count_format(counts.iter().flatten().copied()),
+            maximum: None,
+            variable: None,
+        },
+        legend: Some(shown.variable(&variables[1])),
+        categories: rows
+            .iter()
+            .map(|key| Category {
+                label: shown.value(&variables[0], key),
+                value: value(key),
+                missing: false,
+                bin: None,
+            })
+            .collect(),
+        series: columns
+            .iter()
+            .zip(counts)
+            .map(|(key, values)| Series {
+                name: shown.value(&variables[1], key),
+                statistic: Statistic::Count,
+                variable: Some(variables[1].name().to_string()),
+                value: value(key),
+                values,
+            })
+            .collect(),
+        normal: None,
+    }
+}
+
+/// The tables of one combination of variables: rows, columns, then layers; and its chart.
 fn tables(
     data: &Dataset,
     names: &[String],
     command: &Crosstabs,
     (shown, outline): (&Shown, &Shown),
-) -> Result<Vec<Table>, Error> {
+) -> Result<(Vec<Table>, Option<Chart>), Error> {
     let variables: Vec<Variable> = names
         .iter()
         .map(|name| data.variable(name))
@@ -416,14 +505,17 @@ fn tables(
             ..Table::default()
         });
     }
-    Ok(out)
+    let chart = (command.barchart && !blocks.is_empty())
+        .then(|| bar_chart(&blocks, &variables, shown, (title, command.descending)));
+    Ok((out, chart))
 }
 
 impl Engine {
-    pub(crate) fn crosstabs(&self, command: &Crosstabs) -> Result<Vec<Table>, Error> {
+    pub(crate) fn crosstabs(&mut self, command: &Crosstabs) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
         let (shown, outline) = (self.shown(), self.outline());
         let mut out = Vec::new();
+        let mut charts = Vec::new();
         for dimensions in &command.tables {
             let lists: Vec<Vec<String>> = dimensions
                 .iter()
@@ -444,9 +536,12 @@ impl Engine {
                     .collect();
             }
             for names in combinations {
-                out.extend(tables(data, &names, command, (&shown, &outline))?);
+                let (tables, chart) = tables(data, &names, command, (&shown, &outline))?;
+                out.extend(tables);
+                charts.extend(chart);
             }
         }
+        self.charts.extend(charts);
         Ok(out)
     }
 }
