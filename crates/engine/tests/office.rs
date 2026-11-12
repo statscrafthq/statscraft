@@ -30,6 +30,9 @@ END DATA.
 VALUE LABELS drink 1 'Espresso' 2 'Green tea' 3 'Cocoa' /cup 1 'Small' 2 'Large'.
 ";
 
+/// The first bytes of every PNG file.
+const PNG: &[u8] = b"\x89PNG\r\n\x1a\n";
+
 fn charts(source: &str) -> Vec<Chart> {
     let result = Session::default()
         .run(&format!("{DATA}{source}"), None)
@@ -173,11 +176,14 @@ fn presentation_has_a_slide_per_item_and_each_chart_its_workbook() {
         "ppt/charts/_rels/chart2.xml.rels",
         "ppt/embeddings/Microsoft_Excel_Worksheet1.xlsx",
         "ppt/embeddings/Microsoft_Excel_Worksheet2.xlsx",
+        "ppt/media/image1.png",
     ]
     .into_iter()
     .map(String::from)
     .collect();
     assert_eq!(parts, want);
+    assert!(bytes(&deck, "ppt/media/image1.png").starts_with(PNG));
+    assert!(text(&deck, "[Content_Types].xml").contains("Extension=\"png\""));
     for n in 1..=2 {
         let part = text(&deck, &format!("ppt/charts/chart{n}.xml"));
         check_part(&part, 1400);
@@ -188,8 +194,16 @@ fn presentation_has_a_slide_per_item_and_each_chart_its_workbook() {
     let slide = text(&deck, "ppt/slides/slide1.xml");
     assert!(slide.contains(&format!("<a:t>{}</a:t>", all[0].title)));
     assert!(slide.contains("r:id=\"rId2\""));
-    // the histogram and the plain table are tables on their slides
-    assert!(text(&deck, "ppt/slides/slide3.xml").contains("<a:tbl>"));
+    // the histogram is a picture, and the plain table a table
+    let slide = text(&deck, "ppt/slides/slide3.xml");
+    assert!(
+        slide.contains("<p:pic>") && !slide.contains("<a:tbl>"),
+        "{slide}"
+    );
+    assert!(
+        text(&deck, "ppt/slides/_rels/slide3.xml.rels")
+            .contains("relationships/image\" Target=\"../media/image1.png\"")
+    );
     assert!(text(&deck, "ppt/slides/slide4.xml").contains("<a:t>Espresso</a:t>"));
     let book = bytes(&deck, "ppt/embeddings/Microsoft_Excel_Worksheet1.xlsx");
     let cells = cells(&book);
@@ -300,6 +314,42 @@ fn clipboard_package_has_seven_parts_and_no_theme() {
     assert!(cells.iter().any(|r| r[..3] == ["Espresso", "2", "3"]));
     let histogram = &charts("FREQUENCIES drink /HISTOGRAM /FORMAT=NOTABLE.")[0];
     assert!(clipboard_package(histogram).unwrap().is_none());
+}
+
+#[test]
+fn a_statistical_plot_goes_in_as_a_picture() {
+    let boxplot = &charts("EXAMINE VARIABLES=drink /PLOT=BOXPLOT /STATISTICS=NONE.")
+        .into_iter()
+        .find(|c| c.kind == statscraft_engine::chart::ChartKind::Boxplot)
+        .expect("a boxplot");
+    assert!(!is_office_chart(boxplot));
+    // the document: the picture and its relationship, no chart part and no table
+    let doc = document(&[Item::Chart(boxplot)], true).unwrap();
+    keep("boxplot.docx", &doc);
+    let parts = names(&doc);
+    assert!(parts.contains("word/media/image1.png"), "{parts:?}");
+    assert!(!parts.iter().any(|p| p.starts_with("word/charts/")));
+    assert!(bytes(&doc, "word/media/image1.png").starts_with(PNG));
+    let body = text(&doc, "word/document.xml");
+    assert!(
+        body.contains("<pic:pic ") && !body.contains("<w:tbl>"),
+        "{body}"
+    );
+    assert!(
+        text(&doc, "word/_rels/document.xml.rels")
+            .contains("relationships/image\" Target=\"media/image1.png\"")
+    );
+    // the workbook: the data table with the picture beside it
+    let book = chart_workbook(boxplot).unwrap();
+    keep("boxplot.xlsx", &book);
+    let parts = names(&book);
+    assert!(parts.contains("xl/media/image1.png"), "{parts:?}");
+    assert!(parts.contains("xl/drawings/drawing1.xml"));
+    assert!(!parts.contains("xl/charts/chart1.xml"));
+    assert_eq!(cells(&book)[0][0], boxplot.title);
+    // a slide without slide titles shows the picture alone
+    let deck = presentation(&[Item::Chart(boxplot)], true, false).unwrap();
+    assert!(names(&deck).contains("ppt/media/image1.png"));
 }
 
 #[test]

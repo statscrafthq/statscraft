@@ -153,8 +153,8 @@ pub use output::{
     DateSpec, DateUnit, FormatItem, Placement, Print, PrintItem, PrintKind, PrintSpace, Xsave,
 };
 pub use output_docs::{
-    ExportTarget, OutputCommand, OutputExport, OutputOpen, OutputSave, SheetLocation,
-    SheetOperation, TextEncoding,
+    ExportTarget, ImageExport, ImageFormat, ImageTone, OutputCommand, OutputExport, OutputOpen,
+    OutputSave, SheetLocation, SheetOperation, TextEncoding,
 };
 pub use preprocess::{FileHandle, MacroState};
 pub use regression::{

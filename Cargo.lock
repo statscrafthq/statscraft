@@ -2317,6 +2317,8 @@ dependencies = [
  "num-traits",
  "png",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -4446,9 +4448,12 @@ dependencies = [
  "calamine",
  "chrono",
  "flate2",
+ "image",
+ "resvg",
  "rust_xlsxwriter",
  "serde",
  "serde_json",
+ "skrifa 0.49.0",
  "statscraft-data",
  "statscraft-syntax",
  "unicode-normalization",
@@ -4459,8 +4464,6 @@ dependencies = [
 name = "statscraft-export"
 version = "0.9.0"
 dependencies = [
- "resvg",
- "skrifa 0.49.0",
  "statscraft-engine",
  "zip",
 ]

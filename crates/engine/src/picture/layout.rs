@@ -5,8 +5,8 @@
 mod plots;
 
 use super::{Anchor, Color, Palette, Paper, Scene, Shape, text_width};
-use statscraft_engine::Cell;
-use statscraft_engine::chart::{Chart, ChartKind, Grouping, Orientation, Statistic};
+use crate::Cell;
+use crate::chart::{Chart, ChartKind, Grouping, Orientation, Statistic};
 
 const PAD: f32 = 12.0;
 const TITLE: f32 = 15.0;
@@ -740,7 +740,7 @@ fn histogram(d: &mut Draw, chart: &Chart, top: f32) -> Option<f32> {
     let counts: Vec<f64> = chart.series[0].values.iter().copied().map(finite).collect();
     let (lo, hi) = (bins[0][0], bins[bins.len() - 1][1]);
     let width = bins[0][1] - bins[0][0];
-    let density = |x: f64, n: &statscraft_engine::chart::NormalCurve| {
+    let density = |x: f64, n: &crate::chart::NormalCurve| {
         let z = (x - n.mean) / n.std_dev;
         n.total * width * (-z * z / 2.0).exp() / (n.std_dev * (2.0 * std::f64::consts::PI).sqrt())
     };
@@ -837,7 +837,7 @@ fn pie(d: &mut Draw, chart: &Chart, top: f32) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use statscraft_engine::chart::{Axis as ChartAxis, Category, NormalCurve, Series, Tier};
+    use crate::chart::{Axis as ChartAxis, Category, NormalCurve, Series, Tier};
 
     pub(crate) fn chart(kind: ChartKind, grouping: Option<Grouping>, series: &[&[f64]]) -> Chart {
         let n = series[0].len();

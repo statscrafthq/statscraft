@@ -438,9 +438,9 @@ statscraft run -s gui -e "FREQUENCIES VARIABLES=gender." --xlsx gender.xlsx
 
 Every table and chart of the run goes into the workbook, with or without a session, and also from the window session. With one sheet per table, each sheet is named after its table title (`Gender`, `Region of residence`, ...). With `--xlsx-one-sheet` there is one sheet `Tables` with the tables one below the other.
 
-Each table has its title in bold, the column headers with merged cells for every level, the row labels, thin borders and its caption below. Numbers stay numbers, with a number format that shows them as the output does: a percentage cell holds 45.2 and shows 45.2%. Text such as significance letters and hidden small counts (`<5`) stays text. A bar, pie, line or area chart goes in as its data table with an editable chart beside it, drawn from those cells: change a number and the chart follows. The chart sets no colors, so it takes the workbook's theme. A histogram goes in as its data table only. The text output on the terminal is the same as without `--xlsx`.
+Each table has its title in bold, the column headers with merged cells for every level, the row labels, thin borders and its caption below. Numbers stay numbers, with a number format that shows them as the output does: a percentage cell holds 45.2 and shows 45.2%. Text such as significance letters and hidden small counts (`<5`) stays text. A bar, pie, line or area chart goes in as its data table with an editable chart beside it, drawn from those cells: change a number and the chart follows. The chart sets no colors, so it takes the workbook's theme. A statistical plot, such as a histogram or a boxplot, has no editable form: its picture stands beside its data table instead. The text output on the terminal is the same as without `--xlsx`.
 
-OUTPUT EXPORT in the syntax writes the same charts into a workbook (/XLSX), a Word document (/DOC) or a presentation (/PPT); see `statscraft help "OUTPUT EXPORT"`.
+OUTPUT EXPORT in the syntax writes the same charts into a workbook (/XLSX), a Word document (/DOC) or a presentation (/PPT), where a statistical plot is a picture; into a web page (/HTML) as pictures inside the page; and, with /PNG, /JPG, /BMP or /TIF, as one picture file per chart. See `statscraft help "OUTPUT EXPORT"` and [Chart pictures](#chart-pictures).
 
 A workbook that cannot be written fails the run, and the session is then not saved.
 
@@ -505,6 +505,15 @@ statscraft run job.sps --charts charts --chart-format png
 Every chart of the run is written to the folder, which is made if it is missing, as `01-<title>.svg`, `02-<title>.svg` and so on: numbered in the order of the output, the title in lower case with hyphens between its words. An existing file of the same name is replaced. The pictures are 640 pixels wide on white paper (a PNG has twice the pixels, for sharp text), drawn as the window draws them: flat bars, lines, areas, dots and slices in petrol and amber, muted labels and thin rule lines, in Schibsted Grotesk with tabular figures. Drawn are bar charts in both orientations, side by side, stacked and stacked to 100%, pie, line, area and scatter charts, the histogram with its normal curve, boxplots, the point plots (normal Q-Q and P-P, detrended Q-Q, spread versus level, residual and loading plots) with their reference lines, the dendrogram, the icicle plot and the tree diagram. A stem-and-leaf display and a plot in three dimensions get no file; their data table is in the output. An SVG names the font and falls back to the system's sans-serif font where Schibsted Grotesk is not installed; a PNG has it built in.
 
 The text output on the terminal is the same as without `--charts`. The charts are written after the run, so a folder that cannot be written fails the command but leaves the session as the run saved it.
+
+The syntax writes pictures too. OUTPUT EXPORT with an image subcommand and no document saves every chart of the output document, numbered from 0 after IMAGEROOT:
+
+```
+OUTPUT EXPORT /PNG IMAGEROOT='charts/june'.
+OUTPUT EXPORT /JPG IMAGEROOT='charts/june' PERCENTSIZE=50 GRAYSCALE=YES.
+```
+
+The first line gives `charts/june0.png`, `charts/june1.png` and so on; the folder must exist. PERCENTSIZE=100 is the PNG of `--charts`, 1280 pixels wide; 50 halves it. PNG, JPG, BMP and TIF are written. EMF and EPS are not written yet and give a warning. A web page from OUTPUT EXPORT /HTML holds its charts as pictures inside the page, and /TEXT saves them beside the text file, named after it.
 
 ## The live window session
 

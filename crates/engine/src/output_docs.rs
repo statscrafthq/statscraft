@@ -28,6 +28,13 @@
 //!   what Statscraft did not write (formulas, charts, formatting) would be lost.
 //! - TEXT writes UTF-8 for LOCALE. Columns are as wide as their widest cell, or with
 //!   COLUMNWIDTH=n wrap at n characters; numbers align right.
+//! - Pictures of charts: HTML holds each one inline (a data URL) in IMAGEFORMAT; TEXT writes
+//!   each one as a file beside the text, named after it with a number from 0, and puts the
+//!   chart's title and that file name where the chart stands. Without a document subcommand
+//!   every image subcommand writes its own files, root0, root1, ... A chart of a kind not
+//!   drawn yet, and every chart while its format is EMF or EPS, goes out as its data table.
+//!   The pictures are on light paper; 100 PERCENTSIZE is the PNG the command line saves.
+//!   DEPTH=COLORS16 and COLORS256 give full color, and COMPRESS=YES an uncompressed BMP.
 //! - Documents are saved as Statscraft output files (`output_file`). A path with the extension
 //!   of another program's output files is written with .scout instead, with a warning, and
 //!   OUTPUT OPEN reads the .scout file of that name: their files are never overwritten.
@@ -35,14 +42,15 @@
 //! - A document remembers the file it was opened from or saved to, and whether items were
 //!   added or deleted since, so the window can ask before closing it.
 
-use crate::office::{CHART_COLUMNS, CHART_ROWS, Item, is_office_chart, put_chart};
+use crate::office::{CHART_COLUMNS, CHART_ROWS, Item, has_beside, put_chart};
 use crate::output_file::{self, CommandItem};
+use crate::picture;
 use crate::xlsx::{put_table, set_widths, sheet_name};
 use crate::{Cell, Chart, Engine, Error, Table, cell_text, header_rows};
 use rust_xlsxwriter::{Workbook, XlsxError};
 use statscraft_syntax::{
-    ExportTarget, OutputCommand, OutputExport, OutputOpen, OutputSave, SheetLocation,
-    SheetOperation, TextEncoding,
+    ExportTarget, ImageExport, ImageFormat, ImageTone, OutputCommand, OutputExport, OutputOpen,
+    OutputSave, SheetLocation, SheetOperation, TextEncoding,
 };
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -153,13 +161,13 @@ impl Block {
             let caption = u32::from(self.notes && table.caption.is_some());
             let depth = header_rows(table).len() as u32;
             let mut height = 1 + depth + table.rows.len() as u32 + caption;
-            if chart.as_deref().is_some_and(is_office_chart) {
+            if chart.as_deref().is_some_and(has_beside) {
                 height = height.max(1 + CHART_ROWS);
             }
             row += u32::from(i > 0) + height;
         }
         let width = self.tables.iter().map(|(table, chart)| {
-            let beside = chart.as_deref().is_some_and(is_office_chart);
+            let beside = chart.as_deref().is_some_and(has_beside);
             table.columns.len() as u16 + u16::from(beside) * (1 + CHART_COLUMNS)
         });
         (row, self.left + width.max().unwrap_or(0))
@@ -532,6 +540,40 @@ impl Engine {
         if self.dry_run {
             return Ok(());
         }
+        // the settings of the image subcommand of a format, or the defaults
+        let settings = |format| {
+            let given = export.images.iter().find(|i| i.format == format);
+            given.cloned().unwrap_or(ImageExport {
+                format,
+                root: None,
+                percent: 100.0,
+                tone: ImageTone::Color,
+            })
+        };
+        // without a document, the image subcommands write the pictures alone; with one,
+        // IMAGEROOT is ignored
+        if export.targets.is_empty() {
+            for image in &export.images {
+                let root = image.root.as_deref().unwrap_or_default();
+                let (extension, _) = picture::file_kind(image.format);
+                let pictures = self.pictures(&shown, image)?;
+                let charts = shown.iter().filter(|(_, c)| c.is_some()).count();
+                let drawn: Vec<Vec<u8>> = pictures.into_iter().flatten().collect();
+                let raster = !matches!(image.format, ImageFormat::Emf | ImageFormat::Eps);
+                if charts == 0 {
+                    self.warn("OUTPUT EXPORT: the output document holds no charts, so no picture files are written");
+                } else if raster && drawn.len() < charts {
+                    self.warn(format!(
+                        "OUTPUT EXPORT: {} of {charts} charts are of a kind not drawn yet and \
+                         have no picture file",
+                        charts - drawn.len()
+                    ));
+                }
+                for (n, bytes) in drawn.iter().enumerate() {
+                    self.write_file(&format!("{root}{n}.{extension}"), bytes)?;
+                }
+            }
+        }
         for target in &export.targets {
             match target {
                 ExportTarget::Xlsx {
@@ -552,9 +594,25 @@ impl Engine {
                     file,
                     notes,
                     styling,
+                    image_format,
                 } => {
-                    let pairs = tables.iter().map(|(c, t)| (c.as_str(), t.as_ref()));
-                    let text = crate::html::page(pairs, *notes, *styling);
+                    let image = settings(*image_format);
+                    let pictures = self.pictures(&shown, &image)?;
+                    let (_, media) = picture::file_kind(image.format);
+                    let width = (picture::FILE_WIDTH as f64 * image.percent / 100.0).round();
+                    let pieces = all
+                        .iter()
+                        .zip(pictures)
+                        .map(|((command, (table, chart)), p)| {
+                            let piece = match (p, chart) {
+                                (Some(bytes), Some(chart)) => {
+                                    crate::html::figure(&bytes, media, width, &chart.title)
+                                }
+                                _ => crate::html::table_html(table, *notes),
+                            };
+                            (command.as_str(), piece)
+                        });
+                    let text = crate::html::page(pieces, *styling);
                     self.write_file(file, text.as_bytes())?;
                 }
                 ExportTarget::Text {
@@ -565,11 +623,30 @@ impl Engine {
                     tab,
                     row_border,
                     column_border,
+                    image_format,
                 } => {
+                    let image = settings(*image_format);
+                    let pictures = self.pictures(&shown, &image)?;
+                    // the pictures are named after the text file: its name without the
+                    // extension and a number from 0
+                    let root = Path::new(file).with_extension("");
+                    let root = root.to_string_lossy();
+                    let (extension, _) = picture::file_kind(image.format);
                     let mut text = String::new();
-                    for (i, (_, table)) in tables.iter().enumerate() {
+                    let mut n = 0;
+                    for (i, ((table, chart), p)) in shown.iter().zip(pictures).enumerate() {
                         if i > 0 {
                             text.push('\n');
+                        }
+                        if let (Some(bytes), Some(chart)) = (p, chart) {
+                            let name = format!("{root}{n}.{extension}");
+                            n += 1;
+                            self.write_file(&name, &bytes)?;
+                            let shown_name = Path::new(&name)
+                                .file_name()
+                                .map_or_else(|| name.clone(), |f| f.to_string_lossy().into_owned());
+                            text.push_str(&format!("{}\n{shown_name}\n", chart.title));
+                            continue;
                         }
                         let border = (!*tab).then_some((*row_border, *column_border));
                         text.push_str(&table_text(table, *notes, *column_width, border));
@@ -613,6 +690,35 @@ impl Engine {
             }
         }
         Ok(())
+    }
+
+    /// The picture of each chart of `shown` with the settings of `image`, in the order of
+    /// `shown`: None for a table and for a chart of a kind not drawn yet. EMF and EPS are not
+    /// written yet: a warning, and no pictures.
+    fn pictures(
+        &mut self,
+        shown: &[Shown],
+        image: &ImageExport,
+    ) -> Result<Vec<Option<Vec<u8>>>, Error> {
+        if matches!(image.format, ImageFormat::Emf | ImageFormat::Eps) {
+            if shown.iter().any(|(_, chart)| chart.is_some()) {
+                let (extension, _) = picture::file_kind(image.format);
+                self.warn(format!(
+                    "OUTPUT EXPORT: {} pictures are not written yet; charts go out as their \
+                     data table, and no {extension} files are written",
+                    extension.to_uppercase()
+                ));
+            }
+            return Ok(vec![None; shown.len()]);
+        }
+        shown
+            .iter()
+            .map(|(_, chart)| {
+                let file = chart.as_deref().and_then(|c| picture::chart_file(c, image));
+                file.transpose()
+                    .map_err(|e| Error(format!("OUTPUT EXPORT: cannot draw a chart: {e}")))
+            })
+            .collect()
     }
 
     fn write_file(&self, file: &str, bytes: &[u8]) -> Result<(), Error> {

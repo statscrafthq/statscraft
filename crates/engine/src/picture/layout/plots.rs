@@ -2,10 +2,10 @@
 //! lines, merges (dendrogram and icicle) and node trees. A stem-and-leaf display stays text.
 
 use super::{Along, Anchor, Axis, Draw, Frame, LINE, PAD, SMALL, Unit, fit};
+use crate::Cell;
+use crate::chart::{Chart, ChartKind, Orientation};
 use crate::picture::{Shape, text_width};
-use statscraft_engine::Cell;
-use statscraft_engine::chart::{Chart, ChartKind, Orientation};
-use statscraft_engine::plot::{BoxSummary, Merge, Plot, PointGroup, ReferenceLine, TreeNode};
+use crate::plot::{BoxSummary, Merge, Plot, PointGroup, ReferenceLine, TreeNode};
 
 /// The plot below `top`; returns the y below it, or None when it shows as its data table.
 pub(super) fn plot(d: &mut Draw, chart: &Chart, plot: &Plot, top: f32) -> Option<f32> {
@@ -520,9 +520,9 @@ fn tree(d: &mut Draw, nodes: &[TreeNode], top: f32) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chart::{Axis as ChartAxis, Tier};
     use crate::picture::{Paper, scene};
-    use statscraft_engine::chart::{Axis as ChartAxis, Tier};
-    use statscraft_engine::plot::{Mark, Point};
+    use crate::plot::{Mark, Point};
 
     fn plot_chart(kind: ChartKind, plot: Plot) -> Chart {
         Chart {
@@ -753,7 +753,7 @@ mod tests {
 
     #[test]
     fn a_stem_and_leaf_display_stays_a_table() {
-        let plot = Plot::StemLeaf(statscraft_engine::plot::StemLeaf {
+        let plot = Plot::StemLeaf(crate::plot::StemLeaf {
             stem_width: 10.0,
             each_leaf: 1.0,
             low_extremes: None,

@@ -655,7 +655,8 @@ impl OutputView {
                                 }
                             }
                         }
-                        if office {
+                        // a chart with no office form goes in as a picture
+                        if office || drawn {
                             ui.separator();
                             for program in Program::ALL {
                                 if ui.button(program.label()).clicked() {

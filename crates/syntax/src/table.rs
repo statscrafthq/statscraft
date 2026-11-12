@@ -1989,11 +1989,16 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20         [TOPMARGIN=...] [BOTTOMMARGIN=...] [LEFTMARGIN=...] [RIGHTMARGIN=...] [PAGEBREAKS=...]]\n\
                  \x20  [/PPT DOCUMENTFILE='path' [NOTESCAPTIONS=YES | NO] [SLIDETITLES=YES | NO] [WIDETABLES=...]\n\
                  \x20         [SLIDESIZE=...] [TOPMARGIN=...] [BOTTOMMARGIN=...] [LEFTMARGIN=...] [RIGHTMARGIN=...]]\n\
-                 \x20  [/HTML DOCUMENTFILE='path' [NOTESCAPTIONS=YES | NO] [STYLING=YES | NO] [IMAGEFORMAT=...]\n\
-                 \x20         [INTERACTIVELAYERS=NO | YES]]\n\
+                 \x20  [/HTML DOCUMENTFILE='path' [NOTESCAPTIONS=YES | NO] [STYLING=YES | NO]\n\
+                 \x20         [IMAGEFORMAT=JPG | BMP | PNG] [INTERACTIVELAYERS=NO | YES]]\n\
                  \x20  [/TEXT DOCUMENTFILE='path' [ENCODING=LOCALE | UTF8 | UTF16] [NOTESCAPTIONS=YES | NO]\n\
-                 \x20         [COLUMNWIDTH=AUTOFIT | n] [SEPARATOR=SPACE | TAB] [ROWBORDER='-'] [COLUMNBORDER='|']]\n\
-                 \x20  [/CSV DOCUMENTFILE='path' [NOTESCAPTIONS=YES | NO]] [/BMP | /EMF | /EPS | /JPG | /PNG | /TIF ...].\n\
+                 \x20         [COLUMNWIDTH=AUTOFIT | n] [SEPARATOR=SPACE | TAB] [ROWBORDER='-'] [COLUMNBORDER='|']\n\
+                 \x20         [IMAGEFORMAT=JPG | BMP | EMF | EPS | PNG | TIF]]\n\
+                 \x20  [/CSV DOCUMENTFILE='path' [NOTESCAPTIONS=YES | NO]]\n\
+                 \x20  [/PNG [IMAGEROOT='root'] [PERCENTSIZE=n] [DEPTH=SCREEN | BLACKWHITE | GRAYS256 | ...]]\n\
+                 \x20  [/JPG [IMAGEROOT='root'] [PERCENTSIZE=n] [GRAYSCALE=NO | YES]]\n\
+                 \x20  [/BMP [IMAGEROOT='root'] [PERCENTSIZE=n] [COMPRESS=NO | YES]]\n\
+                 \x20  [/TIF [IMAGEROOT='root'] [PERCENTSIZE=n]] [/EMF ...] [/EPS ...].\n\
                  Writes the tables and charts that the designated document (NAME=*) or the named one holds so\n\
                  far, in order; an existing file is replaced. Subcommands and keywords are spelled in full. Every\n\
                  table is visible and has one layer, so CONTENTS changes nothing. NOTESCAPTIONS=NO leaves out\n\
@@ -2008,14 +2013,25 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  under its title, each chart as an editable chart whose numbers Edit Data opens. PPT writes a\n\
                  presentation in the .pptx format with one slide per table or chart; SLIDETITLES=NO leaves the\n\
                  slide titles out, and a chart then shows its own. Page and slide sizes, margins, WIDETABLES\n\
-                 and PAGEBREAKS are accepted and not applied. Other charts, such as a histogram, go out as\n\
-                 their data table. HTML writes one web page; STYLING=NO\n\
+                 and PAGEBREAKS are accepted and not applied. Other charts, such as a histogram or a\n\
+                 boxplot, go in as a picture; on a sheet the picture stands beside the data table. HTML\n\
+                 writes one web page with every chart in it as a picture, JPG unless IMAGEFORMAT names\n\
+                 another; STYLING=NO\n\
                  leaves out the style sheet. TEXT lines the columns up between the borders, or with\n\
                  SEPARATOR=TAB separates the cells by tabs; COLUMNWIDTH=n wraps longer cells; LOCALE and UTF8\n\
                  write UTF-8, UTF16 writes UTF-16 with a byte order mark. CSV, a Statscraft addition, writes\n\
                  each table as comma-separated values after its title, with a blank line between tables.\n\
-                 HTML, TEXT and CSV show a chart as its data table. The image subcommands write no files yet.\n\
-                 /PDF, /XLS and /XLSM are refused.",
+                 TEXT saves each chart as a picture file in the folder of the text, named after the text\n\
+                 file with a number from 0 (out.txt gives out0.jpg, out1.jpg, ...), and writes the chart's\n\
+                 title and that file name where the chart stands. CSV shows a chart as its data table.\n\
+                 With no document subcommand, each of /PNG, /JPG, /BMP and /TIF saves every chart in its\n\
+                 format: IMAGEROOT='charts/june' gives charts/june0.png, charts/june1.png and so on. With a\n\
+                 document subcommand IMAGEROOT is not used, and the subcommand of the format in use sets\n\
+                 the pictures' size and colors. PERCENTSIZE (above 0, at most 200) scales a picture: 100\n\
+                 is 1280 pixels wide, the PNG of --charts. GRAYSCALE=YES, DEPTH=GRAYS256 and\n\
+                 DEPTH=BLACKWHITE drop the color; the other depths and COMPRESS change nothing. EMF and EPS\n\
+                 are not written yet: a warning, and their charts stay data tables, as does a kind that is\n\
+                 not drawn yet, such as a stem-and-leaf display. /PDF, /XLS and /XLSM are refused.",
         example: "OUTPUT EXPORT /XLSX DOCUMENTFILE='results.xlsx' SHEET='Region 1'.",
         parse: output_docs::output_export,
     },

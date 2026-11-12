@@ -67,7 +67,7 @@ tbody th{text-align:left;font-weight:normal;vertical-align:top}td{text-align:rig
 td.text{text-align:left}p.note{font-size:.85rem;color:#4a5468}";
 
 /// One table: a repeated row label spans its rows; with `notes` the caption follows.
-fn table_html(table: &Table, notes: bool) -> String {
+pub(crate) fn table_html(table: &Table, notes: bool) -> String {
     let mut html = format!(
         "<table>\n<caption>{}</caption>\n<thead>\n",
         escape(&table.title)
@@ -109,21 +109,45 @@ fn table_html(table: &Table, notes: bool) -> String {
     html
 }
 
-/// The tables as one page, each run of tables under the heading of the command that made them.
-/// Without `styling` the page has no style sheet.
+/// A picture file inside the page as a data URL, `width` CSS pixels wide.
+pub fn figure(bytes: &[u8], media: &str, width: f64, title: &str) -> String {
+    format!(
+        "<figure><img src=\"data:{media};base64,{}\" width=\"{width}\" alt=\"{}\"></figure>\n",
+        base64(bytes),
+        escape(title)
+    )
+}
+
+/// Bytes in base64 with padding, as data URLs take them.
+fn base64(bytes: &[u8]) -> String {
+    const DIGITS: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
+    for chunk in bytes.chunks(3) {
+        let n = chunk.iter().fold(0u32, |n, b| n << 8 | u32::from(*b)) << (8 * (3 - chunk.len()));
+        for i in 0..4 {
+            out.push(match i <= chunk.len() {
+                true => DIGITS[(n >> (18 - 6 * i) & 63) as usize] as char,
+                false => '=',
+            });
+        }
+    }
+    out
+}
+
+/// The pieces (a table or a figure) as one page, each run of them under the heading of the
+/// command that made them. Without `styling` the page has no style sheet.
 pub(crate) fn page<'a>(
-    tables: impl IntoIterator<Item = (&'a str, &'a Table)>,
-    notes: bool,
+    pieces: impl IntoIterator<Item = (&'a str, String)>,
     styling: bool,
 ) -> String {
     let mut body = String::new();
     let mut heading = None;
-    for (command, table) in tables {
+    for (command, piece) in pieces {
         if heading != Some(command) {
             body.push_str(&format!("<h2>{}</h2>\n", escape(command)));
             heading = Some(command);
         }
-        body.push_str(&table_html(table, notes));
+        body.push_str(&piece);
     }
     let style = if styling {
         format!("<style>{STYLE}</style>\n")
@@ -134,4 +158,22 @@ pub(crate) fn page<'a>(
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
          <title>Statscraft output</title>\n{style}</head>\n<body>\n{body}</body>\n</html>\n"
     )
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn base64_pads_the_last_group() {
+        let cases = [
+            ("", ""),
+            ("a", "YQ=="),
+            ("ab", "YWI="),
+            ("abc", "YWJj"),
+            ("chart", "Y2hhcnQ="),
+        ];
+        for (bytes, text) in cases {
+            assert_eq!(super::base64(bytes.as_bytes()), text);
+        }
+        assert_eq!(super::base64(&[0xFF, 0xFE, 0x00]), "//4A");
+    }
 }

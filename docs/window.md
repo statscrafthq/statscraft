@@ -225,9 +225,9 @@ A right click on a chart offers, besides Copy, Copy as text and Delete:
 
 ### Charts in the office programs
 
-A chart's office form is a real chart of the office programs, with its numbers in a workbook inside it, so Edit Data opens them, and with no colors of its own, so it takes the theme of the presentation or document it goes into. Bar, pie, line and area charts have one; a histogram has none and goes out as its table.
+A chart's office form is a real chart of the office programs, with its numbers in a workbook inside it, so Edit Data opens them, and with no colors of its own, so it takes the theme of the presentation or document it goes into. Bar, pie, line and area charts have one. A statistical plot, such as a histogram, a boxplot or a dendrogram, has none: it goes in as a picture, and in a workbook the picture stands beside its data table.
 
-A right click on such a chart offers:
+A right click on a drawn chart offers:
 
 - **Open in PowerPoint**: a presentation with one slide, the chart's title as the slide title.
 - **Open in Excel**: a workbook with the chart's data table and the chart beside it.
@@ -248,8 +248,8 @@ The output of a window can be kept as a Statscraft output file (.scout) and open
 
 ### Exporting all output
 
-- File > Export output as HTML saves all the tables of the output window as one web page. Chosen in a data or syntax window, it exports the designated output window.
-- File > Export output as Excel saves them as a workbook, with **One sheet per table** or **All tables on one sheet**, laid out as `--xlsx` does: a chart as its data table with the editable chart beside it.
+- File > Export output as HTML saves all the tables of the output window as one web page, each drawn chart as a PNG picture inside the page. Chosen in a data or syntax window, it exports the designated output window.
+- File > Export output as Excel saves them as a workbook, with **One sheet per table** or **All tables on one sheet**, laid out as `--xlsx` does: a chart as its data table with the editable chart, or the picture of a statistical plot, beside it.
 - From syntax, OUTPUT EXPORT writes the tables and charts of an output document to a workbook, a Word document, a presentation, a web page, text or a CSV file.
 
 ## Menus

@@ -157,6 +157,7 @@ fn output_export_targets() {
                 file: "r.htm".into(),
                 notes: false,
                 styling: false,
+                image_format: ImageFormat::Png,
             },
             ExportTarget::Text {
                 file: "r.txt".into(),
@@ -166,6 +167,7 @@ fn output_export_targets() {
                 tab: true,
                 row_border: '=',
                 column_border: '|',
+                image_format: ImageFormat::Jpg,
             },
             ExportTarget::Csv {
                 file: "r.csv".into(),
@@ -174,9 +176,52 @@ fn output_export_targets() {
         ]
     );
     assert_eq!(
+        e.images,
+        [ImageExport {
+            format: ImageFormat::Png,
+            root: Some("g".into()),
+            percent: 50.0,
+            tone: ImageTone::Color,
+        }]
+    );
+    assert_eq!(
         export("OUTPUT EXPORT NAME=* /HTML DOCUMENTFILE='a.htm'.").name,
         None
     );
+}
+
+#[test]
+fn output_export_pictures_alone() {
+    // no document: every image subcommand names its files with IMAGEROOT
+    let e = export(
+        "OUTPUT EXPORT /JPG IMAGEROOT='pics/chart' GRAYSCALE=YES\n\
+         /PNG IMAGEROOT='pics/plot' PERCENTSIZE=150 DEPTH=BLACKWHITE /BMP IMAGEROOT='b' COMPRESS=YES\n\
+         /EPS IMAGEROOT='e' WIDTH=INCHES(4) PREVIEW=NO FONTHANDLING=CURVES.",
+    );
+    assert!(e.targets.is_empty());
+    let got: Vec<(ImageFormat, Option<&str>, f64, ImageTone)> = e
+        .images
+        .iter()
+        .map(|i| (i.format, i.root.as_deref(), i.percent, i.tone))
+        .collect();
+    assert_eq!(
+        got,
+        [
+            (ImageFormat::Jpg, Some("pics/chart"), 100.0, ImageTone::Gray),
+            (
+                ImageFormat::Png,
+                Some("pics/plot"),
+                150.0,
+                ImageTone::BlackWhite
+            ),
+            (ImageFormat::Bmp, Some("b"), 100.0, ImageTone::Color),
+            (ImageFormat::Eps, Some("e"), 100.0, ImageTone::Color),
+        ]
+    );
+    // with a document, IMAGEROOT may be left out: the subcommand sets the pictures' size
+    let e = export("OUTPUT EXPORT /TEXT DOCUMENTFILE='t.txt' IMAGEFORMAT=TIF /TIF PERCENTSIZE=40.");
+    assert_eq!(e.images[0].root, None);
+    assert_eq!(e.images[0].percent, 40.0);
 }
 
 #[test]
@@ -223,7 +268,15 @@ fn output_export_errors() {
             "OUTPUT EXPORT /XLS DOCUMENTFILE='a.xls'.",
             "/XLSX, /DOC, /PPT, /HTML, /TEXT or /CSV",
         ),
-        ("OUTPUT EXPORT /PNG IMAGEROOT='a'.", "write no files"),
+        ("OUTPUT EXPORT /PNG PERCENTSIZE=50.", "need IMAGEROOT"),
+        (
+            "OUTPUT EXPORT /PNG IMAGEROOT='a' PERCENTSIZE=250.",
+            "at most 200",
+        ),
+        (
+            "OUTPUT EXPORT /CONTENTS EXPORT=ALL.",
+            "or an image subcommand with IMAGEROOT",
+        ),
         (
             "OUTPUT EXPORT /HTML NOTESCAPTIONS=NO.",
             "/HTML needs DOCUMENTFILE",

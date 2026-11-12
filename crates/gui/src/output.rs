@@ -192,8 +192,10 @@ fn page(body: &str) -> String {
     )
 }
 
-/// The tables `keep` takes as one HTML page, under the heading of their command.
+/// The tables `keep` takes as one HTML page, under the heading of their command; a drawn chart
+/// as its PNG picture inside the page, on light paper.
 pub fn html(runs: &[OutputRun], keep: impl Fn(u64) -> bool) -> String {
+    use statscraft_engine::picture::{FILE_WIDTH, Paper, chart_png, figure};
     let mut body = String::new();
     for item in runs.iter().flat_map(|run| &run.items) {
         let tables: Vec<&OutputTable> = item.tables.iter().filter(|t| keep(t.id)).collect();
@@ -202,7 +204,19 @@ pub fn html(runs: &[OutputRun], keep: impl Fn(u64) -> bool) -> String {
         }
         body.push_str(&format!("<h2>{}</h2>\n", escape(&item.heading)));
         for t in tables {
-            body.push_str(&table_html(&t.table));
+            let png = t
+                .chart
+                .as_ref()
+                .and_then(|c| chart_png(c, Paper::Light)?.ok());
+            match (png, &t.chart) {
+                (Some(png), Some(chart)) => body.push_str(&figure(
+                    &png,
+                    "image/png",
+                    f64::from(FILE_WIDTH),
+                    &chart.title,
+                )),
+                _ => body.push_str(&table_html(&t.table)),
+            }
         }
     }
     page(&body)
