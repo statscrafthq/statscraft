@@ -8,6 +8,7 @@ statscraft help       syntax of a command, or the list of commands
 statscraft plan       lower syntax to an OpenStatSpec transformation plan
 statscraft db         store datasets in an OpenStatSpec database and read them back
 statscraft update     check for a newer release, or update this installation to it
+statscraft mcp        serve these tools to an AI agent over MCP
 statscraft connect    add the Statscraft MCP server to the AI agents on this computer
 ```
 
@@ -402,6 +403,10 @@ statscraft describe -s gui --json
 - When no window is open, `-s gui` fails with "no Statscraft window is running". With several windows open, the one started last answers.
 
 How it connects, and why it is safe: see [AI agents](ai-agents.md#safety-of-the-live-session).
+
+## mcp
+
+`statscraft mcp` serves describe, help, check and run as MCP tools over standard input and output, for agent apps that start local MCP servers. It runs until the app closes the connection. [The MCP server](mcp.md) lists the tools and says where their sessions live.
 
 ## plan
 

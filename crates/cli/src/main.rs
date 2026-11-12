@@ -8,6 +8,7 @@ use std::process::ExitCode;
 
 mod connect;
 mod db;
+mod mcp;
 mod plan;
 mod update;
 
@@ -60,6 +61,8 @@ enum Cmd {
         #[arg(long, requires = "check")]
         json: bool,
     },
+    /// Serve the tools of this program to an AI agent over MCP (standard input and output)
+    Mcp,
     /// Connect Statscraft's MCP server to the AI agents on this computer (Claude, ChatGPT and
     /// Codex, Cursor, Copilot, Gemini); --list only shows them, --remove takes it out again
     Connect(connect::ConnectArgs),
@@ -105,12 +108,19 @@ fn main() -> ExitCode {
             file,
             session,
             json,
-        } => (json, describe(file, session, json)),
+        } => (
+            json,
+            describe(file, session, json).map(|text| print!("{text}")),
+        ),
         Cmd::Run { args, xlsx } => (args.json, run(args, false, &xlsx)),
         Cmd::Check(args) => (args.json, run(args, true, &XlsxArgs::default())),
-        Cmd::Help { command } => (false, help(&command.join(" "))),
+        Cmd::Help { command } => (
+            false,
+            help(&command.join(" ")).map(|text| println!("{text}")),
+        ),
         Cmd::Plan(args) => return plan::run(args),
         Cmd::Db(args) => return db::run(args),
+        Cmd::Mcp => return mcp::serve(),
         Cmd::Connect(args) => return connect::run(args),
         Cmd::Update { check, json } => match update::run(check, json) {
             Ok(code) => return code,
@@ -135,6 +145,10 @@ fn main() -> ExitCode {
     }
 }
 
+/// Where file sessions live when not in `.statscraft/sessions` of the working folder: set by
+/// `statscraft mcp`, whose working folder is whatever the client chose.
+static SESSIONS: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
 fn session_file(name: &str) -> Result<PathBuf, Vec<Failure>> {
     if name.is_empty()
         || !name
@@ -146,7 +160,9 @@ fn session_file(name: &str) -> Result<PathBuf, Vec<Failure>> {
             "a session name may contain only letters, digits, - and _",
         )]);
     }
-    Ok(PathBuf::from(".statscraft/sessions")
+    let root = SESSIONS.get().map(PathBuf::as_path);
+    Ok(root
+        .unwrap_or(std::path::Path::new(".statscraft/sessions"))
         .join(name)
         .join("data.zsav"))
 }
@@ -361,18 +377,24 @@ fn save_session(path: &std::path::Path, session: &Session) -> Result<(), String>
     std::fs::write(settings_file(path), settings).map_err(|e| e.to_string())
 }
 
-fn describe(file: Option<String>, session: Option<String>, json: bool) -> Result<(), Vec<Failure>> {
-    let text = match (file, session) {
-        (None, Some(name)) if name == live::SESSION => {
-            return remote(Request {
+/// What `statscraft describe` prints.
+fn describe(
+    file: Option<String>,
+    session: Option<String>,
+    json: bool,
+) -> Result<String, Vec<Failure>> {
+    Ok(match (file, session) {
+        (None, Some(name)) if name == live::SESSION => live::send(
+            &live::endpoint_file(),
+            Request {
                 token: String::new(),
                 action: Action::Describe,
                 source: String::new(),
                 lines: None,
                 json,
                 cwd: None,
-            });
-        }
+            },
+        )?,
         (Some(file), None) => {
             let dataset = Dataset::read_sav(&file)
                 .map_err(|e| vec![Failure::plain("file", e.to_string())])?;
@@ -387,24 +409,14 @@ fn describe(file: Option<String>, session: Option<String>, json: bool) -> Result
                 "give either a file or --session",
             )]);
         }
-    };
-    print!("{text}");
-    Ok(())
+    })
 }
 
-/// Sends the request to the running window and prints its reply.
-fn remote(request: Request) -> Result<(), Vec<Failure>> {
-    print!("{}", live::send(&live::endpoint_file(), request)?);
-    Ok(())
-}
-
-fn help(command: &str) -> Result<(), Vec<Failure>> {
+/// What `statscraft help` prints, without the final line break.
+fn help(command: &str) -> Result<String, Vec<Failure>> {
     let topic = (!command.is_empty()).then_some(command);
     match statscraft_syntax::help(topic) {
-        Some(text) => {
-            println!("{text}");
-            Ok(())
-        }
+        Some(text) => Ok(text),
         None => Err(vec![Failure::plain(
             "usage",
             format!("unknown command {command}; run `statscraft help` for the list"),
@@ -447,7 +459,19 @@ fn parse_lines(spec: &str) -> Result<(u32, u32), Vec<Failure>> {
 }
 
 fn run(args: RunArgs, check_only: bool, xlsx: &XlsxArgs) -> Result<(), Vec<Failure>> {
-    let source = read_source(&args)?;
+    let result = run_result(&args, check_only, xlsx)?;
+    print!("{}", result.output(args.json, check_only));
+    Ok(())
+}
+
+/// Runs or checks the syntax `args` name in its session, or in a fresh one, and keeps the
+/// session. `args.json` is not looked at: the caller chooses how to show the result.
+fn run_result(
+    args: &RunArgs,
+    check_only: bool,
+    xlsx: &XlsxArgs,
+) -> Result<RunResult, Vec<Failure>> {
+    let source = read_source(args)?;
     let lines = args.lines.as_deref().map(parse_lines).transpose()?;
     if args.session.as_deref() == Some(live::SESSION) {
         let request = Request {
@@ -459,13 +483,10 @@ fn run(args: RunArgs, check_only: bool, xlsx: &XlsxArgs) -> Result<(), Vec<Failu
             },
             source,
             lines,
-            // the tables for the workbook come back in the JSON form
-            json: args.json || xlsx.xlsx.is_some(),
+            // the result comes back in the JSON form and is shown here
+            json: true,
             cwd: std::env::current_dir().ok(),
         };
-        if xlsx.xlsx.is_none() {
-            return remote(request);
-        }
         let reply = live::send(&live::endpoint_file(), request)?;
         let result: RunResult = serde_json::from_str(&reply).map_err(|e| {
             vec![Failure::plain(
@@ -474,8 +495,7 @@ fn run(args: RunArgs, check_only: bool, xlsx: &XlsxArgs) -> Result<(), Vec<Failu
             )]
         })?;
         write_workbook(&result, xlsx)?;
-        print!("{}", result.output(args.json, check_only));
-        return Ok(());
+        return Ok(result);
     }
     let mut session = match &args.session {
         Some(name) => open_session(name)?,
@@ -505,8 +525,7 @@ fn run(args: RunArgs, check_only: bool, xlsx: &XlsxArgs) -> Result<(), Vec<Failu
             result.saved = true;
         }
     }
-    print!("{}", result.output(args.json, check_only));
-    Ok(())
+    Ok(result)
 }
 
 /// Writes every table of the run to the workbook `--xlsx` names, if any.

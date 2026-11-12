@@ -2,7 +2,7 @@
 
 Statscraft is built so that an AI agent with a shell can do the analysis work: everything is syntax, every result is JSON, every error has a line and a column, and a session keeps the data between steps. This page says how an agent should work, and gives a block of instructions you can paste into your agent.
 
-To give an agent Statscraft as MCP tools instead of shell commands, run `statscraft connect` once; [Connect your AI agent](connect.md) says what it changes and how to undo it.
+An agent app that runs MCP servers can use the same loop through tools instead of the shell: see [the MCP server](mcp.md). Run `statscraft connect` once to add it to the agents on your computer; [Connect your AI agent](connect.md) says what it changes and how to undo it.
 
 ## The loop
 

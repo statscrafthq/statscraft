@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `statscraft mcp`: an MCP server over standard input and output, so an AI agent app can describe data, look up commands, check and run syntax through tools. Calls go to the open window when there is one, else to a session in the user data folder. See [the MCP server](docs/mcp.md).
 - `statscraft connect` adds the Statscraft MCP server to the AI agents installed on your computer: Claude Desktop, Claude Code, ChatGPT desktop and Codex, Cursor, VS Code with Copilot, Gemini CLI and Antigravity. It changes only its own entry, keeps a copy of each file before the first change, and says what to restart; `--list` shows the state, `--remove` undoes it. See [Connect your AI agent](docs/connect.md).
 
 ## 0.7.0 (2026-11-12)

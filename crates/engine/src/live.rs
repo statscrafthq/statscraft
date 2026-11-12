@@ -195,6 +195,18 @@ pub fn send(file: &Path, mut request: Request) -> Response {
         .map_err(|_| failed("the window closed the connection without a reply".into()))?
 }
 
+/// Whether a window listens at the endpoint `file` names. It only connects, so it does not wait
+/// behind a run the window is busy with.
+pub fn running(file: &Path) -> bool {
+    std::fs::read_to_string(file)
+        .ok()
+        .and_then(|text| serde_json::from_str::<Endpoint>(&text).ok())
+        .is_some_and(|endpoint| {
+            endpoint.address.ip().is_loopback()
+                && TcpStream::connect_timeout(&endpoint.address, Duration::from_secs(1)).is_ok()
+        })
+}
+
 /// Compares in time independent of where the strings differ.
 fn same(a: &str, b: &str) -> bool {
     a.len() == b.len()

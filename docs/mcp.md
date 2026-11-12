@@ -1,0 +1,39 @@
+# The MCP server
+
+`statscraft mcp` lets an AI agent work with Statscraft through tools instead of shell commands. It speaks the Model Context Protocol (MCP) over standard input and output, so any agent app that runs local MCP servers can use it: Claude Desktop, Claude Code, ChatGPT desktop and Codex, Cursor, VS Code with Copilot and others. It ships with the `statscraft` command line, so there is nothing more to install, and the data never leave your computer.
+
+The easy way to connect an agent is `statscraft connect`, which finds the agent apps you have installed and adds Statscraft to each one. To set one up by hand, give it the command `statscraft mcp`, with the full path to `statscraft` if it is not on your PATH.
+
+## The tools
+
+| Tool | Input | What it gives back |
+|---|---|---|
+| `describe` | `file` (a .sav or .zsav file), or `session` | the dictionary and counts, and for a session what it keeps; the same JSON as `statscraft describe --json` |
+| `list_commands` | none | every supported command with a one-line summary, as `statscraft help` |
+| `command_help` | `command` | the syntax, rules and an example of one command, as `statscraft help COMMAND` |
+| `check_syntax` | `syntax` or `file`, and optional `lines`, `session`, `folder` | the result of a check, as `statscraft check --json`; nothing is kept or written |
+| `run_syntax` | the same as `check_syntax`, and optional `xlsx` | the result of a run, as `statscraft run --json`; the session keeps the new state |
+| `window_status` | none | whether a Statscraft window is open, and if so its datasets and output documents |
+
+- `syntax` is the text of one or more commands; `file` is the absolute path of a .sps file. Give one of them.
+- `lines` limits the run to the commands within a line range, such as `"12-20"`. Line numbers stay those of the whole text.
+- `folder` is the absolute folder that relative file names in the syntax start from. Default: your home folder. Give absolute paths in the syntax to be sure.
+- `xlsx` also writes every table of the run to an Excel workbook, one sheet per table.
+
+A run or check returns the JSON described in [the command line](command-line.md#json-output) as structured content, and the tables as Markdown text with a summary line for apps that show only text. A syntax or run error is a normal result: `ok` is false and `errors` gives the line, column and what was expected, so the agent can fix the syntax and try again. A call the server cannot carry out at all, such as a missing file or a bad argument, is marked as a tool error.
+
+The server also sends the working loop to the agent when it connects, and offers it as the prompt `analysis`: describe the data first, look up each command, check, run in small steps, read `ok`, `errors` and the warnings, and report the numbers from the result tables instead of computing them.
+
+## Sessions and the window
+
+A session keeps the data, settings, macros and named datasets between calls, as with `statscraft run -s NAME` (see [sessions](command-line.md#sessions-and-line-ranges)).
+
+- When the Statscraft window is open, calls without a `session` go to the window (the session `gui`). You see every table appear in the Output tab and every command in the log, and you can keep working in the window between the agent's steps.
+- When no window is open, calls without a `session` use a session named `work`.
+- File sessions of the MCP server live in your user data folder, not in the folder the agent app started the server in: `~/.local/share/statscraft/sessions` on Linux (or `$XDG_DATA_HOME/statscraft/sessions`), `~/Library/Application Support/Statscraft/sessions` on macOS, and `%LOCALAPPDATA%\Statscraft\sessions` on Windows. Delete a session's folder for a fresh start, or ask the agent to use a new session name.
+
+## Safety
+
+- The server can do what the command line can do, and nothing more. Syntax can read files, and it can write them with `SAVE`, `AGGREGATE OUTFILE`, `OUTPUT EXPORT` or the `xlsx` argument. `check_syntax` writes nothing; nothing is written without one of those.
+- The tools tell the agent app which of them only read (`describe`, `list_commands`, `command_help`, `check_syntax`, `window_status`) and that `run_syntax` can change files. Agent apps ask you before a tool runs, unless you allowed it; allow `run_syntax` only for agents you trust with your files.
+- The server talks only to the app that started it, over standard input and output. It opens no network port. Calls to the window use the window's local connection, described in [AI agents](ai-agents.md#safety-of-the-live-session).
