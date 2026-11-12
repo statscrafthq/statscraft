@@ -19,7 +19,8 @@ TREE dependent [level] BY predictor [level] ... [FORCE = var [level]]
      [/CHAID ALPHASPLIT=.05 ALPHAMERGE=.05 SPLITMERGED=NO CHISQUARE=PEARSON | LR CONVERGE=.001
              MAXITERATIONS=100 ADJUST=BONFERRONI | NONE INTERVALS=10 | varlist(n) ...]
      [/COSTS EQUAL] [/SCORES EQUALINCREMENTS | CUSTOM=value [score] ...]
-     [/MISSING NOMINALMISSING=MISSING | VALID].
+     [/MISSING NOMINALMISSING=MISSING | VALID]
+     [/PLOT GAIN RESPONSE INDEX INCREMENT=10].
 ```
 
 Levels: \[S\] scale, \[O\] ordinal, \[N\] or \[C\] nominal; without one the dictionary's level holds, and an unknown level comes from the data as in a data pass. The dependent is nominal (Pearson or likelihood-ratio chi-square) or ordinal (likelihood ratio against Goodman's row effects model, scored 1, 2, ... or by SCORES). Scale predictors are cut into INTERVALS groups of about equal size. Predictor categories that do not differ at ALPHAMERGE are merged (ordinal ones only when adjacent); a missing value is a category of its own that may merge with any. A category smaller than MINCHILDSIZE is merged with its most similar neighbor. The predictor with the smallest Bonferroni-adjusted significance splits the node when that is at most ALPHASPLIT. A node is not split when it is pure, smaller than MINPARENTSIZE or at MAXDEPTH (AUTO is 3). Exhaustive CHAID merges down to two categories and keeps the most significant set. The tree diagram comes as chart data: every node with its parent, the condition that leads to it, its category counts and percentages, its share of all cases, its predicted category and the split below it. TREETABLE lists the nodes in order with their parents. Gain tables (one per TARGET category) show terminal nodes by index.
@@ -28,7 +29,7 @@ SAVE adds the terminal node, the predicted category and one probability per cate
 
 A weight counts each case as often as its rounded value. SPLIT FILE is ignored.
 
-PLOT, PRIORS, CRT, QUEST, the settings of CRT and QUEST and PRINT IMPORTANCE, SURROGATES and CATEGORYSPECS are accepted and ignored with a warning. Not supported yet: METHOD TYPE=CRT and QUEST, a scale dependent, VALIDATION SPLITSAMPLE and CROSSVALIDATION, SPLITMERGED=YES, COSTS CUSTOM, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.
+PLOT GAIN, RESPONSE and INDEX give line charts with one line per TARGET category over cumulative percentile groups INCREMENT percent wide (1, 2, 5, 10, 20 or 25): the terminal nodes in the order of the gain tables, the node that holds a cut counted in proportion. PLOT MEAN, PROFIT, ROI and IMPORTANCE, PRIORS, CRT, QUEST, the settings of CRT and QUEST and PRINT IMPORTANCE, SURROGATES and CATEGORYSPECS are accepted and ignored with a warning. Not supported yet: METHOD TYPE=CRT and QUEST, a scale dependent, VALIDATION SPLITSAMPLE and CROSSVALIDATION, SPLITMERGED=YES, COSTS CUSTOM, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.
 
 ## Example
 

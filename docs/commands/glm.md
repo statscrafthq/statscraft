@@ -17,7 +17,9 @@ GLM dependent [BY factors] [WITH covariates]
    [/POSTHOC=factor ... (tests)] ... [/CONTRAST(factor)=DEVIATION[(ref)] | SIMPLE[(ref)] |
    DIFFERENCE | HELMERT | REPEATED | POLYNOMIAL[(metric)]] ...
    [/LMATRIX=['label'] effect coefficients ... [; ...] | ALL coefficients] ... [/KMATRIX=values]
-   [/SAVE=tempvar[(name)] ...] [/PLOT=...] [/DESIGN=effects].
+   [/SAVE=tempvar[(name)] ...] [/DESIGN=effects]
+   [/PLOT=[SPREADLEVEL] [RESIDUALS] [PROFILE(factor[*factor[*factor]] ...) [WITH(covariate=value | MEAN ...)]
+          [TYPE=LINE | BAR] [MEANREFERENCE=NO | YES] [ERRORBAR=NO | CI | SE[(2)]] [YAXIS=AUTO | 0]]] ...
 ```
 
 effects: INTERCEPT, a factor or covariate, a\*b or a BY b, a(b) or a WITHIN b, a(b(c)), x\*x, x\*a.
@@ -26,7 +28,7 @@ tempvar: PRED WPRED RESID WRESID DRESID ZRESID SRESID SEPRED COOK LEVER. tests: 
 
 GLM with WSFACTOR: the dependents are the levels of the within-subjects factors (the first factor's levels change slowest); Multivariate Tests, Mauchly's Test of Sphericity, Tests of Within-Subjects Effects (sphericity assumed, Greenhouse-Geisser, Huynh-Feldt, lower bound), Tests of Within-Subjects Contrasts and Tests of Between-Subjects Effects on the average.
 
-PLOT is accepted with a warning that charts are not drawn yet. Not supported yet: GLM with several dependents without WSFACTOR (the multivariate model), RANDOM, TEST, ROBUST, OUTFILE, MMATRIX, MEASURE, POSTHOC VS, CONTRAST SPECIAL, PRINT GEF, TEST(LMATRIX), MBP, BP, F and WHITE; with WSFACTOR also EMMEANS (left out with a warning), POSTHOC, CONTRAST, LMATRIX, SAVE and PRINT PARAMETER, HOMOGENEITY and LOF.
+PLOT gives chart data. PROFILE draws the estimated marginal means as a line chart (bars with TYPE=BAR) over the levels of the first factor, one line per level of a second factor and one chart per level of a third; MEANREFERENCE adds the grand mean as a flat line; error bars are not drawn yet (a warning says so) and YAXIS is left to the drawing. SPREADLEVEL plots the mean of every cell with two cases or more against its standard deviation, then against its variance. RESIDUALS gives every case's predicted value, observed value and standardized residual. With WSFACTOR, PLOT is ignored with a warning. Not supported yet: GLM with several dependents without WSFACTOR (the multivariate model), RANDOM, TEST, ROBUST, OUTFILE, MMATRIX, MEASURE, POSTHOC VS, CONTRAST SPECIAL, PRINT GEF, TEST(LMATRIX), MBP, BP, F and WHITE; with WSFACTOR also EMMEANS (left out with a warning), POSTHOC, CONTRAST, LMATRIX, SAVE and PRINT PARAMETER, HOMOGENEITY and LOF.
 
 ## Example
 

@@ -488,6 +488,9 @@ Where the documentation is silent:
 - With WSFACTOR, the Tests of Between-Subjects Effects analyze the sum of the measures over the root of their number, the averaged tests use orthonormal polynomial contrasts whatever the contrast type, and the contrast type shapes the Tests of Within-Subjects Contrasts.
 - Saved variables are F11.5 scale variables named PRE_1, RES_1 and so on.
 - A nested effect such as a(b) shows as DESIGN writes it, and parameter names such as [a=1] keep names and values.
+- Plots come as chart data. A profile plot is a line chart (TYPE=BAR: a bar chart) of the estimated marginal means as EMMEANS computes them, with WITH fixing covariates for every crossing of that PROFILE list; a mean that is not estimable has no value. MEANREFERENCE draws the grand mean (the estimated marginal mean of the whole model at the same covariate values) as a flat line. Error bars are not drawn yet (a warning says so) and YAXIS is left to the drawing.
+- SPREADLEVEL plots the cells of all factors that hold more than one case (frequency weights, as in the descriptive statistics), the mean against the standard deviation and the mean against the variance, each cell labeled. RESIDUALS gives one point per case: the predicted value across, the observed value up and the standardized residual (the residual over the root of the error mean square divided by the REGWGT weight) as the third coordinate, from which the matrix of the three pairs is drawn.
+- PLOT with WSFACTOR is ignored with a warning.
 
 ### ANOVA
 
@@ -562,6 +565,9 @@ Where the documentation is silent:
 - In a stepwise analysis, the removal of level 1 variables starts once no variable of a higher level can enter. A lone variable is removed too when its F falls below FOUT.
 - FPAIR shows the F of the last step.
 - The stepwise tables are Variables Entered/Removed (with the criterion after each step), Wilks' Lambda with Rao's F, and the variables in and not in the analysis at every step.
+- PLOT comes as chart data and a table. COMBINED and SEPARATE plot the classified cases (ungrouped ones in a group of their own on the combined plot) on the first two functions, with the group centroids labeled; with one function they are histograms of the scores. Weighted cases are plotted once each.
+- CASES lists the classified cases in file order in Casewise Statistics. The significance of the highest group is that of its squared distance under chi-square with as many df as functions. A misclassified case has ** after its predicted group. There are no cross-validated rows yet.
+- MAP gives each group's territory as a convex polygon: the points of the plane of the first two functions where the group has the highest ln(prior) minus half the squared distance to its centroid. The polygons fill a box around the plotted cases and centroids, widened by 1 on each side. Beyond two functions the map ignores the others, so a case may lie outside the territory of the group it is classified into. With CLASSIFY=SEPARATE, or with one function, there is no map, with a warning.
 
 ### TREE
 
@@ -576,6 +582,7 @@ Where the documentation is silent:
 - The gain tables of the TARGET categories show without /GAIN too, unless CATEGORYTABLE=NO, as the subcommand's defaults read.
 - The case processing summary counts weighted cases.
 - The tree diagram comes as chart data with the statistics of every node; its orientation (DISPLAY) and NODES are not kept.
+- PLOT GAIN, RESPONSE and INDEX come as line charts, one chart per keyword with one line per TARGET category, over the cumulative percentile groups of INCREMENT. The terminal nodes take the order of the gain tables (SORT), and the node that holds a cut counts in proportion to its part below the cut. Without a TARGET category there is no chart, with a warning.
 
 ## Custom tables and multiple response
 
@@ -736,10 +743,10 @@ Where the documentation is silent:
   - REGRESSION has no METHOD=TEST, SELECT, MATRIX or OUTFILE.
   - RELIABILITY has no MODEL=OMEGA or MATRIX.
   - LOGISTIC REGRESSION has no SELECT or OUTFILE.
-  - UNIANOVA and GLM have no multivariate model (GLM with several dependents without WSFACTOR), RANDOM, TEST, ROBUST, OUTFILE, MMATRIX, MEASURE, POSTHOC VS, CONTRAST SPECIAL or the heteroskedasticity tests, and draw no plots (PLOT is accepted with a warning). With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX or SAVE.
+  - UNIANOVA and GLM have no multivariate model (GLM with several dependents without WSFACTOR), RANDOM, TEST, ROBUST, OUTFILE, MMATRIX, MEASURE, POSTHOC VS, CONTRAST SPECIAL or the heteroskedasticity tests, and draw no error bars on profile plots. With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX, SAVE or PLOT.
   - FACTOR has no METHOD=COVARIANCE, MATRIX=OUT or MATRIX=IN(FAC=...).
   - CLUSTER has no MATRIX=OUT.
-  - DISCRIMINANT has no ROTATE=COEFF or STRUCTURE, MATRIX or OUTFILE. PLOT (charts, the territorial map and the casewise listing) is accepted with a warning.
+  - DISCRIMINANT has no ROTATE=COEFF or STRUCTURE, MATRIX or OUTFILE, and no cross-validated rows in the casewise listing.
   - USE takes case numbers only with /PERMANENT.
   - ADD FILES, MATCH FILES and UPDATE take no PASSWORD.
   - GET DATA reads no ODBC or OLEDB sources.
@@ -747,7 +754,7 @@ Where the documentation is silent:
   - FILE HANDLE refuses MODE=BINARY, MULTIPUNCH, IMAGE and 360, since only text and data files are read.
 - **Expression functions.** APPLYMODEL and STRAPPLYMODEL, which need MODEL HANDLE. NUMBER reads the formats DATA LIST reads (F, N, E, COMMA, DOT, DOLLAR, PCT, DATE, ADATE, EDATE and SDATE). STRING writes the number, date and time formats, but not the custom currencies CCA to CCE.
 - **Transformations.** PRINT and WRITE have no binary formats (P, PK, IB, PIB, PIBHEX, RB, RBHEX, Z). DATA LIST reads only F, N, E, COMMA, DOT, DOLLAR, PCT, A, DATE, ADATE, EDATE and SDATE, and only UTF-8 files. Commands such as VALUE LABELS cannot stand inside LOOP. AUTORECODE has no templates.
-- **Charts.** FREQUENCIES, CROSSTABS, EXAMINE, ONEWAY, REGRESSION, LOGISTIC REGRESSION, FACTOR, CLUSTER and TREE give their charts as data: the window and the text output show each chart's numbers as a table, `--json` gives its description and `--vega-lite` a Vega-Lite specification, but the window does not draw them yet. Workbooks, Word documents and presentations hold the bar, pie and line charts (the means and scree plots among them) as editable charts and the statistical plots as their data tables. The other procedures (GLM and UNIANOVA PLOT, DISCRIMINANT PLOT, the TREE gain charts) accept their chart subcommands with a warning.
+- **Charts.** FREQUENCIES, CROSSTABS, EXAMINE, ONEWAY, REGRESSION, LOGISTIC REGRESSION, UNIANOVA, GLM, DISCRIMINANT, FACTOR, CLUSTER and TREE give their charts as data: the window and the text output show each chart's numbers as a table, `--json` gives its description and `--vega-lite` a Vega-Lite specification, but the window does not draw them yet. Workbooks, Word documents and presentations hold the bar, pie and line charts (the means, scree, profile and gain charts among them) as editable charts and the statistical plots as their data tables.
 - **TREE.** CHAID and exhaustive CHAID with a nominal or ordinal dependent. Not supported yet: CRT, QUEST, a scale dependent, split-sample and cross-validation, SPLITMERGED=YES, custom costs, profits, percentile gain tables, rules, influence variables, model files and TARGETRESPONSE.
 - **Data files.** Statscraft reads and writes .sav and .zsav files, and portable (.por) files with IMPORT and EXPORT.
   - Text files are read with DATA LIST, GET DATA and GET TRANSLATE /TYPE=TAB; workbooks (.xlsx, .xlsm, .xls) with GET DATA and GET TRANSLATE; dBASE III and IV files with GET TRANSLATE. 1-2-3, Symphony, SYLK and dBASE II files are not read.

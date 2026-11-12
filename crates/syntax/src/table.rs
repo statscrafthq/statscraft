@@ -63,7 +63,9 @@ macro_rules! glm_syntax {
                  \x20  [/POSTHOC=factor ... (tests)] ... [/CONTRAST(factor)=DEVIATION[(ref)] | SIMPLE[(ref)] |\n\
                  \x20  DIFFERENCE | HELMERT | REPEATED | POLYNOMIAL[(metric)]] ...\n\
                  \x20  [/LMATRIX=['label'] effect coefficients ... [; ...] | ALL coefficients] ... [/KMATRIX=values]\n\
-                 \x20  [/SAVE=tempvar[(name)] ...] [/PLOT=...] [/DESIGN=effects].\n\
+                 \x20  [/SAVE=tempvar[(name)] ...] [/DESIGN=effects]\n\
+                 \x20  [/PLOT=[SPREADLEVEL] [RESIDUALS] [PROFILE(factor[*factor[*factor]] ...) [WITH(covariate=value | MEAN ...)]\n\
+                 \x20         [TYPE=LINE | BAR] [MEANREFERENCE=NO | YES] [ERRORBAR=NO | CI | SE[(2)]] [YAXIS=AUTO | 0]]] ...\n\
                  effects: INTERCEPT, a factor or covariate, a*b or a BY b, a(b) or a WITHIN b, a(b(c)), x*x, x*a.\n\
                  tempvar: PRED WPRED RESID WRESID DRESID ZRESID SRESID SEPRED COOK LEVER. tests: as in ONEWAY\n\
                  /POSTHOC (LSD BONFERRONI SIDAK TUKEY SCHEFFE GH T2 SNK BTUKEY DUNCAN GT2 GABRIEL FREGW QREGW T3 C\n\
@@ -84,7 +86,13 @@ macro_rules! glm_syntax {
                  factor's levels change slowest); Multivariate Tests, Mauchly's Test of Sphericity, Tests of\n\
                  Within-Subjects Effects (sphericity assumed, Greenhouse-Geisser, Huynh-Feldt, lower bound), Tests\n\
                  of Within-Subjects Contrasts and Tests of Between-Subjects Effects on the average.\n\
-                 PLOT is accepted with a warning that charts are not drawn yet. Not supported yet: GLM with several\n\
+                 PLOT gives chart data. PROFILE draws the estimated marginal means as a line chart (bars with\n\
+                 TYPE=BAR) over the levels of the first factor, one line per level of a second factor and one chart\n\
+                 per level of a third; MEANREFERENCE adds the grand mean as a flat line; error bars are not drawn\n\
+                 yet (a warning says so) and YAXIS is left to the drawing. SPREADLEVEL plots the mean of every\n\
+                 cell with two cases or more against its standard deviation, then against its variance. RESIDUALS\n\
+                 gives every case's predicted value, observed value and standardized residual. With WSFACTOR, PLOT\n\
+                 is ignored with a warning. Not supported yet: GLM with several\n\
                  dependents without WSFACTOR (the multivariate model), RANDOM, TEST, ROBUST, OUTFILE, MMATRIX,\n\
                  MEASURE, POSTHOC VS, CONTRAST SPECIAL, PRINT GEF, TEST(LMATRIX), MBP, BP, F and WHITE; with\n\
                  WSFACTOR also EMMEANS (left out with a warning), POSTHOC, CONTRAST, LMATRIX, SAVE and PRINT\n\
@@ -1354,7 +1362,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/ANALYSIS=... another block] [/MISSING=EXCLUDE | INCLUDE] [/HISTORY=STEP | NONE]\n\
                  \x20  [/CLASSIFY=[NONMISSING | UNSELECTED | UNCLASSIFIED] [POOLED | SEPARATE] [MEANSUB]]\n\
                  \x20  [/STATISTICS=[MEAN] [STDDEV] [UNIVF] [COV] [CORR] [FPAIR] [BOXM] [GCOV] [TCOV] [RAW] [COEFF] [TABLE]\n\
-                 \x20               [CROSSVALID] [ALL]] [/ROTATE=NONE] [/PLOT=...].\n\
+                 \x20               [CROSSVALID] [ALL]] [/ROTATE=NONE] [/PLOT=[COMBINED] [SEPARATE] [MAP] [CASES[(n)]] [ALL]].\n\
                  The analysis uses the cases with a whole group value in the range, no missing value on VARIABLES and,\n\
                  with SELECT, the selected value; groups without cases are ignored. DIRECT enters the variables that\n\
                  pass the tolerance; the stepwise methods enter the variable with the best criterion (smallest Wilks'\n\
@@ -1369,8 +1377,15 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Summary, Prior Probabilities for Groups, Classification Function Coefficients (COEFF) and\n\
                  Classification Results (TABLE, CROSSVALID leaving each case out). SAVE adds the predicted group, the\n\
                  function scores and the posterior probabilities, named DSC_m and DSCn_m unless given. Weighted when a\n\
-                 weight variable is set. PLOT is accepted with a warning that it is not produced yet. Not supported\n\
-                 yet: ROTATE=COEFF and STRUCTURE, MATRIX, OUTFILE.",
+                 weight variable is set. PLOT alone means COMBINED and CASES. COMBINED plots the classified cases on\n\
+                 the first two functions by group, with the group centroids; SEPARATE makes one such plot per group;\n\
+                 with a single function both give histograms of the scores. CASES lists every classified case (the\n\
+                 first n) in a Casewise Statistics table: actual group, the two most likely groups with their\n\
+                 posterior probabilities and squared distances to the centroid, the chi-square significance of\n\
+                 the first one's distance, and the scores. MAP splits the plane of the first two functions into\n\
+                 the territory of each group, a convex polygon, under the pooled rule with the priors; there is no\n\
+                 map with one function or CLASSIFY=SEPARATE. Not supported yet: ROTATE=COEFF and STRUCTURE, MATRIX,\n\
+                 OUTFILE, cross-validated rows in the casewise listing.",
         example: "DISCRIMINANT GROUPS=segment(1,3) /VARIABLES=q1 TO q6 /METHOD=WILKS /PRIORS=SIZE /STATISTICS=MEAN STDDEV UNIVF BOXM TABLE /SAVE=CLASS SCORES PROBS.",
         parse: discriminant::discriminant,
     },
@@ -1458,7 +1473,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20    [/CHAID ALPHASPLIT=.05 ALPHAMERGE=.05 SPLITMERGED=NO CHISQUARE=PEARSON | LR CONVERGE=.001\n\
                  \x20            MAXITERATIONS=100 ADJUST=BONFERRONI | NONE INTERVALS=10 | varlist(n) ...]\n\
                  \x20    [/COSTS EQUAL] [/SCORES EQUALINCREMENTS | CUSTOM=value [score] ...]\n\
-                 \x20    [/MISSING NOMINALMISSING=MISSING | VALID].\n\
+                 \x20    [/MISSING NOMINALMISSING=MISSING | VALID]\n\
+                 \x20    [/PLOT GAIN RESPONSE INDEX INCREMENT=10].\n\
                  Levels: [S] scale, [O] ordinal, [N] or [C] nominal; without one the dictionary's level holds,\n\
                  and an unknown level comes from the data as in a data pass. The dependent is nominal\n\
                  (Pearson or likelihood-ratio chi-square) or ordinal (likelihood ratio against Goodman's row\n\
@@ -1475,7 +1491,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  SAVE adds the terminal node, the predicted category and one probability per category for the\n\
                  cases in the analysis (default names NodeID, PredictedValue, PredictedProbability_1, ...).\n\
                  A weight counts each case as often as its rounded value. SPLIT FILE is ignored.\n\
-                 PLOT, PRIORS, CRT, QUEST, the settings of CRT and QUEST and PRINT IMPORTANCE, SURROGATES and\n\
+                 PLOT GAIN, RESPONSE and INDEX give line charts with one line per TARGET category over cumulative\n\
+                 percentile groups INCREMENT percent wide (1, 2, 5, 10, 20 or 25): the terminal nodes in the order\n\
+                 of the gain tables, the node that holds a cut counted in proportion. PLOT MEAN, PROFIT, ROI and\n\
+                 IMPORTANCE, PRIORS, CRT, QUEST, the settings of CRT and QUEST and PRINT IMPORTANCE, SURROGATES and\n\
                  CATEGORYSPECS are accepted and ignored with a warning. Not supported\n\
                  yet: METHOD TYPE=CRT and QUEST, a scale dependent, VALIDATION SPLITSAMPLE and CROSSVALIDATION,\n\
                  SPLITMERGED=YES, COSTS CUSTOM, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.",

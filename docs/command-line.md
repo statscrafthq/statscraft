@@ -239,7 +239,7 @@ A custom table with two header levels, from `CTABLES /TABLE region [COUNT, COLPC
 
 ### Charts
 
-FREQUENCIES (BARCHART, PIECHART, HISTOGRAM), CROSSTABS (BARCHART), EXAMINE (PLOT), ONEWAY (PLOT MEANS), REGRESSION (RESIDUALS, SCATTERPLOT, PARTIALPLOT), LOGISTIC REGRESSION (CLASSPLOT), FACTOR (PLOT), CLUSTER (PLOT) and TREE (the tree diagram) make charts. A chart is data: its kind, its labels and its numbers, with nothing about colors or layout. Labels follow SET TVARS, TNUMBERS and OVARS as tables do. `statscraft run --json -e "..."` with `CROSSTABS /TABLES=region BY gender /BARCHART.` gives (shortened):
+FREQUENCIES (BARCHART, PIECHART, HISTOGRAM), CROSSTABS (BARCHART), EXAMINE (PLOT), ONEWAY (PLOT MEANS), REGRESSION (RESIDUALS, SCATTERPLOT, PARTIALPLOT), LOGISTIC REGRESSION (CLASSPLOT), UNIANOVA and GLM (PLOT), DISCRIMINANT (PLOT), FACTOR (PLOT), CLUSTER (PLOT) and TREE (the tree diagram, PLOT) make charts. A chart is data: its kind, its labels and its numbers, with nothing about colors or layout. Labels follow SET TVARS, TNUMBERS and OVARS as tables do. `statscraft run --json -e "..."` with `CROSSTABS /TABLES=region BY gender /BARCHART.` gives (shortened):
 
 ```json
 {
@@ -264,7 +264,7 @@ FREQUENCIES (BARCHART, PIECHART, HISTOGRAM), CROSSTABS (BARCHART), EXAMINE (PLOT
 
 | Field | Meaning |
 |---|---|
-| `kind` | `bar`, `pie`, `line`, `area`, `scatter`, `histogram`, `boxplot`, `stem_leaf`, `normal_qq`, `detrended_normal_qq`, `normal_pp`, `spread_level`, `dendrogram`, `icicle` or `tree_diagram` |
+| `kind` | `bar`, `pie`, `line`, `area`, `scatter`, `histogram`, `boxplot`, `stem_leaf`, `normal_qq`, `detrended_normal_qq`, `normal_pp`, `spread_level`, `dendrogram`, `icicle`, `tree_diagram` or `territorial_map` |
 | `tier` | `presentation` (a chart the office programs can hold as an editable chart) or `statistical` (a plot drawn exactly, such as the histogram) |
 | `orientation` | `vertical` (categories along the bottom) or `horizontal`; absent for a pie |
 | `grouping` | `clustered`, `stacked` or `percent` (stacked to 100%); bars, lines and areas only |
@@ -283,6 +283,7 @@ The shapes of `plot`:
 - `points`: `groups`, each a `name` and `points` (`x`, `y`, an optional `z` and `label`); `lines`, straight reference lines `y = intercept + slope x`; and `z_axis` when the points have depth. Q-Q, P-P, spread-versus-level, scatter, partial regression and loading plots use it.
 - `merges`: `items` (the case labels), `order` (the layout of the items, so that no branches cross), `merges` (each joins cluster `right` into cluster `left`, both named by an item index, at `height`, with `rescaled` from 1 to 25) and, for an icicle plot, `solutions`, the numbers of clusters it shows.
 - `tree`: `nodes`, each with its `id`, `parent`, the `split` condition that leads to it, and `statistics` as name and value pairs.
+- `regions`: `regions`, each with its `name`, its `center` (`[x, y]`, such as a group centroid) and `vertices`, the corners of its convex polygon in order around it (empty when the region is empty). The DISCRIMINANT territorial map uses it.
 
 With `--vega-lite` each chart also has a member `vega_lite`: a [Vega-Lite](https://vega.github.io/vega-lite/) v5 specification with the numbers inline, which any Vega-Lite viewer draws as it is. In Markdown output the specification follows the chart's data table as a `json` code block. SPLIT FILE gives a chart per split group, the group named in the title.
 
