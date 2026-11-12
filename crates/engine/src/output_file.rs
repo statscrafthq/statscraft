@@ -40,6 +40,10 @@
 //!   row is one line), whole numbers without a fraction and no date, so files diff well.
 //! - A table cell holding a number that is not finite is written as its text; a chart number
 //!   that is not finite is written as null and reads back as NaN.
+//! - A file comes from outside, so every table and chart is checked as it is read: sizes are
+//!   capped, a chart passes the checks of chart input (`chart_input`), and a table's rows,
+//!   formats and headers must fit together. One that fails is kept as an unknown item (written
+//!   back unchanged, never drawn) with a warning that names it; the rest of the file opens.
 //! - `version` is one integer. Adding an optional field or a new item kind keeps it; changing
 //!   what a field means, or adding one an older reader must not drop, raises it, with a step in
 //!   `MIGRATIONS` that turns the older form into the newer one. A file from a newer version is
@@ -95,10 +99,15 @@ impl Item {
             Item::Chart(chart) => (chart.data_table(), Some((**chart).clone())),
             Item::Unknown(value) => {
                 let kind = value.get("kind").and_then(Value::as_str).unwrap_or("?");
-                let title = format!(
-                    "An output item of kind {kind}, which this version of Statscraft cannot \
-                     show; it is kept and saved as it is"
-                );
+                let title = match kind {
+                    "table" | "chart" => format!(
+                        "A {kind} that Statscraft could not read; it is kept and saved as it is"
+                    ),
+                    _ => format!(
+                        "An output item of kind {kind}, which this version of Statscraft cannot \
+                         show; it is kept and saved as it is"
+                    ),
+                };
                 let table = Table {
                     title,
                     ..Table::default()
@@ -314,8 +323,15 @@ impl std::fmt::Display for ReadError {
     }
 }
 
-/// The items of an output file: the format checked, older versions migrated.
+/// The items of an output file: the format checked, older versions migrated, every table and
+/// chart checked.
 pub fn read(text: &str) -> Result<Vec<Item>, ReadError> {
+    read_checked(text).map(|(items, _)| items)
+}
+
+/// `read`, with a warning for every table or chart that failed its checks and is kept as an
+/// unknown item.
+pub fn read_checked(text: &str) -> Result<(Vec<Item>, Vec<String>), ReadError> {
     let not_ours = || ReadError("it is not a Statscraft output file".into());
     let mut file: Value = serde_json::from_str(text).map_err(|_| not_ours())?;
     if file.get("format").and_then(Value::as_str) != Some(FORMAT) {
@@ -333,14 +349,77 @@ pub fn read(text: &str) -> Result<Vec<Item>, ReadError> {
     for step in &MIGRATIONS[(version - 1) as usize..] {
         step(&mut file);
     }
-    match file.get("items") {
-        Some(Value::Array(items)) => items.iter().map(read_item).collect(),
-        None => Ok(Vec::new()),
-        Some(_) => Err(ReadError("its items are not a list".into())),
-    }
+    let mut warnings = Vec::new();
+    let items = match file.get("items") {
+        Some(Value::Array(items)) => items
+            .iter()
+            .map(|v| read_item(v, "", &mut warnings))
+            .collect::<Result<_, _>>()?,
+        None => Vec::new(),
+        Some(_) => return Err(ReadError("its items are not a list".into())),
+    };
+    Ok((items, warnings))
 }
 
-fn read_item(value: &Value) -> Result<Item, ReadError> {
+/// Rows, columns and cells of a table read from a file. LIST shows a row per case. The
+/// strings and numbers of a table, its formats included, are also capped at ten times the
+/// values of a saved chart.
+const MOST_ROWS: usize = 1_000_000;
+const MOST_COLUMNS: usize = 10_000;
+const MOST_CELLS: usize = 10_000_000;
+
+/// A table of a file whose parts fit together, as every view of a table expects.
+fn checked_table(value: Value) -> Result<Table, String> {
+    crate::chart_input::sizes(&value, &crate::chart_input::SAVED, &mut 0)?;
+    let table: Table = serde_json::from_value(value).map_err(|e| e.to_string())?;
+    let (rows, columns) = (table.rows.len(), table.columns.len());
+    if rows > MOST_ROWS || columns > MOST_COLUMNS || rows * columns > MOST_CELLS {
+        return Err(format!(
+            "{rows} rows of {columns} columns are more than a table may hold"
+        ));
+    }
+    if let Some(r) = table.rows.iter().position(|row| row.len() != columns) {
+        return Err(format!(
+            "row {} has {} cells for {columns} columns",
+            r + 1,
+            table.rows[r].len()
+        ));
+    }
+    let formats = &table.formats;
+    if !formats.is_empty() && (formats.len() != rows || formats.iter().any(|f| f.len() > columns)) {
+        return Err("its formats do not have the shape of its rows".into());
+    }
+    if let Some(f) = formats
+        .iter()
+        .flatten()
+        .find(|f| !crate::chart_input::is_format(f))
+    {
+        return Err(format!("{f} is not a display format"));
+    }
+    if table.row_headers > columns || table.column_groups.len() > columns {
+        return Err("its headers do not fit its columns".into());
+    }
+    Ok(table)
+}
+
+/// A warning about an item of a file that is kept as it is and not shown.
+fn unread(value: &Value, command: &str, why: &str) -> String {
+    let kind = value.get("kind").and_then(Value::as_str).unwrap_or("item");
+    let title = value
+        .get("chart")
+        .unwrap_or(value)
+        .get("title")
+        .and_then(Value::as_str)
+        .unwrap_or("");
+    let title: String = title.chars().take(80).collect();
+    let place = match command.is_empty() {
+        true => String::new(),
+        false => format!(" of {command}"),
+    };
+    format!("the {kind} \"{title}\"{place} cannot be shown: {why}; it is kept as it is")
+}
+
+fn read_item(value: &Value, command: &str, warnings: &mut Vec<String>) -> Result<Item, ReadError> {
     let bad = |e: &dyn std::fmt::Display| ReadError(format!("a broken item: {e}"));
     let kind = value.get("kind").and_then(Value::as_str);
     let fields = || {
@@ -351,11 +430,13 @@ fn read_item(value: &Value) -> Result<Item, ReadError> {
     match kind {
         Some("command") => {
             let text = |key: &str| value.get(key).and_then(Value::as_str).unwrap_or("");
-            let warnings = value.get("warnings").cloned().unwrap_or(Value::Null);
-            let warnings: Option<Vec<String>> =
-                serde_json::from_value(warnings).map_err(|e| bad(&e))?;
+            let own = value.get("warnings").cloned().unwrap_or(Value::Null);
+            let own: Option<Vec<String>> = serde_json::from_value(own).map_err(|e| bad(&e))?;
+            let name = text("command");
             let items = match value.get("items") {
-                Some(Value::Array(items)) => items.iter().map(read_item).collect(),
+                Some(Value::Array(items)) => {
+                    items.iter().map(|v| read_item(v, name, warnings)).collect()
+                }
                 None => Ok(Vec::new()),
                 Some(_) => Err(bad(&"the items of a command are not a list")),
             }?;
@@ -366,22 +447,27 @@ fn read_item(value: &Value) -> Result<Item, ReadError> {
                     .and_then(Value::as_str)
                     .map(str::to_string),
                 syntax: text("syntax").into(),
-                warnings: warnings.unwrap_or_default(),
+                warnings: own.unwrap_or_default(),
                 items,
             }))
         }
-        Some("table") => {
-            let table: Table = serde_json::from_value(fields()).map_err(|e| bad(&e))?;
-            Ok(Item::Table(Arc::new(table)))
-        }
+        Some("table") => Ok(match checked_table(fields()) {
+            Ok(table) => Item::Table(Arc::new(table)),
+            Err(why) => {
+                warnings.push(unread(value, command, &why));
+                Item::Unknown(value.clone())
+            }
+        }),
         Some("chart") => {
-            let chart = value.get("chart").cloned().unwrap_or(Value::Null);
-            // shortcut: a chart that does not read, such as a plot number that was not finite
-            // (written as null), is kept as it is, like an unknown item; read null as NaN in
-            // more plot fields when such a chart turns up.
-            Ok(match serde_json::from_value::<Chart>(chart) {
+            let chart = value.get("chart").unwrap_or(&Value::Null);
+            // a plot number that was not finite is written as null and does not read: such a
+            // chart is kept as it is, with the warning
+            Ok(match crate::chart_input::saved(chart) {
                 Ok(chart) => Item::Chart(Arc::new(chart)),
-                Err(_) => Item::Unknown(value.clone()),
+                Err(why) => {
+                    warnings.push(unread(value, command, &why));
+                    Item::Unknown(value.clone())
+                }
             })
         }
         Some(_) => Ok(Item::Unknown(value.clone())),

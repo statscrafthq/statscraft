@@ -9,6 +9,12 @@
 //! The JSON comes from outside, so it is checked before anything draws it: sizes are capped,
 //! fields Statscraft does not know are refused, and the shape must be one every drawing (the
 //! window, the pictures, the office charts, Vega-Lite) can take without failing.
+//!
+//! Charts read from an output file (OUTPUT OPEN) pass the same checks with wider limits, since
+//! procedures make larger charts than an agent should send, and with the plot shapes only
+//! procedures make (merges, tree, regions, stem-and-leaf) checked for their indexes as well.
+//! Fields the chart does not have are dropped there: the file format lets a newer version add
+//! optional fields.
 
 use crate::Cell;
 use crate::chart::{Axis, Category, Chart, ChartKind, Grouping, Orientation, Series, Statistic};
@@ -28,6 +34,50 @@ const LONGEST_TEXT: usize = 1000;
 /// Bytes of the JSON text.
 const MOST_BYTES: usize = 16 << 20;
 
+/// How much a chart may hold, and which plot shapes it may have.
+#[derive(Clone, Copy)]
+pub(crate) struct Limits {
+    /// Characters of any one string.
+    pub(crate) text: usize,
+    series: usize,
+    categories: usize,
+    /// Series times categories, or points, or marked cases.
+    values: usize,
+    /// Merges, tree and regions plots and stem-and-leaf displays, which only procedures make.
+    every_shape: bool,
+}
+
+/// A chart from an agent or a script.
+const OUTSIDE: Limits = Limits {
+    text: LONGEST_TEXT,
+    series: MOST_SERIES,
+    categories: MOST_CATEGORIES,
+    values: MOST_VALUES,
+    every_shape: false,
+};
+
+/// A chart in an output file, which a procedure made. A string variable holds up to 32767
+/// bytes, and a bar chart or a scatter plot has a category or a point per value or case.
+pub(crate) const SAVED: Limits = Limits {
+    text: 32_768,
+    series: 10_000,
+    categories: 100_000,
+    values: 2_000_000,
+    every_shape: true,
+};
+
+/// Nodes of a tree diagram, and how deep it goes.
+const MOST_NODES: usize = 10_000;
+const DEEPEST: usize = 1_000;
+
+/// A chart of an output file, checked as chart input is; fields it does not have are dropped.
+pub(crate) fn saved(value: &Value) -> Result<Chart, String> {
+    sizes(value, &SAVED, &mut 0)?;
+    let chart: Chart = serde_json::from_value(value.clone()).map_err(|e| e.to_string())?;
+    check(&chart, &SAVED)?;
+    Ok(chart)
+}
+
 /// Reads the JSON lines of BEGIN CHART, each with its line number in the syntax.
 pub(crate) fn read(lines: &[(u32, String)]) -> Result<Chart, String> {
     let Some(&(first, _)) = lines.first() else {
@@ -46,8 +96,7 @@ pub(crate) fn read(lines: &[(u32, String)]) -> Result<Chart, String> {
         let line = first as usize + e.line().saturating_sub(1);
         format!("line {line}, column {}: {message}", e.column())
     })?;
-    let mut scalars = 0;
-    sizes(&value, &mut scalars)?;
+    sizes(&value, &OUTSIDE, &mut 0)?;
     let Value::Object(map) = value else {
         return Err("the chart must be a JSON object".into());
     };
@@ -55,30 +104,28 @@ pub(crate) fn read(lines: &[(u32, String)]) -> Result<Chart, String> {
         true => vega_lite(&map).map_err(|e| format!("Vega-Lite: {e}"))?,
         false => statscraft(map)?,
     };
-    check(&chart)?;
+    check(&chart, &OUTSIDE)?;
     Ok(chart)
 }
 
-/// Strings no longer than `LONGEST_TEXT`, and not more numbers and strings than a chart can
-/// hold with its labels.
-fn sizes(value: &Value, scalars: &mut usize) -> Result<(), String> {
+/// Strings no longer than the limit, and not more numbers and strings than a chart can hold
+/// with its labels.
+pub(crate) fn sizes(value: &Value, limits: &Limits, scalars: &mut usize) -> Result<(), String> {
     match value {
-        Value::String(s) if s.chars().count() > LONGEST_TEXT => Err(format!(
-            "a string is longer than {LONGEST_TEXT} characters: {}...",
+        Value::String(s) if s.chars().count() > limits.text => Err(format!(
+            "a string is longer than {} characters: {}...",
+            limits.text,
             s.chars().take(40).collect::<String>()
         )),
-        Value::Array(items) => items.iter().try_for_each(|v| sizes(v, scalars)),
+        Value::Array(items) => items.iter().try_for_each(|v| sizes(v, limits, scalars)),
         Value::Object(map) => map.iter().try_for_each(|(k, v)| {
-            sizes(&Value::String(k.clone()), scalars)?;
-            sizes(v, scalars)
+            sizes(&Value::String(k.clone()), limits, scalars)?;
+            sizes(v, limits, scalars)
         }),
         _ => {
             *scalars += 1;
-            match *scalars > 10 * MOST_VALUES {
-                true => Err(format!(
-                    "the chart holds more than {} values",
-                    10 * MOST_VALUES
-                )),
+            match *scalars > 10 * limits.values {
+                true => Err(format!("it holds more than {} values", 10 * limits.values)),
                 false => Ok(()),
             }
         }
@@ -151,8 +198,9 @@ fn kind_name(kind: ChartKind) -> String {
 }
 
 /// What every drawing of a chart relies on.
-fn check(chart: &Chart) -> Result<(), String> {
+fn check(chart: &Chart, limits: &Limits) -> Result<(), String> {
     let kind = kind_name(chart.kind);
+    let (most_values, most_categories) = (limits.values, limits.categories);
     let axes = [&chart.category_axis, &chart.value_axis];
     for axis in axes.into_iter().chain(&chart.second_axis) {
         if !is_format(&axis.format) {
@@ -186,11 +234,11 @@ fn check(chart: &Chart) -> Result<(), String> {
     match &chart.plot {
         Some(Plot::Points { groups, lines, .. }) if points_kind => {
             let points: usize = groups.iter().map(|g| g.points.len()).sum();
-            if points == 0 || points > MOST_VALUES {
-                return Err(format!("plot: give 1 to {MOST_VALUES} points"));
+            if points == 0 || points > most_values {
+                return Err(format!("plot: give 1 to {most_values} points"));
             }
-            if groups.len() > MOST_SERIES || lines.len() > MOST_SERIES {
-                return Err(format!("plot: at most {MOST_SERIES} groups and lines"));
+            if groups.len() > limits.series || lines.len() > limits.series {
+                return Err(format!("plot: at most {} groups and lines", limits.series));
             }
             Ok(())
         }
@@ -199,14 +247,15 @@ fn check(chart: &Chart) -> Result<(), String> {
                 .iter()
                 .map(|b| b.outliers.len() + b.extremes.len())
                 .sum();
-            if boxes.is_empty() || boxes.len() > MOST_CATEGORIES || marks > MOST_VALUES {
+            if boxes.is_empty() || boxes.len() > most_categories || marks > most_values {
                 return Err(format!(
-                    "plot: give 1 to {MOST_CATEGORIES} boxes with at most {MOST_VALUES} marked \
+                    "plot: give 1 to {most_categories} boxes with at most {most_values} marked \
                      cases"
                 ));
             }
             Ok(())
         }
+        Some(plot) if limits.every_shape => check_shape(chart.kind, plot, limits),
         Some(plot) => {
             let shape = serde_json::to_value(plot).expect("plain data");
             let shape = shape["shape"].as_str().unwrap_or_default().to_string();
@@ -216,13 +265,78 @@ fn check(chart: &Chart) -> Result<(), String> {
                  normal_pp, spread_level) or boxes (kind boxplot)"
             ))
         }
-        None => check_categories(chart, &kind),
+        None => check_categories(chart, &kind, limits),
+    }
+}
+
+/// The plot shapes only procedures make: every index points into its list, a clustering has
+/// fewer merges than items, and a tree is a tree.
+fn check_shape(kind: ChartKind, plot: &Plot, limits: &Limits) -> Result<(), String> {
+    let wrong = |what: &str| Err(format!("plot: {what}"));
+    match (plot, kind) {
+        (
+            Plot::Merges {
+                items,
+                order,
+                merges,
+                ..
+            },
+            ChartKind::Dendrogram | ChartKind::Icicle,
+        ) => {
+            let n = items.len();
+            if n == 0 || n > limits.categories {
+                return wrong(&format!("a clustering of 1 to {} items", limits.categories));
+            }
+            if order.len() != n || order.iter().any(|&i| i >= n) {
+                return wrong("order lists every item once by its index");
+            }
+            if merges.len() >= n || merges.iter().any(|m| m.left >= n || m.right >= n) {
+                return wrong("merges join items by their index, at most one fewer than items");
+            }
+            Ok(())
+        }
+        (Plot::Tree { nodes }, ChartKind::TreeDiagram) => {
+            if nodes.is_empty() || nodes.len() > MOST_NODES {
+                return wrong(&format!("a tree of 1 to {MOST_NODES} nodes"));
+            }
+            // the root first, every other node after its parent, each id once: no cycles
+            let mut depth: HashMap<usize, usize> = HashMap::new();
+            for (i, node) in nodes.iter().enumerate() {
+                let level = match (i, node.parent) {
+                    (0, None) => 0,
+                    (_, Some(p)) if i > 0 => match depth.get(&p) {
+                        Some(&d) if d < DEEPEST => d + 1,
+                        _ => return wrong("every node but the first comes after its parent"),
+                    },
+                    _ => return wrong("the first node is the root, the only one without parent"),
+                };
+                if depth.insert(node.id, level).is_some() {
+                    return wrong(&format!("node id {} is given twice", node.id));
+                }
+            }
+            Ok(())
+        }
+        (Plot::Regions { regions }, ChartKind::TerritorialMap) => {
+            let corners: usize = regions.iter().map(|r| r.vertices.len()).sum();
+            match regions.len() <= limits.categories && corners <= limits.values {
+                true => Ok(()),
+                false => wrong("too many regions or corners"),
+            }
+        }
+        (Plot::StemLeaf(s), ChartKind::StemLeaf) => match s.lines.len() <= limits.values {
+            true => Ok(()),
+            false => wrong("too many lines"),
+        },
+        _ => wrong(&format!(
+            "shape and kind {} do not go together",
+            kind_name(kind)
+        )),
     }
 }
 
 /// A chart of categories and series: every series has a value for every category, and the
 /// kind's own needs are met.
-fn check_categories(chart: &Chart, kind: &str) -> Result<(), String> {
+fn check_categories(chart: &Chart, kind: &str, limits: &Limits) -> Result<(), String> {
     use ChartKind::*;
     if matches!(
         chart.kind,
@@ -245,15 +359,16 @@ fn check_categories(chart: &Chart, kind: &str) -> Result<(), String> {
         ));
     }
     let (n, m) = (chart.categories.len(), chart.series.len());
-    if n == 0 || n > MOST_CATEGORIES {
-        return Err(format!("categories: give 1 to {MOST_CATEGORIES}"));
+    let (most_values, most_categories) = (limits.values, limits.categories);
+    if n == 0 || n > most_categories {
+        return Err(format!("categories: give 1 to {most_categories}"));
     }
-    if m == 0 || m > MOST_SERIES {
-        return Err(format!("series: give 1 to {MOST_SERIES}"));
+    if m == 0 || m > limits.series {
+        return Err(format!("series: give 1 to {}", limits.series));
     }
-    if n * m > MOST_VALUES {
+    if n * m > most_values {
         return Err(format!(
-            "{m} series of {n} categories are more than {MOST_VALUES} values"
+            "{m} series of {n} categories are more than {most_values} values"
         ));
     }
     if let Some(s) = chart.series.iter().find(|s| s.values.len() != n) {
@@ -292,7 +407,7 @@ fn check_categories(chart: &Chart, kind: &str) -> Result<(), String> {
 /// A display format such as F8.2, PCT8.1 or COMMA12, or none; a custom currency format may
 /// carry its specification after a blank, as SET CCA gives it. Width and decimals are capped,
 /// since the text of a number is made that wide.
-fn is_format(format: &str) -> bool {
+pub(crate) fn is_format(format: &str) -> bool {
     if format.is_empty() {
         return true;
     }
@@ -305,7 +420,7 @@ fn is_format(format: &str) -> bool {
             && s.chars().all(|c| c.is_ascii_digit())
             && s.parse::<u32>().is_ok_and(|n| n <= most)
     };
-    (1..=8).contains(&kind.len()) && number(width, 40) && number(decimals, 16)
+    (1..=8).contains(&kind.len()) && number(width, 32_767) && number(decimals, 16)
 }
 
 // ---- Vega-Lite ----

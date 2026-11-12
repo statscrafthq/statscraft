@@ -450,8 +450,14 @@ impl Engine {
             path = scout;
         }
         let read = std::fs::read_to_string(&path).map_err(|e| e.to_string());
-        let items = match read.and_then(|t| output_file::read(&t).map_err(|e| e.to_string())) {
-            Ok(items) => items,
+        let read = read.and_then(|t| output_file::read_checked(&t).map_err(|e| e.to_string()));
+        let items = match read {
+            Ok((items, warnings)) => {
+                for warning in warnings {
+                    self.warn(format!("{file}: {warning}"));
+                }
+                items
+            }
             Err(e) => {
                 self.warn(format!(
                     "cannot open {file}: {e}; the tables still go to {}",
