@@ -11,7 +11,7 @@ The easy way to connect an agent is `statscraft connect`, which finds the agent 
 | `describe` | `file` (a .sav or .zsav file), or `session` | the dictionary and counts, and for a session what it keeps; the same JSON as `statscraft describe --json` |
 | `list_commands` | none | every supported command with a one-line summary, as `statscraft help` |
 | `command_help` | `command` | the syntax, rules and an example of one command, as `statscraft help COMMAND` |
-| `check_syntax` | `syntax` or `file`, and optional `lines`, `session`, `folder` | the result of a check, as `statscraft check --json`; nothing is kept or written |
+| `check_syntax` | `syntax` or `file`, and optional `lines`, `session`, `folder`, `vega_lite` | the result of a check, as `statscraft check --json`; nothing is kept or written |
 | `run_syntax` | the same as `check_syntax`, and optional `xlsx` | the result of a run, as `statscraft run --json`; the session keeps the new state |
 | `window_status` | none | whether a Statscraft window is open, and if so its datasets and output documents |
 
@@ -19,8 +19,9 @@ The easy way to connect an agent is `statscraft connect`, which finds the agent 
 - `lines` limits the run to the commands within a line range, such as `"12-20"`. Line numbers stay those of the whole text.
 - `folder` is the absolute folder that relative file names in the syntax start from. Default: your home folder. Give absolute paths in the syntax to be sure.
 - `xlsx` also writes every table of the run to an Excel workbook, one sheet per table.
+- `vega_lite` set to true gives every chart also as a Vega-Lite specification, as `--vega-lite` does on the command line.
 
-A run or check returns the JSON described in [the command line](command-line.md#json-output) as structured content, and the tables as Markdown text with a summary line for apps that show only text. A syntax or run error is a normal result: `ok` is false and `errors` gives the line, column and what was expected, so the agent can fix the syntax and try again. A call the server cannot carry out at all, such as a missing file or a bad argument, is marked as a tool error.
+A run or check returns the JSON described in [the command line](command-line.md#json-output) as structured content, and the tables and charts as Markdown text with a summary line for apps that show only text. A syntax or run error is a normal result: `ok` is false and `errors` gives the line, column and what was expected, so the agent can fix the syntax and try again. A call the server cannot carry out at all, such as a missing file or a bad argument, is marked as a tool error.
 
 The server also sends the working loop to the agent when it connects, and offers it as the prompt `analysis`: describe the data first, look up each command, check, run in small steps, read `ok`, `errors` and the warnings, and report the numbers from the result tables instead of computing them.
 

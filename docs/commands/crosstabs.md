@@ -11,7 +11,7 @@ CROSSTABS [/]TABLES=rowvars BY colvars [BY layervars ...] [/TABLES=...]
           [/CELLS=COUNT ROW COLUMN TOTAL EXPECTED RESID SRESID ASRESID ALL NONE]
           [/STATISTICS=CHISQ] [/MISSING=TABLE | INCLUDE]
           [/FORMAT=AVALUE | DVALUE TABLES | NOTABLES]
-          [/COUNT=[ASIS | CASE | CELL] [ROUND | TRUNCATE]].
+          [/COUNT=[ASIS | CASE | CELL] [ROUND | TRUNCATE]] [/BARCHART].
 ```
 
 One table per pair of row and column variable; layer variables split it into blocks.
@@ -27,6 +27,8 @@ STATISTICS alone is CHISQ. DVALUE orders the rows from the highest value; column
 CHISQ: Pearson, likelihood ratio, linear-by-linear (numeric variables), and for a 2 x 2 table Fisher's exact test and the continuity correction.
 
 MISSING=TABLE leaves out a case missing on any variable of the table; INCLUDE keeps user-missing values as categories. Fisher's test takes whole counts: rounded, or truncated with TRUNCATE.
+
+BARCHART adds a clustered bar chart per table: a cluster per row category, a bar per column category, the counts of the table summed over its layers.
 
 ## Example
 

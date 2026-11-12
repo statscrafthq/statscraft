@@ -387,7 +387,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: "FREQUENCIES [/]VARIABLES=varlist [/FORMAT=[NOTABLE | LIMIT(n)] [AVALUE | DVALUE | AFREQ | DFREQ]]\n\
                  \x20           [/MISSING=INCLUDE] [/STATISTICS=[stat ...]] [/PERCENTILES=p ...] [/NTILES=n]\n\
                  \x20           [/GROUPED=varlist [(width) | (boundary, ...)]] [/ORDER=ANALYSIS | VARIABLE]\n\
-                 \x20           [/BARCHART=...] [/PIECHART=...] [/HISTOGRAM=...].\n\
+                 \x20           [/BARCHART=[MIN(n)] [MAX(n)] [FREQ[(n)] | PERCENT[(n)]]]\n\
+                 \x20           [/PIECHART=[MIN(n)] [MAX(n)] [FREQ | PERCENT] [MISSING | NOMISSING]]\n\
+                 \x20           [/HISTOGRAM=[MIN(n)] [MAX(n)] [FREQ[(n)]] [NORMAL | NONORMAL]].\n\
                  stat: MEAN SEMEAN MEDIAN MODE STDDEV VARIANCE SKEWNESS SESKEW KURTOSIS SEKURT RANGE MINIMUM\n\
                  MAXIMUM SUM DEFAULT ALL NONE. STATISTICS alone or DEFAULT is MEAN STDDEV MINIMUM MAXIMUM; /STATS works too.\n\
                  A frequency table per variable: valid values, then missing ones, with percent, valid percent and\n\
@@ -405,8 +407,16 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  outside the boundaries falls in an open group, where percentiles are undefined (shown empty).\n\
                  INCLUDE makes user-missing values valid. Weighted when a weight variable is set; a case with a\n\
                  missing, zero or negative weight is left out. String variables get the table and the counts only.\n\
-                 BARCHART, PIECHART and HISTOGRAM are accepted (BARCHART and HISTOGRAM not together) and not\n\
-                 drawn yet, with a warning.",
+                 Charts: one per variable for each chart subcommand; BARCHART and HISTOGRAM exclude each other.\n\
+                 BARCHART has a bar per valid value, in the order of the table: counts, or with PERCENT shares of\n\
+                 the valid cases. PIECHART has a slice per valid value plus one for all missing values (none with\n\
+                 NOMISSING): counts, or with PERCENT shares of the whole pie. HISTOGRAM (numeric variables) counts\n\
+                 the valid values in equal bins: Sturges' number of bins, a width of 1, 2 or 5 times a power of\n\
+                 ten (at least 1 for whole values); NORMAL adds the normal curve of all valid values. MIN(n) and\n\
+                 MAX(n) leave out the values outside; the n of FREQ(n) or PERCENT(n) is the top of the axis. Of\n\
+                 FREQ and PERCENT, MISSING and NOMISSING, NORMAL and NONORMAL the first given counts. A chart\n\
+                 comes as its numbers: a data table in the text output, its description with --json, and a\n\
+                 Vega-Lite specification with --vega-lite.",
         example: "FREQUENCIES VARIABLES=age region /FORMAT=LIMIT(10) /STATISTICS=MEAN MEDIAN MODE /NTILES=4.",
         parse: frequencies::frequencies,
     },
@@ -958,7 +968,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20         [/CELLS=COUNT ROW COLUMN TOTAL EXPECTED RESID SRESID ASRESID ALL NONE]\n\
                  \x20         [/STATISTICS=CHISQ] [/MISSING=TABLE | INCLUDE]\n\
                  \x20         [/FORMAT=AVALUE | DVALUE TABLES | NOTABLES]\n\
-                 \x20         [/COUNT=[ASIS | CASE | CELL] [ROUND | TRUNCATE]].\n\
+                 \x20         [/COUNT=[ASIS | CASE | CELL] [ROUND | TRUNCATE]] [/BARCHART].\n\
                  One table per pair of row and column variable; layer variables split it into blocks.\n\
                  NOTABLES leaves out the tables, as CELLS=NONE does, keeping the statistics.\n\
                  COUNT makes weighted counts whole: CASE every case's weight, CELL every cell's count, before\n\
@@ -969,7 +979,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  CHISQ: Pearson, likelihood ratio, linear-by-linear (numeric variables), and for a 2 x 2\n\
                  table Fisher's exact test and the continuity correction.\n\
                  MISSING=TABLE leaves out a case missing on any variable of the table; INCLUDE keeps\n\
-                 user-missing values as categories. Fisher's test takes whole counts: rounded, or truncated with TRUNCATE.",
+                 user-missing values as categories. Fisher's test takes whole counts: rounded, or truncated with TRUNCATE.\n\
+                 BARCHART adds a clustered bar chart per table: a cluster per row category, a bar per column\n\
+                 category, the counts of the table summed over its layers.",
         example: "CROSSTABS /TABLES=region BY gender /CELLS=COUNT ROW /STATISTICS=CHISQ.",
         parse: procedures::crosstabs,
     },

@@ -55,7 +55,7 @@ The open window (`-s gui`) lists what the window holds, the same way. A file ses
 ## run
 
 ```
-statscraft run [FILE | - | -e TEXT] [-s SESSION] [--lines FIRST-LAST] [--json] [--encoding NAME] [--xlsx FILE [--xlsx-one-sheet]]
+statscraft run [FILE | - | -e TEXT] [-s SESSION] [--lines FIRST-LAST] [--json] [--vega-lite] [--encoding NAME] [--xlsx FILE [--xlsx-one-sheet]]
 ```
 
 | Flag | Meaning |
@@ -65,11 +65,12 @@ statscraft run [FILE | - | -e TEXT] [-s SESSION] [--lines FIRST-LAST] [--json] [
 | `-s`, `--session NAME` | load the dataset from this session before the run and save it after; `gui` is the open window |
 | `--lines FIRST-LAST` | run only the commands inside these lines (1-based, inclusive), for example `40-55` |
 | `--json` | print the result as JSON instead of Markdown |
+| `--vega-lite` | also give every chart as a Vega-Lite specification (see [Charts](#charts)) |
 | `--encoding NAME` | encoding of the syntax file or standard input, such as `windows-1257` or `1252`; without it a file that is valid UTF-8 (with or without a byte order mark) is read as UTF-8 and any other file in the system's legacy code page |
 | `--xlsx FILE` | also write every table of the run to an Excel workbook, one sheet per table |
 | `--xlsx-one-sheet` | with `--xlsx`, put all tables on one sheet, one below the other |
 
-Without `--json`, every table is printed as a Markdown table under a `###` title, warnings as `warning: line N: COMMAND: message`, then a summary: the dataset loaded, variables added, changed and removed, the case count when it changed, and `ran N command(s)`, with `, session saved` when the session was written.
+Without `--json`, every table is printed as a Markdown table under a `###` title, every chart as a table of its numbers whose caption names the kind of chart, warnings as `warning: line N: COMMAND: message`, then a summary: the dataset loaded, variables added, changed and removed, the case count when it changed, and `ran N command(s)`, with `, session saved` when the session was written.
 
 ```
 statscraft run job.sps
@@ -82,7 +83,7 @@ A run is all or nothing. When any command fails, nothing is saved: not the sessi
 ## check
 
 ```
-statscraft check [FILE | - | -e TEXT] [-s SESSION] [--lines FIRST-LAST] [--json] [--encoding NAME]
+statscraft check [FILE | - | -e TEXT] [-s SESSION] [--lines FIRST-LAST] [--json] [--vega-lite] [--encoding NAME]
 ```
 
 The same flags as `run`, without `--xlsx`. `check` runs the commands on a copy of the session's dataset and skips every file write, so it finds both syntax errors and errors that depend on the data (an unknown variable, a string where a number is needed). The session and the disk stay unchanged. The summary says `checked N command(s)`, and in JSON `saved` is always false.
@@ -201,6 +202,7 @@ Line numbers in the output always refer to the whole file, not to the range.
 | `session` | the session name; absent without `-s` |
 | `commands` | one entry per command that ran, in order, with its first and last line in the source |
 | `commands[].tables` | the tables of that command |
+| `commands[].charts` | the charts of that command (see [Charts](#charts)); absent when it made none |
 | `commands[].warnings` | what the command did differently from what was asked, without failing, for example `"no statistics for string variables: plan"` |
 | `changes` | the case count before and after (`null` when there was no dataset), and the names of variables added, removed and changed. A variable counts as changed when its dictionary entry or any value differs |
 | `dataset` | `[cases, variables]` of the active dataset after the run; absent when there is none |
@@ -230,6 +232,46 @@ A custom table with two header levels, from `CTABLES /TABLE region [COUNT, COLPC
   "formats": [["", "", "F40.0", "PCT5.1", "F40.0", "PCT5.1", "F40.0", "PCT5.1"], ...]
 }
 ```
+
+### Charts
+
+FREQUENCIES (BARCHART, PIECHART, HISTOGRAM) and CROSSTABS (BARCHART) make charts. A chart is data: its kind, its labels and its numbers, with nothing about colors or layout. Labels follow SET TVARS, TNUMBERS and OVARS as tables do. `statscraft run --json -e "..."` with `CROSSTABS /TABLES=region BY gender /BARCHART.` gives (shortened):
+
+```json
+{
+  "kind": "bar",
+  "tier": "presentation",
+  "orientation": "vertical",
+  "grouping": "clustered",
+  "title": "Region of residence by Gender",
+  "category_axis": { "title": "Region of residence", "format": "F1.0", "variable": "region" },
+  "value_axis": { "title": "Count", "format": "F8.0" },
+  "legend": "Gender",
+  "categories": [
+    { "label": "North", "value": 1.0 },
+    { "label": "South", "value": 2.0 }
+  ],
+  "series": [
+    { "name": "Male", "statistic": "count", "variable": "gender", "value": 1.0, "values": [23.0, 23.0] },
+    { "name": "Female", "statistic": "count", "variable": "gender", "value": 2.0, "values": [11.0, 23.0] }
+  ]
+}
+```
+
+| Field | Meaning |
+|---|---|
+| `kind` | `bar`, `pie`, `line`, `area`, `scatter` or `histogram` |
+| `tier` | `presentation` (a chart the office programs can hold as an editable chart) or `statistical` (a plot drawn exactly, such as the histogram) |
+| `orientation` | `vertical` (categories along the bottom) or `horizontal`; absent for a pie |
+| `grouping` | `clustered`, `stacked` or `percent` (stacked to 100%); bars, lines and areas only |
+| `title`, `footnote` | the title, as a table of the same command would have it, and an optional note such as the mean, standard deviation and N of a histogram |
+| `category_axis`, `value_axis` | each with its `title`, the display `format` of its numbers, `maximum` when the syntax set the top of the axis, and the `variable` it shows |
+| `legend` | what tells the series apart, such as the column variable; absent with one series |
+| `categories` | in drawing order: the `label`, the `value` it stands for (`null` for a slice of all missing values), `missing` when it holds missing values, and `bin` (`[from, to]`) for a histogram bin, which holds its lower bound but not its upper one |
+| `series` | each with its `name`, the `statistic` its numbers are (`count`, weighted when a weight is set, or `percent`), the `variable` and `value` it stands for, and `values`, one number per category |
+| `normal` | a histogram's normal curve: `mean`, `std_dev` and `total`; its height at x is total times the bin width times the normal density |
+
+With `--vega-lite` each chart also has a member `vega_lite`: a [Vega-Lite](https://vega.github.io/vega-lite/) v5 specification with the numbers inline, which any Vega-Lite viewer draws as it is. In Markdown output the specification follows the chart's data table as a `json` code block. SPLIT FILE gives a chart per split group, the group named in the title.
 
 ### Error
 

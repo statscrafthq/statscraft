@@ -10,7 +10,9 @@ Frequency tables, summary statistics and percentiles.
 FREQUENCIES [/]VARIABLES=varlist [/FORMAT=[NOTABLE | LIMIT(n)] [AVALUE | DVALUE | AFREQ | DFREQ]]
             [/MISSING=INCLUDE] [/STATISTICS=[stat ...]] [/PERCENTILES=p ...] [/NTILES=n]
             [/GROUPED=varlist [(width) | (boundary, ...)]] [/ORDER=ANALYSIS | VARIABLE]
-            [/BARCHART=...] [/PIECHART=...] [/HISTOGRAM=...].
+            [/BARCHART=[MIN(n)] [MAX(n)] [FREQ[(n)] | PERCENT[(n)]]]
+            [/PIECHART=[MIN(n)] [MAX(n)] [FREQ | PERCENT] [MISSING | NOMISSING]]
+            [/HISTOGRAM=[MIN(n)] [MAX(n)] [FREQ[(n)]] [NORMAL | NONORMAL]].
 ```
 
 stat: MEAN SEMEAN MEDIAN MODE STDDEV VARIANCE SKEWNESS SESKEW KURTOSIS SEKURT RANGE MINIMUM MAXIMUM SUM DEFAULT ALL NONE. STATISTICS alone or DEFAULT is MEAN STDDEV MINIMUM MAXIMUM; /STATS works too.
@@ -23,7 +25,9 @@ GROUPED treats the values as groups for the median and percentiles: alone the va
 
 INCLUDE makes user-missing values valid. Weighted when a weight variable is set; a case with a missing, zero or negative weight is left out. String variables get the table and the counts only.
 
-BARCHART, PIECHART and HISTOGRAM are accepted (BARCHART and HISTOGRAM not together) and not drawn yet, with a warning.
+Charts: one per variable for each chart subcommand; BARCHART and HISTOGRAM exclude each other.
+
+BARCHART has a bar per valid value, in the order of the table: counts, or with PERCENT shares of the valid cases. PIECHART has a slice per valid value plus one for all missing values (none with NOMISSING): counts, or with PERCENT shares of the whole pie. HISTOGRAM (numeric variables) counts the valid values in equal bins: Sturges' number of bins, a width of 1, 2 or 5 times a power of ten (at least 1 for whole values); NORMAL adds the normal curve of all valid values. MIN(n) and MAX(n) leave out the values outside; the n of FREQ(n) or PERCENT(n) is the top of the axis. Of FREQ and PERCENT, MISSING and NOMISSING, NORMAL and NONORMAL the first given counts. A chart comes as its numbers: a data table in the text output, its description with --json, and a Vega-Lite specification with --vega-lite.
 
 ## Example
 

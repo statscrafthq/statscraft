@@ -356,6 +356,8 @@ This page lists, by topic and command:
 - LIMIT counts the missing values too.
 - Values with equal frequencies stay in ascending order.
 - NTILES takes 1 to 1000.
+- Charts come as data, not pictures (see Not supported yet). Bars and slices follow the order of the frequency table. Bar percentages are of the valid cases; slice percentages are of the whole pie, missing slice included. When FREQ and PERCENT, or NORMAL and NONORMAL, are both given, the first counts, as the manual says for the pie. An axis top in FREQ(n) or PERCENT(n) below the highest bar is ignored and left to the drawing.
+- Histogram bins: Sturges' count (1 plus log2 of the weighted N, rounded up) sets a first width, moved to the nearest of 1, 2 or 5 times a power of ten, at least 1 when all values are whole. Bins start at a multiple of the width and hold their lower bound. A string variable gets no histogram, with a warning.
 - Grouped percentiles: with a width or boundaries, a percentile is interpolated within the first group whose cumulative weight reaches it. A value on a boundary belongs to the group above, except the last boundary. Values outside the boundaries form open groups, where percentiles are undefined.
 
 ### DESCRIPTIVES
@@ -368,6 +370,7 @@ This page lists, by topic and command:
 
 - Expected counts in the margins are counts; FORMAT=DVALUE reverses the rows only; `/CELLS` and `/STATISTICS` without a list are accepted (GNU PSPP differs).
 - Fisher's exact test shows for every 2 x 2 table.
+- BARCHART: the manuals word the roles of the two variables differently; Statscraft follows the dialog's reading, a cluster per row category and a bar per column category. Layers are summed over.
 - /COUNT with a keyword left out takes CELL or ROUND, as the dialog writes `/COUNT ROUND CELL`. Rounding takes halves away from zero.
 
 ### MEANS
@@ -709,7 +712,6 @@ Where the documentation is silent:
 
 - **Commands.** The commands of the language that Statscraft recognizes but does not run are listed at the end of [the command index](commands/README.md#not-supported-yet). That list is generated from the program, so it is always current. A script that uses one stops at that line, and nothing is changed.
 - **Subcommands.** Every command page lists what it accepts. Notably:
-  - FREQUENCIES draws no charts (BARCHART, PIECHART and HISTOGRAM are accepted with a warning).
   - ONEWAY has no POLYNOMIAL, RANGES, EFFECTS or WALLER.
   - NONPAR CORR has no MATRIX or CI. PARTIAL CORR has no MATRIX.
   - NPAR TESTS has no exact significance for K-S, the median, Kruskal-Wallis, Jonckheere-Terpstra, Friedman, Kendall, Cochran and marginal homogeneity tests.
@@ -728,7 +730,7 @@ Where the documentation is silent:
   - FILE HANDLE refuses MODE=BINARY, MULTIPUNCH, IMAGE and 360, since only text and data files are read.
 - **Expression functions.** APPLYMODEL and STRAPPLYMODEL, which need MODEL HANDLE. NUMBER reads the formats DATA LIST reads (F, N, E, COMMA, DOT, DOLLAR, PCT, DATE, ADATE, EDATE and SDATE). STRING writes the number, date and time formats, but not the custom currencies CCA to CCE.
 - **Transformations.** PRINT and WRITE have no binary formats (P, PK, IB, PIB, PIBHEX, RB, RBHEX, Z). DATA LIST reads only F, N, E, COMMA, DOT, DOLLAR, PCT, A, DATE, ADATE, EDATE and SDATE, and only UTF-8 files. Commands such as VALUE LABELS cannot stand inside LOOP. AUTORECODE has no templates.
-- **Charts.** No command draws charts yet. TREE shows its tree diagram as a table, one row per node indented by depth, and says so in a warning.
+- **Charts.** FREQUENCIES and CROSSTABS give their charts as data: the window and the text output show each chart's numbers as a table, `--json` gives its description and `--vega-lite` a Vega-Lite specification, but the window does not draw them yet. The other procedures accept their chart subcommands with a warning. TREE shows its tree diagram as a table, one row per node indented by depth, and says so in a warning.
 - **TREE.** CHAID and exhaustive CHAID with a nominal or ordinal dependent. Not supported yet: CRT, QUEST, a scale dependent, split-sample and cross-validation, SPLITMERGED=YES, custom costs, profits, percentile gain tables, rules, influence variables, model files and TARGETRESPONSE.
 - **Data files.** Statscraft reads and writes .sav and .zsav files, and portable (.por) files with IMPORT and EXPORT.
   - Text files are read with DATA LIST, GET DATA and GET TRANSLATE /TYPE=TAB; workbooks (.xlsx, .xlsm, .xls) with GET DATA and GET TRANSLATE; dBASE III and IV files with GET TRANSLATE. 1-2-3, Symphony, SYLK and dBASE II files are not read.
@@ -736,5 +738,5 @@ Where the documentation is silent:
   - An old .sav file that does not state its code page is read as Western European (windows-1252). There is no way to choose another encoding yet.
 - **Output.** Tables come out as Markdown, JSON, HTML (from the window and OUTPUT EXPORT), text and CSV (OUTPUT EXPORT) and Excel workbooks.
   - Statscraft has no output document file of its own, so OUTPUT SAVE is refused with an error that points to OUTPUT EXPORT. OUTPUT OPEN and OUTPUT MODIFY are not supported yet.
-  - OUTPUT EXPORT writes no Word, PDF, PowerPoint or Excel 97-2004 files, and no images, since no command draws charts yet.
+  - OUTPUT EXPORT writes no Word, PDF, PowerPoint or Excel 97-2004 files, and no images, since charts are not drawn yet.
 - **Packages.** The Windows installer and the macOS app are not signed yet. There are packages for x86_64 Windows and Linux and for macOS on Apple silicon and Intel, but none for Windows or Linux on ARM processors.
