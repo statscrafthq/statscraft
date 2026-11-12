@@ -98,6 +98,8 @@ pub enum Shape {
         lower: Vec<[f32; 2]>,
         fill: Color,
     },
+    /// A filled convex polygon through its corners in order, such as a territory of a map.
+    Polygon { points: Vec<[f32; 2]>, fill: Color },
     /// A pie slice: angles in radians, clockwise from twelve o'clock, with an edge between it
     /// and its neighbours.
     Wedge {
@@ -313,6 +315,9 @@ pub fn svg(scene: &Scene) -> String {
                     points(&outline),
                     fill(*f)
                 )
+            }
+            Shape::Polygon { points: p, fill: f } => {
+                writeln!(out, "<polygon points=\"{}\" {}/>", points(p), fill(*f))
             }
             Shape::Wedge {
                 center,
