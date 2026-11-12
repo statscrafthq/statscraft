@@ -17,6 +17,17 @@ pub const BACKUP_SUFFIX: &str = ".statscraft-backup";
 /// The page that explains every change and how to make it by hand.
 pub const DOCS: &str = "https://docs.statscraft.org/connect.html";
 
+/// `path` without the `\\?\` prefix Windows adds when it resolves a path, which some agents
+/// cannot start. The command line and the window both name the server this way, so an entry one
+/// of them wrote counts as connected in the other.
+pub fn plain_path(path: PathBuf) -> PathBuf {
+    let text = path.to_string_lossy();
+    match text.strip_prefix(r"\\?\") {
+        Some(rest) if !rest.starts_with("UNC\\") => PathBuf::from(rest),
+        _ => path,
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Os {
     Windows,

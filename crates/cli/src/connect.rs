@@ -1,7 +1,7 @@
 //! `statscraft connect`: adds this binary's MCP server to the AI agents on this computer.
 
 use clap::Args;
-use statscraft_connect::{ClientStatus, Connector, DOCS, Outcome};
+use statscraft_connect::{ClientStatus, Connector, DOCS, Outcome, plain_path};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -197,13 +197,7 @@ fn fail(json: bool, message: &str) -> ExitCode {
     ExitCode::FAILURE
 }
 
-/// The absolute path of this program, without the `\\?\` prefix Windows adds when resolving it,
-/// which some agents cannot start.
+/// The absolute path of this program, as agents can start it.
 fn this_binary() -> std::io::Result<PathBuf> {
-    let path = std::env::current_exe()?.canonicalize()?;
-    let text = path.to_string_lossy();
-    Ok(match text.strip_prefix(r"\\?\") {
-        Some(rest) if !rest.starts_with("UNC\\") => PathBuf::from(rest),
-        _ => path,
-    })
+    Ok(plain_path(std::env::current_exe()?.canonicalize()?))
 }
