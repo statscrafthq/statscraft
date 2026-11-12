@@ -21,6 +21,7 @@ This page lists, by topic and command:
 - A logical operand other than 0, 1 or missing is an error. `0 ** 0` is missing.
 - A function name may be shortened to three or more letters that start only one function; a shared start such as STR (STRING, STRUNC) is an error.
 - Harmonic and geometric means need every value positive; otherwise the cell is empty.
+- An expression nests at most 64 levels of parentheses and functions and holds at most 5000 operators; deeper or longer is an error, not a stack overflow.
 - **$CASENUM** counts every case read in the data pass, also those a later SELECT IF drops (GNU PSPP differs).
 
 ### Expression functions
@@ -28,6 +29,7 @@ This page lists, by topic and command:
 - In CDF, PDF, NCDF, NPDF and SIG, a value of x that the distribution does not take gives system-missing (below 0 for CHISQ, outside min to max for UNIFORM, not a whole number in range for the discrete ones), as the manual says. GNU PSPP gives 1 for CDF.BINOM(-1, ...), 0 for CDF.LNORMAL of a negative value, and reads CDF.BINOM of a fraction.
 - TIME.HMS takes one to three arguments. Minutes or seconds of 60 or more under a larger unit that is not zero, or a fraction before the last argument that is not zero, give system-missing.
 - A .n suffix larger than the number of arguments, as in MEAN.4(a, b), gives system-missing.
+- A noncentral distribution with a noncentrality past 2^53 gives the limit of the probability (NCDF.T, NCDF.F) or system-missing (the others). An F, t or beta probability whose parameters are too large for its series to converge (past about 1e10) is system-missing.
 - CHAR.LENGTH leaves out trailing blanks. STRUNC drops a character it would cut. LPAD and RPAD with a missing or invalid length give the null string. MBLEN.BYTE counts the bytes of a UTF-8 character, and NPDF.BETA is the derivative of NCDF.BETA (GNU PSPP 2.0.1 gives 1 and other values).
 - The CHAR. functions, NTRIM, NORMALIZE, the HALFNRM, IGAUSS, SMOD and SRANGE distributions and the noncentral chi-square, F and t are supported.
 - SUBSTR, INDEX, RINDEX, LPAD and RPAD count characters like their CHAR. forms, so they never split a character (GNU PSPP counts bytes). LENGTH, STRUNC and MBLEN.BYTE count bytes.
@@ -68,6 +70,7 @@ This page lists, by topic and command:
 - A macro variable that was never set stands for its own name.
 - Expansion lines carry the line number of the call, and errors in them name the macro.
 - A session (a command-line session or the window) keeps the macros and the macro settings of SET from run to run. A failed run or a check keeps none, and a run of a line range keeps only the macros defined on its lines, though one defined elsewhere in the text still serves it.
+- Whatever SET MNEST says, macro calls nest at most 100 levels. One expansion makes at most 100 000 calls and 1 MiB of text, and !BLANKS gives at most 1 MiB, so a macro that calls or doubles itself ends in an error.
 
 ## Settings
 
@@ -161,6 +164,7 @@ This page lists, by topic and command:
   - In a string column, numbers read as short as they read back, dates as yyyy-mm-dd and times as hh:mm:ss. Error cells are empty.
   - READNAMES makes a valid name: other characters become _, a V goes before a name that does not start with a letter, an _ after a reserved word, _2 and _3 after a repeated name. A column without a name is V and its number in the range.
   - A string is as wide as its longest value. ASSUMEDSTRWIDTH caps it for every type (default 255 for XLS only), with a warning for each value cut.
+  - An XLSX sheet whose cells lie so far apart that a grid from the first to the last would hold more than 20 million cells (and more than ten times the cells it has) is refused; CELLRANGE reads a part of it.
 
 ### GET TRANSLATE
 
@@ -200,6 +204,7 @@ This page lists, by topic and command:
 - VARNAME_ is wider than A8 when a continuous variable has a longer name, so the procedures find every variable.
 - The result is split by the split variables (SPLIT FILE LAYERED), so a procedure reads each set of materials on its own.
 - Without SPLIT, data left after the records CONTENTS describes are an error, as are a matrix with too few rows and a value that is not a number, each naming its line. Values left on a LIST record after its row are ignored with a warning, as the manual says for an upper triangle in lower format.
+- With NODIAGONAL and one variable a matrix record has no cells to hold and is an error.
 
 ### Dates, times and custom currencies
 
@@ -236,6 +241,7 @@ This page lists, by topic and command:
 ### LOOP
 
 - When the index passes its last value, the index variable holds the counter (one step past the last value), and a zero-trip loop leaves the first value in it (GNU PSPP differs).
+- A step too small to change the index at its size (1e17 BY 1) ends the loop with a warning. LOOPs nest at most 100 levels.
 
 ### Data passes, N OF CASES and TEMPORARY
 
@@ -261,12 +267,14 @@ This page lists, by topic and command:
 - DATE_ reads cycle, month (JAN to DEC) or quarter, then year for long periods, and from the highest part to the lowest for short ones.
 - Each part is as wide as its largest possible value (four digits without a period), and MINUTE shows as M.
 - The new variables get an F format as wide as their largest value.
+- A start, period or BY past 1e9 is an error.
 
 ### Dictionary commands
 
 - DOCUMENT and ADD DOCUMENT add `(Entered YYYY-MM-DD)` after their lines.
 - ALTER TYPE from string to number reads F, COMMA and DOT values. A type change drops value labels and missing values.
 - **Beyond the documentation:** DISPLAY accepts `FILE LABEL`.
+- An attribute array index lies from 1 to 65535.
 
 ## Files, merging and restructuring
 
@@ -347,6 +355,7 @@ This page lists, by topic and command:
 - The Statistics table shows only when statistics or percentiles are asked for, or a frequency table is left out.
 - LIMIT counts the missing values too.
 - Values with equal frequencies stay in ascending order.
+- NTILES takes 1 to 1000.
 - Grouped percentiles: with a width or boundaries, a percentile is interpolated within the first group whose cumulative weight reaches it. A value on a boundary belongs to the group above, except the last boundary. Values outside the boundaries form open groups, where percentiles are undefined.
 
 ### DESCRIPTIVES
@@ -413,6 +422,7 @@ Where the documentation is silent:
 - METHOD=EXACT and METHOD=MC give exact significances for the binomial, sign, McNemar, Wilcoxon (given the tied ranks), Mann-Whitney (given the tied ranks) and runs tests, as exact results take the place of simulated ones. The other tests stay asymptotic with a warning.
 - TIMER, CIN, SAMPLES, KS_SIM and SAMPLE are accepted and change nothing.
 - A weight below 0.5 drops the case.
+- A CHISQUARE range holds at most 100 000 whole numbers.
 
 ### REGRESSION
 
@@ -458,6 +468,7 @@ Where the documentation is silent:
 - An interaction with empty cells has as many degrees of freedom as its parameters that are not redundant (GNU PSPP counts every cell, filled or not).
 - The Tests of Between-Subjects Effects show the Intercept.
 - Covariates, Type IV sums of squares, EMMEANS, POSTHOC, CONTRAST, LMATRIX, SAVE and WSFACTOR are supported.
+- Nested design terms such as a(b(c)) nest at most 64 levels, as expressions do.
 - The columns of an effect are the level combinations that occur in the data, so an L matrix lists one coefficient per occurring combination.
 - Type IV spreads each coefficient of the tested effect equally over the cells of a containing effect at those levels of its other factors where every level with a coefficient has a cell, and sets the rest to 0.
 - Estimated marginal means weight the cells of an effect equally over the levels not fixed by TABLES (with empty cells: over the cells that occur). A mean that is not estimable is left empty with a note.
@@ -692,6 +703,7 @@ Where the documentation is silent:
 - A distribution or random function with a parameter out of range is an error.
 - READ takes a blank fixed field as missing (NaN) and fills what the file does not reach with missing values, with a warning.
 - RELEASE of a name that does not exist gives a warning.
+- A matrix made from sizes (IDENT, MAKE, MDIAG, MAGIC, UNIFORM, NORMAL, KRONEKER, SSCP and the product `*`) holds at most 100 million elements. DO IF and LOOP blocks nest at most 100 levels, and a LOOP index that would pass the largest whole number ends the loop.
 
 ## Not supported yet
 
