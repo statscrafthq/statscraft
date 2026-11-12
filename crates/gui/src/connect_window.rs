@@ -104,13 +104,17 @@ impl ConnectWindow {
                         }
                     });
                     ui.end_row();
-                    if let Some(problem) = &c.problem {
-                        ui.label("");
-                        ui.colored_label(ui.visuals().error_fg_color, problem);
-                        ui.end_row();
-                    }
                 }
             });
+        // below the list, where a long path can wrap
+        for c in &self.clients {
+            if let Some(problem) = &c.problem {
+                ui.colored_label(
+                    ui.visuals().error_fg_color,
+                    format!("{}: {problem}", c.name),
+                );
+            }
+        }
         ui.add_space(8.0);
         let waiting = connect_all(&self.clients);
         ui.horizontal(|ui| {
@@ -174,17 +178,21 @@ fn work(connector: &Connector, server: &Path, job: &Job) -> (Messages, Vec<Clien
     (messages, clients)
 }
 
-/// The installed apps that are not connected yet.
+/// The installed apps that are not connected yet; one whose settings file cannot be read would
+/// only fail again.
 fn connect_all(clients: &[ClientStatus]) -> Vec<&'static str> {
     clients
         .iter()
-        .filter(|c| c.detected && !c.connected)
+        .filter(|c| c.detected && !c.connected && c.problem.is_none())
         .map(|c| c.id)
         .collect()
 }
 
 /// An app's state in the list; without our own server path an entry cannot be told apart.
 fn state(c: &ClientStatus, server_known: bool) -> &'static str {
+    if c.problem.is_some() {
+        return "Settings file unreadable";
+    }
     match (c.detected, c.connected, c.points_here || !server_known) {
         (false, ..) => "Not installed",
         (true, false, _) => "Not connected",
@@ -323,6 +331,9 @@ mod tests {
             "Connected to another Statscraft copy"
         );
         assert_eq!(state(&status(true, true, false), false), "Connected");
+        let mut broken = status(true, false, false);
+        broken.problem = Some("not plain JSON".into());
+        assert_eq!(state(&broken, true), "Settings file unreadable");
     }
 
     #[test]
@@ -335,6 +346,8 @@ mod tests {
         ];
         clients[1].id = "gemini";
         assert_eq!(connect_all(&clients), ["gemini"]);
+        clients[1].problem = Some("not plain JSON".into());
+        assert!(connect_all(&clients).is_empty());
     }
 
     fn outcome(changed: bool) -> Outcome {
