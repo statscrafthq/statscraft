@@ -126,6 +126,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "ANOVA",
             "TREE",
             "REPORT",
+            "MATRIX",
         ],
     ),
     ("Custom tables", &["CTABLES", "MRSETS"]),

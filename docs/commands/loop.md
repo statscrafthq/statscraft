@@ -13,7 +13,7 @@ LOOP [var = first TO last [BY step]] [IF condition].
 
 END LOOP \[IF condition\].
 
-The index runs from first to last by step (1 by default); the expressions may differ per case, a missing one skips the loop. IF on LOOP is checked before each iteration, IF on END LOOP after it. A loop without an index stops after 40 iterations. BREAK leaves the innermost loop.
+The index runs from first to last by step (1 by default); the expressions may differ per case, a missing one skips the loop. IF on LOOP is checked before each iteration, IF on END LOOP after it. A loop without an index stops after SET MXLOOPS iterations (default 40). BREAK leaves the innermost loop.
 
 ## Example
 

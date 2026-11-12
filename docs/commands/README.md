@@ -125,6 +125,7 @@ One page per supported command, generated from the same table that the parser an
 | [ANOVA](anova.md) | Analysis of variance for factorial designs with covariates, the older form with MCA tables. |
 | [TREE](tree.md) | A classification tree grown by CHAID or exhaustive CHAID. |
 | [REPORT](report.md) | Case listings and summary statistics by break groups, laid out as a report. |
+| [MATRIX](matrix.md) | Run a program in the matrix language, up to END MATRIX. |
 
 ## Custom tables
 
@@ -191,4 +192,4 @@ One page per supported command, generated from the same table that the parser an
 
 These commands of the language are recognised, but Statscraft does not run them yet. A script that uses one stops with the error "command ... is not supported yet" at its line, and nothing is changed.
 
-EXPORT, GET TRANSLATE, GRAPH, IMPORT, MATRIX, OUTPUT SAVE
+EXPORT, GET TRANSLATE, GRAPH, IMPORT, OUTPUT SAVE
