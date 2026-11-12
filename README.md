@@ -1,6 +1,13 @@
 # Statscraft
 
-A statistics workbench written in Rust: a command-line engine first, a desktop application after. It reads .sav files, runs the established statistics command syntax, and is built to be driven by people and AI agents alike: sessions that keep the data between partial runs, JSON output, errors with line and column, and help generated from the parser.
+Statscraft is a statistics workbench written in Rust. It reads .sav files and runs the established statistics command syntax. Two programs share one engine: the command line `statscraft` and the desktop window `statscraft-gui`.
+
+It is built to be driven by people and AI agents alike:
+
+- sessions that keep the data between partial runs;
+- JSON output;
+- errors with line and column;
+- help generated from the program's command table.
 
 Statscraft is an independent project. It is not affiliated with the GNU PSPP project or the ArtCraft suite.
 
@@ -18,21 +25,42 @@ statscraft-gui tests/fixtures/survey_basic.sav job.sps        the desktop window
 
 (`job.sps` is the example from [Getting started](docs/getting-started.md#run-a-syntax-file).)
 
-What runs today: reading and writing data files, labels and missing values, transformations (COMPUTE, IF, DO IF, RECODE, COUNT, SELECT IF, AGGREGATE, SORT CASES, merging files), FREQUENCIES, DESCRIPTIVES, CROSSTABS, MEANS, T-TEST, ONEWAY, CORRELATIONS, NONPAR CORR, PARTIAL CORR, NPAR TESTS, EXAMINE, linear regression (REGRESSION, with stepwise selection, residuals and diagnostics), scale reliability (RELIABILITY: alpha, split-half and other models, intraclass correlations), logistic regression (LOGISTIC REGRESSION, with categorical covariates, stepwise selection and case diagnostics), the general linear model (UNIANOVA and GLM: factorial ANOVA and ANCOVA with Type I to IV sums of squares, estimated marginal means, post hoc tests, contrasts and repeated measures, and the older ANOVA with MCA tables), discriminant analysis (DISCRIMINANT, direct and stepwise, with classification), hierarchical clustering (CLUSTER, 37 proximity measures and seven methods), classification trees (TREE by CHAID and exhaustive CHAID), and custom tables (CTABLES) with multiple response sets and significance tests. The [command pages](docs/commands/README.md) list every command.
+## What runs today
 
-DATA LIST reads text data in fixed columns, freefield (FREE) or one case per line (LIST), inline between BEGIN DATA and END DATA or from a file, and warns with the line number of every value it cannot read.
+The [command pages](docs/commands/README.md) list every supported command. In short:
 
-SPLIT FILE runs every procedure per group of adjacent cases, LAYERED in one table or SEPARATE, FILTER leaves cases out of procedures without deleting them, TEMPORARY makes the changes after it last until the next procedure, N OF CASES keeps the first cases and SAMPLE a random sample; split and filter stay with the session's dataset.
+- **Data files.** .sav and .zsav files, read and written, with labels, missing values, multiple response sets and old encodings. Portable files with IMPORT and EXPORT. Excel workbooks and text files with GET DATA and GET TRANSLATE. SAVE TRANSLATE writes CSV, tab-delimited text and .xlsx.
+- **Text data.** DATA LIST reads text data in fixed columns, freefield (FREE) or one case per line (LIST), inline between BEGIN DATA and END DATA or from a file. It warns with the line number of every value it cannot read. Input programs (INPUT PROGRAM, FILE TYPE, REPEATING DATA) build cases from files with several kinds of records.
+- **Transformations.** COMPUTE, IF, DO IF, RECODE, COUNT, SELECT IF, AGGREGATE, SORT CASES, merging files (ADD FILES, MATCH FILES, UPDATE, STAR JOIN) and restructuring (VARSTOCASES, CASESTOVARS, FLIP).
+  - DO REPEAT repeats transformations with stand-ins replaced by variables or values (END REPEAT PRINT lists the generated commands).
+  - LOOP repeats them per case with an index, IF conditions and BREAK.
+  - VECTOR names a range of existing or new variables for indexed use, such as `v(#i)`.
+  - Scratch variables (`#name`) start at 0 or blank, keep their value from case to case and are gone at the next procedure.
+  - LAG gives a variable's value in an earlier case, as that case ended the data pass. A pass that needs earlier cases runs case by case.
+  - RANK saves ranks, fractional ranks, percentile groups, proportion estimates, normal and Savage scores as new variables, within groups of BY variables, with the four ways of treating ties.
+  - AUTORECODE turns the values of variables into consecutive codes in new variables, labeled with the old values or their labels, in ascending or descending order, with user-missing values last. /GROUP gives several variables one scheme.
+- **Selecting and splitting cases.**
+  - SPLIT FILE runs every procedure per group of adjacent cases, LAYERED in one table or SEPARATE.
+  - FILTER leaves cases out of procedures without deleting them.
+  - TEMPORARY makes the changes after it last until the next procedure.
+  - N OF CASES keeps the first cases, and SAMPLE a random sample.
+  - Split and filter stay with the session's dataset.
+- **Procedures.** FREQUENCIES, DESCRIPTIVES, CROSSTABS, MEANS, T-TEST, ONEWAY, CORRELATIONS, NONPAR CORR, PARTIAL CORR, NPAR TESTS, EXAMINE and REPORT, and:
+  - linear regression (REGRESSION, with stepwise selection, residuals and diagnostics);
+  - scale reliability (RELIABILITY: alpha, split-half and other models, intraclass correlations);
+  - logistic regression (LOGISTIC REGRESSION, with categorical covariates, stepwise selection and case diagnostics);
+  - the general linear model (UNIANOVA and GLM: factorial ANOVA and ANCOVA with Type I to IV sums of squares, estimated marginal means, post hoc tests, contrasts and repeated measures), and the older ANOVA with MCA tables;
+  - factor analysis (FACTOR) and k-means clustering (QUICK CLUSTER);
+  - discriminant analysis (DISCRIMINANT, direct and stepwise, with classification);
+  - hierarchical clustering (CLUSTER, 37 proximity measures and seven methods);
+  - classification trees (TREE), below.
+- **Classification trees.** TREE grows a classification tree for a nominal or ordinal dependent by CHAID or exhaustive CHAID. Predictor categories are merged by significance, splits are Bonferroni-adjusted, scale predictors are cut into groups of equal size, and missing values form a floating category, with the usual growth limits. It shows the tree as a table, the model summary, risk, classification and gain tables, and saves the node, the predicted category and the predicted probabilities. CRT and QUEST are not supported yet.
+- **Custom tables.** CTABLES with multiple response sets and significance tests, and MULT RESPONSE.
+- **The matrix language.** MATRIX ... END MATRIX, and MATRIX DATA.
+- **Macros and settings.** DEFINE, INCLUDE, INSERT, SET, SHOW, PRESERVE and RESTORE.
+- **Output.** Tables as Markdown, JSON, Excel workbooks, and with OUTPUT EXPORT also HTML, text and CSV.
 
-Scratch variables (`#name`) start at 0 or blank, keep their value from case to case and are gone at the next procedure; LAG gives a variable's value in an earlier case as that case ended the data pass, and a pass that needs earlier cases runs case by case.
-
-DO REPEAT repeats transformations with stand-ins replaced by variables or values (END REPEAT PRINT lists the generated commands), LOOP repeats them per case with an index, IF conditions and BREAK, and VECTOR names a range of existing or new variables for indexed use such as `v(#i)`.
-
-RANK saves ranks, fractional ranks, percentile groups, proportion estimates, normal and Savage scores as new variables, within groups of BY variables, with the four ways of treating ties.
-
-AUTORECODE turns the values of variables into consecutive codes in new variables, labelled with the old values or their labels, in ascending or descending order, with user-missing values last and one scheme for several variables with /GROUP.
-
-TREE grows a classification tree for a nominal or ordinal dependent by CHAID or exhaustive CHAID: predictor categories merged by significance, Bonferroni-adjusted splits, scale predictors cut into groups of equal size, missing values as a floating category, and the usual growth limits. It shows the tree as a table, the model summary, risk, classification and gain tables, and saves the node, the predicted category and the predicted probabilities. CRT and QUEST are not supported yet.
+Not yet: charts (GRAPH) and OUTPUT SAVE. [Differences and limits](docs/differences.md) has the details.
 
 ## Documentation
 
