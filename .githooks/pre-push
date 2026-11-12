@@ -9,7 +9,8 @@ status=0
 while read -r local_ref local_sha remote_ref remote_sha; do
     "$check" --refs "$local_ref" "$remote_ref" || status=1
     [ "$local_sha" = "$zero" ] && continue # a deleted ref has no new commits
-    if [ "$remote_sha" = "$zero" ]; then
+    # a new ref, or a forced push over commits this clone does not have (after a history rewrite)
+    if [ "$remote_sha" = "$zero" ] || ! git cat-file -e "$remote_sha^{commit}" 2>/dev/null; then
         # a new ref: the commits the remote does not have yet
         "$check" --history "$local_sha" --not "--remotes=$remote" || status=1
     else

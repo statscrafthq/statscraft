@@ -64,7 +64,12 @@ case "${1:-}" in
 --history)
     shift
     [ $# -gt 0 ] || set -- HEAD
-    hits=$(git log --format='%x01%h%n%an <%ae>%n%cn <%ce>%n%B' "$@" |
+    # a range git cannot read must fail, not pass unchecked
+    log=$(git log --format='%x01%h%n%an <%ae>%n%cn <%ce>%n%B' "$@") || {
+        echo "check-terms: cannot read the history $*" >&2
+        exit 2
+    }
+    hits=$(printf '%s\n' "$log" |
         awk '/^\001/ { c = substr($0, 2); next } { print c ": " $0 }' |
         grep -E "$PATTERN") || true
     ;;
