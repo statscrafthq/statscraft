@@ -566,6 +566,10 @@ fn describe_variable(variable: Variable<'_>) -> VariableDescription {
 
 /// Variable names are case-insensitive.
 fn same_name(a: &str, b: &str) -> bool {
+    // most names are ASCII; this path keeps a lookup among 10 000 variables fast
+    if a.is_ascii() && b.is_ascii() {
+        return a.eq_ignore_ascii_case(b);
+    }
     a.chars()
         .flat_map(char::to_lowercase)
         .eq(b.chars().flat_map(char::to_lowercase))

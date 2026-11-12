@@ -226,18 +226,26 @@ impl Changes {
             cases_after: after.map(Dataset::case_count),
             ..Changes::default()
         };
+        // by name, so 10 000 variables cost no 100 million comparisons
+        let previous: std::collections::HashMap<&str, _> = before
+            .into_iter()
+            .flat_map(Dataset::variables)
+            .map(|v| (v.name(), v))
+            .collect();
+        let now: std::collections::HashSet<&str> =
+            after.into_iter().flat_map(Dataset::variable_names).collect();
         for variable in after.into_iter().flat_map(Dataset::variables) {
             let name = variable.name();
-            match before.and_then(|d| d.variables().find(|v| v.name() == name)) {
+            match previous.get(name) {
                 None => changes.variables_added.push(name.to_string()),
-                Some(previous) if previous != variable => {
+                Some(previous) if *previous != variable => {
                     changes.variables_changed.push(name.to_string())
                 }
                 Some(_) => {}
             }
         }
         for name in before.into_iter().flat_map(Dataset::variable_names) {
-            if !after.is_some_and(|d| d.variable_names().any(|n| n == name)) {
+            if !now.contains(name) {
                 changes.variables_removed.push(name.to_string());
             }
         }
