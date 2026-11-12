@@ -148,7 +148,7 @@ fn blocks_nest() {
     assert_eq!(branches.len(), 2);
     assert!(matches!(branches[1].1[0].kind, StatementKind::Break));
     assert_eq!(otherwise.as_ref().unwrap().len(), 1);
-    // the manual's example writes a comma for TO
+    // a comma may stand for TO
     let statements = program("LOOP L = 1, NROW(V).\nEND LOOP.");
     assert!(matches!(&statements[0].kind, StatementKind::Loop(l) if l.index.is_some()));
     let statements = program("LOOP IF K < 5.\nCOMPUTE K = K + 1.\nEND LOOP.");
@@ -237,7 +237,7 @@ fn files_carry_over_to_later_statements() {
 #[test]
 fn get_and_mget() {
     let statements = program(
-        "GET SCORES /VARIABLES = TEST1,TEST2,TEST3 /NAMES = VARNAMES /MISSING = ACCEPT /SYSMIS = -1.0.\n\
+        "GET RATES /VARIABLES = R1,R2,R3 /NAMES = LABELS /MISSING = ACCEPT /SYSMIS = -9.0.\n\
          GET M /FILE=*.\nMGET /FILE='c.sav' /TYPE=CORR MEAN.\nMGET FILE=c.",
     );
     let StatementKind::Get(get) = &statements[0].kind else {
@@ -245,7 +245,7 @@ fn get_and_mget() {
     };
     assert_eq!(get.variables.as_ref().unwrap().len(), 3);
     assert_eq!(get.missing, Some(MissingAction::Accept));
-    assert_eq!(get.sysmis, Some(MissingAction::Value(-1.0)));
+    assert_eq!(get.sysmis, Some(MissingAction::Value(-9.0)));
     let StatementKind::Mget(mget) = &statements[2].kind else {
         panic!();
     };

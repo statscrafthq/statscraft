@@ -1,4 +1,4 @@
-//! MATRIX DATA on the manual's layouts with synthetic numbers: the matrix file it builds, value
+//! MATRIX DATA on synthetic matrix materials in each layout: the matrix file it builds, value
 //! by value, and FACTOR and CLUSTER reading it with MATRIX=IN(*). The expected results follow
 //! from the rules: a triangle is mirrored, a missing correlation diagonal is 1, N=n and
 //! N_SCALAR repeat their value, a correlation matrix with every r = .5 has the eigenvalues
@@ -64,10 +64,28 @@ fn number(cell: &Cell) -> f64 {
     }
 }
 
+/// The materials most tests read: means 12 7 30, standard deviations 2 1.5 4, 40 cases and the
+/// correlations .25 (Q1, Q2), .4 (Q1, Q3) and -.3 (Q2, Q3).
+const BASE: [&str; 6] = [
+    "MEAN  12 7 30",
+    "STDDEV  2 1.5 4",
+    "N  40 40 40",
+    "CORR Q1 1 0.25 0.4",
+    "CORR Q2 0.25 1 -0.3",
+    "CORR Q3 0.4 -0.3 1",
+];
+
 #[test]
 fn record_types_in_the_data() {
-    let (session, _, _) = run("MATRIX DATA VARIABLES=ROWTYPE_ V1 TO V3.
-[removed]
+    let (session, _, _) = run("MATRIX DATA VARIABLES=ROWTYPE_ Q1 TO Q3.
+BEGIN DATA
+'MEAN    ' 12 7 30
+SD 2 1.5 4
+\"N\" 40 40 40
+CORR 1
+CORR .25 1
+CORR .4 -.3 1
+END DATA.
 ");
     let data = session.dataset().unwrap();
     assert_eq!(
@@ -75,45 +93,30 @@ fn record_types_in_the_data() {
         [
             "ROWTYPE_ A8",
             "VARNAME_ A8",
-            "V1 F10.4",
-            "V2 F10.4",
-            "V3 F10.4"
+            "Q1 F10.4",
+            "Q2 F10.4",
+            "Q3 F10.4"
         ]
     );
-    assert_eq!(
-        cases(data),
-        [
-            "MEAN  5 4 3",
-            "STDDEV  3 2 1",
-            "N  9 9 9",
-            "CORR V1 1 0.6 0.7",
-            "CORR V2 0.6 1 0.8",
-            "CORR V3 0.7 0.8 1",
-        ]
-    );
+    assert_eq!(cases(data), BASE);
 }
 
 #[test]
 fn shapes_and_diagonals_give_the_same_matrix() {
-    let full = "CORR 1 .6 .7\nCORR .6 1 .8\nCORR .7 .8 1";
+    let full = "CORR 1 .25 .4\nCORR .25 1 -.3\nCORR .4 -.3 1";
     for (format, rows) in [
         ("FULL", full),
-        ("UPPER", "CORR 1 .6 .7\nCORR 1 .8\nCORR 1"),
-        ("UPPER NODIAGONAL", "CORR .6 .7\nCORR .8"),
-        ("LOWER NODIAGONAL", "CORR .6\nCORR .7 .8"),
-        ("LOWER DIAGONAL", "CORR 1\nCORR .6 1\nCORR .7 .8 1"),
+        ("UPPER", "CORR 1 .25 .4\nCORR 1 -.3\nCORR 1"),
+        ("UPPER NODIAGONAL", "CORR .25 .4\nCORR -.3"),
+        ("LOWER NODIAGONAL", "CORR .25\nCORR .4 -.3"),
+        ("LOWER DIAGONAL", "CORR 1\nCORR .25 1\nCORR .4 -.3 1"),
     ] {
         let (session, _, _) = run(&format!(
-            "MATRIX DATA VARIABLES=ROWTYPE_ V1 TO V3 /FORMAT={format}.\nBEGIN DATA\nN 9 9 9\n{rows}\nEND DATA.\n"
+            "MATRIX DATA VARIABLES=ROWTYPE_ Q1 TO Q3 /FORMAT={format}.\nBEGIN DATA\nN 40 40 40\n{rows}\nEND DATA.\n"
         ));
         assert_eq!(
             cases(session.dataset().unwrap()),
-            [
-                "N  9 9 9",
-                "CORR V1 1 0.6 0.7",
-                "CORR V2 0.6 1 0.8",
-                "CORR V3 0.7 0.8 1"
-            ],
+            BASE[2..],
             "{format}"
         );
     }
@@ -133,28 +136,34 @@ END DATA.
 fn contents_describe_the_records() {
     // values on several records, + and - as separators, D exponents and N=
     let (session, _, warnings) = run(
-        [removed]
+        "MATRIX DATA VARIABLES=Q1 TO Q3 /CONTENTS=MEAN SD N_SCALAR CORR.
+BEGIN DATA
+12 7
+ 30
+2,1.5,4
+40
+1
+.25+1
+.4-.3 1
+END DATA.
 ",
     );
     assert!(warnings.is_empty(), "{warnings:?}");
-    assert_eq!(
-        cases(session.dataset().unwrap()),
-        [
-            "MEAN  5 4 3",
-            "STDDEV  3 2 1",
-            "N  9 9 9",
-            "CORR V1 1 0.6 0.7",
-            "CORR V2 0.6 1 0.8",
-            "CORR V3 0.7 0.8 1",
-        ]
-    );
+    assert_eq!(cases(session.dataset().unwrap()), BASE);
     let (session, _, _) = run(
-        [removed]
+        "MATRIX DATA VARIABLES=Q1 TO Q3 /CONTENTS=MEAN SD CORR /N=55.
+BEGIN DATA
+12 7 30
+4 3 2.5
+1
+.25 1
+.4 -.3 1
+END DATA.
 ",
     );
     let data = session.dataset().unwrap();
-    assert_eq!(cases(data)[0], "N  99 99 99");
-    assert_eq!(cases(data)[2], "STDDEV  3 4 5");
+    assert_eq!(cases(data)[0], "N  55 55 55");
+    assert_eq!(cases(data)[2], "STDDEV  4 3 2.5");
     // FREE: rows need not start a new record
     let (session, _, _) = run("MATRIX DATA VARIABLES=a b /FORMAT=FREE /CONTENTS=MEAN CORR.
 BEGIN DATA
@@ -170,86 +179,124 @@ END DATA.
 #[test]
 fn within_cells_records_and_factors() {
     let expected = [
-        "MEAN 1  5 4 3",
-        "STDDEV 1  3 2 1",
-        "N 1  9 9 9",
-        "MEAN 2  4 5 6",
-        "STDDEV 2  6 5 4",
-        "N 2  9 9 9",
-        "CORR . VAR1 1 0.6 0.7",
-        "CORR . VAR2 0.6 1 0.8",
-        "CORR . VAR3 0.7 0.8 1",
+        "MEAN 1  10 20 30",
+        "STDDEV 1  1 2 3",
+        "N 1  15 15 15",
+        "MEAN 2  11 18 33",
+        "STDDEV 2  1.2 2.5 2.8",
+        "N 2  12 12 12",
+        "CORR . X1 1 0.25 0.4",
+        "CORR . X2 0.25 1 -0.3",
+        "CORR . X3 0.4 -0.3 1",
     ];
-    [removed]
+    let (session, _, _) = run("MATRIX DATA VARIABLES=GRP X1 TO X3 /FACTORS=GRP /CELLS=2
+  /CONTENTS=(MEAN SD N) CORR.
+BEGIN DATA
+1 10 20 30
+1 1 2 3
+1 15 15 15
+2 11 18 33
+2 1.2 2.5 2.8
+2 12 12 12
+   1
+  .25 1
+  .4 -.3 1
+END DATA.
 ");
     let data = session.dataset().unwrap();
     assert_eq!(
         names(data),
         [
             "ROWTYPE_ A8",
-            "F1 F4.0",
+            "GRP F4.0",
             "VARNAME_ A8",
-            "VAR1 F10.4",
-            "VAR2 F10.4",
-            "VAR3 F10.4"
+            "X1 F10.4",
+            "X2 F10.4",
+            "X3 F10.4"
         ]
     );
     assert_eq!(cases(data), expected);
     // the same records with ROWTYPE_ in the data, CELLS ignored with a warning
     let (session, _, warnings) = run(
-        "MATRIX DATA VARIABLES=ROWTYPE_ F1 VAR1 TO VAR3 /FACTORS=F1 /CELLS=2.
+        "MATRIX DATA VARIABLES=ROWTYPE_ GRP X1 TO X3 /FACTORS=GRP /CELLS=2.
 BEGIN DATA
-MEAN 1 5 4 3
-SD   1 3 2 1
-N    1 9 9 9
-MEAN 2 4 5 6
-SD   2 6 5 4
-N    2 9 9 9
+MEAN 1 10 20 30
+SD   1 1 2 3
+N    1 15 15 15
+MEAN 2 11 18 33
+SD   2 1.2 2.5 2.8
+N    2 12 12 12
 CORR . 1
-CORR . .6 1
-CORR . .7 .8 1
+CORR . .25 1
+CORR . .4 -.3 1
 END DATA.
 ",
     );
     assert_eq!(cases(session.dataset().unwrap()), expected);
     assert!(warnings[0].contains("CELLS is ignored"), "{warnings:?}");
     // each type grouped across the cells
-    [removed]
+    let (session, _, _) = run("MATRIX DATA VARIABLES=GRP X1 TO X3 /FACTORS=GRP /CELLS=2
+  /CONTENTS=(MEAN) (SD) (N) CORR.
+BEGIN DATA
+1 10 20 30
+2 11 18 33
+1 1 2 3
+2 1.2 2.5 2.8
+1 15 15 15
+2 12 12 12
+   1
+  .25 1
+  .4 -.3 1
+END DATA.
 ");
     let data = session.dataset().unwrap();
-    assert_eq!(cases(data)[1], "MEAN 2  4 5 6");
-    assert_eq!(cases(data)[2], "STDDEV 1  3 2 1");
+    assert_eq!(cases(data)[1], "MEAN 2  11 18 33");
+    assert_eq!(cases(data)[2], "STDDEV 1  1 2 3");
 }
 
 #[test]
 fn split_files() {
     let (session, _, _) = run(
-        [removed]
+        "MATRIX DATA VARIABLES=Q1 TO Q3 /CONTENTS=MEAN SD N CORR /SPLIT=WAVE.
+BEGIN DATA
+  12 7 30
+  2 1.5 4
+  40 40 40
+  1
+ .25 1
+ .4 -.3 1
+  14 6 28
+  2.5 1 3
+  35 35 35
+  1
+ .1 1
+ .2 .15 1
+END DATA.
 ",
     );
     let data = session.dataset().unwrap();
-    assert_eq!(names(data)[0], "SPL F4.0");
+    assert_eq!(names(data)[0], "WAVE F4.0");
     let cases = cases(data);
     assert_eq!(cases.len(), 12);
-    assert_eq!(cases[0], "1 MEAN  5 4 3");
-    assert_eq!(cases[11], "2 CORR V3 0.3 0.2 1");
+    assert_eq!(cases[0], "1 MEAN  12 7 30");
+    assert_eq!(cases[11], "2 CORR Q3 0.2 0.15 1");
     assert_eq!(
         data.split_file().map(|s| s.variables.clone()),
-        Some(vec!["SPL".to_string()])
+        Some(vec!["WAVE".to_string()])
     );
-    let (session, _, _) = run("MATRIX DATA VARIABLES=S1 ROWTYPE_ V1 TO V2 /SPLIT=S1.
+    let (session, _, _) = run("MATRIX DATA VARIABLES=SITE ROWTYPE_ U1 TO U2 /SPLIT=SITE.
 BEGIN DATA
-0 MEAN 5 4
-0 CORR 1
-0 CORR .6 1
-1 MEAN 9 8
-1 CORR 1
-1 CORR .4 1
+3 MEAN 2 6
+3 CORR 1
+3 CORR -.5 1
+4 MEAN 7 1
+4 CORR 1
+4 CORR .45 1
 END DATA.
 ");
     assert_eq!(
         cases_of(&session)[3..],
-        ["1 MEAN  9 8", "1 CORR V1 1 0.4", "1 CORR V2 0.4 1"]
+        ["4 MEAN  7 1", "4 CORR U1 1 0.45", "4 CORR U2 0.45 1"]
     );
 }
 
