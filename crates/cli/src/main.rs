@@ -6,6 +6,7 @@ use std::io::Read;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+mod connect;
 mod db;
 mod plan;
 mod update;
@@ -59,6 +60,9 @@ enum Cmd {
         #[arg(long, requires = "check")]
         json: bool,
     },
+    /// Connect Statscraft's MCP server to the AI agents on this computer (Claude, ChatGPT and
+    /// Codex, Cursor, Copilot, Gemini); --list only shows them, --remove takes it out again
+    Connect(connect::ConnectArgs),
 }
 
 #[derive(Args)]
@@ -107,6 +111,7 @@ fn main() -> ExitCode {
         Cmd::Help { command } => (false, help(&command.join(" "))),
         Cmd::Plan(args) => return plan::run(args),
         Cmd::Db(args) => return db::run(args),
+        Cmd::Connect(args) => return connect::run(args),
         Cmd::Update { check, json } => match update::run(check, json) {
             Ok(code) => return code,
             Err(failures) => (json, Err(failures)),

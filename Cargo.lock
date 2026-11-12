@@ -4105,6 +4105,7 @@ dependencies = [
  "clap",
  "serde",
  "serde_json",
+ "statscraft-connect",
  "statscraft-data",
  "statscraft-engine",
  "statscraft-export",
