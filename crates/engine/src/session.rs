@@ -1161,6 +1161,14 @@ mod tests {
         }
         assert_eq!(tags, [1, 2, 3]);
         assert!(session.dataset().unwrap().variable("c").is_ok());
+        // the worker wakes the window just after it sends the result, so the last wake may
+        // come a moment after `wait` returned
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while woken.load(std::sync::atomic::Ordering::SeqCst) < 3
+            && std::time::Instant::now() < deadline
+        {
+            std::thread::yield_now();
+        }
         assert_eq!(woken.load(std::sync::atomic::Ordering::SeqCst), 3);
         let syntax: Vec<_> = session.log.iter().map(|e| e.syntax.as_str()).collect();
         assert_eq!(
