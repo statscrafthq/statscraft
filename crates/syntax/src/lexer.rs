@@ -43,6 +43,13 @@ pub enum Punct {
     Percent,
     /// `;`, ending a row of an L matrix
     Semicolon,
+    /// `{`, `}`, `:`, `&*`, `&/` and `&**`: tokens only in a MATRIX program.
+    LBrace,
+    RBrace,
+    Colon,
+    ElemMul,
+    ElemDiv,
+    ElemPow,
 }
 
 impl Punct {
@@ -69,6 +76,12 @@ impl Punct {
             Punct::RBracket => "]",
             Punct::Percent => "%",
             Punct::Semicolon => ";",
+            Punct::LBrace => "{",
+            Punct::RBrace => "}",
+            Punct::Colon => ":",
+            Punct::ElemMul => "&*",
+            Punct::ElemDiv => "&/",
+            Punct::ElemPow => "&**",
         }
     }
 }
@@ -97,6 +110,8 @@ pub(crate) struct Lexer<'a> {
     /// A number with letters glued to it, such as `3F5.2` or `1X`, is one word instead of an
     /// error. DATA LIST formats are written that way.
     pub glued_words: bool,
+    /// The statements of a MATRIX program: `{`, `}`, `:`, `&*`, `&/` and `&**` are tokens.
+    pub matrix: bool,
 }
 
 impl<'a> Lexer<'a> {
@@ -107,6 +122,7 @@ impl<'a> Lexer<'a> {
             chars: Vec::new(),
             col: 0,
             glued_words: false,
+            matrix: false,
         }
     }
 
@@ -259,7 +275,14 @@ impl<'a> Lexer<'a> {
     }
 
     fn punct(&mut self, c: char, next: Option<char>) -> Result<TokenKind, SyntaxError> {
+        let after = self.chars.get(self.col + 2).copied();
         let (punct, len) = match (c, next) {
+            ('&', Some('*')) if self.matrix && after == Some('*') => (Punct::ElemPow, 3),
+            ('&', Some('*')) if self.matrix => (Punct::ElemMul, 2),
+            ('&', Some('/')) if self.matrix => (Punct::ElemDiv, 2),
+            ('{', _) if self.matrix => (Punct::LBrace, 1),
+            ('}', _) if self.matrix => (Punct::RBrace, 1),
+            (':', _) if self.matrix => (Punct::Colon, 1),
             ('*', Some('*')) => (Punct::Pow, 2),
             ('<', Some('=')) => (Punct::Le, 2),
             ('<', Some('>')) => (Punct::Ne, 2),

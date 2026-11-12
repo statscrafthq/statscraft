@@ -156,6 +156,8 @@ pub enum Command {
     /// OUTPUT NEW, NAME, ACTIVATE, CLOSE, DISPLAY and EXPORT.
     Output(crate::output_docs::OutputCommand),
     MatrixData(Box<crate::matrix_data::MatrixData>),
+    /// MATRIX with its statements up to END MATRIX.
+    Matrix(Box<crate::matrix::MatrixProgram>),
     Report(Box<crate::report::Report>),
     /// FINISH: the commands after it are not read.
     Finish,

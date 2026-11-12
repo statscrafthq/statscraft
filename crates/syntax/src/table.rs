@@ -19,6 +19,7 @@ use crate::input_program;
 use crate::lexer::{Punct, Token, TokenKind};
 use crate::logistic;
 use crate::loops;
+use crate::matrix;
 use crate::matrix_data;
 use crate::mrsets;
 use crate::mult_response;
@@ -261,6 +262,44 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  other procedures with MATRIX=IN(*) read it.",
         [removed]
         parse: matrix_data::matrix_data,
+    },
+    CommandSpec {
+        name: "MATRIX",
+        summary: "Run a program in the matrix language, up to END MATRIX.",
+        syntax: "MATRIX.\n\
+                 \x20 statements\n\
+                 END MATRIX.\n\
+                 Statements: COMPUTE m = expr | m(rows, cols) = expr; CALL EIGEN(m, vectors, values),\n\
+                 SETDIAG(m, v), SVD(m, u, q, v); PRINT [m] [/FORMAT=format] [/TITLE='text'] [/SPACE=n | NEWPAGE]\n\
+                 [/RLABELS=labels | /RNAMES=vector] [/CLABELS=labels | /CNAMES=vector]; DO IF expr, ELSE IF expr,\n\
+                 ELSE, END IF; LOOP [i = first TO last [BY step]] [IF expr], END LOOP [IF expr], BREAK;\n\
+                 READ m [/FILE=file] /FIELD=c1 TO c2 [BY w] [/SIZE=expr] [/MODE=RECTANGULAR | SYMMETRIC]\n\
+                 [/REREAD] [/FORMAT=format]; WRITE m [/OUTFILE=file] /FIELD=c1 TO c2 [BY w]\n\
+                 [/MODE=RECTANGULAR | TRIANGULAR] [/HOLD] [/FORMAT=format]; GET m [/FILE=file | *]\n\
+                 [/VARIABLES=varlist] [/NAMES=name] [/MISSING=ACCEPT | OMIT | value] [/SYSMIS=OMIT | value];\n\
+                 SAVE m [/OUTFILE=file | *] [/VARIABLES=names] [/NAMES=vector] [/STRINGS=names];\n\
+                 MGET [/FILE=file | *] [/TYPE=COV CORR MEAN STDDEV N COUNT]; MSAVE m /TYPE=type\n\
+                 [/OUTFILE=file] [/VARIABLES=names] [/SNAMES=names] [/SPLIT=vector] [/FNAMES=names]\n\
+                 [/FACTOR=vector]; DISPLAY [DICTIONARY] [STATUS]; RELEASE m [, m ...].\n\
+                 Matrices: {1, 2; 3, 4} (commas between elements, semicolons between rows; parts may be\n\
+                 matrices), a:b and a:b:step for integer sequences, m(i, j) with vectors of positions or :\n\
+                 for all. Operators: + - * (matrix product) / (elementwise) ** (matrix power) &* &/ &**\n\
+                 (elementwise), < <= > >= = <> (or LT LE GT GE EQ NE), NOT AND OR XOR; a scalar works with any\n\
+                 matrix. Functions: ABS ALL ANY ARSIN ARTAN BLOCK CHOL CMAX CMIN COS CSSQ CSUM DESIGN DET DIAG\n\
+                 EOF EVAL EXP GINV GRADE GSCH IDENT INV KRONEKER LG10 LN MAGIC MAKE MDIAG MMAX MMIN MOD MSSQ\n\
+                 MSUM NCOL NROW RANK RESHAPE RMAX RMIN RND RNKORDER RSSQ RSUM SIN SOLVE SQRT SSCP SVAL SWEEP\n\
+                 T (TRANSPOS) TRACE TRUNC, UNIFORM(rows, cols) and NORMAL(rows, cols) (random matrices),\n\
+                 UNIFORM(max) and NORMAL(sd) elementwise, CDFNORM CHICDF FCDF TCDF PROBIT and the families\n\
+                 CDF. IDF. PDF. NCDF. NPDF. SIG. RV. (elementwise; a scalar argument goes with any matrix).\n\
+                 PRINT gives a table; without FORMAT the numbers are shown with a common format, divided by a\n\
+                 power of 10 that the caption names when they are very large or small. Strings in a matrix\n\
+                 hold up to 8 bytes and print with an A format. A loop stops after SET MXLOOPS iterations\n\
+                 (default 40), also with an index, with a warning. The first READ, WRITE, SAVE and MSAVE name\n\
+                 their file; later ones use the last one named. SAVE and MSAVE write their files at END\n\
+                 MATRIX; SAVE /OUTFILE=* replaces the active dataset then. An error stops the program at its\n\
+                 statement.",
+        example: "MATRIX.\nCOMPUTE A = {4, 2; 2, 3}.\nCALL EIGEN(A, V, E).\nPRINT E /TITLE='Eigenvalues'.\nPRINT INV(A) /FORMAT=F8.3.\nEND MATRIX.",
+        parse: matrix::matrix_command,
     },
     CommandSpec {
         name: "GET",
@@ -2203,14 +2242,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
 
 /// Commands of the language that have no parser yet. They get "not supported yet" instead of
 /// "unknown command", and their bodies are not tokenised.
-static UNSUPPORTED: &[&str] = &[
-    "EXPORT",
-    "GET TRANSLATE",
-    "GRAPH",
-    "IMPORT",
-    "MATRIX",
-    "OUTPUT SAVE",
-];
+static UNSUPPORTED: &[&str] = &["EXPORT", "GET TRANSLATE", "GRAPH", "IMPORT", "OUTPUT SAVE"];
 
 /// The ends of blocks whose start reads them, such as END DATA after BEGIN DATA. Standing
 /// alone they are an error at their own line.
@@ -2414,9 +2446,7 @@ pub fn help(command: Option<&str>) -> Option<String> {
         Resolution::Unsupported(name, used) if used == words.len() => Some(match name {
             "END DATA" => "END DATA ends the inline data that BEGIN DATA starts.\n".into(),
             "END REPEAT" => "END REPEAT ends the commands that DO REPEAT repeats.\n".into(),
-            "END MATRIX" => {
-                "END MATRIX ends a MATRIX program; MATRIX is not supported yet.\n".into()
-            }
+            "END MATRIX" => "END MATRIX ends the program that MATRIX starts.\n".into(),
             "OUTPUT SAVE" => "OUTPUT SAVE is a command of the language, but Statscraft has no \
                               output document file of its own; OUTPUT EXPORT writes the tables.\n"
                 .into(),

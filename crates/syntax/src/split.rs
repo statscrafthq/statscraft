@@ -218,6 +218,38 @@ fn build(lines: &[(u32, &str)], end: Span) -> Option<Result<RawCommand, SyntaxEr
     }))
 }
 
+/// A statement of a MATRIX program: every token, with the braces, colons and elementwise
+/// operators of the matrix language, named by the matrix statement it starts.
+fn build_matrix(lines: &[(u32, &str)], end: Span) -> Option<Result<RawCommand, SyntaxError>> {
+    let mut lexer = Lexer::new(lines);
+    lexer.matrix = true;
+    lexer.glued_words = true;
+    let mut tokens = Vec::new();
+    loop {
+        match lexer.next_token() {
+            Ok(Some(token)) => tokens.push(token),
+            Ok(None) => break,
+            Err(error) => return Some(Err(multiline_hint(&tokens, error))),
+        }
+    }
+    let name = match crate::matrix::statement_name(&tokens) {
+        Some((name, _)) => name.to_string(),
+        None => match &tokens.first()?.kind {
+            TokenKind::Word(w) => w.to_uppercase(),
+            _ => String::new(),
+        },
+    };
+    Some(Ok(RawCommand {
+        name,
+        first_line: tokens[0].span.line,
+        last_line: lines[lines.len() - 1].0,
+        tokens,
+        end,
+        origin: None,
+        echo: None,
+    }))
+}
+
 /// True for a line that holds only the words of `name` (two words separated by blanks),
 /// optionally followed by a period. Inline data starts and ends with such lines.
 pub(crate) fn is_line_command(line: &str, name: [&str; 2]) -> bool {
@@ -355,18 +387,19 @@ fn split_with(
 ) -> Vec<Result<RawCommand, SyntaxError>> {
     let mut out = Vec::new();
     let mut run: Vec<&Line> = Vec::new();
+    let mut in_matrix = false;
     let pieces = preprocess_with(source, base, macros, range);
     for piece in &pieces {
         match piece {
             Piece::Line(line) => run.push(line),
             Piece::Error(error) => {
-                split_lines(&run, &mut out);
+                split_lines(&run, &mut out, &mut in_matrix);
                 run.clear();
                 out.push(Err(error.clone()));
             }
         }
     }
-    split_lines(&run, &mut out);
+    split_lines(&run, &mut out, &mut in_matrix);
     // nothing after FINISH is read; with a range only a FINISH inside it ends the run
     let finish = out.iter().position(|c| {
         matches!(c, Ok(c) if c.name == "FINISH"
@@ -399,7 +432,11 @@ fn unmarked(line: &str) -> Option<String> {
 }
 
 /// The commands of numbered lines.
-fn split_lines(run: &[&Line], out: &mut Vec<Result<RawCommand, SyntaxError>>) {
+fn split_lines(
+    run: &[&Line],
+    out: &mut Vec<Result<RawCommand, SyntaxError>>,
+    in_matrix: &mut bool,
+) {
     let marked: Vec<Option<String>> = run.iter().map(|l| unmarked(&l.text)).collect();
     let mut lines: Vec<(u32, &str)> = run.iter().map(|l| (l.number, l.text.as_str())).collect();
     let mut i = 0;
@@ -443,9 +480,18 @@ fn split_lines(run: &[&Line], out: &mut Vec<Result<RawCommand, SyntaxError>>) {
                 }
             }
         };
-        if kind != Start::Comment
-            && let Some(command) = build(&current, span)
-        {
+        let built = match kind {
+            Start::Comment => None,
+            _ if *in_matrix => build_matrix(&current, span),
+            _ => build(&current, span),
+        };
+        // the statements of a MATRIX program are read up to END MATRIX
+        match &built {
+            Some(Ok(command)) if command.name == "MATRIX" => *in_matrix = true,
+            Some(Ok(command)) if command.name == "END MATRIX" => *in_matrix = false,
+            _ => {}
+        }
+        if let Some(command) = built {
             let origin = run[i].origin.clone();
             let echo = run[i..end].iter().find_map(|l| l.echo.clone());
             out.push(match command {

@@ -21,6 +21,8 @@ pub(crate) struct Parser<'a> {
     end: Span,
     depth: u32,
     operators: u32,
+    /// In a MATRIX subcommand a slash starts the next subcommand instead of dividing.
+    pub slash_ends: bool,
 }
 
 impl<'a> Parser<'a> {
@@ -33,6 +35,7 @@ impl<'a> Parser<'a> {
             end,
             depth: 0,
             operators: 0,
+            slash_ends: false,
         }
     }
 

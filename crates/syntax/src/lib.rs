@@ -37,6 +37,7 @@ mod lexer;
 mod logistic;
 mod loops;
 mod macros;
+mod matrix;
 mod matrix_data;
 mod mrsets;
 mod mult_response;
@@ -73,6 +74,8 @@ mod tests_glm;
 mod tests_input_program;
 #[cfg(test)]
 mod tests_loops;
+#[cfg(test)]
+mod tests_matrix;
 #[cfg(test)]
 mod tests_models;
 #[cfg(test)]
@@ -122,6 +125,12 @@ pub use logistic::{
     LogisticPrint, LogisticTemp, Removal,
 };
 pub use loops::{RepeatItem, command_text, substitute};
+pub use matrix::{
+    CallStatement, DataFormat, ExprKind, Field, Index, Labels, LoopIndex, MExpr, MatrixGet,
+    MatrixLoop, MatrixMget, MatrixMsave, MatrixOp, MatrixPrint, MatrixProgram, MatrixRead,
+    MatrixSave, MatrixStatement, MatrixWrite, MissingAction, StatementKind, Target,
+    matrix_function, matrix_function_names,
+};
 pub use matrix_data::{MatrixData, MatrixShape, RowType};
 pub use mrsets::{Mrsets, MrsetsGroup};
 pub use npar::{
@@ -198,6 +207,11 @@ pub fn parse_raws(
     let mut out = Vec::new();
     let mut i = 0;
     while i < raws.len() {
+        if raws[i].name == "MATRIX" {
+            let next = parse_matrix(raws, i, &mut out);
+            i = next;
+            continue;
+        }
         if raws[i].name != "DO REPEAT" {
             out.push((i..i + 1, parse_command(&raws[i])));
             i += 1;
@@ -259,6 +273,34 @@ pub fn parse_raws(
     out
 }
 
+type ParsedRange = (std::ops::Range<usize>, Result<Command, SyntaxError>);
+
+/// MATRIX at `i` with its statements up to END MATRIX, as one command; returns the index after
+/// END MATRIX.
+fn parse_matrix(raws: &[RawCommand], i: usize, out: &mut Vec<ParsedRange>) -> usize {
+    let Some(end) = (i + 1..raws.len()).find(|&j| raws[j].name == "END MATRIX") else {
+        let start = raws[i].tokens.first().map_or(raws[i].end, |t| t.span);
+        let error = SyntaxError::new(start, "MATRIX without END MATRIX")
+            .hint("end the matrix program with END MATRIX");
+        out.push((i..raws.len(), Err(error)));
+        return raws.len();
+    };
+    let end_raw = &raws[end];
+    if end_raw.tokens.len() > 2 {
+        let error = SyntaxError::new(end_raw.tokens[2].span, "END MATRIX takes nothing more");
+        out.push((i..end + 1, Err(error)));
+        return end + 1;
+    }
+    match parse_command(&raws[i]) {
+        Ok(Command::Matrix(_)) => match matrix::program(&raws[i + 1..end]) {
+            Ok(program) => out.push((i..end + 1, Ok(Command::Matrix(Box::new(program))))),
+            Err(errors) => out.extend(errors.into_iter().map(|e| (i..end + 1, Err(e)))),
+        },
+        other => out.push((i..end + 1, other)),
+    }
+    end + 1
+}
+
 fn or_list(names: &[&str]) -> String {
     match names {
         [rest @ .., last] if !rest.is_empty() => format!("{} or {last}", rest.join(", ")),
@@ -300,7 +342,7 @@ fn parse_raw(raw: &RawCommand) -> Result<Command, SyntaxError> {
             name_span(used),
             "END MATRIX without MATRIX",
         )
-        .hint("MATRIX programs are not supported yet")),
+        .hint("a matrix program starts with MATRIX")),
         Resolution::Unsupported("OUTPUT SAVE", used) => Err(SyntaxError::new(
             name_span(used),
             "OUTPUT SAVE is not supported: Statscraft has no output document file of its own",
