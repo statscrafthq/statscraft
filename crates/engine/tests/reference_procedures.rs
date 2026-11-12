@@ -21,7 +21,7 @@
 use statscraft_data::{Dataset, Values};
 use statscraft_engine::{Cell, Engine, Table};
 use statscraft_syntax::parse;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -246,6 +246,23 @@ fn crosstab(pspp: &[Vec<String>], ours: &Table) -> Vec<String> {
             ours.rows.len()
         )];
     }
+    let layer_of =
+        |mine: &[Cell]| -> String { mine[..layers].iter().map(|c| text(c) + " / ").collect() };
+    // PSPP 2.0.0 can put a layer's cells in the wrong places when the layer lacks some
+    // categories (2.0.1 does not), so its counts contradict its own row totals; such a layer
+    // is compared by its totals only
+    let mut shifted = HashSet::new();
+    for (row, mine) in pspp[2..].iter().zip(&ours.rows) {
+        let cells = &row[2 * layers + 3..];
+        if layers == 0 || row[2 * layers + 2] != "Count" {
+            continue;
+        }
+        let n = |c: &String| pspp_number(c).flatten().map_or(0.0, |(v, _)| v);
+        let sum: f64 = cells[..cells.len() - 1].iter().map(n).sum();
+        if (sum - n(&cells[cells.len() - 1])).abs() > 1e-4 * cells.len() as f64 {
+            shifted.insert(layer_of(mine));
+        }
+    }
     let mut problems = Vec::new();
     for (row, mine) in pspp[2..].iter().zip(&ours.rows) {
         let category = match row[2 * layers].as_str() {
@@ -266,13 +283,17 @@ fn crosstab(pspp: &[Vec<String>], ours: &Table) -> Vec<String> {
             ));
         }
         let last = row.len() - 2 * layers - 4;
+        let layer = layer_of(mine);
         for (column, cell) in row[2 * layers + 3..].iter().enumerate() {
+            if shifted.contains(&layer) && text(&mine[layers]) != "Total" && column != last {
+                continue;
+            }
             // PSPP shows shares as the expected count of a total; the manual's expected counts
             // add up to the observed one there, so those cells are not compared
             if statistic == "Expected" && (text(&mine[layers]) == "Total" || column == last) {
                 continue;
             }
-            let what = format!("{category} {statistic} column {}", column + 1);
+            let what = format!("{layer}{category} {statistic} column {}", column + 1);
             problems.extend(check_cell(&what, cell, &mine[headers + column]).err());
         }
     }
@@ -1453,7 +1474,10 @@ fn compare_frequencies(case: &str, fixture: &str, syntax: &str, pspp_syntax: Opt
                 _ => statistic,
             };
             for (column, cell) in row[2..].iter().enumerate() {
-                our_cells.insert((table.columns[column + 2].clone(), key.clone()), cell);
+                // our headers follow SET TVARS, so with labels they are mapped as PSPP's are
+                let header = &table.columns[column + 2];
+                let name = names.get(header).unwrap_or(header).clone();
+                our_cells.insert((name, key.clone()), cell);
             }
         }
     }
