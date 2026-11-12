@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.6.0 (2026-11-12)
+
+- The MATRIX ... END MATRIX language: COMPUTE, PRINT, DO IF, LOOP, READ, WRITE, GET, SAVE, MGET, MSAVE, CALL EIGEN, SVD and SETDIAG, and the whole function library.
+- Transformations know 185 of the manual's functions: the distribution families (CDF, IDF, PDF, NCDF, SIG), every date and time function (DATEDIFF, DATESUM, XDATE, CTIME and the rest), the CHAR string functions, REPLACE, NORMALIZE, MEDIAN, VALUELABEL and more. The editor completes them.
+- SET BLANKS, EPOCH, FUZZBITS and SCALEMIN now take effect, and sessions keep them.
+
 ## 0.5.0 (2026-11-12)
 
 - New procedures: FACTOR (every extraction and rotation, KMO and Bartlett, saved scores), QUICK CLUSTER, CLUSTER (hierarchical, all measures and methods), DISCRIMINANT (direct and stepwise, classification, cross-validation), LOGISTIC REGRESSION (binary, contrasts, stepwise, Hosmer-Lemeshow), UNIANOVA and GLM (sums of squares types 1 to 4, EM means, post hoc, repeated measures) and ANOVA.
