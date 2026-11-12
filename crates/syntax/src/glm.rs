@@ -333,7 +333,7 @@ pub(crate) fn term(p: &mut Parser) -> PResult<Term> {
 }
 
 /// Terms up to the end of the subcommand, INTERCEPT as a term with no variables.
-fn terms(p: &mut Parser) -> PResult<Vec<Term>> {
+pub(crate) fn terms(p: &mut Parser) -> PResult<Vec<Term>> {
     let mut out = Vec::new();
     while !at_end(p) {
         if p.eat_keyword("INTERCEPT") {

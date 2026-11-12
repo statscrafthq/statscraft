@@ -1,4 +1,4 @@
-//! Parser tests of LOGISTIC REGRESSION, UNIANOVA and GLM.
+//! Parser tests of LOGISTIC REGRESSION, PLUM, UNIANOVA and GLM.
 
 use super::*;
 
@@ -335,4 +335,116 @@ fn glm_plot_keywords() {
             .message
             .contains("positive")
     );
+}
+
+fn plum(source: &str) -> Plum {
+    match one(source) {
+        Command::Plum(p) => *p,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn plum_defaults_and_abbreviations() {
+    let p = plum("PLUM score.");
+    assert_eq!(p.dependent, "score");
+    assert!(p.factors.is_empty() && p.covariates.is_empty());
+    assert_eq!(p.link, PlumLink::Logit);
+    assert_eq!(p.criteria, PlumCriteria::default());
+    assert_eq!(
+        (p.location, p.scale, p.print, p.include),
+        (None, None, None, false)
+    );
+    // keywords shortened to three letters, a repeated subcommand replacing the earlier one
+    let p = plum(
+        "PLUM score BY shift crew WITH hours /LIN=PRO /CRI=CIN(90) MXITER(40) PCON(0) LCON(1E-5) \
+         DEL(0.5) BIA(0.1) /PRI=FIT /PRI=PAR TPAR HIS(3) /MIS=INC /SAV=EST(prob:2) PRED ACP(hit).",
+    );
+    assert_eq!(p.factors.len(), 2);
+    assert_eq!(p.link, PlumLink::Probit);
+    assert_eq!(p.criteria.cin, 90.0);
+    assert_eq!(p.criteria.mxiter, 40);
+    assert_eq!((p.criteria.pconverge, p.criteria.lconverge), (0.0, 1e-5));
+    assert_eq!((p.criteria.delta, p.criteria.bias), (0.5, 0.1));
+    let print = p.print.unwrap();
+    assert!(!print.fit && print.parameter && print.tparallel);
+    assert_eq!(print.history, Some(3));
+    assert!(p.include);
+    assert_eq!(
+        p.save,
+        [
+            PlumSave::Estprob {
+                root: Some("prob".into()),
+                count: 2
+            },
+            PlumSave::Predcat(None),
+            PlumSave::Acprob(Some("hit".into())),
+        ]
+    );
+    assert_eq!(
+        plum("PLUM score /SAVE=ESTPROB(:3).").save,
+        [PlumSave::Estprob {
+            root: None,
+            count: 3
+        }]
+    );
+}
+
+#[test]
+fn plum_location_and_scale() {
+    let p = plum(
+        "PLUM score BY shift crew WITH hours /LOCATION=hours shift crew shift*crew /SCALE=crew.",
+    );
+    let labels: Vec<String> = p
+        .location
+        .unwrap()
+        .iter()
+        .map(|t| t.label.clone())
+        .collect();
+    assert_eq!(labels, ["hours", "shift", "crew", "shift*crew"]);
+    assert_eq!(p.scale.unwrap()[0].variables, words(&["crew"]));
+    // an empty LOCATION is the default model; INTERCEPT alone leaves only the thresholds
+    assert_eq!(plum("PLUM score BY shift /LOCATION.").location, None);
+    assert_eq!(
+        plum("PLUM score BY shift /LOCATION=INTERCEPT.").location,
+        Some(Vec::new())
+    );
+    assert_eq!(plum("PLUM score BY shift /SCALE.").scale, None);
+}
+
+#[test]
+fn plum_errors() {
+    for (source, message) in [
+        (
+            "PLUM score other.",
+            "PLUM takes one dependent variable; factors follow BY and covariates WITH",
+        ),
+        (
+            "PLUM score /CRITERIA=CIN(100).",
+            "CIN is at least 0 and below 100",
+        ),
+        (
+            "PLUM score /CRITERIA=DELTA(1).",
+            "DELTA is at least 0 and below 1",
+        ),
+        (
+            "PLUM score /CRITERIA=MXSTEP(0).",
+            "MXSTEP is a whole number, 1 or more",
+        ),
+        ("PLUM score /SCALE=INTERCEPT.", "SCALE takes no INTERCEPT"),
+        (
+            "PLUM score BY a /SCALE=a INTERCEPT.",
+            "SCALE takes no INTERCEPT",
+        ),
+        (
+            "PLUM score /SAVE=PCPROB PCPROB.",
+            "each SAVE keyword is given only once",
+        ),
+        (
+            "PLUM score BY a /TEST=a 1 -1.",
+            "subcommand TEST of PLUM is not supported yet",
+        ),
+    ] {
+        assert_eq!(err(source).message, message, "{source}");
+    }
 }

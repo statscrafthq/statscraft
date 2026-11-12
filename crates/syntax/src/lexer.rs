@@ -43,7 +43,7 @@ pub enum Punct {
     Percent,
     /// `;`, ending a row of an L matrix
     Semicolon,
-    /// `{`, `}`, `:`, `&*`, `&/` and `&**`: tokens only in a MATRIX program.
+    /// `{`, `}`, `&*`, `&/` and `&**`: tokens only in a MATRIX program; `:` also in NOMREG and PLUM.
     LBrace,
     RBrace,
     Colon,

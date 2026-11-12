@@ -46,6 +46,7 @@ mod npar;
 mod output;
 mod output_docs;
 mod parser;
+mod plum;
 mod portable;
 mod preprocess;
 mod procedures;
@@ -152,6 +153,7 @@ pub use output_docs::{
     ExportTarget, OutputCommand, OutputExport, OutputOpen, OutputSave, SheetLocation,
     SheetOperation, TextEncoding,
 };
+pub use plum::{Plum, PlumCriteria, PlumLink, PlumPrint, PlumSave};
 pub use preprocess::{FileHandle, MacroState};
 pub use regression::{
     Casewise, Criterion, MethodKind, PlotVariable, Regression, RegressionCriteria,

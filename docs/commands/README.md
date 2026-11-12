@@ -124,6 +124,7 @@ One page per supported command, generated from the same table that the parser an
 | [DISCRIMINANT](discriminant.md) | Linear discriminant analysis with direct or stepwise entry and classification of cases. |
 | [LOGISTIC REGRESSION](logistic-regression.md) | Binary logistic regression with categorical covariates, stepwise selection and case diagnostics. |
 | [NOMREG](nomreg.md) | Multinomial logistic regression: a nominal dependent variable on factors and covariates. |
+| [PLUM](plum.md) | Ordinal regression: a cumulative link model of an ordered dependent variable. |
 | [UNIANOVA](unianova.md) | General linear model of one dependent variable: factorial ANOVA, ANCOVA and regression. |
 | [GLM](glm.md) | General linear model: one dependent variable as in UNIANOVA, or repeated measures with WSFACTOR. |
 | [ANOVA](anova.md) | Analysis of variance for factorial designs with covariates, the older form with MCA tables. |

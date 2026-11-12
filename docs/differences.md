@@ -483,6 +483,16 @@ Where the documentation is silent:
 - A string BASE value for a numeric dependent is read as a number, or matched against the formatted value.
 - Not supported yet: stepwise methods (MODEL with `|`, STEPWISE), TEST, OUTFILE, PRINT CELLPROB, HISTORY and ASSOCIATION.
 
+### PLUM
+
+- Location parameters are subtracted from the thresholds, so a positive estimate moves cases toward the higher categories, and the last level of a factor is the redundant one. R's MASS::polr uses the same signs but drops the first level of a factor by default; compare with the reference level set to the last.
+- Without a PRINT subcommand the tables are the Case Processing Summary, Model Fitting Information, Goodness-of-Fit, Pseudo R-Square and Parameter Estimates. With PRINT, the first two and the named ones.
+- Standard errors come from the observed information at the estimates (the Newton-Raphson form the manual allows); a step that the observed information does not send uphill uses the expected information instead.
+- The -2 log likelihood includes the multinomial constant of the pooled cells, as the manual's KERNEL keyword implies; the chi-squares do not depend on it. The pseudo R-squares use the kernel, as the manual's formulas do.
+- The test of parallel lines is a likelihood ratio test, as the Algorithms manual describes, on (J - 2) times the number of location parameters. It is left out with SCALE, with a warning.
+- The Missing row of the Case Processing Summary counts the weighted cases with a positive rounded weight and a missing value.
+- SAVE writes predictions for every case with valid factors and covariates, also one outside the fit through its weight or a missing dependent; ACPROB needs the dependent. ESTPROB(root) names the variables root1, root2 and so on. PREDCAT of a string dependent is a string.
+
 ### UNIANOVA and GLM
 
 - A frequency weight is rounded to a whole number, as documented (GNU PSPP uses fractional weights as they are).
@@ -756,6 +766,7 @@ Where the documentation is silent:
   - RELIABILITY has no MODEL=OMEGA or MATRIX.
   - LOGISTIC REGRESSION has no SELECT or OUTFILE.
   - NOMREG has no stepwise methods, TEST, OUTFILE, or PRINT CELLPROB, HISTORY and ASSOCIATION.
+  - PLUM has no TEST.
   - UNIANOVA and GLM have no multivariate model (GLM with several dependents without WSFACTOR), RANDOM, TEST, ROBUST, OUTFILE, MMATRIX, MEASURE, POSTHOC VS, CONTRAST SPECIAL or the heteroskedasticity tests, and draw no error bars on profile plots. With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX, SAVE or PLOT.
   - FACTOR has no METHOD=COVARIANCE, MATRIX=OUT or MATRIX=IN(FAC=...).
   - CLUSTER has no MATRIX=OUT.

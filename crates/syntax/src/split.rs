@@ -181,7 +181,7 @@ fn build(lines: &[(u32, &str)], end: Span) -> Option<Result<RawCommand, SyntaxEr
                 spec.name,
                 "DATA LIST" | "PRINT" | "PRINT EJECT" | "WRITE" | "REPEATING DATA"
             );
-            lexer.colon = spec.name == "NOMREG";
+            lexer.colon = matches!(spec.name, "NOMREG" | "PLUM");
             // only a command with a parser has a body worth tokenising
             while lex_error.is_none() {
                 match lexer.next_token() {

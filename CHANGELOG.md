@@ -3,6 +3,7 @@
 ## Unreleased
 
 - NOMREG: multinomial logistic regression of a nominal dependent variable (numeric or string) on factors and covariates, with BASE and ORDER for the reference category, MODEL with interactions and nested effects, FULLFACTORIAL, INTERCEPT, CRITERIA, SCALE, SUBPOP, weights and MISSING. Tables: Case Processing Summary, Model Fitting Information (with AIC and BIC), Goodness-of-Fit, Pseudo R-Square, Likelihood Ratio Tests, Parameter Estimates with the interval of Exp(B), Classification, and the covariance and correlation matrices. SAVE adds the category probabilities, the predicted category and its probability, and the probability of the observed category. Stepwise methods, TEST and OUTFILE are not supported yet. See [NOMREG](docs/commands/nomreg.md).
+- PLUM: ordinal regression with the logit, probit, complementary log-log, negative log-log and Cauchit links, factors and covariates, LOCATION and SCALE effects, weights and missing values. Tables: Case Processing Summary, Model Fitting Information, Goodness-of-Fit with a warning about empty cells, Pseudo R-Square, Parameter Estimates, Test of Parallel Lines, Cell Information, the covariance and correlation of the estimates and the iteration history. SAVE adds the category probabilities, the predicted category and the probabilities of the predicted and the observed category. Not supported yet: TEST. See [PLUM](docs/commands/plum.md).
 
 ## 0.9.0 (2026-11-12)
 

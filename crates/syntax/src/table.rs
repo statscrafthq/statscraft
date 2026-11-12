@@ -28,6 +28,7 @@ use crate::npar;
 use crate::output;
 use crate::output_docs;
 use crate::parser::{PResult, Parser};
+use crate::plum;
 use crate::portable;
 use crate::procedures;
 use crate::rank;
@@ -1466,6 +1467,44 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  methods (MODEL with |, STEPWISE), TEST, OUTFILE and PRINT CELLPROB, HISTORY and ASSOCIATION.",
         example: "NOMREG commute (BASE=FIRST) BY district WITH distance /PRINT=PARAMETER LRT FIT SUMMARY CLASSTABLE /SAVE=ESTPROB PREDCAT.",
         parse: nomreg::nomreg,
+    },
+    CommandSpec {
+        name: "PLUM",
+        summary: "Ordinal regression: a cumulative link model of an ordered dependent variable.",
+        syntax: "PLUM dependent [BY factors] [WITH covariates]\n\
+                 \x20  [/LINK=LOGIT | PROBIT | CLOGLOG | NLOGLOG | CAUCHIT] [/LOCATION=effects] [/SCALE=effects]\n\
+                 \x20  [/CRITERIA=[CIN(95)] [DELTA(0)] [BIAS(0)] [MXITER(100)] [MXSTEP(5)] [LCONVERGE(0)]\n\
+                 \x20             [PCONVERGE(1E-6)] [SINGULAR(1E-8)]] [/MISSING=EXCLUDE | INCLUDE]\n\
+                 \x20  [/PRINT=[FIT] [SUMMARY] [PARAMETER] [TPARALLEL] [CELLINFO] [COVB] [CORB] [HISTORY[(n)]] [KERNEL]]\n\
+                 \x20  [/SAVE=[ESTPROB[(root[:n])]] [PREDCAT[(name)]] [PCPROB[(name)]] [ACPROB[(name)]]].\n\
+                 The values of the dependent, sorted ascending (numbers or strings), are the ordered\n\
+                 categories. Factors may be strings; covariates are numeric. A case missing on any variable is left out (INCLUDE\n\
+                 keeps user-missing values); the weight is rounded to a whole number and a case below 1 after\n\
+                 rounding is left out. The model puts the link of the probability of each category or a lower one\n\
+                 equal to its threshold minus the location effects, divided by exp of the scale effects. LOCATION\n\
+                 defaults to the covariates and then the main effect of each factor; effects are written as in\n\
+                 UNIANOVA (a*b, a BY b, a(b), a WITHIN b, x*x), and INTERCEPT alone leaves only the thresholds. A\n\
+                 factor has one parameter per level that occurs; the last is redundant and 0. The cases are pooled by\n\
+                 their factor levels and covariate values: DELTA goes into each empty cell of such a group, BIAS into\n\
+                 every cell. The fit is Newton-Raphson from thresholds at the cumulative shares of the categories and\n\
+                 the other parameters 0 (the location part first when SCALE is given), each step halved up to MXSTEP\n\
+                 times while the log likelihood would fall; it stops when no parameter moves PCONVERGE or more, the\n\
+                 log likelihood changes less than LCONVERGE (absolute or relative), or after MXITER iterations.\n\
+                 Tables: Case Processing Summary and Model Fitting Information (-2 log likelihood of the thresholds\n\
+                 alone and of the final model, their difference as a chi-square) always; Goodness-of-Fit (FIT:\n\
+                 Pearson and deviance over the pooled cells), Pseudo R-Square (SUMMARY: Cox and Snell, Nagelkerke,\n\
+                 McFadden) and Parameter Estimates (PARAMETER: estimate, standard error, Wald, df, significance and\n\
+                 CIN interval) without PRINT or when named; Test of Parallel Lines (TPARALLEL: a likelihood ratio\n\
+                 test against separate location parameters for each threshold), Cell Information (CELLINFO),\n\
+                 Parameter Covariance (COVB), Parameter Correlation (CORB) and Iteration History (HISTORY, every\n\
+                 n-th, the first and the last) when named. The -2 log likelihood includes the multinomial constant of\n\
+                 the pooled cells; KERNEL leaves it out. A warning counts the empty pooled cells.\n\
+                 SAVE adds EST1_m, EST2_m, ... (the first n categories, 25 by default), PRE_m, PCP_m and ACP_m with\n\
+                 the smallest free m, or root1, root2, ... and the names given: the probability of each category, the\n\
+                 most likely category, its probability and the probability of the observed category, for every case\n\
+                 with valid factors and covariates. Not supported yet: TEST.",
+        example: "PLUM comfort BY seat_row WITH trip_hours /LINK=PROBIT /PRINT=FIT PARAMETER SUMMARY TPARALLEL /SAVE=ESTPROB PREDCAT.",
+        parse: plum::plum,
     },
     CommandSpec {
         name: "UNIANOVA",

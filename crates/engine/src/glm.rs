@@ -96,7 +96,7 @@ pub(crate) struct Data {
 }
 
 impl Data {
-    fn rows(&self) -> usize {
+    pub(crate) fn rows(&self) -> usize {
         self.case.len()
     }
 
@@ -120,7 +120,7 @@ impl Data {
 
 /// A generalized inverse of a symmetric matrix by sweeping the pivots that stay above `eps`
 /// times their original value, with its rank.
-fn ginverse(a: &Matrix, eps: f64) -> (Matrix, usize) {
+pub(crate) fn ginverse(a: &Matrix, eps: f64) -> (Matrix, usize) {
     let n = a.len();
     let mut m = a.clone();
     let scale = a
@@ -145,6 +145,34 @@ fn ginverse(a: &Matrix, eps: f64) -> (Matrix, usize) {
     (out, swept.iter().filter(|&&s| s).count())
 }
 
+/// Sets the columns of each effect (the level combinations that occur) and returns the design
+/// row of every case.
+pub(crate) fn design(data: &Data, effects: &mut [Effect]) -> Vec<Vec<f64>> {
+    let mut start = 0;
+    for e in effects.iter_mut() {
+        let mut cells: Vec<Vec<usize>> = (0..data.rows())
+            .map(|i| e.factors.iter().map(|&f| data.level[i][f]).collect())
+            .collect();
+        cells.sort();
+        cells.dedup();
+        e.cells = cells;
+        e.start = start;
+        start += e.cells.len();
+    }
+    (0..data.rows())
+        .map(|i| {
+            let mut row = vec![0.0; start];
+            for e in effects.iter() {
+                let mine: Vec<usize> = e.factors.iter().map(|&f| data.level[i][f]).collect();
+                let at = e.cells.iter().position(|c| *c == mine).expect("a cell");
+                let value: f64 = e.covariates.iter().map(|&c| data.cov[i][c]).product();
+                row[e.start + at] = value;
+            }
+            row
+        })
+        .collect()
+}
+
 pub(crate) struct Fit {
     pub(crate) effects: Vec<Effect>,
     pub(crate) p: usize,
@@ -163,32 +191,9 @@ pub(crate) struct Fit {
 
 impl Fit {
     pub(crate) fn new(data: &Data, mut effects: Vec<Effect>, y: &[Vec<f64>], eps: f64) -> Fit {
-        // the columns of each effect: the level combinations that occur
-        let mut start = 0;
-        for e in &mut effects {
-            let mut cells: Vec<Vec<usize>> = (0..data.rows())
-                .map(|i| e.factors.iter().map(|&f| data.level[i][f]).collect())
-                .collect();
-            cells.sort();
-            cells.dedup();
-            e.cells = cells;
-            e.start = start;
-            start += e.cells.len();
-        }
-        let p = start;
+        let x = design(data, &mut effects);
+        let p = effects.last().map_or(0, |e| e.start + e.cells.len());
         let r = y.first().map_or(0, Vec::len);
-        let x: Vec<Vec<f64>> = (0..data.rows())
-            .map(|i| {
-                let mut row = vec![0.0; p];
-                for e in &effects {
-                    let mine: Vec<usize> = e.factors.iter().map(|&f| data.level[i][f]).collect();
-                    let at = e.cells.iter().position(|c| *c == mine).expect("a cell");
-                    let value: f64 = e.covariates.iter().map(|&c| data.cov[i][c]).product();
-                    row[e.start + at] = value;
-                }
-                row
-            })
-            .collect();
         let mut zwz = vec![vec![0.0; p + r]; p + r];
         for i in 0..data.rows() {
             let z: Vec<f64> = x[i].iter().chain(&y[i]).copied().collect();
@@ -723,7 +728,7 @@ pub(crate) fn default_terms(
     terms
 }
 
-fn key_value_text(variable: &Variable, key: &Key) -> String {
+pub(crate) fn key_value_text(variable: &Variable, key: &Key) -> String {
     match key {
         Key::Number(n) => category_text(*n, variable.format()),
         Key::Text(t) => t.trim_end().to_string(),
@@ -1672,7 +1677,7 @@ fn levene(d: &Data, fit: &Fit) -> Option<Table> {
     ))
 }
 
-fn parameter_name(d: &Data, e: &Effect, cell: &[usize]) -> String {
+pub(crate) fn parameter_name(d: &Data, e: &Effect, cell: &[usize]) -> String {
     if e.is_intercept() {
         return "Intercept".into();
     }
