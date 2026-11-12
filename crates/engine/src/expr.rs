@@ -10,12 +10,20 @@
 //! except to MISSING.
 //!
 //! Strings: a string variable reads with its padding spaces, as wide as it is declared. LENGTH
-//! counts bytes (as widths do); SUBSTR, INDEX and CHAR.LENGTH count characters.
+//! counts bytes (as widths do); SUBSTR, INDEX and the other positions count characters, and
+//! CHAR.LENGTH leaves out the trailing blanks. `expr_functions` holds the date, time and string
+//! functions of one value with their rules.
+//!
+//! Functions with a parameter out of range give system-missing, also the distribution functions
+//! with an x the distribution does not take. Scoring (APPLYMODEL) is not supported.
 
-use crate::Error;
-use statscraft_data::{Dataset, Values};
-use statscraft_syntax::{BinaryOp, Expr, UnaryOp};
+use crate::expr_functions as f;
+use crate::format::format_value;
+use crate::{Error, dist, distributions};
+use statscraft_data::{Dataset, Value, Values};
+use statscraft_syntax::{BinaryOp, Expr, FormatType, UnaryOp};
 use std::cmp::Ordering;
+use unicode_normalization::UnicodeNormalization;
 
 pub(crate) type Numbers = Vec<Option<f64>>;
 
@@ -35,10 +43,18 @@ const FUNCTIONS: &[(&str, &str)] = &[
     ("EXP", "EXP(number)"),
     ("LN", "LN(number)"),
     ("LG10", "LG10(number)"),
+    ("LNGAMMA", "LNGAMMA(number)"),
+    ("SIN", "SIN(radians)"),
+    ("COS", "COS(radians)"),
+    ("TAN", "TAN(radians)"),
+    ("ARSIN", "ARSIN(number)"),
+    ("ARCOS", "ARCOS(number)"),
+    ("ARTAN", "ARTAN(number)"),
     ("SUM", "SUM(number, ...)"),
     ("MEAN", "MEAN(number, ...)"),
-    ("MIN", "MIN(number, ...)"),
-    ("MAX", "MAX(number, ...)"),
+    ("MEDIAN", "MEDIAN(number, ...)"),
+    ("MIN", "MIN(value, ...)"),
+    ("MAX", "MAX(value, ...)"),
     ("SD", "SD(number, number, ...)"),
     ("VARIANCE", "VARIANCE(number, number, ...)"),
     ("CFVAR", "CFVAR(number, number, ...)"),
@@ -48,6 +64,7 @@ const FUNCTIONS: &[(&str, &str)] = &[
     ("SYSMIS", "SYSMIS(number)"),
     ("VALUE", "VALUE(variable)"),
     ("LAG", "LAG(variable [, n])"),
+    ("VALUELABEL", "VALUELABEL(variable)"),
     ("ANY", "ANY(value, candidate, ...)"),
     ("RANGE", "RANGE(value, low, high [, low, high ...])"),
     ("CONCAT", "CONCAT(string, ...)"),
@@ -57,17 +74,139 @@ const FUNCTIONS: &[(&str, &str)] = &[
     ("CHAR.LENGTH", "CHAR.LENGTH(string)"),
     ("UPCASE", "UPCASE(string)"),
     ("LOWER", "LOWER(string)"),
-    ("LTRIM", "LTRIM(string)"),
-    ("RTRIM", "RTRIM(string)"),
-    ("INDEX", "INDEX(string, text to find)"),
-    ("CHAR.INDEX", "CHAR.INDEX(string, text to find)"),
-    ("NUMBER", "NUMBER(string, Fw.d)"),
-    ("STRING", "STRING(number, Fw.d)"),
+    ("LTRIM", "LTRIM(string [, character])"),
+    ("RTRIM", "RTRIM(string [, character])"),
+    ("NTRIM", "NTRIM(variable)"),
+    ("INDEX", "INDEX(string, text to find [, piece length])"),
+    (
+        "CHAR.INDEX",
+        "CHAR.INDEX(string, text to find [, piece length])",
+    ),
+    ("RINDEX", "RINDEX(string, text to find [, piece length])"),
+    (
+        "CHAR.RINDEX",
+        "CHAR.RINDEX(string, text to find [, piece length])",
+    ),
+    ("LPAD", "LPAD(string, length [, padding])"),
+    ("CHAR.LPAD", "CHAR.LPAD(string, length [, padding])"),
+    ("RPAD", "RPAD(string, length [, padding])"),
+    ("CHAR.RPAD", "CHAR.RPAD(string, length [, padding])"),
+    ("REPLACE", "REPLACE(string, old, new [, count])"),
+    ("STRUNC", "STRUNC(string, bytes)"),
+    ("CHAR.MBLEN", "CHAR.MBLEN(string, character position)"),
+    ("MBLEN.BYTE", "MBLEN.BYTE(string, byte position)"),
+    ("NORMALIZE", "NORMALIZE(string)"),
+    ("NUMBER", "NUMBER(string, format)"),
+    ("STRING", "STRING(number, format)"),
     ("DATE.DMY", "DATE.DMY(day, month, year)"),
     ("DATE.MDY", "DATE.MDY(month, day, year)"),
-    ("XDATE.YEAR", "XDATE.YEAR(date)"),
-    ("XDATE.MONTH", "XDATE.MONTH(date)"),
+    ("DATE.MOYR", "DATE.MOYR(month, year)"),
+    ("DATE.QYR", "DATE.QYR(quarter, year)"),
+    ("DATE.WKYR", "DATE.WKYR(week, year)"),
+    ("DATE.YRDAY", "DATE.YRDAY(year, day of year)"),
+    ("YRMODA", "YRMODA(year, month, day)"),
+    ("TIME.DAYS", "TIME.DAYS(days)"),
+    ("TIME.HMS", "TIME.HMS(hours [, minutes [, seconds]])"),
+    ("CTIME.DAYS", "CTIME.DAYS(time)"),
+    ("CTIME.HOURS", "CTIME.HOURS(time)"),
+    ("CTIME.MINUTES", "CTIME.MINUTES(time)"),
+    ("CTIME.SECONDS", "CTIME.SECONDS(time)"),
+    ("XDATE.DATE", "XDATE.DATE(date)"),
+    ("XDATE.HOUR", "XDATE.HOUR(time)"),
+    ("XDATE.JDAY", "XDATE.JDAY(date)"),
     ("XDATE.MDAY", "XDATE.MDAY(date)"),
+    ("XDATE.MINUTE", "XDATE.MINUTE(time)"),
+    ("XDATE.MONTH", "XDATE.MONTH(date)"),
+    ("XDATE.QUARTER", "XDATE.QUARTER(date)"),
+    ("XDATE.SECOND", "XDATE.SECOND(time)"),
+    ("XDATE.TDAY", "XDATE.TDAY(time)"),
+    ("XDATE.TIME", "XDATE.TIME(time)"),
+    ("XDATE.WEEK", "XDATE.WEEK(date)"),
+    ("XDATE.WKDAY", "XDATE.WKDAY(date)"),
+    ("XDATE.YEAR", "XDATE.YEAR(date)"),
+    ("DATEDIFF", "DATEDIFF(date2, date1, 'unit')"),
+    (
+        "DATESUM",
+        "DATESUM(date, value, 'unit' [, 'rollover' | 'closest'])",
+    ),
+    ("CDFNORM", "CDFNORM(z)"),
+    ("PROBIT", "PROBIT(p)"),
+    ("CDF.BERNOULLI", "CDF.BERNOULLI(x, prob)"),
+    ("CDF.BETA", "CDF.BETA(x, shape1, shape2)"),
+    ("CDF.BINOM", "CDF.BINOM(x, n, prob)"),
+    ("CDF.BVNOR", "CDF.BVNOR(x1, x2, corr)"),
+    ("CDF.CAUCHY", "CDF.CAUCHY(x, location, scale)"),
+    ("CDF.CHISQ", "CDF.CHISQ(x, df)"),
+    ("CDF.EXP", "CDF.EXP(x, rate)"),
+    ("CDF.F", "CDF.F(x, df1, df2)"),
+    ("CDF.GAMMA", "CDF.GAMMA(x, shape, rate)"),
+    ("CDF.GEOM", "CDF.GEOM(x, prob)"),
+    ("CDF.HALFNRM", "CDF.HALFNRM(x, location, scale)"),
+    ("CDF.HYPER", "CDF.HYPER(x, total, sample, hits)"),
+    ("CDF.IGAUSS", "CDF.IGAUSS(x, mean, shape)"),
+    ("CDF.LAPLACE", "CDF.LAPLACE(x, mean, scale)"),
+    ("CDF.LOGISTIC", "CDF.LOGISTIC(x, mean, scale)"),
+    ("CDF.LNORMAL", "CDF.LNORMAL(x, a, b)"),
+    ("CDF.NEGBIN", "CDF.NEGBIN(x, threshold, prob)"),
+    ("CDF.NORMAL", "CDF.NORMAL(x, mean, sd)"),
+    ("CDF.PARETO", "CDF.PARETO(x, threshold, shape)"),
+    ("CDF.POISSON", "CDF.POISSON(x, mean)"),
+    ("CDF.SMOD", "CDF.SMOD(x, comparisons, df)"),
+    ("CDF.SRANGE", "CDF.SRANGE(x, means, df)"),
+    ("CDF.T", "CDF.T(x, df)"),
+    ("CDF.UNIFORM", "CDF.UNIFORM(x, min, max)"),
+    ("CDF.WEIBULL", "CDF.WEIBULL(x, scale, shape)"),
+    ("IDF.BETA", "IDF.BETA(p, shape1, shape2)"),
+    ("IDF.CAUCHY", "IDF.CAUCHY(p, location, scale)"),
+    ("IDF.CHISQ", "IDF.CHISQ(p, df)"),
+    ("IDF.EXP", "IDF.EXP(p, rate)"),
+    ("IDF.F", "IDF.F(p, df1, df2)"),
+    ("IDF.GAMMA", "IDF.GAMMA(p, shape, rate)"),
+    ("IDF.HALFNRM", "IDF.HALFNRM(p, location, scale)"),
+    ("IDF.IGAUSS", "IDF.IGAUSS(p, mean, shape)"),
+    ("IDF.LAPLACE", "IDF.LAPLACE(p, mean, scale)"),
+    ("IDF.LOGISTIC", "IDF.LOGISTIC(p, mean, scale)"),
+    ("IDF.LNORMAL", "IDF.LNORMAL(p, a, b)"),
+    ("IDF.NORMAL", "IDF.NORMAL(p, mean, sd)"),
+    ("IDF.PARETO", "IDF.PARETO(p, threshold, shape)"),
+    ("IDF.SMOD", "IDF.SMOD(p, comparisons, df)"),
+    ("IDF.SRANGE", "IDF.SRANGE(p, means, df)"),
+    ("IDF.T", "IDF.T(p, df)"),
+    ("IDF.UNIFORM", "IDF.UNIFORM(p, min, max)"),
+    ("IDF.WEIBULL", "IDF.WEIBULL(p, scale, shape)"),
+    ("PDF.BERNOULLI", "PDF.BERNOULLI(x, prob)"),
+    ("PDF.BETA", "PDF.BETA(x, shape1, shape2)"),
+    ("PDF.BINOM", "PDF.BINOM(x, n, prob)"),
+    ("PDF.BVNOR", "PDF.BVNOR(x1, x2, corr)"),
+    ("PDF.CAUCHY", "PDF.CAUCHY(x, location, scale)"),
+    ("PDF.CHISQ", "PDF.CHISQ(x, df)"),
+    ("PDF.EXP", "PDF.EXP(x, rate)"),
+    ("PDF.F", "PDF.F(x, df1, df2)"),
+    ("PDF.GAMMA", "PDF.GAMMA(x, shape, rate)"),
+    ("PDF.GEOM", "PDF.GEOM(x, prob)"),
+    ("PDF.HALFNRM", "PDF.HALFNRM(x, location, scale)"),
+    ("PDF.HYPER", "PDF.HYPER(x, total, sample, hits)"),
+    ("PDF.IGAUSS", "PDF.IGAUSS(x, mean, shape)"),
+    ("PDF.LAPLACE", "PDF.LAPLACE(x, mean, scale)"),
+    ("PDF.LOGISTIC", "PDF.LOGISTIC(x, mean, scale)"),
+    ("PDF.LNORMAL", "PDF.LNORMAL(x, a, b)"),
+    ("PDF.NEGBIN", "PDF.NEGBIN(x, threshold, prob)"),
+    ("PDF.NORMAL", "PDF.NORMAL(x, mean, sd)"),
+    ("PDF.PARETO", "PDF.PARETO(x, threshold, shape)"),
+    ("PDF.POISSON", "PDF.POISSON(x, mean)"),
+    ("PDF.T", "PDF.T(x, df)"),
+    ("PDF.UNIFORM", "PDF.UNIFORM(x, min, max)"),
+    ("PDF.WEIBULL", "PDF.WEIBULL(x, scale, shape)"),
+    ("NCDF.BETA", "NCDF.BETA(x, shape1, shape2, lambda)"),
+    ("NCDF.CHISQ", "NCDF.CHISQ(x, df, lambda)"),
+    ("NCDF.F", "NCDF.F(x, df1, df2, lambda)"),
+    ("NCDF.T", "NCDF.T(x, df, lambda)"),
+    ("NPDF.BETA", "NPDF.BETA(x, shape1, shape2, lambda)"),
+    ("NPDF.CHISQ", "NPDF.CHISQ(x, df, lambda)"),
+    ("NPDF.F", "NPDF.F(x, df1, df2, lambda)"),
+    ("NPDF.T", "NPDF.T(x, df, lambda)"),
+    ("SIG.CHISQ", "SIG.CHISQ(x, df)"),
+    ("SIG.F", "SIG.F(x, df1, df2)"),
     ("UNIFORM", "UNIFORM(max)"),
     ("NORMAL", "NORMAL(sd)"),
     ("RV.BERNOULLI", "RV.BERNOULLI(prob)"),
@@ -103,6 +242,7 @@ pub fn functions() -> &'static [(&'static str, &'static str)] {
 const STATISTICS: &[(&str, usize)] = &[
     ("SUM", 1),
     ("MEAN", 1),
+    ("MEDIAN", 1),
     ("MIN", 1),
     ("MAX", 1),
     ("SD", 2),
@@ -110,51 +250,25 @@ const STATISTICS: &[(&str, usize)] = &[
     ("CFVAR", 2),
 ];
 
-/// Functions of the language that are not evaluated yet. A name ending in a period stands for
-/// every function with that prefix.
-const UNSUPPORTED: &[&str] = &[
-    "ARCOS",
-    "ARSIN",
-    "ARTAN",
-    "COS",
-    "SIN",
-    "TAN",
-    "MEDIAN",
-    "LNGAMMA",
-    "CDFNORM",
-    "PROBIT",
-    "YRMODA",
-    "DATEDIFF",
-    "DATESUM",
-    "REPLACE",
-    "LPAD",
-    "RPAD",
-    "STRUNC",
-    "RINDEX",
-    "NTRIM",
-    "NORMALIZE",
-    "VALUELABEL",
-    "MBLEN.BYTE",
-    "CHAR.",
-    "DATE.",
-    "XDATE.",
-    "TIME.",
-    "CTIME.",
-    "CDF.",
-    "PDF.",
-    "IDF.",
-    "SIG.",
-    "NCDF.",
-    "NPDF.",
-];
+/// Functions of the language that are not evaluated: scoring needs MODEL HANDLE.
+const UNSUPPORTED: &[&str] = &["APPLYMODEL", "STRAPPLYMODEL"];
+
+/// The distribution families whose functions `distributions` evaluates.
+const DISTRIBUTION_FAMILIES: &[&str] = &["CDF", "IDF", "PDF", "NCDF", "NPDF", "SIG"];
+
+/// The number of arguments of a distribution function such as CDF.NORMAL, None for any other
+/// name. The matrix language has the same functions.
+fn distribution_arity(function: &str) -> Option<usize> {
+    let (family, _) = function.split_once('.')?;
+    DISTRIBUTION_FAMILIES.contains(&family).then_some(())?;
+    statscraft_syntax::matrix_function(function).map(|(_, count, _)| count)
+}
 
 /// A function name shortened to three or more letters that start only one function, such as
 /// SYS for SYSMIS, as the full name; any other name as it is.
 fn full_name(name: String) -> String {
     let names = FUNCTIONS.iter().map(|(f, _)| *f);
-    let all = names
-        .clone()
-        .chain(UNSUPPORTED.iter().map(|u| u.trim_end_matches('.')));
+    let all = names.clone().chain(UNSUPPORTED.iter().copied());
     if name.len() < 3 || name.contains('.') || names.clone().any(|f| f == name) {
         return name;
     }
@@ -165,7 +279,6 @@ fn full_name(name: String) -> String {
     }
 }
 
-const SECONDS_PER_DAY: f64 = 86400.0;
 /// Days from 1582-10-14, where date values start, to 1970-01-01.
 pub(crate) const DAYS_TO_1970: i64 = 141_428;
 
@@ -313,6 +426,16 @@ fn statistic(name: &str, values: &[f64]) -> f64 {
     match name {
         "SUM" => sum,
         "MEAN" => sum / n,
+        "MEDIAN" => {
+            let mut sorted = values.to_vec();
+            sorted.sort_by(f64::total_cmp);
+            let half = sorted.len() / 2;
+            if sorted.len() % 2 == 1 {
+                sorted[half]
+            } else {
+                (sorted[half - 1] + sorted[half]) / 2.0
+            }
+        }
         "MIN" => values.iter().copied().fold(f64::INFINITY, f64::min),
         "MAX" => values.iter().copied().fold(f64::NEG_INFINITY, f64::max),
         "VARIANCE" => variance(values),
@@ -346,52 +469,80 @@ fn any_match(candidates: impl Iterator<Item = Option<bool>>) -> Option<f64> {
     comparable.then_some(0.0)
 }
 
-/// The `Fw.d` argument of NUMBER and STRING. The parser hands it over as a variable name.
-// shortcut: only F formats, add the others (N, COMMA, DATE ...) when a real script needs one
-fn f_format(function: &str, expr: &Expr) -> Result<(usize, usize), Error> {
+/// The formats NUMBER reads with, as the data input formats read them.
+const NUMBER_FORMATS: &[(&str, FormatType)] = &[
+    ("F", FormatType::F),
+    ("N", FormatType::N),
+    ("E", FormatType::E),
+    ("COMMA", FormatType::Comma),
+    ("DOT", FormatType::Dot),
+    ("DOLLAR", FormatType::Dollar),
+    ("PCT", FormatType::Pct),
+    ("DATE", FormatType::Date),
+    ("ADATE", FormatType::Adate),
+    ("EDATE", FormatType::Edate),
+    ("SDATE", FormatType::Sdate),
+];
+
+/// The formats STRING writes with: those every output shows.
+const STRING_FORMATS: &[&str] = &[
+    "F", "N", "E", "COMMA", "DOT", "DOLLAR", "PCT", "DATE", "ADATE", "EDATE", "JDATE", "SDATE",
+    "QYR", "MOYR", "WKYR", "DATETIME", "YMDHMS", "TIME", "MTIME", "DTIME", "WKDAY", "MONTH",
+];
+
+/// The format argument of NUMBER and STRING (such as F8.2 or DATE11): its type in upper case,
+/// width and decimals. The parser hands it over as a variable name.
+// shortcut: NUMBER reads the formats DATA LIST reads (no TIME, DATETIME ...); add them there
+fn format_arg(function: &str, expr: &Expr) -> Result<(String, usize, usize), Error> {
     let parsed = match expr {
-        Expr::Variable(text) if text.starts_with(['F', 'f']) => {
-            let (width, decimals) = text[1..].split_once('.').unwrap_or((&text[1..], "0"));
-            width.parse().ok().zip(decimals.parse().ok())
+        Expr::Variable(text) => {
+            let letters = text.find(|c: char| !c.is_ascii_alphabetic());
+            let (kind, size) = text.split_at(letters.unwrap_or(text.len()));
+            let (width, decimals) = size.split_once('.').unwrap_or((size, "0"));
+            let kind = kind.to_uppercase();
+            let known = if function == "NUMBER" {
+                NUMBER_FORMATS.iter().any(|(k, _)| *k == kind)
+            } else {
+                STRING_FORMATS.contains(&kind.as_str())
+            };
+            width
+                .parse::<usize>()
+                .ok()
+                .zip(decimals.parse::<usize>().ok())
+                .filter(|_| known)
+                .map(|(width, decimals)| (kind, width, decimals))
         }
         _ => None,
     };
+    let names = if function == "NUMBER" {
+        NUMBER_FORMATS.iter().map(|(k, _)| *k).collect::<Vec<_>>()
+    } else {
+        STRING_FORMATS.to_vec()
+    };
     match parsed {
-        Some((width, decimals)) if (1..=40).contains(&width) && decimals < width => {
-            Ok((width, decimals))
+        Some((kind, width, decimals)) if (1..=40).contains(&width) && decimals < width => {
+            Ok((kind, width, decimals))
         }
         _ => Err(Error(format!(
-            "argument 2 of {function} must be an F format such as F8.2 (width 1 to 40, \
-             fewer decimals than the width); other formats are not supported yet"
+            "argument 2 of {function} must be a format such as F8.2 (width 1 to 40, fewer \
+             decimals than the width) of type {}",
+            names.join(", ")
         ))),
     }
 }
 
-/// Reads the first `width` characters of `text` as a number. Without a decimal point or an
-/// exponent the last `decimals` digits are decimals, as in a fixed-column data file.
-fn parse_number(text: &str, width: usize, decimals: usize) -> Option<f64> {
+/// The first `width` characters of `text` read in the format `kind`; None when they are blank
+/// or cannot be read.
+fn read_number(text: &str, kind: &str, width: usize, decimals: usize) -> Option<f64> {
     let field: String = text.chars().take(width).collect();
-    let field = field.trim();
-    let unsigned = field.strip_prefix(['+', '-']).unwrap_or(field).trim_start();
-    let end = unsigned
-        .find(|c: char| !c.is_ascii_digit() && c != '.')
-        .unwrap_or(unsigned.len());
-    let (mantissa, rest) = unsigned.split_at(end);
-    let exponent = match rest.strip_prefix(['e', 'E', 'd', 'D']) {
-        _ if rest.is_empty() && mantissa.contains('.') => 0,
-        _ if rest.is_empty() => -(decimals as i32),
-        // `1+2` is 100: the exponent may come without its letter
-        None if rest.starts_with(['+', '-']) => rest.parse().ok()?,
-        None => return None,
-        Some(digits) => digits.parse().ok()?,
+    let (_, kind) = NUMBER_FORMATS.iter().find(|(k, _)| *k == kind)?;
+    let read = match kind {
+        FormatType::Date | FormatType::Adate | FormatType::Edate | FormatType::Sdate => {
+            crate::data_list::date(&field, *kind)
+        }
+        _ => crate::data_list::number(&field, *kind, decimals as u8),
     };
-    let value: f64 = mantissa.parse().ok()?;
-    let value: f64 = format!("{value}e{exponent}").parse().ok()?;
-    finite(if field.starts_with('-') {
-        -value
-    } else {
-        value
-    })
+    read.ok().flatten()
 }
 
 /// The digits of `value` (not negative) with two more decimals than its format has. Every
@@ -497,30 +648,39 @@ pub(crate) fn civil_from_days(days: i64) -> (i64, i64, i64) {
     (year, month, day)
 }
 
-/// The date value of a day: seconds from 1582-10-14. Day 0 to 31 and month 1 to 13 are
-/// accepted and carry into the neighbouring month or year.
-pub(crate) fn date(day: Option<f64>, month: Option<f64>, year: Option<f64>) -> Option<f64> {
-    let whole = |v: Option<f64>| v.filter(|v| v.fract() == 0.0 && v.abs() < 1e6);
-    let (day, month, year) = (
-        whole(day)? as i64,
-        whole(month)? as i64,
-        whole(year)? as i64,
-    );
-    // shortcut: a two-digit year is missing instead of being moved into a century window,
-    // add the window when SET EPOCH is supported
-    if !(0..=31).contains(&day) || !(1..=13).contains(&month) || year < 1582 {
-        return None;
+/// The text of a numeric column as a function argument that must be a number.
+fn numeric(column: Column, expr: &Expr, what: &str) -> Result<Numbers, Error> {
+    match column {
+        Column::Number(values) => Ok(values),
+        Column::String(_) => Err(Error(format!(
+            "{what} must be a number, but {} is a string",
+            describe(expr)
+        ))),
     }
-    let days = days_from_civil(year, month, day) + DAYS_TO_1970;
-    (days >= 1).then_some(days as f64 * SECONDS_PER_DAY)
 }
 
-/// (year, month, day) of a date value; dates before 1582-10-15 are missing.
-fn date_parts(value: f64) -> Option<(i64, i64, i64)> {
-    let days = (value / SECONDS_PER_DAY).floor();
-    (1.0..1e9)
-        .contains(&days)
-        .then(|| civil_from_days(days as i64 - DAYS_TO_1970))
+/// `f` of the arguments of each case; a missing argument makes the result missing.
+fn each_case(columns: &[Numbers], cases: usize, f: impl Fn(&[f64]) -> Option<f64>) -> Column {
+    let value = |case: usize| {
+        let row: Option<Vec<f64>> = columns.iter().map(|c| c[case]).collect();
+        f(&row?).and_then(finite)
+    };
+    Column::Number((0..cases).map(value).collect())
+}
+
+/// The literal text of a DATEDIFF or DATESUM keyword argument such as "days".
+fn keyword<'e>(function: &str, expr: Option<&'e Expr>, what: &str) -> Result<&'e str, Error> {
+    match expr {
+        Some(Expr::String(text)) => Ok(text),
+        _ => Err(Error(format!(
+            "the {what} of {function} must be a quoted word such as {}",
+            if what == "unit" {
+                "'days'"
+            } else {
+                "'closest'"
+            }
+        ))),
+    }
 }
 
 impl Evaluator<'_> {
@@ -593,13 +753,7 @@ impl Evaluator<'_> {
     }
 
     fn number(&self, expr: &Expr, what: &str) -> Result<Numbers, Error> {
-        match self.eval(expr)? {
-            Column::Number(values) => Ok(values),
-            Column::String(_) => Err(Error(format!(
-                "{what} must be a number, but {} is a string",
-                describe(expr)
-            ))),
-        }
+        numeric(self.eval(expr)?, expr, what)
     }
 
     fn text(&self, expr: &Expr, what: &str) -> Result<Vec<String>, Error> {
@@ -758,16 +912,14 @@ impl Evaluator<'_> {
         let upper = full_name(name.to_uppercase());
         // `MEAN.2`: the suffix is the number of valid arguments the result needs
         let suffix = upper.rsplit_once('.').and_then(|(base, n)| {
-            let needed = STATISTICS.iter().find(|(known, _)| *known == base)?.1;
-            n.parse::<usize>().ok().map(|n| (base, n.max(needed)))
+            STATISTICS.iter().find(|(known, _)| *known == base)?;
+            n.parse::<usize>().ok().map(|n| (base, n))
         });
-        let (function, needed) = match suffix {
-            Some((base, n)) => (base, n),
-            None => {
-                let needed = STATISTICS.iter().find(|(known, _)| *known == upper);
-                (upper.as_str(), needed.map_or(0, |(_, n)| *n))
-            }
-        };
+        let function = suffix.map_or(upper.as_str(), |(base, _)| base);
+        // the fewest arguments a statistical function takes, and the valid values it needs
+        let least = STATISTICS.iter().find(|(known, _)| *known == function);
+        let least = least.map_or(0, |(_, n)| *n);
+        let needed = suffix.map_or(least, |(_, n)| n.max(least));
         if let (Some(variables), [index]) = (self.vectors.get(&name.to_lowercase()), args) {
             let Column::Number(indexes) = self.eval(index)? else {
                 return Err(Error(format!("the index of {name} must be a number")));
@@ -796,10 +948,9 @@ impl Evaluator<'_> {
             let results = results.map(|((x, m), f)| round(x, m, f, half).and_then(finite));
             Ok(Column::Number(results.collect()))
         };
-        let date_part = |part: fn((i64, i64, i64)) -> i64| -> Result<Column, Error> {
-            let part = |v: Option<f64>| date_parts(v?).map(|parts| part(parts) as f64);
-            Ok(Column::Number(number(0)?.into_iter().map(part).collect()))
-        };
+        // an optional numeric argument: None when it is left out
+        let given = |i: usize| args.get(i).map(|_| number(i)).transpose();
+        let known = FUNCTIONS.iter().any(|(f, _)| *f == function);
 
         Ok(match (function, args.len()) {
             ("ABS", 1) => one(f64::abs)?,
@@ -807,20 +958,61 @@ impl Evaluator<'_> {
             ("EXP", 1) => one(f64::exp)?,
             ("LN", 1) => one(f64::ln)?,
             ("LG10", 1) => one(f64::log10)?,
+            // the manual allows x > 0 only; Γ(1) = Γ(2) = 1 exactly, where the series is a
+            // hair off
+            ("LNGAMMA", 1) => one(|x| match x {
+                1.0 | 2.0 => 0.0,
+                _ if x > 0.0 => dist::ln_gamma(x),
+                _ => f64::NAN,
+            })?,
+            ("SIN", 1) => one(f64::sin)?,
+            ("COS", 1) => one(f64::cos)?,
+            ("TAN", 1) => one(f64::tan)?,
+            ("ARSIN", 1) => one(f64::asin)?,
+            ("ARCOS", 1) => one(f64::acos)?,
+            ("ARTAN", 1) => one(f64::atan)?,
             ("RND", 1..=3) => rounded(0.5)?,
             ("TRUNC", 1..=3) => rounded(0.0)?,
             ("MOD", 2) => zip(number(0)?, number(1)?, modulo),
 
-            ("SUM" | "MEAN" | "MIN" | "MAX" | "SD" | "VARIANCE" | "CFVAR", count)
-                if count >= 1 && count >= needed =>
-            {
-                across(&numbers()?, cases, |valid| {
-                    (valid.len() >= needed).then(|| statistic(function, valid))
-                })
+            (_, count) if least > 0 && count >= least => {
+                let columns: Vec<Column> = args
+                    .iter()
+                    .map(|a| self.eval(a))
+                    .collect::<Result<_, _>>()?;
+                let strings = columns.iter().all(|c| matches!(c, Column::String(_)));
+                if strings && suffix.is_none() && matches!(function, "MIN" | "MAX") {
+                    let texts: Vec<Vec<String>> = columns
+                        .into_iter()
+                        .filter_map(|c| match c {
+                            Column::String(values) => Some(values),
+                            Column::Number(_) => None,
+                        })
+                        .collect();
+                    let pick = |case: usize| {
+                        let values = texts.iter().map(|t| &t[case]);
+                        let order = |a: &&String, b: &&String| compare_text(a, b);
+                        let best = if function == "MIN" {
+                            values.min_by(order)
+                        } else {
+                            values.max_by(order)
+                        };
+                        best.cloned().unwrap_or_default()
+                    };
+                    Column::String((0..cases).map(pick).collect())
+                } else {
+                    let columns = columns.into_iter().zip(args).enumerate();
+                    let columns =
+                        columns.map(|(i, (column, arg))| numeric(column, arg, &argument(i)));
+                    // MEAN.4 of three arguments is missing, as the manual says
+                    across(&columns.collect::<Result<Vec<_>, _>>()?, cases, |valid| {
+                        (valid.len() >= needed).then(|| statistic(function, valid))
+                    })
+                }
             }
-            ("SUM" | "MEAN" | "MIN" | "MAX" | "SD" | "VARIANCE" | "CFVAR", count) if count >= 1 => {
+            (_, count) if least > 0 && count >= 1 => {
                 return Err(Error(format!(
-                    "{upper} needs at least {needed} arguments, got {count}"
+                    "{upper} needs at least {least} arguments, got {count}"
                 )));
             }
             ("NVALID", 1..) => across(&numbers()?, cases, |valid| Some(valid.len() as f64)),
@@ -944,46 +1136,152 @@ impl Evaluator<'_> {
             ("LENGTH", 1) => {
                 Column::Number(text(0)?.iter().map(|v| Some(v.len() as f64)).collect())
             }
+            // without trailing blanks, as the manual says
             ("CHAR.LENGTH", 1) => {
-                let length = |v: &String| Some(v.chars().count() as f64);
+                let length = |v: &String| Some(v.trim_end_matches(' ').chars().count() as f64);
                 Column::Number(text(0)?.iter().map(length).collect())
             }
             ("UPCASE", 1) => map_text(text(0)?, str::to_uppercase),
             ("LOWER", 1) => map_text(text(0)?, str::to_lowercase),
             ("LTRIM", 1) => map_text(text(0)?, |v| v.trim_start_matches(' ').to_string()),
             ("RTRIM", 1) => map_text(text(0)?, |v| v.trim_end_matches(' ').to_string()),
-            ("INDEX" | "CHAR.INDEX", 2) => {
-                let (values, needles) = (text(0)?, text(1)?);
-                let position = |(value, needle): (&String, &String)| {
-                    let found = value.find(needle.as_str());
-                    Some(found.map_or(0.0, |at| value[..at].chars().count() as f64 + 1.0))
-                };
-                Column::Number(values.iter().zip(&needles).map(position).collect())
+            ("LTRIM" | "RTRIM", 2) => {
+                let (values, what) = (text(0)?, text(1)?);
+                let left = function == "LTRIM";
+                let trimmed = |(value, what): (&String, &String)| f::trim(value, what, left);
+                Column::String(values.iter().zip(&what).map(trimmed).collect())
             }
+            ("NTRIM", 1) => match &args[0] {
+                Expr::Variable(name) => self.variable(name, true)?,
+                other => {
+                    return Err(Error(format!(
+                        "the argument of NTRIM must be a variable name, but it is {}",
+                        describe(other)
+                    )));
+                }
+            },
+            ("INDEX" | "CHAR.INDEX" | "RINDEX" | "CHAR.RINDEX", 2 | 3) => {
+                let (values, needles, divisors) = (text(0)?, text(1)?, given(2)?);
+                let last = function.ends_with("RINDEX");
+                let position = |case: usize| {
+                    let divisor = divisors.as_ref().map(|d| d[case]);
+                    f::find(&values[case], &needles[case], divisor, last)
+                };
+                Column::Number((0..cases).map(position).collect())
+            }
+            ("LPAD" | "CHAR.LPAD" | "RPAD" | "CHAR.RPAD", 2 | 3) => {
+                let (values, lengths) = (text(0)?, number(1)?);
+                let pads = match args.get(2) {
+                    Some(_) => text(2)?,
+                    None => vec![" ".to_string(); cases],
+                };
+                let left = function.ends_with("LPAD");
+                let padded = |case: usize| f::pad(&values[case], lengths[case], &pads[case], left);
+                Column::String((0..cases).map(padded).collect())
+            }
+            ("REPLACE", 3 | 4) => {
+                let (values, old, new, counts) = (text(0)?, text(1)?, text(2)?, given(3)?);
+                let replaced = |case: usize| {
+                    let count = match &counts {
+                        None => None,
+                        Some(counts) => match f::count(counts[case], 0.0) {
+                            Some(count) => Some(count),
+                            None => return String::new(),
+                        },
+                    };
+                    f::replace(&values[case], &old[case], &new[case], count)
+                };
+                Column::String((0..cases).map(replaced).collect())
+            }
+            ("STRUNC", 2) => {
+                let (values, lengths) = (text(0)?, number(1)?);
+                let cut = |(value, length): (&String, Option<f64>)| {
+                    f::count(length, 0.0).map_or(String::new(), |bytes| f::strunc(value, bytes))
+                };
+                Column::String(values.iter().zip(lengths).map(cut).collect())
+            }
+            ("CHAR.MBLEN" | "MBLEN.BYTE", 2) => {
+                let (values, positions) = (text(0)?, number(1)?);
+                let bytes = function == "MBLEN.BYTE";
+                let length =
+                    |(value, position): (&String, Option<f64>)| f::mblen(value, position?, bytes);
+                Column::Number(values.iter().zip(positions).map(length).collect())
+            }
+            ("NORMALIZE", 1) => map_text(text(0)?, |v| v.nfc().collect()),
+            ("VALUELABEL", 1) => self.value_label(&args[0])?,
             ("NUMBER", 2) => {
-                let (width, decimals) = f_format(function, &args[1])?;
-                let parse = |v: &String| parse_number(v, width, decimals);
-                Column::Number(text(0)?.iter().map(parse).collect())
+                let (kind, width, decimals) = format_arg(function, &args[1])?;
+                let read = |v: &String| read_number(v, &kind, width, decimals);
+                Column::Number(text(0)?.iter().map(read).collect())
             }
             ("STRING", 2) => {
-                let (width, decimals) = f_format(function, &args[1])?;
-                let format = |v: Option<f64>| format_number(v, width, decimals);
-                Column::String(number(0)?.into_iter().map(format).collect())
+                let (kind, width, decimals) = format_arg(function, &args[1])?;
+                let spec = format!("{kind}{width}.{decimals}");
+                let write = |v: Option<f64>| match v {
+                    Some(v) => format!("{:>width$}", format_value(v, &spec, false)),
+                    None => format_number(None, width, decimals),
+                };
+                Column::String(number(0)?.into_iter().map(write).collect())
             }
 
             ("DATE.DMY" | "DATE.MDY", 3) => {
-                let (day, month) = if function == "DATE.DMY" {
-                    (0, 1)
-                } else {
-                    (1, 0)
-                };
-                let (day, month, year) = (number(day)?, number(month)?, number(2)?);
-                let dates = day.into_iter().zip(month).zip(year);
-                Column::Number(dates.map(|((d, m), y)| date(d, m, y)).collect())
+                let dmy = function == "DATE.DMY";
+                each_case(&numbers()?, cases, |p| {
+                    let (day, month) = if dmy { (p[0], p[1]) } else { (p[1], p[0]) };
+                    f::date(day, month, p[2])
+                })
             }
-            ("XDATE.YEAR", 1) => date_part(|(year, _, _)| year)?,
-            ("XDATE.MONTH", 1) => date_part(|(_, month, _)| month)?,
-            ("XDATE.MDAY", 1) => date_part(|(_, _, day)| day)?,
+            ("DATE.MOYR" | "DATE.QYR" | "DATE.WKYR" | "DATE.YRDAY", 2) => {
+                each_case(&numbers()?, cases, |p| f::date_of(function, p[0], p[1]))
+            }
+            ("YRMODA", 3) => each_case(&numbers()?, cases, |p| f::yrmoda(p[0], p[1], p[2])),
+            ("TIME.DAYS", 1) => one(|days| days * f::DAY)?,
+            ("TIME.HMS", 1..=3) => each_case(&numbers()?, cases, f::time_hms),
+            ("CTIME.DAYS", 1) => one(|time| time / f::DAY)?,
+            ("CTIME.HOURS", 1) => one(|time| time / 3600.0)?,
+            ("CTIME.MINUTES", 1) => one(|time| time / 60.0)?,
+            ("CTIME.SECONDS", 1) => one(|time| time)?,
+            (_, 1) if known && function.starts_with("XDATE.") => {
+                each_case(&numbers()?, cases, |p| f::xdate(function, p[0]))
+            }
+            ("DATEDIFF", 3) => {
+                let unit = self.unit(function, args.get(2))?;
+                let dates = [number(0)?, number(1)?];
+                each_case(&dates, cases, |p| f::date_diff(p[0], p[1], unit))
+            }
+            ("DATESUM", 3 | 4) => {
+                let unit = self.unit(function, args.get(2))?;
+                let rollover = match args.get(3) {
+                    None => false,
+                    method => match keyword(function, method, "method")?.trim().to_lowercase() {
+                        m if m == "rollover" => true,
+                        m if m == "closest" => false,
+                        m => {
+                            return Err(Error(format!(
+                                "the method of DATESUM must be 'rollover' or 'closest', not '{m}'"
+                            )));
+                        }
+                    },
+                };
+                let values = [number(0)?, number(1)?];
+                each_case(&values, cases, |p| f::date_sum(p[0], p[1], unit, rollover))
+            }
+
+            ("CDFNORM", 1) => each_case(&numbers()?, cases, |p| {
+                distributions::evaluate("CDF.NORMAL", &[p[0], 0.0, 1.0])
+            }),
+            ("PROBIT", 1) => each_case(&numbers()?, cases, |p| {
+                distributions::evaluate("IDF.NORMAL", &[p[0], 0.0, 1.0])
+            }),
+            // a parameter or value out of range gives system-missing
+            (_, count) if distribution_arity(function) == Some(count) => {
+                each_case(&numbers()?, cases, |p| {
+                    let valid = distributions::x_in_range(function, p);
+                    valid
+                        .then(|| distributions::evaluate(function, p))
+                        .flatten()
+                })
+            }
             (_, count) if crate::random::arity(function) == Some(count) => {
                 let parameters = numbers()?;
                 let random = &mut *self.random.borrow_mut();
@@ -998,19 +1296,96 @@ impl Evaluator<'_> {
             }
 
             (_, count) => {
-                let known = FUNCTIONS.iter().find(|(known, _)| *known == function);
-                let unsupported = UNSUPPORTED.iter().any(|u| match u.strip_suffix('.') {
-                    Some(_) => upper.starts_with(u),
-                    None => *u == upper,
-                });
-                return Err(Error(match known {
+                let usage = FUNCTIONS.iter().find(|(known, _)| *known == function);
+                return Err(Error(match usage {
                     Some((_, usage)) => format!(
                         "wrong number of arguments for {function}: expected {usage}, got {count}"
                     ),
-                    None if unsupported => format!("function {upper} is not supported yet"),
+                    None if UNSUPPORTED.contains(&upper.as_str()) => {
+                        format!("function {upper} is not supported yet")
+                    }
                     None => format!("unknown function {upper}"),
                 }));
             }
         })
+    }
+
+    /// The unit argument of DATEDIFF and DATESUM.
+    fn unit(&self, function: &str, expr: Option<&Expr>) -> Result<f::Unit, Error> {
+        let name = keyword(function, expr, "unit")?;
+        f::unit(name).ok_or_else(|| {
+            Error(format!(
+                "the unit of {function} must be years, quarters, months, weeks, days, hours, \
+                 minutes or seconds, not '{name}'"
+            ))
+        })
+    }
+
+    /// VALUELABEL(variable): the label of each value, empty where it has none.
+    fn value_label(&self, arg: &Expr) -> Result<Column, Error> {
+        let Expr::Variable(name) = arg else {
+            return Err(Error(format!(
+                "the argument of VALUELABEL must be a variable name, but it is {}",
+                describe(arg)
+            )));
+        };
+        let variable = self
+            .data
+            .variable(name)
+            .map_err(|_| Error(format!("unknown variable {name}")))?;
+        let labels = variable.value_labels();
+        let label = |value: Value| {
+            let found = labels.iter().find(|(v, _)| *v == value);
+            found.map_or(String::new(), |(_, label)| label.clone())
+        };
+        Ok(Column::String(match variable.values() {
+            Values::Numeric(values) => values
+                .iter()
+                .map(|v| v.map_or(String::new(), |v| label(Value::Number(v))))
+                .collect(),
+            Values::String(values) => values
+                .iter()
+                .map(|v| label(Value::String(v.trim_end().to_string())))
+                .collect(),
+        }))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn every_distribution_and_random_function_is_listed_with_its_arguments() {
+        let listed = |name: &str| FUNCTIONS.iter().find(|(f, _)| *f == name);
+        let mut distributions = 0;
+        for name in statscraft_syntax::matrix_function_names() {
+            if let Some(arity) = distribution_arity(&name) {
+                let (_, form) = listed(&name).unwrap_or_else(|| panic!("{name} is not listed"));
+                assert_eq!(form.matches(',').count() + 1, arity, "{form}");
+                distributions += 1;
+            } else if name.starts_with("RV.") {
+                assert!(listed(&name).is_some(), "{name} is not listed");
+            }
+        }
+        assert_eq!(distributions, 76);
+    }
+
+    #[test]
+    fn the_help_names_every_function() {
+        let help = statscraft_syntax::help(None).expect("the general help");
+        let words: Vec<&str> = help
+            .split(|c: char| !(c.is_ascii_alphanumeric() || c == '.'))
+            .map(|w| w.trim_end_matches('.'))
+            .collect();
+        for (name, _) in FUNCTIONS {
+            let (family, distribution) = name.split_once('.').unwrap_or((name, ""));
+            let listed = if DISTRIBUTION_FAMILIES.contains(&family) || family == "RV" {
+                words.contains(&format!("{family}.d").as_str()) && words.contains(&distribution)
+            } else {
+                words.contains(name)
+            };
+            assert!(listed, "{name} is not in the help");
+        }
     }
 }

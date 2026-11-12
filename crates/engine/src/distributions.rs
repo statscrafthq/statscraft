@@ -670,6 +670,38 @@ fn noncentral(family: &str, distribution: &str, x: f64, p: &[f64]) -> Option<f64
     Some(value.clamp(0.0, f64::INFINITY))
 }
 
+/// Whether x, the first argument of a CDF, PDF, NCDF, NPDF or SIG function, is a value the
+[removed]
+/// whole numbers only. The parameters are left to `evaluate`.
+pub(crate) fn x_in_range(name: &str, p: &[f64]) -> bool {
+    let Some((family, distribution)) = name.split_once('.') else {
+        return true;
+    };
+    if family == "IDF" {
+        return true;
+    }
+    let x = p[0];
+    let whole = |low: f64, high: f64| x.fract() == 0.0 && x >= low && x <= high;
+    match (distribution, &p[1..]) {
+        ("BETA", _) => (0.0..=1.0).contains(&x),
+        (
+            "CHISQ" | "EXP" | "F" | "GAMMA" | "IGAUSS" | "LNORMAL" | "SMOD" | "SRANGE" | "WEIBULL",
+            _,
+        ) => x >= 0.0,
+        ("HALFNRM" | "PARETO", &[low, ..]) => x >= low,
+        ("UNIFORM", &[low, high, ..]) => (low..=high).contains(&x),
+        ("BERNOULLI", _) => whole(0.0, 1.0),
+        ("BINOM", &[n, ..]) => whole(0.0, n),
+        ("GEOM", _) => whole(1.0, f64::INFINITY),
+        ("NEGBIN", &[r, ..]) => whole(r, f64::INFINITY),
+        ("POISSON", _) => whole(0.0, f64::INFINITY),
+        ("HYPER", &[total, sample, hits]) => {
+            whole((sample + hits - total).max(0.0), sample.min(hits))
+        }
+        _ => true,
+    }
+}
+
 fn check_p(p: f64) -> Option<()> {
     (0.0..=1.0).contains(&p).then_some(())
 }

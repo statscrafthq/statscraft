@@ -471,8 +471,11 @@ fn number_to_string_in_f_format() {
     ] {
         assert_eq!(constant_text(expr), expected, "{expr}");
     }
-    let message = error("COMPUTE r = LENGTH(STRING(age, COMMA8.2)).");
-    assert!(message.contains("F format such as F8.2"), "{message}");
+    let message = error("COMPUTE r = LENGTH(STRING(age, F41.2)).");
+    assert!(
+        message.contains("format such as F8.2 (width 1 to 40"),
+        "{message}"
+    );
 }
 
 #[test]
@@ -692,12 +695,45 @@ fn errors_name_what_is_wrong() {
         ),
         ("COMPUTE r = FOO(age).", "unknown function FOO"),
         (
-            "COMPUTE r = LNGAMMA(age).",
-            "function LNGAMMA is not supported yet",
+            "COMPUTE r = APPLYMODEL(m, 'predict').",
+            "function APPLYMODEL is not supported yet",
         ),
         (
-            "COMPUTE r = CDF.NORMAL(age, 0, 1).",
-            "function CDF.NORMAL is not supported yet",
+            "COMPUTE r = CDF.NORMAL(age, 0).",
+            "wrong number of arguments for CDF.NORMAL: expected CDF.NORMAL(x, mean, sd), got 2",
+        ),
+        (
+            "COMPUTE r = DATEDIFF(age, age, 'fortnights').",
+            "the unit of DATEDIFF must be years, quarters, months, weeks, days, hours, minutes \
+             or seconds, not 'fortnights'",
+        ),
+        (
+            "COMPUTE r = DATESUM(age, 1, 'days', 'nearest').",
+            "the method of DATESUM must be 'rollover' or 'closest', not 'nearest'",
+        ),
+        (
+            "COMPUTE r = DATEDIFF(age, age, plan).",
+            "the unit of DATEDIFF must be a quoted word such as 'days'",
+        ),
+        (
+            "STRING s (A8).\nCOMPUTE s = STRING(age, A8).",
+            "argument 2 of STRING must be a format such as F8.2",
+        ),
+        (
+            "COMPUTE r = NUMBER('1', TIME8).",
+            "argument 2 of NUMBER must be a format such as F8.2",
+        ),
+        (
+            "STRING s (A8).\nCOMPUTE s = VALUELABEL(age + 1).",
+            "the argument of VALUELABEL must be a variable name",
+        ),
+        (
+            "STRING s (A8).\nCOMPUTE s = NTRIM(CONCAT(plan)).",
+            "the argument of NTRIM must be a variable name",
+        ),
+        (
+            "COMPUTE r = MIN(plan, age).",
+            "argument 1 of MIN must be a number, but variable plan is a string",
         ),
         (
             "COMPUTE r = $JDATE.",
@@ -706,10 +742,6 @@ fn errors_name_what_is_wrong() {
         (
             "COMPUTE r = MOD(age).",
             "wrong number of arguments for MOD: expected MOD(number, divisor), got 1",
-        ),
-        (
-            "COMPUTE r = MEAN.4(age, region).",
-            "MEAN.4 needs at least 4 arguments, got 2",
         ),
         (
             "COMPUTE r = SD(age).",
@@ -835,4 +867,289 @@ fn a_function_name_may_be_shortened_to_three_letters_that_start_only_it() {
         let message = try_run(&mut engine, syntax).unwrap_err();
         assert_eq!(message, expected, "{syntax}");
     }
+}
+
+fn near(actual: Option<f64>, expected: f64) {
+    let actual = actual.expect("a value, not missing");
+    assert!((actual - expected).abs() <= 1e-12, "{actual} vs {expected}");
+}
+
+#[test]
+fn trigonometric_and_gamma_functions() {
+    near(constant("LNGAMMA(0.5)"), std::f64::consts::PI.sqrt().ln());
+    near(constant("LNGAMMA(1)"), 0.0);
+    close(constant("LNGAMMA(5)"), 24f64.ln());
+    assert_eq!(constant("LNGAMMA(0)"), None);
+    assert_eq!(constant("LNGAMMA(-1.5)"), None);
+    near(constant("SIN(0)"), 0.0);
+    near(constant("COS(0)"), 1.0);
+    near(constant("TAN(0)"), 0.0);
+    near(constant("ARSIN(1)"), std::f64::consts::FRAC_PI_2);
+    near(constant("ARCOS(-1)"), std::f64::consts::PI);
+    near(constant("ARTAN(1)"), std::f64::consts::FRAC_PI_4);
+    assert_eq!(constant("ARSIN(1.5)"), None);
+    assert_eq!(constant("ARCOS(-2)"), None);
+    assert_eq!(constant("SIN($SYSMIS)"), None);
+}
+
+#[test]
+fn median_and_string_minimum_and_maximum() {
+    assert_eq!(constant("MEDIAN(1, 5, 2, 8)"), Some(3.5));
+    assert_eq!(constant("MEDIAN(3, $SYSMIS, 1, 2)"), Some(2.0));
+    assert_eq!(constant("MEDIAN.3(1, $SYSMIS, 8)"), None);
+    assert_eq!(constant("MEDIAN.2(1, $SYSMIS, 8)"), Some(4.5));
+    // a .n larger than the number of arguments makes the result missing
+    assert_eq!(constant("MEAN.4(1, 2)"), None);
+    assert_eq!(constant_text("MIN('b', 'ab', 'c')"), "ab");
+    assert_eq!(constant_text("MAX('b', 'ab', 'c')"), "c");
+    // the shorter string counts as padded with blanks: 'ab' sorts before 'ab!'
+    assert_eq!(constant_text("MAX('ab!', 'ab')"), "ab!");
+    let engine = survey("STRING s (A8).\nCOMPUTE s = MIN(plan, 'C').");
+    assert_eq!(text(&engine, "s", 1), "BASIC");
+}
+
+#[test]
+fn distribution_functions() {
+    use std::f64::consts::{E, PI};
+    close(constant("CDF.NORMAL(1.96, 0, 1)"), 0.975_002_104_851_780);
+    close(constant("CDF.NORMAL(13, 10, 2)"), 0.933_192_798_731_141_9);
+    close(constant("IDF.NORMAL(0.975, 0, 1)"), 1.959_963_984_540_054);
+    close(constant("PDF.NORMAL(0, 0, 1)"), 1.0 / (2.0 * PI).sqrt());
+    near(constant("CDFNORM(0)"), 0.5);
+    near(constant("PROBIT(0.5)"), 0.0);
+    close(constant("PROBIT(0.025)"), -1.959_963_984_540_054);
+    close(constant("CDF.EXP(1, 2)"), 1.0 - (-2f64).exp());
+    close(constant("IDF.EXP(0.5, 1)"), 2f64.ln());
+    close(constant("PDF.POISSON(2, 3)"), 4.5 * (-3f64).exp());
+    near(constant("CDF.BINOM(1, 3, 0.5)"), 0.5);
+    near(constant("PDF.BINOM(2, 4, 0.5)"), 0.375);
+    near(constant("CDF.GEOM(2, 0.5)"), 0.75);
+    close(constant("PDF.HYPER(1, 4, 2, 2)"), 4.0 / 6.0);
+    near(constant("CDF.UNIFORM(0.25, 0, 1)"), 0.25);
+    close(constant("IDF.UNIFORM(0.3, 2, 4)"), 2.6);
+    near(constant("CDF.LOGISTIC(0, 0, 1)"), 0.5);
+    close(constant("CDF.CAUCHY(1, 0, 1)"), 0.75);
+    close(constant("IDF.CAUCHY(0.75, 0, 1)"), 1.0);
+    near(constant("CDF.T(0, 5)"), 0.5);
+    close(constant("CDF.BVNOR(0, 0, 0)"), 0.25);
+    close(constant("SIG.CHISQ(2, 2)"), 1.0 / E);
+    close(constant("SIG.F(1, 2, 2)"), 0.5);
+    close(constant("IDF.CHISQ(0.95, 3)"), 7.814_727_903_251_178);
+    close(constant("NCDF.CHISQ(2, 2, 0)"), 1.0 - 1.0 / E);
+    close(constant("NPDF.T(0, 1, 0)"), 1.0 / PI);
+    // a parameter or value out of range, or a missing argument, is system-missing
+    assert_eq!(constant("CDF.NORMAL(0, 0, -1)"), None);
+    assert_eq!(constant("IDF.NORMAL(1.5, 0, 1)"), None);
+    assert_eq!(constant("CDF.NORMAL($SYSMIS, 0, 1)"), None);
+    assert_eq!(constant("PROBIT(0)"), None);
+    assert_eq!(constant("PROBIT(1)"), None);
+    assert_eq!(constant("CDF.BINOM(1, 2.5, 0.5)"), None);
+    assert_eq!(constant("PDF.BETA(0.5, 0, 1)"), None);
+    // x must be a value the distribution takes: the ranges are closed, discrete ones whole
+    assert_eq!(constant("CDF.EXP(-1, 2)"), None);
+    assert_eq!(constant("SIG.CHISQ(-1, 2)"), None);
+    assert_eq!(constant("CDF.UNIFORM(81, 18, 80)"), None);
+    near(constant("CDF.UNIFORM(80, 18, 80)"), 1.0);
+    near(constant("CDF.PARETO(50, 50, 2)"), 0.0);
+    assert_eq!(constant("CDF.PARETO(49, 50, 2)"), None);
+    assert_eq!(constant("PDF.BINOM(2.5, 4, 0.5)"), None);
+    assert_eq!(constant("CDF.BINOM(5, 4, 0.5)"), None);
+    assert_eq!(constant("CDF.POISSON(1.5, 2)"), None);
+    assert_eq!(constant("CDF.GEOM(0, 0.5)"), None);
+    assert_eq!(constant("CDF.HYPER(7, 20, 6, 8)"), None);
+    near(constant("CDF.HYPER(6, 20, 6, 8)"), 1.0);
+}
+
+#[test]
+fn date_aggregation_and_conversion() {
+    // the manual's example: 28 October 2006, 23:54:30 and 1.5 days
+    assert_eq!(constant("DATE.DMY(28, 10, 2006)"), Some(13_381_372_800.0));
+    assert_eq!(constant("DATE.MDY(10, 28, 2006)"), Some(13_381_372_800.0));
+    assert_eq!(constant("DATE.MOYR(10, 2006)"), Some(13_379_040_000.0));
+    assert_eq!(constant("TIME.HMS(23, 54, 30)"), Some(86_070.0));
+    assert_eq!(constant("TIME.DAYS(1.5)"), Some(129_600.0));
+    assert_eq!(constant("TIME.HMS(25.5)"), Some(91_800.0));
+    assert_eq!(constant("TIME.HMS(0, 90, 25.5)"), Some(5_425.5));
+    assert_eq!(constant("TIME.HMS(25.5, 30)"), None);
+    assert_eq!(constant("TIME.HMS(25, 90)"), None);
+    assert_eq!(constant("TIME.HMS(-1, 30, 5)"), None);
+    assert_eq!(constant("TIME.HMS(1, $SYSMIS)"), None);
+    let same = |a: &str, b: &str| assert_eq!(constant(a), constant(b), "{a} = {b}");
+    same("DATE.QYR(2, 2004)", "DATE.DMY(1, 4, 2004)");
+    same("DATE.WKYR(53, 2003)", "DATE.DMY(31, 12, 2003)");
+    same("DATE.YRDAY(2003, 366)", "DATE.DMY(1, 1, 2004)");
+    same("DATE.MOYR(13, 2003)", "DATE.DMY(1, 1, 2004)");
+    assert_eq!(constant("DATE.QYR(5, 2003)"), None);
+    assert_eq!(constant("DATE.WKYR(54, 2003)"), None);
+    assert_eq!(constant("DATE.YRDAY(2004, 0)"), None);
+    assert_eq!(constant("DATE.MOYR(0, 2003)"), None);
+    assert_eq!(constant("YRMODA(1990, 3, 0)"), Some(148_791.0));
+    assert_eq!(constant("YRMODA(90, 13, 1)"), Some(149_098.0));
+    assert_eq!(constant("YRMODA(1582, 10, 15)"), Some(1.0));
+    assert_eq!(constant("YRMODA(1582, 10, 14)"), None);
+    assert_eq!(constant("YRMODA(47517, 1, 1)"), None);
+    assert_eq!(constant("YRMODA(1990, 1, 32)"), None);
+    assert_eq!(constant("CTIME.DAYS(129600)"), Some(1.5));
+    assert_eq!(constant("CTIME.HOURS(86400)"), Some(24.0));
+    assert_eq!(constant("CTIME.MINUTES(2700)"), Some(45.0));
+    assert_eq!(constant("CTIME.SECONDS(5.5)"), Some(5.5));
+}
+
+#[test]
+fn date_extraction() {
+    // the manual's example: 29 October 2003 at 11:23:02, a Wednesday
+    let at = "(DATE.DMY(29, 10, 2003) + 40982)";
+    let part = |f: &str| constant(&format!("XDATE.{f}({at})"));
+    assert_eq!(part("DATE"), constant("DATE.DMY(29, 10, 2003)"));
+    assert_eq!(part("TIME"), Some(40_982.0));
+    assert_eq!(part("HOUR"), Some(11.0));
+    assert_eq!(part("MINUTE"), Some(23.0));
+    assert_eq!(part("SECOND"), Some(2.0));
+    assert_eq!(part("WKDAY"), Some(4.0));
+    assert_eq!(part("JDAY"), Some(302.0));
+    assert_eq!(part("WEEK"), Some(44.0));
+    assert_eq!(part("QUARTER"), Some(4.0));
+    assert_eq!(part("YEAR"), Some(2003.0));
+    assert_eq!(part("MONTH"), Some(10.0));
+    assert_eq!(part("MDAY"), Some(29.0));
+    assert_eq!(constant("XDATE.WEEK(DATE.DMY(31, 12, 2004))"), Some(53.0));
+    assert_eq!(constant("XDATE.TDAY(129600)"), Some(1.0));
+    // a negative time splits into parts with its sign: -1:30:00 and -0:01:30.5
+    assert_eq!(constant("XDATE.HOUR(-5400)"), Some(-1.0));
+    assert_eq!(constant("XDATE.MINUTE(-5400)"), Some(-30.0));
+    assert_eq!(constant("XDATE.MINUTE(-90.5)"), Some(-1.0));
+    assert_eq!(constant("XDATE.SECOND(-90.5)"), Some(-30.5));
+    assert_eq!(constant("XDATE.TDAY(-90000)"), Some(-1.0));
+    assert_eq!(constant("XDATE.TIME(-90000)"), Some(-3600.0));
+    // a calendar part of a value that is no date is missing
+    assert_eq!(constant("XDATE.WKDAY(0)"), None);
+    assert_eq!(constant("XDATE.JDAY($SYSMIS)"), None);
+}
+
+#[test]
+fn date_differences_and_sums() {
+    let diff = |a: &str, b: &str, unit: &str| {
+        constant(&format!("DATEDIFF(DATE.MDY({a}), DATE.MDY({b}), '{unit}')"))
+    };
+    // the manual's examples
+    assert_eq!(diff("2, 1, 2005", "1, 1, 2004", "years"), Some(1.0));
+    assert_eq!(diff("2, 15, 2005", "1, 1, 2004", "years"), Some(1.0));
+    assert_eq!(diff("1, 29, 2005", "1, 30, 2004", "years"), Some(0.0));
+    assert_eq!(diff("2, 15, 2004", "1, 1, 2004", "months"), Some(1.0));
+    assert_eq!(diff("2, 1, 2004", "1, 30, 2004", "months"), Some(0.0));
+    assert_eq!(diff("10, 28, 2006", "6, 20, 2006", "Days"), Some(130.0));
+    assert_eq!(diff("1, 1, 2004", "2, 1, 2005", "quarter"), Some(-4.0));
+    assert_eq!(diff("3, 31, 2004", "1, 31, 2004", "weeks"), Some(8.0));
+    assert_eq!(constant("DATEDIFF(5400, 0, 'hours')"), Some(1.0));
+    assert_eq!(constant("DATEDIFF(0, 5400, 'minutes')"), Some(-90.0));
+    assert_eq!(constant("DATEDIFF($SYSMIS, 0, 'seconds')"), None);
+    assert_eq!(constant("DATEDIFF(5400, 0, 'months')"), None);
+
+    let sum = |date: &str, rest: &str| constant(&format!("DATESUM(DATE.MDY({date}), {rest})"));
+    let mdy = |date: &str| constant(&format!("DATE.MDY({date})"));
+    assert_eq!(
+        sum("2, 29, 2004", "1, 'years', 'rollover'"),
+        mdy("3, 1, 2005")
+    );
+    assert_eq!(
+        sum("2, 29, 2004", "1, 'years', 'closest'"),
+        mdy("2, 28, 2005")
+    );
+    assert_eq!(sum("2, 29, 2004", "1.5, 'years'"), mdy("2, 28, 2005"));
+    assert_eq!(
+        sum("1, 31, 2003", "1, 'months', 'rollover'"),
+        mdy("3, 3, 2003")
+    );
+    assert_eq!(
+        sum("3, 31, 2004", "-1, 'months', 'rollover'"),
+        mdy("3, 2, 2004")
+    );
+    assert_eq!(sum("3, 31, 2004", "-1, 'months'"), mdy("2, 29, 2004"));
+    assert_eq!(sum("4, 30, 2004", "-1, 'months'"), mdy("3, 30, 2004"));
+    assert_eq!(sum("1, 31, 2004", "1, 'quarters'"), mdy("4, 30, 2004"));
+    assert_eq!(sum("1, 1, 2004", "-2, 'weeks'"), mdy("12, 18, 2003"));
+    assert_eq!(
+        sum("1, 1, 2004", "1.5, 'days'"),
+        mdy("1, 2, 2004").map(|d| d + 43_200.0)
+    );
+    assert_eq!(constant("DATESUM(60, 2, 'minutes')"), Some(180.0));
+    assert_eq!(constant("DATESUM($SYSMIS, 2, 'days')"), None);
+}
+
+#[test]
+fn string_searching_padding_and_trimming() {
+    assert_eq!(constant("CHAR.INDEX('abcabc', 'cb', 1)"), Some(2.0));
+    assert_eq!(constant("INDEX('abcabc', 'xbca', 2)"), Some(3.0));
+    assert_eq!(constant("INDEX('abcabc', 'abc', 2)"), None);
+    assert_eq!(constant("INDEX('abcabc', 'a', $SYSMIS)"), None);
+    assert_eq!(constant("RINDEX('abcabc', 'abc')"), Some(4.0));
+    assert_eq!(constant("CHAR.RINDEX('abcabc', 'ab', 1)"), Some(5.0));
+    assert_eq!(constant("RINDEX('abcabc', 'x')"), Some(0.0));
+    assert_eq!(constant("CHAR.RINDEX('äbä', 'ä')"), Some(3.0));
+    assert_eq!(constant_text("LPAD('ab', 6, 'xy')"), "xyxyab");
+    assert_eq!(constant_text("LPAD('ab', 5, 'xy')"), "xyab");
+    assert_eq!(constant_text("CONCAT(RPAD('ab', 5, '*'), '|')"), "ab***|");
+    assert_eq!(constant_text("CONCAT(CHAR.LPAD('äb', 4), '|')"), "  äb|");
+    assert_eq!(constant_text("CONCAT(CHAR.RPAD('ab', 1), '|')"), "ab|");
+    // a missing or invalid length gives the null string
+    assert_eq!(constant_text("CONCAT(LPAD('ab', $SYSMIS), '|')"), "|");
+    assert_eq!(constant_text("CONCAT(RPAD('ab', 0), '|')"), "|");
+    assert_eq!(constant_text("CONCAT(RPAD('ab', 3.5), '|')"), "|");
+    assert_eq!(constant_text("LTRIM('aab', 'a')"), "b");
+    assert_eq!(constant_text("RTRIM('abcc', 'c')"), "ab");
+    assert_eq!(constant_text("CONCAT(RTRIM('abc', 'bc'), '|')"), "|");
+    let engine = survey(
+        "STRING s t (A12).\nCOMPUTE s = CONCAT('[', NTRIM(plan), ']').\n\
+         COMPUTE t = CONCAT('[', RTRIM(plan, ' '), ']').\nCOMPUTE n = CHAR.LENGTH(plan).\n\
+         COMPUTE w = LENGTH(plan).",
+    );
+    assert_eq!(text(&engine, "s", 1), "[BASIC     ]");
+    assert_eq!(text(&engine, "t", 1), "[BASIC]");
+    // CHAR.LENGTH leaves out the trailing blanks, LENGTH counts the width
+    assert_eq!(number(&engine, "n", 1), Some(5.0));
+    assert_eq!(number(&engine, "w", 1), Some(10.0));
+}
+
+#[test]
+fn string_replacing_cutting_and_conversion() {
+    assert_eq!(constant_text("REPLACE('abcabc', 'a', 'x')"), "xbcxbc");
+    assert_eq!(constant_text("REPLACE('abcabc', 'a', 'x', 1)"), "xbcabc");
+    assert_eq!(constant_text("REPLACE('abcabc', 'bc', '')"), "aa");
+    assert_eq!(constant_text("REPLACE('abcabc', '', 'z')"), "abcabc");
+    assert_eq!(
+        constant_text("CONCAT(REPLACE('abc', 'a', 'x', -1), '|')"),
+        "|"
+    );
+    assert_eq!(constant_text("CONCAT(STRUNC('abc  d', 4), '|')"), "abc|");
+    // two bytes cut the two-byte ä, which goes as a whole
+    assert_eq!(constant_text("CONCAT(STRUNC('aäb', 2), '|')"), "a|");
+    assert_eq!(constant_text("CONCAT(STRUNC('ab', $SYSMIS), '|')"), "|");
+    assert_eq!(constant("CHAR.MBLEN('aäb', 2)"), Some(2.0));
+    assert_eq!(constant("MBLEN.BYTE('aäb', 3)"), Some(2.0));
+    assert_eq!(constant("MBLEN.BYTE('aäb', 4)"), Some(1.0));
+    assert_eq!(constant("MBLEN.BYTE('aäb', 5)"), None);
+    assert_eq!(constant_text("NORMALIZE('e\u{301}')"), "\u{e9}");
+    assert_eq!(constant("LENGTH(NORMALIZE('e\u{301}'))"), Some(2.0));
+    let engine =
+        survey("STRING r p (A20).\nCOMPUTE r = VALUELABEL(region).\nCOMPUTE p = VALUELABEL(plan).");
+    assert_eq!(text(&engine, "r", 1), "South");
+    assert_eq!(text(&engine, "p", 1), "");
+    // NUMBER and STRING with formats other than F
+    assert_eq!(constant("NUMBER('1,234.5', COMMA8.1)"), Some(1234.5));
+    assert_eq!(
+        constant("NUMBER('28-OCT-2006', DATE11)"),
+        Some(13_381_372_800.0)
+    );
+    assert_eq!(
+        constant("NUMBER('10/28/2006', ADATE10)"),
+        Some(13_381_372_800.0)
+    );
+    assert_eq!(constant("NUMBER('0012', N4)"), Some(12.0));
+    assert_eq!(constant("NUMBER('12a', N4)"), None);
+    assert_eq!(constant("NUMBER('15%', PCT4)"), Some(15.0));
+    assert_eq!(constant_text("STRING(12, N4)"), "0012");
+    assert_eq!(constant_text("STRING(-1.5, F5.2)"), "-1.50");
+    assert_eq!(constant_text("STRING(1234.5, COMMA9.1)"), "  1,234.5");
+    assert_eq!(constant_text("STRING(13381372800, DATE11)"), "28-OCT-2006");
+    assert_eq!(constant_text("STRING(86070, TIME8)"), "23:54:30");
 }

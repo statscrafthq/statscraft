@@ -186,6 +186,25 @@ One page per supported command, generated from the same table that the parser an
   A function name may be shortened to three or more letters that start no other function.
   Scratch variables start with #: they begin at 0 or blank, keep their value from case to case,
   are never saved and are gone when the next procedure starts. $CASENUM is the case number.
+
+Functions of expressions (COMPUTE, IF, SELECT IF, DO IF, ELSE IF, LOOP IF, END LOOP IF):
+  Arithmetic: ABS RND TRUNC MOD SQRT EXP LN LG10 LNGAMMA SIN COS TAN ARSIN ARCOS ARTAN.
+  Statistical, with .n for the valid values needed (MEAN.2): SUM MEAN MEDIAN MIN MAX SD VARIANCE
+  CFVAR. Missing values: MISSING SYSMIS VALUE NMISS NVALID. Logical: ANY RANGE. Also LAG and
+  VALUELABEL.
+  Strings: CONCAT LENGTH CHAR.LENGTH UPCASE LOWER LTRIM RTRIM NTRIM SUBSTR CHAR.SUBSTR INDEX
+  CHAR.INDEX RINDEX CHAR.RINDEX LPAD CHAR.LPAD RPAD CHAR.RPAD REPLACE STRUNC CHAR.MBLEN
+  MBLEN.BYTE NORMALIZE NUMBER STRING.
+  Dates and times: DATE.DMY DATE.MDY DATE.MOYR DATE.QYR DATE.WKYR DATE.YRDAY YRMODA TIME.DAYS
+  TIME.HMS CTIME.DAYS CTIME.HOURS CTIME.MINUTES CTIME.SECONDS XDATE.DATE XDATE.HOUR XDATE.JDAY
+  XDATE.MDAY XDATE.MINUTE XDATE.MONTH XDATE.QUARTER XDATE.SECOND XDATE.TDAY XDATE.TIME
+  XDATE.WEEK XDATE.WKDAY XDATE.YEAR DATEDIFF DATESUM (units years quarters months weeks days
+  hours minutes seconds; DATESUM methods 'closest', the default, and 'rollover').
+  Distributions: CDFNORM PROBIT, and CDF.d IDF.d PDF.d NCDF.d NPDF.d SIG.d RV.d where the
+  distribution d has them: BERNOULLI BETA BINOM BVNOR CAUCHY CHISQ EXP F GAMMA GEOM HALFNRM HYPER
+  IGAUSS LAPLACE LNORMAL LOGISTIC NEGBIN NORMAL PARETO POISSON SMOD SRANGE T UNIFORM WEIBULL
+  (NCDF and NPDF: BETA CHISQ F T; SIG: CHISQ F). UNIFORM(max), NORMAL(sd) and the RV functions
+  draw random numbers. An argument out of range gives system-missing.
 ```
 
 ## Not supported yet

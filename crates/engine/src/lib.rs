@@ -18,6 +18,7 @@ mod distributions;
 mod examine;
 pub mod excel;
 mod expr;
+mod expr_functions;
 mod factor;
 mod format;
 mod frequencies;

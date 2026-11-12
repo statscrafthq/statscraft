@@ -481,7 +481,7 @@ pub(crate) fn date(text: &str, kind: FormatType) -> Result<Option<f64>, &'static
     if !(1.0..=31.0).contains(&day) || !(1.0..=12.0).contains(&month) {
         return Err("is not a date: the day or the month is out of range");
     }
-    crate::expr::date(Some(day), Some(month), Some(year))
+    crate::expr_functions::date(day, month, year)
         .map(Some)
         .ok_or("is not a date the calendar holds")
 }

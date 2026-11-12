@@ -22,3 +22,5 @@ calamine = { version = "0.38.0", default-features = false }
 zip = { version = "9.5.0", default-features = false, features = ["deflate"] }
 # MIT OR Apache-2.0; writes workbooks for SAVE TRANSLATE (already built for the export crate)
 rust_xlsxwriter = "0.102.0"
+# MIT OR Apache-2.0; NFC for the NORMALIZE function (already built for stringprep)
+unicode-normalization = "0.1.26"

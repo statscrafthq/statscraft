@@ -4135,6 +4135,7 @@ dependencies = [
  "serde_json",
  "statscraft-data",
  "statscraft-syntax",
+ "unicode-normalization",
  "zip",
 ]
 
