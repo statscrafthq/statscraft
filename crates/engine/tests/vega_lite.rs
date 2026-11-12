@@ -269,7 +269,9 @@ COMPUTE b = group * group + score / 4.
 FACTOR /VARIABLES score group a b /CRITERIA FACTORS(3) /PLOT EIGEN ROTATION.
 REGRESSION /DEPENDENT score /METHOD ENTER group a /RESIDUALS /SCATTERPLOT (*ZRESID, *ZPRED) /PARTIALPLOT.
 CLUSTER score group /PLOT DENDROGRAM VICICLE HICICLE.
-TREE side [n] BY group [n] /GROWTHLIMIT MINPARENTSIZE=2 MINCHILDSIZE=1.
+TREE side [n] BY group [n] /GROWTHLIMIT MINPARENTSIZE=2 MINCHILDSIZE=1 /DEPCATEGORIES TARGET=['l'] /PLOT GAIN.
+UNIANOVA score BY group side WITH a /PLOT SPREADLEVEL RESIDUALS PROFILE(group*side) MEANREFERENCE=YES.
+DISCRIMINANT GROUPS=group(1,3) /VARIABLES score a b /PLOT ALL.
 ";
     let (commands, errors) = parse(source);
     assert!(errors.is_empty(), "{errors:?}");
@@ -300,6 +302,7 @@ fn every_statistical_plot_gives_a_valid_specification() {
         "Dendrogram",
         "Icicle plot",
         "Tree diagram",
+        "Territorial map",
     ] {
         assert!(kinds.contains(kind), "{kind} missing from {kinds:?}");
     }

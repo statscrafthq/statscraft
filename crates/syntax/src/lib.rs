@@ -108,8 +108,8 @@ pub use ctables::{
 };
 pub use data_list::numbered_names;
 pub use discriminant::{
-    ClassifyCases, Discriminant, DiscriminantAnalysis, DiscriminantMethod, DiscriminantSave,
-    DiscriminantStatistics, Priors,
+    ClassifyCases, Discriminant, DiscriminantAnalysis, DiscriminantMethod, DiscriminantPlots,
+    DiscriminantSave, DiscriminantStatistics, Priors,
 };
 pub use encoding::{decode_syntax, encoding_for, legacy_encoding};
 pub use error::{Span, SyntaxError};
@@ -118,7 +118,8 @@ pub use factor::{
     FactorPrint, FactorSave, MatrixKind, QuickCluster, Rotation, ScoreMethod,
 };
 pub use glm::{
-    Adjustment, Contrast, Emmeans, Glm, GlmPrint, GlmTemp, LMatrix, LRow, Term, WsFactor,
+    Adjustment, Contrast, Emmeans, Glm, GlmPlot, GlmPrint, GlmTemp, LMatrix, LRow, Profile, Term,
+    WsFactor,
 };
 pub use lexer::{Punct, Token, TokenKind};
 pub use logistic::{

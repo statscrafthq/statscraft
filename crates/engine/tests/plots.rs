@@ -700,3 +700,365 @@ WEIGHT BY w.
     assert_eq!(table.columns[..3], ["Node", "Parent", "Split"]);
     assert_eq!(table.rows.len(), nodes.len());
 }
+
+#[test]
+fn tree_gain_response_and_index_charts_over_percentiles() {
+    // the loyalty survey again: the plans renew 40, 15 and 25 of 50 each; with TARGET 1 the
+    // nodes sort as plan 1, plan 3, plan 2, and a quarter of the cases is 37.5
+    let data = "DATA LIST LIST /plan renew w (F3).
+BEGIN DATA
+1 1 40
+1 2 10
+2 1 15
+2 2 35
+3 1 25
+3 2 25
+END DATA.
+WEIGHT BY w.
+";
+    let (_, charts, warnings) = run(
+        data,
+        "TREE renew [n] BY plan [n] /DEPCATEGORIES TARGET=[1] /TREE DISPLAY=NONE \
+         /PLOT GAIN RESPONSE INDEX INCREMENT=25.",
+    );
+    assert!(warnings.is_empty(), "{warnings:?}");
+    let titles: Vec<&str> = charts.iter().map(|c| c.title.as_str()).collect();
+    assert_eq!(titles, ["Gain chart", "Response chart", "Index chart"]);
+    // numpy, from the percentile formulas of the algorithms (check.py in the scratch folder)
+    let want = [
+        [37.5, 65.625, 85.9375, 100.0],
+        [80.0, 70.0, 550.0 / 9.0, 160.0 / 3.0],
+        [150.0, 131.25, 114.583_333_333_333_34, 100.0],
+    ];
+    for (chart, want) in charts.iter().zip(want) {
+        assert_eq!(chart.kind, ChartKind::Line);
+        assert_eq!(chart.tier, Tier::Presentation);
+        let labels: Vec<&str> = chart.categories.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(labels, ["25%", "50%", "75%", "100%"]);
+        assert_eq!(chart.series.len(), 1);
+        for (got, want) in chart.series[0].values.iter().zip(want) {
+            close(*got, want);
+        }
+    }
+    // without target categories there is nothing to chart
+    let (_, charts, warnings) = run(
+        data,
+        "TREE renew [n] BY plan [n] /TREE DISPLAY=NONE /PLOT GAIN.",
+    );
+    assert!(charts.is_empty());
+    assert!(
+        warnings[0].contains("need target categories"),
+        "{warnings:?}"
+    );
+}
+
+/// Made-up shop data: sales (y) by display (a, 1 to 3) and shelf (b, 1 to 2), with the price
+/// as a covariate (x).
+const SHOP: &str = "DATA LIST LIST /a b x y (4F4).
+BEGIN DATA
+1 1 4 10
+1 1 6 12
+1 2 7 11
+1 2 9 15
+1 2 8 13
+2 1 5 9
+2 1 9 14
+2 2 12 16
+2 2 10 12
+3 1 3 8
+3 1 4 10
+3 1 8 13
+3 2 6 9
+3 2 11 17
+END DATA.
+";
+
+#[test]
+fn glm_profile_plots_show_the_estimated_marginal_means() {
+    let (_, charts, warnings) = run(
+        SHOP,
+        "UNIANOVA y BY a b WITH x /PLOT=PROFILE(a a*b) PROFILE(a) WITH(x=12) MEANREFERENCE=YES.",
+    );
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(charts.len(), 3);
+    for chart in &charts {
+        assert_eq!(
+            (chart.kind, chart.tier),
+            (ChartKind::Line, Tier::Presentation)
+        );
+        assert_eq!(chart.categories.len(), 3);
+    }
+    // numpy: the cell-means model with a common slope, cells at the mean price (check.py)
+    let a = &charts[0].series;
+    assert_eq!(a.len(), 1);
+    for (got, want) in a[0].values.iter().zip([
+        13.028_218_694_885_36,
+        10.506_613_756_613_747,
+        12.367_724_867_724_863,
+    ]) {
+        close(*got, want);
+    }
+    let ab = &charts[1];
+    assert_eq!(ab.legend.as_deref(), Some("b"));
+    let want = [
+        [
+            13.991_181_657_848_323,
+            11.873_897_707_231_03,
+            13.324_514_991_181_653,
+        ],
+        [
+            12.065_255_731_922_399,
+            9.139_329_805_996_464,
+            11.410_934_744_268_072,
+        ],
+    ];
+    for (series, want) in ab.series.iter().zip(want) {
+        for (got, want) in series.values.iter().zip(want) {
+            close(*got, want);
+        }
+    }
+    // at a price of 12, with the grand mean (at 12 too) as a flat line
+    let at12 = &charts[2].series;
+    assert_eq!(at12[1].name, "Grand mean");
+    let want = [
+        19.197_530_864_197_528,
+        16.675_925_925_925_917,
+        18.537_037_037_037_03,
+    ];
+    for (got, want) in at12[0].values.iter().zip(want) {
+        close(*got, want);
+    }
+    let mean = want.iter().sum::<f64>() / 3.0;
+    at12[1].values.iter().for_each(|v| close(*v, mean));
+    // a third factor gives a chart per level; error bars are said not to be drawn
+    let data = format!("{SHOP}COMPUTE c = MOD($CASENUM, 2).\n");
+    let (_, charts, warnings) = run(
+        &data,
+        "UNIANOVA y BY a b c /PLOT=PROFILE(a*b*c) TYPE=BAR ERRORBAR=CI /DESIGN=a b c.",
+    );
+    assert_eq!(charts.len(), 2);
+    assert!(charts.iter().all(|c| c.kind == ChartKind::Bar));
+    assert!(charts[1].title.ends_with("at c = 1"), "{}", charts[1].title);
+    assert!(warnings[0].contains("error bars"), "{warnings:?}");
+}
+
+#[test]
+fn glm_spread_level_and_residual_plots() {
+    let (_, charts, warnings) = run(
+        SHOP,
+        "UNIANOVA y BY a b WITH x /PLOT=SPREADLEVEL RESIDUALS.",
+    );
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(charts.len(), 3);
+    assert_eq!(charts[0].kind, ChartKind::SpreadLevel);
+    // numpy: the observed cell means and variances (check.py)
+    let sd = points(&charts[0]);
+    let variance = points(&charts[1]);
+    let want = [
+        (11.0, 2.0),
+        (13.0, 4.0),
+        (11.5, 12.5),
+        (14.0, 8.0),
+        (31.0 / 3.0, 19.0 / 3.0),
+        (13.0, 32.0),
+    ];
+    assert_eq!(sd.len(), 6);
+    for ((s, v), (mean, var)) in sd.iter().zip(variance).zip(want) {
+        close(s.x, mean);
+        close(v.x, mean);
+        close(s.y, f64::sqrt(var));
+        close(v.y, var);
+    }
+    assert_eq!(sd[2].label.as_deref(), Some("2, 1"));
+    // the residual plot: predicted, observed and the standardized residual of every case
+    let r = points(&charts[2]);
+    assert_eq!(r.len(), 14);
+    close(r[0].x, 9.691_358_024_691_358);
+    close(r[0].y, 10.0);
+    close(r[0].z.unwrap(), 0.338_818_180_072_648_7);
+    close(r[13].z.unwrap(), 0.799_610_904_971_458_1);
+    // with within-subjects factors there are no plots yet
+    let (_, charts, warnings) = run(SHOP, "GLM x y /WSFACTOR=t 2 /PLOT=SPREADLEVEL.");
+    assert!(charts.is_empty());
+    assert!(
+        warnings.iter().any(|w| w.contains("WSFACTOR")),
+        "{warnings:?}"
+    );
+}
+
+/// Three made-up groups of four plants measured on two traits (u, v), and one plant of no
+/// group (0, outside the range).
+const PLANTS: &str = "DATA LIST LIST /g u v (3F3).
+BEGIN DATA
+1 2 3
+1 3 5
+1 4 4
+1 3 2
+2 6 7
+2 7 6
+2 8 8
+2 7 9
+3 9 2
+3 8 3
+3 10 4
+3 9 1
+0 5 5
+END DATA.
+";
+
+#[test]
+fn discriminant_casewise_listing() {
+    let (tables, charts, warnings) = run(
+        PLANTS,
+        "DISCRIMINANT GROUPS=g(1,3) /VARIABLES=u v /PLOT=CASES(13).",
+    );
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert!(charts.is_empty());
+    let t = tables
+        .iter()
+        .find(|t| t.title == "Casewise Statistics")
+        .unwrap();
+    assert_eq!(t.rows.len(), 13);
+    assert_eq!(t.columns.len(), 12);
+    let n = |c: &Cell| match c {
+        Cell::Number(n) => *n,
+        other => panic!("{other:?}"),
+    };
+    // numpy: Mahalanobis distances with the pooled covariance, equal priors and the
+    // chi-square significance with 2 df (check.py)
+    let want = [
+        (
+            0,
+            "1",
+            0.472_366_552_741_014_9,
+            0.999_999_995_985_420_9,
+            1.5,
+            "2",
+            40.166_666_666_666_67,
+        ),
+        (
+            4,
+            "2",
+            0.472_366_552_741_014_9,
+            0.999_347_019_452_350_5,
+            1.5,
+            "1",
+            16.166_666_666_666_664,
+        ),
+        (
+            12,
+            "1",
+            0.045_806_314_172_621_46,
+            0.660_756_300_195_558_5,
+            6.166_666_666_666_667,
+            "2",
+            7.5,
+        ),
+    ];
+    for (row, group, p, post, d2, second, d2_second) in want {
+        let r = &t.rows[row];
+        assert_eq!(r[0], Cell::Number(row as f64 + 1.0));
+        assert_eq!(r[2], Cell::Text(group.into()));
+        close(n(&r[3]), p);
+        assert_eq!(r[4], Cell::Number(2.0));
+        close(n(&r[5]), post);
+        close(n(&r[6]), d2);
+        assert_eq!(r[7], Cell::Text(second.into()));
+        close(n(&r[9]), d2_second);
+    }
+    assert_eq!(t.rows[12][1], Cell::Text("Ungrouped".into()));
+    // CASES(n) lists the first n
+    let (tables, ..) = run(
+        PLANTS,
+        "DISCRIMINANT GROUPS=g(1,3) /VARIABLES=u v /PLOT=CASES(2).",
+    );
+    let t = tables
+        .iter()
+        .find(|t| t.title == "Casewise Statistics")
+        .unwrap();
+    assert_eq!(t.rows.len(), 2);
+}
+
+#[test]
+fn discriminant_score_plots_and_territorial_map() {
+    let (tables, charts, warnings) = run(
+        PLANTS,
+        "DISCRIMINANT GROUPS=g(1,3) /VARIABLES=u v /PLOT=COMBINED SEPARATE MAP.",
+    );
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(charts.len(), 5);
+    let centroids = tables
+        .iter()
+        .find(|t| t.title == "Functions at Group Centroids")
+        .unwrap();
+    let centroid = |j: usize| match (&centroids.rows[j][1], &centroids.rows[j][2]) {
+        (Cell::Number(x), Cell::Number(y)) => [*x, *y],
+        other => panic!("{other:?}"),
+    };
+    let Some(Plot::Points { groups, .. }) = &charts[0].plot else {
+        panic!()
+    };
+    let names: Vec<&str> = groups.iter().map(|g| g.name.as_str()).collect();
+    assert_eq!(names, ["1", "2", "3", "Ungrouped cases", "Group centroids"]);
+    assert_eq!(groups[0].points.len(), 4);
+    for (j, p) in groups[4].points.iter().enumerate() {
+        assert_eq!([p.x, p.y], centroid(j));
+    }
+    // SEPARATE: a plot per group with its centroid
+    for j in 0..3 {
+        let Some(Plot::Points { groups, .. }) = &charts[1 + j].plot else {
+            panic!()
+        };
+        assert_eq!(groups[0].points.len(), 4);
+        let c = &groups[1].points[0];
+        assert_eq!([c.x, c.y], centroid(j));
+    }
+    // MAP: with two functions the rule on the plane is the whole rule, so every corner of a
+    // territory is won by its group and lies on the frame or where its group ties with another
+    let map = &charts[4];
+    assert_eq!(map.kind, ChartKind::TerritorialMap);
+    let Some(Plot::Regions { regions }) = &map.plot else {
+        panic!()
+    };
+    assert_eq!(regions.len(), 3);
+    let score = |j: usize, p: [f64; 2]| {
+        let c = centroid(j);
+        -0.5 * ((p[0] - c[0]).powi(2) + (p[1] - c[1]).powi(2))
+    };
+    let corners: Vec<[f64; 2]> = regions
+        .iter()
+        .flat_map(|r| r.vertices.iter().copied())
+        .collect();
+    let edge =
+        |a: usize, pick: fn(f64, f64) -> f64| corners.iter().map(|v| v[a]).reduce(pick).unwrap();
+    let (low, high) = (
+        [edge(0, f64::min), edge(1, f64::min)],
+        [edge(0, f64::max), edge(1, f64::max)],
+    );
+    for (j, region) in regions.iter().enumerate() {
+        assert_eq!(region.center, centroid(j));
+        assert!(region.vertices.len() >= 3);
+        for &v in &region.vertices {
+            let on_frame =
+                (0..2).any(|a| (v[a] - low[a]).abs() < 1e-9 || (v[a] - high[a]).abs() < 1e-9);
+            let best = (0..3).map(|i| score(i, v)).fold(f64::MIN, f64::max);
+            assert!((score(j, v) - best).abs() < 1e-9, "corner {v:?} of {j}");
+            let tied = (0..3).any(|i| i != j && (score(i, v) - best).abs() < 1e-9);
+            assert!(on_frame || tied, "corner {v:?} of {j}");
+        }
+    }
+    let table = map.data_table();
+    assert_eq!(table.columns, ["g", "Point", "Function 1", "Function 2"]);
+    assert_eq!(table.rows[0][1], Cell::Text("Center".into()));
+    // one function: histograms of the scores, and no map
+    let (_, charts, warnings) = run(
+        PLANTS,
+        "DISCRIMINANT GROUPS=g(1,2) /VARIABLES=u v /PLOT=COMBINED SEPARATE MAP.",
+    );
+    assert_eq!(charts.len(), 3);
+    assert!(charts.iter().all(|c| c.kind == ChartKind::Histogram));
+    assert!(
+        warnings[0].contains("two discriminant functions"),
+        "{warnings:?}"
+    );
+}

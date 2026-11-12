@@ -75,6 +75,9 @@ pub enum ChartKind {
     Icicle,
     /// A tree of nodes.
     TreeDiagram,
+    /// Regions: the plane of two discriminant functions split into the territory of each
+    /// group.
+    TerritorialMap,
 }
 
 /// Presentation charts go to the office suite as editable charts; statistical plots are drawn
@@ -213,6 +216,7 @@ impl Chart {
             (ChartKind::Dendrogram, _) => "Dendrogram".into(),
             (ChartKind::Icicle, _) => "Icicle plot".into(),
             (ChartKind::TreeDiagram, _) => "Tree diagram".into(),
+            (ChartKind::TerritorialMap, _) => "Territorial map".into(),
             (ChartKind::Histogram, _) if self.normal.is_some() => {
                 "Histogram with a normal curve".into()
             }
@@ -238,7 +242,11 @@ impl Chart {
             .enumerate()
             .map(|(i, category)| {
                 let mut row = vec![Cell::Text(category.label.clone())];
-                row.extend(self.series.iter().map(|s| Cell::Number(s.values[i])));
+                // a value the command could not compute, such as a mean that is not estimable
+                row.extend(self.series.iter().map(|s| match s.values[i].is_nan() {
+                    true => Cell::Empty,
+                    false => Cell::Number(s.values[i]),
+                }));
                 row
             })
             .collect();

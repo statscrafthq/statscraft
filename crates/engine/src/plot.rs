@@ -1,5 +1,5 @@
 //! The data shapes of statistical plots: boxes, stem-and-leaf lines, points with reference
-//! lines, merge trees and node trees. A `Chart` of the statistical tier carries one of them in
+//! lines, merge trees, node trees and regions of the plane. A `Chart` of the statistical tier carries one of them in
 //! `plot`; the category axis of the chart is then the horizontal axis and the value axis the
 //! vertical one. Each shape gives a data table for the text output and the window, and a
 //! Vega-Lite specification for agents.
@@ -37,6 +37,17 @@ pub enum Plot {
     },
     /// A tree of nodes; the root comes first, every other node after its parent.
     Tree { nodes: Vec<TreeNode> },
+    /// The plane split into regions, each a convex polygon around its center.
+    Regions { regions: Vec<Region> },
+}
+
+/// A region of the plane: its name, its center (such as a group centroid) and the corners of
+/// its polygon in order around it; no corners when the region is empty.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Region {
+    pub name: String,
+    pub center: [f64; 2],
+    pub vertices: Vec<[f64; 2]>,
 }
 
 /// A box of a boxplot: Tukey's hinges, the median, whiskers to the furthest values that are
@@ -432,6 +443,33 @@ impl Plot {
                     rows.push(row);
                 }
             }
+            Plot::Regions { regions } => {
+                columns = vec![
+                    chart.legend.clone().unwrap_or_else(|| "Region".into()),
+                    "Point".into(),
+                    x.title.clone(),
+                    y.title.clone(),
+                ];
+                for region in regions {
+                    let corners = region.vertices.iter().enumerate();
+                    let points = std::iter::once(("Center".to_string(), region.center))
+                        .chain(corners.map(|(k, v)| (format!("Corner {}", k + 1), *v)));
+                    for (point, [px, py]) in points {
+                        rows.push(vec![
+                            text(&region.name),
+                            Cell::Text(point),
+                            Cell::Number(px),
+                            Cell::Number(py),
+                        ]);
+                        formats.push(vec![
+                            String::new(),
+                            String::new(),
+                            x.format.clone(),
+                            y.format.clone(),
+                        ]);
+                    }
+                }
+            }
         }
         (columns, rows, formats)
     }
@@ -700,9 +738,59 @@ impl Plot {
                     ]),
                 );
             }
+            Plot::Regions { regions } => {
+                // each region's outline, closed, in its color; the centers as labelled crosses
+                let mut corners = Vec::new();
+                for region in regions {
+                    let closed = region.vertices.iter().chain(region.vertices.first());
+                    for (k, [px, py]) in closed.enumerate() {
+                        corners
+                            .push(json!({ "region": region.name, "order": k, "x": px, "y": py }));
+                    }
+                }
+                let centers: Vec<Value> = regions
+                    .iter()
+                    .map(|r| json!({ "region": r.name, "x": r.center[0], "y": r.center[1] }))
+                    .collect();
+                let names: Vec<&str> = regions.iter().map(|r| r.name.as_str()).collect();
+                let x = json!({ "field": "x", "type": "quantitative", "title": xt, "scale": { "zero": false } });
+                let y = json!({ "field": "y", "type": "quantitative", "title": yt, "scale": { "zero": false } });
+                let color = json!({ "field": "region", "type": "nominal", "sort": names, "title": chart.legend });
+                out.insert(
+                    "layer".into(),
+                    json!([
+                        { "data": { "values": corners }, "mark": "line",
+                          "encoding": { "x": x, "y": y, "color": color,
+                                        "order": { "field": "order", "type": "quantitative" } } },
+                        { "data": { "values": centers }, "mark": { "type": "point", "shape": "cross" },
+                          "encoding": { "x": x, "y": y, "color": color } },
+                        { "data": { "values": centers }, "mark": { "type": "text", "dx": 8, "align": "left" },
+                          "encoding": { "x": x, "y": y, "text": { "field": "region" } } },
+                    ]),
+                );
+            }
         }
         out
     }
+}
+
+/// The part of a convex polygon where a x + b >= 0 (one step of Sutherland and Hodgman's
+/// clipping).
+pub(crate) fn clip(polygon: &[[f64; 2]], a: [f64; 2], b: f64) -> Vec<[f64; 2]> {
+    let side = |p: [f64; 2]| a[0] * p[0] + a[1] * p[1] + b;
+    let mut out = Vec::new();
+    for (k, &p) in polygon.iter().enumerate() {
+        let q = polygon[(k + 1) % polygon.len()];
+        let (sp, sq) = (side(p), side(q));
+        if sp >= 0.0 {
+            out.push(p);
+        }
+        if (sp >= 0.0) != (sq >= 0.0) {
+            let t = sp / (sp - sq);
+            out.push([p[0] + t * (q[0] - p[0]), p[1] + t * (q[1] - p[1])]);
+        }
+    }
+    out
 }
 
 fn box_name(b: &BoxSummary) -> String {

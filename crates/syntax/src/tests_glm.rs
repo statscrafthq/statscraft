@@ -177,7 +177,11 @@ fn unianova_defaults_and_the_pasted_dialog_syntax() {
          /CRITERIA=ALPHA(.05)\n  /DESIGN=x a b a*b.",
     );
     assert_eq!(g.save[3], (GlmTemp::Cook, Some("c".into())));
-    assert_eq!(g.charts, ["PLOT"]);
+    let GlmPlot::Profile(profile) = &g.plots[0] else {
+        panic!("{:?}", g.plots);
+    };
+    assert_eq!(profile.factors, ["a", "b"]);
+    assert!(!profile.bar && !profile.error_bars && !profile.mean_reference);
     assert_eq!(g.emmeans[0].factors, ["a"]);
     assert_eq!(g.emmeans[0].compare, Some(None));
     assert_eq!(g.emmeans[0].adjustment, Adjustment::Bonferroni);
@@ -304,4 +308,31 @@ fn glm_errors() {
     ] {
         assert_eq!(err(source).message, message, "{source}");
     }
+}
+
+#[test]
+fn glm_plot_keywords() {
+    let g = glm(
+        "UNIANOVA y BY a b c WITH x /PLOT=SPREADLEVEL RESIDUALS PROFILE(a a BY b a*b*c) \
+         WITH(x=2.5) TYPE=BAR MEANREFERENCE=YES ERRORBAR=SE(1.5) YAXIS=0 /PLOT=PROFILE(b).",
+    );
+    assert_eq!(g.plots.len(), 6);
+    assert_eq!(g.plots[..2], [GlmPlot::SpreadLevel, GlmPlot::Residuals]);
+    let profiles: Vec<&Profile> = g
+        .plots
+        .iter()
+        .filter_map(|p| match p {
+            GlmPlot::Profile(p) => Some(p),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(profiles[2].factors, ["a", "b", "c"]);
+    assert_eq!(profiles[1].with, [("x".to_string(), Some(2.5))]);
+    assert!(profiles[0].bar && profiles[0].mean_reference && profiles[0].error_bars);
+    assert!(!profiles[3].bar && profiles[3].with.is_empty());
+    assert!(
+        err("UNIANOVA y BY a /PLOT=PROFILE(a) ERRORBAR=SE(0).")
+            .message
+            .contains("positive")
+    );
 }

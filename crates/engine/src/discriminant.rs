@@ -27,7 +27,7 @@ use crate::matrix::{Matrix, inverse, symmetric_eigen};
 use crate::means::is_valid;
 use crate::npar_tests::text;
 use crate::regression::{plain, table};
-use crate::{Cell, Engine, Error, Table};
+use crate::{Cell, Chart, Engine, Error, Table};
 use statscraft_data::{Measure, Values, Variable};
 use statscraft_syntax::{
     ClassifyCases, Discriminant, DiscriminantAnalysis, DiscriminantMethod as M, Priors, VarItem,
@@ -494,6 +494,8 @@ struct Classified {
     scores: Vec<f64>,
     posterior: Vec<f64>,
     predicted: usize,
+    /// The squared distance to every group centroid.
+    distance: Vec<f64>,
 }
 
 impl Engine {
@@ -642,9 +644,8 @@ impl Engine {
         }
         let index_of = |v: f64| group_values.iter().position(|x| *x == v).expect("a group");
 
-        if command.plot {
-            warnings.push("DISCRIMINANT: PLOT is not produced yet (no charts, territorial map or casewise listing)".into());
-        }
+        let case_numbers = self.case_numbers.clone();
+        let mut charts = Vec::new();
         let mut save_count = 0;
         let mut saves: Vec<(String, String, Vec<Option<f64>>, bool)> = Vec::new();
         for (number_of, options) in command.analyses.iter().enumerate() {
@@ -1127,7 +1128,7 @@ impl Engine {
             };
             let classify = |x: &[f64]| -> Classified {
                 let f = score(x);
-                let logs: Vec<f64> = (0..g)
+                let parts: Vec<(f64, f64)> = (0..g)
                     .map(|j| {
                         let d: Vec<f64> = (0..kf).map(|k| f[k] - centroids[j][k]).collect();
                         let (chi, logdet) = match &separate {
@@ -1142,8 +1143,11 @@ impl Engine {
                                 (chi, det.ln())
                             }
                         };
-                        priors[j].ln() - 0.5 * (logdet + chi)
+                        (chi, logdet)
                     })
+                    .collect();
+                let logs: Vec<f64> = (0..g)
+                    .map(|j| priors[j].ln() - 0.5 * (parts[j].1 + parts[j].0))
                     .collect();
                 let top = logs.iter().copied().fold(f64::NEG_INFINITY, f64::max);
                 let e: Vec<f64> = logs
@@ -1165,6 +1169,7 @@ impl Engine {
                     scores: f,
                     posterior,
                     predicted,
+                    distance: parts.iter().map(|p| p.0).collect(),
                 }
             };
             // the cases to classify, with their values (means in place of missing ones with
@@ -1191,7 +1196,9 @@ impl Engine {
             let classification_output = command.statistics.table
                 || command.statistics.crossvalid
                 || options.save.is_some()
-                || command.plot;
+                || command.plot.combined
+                || command.plot.separate
+                || command.plot.cases.is_some();
             if classification_output {
                 let processed = cases;
                 let missing_group = (0..cases).filter(|&c| group_of[c].is_none()).count();
@@ -1391,6 +1398,32 @@ impl Engine {
                     ));
                 }
             }
+            let suffix = match command.analyses.len() {
+                1 => String::new(),
+                _ => format!(", analysis {analysis_number}"),
+            };
+            let actual =
+                |c: usize| group_of[c].and_then(|v| group_values.iter().position(|x| *x == v));
+            if let Some(limit) = command.plot.cases {
+                let number = |c: usize| case_numbers.as_ref().map_or(c, |n| n[c]) + 1;
+                tables.push(casewise(
+                    &classified,
+                    limit,
+                    kf,
+                    &group_labels,
+                    &number,
+                    &actual,
+                ));
+            }
+            let maps = Maps {
+                kf,
+                centroids: &centroids,
+                priors: &priors,
+                group_labels: &group_labels,
+                group_name: &group_name,
+                suffix: &suffix,
+            };
+            charts.extend(maps.charts(command, &classified, &actual, &weight, &mut warnings));
             if let Some(save) = &options.save {
                 let data = self.active()?;
                 let taken = |name: &str, extra: &[(String, String, Vec<Option<f64>>, bool)]| {
@@ -1479,6 +1512,7 @@ impl Engine {
         for warning in warnings {
             self.warn(warning);
         }
+        self.charts.extend(charts);
         if !saves.is_empty() {
             let (format, value_labels) = (class_format, class_labels);
             self.all_or_nothing(|engine| {
@@ -1800,6 +1834,272 @@ impl Engine {
 }
 
 /// The positions in `names` of the items of ANALYSIS; TO follows the order of VARIABLES.
+/// CASES: the casewise listing of the classified cases in file order, the first `limit` when
+/// given: the actual group, the highest group with the significance of its squared distance
+/// (chi-square with as many df as functions), its posterior and distance, the second highest
+/// group, and the scores. A misclassified case has ** after its predicted group.
+fn casewise(
+    classified: &[(usize, Classified)],
+    limit: Option<usize>,
+    kf: usize,
+    group_labels: &[String],
+    case_number: &dyn Fn(usize) -> usize,
+    actual: &dyn Fn(usize) -> Option<usize>,
+) -> Table {
+    let mut rows = Vec::new();
+    let mut misclassified = false;
+    for (c, k) in classified.iter().take(limit.unwrap_or(usize::MAX)) {
+        let first = k.predicted;
+        let second = (0..group_labels.len())
+            .filter(|&j| j != first)
+            .max_by(|&a, &b| k.posterior[a].total_cmp(&k.posterior[b]).then(b.cmp(&a)))
+            .expect("two groups");
+        let wrong = actual(*c).is_some_and(|a| a != first);
+        misclassified |= wrong;
+        let mark = if wrong { "**" } else { "" };
+        let mut row = vec![
+            Cell::Number(case_number(*c) as f64),
+            text(actual(*c).map_or("Ungrouped".to_string(), |a| group_labels[a].clone())),
+            text(format!("{}{mark}", group_labels[first])),
+            number(Some(chi_square_p(k.distance[first], kf as f64))),
+            Cell::Number(kf as f64),
+            number(Some(k.posterior[first])),
+            number(Some(k.distance[first])),
+            text(group_labels[second].clone()),
+            number(Some(k.posterior[second])),
+            number(Some(k.distance[second])),
+        ];
+        row.extend(k.scores.iter().map(|&v| number(Some(v))));
+        rows.push(row);
+    }
+    let highest = "Highest Group".to_string();
+    let second = "Second Highest Group".to_string();
+    let distance = "Squared Mahalanobis Distance to Centroid".to_string();
+    let mut columns = plain(&["Case Number", "Actual Group"]);
+    columns.extend([
+        (highest.clone(), "Predicted Group".to_string()),
+        (highest.clone(), "P(D>d | G=g)".into()),
+        (highest.clone(), "df".into()),
+        (highest.clone(), "P(G=g | D=d)".into()),
+        (highest, distance.clone()),
+        (second.clone(), "Group".into()),
+        (second.clone(), "P(G=g | D=d)".into()),
+        (second, distance),
+    ]);
+    columns.extend((1..=kf).map(|f| ("Discriminant Scores".to_string(), format!("Function {f}"))));
+    let caption = misclassified.then(|| "** Misclassified case.".to_string());
+    table("Casewise Statistics", 1, columns, rows, caption)
+}
+
+/// What the plots of one analysis are drawn from.
+struct Maps<'a> {
+    kf: usize,
+    centroids: &'a [Vec<f64>],
+    priors: &'a [f64],
+    group_labels: &'a [String],
+    group_name: &'a str,
+    /// ", analysis n" when there are several.
+    suffix: &'a str,
+}
+
+impl Maps<'_> {
+    /// COMBINED, SEPARATE and MAP. With two functions or more, the scores on the first two:
+    /// the cases of each group and the centroids; with one function, histograms of the scores.
+    fn charts(
+        &self,
+        command: &Discriminant,
+        classified: &[(usize, Classified)],
+        actual: &dyn Fn(usize) -> Option<usize>,
+        weight: &dyn Fn(usize) -> f64,
+        warnings: &mut Vec<String>,
+    ) -> Vec<Chart> {
+        use crate::chart::{Axis, ChartKind};
+        use crate::plot::{Plot, Point, PointGroup};
+        let plot = command.plot;
+        let mut charts = Vec::new();
+        let g = self.group_labels.len();
+        let of_group = |j: Option<usize>| -> Vec<&Classified> {
+            classified
+                .iter()
+                .filter(|(c, _)| actual(*c) == j)
+                .map(|(_, k)| k)
+                .collect()
+        };
+        if self.kf >= 2 {
+            let points = |list: &[&Classified]| -> Vec<Point> {
+                list.iter()
+                    .map(|k| Point {
+                        x: k.scores[0],
+                        y: k.scores[1],
+                        z: None,
+                        label: None,
+                    })
+                    .collect()
+            };
+            let centroid = |j: usize| Point {
+                x: self.centroids[j][0],
+                y: self.centroids[j][1],
+                z: None,
+                label: Some(self.group_labels[j].clone()),
+            };
+            let chart = |title: String, groups: Vec<PointGroup>| {
+                let mut chart = Chart::plot(
+                    ChartKind::Scatter,
+                    title,
+                    Axis::titled("Function 1"),
+                    Axis::titled("Function 2"),
+                    Plot::Points {
+                        groups,
+                        lines: Vec::new(),
+                        z_axis: None,
+                    },
+                );
+                chart.legend = Some(self.group_name.to_string());
+                chart
+            };
+            if plot.combined {
+                let mut groups: Vec<PointGroup> = (0..g)
+                    .map(|j| PointGroup {
+                        name: self.group_labels[j].clone(),
+                        points: points(&of_group(Some(j))),
+                    })
+                    .collect();
+                let ungrouped = of_group(None);
+                if !ungrouped.is_empty() {
+                    groups.push(PointGroup {
+                        name: "Ungrouped cases".into(),
+                        points: points(&ungrouped),
+                    });
+                }
+                groups.push(PointGroup {
+                    name: "Group centroids".into(),
+                    points: (0..g).map(centroid).collect(),
+                });
+                let title = format!("Canonical discriminant functions{}", self.suffix);
+                charts.push(chart(title, groups));
+            }
+            if plot.separate {
+                for j in 0..g {
+                    let groups = vec![
+                        PointGroup {
+                            name: self.group_labels[j].clone(),
+                            points: points(&of_group(Some(j))),
+                        },
+                        PointGroup {
+                            name: "Group centroid".into(),
+                            points: vec![centroid(j)],
+                        },
+                    ];
+                    let title = format!(
+                        "Canonical discriminant functions: {} = {}{}",
+                        self.group_name, self.group_labels[j], self.suffix
+                    );
+                    charts.push(chart(title, groups));
+                }
+            }
+        } else if plot.combined || plot.separate {
+            let scores = |pick: &dyn Fn(usize) -> bool| -> Vec<(f64, f64)> {
+                let mut pairs: Vec<(f64, f64)> = classified
+                    .iter()
+                    .filter(|(c, _)| pick(*c))
+                    .map(|(c, k)| (k.scores[0], weight(*c)))
+                    .collect();
+                pairs.sort_by(|a, b| a.0.total_cmp(&b.0));
+                pairs
+            };
+            let mut lists: Vec<(String, Vec<(f64, f64)>)> = Vec::new();
+            if plot.combined {
+                lists.push(("all groups".into(), scores(&|_| true)));
+            }
+            if plot.separate {
+                for j in 0..g {
+                    let label = format!("{} = {}", self.group_name, self.group_labels[j]);
+                    lists.push((label, scores(&|c| actual(c) == Some(j))));
+                }
+            }
+            for (what, pairs) in lists {
+                let histogram = crate::frequencies::Histogram {
+                    title: &format!("Canonical discriminant function 1: {what}{}", self.suffix),
+                    heading: "Function 1",
+                    format: "",
+                    name: "",
+                    normal: false,
+                    scale: None,
+                };
+                let valid = pairs.iter().map(|p| p.1).sum();
+                if let Ok(chart) = histogram.chart(&pairs, &pairs, valid) {
+                    charts.push(chart);
+                }
+            }
+        }
+        if plot.map {
+            if self.kf < 2 {
+                warnings.push(
+                    "DISCRIMINANT: the territorial map needs two discriminant functions; none is made"
+                        .into(),
+                );
+            } else if command.separate {
+                warnings.push(
+                    "DISCRIMINANT: the territorial map shows the classification with the pooled covariance matrix; with CLASSIFY=SEPARATE none is made"
+                        .into(),
+                );
+            } else {
+                let scores = classified.iter().map(|(_, k)| [k.scores[0], k.scores[1]]);
+                charts.push(self.territories(scores.collect()));
+            }
+        }
+        charts
+    }
+
+    /// MAP: the plane of the first two functions split by the classification rule on those
+    /// two, a point going to the group of the highest ln(prior) - d^2 / 2. Each territory is a
+    /// convex polygon: the box around the scores and centroids (widened by 1, the within-groups
+    /// standard deviation of a function) less every point another group wins.
+    fn territories(&self, scores: Vec<[f64; 2]>) -> Chart {
+        use crate::chart::{Axis, ChartKind};
+        use crate::plot::{Plot, Region, clip};
+        let c: Vec<[f64; 2]> = self.centroids.iter().map(|c| [c[0], c[1]]).collect();
+        let (mut low, mut high) = ([f64::INFINITY; 2], [f64::NEG_INFINITY; 2]);
+        for p in scores.iter().chain(&c) {
+            for a in 0..2 {
+                low[a] = low[a].min(p[a] - 1.0);
+                high[a] = high[a].max(p[a] + 1.0);
+            }
+        }
+        let frame = vec![low, [high[0], low[1]], high, [low[0], high[1]]];
+        let square = |p: [f64; 2]| p[0] * p[0] + p[1] * p[1];
+        let regions = (0..c.len())
+            .map(|j| {
+                let mut polygon = frame.clone();
+                for i in (0..c.len()).filter(|&i| i != j) {
+                    // where group j scores at least as high as group i: a z + b >= 0
+                    let a = [c[j][0] - c[i][0], c[j][1] - c[i][1]];
+                    let b = -0.5 * (square(c[j]) - square(c[i]))
+                        + (self.priors[j] / self.priors[i]).ln();
+                    polygon = clip(&polygon, a, b);
+                }
+                Region {
+                    name: self.group_labels[j].clone(),
+                    center: c[j],
+                    vertices: polygon,
+                }
+            })
+            .collect();
+        let mut chart = Chart::plot(
+            ChartKind::TerritorialMap,
+            format!("Territorial map{}", self.suffix),
+            Axis::titled("Function 1"),
+            Axis::titled("Function 2"),
+            Plot::Regions { regions },
+        );
+        chart.legend = Some(self.group_name.to_string());
+        chart.footnote = Some(
+            "The territory of each group by the classification on the first two functions".into(),
+        );
+        chart
+    }
+}
+
 fn positions(names: &[String], items: &[VarItem]) -> Result<Vec<usize>, Error> {
     let find = |name: &str| {
         names

@@ -345,7 +345,8 @@ fn plot(p: &mut Parser, command: &mut Tree) -> PResult<()> {
             if [1.0, 2.0, 5.0, 10.0, 20.0, 25.0].contains(&n) {
                 command.plot_increment = n as usize;
             } else {
-                let message = format!("PLOT INCREMENT={n} is not 1, 2, 5, 10, 20 or 25; 10 is used");
+                let message =
+                    format!("PLOT INCREMENT={n} is not 1, 2, 5, 10, 20 or 25; 10 is used");
                 command.ignored.push(message);
             }
         } else {

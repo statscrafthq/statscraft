@@ -108,6 +108,16 @@ pub enum ClassifyCases {
     Unclassified,
 }
 
+/// PLOT: without keywords COMBINED and CASES; ALL is every one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub struct DiscriminantPlots {
+    pub combined: bool,
+    pub separate: bool,
+    pub map: bool,
+    /// `CASES[(n)]`: Some(None) lists every case, Some(Some(n)) the first n.
+    pub cases: Option<Option<usize>>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct Discriminant {
     pub group: String,
@@ -123,8 +133,8 @@ pub struct Discriminant {
     pub separate: bool,
     pub meansub: bool,
     pub statistics: DiscriminantStatistics,
-    /// PLOT was given; charts and the casewise listing are not produced.
-    pub plot: bool,
+    /// PLOT: the charts, the territorial map and the casewise listing asked for.
+    pub plot: DiscriminantPlots,
     /// Block subcommands given after a global subcommand, for a warning.
     pub ignored: Vec<String>,
 }
@@ -471,7 +481,7 @@ pub(crate) fn discriminant(p: &mut Parser) -> PResult<Command> {
         separate: false,
         meansub: false,
         statistics: DiscriminantStatistics::default(),
-        plot: false,
+        plot: DiscriminantPlots::default(),
         ignored: Vec::new(),
     };
     let mut current = DiscriminantAnalysis::default();
@@ -624,10 +634,42 @@ pub(crate) fn discriminant(p: &mut Parser) -> PResult<Command> {
                     ));
                 }
             } else if p.eat_keyword("PLOT") {
-                while !at_end(p) {
-                    p.pos += 1;
+                p.eat(Punct::Eq);
+                let plot = &mut command.plot;
+                if at_end(p) {
+                    (plot.combined, plot.cases) = (true, Some(None));
                 }
-                command.plot = true;
+                while !at_end(p) {
+                    if p.eat_keyword("COMBINED") {
+                        plot.combined = true;
+                    } else if p.eat_keyword("SEPARATE") {
+                        plot.separate = true;
+                    } else if p.eat_keyword("MAP") {
+                        plot.map = true;
+                    } else if p.eat_keyword("ALL") {
+                        (plot.combined, plot.separate, plot.map) = (true, true, true);
+                        plot.cases = Some(None);
+                    } else if p.eat_keyword("CASES") {
+                        plot.cases = Some(None);
+                        if p.eat(Punct::LParen) {
+                            let start = p.pos;
+                            match p.number() {
+                                Some(n) if n >= 1.0 && n.fract() == 0.0 => {
+                                    plot.cases = Some(Some(n as usize));
+                                }
+                                _ => {
+                                    return Err(SyntaxError::new(
+                                        p.span_from(start),
+                                        "CASES needs a positive whole number of cases",
+                                    ));
+                                }
+                            }
+                            p.expect(Punct::RParen)?;
+                        }
+                    } else {
+                        return Err(p.unexpected(&["COMBINED", "SEPARATE", "MAP", "CASES", "ALL"]));
+                    }
+                }
             } else {
                 return Err(p.subcommand_error("DISCRIMINANT", &["MATRIX", "OUTFILE"]));
             }

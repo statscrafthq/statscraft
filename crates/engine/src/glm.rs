@@ -33,10 +33,10 @@ use crate::npar_tests::text;
 use crate::oneway::{Group, group, posthoc_tables};
 use crate::regression::{plain, table};
 use crate::shown::{Show, Shown};
-use crate::{Cell, Engine, Error, Table};
+use crate::{Cell, Chart, Engine, Error, Table};
 use statscraft_data::{Measure, Values, Variable};
 use statscraft_syntax::{
-    Adjustment, Contrast, Emmeans, Glm, GlmTemp, PercentileMethod, Posthoc, Term,
+    Adjustment, Contrast, Emmeans, Glm, GlmPlot, GlmTemp, PercentileMethod, Posthoc, Profile, Term,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -933,13 +933,15 @@ impl Engine {
             return Err(Error(format!("{name}: the design has no effects")));
         }
         let mut warnings = Vec::new();
-        if !command.charts.is_empty() {
-            warnings.push(format!("{name}: PLOT accepted; charts are not drawn yet"));
-        }
         let label_of = |f: usize, l: usize| level_texts[f][l].clone();
         let dependent_texts: Vec<String> = dep_vars.iter().map(|v| shown.variable(v)).collect();
         let mut tables = Vec::new();
         if !command.wsfactors.is_empty() {
+            if !command.plots.is_empty() {
+                warnings.push(format!(
+                    "{name}: PLOT with WSFACTOR is not supported yet; no chart is made"
+                ));
+            }
             tables.extend(self.repeated_measures(
                 command,
                 &d,
@@ -959,6 +961,15 @@ impl Engine {
                 &label_of,
                 &mut warnings,
             )?);
+            let charts = plots(
+                command,
+                &d,
+                &fit,
+                &dependent_texts[0],
+                &label_of,
+                &mut warnings,
+            )?;
+            self.charts.extend(charts);
             if !command.save.is_empty() {
                 self.save_glm(command, &d, &fit, &dependents[0], cases)?;
             }
@@ -1850,6 +1861,296 @@ fn emmeans_l(d: &Data, fit: &Fit, fixed: &[(usize, usize)], with: &[(usize, f64)
     l
 }
 
+/// The covariates of WITH by index, with the values given; MEAN ones are left out, so that
+/// they stay at their means.
+fn covariate_values(
+    d: &Data,
+    with: &[(String, Option<f64>)],
+    what: &str,
+) -> Result<Vec<(usize, f64)>, Error> {
+    let mut out = Vec::new();
+    for (name, value) in with {
+        let Some(c) = d
+            .covariates
+            .iter()
+            .position(|n| n.eq_ignore_ascii_case(name))
+        else {
+            return Err(Error(format!(
+                "{what} WITH names {name}, which is not a covariate"
+            )));
+        };
+        if let Some(v) = value {
+            out.push((c, *v));
+        }
+    }
+    Ok(out)
+}
+
+/// PLOT of the univariate model: profile plots of the estimated marginal means, the
+/// spread-versus-level plots of the observed cells and the observed by predicted by
+/// standardized residual plot.
+fn plots(
+    command: &Glm,
+    d: &Data,
+    fit: &Fit,
+    dependent: &str,
+    label_of: &dyn Fn(usize, usize) -> String,
+    warnings: &mut Vec<String>,
+) -> Result<Vec<Chart>, Error> {
+    let mut charts = Vec::new();
+    for plot in &command.plots {
+        match plot {
+            GlmPlot::Profile(profile) => {
+                charts.extend(profile_plots(
+                    d, fit, profile, dependent, label_of, warnings,
+                )?);
+            }
+            GlmPlot::SpreadLevel => charts.extend(spread_level(d, dependent, label_of)),
+            GlmPlot::Residuals => charts.push(residual_plot(d, fit, dependent)),
+        }
+    }
+    Ok(charts)
+}
+
+/// PROFILE: the estimated marginal means along the levels of the first factor, a line for
+/// each level of the second and a chart for each level of the third; covariates at their
+/// means or the WITH values. A mean that is not estimable has no value.
+fn profile_plots(
+    d: &Data,
+    fit: &Fit,
+    profile: &Profile,
+    dependent: &str,
+    label_of: &dyn Fn(usize, usize) -> String,
+    warnings: &mut Vec<String>,
+) -> Result<Vec<Chart>, Error> {
+    use crate::chart::{Axis, Category, ChartKind, Series, Statistic};
+    let h = fit.h();
+    let mean_of = |l: &[f64]| match fit.estimable(l, &h) {
+        true => l.iter().zip(&fit.b).map(|(a, b)| a * b[0]).sum::<f64>(),
+        false => f64::NAN,
+    };
+    let factors: Vec<usize> = profile
+        .factors
+        .iter()
+        .map(|n| {
+            d.factors
+                .iter()
+                .position(|v| v.eq_ignore_ascii_case(n))
+                .ok_or_else(|| Error(format!("PLOT PROFILE names {n}, which is not a factor")))
+        })
+        .collect::<Result<_, _>>()?;
+    if factors.len() > 3 {
+        return Err(Error("PLOT PROFILE crosses at most three factors".into()));
+    }
+    if profile.error_bars {
+        warnings.push(
+            "PLOT PROFILE: error bars are not drawn yet; the chart has the means only".into(),
+        );
+    }
+    let with = covariate_values(d, &profile.with, "PLOT PROFILE")?;
+    let mut notes = vec![format!("Dependent variable: {dependent}")];
+    if !d.covariates.is_empty() {
+        let at: Vec<String> = (0..d.covariates.len())
+            .map(|c| {
+                let v = with
+                    .iter()
+                    .find(|w| w.0 == c)
+                    .map_or_else(|| d.covariate_mean(&[c]), |w| w.1);
+                format!("{} = {}", d.covariates[c], round3(v))
+            })
+            .collect();
+        notes.push(format!("Covariates at {}", at.join(", ")));
+    }
+    let grand = profile
+        .mean_reference
+        .then(|| mean_of(&emmeans_l(d, fit, &[], &with)));
+    let levels = |k: usize| factors.get(k).map_or(1, |&f| d.values[f].len());
+    let f0 = factors[0];
+    let categories: Vec<Category> = (0..levels(0))
+        .map(|l| Category {
+            label: label_of(f0, l),
+            value: Cell::Text(d.values[f0][l].clone()),
+            missing: false,
+            bin: None,
+        })
+        .collect();
+    let mut charts = Vec::new();
+    for panel in 0..levels(2) {
+        let mut series: Vec<Series> = (0..levels(1))
+            .map(|line| {
+                let values = (0..levels(0))
+                    .map(|l| {
+                        let fixed: Vec<(usize, usize)> =
+                            factors.iter().copied().zip([l, line, panel]).collect();
+                        mean_of(&emmeans_l(d, fit, &fixed, &with))
+                    })
+                    .collect();
+                match factors.get(1) {
+                    Some(&f1) => Series {
+                        name: label_of(f1, line),
+                        statistic: Statistic::Mean,
+                        variable: Some(d.factors[f1].clone()),
+                        value: Cell::Text(d.values[f1][line].clone()),
+                        values,
+                    },
+                    None => Series {
+                        name: "Estimated marginal mean".into(),
+                        statistic: Statistic::Mean,
+                        variable: None,
+                        value: Cell::Empty,
+                        values,
+                    },
+                }
+            })
+            .collect();
+        if let Some(g) = grand {
+            series.push(Series {
+                name: "Grand mean".into(),
+                statistic: Statistic::Mean,
+                variable: None,
+                value: Cell::Empty,
+                values: vec![g; levels(0)],
+            });
+        }
+        let mut title = format!("Estimated marginal means of {dependent}");
+        if let Some(&f2) = factors.get(2) {
+            title = format!(
+                "{title} at {} = {}",
+                d.factor_texts[f2],
+                label_of(f2, panel)
+            );
+        }
+        let mut chart = Chart::lines(
+            title,
+            Axis {
+                variable: Some(d.factors[f0].clone()),
+                ..Axis::titled(d.factor_texts[f0].clone())
+            },
+            Axis::titled("Estimated marginal means"),
+            categories.clone(),
+            series,
+        );
+        if profile.bar {
+            chart.kind = ChartKind::Bar;
+        }
+        if let Some(&f1) = factors.get(1) {
+            chart.legend = Some(d.factor_texts[f1].clone());
+        }
+        chart.footnote = Some(notes.join(". "));
+        charts.push(chart);
+    }
+    Ok(charts)
+}
+
+/// SPREADLEVEL: every cell of the factors with more than one case, its mean against its
+/// standard deviation and against its variance, with the frequency weights of the
+/// descriptive statistics.
+fn spread_level(
+    d: &Data,
+    dependent: &str,
+    label_of: &dyn Fn(usize, usize) -> String,
+) -> Vec<Chart> {
+    use crate::chart::{Axis, ChartKind};
+    use crate::plot::{Plot, Point, PointGroup};
+    let sizes: Vec<usize> = d.values.iter().map(Vec::len).collect();
+    let mut cells: Vec<(String, f64, f64)> = Vec::new();
+    for combo in combinations(&sizes) {
+        let members: Vec<usize> = (0..d.rows())
+            .filter(|&i| combo.iter().enumerate().all(|(f, &l)| d.level[i][f] == l))
+            .collect();
+        let n: f64 = members.iter().map(|&i| d.f[i]).sum();
+        if n <= 1.0 {
+            continue;
+        }
+        let mean = members.iter().map(|&i| d.f[i] * d.y[i][0]).sum::<f64>() / n;
+        let ss: f64 = members
+            .iter()
+            .map(|&i| d.f[i] * (d.y[i][0] - mean).powi(2))
+            .sum();
+        let label = match combo.is_empty() {
+            true => "Total".to_string(),
+            false => combo
+                .iter()
+                .enumerate()
+                .map(|(f, &l)| label_of(f, l))
+                .collect::<Vec<_>>()
+                .join(", "),
+        };
+        cells.push((label, mean, ss / (n - 1.0)));
+    }
+    ["standard deviation", "variance"]
+        .into_iter()
+        .map(|what| {
+            let spread = |var: f64| match what {
+                "variance" => var,
+                _ => var.sqrt(),
+            };
+            let points = cells
+                .iter()
+                .map(|(label, mean, var)| Point {
+                    x: *mean,
+                    y: spread(*var),
+                    z: None,
+                    label: Some(label.clone()),
+                })
+                .collect();
+            let mut chart = Chart::plot(
+                ChartKind::SpreadLevel,
+                format!("Spread versus level of {dependent}: {what}"),
+                Axis::titled("Level (mean)"),
+                Axis::titled(format!("Spread ({what})")),
+                Plot::Points {
+                    groups: vec![PointGroup {
+                        name: what.into(),
+                        points,
+                    }],
+                    lines: Vec::new(),
+                    z_axis: None,
+                },
+            );
+            chart.footnote = Some(format!(
+                "Dependent variable: {dependent}. Cells of the factors"
+            ));
+            chart
+        })
+        .collect()
+}
+
+/// RESIDUALS: every case of the analysis with its predicted value (x), observed value (y)
+/// and standardized residual (z), from which the matrix of the three is drawn.
+fn residual_plot(d: &Data, fit: &Fit, dependent: &str) -> Chart {
+    use crate::chart::{Axis, ChartKind};
+    use crate::plot::{Plot, Point, PointGroup};
+    let mse = fit.s[0][0] / fit.df_error();
+    let points = (0..d.rows())
+        .map(|i| {
+            let pred: f64 = fit.x[i].iter().zip(&fit.b).map(|(x, b)| x * b[0]).sum();
+            Point {
+                x: pred,
+                y: d.y[i][0],
+                z: Some((d.y[i][0] - pred) / (mse / d.g[i]).sqrt()),
+                label: None,
+            }
+        })
+        .collect();
+    let mut chart = Chart::plot(
+        ChartKind::Scatter,
+        format!("Observed by predicted by standardized residual: {dependent}"),
+        Axis::titled("Predicted"),
+        Axis::titled("Observed"),
+        Plot::Points {
+            groups: vec![PointGroup {
+                name: dependent.to_string(),
+                points,
+            }],
+            lines: Vec::new(),
+            z_axis: Some(Axis::titled("Standardized residual")),
+        },
+    );
+    chart.footnote = Some(format!("Dependent variable: {dependent}"));
+    chart
+}
+
 #[allow(clippy::too_many_arguments)]
 fn emmeans_tables(
     command: &Glm,
@@ -1872,21 +2173,7 @@ fn emmeans_tables(
         .iter()
         .map(|n| find(n))
         .collect::<Result<_, _>>()?;
-    let mut with: Vec<(usize, f64)> = Vec::new();
-    for (name, value) in &e.with {
-        let Some(c) = d
-            .covariates
-            .iter()
-            .position(|n| n.eq_ignore_ascii_case(name))
-        else {
-            return Err(Error(format!(
-                "EMMEANS WITH names {name}, which is not a covariate"
-            )));
-        };
-        if let Some(v) = value {
-            with.push((c, *v));
-        }
-    }
+    let with = covariate_values(d, &e.with, "EMMEANS")?;
     let mse = fit.s[0][0] / fit.df_error();
     let dfe = fit.df_error();
     let tc = t_quantile(command.alpha / 2.0, dfe);

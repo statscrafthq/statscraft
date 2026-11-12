@@ -147,8 +147,33 @@ pub struct Glm {
     pub lmatrix: Vec<LMatrix>,
     pub kmatrix: Option<Vec<f64>>,
     pub save: Vec<(GlmTemp, Option<String>)>,
-    /// Subcommands that ask for charts, which are not drawn yet.
-    pub charts: Vec<String>,
+    /// PLOT, in the order asked.
+    pub plots: Vec<GlmPlot>,
+}
+
+/// A plot of PLOT.
+#[derive(Debug, Clone, PartialEq)]
+pub enum GlmPlot {
+    /// Observed cell means against standard deviations and against variances.
+    SpreadLevel,
+    /// Observed by predicted by standardized residuals.
+    Residuals,
+    Profile(Profile),
+}
+
+/// One factor crossing of PROFILE with the options that follow the list.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Profile {
+    /// The factors in the order written: categories, lines, separate charts.
+    pub factors: Vec<String>,
+    /// `WITH(covariate=value|MEAN)`: None is MEAN.
+    pub with: Vec<(String, Option<f64>)>,
+    /// `TYPE=BAR`
+    pub bar: bool,
+    /// `MEANREFERENCE=YES`
+    pub mean_reference: bool,
+    /// `ERRORBAR=CI` or `SE`, which are not drawn yet.
+    pub error_bars: bool,
 }
 
 /// A variable list that ends at one of the words of `stop`, such as BY and WITH.
@@ -341,6 +366,113 @@ fn crossing(p: &mut Parser) -> PResult<Vec<String>> {
     Ok(names)
 }
 
+/// `(covariate=value|MEAN ...)` after WITH.
+fn with_values(p: &mut Parser) -> PResult<Vec<(String, Option<f64>)>> {
+    let mut out = Vec::new();
+    p.expect(Punct::LParen)?;
+    while !p.at(Punct::RParen) {
+        let name = p.name("a covariate")?;
+        p.expect(Punct::Eq)?;
+        let value = if p.eat_keyword("MEAN") {
+            None
+        } else if let Some(n) = p.number() {
+            Some(n)
+        } else {
+            return Err(p.unexpected(&["a number", "MEAN"]));
+        };
+        out.push((name, value));
+        p.eat(Punct::Comma);
+    }
+    p.expect(Punct::RParen)?;
+    Ok(out)
+}
+
+/// `PLOT = SPREADLEVEL RESIDUALS PROFILE(crossing ...) [options]`: the options after a
+/// PROFILE list apply to each crossing of that list.
+fn plot(p: &mut Parser) -> PResult<Vec<GlmPlot>> {
+    p.eat(Punct::Eq);
+    let mut out = Vec::new();
+    while !at_end(p) {
+        if p.eat_keyword("SPREADLEVEL") {
+            out.push(GlmPlot::SpreadLevel);
+        } else if p.eat_keyword("RESIDUALS") {
+            out.push(GlmPlot::Residuals);
+        } else if p.eat_keyword("PROFILE") {
+            p.expect(Punct::LParen)?;
+            let mut crossings = vec![crossing(p)?];
+            while !p.eat(Punct::RParen) {
+                crossings.push(crossing(p)?);
+            }
+            let mut options = Profile {
+                factors: Vec::new(),
+                with: Vec::new(),
+                bar: false,
+                mean_reference: false,
+                error_bars: false,
+            };
+            loop {
+                if p.eat_word("WITH") {
+                    options.with.extend(with_values(p)?);
+                } else if p.eat_keyword("TYPE") {
+                    p.eat(Punct::Eq);
+                    options.bar = match () {
+                        _ if p.eat_keyword("LINE") => false,
+                        _ if p.eat_keyword("BAR") => true,
+                        _ => return Err(p.unexpected(&["LINE", "BAR"])),
+                    };
+                } else if p.eat_keyword("MEANREFERENCE") {
+                    p.eat(Punct::Eq);
+                    options.mean_reference = match () {
+                        _ if p.eat_keyword("NO") => false,
+                        _ if p.eat_keyword("YES") => true,
+                        _ => return Err(p.unexpected(&["NO", "YES"])),
+                    };
+                } else if p.eat_keyword("ERRORBAR") {
+                    p.eat(Punct::Eq);
+                    options.error_bars = match () {
+                        _ if p.eat_keyword("NO") => false,
+                        _ if p.eat_keyword("CI") => true,
+                        _ if p.eat_keyword("SE") => {
+                            if p.eat(Punct::LParen) {
+                                let start = p.pos;
+                                match p.number() {
+                                    Some(n) if n > 0.0 => {}
+                                    _ => {
+                                        return Err(SyntaxError::new(
+                                            p.span_from(start),
+                                            "SE needs a positive number",
+                                        ));
+                                    }
+                                }
+                                p.expect(Punct::RParen)?;
+                            }
+                            true
+                        }
+                        _ => return Err(p.unexpected(&["NO", "CI", "SE"])),
+                    };
+                } else if p.eat_keyword("YAXIS") {
+                    // the range of the axis is left to the drawing
+                    p.eat(Punct::Eq);
+                    if !p.eat_keyword("AUTO") && p.number() != Some(0.0) {
+                        return Err(p.unexpected(&["AUTO", "0"]));
+                    }
+                } else {
+                    break;
+                }
+            }
+            out.extend(crossings.into_iter().map(|factors| {
+                GlmPlot::Profile(Profile {
+                    factors,
+                    ..options.clone()
+                })
+            }));
+        } else {
+            return Err(p.unexpected(&["SPREADLEVEL", "RESIDUALS", "PROFILE"]));
+        }
+    }
+    Ok(out)
+}
+
 fn emmeans(p: &mut Parser) -> PResult<Emmeans> {
     p.eat(Punct::Eq);
     if !p.eat_keyword("TABLES") {
@@ -361,21 +493,7 @@ fn emmeans(p: &mut Parser) -> PResult<Emmeans> {
     };
     while !at_end(p) {
         if p.eat_word("WITH") {
-            p.expect(Punct::LParen)?;
-            while !p.at(Punct::RParen) {
-                let name = p.name("a covariate")?;
-                p.expect(Punct::Eq)?;
-                let value = if p.eat_keyword("MEAN") {
-                    None
-                } else if let Some(n) = p.number() {
-                    Some(n)
-                } else {
-                    return Err(p.unexpected(&["a number", "MEAN"]));
-                };
-                e.with.push((name, value));
-                p.eat(Punct::Comma);
-            }
-            p.expect(Punct::RParen)?;
+            e.with.extend(with_values(p)?);
         } else if p.eat_keyword("COMPARE") {
             let start = p.pos;
             let factor = if p.eat(Punct::LParen) {
@@ -693,7 +811,7 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
         lmatrix: Vec::new(),
         kmatrix: None,
         save: Vec::new(),
-        charts: Vec::new(),
+        plots: Vec::new(),
     };
     while p.eat(Punct::Slash) {
         if p.eat_keyword("METHOD") {
@@ -834,10 +952,7 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
         } else if p.eat_keyword("SAVE") {
             command.save = save(p)?;
         } else if p.eat_keyword("PLOT") {
-            command.charts.push("PLOT".into());
-            while !at_end(p) {
-                p.pos += 1;
-            }
+            command.plots.extend(plot(p)?);
         } else {
             let mut later: Vec<&str> = SUBCOMMANDS_LATER.to_vec();
             later.retain(|s| *s != "PLOT" && *s != "CONTRAST");

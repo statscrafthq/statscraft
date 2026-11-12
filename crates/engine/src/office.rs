@@ -77,7 +77,8 @@ fn chart_type(chart: &Chart) -> Option<ChartType> {
             | ChartKind::SpreadLevel
             | ChartKind::Dendrogram
             | ChartKind::Icicle
-            | ChartKind::TreeDiagram,
+            | ChartKind::TreeDiagram
+            | ChartKind::TerritorialMap,
             ..,
         ) => return None,
     })

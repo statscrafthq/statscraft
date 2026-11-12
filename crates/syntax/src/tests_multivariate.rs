@@ -201,7 +201,8 @@ fn discriminant_blocks_and_abbreviations() {
         (s.class.clone(), s.scores.clone()),
         (Some(None), Some(Some("SC".into())))
     );
-    assert!(d.include && !d.history && d.separate && d.meansub && d.plot);
+    assert!(d.include && !d.history && d.separate && d.meansub && d.plot.map);
+    assert!(!d.plot.combined && d.plot.cases.is_none());
     assert_eq!(d.classify, ClassifyCases::Unclassified);
     assert!(d.statistics.crossvalid && d.statistics.boxm && d.statistics.fpair);
     // STATISTICS without keywords; a block subcommand after a global one is ignored
@@ -223,6 +224,29 @@ fn discriminant_blocks_and_abbreviations() {
         ));
         assert_eq!(d.analyses[0].method, method);
     }
+}
+
+#[test]
+fn discriminant_plot_keywords() {
+    let plot = |source: &str| {
+        discriminant(&format!(
+            "DISCRIMINANT GROUPS=g(1,2) /VARIABLES=a b {source}."
+        ))
+        .plot
+    };
+    let all = DiscriminantPlots {
+        combined: true,
+        separate: true,
+        map: true,
+        cases: Some(None),
+    };
+    assert_eq!(plot(""), DiscriminantPlots::default());
+    assert!(plot("/PLOT").combined);
+    assert_eq!(plot("/PLOT").cases, Some(None));
+    assert!(!plot("/PLOT").map);
+    assert_eq!(plot("/PLOT=ALL"), all);
+    assert_eq!(plot("/PLOT=SEPARATE CASES(15)").cases, Some(Some(15)));
+    assert!(plot("/PLOT=SEPARATE CASES(15)").separate);
 }
 
 #[test]
