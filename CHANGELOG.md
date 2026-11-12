@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Charts as data: FREQUENCIES BARCHART, PIECHART and HISTOGRAM (with a normal curve) and CROSSTABS BARCHART now make charts. `--json` gives each chart's kind, labels and numbers under `commands[].charts`, `--vega-lite` adds a Vega-Lite specification, and the text output and the window show the chart's numbers as a table until the window draws charts. See [the command line](docs/command-line.md#charts).
+
 ## 0.8.0 (2026-11-12)
 
 - `statscraft mcp`: an MCP server over standard input and output, so an AI agent app can describe data, look up commands, check and run syntax through tools. Calls go to the open window when there is one, else to a session in the user data folder. See [the MCP server](docs/mcp.md).
