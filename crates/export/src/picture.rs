@@ -140,6 +140,8 @@ pub(crate) struct Palette {
     pub ramp: [Color; 4],
     /// The middle of a scale with an odd number of steps, neither side.
     pub neutral: Color,
+    /// Quiet panels, such as the boxes of a tree diagram.
+    pub tint: Color,
 }
 
 impl Palette {
@@ -153,6 +155,7 @@ impl Palette {
                 amber: Color::hex(0xD9942B),
                 ramp: [0x0B4F5C, 0x6FA7B2, 0xEDC07A, 0xC98318].map(Color::hex),
                 neutral: Color::hex(0xAAB6B9),
+                tint: Color::hex(0xEEF4F5),
             },
             // the ends brighter than the middle, so the ends stand out from the dark paper as
             // they do from the light one
@@ -164,6 +167,7 @@ impl Palette {
                 amber: Color::hex(0xF0B54A),
                 ramp: [0x5CC2D2, 0x2D6E79, 0x9C7230, 0xF0B54A].map(Color::hex),
                 neutral: Color::hex(0x4A5A5E),
+                tint: Color::hex(0x132024),
             },
         }
     }

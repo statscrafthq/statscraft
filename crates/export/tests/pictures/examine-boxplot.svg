@@ -1,0 +1,35 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="384" viewBox="0 0 640 384" font-family="'Schibsted Grotesk', sans-serif" style="font-variant-numeric: tabular-nums">
+<rect width="640" height="384" fill="#FFFFFF"/>
+<text x="12" y="27.4" font-size="15" fill="#12191C" text-anchor="start">Boxplot of visits by branch</text>
+<text x="12" y="48.96" font-size="11" fill="#55656A" text-anchor="start">visits</text>
+<polyline points="33.96,332.8 628,332.8" fill="none" stroke="#DCE3E5" stroke-width="1" stroke-linejoin="round"/>
+<text x="27.96" y="336.76" font-size="11" fill="#55656A" text-anchor="end">0</text>
+<polyline points="33.96,243.2 628,243.2" fill="none" stroke="#DCE3E5" stroke-width="1" stroke-linejoin="round"/>
+<text x="27.96" y="247.16" font-size="11" fill="#55656A" text-anchor="end">5</text>
+<polyline points="33.96,153.6 628,153.6" fill="none" stroke="#DCE3E5" stroke-width="1" stroke-linejoin="round"/>
+<text x="27.96" y="157.56" font-size="11" fill="#55656A" text-anchor="end">10</text>
+<polyline points="33.96,64 628,64" fill="none" stroke="#DCE3E5" stroke-width="1" stroke-linejoin="round"/>
+<text x="27.96" y="67.96" font-size="11" fill="#55656A" text-anchor="end">15</text>
+<text x="132.97" y="346.76" font-size="11" fill="#55656A" text-anchor="middle">Harbour</text>
+<text x="330.98" y="346.76" font-size="11" fill="#55656A" text-anchor="middle">Old Town</text>
+<text x="528.99" y="346.76" font-size="11" fill="#55656A" text-anchor="middle">Hillside</text>
+<text x="330.98" y="366.76" font-size="11" fill="#55656A" text-anchor="middle">branch</text>
+<polyline points="132.97,261.12 132.97,243.2" fill="none" stroke="#55656A" stroke-width="1" stroke-linejoin="round"/>
+<polyline points="132.97,171.52 132.97,153.6" fill="none" stroke="#55656A" stroke-width="1" stroke-linejoin="round"/>
+<polyline points="105.25,261.12 160.69,261.12" fill="none" stroke="#55656A" stroke-width="1" stroke-linejoin="round"/>
+<polyline points="105.25,153.6 160.69,153.6" fill="none" stroke="#55656A" stroke-width="1" stroke-linejoin="round"/>
+<rect x="77.53" y="171.52" width="110.89" height="71.68" fill="#6FA7B2"/>
+<polyline points="77.53,207.36 188.41,207.36" fill="none" stroke="#0B4F5C" stroke-width="2" stroke-linejoin="round"/>
+<polyline points="330.98,296.96 330.98,288" fill="none" stroke="#55656A" stroke-width="1" stroke-linejoin="round"/>
+<polyline points="330.98,162.56 330.98,135.68" fill="none" stroke="#55656A" stroke-width="1" stroke-linejoin="round"/>
+<polyline points="303.26,296.96 358.7,296.96" fill="none" stroke="#55656A" stroke-width="1" stroke-linejoin="round"/>
+<polyline points="303.26,135.68 358.7,135.68" fill="none" stroke="#55656A" stroke-width="1" stroke-linejoin="round"/>
+<rect x="275.54" y="162.56" width="110.89" height="125.44" fill="#6FA7B2"/>
+<polyline points="275.54,234.24 386.43,234.24" fill="none" stroke="#0B4F5C" stroke-width="2" stroke-linejoin="round"/>
+<polyline points="528.99,314.88 528.99,270.08" fill="none" stroke="#55656A" stroke-width="1" stroke-linejoin="round"/>
+<polyline points="528.99,153.6 528.99,81.92" fill="none" stroke="#55656A" stroke-width="1" stroke-linejoin="round"/>
+<polyline points="501.27,314.88 556.72,314.88" fill="none" stroke="#55656A" stroke-width="1" stroke-linejoin="round"/>
+<polyline points="501.27,81.92 556.72,81.92" fill="none" stroke="#55656A" stroke-width="1" stroke-linejoin="round"/>
+<rect x="473.55" y="153.6" width="110.89" height="116.48" fill="#6FA7B2"/>
+<polyline points="473.55,225.28 584.44,225.28" fill="none" stroke="#0B4F5C" stroke-width="2" stroke-linejoin="round"/>
+</svg>

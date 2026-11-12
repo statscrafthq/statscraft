@@ -85,6 +85,12 @@ fn a_clustered_bar_chart_of_a_crosstabulation() {
 }
 
 #[test]
+fn a_boxplot_per_branch() {
+    let boxplot = chart("EXAMINE visits BY branch /PLOT BOXPLOT /NOTOTAL.");
+    golden("examine-boxplot", &boxplot, Paper::Light);
+}
+
+#[test]
 fn every_kind_draws_in_both_papers() {
     let mut base = chart("CROSSTABS branch BY age /BARCHART.");
     use statscraft_engine::chart::{ChartKind, Grouping, Orientation};

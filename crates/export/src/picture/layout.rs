@@ -1,5 +1,8 @@
 //! From a chart to its shapes. Each kind has one layout function; `scene` picks it, and a kind
-//! without one returns None, so it shows as its data table.
+//! without one returns None, so it shows as its data table. The statistical plots that carry
+//! their data in `Chart::plot` are laid out in `plots`.
+
+mod plots;
 
 use super::{Anchor, Color, Palette, Paper, Scene, Shape, text_width};
 use statscraft_engine::Cell;
@@ -16,7 +19,9 @@ const MIN_WIDTH: f32 = 280.0;
 /// no layout yet or numbers that do not fit its kind.
 pub fn scene(chart: &Chart, width: f32, paper: Paper) -> Option<Scene> {
     let n = chart.categories.len();
-    if n == 0 || chart.series.is_empty() || chart.series.iter().any(|s| s.values.len() != n) {
+    let fits =
+        n > 0 && !chart.series.is_empty() && chart.series.iter().all(|s| s.values.len() == n);
+    if chart.plot.is_none() && !fits {
         return None;
     }
     let width = width.max(MIN_WIDTH).round();
@@ -26,15 +31,15 @@ pub fn scene(chart: &Chart, width: f32, paper: Paper) -> Option<Scene> {
         shapes: Vec::new(),
     };
     let top = d.title(&chart.title);
-    // kinds added to the engine later show as their data table until they get a layout here
-    #[allow(unreachable_patterns)]
-    let bottom = match chart.kind {
-        ChartKind::Bar => bars(&mut d, chart, top),
-        ChartKind::Line | ChartKind::Area => lines(&mut d, chart, top),
-        ChartKind::Scatter => scatter(&mut d, chart, top)?,
-        ChartKind::Histogram => histogram(&mut d, chart, top)?,
-        ChartKind::Pie => pie(&mut d, chart, top)?,
-        _ => return None,
+    let bottom = match (&chart.plot, chart.kind) {
+        (Some(plot), _) => plots::plot(&mut d, chart, plot, top)?,
+        (None, ChartKind::Bar) => bars(&mut d, chart, top),
+        (None, ChartKind::Line | ChartKind::Area) => lines(&mut d, chart, top),
+        (None, ChartKind::Scatter) => scatter(&mut d, chart, top)?,
+        (None, ChartKind::Histogram) => histogram(&mut d, chart, top)?,
+        (None, ChartKind::Pie) => pie(&mut d, chart, top)?,
+        // a kind without a layout here shows as its data table
+        (None, _) => return None,
     };
     let bottom = d.footnote(chart.footnote.as_deref(), bottom);
     Some(Scene {
@@ -101,12 +106,18 @@ impl Draw {
 
     /// The legend of several series: its title and a swatch with each name, in rows.
     fn legend(&mut self, chart: &Chart, colors: &[Color], top: f32) -> f32 {
-        if chart.series.len() < 2 {
+        let names: Vec<&str> = chart.series.iter().map(|s| s.name.as_str()).collect();
+        self.swatches(chart.legend.as_deref(), &names, colors, top)
+    }
+
+    /// A title and a swatch with each name, in rows; nothing for fewer than two names.
+    fn swatches(&mut self, title: Option<&str>, names: &[&str], colors: &[Color], top: f32) -> f32 {
+        if names.len() < 2 {
             return top;
         }
         let right = self.width - PAD;
         let (mut x, mut y) = (PAD, top);
-        if let Some(title) = &chart.legend {
+        if let Some(title) = title {
             let title = fit(title, SMALL, right - PAD);
             let w = text_width(&title, SMALL);
             self.text(
@@ -119,8 +130,8 @@ impl Draw {
             );
             x += w + 12.0;
         }
-        for (series, &color) in chart.series.iter().zip(colors) {
-            let name = fit(&series.name, SMALL, right - PAD - 15.0);
+        for (name, &color) in names.iter().zip(colors) {
+            let name = fit(name, SMALL, right - PAD - 15.0);
             let w = 15.0 + text_width(&name, SMALL);
             if x + w > right && x > PAD {
                 (x, y) = (PAD, y + LINE);
@@ -867,6 +878,7 @@ mod tests {
                 })
                 .collect(),
             normal: None,
+            plot: None,
         }
     }
 

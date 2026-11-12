@@ -216,7 +216,7 @@ The buttons over the tables act on the selected tables. A right click on a table
 
 ### Charts
 
-A chart shows in the output as a picture, as wide as the window up to about 760 pixels: flat bars, lines, areas, dots and slices in the brand's petrol and amber, with muted labels and thin rule lines, on light or dark paper as the output shows its tables. Bar charts (upright or lying, side by side, stacked or stacked to 100%), pie, line, area and scatter charts and the histogram with its normal curve are drawn; a kind of chart that has no drawing yet shows as its data table.
+A chart shows in the output as a picture, as wide as the window up to about 760 pixels: flat bars, lines, areas, dots and slices in the brand's petrol and amber, with muted labels and thin rule lines, on light or dark paper as the output shows its tables. Bar charts (upright or lying, side by side, stacked or stacked to 100%), pie, line, area and scatter charts and the histogram with its normal curve are drawn, and so are the statistical plots: boxplots with their outliers and extremes marked by case, normal Q-Q and P-P plots, detrended Q-Q plots, spread versus level and the other point plots with their reference lines in amber, the dendrogram, the icicle plot and the tree diagram. A stem-and-leaf display, a plot in three dimensions and any kind of chart that has no drawing yet show as their data table.
 
 A right click on a chart offers, besides Copy, Copy as text and Delete:
 
