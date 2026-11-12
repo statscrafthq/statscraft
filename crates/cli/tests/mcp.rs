@@ -41,9 +41,15 @@ impl Client {
     /// Starts the server in `cwd`, with the home, data and runtime folders inside `dir`, and
     /// initializes the connection.
     fn start(dir: &Workdir, cwd: &Path) -> (Self, Value) {
+        Self::start_with(dir, cwd, &[])
+    }
+
+    /// `start`, with more environment variables for the server.
+    fn start_with(dir: &Workdir, cwd: &Path, env: &[(&str, &str)]) -> (Self, Value) {
         std::fs::create_dir_all(dir.0.join("home")).unwrap();
         let mut child = Command::new(env!("CARGO_BIN_EXE_statscraft"))
             .arg("mcp")
+            .envs(env.iter().copied())
             .current_dir(cwd)
             .env("HOME", dir.0.join("home"))
             .env("USERPROFILE", dir.0.join("home"))
@@ -502,4 +508,59 @@ fn the_plugin_version_is_the_release_version() {
         env!("CARGO_PKG_VERSION"),
         "set the same version in {path}"
     );
+}
+
+#[test]
+fn an_agent_inside_wsl_gives_linux_paths_to_a_windows_server() {
+    use statscraft_connect::windows_to_linux;
+    let dir = Workdir::new("wsl");
+    let (mut client, _) = Client::start_with(&dir, &dir.0, &[("STATSCRAFT_WSL_DISTRO", "Ubuntu")]);
+    let status = client.call("window_status", json!({}));
+    let windows = cfg!(windows);
+    assert_eq!(
+        status["structuredContent"]["platform"],
+        std::env::consts::OS
+    );
+    assert_eq!(
+        status["structuredContent"]["wsl_distro"],
+        if windows {
+            json!("Ubuntu")
+        } else {
+            Value::Null
+        }
+    );
+    if !windows {
+        // only a Windows server translates paths
+        return;
+    }
+    let linux = |p: &str| windows_to_linux(p);
+    let data = fixture("survey_basic.sav");
+    let described = client.call("describe", json!({ "file": linux(&data) }));
+    assert_eq!(
+        described["structuredContent"]["case_count"], 200,
+        "{described}"
+    );
+    // inside the syntax the Windows path, as the server reads it
+    let run = client.call(
+        "run_syntax",
+        json!({
+            "syntax": format!("GET FILE='{data}'.\nDESCRIPTIVES age.\n"),
+            "session": "w",
+            "folder": linux(dir.0.to_str().unwrap()),
+            "xlsx": "tables.xlsx",
+        }),
+    );
+    let result = &run["structuredContent"];
+    assert_eq!(result["ok"], true, "{run}");
+    assert!(dir.0.join("tables.xlsx").exists());
+    let xlsx = result["xlsx_wsl"].as_str().unwrap();
+    assert!(
+        xlsx.starts_with("/mnt/") && xlsx.ends_with("/tables.xlsx"),
+        "{xlsx}"
+    );
+    assert!(
+        result["trail_wsl"].as_str().unwrap().starts_with("/mnt/"),
+        "{run}"
+    );
+    assert!(text(&run).contains("(in WSL: /mnt/"), "{}", text(&run));
 }

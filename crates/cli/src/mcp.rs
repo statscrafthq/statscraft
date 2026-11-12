@@ -15,9 +15,10 @@ use rmcp::{ErrorData, ServerHandler, ServiceExt, prompt, prompt_handler, prompt_
 use rmcp::{tool, tool_handler, tool_router};
 use serde::Deserialize;
 use serde_json::{Value, json};
+use statscraft_connect::{WSL_DISTRO_ENV, linux_to_windows, windows_to_linux};
 use statscraft_engine::live::{self, Action, Edit, Request};
 use statscraft_engine::session::{Failure, RunResult};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::sync::Mutex;
 
@@ -42,7 +43,11 @@ Syntax windows (only with the window open): when the person asks you to fix, exp
 their syntax, call list_syntax_windows and read_syntax, say what you would change, make the \
 change with edit_syntax and run it with run_syntax and window (and lines), as their own Run \
 does. When the person works in a syntax window, prefer putting the syntax there and running it \
-from there. save_syntax is the only one of these tools that writes a file.";
+from there. save_syntax is the only one of these tools that writes a file.
+Paths: window_status gives the platform the server runs on and, when the agent was started inside \
+WSL, wsl_distro. Tool arguments then take Linux paths too; the server translates them. File names \
+inside the syntax (GET FILE, SAVE and so on) are read as written: on a Windows server write them \
+as Windows paths, such as C:\\data\\survey.sav, or \\\\wsl$\\DISTRO\\home\\... for a file inside WSL.";
 
 /// What `describe` takes.
 #[derive(Deserialize, JsonSchema)]
@@ -221,6 +226,36 @@ fn sessions_folder() -> PathBuf {
     base.join("sessions")
 }
 
+/// The WSL distribution of the agent that started this server, which `statscraft connect` names
+/// in the entry of an agent inside WSL. Only a Windows server has a use for it.
+fn wsl_distro() -> Option<String> {
+    if !cfg!(windows) {
+        return None;
+    }
+    std::env::var(WSL_DISTRO_ENV).ok().filter(|d| !d.is_empty())
+}
+
+/// A path argument as this server reads it: from an agent inside WSL, a Linux path becomes the
+/// Windows path of the same file. The syntax text itself is never changed.
+fn local(path: String) -> String {
+    match wsl_distro() {
+        Some(distro) => linux_to_windows(&path, &distro),
+        None => path,
+    }
+}
+
+/// A path of a result as written, and for an agent inside WSL also as it reaches it there.
+fn both(path: &str) -> (String, Option<String>) {
+    let linux = wsl_distro()
+        .map(|_| windows_to_linux(path))
+        .filter(|linux| linux != path);
+    let shown = match &linux {
+        Some(linux) => format!("{path} (in WSL: {linux})"),
+        None => path.to_string(),
+    };
+    (shown, linux)
+}
+
 /// The session a call names, else the window when one is open, else `work`.
 fn session_or_default(session: Option<String>) -> String {
     session.unwrap_or_else(|| {
@@ -276,6 +311,12 @@ fn text_reply(text: String) -> CallToolResult {
 }
 
 fn check_or_run(input: SyntaxInput, check_only: bool, xlsx: Option<String>) -> CallToolResult {
+    let input = SyntaxInput {
+        file: input.file.map(local),
+        folder: input.folder.map(local),
+        ..input
+    };
+    let xlsx = xlsx.map(local);
     if input.syntax.is_some() == input.file.is_some() {
         return usage("give either syntax or file");
     }
@@ -309,20 +350,39 @@ fn check_or_run(input: SyntaxInput, check_only: bool, xlsx: Option<String>) -> C
         xlsx_one_sheet: false,
     };
     match crate::run_result(&args, check_only, &xlsx) {
-        Ok(result) => run_reply(&result, check_only, args.vega_lite),
+        Ok(result) => run_reply(&result, check_only, args.vega_lite, xlsx.xlsx.as_deref()),
         Err(errors) => failed(errors),
     }
 }
 
 /// The JSON of a run as structured content, and as text its tables, a summary and where its
-/// syntax was kept.
-fn run_reply(result: &RunResult, check_only: bool, vega_lite: bool) -> CallToolResult {
-    let mut reply = CallToolResult::structured(result.to_json(vega_lite));
+/// syntax was kept. For an agent inside WSL, the trail file and the workbook come in both forms.
+fn run_reply(
+    result: &RunResult,
+    check_only: bool,
+    vega_lite: bool,
+    xlsx: Option<&Path>,
+) -> CallToolResult {
+    let mut value = result.to_json(vega_lite);
     let output = result.output_with(false, check_only, vega_lite);
     let mut text = format!("ok: {}\n", result.ok);
     if let Some(trail) = &result.trail {
-        text.push_str(&format!("syntax kept in: {trail}\n"));
+        let (shown, linux) = both(trail);
+        text.push_str(&format!("syntax kept in: {shown}\n"));
+        if let Some(linux) = linux {
+            value["trail_wsl"] = linux.into();
+        }
     }
+    let workbook = xlsx.filter(|_| result.ok && !check_only);
+    if let Some(path) = workbook.and_then(|p| std::path::absolute(p).ok()) {
+        let path = path.to_string_lossy();
+        if let (shown, Some(linux)) = both(&path) {
+            text.push_str(&format!("workbook: {shown}\n"));
+            value["xlsx"] = path.as_ref().into();
+            value["xlsx_wsl"] = linux.into();
+        }
+    }
+    let mut reply = CallToolResult::structured(value);
     text.push_str(&output);
     reply.content = vec![ContentBlock::text(text)];
     reply
@@ -353,17 +413,22 @@ fn run_window(input: RunInput, window: String) -> CallToolResult {
         ..Request::default()
     };
     let xlsx = XlsxArgs {
-        xlsx: input.xlsx.map(PathBuf::from),
+        xlsx: input.xlsx.map(local).map(PathBuf::from),
         xlsx_one_sheet: false,
     };
     // only for a relative xlsx: the syntax starts from the window's file, as its Run does
-    let folder = syntax.folder.map(PathBuf::from);
+    let folder = syntax.folder.map(local).map(PathBuf::from);
     let folder = folder.unwrap_or_else(|| std::env::home_dir().unwrap_or_else(std::env::temp_dir));
     if !folder.is_absolute() || std::env::set_current_dir(&folder).is_err() {
         return usage("folder must be an absolute folder that exists");
     }
     match crate::run_in_window(request, &xlsx) {
-        Ok(result) => run_reply(&result, false, syntax.vega_lite.unwrap_or(false)),
+        Ok(result) => run_reply(
+            &result,
+            false,
+            syntax.vega_lite.unwrap_or(false),
+            xlsx.xlsx.as_deref(),
+        ),
         Err(errors) => failed(errors),
     }
 }
@@ -428,7 +493,7 @@ impl Server {
                 Some(_) => None,
                 None => Some(session_or_default(input.session)),
             };
-            match crate::describe(input.file, session, true) {
+            match crate::describe(input.file.map(local), session, true) {
                 Ok(text) => json_reply(&text),
                 Err(errors) => failed(errors),
             }
@@ -655,7 +720,7 @@ impl Server {
         Ok(blocking(move || {
             window_call(Request {
                 action: Action::Open,
-                path: Some(input.path.into()),
+                path: Some(local(input.path).into()),
                 ..Request::default()
             })
         })
@@ -683,7 +748,7 @@ impl Server {
             window_call(Request {
                 action: Action::Save,
                 window: Some(input.window),
-                path: input.path.map(PathBuf::from),
+                path: input.path.map(local).map(PathBuf::from),
                 overwrite: input.overwrite.unwrap_or(false),
                 ..Request::default()
             })
@@ -693,7 +758,9 @@ impl Server {
 
     /// Says whether a Statscraft window is open on this computer. When one is, calls without a
     /// session go to it and the person sees each result appear; the reply then lists its
-    /// active dataset, open datasets and output documents.
+    /// active dataset, open datasets and output documents. It also gives the platform the
+    /// server runs on (windows, macos, linux) and wsl_distro when the agent runs inside WSL:
+    /// file names inside syntax must then be Windows paths.
     #[tool(
         title = "Window status",
         annotations(
@@ -704,16 +771,27 @@ impl Server {
     )]
     async fn window_status(&self) -> Result<CallToolResult, ErrorData> {
         Ok(blocking(|| {
+            let platform = std::env::consts::OS;
+            let wsl_distro = wsl_distro();
             let file = live::endpoint_file();
             if !live::running(&file) {
-                return CallToolResult::structured(json!({ "running": false }));
+                return CallToolResult::structured(json!({
+                    "running": false,
+                    "platform": platform,
+                    "wsl_distro": wsl_distro,
+                }));
             }
             let window = crate::describe(None, Some(live::SESSION.into()), true);
             let state = window.map_or(Value::Null, |text| {
                 serde_json::from_str(&text).unwrap_or(Value::Null)
             });
             // a window without data or output yet has nothing to describe
-            CallToolResult::structured(json!({ "running": true, "window": state }))
+            CallToolResult::structured(json!({
+                "running": true,
+                "window": state,
+                "platform": platform,
+                "wsl_distro": wsl_distro,
+            }))
         })
         .await)
     }
