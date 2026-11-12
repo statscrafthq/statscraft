@@ -37,6 +37,8 @@ pub(super) fn plot(d: &mut Draw, chart: &Chart, plot: &Plot, top: f32) -> Option
         // shortcut: a stem-and-leaf display is text, and points with a third axis have no flat
         // drawing; both show as their data table until a drawing is asked for
         Plot::StemLeaf(_) | Plot::Points { .. } => None,
+        // shortcut: the territorial map shows as its data table, draw its polygons when asked
+        Plot::Regions { .. } => None,
     }
 }
 
