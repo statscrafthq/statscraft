@@ -62,7 +62,7 @@ impl Effect {
         self.start..self.start + self.cells.len()
     }
 
-    fn is_intercept(&self) -> bool {
+    pub(crate) fn is_intercept(&self) -> bool {
         self.parts.is_empty()
     }
 
@@ -556,7 +556,7 @@ fn adjustment_name(a: Adjustment) -> &'static str {
     }
 }
 
-fn percent_title(alpha: f64) -> String {
+pub(crate) fn percent_title(alpha: f64) -> String {
     let p = 100.0 * (1.0 - alpha);
     if (p - p.round()).abs() < 1e-9 {
         format!("{p:.0}%")
@@ -585,7 +585,7 @@ fn combinations(sizes: &[usize]) -> Vec<Vec<usize>> {
 
 /// The design of a model from its terms: each factor and covariate named, factors not repeated
 /// within a term, covariates not nested.
-fn effects_of(
+pub(crate) fn effects_of(
     terms: &[Term],
     factor_names: &[String],
     covariate_names: &[String],
@@ -667,7 +667,7 @@ fn effects_of(
     Ok(out)
 }
 
-fn intercept_term() -> Term {
+pub(crate) fn intercept_term() -> Term {
     Term {
         variables: Vec::new(),
         label: "Intercept".into(),
@@ -719,7 +719,7 @@ fn default_terms(factors: &[String], covariates: &[String], intercept: bool) -> 
     terms
 }
 
-fn key_value_text(variable: &Variable, key: &Key) -> String {
+pub(crate) fn key_value_text(variable: &Variable, key: &Key) -> String {
     match key {
         Key::Number(n) => category_text(*n, variable.format()),
         Key::Text(t) => t.trim_end().to_string(),
@@ -1668,7 +1668,7 @@ fn levene(d: &Data, fit: &Fit) -> Option<Table> {
     ))
 }
 
-fn parameter_name(d: &Data, e: &Effect, cell: &[usize]) -> String {
+pub(crate) fn parameter_name(d: &Data, e: &Effect, cell: &[usize]) -> String {
     if e.is_intercept() {
         return "Intercept".into();
     }

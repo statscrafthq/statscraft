@@ -125,6 +125,7 @@ One page per supported command, generated from the same table that the parser an
 | [LOGISTIC REGRESSION](logistic-regression.md) | Binary logistic regression with categorical covariates, stepwise selection and case diagnostics. |
 | [UNIANOVA](unianova.md) | General linear model of one dependent variable: factorial ANOVA, ANCOVA and regression. |
 | [GLM](glm.md) | General linear model: one dependent variable as in UNIANOVA, or repeated measures with WSFACTOR. |
+| [MIXED](mixed.md) | Linear mixed model: fixed effects with random effects of subjects and correlated repeated measures. |
 | [ANOVA](anova.md) | Analysis of variance for factorial designs with covariates, the older form with MCA tables. |
 | [TREE](tree.md) | A classification tree grown by CHAID or exhaustive CHAID. |
 | [REPORT](report.md) | Case listings and summary statistics by break groups, laid out as a report. |

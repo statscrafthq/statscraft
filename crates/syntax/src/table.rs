@@ -21,6 +21,7 @@ use crate::logistic;
 use crate::loops;
 use crate::matrix;
 use crate::matrix_data;
+use crate::mixed;
 use crate::mrsets;
 use crate::mult_response;
 use crate::npar;
@@ -1437,6 +1438,47 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: glm_syntax!("GLM"),
         example: "GLM t1 t2 t3 BY group /WSFACTOR=time 3 POLYNOMIAL /WSDESIGN=time /DESIGN=group.",
         parse: glm::glm,
+    },
+    CommandSpec {
+        name: "MIXED",
+        summary: "Linear mixed model: fixed effects with random effects of subjects and correlated repeated measures.",
+        syntax: "MIXED dependent [BY factors] [WITH covariates]\n\
+                 \x20  [/FIXED=[effects] [| [NOINT] [SSTYPE(3)]]] [/METHOD=REML | ML] [/MISSING=EXCLUDE | INCLUDE]\n\
+                 \x20  [/RANDOM=effects [| [SUBJECT(var[*var...])] [COVTYPE(type)]]] ...\n\
+                 \x20  [/REPEATED=var[*var...] | SUBJECT(var[*var...]) [COVTYPE(type)]] [/REGWGT=var]\n\
+                 \x20  [/CRITERIA=[CIN(95)] [MXITER(100)] [MXSTEP(10)] [SCORING(1)] [SINGULAR(1E-12)]\n\
+                 \x20            [PCONVERGE(1E-6[, ABSOLUTE | RELATIVE])] [LCONVERGE(0[, ...])] [HCONVERGE(0[, ...])]\n\
+                 \x20            [DFMETHOD(SATTERTHWAITE | RESIDUAL)]]\n\
+                 \x20  [/PRINT=[SOLUTION] [TESTCOV]] [/SAVE=tempvar[(name)] ...].\n\
+                 effects: INTERCEPT (first), a factor or covariate, a*b or a BY b, a(b) or a WITHIN b.\n\
+                 type: VC (the RANDOM default: one variance per effect), ID (one variance for the block), DIAG (the\n\
+                 REPEATED default: one variance per level), UN (every variance and covariance), CS (a diagonal\n\
+                 offset plus one common covariance), AR1 (a variance and a correlation that is raised to the\n\
+                 power of the distance between levels). VC on REPEATED is DIAG. tempvar: FIXPRED (X b), PRED\n\
+                 (X b plus the predicted random effects), RESID (dependent minus PRED), SEFIXP and DFFIXP (the\n\
+                 standard error and degrees of freedom of FIXPRED).\n\
+                 The fixed part is the intercept unless NOINT, plus the FIXED effects. Each RANDOM adds one\n\
+                 covariance block per subject, the same for every subject; subjects are independent, and so are\n\
+                 the RANDOM subcommands. Without SUBJECT the whole file is one subject. REPEATED orders the\n\
+                 levels of its variables and gives each subject a residual block of that structure; without it\n\
+                 the residuals have one variance. Each subject variable of RANDOM must be a subject variable of\n\
+                 REPEATED. A case missing on any variable named is left out; the weight is rounded and counts\n\
+                 the case that many times (with REPEATED only a weight of 1). REGWGT divides the residual\n\
+                 covariance of a case by its value. The covariance parameters maximize the restricted (REML) or\n\
+                 full (ML) likelihood by Newton steps, the first SCORING ones with the expected Hessian, halving\n\
+                 a step up to MXSTEP times when it fails to improve; the fit stops when the change of every\n\
+                 parameter is below PCONVERGE, or by LCONVERGE or HCONVERGE when set. Tables: Model Dimension,\n\
+                 Information Criteria (-2 log likelihood, AIC, AICC, CAIC, BIC; for REML n is the cases less the\n\
+                 fixed parameters and only covariance parameters count), Type III Tests of Fixed Effects,\n\
+                 Estimates of Fixed Effects (SOLUTION) and Estimates of Covariance Parameters (with TESTCOV the\n\
+                 standard errors from the observed Hessian, Wald Z and intervals on the log scale for variances\n\
+                 and the Fisher z scale for correlations). Degrees of freedom are Satterthwaite's, or the cases\n\
+                 less the rank of the fixed design with DFMETHOD(RESIDUAL). Not supported yet: EMMEANS, TEST,\n\
+                 SSTYPE(1), DFMETHOD(KENWARDROGER), COVTYPE AD1, ARH1, ARMA11, CSH, CSR, FA1, FAH1, HF, TP, TPH,\n\
+                 UNR and the spatial and Kronecker types, KRONECKER, SPCOORDS, SOLUTION on RANDOM, PRINT CORB,\n\
+                 COVB, CPS, DESCRIPTIVES, G, HISTORY, LMATRIX and R, SAVE SEPRED and DFPRED.",
+        example: "MIXED yield BY plot_type WITH rain /FIXED=plot_type rain /RANDOM=INTERCEPT rain | SUBJECT(farm) COVTYPE(UN) /PRINT=SOLUTION TESTCOV.",
+        parse: mixed::mixed,
     },
     CommandSpec {
         name: "ANOVA",
