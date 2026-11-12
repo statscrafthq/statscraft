@@ -1157,7 +1157,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20       [/PERCENTILES[(list)][=HAVERAGE | WAVERAGE | ROUND | EMPIRICAL | AEMPIRICAL | NONE]]\n\
                  \x20       [/STATISTICS=DESCRIPTIVES EXTREME[(n)] ALL NONE] [/CINTERVAL=95]\n\
                  \x20       [/MESTIMATORS[=HUBER[(c)] TUKEY[(c)] HAMPEL[(a,b,c)] ANDREW[(c)] ALL NONE]]\n\
-                 \x20       [/PLOT=[BOXPLOT] [STEMLEAF] [HISTOGRAM] [NPPLOT] | ALL | NONE] [/COMPARE=GROUPS | VARIABLES]\n\
+                 \x20       [/PLOT=[BOXPLOT] [STEMLEAF] [HISTOGRAM] [NPPLOT] [SPREADLEVEL[(power)]] | ALL | NONE]\n\
+                 \x20       [/COMPARE=GROUPS | VARIABLES]\n\
                  \x20       [/MISSING=LISTWISE | PAIRWISE  EXCLUDE | INCLUDE  NOREPORT | REPORT].\n\
                  Each dependent is analyzed over all cases (unless NOTOTAL) and in every cell of each factor term,\n\
                  two factors crossed with BY. Descriptives (the default): mean with its confidence interval (CINTERVAL,\n\
@@ -1168,13 +1169,22 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  1.7 3.4 8.5, Andrews 1.34 times pi), each started at the median and scaled by the median absolute\n\
                  deviation. EXTREME lists the n highest and lowest values by case number or by the ID variable.\n\
                  NPPLOT gives the Tests of Normality table (Kolmogorov-Smirnov with the Lilliefors significance and\n\
-                 Shapiro-Wilk by Royston's algorithm, 3 to 5000 cases); the plots themselves are not drawn.\n\
+                 Shapiro-Wilk by Royston's algorithm, 3 to 5000 cases).\n\
+                 Plots come as chart data (a data table, and Vega-Lite with --vega-lite). Without PLOT every cell gets\n\
+                 a stem-and-leaf plot and a boxplot; a PLOT subcommand names the ones wanted. BOXPLOT: the box spans\n\
+                 Tukey's hinges around the median; a case 1.5 to 3 box lengths past a hinge is an outlier, 3 or more\n\
+                 an extreme, each labeled by case number or by the ID variable, and the whiskers stop at the last\n\
+                 unmarked values. COMPARE=GROUPS (default) gives each dependent one plot with a box per cell;\n\
+                 VARIABLES puts all dependents in one plot, grouped by cell. STEMLEAF lists the cases past the\n\
+                 outlier bounds as extremes. NPPLOT adds the normal Q-Q plot (each distinct value against the normal\n\
+                 score of its mean rank over W + 1) and the detrended one. SPREADLEVEL needs a factor: per cell the\n\
+                 log of the interquartile range against the log of the median, with the slope and the power it\n\
+                 suggests (1 minus the slope); with a power p the values are raised to p first (0 takes logs), and\n\
+                 the Test of Homogeneity of Variance table gives Levene's tests on the same values. ALL is every plot.\n\
                  LISTWISE (default) leaves out a case missing on any dependent or factor, PAIRWISE only from the\n\
                  analyses of that variable. INCLUDE makes user-missing values of the dependents valid, REPORT makes\n\
                  missing values of the factors categories. Weighted when a weight variable is set (Shapiro-Wilk rounds\n\
-                 the weights and takes 3 to 50 cases with non-integer weights). COMPARE changes nothing.\n\
-                 BOXPLOT, STEMLEAF and HISTOGRAM are accepted and not drawn yet, with a warning; the\n\
-                 statistics are shown. ALL is the three and NPPLOT. Not supported yet: SPREADLEVEL.",
+                 the weights and takes 3 to 50 cases with non-integer weights).",
         example: "EXAMINE VARIABLES=income BY region /PERCENTILES(25,50,75)=HAVERAGE /STATISTICS=ALL /MESTIMATORS /PLOT=NPPLOT.",
         parse: examine::examine,
     },

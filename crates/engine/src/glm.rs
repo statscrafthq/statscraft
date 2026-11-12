@@ -1560,7 +1560,7 @@ fn descriptive_table(
 
 /// The Levene statistic of absolute deviations `z` in groups, with the adjusted df of the
 /// median version.
-fn levene_of(groups: &[Vec<(f64, f64)>]) -> (f64, f64, f64, f64) {
+pub(crate) fn levene_of(groups: &[Vec<(f64, f64)>]) -> (f64, f64, f64, f64) {
     let k = groups.len() as f64;
     let stats: Vec<(f64, f64)> = groups
         .iter()

@@ -49,6 +49,7 @@ mod output;
 mod output_docs;
 mod partial_corr;
 mod pass;
+pub mod plot;
 mod portable;
 mod print;
 mod quick_cluster;

@@ -38,6 +38,10 @@ pub struct Chart {
     /// Histogram: the normal curve drawn over the bars.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub normal: Option<NormalCurve>,
+    /// Statistical plots other than the histogram: their data in its own shape; categories
+    /// and series are then empty, and the category axis is the horizontal one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub plot: Option<crate::plot::Plot>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -51,6 +55,26 @@ pub enum ChartKind {
     Scatter,
     /// Categories are bins with their bounds; one series of counts.
     Histogram,
+    /// The kinds below carry their data in `plot`. Boxes.
+    Boxplot,
+    /// A stem-and-leaf display.
+    StemLeaf,
+    /// Points: observed values against the expected normal scores, with the line of the
+    /// normal distribution.
+    NormalQq,
+    /// Points: observed values against their deviation from the normal.
+    DetrendedNormalQq,
+    /// Points: the observed cumulative probability against the expected one, with the
+    /// diagonal.
+    NormalPp,
+    /// Points: the spread of every cell against its level, with the regression line.
+    SpreadLevel,
+    /// Merges: the clustering as a tree with heights.
+    Dendrogram,
+    /// Merges: the clusters at every number of clusters.
+    Icicle,
+    /// A tree of nodes.
+    TreeDiagram,
 }
 
 /// Presentation charts go to the office suite as editable charts; statistical plots are drawn
@@ -161,6 +185,15 @@ impl Chart {
             (ChartKind::Area, Some(Grouping::Stacked)) => "Stacked area chart".into(),
             (ChartKind::Area, _) => "Area chart".into(),
             (ChartKind::Scatter, _) => "Scatter plot".into(),
+            (ChartKind::Boxplot, _) => "Boxplot".into(),
+            (ChartKind::StemLeaf, _) => "Stem-and-leaf plot".into(),
+            (ChartKind::NormalQq, _) => "Normal Q-Q plot".into(),
+            (ChartKind::DetrendedNormalQq, _) => "Detrended normal Q-Q plot".into(),
+            (ChartKind::NormalPp, _) => "Normal P-P plot".into(),
+            (ChartKind::SpreadLevel, _) => "Spread-versus-level plot".into(),
+            (ChartKind::Dendrogram, _) => "Dendrogram".into(),
+            (ChartKind::Icicle, _) => "Icicle plot".into(),
+            (ChartKind::TreeDiagram, _) => "Tree diagram".into(),
             (ChartKind::Histogram, _) if self.normal.is_some() => {
                 "Histogram with a normal curve".into()
             }
@@ -171,6 +204,13 @@ impl Chart {
     /// The chart's numbers as a table: a row per category, a column per series; the caption
     /// says what kind of chart it is. The text output and the window show charts this way.
     pub fn data_table(&self) -> Table {
+        let mut caption = format!("{}.", self.kind_text());
+        if let Some(footnote) = &self.footnote {
+            caption = format!("{caption} {footnote}");
+        }
+        if let Some(plot) = &self.plot {
+            return Table::of_plot(self, plot.table(self), caption);
+        }
         let mut columns = vec![self.category_axis.title.clone()];
         columns.extend(self.series.iter().map(|s| s.name.clone()));
         let rows: Vec<Vec<Cell>> = self
@@ -188,10 +228,6 @@ impl Chart {
             _ => series_format(&self.series[c - 1], &self.value_axis.format, &rows, r, c),
         };
         let formats = crate::format::formats_of(&rows, format);
-        let mut caption = format!("{}.", self.kind_text());
-        if let Some(footnote) = &self.footnote {
-            caption = format!("{caption} {footnote}");
-        }
         Table {
             title: self.title.clone(),
             row_headers: 1,

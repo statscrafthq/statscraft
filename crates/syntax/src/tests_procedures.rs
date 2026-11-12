@@ -586,7 +586,6 @@ fn examine_subcommands() {
 #[test]
 fn examine_errors() {
     let message = |source: &str| err(source).message;
-    // plots are accepted and kept, to warn that they are not drawn
     let plots = |source: &str| match one(source) {
         Command::Examine(e) => (e.plots, e.normality),
         other => panic!("{other:?}"),
@@ -598,7 +597,25 @@ fn examine_errors() {
     assert!(plots("EXAMINE a /PLOT=STEMLEAF NPPLOT.").1);
     assert_eq!(plots("EXAMINE a /PLOT=ALL.").0.len(), 3);
     assert!(plots("EXAMINE a /PLOT=BOXPLOT NONE.").0.is_empty());
-    assert!(message("EXAMINE a /PLOT=SPREADLEVEL(0).").contains("not supported yet"));
+    assert_eq!(plots("EXAMINE a.").0, ["BOXPLOT", "STEMLEAF"]);
+    assert!(plots("EXAMINE a /PLOT=NPPLOT.").0.is_empty());
+    let spread = |source: &str| match one(source) {
+        Command::Examine(e) => (e.spread_level, e.compare_variables),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        spread("EXAMINE a BY f /PLOT=SPREADLEVEL(0)."),
+        (Some(Some(0.0)), false)
+    );
+    assert_eq!(
+        spread("EXAMINE a BY f /PLOT=SPREADLEVEL /COMPARE VARIABLES."),
+        (Some(None), true)
+    );
+    assert_eq!(
+        spread("EXAMINE a BY f /PLOT=SPREADLEVEL(.5) NONE."),
+        (None, false)
+    );
+    assert_eq!(err("EXAMINE a /PLOT=SPREADLEVEL(x).").expected, ["a power"]);
     assert!(message("EXAMINE a BY f BY g BY h.").contains("more than two crossed factors"));
     assert!(message("EXAMINE a /PERCENTILES(0, 50).").contains("between 0 and 100"));
     assert!(message("EXAMINE a /MESTIMATORS=HAMPEL(3,2,8).").contains("0 < a <= b <= c"));

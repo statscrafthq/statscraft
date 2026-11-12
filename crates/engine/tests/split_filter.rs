@@ -145,13 +145,11 @@ fn a_warning_every_split_group_gives_shows_once() {
     let mut session = session();
     let result = run(
         &mut session,
-        "SPLIT FILE BY g.\nEXAMINE x /PLOT BOXPLOT STEMLEAF NPPLOT.\nBEGIN PROGRAM PYTHON3.\nprint(1)\nEND PROGRAM.",
+        "SPLIT FILE BY g.\nEXAMINE x /PLOT BOXPLOT SPREADLEVEL.\nBEGIN PROGRAM PYTHON3.\nprint(1)\nEND PROGRAM.",
     );
     assert_eq!(
         result.commands[1].warnings,
-        [
-            "plots are not drawn yet: BOXPLOT, STEMLEAF, NPPLOT left out; the statistics and the Tests of Normality table are shown"
-        ]
+        ["SPREADLEVEL needs a factor after BY, so no spread-versus-level plot is made"]
     );
     assert_eq!(
         result.commands[2].warnings,

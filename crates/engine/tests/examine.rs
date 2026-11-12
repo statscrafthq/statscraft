@@ -193,12 +193,9 @@ fn examine_interval_robust_estimates_and_normality() {
     assert_eq!(text(&spend[2]), ">0.200");
     close(&spend[3], 0.9490669841087788);
     close(&spend[5], 0.1877046750694561);
-    assert_eq!(
-        engine.warnings(),
-        [
-            "plots are not drawn yet: NPPLOT left out; the statistics and the Tests of Normality table are shown"
-        ]
-    );
+    assert!(engine.warnings().is_empty(), "{:?}", engine.warnings());
+    // the normal and detrended Q-Q plot of each variable
+    assert_eq!(engine.take_charts().len(), 4);
 }
 
 #[test]

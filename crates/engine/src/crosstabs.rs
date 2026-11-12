@@ -381,6 +381,7 @@ fn bar_chart(
             })
             .collect(),
         normal: None,
+        plot: None,
     }
 }
 

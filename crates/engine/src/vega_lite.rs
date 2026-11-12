@@ -23,9 +23,10 @@ impl Chart {
             title["subtitle"] = footnote.as_str().into();
         }
         spec.insert("title".into(), title);
-        let body = match self.kind {
-            ChartKind::Histogram => self.histogram(),
-            ChartKind::Pie => self.pie(),
+        let body = match (&self.plot, self.kind) {
+            (Some(plot), _) => plot.vega_lite(self),
+            (_, ChartKind::Histogram) => self.histogram(),
+            (_, ChartKind::Pie) => self.pie(),
             _ => self.categorical(),
         };
         spec.extend(body);

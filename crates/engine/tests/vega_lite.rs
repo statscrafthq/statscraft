@@ -245,3 +245,60 @@ fn specifications_hold_the_numbers_and_the_layout() {
     assert_eq!(horizontal["encoding"]["y"]["field"], "category");
     assert_eq!(horizontal["encoding"]["yOffset"]["field"], "series");
 }
+
+/// Every statistical plot the procedures make.
+fn plots() -> Vec<Chart> {
+    let source = "DATA LIST LIST /score group (F2) side (A1) id (A2).
+BEGIN DATA
+4 1 l a1
+7 1 r a2
+7 2 l a3
+9 2 r a4
+12 3 l a5
+3 3 r a6
+8 1 l a7
+30 1 r a8
+-2 2 l a9
+5 3 r b1
+END DATA.
+EXAMINE score BY group /ID=id /PLOT ALL.
+EXAMINE score BY side /PLOT BOXPLOT /COMPARE VARIABLES.
+";
+    let (commands, errors) = parse(source);
+    assert!(errors.is_empty(), "{errors:?}");
+    let mut engine = Engine::default();
+    let mut charts = Vec::new();
+    for command in &commands {
+        engine.execute(&command.command).unwrap();
+        charts.extend(engine.take_charts());
+    }
+    charts
+}
+
+#[test]
+fn every_statistical_plot_gives_a_valid_specification() {
+    let root = schema();
+    let charts = plots();
+    let kinds: std::collections::BTreeSet<String> = charts.iter().map(|c| c.kind_text()).collect();
+    for kind in [
+        "Boxplot",
+        "Stem-and-leaf plot",
+        "Normal Q-Q plot",
+        "Detrended normal Q-Q plot",
+        "Spread-versus-level plot",
+        "Histogram",
+    ] {
+        assert!(kinds.contains(kind), "{kind} missing from {kinds:?}");
+    }
+    for chart in charts {
+        let spec = chart.vega_lite();
+        assert!(
+            valid(&spec, &root, &root),
+            "{}: {}",
+            chart.kind_text(),
+            serde_json::to_string_pretty(&spec).unwrap()
+        );
+        // the data table has a row per box, line or point
+        assert!(!chart.data_table().rows.is_empty(), "{}", chart.title);
+    }
+}

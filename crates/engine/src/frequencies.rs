@@ -511,6 +511,7 @@ fn chart(
             values,
         }],
         normal: None,
+        plot: None,
     })
 }
 
@@ -530,75 +531,108 @@ fn histogram(
         .copied()
         .filter(|(v, _)| in_range(*v))
         .collect();
-    if pairs.is_empty() {
-        return Err("no values to chart".into());
+    let histogram = Histogram {
+        title: &analysis.title,
+        heading: &analysis.heading,
+        format: &analysis.format,
+        name: &analysis.name,
+        normal: spec.normal,
+        scale: spec.scale,
+    };
+    histogram.chart(&pairs, &analysis.pairs, analysis.valid)
+}
+
+/// What a histogram shows besides its values.
+pub(crate) struct Histogram<'a> {
+    pub title: &'a str,
+    /// The title of the axis of the values.
+    pub heading: &'a str,
+    pub format: &'a str,
+    pub name: &'a str,
+    pub normal: bool,
+    pub scale: Option<f64>,
+}
+
+impl Histogram<'_> {
+    /// The chart of `pairs` (value, weight) in ascending order; the footnote and the normal
+    /// curve describe `all`, whose summed weight is `valid`.
+    pub(crate) fn chart(
+        &self,
+        pairs: &[(f64, f64)],
+        all: &[(f64, f64)],
+        valid: f64,
+    ) -> Result<Chart, String> {
+        if pairs.is_empty() {
+            return Err("no values to chart".into());
+        }
+        let (first, width, counts) = bins(pairs);
+        let edge = |i: usize| tidy((first + i as f64) * width);
+        let categories: Vec<Category> = (0..counts.len())
+            .map(|i| {
+                let (lower, upper) = (edge(i), edge(i + 1));
+                Category {
+                    label: format!("{lower} to under {upper}"),
+                    value: Cell::Number(tidy((lower + upper) / 2.0)),
+                    missing: false,
+                    bin: Some([lower, upper]),
+                }
+            })
+            .collect();
+        let summary = summarize(all);
+        let sd = summary.sd.filter(|sd| summary.n > 1.0 && *sd > 0.0);
+        let normal = match (self.normal, summary.mean, sd) {
+            (false, ..) => None,
+            (true, Some(mean), Some(std_dev)) => Some(NormalCurve {
+                mean,
+                std_dev,
+                total: valid,
+            }),
+            (true, ..) => return Err("the normal curve needs values that vary".into()),
+        };
+        let text = |value: Option<f64>, kind: Stat| {
+            value.map_or(".".into(), |v| {
+                chart::number_text(v, &procedure_format(self.format, kind))
+            })
+        };
+        let footnote = format!(
+            "Mean = {}, Std. Dev. = {}, N = {}",
+            text(summary.mean, Stat::Value),
+            text(sd, Stat::Spread),
+            chart::number_text(valid, "")
+        );
+        let top = counts.iter().copied().fold(0.0, f64::max);
+        Ok(Chart {
+            kind: chart::ChartKind::Histogram,
+            tier: Tier::Statistical,
+            orientation: Some(Orientation::Vertical),
+            grouping: None,
+            title: self.title.to_string(),
+            footnote: Some(footnote),
+            category_axis: Axis {
+                title: self.heading.to_string(),
+                format: self.format.to_string(),
+                maximum: None,
+                variable: Some(self.name.to_string()),
+            },
+            value_axis: Axis {
+                title: "Frequency".into(),
+                format: chart::count_format(counts.iter().copied()),
+                maximum: self.scale.filter(|n| *n >= top),
+                variable: None,
+            },
+            legend: None,
+            categories,
+            series: vec![Series {
+                name: "Frequency".into(),
+                statistic: Statistic::Count,
+                variable: None,
+                value: Cell::Empty,
+                values: counts,
+            }],
+            normal,
+            plot: None,
+        })
     }
-    let (first, width, counts) = bins(&pairs);
-    let edge = |i: usize| tidy((first + i as f64) * width);
-    let categories: Vec<Category> = (0..counts.len())
-        .map(|i| {
-            let (lower, upper) = (edge(i), edge(i + 1));
-            Category {
-                label: format!("{lower} to under {upper}"),
-                value: Cell::Number(tidy((lower + upper) / 2.0)),
-                missing: false,
-                bin: Some([lower, upper]),
-            }
-        })
-        .collect();
-    let summary = summarize(&analysis.pairs);
-    let sd = summary.sd.filter(|sd| summary.n > 1.0 && *sd > 0.0);
-    let normal = match (spec.normal, summary.mean, sd) {
-        (false, ..) => None,
-        (true, Some(mean), Some(std_dev)) => Some(NormalCurve {
-            mean,
-            std_dev,
-            total: analysis.valid,
-        }),
-        (true, ..) => return Err("the normal curve needs values that vary".into()),
-    };
-    let text = |value: Option<f64>, kind: Stat| {
-        value.map_or(".".into(), |v| {
-            chart::number_text(v, &procedure_format(&analysis.format, kind))
-        })
-    };
-    let footnote = format!(
-        "Mean = {}, Std. Dev. = {}, N = {}",
-        text(summary.mean, Stat::Value),
-        text(sd, Stat::Spread),
-        chart::number_text(analysis.valid, "")
-    );
-    let top = counts.iter().copied().fold(0.0, f64::max);
-    Ok(Chart {
-        kind: chart::ChartKind::Histogram,
-        tier: Tier::Statistical,
-        orientation: Some(Orientation::Vertical),
-        grouping: None,
-        title: analysis.title.clone(),
-        footnote: Some(footnote),
-        category_axis: Axis {
-            title: analysis.heading.clone(),
-            format: analysis.format.clone(),
-            maximum: None,
-            variable: Some(analysis.name.clone()),
-        },
-        value_axis: Axis {
-            title: "Frequency".into(),
-            format: chart::count_format(counts.iter().copied()),
-            maximum: spec.scale.filter(|n| *n >= top),
-            variable: None,
-        },
-        legend: None,
-        categories,
-        series: vec![Series {
-            name: "Frequency".into(),
-            statistic: Statistic::Count,
-            variable: None,
-            value: Cell::Empty,
-            values: counts,
-        }],
-        normal,
-    })
 }
 
 /// Equal bins over (value, weight) pairs in ascending order: the index of the first bin's

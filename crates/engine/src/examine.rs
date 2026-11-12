@@ -35,6 +35,8 @@ use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Values, Variable};
 use statscraft_syntax::{Examine, MEstimator, PercentileMethod as Method};
 
+mod plots;
+
 /// The distinct values of a cell in ascending order with their summed weights.
 pub(crate) struct Distribution {
     values: Vec<f64>,
@@ -482,6 +484,8 @@ struct CellResult {
     labels: Vec<String>,
     /// The print format of the dependent.
     format: String,
+    /// Which dependent, in the order of the command.
+    dependent: usize,
     valid: f64,
     total: f64,
     /// (value, case) of the cases used, in case order.
@@ -491,21 +495,6 @@ struct CellResult {
 
 impl Engine {
     pub(crate) fn examine(&mut self, command: &Examine) -> Result<Vec<Table>, Error> {
-        // one warning for every plot asked for; NPPLOT still gives its tests
-        let mut plots = command.plots.clone();
-        if command.normality {
-            plots.push("NPPLOT".into());
-        }
-        if !plots.is_empty() {
-            let shown = match command.normality {
-                true => "the statistics and the Tests of Normality table are shown",
-                false => "the statistics are shown",
-            };
-            self.warn(format!(
-                "plots are not drawn yet: {} left out; {shown}",
-                plots.join(", ")
-            ));
-        }
         let data = self.active()?;
         let shown = self.shown();
         let mut dependents = self.expand(&command.dependents)?;
@@ -551,6 +540,13 @@ impl Engine {
             ));
             95.0
         };
+        if command.spread_level.is_some() && terms.is_empty() {
+            warnings.push(
+                "SPREADLEVEL needs a factor after BY, so no spread-versus-level plot is made"
+                    .into(),
+            );
+        }
+        let mut charts = Vec::new();
         let factor_names: Vec<&String> = terms.iter().flatten().collect();
         let factor_levels: Vec<Vec<Option<Level>>> = factor_names
             .iter()
@@ -629,6 +625,7 @@ impl Engine {
                             .chain(cell.iter().zip(&factors).map(|(l, v)| l.name(v, &shown)))
                             .collect(),
                         format: format.to_string(),
+                        dependent: d,
                         valid: 0.0,
                         total: 0.0,
                         cases: Vec::new(),
@@ -680,7 +677,9 @@ impl Engine {
             if command.normality {
                 out.push(tables.normality(&used));
             }
+            tables.plots(&used, &mut charts, &mut out, &mut warnings);
         }
+        self.charts.extend(charts);
         for warning in warnings {
             self.warn(warning);
         }

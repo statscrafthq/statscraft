@@ -1233,8 +1233,14 @@ pub struct Examine {
     pub mestimators: Vec<MEstimator>,
     /// `/PLOT=NPPLOT`: the tests of normality.
     pub normality: bool,
-    /// `/PLOT` BOXPLOT, STEMLEAF or HISTOGRAM: asked for, not drawn yet.
+    /// `/PLOT` BOXPLOT, STEMLEAF and HISTOGRAM, in the order asked; BOXPLOT and STEMLEAF
+    /// without a PLOT subcommand.
     pub plots: Vec<String>,
+    /// `/PLOT=SPREADLEVEL(n)`: Some(None) without a power, Some(Some(0)) for natural logs.
+    pub spread_level: Option<Option<f64>>,
+    /// `/COMPARE=VARIABLES`: the boxes of all dependents in one plot per cell, instead of one
+    /// plot per dependent with a box per cell (GROUPS).
+    pub compare_variables: bool,
     /// `/MISSING=PAIRWISE`: each dependent and factor on its own instead of listwise.
     pub pairwise: bool,
     /// `/MISSING=INCLUDE`: user-missing values of the dependents are valid.

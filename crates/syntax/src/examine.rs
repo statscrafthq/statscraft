@@ -5,7 +5,7 @@ use crate::ast::{Command, Examine, MEstimator, PercentileMethod, VarItem};
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
-use crate::procedures::{at_end, keyword_error, keywords, names};
+use crate::procedures::{at_end, keywords, names};
 use crate::stats::variables;
 
 const DEFAULT_PERCENTILES: [f64; 7] = [5.0, 10.0, 25.0, 50.0, 75.0, 90.0, 95.0];
@@ -201,13 +201,16 @@ pub(crate) fn examine(p: &mut Parser) -> PResult<Command> {
         cinterval: 95.0,
         mestimators: Vec::new(),
         normality: false,
-        plots: Vec::new(),
+        plots: vec!["BOXPLOT".into(), "STEMLEAF".into()],
+        spread_level: None,
+        compare_variables: false,
         pairwise: false,
         include: false,
         report: false,
     };
     p.eat(Punct::Slash);
     let mut more = true;
+    let mut plot_given = false;
     // a leading word without '=' starts the variable list, as in `EXAMINE age BY region`
     if !p.at_keyword("VARIABLES") && p.peek_at(1) != Some(&TokenKind::Punct(Punct::Eq)) {
         variables_subcommand(p, &mut command)?;
@@ -218,10 +221,10 @@ pub(crate) fn examine(p: &mut Parser) -> PResult<Command> {
             p.eat(Punct::Eq);
             variables_subcommand(p, &mut command)?;
         } else if p.eat_keyword("COMPARE") {
-            // it arranges boxplots, which are not drawn
             p.eat(Punct::Eq);
             const CHOICES: [(&str, &[u8]); 2] = [("GROUPS", &[0]), ("VARIABLES", &[1])];
-            keywords(p, &CHOICES, |p| p.unexpected(&names(&CHOICES)))?;
+            let chosen = keywords(p, &CHOICES, |p| p.unexpected(&names(&CHOICES)))?;
+            command.compare_variables = chosen.last() == Some(&1);
         } else if p.eat_keyword("TOTAL") {
             command.total = true;
         } else if p.eat_keyword("NOTOTAL") {
@@ -233,43 +236,53 @@ pub(crate) fn examine(p: &mut Parser) -> PResult<Command> {
             percentiles(p, &mut command)?;
         } else if p.eat_keyword("PLOT") {
             p.eat(Punct::Eq);
-            // plots are not drawn: they are kept to warn about; NPPLOT gives the tests
+            // a PLOT subcommand replaces the default plots
+            if !plot_given {
+                command.plots.clear();
+                plot_given = true;
+            }
             const DRAWN: [&str; 3] = ["BOXPLOT", "STEMLEAF", "HISTOGRAM"];
             let mut any = false;
             while !at_end(p) {
                 if p.eat_keyword("NPPLOT") {
                     command.normality = true;
+                } else if p.eat_keyword("SPREADLEVEL") {
+                    let mut power = None;
+                    if p.eat(Punct::LParen) {
+                        power = Some(p.number().ok_or_else(|| p.unexpected(&["a power"]))?);
+                        p.expect(Punct::RParen)?;
+                    }
+                    command.spread_level = Some(power);
                 } else if p.eat_keyword("NONE") {
                     command.normality = false;
                     command.plots.clear();
+                    command.spread_level = None;
                 } else if p.eat_word("ALL") {
                     command.normality = true;
                     command.plots = DRAWN.iter().map(|s| s.to_string()).collect();
+                    command.spread_level = Some(None);
                 } else if let Some(plot) = DRAWN.iter().find(|k| p.at_keyword(k)) {
                     p.pos += 1;
                     if !command.plots.iter().any(|q| q == plot) {
                         command.plots.push(plot.to_string());
                     }
                 } else {
-                    let all: [(&str, &[bool]); 6] = [
+                    let all: [(&str, &[bool]); 7] = [
                         ("BOXPLOT", &[]),
                         ("STEMLEAF", &[]),
                         ("HISTOGRAM", &[]),
                         ("NPPLOT", &[]),
+                        ("SPREADLEVEL", &[]),
                         ("ALL", &[]),
                         ("NONE", &[]),
                     ];
-                    return Err(keyword_error(
-                        p,
-                        "EXAMINE /PLOT",
-                        &["SPREADLEVEL"],
-                        &names(&all),
-                    ));
+                    return Err(p.unexpected(&names(&all)));
                 }
                 any = true;
             }
             if !any {
                 command.normality = false;
+                command.spread_level = None;
             }
         } else if p.eat_keyword("STATISTICS") {
             p.eat(Punct::Eq);

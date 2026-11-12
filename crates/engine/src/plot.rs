@@ -1,0 +1,681 @@
+//! The data shapes of statistical plots: boxes, stem-and-leaf lines, points with reference
+//! lines, merge trees and node trees. A `Chart` of the statistical tier carries one of them in
+//! `plot`; the category axis of the chart is then the horizontal axis and the value axis the
+//! vertical one. Each shape gives a data table for the text output and the window, and a
+//! Vega-Lite specification for agents.
+
+use crate::chart::{Axis, Chart, ChartKind, Tier, number_text};
+use crate::{Cell, Table};
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value, json};
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "shape", rename_all = "snake_case")]
+pub enum Plot {
+    /// One box per cell or variable.
+    Boxes { boxes: Vec<BoxSummary> },
+    /// A stem-and-leaf display.
+    StemLeaf(StemLeaf),
+    /// Points in groups, with straight reference lines.
+    Points {
+        groups: Vec<PointGroup>,
+        #[serde(default, skip_serializing_if = "Vec::is_empty")]
+        lines: Vec<ReferenceLine>,
+        /// The third axis when the points have a z coordinate.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        z_axis: Option<Axis>,
+    },
+    /// A hierarchical clustering: the items, the order to lay them out in, and the merges.
+    Merges {
+        items: Vec<String>,
+        /// Indices into `items`, top to bottom, so that no branches cross.
+        order: Vec<usize>,
+        merges: Vec<Merge>,
+    },
+    /// A tree of nodes; the root comes first, every other node after its parent.
+    Tree { nodes: Vec<TreeNode> },
+}
+
+/// A box of a boxplot: Tukey's hinges, the median, whiskers to the furthest values that are
+/// neither outliers nor extremes, and those cases marked.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct BoxSummary {
+    pub label: String,
+    /// The cluster the box belongs to, when boxes are grouped.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub group: Option<String>,
+    pub n: f64,
+    pub lower_whisker: f64,
+    pub lower_hinge: f64,
+    pub median: f64,
+    pub upper_hinge: f64,
+    pub upper_whisker: f64,
+    /// Between 1.5 and 3 box lengths from the box.
+    pub outliers: Vec<Mark>,
+    /// 3 box lengths or more from the box.
+    pub extremes: Vec<Mark>,
+}
+
+/// A case marked on a plot: its value and its label (case number or identifier).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Mark {
+    pub value: f64,
+    pub case: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StemLeaf {
+    /// The value of one step of the stem.
+    pub stem_width: f64,
+    /// How many cases one leaf stands for.
+    pub each_leaf: f64,
+    /// Cases left out at the low end, with the bound they lie at or below.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub low_extremes: Option<Extremes>,
+    pub lines: Vec<StemLine>,
+    /// Cases left out at the high end, with the bound they lie at or above.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub high_extremes: Option<Extremes>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Extremes {
+    pub frequency: f64,
+    pub bound: f64,
+}
+
+/// A line of a stem-and-leaf display: the (weighted) count, the stem as shown and the leaf
+/// digits in ascending order.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StemLine {
+    pub frequency: f64,
+    pub stem: String,
+    pub leaves: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PointGroup {
+    pub name: String,
+    pub points: Vec<Point>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Point {
+    pub x: f64,
+    pub y: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub z: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
+/// The line y = intercept + slope x across the plot.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ReferenceLine {
+    pub intercept: f64,
+    pub slope: f64,
+}
+
+/// Two clusters joined: each named by its first item (the lowest index, as the agglomeration
+/// schedule names them), at a height of the clustering criterion and that height rescaled to
+/// 0 to 25.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct Merge {
+    pub left: usize,
+    pub right: usize,
+    pub height: f64,
+    pub rescaled: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct TreeNode {
+    pub id: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub parent: Option<usize>,
+    /// The condition that leads from the parent to the node, such as "region = North; South".
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub split: String,
+    /// What the node shows, in order: statistic name and value.
+    pub statistics: Vec<(String, Cell)>,
+}
+
+impl Chart {
+    /// A statistical plot with its data shape; the axes are horizontal and vertical.
+    pub(crate) fn plot(kind: ChartKind, title: String, x: Axis, y: Axis, plot: Plot) -> Chart {
+        Chart {
+            kind,
+            tier: Tier::Statistical,
+            orientation: None,
+            grouping: None,
+            title,
+            footnote: None,
+            category_axis: x,
+            value_axis: y,
+            legend: None,
+            categories: Vec::new(),
+            series: Vec::new(),
+            normal: None,
+            plot: Some(plot),
+        }
+    }
+}
+
+impl Axis {
+    /// An axis with a title only.
+    pub(crate) fn titled(title: impl Into<String>) -> Axis {
+        Axis {
+            title: title.into(),
+            format: String::new(),
+            maximum: None,
+            variable: None,
+        }
+    }
+}
+
+impl Plot {
+    /// The plot's data as a table; `chart` gives the titles and formats.
+    pub(crate) fn table(&self, chart: &Chart) -> (Vec<String>, Vec<Vec<Cell>>, Vec<Vec<String>>) {
+        let (x, y) = (&chart.category_axis, &chart.value_axis);
+        let text = |s: &str| Cell::Text(s.to_string());
+        let mut columns: Vec<String> = Vec::new();
+        let mut rows: Vec<Vec<Cell>> = Vec::new();
+        let mut formats: Vec<Vec<String>> = Vec::new();
+        match self {
+            Plot::Boxes { boxes } => {
+                let grouped = boxes.iter().any(|b| b.group.is_some());
+                columns.push(x.title.clone());
+                if grouped {
+                    columns.push(chart.legend.clone().unwrap_or_default());
+                }
+                columns.extend(
+                    [
+                        "N",
+                        "Lower whisker",
+                        "Lower hinge",
+                        "Median",
+                        "Upper hinge",
+                        "Upper whisker",
+                        "Outliers",
+                        "Extremes",
+                    ]
+                    .map(String::from),
+                );
+                let marks = |marks: &[Mark]| {
+                    let list: Vec<String> = marks
+                        .iter()
+                        .map(|m| format!("{} (case {})", number_text(m.value, &y.format), m.case))
+                        .collect();
+                    Cell::Text(list.join(", "))
+                };
+                for b in boxes {
+                    let mut row = vec![text(&b.label)];
+                    if grouped {
+                        row.push(text(b.group.as_deref().unwrap_or("")));
+                    }
+                    let lead = row.len();
+                    row.push(Cell::Number(b.n));
+                    row.extend(
+                        [
+                            b.lower_whisker,
+                            b.lower_hinge,
+                            b.median,
+                            b.upper_hinge,
+                            b.upper_whisker,
+                        ]
+                        .map(Cell::Number),
+                    );
+                    row.push(marks(&b.outliers));
+                    row.push(marks(&b.extremes));
+                    let mut f = vec![String::new(); row.len()];
+                    f[lead] = crate::chart::count_format([b.n]);
+                    for cell in &mut f[lead + 1..lead + 6] {
+                        cell.clone_from(&y.format);
+                    }
+                    formats.push(f);
+                    rows.push(row);
+                }
+            }
+            Plot::StemLeaf(s) => {
+                columns = ["Frequency", "Stem", "Leaf"].map(String::from).to_vec();
+                let bound = |e: &Extremes, sign: &str| {
+                    let row = vec![
+                        Cell::Number(e.frequency),
+                        text("Extremes"),
+                        Cell::Text(format!("({sign}{})", number_text(e.bound, &x.format))),
+                    ];
+                    row
+                };
+                if let Some(e) = &s.low_extremes {
+                    rows.push(bound(e, "=<"));
+                }
+                for line in &s.lines {
+                    rows.push(vec![
+                        Cell::Number(line.frequency),
+                        text(&line.stem),
+                        text(&line.leaves),
+                    ]);
+                }
+                if let Some(e) = &s.high_extremes {
+                    rows.push(bound(e, ">="));
+                }
+                formats = rows
+                    .iter()
+                    .map(|r| {
+                        let n = match r[0] {
+                            Cell::Number(n) => n,
+                            _ => 0.0,
+                        };
+                        vec![
+                            crate::chart::count_format([n]),
+                            String::new(),
+                            String::new(),
+                        ]
+                    })
+                    .collect();
+            }
+            Plot::Points { groups, z_axis, .. } => {
+                let several = groups.len() > 1;
+                let labelled = groups
+                    .iter()
+                    .flat_map(|g| &g.points)
+                    .any(|p| p.label.is_some());
+                if several {
+                    columns.push(chart.legend.clone().unwrap_or_else(|| "Group".into()));
+                }
+                if labelled {
+                    columns.push(String::new());
+                }
+                columns.push(x.title.clone());
+                columns.push(y.title.clone());
+                if let Some(z) = z_axis {
+                    columns.push(z.title.clone());
+                }
+                for g in groups {
+                    for p in &g.points {
+                        let mut row = Vec::new();
+                        let mut f = Vec::new();
+                        if several {
+                            row.push(text(&g.name));
+                            f.push(String::new());
+                        }
+                        if labelled {
+                            row.push(text(p.label.as_deref().unwrap_or("")));
+                            f.push(String::new());
+                        }
+                        row.push(Cell::Number(p.x));
+                        f.push(x.format.clone());
+                        row.push(Cell::Number(p.y));
+                        f.push(y.format.clone());
+                        if let Some(z) = z_axis {
+                            row.push(p.z.map_or(Cell::Empty, Cell::Number));
+                            f.push(z.format.clone());
+                        }
+                        rows.push(row);
+                        formats.push(f);
+                    }
+                }
+            }
+            Plot::Merges {
+                items,
+                order,
+                merges,
+            } => match chart.kind {
+                ChartKind::Icicle => {
+                    // a row per number of clusters, a column per item: the cluster it is in
+                    columns.push("Number of clusters".into());
+                    columns.extend(order.iter().map(|&i| items[i].clone()));
+                    let n = items.len();
+                    let mut cluster: Vec<usize> = (0..n).collect();
+                    let mut by_count = vec![cluster.clone()];
+                    for m in merges {
+                        let (keep, gone) = (cluster[m.left], cluster[m.right]);
+                        for c in &mut cluster {
+                            if *c == gone {
+                                *c = keep;
+                            }
+                        }
+                        by_count.push(cluster.clone());
+                    }
+                    for (step, state) in by_count.iter().enumerate().skip(1).rev() {
+                        let mut row = vec![Cell::Number((n - step) as f64)];
+                        row.extend(order.iter().map(|&i| Cell::Number(state[i] as f64 + 1.0)));
+                        rows.push(row);
+                    }
+                }
+                _ => {
+                    columns = [
+                        "Stage",
+                        "Cluster 1",
+                        "Cluster 2",
+                        "Height",
+                        "Rescaled height",
+                    ]
+                    .map(String::from)
+                    .to_vec();
+                    for (stage, m) in merges.iter().enumerate() {
+                        rows.push(vec![
+                            Cell::Number(stage as f64 + 1.0),
+                            text(&items[m.left]),
+                            text(&items[m.right]),
+                            Cell::Number(m.height),
+                            Cell::Number(m.rescaled),
+                        ]);
+                        formats.push(["F8.0", "", "", "F12.3", "F8.1"].map(String::from).to_vec());
+                    }
+                }
+            },
+            Plot::Tree { nodes } => {
+                let mut names: Vec<String> = Vec::new();
+                for node in nodes {
+                    for (name, _) in &node.statistics {
+                        if !names.contains(name) {
+                            names.push(name.clone());
+                        }
+                    }
+                }
+                columns = ["Node", "Parent", "Split"].map(String::from).to_vec();
+                columns.extend(names.iter().cloned());
+                for node in nodes {
+                    let mut row = vec![
+                        Cell::Number(node.id as f64),
+                        node.parent.map_or(Cell::Empty, |p| Cell::Number(p as f64)),
+                        text(&node.split),
+                    ];
+                    for name in &names {
+                        let value = node.statistics.iter().find(|(n, _)| n == name);
+                        row.push(value.map_or(Cell::Empty, |(_, v)| v.clone()));
+                    }
+                    rows.push(row);
+                }
+            }
+        }
+        (columns, rows, formats)
+    }
+
+    /// The plot as Vega-Lite layers and data; `chart` gives the titles.
+    pub(crate) fn vega_lite(&self, chart: &Chart) -> Map<String, Value> {
+        let (xt, yt) = (&chart.category_axis.title, &chart.value_axis.title);
+        let mut out = Map::new();
+        match self {
+            Plot::Boxes { boxes } => {
+                let rows: Vec<Value> = boxes
+                    .iter()
+                    .map(|b| {
+                        json!({
+                            "box": box_name(b),
+                            "low": b.lower_whisker, "q1": b.lower_hinge, "median": b.median,
+                            "q3": b.upper_hinge, "high": b.upper_whisker, "n": b.n,
+                        })
+                    })
+                    .collect();
+                let mut marks = Vec::new();
+                for b in boxes {
+                    for (kind, list) in [("outlier", &b.outliers), ("extreme", &b.extremes)] {
+                        marks.extend(list.iter().map(|m| {
+                            json!({ "box": box_name(b), "value": m.value, "case": m.case, "kind": kind })
+                        }));
+                    }
+                }
+                let order: Vec<String> = boxes.iter().map(box_name).collect();
+                let x = json!({ "field": "box", "type": "nominal", "sort": order, "title": xt });
+                let y =
+                    |field: &str| json!({ "field": field, "type": "quantitative", "title": yt });
+                let layers = json!([
+                    { "data": { "values": rows }, "mark": "rule",
+                      "encoding": { "x": x, "y": y("low"), "y2": { "field": "high" } } },
+                    { "data": { "values": rows }, "mark": { "type": "bar", "size": 20 },
+                      "encoding": { "x": x, "y": y("q1"), "y2": { "field": "q3" } } },
+                    { "data": { "values": rows }, "mark": { "type": "tick", "size": 20, "color": "black" },
+                      "encoding": { "x": x, "y": y("median") } },
+                    { "data": { "values": marks }, "mark": { "type": "point" },
+                      "encoding": {
+                          "x": x, "y": y("value"),
+                          "shape": { "field": "kind", "type": "nominal",
+                                     "scale": { "domain": ["outlier", "extreme"], "range": ["circle", "cross"] } },
+                          "tooltip": [{ "field": "case" }, { "field": "value" }] } },
+                    { "data": { "values": marks }, "mark": { "type": "text", "dx": 8, "align": "left" },
+                      "encoding": { "x": x, "y": y("value"), "text": { "field": "case" } } },
+                ]);
+                out.insert("layer".into(), layers);
+            }
+            Plot::StemLeaf(_) => {
+                let (_, rows, _) = self.table(chart);
+                let lines: Vec<Value> = rows
+                    .iter()
+                    .enumerate()
+                    .map(|(i, r)| {
+                        let cell = |c: &Cell| match c {
+                            Cell::Text(t) => t.clone(),
+                            Cell::Number(n) => number_text(*n, ""),
+                            Cell::Empty => String::new(),
+                        };
+                        json!({ "line": i, "text": format!("{:>8} {:>8} . {}", cell(&r[0]), cell(&r[1]), cell(&r[2])) })
+                    })
+                    .collect();
+                out.insert("data".into(), json!({ "values": lines }));
+                out.insert(
+                    "mark".into(),
+                    json!({ "type": "text", "align": "left", "font": "monospace" }),
+                );
+                out.insert(
+                    "encoding".into(),
+                    json!({
+                        "y": { "field": "line", "type": "ordinal", "axis": null },
+                        "text": { "field": "text" },
+                    }),
+                );
+            }
+            Plot::Points { groups, lines, .. } => {
+                let rows: Vec<Value> = groups
+                    .iter()
+                    .flat_map(|g| {
+                        g.points.iter().map(move |p| {
+                            let mut row = json!({ "group": g.name, "x": p.x, "y": p.y });
+                            if let Some(z) = p.z {
+                                row["z"] = z.into();
+                            }
+                            if let Some(label) = &p.label {
+                                row["label"] = label.as_str().into();
+                            }
+                            row
+                        })
+                    })
+                    .collect();
+                let x = json!({ "field": "x", "type": "quantitative", "title": xt, "scale": { "zero": false } });
+                let y = json!({ "field": "y", "type": "quantitative", "title": yt, "scale": { "zero": false } });
+                let mut points = json!({
+                    "data": { "values": rows },
+                    "mark": { "type": "point" },
+                    "encoding": { "x": x, "y": y },
+                });
+                if groups.len() > 1 {
+                    points["encoding"]["color"] = json!({
+                        "field": "group", "type": "nominal",
+                        "sort": groups.iter().map(|g| g.name.as_str()).collect::<Vec<_>>(),
+                        "title": chart.legend,
+                    });
+                }
+                let mut layers = vec![points];
+                if groups
+                    .iter()
+                    .flat_map(|g| &g.points)
+                    .any(|p| p.label.is_some())
+                {
+                    layers.push(json!({
+                        "data": { "values": rows },
+                        "mark": { "type": "text", "dx": 6, "align": "left" },
+                        "encoding": { "x": x, "y": y, "text": { "field": "label" } },
+                    }));
+                }
+                let xs = groups.iter().flat_map(|g| &g.points).map(|p| p.x);
+                let (low, high) = xs.fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), x| {
+                    (a.min(x), b.max(x))
+                });
+                if low.is_finite() {
+                    for line in lines {
+                        let ends: Vec<Value> = [low, high]
+                            .iter()
+                            .map(|&x| json!({ "x": x, "y": line.intercept + line.slope * x }))
+                            .collect();
+                        layers.push(json!({
+                            "data": { "values": ends },
+                            "mark": { "type": "line" },
+                            "encoding": { "x": x, "y": y },
+                        }));
+                    }
+                }
+                out.insert("layer".into(), Value::Array(layers));
+            }
+            Plot::Merges {
+                items,
+                order,
+                merges,
+            } => {
+                let position = |i: usize| order.iter().position(|&o| o == i).unwrap_or(0) as f64;
+                let labels: Vec<Value> = order
+                    .iter()
+                    .enumerate()
+                    .map(|(p, &i)| json!({ "y": p, "label": items[i] }))
+                    .collect();
+                let mut segments = Vec::new();
+                let mut rects = Vec::new();
+                // every cluster: where it sits and the height it was formed at
+                let mut place: Vec<(f64, f64)> =
+                    (0..items.len()).map(|i| (position(i), 0.0)).collect();
+                let mut span: Vec<(f64, f64)> = place.iter().map(|p| (p.0, p.0)).collect();
+                for (step, m) in merges.iter().enumerate() {
+                    let (a, b) = (place[m.left], place[m.right]);
+                    let h = m.rescaled;
+                    segments.push(json!({ "x": a.1, "x2": h, "y": a.0, "y2": a.0 }));
+                    segments.push(json!({ "x": b.1, "x2": h, "y": b.0, "y2": b.0 }));
+                    segments.push(json!({ "x": h, "x2": h, "y": a.0, "y2": b.0 }));
+                    let joined = (
+                        span[m.left].0.min(span[m.right].0),
+                        span[m.left].1.max(span[m.right].1),
+                    );
+                    rects.push(json!({ "clusters": items.len() - step - 1, "from": joined.0 - 0.4, "to": joined.1 + 0.4 }));
+                    place[m.left] = ((a.0 + b.0) / 2.0, h);
+                    span[m.left] = joined;
+                }
+                let y = json!({ "field": "y", "type": "quantitative", "axis": null });
+                let layers = match chart.kind {
+                    ChartKind::Icicle => json!([
+                        { "data": { "values": rects }, "mark": "bar",
+                          "encoding": {
+                              "x": { "field": "clusters", "type": "ordinal", "title": xt, "sort": "descending" },
+                              "y": { "field": "from", "type": "quantitative", "axis": null },
+                              "y2": { "field": "to" } } },
+                        { "data": { "values": labels }, "mark": { "type": "text", "align": "right", "dx": -4 },
+                          "encoding": { "y": y, "text": { "field": "label" } } },
+                    ]),
+                    _ => json!([
+                        { "data": { "values": segments }, "mark": "rule",
+                          "encoding": {
+                              "x": { "field": "x", "type": "quantitative", "title": xt, "scale": { "domain": [0, 25] } },
+                              "x2": { "field": "x2" }, "y": y, "y2": { "field": "y2" } } },
+                        { "data": { "values": labels }, "mark": { "type": "text", "align": "right", "dx": -4 },
+                          "encoding": { "x": { "datum": 0, "type": "quantitative" }, "y": y, "text": { "field": "label" } } },
+                    ]),
+                };
+                out.insert("layer".into(), layers);
+            }
+            Plot::Tree { nodes } => {
+                // leaves side by side, a parent above the middle of its children
+                let children = |id: usize| nodes.iter().filter(move |n| n.parent == Some(id));
+                let mut x = vec![0.0; nodes.len()];
+                let mut depth = vec![0usize; nodes.len()];
+                let index = |id: usize| nodes.iter().position(|n| n.id == id).unwrap_or(0);
+                for (i, node) in nodes.iter().enumerate() {
+                    depth[i] = node.parent.map_or(0, |p| depth[index(p)] + 1);
+                }
+                let mut next = 0.0;
+                fn place(
+                    i: usize,
+                    x: &mut [f64],
+                    next: &mut f64,
+                    children: &dyn Fn(usize) -> Vec<usize>,
+                ) {
+                    let kids = children(i);
+                    if kids.is_empty() {
+                        x[i] = *next;
+                        *next += 1.0;
+                        return;
+                    }
+                    for &k in &kids {
+                        place(k, x, next, children);
+                    }
+                    x[i] = kids.iter().map(|&k| x[k]).sum::<f64>() / kids.len() as f64;
+                }
+                let kids = |i: usize| -> Vec<usize> {
+                    children(nodes[i].id).map(|n| index(n.id)).collect()
+                };
+                if !nodes.is_empty() {
+                    place(0, &mut x, &mut next, &kids);
+                }
+                let points: Vec<Value> = nodes
+                    .iter()
+                    .enumerate()
+                    .map(|(i, n)| {
+                        let mut text = vec![format!("Node {}", n.id)];
+                        text.extend(n.statistics.iter().map(|(name, v)| match v {
+                            Cell::Number(v) => format!("{name}: {}", number_text(*v, "")),
+                            Cell::Text(t) => format!("{name}: {t}"),
+                            Cell::Empty => name.clone(),
+                        }));
+                        json!({ "x": x[i], "depth": depth[i], "text": text, "split": n.split })
+                    })
+                    .collect();
+                let edges: Vec<Value> = nodes
+                    .iter()
+                    .enumerate()
+                    .filter_map(|(i, n)| {
+                        let p = index(n.parent?);
+                        Some(json!({ "x": x[p], "x2": x[i], "depth": depth[p], "depth2": depth[i], "split": n.split }))
+                    })
+                    .collect();
+                let y = json!({ "field": "depth", "type": "quantitative", "scale": { "reverse": true }, "axis": null });
+                let xa = json!({ "field": "x", "type": "quantitative", "axis": null });
+                out.insert(
+                    "layer".into(),
+                    json!([
+                        { "data": { "values": edges }, "mark": "rule",
+                          "encoding": { "x": xa, "x2": { "field": "x2" }, "y": y, "y2": { "field": "depth2" } } },
+                        { "data": { "values": points }, "mark": { "type": "text", "baseline": "top" },
+                          "encoding": { "x": xa, "y": y, "text": { "field": "text" } } },
+                    ]),
+                );
+            }
+        }
+        out
+    }
+}
+
+fn box_name(b: &BoxSummary) -> String {
+    match &b.group {
+        Some(group) => format!("{} {group}", b.label),
+        None => b.label.clone(),
+    }
+}
+
+impl Table {
+    /// Wraps plot data into a table titled like its chart.
+    pub(crate) fn of_plot(
+        chart: &Chart,
+        (columns, rows, formats): (Vec<String>, Vec<Vec<Cell>>, Vec<Vec<String>>),
+        caption: String,
+    ) -> Table {
+        let formats = match formats.iter().flatten().all(String::is_empty) {
+            true => Vec::new(),
+            false => formats,
+        };
+        Table {
+            title: chart.title.clone(),
+            row_headers: 1,
+            column_groups: vec![Vec::new(); columns.len()],
+            columns,
+            rows,
+            formats,
+            caption: Some(caption),
+        }
+    }
+}
