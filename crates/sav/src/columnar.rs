@@ -176,7 +176,7 @@ impl ColumnarBatchBuilder {
     /// Dispatch strategy:
     /// - **Wide files** (row_bytes > 12,288): tiled parallel, processes L3-sized
     ///   row tiles with rayon, avoiding cache thrashing from large column strides.
-    /// - **Narrow files, large chunks** (>= 10,000 rows): column-at-a-time with
+    /// - **Narrow files, large chunks** (at least 2^18 values): column-at-a-time with
     ///   rayon parallelism. Each thread fills its own builder independently.
     /// - **Narrow files, small chunks**: sequential column-at-a-time.
     pub fn push_raw_chunk(&mut self, chunk: &[u8], num_rows: usize, slots_per_row: usize) {
@@ -199,7 +199,7 @@ impl ColumnarBatchBuilder {
                 self.push_rows(tile, slots_per_row, true);
             }
         } else {
-            self.push_rows(slots, slots_per_row, rows >= 10_000);
+            self.push_rows(slots, slots_per_row, slots.len() >= 1 << 18);
         }
         self.rows_appended += rows;
     }

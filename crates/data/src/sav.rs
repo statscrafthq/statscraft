@@ -224,6 +224,16 @@ impl Dataset {
     /// text the encoding cannot hold, or a value that does not fit its width there, is an
     /// error. An existing file is replaced only after the new one is complete.
     pub fn write_sav(&self, path: impl AsRef<Path>) -> Result<(), Error> {
+        self.write_sav_level(path, None)
+    }
+
+    /// Writes like `write_sav`, a `.zsav` file with zlib level 1: larger, but several times
+    /// faster to write. For files that are read back by Statscraft only, such as a session.
+    pub fn write_sav_quick(&self, path: impl AsRef<Path>) -> Result<(), Error> {
+        self.write_sav_level(path, Some(1))
+    }
+
+    fn write_sav_level(&self, path: impl AsRef<Path>, level: Option<u32>) -> Result<(), Error> {
         if let Some(scratch) = self.variable_names().find(|name| name.starts_with('#')) {
             return Err(Error::Invalid(format!(
                 "{scratch} is a scratch variable, which a data file cannot hold"
@@ -334,7 +344,7 @@ impl Dataset {
         // a failed or interrupted write must not destroy the previous session state
         let mut partial = path.as_os_str().to_owned();
         partial.push(format!(".{}.partial", std::process::id()));
-        statscraft_sav::write_sav(&partial, &batch, &meta, compression, None)
+        statscraft_sav::write_sav(&partial, &batch, &meta, compression, level)
             .map_err(|e| e.to_string())
             .and_then(|()| std::fs::rename(&partial, path).map_err(|e| e.to_string()))
             .map_err(|e| {

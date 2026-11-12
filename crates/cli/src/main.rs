@@ -329,11 +329,11 @@ fn save_named(data: &std::path::Path, session: &Session) -> Result<(), String> {
 /// Writes a dataset the session keeps. Text the file's code page cannot hold, such as a label
 /// typed in another language, is kept in UTF-8 instead of leaving the session unsaved.
 fn write_kept(dataset: &Dataset, path: &std::path::Path) -> Result<(), String> {
-    match dataset.write_sav(path) {
+    match dataset.write_sav_quick(path) {
         Err(e) if dataset.encoding() != "UTF-8" => {
             let mut unicode = dataset.clone();
             unicode.set_encoding("UTF-8").map_err(|e| e.to_string())?;
-            unicode.write_sav(path).map_err(|_| e.to_string())
+            unicode.write_sav_quick(path).map_err(|_| e.to_string())
         }
         written => written.map_err(|e| e.to_string()),
     }

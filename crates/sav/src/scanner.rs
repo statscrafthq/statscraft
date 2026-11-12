@@ -14,6 +14,10 @@ use crate::header;
 use crate::io_utils::SavReader;
 use crate::metadata::SavMetadata;
 
+/// The rows decoded before they go to the column builders: small enough to stay in the
+/// processor's cache while every column reads them, and to keep the buffer small.
+const CHUNK_BYTES: usize = 8 * 1024 * 1024;
+
 /// Compression-specific state for the scanner.
 enum ScanState {
     Uncompressed,
@@ -320,11 +324,11 @@ impl<R: Read + Seek> SavScanner<R> {
         match state {
             ScanState::Uncompressed => {
                 let row_bytes = slots_per_row * 8;
-                // Cap chunk size to ~256 MB for better cache behavior on large files.
+                // Cap the chunk size (CHUNK_BYTES) for better cache behavior on large files.
                 // This avoids multi-GB allocations and keeps the working set manageable
                 // for L3 cache across multiple push_raw_chunk iterations.
                 // Small files still read in one chunk via cap (pre-computed capacity_hint).
-                let max_chunk_rows = (256 * 1024 * 1024 / row_bytes).max(1024);
+                let max_chunk_rows = (CHUNK_BYTES / row_bytes).max(1024);
                 let chunk_rows = cap.min(max_chunk_rows);
                 let chunk_bytes = chunk_rows * row_bytes;
                 let mut chunk_buf = vec![0u8; chunk_bytes];
@@ -354,7 +358,7 @@ impl<R: Read + Seek> SavScanner<R> {
 
                 // Decompress directly into raw byte buffer (no SlotValue intermediates),
                 // then process column-at-a-time via push_raw_chunk with rayon parallelism.
-                let max_chunk_rows = (256 * 1024 * 1024 / row_bytes).max(1024);
+                let max_chunk_rows = (CHUNK_BYTES / row_bytes).max(1024);
                 let chunk_rows = cap.min(max_chunk_rows);
                 let chunk_bytes = chunk_rows * row_bytes;
                 let mut raw_buf = vec![0u8; chunk_bytes];
@@ -411,7 +415,7 @@ impl<R: Read + Seek> SavScanner<R> {
                 // 2. Err(TruncatedFile) mid-row (dirty: COMPRESS_RAW_FOLLOWS but < 8 bytes)
                 // Both trigger loading the next block. For case 2, we use checkpoint/restore
                 // to roll back the decompressor state before retrying.
-                let max_chunk_rows = (256 * 1024 * 1024 / row_bytes).max(1024);
+                let max_chunk_rows = (CHUNK_BYTES / row_bytes).max(1024);
                 let chunk_rows = cap.min(max_chunk_rows);
                 let chunk_bytes = chunk_rows * row_bytes;
                 let mut raw_buf = vec![0u8; chunk_bytes];
