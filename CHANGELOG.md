@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 (2026-11-12)
 
 - Every step leaves syntax. Each run that works and is sent to the open window, by an agent or with `statscraft run -s gui`, is added to a syntax window named Agent under a comment line with the time, so the person can read, change, rerun and save it. A file session adds the same to `syntax.sps` in its folder, with the date. `trail` in the JSON says where; failed runs and checks leave nothing. See [the MCP server](docs/mcp.md#every-step-leaves-syntax).
 - The MCP server works in the person's syntax windows: `list_syntax_windows`, `read_syntax`, `edit_syntax` (the change shows at once and Ctrl+Z in the editor takes it back), `new_syntax_window`, `open_syntax_file` and `save_syntax`, which never replaces another file unless told to. `run_syntax` with `window` and `lines` runs from a syntax window as its own Run does. These need a window of this release; an older window answers that it needs an update. See [syntax windows](docs/mcp.md#syntax-windows).
