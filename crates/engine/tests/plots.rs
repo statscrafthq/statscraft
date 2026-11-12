@@ -647,8 +647,7 @@ END DATA.
     let above = |v: &[f64]| v[20..].iter().sum::<f64>();
     let classification = tables
         .iter()
-        .filter(|t| t.title == "Classification Table")
-        .last()
+        .rfind(|t| t.title == "Classification Table")
         .unwrap();
     let rows = &classification.rows;
     assert_eq!(rows[0][3], Cell::Number(above(no)));

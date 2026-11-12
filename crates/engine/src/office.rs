@@ -67,6 +67,19 @@ fn chart_type(chart: &Chart) -> Option<ChartType> {
         // shortcut: scatter categories are written as text, which an office scatter cannot
         // plot; write them as numbers when a command makes scatter plots.
         (ChartKind::Scatter | ChartKind::Histogram, ..) => return None,
+        // statistical plots: their data table stands in for them
+        (
+            ChartKind::Boxplot
+            | ChartKind::StemLeaf
+            | ChartKind::NormalQq
+            | ChartKind::DetrendedNormalQq
+            | ChartKind::NormalPp
+            | ChartKind::SpreadLevel
+            | ChartKind::Dendrogram
+            | ChartKind::Icicle
+            | ChartKind::TreeDiagram,
+            ..,
+        ) => return None,
     })
 }
 
