@@ -22,7 +22,7 @@
 
 use crate::aggregate::median;
 use crate::crosstabs::{Key, categories};
-use crate::descriptives::{case_weights, number, summarize};
+use crate::descriptives::{Summary, case_weights, number, summarize};
 use crate::dist::f_p;
 use crate::format::{Stat, formats_of, procedure_format};
 use crate::shown::Shown;
@@ -154,19 +154,17 @@ pub(crate) fn combinations(lists: &[Vec<String>]) -> Vec<Vec<String>> {
 /// None where the report does not have that control.
 fn statistic(
     cell: M,
-    cases: &[(f64, f64, usize)],
+    (cases, pairs, s): (&[(f64, f64, usize)], &[(f64, f64)], &Summary),
     totals: (f64, f64),
     within: &[Option<(f64, f64)>],
 ) -> Cell {
-    let pairs: Vec<(f64, f64)> = cases.iter().map(|&(x, w, _)| (x, w)).collect();
-    let s = summarize(&pairs);
     let w = s.n;
     let positive = cases.iter().all(|&(x, _, _)| x > 0.0) && w > 0.0;
     let value = match cell {
         M::Mean => s.mean,
         M::Count => Some(w),
         M::StdDev => s.sd,
-        M::Median => median(&pairs),
+        M::Median => median(pairs),
         M::SeMean => s.sd.map(|sd| sd / w.sqrt()),
         M::Sum => s.sum,
         M::Min => s.min,
@@ -185,7 +183,7 @@ fn statistic(
         M::Geometric => {
             positive.then(|| (pairs.iter().map(|(x, w)| w * x.ln()).sum::<f64>() / w).exp())
         }
-        M::GroupedMedian => grouped_median(&pairs),
+        M::GroupedMedian => grouped_median(pairs),
         M::NpctIn(i) => within[i].map(|t| 100.0 * w / t.0),
         M::SpctIn(i) => s.sum.zip(within[i]).map(|(sum, t)| 100.0 * sum / t.1),
     };
@@ -221,13 +219,12 @@ fn string_statistic(
 /// One row of a report: for each control its category, None for Total.
 type Group = Vec<Option<Key>>;
 
-/// The groups of a report in display order: categories ascending, Total last, nested.
+/// The groups of a report in display order: categories ascending, Total last, nested. Every
+/// combination is there, also those without cases.
 fn groups(keys: &[Vec<Option<Key>>], included: &[usize]) -> Vec<Group> {
     let mut rows: Vec<Group> = vec![Vec::new()];
     for level in keys {
-        let mut found: Vec<&Key> = included.iter().filter_map(|&c| level[c].as_ref()).collect();
-        found.sort_by(|a, b| a.compare(b));
-        found.dedup();
+        let found = distinct(level, included);
         let choices: Vec<Option<Key>> =
             found.into_iter().cloned().map(Some).chain([None]).collect();
         rows = rows
@@ -241,9 +238,89 @@ fn groups(keys: &[Vec<Option<Key>>], included: &[usize]) -> Vec<Group> {
             })
             .collect();
     }
-    // a combination without cases is not shown
-    rows.retain(|row| included.iter().any(|&c| in_group(row, keys, c)));
     rows
+}
+
+/// The categories of one control among the cases, ascending: what sorting all of them and
+/// dropping the repeats gives, without sorting every case.
+fn distinct<'k>(level: &'k [Option<Key>], included: &[usize]) -> Vec<&'k Key> {
+    struct Ordered<'k>(&'k Key);
+    impl PartialEq for Ordered<'_> {
+        fn eq(&self, other: &Self) -> bool {
+            self.cmp(other).is_eq()
+        }
+    }
+    impl Eq for Ordered<'_> {}
+    impl PartialOrd for Ordered<'_> {
+        fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+            Some(self.cmp(other))
+        }
+    }
+    impl Ord for Ordered<'_> {
+        fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+            self.0.compare(other.0)
+        }
+    }
+    let set: std::collections::BTreeSet<Ordered> = (included.iter())
+        .filter_map(|&c| level[c].as_ref().map(Ordered))
+        .collect();
+    let mut found: Vec<&Key> = set.into_iter().map(|k| k.0).collect();
+    found.dedup();
+    found
+}
+
+/// The cases of every group, in case order, from one pass over the cases: each case goes to
+/// the groups of its own categories and of every Total above them.
+fn members(groups: &[Group], keys: &[Vec<Option<Key>>], included: &[usize]) -> Vec<Vec<usize>> {
+    // the categories of each control as numbers 1, 2, ...; 0 is Total
+    let found: Vec<Vec<&Key>> = keys.iter().map(|level| distinct(level, included)).collect();
+    // the same equality as in_group: a binary search, then == for the values it cannot place
+    let number = |l: usize, key: &Key| {
+        let found = &found[l];
+        let at = found.binary_search_by(|k| k.compare(key)).ok();
+        at.or_else(|| found.iter().position(|k| *k == key))
+            .map(|i| i + 1)
+    };
+    let radix: Vec<usize> = found.iter().map(|f| f.len() + 1).collect();
+    let fits = radix.iter().try_fold(1usize, |all, r| all.checked_mul(*r)).is_some();
+    if !fits || keys.len() >= usize::BITS as usize {
+        // more combinations than numbers: test every case against every group
+        let of = |group: &Group| (included.iter().copied())
+            .filter(|&c| in_group(group, keys, c))
+            .collect();
+        return groups.iter().map(of).collect();
+    }
+    let code = |numbers: &mut dyn Iterator<Item = usize>| {
+        numbers.zip(&radix).fold(0usize, |code, (n, r)| code * r + n)
+    };
+    let index: std::collections::HashMap<usize, usize> = (groups.iter().enumerate())
+        .map(|(g, group)| {
+            let mut numbers = group.iter().enumerate().map(|(l, choice)| {
+                choice.as_ref().map_or(0, |k| number(l, k).expect("a found category"))
+            });
+            (code(&mut numbers), g)
+        })
+        .collect();
+    let mut members = vec![Vec::new(); groups.len()];
+    let levels = keys.len();
+    let mut own = vec![0usize; levels];
+    for &case in included {
+        for (l, level) in keys.iter().enumerate() {
+            own[l] = level[case].as_ref().and_then(|k| number(l, k)).unwrap_or(0);
+        }
+        for totals in 0..1usize << levels {
+            // a control the case is missing on can only be a Total
+            if (0..levels).any(|l| totals & (1 << l) == 0 && own[l] == 0) {
+                continue;
+            }
+            let mut numbers =
+                (0..levels).map(|l| if totals & (1 << l) == 0 { own[l] } else { 0 });
+            if let Some(&g) = index.get(&code(&mut numbers)) {
+                members[g].push(case);
+            }
+        }
+    }
+    members
 }
 
 fn in_group(row: &Group, keys: &[Vec<Option<Key>>], case: usize) -> bool {
@@ -299,21 +376,23 @@ impl Engine {
                     ));
                 }
             }
-            let valid_dependent = |name: &str, case| {
-                Ok::<_, Error>(is_valid(&data.variable(name)?, case, include_dependent))
+            let lookup = |names: &[String]| -> Result<Vec<Variable>, Error> {
+                Ok(names.iter().map(|n| data.variable(n)).collect::<Result<_, _>>()?)
             };
-            let valid_control = |name: &str, case| {
-                Ok::<_, Error>(is_valid(&data.variable(name)?, case, include_control))
-            };
+            let valid_dependent = |v: &Variable, case| is_valid(v, case, include_dependent);
+            let valid_control = |v: &Variable, case| is_valid(v, case, include_control);
             // tablewise: valid on every variable of the list
             let mut complete = vec![true; data.case_count()];
             if tablewise {
+                let dependent_variables = lookup(dependents)?;
+                let controls: Vec<String> = dimensions[1..].iter().flatten().cloned().collect();
+                let control_variables = lookup(&controls)?;
                 for &case in &counted {
-                    for name in dependents {
-                        complete[case] &= valid_dependent(name, case)?;
+                    for v in &dependent_variables {
+                        complete[case] &= valid_dependent(v, case);
                     }
-                    for name in dimensions[1..].iter().flatten() {
-                        complete[case] &= valid_control(name, case)?;
+                    for v in &control_variables {
+                        complete[case] &= valid_control(v, case);
                     }
                 }
             }
@@ -322,11 +401,12 @@ impl Engine {
             for dependent in dependents {
                 let variable = data.variable(dependent)?;
                 for combo in &combos {
+                    let combo_variables = lookup(combo)?;
                     let mut included = Vec::new();
                     for &case in &counted {
-                        let mut ok = complete[case] && valid_dependent(dependent, case)?;
-                        for name in combo {
-                            ok &= valid_control(name, case)?;
+                        let mut ok = complete[case] && valid_dependent(&variable, case);
+                        for v in &combo_variables {
+                            ok &= valid_control(v, case);
                         }
                         if ok {
                             included.push(case);
@@ -427,8 +507,19 @@ fn report(
         })
         .collect();
     let mut rows = Vec::new();
-    for group in groups(&keys, included) {
-        let cases = cases_of(&group);
+    let groups = groups(&keys, included);
+    let mut members = members(&groups, &keys, included);
+    for (group, cases) in groups.iter().zip(members.iter_mut()) {
+        // a combination without cases is not shown
+        if cases.is_empty() {
+            continue;
+        }
+        let cases: Vec<(f64, f64, usize)> = std::mem::take(cases)
+            .into_iter()
+            .map(|c| (values.get(c).copied().unwrap_or(0.0), weight(c), c))
+            .collect();
+        let pairs: Vec<(f64, f64)> = cases.iter().map(|&(x, w, _)| (x, w)).collect();
+        let summary = (!dependent.is_string()).then(|| summarize(&pairs));
         // the count and sum of the cases in the same category of that control (all cases on
         // its Total rows)
         let within: Vec<Option<(f64, f64)>> = positions
@@ -458,7 +549,8 @@ fn report(
             row.push(if dependent.is_string() {
                 string_statistic(cell, dependent, &cases, totals.0, &within)
             } else {
-                statistic(cell, &cases, totals, &within)
+                let summary = summary.as_ref().expect("numeric");
+                statistic(cell, (&cases, &pairs, summary), totals, &within)
             });
         }
         rows.push(row);
