@@ -25,7 +25,30 @@ statscraft describe -s SESSION [--json]
 | `-s`, `--session NAME` | describe a session instead: its dataset and the state it keeps; `gui` is the open window |
 | `--json` | the full dictionary as JSON instead of one line per variable |
 
-Give either a file or a session. The text form prints `cases, variables` and then, per variable, name, format, measurement level, valid count and label, separated by tabs. For a session it goes on with what the session keeps besides the data, one line each when there is something: `settings:`, `PRESERVE levels:`, `directory:`, `active dataset:`, `other datasets:`, `macros:`. In JSON these are the object `session` (see [Sessions](#sessions-and-line-ranges)).
+Give either a file or a session. The text form prints `cases, variables` and then, per variable, name, format, measurement level, valid count and label, separated by tabs. For a session it goes on with what the session keeps besides the data, one line each when there is something: `settings:`, `PRESERVE levels:`, `directory:`, `active dataset:`, `datasets:`, `macros:`, `output documents:`, `designated output:`. In JSON these are the object `session` (see [Sessions](#sessions-and-line-ranges)).
+
+The datasets and output documents in `session`:
+
+| Field | What |
+|---|---|
+| `active_dataset` | the name of the active dataset, the one every command works on; absent when it has no name |
+| `datasets` | every named dataset, the active one first: `name`, and `cases` and `variables` when it holds data (a name only declared with DATASET DECLARE has none) |
+| `output_documents` | every open output document in the order it was opened: `name` and the number of `tables` |
+| `designated_output` | the document the next tables go to (OUTPUT NEW and OUTPUT ACTIVATE set it); absent when none is open, and the next table then starts `Document1` |
+
+```json
+"session": {
+  "active_dataset": "DataSet2",
+  "datasets": [
+    {"name": "DataSet2", "cases": 200, "variables": 19},
+    {"name": "DataSet1", "cases": 150, "variables": 12}
+  ],
+  "output_documents": [{"name": "Document1", "tables": 4}],
+  "designated_output": "Document1"
+}
+```
+
+The open window (`-s gui`) lists what the window holds, the same way. A file session keeps no output documents between runs, so there the list is empty.
 
 ## run
 
@@ -102,7 +125,7 @@ A session is what one window would keep from one run to the next, stored on disk
 - The first run of a new session starts without data; its syntax usually begins with `GET FILE`. Settings, macros and a CD may come before any data.
 - With `--lines`, only the macros defined on those lines are kept; a macro defined elsewhere in the file still serves the run, as before.
 - A run saves the session when it changed anything in the table above, or when the session file did not exist yet. A failed run keeps none of its changes. A dataset keeps the encoding of the file it came from; when a label or value no longer fits that code page (a letter of another language), the session keeps it in UTF-8 instead.
-- `describe -s NAME` shows the active dataset and, under `session` in the JSON, the SET values given, the number of PRESERVE levels, the CD folder, the active dataset's name, the other named datasets and the macros.
+- `describe -s NAME` shows the active dataset and, under `session` in the JSON, the SET values given, the number of PRESERVE levels, the CD folder, the active dataset's name, every named dataset with its size, the macros, the output documents and the designated one ([describe](#describe)).
 - `check` and `describe` never write it.
 - Delete the session's folder to start over.
 

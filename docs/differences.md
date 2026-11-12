@@ -59,6 +59,7 @@ This page lists, by topic and command:
 - END DATA, END REPEAT and END MATRIX standing alone are errors at their line, saying which command they belong to.
 - FINISH ends the run as the end of the syntax does: nothing after it is read. A window or command-line session stays open, with its dataset. With a line range only a FINISH inside the range counts. Macros that the lines after FINISH define are still defined, since macros are expanded before the commands are read.
 - HOST is read and checked, then refused: a syntax file that runs operating system commands could do anything the user can.
+- Runs from the window's syntax windows and from the command line share one queue: a run started while another runs waits, and the runs go in the order they were started. Each starts from the state the runs before it left. A failed run changes nothing and does not stop the runs after it.
 
 ### Macros
 
@@ -215,6 +216,10 @@ This page lists, by topic and command:
 ### Datasets
 
 - DATASET ACTIVATE warns when the dataset it replaces has no name, since that one is closed.
+- A data file opened from the window gets the name DataSetn, as the manual describes, written into the log as a DATASET NAME after the command that opened it. n comes after every DataSetn name the session has given, by the window or in syntax, so a closed dataset's name is not given to another. A file that fails to open uses up no name.
+- A file opened by syntax without DATASET NAME replaces an unnamed active dataset, as the manual says; the window's open names every file, so it replaces nothing.
+- DATASET CLOSE of a name no dataset has is an error.
+- DATASET DISPLAY lists each dataset with its cases, variables and whether it is active or only declared. It shows no creation time and no file.
 - A command-line session keeps its named datasets between runs.
 - MATCH FILES and ADD FILES (FILE, TABLE), AGGREGATE OUTFILE and APPLY DICTIONARY FROM take a dataset name, quoted or not, and an open dataset comes before a file of the same name.
 - AGGREGATE OUTFILE writes into a dataset that DATASET DECLARE or DATASET NAME defined, and refuses the active dataset's name (OUTFILE=* is that).
@@ -613,6 +618,7 @@ Significance tests:
 
 - **Beyond the documentation:** OUTPUT EXPORT takes /CSV DOCUMENTFILE='file' [NOTESCAPTIONS=YES | NO], a Statscraft addition: each table as comma-separated values after its title, a blank line between tables.
 - Documents are named Document1, Document2 and so on.
+- In the JSON of a run, each command names the document its tables went to (`commands[].document`), and `describe` lists the open documents and the designated one.
 - The window shows the tables of every document in its one Output tab. The documents decide what OUTPUT EXPORT writes, including tables deleted from the view.
 - The window session keeps its documents from run to run; a command-line run starts without any.
 - OUTPUT ACTIVATE of a name no document has, and OUTPUT CLOSE of one, give a warning, so the run goes on.

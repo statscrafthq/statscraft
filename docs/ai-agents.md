@@ -61,6 +61,8 @@ The replies are the same JSON as for a file session, with `"session": "gui"`. Re
 
 Because the person may also change the data in the window, the agent should run `statscraft describe -s gui --json` again before it relies on names or counts it saw earlier.
 
+The window can hold several datasets and output documents at once. Under `session`, `describe` lists them as the person sees them: `active_dataset` is the dataset every command works on, `datasets` lists each open one with its size (a file opened from the window gets the name `DataSet1`, `DataSet2` and so on), `output_documents` lists the output documents, and `designated_output` is the one the next tables go to. Each command in a run's JSON names its document in `commands[].document`. To work on another dataset, run `DATASET ACTIVATE name.`; to send tables elsewhere, `OUTPUT NEW NAME=name.` or `OUTPUT ACTIVATE name.` A run from the agent waits while the window is busy, and runs after it.
+
 ## Instructions to paste into your agent
 
 ```text
