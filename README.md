@@ -60,9 +60,11 @@ The [command pages](docs/commands/README.md) list every supported command. In sh
 - **Macros and settings.** DEFINE, INCLUDE, INSERT, SET, SHOW, PRESERVE and RESTORE.
 - **Output.** Tables as Markdown, JSON, Excel workbooks, and with OUTPUT EXPORT also HTML, text and CSV.
 
-Not yet: charts (GRAPH) and OUTPUT SAVE. [Differences and limits](docs/differences.md) has the details.
+Not yet: charts (GRAPH), OUTPUT SAVE, OUTPUT OPEN and OUTPUT MODIFY. [Differences and limits](docs/differences.md) has the details.
 
 ## Documentation
+
+The documentation is online at [docs.statscraft.org](https://docs.statscraft.org); the same pages are in `docs/`.
 
 - [Getting started](docs/getting-started.md): install, open a file, run syntax, the window in five minutes.
 - [Changelog](CHANGELOG.md): what is in each release.

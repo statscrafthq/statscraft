@@ -611,12 +611,12 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "AUTORECODE",
-        summary: "Recode values into consecutive integers in new variables, labelled with the old values.",
+        summary: "Recode values into consecutive integers in new variables, labeled with the old values.",
         syntax: "AUTORECODE [VARIABLES=] varlist /INTO newlist [/BLANK=VALID | MISSING] [/GROUP]\n\
                  \x20          [/DESCENDING] [/PRINT].\n\
                  Valid values get 1, 2, ... in ascending order (DESCENDING: descending), user-missing values\n\
                  the codes after them, still user-missing; system-missing stays missing. Each code is\n\
-                 labelled with the value label or the value. GROUP uses one scheme for all variables,\n\
+                 labeled with the value label or the value. GROUP uses one scheme for all variables,\n\
                  BLANK=MISSING makes a blank string user-missing. All cases are recoded, also those a\n\
                  filter leaves out. APPLY TEMPLATE and SAVE TEMPLATE are not supported yet.",
         example: "AUTORECODE VARIABLES=country /INTO country_code /PRINT.",
@@ -923,14 +923,14 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20      /DISPLAY NAME=[$name ...] | ALL.\n\
                  Subcommands run in the order written and may repeat. A set name starts with $; defining an\n\
                  existing name replaces that set. A set has at least two variables, all numeric or all strings.\n\
-                 MDGROUP (dichotomies): every variable is one category, labelled with its variable label or name; a\n\
+                 MDGROUP (dichotomies): every variable is one category, labeled with its variable label or name; a\n\
                  case has a response in it when the variable holds VALUE, a whole number or, for strings, a quoted\n\
                  text no wider than the narrowest variable. CATEGORYLABELS=COUNTEDVALUES labels each category with\n\
                  the value label of VALUE in its variable instead; every variable needs one and they must differ.\n\
                  LABELSOURCE=VARLABEL (only with COUNTEDVALUES, instead of LABEL) takes the set label from the first\n\
                  variable of the set that has a variable label, else the name of the first variable.\n\
                  MCGROUP (categories): the values of the variables are\n\
-                 the categories, labelled with the value labels of the first variable that has one.\n\
+                 the categories, labeled with the value labels of the first variable that has one.\n\
                  DISPLAY lists the sets in a table. Sets are saved with the data file and used by CTABLES.",
         example: "MRSETS /MDGROUP NAME=$channels LABEL='Contact channels' VARIABLES=q5_1 TO q5_5 VALUE=1 /DISPLAY NAME=ALL.",
         parse: mrsets::mrsets,
@@ -946,7 +946,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  The row Valid N (listwise) counts the cases valid on every listed variable. String variables get no\n\
                  statistics; a warning names them. var (name) in the list adds a z-score under that name; SAVE adds\n\
                  one for every variable, named Z plus the variable name (ZSC001 to ZSC099, STDZ01 to STDZ09,\n\
-                 ZZZZ01 to ZZZZ09, ZQZQ01 to ZQZQ09 when that name is taken), labelled Zscore: plus the label.",
+                 ZZZZ01 to ZZZZ09, ZQZQ01 to ZQZQ09 when that name is taken), labeled Zscore: plus the label.",
         example: "DESCRIPTIVES VARIABLES=age income (z_inc) /STATISTICS=DEFAULT SUM /SAVE.",
         parse: procedures::descriptives,
     },
@@ -1146,7 +1146,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20       [/MESTIMATORS[=HUBER[(c)] TUKEY[(c)] HAMPEL[(a,b,c)] ANDREW[(c)] ALL NONE]]\n\
                  \x20       [/PLOT=[BOXPLOT] [STEMLEAF] [HISTOGRAM] [NPPLOT] | ALL | NONE] [/COMPARE=GROUPS | VARIABLES]\n\
                  \x20       [/MISSING=LISTWISE | PAIRWISE  EXCLUDE | INCLUDE  NOREPORT | REPORT].\n\
-                 Each dependent is analysed over all cases (unless NOTOTAL) and in every cell of each factor term,\n\
+                 Each dependent is analyzed over all cases (unless NOTOTAL) and in every cell of each factor term,\n\
                  two factors crossed with BY. Descriptives (the default): mean with its confidence interval (CINTERVAL,\n\
                  50 to 99.99), 5% trimmed mean, median, variance, standard deviation, minimum, maximum, range,\n\
                  interquartile range, skewness and kurtosis with standard errors. PERCENTILES alone gives 5 10 25 50\n\
@@ -1430,7 +1430,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  effects model, scored 1, 2, ... or by SCORES). Scale predictors are cut into INTERVALS groups of\n\
                  about equal size. Predictor categories that do not differ at ALPHAMERGE are merged (ordinal ones\n\
                  only when adjacent); a missing value is a category of its own that may merge with any. A category\n\
-                 smaller than MINCHILDSIZE is merged with its most similar neighbour. The predictor with the\n\
+                 smaller than MINCHILDSIZE is merged with its most similar neighbor. The predictor with the\n\
                  smallest Bonferroni-adjusted significance splits the node when that is at most ALPHASPLIT. A node\n\
                  is not split when it is pure, smaller than MINPARENTSIZE or at MAXDEPTH (AUTO is 3). Exhaustive\n\
                  CHAID merges down to two categories and keeps the most significant set. The tree is shown as a\n\
@@ -1656,7 +1656,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Followed: FORMAT=Fw.d (format of new numeric variables, default F8.2), DECIMAL=DOT | COMMA\n\
                  (decimal mark when reading text data), MPRINT, MEXPAND, MNEST, MITERATE (see DEFINE),\n\
                  LOCALE='name' (sets DECIMAL to the decimal mark of the locale: et_EE, de_DE give COMMA,\n\
-                 en_US, en_UK give DOT; OSLOCALE gives DOT; a later DECIMAL overrides it; files are always\n\
+                 en_US, en_GB give DOT; OSLOCALE gives DOT; a later DECIMAL overrides it; files are always\n\
                  Unicode, so a code page in the name changes nothing), UNICODE (Statscraft always works in\n\
                  Unicode; OFF has no effect), PRINTBACK, CCA to CCE='negative\n\
                  prefix,prefix,suffix,negative suffix' (custom currency formats; three commas, or three periods\n\
@@ -2315,7 +2315,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
 
 /// Commands of the language that have no parser yet. They get "not supported yet" instead of
 /// "unknown command", and their bodies are not tokenised.
-static UNSUPPORTED: &[&str] = &["GRAPH", "OUTPUT SAVE"];
+static UNSUPPORTED: &[&str] = &["GRAPH", "OUTPUT MODIFY", "OUTPUT OPEN", "OUTPUT SAVE"];
 
 /// The ends of blocks whose start reads them, such as END DATA after BEGIN DATA. Standing
 /// alone they are an error at their own line.

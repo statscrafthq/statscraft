@@ -351,12 +351,8 @@ fn parse_raw(raw: &RawCommand) -> Result<Command, SyntaxError> {
         .hint("write the output with OUTPUT EXPORT and /XLSX, /HTML, /TEXT or /CSV")),
         Resolution::Unsupported(name, used) => Err(SyntaxError::new(
             name_span(used),
-            format!("command {name} is not supported yet"),
-        )
-        .hint(format!(
-            "supported commands: {}",
-            command_names().join(", ")
-        ))),
+            format!("{name} is not supported yet; run `statscraft help` for the commands"),
+        )),
         Resolution::Ambiguous(names) => {
             let mut error = SyntaxError::new(
                 first.span,

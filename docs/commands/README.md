@@ -91,7 +91,7 @@ One page per supported command, generated from the same table that the parser an
 | [END LOOP](end-loop.md) | End a LOOP, optionally when a condition holds. |
 | [BREAK](break.md) | Leave the innermost LOOP, usually inside DO IF. |
 | [VECTOR](vector.md) | Name a range of variables, or new variables, as a vector for indexed use. |
-| [AUTORECODE](autorecode.md) | Recode values into consecutive integers in new variables, labelled with the old values. |
+| [AUTORECODE](autorecode.md) | Recode values into consecutive integers in new variables, labeled with the old values. |
 | [RANK](rank.md) | Ranks, percentile groups, proportion estimates, normal and Savage scores as new variables. |
 | [DATE](date.md) | Add date variables that count the cases of a time series. |
 | [PRINT](print.md) | Show the values of variables for every case, as lines of text. |
@@ -212,6 +212,6 @@ Functions of expressions (COMPUTE, IF, SELECT IF, DO IF, ELSE IF, LOOP IF, END L
 
 ## Not supported yet
 
-These commands of the language are recognised, but Statscraft does not run them yet. A script that uses one stops with the error "command ... is not supported yet" at its line, and nothing is changed.
+These commands of the language are recognized, but Statscraft does not run them yet. A script that uses one stops with the error "... is not supported yet" at its line, and nothing is changed.
 
-GRAPH, OUTPUT SAVE
+GRAPH, OUTPUT MODIFY, OUTPUT OPEN, OUTPUT SAVE

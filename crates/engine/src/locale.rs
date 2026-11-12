@@ -112,6 +112,7 @@ mod tests {
     #[test]
     fn a_locale_gives_the_decimal_mark_of_its_language_and_country() {
         assert_eq!(decimal("et_EE"), Some("COMMA"));
+        assert_eq!(decimal("en_GB"), Some("DOT"));
         assert_eq!(decimal("en_UK"), Some("DOT"));
         assert_eq!(decimal("en-GB.UTF-8"), Some("DOT"));
         assert_eq!(decimal("Estonian_Estonia.1257"), Some("COMMA"));

@@ -16,7 +16,7 @@ DEFAULT is MEAN STDDEV MINIMUM MAXIMUM; N is always shown. Weighted when a weigh
 
 MISSING=VARIABLE (the default) leaves out the missing values of each variable on its own; LISTWISE leaves out a case missing on any listed variable; INCLUDE counts user-missing values.
 
-The row Valid N (listwise) counts the cases valid on every listed variable. String variables get no statistics; a warning names them. var (name) in the list adds a z-score under that name; SAVE adds one for every variable, named Z plus the variable name (ZSC001 to ZSC099, STDZ01 to STDZ09, ZZZZ01 to ZZZZ09, ZQZQ01 to ZQZQ09 when that name is taken), labelled Zscore: plus the label.
+The row Valid N (listwise) counts the cases valid on every listed variable. String variables get no statistics; a warning names them. var (name) in the list adds a z-score under that name; SAVE adds one for every variable, named Z plus the variable name (ZSC001 to ZSC099, STDZ01 to STDZ09, ZZZZ01 to ZZZZ09, ZQZQ01 to ZQZQ09 when that name is taken), labeled Zscore: plus the label.
 
 ## Example
 

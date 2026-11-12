@@ -149,11 +149,11 @@ pub fn by_name(name: &str) -> &'static Theme {
 
 /// Where the palettes come from, with the notices their MIT licences ask for.
 pub const NOTICES: &str = "\
-Statscraft Light and Dark: the Statscraft colours.
+Statscraft Light and Dark: the Statscraft colors.
 Catppuccin Latte and Mocha: the Catppuccin palette, Copyright (c) 2021 Catppuccin, MIT License.
 One Dark: the One Dark syntax theme, Copyright (c) 2016 GitHub Inc., MIT License.
 Solarized Light and Dark: Copyright (c) 2011 Ethan Schoonover, MIT License.
-GitHub Light and Dark: the Primer colours, Copyright (c) 2018 GitHub Inc., MIT License.
+GitHub Light and Dark: the Primer colors, Copyright (c) 2018 GitHub Inc., MIT License.
 
 Each is used under the MIT License: Permission is hereby granted, free of charge, to any person
 obtaining a copy of this software and associated documentation files (the \"Software\"), to deal

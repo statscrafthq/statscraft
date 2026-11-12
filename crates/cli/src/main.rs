@@ -42,15 +42,15 @@ enum Cmd {
         #[command(flatten)]
         xlsx: XlsxArgs,
     },
-    /// Validate syntax against the session's dataset without saving or writing anything
+    /// Validate syntax without saving or writing anything; with --session, against its dataset
     Check(RunArgs),
     /// Show the syntax of a command, or list all commands
     Help { command: Vec<String> },
-    /// Lower bounded syntax to an OpenStatSpec transformation plan (JSON)
+    /// Lower bounded syntax to an OpenStatSpec transformation plan (JSON), or apply it in a database
     Plan(plan::PlanArgs),
-    /// Store datasets in an OpenStatSpec SQLite database and read them back
+    /// Store datasets in an OpenStatSpec database (SQLite, PostgreSQL, MySQL, MariaDB or Dolt) and read them back
     Db(db::DbArgs),
-    /// Update this installation to the latest published release
+    /// Update this installation to the latest published release; --check only checks for one
     Update {
         /// Only check: exit code 0 when up to date, 10 when a newer release exists
         #[arg(long)]

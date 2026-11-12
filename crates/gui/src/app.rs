@@ -45,8 +45,8 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 
 const REPOSITORY: &str = env!("CARGO_PKG_REPOSITORY");
-/// The documentation online, in the repository.
-const DOCS: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/tree/main/docs");
+/// The documentation online.
+const DOCS: &str = "https://docs.statscraft.org";
 
 /// A request from `statscraft --session gui` and where its reply goes.
 type Remote = (Request, mpsc::Sender<Response>);
@@ -5031,7 +5031,7 @@ fn categories_panel(ui: &mut Ui, data: &Dataset, d: &mut CustomTables, draft: &m
         });
     });
     ui.horizontal(|ui| {
-        ui.checkbox(&mut c.total, "Total, labelled");
+        ui.checkbox(&mut c.total, "Total, labeled");
         ui.add_enabled(
             c.total,
             TextEdit::singleline(&mut c.total_label)

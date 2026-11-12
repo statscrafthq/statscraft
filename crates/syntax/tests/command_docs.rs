@@ -270,9 +270,9 @@ fn index() -> String {
         rules
     ));
     out.push_str(
-        "\n## Not supported yet\n\nThese commands of the language are recognised, but Statscraft \
+        "\n## Not supported yet\n\nThese commands of the language are recognized, but Statscraft \
          does not run them yet. A script that uses one stops with the error \
-         \"command ... is not supported yet\" at its line, and nothing is changed.\n\n",
+         \"... is not supported yet\" at its line, and nothing is changed.\n\n",
     );
     out.push_str(&escape(&unsupported_commands().join(", ")));
     out.push('\n');

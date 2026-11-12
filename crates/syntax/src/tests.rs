@@ -382,14 +382,16 @@ fn real_but_unsupported_commands_say_so() {
     for (source, name) in [
         ("GRAPH /BAR=COUNT BY a.", "GRAPH"),
         ("graph /scatterplot=x WITH y.", "GRAPH"),
+        ("OUTPUT OPEN FILE='old'.", "OUTPUT OPEN"),
+        ("output modify /select tables.", "OUTPUT MODIFY"),
     ] {
         let error = err(source);
         assert_eq!(
             error.message,
-            format!("command {name} is not supported yet")
+            format!("{name} is not supported yet; run `statscraft help` for the commands")
         );
         assert_eq!(at(&error), (1, 1));
-        assert!(error.hint.unwrap().contains("FREQUENCIES"));
+        assert_eq!(error.hint, None);
     }
 }
 

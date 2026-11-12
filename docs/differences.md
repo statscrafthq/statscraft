@@ -717,6 +717,6 @@ Where the documentation is silent:
   - SAVE TRANSLATE writes CSV, tab-delimited text and .xlsx.
   - An old .sav file that does not state its code page is read as Western European (windows-1252). There is no way to choose another encoding yet.
 - **Output.** Tables come out as Markdown, JSON, HTML (from the window and OUTPUT EXPORT), text and CSV (OUTPUT EXPORT) and Excel workbooks.
-  - Statscraft has no output document file of its own, so OUTPUT SAVE is refused with an error that points to OUTPUT EXPORT. OUTPUT OPEN and OUTPUT MODIFY are not supported.
+  - Statscraft has no output document file of its own, so OUTPUT SAVE is refused with an error that points to OUTPUT EXPORT. OUTPUT OPEN and OUTPUT MODIFY are not supported yet.
   - OUTPUT EXPORT writes no Word, PDF, PowerPoint or Excel 97-2004 files, and no images, since no command draws charts yet.
 - **Packages.** The Windows installer and the macOS app are not signed yet. There are packages for x86_64 Windows and Linux and for macOS on Apple silicon and Intel, but none for Windows or Linux on ARM processors.
