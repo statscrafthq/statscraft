@@ -12,7 +12,7 @@ use std::path::PathBuf;
 use std::sync::{Arc, mpsc};
 
 /// One error, at a line and column of the syntax when known. `kind` is "syntax", "run",
-/// "usage", "session" or "file".
+/// "usage", "session", "file" or "window" (a syntax window of the open window).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Failure {
     pub kind: String,
@@ -98,6 +98,10 @@ pub struct RunResult {
     pub ok: bool,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub session: Option<String>,
+    /// Where the syntax of the run was kept: the syntax.sps file of a file session, or the
+    /// syntax window of the open window. None for a check.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub trail: Option<String>,
     pub commands: Vec<CommandResult>,
     pub changes: Changes,
     /// Cases and variables of the active dataset after the run.
@@ -804,6 +808,7 @@ fn run(
     let result = RunResult {
         ok: true,
         session: None,
+        trail: None,
         changes,
         dataset: after.map(|d| [d.case_count(), d.variable_count()]),
         // compare whole datasets: a weight change shows in no variable

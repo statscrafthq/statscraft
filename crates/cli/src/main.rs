@@ -392,12 +392,9 @@ fn describe(
         (None, Some(name)) if name == live::SESSION => live::send(
             &live::endpoint_file(),
             Request {
-                token: String::new(),
                 action: Action::Describe,
-                source: String::new(),
-                lines: None,
                 json,
-                cwd: None,
+                ..Request::default()
             },
         )?,
         (Some(file), None) => {
@@ -483,7 +480,6 @@ fn run_result(
     let lines = args.lines.as_deref().map(parse_lines).transpose()?;
     if args.session.as_deref() == Some(live::SESSION) {
         let request = Request {
-            token: String::new(),
             action: if check_only {
                 Action::Check
             } else {
@@ -494,16 +490,9 @@ fn run_result(
             // the result comes back in the JSON form and is shown here
             json: true,
             cwd: std::env::current_dir().ok(),
+            ..Request::default()
         };
-        let reply = live::send(&live::endpoint_file(), request)?;
-        let result: RunResult = serde_json::from_str(&reply).map_err(|e| {
-            vec![Failure::plain(
-                "session",
-                format!("reply of the window: {e}"),
-            )]
-        })?;
-        write_workbook(&result, xlsx)?;
-        return Ok(result);
+        return run_in_window(request, xlsx);
     }
     let mut session = match &args.session {
         Some(name) => open_session(name)?,
@@ -528,12 +517,50 @@ fn run_result(
     write_workbook(&result, xlsx)?;
     if let (false, Some(name)) = (check_only, &args.session) {
         let path = session_file(name)?;
+        // also before: a run whose syntax cannot be kept changes nothing
+        let trail = keep_trail(&path, &statscraft_engine::live::last_syntax(&session))
+            .map_err(session_failure)?;
+        result.trail = Some(trail.display().to_string());
         if changed || (session.dataset().is_some() && !path.exists()) {
             save_session(&path, &session).map_err(session_failure)?;
             result.saved = true;
         }
     }
     Ok(result)
+}
+
+/// Sends a run or check to the window and writes the workbook from its reply.
+fn run_in_window(request: Request, xlsx: &XlsxArgs) -> Result<RunResult, Vec<Failure>> {
+    let reply = live::send(&live::endpoint_file(), request)?;
+    let result: RunResult = serde_json::from_str(&reply).map_err(|e| {
+        vec![Failure::plain(
+            "session",
+            format!("reply of the window: {e}"),
+        )]
+    })?;
+    write_workbook(&result, xlsx)?;
+    Ok(result)
+}
+
+/// Adds the syntax of a run to `syntax.sps` beside the session's data, so the session's folder
+/// holds every step that built it. Returns the file.
+fn keep_trail(data: &std::path::Path, syntax: &str) -> Result<PathBuf, String> {
+    let file = std::path::absolute(data.with_file_name("syntax.sps")).map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(file.parent().expect("session path has a parent"))
+        .map_err(|e| e.to_string())?;
+    // a file grows over days, so its stamps carry the date
+    let mut block = live::trail_block(&live::stamp(true), syntax);
+    if std::fs::metadata(&file).is_ok_and(|m| m.len() > 0) {
+        block.insert(0, '\n');
+    }
+    use std::io::Write;
+    std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&file)
+        .and_then(|mut f| f.write_all(block.as_bytes()))
+        .map_err(|e| format!("{}: {e}", file.display()))?;
+    Ok(file)
 }
 
 /// Writes every table and chart of the run to the workbook `--xlsx` names, if any.

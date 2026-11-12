@@ -67,6 +67,9 @@ enum After {
     /// The dataset or output document of this window was closed: the window goes.
     CloseWindow(WindowId),
     Remote(Remote),
+    /// A run of this syntax window asked for from outside: replied to like `Remote`, shown like
+    /// `Editor`.
+    Window(Remote, WindowId),
 }
 
 /// The question about unsaved work, and the saves before the program ends.
@@ -87,7 +90,7 @@ enum Then {
     Close(WindowId),
     /// This syntax runs and closes the active dataset without a name, which is lost unless
     /// saved first. The question shows in the window.
-    Replace(WindowId, String, After),
+    Replace(WindowId, String, Box<After>),
 }
 
 impl Then {
@@ -662,7 +665,7 @@ impl App {
         // relative file names: from the folder of the syntax that runs, or of the designated
         // syntax window
         let window = match &after {
-            After::Editor(id) => Some(*id),
+            After::Editor(id) | After::Window(_, id) => Some(*id),
             _ => self.windows.designated_syntax(),
         };
         let file = window.and_then(|id| self.windows.syntax(id)?.file.as_deref());
@@ -710,14 +713,59 @@ impl App {
     /// of its own; describe and check change nothing. A request is taken only when nothing
     /// runs, so it starts at once, in the caller's folder.
     fn answer(&mut self, (mut request, reply): Remote) {
-        if request.action == Action::Describe {
-            let _ = reply.send(live::describe(&self.session, request.json));
-            return;
+        match request.action {
+            Action::Describe => {
+                let _ = reply.send(live::describe(&self.session, request.json));
+            }
+            Action::Run | Action::Check => {
+                request.enter_folder();
+                let source = std::mem::take(&mut request.source);
+                let lines = request.lines;
+                self.run(&source, lines, After::Remote((request, reply)));
+            }
+            Action::RunWindow => match live::window_source(&mut self.windows, &request) {
+                // the lines widen to whole commands, as Ctrl+Enter does
+                Ok((window, text)) => {
+                    let lines = request.lines.map(|l| editor::whole_commands(&text, l));
+                    self.run(&text, lines, After::Window((request, reply), window.id));
+                }
+                Err(errors) => {
+                    let _ = reply.send(Err(errors));
+                }
+            },
+            _ => self.answer_windows(request, reply),
         }
-        request.enter_folder();
-        let source = std::mem::take(&mut request.source);
-        let lines = request.lines;
-        self.run(&source, lines, After::Remote((request, reply)));
+    }
+
+    /// Lists, reads, edits, opens or saves syntax windows for the command line or an agent.
+    /// Nothing runs. A new or opened window comes to the front; an edit shows at once, and
+    /// Ctrl+Z in the editor takes it back.
+    fn answer_windows(&mut self, request: Request, reply: mpsc::Sender<Response>) {
+        let before = self.windows.ids();
+        let named = live::find(&self.windows, request.window.as_deref()).ok();
+        let answer = live::answer_windows(&mut self.windows, &request);
+        if answer.is_ok() {
+            let file = match request.action {
+                Action::Open => request.path.clone(),
+                Action::Save => named.and_then(|w| self.windows.syntax(w.id)?.file.clone()),
+                _ => None,
+            };
+            if let Some(file) = &file {
+                self.add_recent(file);
+                if request.action == Action::Save {
+                    self.status = Ok(format!("syntax saved to {}", file.display()));
+                }
+            }
+            let mut front: Vec<WindowId> = self.windows.ids();
+            front.retain(|id| !before.contains(id));
+            if front.is_empty() && request.action == Action::Open {
+                front.extend(file.and_then(|f| self.windows.with_file(&f)));
+            }
+            for id in front {
+                self.front(id);
+            }
+        }
+        let _ = reply.send(answer);
     }
     /// After a run or an undo, from the active dataset `was` before it: the file of each
     /// dataset follows it, and the data and output windows follow the session's datasets and
@@ -770,6 +818,14 @@ impl App {
         }
         match after {
             After::Remote((request, reply)) => {
+                // every run sent here leaves its syntax in the Agent window; a failed one
+                // changed nothing
+                if request.action == Action::Run
+                    && let Ok(r) = &mut result
+                {
+                    let syntax = live::last_syntax(&self.session);
+                    r.trail = Some(live::keep_trail(&mut self.windows, &syntax));
+                }
                 let _ = reply.send(live::reply(&mut result, &request));
                 if request.action == Action::Check {
                     self.status = match &result {
@@ -806,6 +862,22 @@ impl App {
                 }
             }
             After::Editor(id) => {
+                self.show(result, "syntax editor", Some(id));
+            }
+            After::Window((request, reply), id) => {
+                if let Ok(r) = &mut result {
+                    let name = self
+                        .windows
+                        .syntax(id)
+                        .map(|w| w.name())
+                        .unwrap_or_default();
+                    r.trail = Some(format!("syntax window {name}"));
+                }
+                let _ = reply.send(live::reply(&mut result, &request));
+                for view in self.windows.data_views() {
+                    view.cell_edit = None;
+                    view.field_edit = None;
+                }
                 self.show(result, "syntax editor", Some(id));
             }
             After::OpenData(path) => {
@@ -949,7 +1021,7 @@ impl App {
         match lost {
             None => self.run(&syntax, None, after),
             Some(item) if self.ask.is_none() => {
-                let then = Then::Replace(self.here, syntax, after);
+                let then = Then::Replace(self.here, syntax, Box::new(after));
                 self.ask = Some(Ask::Unsaved(vec![item], then));
             }
             // another question is open: this waits for nothing and is dropped
@@ -1857,12 +1929,12 @@ impl App {
                 match file.or_else(|| self.data_file_dialog()) {
                     Some(path) => {
                         let save = format!("SAVE OUTFILE={}.", quote(&path.to_string_lossy()));
-                        self.run(&format!("{save}\n{syntax}"), None, after);
+                        self.run(&format!("{save}\n{syntax}"), None, *after);
                     }
                     None => self.drop_activation(&after),
                 }
             }
-            (Answer::Discard, Then::Replace(_, syntax, after)) => self.run(&syntax, None, after),
+            (Answer::Discard, Then::Replace(_, syntax, after)) => self.run(&syntax, None, *after),
             (Answer::Cancel, Then::Replace(_, _, after)) => self.drop_activation(&after),
         }
     }

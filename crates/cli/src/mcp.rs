@@ -1,5 +1,6 @@
 //! `statscraft mcp`: the command line's describe, help, check and run as MCP tools over standard
-//! input and output. Standard output carries the protocol only; messages go to standard error.
+//! input and output, and the syntax windows of the open window. Standard output carries the
+//! protocol only; messages go to standard error.
 
 use crate::{RunArgs, XlsxArgs};
 use rmcp::handler::server::router::prompt::PromptRouter;
@@ -14,8 +15,8 @@ use rmcp::{ErrorData, ServerHandler, ServiceExt, prompt, prompt_handler, prompt_
 use rmcp::{tool, tool_handler, tool_router};
 use serde::Deserialize;
 use serde_json::{Value, json};
-use statscraft_engine::live;
-use statscraft_engine::session::Failure;
+use statscraft_engine::live::{self, Action, Edit, Request};
+use statscraft_engine::session::{Failure, RunResult};
 use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::Mutex;
@@ -34,7 +35,14 @@ CTABLES and so on) on the user's data files. Work in this loop:
 line an error points to and run the same syntax again; a failed run changes nothing.
 6. Report numbers exactly as the result tables give them. Never compute statistics yourself.
 Nothing is written to disk unless the syntax says so (SAVE, AGGREGATE OUTFILE, the xlsx argument). \
-When the Statscraft window is open, calls go to it by default and the person sees every result.";
+When the Statscraft window is open, calls go to it by default and the person sees every result.
+Every successful run leaves its syntax for the person: in the open window it is added to the \
+syntax window Agent, in a file session to the file the result names under trail. Say where it is.
+Syntax windows (only with the window open): when the person asks you to fix, explain or extend \
+their syntax, call list_syntax_windows and read_syntax, say what you would change, make the \
+change with edit_syntax and run it with run_syntax and window (and lines), as their own Run \
+does. When the person works in a syntax window, prefer putting the syntax there and running it \
+from there. save_syntax is the only one of these tools that writes a file.";
 
 /// What `describe` takes.
 #[derive(Deserialize, JsonSchema)]
@@ -79,10 +87,75 @@ struct SyntaxInput {
 struct RunInput {
     #[serde(flatten)]
     syntax: SyntaxInput,
+    /// Run the text of this syntax window of the open window instead of syntax or file: its id
+    /// or name from list_syntax_windows. With lines, only the commands those lines touch, as the
+    /// window's own Run does. The window's text is the record of the run.
+    window: Option<String>,
     /// Also write every table and chart of this run to this Excel workbook (.xlsx), one sheet per
     /// table, a chart as its data table with an editable chart beside it;
     /// an existing file is replaced. A relative path starts from folder.
     xlsx: Option<String>,
+}
+
+/// Names a syntax window.
+#[derive(Deserialize, JsonSchema)]
+struct WindowInput {
+    /// The syntax window: its id or its name, as list_syntax_windows shows them.
+    window: String,
+}
+
+/// What `edit_syntax` takes.
+#[derive(Deserialize, JsonSchema)]
+struct EditInput {
+    /// The syntax window: its id or its name, as list_syntax_windows shows them.
+    window: String,
+    /// "replace": the lines in lines get text (an empty text deletes them); "insert": text goes
+    /// before line before; "append": text goes after the last line; "replace_all": text becomes
+    /// the whole content.
+    mode: EditMode,
+    /// The new text, one or more lines.
+    text: String,
+    /// For replace: the lines to replace, for example "12-14", as read_syntax numbers them.
+    lines: Option<String>,
+    /// For insert: the line the text goes before; one more than the last line adds it at the end.
+    before: Option<u32>,
+}
+
+#[derive(Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+enum EditMode {
+    Replace,
+    Insert,
+    Append,
+    ReplaceAll,
+}
+
+/// What `new_syntax_window` takes.
+#[derive(Deserialize, JsonSchema)]
+struct NewInput {
+    /// The window's name. Default: the next free Syntax1, Syntax2 and so on.
+    name: Option<String>,
+    /// The text to start with. Default: empty.
+    text: Option<String>,
+}
+
+/// What `open_syntax_file` takes.
+#[derive(Deserialize, JsonSchema)]
+struct OpenInput {
+    /// Absolute path of a .sps syntax file.
+    path: String,
+}
+
+/// What `save_syntax` takes.
+#[derive(Deserialize, JsonSchema)]
+struct SaveInput {
+    /// The syntax window: its id or its name, as list_syntax_windows shows them.
+    window: String,
+    /// Absolute path to save to. Default: the window's own file; a window without one needs it.
+    path: Option<String>,
+    /// Replace path even though it is a file other than the window's own. Default: false; ask
+    /// the person first.
+    overwrite: Option<bool>,
 }
 
 #[derive(Clone)]
@@ -236,14 +309,94 @@ fn check_or_run(input: SyntaxInput, check_only: bool, xlsx: Option<String>) -> C
         xlsx_one_sheet: false,
     };
     match crate::run_result(&args, check_only, &xlsx) {
-        Ok(result) => {
-            let value = result.to_json(args.vega_lite);
-            let mut reply = CallToolResult::structured(value);
-            let output = result.output_with(false, check_only, args.vega_lite);
-            let text = format!("ok: {}\n{}", result.ok, output);
-            reply.content = vec![ContentBlock::text(text)];
-            reply
-        }
+        Ok(result) => run_reply(&result, check_only, args.vega_lite),
+        Err(errors) => failed(errors),
+    }
+}
+
+/// The JSON of a run as structured content, and as text its tables, a summary and where its
+/// syntax was kept.
+fn run_reply(result: &RunResult, check_only: bool, vega_lite: bool) -> CallToolResult {
+    let mut reply = CallToolResult::structured(result.to_json(vega_lite));
+    let output = result.output_with(false, check_only, vega_lite);
+    let mut text = format!("ok: {}\n", result.ok);
+    if let Some(trail) = &result.trail {
+        text.push_str(&format!("syntax kept in: {trail}\n"));
+    }
+    text.push_str(&output);
+    reply.content = vec![ContentBlock::text(text)];
+    reply
+}
+
+/// Runs the text of a syntax window of the open window, or its lines.
+fn run_window(input: RunInput, window: String) -> CallToolResult {
+    let syntax = input.syntax;
+    if syntax.syntax.is_some() || syntax.file.is_some() {
+        return usage("give window, or syntax or file, not both");
+    }
+    if syntax
+        .session
+        .as_deref()
+        .is_some_and(|s| s != live::SESSION)
+    {
+        return usage("a syntax window runs in the open window: leave out session");
+    }
+    let lines = match syntax.lines.as_deref().map(crate::parse_lines).transpose() {
+        Ok(lines) => lines,
+        Err(errors) => return failed(errors),
+    };
+    let request = Request {
+        action: Action::RunWindow,
+        window: Some(window),
+        lines,
+        json: true,
+        ..Request::default()
+    };
+    let xlsx = XlsxArgs {
+        xlsx: input.xlsx.map(PathBuf::from),
+        xlsx_one_sheet: false,
+    };
+    // only for a relative xlsx: the syntax starts from the window's file, as its Run does
+    let folder = syntax.folder.map(PathBuf::from);
+    let folder = folder.unwrap_or_else(|| std::env::home_dir().unwrap_or_else(std::env::temp_dir));
+    if !folder.is_absolute() || std::env::set_current_dir(&folder).is_err() {
+        return usage("folder must be an absolute folder that exists");
+    }
+    match crate::run_in_window(request, &xlsx) {
+        Ok(result) => run_reply(&result, false, syntax.vega_lite.unwrap_or(false)),
+        Err(errors) => failed(errors),
+    }
+}
+
+/// Sends a request about syntax windows to the open window.
+fn window_call(request: Request) -> CallToolResult {
+    let read = request.action == Action::Read;
+    match live::send(&live::endpoint_file(), request) {
+        Ok(text) => match serde_json::from_str::<Value>(&text) {
+            Ok(value) => {
+                let shown = if read {
+                    let window = &value["window"];
+                    format!(
+                        "{} (id {}, {} lines{})\n{}",
+                        window["name"].as_str().unwrap_or_default(),
+                        window["id"],
+                        window["lines"],
+                        if window["unsaved"] == true {
+                            ", unsaved changes"
+                        } else {
+                            ""
+                        },
+                        value["text"].as_str().unwrap_or_default()
+                    )
+                } else {
+                    serde_json::to_string_pretty(&value).expect("plain data")
+                };
+                let mut reply = CallToolResult::structured(value);
+                reply.content = vec![ContentBlock::text(shown)];
+                reply
+            }
+            Err(e) => usage(&format!("reply is not JSON: {e}")),
+        },
         Err(errors) => failed(errors),
     }
 }
@@ -336,6 +489,9 @@ impl Server {
     /// added, changed and removed, and the case counts. A run is all or nothing: when ok is
     /// false nothing changed; fix the line the error names and run again. Syntax can write
     /// files (SAVE, AGGREGATE OUTFILE, OUTPUT EXPORT), so run only what the person wants.
+    /// A successful run keeps its syntax where trail says: the Agent syntax window of the open
+    /// window, or syntax.sps of a file session. With window, it runs the text of that syntax
+    /// window (or its lines) instead, which is then the record itself.
     #[tool(
         title = "Run syntax",
         annotations(
@@ -348,9 +504,191 @@ impl Server {
     )]
     async fn run_syntax(
         &self,
-        Parameters(input): Parameters<RunInput>,
+        Parameters(mut input): Parameters<RunInput>,
     ) -> Result<CallToolResult, ErrorData> {
-        Ok(blocking(move || check_or_run(input.syntax, false, input.xlsx)).await)
+        Ok(blocking(move || match input.window.take() {
+            Some(window) => run_window(input, window),
+            None => check_or_run(input.syntax, false, input.xlsx),
+        })
+        .await)
+    }
+
+    /// Lists the syntax windows of the open Statscraft window: id, name, file, whether it has
+    /// unsaved changes, its line count, whether it is the Agent window that keeps the syntax of
+    /// your runs, the designated one (where pasted syntax goes) and the one the person used
+    /// last. Fails when no window is open.
+    #[tool(
+        title = "List syntax windows",
+        annotations(
+            title = "List syntax windows",
+            read_only_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn list_syntax_windows(&self) -> Result<CallToolResult, ErrorData> {
+        Ok(blocking(|| {
+            window_call(Request {
+                action: Action::Windows,
+                ..Request::default()
+            })
+        })
+        .await)
+    }
+
+    /// Reads the text of a syntax window in the open window, each line with its number, as
+    /// the person sees it now, saved or not. Use the numbers for edit_syntax and for the
+    /// lines of run_syntax.
+    #[tool(
+        title = "Read syntax window",
+        annotations(
+            title = "Read syntax window",
+            read_only_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn read_syntax(
+        &self,
+        Parameters(input): Parameters<WindowInput>,
+    ) -> Result<CallToolResult, ErrorData> {
+        Ok(blocking(move || {
+            window_call(Request {
+                action: Action::Read,
+                window: Some(input.window),
+                ..Request::default()
+            })
+        })
+        .await)
+    }
+
+    /// Changes the text of a syntax window in the open window: replaces lines, inserts or
+    /// appends text, or replaces all of it. The person sees the change at once and can undo it
+    /// in the editor. Runs nothing and writes no file. The reply gives the lines the new text
+    /// now takes, ready for run_syntax with window and lines. Read the window first: the
+    /// person may have changed it.
+    #[tool(
+        title = "Edit syntax window",
+        annotations(
+            title = "Edit syntax window",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn edit_syntax(
+        &self,
+        Parameters(input): Parameters<EditInput>,
+    ) -> Result<CallToolResult, ErrorData> {
+        Ok(blocking(move || {
+            let text = input.text;
+            let edit = match input.mode {
+                EditMode::Replace => {
+                    let Some(lines) = input.lines else {
+                        return usage("replace needs lines, for example \"12-14\"");
+                    };
+                    match crate::parse_lines(&lines) {
+                        Ok(lines) => Edit::Replace { lines, text },
+                        Err(errors) => return failed(errors),
+                    }
+                }
+                EditMode::Insert => match input.before {
+                    Some(before) => Edit::Insert { before, text },
+                    None => return usage("insert needs before, the line the text goes before"),
+                },
+                EditMode::Append => Edit::Append { text },
+                EditMode::ReplaceAll => Edit::ReplaceAll { text },
+            };
+            window_call(Request {
+                action: Action::Edit,
+                window: Some(input.window),
+                edit: Some(edit),
+                ..Request::default()
+            })
+        })
+        .await)
+    }
+
+    /// Opens a new syntax window in the open Statscraft window, empty or with a text, where
+    /// the person can read, change and run it. Writes no file.
+    #[tool(
+        title = "New syntax window",
+        annotations(
+            title = "New syntax window",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn new_syntax_window(
+        &self,
+        Parameters(input): Parameters<NewInput>,
+    ) -> Result<CallToolResult, ErrorData> {
+        Ok(blocking(move || {
+            window_call(Request {
+                action: Action::New,
+                name: input.name,
+                source: input.text.unwrap_or_default(),
+                ..Request::default()
+            })
+        })
+        .await)
+    }
+
+    /// Opens a .sps syntax file in a syntax window of the open Statscraft window, or gives the
+    /// window that has it open already. Runs nothing.
+    #[tool(
+        title = "Open syntax file",
+        annotations(
+            title = "Open syntax file",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn open_syntax_file(
+        &self,
+        Parameters(input): Parameters<OpenInput>,
+    ) -> Result<CallToolResult, ErrorData> {
+        // the window refuses a relative path
+        Ok(blocking(move || {
+            window_call(Request {
+                action: Action::Open,
+                path: Some(input.path.into()),
+                ..Request::default()
+            })
+        })
+        .await)
+    }
+
+    /// Saves a syntax window of the open Statscraft window to its own file, or to path. It
+    /// refuses to replace any other existing file unless overwrite is true, and a file another
+    /// syntax window holds. Save only when the person asks.
+    #[tool(
+        title = "Save syntax window",
+        annotations(
+            title = "Save syntax window",
+            read_only_hint = false,
+            destructive_hint = true,
+            idempotent_hint = true,
+            open_world_hint = false
+        )
+    )]
+    async fn save_syntax(
+        &self,
+        Parameters(input): Parameters<SaveInput>,
+    ) -> Result<CallToolResult, ErrorData> {
+        Ok(blocking(move || {
+            window_call(Request {
+                action: Action::Save,
+                window: Some(input.window),
+                path: input.path.map(PathBuf::from),
+                overwrite: input.overwrite.unwrap_or(false),
+                ..Request::default()
+            })
+        })
+        .await)
     }
 
     /// Says whether a Statscraft window is open on this computer. When one is, calls without a
