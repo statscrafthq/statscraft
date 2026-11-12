@@ -713,7 +713,7 @@ fn paint_block(ui: &Ui, table: &Table, layout: &Layout, rect: Rect, font: &FontI
     );
     let top = rect.top() + layout.title_height + 6.0;
     let offsets = crate::grid::offsets(&layout.widths);
-    let x = |c: usize| rect.left() + offsets[c];
+    let x = |c: usize| rect.left() + offsets[c] as f32;
     let line = Stroke::new(1.0, visuals.widgets.noninteractive.bg_stroke.color);
     let rule = Stroke::new(1.5, normal);
     let right = rect.left() + width;

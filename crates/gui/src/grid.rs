@@ -1,7 +1,7 @@
 //! Which part of a large grid is visible, so only those cells are drawn, where a click lands,
 //! where the keyboard moves the selected cell, what is selected, and the text a selection copies.
 
-use eframe::egui::{Key, Pos2, Vec2};
+use eframe::egui::{Key, Vec2};
 use std::collections::BTreeSet;
 use std::ops::Range;
 
@@ -153,23 +153,23 @@ pub enum Hit {
     Cell(usize, usize),
 }
 
-/// What lies under `at`, a point measured from the grid's top left corner, when the grid is
-/// scrolled to `scroll`. The header row and the row numbers stay in view while scrolling, so
-/// they lie at the top and left of the view; `offsets` are the left edges of the columns.
+/// What lies under `at`, a point measured from the grid's top left corner on screen, when the
+/// cells are scrolled `scroll` points right and down. The header row and the row numbers stay
+/// in view, at the top and left; `offsets` are the left edges of the columns.
 pub fn hit(
     at: Vec2,
-    scroll: Pos2,
+    scroll: (f64, f64),
     (number_width, header_height, row_height): (f32, f32, f32),
-    offsets: &[f32],
+    offsets: &[f64],
     rows: usize,
 ) -> Option<Hit> {
     let columns = offsets.len().saturating_sub(1);
-    let header = at.y <= scroll.y + header_height;
-    let numbers = at.x <= scroll.x + number_width;
-    let c = offsets
-        .partition_point(|&o| o <= at.x - number_width)
-        .saturating_sub(1);
-    let r = ((at.y - header_height) / row_height).max(0.0) as usize;
+    let header = at.y <= header_height;
+    let numbers = at.x <= number_width;
+    let x = scroll.0 + f64::from(at.x - number_width);
+    let c = offsets.partition_point(|&o| o <= x).saturating_sub(1);
+    let y = scroll.1 + f64::from(at.y - header_height);
+    let r = (y / f64::from(row_height)).max(0.0) as usize;
     match (header, numbers) {
         (true, true) => Some(Hit::Corner),
         (true, false) => (c < columns).then_some(Hit::Header(c)),
@@ -275,32 +275,64 @@ pub fn moved(
     }
 }
 
-/// Left edge of every column, plus the total width as the last entry.
-pub fn offsets(widths: &[f32]) -> Vec<f32> {
+/// Left edge of every column, plus the total width as the last entry. In f64, so the edges of
+/// ten thousand wide columns stay exact.
+pub fn offsets(widths: &[f32]) -> Vec<f64> {
     let mut x = 0.0;
     let mut offsets = Vec::with_capacity(widths.len() + 1);
     offsets.push(0.0);
-    for w in widths {
-        x += w;
+    for &w in widths {
+        x += f64::from(w);
         offsets.push(x);
     }
     offsets
 }
 
-/// The rows of equal height that intersect the band from `top` to `bottom`.
-pub fn visible_rows(top: f32, bottom: f32, row_height: f32, count: usize) -> Range<usize> {
+/// The rows of equal height that intersect the band from `top` to `bottom`, in points from
+/// the top of the first row.
+pub fn visible_rows(top: f64, bottom: f64, row_height: f32, count: usize) -> Range<usize> {
+    let row_height = f64::from(row_height);
     let first = ((top / row_height).floor().max(0.0) as usize).min(count);
     let last = ((bottom / row_height).ceil().max(0.0) as usize).min(count);
     first..last.max(first)
 }
 
 /// The columns, given by `offsets`, that intersect the band from `left` to `right`.
-pub fn visible_columns(offsets: &[f32], left: f32, right: f32) -> Range<usize> {
+pub fn visible_columns(offsets: &[f64], left: f64, right: f64) -> Range<usize> {
     let count = offsets.len().saturating_sub(1);
     // a column is visible when its right edge is past `left` and its left edge before `right`
     let first = offsets[1..].partition_point(|&end| end <= left).min(count);
     let last = offsets[..count].partition_point(|&start| start < right);
     first..last.max(first)
+}
+
+/// Where an edge `at` points into the cells lies on screen, relative to the cells' top or left
+/// edge, when they are scrolled `scroll` points. Screen coordinates are f32, which holds whole
+/// points only up to about 16 million, so a grid of a million rows is never laid out at its
+/// full size: the difference is taken in f64 and only that small number becomes f32.
+pub fn on_screen(at: f64, scroll: f64) -> f32 {
+    (at - scroll) as f32
+}
+
+/// The top of row `row` in points from the top of the first row.
+pub fn row_top(row: usize, row_height: f32) -> f64 {
+    row as f64 * f64::from(row_height)
+}
+
+/// The scroll that brings the band from `start` to `end` into a view `len` long that is now
+/// scrolled to `scroll`, moving as little as possible; the band's start wins when it does not fit.
+pub fn scroll_to(start: f64, end: f64, len: f64, scroll: f64) -> f64 {
+    if end - scroll > len {
+        end - len
+    } else {
+        scroll
+    }
+    .min(start)
+}
+
+/// A scroll kept within the cells: never before the first, never past showing the last.
+pub fn clamp_scroll(scroll: f64, content: f64, view: f64) -> f64 {
+    scroll.min(content - view).max(0.0)
 }
 
 /// Width of a Data View column: room for the name or the format width, within limits.
@@ -474,7 +506,7 @@ mod tests {
         let sizes = (50.0, 24.0, 20.0);
         let offsets = offsets(&[100.0, 100.0, 100.0]);
         let at = |x, y, scroll| hit(Vec2::new(x, y), scroll, sizes, &offsets, 10);
-        let top = Pos2::ZERO;
+        let top = (0.0, 0.0);
         assert_eq!(at(10.0, 10.0, top), Some(Hit::Corner));
         assert_eq!(at(60.0, 10.0, top), Some(Hit::Header(0)));
         assert_eq!(at(260.0, 10.0, top), Some(Hit::Header(2)));
@@ -485,12 +517,68 @@ mod tests {
         assert_eq!(at(400.0, 10.0, top), None);
         assert_eq!(at(10.0, 260.0, top), None);
         assert_eq!(at(160.0, 260.0, top), None);
-        // scrolled down by 100 and right by 120: the header and the row numbers moved along
-        let scrolled = Pos2::new(120.0, 100.0);
-        assert_eq!(at(130.0, 110.0, scrolled), Some(Hit::Corner));
-        assert_eq!(at(180.0, 110.0, scrolled), Some(Hit::Header(1)));
-        assert_eq!(at(130.0, 130.0, scrolled), Some(Hit::Number(5)));
-        assert_eq!(at(180.0, 130.0, scrolled), Some(Hit::Cell(5, 1)));
+        // cells scrolled down by 100 and right by 120: the header and the row numbers stay
+        let scrolled = (120.0, 100.0);
+        assert_eq!(at(10.0, 10.0, scrolled), Some(Hit::Corner));
+        assert_eq!(at(60.0, 10.0, scrolled), Some(Hit::Header(1)));
+        assert_eq!(at(10.0, 30.0, scrolled), Some(Hit::Number(5)));
+        assert_eq!(at(60.0, 30.0, scrolled), Some(Hit::Cell(5, 1)));
+    }
+
+    #[test]
+    fn a_huge_grid_keeps_every_row_one_row_height_apart() {
+        let (row_height, view) = (20.0_f32, 600.0);
+        for rows in [1_000_000, 10_000_000] {
+            let content = row_top(rows, row_height);
+            // Ctrl+Down: the last row brought into view sits exactly at the bottom
+            let last = rows - 1;
+            let (start, end) = (row_top(last, row_height), row_top(rows, row_height));
+            let scroll = clamp_scroll(scroll_to(start, end, view, 0.0), content, view);
+            assert_eq!(scroll, content - view);
+            assert_eq!(on_screen(start, scroll), 580.0);
+            let visible = visible_rows(scroll, scroll + view, row_height, rows);
+            assert_eq!(visible, rows - 30..rows);
+            // every drawn row lies exactly one row height below the one before
+            for r in visible.clone().skip(1) {
+                let gap = on_screen(row_top(r, row_height), scroll)
+                    - on_screen(row_top(r - 1, row_height), scroll);
+                assert_eq!(gap, row_height, "{rows} rows, row {r}");
+            }
+            // also at a scroll that is not a whole number of rows, as after the wheel
+            assert_eq!(on_screen(row_top(last, row_height), scroll - 7.25), 587.25);
+            // a click on the last row's number finds it
+            let sizes = (50.0, 24.0, row_height);
+            let at = Vec2::new(10.0, 24.0 + 590.0);
+            let hit = hit(at, (0.0, scroll), sizes, &[0.0, 90.0], rows);
+            assert_eq!(hit, Some(Hit::Number(last)));
+        }
+        // ten thousand columns of 260 points, the first a fraction wider
+        let mut widths = vec![260.0_f32; 10_000];
+        widths[0] = 260.25;
+        let offsets = offsets(&widths);
+        let scroll = offsets[9_990] - 0.5;
+        let x = |c: usize| on_screen(offsets[c], scroll);
+        assert_eq!(x(9_990), 0.5);
+        assert_eq!(x(9_999) - x(9_998), 260.0);
+        assert_eq!(
+            visible_columns(&offsets, scroll, scroll + 1000.0),
+            9_989..9_994
+        );
+    }
+
+    #[test]
+    fn scrolling_to_a_cell_moves_the_view_as_little_as_possible() {
+        // a view 100 long now at 500: a band inside it stays put
+        assert_eq!(scroll_to(520.0, 540.0, 100.0, 500.0), 500.0);
+        // below: the band's end at the bottom; above: its start at the top
+        assert_eq!(scroll_to(620.0, 640.0, 100.0, 500.0), 540.0);
+        assert_eq!(scroll_to(400.0, 420.0, 100.0, 500.0), 400.0);
+        // a band longer than the view shows its start
+        assert_eq!(scroll_to(620.0, 900.0, 100.0, 500.0), 620.0);
+        assert_eq!(clamp_scroll(-5.0, 1000.0, 100.0), 0.0);
+        assert_eq!(clamp_scroll(950.0, 1000.0, 100.0), 900.0);
+        // cells that fit in the view never scroll
+        assert_eq!(clamp_scroll(30.0, 50.0, 100.0), 0.0);
     }
 
     #[test]
