@@ -3,6 +3,7 @@
 ## Unreleased
 
 - NOMREG: multinomial logistic regression of a nominal dependent variable (numeric or string) on factors and covariates, with BASE and ORDER for the reference category, MODEL with interactions and nested effects, FULLFACTORIAL, INTERCEPT, CRITERIA, SCALE, SUBPOP, weights and MISSING. Tables: Case Processing Summary, Model Fitting Information (with AIC and BIC), Goodness-of-Fit, Pseudo R-Square, Likelihood Ratio Tests, Parameter Estimates with the interval of Exp(B), Classification, and the covariance and correlation matrices. SAVE adds the category probabilities, the predicted category and its probability, and the probability of the observed category. Stepwise methods, TEST and OUTFILE are not supported yet. See [NOMREG](docs/commands/nomreg.md).
+- GRAPH: bar charts (simple, clustered, stacked), line and area charts and pies of counts, percentages and summary functions (MEAN, SUM, MEDIAN, PTILE, PLT and the others) by one or two category variables, VALUE charts of every case, histograms with a normal curve and scatterplots with groups and point labels, with TITLE, SUBTITLE, FOOTNOTE, MISSING, weights and SPLIT FILE. ERRORBAR, PARETO, HILO and PANEL are not supported yet. See [GRAPH](docs/commands/graph.md).
 
 ## 0.9.0 (2026-11-12)
 

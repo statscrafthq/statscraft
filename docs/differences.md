@@ -596,6 +596,17 @@ Where the documentation is silent:
 - The tree diagram comes as chart data with the statistics of every node; its orientation (DISPLAY) and NODES are not kept.
 - PLOT GAIN, RESPONSE and INDEX come as line charts, one chart per keyword with one line per TARGET category, over the cumulative percentile groups of INCREMENT. The terminal nodes take the order of the gain tables (SORT), and the node that holds a cut counts in proportion to its part below the cut. Without a TARGET category there is no chart, with a warning.
 
+### GRAPH
+
+- BAR, LINE (SIMPLE, MULTIPLE and AREA), PIE, HISTOGRAM and SCATTERPLOT (BIVARIATE, with a control variable and point labels) make one chart, as data and as a picture like the charts of the procedures. The chart's layout follows the function specification; a SIMPLE or GROUPED keyword that does not fit it changes nothing, as the manual says. Several areas stack.
+- Categories ascend by value. With MISSING=REPORT the categories of missing values come after the valid ones, user-missing values first and system-missing last.
+- PCT is a share of all cases in the chart. CUFREQ, CUSUM and CUPCT add up along the categories within each series, and CUPCT is a share of that series' total, so each series ends at 100.
+- MEDIAN and PTILE use (W + 1) p as FREQUENCIES does. MODE shows the smallest of tied values. GMEDIAN treats the values as group midpoints.
+- Weights count in every function. VALUE and SCATTERPLOT draw each case once, unweighted, and leave out cases whose weight is zero, negative or missing.
+- Without TITLE the chart is named after what it shows (for example "Mean of price by region"), so the output has a name for it; a two-line title or footnote becomes one line. With SPLIT FILE the group goes in the title, as for the other charts. A histogram keeps its line with the mean, standard deviation and N after a FOOTNOTE.
+- The limit of 3000 categories is checked; a chart with a single category is drawn.
+- Not supported yet, each with an error: ERRORBAR, PARETO, HILO, PANEL, INTERVAL, TEMPLATE, BAR(RANGE), LINE(DROP), LINE(DIFFERENCE), and OVERLAY, MATRIX and XYZ scatterplots.
+
 ## Custom tables and multiple response
 
 ### CTABLES
@@ -767,7 +778,7 @@ Where the documentation is silent:
   - FILE HANDLE refuses MODE=BINARY, MULTIPUNCH, IMAGE and 360, since only text and data files are read.
 - **Expression functions.** APPLYMODEL and STRAPPLYMODEL, which need MODEL HANDLE. NUMBER reads the formats DATA LIST reads (F, N, E, COMMA, DOT, DOLLAR, PCT, DATE, ADATE, EDATE and SDATE). STRING writes the number, date and time formats, but not the custom currencies CCA to CCE.
 - **Transformations.** PRINT and WRITE have no binary formats (P, PK, IB, PIB, PIBHEX, RB, RBHEX, Z). DATA LIST reads only F, N, E, COMMA, DOT, DOLLAR, PCT, A, DATE, ADATE, EDATE and SDATE, and only UTF-8 files. Commands such as VALUE LABELS cannot stand inside LOOP. AUTORECODE has no templates.
-- **Charts.** FREQUENCIES, CROSSTABS, EXAMINE, ONEWAY, REGRESSION, LOGISTIC REGRESSION, UNIANOVA, GLM, DISCRIMINANT, FACTOR, CLUSTER and TREE give their charts as data (`--json` gives each chart's description and `--vega-lite` a Vega-Lite specification), and the window and `statscraft run --charts` draw them. The text output shows each chart's numbers as a table. A stem-and-leaf display, a plot in three dimensions and the DISCRIMINANT territorial map are not drawn yet and show as their data table. Workbooks, Word documents and presentations hold the bar, pie and line charts (the means, scree, profile and gain charts among them) as editable charts and the statistical plots as their data tables.
+- **Charts.** GRAPH (see [GRAPH](#graph) for the parts not supported yet), FREQUENCIES, CROSSTABS, EXAMINE, ONEWAY, REGRESSION, LOGISTIC REGRESSION, UNIANOVA, GLM, DISCRIMINANT, FACTOR, CLUSTER and TREE give their charts as data (`--json` gives each chart's description and `--vega-lite` a Vega-Lite specification), and the window and `statscraft run --charts` draw them. The text output shows each chart's numbers as a table. A stem-and-leaf display, a plot in three dimensions and the DISCRIMINANT territorial map are not drawn yet and show as their data table. Workbooks, Word documents and presentations hold the bar, pie and line charts (the means, scree, profile and gain charts among them) as editable charts and the statistical plots as their data tables.
 - **TREE.** CHAID and exhaustive CHAID with a nominal or ordinal dependent. Not supported yet: CRT, QUEST, a scale dependent, split-sample and cross-validation, SPLITMERGED=YES, custom costs, profits, percentile gain tables, rules, influence variables, model files and TARGETRESPONSE.
 - **Data files.** Statscraft reads and writes .sav and .zsav files, and portable (.por) files with IMPORT and EXPORT.
   - Text files are read with DATA LIST, GET DATA and GET TRANSLATE /TYPE=TAB; workbooks (.xlsx, .xlsm, .xls) with GET DATA and GET TRANSLATE; dBASE III and IV files with GET TRANSLATE. 1-2-3, Symphony, SYLK and dBASE II files are not read.

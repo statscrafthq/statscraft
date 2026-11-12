@@ -62,7 +62,7 @@ The [command pages](docs/commands/README.md) list every supported command. In sh
 - **Macros and settings.** DEFINE, INCLUDE, INSERT, SET, SHOW, PRESERVE and RESTORE.
 - **Output.** Tables as Markdown, JSON, Excel workbooks, and with OUTPUT EXPORT also HTML, text and CSV. OUTPUT SAVE and OUTPUT OPEN keep output in Statscraft output files (.scout). Charts are drawn in the window and saved as PNG or SVG, and open as editable charts in PowerPoint, Word and Excel.
 
-Not yet: the GRAPH command and OUTPUT MODIFY. [Differences and limits](docs/differences.md) has the details.
+Not yet: OUTPUT MODIFY, and the error bar, Pareto, high-low and paneled charts of GRAPH. [Differences and limits](docs/differences.md) has the details.
 
 ## Documentation
 

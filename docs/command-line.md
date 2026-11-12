@@ -109,7 +109,7 @@ statscraft help FREQUENCIES         syntax, notes and an example of one command
 statscraft help freq                names may be lowercase and shortened, as in syntax
 ```
 
-A command of the language that Statscraft does not run yet (for example `statscraft help GRAPH`) gets "is a command of the language, but it is not supported yet". An unknown name is an error. The same text, one page per command, is in [commands](commands/README.md).
+A command of the language that Statscraft does not run yet (for example `statscraft help OUTPUT MODIFY`) gets "is a command of the language, but it is not supported yet". An unknown name is an error. The same text, one page per command, is in [commands](commands/README.md).
 
 ## Sessions and line ranges
 
@@ -241,7 +241,7 @@ A custom table with two header levels, from `CTABLES /TABLE region [COUNT, COLPC
 
 ### Charts
 
-FREQUENCIES (BARCHART, PIECHART, HISTOGRAM), CROSSTABS (BARCHART), EXAMINE (PLOT), ONEWAY (PLOT MEANS), REGRESSION (RESIDUALS, SCATTERPLOT, PARTIALPLOT), LOGISTIC REGRESSION (CLASSPLOT), UNIANOVA and GLM (PLOT), DISCRIMINANT (PLOT), FACTOR (PLOT), CLUSTER (PLOT) and TREE (the tree diagram, PLOT) make charts. A chart is data: its kind, its labels and its numbers, with nothing about colors or layout. Labels follow SET TVARS, TNUMBERS and OVARS as tables do. `statscraft run --json -e "..."` with `CROSSTABS /TABLES=region BY gender /BARCHART.` gives (shortened):
+GRAPH, FREQUENCIES (BARCHART, PIECHART, HISTOGRAM), CROSSTABS (BARCHART), EXAMINE (PLOT), ONEWAY (PLOT MEANS), REGRESSION (RESIDUALS, SCATTERPLOT, PARTIALPLOT), LOGISTIC REGRESSION (CLASSPLOT), UNIANOVA and GLM (PLOT), DISCRIMINANT (PLOT), FACTOR (PLOT), CLUSTER (PLOT) and TREE (the tree diagram, PLOT) make charts. A chart is data: its kind, its labels and its numbers, with nothing about colors or layout. Labels follow SET TVARS, TNUMBERS and OVARS as tables do. `statscraft run --json -e "..."` with `CROSSTABS /TABLES=region BY gender /BARCHART.` gives (shortened):
 
 ```json
 {
@@ -270,7 +270,7 @@ FREQUENCIES (BARCHART, PIECHART, HISTOGRAM), CROSSTABS (BARCHART), EXAMINE (PLOT
 | `tier` | `presentation` (a chart the office programs can hold as an editable chart) or `statistical` (a plot drawn exactly, such as the histogram) |
 | `orientation` | `vertical` (categories along the bottom) or `horizontal`; absent for a pie |
 | `grouping` | `clustered`, `stacked` or `percent` (stacked to 100%); bars, lines and areas only |
-| `title`, `footnote` | the title, as a table of the same command would have it, and an optional note such as the mean, standard deviation and N of a histogram |
+| `title`, `subtitle`, `footnote` | the title, as a table of the same command would have it, an optional line under it (GRAPH /SUBTITLE), and an optional note such as the mean, standard deviation and N of a histogram |
 | `category_axis`, `value_axis` | each with its `title`, the display `format` of its numbers, `maximum` when the syntax set the top of the axis, and the `variable` it shows |
 | `legend` | what tells the series apart, such as the column variable; absent with one series |
 | `categories` | in drawing order: the `label`, the `value` it stands for (`null` for a slice of all missing values), `missing` when it holds missing values, and `bin` (`[from, to]`) for a histogram bin, which holds its lower bound but not its upper one |
