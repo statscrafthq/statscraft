@@ -87,6 +87,9 @@ pub enum Command {
     DataList(DataList),
     /// The lines between BEGIN DATA and END DATA, each with its line number in the source.
     BeginData(Vec<(u32, String)>),
+    /// The JSON lines between BEGIN CHART and END CHART (a Statscraft extension), each with
+    /// its line number.
+    BeginChart(Vec<(u32, String)>),
     InputProgram,
     EndInputProgram,
     EndCase,

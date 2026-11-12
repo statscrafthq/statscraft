@@ -176,6 +176,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "OUTPUT SAVE",
             "OUTPUT OPEN",
             "OUTPUT MODIFY",
+            "BEGIN CHART",
             "FINISH",
         ],
     ),

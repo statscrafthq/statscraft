@@ -30,6 +30,18 @@ use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
 use crate::procedures::at_end;
 
+/// BEGIN CHART, a Statscraft extension: the splitter hands over the JSON lines as one string
+/// token each; the engine reads them.
+pub(crate) fn begin_chart(p: &mut Parser) -> PResult<Command> {
+    let mut lines = Vec::new();
+    while let Some(TokenKind::Str(text)) = p.peek() {
+        lines.push((p.span().line, text.clone()));
+        p.pos += 1;
+    }
+    p.finish(&[])?;
+    Ok(Command::BeginChart(lines))
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum OutputCommand {
     New(Option<String>),

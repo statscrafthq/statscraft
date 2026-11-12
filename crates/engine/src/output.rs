@@ -106,6 +106,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Define(_)
         | Command::Insert { .. }
         | Command::BeginProgram
+        | Command::BeginChart(_)
         | Command::Cache
         | Command::Display(_)
         | Command::Output(_)

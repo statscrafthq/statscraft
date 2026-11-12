@@ -44,6 +44,9 @@ their syntax, call list_syntax_windows and read_syntax, say what you would chang
 change with edit_syntax and run it with run_syntax and window (and lines), as their own Run \
 does. When the person works in a syntax window, prefer putting the syntax there and running it \
 from there. save_syntax is the only one of these tools that writes a file.
+Charts: procedures draw their own. For a chart no procedure makes, call add_chart with chart JSON \
+as run_syntax returns it, or a simple Vega-Lite specification; it lands in the output like any \
+other chart. Draw only numbers the result tables gave.
 Paths: window_status gives the platform the server runs on and, when the agent was started inside \
 WSL, wsl_distro. Tool arguments then take Linux paths too; the server translates them. File names \
 inside the syntax (GET FILE, SAVE and so on) are read as written: on a Windows server write them \
@@ -100,6 +103,21 @@ struct RunInput {
     /// table, a chart as its data table with an editable chart beside it;
     /// an existing file is replaced. A relative path starts from folder.
     xlsx: Option<String>,
+}
+
+/// What `add_chart` takes.
+#[derive(Deserialize, JsonSchema)]
+struct ChartInput {
+    /// The chart: an object as run_syntax gives it in charts (the same JSON reads back), or a
+    /// Vega-Lite specification of one view with inline data.values, mark bar, line, area, point
+    /// or arc and encodings x, y, color, theta and xOffset; no aggregate, bin or transform.
+    chart: serde_json::Map<String, Value>,
+    /// Session whose output gets the chart. "gui" is the open Statscraft window. Default: "gui"
+    /// when a window is open, else "work". A file session keeps no output between calls: to
+    /// write the chart to a file there, run BEGIN CHART with OUTPUT EXPORT in run_syntax.
+    session: Option<String>,
+    /// Also give the chart as Statscraft drew it as a Vega-Lite specification. Default: false.
+    vega_lite: Option<bool>,
 }
 
 /// Names a syntax window.
@@ -574,6 +592,54 @@ impl Server {
         Ok(blocking(move || match input.window.take() {
             Some(window) => run_window(input, window),
             None => check_or_run(input.syntax, false, input.xlsx),
+        })
+        .await)
+    }
+
+    /// Adds a chart of your own to the output, drawn the Statscraft way: in the open window it
+    /// appears in the designated output window, is saved with it and exported by OUTPUT
+    /// EXPORT, Copy and Open in the office programs, like a procedure's chart. Give the chart
+    /// JSON that run_syntax returns (change labels, numbers or kind) or a simple Vega-Lite
+    /// specification. Values are drawn as given: nothing is aggregated. The chart is checked
+    /// first; an error says what to fix. It runs as the syntax BEGIN CHART (a Statscraft
+    /// extension), kept in the trail like any run; the result names the output document.
+    /// For statistics, run the procedure instead: compute nothing yourself.
+    #[tool(
+        title = "Add chart",
+        annotations(
+            title = "Add chart",
+            read_only_hint = false,
+            destructive_hint = false,
+            idempotent_hint = false,
+            open_world_hint = false
+        )
+    )]
+    async fn add_chart(
+        &self,
+        Parameters(input): Parameters<ChartInput>,
+    ) -> Result<CallToolResult, ErrorData> {
+        Ok(blocking(move || {
+            let json = serde_json::to_string_pretty(&input.chart).expect("plain data");
+            let syntax = SyntaxInput {
+                syntax: Some(crate::chart_syntax(&json)),
+                file: None,
+                lines: None,
+                session: input.session,
+                folder: None,
+                vega_lite: input.vega_lite,
+            };
+            let mut reply = check_or_run(syntax, false, None);
+            let document = reply
+                .structured_content
+                .as_ref()
+                .and_then(|v| v["commands"][0]["document"].as_str())
+                .map(str::to_string);
+            if let (Some(document), Some(ContentBlock::Text(t))) =
+                (document, reply.content.first_mut())
+            {
+                t.text = format!("chart added to output document {document}\n{}", t.text);
+            }
+            reply
         })
         .await)
     }

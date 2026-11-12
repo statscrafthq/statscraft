@@ -181,6 +181,7 @@ One page per supported command, generated from the same table that the parser an
 | [OUTPUT SAVE](output-save.md) | Save an output document as a Statscraft output file (.scout). |
 | [OUTPUT OPEN](output-open.md) | Open a Statscraft output file (.scout) as a new output document. |
 | [OUTPUT MODIFY](output-modify.md) | Delete, hide, rename, sort, transpose or reformat items of an output document. |
+| [BEGIN CHART](begin-chart.md) | A Statscraft extension: a chart given as JSON goes to the output like a procedure's chart. |
 | [FINISH](finish.md) | End the job: the commands after it are not read. |
 
 ## General rules of the language

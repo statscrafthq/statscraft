@@ -2,7 +2,7 @@
 
 This plugin gives Claude Code two things:
 
-- the Statscraft MCP server (`statscraft mcp`), with the tools `describe`, `list_commands`, `command_help`, `check_syntax`, `run_syntax` and `window_status`, and for the syntax windows of the open window `list_syntax_windows`, `read_syntax`, `edit_syntax`, `new_syntax_window`, `open_syntax_file` and `save_syntax`
+- the Statscraft MCP server (`statscraft mcp`), with the tools `describe`, `list_commands`, `command_help`, `check_syntax`, `run_syntax` and `window_status`, and for the syntax windows of the open window `list_syntax_windows`, `read_syntax`, `edit_syntax`, `new_syntax_window`, `open_syntax_file` and `save_syntax`, and `add_chart`, which puts a chart of the agent's own into the output
 - the skill `statscraft-analysis`, which teaches the working loop: describe the data, look up each command, check, run in steps, read the reply, and report numbers only from the result tables
 
 ## Install

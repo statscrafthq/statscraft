@@ -2197,6 +2197,26 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: output_modify::output_modify,
     },
     CommandSpec {
+        name: "BEGIN CHART",
+        summary: "A Statscraft extension: a chart given as JSON goes to the output like a procedure's chart.",
+        syntax: "BEGIN CHART\n\
+                 JSON lines\n\
+                 END CHART.\n\
+                 Not a command of the language: Statscraft adds it so that an agent or a script can put a\n\
+                 chart that no procedure makes into the designated output document, where it is drawn,\n\
+                 saved by OUTPUT SAVE and written by OUTPUT EXPORT like any other. BEGIN CHART and\n\
+                 END CHART each stand alone on their line; every line between is JSON, read as it is.\n\
+                 The JSON is either a chart as `statscraft run --json` writes it (a member of charts),\n\
+                 optionally with \"version\": 1, or a Vega-Lite specification of one view with inline\n\
+                 data.values and mark bar, line, area, point or arc, encoded by x, y, color, theta and\n\
+                 xOffset or yOffset, without aggregate, bin, timeUnit or transform. Values are taken as\n\
+                 they are: a category and series given twice is an error. Fields Statscraft does not\n\
+                 know are an error. At most 100 series, 3000 categories, 100000 values and strings of\n\
+                 1000 characters. The MCP tool add_chart and `statscraft chart` write this command.",
+        example: "BEGIN CHART\n{\"mark\": \"bar\", \"data\": {\"values\": [{\"region\": \"North\", \"sales\": 12}, {\"region\": \"South\", \"sales\": 9}]},\n \"encoding\": {\"x\": {\"field\": \"region\", \"type\": \"nominal\"}, \"y\": {\"field\": \"sales\", \"type\": \"quantitative\"}}}\nEND CHART.",
+        parse: output_docs::begin_chart,
+    },
+    CommandSpec {
         name: "USE",
         summary: "Use all cases, or a range of cases, in the commands that follow.",
         syntax: "USE ALL.\n\
@@ -2644,7 +2664,7 @@ static UNSUPPORTED: &[&str] = &[];
 
 /// The ends of blocks whose start reads them, such as END DATA after BEGIN DATA. Standing
 /// alone they are an error at their own line.
-static STRAY: &[&str] = &["END DATA", "END MATRIX", "END REPEAT"];
+static STRAY: &[&str] = &["END DATA", "END CHART", "END MATRIX", "END REPEAT"];
 
 fn names() -> impl Iterator<Item = (&'static str, Option<&'static CommandSpec>)> {
     let supported = COMMANDS.iter().map(|spec| (spec.name, Some(spec)));
@@ -2845,6 +2865,7 @@ pub fn help(command: Option<&str>) -> Option<String> {
         }
         Resolution::Unsupported(name, used) if used == words.len() => Some(match name {
             "END DATA" => "END DATA ends the inline data that BEGIN DATA starts.\n".into(),
+            "END CHART" => "END CHART ends the chart that BEGIN CHART starts.\n".into(),
             "END REPEAT" => "END REPEAT ends the commands that DO REPEAT repeats.\n".into(),
             "END MATRIX" => "END MATRIX ends the program that MATRIX starts.\n".into(),
             _ => format!("{name} is a command of the language, but it is not supported yet.\n"),

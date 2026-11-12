@@ -61,7 +61,7 @@ use statscraft_syntax::{
 use std::cmp::Ordering;
 
 /// The most categories a chart can show.
-const MOST_CATEGORIES: usize = 3000;
+pub(crate) const MOST_CATEGORIES: usize = 3000;
 
 /// The category of a case: its value (None when system-missing) and whether it is missing.
 #[derive(Clone, PartialEq)]

@@ -4,6 +4,7 @@
 statscraft describe   dictionary and counts of a data file or a session
 statscraft run        run syntax
 statscraft check      validate syntax without saving or writing anything
+statscraft chart      add a chart given as JSON to the output
 statscraft help       syntax of a command, or the list of commands
 statscraft plan       lower syntax to an OpenStatSpec transformation plan
 statscraft db         store datasets in an OpenStatSpec database and read them back
@@ -290,6 +291,39 @@ The shapes of `plot`:
 - `regions`: `regions`, each with its `name`, its `center` (`[x, y]`, such as a group centroid) and `vertices`, the corners of its convex polygon in order around it (empty when the region is empty). The DISCRIMINANT territorial map uses it.
 
 With `--vega-lite` each chart also has a member `vega_lite`: a [Vega-Lite](https://vega.github.io/vega-lite/) v5 specification with the numbers inline, which any Vega-Lite viewer draws as it is. In Markdown output the specification follows the chart's data table as a `json` code block. SPLIT FILE gives a chart per split group, the group named in the title.
+
+### Charts as input
+
+Statscraft reads a chart back in the form it writes it, so an agent or a script can put a chart that no procedure makes into the output. The chart is drawn, saved and exported like any other: in the window's output, OUTPUT SAVE, OUTPUT EXPORT, Copy and Open in the office programs.
+
+```
+statscraft chart sales.json -s work
+statscraft chart sales.json -s gui
+cat sales.json | statscraft chart - --json
+```
+
+`statscraft chart FILE` (or `-` for standard input) takes `-s`, `--json`, `--vega-lite`, `--xlsx` and `--charts` as `run` does. It runs the syntax BEGIN CHART, a Statscraft extension, with the file's JSON between BEGIN CHART and END CHART, each on its own line; the same block works in any syntax file, so OUTPUT EXPORT in the same run writes the chart out. The MCP tool `add_chart` does the same. See [BEGIN CHART](commands/begin-chart.md).
+
+The JSON is one of two forms.
+
+The chart JSON above, as `--json` writes it. A chart from a run reads back as the same chart, so the simplest way to make one is to take a procedure's chart and change it. `"version": 1` may be given; a higher version is refused. The member `vega_lite` that `--vega-lite` adds is ignored. A field the chart does not have is an error, so a misspelt one is not lost silently; a field that is `null`, `false` or empty counts as left out. `kind`, `tier`, `title`, `category_axis` and `value_axis` (each with a `title`), `categories` and `series` (each with `name`, `statistic` and `values`) are required. A number may be `null` where there is none. A statistical plot gives its data in `plot` with the shape `points` (kinds `scatter`, `normal_qq`, `detrended_normal_qq`, `normal_pp`, `spread_level`) or `boxes` (kind `boxplot`); the other shapes are made only by their procedures.
+
+A [Vega-Lite](https://vega.github.io/vega-lite/) specification of one view, the part that maps cleanly to a Statscraft chart:
+
+| Mark | Encodings | Gives |
+|---|---|---|
+| `bar` | `x` and `y`, one of them `quantitative`; optional `color`, and `xOffset` or `yOffset` on the field of `color` | a bar chart: vertical when `y` holds the values, horizontal when `x` does. With `color` the bars stack, as in Vega-Lite; with an offset they stand side by side; `stack: "normalize"` stacks them to 100% |
+| `line` | `x` (the categories) and `y` (`quantitative`), optional `color` | a line chart, a line per color |
+| `area` | the same | an area chart; with `color` stacked, or to 100% with `stack: "normalize"` |
+| `point` | `x` and `y`, both `quantitative`, optional `color` | a scatter plot, a group per color; a row without both numbers is left out |
+| `arc` | `theta` (`quantitative`) and `color` | a pie, a slice per color |
+
+- The rows are inline in `data.values`, each an object. Every row gives one value: a category (and color) given twice is an error, since nothing is aggregated.
+- A channel takes `field`, `type` (`quantitative`, `nominal`, `ordinal` or `temporal`; `color` and the offsets default to `nominal`), `title` and `sort`: `"ascending"` (the default, as in Vega-Lite), `"descending"`, `null` for the order of the data, or a list of values that come first. `axis`, `legend` and `scale` are accepted and change nothing; so are `width`, `height`, `config` and the other members that only set how the chart looks, and the properties of `mark` besides `type`.
+- `title` is a string, or an object with `text` and `subtitle`. Without one the chart is named "values by categories" after the axis titles. An axis title is the channel's `title`, else its field.
+- Refused, with a message that names what is not supported: other marks, encodings such as `size` or `shape`, `aggregate`, `bin`, `timeUnit`, a fixed `value` or `datum`, `transform`, `layer`, `facet`, `repeat` and the concatenations, `params`, data from `url` or by `name`, and a Vega (not Vega-Lite) schema.
+
+Limits, for both forms: at most 100 series, 3000 categories, 100000 values (series times categories, points, or rows), strings of 1000 characters and a JSON text of 16 MB. A chart whose parts do not fit together, such as a series with fewer values than there are categories, is refused before anything draws it.
 
 ### Error
 

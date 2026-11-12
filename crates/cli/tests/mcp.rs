@@ -166,6 +166,7 @@ fn initialize_lists_the_tools_with_their_hints_and_the_prompt() {
         ("edit_syntax", false),
         ("new_syntax_window", false),
         ("open_syntax_file", false),
+        ("add_chart", false),
     ] {
         let t = tool(name);
         assert_eq!(t["annotations"]["readOnlyHint"], false, "{name}");
@@ -492,6 +493,85 @@ fn syntax_windows_are_read_edited_run_and_saved_and_runs_leave_their_syntax() {
         json!({ "window": "Ages", "path": other, "overwrite": true }),
     );
     assert_eq!(replaced["isError"], true, "another window holds that file");
+}
+
+#[test]
+fn add_chart_puts_an_agents_chart_in_the_window_output_and_refuses_a_bad_one() {
+    let dir = Workdir::new("chart");
+    let (mut client, _) = Client::start(&dir, &dir.0);
+    let tools = client.request("tools/list", json!({}))["tools"].clone();
+    let add = tools
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|t| t["name"] == "add_chart")
+        .unwrap()
+        .clone();
+    assert_eq!(add["inputSchema"]["required"], json!(["chart"]));
+
+    // a file session: the chart comes back checked, and its syntax is kept
+    let spec = json!({
+        "mark": "bar",
+        "title": "Tickets by line",
+        "data": {"values": [{"line": "Blue", "tickets": 120}, {"line": "Red", "tickets": 95}]},
+        "encoding": {
+            "x": {"field": "line", "type": "nominal"},
+            "y": {"field": "tickets", "type": "quantitative"}
+        }
+    });
+    let filed = client.call("add_chart", json!({ "chart": spec, "session": "c" }));
+    let result = &filed["structuredContent"];
+    assert_eq!(result["ok"], true, "{filed}");
+    assert_eq!(
+        result["commands"][0]["charts"][0]["title"],
+        "Tickets by line"
+    );
+    assert!(result["trail"].as_str().unwrap().ends_with("syntax.sps"));
+    assert!(
+        text(&filed).starts_with("chart added to output document Document1\nok: true\n"),
+        "{}",
+        text(&filed)
+    );
+
+    // the open window: the chart joins its designated output document
+    let mut desk = live::Desk::default();
+    let _window = live::serve(dir.endpoint(), move |request| desk.answer(&request)).unwrap();
+    let chart = result["commands"][0]["charts"][0].clone();
+    let added = client.call("add_chart", json!({ "chart": chart }));
+    let result = &added["structuredContent"];
+    assert_eq!(result["session"], "gui", "{added}");
+    assert_eq!(result["commands"][0]["document"], "Document1");
+    assert_eq!(result["trail"], "syntax window Agent");
+    assert_eq!(result["commands"][0]["charts"][0], chart);
+    let described = client.call("describe", json!({}));
+    let state = &described["structuredContent"];
+    assert_eq!(
+        state["session"]["output_documents"][0]["tables"], 1,
+        "{described}"
+    );
+    let agent = client.call("read_syntax", json!({ "window": "Agent" }));
+    assert!(text(&agent).contains("BEGIN CHART"), "{}", text(&agent));
+
+    // a chart that cannot be drawn is an error to fix, and changes nothing
+    let bad = client.call(
+        "add_chart",
+        json!({ "chart": { "mark": "bar", "data": {"values": [{"a": "x", "b": 1}]},
+            "encoding": {"x": {"field": "a", "type": "nominal"},
+                         "y": {"field": "b", "type": "quantitative", "aggregate": "sum"}}} }),
+    );
+    assert_eq!(bad["isError"], false);
+    let errors = &bad["structuredContent"]["errors"];
+    assert_eq!(errors[0]["kind"], "run", "{bad}");
+    assert!(
+        errors[0]["message"]
+            .as_str()
+            .unwrap()
+            .contains("aggregate in encoding y is not supported"),
+        "{bad}"
+    );
+    let described = client.call("describe", json!({}));
+    let documents = &described["structuredContent"]["session"]["output_documents"];
+    assert_eq!(documents[0]["tables"], 1);
 }
 
 /// The Claude Code plugin keeps users on its version until it changes, so it moves with every

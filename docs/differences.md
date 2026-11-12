@@ -719,6 +719,10 @@ Significance tests:
 - ENCODING=LOCALE writes UTF-8.
 - In TEXT, the columns are as wide as their widest cell (COLUMNWIDTH=n wraps at n characters) and numbers align right.
 
+### BEGIN CHART
+
+- **Beyond the documentation:** BEGIN CHART and END CHART are a Statscraft extension, not a command of the language. The JSON lines between them are a chart that joins the designated output document like a procedure's chart. See [BEGIN CHART](commands/begin-chart.md) and [Charts as input](command-line.md#charts-as-input).
+
 ### PRINT and WRITE
 
 - Columns after a string variable give it an A format (GNU PSPP takes F and refuses). An asterisk may follow a format list. WRITE FORMATS keeps a write format apart from the print format, also in saved data files.

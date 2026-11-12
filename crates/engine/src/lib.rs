@@ -4,6 +4,7 @@ mod aggregate;
 mod anova;
 mod autorecode;
 pub mod chart;
+mod chart_input;
 mod cluster;
 mod contrast;
 mod correlations;
@@ -784,6 +785,10 @@ impl Engine {
                 }
             }
             Command::BeginData(lines) => return self.begin_data(lines),
+            Command::BeginChart(lines) => {
+                let chart = chart_input::read(lines).map_err(Error)?;
+                self.charts.push(chart);
+            }
             Command::Output(output) => return self.output_command(output),
             Command::Finish => {}
             Command::EndCase => self.end_case()?,

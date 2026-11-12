@@ -762,3 +762,69 @@ fn run_saves_output_that_a_later_run_opens_and_converts() {
     let items = command["items"].as_array().unwrap().len();
     assert_eq!(documents[0][1].as_f64(), Some(items as f64));
 }
+
+#[test]
+fn chart_adds_a_chart_from_a_json_file_and_keeps_its_syntax() {
+    let dir = Workdir::new("chart");
+    let spec = serde_json::json!({
+        "mark": "line",
+        "title": "Readers per week",
+        "data": {"values": [{"week": 1, "readers": 40}, {"week": 2, "readers": 46}]},
+        "encoding": {
+            "x": {"field": "week", "type": "ordinal"},
+            "y": {"field": "readers", "type": "quantitative"}
+        }
+    });
+    std::fs::write(dir.0.join("readers.json"), spec.to_string()).unwrap();
+    let result = dir.json(&[
+        "chart",
+        "readers.json",
+        "-s",
+        "c1",
+        "--json",
+        "--charts",
+        "pictures",
+    ]);
+    let command = &result["commands"][0];
+    assert_eq!(command["name"], "BEGIN CHART");
+    assert_eq!(command["document"], "Document1");
+    assert_eq!(command["charts"][0]["kind"], "line");
+    assert_eq!(
+        command["charts"][0]["series"][0]["values"],
+        serde_json::json!([40.0, 46.0])
+    );
+    let pictures = std::fs::read_dir(dir.0.join("pictures")).unwrap().count();
+    assert_eq!(pictures, 1);
+    // the session keeps the syntax, which runs again as it is
+    let trail = std::fs::read_to_string(dir.0.join(".statscraft/sessions/c1/syntax.sps")).unwrap();
+    assert!(
+        trail.contains("BEGIN CHART\n{") && trail.contains("}\nEND CHART."),
+        "{trail}"
+    );
+
+    // the chart JSON written above reads back from standard input
+    let chart = command["charts"][0].to_string();
+    let mut child = Command::new(env!("CARGO_BIN_EXE_statscraft"))
+        .args(["chart", "-", "--json"])
+        .current_dir(&dir.0)
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    let mut stdin = child.stdin.take().unwrap();
+    std::io::Write::write_all(&mut stdin, chart.as_bytes()).unwrap();
+    drop(stdin);
+    let out = child.wait_with_output().unwrap();
+    let again: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+    assert_eq!(again["commands"][0]["charts"][0], command["charts"][0]);
+
+    // a refused chart is an error with its reason
+    std::fs::write(dir.0.join("bad.json"), r#"{"mark": "rect"}"#).unwrap();
+    let out = dir.run(&["chart", "bad.json"]);
+    assert!(!out.status.success());
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("Vega-Lite: mark rect is not supported"),
+        "{stderr}"
+    );
+}

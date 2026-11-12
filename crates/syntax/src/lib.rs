@@ -364,6 +364,11 @@ fn parse_raw(raw: &RawCommand) -> Result<Command, SyntaxError> {
             "END DATA without BEGIN DATA",
         )
         .hint("inline data starts with a line that holds only BEGIN DATA")),
+        Resolution::Unsupported("END CHART", used) => Err(SyntaxError::new(
+            name_span(used),
+            "END CHART without BEGIN CHART",
+        )
+        .hint("a chart starts with a line that holds only BEGIN CHART")),
         Resolution::Unsupported("END MATRIX", used) => Err(SyntaxError::new(
             name_span(used),
             "END MATRIX without MATRIX",

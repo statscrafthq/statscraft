@@ -31,8 +31,9 @@ pub struct State {
     /// The command's name, when its first words name one.
     pub command: Option<&'static str>,
     comment: bool,
-    /// The lines between BEGIN DATA and END DATA.
-    data: bool,
+    /// The lines between BEGIN DATA and END DATA, or BEGIN CHART and END CHART: the block's
+    /// second word.
+    data: Option<&'static str>,
 }
 
 /// Words of every command that are no keywords of a single one.
@@ -198,8 +199,8 @@ pub fn line(text: &str, state: &mut State) -> Vec<(Range<usize>, Kind)> {
 pub fn line_with(text: &str, state: &mut State, macros: &[String]) -> Vec<(Range<usize>, Kind)> {
     let mut spans = Vec::new();
     let code = text.trim();
-    if state.data {
-        if is_end_data(code) {
+    if let Some(block) = state.data {
+        if is_end_data(code, block) {
             spans.push((0..text.len(), Kind::Command));
             *state = State::default();
         }
@@ -242,7 +243,11 @@ pub fn line_with(text: &str, state: &mut State, macros: &[String]) -> Vec<(Range
             state.command = Some(name);
             spans.push((words[0].start..words[used - 1].end, Kind::Command));
             i = words[used - 1].end;
-            state.data = name == "BEGIN DATA";
+            state.data = match name {
+                "BEGIN DATA" => Some("DATA"),
+                "BEGIN CHART" => Some("CHART"),
+                _ => None,
+            };
         }
     }
     let mut after_slash = false;
@@ -332,11 +337,11 @@ pub fn line_with(text: &str, state: &mut State, macros: &[String]) -> Vec<(Range
     spans
 }
 
-fn is_end_data(code: &str) -> bool {
+fn is_end_data(code: &str, block: &str) -> bool {
     let code = code.strip_suffix('.').unwrap_or(code);
     let mut words = code.split_whitespace();
     words.next().is_some_and(|w| w.eq_ignore_ascii_case("END"))
-        && words.next().is_some_and(|w| w.eq_ignore_ascii_case("DATA"))
+        && words.next().is_some_and(|w| w.eq_ignore_ascii_case(block))
         && words.next().is_none()
 }
 
@@ -526,6 +531,14 @@ mod tests {
                 ("END DATA.", Kind::Command),
                 ("EXECUTE", Kind::Command),
                 (".", Kind::Period),
+            ]
+        );
+        // and so is the JSON of a chart
+        assert_eq!(
+            kinds("BEGIN CHART\n{\"mark\": \"bar\".\nEND DATA.\nEND CHART."),
+            [
+                ("BEGIN CHART", Kind::Command),
+                ("END CHART.", Kind::Command)
             ]
         );
         let text = "GET FILE='a.sav'.\nFREQUENCIES\n  VARIABLES=x";
