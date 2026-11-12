@@ -1,4 +1,4 @@
-//! The Output tab: a navigator of runs, commands and tables beside the tables themselves. Each
+//! An output window: a navigator of runs, commands and tables beside the tables themselves. Each
 //! table is measured once, and a table out of view only takes its place, so hundreds of tables
 //! scroll smoothly.
 
@@ -27,7 +27,7 @@ const GAP: f32 = 22.0;
 /// Space around the output, so a table's border stands off the edge.
 const MARGIN: f32 = 14.0;
 
-/// What the Output tab asks of the window.
+/// What an output window asks of the app.
 pub enum Request {
     /// Export the selected tables, as a web page or as an Excel workbook (with one sheet for all).
     ExportHtml,

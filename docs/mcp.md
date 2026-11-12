@@ -28,7 +28,7 @@ The server also sends the working loop to the agent when it connects, and offers
 
 A session keeps the data, settings, macros and named datasets between calls, as with `statscraft run -s NAME` (see [sessions](command-line.md#sessions-and-line-ranges)).
 
-- When the Statscraft window is open, calls without a `session` go to the window (the session `gui`). You see every table appear in the Output tab and every command in the log, and you can keep working in the window between the agent's steps.
+- When the Statscraft window is open, calls without a `session` go to the window (the session `gui`). You see every table appear in the designated output window and every command in the log, and you can keep working in the window between the agent's steps.
 - When no window is open, calls without a `session` use a session named `work`.
 - File sessions of the MCP server live in your user data folder, not in the folder the agent app started the server in: `~/.local/share/statscraft/sessions` on Linux (or `$XDG_DATA_HOME/statscraft/sessions`), `~/Library/Application Support/Statscraft/sessions` on macOS, and `%LOCALAPPDATA%\Statscraft\sessions` on Windows. Delete a session's folder for a fresh start, or ask the agent to use a new session name.
 
