@@ -47,10 +47,7 @@ fn factor_abbreviations_and_aliases() {
         "FACTOR VARS=item1 TO item9 /SELECT=WAVE ('b') /MISS=MEANSUB /PRINT=DEF REPR KMO AIC \
          /EXTRACT=ULS /ROTATE=VARIMAX.",
     );
-    assert_eq!(
-        f.select,
-        Some(("WAVE".into(), Value::String("b".into())))
-    );
+    assert_eq!(f.select, Some(("WAVE".into(), Value::String("b".into()))));
     assert_eq!(f.missing, FactorMissing::MeanSubstitution);
     let p = f.print;
     assert!(p.initial && p.extraction && p.rotation && p.aic && p.kmo && p.repr && !p.sig);

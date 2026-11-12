@@ -79,10 +79,7 @@ fn a_listing_with_break_groups() {
   /SUMMARY=VALIDN (product) MEAN (sales) 'Count,Average Taken'.",
     );
     assert_eq!(table.title, "Report");
-    assert_eq!(
-        table.columns,
-        ["Section", "Line Items", "Weekly Taken"]
-    );
+    assert_eq!(table.columns, ["Section", "Line Items", "Weekly Taken"]);
     assert_eq!(table.row_headers, 1);
     expect(
         &table,

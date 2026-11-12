@@ -298,9 +298,7 @@ fn method_text(method: M) -> &'static str {
         M::MinResid => {
             "Each step adds the variable that leaves the least unexplained variation, summed over every pair of groups."
         }
-        M::Rao => {
-            "Each step adds the variable that raises Rao's V the most."
-        }
+        M::Rao => "Each step adds the variable that raises Rao's V the most.",
     }
 }
 

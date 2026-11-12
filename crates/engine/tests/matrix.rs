@@ -204,7 +204,11 @@ fn read_a_file_and_print_the_large_eigenvalues() {
     assert_eq!(titles, ["Root", "Vector", "Root", "Vector"]);
     close(&numbers(&tables[0]), &[&[5.0]], "first eigenvalue");
     let (a, b) = (2.0 / 5f64.sqrt(), 1.0 / 5f64.sqrt());
-    close(&numbers(&tables[1]), &[&[a, b, 0.0, 0.0]], "first eigenvector");
+    close(
+        &numbers(&tables[1]),
+        &[&[a, b, 0.0, 0.0]],
+        "first eigenvector",
+    );
     close(&numbers(&tables[2]), &[&[3.0]], "second eigenvalue");
     close(
         &numbers(&tables[3]),

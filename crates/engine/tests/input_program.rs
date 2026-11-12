@@ -400,7 +400,11 @@ fn shop_files() -> [(&'static str, String); 3] {
         .iter()
         .map(|(shop, staff, town)| format!("  {shop:<12} {staff:>2} {town}\n"))
         .collect();
-    [("north.txt", north), ("south.txt", south), ("east.txt", east)]
+    [
+        ("north.txt", north),
+        ("south.txt", south),
+        ("east.txt", east),
+    ]
 }
 
 /// Reads the three files one after the other, each until its END variable turns 1.
@@ -704,11 +708,15 @@ fn invoices(data: &Dataset) {
     );
     assert_eq!(
         whole(data, "QTY"),
-        [2.0, 12.0, 150.0, 40.0, 1.0, 6.0, 30.0, 8.0, 20.0, 3.0, 100.0]
+        [
+            2.0, 12.0, 150.0, 40.0, 1.0, 6.0, 30.0, 8.0, 20.0, 3.0, 100.0
+        ]
     );
     assert_eq!(
         whole(data, "UNIT"),
-        [4.8, 19.95, 0.35, 1.1, 249.0, 38.5, 7.25, 12.4, 3.15, 88.0, 0.99]
+        [
+            4.8, 19.95, 0.35, 1.1, 249.0, 38.5, 7.25, 12.4, 3.15, 88.0, 0.99
+        ]
     );
     assert_eq!(strings(data, "PART")[6], "R2-415-10");
     assert_eq!(data.variable("UNIT").unwrap().format(), "DOLLAR10.2");
@@ -1004,10 +1012,7 @@ fn a_grouped_file_with_missing_and_unordered_records() {
         numbers(data, "SPRINT"),
         [None, Some(118.0), None, Some(109.0)]
     );
-    assert_eq!(
-        whole(data, "DISTANCE"),
-        [310.0, 402.0, 288.0, 365.0]
-    );
+    assert_eq!(whole(data, "DISTANCE"), [310.0, 402.0, 288.0, 365.0]);
     assert!(warnings(&result).is_empty());
 
     // the defaults warn about missing, duplicate and unordered records
@@ -1121,10 +1126,7 @@ fn duplicate_and_missing_records_of_a_nested_file() {
     ));
     let data = s.dataset().unwrap();
     assert_eq!(data.case_count(), 6);
-    assert_eq!(
-        strings(data, "OWNER"),
-        ["RE", "TE", "OW", "OW", "OW", "RE"]
-    );
+    assert_eq!(strings(data, "OWNER"), ["RE", "TE", "OW", "OW", "OW", "RE"]);
     assert_eq!(
         numbers(data, "MOIST"),
         [
@@ -1245,10 +1247,7 @@ fn leave_with_lag_sums_per_group() {
          FORMATS RUNPTS (COMMA6)/ POINTS (F3).\n\
          LIST.");
     let data = s.dataset().unwrap();
-    assert_eq!(
-        whole(data, "RUNPTS"),
-        [7.0, 11.0, 12.0, 10.0, 12.0, 21.0]
-    );
+    assert_eq!(whole(data, "RUNPTS"), [7.0, 11.0, 12.0, 10.0, 12.0, 21.0]);
     assert!(
         data.variable("RUNPTS")
             .unwrap()

@@ -250,15 +250,19 @@ fn anova_lists_and_subcommands() {
     assert_eq!(l.factors.len(), 2);
     assert_eq!(
         l.factors[1].0,
-        [VarItem::Name("GENDER".into()), VarItem::Name("SCHOOL".into())]
+        [
+            VarItem::Name("GENDER".into()),
+            VarItem::Name("SCHOOL".into())
+        ]
     );
     assert_eq!((l.factors[1].1, l.factors[1].2), (1.0, 2.0));
     assert_eq!(a.max_order, 2);
     assert!(a.mean && !a.reg && !a.mca);
     assert_eq!(a.method, AnovaMethod::Unique);
     assert_eq!(a.covariate_order, CovariateOrder::First);
-    let a =
-        anova("ANOVA VARIABLES=SCORE BY CLASS(1,6) GENDER,SCHOOL(1,2) /WAGE BY GENDER,SCHOOL(1,2).");
+    let a = anova(
+        "ANOVA VARIABLES=SCORE BY CLASS(1,6) GENDER,SCHOOL(1,2) /WAGE BY GENDER,SCHOOL(1,2).",
+    );
     assert_eq!(a.lists.len(), 2);
     assert_eq!(a.lists[1].dependents, [VarItem::Name("WAGE".into())]);
     let a = anova(

@@ -114,11 +114,7 @@ fn shapes_and_diagonals_give_the_same_matrix() {
         let (session, _, _) = run(&format!(
             "MATRIX DATA VARIABLES=ROWTYPE_ Q1 TO Q3 /FORMAT={format}.\nBEGIN DATA\nN 40 40 40\n{rows}\nEND DATA.\n"
         ));
-        assert_eq!(
-            cases(session.dataset().unwrap()),
-            BASE[2..],
-            "{format}"
-        );
+        assert_eq!(cases(session.dataset().unwrap()), BASE[2..], "{format}");
     }
     // the diagonal of a covariance matrix left out is missing
     let (session, _, _) = run("MATRIX DATA VARIABLES=ROWTYPE_ a b /FORMAT=NODIAGONAL.
