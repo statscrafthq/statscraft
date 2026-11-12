@@ -41,6 +41,7 @@ mod matrix;
 mod matrix_data;
 mod mrsets;
 mod mult_response;
+mod nomreg;
 mod npar;
 mod output;
 mod output_docs;
@@ -81,6 +82,8 @@ mod tests_matrix;
 mod tests_models;
 #[cfg(test)]
 mod tests_multivariate;
+#[cfg(test)]
+mod tests_nomreg;
 #[cfg(test)]
 mod tests_npar;
 #[cfg(test)]
@@ -135,6 +138,9 @@ pub use matrix::{
 };
 pub use matrix_data::{MatrixData, MatrixShape, RowType};
 pub use mrsets::{Mrsets, MrsetsGroup};
+pub use nomreg::{
+    Nomreg, NomregBase, NomregCriteria, NomregOrder, NomregPrint, NomregSave, NomregScale,
+};
 pub use npar::{
     BinomialSplit, GroupTest, KsDistribution, NparTest, NparTests, PairedTest, PartialCorr,
     PartialFormat, PartialList, RelatedTest, RunsCut,

@@ -112,6 +112,8 @@ pub(crate) struct Lexer<'a> {
     pub glued_words: bool,
     /// The statements of a MATRIX program: `{`, `}`, `:`, `&*`, `&/` and `&**` are tokens.
     pub matrix: bool,
+    /// `:` is a token, as in NOMREG's `ESTPROB(root:n)`.
+    pub colon: bool,
 }
 
 impl<'a> Lexer<'a> {
@@ -123,6 +125,7 @@ impl<'a> Lexer<'a> {
             col: 0,
             glued_words: false,
             matrix: false,
+            colon: false,
         }
     }
 
@@ -282,7 +285,7 @@ impl<'a> Lexer<'a> {
             ('&', Some('/')) if self.matrix => (Punct::ElemDiv, 2),
             ('{', _) if self.matrix => (Punct::LBrace, 1),
             ('}', _) if self.matrix => (Punct::RBrace, 1),
-            (':', _) if self.matrix => (Punct::Colon, 1),
+            (':', _) if self.matrix || self.colon => (Punct::Colon, 1),
             ('*', Some('*')) => (Punct::Pow, 2),
             ('<', Some('=')) => (Punct::Le, 2),
             ('<', Some('>')) => (Punct::Ne, 2),

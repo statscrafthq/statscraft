@@ -40,6 +40,7 @@ mod means;
 mod merge;
 mod mrsets;
 mod mult_response;
+mod nomreg;
 mod nonpar_corr;
 mod npar_groups;
 mod npar_tests;
@@ -641,6 +642,7 @@ impl Engine {
             | Command::Factor(_)
             | Command::QuickCluster(_)
             | Command::Logistic(_)
+            | Command::Nomreg(_)
             | Command::Glm(_)
             | Command::Cluster(_)
             | Command::Discriminant(_)
@@ -860,6 +862,7 @@ impl Engine {
             Command::Factor(command) => self.factor(command),
             Command::QuickCluster(command) => self.quick_cluster(command),
             Command::Logistic(command) => self.logistic(command),
+            Command::Nomreg(command) => self.nomreg(command),
             Command::Glm(command) => self.glm(command),
             Command::Cluster(command) => self.cluster(command),
             Command::Discriminant(command) => self.discriminant(command),

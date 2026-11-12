@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- NOMREG: multinomial logistic regression of a nominal dependent variable (numeric or string) on factors and covariates, with BASE and ORDER for the reference category, MODEL with interactions and nested effects, FULLFACTORIAL, INTERCEPT, CRITERIA, SCALE, SUBPOP, weights and MISSING. Tables: Case Processing Summary, Model Fitting Information (with AIC and BIC), Goodness-of-Fit, Pseudo R-Square, Likelihood Ratio Tests, Parameter Estimates with the interval of Exp(B), Classification, and the covariance and correlation matrices. SAVE adds the category probabilities, the predicted category and its probability, and the probability of the observed category. Stepwise methods, TEST and OUTFILE are not supported yet. See [NOMREG](docs/commands/nomreg.md).
+
 ## 0.9.0 (2026-11-12)
 
 - Agents inside WSL: on Windows, Edit > Settings > AI agents and `statscraft connect` also find Codex (including the ChatGPT app's Codex in WSL mode), Gemini CLI, Antigravity and Claude Code installed in a WSL distribution, listed as for example Codex (WSL: Ubuntu) or `codex-wsl:Ubuntu`. The entry starts the Windows program through its `/mnt/c` path, so the agent sees the open window, and tells the server the distribution. The server then takes Linux paths in tool arguments, gives the trail file and the workbook in both forms, and `window_status` says the platform and the distribution; file names inside syntax stay Windows paths. Listing the apps no longer holds up the window while WSL starts. See [Agents inside WSL](docs/connect.md#agents-inside-wsl).

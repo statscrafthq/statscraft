@@ -62,7 +62,7 @@ impl Effect {
         self.start..self.start + self.cells.len()
     }
 
-    fn is_intercept(&self) -> bool {
+    pub(crate) fn is_intercept(&self) -> bool {
         self.parts.is_empty()
     }
 
@@ -434,7 +434,7 @@ impl Fit {
 
 /// Sweeps the pivots of `order` in turn, skipping those that fall to `eps` of their original
 /// diagonal; returns the matrix and which pivots were swept.
-fn sweep_in_order(zwz: &Matrix, order: &[usize], eps: f64) -> (Matrix, Vec<bool>) {
+pub(crate) fn sweep_in_order(zwz: &Matrix, order: &[usize], eps: f64) -> (Matrix, Vec<bool>) {
     let mut m = zwz.clone();
     let mut swept = vec![false; zwz.len()];
     for &k in order {
@@ -585,7 +585,7 @@ fn combinations(sizes: &[usize]) -> Vec<Vec<usize>> {
 
 /// The design of a model from its terms: each factor and covariate named, factors not repeated
 /// within a term, covariates not nested.
-fn effects_of(
+pub(crate) fn effects_of(
     terms: &[Term],
     factor_names: &[String],
     covariate_names: &[String],
@@ -667,7 +667,7 @@ fn effects_of(
     Ok(out)
 }
 
-fn intercept_term() -> Term {
+pub(crate) fn intercept_term() -> Term {
     Term {
         variables: Vec::new(),
         label: "Intercept".into(),
@@ -675,7 +675,11 @@ fn intercept_term() -> Term {
 }
 
 /// The default design: the intercept, the covariates, the full factorial of the factors.
-fn default_terms(factors: &[String], covariates: &[String], intercept: bool) -> Vec<Term> {
+pub(crate) fn default_terms(
+    factors: &[String],
+    covariates: &[String],
+    intercept: bool,
+) -> Vec<Term> {
     let mut terms = Vec::new();
     if intercept {
         terms.push(intercept_term());

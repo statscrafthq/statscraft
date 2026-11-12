@@ -471,6 +471,18 @@ Where the documentation is silent:
 - String covariates are categorical. A categorical variable needs two categories among the cases used.
 - The Categorical Variables Codings show weighted frequencies.
 
+### NOMREG
+
+- The manual is followed where the usual R function for this model (`nnet::multinom`) differs: the reference category is the last one unless BASE says otherwise (`multinom` takes the first); a factor gets one parameter per level, the last redundant and shown as 0 (`multinom` drops the first level); the standard errors come from the information matrix, which here is the same observed or expected. The tests convert by releveling and by contrasts with the last level as base.
+- The -2 log likelihoods include the multinomial constant of the subpopulations, so they are smaller than `multinom`'s deviance by twice that constant; KERNEL shows the deviance. Chi-squares, Cox and Snell and Nagelkerke R square do not depend on it; McFadden's R square uses the kernel, as the manual's formula does.
+- PRINT given shows only the tables it names; without PRINT the Case Processing Summary and Model Fitting Information, as the manual marks the defaults.
+- The likelihood ratio tests leave the intercept out, as the Algorithms manual says.
+- DELTA and BIAS change the counts that are fitted and tested; the Case Processing Summary and the Classification table show the case weights as they are.
+- SAVE gives values to every case whose factors and covariates are valid and whose factor levels occur among the cases used, also to cases left out for a missing dependent value or a weight of 0; ACPROB needs a dependent value that is one of the categories. ESTPROB with a root name gives root1, root2, ...; without one EST1_1, EST2_1, ....
+- Convergence: the change of each parameter is absolute (PCONVERGE), and the gradient test uses the smaller of the criteria above 0. Step-halving accepts a step when the log likelihood does not fall.
+- A string BASE value for a numeric dependent is read as a number, or matched against the formatted value.
+- Not supported yet: stepwise methods (MODEL with `|`, STEPWISE), TEST, OUTFILE, PRINT CELLPROB, HISTORY and ASSOCIATION.
+
 ### UNIANOVA and GLM
 
 - A frequency weight is rounded to a whole number, as documented (GNU PSPP uses fractional weights as they are).
@@ -743,6 +755,7 @@ Where the documentation is silent:
   - REGRESSION has no METHOD=TEST, SELECT, MATRIX or OUTFILE.
   - RELIABILITY has no MODEL=OMEGA or MATRIX.
   - LOGISTIC REGRESSION has no SELECT or OUTFILE.
+  - NOMREG has no stepwise methods, TEST, OUTFILE, or PRINT CELLPROB, HISTORY and ASSOCIATION.
   - UNIANOVA and GLM have no multivariate model (GLM with several dependents without WSFACTOR), RANDOM, TEST, ROBUST, OUTFILE, MMATRIX, MEASURE, POSTHOC VS, CONTRAST SPECIAL or the heteroskedasticity tests, and draw no error bars on profile plots. With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX, SAVE or PLOT.
   - FACTOR has no METHOD=COVARIANCE, MATRIX=OUT or MATRIX=IN(FAC=...).
   - CLUSTER has no MATRIX=OUT.
