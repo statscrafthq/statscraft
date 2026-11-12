@@ -480,7 +480,7 @@ pub(crate) fn noncentral_t_cdf(t: f64, df: f64, delta: f64) -> f64 {
     let top = lambda.floor();
     // a noncentrality this large has no next term in floating point; the probability is at
     // its limit
-    if !(top + 1.0 > top) {
+    if top.is_nan() || top + 1.0 == top {
         return if delta > 0.0 { 0.0 } else { 1.0 };
     }
     let mut sum = 0.0;
@@ -533,7 +533,7 @@ pub(crate) fn noncentral_f_cdf(f: f64, d1: f64, d2: f64, lambda: f64) -> f64 {
     let top = half.floor();
     // a noncentrality this large has no next term in floating point; the probability is at
     // its limit 0 (an infinite one, from a perfect fit, too)
-    if !(top + 1.0 > top) {
+    if top.is_nan() || top + 1.0 == top {
         return 0.0;
     }
     let mut sum = 0.0;

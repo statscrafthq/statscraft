@@ -146,7 +146,7 @@ fn poisson_mixture(mean: f64, term: impl Fn(f64) -> f64) -> f64 {
     let weight = |j: f64| (-mean + j * mean.ln() - ln_gamma(j + 1.0)).exp();
     let top = mean.floor();
     // a mean this large has no next term in floating point, so the sum cannot be taken
-    if !(top + 1.0 > top) {
+    if top.is_nan() || top + 1.0 == top {
         return f64::NAN;
     }
     let mut sum = 0.0;
