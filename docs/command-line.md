@@ -121,6 +121,7 @@ A session is what one window would keep from one run to the next, stored on disk
 | Named datasets (DATASET NAME, COPY, DECLARE) and which one is active, each with its split and filter | yes | `datasets/` |
 | Macros (DEFINE) and the macro settings MEXPAND, MPRINT, MNEST, MITERATE | yes | `macros.sps` |
 | File handles (FILE HANDLE), SET values, PRESERVE levels not yet restored, the CD folder | yes | `settings.sps`, as FILE HANDLE, SET, PRESERVE and CD commands |
+| The syntax of every run that worked, oldest first: the trail of how the session got where it is | yes | `syntax.sps`, each run under a comment line such as `* Agent 2026-11-12 14:32.` |
 | TEMPORARY, N OF CASES, scratch variables, VECTOR | no: the end of a run is a data pass, so they take effect or end in the run that gives them | |
 | An open DO IF, LOOP, or a DATA LIST without its BEGIN DATA | no: the run fails | |
 | The folder of the syntax file, where INSERT and INCLUDE start | no: each run starts from its own file | |
@@ -129,6 +130,7 @@ A session is what one window would keep from one run to the next, stored on disk
 - With `--lines`, only the macros defined on those lines are kept; a macro defined elsewhere in the file still serves the run, as before.
 - A run saves the session when it changed anything in the table above, or when the session file did not exist yet. A failed run keeps none of its changes. A dataset keeps the encoding of the file it came from; when a label or value no longer fits that code page (a letter of another language), the session keeps it in UTF-8 instead.
 - `describe -s NAME` shows the active dataset and, under `session` in the JSON, the SET values given, the number of PRESERVE levels, the CD folder, the active dataset's name, every named dataset with its size, the macros, the output documents and the designated one ([describe](#describe)).
+- The trail in `syntax.sps` holds exactly the syntax that ran: only the chosen lines for `--lines`, nothing of a failed run or a check. Run it from the top on the original data to repeat the work, or copy steps from it. When it cannot be written, the run fails and the session stays as it was.
 - `check` and `describe` never write it.
 - Delete the session's folder to start over.
 
@@ -200,6 +202,7 @@ Line numbers in the output always refer to the whole file, not to the range.
 |---|---|
 | `ok` | true |
 | `session` | the session name; absent without `-s` |
+| `trail` | where the syntax of this run was kept: the absolute path of the session's `syntax.sps`, or for `gui` the syntax window, such as `syntax window Agent`. Absent without a session and for `check` |
 | `commands` | one entry per command that ran, in order, with its first and last line in the source |
 | `commands[].tables` | the tables of that command |
 | `commands[].charts` | the charts of that command (see [Charts](#charts)); absent when it made none |

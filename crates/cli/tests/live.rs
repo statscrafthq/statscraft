@@ -47,6 +47,15 @@ fn start_window(file: &Path) -> live::Server {
     .unwrap()
 }
 
+/// The output without the line that says where the syntax was kept: a file session keeps it in
+/// its folder, and the window of these tests keeps none.
+fn without_trail(out: &str) -> String {
+    out.lines()
+        .filter(|line| !line.contains("\"trail\": "))
+        .map(|line| format!("{line}\n"))
+        .collect()
+}
+
 fn text(out: &Output) -> (bool, String, String) {
     (
         out.status.success(),
@@ -104,7 +113,7 @@ fn the_window_answers_exactly_like_a_file_session() {
         // a file session keeps its data as .zsav; the window keeps the file as it was read
         let file = (
             file.0,
-            file.1
+            without_trail(&file.1)
                 .replace("\"compression\": \"zlib\"", "\"compression\": \"none\""),
             file.2,
         );
@@ -159,10 +168,8 @@ fn a_request_without_the_token_is_refused() {
     let request = Request {
         token: "guess".into(),
         action: Action::Describe,
-        source: String::new(),
-        lines: None,
         json: true,
-        cwd: None,
+        ..Request::default()
     };
     let stream = std::net::TcpStream::connect(address).unwrap();
     writeln!(&stream, "{}", serde_json::to_string(&request).unwrap()).unwrap();
@@ -218,7 +225,7 @@ fn the_window_run_writes_the_same_workbook() {
             }
             args.extend(["-e", syntax]);
             let (ok, out, err) = text(&dir.cli(&args));
-            let out = out.replace("\"session\": \"gui\"", "\"session\": \"t1\"");
+            let out = without_trail(&out).replace("\"session\": \"gui\"", "\"session\": \"t1\"");
             (ok, out, err, workbook_parts(&dir.0.join(&file)))
         };
         let file = with("t1");
@@ -226,4 +233,85 @@ fn the_window_run_writes_the_same_workbook() {
         assert!(file.0, "{}", file.2);
         assert_eq!(window, file, "json {json}");
     }
+}
+
+#[test]
+fn runs_sent_to_the_window_leave_their_syntax_and_file_sessions_keep_theirs() {
+    let dir = Workdir::new("trail");
+    let mut desk = live::Desk::default();
+    let _server = live::serve(dir.endpoint(), move |request| desk.answer(&request)).unwrap();
+    let run = |session: &str, syntax: &str| {
+        let out = dir.cli(&["run", "-s", session, "--json", "-e", syntax]);
+        serde_json::from_slice::<serde_json::Value>(&out.stdout).unwrap()
+    };
+    assert_eq!(run("gui", "SET SEED=11.")["trail"], "syntax window Agent");
+    assert_eq!(run("gui", "SET SEDE=1.")["ok"], false);
+    let windows = live::send(
+        &dir.endpoint(),
+        Request {
+            action: Action::Read,
+            window: Some("Agent".into()),
+            ..Request::default()
+        },
+    )
+    .unwrap();
+    let windows: serde_json::Value = serde_json::from_str(&windows).unwrap();
+    let text = windows["text"].as_str().unwrap();
+    assert!(
+        text.starts_with("1  * Agent ") && text.ends_with("\n2  SET SEED=11.\n"),
+        "{text}"
+    );
+
+    // a file session keeps every successful run in syntax.sps beside its data, with the date
+    let first = run("t1", "SET SEED=11.");
+    let trail = dir.0.join(".statscraft/sessions/t1/syntax.sps");
+    assert_eq!(first["trail"], trail.to_str().unwrap());
+    assert_eq!(run("t1", "SET SEDE=1.")["ok"], false);
+    let out = dir.cli(&[
+        "run",
+        "-s",
+        "t1",
+        "--lines",
+        "2-2",
+        "-e",
+        "SHOW SEED.\nSET SEED=12.",
+    ]);
+    assert!(out.status.success());
+    let kept = std::fs::read_to_string(&trail).unwrap();
+    let blocks: Vec<&str> = kept.split("\n\n").collect();
+    assert_eq!(blocks.len(), 2, "{kept}");
+    let stamp = blocks[0].lines().next().unwrap();
+    assert!(stamp.starts_with("* Agent 20") && stamp.len() == "* Agent 2026-11-12 14:32.".len());
+    assert!(blocks[0].ends_with("\nSET SEED=11."));
+    assert!(blocks[1].ends_with("\nSET SEED=12.\n"));
+    // a check keeps nothing
+    dir.cli(&["check", "-s", "t1", "-e", "SET SEED=13."]);
+    assert_eq!(std::fs::read_to_string(&trail).unwrap(), kept);
+}
+
+/// A window from before a request existed answers "bad request: unknown variant"; the client
+/// says to update instead of passing that on.
+#[test]
+fn an_older_window_asks_for_an_update() {
+    let dir = Workdir::new("older");
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let endpoint = serde_json::json!({ "address": listener.local_addr().unwrap(), "token": "t" });
+    std::fs::create_dir_all(dir.endpoint().parent().unwrap()).unwrap();
+    std::fs::write(dir.endpoint(), endpoint.to_string()).unwrap();
+    std::thread::spawn(move || {
+        let (stream, _) = listener.accept().unwrap();
+        let mut line = String::new();
+        BufReader::new(&stream).read_line(&mut line).unwrap();
+        let old = r#"{"Err":[{"kind":"session","message":"bad request: unknown variant `windows`, expected one of `run`, `check`, `describe`"}]}"#;
+        writeln!(&stream, "{old}").unwrap();
+    });
+    let request = Request {
+        action: Action::Windows,
+        ..Request::default()
+    };
+    let errors = live::send(&dir.endpoint(), request).unwrap_err();
+    assert!(
+        errors[0].message.contains("update Statscraft"),
+        "{errors:?}"
+    );
 }

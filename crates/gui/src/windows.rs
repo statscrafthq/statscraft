@@ -21,7 +21,8 @@ use crate::app::DataView;
 use crate::output_view::OutputView;
 use crate::syntax_window::SyntaxWindow;
 use eframe::egui::{Pos2, Vec2, ViewportId};
-use std::path::Path;
+use statscraft_engine::live::{SyntaxInfo, SyntaxWindows};
+use std::path::{Path, PathBuf};
 
 pub(crate) type WindowId = u64;
 
@@ -85,6 +86,8 @@ pub(crate) struct Registry {
     untitled: usize,
     /// The window that had the keyboard last.
     pub focused: Option<WindowId>,
+    /// The syntax window Agent, which keeps the syntax of the runs sent to the window.
+    agent: Option<WindowId>,
 }
 
 impl Registry {
@@ -95,6 +98,7 @@ impl Registry {
             next: 1,
             untitled: 1,
             focused: None,
+            agent: None,
         };
         registry.open(Kind::Data(Box::default()));
         registry
@@ -135,20 +139,22 @@ impl Registry {
         self.open(Kind::Syntax(Box::new(window)))
     }
 
-    /// Removes a window; the designation of a syntax window passes to the newest one left.
-    /// Output windows follow the session's designated document instead (`sync_output`).
+    /// Removes a window; the designation of a syntax window passes to the newest one left, other
+    /// than the Agent window. Output windows follow the session's designated document instead
+    /// (`sync_output`).
     pub fn close(&mut self, id: WindowId) {
         let Some(index) = self.windows.iter().position(|w| w.id == id) else {
             return;
         };
         let window = self.windows.remove(index);
+        let agent = self.agent;
         if window.designated
             && matches!(window.kind, Kind::Syntax(_))
             && let Some(next) = self
                 .windows
                 .iter_mut()
                 .rev()
-                .find(|w| matches!(w.kind, Kind::Syntax(_)))
+                .find(|w| matches!(w.kind, Kind::Syntax(_)) && Some(w.id) != agent)
         {
             next.designated = true;
         }
@@ -414,6 +420,69 @@ impl Registry {
     }
 }
 
+/// The syntax windows as the requests from the command line and agents see them.
+impl SyntaxWindows for Registry {
+    fn list(&self) -> Vec<SyntaxInfo> {
+        self.iter()
+            .filter_map(|w| match &w.kind {
+                Kind::Syntax(s) => Some(SyntaxInfo {
+                    id: w.id,
+                    name: s.name(),
+                    file: s.file.clone(),
+                    unsaved: s.unsaved().is_some(),
+                    lines: statscraft_engine::live::line_count(&s.text),
+                    agent: self.agent == Some(w.id),
+                    designated: w.designated,
+                    focused: self.focused == Some(w.id),
+                }),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn text_mut(&mut self, id: WindowId) -> Option<&mut String> {
+        self.syntax_mut(id).map(|s| &mut s.text)
+    }
+
+    fn create(
+        &mut self,
+        name: Option<String>,
+        text: String,
+        file: Option<PathBuf>,
+        designate: bool,
+    ) -> WindowId {
+        let before = self.designated_syntax();
+        let id = match name {
+            Some(name) => self.open(Kind::Syntax(Box::new(SyntaxWindow::new(name, text, file)))),
+            None => self.open_syntax(text, file.as_deref()),
+        };
+        if let Some(s) = self.syntax_mut(id)
+            && s.file.is_none()
+        {
+            // text an agent put in a new window is lost on close unless saved: ask then
+            s.saved.clear();
+        }
+        if !designate {
+            match before {
+                Some(before) => self.designate(before),
+                None => self.get_mut(id).expect("just opened").designated = false,
+            }
+        }
+        id
+    }
+
+    fn saved(&mut self, id: WindowId, file: PathBuf) {
+        if let Some(s) = self.syntax_mut(id) {
+            s.saved = s.text.clone();
+            s.file = Some(file);
+        }
+    }
+
+    fn agent(&mut self) -> &mut Option<WindowId> {
+        &mut self.agent
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -471,6 +540,43 @@ mod tests {
         assert_eq!(r.designated_syntax(), Some(b));
         r.close(b);
         assert_eq!(r.designated_syntax(), None);
+    }
+
+    #[test]
+    fn the_agent_window_keeps_runs_without_taking_pasted_syntax() {
+        use statscraft_engine::live::{self, SyntaxWindows};
+        let mut r = Registry::new();
+        let mine = r.open_syntax("FREQ x.".into(), None);
+        assert_eq!(live::keep_trail(&mut r, "DESC y."), "syntax window Agent");
+        let agent = r.agent.unwrap();
+        assert_eq!(
+            r.designated_syntax(),
+            Some(mine),
+            "pasted syntax still goes to mine"
+        );
+        live::keep_trail(&mut r, "MEANS y BY x.");
+        let text = &r.syntax(agent).unwrap().text;
+        assert!(
+            text.starts_with("* Agent ") && text.ends_with(".\nMEANS y BY x.\n"),
+            "{text}"
+        );
+        let listed = r.list();
+        assert_eq!(listed.len(), 2);
+        assert!(listed[1].agent && !listed[1].designated && listed[1].unsaved);
+        assert_eq!(listed[1].lines, 5);
+        // the person closed it: the next run opens a new one, and it is never designated
+        r.close(mine);
+        assert_eq!(r.designated_syntax(), None);
+        r.close(agent);
+        live::keep_trail(&mut r, "SHOW.");
+        let again = r.agent.unwrap();
+        assert_ne!(again, agent);
+        assert_eq!(r.designated_syntax(), None);
+        assert!(r.syntax(again).unwrap().text.ends_with(".\nSHOW.\n"));
+        // a new window from an agent is designated, and asked about when it holds text
+        let new = r.create(None, "SHOW N.".into(), None, true);
+        assert_eq!(r.designated_syntax(), Some(new));
+        assert!(r.syntax(new).unwrap().unsaved().is_some());
     }
 
     #[test]

@@ -144,6 +144,8 @@ fn initialize_lists_the_tools_with_their_hints_and_the_prompt() {
         "command_help",
         "check_syntax",
         "window_status",
+        "list_syntax_windows",
+        "read_syntax",
     ] {
         let t = tool(name);
         assert_eq!(t["annotations"]["readOnlyHint"], true, "{name}");
@@ -152,11 +154,22 @@ fn initialize_lists_the_tools_with_their_hints_and_the_prompt() {
             "{name}"
         );
     }
+    for (name, destructive) in [
+        ("run_syntax", true),
+        ("save_syntax", true),
+        ("edit_syntax", false),
+        ("new_syntax_window", false),
+        ("open_syntax_file", false),
+    ] {
+        let t = tool(name);
+        assert_eq!(t["annotations"]["readOnlyHint"], false, "{name}");
+        assert_eq!(t["annotations"]["destructiveHint"], destructive, "{name}");
+    }
     let run = tool("run_syntax");
-    assert_eq!(run["annotations"]["readOnlyHint"], false);
-    assert_eq!(run["annotations"]["destructiveHint"], true);
     let fields = run["inputSchema"]["properties"].as_object().unwrap();
-    for field in ["syntax", "file", "lines", "session", "folder", "xlsx"] {
+    for field in [
+        "syntax", "file", "lines", "session", "folder", "xlsx", "window",
+    ] {
         assert!(fields.contains_key(field), "run_syntax lacks {field}");
     }
     assert_eq!(
@@ -220,6 +233,10 @@ fn describe_help_check_and_runs_that_build_on_each_other() {
     assert_eq!(result["saved"], true);
     assert_eq!(result["dataset"], json!([200, 20]));
     assert!(text(&first).starts_with("ok: true\n"));
+    // the session's folder keeps the syntax of every run that worked
+    let trail = sessions.join("t1/syntax.sps");
+    assert_eq!(result["trail"], trail.to_str().unwrap());
+    assert!(text(&first).contains(&format!("syntax kept in: {}\n", trail.display())));
     assert!(text(&first).contains("### "), "tables as Markdown");
 
     let data = statscraft_data::Dataset::read_sav(fixture("survey_basic.sav")).unwrap();
@@ -277,6 +294,19 @@ fn describe_help_check_and_runs_that_build_on_each_other() {
     assert_eq!(result["errors"][0]["line"], 1);
     assert_eq!(result["errors"][0]["column"], 1);
     assert!(text(&error).contains("line 1, column 1"));
+    let kept = std::fs::read_to_string(&trail).unwrap();
+    assert!(
+        kept.starts_with("* Agent 20") && kept.contains(&syntax),
+        "{kept}"
+    );
+    assert!(
+        kept.ends_with(".\nFREQUENCIES VARIABLES=young.\n"),
+        "{kept}"
+    );
+    assert!(
+        !kept.contains("FREQUENCIS"),
+        "a failed run leaves no syntax"
+    );
 
     // bad arguments are a failure of the tool
     let relative = client.call("run_syntax", json!({ "file": "job.sps" }));
@@ -339,6 +369,117 @@ fn without_a_session_calls_go_to_the_window_when_one_is_open() {
     assert_eq!(status["structuredContent"]["window"]["case_count"], 200);
     let described = client.call("describe", json!({}));
     assert_eq!(described["structuredContent"]["case_count"], 200);
+}
+
+#[test]
+fn syntax_windows_are_read_edited_run_and_saved_and_runs_leave_their_syntax() {
+    let dir = Workdir::new("syntax");
+    let (mut client, _) = Client::start(&dir, &dir.0);
+    // without a window the syntax window tools say so
+    let none = client.call("list_syntax_windows", json!({}));
+    assert_eq!(none["isError"], true);
+    assert!(
+        text(&none).contains("no Statscraft window is running"),
+        "{none}"
+    );
+
+    let mut desk = live::Desk::default();
+    let _window = live::serve(dir.endpoint(), move |request| desk.answer(&request)).unwrap();
+    let get = format!("GET FILE='{}'.", fixture("survey_basic.sav"));
+    let run = client.call("run_syntax", json!({ "syntax": get }));
+    assert_eq!(
+        run["structuredContent"]["trail"], "syntax window Agent",
+        "{run}"
+    );
+    assert!(text(&run).contains("syntax kept in: syntax window Agent\n"));
+    let failed = client.call("run_syntax", json!({ "syntax": "FREQUENCIS age." }));
+    assert_eq!(failed["structuredContent"]["ok"], false);
+    let agent = client.call("read_syntax", json!({ "window": "Agent" }));
+    let shown = text(&agent);
+    assert!(
+        shown.starts_with("Agent (id 1, 2 lines, unsaved changes)\n1  * Agent "),
+        "{shown}"
+    );
+    assert!(shown.ends_with(&format!("\n2  {get}\n")), "{shown}");
+
+    // the person's syntax: a window with a mistake in line 2
+    let mine = "COMPUTE older = age + 10.\nFREQUENCIES olderr.\nDESCRIPTIVES age.\n";
+    let new = client.call("new_syntax_window", json!({ "name": "Ages", "text": mine }));
+    assert_eq!(new["structuredContent"]["window"]["id"], 2, "{new}");
+    let list = client.call("list_syntax_windows", json!({}));
+    let windows = &list["structuredContent"]["windows"];
+    assert_eq!(windows[0]["agent"], true);
+    assert_eq!(windows[1]["name"], "Ages");
+    assert_eq!(windows[1]["lines"], 3);
+    assert_eq!(windows[1]["unsaved"], true);
+    let fixed = client.call(
+        "edit_syntax",
+        json!({ "window": "ages", "mode": "replace", "lines": "2-2", "text": "FREQUENCIES older." }),
+    );
+    assert_eq!(
+        fixed["structuredContent"]["lines"],
+        json!([2, 2]),
+        "{fixed}"
+    );
+    let added = client.call(
+        "edit_syntax",
+        json!({ "window": "2", "mode": "append", "text": "MEANS age." }),
+    );
+    assert_eq!(added["structuredContent"]["lines"], json!([4, 4]));
+    let bad = client.call(
+        "edit_syntax",
+        json!({ "window": "2", "mode": "replace", "lines": "9-9", "text": "x" }),
+    );
+    assert_eq!(bad["isError"], true);
+
+    // run lines 1-2 from the window: its text is the record, so the Agent window stays as it was
+    let ran = client.call("run_syntax", json!({ "window": "Ages", "lines": "1-2" }));
+    let result = &ran["structuredContent"];
+    assert_eq!(result["ok"], true, "{ran}");
+    assert_eq!(result["trail"], "syntax window Ages");
+    let names: Vec<&Value> = result["commands"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|c| &c["name"])
+        .collect();
+    assert_eq!(names, [&json!("COMPUTE"), &json!("FREQUENCIES")]);
+    let agent = client.call("read_syntax", json!({ "window": "1" }));
+    assert_eq!(agent["structuredContent"]["window"]["lines"], 2);
+    let both = client.call("run_syntax", json!({ "window": "Ages", "syntax": "SHOW." }));
+    assert_eq!(both["isError"], true);
+
+    // save: a new path, then never over another file unless told
+    let own = dir.0.join("ages.sps");
+    let other = dir.0.join("other.sps");
+    std::fs::write(&other, "* not mine.\n").unwrap();
+    let refused = client.call("save_syntax", json!({ "window": "Ages", "path": other }));
+    assert_eq!(refused["isError"], true);
+    assert!(text(&refused).contains("overwrite"), "{refused}");
+    assert_eq!(std::fs::read_to_string(&other).unwrap(), "* not mine.\n");
+    let saved = client.call("save_syntax", json!({ "window": "Ages", "path": own }));
+    assert_eq!(
+        saved["structuredContent"]["window"]["name"], "ages.sps",
+        "{saved}"
+    );
+    assert_eq!(
+        std::fs::read_to_string(&own).unwrap(),
+        "COMPUTE older = age + 10.\nFREQUENCIES older.\nDESCRIPTIVES age.\nMEANS age.\n"
+    );
+    let relative = client.call("save_syntax", json!({ "window": "Ages", "path": "a.sps" }));
+    assert_eq!(relative["isError"], true);
+
+    // open a file: a new window, and the same window when it is open already
+    let opened = client.call("open_syntax_file", json!({ "path": other }));
+    assert_eq!(opened["structuredContent"]["window"]["name"], "other.sps");
+    assert_eq!(opened["structuredContent"]["window"]["unsaved"], false);
+    let again = client.call("open_syntax_file", json!({ "path": own }));
+    assert_eq!(again["structuredContent"]["window"]["id"], 2);
+    let replaced = client.call(
+        "save_syntax",
+        json!({ "window": "Ages", "path": other, "overwrite": true }),
+    );
+    assert_eq!(replaced["isError"], true, "another window holds that file");
 }
 
 /// The Claude Code plugin keeps users on its version until it changes, so it moves with every
