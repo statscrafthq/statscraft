@@ -1,0 +1,15 @@
+{
+  "name": "statscraft",
+  "description": "Statscraft for Claude Code: the MCP server and the analysis skill",
+  "owner": {
+    "name": "Statscraft",
+    "url": "https://statscraft.org"
+  },
+  "plugins": [
+    {
+      "name": "statscraft",
+      "source": "./plugins/statscraft",
+      "description": "Analyze .sav data with Statscraft: describe, look up, check and run syntax through the Statscraft MCP server"
+    }
+  ]
+}
