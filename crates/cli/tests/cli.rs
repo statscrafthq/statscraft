@@ -716,3 +716,39 @@ fn temporary_ends_with_its_run_and_random_numbers_go_on() {
     let whole = dir.json(&["run", "--json", "-e", &one_run]);
     assert_eq!(split["dataset"], whole["dataset"]);
 }
+
+#[test]
+fn run_saves_output_that_a_later_run_opens_and_converts() {
+    let w = Workdir::new("scout");
+    let save = format!(
+        "{}\nFREQUENCIES gender /BARCHART.\nOUTPUT SAVE OUTFILE='gender.scout'.",
+        get_fixture("survey_basic.sav")
+    );
+    let first = w.json(&["run", "--json", "-s", "scout", "-e", &save]);
+    assert_eq!(first["ok"], true);
+    // the file is JSON an agent reads directly
+    let text = std::fs::read_to_string(w.0.join("gender.scout")).unwrap();
+    let file: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(file["format"], "statscraft-output");
+    let command = &file["items"][0];
+    assert_eq!(command["command"], "FREQUENCIES");
+    assert_eq!(command["syntax"], "FREQUENCIES gender /BARCHART.");
+    let first_table = &first["commands"][1]["tables"][0];
+    assert_eq!(command["items"][0]["rows"], first_table["rows"]);
+    // a later run without data converts it; the opened items are not repeated in the JSON
+    let open = "OUTPUT OPEN FILE='gender.scout'.\n\
+                OUTPUT EXPORT /CSV DOCUMENTFILE='gender.csv'.\n\
+                OUTPUT DISPLAY.";
+    let second = w.json(&["run", "--json", "-e", open]);
+    assert_eq!(second["commands"][0]["document"], "Document1");
+    assert!(second["commands"][0].get("opened").is_none());
+    let csv = std::fs::read_to_string(w.0.join("gender.csv")).unwrap();
+    assert!(
+        csv.starts_with(first_table["title"].as_str().unwrap()),
+        "{csv}"
+    );
+    // OUTPUT DISPLAY counts the opened tables and chart; its own table joins after it
+    let documents = &second["commands"][2]["tables"][0]["rows"];
+    let items = command["items"].as_array().unwrap().len();
+    assert_eq!(documents[0][1], items);
+}

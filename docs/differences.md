@@ -642,7 +642,15 @@ Significance tests:
 - /DOC and /PPT write the current Word and PowerPoint formats (.docx, .pptx), whatever the file is called, on every system and without the office programs installed. A table becomes a Word table or a slide with a table; a bar, pie, line or area chart becomes an editable chart with its workbook inside, in the document's theme. PAGESIZE, SLIDESIZE, the margins, WIDETABLES and PAGEBREAKS are accepted and not applied.
 - /XLSX puts a chart beside its data table as an editable chart. HTML, TEXT and CSV show a chart as its data table.
 - Documents are named Document1, Document2 and so on.
-- In the JSON of a run, each command names the document its tables went to (`commands[].document`), and `describe` lists the open documents and the designated one.
+- In the JSON of a run, each command names the document its tables went to (`commands[].document`), and `describe` lists the open documents and the designated one, with the file of each and whether it holds unsaved output.
+
+### OUTPUT SAVE and OUTPUT OPEN
+
+- Output documents are saved as Statscraft output files (`.scout`, JSON), not in the other program's output format, which Statscraft neither writes nor reads. A path ending in `.spv`, `.spo` or `.spw` is written as `.scout` under the same name, with a warning, so their files are never overwritten; OUTPUT OPEN of such a path reads that `.scout` file.
+- OUTPUT SAVE: TYPE, LOCK and STOREMODEL are accepted and change nothing. /PASSPROTECT with a password is an error and nothing is saved; PASSWORD=NONE is accepted.
+- OUTPUT OPEN: LOCK and PASSWORD are accepted and change nothing. A file that is missing, is no Statscraft output file or comes from a newer Statscraft gives a warning, and the tables keep going to the document they went to.
+- Each command's item keeps the syntax that ran and its warnings beside its tables and charts. Deleting tables in an output window deletes them from the document too.
+- A file session of the command line keeps no output documents between runs; save in the same run, or use the window session.
 - The window shows each output document in an output window of its own. The documents decide what OUTPUT EXPORT writes, including tables deleted from the view.
 - The window session keeps its documents from run to run; a command-line run starts without any.
 - OUTPUT ACTIVATE of a name no document has, and OUTPUT CLOSE of one, give a warning, so the run goes on.
@@ -746,6 +754,6 @@ Where the documentation is silent:
   - SAVE TRANSLATE writes CSV, tab-delimited text and .xlsx.
   - An old .sav file that does not state its code page is read as Western European (windows-1252). There is no way to choose another encoding yet.
 - **Output.** Tables come out as Markdown, JSON, HTML (from the window and OUTPUT EXPORT), text and CSV (OUTPUT EXPORT) and Excel workbooks.
-  - Statscraft has no output document file of its own, so OUTPUT SAVE is refused with an error that points to OUTPUT EXPORT. OUTPUT OPEN and OUTPUT MODIFY are not supported yet.
+  - OUTPUT SAVE and OUTPUT OPEN write and read Statscraft output files (`.scout`) only. OUTPUT MODIFY is not supported yet.
   - OUTPUT EXPORT writes no PDF or Excel 97-2004 files, and no images, since charts are not drawn yet.
 - **Packages.** The Windows installer and the macOS app are not signed yet. There are packages for x86_64 Windows and Linux and for macOS on Apple silicon and Intel, but none for Windows or Linux on ARM processors.

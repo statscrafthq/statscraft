@@ -22,9 +22,10 @@ With no data given, the program starts with one empty data window, a place to op
   - for a workbook: the sheet, whether the first row holds the variable names, and a range such as A1:F200 (empty reads the whole sheet);
   - for a text file: the delimiter (comma, semicolon or tab; the one the first line uses most is chosen), and whether the first line holds the names, with that line shown. Every variable is read as `AUTO`.
 - After an Open Data run, File > Save data asks for a new .sav file.
+- File > Open output opens a Statscraft output file (.scout) in an output window of its own, by running `OUTPUT OPEN FILE='...'.`. See [saving output](#saving-output).
 - File > Recent files lists the ten files opened or saved last.
-- Files dropped on the window from the file manager open too. A .sav or .zsav file opens as data, a workbook or text file in the Open Data dialog, and a .sps file in a syntax window. One data file and one syntax file open at a time; the status bar names the files left out.
-- On macOS, a .sav, .zsav or .sps file opened from Finder (a double-click or Open With) is meant to open the same way. This is not yet tested on a Mac.
+- Files dropped on the window from the file manager open too. A .sav or .zsav file opens as data, a workbook or text file in the Open Data dialog, a .sps file in a syntax window and each .scout file in an output window. One data file and one syntax file open at a time; the status bar names the files left out.
+- The installer on Windows, and the packages for macOS and Linux, let a double-click on a .sav, .zsav, .sps or .scout file open it in Statscraft. On macOS this is not yet tested on a Mac.
 
 ## Exporting data
 
@@ -184,7 +185,7 @@ Each output document of the session has an output window, named after the docume
 - The first tables of a session start Document1, and its window opens.
 - File > New > Output runs `OUTPUT NEW.`: a new window opens and becomes the designated one.
 - Window > Designate window, in an output window, runs `OUTPUT ACTIVATE name.`. `OUTPUT NEW`, `OUTPUT ACTIVATE` and `OUTPUT NAME` typed in syntax change the windows the same way.
-- File > Close or the window's close button runs `OUTPUT CLOSE name.`. Output cannot be saved yet, so nothing is asked; export what you want to keep first. The next tables after the designated window closed start a new document and window.
+- File > Close or the window's close button runs `OUTPUT CLOSE name.`. When the window holds output that is not saved, it asks first: Save, Don't save or Cancel. The next tables after the designated window closed start a new document and window.
 
 Each output window shows its tables beside a navigator that groups them by run and command. A click on a run in the navigator folds it away.
 
@@ -209,9 +210,9 @@ The buttons over the tables act on the selected tables. A right click on a table
 
 - **Copy** (Ctrl+C) puts the tables on the clipboard with their layout, for a word processor or spreadsheet, and as plain text beside it.
 - **Copy as text** gives tab-separated text.
-- **Delete** removes them.
+- **Delete** removes them from the window and from its output document, so OUTPUT SAVE and OUTPUT EXPORT leave them out too. The log shows the deletion as a comment line. While a run is going, Delete waits: the status bar asks to try again when it ends.
 - **Export selection** saves only them, as a web page or an Excel workbook (one sheet per table, or all tables on one sheet).
-- **Clear output** removes every table.
+- **Clear output** deletes every table, the same way.
 
 ### Charts in the office programs
 
@@ -227,6 +228,15 @@ Each writes the file to a temporary folder and opens it with the program the sys
 
 **Copy** on a single selected chart puts it on the Windows clipboard as an editable chart, with its data as tab-separated text beside it. Pasted into PowerPoint or Word it becomes their own chart, in the theme of the slide or document, and Edit Data opens its numbers. Excel pastes such a chart without its data, as it does with a chart copied in PowerPoint; use Open in Excel instead. On macOS and Linux, Copy puts the chart's data table on the clipboard, as for any table.
 
+### Saving output
+
+The output of a window can be kept as a Statscraft output file (.scout) and opened again later, with each command's syntax, warnings, tables and charts.
+
+- File > Save output writes the document of the output window it is chosen in (elsewhere, of the designated output window) to the file it came from or was saved to last; the first time, it asks for a file. File > Save output as always asks. Both run `OUTPUT SAVE NAME=name OUTFILE='...'.`, so the step is in the log.
+- File > Open output runs `OUTPUT OPEN FILE='...'.`. The file opens as a new document in a window of its own, as one run named after the file, and becomes the designated one: the next tables join it, and saving writes old and new together.
+- The window keeps track of what is saved. A window whose output changed since it was opened or saved asks before it closes, and so does the program before it ends.
+- A .scout file is plain JSON, one table row per line, so any text tool or AI agent can read it. See [the command line](command-line.md#output-files).
+
 ### Exporting all output
 
 - File > Export output as HTML saves all the tables of the output window as one web page. Chosen in a data or syntax window, it exports the designated output window.
@@ -237,7 +247,7 @@ Each writes the file to a temporary folder and opens it with the program the sys
 
 ### File
 
-Open data, Save data, Save data as, Export data; New (Syntax, Output), Open syntax, Recent files, Save syntax, Save syntax as; Export output as HTML, Export output as Excel; Close, Exit. Save data saves the dataset of the data window it is chosen in, and the active dataset elsewhere.
+Open data, Save data, Save data as, Export data; New (Syntax, Output), Open syntax, Open output, Recent files, Save syntax, Save syntax as; Save output, Save output as, Export output as HTML, Export output as Excel; Close, Exit. Save data saves the dataset of the data window it is chosen in, and the active dataset elsewhere.
 
 ### Window
 
@@ -463,14 +473,14 @@ The window keeps these in `statscraft/window.txt` in the user's config folder (`
 
 The program ends when the last window closes, or with File > Exit, the Windows installer of an update, or Restart now. It first checks for unsaved work in every window.
 
-- Unsaved work is a dataset changed since it was last opened or saved, syntax whose text differs from its file, and new syntax that is not empty.
+- Unsaved work is a dataset changed since it was last opened or saved, syntax whose text differs from its file, new syntax that is not empty, and an output document with tables added or deleted since it was opened or saved.
 - Data counts as saved after a run that ends with `GET`, `GET DATA` or `SAVE`, whether from a menu, a syntax window or the command line.
 - With nothing unsaved, the program ends at once.
 - Otherwise one question lists what is unsaved, with **Save**, **Don't save** and **Cancel**.
-  - Save saves the syntax of every window and every changed dataset, each to its file, or with a file dialog when there is none yet. The program ends once all are written. A canceled file dialog or a failed save keeps it open.
+  - Save saves the syntax of every window, every changed output document and every changed dataset, each to its file, or with a file dialog when there is none yet. The program ends once all are written. A canceled file dialog or a failed save keeps it open.
   - Cancel, Escape or a click beside the question keeps it open.
 
-Closing one window while others stay open asks only about its own work: the syntax of a syntax window, the data of a data window. An output window asks nothing.
+Closing one window while others stay open asks only about its own work: the syntax of a syntax window, the data of a data window, the output of an output window.
 
 ## Updates
 

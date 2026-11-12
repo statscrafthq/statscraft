@@ -125,6 +125,7 @@ A session is what one window would keep from one run to the next, stored on disk
 | TEMPORARY, N OF CASES, scratch variables, VECTOR | no: the end of a run is a data pass, so they take effect or end in the run that gives them | |
 | An open DO IF, LOOP, or a DATA LIST without its BEGIN DATA | no: the run fails | |
 | The folder of the syntax file, where INSERT and INCLUDE start | no: each run starts from its own file | |
+| Output documents (OUTPUT NEW, NAME, ACTIVATE) and their tables | no: each run starts without output; save it in the same run with OUTPUT SAVE, or use the `gui` session, which keeps its documents | |
 
 - The first run of a new session starts without data; its syntax usually begins with `GET FILE`. Settings, macros and a CD may come before any data.
 - With `--lines`, only the macros defined on those lines are kept; a macro defined elsewhere in the file still serves the run, as before.
@@ -439,6 +440,57 @@ Each table has its title in bold, the column headers with merged cells for every
 OUTPUT EXPORT in the syntax writes the same charts into a workbook (/XLSX), a Word document (/DOC) or a presentation (/PPT); see `statscraft help "OUTPUT EXPORT"`.
 
 A workbook that cannot be written fails the run, and the session is then not saved.
+
+## Output files
+
+OUTPUT SAVE writes an output document as a Statscraft output file (`.scout`), and OUTPUT OPEN reads one back as a new document. The window saves and opens the same files ([the window](window.md#saving-output)).
+
+```
+statscraft run -e "GET FILE='survey.sav'.
+CROSSTABS region BY gender.
+OUTPUT SAVE OUTFILE='region.scout'."
+statscraft run -e "OUTPUT OPEN FILE='region.scout'.
+OUTPUT EXPORT /XLSX DOCUMENTFILE='region.xlsx' /HTML DOCUMENTFILE='region.html'."
+```
+
+The second run converts the saved output without the data: OUTPUT OPEN makes the file's document the designated one, and OUTPUT EXPORT writes it. Tables of commands after OUTPUT OPEN join that document, so open, run and save again adds to the file.
+
+The file is UTF-8 JSON, so an agent or a script reads it directly, with no Statscraft call (shortened here):
+
+```
+{
+  "format": "statscraft-output",
+  "version": 1,
+  "written_by": "statscraft 0.8.1",
+  "items": [
+    {
+      "kind": "command",
+      "command": "CROSSTABS",
+      "syntax": "CROSSTABS region BY gender.",
+      "warnings": [],
+      "items": [
+        {
+          "kind": "table",
+          "title": "region by gender",
+          "row_headers": 2,
+          "columns": ["", "", "Female", "Male", "Total"],
+          ...
+          "rows": [
+            ["North", "Count", 22, 19, 41],
+            ...
+          ]
+        }
+      ]
+    }
+  ]
+}
+```
+
+- `items` holds one `command` item per command, in order, with the syntax exactly as it ran, its warnings and its own items. A `table` item is a table as in [the run result](#run-result); a `chart` item holds the chart under `chart`, as in [charts](#charts).
+- Keys come in a fixed order and each table row is one line, so two saved files diff well. A whole number has no fraction. A table number that is not finite is written as the text the table shows.
+- `version` rises only when a field changes its meaning. A file from a newer Statscraft is refused with a message that says so; older versions are read and brought up to date. An item of a kind this version does not know is kept and written back as it was.
+- A path ending in `.spv`, `.spo` or `.spw` (another program's output files) is saved as `.scout` under the same name, with a warning; OUTPUT OPEN of such a path reads that `.scout` file. A password on OUTPUT SAVE /PASSPROTECT is an error, since a Statscraft output file is never encrypted.
+- OUTPUT OPEN of a missing or foreign file is a warning, and the run goes on.
 
 ## The live window session
 

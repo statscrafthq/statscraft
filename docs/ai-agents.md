@@ -47,6 +47,7 @@ Good habits:
 - Use a new session name for a fresh start, or delete `.statscraft/sessions/NAME/`.
 - Numbers in the JSON are raw. Round them only when you report them.
 - Add `--xlsx tables.xlsx` to a run when the person wants the tables in Excel.
+- To hand over the output itself, end the run with `OUTPUT SAVE OUTFILE='results.scout'.`: the person opens it in the window with File > Open output. A `.scout` file the person gives you is plain JSON: read it directly, each command with its syntax and tables ([output files](command-line.md#output-files)). To turn one into a workbook or web page, run `OUTPUT OPEN FILE='results.scout'.` and OUTPUT EXPORT.
 - Add `--vega-lite` when you want to show a chart: every chart then carries a Vega-Lite specification with its numbers inline, ready for any Vega-Lite viewer. Do not draw charts from numbers you computed yourself.
 
 ## Working in the open window
