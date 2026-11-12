@@ -4,7 +4,7 @@
 statscraft-gui survey.sav job.sps     open a data file and a syntax file
 ```
 
-`statscraft-gui` is a desktop window over the same engine as the command line. It has four tabs: **Data**, **Variables**, **Syntax** and **Output**. Every change and every result in it comes from syntax (see [Syntax is the only command layer](#syntax-is-the-only-command-layer)).
+`statscraft-gui` is a desktop window over the same engine as the command line. The main window has three tabs: **Data**, **Variables** and **Output**. Syntax opens in [syntax windows](#syntax-windows) of its own. All windows work on one session. Every change and every result in them comes from syntax (see [Syntax is the only command layer](#syntax-is-the-only-command-layer)).
 
 ## Opening files
 
@@ -15,7 +15,7 @@ statscraft-gui survey.sav job.sps     open a data file and a syntax file
   - for a text file: the delimiter (comma, semicolon or tab; the one the first line uses most is chosen), and whether the first line holds the names, with that line shown. Every variable is read as `AUTO`.
 - After an Open Data run, File > Save data asks for a new .sav file.
 - File > Recent files lists the ten files opened or saved last.
-- Files dropped on the window from the file manager open too. A .sav or .zsav file opens as data, a workbook or text file in the Open Data dialog, and a .sps file in the syntax editor. One data file and one syntax file open at a time; the status bar names the files left out.
+- Files dropped on the window from the file manager open too. A .sav or .zsav file opens as data, a workbook or text file in the Open Data dialog, and a .sps file in a syntax window. One data file and one syntax file open at a time; the status bar names the files left out.
 - On macOS, a .sav, .zsav or .sps file opened from Finder (a double-click or Open With) is meant to open the same way. This is not yet tested on a Mac.
 
 ## Exporting data
@@ -112,9 +112,18 @@ How the items behave:
 - Items that run syntax wait while a run is going on. The analyses and sorting are off when there are no cases.
 - Some items first show a question with the syntax: deleting variables or a case, sorting while a split is on (sorting ends the split), and Frequencies of more than 100 variables. Only a click on the button runs it; Escape cancels.
 
-## The Syntax tab
+## Syntax windows
 
-An editor with line numbers.
+Each syntax window holds one syntax file, or new syntax, in an editor with line numbers.
+
+- File > New syntax opens a new window, named Syntax1, Syntax2 and so on until it is saved. File > Open syntax, Recent files and a dropped .sps file open the file in a new window; a file that is open already brings its window to the front.
+- Save syntax and Save syntax as save the window they are chosen in.
+- File > Close or the window's close button closes it. When its text is unsaved, a question offers **Save**, **Don't save** and **Cancel**.
+- The toolbar has **Run all**, **Run selection** and the **Active** list. The Active list shows the datasets of the session, with the active one chosen. Choosing another runs `DATASET ACTIVATE name.`, which shows in the log like any run.
+- Every window runs on the same session and the same active dataset. A run started while another goes on waits its turn, and the status bar of its window says so.
+- **Paste** in a dialog or the output puts the syntax at the end of the designated syntax window: the one opened last, or the one chosen with Window > Designate window. With no syntax window open, a new one opens.
+
+### The editor
 
 - Colors mark command names, subcommands, keywords, strings, numbers, comments, macro words (`!name` and the words of the macro language) and the period that ends a command.
 - A macro defined with DEFINE, in the editor text or in an earlier run of the session, is colored as a macro where it is called, also where a command would stand.
@@ -140,6 +149,12 @@ Ctrl+Space opens the list at any point. Arrows choose, Enter or Tab puts the cho
 - A command in the list, or a command name under the mouse, shows its summary and syntax.
 - F1 opens the full help of the command at the cursor in a small window.
 
+## The Window menu
+
+Every window has the same menu bar. The Window menu lists the open windows; a click brings one to the front. The designated syntax window is marked `+`. **Designate window** makes the syntax window it is chosen in the designated one.
+
+The program ends when the last window closes. The main window can close while syntax windows stay open; opening data or a new result opens it again.
+
 ## The Output tab
 
 Every result table, beside a navigator that groups the tables by run and command. A click on a run in the navigator folds it away.
@@ -157,7 +172,7 @@ Every result table, beside a navigator that groups the tables by run and command
 - A run selects nothing, so its tables show without a frame.
 - Click a table, or its name in the navigator, to select it. Ctrl+click selects more; Ctrl+A or **Select all** selects all.
 - Click a selected table again, press Escape or click beside the tables to clear the selection.
-- The syntax of a selected table's command shows under the navigator, exactly as it ran, with **Copy**, **Paste** (into the syntax editor) and **Run again**. Pointing at a command in the navigator shows its syntax too.
+- The syntax of a selected table's command shows under the navigator, exactly as it ran, with **Copy**, **Paste** (into the designated syntax window) and **Run again**. Pointing at a command in the navigator shows its syntax too.
 
 ### Working with tables
 
@@ -179,7 +194,11 @@ The buttons over the tables act on the selected tables. A right click on a table
 
 ### File
 
-Open data, Save data, Save data as, Export data; New syntax, Open syntax, Recent files, Save syntax, Save syntax as; Export output as HTML, Export output as Excel; Exit.
+Open data, Save data, Save data as, Export data; New syntax, Open syntax, Recent files, Save syntax, Save syntax as; Export output as HTML, Export output as Excel; Close, Exit.
+
+### Window
+
+See [The Window menu](#the-window-menu).
 
 ### Edit
 
@@ -339,7 +358,7 @@ Open data, Save data, Save data as, Export data; New syntax, Open syntax, Recent
 Every dialog that builds syntax ends the same way. That holds for the menus' dialogs and for the Variables tab's editors of type and format, value labels and missing values.
 
 - The syntax it builds is shown, or why there is none yet.
-- **OK** runs it, **Paste** puts it in the syntax editor, **Cancel** closes the dialog. The menus' dialogs also have **Reset**.
+- **OK** runs it, **Paste** puts it in the designated syntax window, **Cancel** closes the dialog. The menus' dialogs also have **Reset**.
 - OK and Paste stay off until the syntax is complete. Escape cancels.
 - Options left at their defaults add nothing to the syntax.
 
@@ -347,12 +366,12 @@ Every dialog that builds syntax ends the same way. That holds for the menus' dia
 
 The status bar:
 
-- shows what is running;
-- says how many warnings a run gave (the warnings appear under their command in the log); a click there shows the log, in the Syntax tab when you are in the Data or Variables tab;
+- shows what is running, and in a syntax window whose run waits, that it is waiting;
+- says how many warnings a run gave (the warnings appear under their command in the log); a click there shows the log, in the Output tab when you are in the Data or Variables tab;
 - shows errors, whatever the tab;
 - names, at its right, the split, filter and weight in force, such as `Split by region (layered)`, `Filter: filter_$` and `Weight: weight`. A click on one opens Split File, Select Cases or Weight Cases.
 
-The log, under the Syntax and Output tabs:
+The log, in every syntax window and under the Output tab:
 
 - lists every command with what it changed;
 - has **Copy syntax**, which gives a script that repeats the session with `statscraft run`;
@@ -370,7 +389,7 @@ Every change and every result in the window comes from syntax run by the engine,
 - Macros defined by one run (DEFINE, or INCLUDE of a macro library) stay defined for the later runs while the window is open, with the macro settings of SET.
 - Edit > Undo last change (Ctrl+Z outside a text field) puts back the dataset from before the last run that changed it. It goes one step back. The log marks that run as undone, and Copy syntax leaves it out.
 - Opening a file and every run happen off the drawing thread. The status bar shows what is running, and the window stays responsive.
-- One run goes at a time. Requests from the command line wait their turn.
+- One run goes at a time. Runs from syntax windows and requests from the command line wait their turn.
 
 ## Settings
 
@@ -398,16 +417,16 @@ The window keeps these in `statscraft/window.txt` in the user's config folder (`
 
 ## Closing and unsaved work
 
-Closing the window first checks for unsaved work. That holds for the title bar, Alt+F4, File > Exit, the Windows installer of an update, and Restart now.
+The program ends when the last window closes, or with File > Exit, the Windows installer of an update, or Restart now. It first checks for unsaved work in every window.
 
 - Unsaved work is data changed since it was last opened or saved, syntax whose text differs from its file, and new syntax that is not empty.
-- Data counts as saved after a run that ends with `GET`, `GET DATA` or `SAVE`, whether from a menu, the syntax editor or the command line.
-- With nothing unsaved, the window closes at once.
+- Data counts as saved after a run that ends with `GET`, `GET DATA` or `SAVE`, whether from a menu, a syntax window or the command line.
+- With nothing unsaved, the program ends at once.
 - Otherwise one question lists what is unsaved, with **Save**, **Don't save** and **Cancel**.
-  - Save saves the syntax and the data, each to its file, or with a file dialog when there is none yet. The window closes once both are written. A canceled file dialog or a failed save keeps the window open.
-  - Cancel, Escape or a click beside the question keeps the window open.
+  - Save saves the syntax of every window and the data, each to its file, or with a file dialog when there is none yet. The program ends once all are written. A canceled file dialog or a failed save keeps it open.
+  - Cancel, Escape or a click beside the question keeps it open.
 
-New syntax, Open syntax, a syntax file from Recent files, and a syntax file dropped on the window ask the same question when the syntax in the editor is unsaved. Save saves it first, Don't save drops it, Cancel keeps it.
+Closing one syntax window while others stay open asks only about its own syntax. Closing the main window then loses nothing: the data stays in the session.
 
 ## Updates
 
