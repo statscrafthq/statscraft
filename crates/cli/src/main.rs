@@ -82,9 +82,13 @@ struct RunArgs {
     /// Run only the commands inside this inclusive line range, for example 40-55
     #[arg(long, value_name = "FIRST-LAST")]
     lines: Option<String>,
-    /// Print tables, changes, warnings and errors as JSON
+    /// Print tables, charts, changes, warnings and errors as JSON
     #[arg(long)]
     json: bool,
+    /// Also give every chart as a Vega-Lite specification: with --json as its member vega_lite,
+    /// in Markdown as a code block after the chart's data table
+    #[arg(long)]
+    vega_lite: bool,
     /// Encoding of the syntax file, such as windows-1257 or 1252. Default: UTF-8 when the file
     /// is valid UTF-8 (with or without a byte order mark), else the system's legacy code page
     #[arg(long, value_name = "NAME")]
@@ -460,7 +464,10 @@ fn parse_lines(spec: &str) -> Result<(u32, u32), Vec<Failure>> {
 
 fn run(args: RunArgs, check_only: bool, xlsx: &XlsxArgs) -> Result<(), Vec<Failure>> {
     let result = run_result(&args, check_only, xlsx)?;
-    print!("{}", result.output(args.json, check_only));
+    print!(
+        "{}",
+        result.output_with(args.json, check_only, args.vega_lite)
+    );
     Ok(())
 }
 

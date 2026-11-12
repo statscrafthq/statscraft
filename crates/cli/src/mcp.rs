@@ -69,6 +69,9 @@ struct SyntaxInput {
     /// Absolute folder that relative file names in the syntax start from. Default: the user's
     /// home folder.
     folder: Option<String>,
+    /// Also give every chart as a Vega-Lite specification (member vega_lite of the chart), with
+    /// the numbers inline. Default: false; the chart's own description is always there.
+    vega_lite: Option<bool>,
 }
 
 /// What `run_syntax` takes.
@@ -224,6 +227,7 @@ fn check_or_run(input: SyntaxInput, check_only: bool, xlsx: Option<String>) -> C
         session: Some(session_or_default(input.session)),
         lines: input.lines,
         json: true,
+        vega_lite: input.vega_lite.unwrap_or(false),
         encoding: None,
     };
     let xlsx = XlsxArgs {
@@ -232,9 +236,10 @@ fn check_or_run(input: SyntaxInput, check_only: bool, xlsx: Option<String>) -> C
     };
     match crate::run_result(&args, check_only, &xlsx) {
         Ok(result) => {
-            let value = serde_json::to_value(&result).expect("plain data");
+            let value = result.to_json(args.vega_lite);
             let mut reply = CallToolResult::structured(value);
-            let text = format!("ok: {}\n{}", result.ok, result.output(false, check_only));
+            let output = result.output_with(false, check_only, args.vega_lite);
+            let text = format!("ok: {}\n{}", result.ok, output);
             reply.content = vec![ContentBlock::text(text)];
             reply
         }

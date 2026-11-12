@@ -135,6 +135,7 @@ fn request(args: &PlanArgs) -> Result<Value, String> {
         session: None,
         lines: None,
         json: false,
+        vega_lite: false,
         encoding: None,
     })
     .map_err(first_message)?;
