@@ -1,6 +1,6 @@
 [package]
 name = "statscraft-export"
-description = "Statscraft export: result tables as an Excel workbook"
+description = "Statscraft export: result tables as an Excel workbook, charts as SVG and PNG pictures"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -9,6 +9,11 @@ repository.workspace = true
 
 [dependencies]
 statscraft-engine = { path = "../engine" }
+# Apache-2.0 OR MIT; turns a chart's SVG into PNG (through tiny-skia, BSD-3-Clause). Only the
+# text feature: the bundled font is loaded by hand, so no system fonts and no raster images.
+resvg = { version = "0.50.0", default-features = false, features = ["text"] }
+# MIT OR Apache-2.0; measures text in the bundled font for the layout (already built for resvg)
+skrifa = "0.49.0"
 
 [dev-dependencies]
 # reads the written workbooks back in the tests; the same zip crate rust_xlsxwriter writes with

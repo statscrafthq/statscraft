@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="403" viewBox="0 0 640 403" font-family="'Schibsted Grotesk', sans-serif" style="font-variant-numeric: tabular-nums">
+<rect width="640" height="403" fill="#FFFFFF"/>
+<text x="12" y="27.4" font-size="15" fill="#12191C" text-anchor="start">visits</text>
+<text x="12" y="48.96" font-size="11" fill="#55656A" text-anchor="start">Frequency</text>
+<polyline points="26.98,332.8 621.02,332.8" fill="none" stroke="#DCE3E5" stroke-width="1" stroke-linejoin="round"/>
+<text x="20.98" y="336.76" font-size="11" fill="#55656A" text-anchor="end">0</text>
+<polyline points="26.98,243.2 621.02,243.2" fill="none" stroke="#DCE3E5" stroke-width="1" stroke-linejoin="round"/>
+<text x="20.98" y="247.16" font-size="11" fill="#55656A" text-anchor="end">1</text>
+<polyline points="26.98,153.6 621.02,153.6" fill="none" stroke="#DCE3E5" stroke-width="1" stroke-linejoin="round"/>
+<text x="20.98" y="157.56" font-size="11" fill="#55656A" text-anchor="end">2</text>
+<polyline points="26.98,64 621.02,64" fill="none" stroke="#DCE3E5" stroke-width="1" stroke-linejoin="round"/>
+<text x="20.98" y="67.96" font-size="11" fill="#55656A" text-anchor="end">3</text>
+<polyline points="26.98,332.8 26.98,336.8" fill="none" stroke="#55656A" stroke-width="1" stroke-linejoin="round"/>
+<text x="26.98" y="348.76" font-size="11" fill="#55656A" text-anchor="middle">0</text>
+<polyline points="212.62,332.8 212.62,336.8" fill="none" stroke="#55656A" stroke-width="1" stroke-linejoin="round"/>
+<text x="212.62" y="348.76" font-size="11" fill="#55656A" text-anchor="middle">5</text>
+<polyline points="398.25,332.8 398.25,336.8" fill="none" stroke="#55656A" stroke-width="1" stroke-linejoin="round"/>
+<text x="398.25" y="348.76" font-size="11" fill="#55656A" text-anchor="middle">10</text>
+<polyline points="583.89,332.8 583.89,336.8" fill="none" stroke="#55656A" stroke-width="1" stroke-linejoin="round"/>
+<text x="583.89" y="348.76" font-size="11" fill="#55656A" text-anchor="middle">15</text>
+<text x="324" y="366.76" font-size="11" fill="#55656A" text-anchor="middle">visits</text>
+<rect x="27.48" y="243.2" width="73.25" height="89.6" fill="#0B4F5C"/>
+<rect x="101.74" y="153.6" width="73.25" height="179.2" fill="#0B4F5C"/>
+<rect x="175.99" y="153.6" width="73.25" height="179.2" fill="#0B4F5C"/>
+<rect x="250.25" y="153.6" width="73.25" height="179.2" fill="#0B4F5C"/>
+<rect x="324.5" y="153.6" width="73.25" height="179.2" fill="#0B4F5C"/>
+<rect x="398.75" y="153.6" width="73.25" height="179.2" fill="#0B4F5C"/>
+<rect x="547.26" y="243.2" width="73.25" height="89.6" fill="#0B4F5C"/>
+<polyline points="26.98,332.8 621.02,332.8" fill="none" stroke="#55656A" stroke-width="1" stroke-linejoin="round"/>
+<polyline points="26.98,281.37 31.93,278.33 36.88,275.18 41.83,271.92 46.78,268.55 51.73,265.07 56.68,261.48 61.63,257.79 66.58,254.01 71.54,250.12 76.49,246.15 81.44,242.09 86.39,237.94 91.34,233.73 96.29,229.45 101.24,225.1 106.19,220.71 111.14,216.27 116.09,211.79 121.04,207.29 125.99,202.78 130.94,198.25 135.89,193.73 140.84,189.23 145.79,184.75 150.74,180.3 155.69,175.91 160.64,171.58 165.59,167.32 170.54,163.14 175.49,159.06 180.44,155.09 185.39,151.23 190.34,147.51 195.29,143.93 200.24,140.51 205.19,137.25 210.14,134.16 215.09,131.26 220.04,128.56 224.99,126.06 229.94,123.77 234.89,121.7 239.85,119.85 244.8,118.24 249.75,116.87 254.7,115.74 259.65,114.86 264.6,114.22 269.55,113.84 274.5,113.72 279.45,113.84 284.4,114.22 289.35,114.86 294.3,115.74 299.25,116.87 304.2,118.24 309.15,119.85 314.1,121.7 319.05,123.77 324,126.06 328.95,128.56 333.9,131.26 338.85,134.16 343.8,137.25 348.75,140.51 353.7,143.93 358.65,147.51 363.6,151.23 368.55,155.09 373.5,159.06 378.45,163.14 383.4,167.32 388.35,171.58 393.3,175.91 398.25,180.3 403.2,184.75 408.15,189.23 413.11,193.73 418.06,198.25 423.01,202.78 427.96,207.29 432.91,211.79 437.86,216.27 442.81,220.71 447.76,225.1 452.71,229.45 457.66,233.73 462.61,237.94 467.56,242.09 472.51,246.15 477.46,250.12 482.41,254.01 487.36,257.79 492.31,261.48 497.26,265.07 502.21,268.55 507.16,271.92 512.11,275.18 517.06,278.33 522.01,281.37 526.96,284.3 531.91,287.11 536.86,289.81 541.81,292.39 546.76,294.87 551.71,297.23 556.66,299.49 561.61,301.63 566.56,303.68 571.51,305.62 576.46,307.46 581.42,309.2 586.37,310.85 591.32,312.41 596.27,313.88 601.22,315.26 606.17,316.57 611.12,317.79 616.07,318.93 621.02,320.01" fill="none" stroke="#D9942B" stroke-width="2" stroke-linejoin="round"/>
+<text x="12" y="387.26" font-size="11" fill="#55656A" text-anchor="start">Mean = 6.67, Std. Dev. = 3.92, N = 12</text>
+</svg>
