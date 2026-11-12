@@ -1089,11 +1089,6 @@ fn help_for_one_command() {
     assert!(help_text.contains("VALUE LABELS varlist value 'label'"));
     assert!(help_text.contains("Example:\n  VALUE LABELS gender 1 'Male' 2 'Female'"));
     assert_eq!(help(Some("val lab")), Some(help_text));
-    assert!(
-        help(Some("output modify"))
-            .unwrap()
-            .contains("not supported yet")
-    );
     assert!(help(Some("gra")).unwrap().starts_with("GRAPH: "));
     assert!(help(Some("disc")).unwrap().starts_with("DISCRIMINANT: "));
     assert!(help(Some("t-test")).unwrap().starts_with("T-TEST: "));
@@ -1119,7 +1114,7 @@ fn command_names_resolve_from_their_words() {
 #[test]
 fn help_lists_every_command() {
     let overview = help(None).unwrap();
-    assert_eq!(command_names().len(), 150);
+    assert_eq!(command_names().len(), 151);
     for spec in table::COMMANDS {
         assert!(overview.contains(spec.name) && overview.contains(spec.summary));
     }

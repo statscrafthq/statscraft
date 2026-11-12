@@ -565,9 +565,9 @@ fn stray_ends_of_blocks_say_where_they_belong() {
     assert!(help(Some("END DATA")).unwrap().contains("BEGIN DATA"));
     assert!(help(Some("output save")).unwrap().contains(".scout"));
     assert!(
-        help(Some("OUTPUT MODIFY"))
+        help(Some("outp mod"))
             .unwrap()
-            .contains("not supported yet")
+            .starts_with("OUTPUT MODIFY: ")
     );
     assert!(help(Some("GRAPH")).unwrap().starts_with("GRAPH: "));
 }
