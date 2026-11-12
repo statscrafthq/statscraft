@@ -264,7 +264,12 @@ fn runs_sent_to_the_window_leave_their_syntax_and_file_sessions_keep_theirs() {
 
     // a file session keeps every successful run in syntax.sps beside its data, with the date
     let first = run("t1", "SET SEED=11.");
-    let trail = dir.0.join(".statscraft/sessions/t1/syntax.sps");
+    let trail = dir
+        .0
+        .join(".statscraft")
+        .join("sessions")
+        .join("t1")
+        .join("syntax.sps");
     assert_eq!(first["trail"], trail.to_str().unwrap());
     assert_eq!(run("t1", "SET SEDE=1.")["ok"], false);
     let out = dir.cli(&[
