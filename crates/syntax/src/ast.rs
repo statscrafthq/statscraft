@@ -1165,6 +1165,12 @@ pub struct Tree {
     pub gain_cumulative: bool,
     /// `/GAIN SORT=ASCENDING`
     pub gain_ascending: bool,
+    /// `/PLOT GAIN`, `RESPONSE` and `INDEX`: line charts over percentile groups.
+    pub plot_gain: bool,
+    pub plot_response: bool,
+    pub plot_index: bool,
+    /// `/PLOT INCREMENT`: the width of the percentile groups of the charts, in percent.
+    pub plot_increment: usize,
     /// `/SAVE`: what to save, with the name or root given in parentheses.
     pub save: Vec<(TreeSave, Option<String>)>,
     /// `/GROWTHLIMIT MAXDEPTH`; None is AUTO.

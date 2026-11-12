@@ -319,6 +319,51 @@ fn gain(p: &mut Parser, command: &mut Tree) -> PResult<()> {
     Ok(())
 }
 
+/// `/PLOT`: GAIN, RESPONSE and INDEX are made; MEAN needs a scale dependent, PROFIT and ROI
+/// need profits and IMPORTANCE a CRT tree, so they are ignored with a warning, as the manual
+/// says. INCREMENT other than 1, 2, 5, 10, 20 or 25 keeps 10, with a warning.
+fn plot(p: &mut Parser, command: &mut Tree) -> PResult<()> {
+    p.eat(Punct::Eq);
+    while !at_end(p) {
+        if p.eat_keyword("GAIN") {
+            command.plot_gain = true;
+        } else if p.eat_keyword("RESPONSE") {
+            command.plot_response = true;
+        } else if p.eat_keyword("INDEX") {
+            command.plot_index = true;
+        } else if p.eat_keyword("MEAN") {
+            let message = "PLOT MEAN needs a scale dependent variable; ignored";
+            command.ignored.push(message.into());
+        } else if p.eat_keyword("PROFIT") || p.eat_keyword("ROI") {
+            let message = "PLOT PROFIT and ROI need profits, which are not supported yet; ignored";
+            command.ignored.push(message.into());
+        } else if p.eat_keyword("IMPORTANCE") {
+            let message = "PLOT IMPORTANCE applies to CRT trees only; ignored";
+            command.ignored.push(message.into());
+        } else if p.eat_keyword("INCREMENT") {
+            let n = number(p, "INCREMENT", 1.0, 100.0)?;
+            if [1.0, 2.0, 5.0, 10.0, 20.0, 25.0].contains(&n) {
+                command.plot_increment = n as usize;
+            } else {
+                let message = format!("PLOT INCREMENT={n} is not 1, 2, 5, 10, 20 or 25; 10 is used");
+                command.ignored.push(message);
+            }
+        } else {
+            return Err(p.unexpected(&[
+                "GAIN",
+                "RESPONSE",
+                "INDEX",
+                "MEAN",
+                "PROFIT",
+                "ROI",
+                "IMPORTANCE",
+                "INCREMENT",
+            ]));
+        }
+    }
+    Ok(())
+}
+
 fn save(p: &mut Parser, command: &mut Tree) -> PResult<()> {
     p.eat(Punct::Eq);
     let mut any = false;
@@ -531,6 +576,10 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
         gain_table: true,
         gain_cumulative: true,
         gain_ascending: false,
+        plot_gain: false,
+        plot_response: false,
+        plot_index: false,
+        plot_increment: 10,
         save: Vec::new(),
         max_depth: None,
         min_parent: 100.0,
@@ -581,12 +630,7 @@ pub(crate) fn tree(p: &mut Parser) -> PResult<Command> {
             }
             "PRINT" => print(p, &mut command)?,
             "GAIN" => gain(p, &mut command)?,
-            "PLOT" => {
-                skip(p);
-                command
-                    .ignored
-                    .push("PLOT: charts are not drawn yet".into());
-            }
+            "PLOT" => plot(p, &mut command)?,
             "SAVE" => save(p, &mut command)?,
             "METHOD" => method(p, &mut command)?,
             "GROWTHLIMIT" => growth_limit(p, &mut command)?,

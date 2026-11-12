@@ -875,7 +875,7 @@ fn tree_subcommands() {
           /CHAID ALPHASPLIT=0.01 ALPHAMERGE=1 SPLITMERGED=NO CHISQUARE=LR CONVERGE=0.01
                  MAXITERATIONS=50 ADJUST=NONE INTERVALS=spend (5) age_group (3)
           /COSTS EQUAL /SCORES CUSTOM=1 [1] 2 [2.5] /MISSING NOMINALMISSING=VALID
-          /PLOT GAIN /PRIORS EQUAL.",
+          /PLOT GAIN INDEX ROI INCREMENT=5 /PRIORS EQUAL.",
     );
     assert!(!t.display && !t.branch_statistics && !t.node_definitions && t.exhaustive);
     assert_eq!(
@@ -915,7 +915,8 @@ fn tree_subcommands() {
         t.scores,
         Some(vec![(Value::Number(1.0), 1.0), (Value::Number(2.0), 2.5)])
     );
-    // MAXSURROGATES, ASSIGNMENT, PLOT and PRIORS are accepted and said to be ignored
+    assert!(t.plot_gain && t.plot_index && !t.plot_response && t.plot_increment == 5);
+    // MAXSURROGATES, ASSIGNMENT, PLOT ROI and PRIORS are accepted and said to be ignored
     assert_eq!(t.ignored.len(), 4);
 }
 
