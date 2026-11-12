@@ -5,7 +5,15 @@ use crate::highlight::{self, words_of};
 use std::ops::Range;
 
 /// Commands whose body is an expression, where function names are offered.
-const EXPRESSIONS: &[&str] = &["COMPUTE", "IF", "SELECT IF", "DO IF", "ELSE IF", "LOOP"];
+const EXPRESSIONS: &[&str] = &[
+    "COMPUTE",
+    "IF",
+    "SELECT IF",
+    "DO IF",
+    "ELSE IF",
+    "LOOP",
+    "END LOOP",
+];
 
 /// The most candidates shown.
 const MOST: usize = 200;
@@ -309,7 +317,11 @@ mod tests {
         assert!(list.contains(&"VARIABLES".to_string()));
         // functions only where an expression goes
         let (list, _) = texts("COMPUTE x = me", false);
-        assert_eq!(list, ["MEAN("]);
+        assert_eq!(list, ["MEAN(", "MEDIAN("]);
+        let (list, _) = texts("COMPUTE p = cdf.no", false);
+        assert_eq!(list, ["CDF.NORMAL("]);
+        let (list, _) = texts("IF (XDATE.W", false);
+        assert_eq!(list, ["XDATE.WEEK(", "XDATE.WKDAY("]);
         assert!(texts("fre ab", false).0.is_empty());
         let (list, _) = texts("compute y = a", false);
         assert!(list.contains(&"age".to_string()));
