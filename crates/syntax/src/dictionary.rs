@@ -111,9 +111,10 @@ fn attribute_name(p: &mut Parser) -> PResult<(String, Option<usize>)> {
     if !p.eat(Punct::LBracket) {
         return Ok((name, None));
     }
+    // an index makes an array of that many values, so a bound keeps it from filling the memory
     let index = match p.number() {
-        Some(n) if n >= 1.0 && n.fract() == 0.0 => n as usize,
-        _ => return Err(p.unexpected(&["an index from 1"])),
+        Some(n) if (1.0..=65_535.0).contains(&n) && n.fract() == 0.0 => n as usize,
+        _ => return Err(p.unexpected(&["an index from 1 to 65535"])),
     };
     p.expect(Punct::RBracket)?;
     Ok((name, Some(index)))

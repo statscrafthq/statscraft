@@ -7,7 +7,8 @@
 //! The default tests run a small fixed set in a few seconds. The full set is ignored (Unix only):
 //! `cargo test -p statscraft-engine --test robustness -- --ignored --nocapture`, with
 //! FUZZ_VARIANTS (mutants per seed, default 12), FUZZ_SHARD=i/n, FUZZ_LIMIT (seconds per run,
-//! default 60), FUZZ_MEMORY_MIB (default 1500) and FUZZ_TRACE=file (the input that runs now).
+//! default 60), FUZZ_MEMORY_MIB (default 1500), FUZZ_TRACE=file (the input that runs now) and
+//! FUZZ_PRINT=label (prints that input in full and runs nothing).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -905,6 +906,11 @@ fn mutated_syntax_never_crashes() {
         })
         .unwrap_or((0, 1));
     let inputs = mutants(env_number("FUZZ_VARIANTS", 12), shard);
+    if let Ok(label) = std::env::var("FUZZ_PRINT") {
+        let found = inputs.iter().find(|(l, _)| *l == label);
+        print!("{}", found.map_or("", |(_, input)| input.as_str()));
+        return;
+    }
     if let Ok(from) = std::env::var("FUZZ_CHILD") {
         return child(&inputs, from.parse().unwrap());
     }
@@ -1111,6 +1117,10 @@ const REGRESSIONS: &[(&str, &str)] = &[
     (
         "MATRIX.\nLOOP i = 1 TO 1e300 BY 4e18.\nEND LOOP.\nPRINT i.\nEND MATRIX.",
         "ok:",
+    ),
+    (
+        "VARIABLE ATTRIBUTE VARIABLES=age ATTRIBUTE=k[4294967297]('A').",
+        "an index from 1 to 65535",
     ),
     ("DATE OBS 9 1e308.", "too large for DATE"),
     ("DATE Y 18446744073709551616 M 7.", "too large for DATE"),
