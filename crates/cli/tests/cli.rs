@@ -682,7 +682,7 @@ fn named_datasets_keep_their_split_filter_and_declared_names_between_runs() {
     let description = dir.json(&["describe", "-s", "d", "--json"]);
     assert_eq!(
         description["session"]["datasets"],
-        serde_json::json!(["later", "first"])
+        serde_json::json!([{"name": "later"}, {"name": "first", "cases": 3, "variables": 2}])
     );
     let show = "DATASET ACTIVATE first.\nSHOW SPLIT FILTER.";
     let report = dir.json(&["run", "-s", "d", "--json", "-e", show]);

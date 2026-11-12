@@ -6,7 +6,10 @@ use crate::{Cell, Changes, Engine, Table, cell_text};
 use serde::{Deserialize, Serialize};
 use statscraft_data::Dataset;
 use statscraft_syntax::{Command, RawCommand, SyntaxError};
+use std::collections::VecDeque;
 use std::fmt::Write;
+use std::path::PathBuf;
+use std::sync::{Arc, mpsc};
 
 /// One error, at a line and column of the syntax when known. `kind` is "syntax", "run",
 /// "usage", "session" or "file".
@@ -79,6 +82,10 @@ pub struct CommandResult {
     pub tables: Vec<Table>,
     /// What the command did differently from what was asked, without failing.
     pub warnings: Vec<String>,
+    /// The output document its tables went to: the designated one when it ran. None when it
+    /// made no tables.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub document: Option<String>,
 }
 
 /// What a run did. Serialized, it is the JSON that `statscraft run --json` prints; the command
@@ -197,11 +204,27 @@ pub struct SessionState {
     /// The folder of the last CD.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub directory: Option<String>,
+    /// The name of the active dataset; None when it has none, or when there is no data.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub active_dataset: Option<String>,
-    /// The other named datasets, open or declared.
-    pub datasets: Vec<String>,
+    /// Every named dataset, the active one first, then the others open or only declared.
+    pub datasets: Vec<NamedDataset>,
     pub macros: Vec<String>,
+    /// The open output documents, in the order they were opened.
+    pub output_documents: Vec<crate::OutputDocument>,
+    /// The document new tables go to; None when none is open.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub designated_output: Option<String>,
+}
+
+/// A named dataset as `describe` lists it; a name only declared has no counts.
+#[derive(Debug, PartialEq, Serialize)]
+pub struct NamedDataset {
+    pub name: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cases: Option<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub variables: Option<usize>,
 }
 
 /// One entry of the log: the syntax as it was run and a one-line summary or the errors.
@@ -255,6 +278,23 @@ impl Session {
     /// The named datasets other than the active one, and the active one's name.
     pub fn named_datasets(&self) -> (&[(String, Option<Dataset>)], Option<&str>) {
         self.engine.named_datasets()
+    }
+
+    /// The syntax that opens a data file from the window: `open` (such as `GET FILE='a.sav'.`)
+    /// and a DATASET NAME with the next DataSetn name, so the dataset open before stays open.
+    pub fn open_syntax(&self, open: &str) -> String {
+        let name = self.engine.next_dataset_name();
+        format!("{}\nDATASET NAME {name}.", open.trim_end())
+    }
+
+    /// The open output documents, in the order they were opened.
+    pub fn output_documents(&self) -> Vec<crate::OutputDocument> {
+        self.engine.output_documents()
+    }
+
+    /// The output document the next tables go to; None when none is open.
+    pub fn designated_output(&self) -> Option<&str> {
+        self.engine.designated_output()
     }
 
     /// The macros and macro settings the runs so far defined.
@@ -353,8 +393,21 @@ impl Session {
         }
         line("directory", state.directory.unwrap_or_default());
         line("active dataset", state.active_dataset.unwrap_or_default());
-        line("other datasets", state.datasets.join(", "));
+        let datasets = state.datasets.iter().map(|d| match (d.cases, d.variables) {
+            (Some(cases), Some(variables)) => {
+                format!("{} ({cases} cases, {variables} variables)", d.name)
+            }
+            _ => format!("{} (declared)", d.name),
+        });
+        line("datasets", datasets.collect::<Vec<_>>().join(", "));
         line("macros", state.macros.join(", "));
+        let documents = state.output_documents.iter();
+        let documents = documents.map(|d| format!("{} ({} tables)", d.name, d.tables));
+        line("output documents", documents.collect::<Vec<_>>().join(", "));
+        line(
+            "designated output",
+            state.designated_output.unwrap_or_default(),
+        );
         Some(out)
     }
 
@@ -477,6 +530,120 @@ impl Job {
     }
 }
 
+/// A run waiting in a `RunQueue`.
+pub struct Queued<T> {
+    pub source: String,
+    pub lines: Option<(u32, u32)>,
+    pub check: bool,
+    /// The folder of the syntax file the run came from (see `Session::set_base_dir`).
+    pub base_dir: Option<PathBuf>,
+    /// What the caller wants back with the result, such as the window that asked.
+    pub tag: T,
+}
+
+struct Running<T> {
+    tag: T,
+    label: String,
+    done: mpsc::Receiver<Done>,
+}
+
+/// The runs of every window, one at a time in the order they came: a run asked for while
+/// another runs waits its turn, and a failed run does not stop the ones after it. Each run
+/// starts from the session as the runs before it left it.
+pub struct RunQueue<T> {
+    waiting: VecDeque<Queued<T>>,
+    running: Option<Running<T>>,
+    wake: Arc<dyn Fn() + Send + Sync>,
+}
+
+impl<T> RunQueue<T> {
+    /// `wake` is called on the worker thread when a run ends, for example to repaint the window.
+    pub fn new(wake: impl Fn() + Send + Sync + 'static) -> Self {
+        Self {
+            waiting: VecDeque::new(),
+            running: None,
+            wake: Arc::new(wake),
+        }
+    }
+
+    /// Puts a run at the end of the queue; it starts at once when nothing runs.
+    pub fn push(&mut self, session: &mut Session, run: Queued<T>) {
+        self.waiting.push_back(run);
+        if self.running.is_none() {
+            self.start(session);
+        }
+    }
+
+    /// The tag and the first command's name of the run on the worker thread.
+    pub fn running(&self) -> Option<(&T, &str)> {
+        self.running.as_ref().map(|r| (&r.tag, r.label.as_str()))
+    }
+
+    /// How many runs wait behind the running one.
+    pub fn waiting(&self) -> usize {
+        self.waiting.len()
+    }
+
+    pub fn is_idle(&self) -> bool {
+        self.running.is_none()
+    }
+
+    /// A finished run, applied to the session, with its tag; the next run has started by then.
+    /// None while the run goes on or when nothing runs. Call it from the window's update loop.
+    pub fn poll(&mut self, session: &mut Session) -> Option<(T, Result<RunResult, Vec<Failure>>)> {
+        self.finish(session, false)
+    }
+
+    /// Like `poll`, but waits for the running run to end. None when nothing runs.
+    pub fn wait(&mut self, session: &mut Session) -> Option<(T, Result<RunResult, Vec<Failure>>)> {
+        self.finish(session, true)
+    }
+
+    fn finish(
+        &mut self,
+        session: &mut Session,
+        block: bool,
+    ) -> Option<(T, Result<RunResult, Vec<Failure>>)> {
+        let running = self.running.as_ref()?;
+        let done = match block {
+            true => running.done.recv().ok(),
+            false => match running.done.try_recv() {
+                Ok(done) => Some(done),
+                Err(mpsc::TryRecvError::Empty) => return None,
+                Err(mpsc::TryRecvError::Disconnected) => None,
+            },
+        };
+        let running = self.running.take().expect("checked above");
+        let result = match done {
+            Some(done) => session.apply(done),
+            None => Err(vec![Failure::plain("run", "the run stopped unexpectedly")]),
+        };
+        self.start(session);
+        Some((running.tag, result))
+    }
+
+    /// Starts the next waiting run, from the session as it is now.
+    fn start(&mut self, session: &mut Session) {
+        let Some(run) = self.waiting.pop_front() else {
+            return;
+        };
+        session.set_base_dir(run.base_dir);
+        let job = session.job(&run.source, run.lines, run.check);
+        let label = job.label();
+        let (sender, done) = mpsc::channel();
+        let wake = Arc::clone(&self.wake);
+        std::thread::spawn(move || {
+            let _ = sender.send(job.execute());
+            wake();
+        });
+        self.running = Some(Running {
+            tag: run.tag,
+            label,
+            done,
+        });
+    }
+}
+
 fn run(
     mut engine: Engine,
     source: &str,
@@ -571,13 +738,14 @@ fn run(
             };
             tables.insert(0, table);
         }
-        engine.record_output(&raw.name, &tables);
+        let document = engine.record_output(&raw.name, &tables);
         outputs.push(CommandResult {
             name: raw.name.clone(),
             first_line: raw.first_line,
             last_line: raw.last_line,
             tables,
             warnings: engine.warnings().to_vec(),
+            document,
         });
     }
     engine
@@ -586,7 +754,9 @@ fn run(
     // what the pass at the end of the run printed shows with the last command
     let printed = std::mem::take(&mut engine.flushed);
     if let Some(last) = outputs.last_mut() {
-        engine.record_output(&last.name, &printed);
+        if let Some(document) = engine.record_output(&last.name, &printed) {
+            last.document = Some(document);
+        }
         last.tables.extend(printed);
     }
     // the handles are those the FILE HANDLE commands that ran defined
@@ -922,7 +1092,10 @@ mod tests {
         assert_eq!(json["case_count"], 200);
         assert_eq!(json["session"]["active_dataset"], "main");
         let text = session.describe(false).unwrap();
-        assert!(text.ends_with("active dataset: main\n"), "{text}");
+        assert!(
+            text.ends_with("active dataset: main\ndatasets: main (200 cases, 19 variables)\n"),
+            "{text}"
+        );
     }
 
     #[test]
@@ -953,6 +1126,202 @@ mod tests {
         session.run("SAMPLE .5.", None).unwrap();
         next.run("SAMPLE .5.", None).unwrap();
         assert!(session.dataset() == next.dataset());
+    }
+
+    fn queued(source: &str, tag: u32) -> Queued<u32> {
+        Queued {
+            source: source.into(),
+            lines: None,
+            check: false,
+            base_dir: None,
+            tag,
+        }
+    }
+
+    #[test]
+    fn the_queue_runs_in_the_order_runs_came_each_on_the_state_before_it() {
+        let mut session = survey();
+        let woken = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let count = Arc::clone(&woken);
+        let mut queue = RunQueue::new(move || {
+            count.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        });
+        assert!(queue.is_idle() && queue.wait(&mut session).is_none());
+        queue.push(&mut session, queued("COMPUTE a = 1.", 1));
+        queue.push(&mut session, queued("COMPUTE b = a + 1.", 2));
+        queue.push(&mut session, queued("COMPUTE c = b + 1.", 3));
+        // the first runs, the others wait instead of failing
+        assert_eq!(queue.running(), Some((&1, "COMPUTE")));
+        assert_eq!(queue.waiting(), 2);
+        let mut tags = Vec::new();
+        while let Some((tag, result)) = queue.wait(&mut session) {
+            assert!(result.unwrap().saved);
+            tags.push(tag);
+        }
+        assert_eq!(tags, [1, 2, 3]);
+        assert!(session.dataset().unwrap().variable("c").is_ok());
+        assert_eq!(woken.load(std::sync::atomic::Ordering::SeqCst), 3);
+        let syntax: Vec<_> = session.log.iter().map(|e| e.syntax.as_str()).collect();
+        assert_eq!(
+            syntax[1..],
+            ["COMPUTE a = 1.", "COMPUTE b = a + 1.", "COMPUTE c = b + 1."]
+        );
+    }
+
+    #[test]
+    fn a_failed_run_in_the_queue_does_not_stop_the_next() {
+        let mut session = survey();
+        let mut queue = RunQueue::new(|| {});
+        queue.push(&mut session, queued("COMPUTE a = 1.", 1));
+        queue.push(&mut session, queued("COMPUTE bad = nowhere.", 2));
+        queue.push(&mut session, queued("COMPUTE c = a + 1.", 3));
+        let mut results = Vec::new();
+        while let Some((tag, result)) = queue.wait(&mut session) {
+            results.push((tag, result.is_ok()));
+        }
+        assert_eq!(results, [(1, true), (2, false), (3, true)]);
+        let data = session.dataset().unwrap();
+        assert!(data.variable("bad").is_err() && data.variable("c").is_ok());
+        assert!(session.log[2].result.is_err() && session.log[3].result.is_ok());
+        // poll returns nothing once the queue is empty
+        assert!(queue.poll(&mut session).is_none());
+    }
+
+    #[test]
+    fn a_file_opened_from_the_window_gets_the_next_dataset_name_and_keeps_the_one_before() {
+        let get = format!("GET FILE='{}'.", fixture("survey_basic.sav"));
+        let mut session = Session::default();
+        let first = session.open_syntax(&get);
+        assert_eq!(first, format!("{get}\nDATASET NAME DataSet1."));
+        session.run(&first, None).unwrap();
+        session.run("COMPUTE x = 1.", None).unwrap();
+        let second = session.open_syntax(&get);
+        assert!(second.ends_with("DATASET NAME DataSet2."), "{second}");
+        session.run(&second, None).unwrap();
+        let (others, active) = session.named_datasets();
+        assert_eq!(active, Some("DataSet2"));
+        assert_eq!(others[0].0, "DataSet1");
+        // DataSet1 kept its state from before
+        assert!(others[0].1.as_ref().unwrap().variable("x").is_ok());
+        // a closed name is not given again, and a typed DataSetn counts
+        session.run("DATASET CLOSE DataSet1.", None).unwrap();
+        assert!(session.open_syntax(&get).ends_with("DataSet3."));
+        session.run("DATASET COPY dataset7.", None).unwrap();
+        assert!(session.open_syntax(&get).ends_with("DataSet8."));
+        // a failed run gives no name away
+        let missing = session.open_syntax("GET FILE='no such file.sav'.");
+        session.run(&missing, None).unwrap_err();
+        assert!(session.open_syntax(&get).ends_with("DataSet8."));
+    }
+
+    #[test]
+    fn an_unnamed_active_dataset_is_gone_when_another_file_is_opened() {
+        let get = format!("GET FILE='{}'.", fixture("survey_basic.sav"));
+        let mut session = survey();
+        let open = session.open_syntax(&get);
+        session.run(&open, None).unwrap();
+        let (others, active) = session.named_datasets();
+        assert_eq!((others.len(), active), (0, Some("DataSet1")));
+    }
+
+    #[test]
+    fn dataset_close_keeps_the_active_data_without_a_name() {
+        let mut session = survey();
+        session
+            .run("DATASET NAME first.\nDATASET COPY second.", None)
+            .unwrap();
+        session.run("DATASET CLOSE first.", None).unwrap();
+        // the active dataset stays active, unnamed; a closed other one is gone
+        assert_eq!(session.dataset().unwrap().case_count(), 200);
+        let display = session.run("DATASET DISPLAY.", None).unwrap();
+        let rows = &display.commands[0].tables[0].rows;
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0][0], Cell::Text("(unnamed)".into()));
+        session.run("DATASET CLOSE second.", None).unwrap();
+        assert!(session.named_datasets().0.is_empty());
+        let error = session.run("DATASET CLOSE second.", None).unwrap_err();
+        assert!(error[0].message.contains("no dataset named second"));
+        // DATASET CLOSE * of a named active dataset only takes the name
+        session
+            .run("DATASET NAME again.\nDATASET CLOSE *.", None)
+            .unwrap();
+        assert_eq!(session.named_datasets().1, None);
+        assert!(session.dataset().is_some());
+    }
+
+    #[test]
+    fn each_command_names_the_output_document_its_tables_went_to() {
+        let mut session = survey();
+        assert_eq!(session.designated_output(), None);
+        let result = session
+            .run(
+                "FREQUENCIES gender.\nOUTPUT NEW NAME=second.\nCOMPUTE x = 1.\nFREQUENCIES gender.",
+                None,
+            )
+            .unwrap();
+        let documents: Vec<_> = result
+            .commands
+            .iter()
+            .map(|c| c.document.as_deref())
+            .collect();
+        assert_eq!(documents, [Some("Document1"), None, None, Some("second")]);
+        assert_eq!(session.designated_output(), Some("second"));
+        let json: serde_json::Value = serde_json::from_str(&result.output(true, false)).unwrap();
+        assert_eq!(json["commands"][3]["document"], "second");
+        assert!(json["commands"][1].get("document").is_none());
+        session.run("OUTPUT ACTIVATE Document1.", None).unwrap();
+        assert_eq!(session.designated_output(), Some("Document1"));
+        let listed = session.output_documents();
+        let names: Vec<_> = listed.iter().map(|d| (d.name.as_str(), d.tables)).collect();
+        assert_eq!(names, [("Document1", 1), ("second", 1)]);
+        session.run("OUTPUT CLOSE Document1.", None).unwrap();
+        assert_eq!(session.designated_output(), None);
+    }
+
+    #[test]
+    fn describe_lists_the_datasets_and_output_documents() {
+        let get = format!("GET FILE='{}'.", fixture("survey_basic.sav"));
+        let mut session = Session::default();
+        session.run(&session.open_syntax(&get), None).unwrap();
+        let second = session.open_syntax(&get);
+        session.run(&second, None).unwrap();
+        session
+            .run(
+                "DATASET DECLARE later.\nFREQUENCIES gender.\nOUTPUT NEW NAME=men.",
+                None,
+            )
+            .unwrap();
+        let json: serde_json::Value =
+            serde_json::from_str(&session.describe(true).unwrap()).unwrap();
+        let state = &json["session"];
+        assert_eq!(state["active_dataset"], "DataSet2");
+        assert_eq!(
+            state["datasets"],
+            serde_json::json!([
+                {"name": "DataSet2", "cases": 200, "variables": 19},
+                {"name": "DataSet1", "cases": 200, "variables": 19},
+                {"name": "later"}
+            ])
+        );
+        assert_eq!(
+            state["output_documents"],
+            serde_json::json!([{"name": "Document1", "tables": 1}, {"name": "men", "tables": 0}])
+        );
+        assert_eq!(state["designated_output"], "men");
+        let text = session.describe(false).unwrap();
+        assert!(
+            text.contains(
+                "datasets: DataSet2 (200 cases, 19 variables), DataSet1 (200 cases, 19 \
+                 variables), later (declared)\n"
+            ),
+            "{text}"
+        );
+        assert!(
+            text.ends_with(
+                "output documents: Document1 (1 tables), men (0 tables)\ndesignated output: men\n"
+            ),
+            "{text}"
+        );
     }
 
     #[test]

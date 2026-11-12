@@ -75,6 +75,7 @@ pub mod xlsx;
 pub use expr::functions;
 pub use format::{Currencies, currency_parts, format_value, is_date_time_or_currency};
 pub use get_data::delimited;
+pub use output_docs::OutputDocument;
 pub use random::RandomState;
 use serde::{Deserialize, Serialize};
 use statscraft_data::{Dataset, Measure, MissingValues, Value};

@@ -182,11 +182,20 @@ impl Documents {
     }
 }
 
+/// An open output document, as `describe` and the window list it.
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct OutputDocument {
+    pub name: String,
+    /// The number of tables it holds.
+    pub tables: usize,
+}
+
 impl Engine {
-    /// Adds the tables of one command to the designated document.
-    pub(crate) fn record_output(&mut self, command: &str, tables: &[Table]) {
+    /// Adds the tables of one command to the designated document and returns its name; None
+    /// when there were no tables.
+    pub(crate) fn record_output(&mut self, command: &str, tables: &[Table]) -> Option<String> {
         if tables.is_empty() {
-            return;
+            return None;
         }
         let documents = &mut self.documents;
         let at = documents.designated();
@@ -194,6 +203,24 @@ impl Engine {
             .iter()
             .map(|t| (command.to_string(), Arc::new(t.clone())));
         documents.open[at].tables.extend(tables);
+        Some(documents.open[at].name.clone())
+    }
+
+    /// The open output documents, in the order they were opened.
+    pub fn output_documents(&self) -> Vec<OutputDocument> {
+        let open = self.documents.open.iter();
+        open.map(|d| OutputDocument {
+            name: d.name.clone(),
+            tables: d.tables.len(),
+        })
+        .collect()
+    }
+
+    /// The name of the designated document, where the next tables go (OUTPUT NEW and OUTPUT
+    /// ACTIVATE set it). None when no document is open: the next table starts one.
+    pub fn designated_output(&self) -> Option<&str> {
+        let d = &self.documents;
+        d.designated.map(|at| d.open[at].name.as_str())
     }
 
     pub(crate) fn output_command(&mut self, command: &OutputCommand) -> Result<Vec<Table>, Error> {

@@ -37,6 +37,8 @@ pub(crate) struct State {
     datasets: Vec<(String, Option<Dataset>)>,
     /// The name of the active dataset.
     active_name: Option<String>,
+    /// The highest n of a DataSetn name given in this session, open or closed since.
+    numbered: usize,
     /// The macros, and the macro settings, of the runs before this one. The preprocessor reads
     /// and updates them; the commands only list them.
     pub macros: MacroState,
@@ -52,6 +54,16 @@ impl State {
             ..State::default()
         }
     }
+}
+
+/// The n of a DataSetn name, in any case.
+fn dataset_number(name: &str) -> Option<usize> {
+    let prefix = name.get(..7)?;
+    let digits = &name[7..];
+    let numeric = !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit());
+    (prefix.eq_ignore_ascii_case("DataSet") && numeric)
+        .then(|| digits.parse().ok())
+        .flatten()
 }
 
 fn table(title: &str, columns: &[&str], rows: Vec<Vec<Cell>>) -> Table {
@@ -242,6 +254,25 @@ impl Engine {
         datasets.push((name, data));
     }
 
+    /// Notes a DataSetn name, so that the next automatic name comes after it.
+    fn note_name(&mut self, name: &str) {
+        if let Some(n) = dataset_number(name) {
+            self.session.numbered = self.session.numbered.max(n);
+        }
+    }
+
+    /// The name a data file opened from the window gets: DataSet1, DataSet2 and so on, after
+    /// every DataSetn name the session has given, so a closed one is not given again.
+    pub fn next_dataset_name(&self) -> String {
+        let s = &self.session;
+        let names = s.datasets.iter().map(|(n, _)| n.as_str());
+        let names = names.chain(s.active_name.as_deref());
+        let last = names
+            .filter_map(dataset_number)
+            .fold(s.numbered, usize::max);
+        format!("DataSet{}", last + 1)
+    }
+
     fn find_dataset(&self, name: &str) -> Option<usize> {
         self.session
             .datasets
@@ -411,13 +442,25 @@ impl Engine {
     /// What `describe` shows of the session besides the active dataset.
     pub(crate) fn session_state(&self) -> crate::session::SessionState {
         let s = &self.session;
+        let entry = |(name, data): (&String, Option<&Dataset>)| crate::session::NamedDataset {
+            name: name.clone(),
+            cases: data.map(Dataset::case_count),
+            variables: data.map(Dataset::variable_count),
+        };
+        let active = s
+            .active_name
+            .iter()
+            .map(|name| (name, self.dataset.as_ref()));
+        let others = s.datasets.iter().map(|(name, data)| (name, data.as_ref()));
         crate::session::SessionState {
             settings: s.settings.clone(),
             preserved: s.preserved.len(),
             directory: s.cwd.as_ref().map(|d| d.display().to_string()),
             active_dataset: s.active_name.clone(),
-            datasets: s.datasets.iter().map(|(name, _)| name.clone()).collect(),
+            datasets: active.chain(others).map(entry).collect(),
             macros: s.macros.names(),
+            output_documents: self.output_documents(),
+            designated_output: self.designated_output().map(str::to_string),
         }
     }
 
@@ -866,6 +909,7 @@ impl Engine {
                     self.session.datasets.remove(i);
                 }
                 self.session.active_name = Some(name.clone());
+                self.note_name(name);
             }
             DatasetCommand::Activate(name) => {
                 if self.is_active_name(name) {
@@ -903,11 +947,13 @@ impl Engine {
                     self.warn(format!("dataset {name} is replaced by the copy"));
                 }
                 self.store_dataset(name.clone(), Some(copy));
+                self.note_name(name);
             }
             DatasetCommand::Declare(name) => {
                 if self.find_dataset(name).is_none() && !self.is_active_name(name) {
                     self.session.datasets.push((name.clone(), None));
                 }
+                self.note_name(name);
             }
             DatasetCommand::Close(None) => self.session.active_name = None,
             DatasetCommand::Close(Some(name)) => {

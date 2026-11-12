@@ -5293,6 +5293,7 @@ mod tests {
                 last_line: 1,
                 tables: Vec::new(),
                 warnings: Vec::new(),
+                document: None,
             };
             names.iter().map(command).collect()
         };
