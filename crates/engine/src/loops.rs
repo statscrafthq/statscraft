@@ -410,19 +410,23 @@ impl Engine {
             let i = indexes[case]?;
             (i.fract() == 0.0 && i >= 1.0 && i <= variables.len() as f64).then(|| i as usize - 1)
         };
-        if (0..cases).any(|c| chosen[c] && element(c).is_none()) {
+        let elements: Vec<Option<usize>> = (0..cases)
+            .map(|c| element(c).filter(|_| chosen[c]))
+            .collect();
+        if (0..cases).any(|c| chosen[c] && elements[c].is_none()) {
             self.warn(format!(
                 "an index of {vector} is missing or outside 1 to {}; those cases are not assigned",
                 variables.len()
             ));
         }
+        // only the elements some case names: a loop over a long vector names one per iteration
+        let mut named = vec![cases == 0; variables.len()];
+        elements.iter().flatten().for_each(|&k| named[k] = true);
         for (k, name) in variables.iter().enumerate() {
-            let mask: Vec<bool> = (0..cases)
-                .map(|c| chosen[c] && element(c) == Some(k))
-                .collect();
-            if !mask.contains(&true) && cases > 0 {
+            if !named[k] {
                 continue;
             }
+            let mask: Vec<bool> = elements.iter().map(|&e| e == Some(k)).collect();
             let value = self.evaluator(Some(&mask))?.eval(expr)?;
             self.put(name, value, Some(mask))?;
         }
