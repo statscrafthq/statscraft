@@ -2,7 +2,8 @@ name: Release build
 
 # Manual only: Actions > Release build > Run workflow. Windows gives a per-user installer and a
 # portable .zip, Linux a .deb and a .tar.gz, macOS a .tar.gz with Statscraft.app and the command
-# line for Apple silicon and Intel, each uploaded as its own artifact, with a SHA256SUMS of them.
+# line for Apple silicon and Intel, each uploaded as its own artifact. The MCP bundles (.mcpb) for
+# the three systems and the agent skill zip follow as one more artifact, with a SHA256SUMS of all.
 # With "draft release" ticked, a draft GitHub Release vX.Y.Z (the version in the workspace
 # Cargo.toml) is created with the same files and SHA256SUMS, which the updater checks every
 # download against. Without it nothing is released. Publishing the draft stays a manual step:
@@ -133,6 +134,25 @@ jobs:
           skip-decompress: true
           path: packages
           merge-multiple: true
+      # the MCP bundles, one per platform, from the programs in the packages above; the official
+      # mcpb tool (MIT) checks each manifest against the files of its bundle. And the agent skill
+      # as a zip with its folder, the form claude.ai uploads.
+      - run: |
+          version=$(sed -n 's/^version = "\(.*\)"$/\1/p' Cargo.toml | head -n 1)
+          python3 packaging/mcpb/build.py "$version" packages
+          for bundle in packages/*.mcpb; do
+            dir=$RUNNER_TEMP/$(basename "$bundle" .mcpb)
+            unzip -q "$bundle" -d "$dir"
+            npx --yes @anthropic-ai/mcpb@2.1.2 validate "$dir/manifest.json"
+          done
+          cd plugins/statscraft/skills
+          zip -qr "$GITHUB_WORKSPACE/packages/statscraft-$version-skill.zip" statscraft-analysis
+      - uses: actions/upload-artifact@v7
+        with:
+          name: agents
+          path: |
+            packages/*.mcpb
+            packages/*-skill.zip
       - run: cd packages && sha256sum -- * > SHA256SUMS && cat SHA256SUMS
       - uses: actions/upload-artifact@v7
         with:

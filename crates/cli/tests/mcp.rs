@@ -340,3 +340,19 @@ fn without_a_session_calls_go_to_the_window_when_one_is_open() {
     let described = client.call("describe", json!({}));
     assert_eq!(described["structuredContent"]["case_count"], 200);
 }
+
+/// The Claude Code plugin keeps users on its version until it changes, so it moves with every
+/// release.
+#[test]
+fn the_plugin_version_is_the_release_version() {
+    let path = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../plugins/statscraft/.claude-plugin/plugin.json"
+    );
+    let plugin: Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
+    assert_eq!(
+        plugin["version"],
+        env!("CARGO_PKG_VERSION"),
+        "set the same version in {path}"
+    );
+}

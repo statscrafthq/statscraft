@@ -1,0 +1,34 @@
+{
+  "manifest_version": "0.3",
+  "name": "statscraft",
+  "display_name": "Statscraft",
+  "version": "",
+  "description": "Describe .sav data, look up commands, and check and run statistics syntax on your own computer.",
+  "long_description": "Statscraft is a statistics workbench driven by command syntax. With this extension your agent reads the dictionary of a .sav or .zsav file, looks up the help of each command, checks syntax without changing anything and runs it in steps that keep the data between calls. Results come back as tables with raw numbers. When the Statscraft window is open, the agent works in it and you see every table appear. Your data stay on your computer: the server talks only to the app that started it.",
+  "author": {
+    "name": "Statscraft",
+    "url": "https://statscraft.org"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/statscrafthq/statscraft"
+  },
+  "homepage": "https://statscraft.org",
+  "documentation": "https://docs.statscraft.org",
+  "support": "https://github.com/statscrafthq/statscraft/issues",
+  "icon": "icon.png",
+  "server": {
+    "type": "binary",
+    "entry_point": "",
+    "mcp_config": {
+      "command": "${__dirname}/server/statscraft",
+      "args": ["mcp"]
+    }
+  },
+  "tools": [],
+  "keywords": ["statistics", "survey", "sav", "syntax", "tables", "data analysis"],
+  "license": "MIT",
+  "compatibility": {
+    "platforms": []
+  }
+}

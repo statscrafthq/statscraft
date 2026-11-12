@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "statscraft": {
+      "command": "statscraft",
+      "args": ["mcp"]
+    }
+  }
+}

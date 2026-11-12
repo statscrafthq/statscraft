@@ -4,6 +4,9 @@
 
 - `statscraft mcp`: an MCP server over standard input and output, so an AI agent app can describe data, look up commands, check and run syntax through tools. Calls go to the open window when there is one, else to a session in the user data folder. See [the MCP server](docs/mcp.md).
 - `statscraft connect` adds the Statscraft MCP server to the AI agents installed on your computer: Claude Desktop, Claude Code, ChatGPT desktop and Codex, Cursor, VS Code with Copilot, Gemini CLI and Antigravity. It changes only its own entry, keeps a copy of each file before the first change, and says what to restart; `--list` shows the state, `--remove` undoes it. See [Connect your AI agent](docs/connect.md).
+- MCP bundles for Claude Desktop: each release has a `.mcpb` for Windows, macOS and Linux that installs the Statscraft server with a double click, no terminal needed.
+- A Claude Code plugin in this repository: `/plugin marketplace add statscrafthq/statscraft`, then `/plugin install statscraft@statscraft`. It adds the MCP server and the skill.
+- The agent skill `statscraft-analysis` teaches an agent the working loop. It comes with the plugin, as a .zip with each release for claude.ai, and installs in Codex from its GitHub folder. See [Connect your AI agent](docs/connect.md#teach-your-agent-the-skill).
 - Each dataset has its own data window and each output document its own output window. A click in a data window makes its dataset the active one (DATASET ACTIVATE); new tables go to the designated output window (Window > Designate window); closing a window asks about unsaved data. Checked on a virtual display only so far, not yet on a real Windows or macOS desktop.
 - REGRESSION, FACTOR, MEANS, RECODE, COUNT and DESCRIPTIVES are faster on large data, with the same results.
 - Older releases are no longer offered for download; update to this one.

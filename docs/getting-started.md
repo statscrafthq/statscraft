@@ -22,6 +22,8 @@ There are packages for x86_64 Windows and Linux, and for macOS on Apple silicon 
 
 Every package holds both programs, `statscraft` and `statscraft-gui`.
 
+The release also has files for AI agents: an `.mcpb` bundle per system for Claude Desktop and `statscraft-X-skill.zip`. [Connect your AI agent](connect.md) explains them.
+
 ### Windows
 
 Run `statscraft-X-windows-x86_64-setup.exe`. It needs no administrator rights and installs for your user only:
