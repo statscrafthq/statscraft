@@ -6,7 +6,7 @@ statscraft run        run syntax
 statscraft check      validate syntax without saving or writing anything
 statscraft help       syntax of a command, or the list of commands
 statscraft plan       lower syntax to an OpenStatSpec transformation plan
-statscraft db         store datasets in an OpenStatSpec SQLite database and read them back
+statscraft db         store datasets in an OpenStatSpec database and read them back
 statscraft update     check for a newer release, or update this installation to it
 ```
 
@@ -81,7 +81,7 @@ statscraft help FREQUENCIES         syntax, notes and an example of one command
 statscraft help freq                names may be lowercase and shortened, as in syntax
 ```
 
-A command of the language that Statscraft does not run yet (for example `statscraft help LIST`) gets "is a command of the language, but it is not supported yet". An unknown name is an error. The same text, one page per command, is in [commands](commands/README.md).
+A command of the language that Statscraft does not run yet (for example `statscraft help GRAPH`) gets "is a command of the language, but it is not supported yet". An unknown name is an error. The same text, one page per command, is in [commands](commands/README.md).
 
 ## Sessions and line ranges
 
@@ -145,7 +145,7 @@ Line numbers in the output always refer to the whole file, not to the range.
       "last_line": 2,
       "tables": [
         {
-          "title": "gender: Gender",
+          "title": "Gender",
           "row_headers": 3,
           "columns": ["Category", "Value", "Label", "Frequency", "Percent", "Valid Percent", "Cumulative Percent"],
           "column_groups": [[], [], [], [], [], [], []],
@@ -240,7 +240,7 @@ Warnings do not fail a run. They are in `commands[].warnings` of the run result,
 warning: line 1: DESCRIPTIVES: no statistics for string variables: plan
 ```
 
-### describe
+### Dictionary
 
 `statscraft describe tests/fixtures/survey_basic_phpwriter.sav --json` (shortened):
 
@@ -349,7 +349,7 @@ statscraft run job.sps --xlsx all.xlsx --xlsx-one-sheet
 statscraft run -s gui -e "FREQUENCIES VARIABLES=gender." --xlsx gender.xlsx
 ```
 
-Every table of the run goes into the workbook, with or without a session, and also from the window session. With one sheet per table the sheet is named after the table title (`gender Gender`, `region Region of residence`, ...); with `--xlsx-one-sheet` there is one sheet `Tables` with the tables one below the other.
+Every table of the run goes into the workbook, with or without a session, and also from the window session. With one sheet per table, each sheet is named after its table title (`Gender`, `Region of residence`, ...). With `--xlsx-one-sheet` there is one sheet `Tables` with the tables one below the other.
 
 Each table has its title in bold, the column headers with merged cells for every level, the row labels, thin borders and its caption below. Numbers stay numbers, with a number format that shows them as the output does: a percentage cell holds 45.2 and shows 45.2%. Text such as significance letters and hidden small counts (`<5`) stays text. The text output on the terminal is the same as without `--xlsx`.
 
@@ -366,7 +366,7 @@ statscraft check -s gui -e "COMPUTE x = age / 10."
 statscraft describe -s gui --json
 ```
 
-- The window runs the syntax as its own Run button does: the tables appear in Output, the commands in the log, the grid shows the new data.
+- The window runs the syntax as its own Run button does: the tables appear in the Output tab, the commands in the log, and the grid shows the new data.
 - The command line prints what it prints for a file session, with `"session": "gui"`. `saved` is true when the run changed the window's session (the table under [Sessions](#sessions-and-line-ranges)); nothing is written to disk unless the syntax says `SAVE`.
 - The window keeps the same state between runs as a file session, in memory until it closes; `describe -s gui` shows it the same way.
 - Relative paths in the syntax are read from the folder where `statscraft` was started, and the window stays in that folder.
@@ -407,11 +407,34 @@ The last one prints `{"error":{...,"message":"FREQUENCIES is not supported by fr
 ## db
 
 ```
-statscraft db export (FILE | -s SESSION) --sqlite DB [--name NAME]
-statscraft db import --sqlite DB --name NAME (--out FILE | -s SESSION) [--allow-loss]
+statscraft db export survey.sav --sqlite study.db [--name survey]   store a dataset in SQLite
+statscraft db export survey.sav --postgres URL                      or in PostgreSQL
+statscraft db export survey.sav --mysql URL                         or in MySQL or MariaDB
+statscraft db export survey.sav --dolt URL                          or in Dolt
+statscraft db export -s work --sqlite study.db --name work          store a session's dataset
+statscraft db import --sqlite study.db --name survey --out back.sav read it back into a file
+statscraft db import --sqlite study.db --name survey -s work        or into a session
+statscraft db capabilities                                          versions and limits per database
+statscraft plan job.sps --sqlite study.db --name survey --apply     apply syntax to it in place
 ```
 
-`db` stores a dataset in an SQLite database laid out as OpenStatSpec specifies: one table `data_<name>` with `__case_ordinal` and one column per variable, and the dictionary in catalog tables. The database file belongs to OpenStatSpec: `export` sets up the catalog in a new or empty file and refuses a file that holds anything else.
+`db` stores a dataset the way OpenStatSpec's SAV/ZSAV profile 1.0 and its SQL dialect profiles specify.
+
+- One table `data_<name>` holds the cases: `__case_ordinal` (1, 2, 3, ... in case order) and one column per variable, in variable order.
+- Numbers are binary64, with system-missing as NULL. Strings are text that is never NULL. User-missing codes are kept as values, and dates as numbers.
+- The dictionary goes into the catalog tables: labels, value labels, missing values, formats, measurement level, role, display settings, attributes, documents, weight variable and multiple response sets.
+- Variable names that are not plain ASCII get generated column names (`v<position>`); the catalog maps them back.
+- The database belongs to OpenStatSpec. `export` sets up the catalog in a new or empty one and refuses one that holds anything else.
+
+| Flag | Meaning |
+|---|---|
+| `--sqlite FILE`, `--postgres URL`, `--mysql URL`, `--dolt URL` | the database; see [Databases](#databases) |
+| `--name` | the dataset name: ASCII letters, digits and `_`. For `export` it defaults to the file or session name |
+| `--out FILE` | `import` writes this .sav or .zsav file |
+| `-s`, `--session NAME` | `export` reads, or `import` replaces, this session's dataset |
+| `--allow-loss` | `import` goes on when the catalog holds items a dataset cannot keep |
+
+Each prints one line of JSON, such as `{"case_count":200,"dataset":"survey_basic","dataset_id":"...","ok":true,"table":"data_survey_basic","variable_count":19}`, or `{"ok":false,"error":{"code":...,"message":...}}` with exit code 1.
 
 ```
 statscraft db export tests/fixtures/survey_basic.sav --sqlite study.db
@@ -421,32 +444,19 @@ statscraft db import --sqlite study.db --name survey_basic --out back.sav
 statscraft db import --sqlite study.db --name work -s fromdb
 ```
 
-Each prints one line of JSON, such as `{"case_count":200,"dataset":"survey_basic","dataset_id":"...","ok":true,"table":"data_survey_basic","variable_count":19}`, or `{"ok":false,"error":{"code":...,"message":...}}` with exit code 1.
+### Writing and reading
 
-| Flag | Meaning |
-|---|---|
-| `--name` | the dataset name: ASCII letters, digits and `_`. For `export` it defaults to the file or session name |
-| `--out FILE` | `import` writes this .sav or .zsav file |
-| `-s`, `--session NAME` | `export` reads, or `import` replaces, this session's dataset |
-| `--allow-loss` | `import` goes on when the catalog holds items a dataset cannot keep (dataset attributes, variable sets, write formats that differ from the print format) |
+- Before writing, a preflight checks the column limit, identifiers, value sizes and the row size against the profile and the server's settings. SQLite refuses NaN and negative zero, which it cannot keep.
+- A failure leaves no table and no dataset row, only the failed operation and its diagnostic.
+- The rows go in bulk inside the same transaction:
+  - PostgreSQL takes them with `COPY` in the binary format;
+  - MySQL and MariaDB in prepared multi-row INSERTs of at most 4 MiB, each within `max_allowed_packet`;
+  - Dolt in multi-row INSERTs of literal values of at most 256 KiB, each within `max_allowed_packet`;
+  - SQLite through one prepared INSERT per case.
+- Reading streams the rows from the server into the dataset instead of holding the whole result first.
+- Reading a dataset whose catalog holds items Statscraft cannot keep (dataset attributes, variable sets, write formats other than the print format) fails unless `--allow-loss` is given. The losses are then listed in the output.
 
-Before writing, `export` checks the column limit (2000 including `__case_ordinal`), identifiers and value sizes, and refuses NaN and negative zero, which SQLite cannot keep. A failure leaves no table and no dataset row behind.
-
-### Databases other than SQLite
-
-```
-statscraft db export survey.sav --sqlite study.db [--name survey]   store a dataset in SQLite
-statscraft db export survey.sav --postgres URL                      or in PostgreSQL
-statscraft db export survey.sav --mysql URL                         or in MySQL or MariaDB
-statscraft db export survey.sav --dolt URL                          or in Dolt
-statscraft db capabilities                                          versions and limits per database
-statscraft db export -s work --sqlite study.db --name work          store a session's dataset
-statscraft db import --sqlite study.db --name survey --out back.sav read it back into a file
-statscraft db import --sqlite study.db --name survey -s work        or into a session
-statscraft plan job.sps --sqlite study.db --name survey --apply     apply syntax to it in place
-```
-
-`db` stores a dataset the way OpenStatSpec's SAV/ZSAV profile 1.0 and its SQL dialect profiles specify: one table `data_<name>` with `__case_ordinal` (1, 2, 3, ... in case order) and one column per variable in variable order, numbers as binary64 with system-missing as NULL, strings as text that is never NULL, user-missing codes kept as values, dates as numbers. The dictionary (labels, value labels, missing values, formats, measurement level, role, display settings, attributes, documents, weight variable, multiple response sets) goes into the catalog tables. The database belongs to OpenStatSpec: `export` sets up the catalog in a new or empty one and refuses one that holds anything else. Before writing, a preflight checks the column limit, identifiers, value sizes and the row size against the profile and the server's settings. A failure leaves no table and no dataset row, only the failed operation and its diagnostic. The rows go in bulk inside the same transaction: PostgreSQL takes them with `COPY` in the binary format, MySQL and MariaDB in prepared multi-row INSERTs of at most 4 MiB, Dolt in multi-row INSERTs of literal values of at most 256 KiB, each within `max_allowed_packet`, SQLite through one prepared INSERT per case. Reading streams the rows from the server into the dataset instead of holding the whole result first. Variable names that are not plain ASCII get generated column names (`v<position>`); the catalog maps them back. Reading a dataset whose catalog holds items Statscraft cannot keep (dataset attributes, variable sets, write formats other than the print format) fails unless `--allow-loss` is given; the losses are then listed in the output.
+### Databases
 
 | | SQLite | PostgreSQL | MySQL, MariaDB | Dolt |
 |---|---|---|---|---|
@@ -460,13 +470,23 @@ statscraft plan job.sps --sqlite study.db --name survey --apply     apply syntax
 | Identifiers | 255 bytes | `max_identifier_length` (63 bytes) | 64 characters | 64 characters |
 | New variables in `plan --apply` | yes, in the same transaction | yes, in the same transaction | no: `schema_change_not_atomic` before any change | no: `schema_change_not_atomic` |
 
-MySQL, MariaDB and Dolt commit DDL implicitly, so `export` creates the table first, writes the rows and the catalog in one transaction, and drops the table again if that fails. A plan that would create a variable is refused before anything changes; create the column and its catalog variable in a separate step first.
+MySQL, MariaDB and Dolt commit DDL implicitly. So `export` creates the table first, writes the rows and the catalog in one transaction, and drops the table again if that fails. A plan that would create a variable is refused before anything changes; create the column and its catalog variable in a separate step first.
 
-The product is decided by what the server says about itself, not by the protocol: `--mysql` refuses a Dolt server and `--dolt` refuses MySQL and MariaDB. On Dolt, Statscraft never commits, branches, merges or resets. `db export` leaves its changes in the working set for you to commit; `db import` and the input schema of `plan` write nothing at all (OpenStatSpec's Database I/O Execution Policy v1, which `db capabilities` declares), so allowed losses are reported in the output instead of in the catalog. `plan --apply` on Dolt needs `--expected-branch` and `--expected-head`: the session must be on that branch at that commit with a clean working set, and the branch must still point at that commit when the apply completes; the audit row records both, and the changes stay uncommitted. The session's branch is the database's default branch, or the one named as `db/branch` in the URL.
+The product is decided by what the server says about itself, not by the protocol: `--mysql` refuses a Dolt server, and `--dolt` refuses MySQL and MariaDB.
+
+### Dolt
+
+- Statscraft never commits, branches, merges or resets.
+- `db export` leaves its changes in the working set for you to commit.
+- `db import` and the input schema of `plan` write nothing at all (OpenStatSpec's Database I/O Execution Policy v1, which `db capabilities` declares). Allowed losses are therefore reported in the output instead of in the catalog.
+- `plan --apply` needs `--expected-branch` and `--expected-head`. The session must be on that branch at that commit with a clean working set, and the branch must still point at that commit when the apply completes. The audit row records both, and the changes stay uncommitted.
+- The session's branch is the database's default branch, or the one named as `db/branch` in the URL.
+
+### Passwords and TLS
 
 A URL without a password takes it from the `STATSCRAFT_DB_PASSWORD` environment variable. Passwords are never printed.
 
-Connections use plain TCP unless the URL asks for TLS. TLS always verifies the server's certificate chain, against the CA file when one is given and otherwise against the bundled Mozilla root certificates, and also the host name unless the mode says otherwise. Statscraft never makes an unverified TLS connection, and refuses the modes that fall back to plain TCP (`prefer`, `allow`, `PREFERRED`).
+Connections use plain TCP unless the URL asks for TLS. TLS always verifies the server's certificate chain, against the CA file when one is given and otherwise against the bundled Mozilla root certificates. It also checks the host name unless the mode says otherwise. Statscraft never makes an unverified TLS connection, and refuses the modes that fall back to plain TCP (`prefer`, `allow`, `PREFERRED`).
 
 ```
 statscraft db export survey.sav --postgres "postgres://analyst@db.example.org/study?sslmode=verify-full"
@@ -480,6 +500,11 @@ statscraft db export survey.sav --mysql "mysql://analyst@db.example.org/study?ss
 | `verify-full`, `require` | `VERIFY_IDENTITY`, `REQUIRED` | TLS; the certificate chain and the host name are checked |
 | `verify-ca` | `VERIFY_CA` | TLS; the certificate chain is checked, the host name is not |
 
-`sslrootcert=FILE` (PostgreSQL) or `ssl-ca=FILE` (MySQL, MariaDB, Dolt) names a PEM file of the CA certificates to trust, for a server whose certificate comes from a private CA; a CA file without a mode means `verify-full`. With a CA file, PostgreSQL trusts only that file; the MySQL client trusts the bundled roots as well. Note that `require` and `REQUIRED` check more than in the PostgreSQL and MySQL command line clients, where they encrypt without checking the certificate.
+- `sslrootcert=FILE` (PostgreSQL) or `ssl-ca=FILE` (MySQL, MariaDB, Dolt) names a PEM file of the CA certificates to trust, for a server whose certificate comes from a private CA.
+- A CA file without a mode means `verify-full`.
+- With a CA file, PostgreSQL trusts only that file; the MySQL client trusts the bundled roots as well.
+- Note that `require` and `REQUIRED` check more than in the PostgreSQL and MySQL command line clients, where they encrypt without checking the certificate.
 
-`plan --name DATASET` with a database option takes the input schema from that dataset; with `--apply` it then applies the plan to the same table in one transaction: direct UPDATEs, `ALTER TABLE ... ADD COLUMN` for new variables, catalog updates and one audit row in `transformation_apply` (plan and source hashes, actor, operation count). Nothing is copied, and on any error nothing changes. `--actor` names who applies the plan (default `$USER`).
+### Applying a plan in place
+
+`plan --name DATASET` with a database option takes the input schema from that dataset. With `--apply` it then applies the plan to the same table in one transaction: direct UPDATEs, `ALTER TABLE ... ADD COLUMN` for new variables, catalog updates and one audit row in `transformation_apply` (plan and source hashes, actor, operation count). Nothing is copied, and on any error nothing changes. `--actor` names who applies the plan (default `$USER`).

@@ -9,18 +9,18 @@ The command line works without the window.
 
 ## Install
 
-### Getting the installer or package
+### Download
 
-The installer and packages for x86_64 Windows and Linux, and for macOS on Apple silicon and Intel, are attached to a release on the GitHub repository's **Releases** page. They come from the **Release build** workflow, which runs only when someone starts it:
+There are packages for x86_64 Windows and Linux, and for macOS on Apple silicon and Intel. Download the one for your system from the [latest release](https://github.com/statscrafthq/statscraft/releases/latest) on GitHub. `X` stands for the version:
 
-1. On GitHub open **Actions**, choose **Release build**, then **Run workflow** (with the GitHub CLI: `gh workflow run release.yml`). Tick **draft release** to also get a draft release with the files attached; a maintainer publishes it by hand.
-2. When the run has finished, its page lists the files below, where `X` is the version:
-   - `statscraft-X-windows-x86_64-setup.exe`, the Windows installer
-   - `statscraft-X-windows-x86_64.zip`, the same programs for Windows without an installer
-   - `statscraft_X_amd64.deb`, the package for Debian and Ubuntu
-   - `statscraft-X-linux-x86_64.tar.gz`, the same files for any other Linux
-   - `statscraft-X-macos-universal.tar.gz`, Statscraft.app and the command line for macOS
-   - `SHA256SUMS`, the checksums of these files
+- `statscraft-X-windows-x86_64-setup.exe`, the Windows installer
+- `statscraft-X-windows-x86_64.zip`, the same programs for Windows without an installer
+- `statscraft_X_amd64.deb`, the package for Debian and Ubuntu
+- `statscraft-X-linux-x86_64.tar.gz`, the same files for any other Linux
+- `statscraft-X-macos-universal.tar.gz`, Statscraft.app and the command line for macOS
+- `SHA256SUMS`, the checksums of these files
+
+Every package holds both programs, `statscraft` and `statscraft-gui`.
 
 ### Windows
 
@@ -43,9 +43,9 @@ The portable `statscraft-X-windows-x86_64.zip` needs no installation and no admi
 - `statscraft.exe`, the command line: run it in a terminal from that folder, or add the folder to your `PATH`
 - `LICENSE.txt` and `README.md`
 
-Nothing is registered: there is no Start menu entry and no file types, so open files with File, Open or drag them onto `statscraft-gui.exe`. Windows may warn about an unknown publisher the first time, as for the installer: **More info**, then **Run anyway**. To remove it, delete the folder.
+Nothing is registered: there is no Start menu entry and no file types, so open files with File > Open data or drag them onto `statscraft-gui.exe`. Windows may warn about an unknown publisher the first time, as for the installer: **More info**, then **Run anyway**. To remove it, delete the folder.
 
-Keep `LICENSE.txt` next to the programs: the updater recognises the portable copy by it, and updates the two programs in that folder.
+Keep `LICENSE.txt` next to the programs: the updater recognizes the portable copy by it, and updates the two programs in that folder.
 
 ### macOS
 
@@ -72,7 +72,7 @@ mv ~/Downloads/statscraft-X-macos-universal/statscraft ~/.local/bin/
 
 (add `export PATH="$HOME/.local/bin:$PATH"` to `~/.zshrc` if that folder is not on your `PATH` yet). The first `statscraft --version` is blocked; allow it under **Privacy & Security** as above and run it again. Instead of that, you can clear the download mark in the terminal: `xattr -d com.apple.quarantine ~/.local/bin/statscraft`.
 
-Finder offers Statscraft under **Open With** for .sav, .zsav and .sps files. Opening a file this way should open it in the window, as if it had been dropped there; this has not been tried on a Mac yet. If Statscraft starts without the file, use File, Open, and please report it (Help, Bug report). To uninstall, move Statscraft.app to the Bin and delete the `statscraft` program.
+Finder offers Statscraft under **Open With** for .sav, .zsav and .sps files. Opening a file this way should open it in the window, as if it had been dropped there; this has not been tried on a Mac yet. If Statscraft starts without the file, use File > Open data, and please report it on the [Issues page](https://github.com/statscrafthq/statscraft/issues) of the GitHub repository. To uninstall, move Statscraft.app to the Bin and delete the `statscraft` program.
 
 ### Debian and Ubuntu
 
@@ -104,15 +104,15 @@ update-mime-database ~/.local/share/mime
 
 ### Updating
 
-When a new version is published, the window says so in a bar under the menu: **Update now** installs it, Later hides the bar. From the command line, `statscraft update --check` tells whether there is one and `statscraft update` installs it. How it works for each kind of installation:
+When a new version is published, the window says so in a bar under the menu: **Update now** installs it, **Later** hides the bar. From the command line, `statscraft update --check` tells whether there is one and `statscraft update` installs it. How it works for each kind of installation:
 
-- Windows: the new installer is downloaded, checked and run silently; the window closes and opens again in the new version. Save your work first.
+- Windows: the new installer is downloaded, checked and run silently. The window asks about unsaved work, closes, and opens again in the new version.
 - Windows without an installer: the new .zip is downloaded and checked, and the two programs in its folder are replaced; restart the window to use the new one. The old programs are deleted the next time Statscraft starts.
 - Tarball under `~/.local`: the two programs in `~/.local/bin` are replaced; restart the window to use the new one.
 - Debian and Ubuntu: the new .deb is downloaded and checked into `~/Downloads`, and you install it with the command shown, `sudo apt install ~/Downloads/statscraft_X_amd64.deb`.
-- macOS: the bar has a **Download** link to the new `statscraft-X-macos-universal.tar.gz`. Unpack it and replace Statscraft.app in Applications (and the `statscraft` program) with the new ones. The first start of the new version needs **Open Anyway** again. The updater does not change files inside the app itself, which a later signed version would not allow. `statscraft update` on macOS says where the new release is.
+- macOS: the bar has a **Download** link to the new `statscraft-X-macos-universal.tar.gz`. Unpack it and replace Statscraft.app in Applications (and the `statscraft` program) with the new ones. The first start of the new version needs **Open Anyway** again. The updater does not change files inside the app itself, which a later signed version would not allow. On macOS, `statscraft update` changes nothing: it stops with an error that names the release page.
 
-Every download is checked against the checksums published with the release before it is used. The window checks at most once a day, sending only one request to GitHub and nothing about you or your data. It is on by default and silent unless there is an update; Edit, Settings, Updates turns it off. See [the window](window.md#updates) and [the command line](command-line.md#update).
+Every download is checked against the checksums published with the release before it is used. The window checks at most once a day, sending only one request to GitHub and nothing about you or your data. It is on by default and silent unless there is an update; Edit > Settings > Updates turns it off. See [the window](window.md#updates) and [the command line](command-line.md#update).
 
 ### Build from source
 
@@ -172,7 +172,7 @@ statscraft run job.sps
 Every table comes out as Markdown, followed by a summary of the run:
 
 ```
-### gender: Gender
+### Gender
 
 | Category | Value | Label | Frequency | Percent | Valid Percent | Cumulative Percent |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -223,15 +223,22 @@ statscraft-gui tests/fixtures/survey_basic.sav job.sps
 
 (Both are optional. From a source checkout `cargo run -p statscraft-gui -- tests/fixtures/survey_basic.sav job.sps` does the same.)
 
-1. **Data** shows the cases. Double-click a cell, or press Enter, to change it. Show value labels, over the grid, switches value labels on and off.
-2. **Variables** has one row per variable. Double-click a label, a format or the missing values to change them.
-3. **Syntax** holds `job.sps`. Select lines 4 to 6 and press Ctrl+Enter to run only those commands. F1 shows help for the command under the cursor. An error is marked at its line and column.
-4. **Output** collects every table. Copy puts a table on the clipboard for a spreadsheet; File, Export output as Excel saves all tables as a workbook.
-5. The menus **Data**, **Analyze** and **Transform** open dialogs that build syntax. OK runs it, Paste puts it in the syntax editor.
+1. The **Data** tab shows the cases. Double-click a cell, or press Enter, to change it. **Show value labels**, above the grid, switches value labels on and off.
+2. The **Variables** tab has one row per variable. Double-click a label, a format or the missing values to change them.
+3. The **Syntax** tab holds `job.sps`. Select lines 4 to 6 and press Ctrl+Enter to run only those commands. F1 shows help for the command at the cursor. An error is marked at its line and column.
+4. The **Output** tab collects every table. **Copy** puts a table on the clipboard for a spreadsheet; File > Export output as Excel saves all tables as a workbook.
+5. The menus **Data**, **Analyze** and **Transform** open dialogs that build syntax. **OK** runs it, **Paste** puts it in the syntax editor.
 
-Everything the window does is syntax: the log under the Syntax and Output views lists every command it ran, and Copy syntax there gives a script that repeats your session with `statscraft run`. Edit, Undo last change (Ctrl+Z) takes back the last run that changed the data.
+Everything the window does is syntax. The log under the Syntax and Output tabs lists every command it ran, and **Copy syntax** there gives a script that repeats your session with `statscraft run`. Edit > Undo last change (Ctrl+Z) takes back the last run that changed the data.
 
-The grid draws only the visible cells, so large files stay quick. Arrows, Page Up and Down, Home and End move the selection, Ctrl+Home and Ctrl+End go to the first and last cell, and Tab and Shift+Tab move to the next and previous cell, committing an edit on the way. Long lines in the syntax editor wrap; View turns that off. The window brings its own fonts; set `STATSCRAFT_FONT` or `STATSCRAFT_MONO_FONT` to a .ttf file to use another.
+A few more things to know:
+
+- The grid draws only the visible cells, so large files stay quick.
+- Arrows, Page Up and Page Down, Home and End move the selection. Ctrl+Home and Ctrl+End go to the first and last cell. Tab and Shift+Tab move to the next and previous cell, committing an edit on the way.
+- Long lines in the syntax editor wrap; Edit > Settings > Editor > Wrap long lines turns that off.
+- The window brings its own fonts. Set `STATSCRAFT_FONT` or `STATSCRAFT_MONO_FONT` to a .ttf file to use another.
+
+[The window](window.md) describes every tab, menu and dialog.
 
 While the window is open, the command line and AI agents can work in it as the session `gui`:
 
@@ -243,7 +250,8 @@ The table appears in the window's Output tab. See [the command line](command-lin
 
 ## Next
 
+- [The window](window.md): every tab, menu, dialog and setting.
 - [The command line](command-line.md): every subcommand, flag, JSON shape and exit code.
 - [AI agents](ai-agents.md): how an agent should drive Statscraft.
 - [Commands](commands/README.md): one page per supported command.
-- [Differences](differences.md): where Statscraft differs from other implementations, and what is not supported yet.
+- [Differences and limits](differences.md): where Statscraft differs from other implementations, and what is not supported yet.

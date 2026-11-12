@@ -3,7 +3,7 @@
 ## 0.7.0 (2026-11-12)
 
 - Tables show variable and value labels, names or both, following SET TVARS, TNUMBERS, OVARS and ONUMBERS (labels by default, as the manual says). Edit > Settings has the two choices and keeps them.
-- Every dialog that writes syntax ends the same way: the syntax, OK, Paste and Cancel; Escape closes it. Hint lines and instruction tooltips are gone, and so is the View menu (the Data View has its own value labels switch).
+- Every dialog that writes syntax ends the same way: the syntax, OK, Paste and Cancel; Escape closes it. Hint lines and instruction tooltips are gone, and so is the View menu (the Data tab has its own value labels switch).
 
 ## 0.6.0 (2026-11-12)
 
@@ -24,8 +24,8 @@
 
 - Closing the window asks about unsaved data and syntax (Save, Don't save, Cancel); so do New syntax, Open syntax and Restart now. Nothing unsaved closes without asking.
 - One Settings dialog (Edit > Settings) for the editor, grids and output, and updates; the quick menus no longer hold settings.
-- Grids: select with the mouse by clicking or dragging over cells, headers and row numbers; Delete clears the selected cells; system-missing shows as a grey dot; numbers stay right-aligned when their labels are too long for the cell; no shadows anywhere.
-- A shorter right-click menu on columns and Variable View rows: sort, Frequencies, Descriptives, rename, insert, copy, delete.
+- Grids: select with the mouse by clicking or dragging over cells, headers and row numbers; Delete clears the selected cells; system-missing shows as a gray dot; numbers stay right-aligned when their labels are too long for the cell; no shadows anywhere.
+- A shorter right-click menu on columns and Variables tab rows: sort, Frequencies, Descriptives, rename, insert, copy, delete.
 - Analyze dialogs for Linear Regression, Reliability Analysis, the Nonparametric Tests and Partial Correlations.
 - New commands: TITLE, SUBTITLE, ECHO, NEW FILE, CLEAR TRANSFORMATIONS, ERASE, SYSFILE INFO, PERMISSIONS, DATE, PRINT, PRINT EJECT, PRINT SPACE, WRITE, PRINT FORMATS, WRITE FORMATS and XSAVE. HOST is refused for safety.
 
@@ -34,7 +34,7 @@
 - New procedures: REGRESSION (linear, with stepwise methods, statistics and saved variables), RELIABILITY (alpha, split-half, Guttman, parallel models, intraclass correlations), NPAR TESTS (every one-sample, independent and related samples test, exact where the manual says), PARTIAL CORR, MULT RESPONSE and TREE (CHAID and exhaustive CHAID).
 - Restructuring and merging: VARSTOCASES, CASESTOVARS, FLIP, UPDATE, SORT VARIABLES, STAR JOIN; ADD FILES and MATCH FILES with IN, FIRST, LAST and MAP.
 - Spreadsheets and text: GET DATA reads Excel workbooks; SAVE TRANSLATE writes CSV, tab-delimited text and XLSX. In the window, File > Open data and File > Export data, and dropped workbooks and text files open.
-- Dates, times and custom currencies show in their formats in every table, the Data View and Excel export (as real Excel dates and numbers).
+- Dates, times and custom currencies show in their formats in every table, the Data tab and Excel export (as real Excel dates and numbers).
 - FILE HANDLE; SET SEED, RNG and MTINDEX with the random number functions; PRESERVE and RESTORE for every setting.
 - Command-line sessions keep settings, PRESERVE levels, the CD folder, file handles and the random numbers between runs; describe shows them.
 - Faster CTABLES on large stacked tables; shortened function names such as SYS; CROSSTABS /COUNT and /FORMAT.
@@ -43,11 +43,11 @@
 ## 0.2.0 (2026-11-11)
 
 - New app icon and the Statscraft name everywhere: window, installers, file types, documentation and the product string of written .sav files. Installing 0.2.0 over 0.1.x keeps the same install and file associations.
-- Window: right-click menus in the Data View (column headers, cells, row numbers) and the Variable View: sort, quick Frequencies and Descriptives, prefilled dialogs, measure, rename, insert, delete, filter to a value, keep only those cases, copy.
+- Window: right-click menus in the Data tab (column headers, cells, row numbers) and the Variables tab: sort, quick Frequencies and Descriptives, prefilled dialogs, measure, rename, insert, delete, filter to a value, keep only those cases, copy.
 - Window: the log shows only under Syntax and Output, so the grids use the whole height; cells follow each variable's alignment; cases left out by FILTER have their row number struck through.
 - INCLUDE and INSERT without FILE= read the file before the next lines, so the macros of a macro library can be called right after it.
 - CTABLES: the NEGPAREN, NEQUAL, PAREN, PCTPAREN, DOT, N and E summary formats; )DATE, )TIME and )TABLE in titles; a function repeated in one summary list gives two columns.
-- Window: the Statscraft colours (petrol) for selection, focus, links and OK buttons; Schibsted Grotesk and JetBrains Mono bundled, with digits of equal width so numbers line up; Statscraft Light and Dark syntax colours, Light the default.
+- Window: the Statscraft colors (petrol) for selection, focus, links and OK buttons; Schibsted Grotesk and JetBrains Mono bundled, with digits of equal width so numbers line up; Statscraft Light and Dark syntax colors, Light the default.
 
 ## 0.1.1 (2026-11-10)
 
@@ -55,13 +55,13 @@
 - RANK with every function, tie rule and fraction method.
 - Encrypted database connections (TLS with certificate checks) and much faster storing and reading of large datasets in PostgreSQL, MySQL, MariaDB, Dolt and SQLite.
 - Update checks run quietly in the background; the window no longer shows a notice about them on the first start.
-- Window: Variable View with dialogs for type and format, value labels and missing values editors (with pasting many codes at once), row selection with Delete, spreadsheet keys, Ctrl+F to find a variable, Ctrl+C as tab-separated text; Rank, Automatic Recode and Split File dialogs; Select Cases filters by default; split, filter and weight shown in the status bar.
+- Window: the Variables tab, with dialogs for type and format, value labels and missing values editors (with pasting many codes at once), row selection with Delete, spreadsheet keys, Ctrl+F to find a variable, Ctrl+C as tab-separated text; Rank, Automatic Recode and Split File dialogs; Select Cases filters by default; split, filter and weight shown in the status bar.
 - Syntax editor: themes (Catppuccin, One Dark, Solarized, GitHub), macros in completion, fills its tab. Output: no automatic selection, a margin around tables. Square corners throughout; Help links open in the browser.
 - Macros defined in a session last across its runs; macro arguments expand at the call as the manual says; dataset names in MATCH FILES, ADD FILES and AGGREGATE.
 
 ## 0.1.0 (2026-11-10, early release)
 
-The first version for people who want to try StatsCraft and tell us what breaks. Expect rough edges; please report them (Issues, Bug report).
+The first version for people who want to try Statscraft and tell us what breaks. Expect rough edges; please report them on the Issues page of the GitHub repository.
 
 ### What it does
 

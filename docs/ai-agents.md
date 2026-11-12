@@ -48,7 +48,7 @@ Good habits:
 
 ## Working in the open window
 
-When the person has `statscraft-gui` open, the agent can work in it instead of a file session: the session name `gui` sends the syntax to the window, which runs it like its own Run button. The person sees each table appear in Output and each command in the log, and can keep working in the window between the agent's runs.
+When the person has `statscraft-gui` open, the agent can work in it instead of a file session: the session name `gui` sends the syntax to the window, which runs it like its own Run button. The person sees each table appear in the Output tab and each command in the log, and can keep working in the window between the agent's runs.
 
 ```
 statscraft run -s gui --json -e "GET FILE='tests/fixtures/survey_basic.sav'."
@@ -64,7 +64,7 @@ Because the person may also change the data in the window, the agent should run 
 ## Instructions to paste into your agent
 
 ```text
-You can analyse data with Statscraft, a statistics program driven by the established
+You can analyze data with Statscraft, a statistics program driven by the established
 statistics command syntax (COMPUTE, RECODE, FREQUENCIES, CTABLES and so on). Use the `statscraft` command line in the shell.
 
 - Start with `statscraft describe <file> --json` to learn the variables, labels and missing values.
