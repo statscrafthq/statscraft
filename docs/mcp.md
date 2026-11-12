@@ -18,7 +18,7 @@ The easy way to connect an agent is `statscraft connect`, which finds the agent 
 - `syntax` is the text of one or more commands; `file` is the absolute path of a .sps file. Give one of them.
 - `lines` limits the run to the commands within a line range, such as `"12-20"`. Line numbers stay those of the whole text.
 - `folder` is the absolute folder that relative file names in the syntax start from. Default: your home folder. Give absolute paths in the syntax to be sure.
-- `xlsx` also writes every table of the run to an Excel workbook, one sheet per table.
+- `xlsx` also writes every table and chart of the run to an Excel workbook, one sheet per table; a chart as its data table with an editable chart beside it.
 - `vega_lite` set to true gives every chart also as a Vega-Lite specification, as `--vega-lite` does on the command line.
 
 A run or check returns the JSON described in [the command line](command-line.md#json-output) as structured content, and the tables and charts as Markdown text with a summary line for apps that show only text. A syntax or run error is a normal result: `ok` is false and `errors` gives the line, column and what was expected, so the agent can fix the syntax and try again. A call the server cannot carry out at all, such as a missing file or a bad argument, is marked as a tool error.

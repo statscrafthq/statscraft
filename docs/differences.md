@@ -631,6 +631,8 @@ Significance tests:
 ### Output documents and OUTPUT EXPORT
 
 - **Beyond the documentation:** OUTPUT EXPORT takes /CSV DOCUMENTFILE='file' [NOTESCAPTIONS=YES | NO], a Statscraft addition: each table as comma-separated values after its title, a blank line between tables.
+- /DOC and /PPT write the current Word and PowerPoint formats (.docx, .pptx), whatever the file is called, on every system and without the office programs installed. A table becomes a Word table or a slide with a table; a bar, pie, line or area chart becomes an editable chart with its workbook inside, in the document's theme. PAGESIZE, SLIDESIZE, the margins, WIDETABLES and PAGEBREAKS are accepted and not applied.
+- /XLSX puts a chart beside its data table as an editable chart. HTML, TEXT and CSV show a chart as its data table.
 - Documents are named Document1, Document2 and so on.
 - In the JSON of a run, each command names the document its tables went to (`commands[].document`), and `describe` lists the open documents and the designated one.
 - The window shows each output document in an output window of its own. The documents decide what OUTPUT EXPORT writes, including tables deleted from the view.
@@ -730,7 +732,7 @@ Where the documentation is silent:
   - FILE HANDLE refuses MODE=BINARY, MULTIPUNCH, IMAGE and 360, since only text and data files are read.
 - **Expression functions.** APPLYMODEL and STRAPPLYMODEL, which need MODEL HANDLE. NUMBER reads the formats DATA LIST reads (F, N, E, COMMA, DOT, DOLLAR, PCT, DATE, ADATE, EDATE and SDATE). STRING writes the number, date and time formats, but not the custom currencies CCA to CCE.
 - **Transformations.** PRINT and WRITE have no binary formats (P, PK, IB, PIB, PIBHEX, RB, RBHEX, Z). DATA LIST reads only F, N, E, COMMA, DOT, DOLLAR, PCT, A, DATE, ADATE, EDATE and SDATE, and only UTF-8 files. Commands such as VALUE LABELS cannot stand inside LOOP. AUTORECODE has no templates.
-- **Charts.** FREQUENCIES and CROSSTABS give their charts as data: the window and the text output show each chart's numbers as a table, `--json` gives its description and `--vega-lite` a Vega-Lite specification, but the window does not draw them yet. The other procedures accept their chart subcommands with a warning. TREE shows its tree diagram as a table, one row per node indented by depth, and says so in a warning.
+- **Charts.** FREQUENCIES and CROSSTABS give their charts as data: the window and the text output show each chart's numbers as a table, `--json` gives its description and `--vega-lite` a Vega-Lite specification, and workbooks, Word documents and presentations hold them as editable charts, but the window does not draw them yet. The other procedures accept their chart subcommands with a warning. TREE shows its tree diagram as a table, one row per node indented by depth, and says so in a warning.
 - **TREE.** CHAID and exhaustive CHAID with a nominal or ordinal dependent. Not supported yet: CRT, QUEST, a scale dependent, split-sample and cross-validation, SPLITMERGED=YES, custom costs, profits, percentile gain tables, rules, influence variables, model files and TARGETRESPONSE.
 - **Data files.** Statscraft reads and writes .sav and .zsav files, and portable (.por) files with IMPORT and EXPORT.
   - Text files are read with DATA LIST, GET DATA and GET TRANSLATE /TYPE=TAB; workbooks (.xlsx, .xlsm, .xls) with GET DATA and GET TRANSLATE; dBASE III and IV files with GET TRANSLATE. 1-2-3, Symphony, SYLK and dBASE II files are not read.
@@ -738,5 +740,5 @@ Where the documentation is silent:
   - An old .sav file that does not state its code page is read as Western European (windows-1252). There is no way to choose another encoding yet.
 - **Output.** Tables come out as Markdown, JSON, HTML (from the window and OUTPUT EXPORT), text and CSV (OUTPUT EXPORT) and Excel workbooks.
   - Statscraft has no output document file of its own, so OUTPUT SAVE is refused with an error that points to OUTPUT EXPORT. OUTPUT OPEN and OUTPUT MODIFY are not supported yet.
-  - OUTPUT EXPORT writes no Word, PDF, PowerPoint or Excel 97-2004 files, and no images, since charts are not drawn yet.
+  - OUTPUT EXPORT writes no PDF or Excel 97-2004 files, and no images, since charts are not drawn yet.
 - **Packages.** The Windows installer and the macOS app are not signed yet. There are packages for x86_64 Windows and Linux and for macOS on Apple silicon and Intel, but none for Windows or Linux on ARM processors.

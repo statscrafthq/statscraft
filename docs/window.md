@@ -212,11 +212,25 @@ The buttons over the tables act on the selected tables. A right click on a table
 - **Export selection** saves only them, as a web page or an Excel workbook (one sheet per table, or all tables on one sheet).
 - **Clear output** removes every table.
 
+### Charts in the office programs
+
+A chart shows in the output as its data table for now. Its office form is a real chart of the office programs, with its numbers in a workbook inside it, so Edit Data opens them, and with no colors of its own, so it takes the theme of the presentation or document it goes into. Bar, pie, line and area charts have one; a histogram has none and goes out as its table.
+
+A right click on such a chart offers:
+
+- **Open in PowerPoint**: a presentation with one slide, the chart's title as the slide title.
+- **Open in Excel**: a workbook with the chart's data table and the chart beside it.
+- **Open in Word**: a document holding the chart.
+
+Each writes the file to a temporary folder and opens it with the program the system uses for that type of file, so it may be another office suite. Save it from there to keep it.
+
+**Copy** on a single selected chart puts it on the Windows clipboard as an editable chart, with its data as tab-separated text beside it. Pasted into PowerPoint or Word it becomes their own chart, in the theme of the slide or document, and Edit Data opens its numbers. Excel pastes such a chart without its data, as it does with a chart copied in PowerPoint; use Open in Excel instead. On macOS and Linux, Copy puts the chart's data table on the clipboard, as for any table.
+
 ### Exporting all output
 
 - File > Export output as HTML saves all the tables of the output window as one web page. Chosen in a data or syntax window, it exports the designated output window.
-- File > Export output as Excel saves them as a workbook, with **One sheet per table** or **All tables on one sheet**, laid out as `--xlsx` does.
-- From syntax, OUTPUT EXPORT writes the tables of an output document to a workbook, web page, text or CSV file.
+- File > Export output as Excel saves them as a workbook, with **One sheet per table** or **All tables on one sheet**, laid out as `--xlsx` does: a chart as its data table with the editable chart beside it.
+- From syntax, OUTPUT EXPORT writes the tables and charts of an output document to a workbook, a Word document, a presentation, a web page, text or a CSV file.
 
 ## Menus
 
