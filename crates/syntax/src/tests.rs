@@ -380,10 +380,8 @@ fn unknown_command_gets_a_did_you_mean_hint() {
 #[test]
 fn real_but_unsupported_commands_say_so() {
     for (source, name) in [
-        ("import file='a.por'.", "IMPORT"),
         ("GRAPH /BAR=COUNT BY a.", "GRAPH"),
-        ("get translate file='a.wk1'.", "GET TRANSLATE"),
-        ("EXPORT OUTFILE='a.por'.", "EXPORT"),
+        ("graph /scatterplot=x WITH y.", "GRAPH"),
     ] {
         let error = err(source);
         assert_eq!(
@@ -1126,7 +1124,7 @@ fn command_names_resolve_from_their_words() {
 #[test]
 fn help_lists_every_command() {
     let overview = help(None).unwrap();
-    assert_eq!(command_names().len(), 143);
+    assert_eq!(command_names().len(), 146);
     for spec in table::COMMANDS {
         assert!(overview.contains(spec.name) && overview.contains(spec.summary));
     }

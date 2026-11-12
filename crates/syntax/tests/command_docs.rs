@@ -11,9 +11,12 @@ const AREAS: &[(&str, &[&str])] = &[
         &[
             "GET",
             "GET DATA",
+            "GET TRANSLATE",
+            "IMPORT",
             "SYSFILE INFO",
             "SAVE",
             "SAVE TRANSLATE",
+            "EXPORT",
             "XSAVE",
             "NEW FILE",
             "ADD FILES",

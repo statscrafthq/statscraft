@@ -207,6 +207,8 @@ impl Engine {
                 | Command::Dataset(_)
                 | Command::Set(_)
                 | Command::GetData(_)
+                | Command::Import(_)
+                | Command::GetTranslate(_)
         );
         let Some(format) = self.new_variable_format().filter(|_| !reads_file) else {
             return Ok(());

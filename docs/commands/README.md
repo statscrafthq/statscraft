@@ -10,9 +10,12 @@ One page per supported command, generated from the same table that the parser an
 |---|---|
 | [GET](get.md) | Read a data file and make it the active dataset. |
 | [GET DATA](get-data.md) | Read a text data file or a sheet of a workbook as the active dataset. |
+| [GET TRANSLATE](get-translate.md) | Read a tab-delimited text file, a dBASE file or an old Excel workbook. |
+| [IMPORT](import.md) | Read a portable (.por) file and make it the active dataset. |
 | [SYSFILE INFO](sysfile-info.md) | Show the dictionary of a data file without opening it as the active dataset. |
 | [SAVE](save.md) | Write the active dataset to a data file. |
 | [SAVE TRANSLATE](save-translate.md) | Write the active dataset to a CSV or tab-delimited text file or an Excel workbook. |
+| [EXPORT](export.md) | Write the active dataset to a portable (.por) file. |
 | [XSAVE](xsave.md) | Write the cases to a data file as the next data pass reads them. |
 | [NEW FILE](new-file.md) | Start a new, empty active dataset. |
 | [ADD FILES](add-files.md) | Append the cases of several data files, matching variables by name. |
@@ -211,4 +214,4 @@ Functions of expressions (COMPUTE, IF, SELECT IF, DO IF, ELSE IF, LOOP IF, END L
 
 These commands of the language are recognised, but Statscraft does not run them yet. A script that uses one stops with the error "command ... is not supported yet" at its line, and nothing is changed.
 
-EXPORT, GET TRANSLATE, GRAPH, IMPORT, OUTPUT SAVE
+GRAPH, OUTPUT SAVE

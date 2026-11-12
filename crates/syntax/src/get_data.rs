@@ -108,7 +108,7 @@ fn cell(text: &str) -> Option<(u32, u32)> {
 }
 
 /// 'A1:K14' as (first row, first column, last row, last column).
-fn cell_range(text: &str) -> Option<(u32, u32, u32, u32)> {
+pub(crate) fn cell_range(text: &str) -> Option<(u32, u32, u32, u32)> {
     let (from, to) = text.trim().split_once(':')?;
     let (r0, c0) = cell(from.trim())?;
     let (r1, c1) = cell(to.trim())?;

@@ -362,7 +362,7 @@ impl Engine {
         }
     }
 
-    fn make_active(&mut self, data: Dataset) {
+    pub(crate) fn make_active(&mut self, data: Dataset) {
         self.park_active();
         self.dataset = Some(data);
         self.scratch_assigned.clear();

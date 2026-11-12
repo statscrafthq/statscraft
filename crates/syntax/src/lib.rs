@@ -45,6 +45,7 @@ mod npar;
 mod output;
 mod output_docs;
 mod parser;
+mod portable;
 mod preprocess;
 mod procedures;
 mod rank;

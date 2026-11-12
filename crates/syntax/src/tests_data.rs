@@ -356,3 +356,92 @@ fn aggregate_without_outfile_adds_variables_to_the_active_dataset() {
         );
     }
 }
+
+#[test]
+fn export_import_and_get_translate() {
+    let rename = FileOption::Rename(vec![(
+        vec![range("v1", "v3")],
+        vec![var("id"), var("sex"), var("age")],
+    )]);
+    assert_eq!(
+        one(
+            "EXPORT OUTFILE='new.por' /RENAME=(v1 TO v3=id, sex, age) /MAP /TYPE=TAPE\n /UNSELECTED=DELETE /DIGITS=4."
+        ),
+        Command::Export(Export {
+            outfile: "new.por".into(),
+            options: vec![rename.clone(), FileOption::Map],
+            digits: Some(4),
+            delete_unselected: true,
+        })
+    );
+    assert_eq!(
+        one(
+            "IMPORT TYPE=COMM /FILE='new.por' /DROP=dept TO division /MAP /RENAME name=lname /MAP."
+        ),
+        Command::Import(Import {
+            file: "new.por".into(),
+            options: vec![
+                FileOption::Drop(vec![range("dept", "division")]),
+                FileOption::Map,
+                FileOption::Rename(vec![(vec![var("name")], vec![var("lname")])]),
+                FileOption::Map,
+            ],
+        })
+    );
+    assert_eq!(
+        one("GET TRANSLATE FILE='project.tab' /FIELDNAMES /RANGE=D3..J279 /KEEP=a b."),
+        Command::GetTranslate(GetTranslate {
+            file: "project.tab".into(),
+            source: TranslateSource::Tab,
+            field_names: true,
+            range: Some((2, 3, 278, 9)),
+            options: vec![FileOption::Keep(vec![var("a"), var("b")])],
+        })
+    );
+    let Command::GetTranslate(xls) = one("GET TRANSLATE FILE='old' /TYPE=XLS /RANGE='A1:K14'.")
+    else {
+        panic!()
+    };
+    assert_eq!(
+        (xls.source, xls.range),
+        (TranslateSource::Xls, Some((0, 0, 13, 10)))
+    );
+    let Command::GetTranslate(dbf) = one("get tra file='ADDRESS.DBF' /drop=phoneno, entry /map.")
+    else {
+        panic!()
+    };
+    assert_eq!(dbf.source, TranslateSource::Dbf);
+
+    assert_eq!(err("EXPORT /MAP.").message, "EXPORT needs OUTFILE='name'");
+    assert_eq!(
+        err("EXPORT OUTFILE='a.por' /DIGITS=0.").expected,
+        ["a number of digits from 1 to 16"]
+    );
+    assert_eq!(
+        err("IMPORT FILE='a.por' /COMPRESSED.").message,
+        "unknown subcommand COMPRESSED of IMPORT"
+    );
+    let refused = err("GET TRANSLATE FILE='project.wk1'.").message;
+    assert!(
+        refused.starts_with(
+            "GET TRANSLATE /TYPE=WK1 is not supported; Statscraft reads TYPE=TAB, DBF and XLS"
+        ),
+        "{refused}"
+    );
+    assert_eq!(
+        err("GET TRANSLATE FILE='x.oct' /TYPE=SLK.")
+            .message
+            .split(';')
+            .next(),
+        Some("GET TRANSLATE /TYPE=SLK is not supported")
+    );
+    assert_eq!(
+        err("GET TRANSLATE FILE='data.csv'.").message,
+        "GET TRANSLATE needs /TYPE=TAB, DBF or XLS for a file with this extension"
+    );
+    assert!(
+        err("GET TRANSLATE FILE='a.xls' /RANGE=sales.")
+            .message
+            .contains("range names are not supported")
+    );
+}

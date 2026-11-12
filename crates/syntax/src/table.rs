@@ -27,6 +27,7 @@ use crate::npar;
 use crate::output;
 use crate::output_docs;
 use crate::parser::{PResult, Parser};
+use crate::portable;
 use crate::procedures;
 use crate::rank;
 use crate::regression;
@@ -2077,6 +2078,58 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: save_translate::save_translate,
     },
     CommandSpec {
+        name: "EXPORT",
+        summary: "Write the active dataset to a portable (.por) file.",
+        syntax: "EXPORT OUTFILE='path' | handle [/TYPE=COMM | TAPE] [/UNSELECTED=RETAIN | DELETE]\n\
+                 \x20      [/KEEP=varlist] [/DROP=varlist] [/RENAME=(old = new) ...] [/MAP] [/DIGITS=n].\n\
+                 KEEP, DROP and RENAME shape the file only, in the order written; KEEP sets the order of\n\
+                 the variables. Each MAP shows the variables as the subcommands before it leave them.\n\
+                 UNSELECTED=DELETE leaves out the cases FILTER leaves out. DIGITS rounds values that are\n\
+                 not whole to n significant digits; without it every value is written exactly.\n\
+                 The file holds names (upper case, at most 8 bytes: longer ones are shortened and made\n\
+                 unique, as MYLONGRO and MYLONG_2), variable and value labels, missing values, formats,\n\
+                 the weight variable and documents. Strings hold at most 255 bytes; text is UTF-8.\n\
+                 TYPE is accepted and changes nothing; control characters in text are written as 0.",
+        example: "EXPORT OUTFILE='wave2.por' /RENAME=(v1 TO v3 = id sex age) /MAP.",
+        parse: portable::export,
+    },
+    CommandSpec {
+        name: "IMPORT",
+        summary: "Read a portable (.por) file and make it the active dataset.",
+        syntax: "IMPORT FILE='path' | handle [/TYPE=COMM | TAPE] [/KEEP=varlist] [/DROP=varlist]\n\
+                 \x20      [/RENAME=(old = new) ...] [/MAP].\n\
+                 KEEP, DROP and RENAME work in the order written, as in GET; KEEP sets the order of the\n\
+                 variables. Each MAP shows the variables as the subcommands before it leave them. The\n\
+                 file's weight variable weights the cases. TYPE is accepted and changes nothing.",
+        example: "IMPORT FILE='wave2.por' /DROP=dept TO division /MAP.",
+        parse: portable::import,
+    },
+    CommandSpec {
+        name: "GET TRANSLATE",
+        summary: "Read a tab-delimited text file, a dBASE file or an old Excel workbook.",
+        syntax: "GET TRANSLATE FILE='path' | handle [/TYPE=TAB | DBF | XLS] [/FIELDNAMES]\n\
+                 \x20             [/RANGE=A1..K14 | 'A1:K14'] [/KEEP=varlist] [/DROP=varlist]\n\
+                 \x20             [/RENAME=(old = new) ...] [/MAP].\n\
+                 TYPE may be left out for a .tab, .dbf or .xls file. KEEP and DROP do not change the order\n\
+                 of the variables. FIELDNAMES takes the names from the first row (of the range); they are\n\
+                 made valid: other characters become _, a reserved word gets $ (GE$), a repeated name a\n\
+                 number, and a column without a name is left out. RANGE limits the rows and columns.\n\
+                 TAB: rows end with a line break and values with a tab. Names are VAR1, VAR2, ...\n\
+                 without FIELDNAMES. The first value of a column decides its type: a number gives F8.2\n\
+                 or wider, any other text a string of at least 8 bytes, as wide as that value; longer\n\
+                 values are cut, and text in a numeric column is system-missing.\n\
+                 DBF (dBASE II, III and IV): every record, also those marked deleted, which get * in an\n\
+                 added string D_R. Character and logical fields are strings, numeric and float fields\n\
+                 numbers (F with the field's width and decimals), date fields dates (DATE11); memo fields\n\
+                 are left out. FIELDNAMES is ignored.\n\
+                 XLS (Excel 95 to 2003, read as GET DATA reads it): the first sheet; names are the\n\
+                 column letters without FIELDNAMES.\n\
+                 1-2-3, Symphony and SYLK files (WK, WK1, WKS, WR1, WRK, SYM, SLK) are not supported.",
+        example: "GET TRANSLATE FILE='address.dbf' /DROP=phoneno entry /MAP.\n\
+                  GET TRANSLATE FILE='wave3.txt' /TYPE=TAB /FIELDNAMES.",
+        parse: portable::get_translate,
+    },
+    CommandSpec {
         name: "TITLE",
         summary: "Put a title in the output, above the output that follows.",
         syntax: "TITLE [']text['].\n\
@@ -2262,7 +2315,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
 
 /// Commands of the language that have no parser yet. They get "not supported yet" instead of
 /// "unknown command", and their bodies are not tokenised.
-static UNSUPPORTED: &[&str] = &["EXPORT", "GET TRANSLATE", "GRAPH", "IMPORT", "OUTPUT SAVE"];
+static UNSUPPORTED: &[&str] = &["GRAPH", "OUTPUT SAVE"];
 
 /// The ends of blocks whose start reads them, such as END DATA after BEGIN DATA. Standing
 /// alone they are an error at their own line.

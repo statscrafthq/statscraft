@@ -23,6 +23,7 @@ mod factor;
 mod format;
 mod frequencies;
 mod get_data;
+mod get_translate;
 mod glm;
 mod html;
 mod input;
@@ -46,6 +47,7 @@ mod output;
 mod output_docs;
 mod partial_corr;
 mod pass;
+mod portable;
 mod print;
 mod quick_cluster;
 mod random;
@@ -524,6 +526,9 @@ impl Engine {
                 let before = self.dataset.clone();
                 self.end_pass(before.as_ref());
             }
+            Command::Export(command) => return self.export_portable(command),
+            Command::Import(command) => return self.import_portable(command),
+            Command::GetTranslate(command) => return self.get_translate(command),
             Command::SaveTranslate(command) => {
                 self.begin_pass()?;
                 self.save_translate(command)?;

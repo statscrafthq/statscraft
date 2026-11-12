@@ -551,6 +551,7 @@ impl Engine {
                     let names: Vec<&str> = names.iter().map(String::as_str).collect();
                     engine.active_mut()?.keep_variables(&names)?;
                 }
+                FileOption::Map => {}
                 FileOption::Drop(items) => {
                     let names = engine.expand(items)?;
                     let names: Vec<&str> = names.iter().map(String::as_str).collect();

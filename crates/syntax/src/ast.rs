@@ -181,6 +181,11 @@ pub enum Command {
     ApplyDictionary(ApplyDictionary),
     GetData(GetData),
     SaveTranslate(SaveTranslate),
+    /// EXPORT: the active dataset as a portable file.
+    Export(Export),
+    /// IMPORT: a portable file as the active dataset.
+    Import(Import),
+    GetTranslate(GetTranslate),
     /// `SORT VARIABLES BY key (A | D)`
     SortVariables {
         key: VariableKey,
@@ -1306,6 +1311,52 @@ pub enum FileOption {
     Drop(Vec<VarItem>),
     /// Groups as in RENAME VARIABLES.
     Rename(Vec<(Vec<VarItem>, Vec<VarItem>)>),
+    /// `/MAP` of EXPORT, IMPORT and GET TRANSLATE: a table of the variables as the options
+    /// before it leave them. Changes nothing.
+    Map,
+}
+
+/// EXPORT: the active dataset as a portable file.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Export {
+    pub outfile: String,
+    /// `/KEEP`, `/DROP`, `/RENAME` and `/MAP` in the order written; the active dataset stays.
+    pub options: Vec<FileOption>,
+    /// DIGITS: significant decimal digits of values that are not whole.
+    pub digits: Option<u32>,
+    /// UNSELECTED=DELETE
+    pub delete_unselected: bool,
+}
+
+/// IMPORT: a portable file as the active dataset.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Import {
+    pub file: String,
+    /// `/KEEP`, `/DROP`, `/RENAME` and `/MAP` in the order written.
+    pub options: Vec<FileOption>,
+}
+
+/// GET TRANSLATE: a tab-delimited text file, a dBASE file or an old workbook as the active
+/// dataset.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetTranslate {
+    pub file: String,
+    pub source: TranslateSource,
+    /// FIELDNAMES: the first row holds the names.
+    pub field_names: bool,
+    /// RANGE as (first row, first column, last row, last column), counted from 0.
+    pub range: Option<(u32, u32, u32, u32)>,
+    /// `/KEEP`, `/DROP`, `/RENAME` and `/MAP` in the order written.
+    pub options: Vec<FileOption>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TranslateSource {
+    Tab,
+    /// dBASE II, III and IV.
+    Dbf,
+    /// An Excel workbook that calamine reads (Excel 95 to 2003).
+    Xls,
 }
 
 #[derive(Debug, Clone, PartialEq)]
