@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Charts as data: FREQUENCIES BARCHART, PIECHART and HISTOGRAM (with a normal curve) and CROSSTABS BARCHART now make charts. `--json` gives each chart's kind, labels and numbers under `commands[].charts`, `--vega-lite` adds a Vega-Lite specification, and the text output and the window show the chart's numbers as a table until the window draws charts. See [the command line](docs/command-line.md#charts).
+- Help > Connect an AI agent in the window: connects Statscraft to the AI apps on this computer, or removes it, with clicks instead of `statscraft connect`, and says what to restart. See [Connect your AI agent](docs/connect.md).
 
 ## 0.8.0 (2026-11-12)
 

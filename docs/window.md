@@ -378,6 +378,7 @@ See [The Window menu](#the-window-menu).
 ### Help
 
 - **Documentation** opens the documentation online.
+- **Connect an AI agent...** adds the Statscraft MCP server to the AI apps on this computer, or takes it out again, with a click per app, and says what to restart. See [Connect your AI agent](connect.md).
 - **About Statscraft** shows the version, the license (MIT), links to the source code and the documentation, where the color themes come from with their licenses, and the licenses of the fonts.
 - **Check for updates**: see [Updates](#updates).
 
