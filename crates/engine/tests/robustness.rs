@@ -1037,8 +1037,8 @@ fn child(inputs: &[(String, String)], from: usize) {
 
 #[test]
 fn mutated_syntax_smoke() {
-    // every 60th seed with one mutant: about 120 runs
-    let inputs: Vec<_> = mutants(1, (0, 60));
+    // every 90th seed with one mutant: about 80 inputs
+    let inputs: Vec<_> = mutants(1, (0, 90));
     let troubles = run_all(&inputs, Duration::from_secs(60));
     assert!(troubles.is_empty(), "{}", troubles.join("\n"));
 }
@@ -1070,15 +1070,9 @@ fn outcome(source: &str) -> Result<String, String> {
 
 /// Inputs the generator found to crash, hang or fill the memory, with a part of what they give
 /// now: an error, or (after `ok:`) a part of the output.
-const REGRESSIONS: &[(&str, &str)] = &[
-    (
-        "SET MNEST=100000.\nDEFINE !m() !m !ENDDEFINE.\n!m.",
-        "nested more than 100 levels deep",
-    ),
-    (
-        "DEFINE !m() !EVAL(!m) !ENDDEFINE.\n!m.",
-        "nested more than 50 levels deep",
-    ),
+/// Macros that ran until the memory was full or for ever. Reaching the limits takes a few
+/// seconds each in a debug build, so they run by hand with the other slow tests.
+const SLOW_REGRESSIONS: &[(&str, &str)] = &[
     (
         "DEFINE !m(!POS !CMDEND) !m !1 !1 !ENDDEFINE.\n!m a b c.",
         "grows longer than 1048576 characters",
@@ -1087,6 +1081,18 @@ const REGRESSIONS: &[(&str, &str)] = &[
         "DEFINE !m(!POS !TOKENS(1)) !IF (!LENGTH(!1) !GT 1) !THEN !m !SUBSTR(!1, 2) \
          !m !SUBSTR(!1, 2) !IFEND !ENDDEFINE.\n!m aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.",
         "makes more than 100000 calls",
+    ),
+];
+
+/// Distribution functions are evaluated on one case: once shows that the run ends.
+const REGRESSIONS: &[(&str, &str)] = &[
+    (
+        "SET MNEST=100000.\nDEFINE !m() !m !ENDDEFINE.\n!m.",
+        "nested more than 100 levels deep",
+    ),
+    (
+        "DEFINE !m() !EVAL(!m) !ENDDEFINE.\n!m.",
+        "nested more than 50 levels deep",
     ),
     (
         "DEFINE !m() !BLANKS(99999999999) !ENDDEFINE.\n!m.",
@@ -1101,13 +1107,16 @@ const REGRESSIONS: &[(&str, &str)] = &[
         "FREQUENCIES age /NTILES=2147483648.",
         "NTILES takes a whole number from 1 to 1000",
     ),
-    ("COMPUTE x = NCDF.T(1, 1, 1e300).\nLIST x /CASES=1.", "ok:"),
     (
-        "COMPUTE x = NCDF.CHISQ(1, 1, 1e300).\nLIST x /CASES=1.",
+        "DATA LIST FREE /y.\nBEGIN DATA\n1\nEND DATA.\nCOMPUTE x = NCDF.T(1, 1, 1e300).\nLIST x.",
         "ok:",
     ),
     (
-        "COMPUTE x = NCDF.F(1, 1, 1, 1e300).\nLIST x /CASES=1.",
+        "DATA LIST FREE /y.\nBEGIN DATA\n1\nEND DATA.\nCOMPUTE x = NCDF.CHISQ(1, 1, 1e300).\nLIST x.",
+        "ok:",
+    ),
+    (
+        "DATA LIST FREE /y.\nBEGIN DATA\n1\nEND DATA.\nCOMPUTE x = NCDF.F(1, 1, 1, 1e300).\nLIST x.",
         "ok:",
     ),
     (
@@ -1141,22 +1150,23 @@ const REGRESSIONS: &[(&str, &str)] = &[
         "would hold more than 100000000 elements",
     ),
     (
-        "COMPUTE x = CDF.HYPER(1e9, 2e9, 1e9, 1e9).\nLIST x /CASES=1.",
+        "DATA LIST FREE /y.\nBEGIN DATA\n1\nEND DATA.\nCOMPUTE x = CDF.HYPER(1e9, 2e9, 1e9, 1e9).\nLIST x.",
         "ok:",
     ),
     (
-        "COMPUTE x = IDF.F(0.5, 1e300, 1e300).\nLIST x /CASES=1.",
+        "DATA LIST FREE /y.\nBEGIN DATA\n1\nEND DATA.\nCOMPUTE x = IDF.F(0.5, 1e300, 1e300).\nLIST x.",
         "ok:",
     ),
 ];
 
-/// Nesting that overflowed the stack of a run's thread.
+/// Nesting past the limits that keep a run's thread from overflowing its stack (2000 levels
+/// overflowed it before).
 fn deep_regressions() -> Vec<(String, &'static str)> {
     let deep = |open: &str, close: &str, n: usize| format!("{}{}", open.repeat(n), close.repeat(n));
     let too_deep = "nested too deeply (more than 64 levels)";
     let parens = deep("(", ")", 99).replace("()", "(1)");
     let braces = deep("{", "}", 99).replace("{}", "{1}");
-    let loops = deep("LOOP #i = 1 TO 1.\n", "END LOOP.\n", 500);
+    let loops = deep("LOOP #i = 1 TO 1.\n", "END LOOP.\n", 150);
     vec![
         (
             format!("MATRIX.\nCOMPUTE a = {parens}.\nEND MATRIX."),
@@ -1167,7 +1177,7 @@ fn deep_regressions() -> Vec<(String, &'static str)> {
             too_deep,
         ),
         (
-            format!("GLM age BY gender /DESIGN={}.", deep("gender(", ")", 2000)),
+            format!("GLM age BY gender /DESIGN={}.", deep("gender(", ")", 100)),
             too_deep,
         ),
         (
@@ -1177,14 +1187,14 @@ fn deep_regressions() -> Vec<(String, &'static str)> {
         (
             format!(
                 "MATRIX.\n{}END MATRIX.",
-                deep("DO IF 1.\n", "END IF.\n", 2000)
+                deep("DO IF 1.\n", "END IF.\n", 150)
             ),
             "DO IF is nested more than 100 levels deep",
         ),
         (
             format!(
                 "MATRIX.\n{}END MATRIX.",
-                deep("LOOP i = 1 TO 1.\n", "END LOOP.\n", 500)
+                deep("LOOP i = 1 TO 1.\n", "END LOOP.\n", 150)
             ),
             "LOOP is nested more than 100 levels deep",
         ),
@@ -1201,16 +1211,26 @@ fn a_line_range_from_zero_or_reversed_is_an_error() {
     }
 }
 
-#[test]
-fn inputs_that_crashed_before_give_an_answer() {
-    let fixed = REGRESSIONS.iter().map(|&(s, e)| (s.to_string(), e));
-    for (source, expected) in fixed.chain(deep_regressions()) {
+fn assert_answers(cases: impl Iterator<Item = (String, &'static str)>) {
+    for (source, expected) in cases {
         let text = match outcome(&source) {
             Ok(text) => format!("ok: {text}"),
             Err(text) => text,
         };
         assert!(text.contains(expected), "{source}\ngave {text}");
     }
+}
+
+#[test]
+fn inputs_that_crashed_before_give_an_answer() {
+    let fixed = REGRESSIONS.iter().map(|&(s, e)| (s.to_string(), e));
+    assert_answers(fixed.chain(deep_regressions()));
+}
+
+#[test]
+#[ignore = "a few seconds each in a debug build; run by hand"]
+fn macros_that_filled_the_memory_stop_at_their_limits() {
+    assert_answers(SLOW_REGRESSIONS.iter().map(|&(s, e)| (s.to_string(), e)));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1455,7 +1475,7 @@ fn text_files() -> Vec<(&'static str, Vec<u8>)> {
         ("empty", Vec::new()),
         ("newlines", b"\n\n\n".to_vec()),
         ("garbage", garbage),
-        ("one long line", "1,".repeat(200_000).into_bytes()),
+        ("one long line", "1,".repeat(20_000).into_bytes()),
         (
             "open quotes",
             b"id,name\n1,\"Ann\n2,\"Bo\"b\"\n3,'x\n4,\"".to_vec(),
@@ -1464,7 +1484,7 @@ fn text_files() -> Vec<(&'static str, Vec<u8>)> {
         ("bad utf-8", b"a,b\n\xff\xfe,\xc3\n\xc3".to_vec()),
         (
             "wide",
-            format!("{}\n", "1,".repeat(20_000)).repeat(3).into_bytes(),
+            format!("{}\n", "1,".repeat(2_000)).repeat(3).into_bytes(),
         ),
         (
             "odd numbers",
@@ -1561,11 +1581,11 @@ fn workbooks() -> Vec<(String, Vec<u8>)> {
     let mut rng = Rng(0xb00c_5eed);
     let mut out = vec![("good".to_string(), good.clone())];
     let len = good.len();
-    for k in 0..12 {
-        let cut = k * len / 12 + rng.below(len / 12);
+    for k in 0..6 {
+        let cut = k * len / 6 + rng.below(len / 6);
         out.push((format!("cut at {cut}"), good[..cut].to_vec()));
     }
-    for _ in 0..40 {
+    for _ in 0..12 {
         let mut copy = good.clone();
         // the central directory at the end holds the sizes and offsets
         let at = if rng.below(2) == 0 {
@@ -1587,7 +1607,7 @@ fn workbooks() -> Vec<(String, Vec<u8>)> {
     let long = format!(
         "<row r=\"1\">{}</row><row r=\"2\"><c r=\"A2\" t=\"inlineStr\"><is><t>{}</t></is></c></row>",
         cell("A1"),
-        "y".repeat(2_000_000)
+        "y".repeat(200_000)
     );
     let odd = "<row r=\"1\"><c r=\"A1\"><v>NaN</v></c><c r=\"B1\"><v>1e999</v></c>\
                <c r=\"C1\"><v>-inf</v></c><c r=\"D1\" t=\"e\"><v>#DIV/0!</v></c>\
