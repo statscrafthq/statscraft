@@ -9,7 +9,7 @@
 //!   index then holds the counter), when the IF of LOOP is not true, after an iteration whose
 //!   END LOOP IF is true or missing, or at BREAK (the index then keeps the value of that
 //!   iteration). A missing first, last or step value, or a step of 0, means no iteration.
-//!   Without an index a loop stops after 40 iterations.
+//!   Without an index a loop stops after SET MXLOOPS iterations (default 40).
 //! - A vector names a range of variables or new ones; v(i) is element i. A case whose index
 //!   is missing or out of range reads system-missing and is not assigned. Vectors last until
 //!   the next procedure.
@@ -24,9 +24,6 @@ use statscraft_syntax::{
     Command, DoRepeat, Expr, LoopHeader, RepeatItem, RepeatList, VarItem, VectorSpec,
     VectorVariables,
 };
-
-/// Iterations of a loop without an index, as SET MXLOOPS sets by default.
-const MAX_LOOPS: usize = 40;
 
 /// A LOOP whose commands are being collected up to its END LOOP.
 #[derive(Clone)]
@@ -230,6 +227,7 @@ impl Engine {
         let mut tables = Vec::new();
         let mut warnings = std::mem::take(&mut self.warnings);
         let mut iterations = 0;
+        let max_loops = self.mxloops();
         self.loop_depth += 1;
         let result = (|| -> Result<(), Error> {
             loop {
@@ -292,7 +290,7 @@ impl Engine {
                     }
                 }
                 iterations += 1;
-                if header.index.is_none() && iterations >= MAX_LOOPS {
+                if header.index.is_none() && iterations >= max_loops {
                     break;
                 }
             }

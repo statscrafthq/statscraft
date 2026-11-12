@@ -145,6 +145,13 @@ impl Engine {
         })
     }
 
+    /// SET MXLOOPS: the iterations of a loop without an index, and of every MATRIX loop.
+    pub(crate) fn mxloops(&self) -> usize {
+        self.setting("MXLOOPS")
+            .parse::<usize>()
+            .map_or(40, |n| n.max(1))
+    }
+
     /// The SET CCA to CCE specifications, to show custom currency values.
     pub fn currencies(&self) -> Currencies {
         Currencies(["CCA", "CCB", "CCC", "CCD", "CCE"].map(|cc| self.setting(cc)))
@@ -640,7 +647,9 @@ impl Engine {
                     };
                     self.random.get_mut().mt_active = mt;
                 }
-                "MNEST" | "MITERATE" if value.parse::<u32>().map_or(true, |n| n == 0) => {
+                "MNEST" | "MITERATE" | "MXLOOPS"
+                    if value.parse::<u32>().map_or(true, |n| n == 0) =>
+                {
                     return Err(Error(format!(
                         "SET {name} takes a whole number from 1, got {value}"
                     )));

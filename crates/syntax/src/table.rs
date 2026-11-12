@@ -267,37 +267,47 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "MATRIX",
         summary: "Run a program in the matrix language, up to END MATRIX.",
         syntax: "MATRIX.\n\
-                 \x20 statements\n\
+                 \x20 COMPUTE m = expr | m(rows, cols) = expr.\n\
+                 \x20 CALL EIGEN(m, vectors, values) | SETDIAG(m, v) | SVD(m, u, q, v).\n\
+                 \x20 PRINT [m] [/FORMAT=format] [/TITLE='text'] [/SPACE=n | NEWPAGE]\n\
+                 \x20       [/RLABELS=labels | /RNAMES=vector] [/CLABELS=labels | /CNAMES=vector].\n\
+                 \x20 DO IF expr. ... [ELSE IF expr. ...] [ELSE. ...] END IF.\n\
+                 \x20 LOOP [i = first TO last [BY step]] [IF expr]. ... [BREAK.] ... END LOOP [IF expr].\n\
+                 \x20 READ m [/FILE=file] /FIELD=c1 TO c2 [BY w] [/SIZE=expr] [/MODE=RECTANGULAR | SYMMETRIC]\n\
+                 \x20       [/REREAD] [/FORMAT=format].\n\
+                 \x20 WRITE m [/OUTFILE=file] /FIELD=c1 TO c2 [BY w] [/MODE=RECTANGULAR | TRIANGULAR] [/HOLD]\n\
+                 \x20       [/FORMAT=format].\n\
+                 \x20 GET m [/FILE=file | *] [/VARIABLES=varlist] [/NAMES=name] [/MISSING=ACCEPT | OMIT | value]\n\
+                 \x20       [/SYSMIS=OMIT | value].\n\
+                 \x20 SAVE m [/OUTFILE=file | *] [/VARIABLES=names] [/NAMES=vector] [/STRINGS=names].\n\
+                 \x20 MGET [/FILE=file | *] [/TYPE=COV CORR MEAN STDDEV N COUNT].\n\
+                 \x20 MSAVE m /TYPE=COV | CORR | MEAN | STDDEV | N | COUNT [/OUTFILE=file] [/VARIABLES=names]\n\
+                 \x20       [/SNAMES=names] [/SPLIT=vector] [/FNAMES=names] [/FACTOR=vector].\n\
+                 \x20 DISPLAY [DICTIONARY] [STATUS].\n\
+                 \x20 RELEASE m [, m ...].\n\
                  END MATRIX.\n\
-                 Statements: COMPUTE m = expr | m(rows, cols) = expr; CALL EIGEN(m, vectors, values),\n\
-                 SETDIAG(m, v), SVD(m, u, q, v); PRINT [m] [/FORMAT=format] [/TITLE='text'] [/SPACE=n | NEWPAGE]\n\
-                 [/RLABELS=labels | /RNAMES=vector] [/CLABELS=labels | /CNAMES=vector]; DO IF expr, ELSE IF expr,\n\
-                 ELSE, END IF; LOOP [i = first TO last [BY step]] [IF expr], END LOOP [IF expr], BREAK;\n\
-                 READ m [/FILE=file] /FIELD=c1 TO c2 [BY w] [/SIZE=expr] [/MODE=RECTANGULAR | SYMMETRIC]\n\
-                 [/REREAD] [/FORMAT=format]; WRITE m [/OUTFILE=file] /FIELD=c1 TO c2 [BY w]\n\
-                 [/MODE=RECTANGULAR | TRIANGULAR] [/HOLD] [/FORMAT=format]; GET m [/FILE=file | *]\n\
-                 [/VARIABLES=varlist] [/NAMES=name] [/MISSING=ACCEPT | OMIT | value] [/SYSMIS=OMIT | value];\n\
-                 SAVE m [/OUTFILE=file | *] [/VARIABLES=names] [/NAMES=vector] [/STRINGS=names];\n\
-                 MGET [/FILE=file | *] [/TYPE=COV CORR MEAN STDDEV N COUNT]; MSAVE m /TYPE=type\n\
-                 [/OUTFILE=file] [/VARIABLES=names] [/SNAMES=names] [/SPLIT=vector] [/FNAMES=names]\n\
-                 [/FACTOR=vector]; DISPLAY [DICTIONARY] [STATUS]; RELEASE m [, m ...].\n\
-                 Matrices: {1, 2; 3, 4} (commas between elements, semicolons between rows; parts may be\n\
-                 matrices), a:b and a:b:step for integer sequences, m(i, j) with vectors of positions or :\n\
-                 for all. Operators: + - * (matrix product) / (elementwise) ** (matrix power) &* &/ &**\n\
-                 (elementwise), < <= > >= = <> (or LT LE GT GE EQ NE), NOT AND OR XOR; a scalar works with any\n\
-                 matrix. Functions: ABS ALL ANY ARSIN ARTAN BLOCK CHOL CMAX CMIN COS CSSQ CSUM DESIGN DET DIAG\n\
-                 EOF EVAL EXP GINV GRADE GSCH IDENT INV KRONEKER LG10 LN MAGIC MAKE MDIAG MMAX MMIN MOD MSSQ\n\
-                 MSUM NCOL NROW RANK RESHAPE RMAX RMIN RND RNKORDER RSSQ RSUM SIN SOLVE SQRT SSCP SVAL SWEEP\n\
-                 T (TRANSPOS) TRACE TRUNC, UNIFORM(rows, cols) and NORMAL(rows, cols) (random matrices),\n\
-                 UNIFORM(max) and NORMAL(sd) elementwise, CDFNORM CHICDF FCDF TCDF PROBIT and the families\n\
-                 CDF. IDF. PDF. NCDF. NPDF. SIG. RV. (elementwise; a scalar argument goes with any matrix).\n\
-                 PRINT gives a table; without FORMAT the numbers are shown with a common format, divided by a\n\
-                 power of 10 that the caption names when they are very large or small. Strings in a matrix\n\
-                 hold up to 8 bytes and print with an A format. A loop stops after SET MXLOOPS iterations\n\
-                 (default 40), also with an index, with a warning. The first READ, WRITE, SAVE and MSAVE name\n\
-                 their file; later ones use the last one named. SAVE and MSAVE write their files at END\n\
+                 Matrices: {1, 2; 3, 4} (commas between elements, semicolons between rows; the parts may be\n\
+                 matrices), a:b and a:b:step for whole numbers, m(i, j) and v(i) with vectors of positions or\n\
+                 : for all.\n\
+                 Operators from the tightest: unary -, :, ** (matrix power) and &**, * (matrix product), /\n\
+                 &* and &/ (elementwise), + -, < <= > >= = <> (or LT LE GT GE EQ NE), NOT, AND, OR and XOR;\n\
+                 a scalar goes with any matrix. PRINT, WRITE, SAVE and MSAVE take a name, a call, a matrix in\n\
+                 braces or a power of one; other expressions go in parentheses, as (A+B). In the expression of\n\
+                 a subcommand a slash starts the next subcommand, so a division goes in brackets.\n\
+                 Functions: ABS ALL ANY ARSIN ARTAN BLOCK CHOL CMAX CMIN COS CSSQ CSUM DESIGN DET DIAG EOF EVAL\n\
+                 EXP GINV GRADE GSCH IDENT INV KRONEKER LG10 LN MAGIC MAKE MDIAG MMAX MMIN MOD MSSQ MSUM NCOL\n\
+                 NROW RANK RESHAPE RMAX RMIN RND RNKORDER RSSQ RSUM SIN SOLVE SQRT SSCP SVAL SWEEP T (TRANSPOS)\n\
+                 TRACE TRUNC; UNIFORM(rows, cols) and NORMAL(rows, cols) give random matrices, UNIFORM(max) and\n\
+                 NORMAL(sd) random elements; CDFNORM CHICDF FCDF TCDF PROBIT and the families CDF.x, IDF.x,\n\
+                 PDF.x, NCDF.x, NPDF.x, SIG.x and RV.x work element by element, a scalar argument going with any\n\
+                 matrix.\n\
+                 PRINT gives a table; without FORMAT the numbers share one format and are divided by a power\n\
+                 of 10, named in the caption, when they are very large or small. A string element holds up to\n\
+                 8 bytes and prints with an A format. Every loop, also one with an index, stops after SET\n\
+                 MXLOOPS iterations (default 40) with a warning. The first READ, WRITE, SAVE and MSAVE name\n\
+                 their file; later ones use the last one named. SAVE, MSAVE and WRITE write their files at END\n\
                  MATRIX; SAVE /OUTFILE=* replaces the active dataset then. An error stops the program at its\n\
-                 statement.",
+                 statement, and nothing is saved.",
         example: "MATRIX.\nCOMPUTE A = {4, 2; 2, 3}.\nCALL EIGEN(A, V, E).\nPRINT E /TITLE='Eigenvalues'.\nPRINT INV(A) /FORMAT=F8.3.\nEND MATRIX.",
         parse: matrix::matrix_command,
     },
@@ -738,8 +748,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  END LOOP [IF condition].\n\
                  The index runs from first to last by step (1 by default); the expressions may differ\n\
                  per case, a missing one skips the loop. IF on LOOP is checked before each iteration,\n\
-                 IF on END LOOP after it. A loop without an index stops after 40 iterations. BREAK\n\
-                 leaves the innermost loop.",
+                 IF on END LOOP after it. A loop without an index stops after SET MXLOOPS iterations\n\
+                 (default 40). BREAK leaves the innermost loop.",
         example: "LOOP #i = 1 TO 5.\nCOMPUTE total = total + #i.\nEND LOOP.",
         parse: loops::loop_command,
     },
@@ -1653,10 +1663,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  (the generator of random numbers), SEED=n | RANDOM (starts the MC generator again; a whole\n\
                  number from 1 to 1999999999, default 2000000), MTINDEX=x | RANDOM (starts the MT generator,\n\
                  the Mersenne Twister, again; any number, default 2000000). RANDOM takes the time of day.\n\
-                 Settings for speed, memory and messages (CACHE, THREADS, WORKSPACE, MXWARNS ...) are\n\
+                 MXLOOPS=n: the iterations of a LOOP without an index, and of every loop of MATRIX\n\
+                 (default 40). Settings for speed, memory and messages (CACHE, THREADS, WORKSPACE, MXWARNS ...) are\n\
                  accepted and have nothing to do. Settings that only change how output looks (TNUMBERS,\n\
                  TVARS, ONUMBERS, OVARS, TLOOK, WIDTH, LENGTH, DIGITGROUPING ...) are accepted with a\n\
-                 warning. BLANKS, EPOCH, FUZZBITS, MXLOOPS and SCALEMIN are accepted with a warning that\n\
+                 warning. BLANKS, EPOCH, FUZZBITS and SCALEMIN are accepted with a warning that\n\
                  results do not follow them yet. YES and ON, NO and OFF are the same.",
         example: "SET FORMAT=F10.3 MPRINT=YES /DECIMAL=DOT.",
         parse: session_commands::set,

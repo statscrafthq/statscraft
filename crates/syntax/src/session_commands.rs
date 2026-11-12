@@ -126,7 +126,7 @@ pub const SETTINGS: &[(&str, &str, SettingEffect)] = &[
     ("MTINDEX", "2000000", Used),
     ("MXCELLS", "AUTOMATIC", Silent),
     ("MXERRS", "100", Silent),
-    ("MXLOOPS", "40", NotYet),
+    ("MXLOOPS", "40", Used),
     ("MXWARNS", "10", Silent),
     ("OATTRS", "OLANG", Appearance),
     ("ODISPLAY", "MODELVIEWER", Appearance),

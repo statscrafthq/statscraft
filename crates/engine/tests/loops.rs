@@ -75,6 +75,13 @@ fn loop_bounds_conditions_and_limits_per_case() {
     assert_eq!(show(data, "w"), "40 40 40 40");
     let warnings = &result.commands.last().unwrap().warnings;
     assert_eq!(warnings, &["a LOOP step of 0 runs no iteration"]);
+    // SET MXLOOPS changes the limit
+    run(
+        &mut session,
+        "SET MXLOOPS=60.\nCOMPUTE w = 0.\nLOOP.\nCOMPUTE w = w + 1.\nEND LOOP IF w >= 50.",
+    );
+    assert_eq!(show(session.dataset().unwrap(), "w"), "50 50 50 50");
+    assert!(error(&mut session, "SET MXLOOPS=0.").contains("whole number from 1"));
 }
 
 #[test]
