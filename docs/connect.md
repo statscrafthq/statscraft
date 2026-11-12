@@ -10,6 +10,8 @@ statscraft connect
 
 It prints which agents it found, connects each of them and says what to restart. Run it again at any time: an agent that is already connected stays as it is.
 
+Claude Desktop and Claude Code have a way without a terminal too: [the bundle](#claude-desktop-double-click-the-bundle) and [the plugin](#claude-code-the-plugin). To teach an agent how to work with Statscraft, add [the skill](#teach-your-agent-the-skill).
+
 ## The commands
 
 | Command | What it does |
@@ -65,6 +67,44 @@ Then ask the agent what tools Statscraft gives it, or ask it to describe a data 
 ## Undo
 
 `statscraft connect --remove` takes the `statscraft` entry out again and leaves everything else as it is. To go back to the file exactly as it was before the first change, put the `.statscraft-backup` copy back in its place. Settings you changed in the meantime are then lost too.
+
+## Claude Desktop: double-click the bundle
+
+Every release has an MCP bundle for each system on the [Releases page](https://github.com/statscrafthq/statscraft/releases):
+
+- `statscraft-X-windows-x86_64.mcpb` for Windows
+- `statscraft-X-macos-universal.mcpb` for macOS, Apple silicon and Intel
+- `statscraft-X-linux-x86_64.mcpb` for Linux
+
+Download the one for your system and double-click it, or drag it onto Claude Desktop's **Settings**, **Extensions**. Claude Desktop shows the tools Statscraft gives and asks you to install it. That is all: no terminal and no settings file.
+
+The bundle carries its own copy of the `statscraft` program, so it works even where Statscraft is not installed. That copy does not update with `statscraft update`; install the bundle of the new release instead. The window, when you have it, still shows everything the agent runs.
+
+Known limits: the macOS program is not signed yet, so macOS may stop it; if Claude Desktop says the extension cannot start, use `statscraft connect` instead. Claude Desktop for Linux is a beta, and bundles have not been tried there.
+
+## Claude Code: the plugin
+
+In Claude Code, type:
+
+```
+/plugin marketplace add statscrafthq/statscraft
+/plugin install statscraft@statscraft
+```
+
+and start a new session. The plugin adds the MCP server and [the skill](#teach-your-agent-the-skill). It starts the server as `statscraft mcp`, so `statscraft` must be on your PATH. The Windows installer, the .deb package and the Linux tarball put it there; the portable Windows .zip and the macOS download do not, until you add it as [Getting started](getting-started.md#install) shows. Check with `statscraft --version` in a new terminal. Without PATH, run `statscraft connect claude-code` with the full path of the program: the skill from the plugin still works with that entry.
+
+If Claude Code was connected with `statscraft connect` before, it now has the server twice. `statscraft connect --remove claude-code` takes out the older entry.
+
+## Teach your agent: the skill
+
+The skill `statscraft-analysis` tells an agent how to work with Statscraft: look at the data first, look up each command, check, run in small steps, read every reply, report the numbers from the result tables and never compute them itself, and write no file unless asked. It follows the [Agent Skills](https://agentskills.io) format, so many agent apps read it. It is one folder with one `SKILL.md`, in [`plugins/statscraft/skills/statscraft-analysis`](https://github.com/statscrafthq/statscraft/tree/main/plugins/statscraft/skills/statscraft-analysis) of the repository.
+
+- **Claude Code**: it comes with the plugin.
+- **Claude Desktop and claude.ai**: download `statscraft-X-skill.zip` from the [Releases page](https://github.com/statscrafthq/statscraft/releases) and upload it as a skill in the settings.
+- **ChatGPT desktop and Codex**: ask Codex `$skill-installer install https://github.com/statscrafthq/statscraft/tree/main/plugins/statscraft/skills/statscraft-analysis`, then restart it.
+- **Other agents** that read Agent Skills: unpack the zip into their skills folder, so that it holds `statscraft-analysis/SKILL.md`.
+
+The skill uses the MCP tools when they are there, and the `statscraft` command line when the agent has only a shell.
 
 ## Connect by hand
 
