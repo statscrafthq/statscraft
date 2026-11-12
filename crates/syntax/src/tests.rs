@@ -1130,8 +1130,14 @@ fn help_lists_every_command() {
     for spec in table::COMMANDS {
         assert!(overview.contains(spec.name) && overview.contains(spec.summary));
     }
-    assert!(overview.contains("  SELECT IF         Keep only the cases"));
-    assert!(overview.contains("  RENAME VARIABLES  Change the names"));
+    // every name is followed by at least two spaces, the longest included, so none runs into
+    // its summary
+    for spec in table::COMMANDS {
+        let line = format!("  {}  ", spec.name);
+        assert!(overview.contains(&line), "{} runs into its summary", spec.name);
+    }
+    assert!(overview.contains("  LOGISTIC REGRESSION"));
+    assert!(!overview.contains("REGRESSIONBinary"));
     assert!(overview.contains("General rules:"));
 }
 

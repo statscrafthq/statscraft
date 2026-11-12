@@ -2448,8 +2448,10 @@ pub fn unsupported_commands() -> &'static [&'static str] {
 pub fn help(command: Option<&str>) -> Option<String> {
     let Some(command) = command else {
         let mut text = String::from("Supported commands:\n");
+        // the longest name plus two spaces, so a long name never runs into its summary
+        let width = COMMANDS.iter().map(|s| s.name.len()).max().unwrap_or(0) + 2;
         for spec in COMMANDS {
-            text.push_str(&format!("  {:<18}{}\n", spec.name, spec.summary));
+            text.push_str(&format!("  {:<width$}{}\n", spec.name, spec.summary));
         }
         text.push_str(GENERAL_HELP);
         return Some(text);
