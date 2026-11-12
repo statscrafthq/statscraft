@@ -1,4 +1,4 @@
-//! REPORT on synthetic data laid out as the manual's examples. The expected numbers are
+//! REPORT on synthetic data in list and automatic layouts. The expected numbers are
 //! worked out by hand: Toys sell 10 and 20 (sum 30, mean 15), Books 30 and 50 with one sale
 //! missing (sum 80, mean 40), all four valid sales sum to 110.
 
@@ -74,14 +74,14 @@ fn expect(table: &Table, expected: &[&[&str]]) {
 fn a_listing_with_break_groups() {
     let table = report(
         "REPORT FORMAT=LIST
-  /VARIABLES=product (LABEL) ' ' 'Retail' 'Products' sales 'Annual' 'Sales'
-  /BREAK=dept 'Department' (LABEL)
-  /SUMMARY=VALIDN (product) MEAN (sales) 'No.Sold,Mean Sales'.",
+  /VARIABLES=product (LABEL) ' ' 'Line' 'Items' sales 'Weekly' 'Taken'
+  /BREAK=dept 'Section' (LABEL)
+  /SUMMARY=VALIDN (product) MEAN (sales) 'Count,Average Taken'.",
     );
     assert_eq!(table.title, "Report");
     assert_eq!(
         table.columns,
-        ["Department", "Retail Products", "Annual Sales"]
+        ["Section", "Line Items", "Weekly Taken"]
     );
     assert_eq!(table.row_headers, 1);
     expect(
@@ -90,12 +90,12 @@ fn a_listing_with_break_groups() {
             &["Toys", "", ""],
             &["", "Ball", "10.00"],
             &["", "Kite", "20.00"],
-            &["No.Sold,Mean Sales", "2", "15.00"],
+            &["Count,Average Taken", "2", "15.00"],
             &["Books", "", ""],
             &["", "Ball", "30.00"],
             &["", "Atlas", "50.00"],
             &["", "Kite", "."],
-            &["No.Sold,Mean Sales", "3", "40.00"],
+            &["Count,Average Taken", "3", "40.00"],
         ],
     );
 }
@@ -280,7 +280,7 @@ fn outfile_writes_the_report_as_text() {
     std::fs::create_dir_all(&dir).unwrap();
     let job = format!(
         "CD '{}'.\n\
-         REPORT FORMAT=LIST /OUTFILE='r.txt' /VARIABLES=product (LABEL) sales 'Annual' 'Sales'\n\
+         REPORT FORMAT=LIST /OUTFILE='r.txt' /VARIABLES=product (LABEL) sales 'Weekly' 'Taken'\n\
            /TITLE='Sales' /BREAK=dept (LABEL) /SUMMARY=MEAN(sales).\n\
          REPORT FORMAT=AUTOMATIC COLSPACE(2) /OUTFILE='r.txt' /VARIABLES=sales (10)\n\
            /BREAK=dept (TOTAL) /SUMMARY=SUM.",
@@ -292,8 +292,8 @@ fn outfile_writes_the_report_as_text() {
     let lines = [
         "             Sales",
         "",
-        "dept        product       Annual",
-        "                           Sales",
+        "dept        product       Weekly",
+        "                           Taken",
         "",
         "Toys",
         "",

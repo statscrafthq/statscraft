@@ -47,18 +47,18 @@ fn cluster_defaults() {
 }
 
 #[test]
-fn cluster_abbreviations_and_the_manual_examples() {
-    let c = cluster("CLUSTER V1 TO V4 /PLOT=DENDROGRAM /PRINT=CLUSTER (2 4).");
-    assert_eq!(c.membership, Some((2, 4)));
+fn cluster_abbreviations_and_method_lists() {
+    let c = cluster("CLUSTER s1 TO s5 /PLOT=DENDROGRAM /PRINT=CLUSTER (3 6).");
+    assert_eq!(c.membership, Some((3, 6)));
     assert!(!c.schedule && c.plot);
-    let c = cluster("CLUSTER V1 V2 V3 /METHOD=SINGLE COMPLETE WARDS.");
+    let c = cluster("CLUSTER p q r /METHOD=COMPLETE WARDS SINGLE.");
     assert_eq!(
         c.methods.iter().map(|m| m.0).collect::<Vec<_>>(),
-        [Linkage::Single, Linkage::Complete, Linkage::Ward]
+        [Linkage::Complete, Linkage::Ward, Linkage::Single]
     );
-    let c = cluster("CLUSTER A B C /METHOD=BAVERAGE SINGLE (SINMEM) WARD /SAVE=CLUSTERS(3,5).");
-    assert_eq!(c.methods[1], (Linkage::Single, Some("SINMEM".into())));
-    assert_eq!(c.save, Some((3, 5)));
+    let c = cluster("CLUSTER x y z /METHOD=WARD BAVERAGE SINGLE (LINKS) /SAVE=CLUSTERS(2,4).");
+    assert_eq!(c.methods[2], (Linkage::Single, Some("LINKS".into())));
+    assert_eq!(c.save, Some((2, 4)));
     let c = cluster(
         "CLUSTER a b /MEAS=MINK(3) /METH=WAVE CENT MED DEF /PRIN=SCHED DIST /MISS=INCL /ID=name.",
     );
@@ -151,15 +151,15 @@ fn discriminant_defaults() {
 #[test]
 fn discriminant_blocks_and_abbreviations() {
     let d = discriminant(
-        "DISC GROUPS=APPROVAL(1,5) /VARS=Q1 TO Q10 /SELECT=COMPLETE(1) /CLASSIFY=UNSELECTED.",
+        "DISC GROUPS=TIER(1,4) /VARS=S1 TO S8 /SELECT=SAMPLE(2) /CLASSIFY=UNSELECTED.",
     );
-    assert_eq!(d.select, Some(("COMPLETE".into(), 1.0)));
+    assert_eq!(d.select, Some(("SAMPLE".into(), 2.0)));
     assert_eq!(d.classify, ClassifyCases::Unselected);
     let d = discriminant(
-        "DISCRIMINANT GROUPS=SUCCESS(0,1) /VARIABLES=A, B, C, D, E \
-         /ANALYSIS=A TO C (2) D, E (1) /METH=WILKS /TOLER=.01 /MAXS=4 /FIN=4 /FOUT=3 \
-         /PRIORS = 4*.15,.4 /SAVE CLASS=PRDCLASS SCORES=SCORE PROBS=PRB \
-         /ANALYSIS=ALL /METHOD=RAO /VIN=.5 /PIN=.05 /POUT=.1 /FUNCTIONS=1,90,.5 /PRIORS=SIZE \
+        "DISCRIMINANT GROUPS=PASSED(0,1) /VARIABLES=P, Q, R, S, T \
+         /ANALYSIS=P TO R (2) S, T (1) /METH=WILKS /TOLER=.02 /MAXS=5 /FIN=3.5 /FOUT=2.5 \
+         /PRIORS = 3*.2,.4 /SAVE CLASS=PCLASS SCORES=DSC PROBS=PP \
+         /ANALYSIS=ALL /METHOD=RAO /VIN=.4 /PIN=.04 /POUT=.09 /FUNCTIONS=2,80,.3 /PRIORS=SIZE \
          /SAVE CLASS SCORES(SC) PROBS \
          /MISSING=INCLUDE /HISTORY=NOEND /CLASSIFY=UNCLASSIFIED SEPARATE MEANSUB \
          /STATISTICS=ALL /PLOT=MAP.",
@@ -169,9 +169,9 @@ fn discriminant_blocks_and_abbreviations() {
     assert_eq!(
         a.variables,
         Some(vec![
-            (vec![VarItem::Range("A".into(), "C".into())], 2),
+            (vec![VarItem::Range("P".into(), "R".into())], 2),
             (
-                vec![VarItem::Name("D".into()), VarItem::Name("E".into())],
+                vec![VarItem::Name("S".into()), VarItem::Name("T".into())],
                 1
             ),
         ])
@@ -179,17 +179,17 @@ fn discriminant_blocks_and_abbreviations() {
     assert_eq!(a.method, DiscriminantMethod::Wilks);
     assert_eq!(
         (a.tolerance, a.max_steps, a.fin, a.fout),
-        (0.01, Some(4), 4.0, 3.0)
+        (0.02, Some(5), 3.5, 2.5)
     );
-    assert_eq!(a.priors, Priors::Values(vec![0.15, 0.15, 0.15, 0.15, 0.4]));
+    assert_eq!(a.priors, Priors::Values(vec![0.2, 0.2, 0.2, 0.4]));
     let s = a.save.as_ref().unwrap();
-    assert_eq!(s.class, Some(Some("PRDCLASS".into())));
-    assert_eq!(s.scores, Some(Some("SCORE".into())));
+    assert_eq!(s.class, Some(Some("PCLASS".into())));
+    assert_eq!(s.scores, Some(Some("DSC".into())));
     let b = &d.analyses[1];
     assert_eq!(b.variables, Some(vec![(vec![VarItem::All], 1)]));
     assert_eq!(b.method, DiscriminantMethod::Rao);
-    assert_eq!((b.vin, b.pin, b.pout), (0.5, Some(0.05), Some(0.1)));
-    assert_eq!(b.functions, (Some(1), 90.0, 0.5));
+    assert_eq!((b.vin, b.pin, b.pout), (0.4, Some(0.04), Some(0.09)));
+    assert_eq!(b.functions, (Some(2), 80.0, 0.3));
     assert_eq!(b.priors, Priors::Size);
     let s = b.save.as_ref().unwrap();
     assert_eq!(
@@ -242,15 +242,15 @@ fn discriminant_errors() {
 #[test]
 fn anova_lists_and_subcommands() {
     let a = anova(
-        "ANOVA VARIABLES=PRESTIGE BY REGION(1,9) SEX,RACE(1,2) /MAXORDERS=2 /STATISTICS=MEAN.",
+        "ANOVA VARIABLES=SCORE BY CLASS(1,6) GENDER,SCHOOL(1,2) /MAXORDERS=2 /STATISTICS=MEAN.",
     );
     assert_eq!(a.lists.len(), 1);
     let l = &a.lists[0];
-    assert_eq!(l.dependents, [VarItem::Name("PRESTIGE".into())]);
+    assert_eq!(l.dependents, [VarItem::Name("SCORE".into())]);
     assert_eq!(l.factors.len(), 2);
     assert_eq!(
         l.factors[1].0,
-        [VarItem::Name("SEX".into()), VarItem::Name("RACE".into())]
+        [VarItem::Name("GENDER".into()), VarItem::Name("SCHOOL".into())]
     );
     assert_eq!((l.factors[1].1, l.factors[1].2), (1.0, 2.0));
     assert_eq!(a.max_order, 2);
@@ -258,9 +258,9 @@ fn anova_lists_and_subcommands() {
     assert_eq!(a.method, AnovaMethod::Unique);
     assert_eq!(a.covariate_order, CovariateOrder::First);
     let a =
-        anova("ANOVA VARIABLES=PRESTIGE BY REGION(1,9) SEX,RACE(1,2) /RINCOME BY SEX,RACE(1,2).");
+        anova("ANOVA VARIABLES=SCORE BY CLASS(1,6) GENDER,SCHOOL(1,2) /WAGE BY GENDER,SCHOOL(1,2).");
     assert_eq!(a.lists.len(), 2);
-    assert_eq!(a.lists[1].dependents, [VarItem::Name("RINCOME".into())]);
+    assert_eq!(a.lists[1].dependents, [VarItem::Name("WAGE".into())]);
     let a = anova(
         "anova y y2 BY a(1,3) b(1.7,2.2) WITH c d /COVAR=AFTER /MAXO=NONE /METH=EXP /STAT /MISS=INCL.",
     );

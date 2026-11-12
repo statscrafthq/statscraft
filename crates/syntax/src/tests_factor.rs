@@ -42,14 +42,14 @@ fn factor_defaults() {
 }
 
 #[test]
-fn factor_abbreviations_and_aliases_of_the_manual() {
+fn factor_abbreviations_and_aliases() {
     let f = factor(
-        "FACTOR VARS=V1 TO V12 /SELECT=COMPLETE ('yes') /MISS=MEANSUB /PRINT=DEF AIC KMO REPR \
+        "FACTOR VARS=item1 TO item9 /SELECT=WAVE ('b') /MISS=MEANSUB /PRINT=DEF REPR KMO AIC \
          /EXTRACT=ULS /ROTATE=VARIMAX.",
     );
     assert_eq!(
         f.select,
-        Some(("COMPLETE".into(), Value::String("yes".into())))
+        Some(("WAVE".into(), Value::String("b".into())))
     );
     assert_eq!(f.missing, FactorMissing::MeanSubstitution);
     let p = f.print;

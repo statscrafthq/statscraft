@@ -45,10 +45,10 @@ fn matrix_data_reads_its_subcommands() {
     assert_eq!(m.shape, MatrixShape::Upper);
 
     let m = matrix(
-        "MATRIX DATA VARIABLES=F1 VAR1 TO VAR3 /FACTORS=F1 /CELLS=2 /CONTENTS=(MEAN SD N) CORR.",
+        "MATRIX DATA VARIABLES=GRP x1 TO x3 /FACTORS=GRP /CELLS=3 /CONTENTS=(MEAN SD N) CORR.",
     );
-    assert_eq!(m.factors, ["F1"]);
-    assert_eq!(m.cells, Some(2));
+    assert_eq!(m.factors, ["GRP"]);
+    assert_eq!(m.cells, Some(3));
     assert_eq!(
         m.contents,
         [
@@ -245,54 +245,67 @@ fn output_save_is_refused_clearly() {
 }
 
 #[test]
-fn report_reads_the_manual_examples() {
+fn report_reads_layouts_with_every_kind_of_summary() {
     let r = report(
         "REPORT FORMAT=LIST\n\
-         /VARIABLES=PRODUCT (LABEL) ' ' 'Retail' 'Products'\n\
-                  SALES 'Annual' 'Sales' '1981'\n\
-         /BREAK=DEPT 'Department' (LABEL)\n\
-         /SUMMARY=VALIDN (PRODUCT) MEAN (SALES) 'No.Sold,Mean Sales'.",
+         /VARIABLES=SHOP (LABEL) ' ' 'Garden' 'Shops'\n\
+                  VISITS 'Weekly' 'Visits' '2024'\n\
+         /BREAK=REGION 'Region' (LABEL)\n\
+         /SUMMARY=VALIDN (SHOP) MEAN (VISITS) 'Count,Mean Visits'.",
     );
     assert_eq!(r.format.list, Some(0));
     assert_eq!(r.columns.len(), 2);
     assert_eq!(
         r.columns[0].variables,
-        [(VarItem::Name("PRODUCT".into()), ColumnContents::Label)]
+        [(VarItem::Name("SHOP".into()), ColumnContents::Label)]
     );
     assert_eq!(
         r.columns[0].heading,
-        Some(vec![" ".into(), "Retail".into(), "Products".into()])
+        Some(vec![" ".into(), "Garden".into(), "Shops".into()])
     );
     let b = &r.breaks[0];
-    assert_eq!(b.heading, Some(vec!["Department".into()]));
+    assert_eq!(b.heading, Some(vec!["Region".into()]));
     assert_eq!(b.label, Some(true));
     let ReportSummary::Line { items, title, .. } = &b.summaries[0] else {
         panic!("{:?}", b.summaries);
     };
-    assert_eq!(title.as_deref(), Some("No.Sold,Mean Sales"));
+    assert_eq!(title.as_deref(), Some("Count,Mean Visits"));
     assert_eq!(items.len(), 2);
 
     let r = report(
-        [removed]
+        "REPORT FORMAT=AUTOMATIC MARGINS (3,72) BRKSPACE(-1)\n\
+         /VARIABLES=GAP(DUMMY) ' ' (3)\n\
+                    VISITS 'Weekly' 'Visits' (12) (OFFSET(1))\n\
+                    COSTS 'Weekly' 'Costs' (12) (OFFSET(1))\n\
+         /BREAK=AREA TOWN (8) (TOTAL) (OFFSET(2))\n\
+         /SUMMARY=MEAN\n\
+         /BREAK=REGION 'Region' (8)\n\
+         /SUMMARY=MAX.",
     );
     assert!(r.format.automatic);
     assert_eq!(r.format.brkspace, Some(-1));
-    assert_eq!(r.format.margins, (Some(1), Some(70)));
+    assert_eq!(r.format.margins, (Some(3), Some(72)));
     assert_eq!(r.columns[0].variables[0].1, ColumnContents::Dummy);
-    assert_eq!(r.columns[1].width, Some(15));
-    assert_eq!(r.columns[1].offset, Some(ReportOffset::Columns(2)));
+    assert_eq!(r.columns[1].width, Some(12));
+    assert_eq!(r.columns[1].offset, Some(ReportOffset::Columns(1)));
     assert!(r.breaks[0].total);
     assert_eq!(r.breaks.len(), 2);
 
     let r = report(
-        [removed]
+        "REPORT FORMAT=AUTOMATIC BRKSPACE(-1)\n\
+         /VARIABLES=PAY EXTRA GAP1 (DUMMY) '' PERK1 PERK2 GAP2 (DUMMY)''\n\
+         /BREAK=TEAM\n\
+         /SUMMARY=MEAN(PAY EXTRA PERK1 PERK2) ADD(VALIDN(PAY)) (GAP2)\n\
+         /SUMMARY=ADD(SUM(PAY) SUM(EXTRA)) ADD(SUM(PERK1) SUM(PERK2)) 'Sums' SKIP(1)\n\
+         /SUMMARY=DIVIDE(MEAN(PAY) MEAN(EXTRA)) (GAP1 (COMMA)(2))\n\
+                  DIVIDE(MEAN(PERK1) MEAN(PERK2)) (GAP2 (COMMA)(2)) 'Quotients' SKIP(2).",
     );
     let lines = &r.breaks[0].summaries;
     assert_eq!(lines.len(), 3);
     let ReportSummary::Line { items, skip, .. } = &lines[2] else {
         panic!()
     };
-    assert_eq!(*skip, 1);
+    assert_eq!(*skip, 2);
     let SummaryItem::Composite {
         function,
         args,
@@ -304,32 +317,32 @@ fn report_reads_the_manual_examples() {
     assert_eq!(*function, Composite::Divide);
     assert_eq!(
         args[0],
-        CompositeArg::Aggregate(ReportFunction::Mean, "WAGE".into())
+        CompositeArg::Aggregate(ReportFunction::Mean, "PAY".into())
     );
     let (name, format) = column.as_ref().unwrap();
-    assert_eq!(name, "SPACE1");
+    assert_eq!(name, "GAP1");
     assert_eq!(format.kind, Some(FormatType::Comma));
     assert_eq!(format.decimals, Some(2));
 
     let r = report(
-        "REPORT FORMAT=AUTOMATIC LIST /VARIABLES=XVAR YVAR ZVAR\n\
-         /BREAK=BVAR /SUMMARY=SUM /SUMMARY=MEAN (XVAR YVAR ZVAR) /SUMMARY=VALIDN(XVAR)\n\
-         /BREAK=AVAR /SUMMARY=PREVIOUS.",
+        "REPORT FORMAT=AUTOMATIC LIST /VARIABLES=LEN WID HGT\n\
+         /BREAK=SHELF /SUMMARY=MIN /SUMMARY=MAX (LEN WID HGT) /SUMMARY=VALIDN(HGT)\n\
+         /BREAK=AISLE /SUMMARY=PREVIOUS.",
     );
     assert_eq!(r.breaks[1].summaries, [ReportSummary::Previous(None)]);
 
     let r = report(
-        "REPORT /STRING=JOB1(AVAR NVAR) JOB2(AVAR(2) NVAR(3)) JOB3(AVAR(2) NVAR(BLANK) (4))\n\
-         SOCSEC(S1 '-' S2 '-' S3)\n\
-         /VARIABLES=JOB1 /MISSING=LIST(XVAR,YVAR,ZVAR 2)\n\
-         /TITLE=LEFT 'Personnel Report' 'Prepared on )DATE' RIGHT 'Page: )PAGE'\n\
-         /BREAK=(TOTAL) /SUMMARY=PGT(5)(JOB1) MEDIAN(1,10) 'x' /SUMMARY=FREQUENCY(1,3).",
+        "REPORT /STRING=CODE1(LETTER NUM) CODE2(LETTER(2) NUM(3)) CODE3(LETTER(2) NUM(BLANK) (4))\n\
+         PHONE(P1 '-' P2 '-' P3)\n\
+         /VARIABLES=CODE1 /MISSING=LIST(LEN,WID,HGT 2)\n\
+         /TITLE=LEFT 'Stock list' 'Made on )DATE' RIGHT 'Sheet )PAGE'\n\
+         /BREAK=(TOTAL) /SUMMARY=PGT(5)(CODE1) MEDIAN(1,10) 'x' /SUMMARY=FREQUENCY(1,3).",
     );
     assert_eq!(r.strings.len(), 4);
     assert_eq!(
         r.strings[2].parts[1],
         StringPart::Variable {
-            name: "NVAR".into(),
+            name: "NUM".into(),
             width: Some(4),
             blank: true
         }
@@ -338,9 +351,9 @@ fn report_reads_the_manual_examples() {
         r.missing,
         ReportMissing::List(
             vec![
-                VarItem::Name("XVAR".into()),
-                VarItem::Name("YVAR".into()),
-                VarItem::Name("ZVAR".into())
+                VarItem::Name("LEN".into()),
+                VarItem::Name("WID".into()),
+                VarItem::Name("HGT".into())
             ],
             2
         )
@@ -348,7 +361,7 @@ fn report_reads_the_manual_examples() {
     assert_eq!(r.titles[0].0, ReportAlign::Left);
     assert_eq!(
         r.titles[1],
-        (ReportAlign::Right, vec!["Page: )PAGE".to_string()])
+        (ReportAlign::Right, vec!["Sheet )PAGE".to_string()])
     );
     assert!(r.breaks[0].variables.is_empty());
 }

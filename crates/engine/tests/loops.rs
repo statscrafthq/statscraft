@@ -37,22 +37,23 @@ fn session(data: &str) -> Session {
 
 #[test]
 fn the_index_holds_the_counter_unless_break_or_end_loop_if_ends_the_loop() {
-    // the example of the manual, one case
+    // one case; each loop sets its index inside the loop
     let mut session = session("1 1 1");
     run(
         &mut session,
-        "LOOP a = 1 TO 3.\nCOMPUTE a = 0.\nEND LOOP.\n\
-         [removed]
-         NUMERIC #d.\nLOOP d = 1 TO 3.\nCOMPUTE d = 0.\nCOMPUTE #d = #d + 1.\n\
-         DO IF #d = 3.\nBREAK.\nEND IF.\nEND LOOP.\n\
-         LOOP e = 3 TO 1.\nCOMPUTE e = 0.\nEND LOOP.",
+        "LOOP a = 2 TO 6 BY 2.\nCOMPUTE a = 1.\nEND LOOP.\n\
+         NUMERIC #b.\nLOOP b = 1 TO 4.\nCOMPUTE #b = #b + 1.\nCOMPUTE b = 9.\nEND LOOP IF #b = 2.\n\
+         NUMERIC #c.\nLOOP c = 1 TO 2 IF #c < 5.\nCOMPUTE #c = #c + 1.\nCOMPUTE c = 7.\nEND LOOP.\n\
+         NUMERIC #d.\nLOOP d = 1 TO 5.\nCOMPUTE #d = #d + 1.\nCOMPUTE d = 6.\n\
+         DO IF #d = 2.\nBREAK.\nEND IF.\nEND LOOP.\n\
+         LOOP e = 5 TO 2.\nCOMPUTE e = 0.\nEND LOOP.",
     );
     let data = session.dataset().unwrap();
     let values: Vec<String> = ["a", "b", "c", "d", "e"]
         .iter()
         .map(|n| show(data, n))
         .collect();
-    assert_eq!(values, ["4", "0", "4", "0", "3"]);
+    assert_eq!(values, ["8", "9", "3", "6", "5"]);
 }
 
 #[test]

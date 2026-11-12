@@ -145,25 +145,25 @@ fn date_keywords_abbreviate_to_one_letter_and_minute_to_two() {
 
 #[test]
 fn print_reads_subcommands_then_lines_of_items() {
-    let p = print("PRINT / MOHIRED YRHIRED DEPT SALARY NAME.");
+    let p = print("PRINT / ROOM FLOOR WING RENT TENANT.");
     assert_eq!(p.kind, PrintKind::Print);
     assert_eq!(
         p.lines,
         vec![vec![PrintItem::Variables(
-            names(&["MOHIRED", "YRHIRED", "DEPT", "SALARY", "NAME"]),
+            names(&["ROOM", "FLOOR", "WING", "RENT", "TENANT"]),
             None
         )]]
     );
     let p = print(
-        "PRINT / TENURE (F2.0) ' ' MOHIRED YRHIRED DEPT *\n\
-         SALARY85 TO SALARY88 (4(DOLLAR8,1X)) NAME.",
+        "PRINT / YEARS (F2.0) ' ' ROOM FLOOR WING *\n\
+         RENT1 TO RENT4 (4(DOLLAR8,1X)) TENANT.",
     );
     let dollar = FormatItem::Format(f(FormatType::Dollar, 8, 0));
     assert_eq!(
         p.lines,
         vec![vec![
             PrintItem::Variables(
-                names(&["TENURE"]),
+                names(&["YEARS"]),
                 Some(Placement::Formats(vec![FormatItem::Format(f(
                     FormatType::F,
                     2,
@@ -174,9 +174,9 @@ fn print_reads_subcommands_then_lines_of_items() {
                 text: " ".into(),
                 columns: None
             },
-            PrintItem::Variables(names(&["MOHIRED", "YRHIRED", "DEPT"]), None),
+            PrintItem::Variables(names(&["ROOM", "FLOOR", "WING"]), None),
             PrintItem::Variables(
-                vec![VarItem::Range("SALARY85".into(), "SALARY88".into())],
+                vec![VarItem::Range("RENT1".into(), "RENT4".into())],
                 Some(Placement::Formats(vec![
                     dollar,
                     FormatItem::Skip(1),
@@ -188,11 +188,11 @@ fn print_reads_subcommands_then_lines_of_items() {
                     FormatItem::Skip(1)
                 ]))
             ),
-            PrintItem::Variables(names(&["NAME"]), None),
+            PrintItem::Variables(names(&["TENANT"]), None),
         ]]
     );
     let p = print(
-        "PRINT EJECT OUTFILE='o.txt' TABLE /'NAME' 1 'DEPT' 25-28 MOHIRED 30-31 (F,1) x (T35,DOLLAR8).",
+        "PRINT EJECT OUTFILE='o.txt' TABLE /'ROOM' 1 'WING' 25-28 FLOOR 30-31 (F,1) x (T35,DOLLAR8).",
     );
     assert_eq!(p.kind, PrintKind::PrintEject);
     assert_eq!(p.outfile.as_deref(), Some("o.txt"));
@@ -201,15 +201,15 @@ fn print_reads_subcommands_then_lines_of_items() {
         p.lines[0],
         vec![
             PrintItem::Text {
-                text: "NAME".into(),
+                text: "ROOM".into(),
                 columns: Some((1, None))
             },
             PrintItem::Text {
-                text: "DEPT".into(),
+                text: "WING".into(),
                 columns: Some((25, Some(28)))
             },
             PrintItem::Variables(
-                names(&["MOHIRED"]),
+                names(&["FLOOR"]),
                 Some(Placement::Columns {
                     first: 30,
                     last: 31,

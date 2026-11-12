@@ -262,12 +262,12 @@ fn errors_name_what_is_wrong() {
 }
 
 #[test]
-fn the_manual_layout_with_unquoted_labels_and_a_slash_between_groups() {
+fn unquoted_labels_and_a_slash_between_groups() {
     let result = run(
-        "MULT RESPONSE GROUPS=ps CHILD SEX (p1 p2 (1,2))\n /pa 'AGE' (a1 a2 (1,3))\n\
+        "MULT RESPONSE GROUPS=ps PET KIND (p1 p2 (1,2))\n /pa 'AGE BAND' (a1 a2 (1,3))\n\
          /TABLES=ps BY pa (PAIRED).",
     );
     let x = tables(&result)[1];
-    assert_eq!(x.columns[0], "CHILD SEX");
+    assert_eq!(x.columns[0], "PET KIND");
     assert_eq!(numbers(x, &["Total", "Count"]), s(&[3.0, 2.0, 3.0, 8.0]));
 }

@@ -319,10 +319,9 @@ fn merged_letters_default_to_apa_and_showsig_keeps_them_apart() {
 
 #[test]
 fn summaries_after_a_parenthesis_go_to_every_innermost_variable() {
-    // the manual's equivalent forms: (SEX + HAPPY [COLPCT])[COUNT] is
-    // SEX [COUNT] + HAPPY [COUNT, COLPCT]
-    let grouped = one("CTABLES /TABLE (sex + happy [COLPCT]) [COUNT] BY x.");
-    let spelled = one("CTABLES /TABLE sex [COUNT] + happy [COUNT, COLPCT] BY x.");
+    // (age + income [COLPCT]) [COUNT] means age [COUNT] + income [COUNT, COLPCT]
+    let grouped = one("CTABLES /TABLE (age + income [COLPCT]) [COUNT] BY x.");
+    let spelled = one("CTABLES /TABLE age [COUNT] + income [COUNT, COLPCT] BY x.");
     assert_eq!(grouped.tables[0].rows, spelled.tables[0].rows);
     // in a nesting only the innermost variable gets them
     let nested = one("CTABLES /TABLE (a > b) [COUNT].");
@@ -417,7 +416,7 @@ fn a_second_by_gives_the_layers() {
 
 #[test]
 fn a_percentage_without_a_suffix_counts_cases() {
-    // the manual's own examples write [COLPCT] and [COUNT COLPCT] without commas
+    // summaries may be listed without commas, as in [COUNT COLPCT]
     let c = one("CTABLES /TABLE a [COUNT ROWPCT UCOLPCT, LAYERCOLPCT 'L' PCT5.1] BY b.");
     let Some(AxisExpr::Variable(v)) = &c.tables[0].rows else {
         panic!()
