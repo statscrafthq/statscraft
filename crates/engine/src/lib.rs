@@ -38,6 +38,7 @@ mod matrix_functions;
 mod matrix_lang;
 mod means;
 mod merge;
+mod mixed;
 mod mrsets;
 mod mult_response;
 mod nomreg;
@@ -644,6 +645,7 @@ impl Engine {
             | Command::Logistic(_)
             | Command::Nomreg(_)
             | Command::Glm(_)
+            | Command::Mixed(_)
             | Command::Cluster(_)
             | Command::Discriminant(_)
             | Command::Anova(_)
@@ -864,6 +866,7 @@ impl Engine {
             Command::Logistic(command) => self.logistic(command),
             Command::Nomreg(command) => self.nomreg(command),
             Command::Glm(command) => self.glm(command),
+            Command::Mixed(command) => self.mixed_model(command),
             Command::Cluster(command) => self.cluster(command),
             Command::Discriminant(command) => self.discriminant(command),
             Command::Anova(command) => self.anova(command),

@@ -3,6 +3,7 @@
 ## Unreleased
 
 - NOMREG: multinomial logistic regression of a nominal dependent variable (numeric or string) on factors and covariates, with BASE and ORDER for the reference category, MODEL with interactions and nested effects, FULLFACTORIAL, INTERCEPT, CRITERIA, SCALE, SUBPOP, weights and MISSING. Tables: Case Processing Summary, Model Fitting Information (with AIC and BIC), Goodness-of-Fit, Pseudo R-Square, Likelihood Ratio Tests, Parameter Estimates with the interval of Exp(B), Classification, and the covariance and correlation matrices. SAVE adds the category probabilities, the predicted category and its probability, and the probability of the observed category. Stepwise methods, TEST and OUTFILE are not supported yet. See [NOMREG](docs/commands/nomreg.md).
+- MIXED: linear mixed models by REML or ML, with factors and covariates in the fixed part, random intercepts and slopes per subject (COVTYPE VC, ID, DIAG, UN, CS and AR1), nested subjects such as classes within schools, and REPEATED residual structures per subject (DIAG, CS, AR1 or UN). Tables: Model Dimension, Information Criteria, Type III Tests of Fixed Effects with Satterthwaite or residual degrees of freedom, Estimates of Fixed Effects and Estimates of Covariance Parameters with Wald Z and intervals. SAVE gives fixed and full predicted values, residuals and the standard error and degrees of freedom of the fixed prediction. See [MIXED](docs/commands/mixed.md).
 
 ## 0.9.0 (2026-11-12)
 

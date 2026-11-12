@@ -39,6 +39,7 @@ mod loops;
 mod macros;
 mod matrix;
 mod matrix_data;
+mod mixed;
 mod mrsets;
 mod mult_response;
 mod nomreg;
@@ -78,6 +79,8 @@ mod tests_input_program;
 mod tests_loops;
 #[cfg(test)]
 mod tests_matrix;
+#[cfg(test)]
+mod tests_mixed;
 #[cfg(test)]
 mod tests_models;
 #[cfg(test)]
@@ -137,6 +140,7 @@ pub use matrix::{
     matrix_function, matrix_function_names,
 };
 pub use matrix_data::{MatrixData, MatrixShape, RowType};
+pub use mixed::{Convergence, CovType, Mixed, MixedPrint, MixedTemp, RandomEffects, Repeated};
 pub use mrsets::{Mrsets, MrsetsGroup};
 pub use nomreg::{
     Nomreg, NomregBase, NomregCriteria, NomregOrder, NomregPrint, NomregSave, NomregScale,

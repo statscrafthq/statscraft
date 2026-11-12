@@ -73,6 +73,7 @@ pub enum Command {
     Logistic(Box<crate::logistic::Logistic>),
     Nomreg(Box<crate::nomreg::Nomreg>),
     Glm(Box<crate::glm::Glm>),
+    Mixed(Box<crate::mixed::Mixed>),
     Cluster(Box<crate::cluster::Cluster>),
     Discriminant(Box<crate::discriminant::Discriminant>),
     Anova(Box<crate::anova::Anova>),

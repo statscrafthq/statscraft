@@ -136,3 +136,7 @@ Not attempted, so do not expect them here: user-missing values on string variabl
 missing ranges (LOWEST THRU x, x THRU HIGHEST), document records, variable roles, custom display width
 or alignment, variable attributes and data file attributes, variable sets, files written by old writer
 versions (no long-name or encoding records), encrypted files and portable (.por) files.
+
+## MIXED data
+
+`mixed_pupils.csv` (pupils in classes in schools) and `mixed_waves.csv` (people seen at up to four waves) are invented text data for the MIXED tests in `crates/engine/tests/mixed.rs`. `mixed_generate.py` writes them with the standard library and a fixed seed: `python3 tests/fixtures/mixed_generate.py`.

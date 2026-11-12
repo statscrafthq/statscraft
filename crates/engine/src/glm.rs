@@ -556,7 +556,7 @@ fn adjustment_name(a: Adjustment) -> &'static str {
     }
 }
 
-fn percent_title(alpha: f64) -> String {
+pub(crate) fn percent_title(alpha: f64) -> String {
     let p = 100.0 * (1.0 - alpha);
     if (p - p.round()).abs() < 1e-9 {
         format!("{p:.0}%")
@@ -723,7 +723,7 @@ pub(crate) fn default_terms(
     terms
 }
 
-fn key_value_text(variable: &Variable, key: &Key) -> String {
+pub(crate) fn key_value_text(variable: &Variable, key: &Key) -> String {
     match key {
         Key::Number(n) => category_text(*n, variable.format()),
         Key::Text(t) => t.trim_end().to_string(),
@@ -1672,7 +1672,7 @@ fn levene(d: &Data, fit: &Fit) -> Option<Table> {
     ))
 }
 
-fn parameter_name(d: &Data, e: &Effect, cell: &[usize]) -> String {
+pub(crate) fn parameter_name(d: &Data, e: &Effect, cell: &[usize]) -> String {
     if e.is_intercept() {
         return "Intercept".into();
     }
