@@ -78,6 +78,12 @@ An agent reads its settings when it starts. After connecting:
 
 Then ask the agent what tools Statscraft gives it, or ask it to describe a data file.
 
+### If the agent does not see Statscraft
+
+- **Claude Desktop** reads its settings only when it starts. On Windows, check that no Claude process is left after you quit (`Get-Process claude` in PowerShell shows nothing), then open it again. Statscraft is listed under Settings > Desktop app > Extensions, in **Local MCP servers**; a bundle you installed shows above it, under Extensions. Claude Desktop logs each server's start in `mcp-server-statscraft.log`: on Windows in `%LOCALAPPDATA%\Claude\logs`, on macOS in `~/Library/Logs/Claude`.
+- **The ChatGPT app** uses local tools only in its Codex view, not in ordinary chats. Quit the app completely, open it again and ask in the Codex view.
+- To see whether the server itself starts, run `statscraft mcp` in a terminal: it waits for an agent's messages on its input; Ctrl+C ends it.
+
 In the ChatGPT app, the tools work in its Codex view only. Ordinary ChatGPT chats cannot use tools that run on your computer, even when the app's settings list the Statscraft server.
 
 ## Undo
