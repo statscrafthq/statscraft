@@ -46,7 +46,10 @@ struct FastHash(u64);
 
 impl FastHash {
     fn add(&mut self, word: u64) {
-        self.0 = self.0.wrapping_add(word).wrapping_mul(0xf135_7aea_2e62_a9c5);
+        self.0 = self
+            .0
+            .wrapping_add(word)
+            .wrapping_mul(0xf135_7aea_2e62_a9c5);
     }
 }
 

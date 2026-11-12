@@ -154,7 +154,8 @@ pub(crate) fn combinations(lists: &[Vec<String>]) -> Vec<Vec<String>> {
 /// None where the report does not have that control.
 fn statistic(
     cell: M,
-    (cases, pairs, s): (&[(f64, f64, usize)], &[(f64, f64)], &Summary),
+    cases: &[(f64, f64, usize)],
+    (pairs, s): (&[(f64, f64)], &Summary),
     totals: (f64, f64),
     within: &[Option<(f64, f64)>],
 ) -> Cell {
@@ -282,21 +283,30 @@ fn members(groups: &[Group], keys: &[Vec<Option<Key>>], included: &[usize]) -> V
             .map(|i| i + 1)
     };
     let radix: Vec<usize> = found.iter().map(|f| f.len() + 1).collect();
-    let fits = radix.iter().try_fold(1usize, |all, r| all.checked_mul(*r)).is_some();
+    let fits = radix
+        .iter()
+        .try_fold(1usize, |all, r| all.checked_mul(*r))
+        .is_some();
     if !fits || keys.len() >= usize::BITS as usize {
         // more combinations than numbers: test every case against every group
-        let of = |group: &Group| (included.iter().copied())
-            .filter(|&c| in_group(group, keys, c))
-            .collect();
+        let of = |group: &Group| {
+            (included.iter().copied())
+                .filter(|&c| in_group(group, keys, c))
+                .collect()
+        };
         return groups.iter().map(of).collect();
     }
     let code = |numbers: &mut dyn Iterator<Item = usize>| {
-        numbers.zip(&radix).fold(0usize, |code, (n, r)| code * r + n)
+        numbers
+            .zip(&radix)
+            .fold(0usize, |code, (n, r)| code * r + n)
     };
     let index: std::collections::HashMap<usize, usize> = (groups.iter().enumerate())
         .map(|(g, group)| {
             let mut numbers = group.iter().enumerate().map(|(l, choice)| {
-                choice.as_ref().map_or(0, |k| number(l, k).expect("a found category"))
+                choice
+                    .as_ref()
+                    .map_or(0, |k| number(l, k).expect("a found category"))
             });
             (code(&mut numbers), g)
         })
@@ -313,8 +323,7 @@ fn members(groups: &[Group], keys: &[Vec<Option<Key>>], included: &[usize]) -> V
             if (0..levels).any(|l| totals & (1 << l) == 0 && own[l] == 0) {
                 continue;
             }
-            let mut numbers =
-                (0..levels).map(|l| if totals & (1 << l) == 0 { own[l] } else { 0 });
+            let mut numbers = (0..levels).map(|l| if totals & (1 << l) == 0 { own[l] } else { 0 });
             if let Some(&g) = index.get(&code(&mut numbers)) {
                 members[g].push(case);
             }
@@ -377,7 +386,10 @@ impl Engine {
                 }
             }
             let lookup = |names: &[String]| -> Result<Vec<Variable>, Error> {
-                Ok(names.iter().map(|n| data.variable(n)).collect::<Result<_, _>>()?)
+                Ok(names
+                    .iter()
+                    .map(|n| data.variable(n))
+                    .collect::<Result<_, _>>()?)
             };
             let valid_dependent = |v: &Variable, case| is_valid(v, case, include_dependent);
             let valid_control = |v: &Variable, case| is_valid(v, case, include_control);
@@ -550,7 +562,7 @@ fn report(
                 string_statistic(cell, dependent, &cases, totals.0, &within)
             } else {
                 let summary = summary.as_ref().expect("numeric");
-                statistic(cell, (&cases, &pairs, summary), totals, &within)
+                statistic(cell, &cases, (&pairs, summary), totals, &within)
             });
         }
         rows.push(row);
@@ -735,7 +747,34 @@ fn anova(
 
 #[cfg(test)]
 mod tests {
-    use super::grouped_median;
+    use super::{Key, grouped_median, groups, in_group, members};
+
+    #[test]
+    fn one_pass_groups_hold_the_cases_a_scan_finds() {
+        // 0 and -0 are one category; a missing key belongs to the Totals only
+        let numbers = [1.0, -0.0, 2.0, 0.0, 1.0, f64::NAN, 2.0, 0.0];
+        let first: Vec<Option<Key>> = (numbers.iter())
+            .map(|&n| (!n.is_nan()).then_some(Key::Number(n)))
+            .collect();
+        let second: Vec<Option<Key>> = ["b", "a", "b", "c", "a", "a", "c", "b"]
+            .iter()
+            .map(|t| Some(Key::Text(t.to_string())))
+            .collect();
+        let keys = vec![first, second];
+        let included = [0, 1, 2, 3, 4, 5, 6, 7];
+        let groups = groups(&keys, &included);
+        let scanned: Vec<Vec<usize>> = (groups.iter())
+            .map(|g| {
+                included
+                    .iter()
+                    .copied()
+                    .filter(|&c| in_group(g, &keys, c))
+                    .collect()
+            })
+            .collect();
+        assert_eq!(members(&groups, &keys, &included), scanned);
+        assert!(scanned.iter().any(Vec::is_empty) && scanned.iter().any(|m| m.len() > 1));
+    }
 
     #[test]
     fn grouped_median_interpolates_between_midpoints() {
