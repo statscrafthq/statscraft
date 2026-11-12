@@ -1,6 +1,8 @@
 # Statscraft
 
-Statscraft is a statistics workbench written in Rust. It reads .sav files and runs the established statistics command syntax. Two programs share one engine: the command line `statscraft` and the desktop window `statscraft-gui`.
+Statscraft is a free, open-source statistics package for the social sciences, built AI-native from the first line. It is an alternative to SPSS, PSPP, Stata and SAS: it reads .sav files and runs your existing syntax, on Windows, macOS and Linux. Two programs written in Rust share one engine: the command line `statscraft` and the desktop window `statscraft-gui`.
+
+[Download](https://statscraft.org/download.html) · [Documentation](https://docs.statscraft.org) · [Website](https://statscraft.org)
 
 It is built to be driven by people and AI agents alike:
 
@@ -9,7 +11,7 @@ It is built to be driven by people and AI agents alike:
 - errors with line and column;
 - help generated from the program's command table.
 
-Statscraft is an independent project. It is not affiliated with the GNU PSPP project or the ArtCraft suite.
+Statscraft is an independent project. It is not affiliated with or endorsed by the makers of the products named above or the ArtCraft suite. Product names are trademarks of their owners.
 
 Status: early development. Licensed under MIT.
 

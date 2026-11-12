@@ -22,10 +22,17 @@ ALLOW='crates/openstatspec/src/wire.rs'
 
 cd "$(git rev-parse --show-toplevel)"
 
-# Drops "path:..." lines whose path is allow-listed.
+# The top-level README may name the product on one line, so searches find the project (owner
+# 2026-11-12). The company name stays out of it, and a second line with the product name fails.
+COMPANY='(^|[^a-zA-Z])[iI][bB][mM]([^a-zA-Z]|$)|[I][B][M]'
+
+# Drops "path:..." lines whose path is allow-listed, and the one README line allowed above.
 allowed() {
-    awk -v allow="$ALLOW" 'BEGIN { n = split(allow, a, " ") }
-        { for (i = 1; i <= n; i++) if (index($0, a[i] ":") == 1) next; print }'
+    awk -v allow="$ALLOW" -v company="$COMPANY" 'BEGIN { n = split(allow, a, " ") }
+        { for (i = 1; i <= n; i++) if (index($0, a[i] ":") == 1) next }
+        index($0, "README.md:") == 1 { r[++k] = $0; next }
+        { print }
+        END { for (i = 1; i <= k; i++) if (k > 1 || substr(r[i], index(substr(r[i], 11), ":") + 11) ~ company) print r[i] }'
 }
 
 # Shortens hits so binary lines stay readable.
