@@ -398,7 +398,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  missing counts and the statistics; it appears when statistics or percentiles are asked for, or when\n\
                  a frequency table is left out. Percentiles use (W + 1) p, the median is the 50th percentile and is\n\
                  left out with AFREQ and DFREQ; MODE shows the smallest of tied modes, with a note. NTILES=n adds the\n\
-                 n - 1 points that cut the cases into n equal groups; several PERCENTILES and NTILES add up.\n\
+                 n - 1 points that cut the cases into n equal groups (n up to 1000); several PERCENTILES and NTILES\n\
+                 add up.\n\
                  GROUPED treats the values as groups for the median and percentiles: alone the values are group\n\
                  midpoints, (width) groups that wide around each value, (boundaries) the given groups; a value\n\
                  outside the boundaries falls in an open group, where percentiles are undefined (shown empty).\n\
@@ -1605,8 +1606,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Expressions: = <> ~= < > <= >= (or !EQ !NE !LT !GT !LE !GE), !AND !OR !NOT (or & | ~),\n\
                  parentheses. Operands are unquoted and compared as numbers when both are numbers, else as\n\
                  text with case; the result is 1 or 0, and 0 is false.\n\
-                 The expansion is scanned again for macro calls, up to SET MNEST levels (50); a !DO loop\n\
-                 runs at most SET MITERATE times (1000). SET MEXPAND=OFF stops expansion and\n\
+                 The expansion is scanned again for macro calls, up to SET MNEST levels (50, at most 100); a\n\
+                 !DO loop runs at most SET MITERATE times (1000). One expansion makes at most 100 000 calls\n\
+                 and 1 MiB of text. SET MEXPAND=OFF stops expansion and\n\
                  SET MPRINT=YES shows every expanded command. A session (command line or window) keeps\n\
                  the macros and these settings from run to run; DISPLAY MACROS lists the macros.\n\
                  A body that ends with a period ends the command when the call is the last thing in it;\n\

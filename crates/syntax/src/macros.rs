@@ -24,7 +24,8 @@
 //!   text, case sensitive; `0` is false and anything else true.
 //! - The expansion is scanned again for macro calls, up to SET MNEST levels deep (50), except
 //!   the values of arguments marked `!NOEXPAND`. A loop stops with an error after SET MITERATE
-//!   rounds (1000).
+//!   rounds (1000). Whatever SET says, nesting stops at 100 levels, and one expansion at 100 000
+//!   calls and 1 MiB of text, so a macro that calls or doubles itself ends in an error.
 //! - A body that ends with a period ends the calling command when the call is the last thing
 //!   in it. In the middle of a command that last period is dropped, so a macro that holds a
 //!   title (`'text'.`) can stand inside a subcommand.
@@ -454,6 +455,14 @@ pub(crate) fn define(tokens: &[Tok]) -> MResult<Macro> {
     })
 }
 
+/// The deepest macro nesting whatever SET MNEST says: a run's thread has a 2 MiB stack.
+const MAX_NEST: usize = 100;
+
+/// The longest text a macro expansion may make, and the most calls it may take: a macro that
+/// doubles itself would otherwise fill the memory or run for ever.
+const MAX_TEXT: usize = 1 << 20;
+const MAX_CALLS: usize = 100_000;
+
 /// The defined macros, by upper-case name, and the limits of their expansion.
 #[derive(Clone, Debug)]
 pub(crate) struct Macros {
@@ -462,6 +471,8 @@ pub(crate) struct Macros {
     pub nest: usize,
     /// SET MITERATE: how many rounds a !DO loop may run.
     pub iterate: usize,
+    /// The calls of the expansion under way, for MAX_CALLS.
+    calls: std::cell::Cell<usize>,
 }
 
 impl Default for Macros {
@@ -470,6 +481,7 @@ impl Default for Macros {
             defined: HashMap::new(),
             nest: 50,
             iterate: 1000,
+            calls: std::cell::Cell::new(0),
         }
     }
 }
@@ -481,6 +493,8 @@ enum Flow {
 
 struct Env<'a> {
     args: &'a HashMap<String, String>,
+    /// How deep the call whose body this is lies, for the calls !EVAL makes.
+    depth: usize,
     vars: HashMap<String, String>,
     /// The arguments marked !NOEXPAND, as `!NAME`.
     literal: Vec<String>,
@@ -541,10 +555,22 @@ impl Macros {
                 i += 1;
                 continue;
             }
-            if depth >= self.nest {
+            if depth == 0 {
+                self.calls.set(0);
+            }
+            self.calls.set(self.calls.get() + 1);
+            if self.calls.get() > MAX_CALLS {
                 return fail(
                     Some(t),
-                    format!("macro calls are nested more than {} levels deep", self.nest),
+                    format!("the macro expansion makes more than {MAX_CALLS} calls"),
+                );
+            }
+            // SET MNEST may ask for more, but deeper nesting would overflow the stack
+            let nest = self.nest.min(MAX_NEST);
+            if depth >= nest {
+                return fail(
+                    Some(t),
+                    format!("macro calls are nested more than {nest} levels deep"),
                 );
             }
             let definition = &self.defined[&t.upper()];
@@ -567,6 +593,12 @@ impl Macros {
             // line breaks of the source, so that they keep the number of the call's line
             let mark = if depth == 0 { "\r" } else { "\n" };
             push_value(&mut out, t.space, &text.trim_end().replace('\n', mark));
+            if out.len() > MAX_TEXT {
+                return fail(
+                    Some(t),
+                    format!("the macro expansion grows longer than {MAX_TEXT} characters"),
+                );
+            }
             if text.ends_with('.') && next < tokens.len() {
                 // the period of the body ends the command; what follows starts a new line
                 out.push_str(mark);
@@ -679,6 +711,7 @@ impl Macros {
         let literal = definition.params.iter().filter(|p| p.noexpand);
         let mut env = Env {
             args,
+            depth,
             vars: HashMap::new(),
             literal: literal.map(|p| format!("!{}", p.name)).collect(),
         };
@@ -693,6 +726,12 @@ impl Macros {
         let mut i = 0;
         while i < tokens.len() {
             let t = &tokens[i];
+            if out.len() > MAX_TEXT {
+                return fail(
+                    Some(t),
+                    format!("the macro expansion grows longer than {MAX_TEXT} characters"),
+                );
+            }
             if t.kind == Kind::Newline {
                 out.push('\n');
                 i += 1;
@@ -755,7 +794,11 @@ impl Macros {
                         return fail(Some(t), "!DO needs a loop variable such as !i");
                     };
                     let mut k = i + 2;
-                    let items: Vec<String> = if tokens.get(k).is_some_and(|e| e.is("=")) {
+                    // the values one by one: SET MITERATE may allow more than the memory holds
+                    let (count, items): (usize, Box<dyn Iterator<Item = String>>) = if tokens
+                        .get(k)
+                        .is_some_and(|e| e.is("="))
+                    {
                         k += 1;
                         let number = |text: String, at: &Tok| {
                             unquote(&text).trim().parse::<f64>().map_err(|_| {
@@ -789,14 +832,13 @@ impl Macros {
                             );
                         }
                         let rounds = if after < 0.0 { 0 } else { after as usize + 1 };
-                        (0..rounds)
-                            .map(|n| format_number(first + n as f64 * step))
-                            .collect()
+                        let values = (0..rounds).map(move |n| format_number(first + n as f64 * step));
+                        (rounds, Box::new(values))
                     } else if tokens.get(k).is_some_and(|e| e.is("!IN")) {
                         k += 1;
                         let list = self.expression(tokens, &mut k, env)?;
                         let list = tokenize(&unquote(&list), false);
-                        list.into_iter().map(|t| t.text).collect()
+                        (list.len(), Box::new(list.into_iter().map(|t| t.text)))
                     } else {
                         return fail(
                             tokens.get(k).or(Some(t)),
@@ -806,7 +848,7 @@ impl Macros {
                     let (_, end) = matching(tokens, k, "!DO", "!DOEND", None).ok_or_else(|| {
                         (Some((t.line, t.column)), "!DO without !DOEND".to_string())
                     })?;
-                    if items.len() > self.iterate {
+                    if count > self.iterate {
                         return fail(
                             Some(t),
                             format!("the loop would run more than {} times", self.iterate),
@@ -1041,12 +1083,17 @@ impl Macros {
             }
             "!BLANKS" => {
                 count(1..=1)?;
-                " ".repeat(number(&args[0])?)
+                let n = number(&args[0])?;
+                if n > MAX_TEXT {
+                    return fail(Some(t), format!("!BLANKS takes at most {MAX_TEXT} blanks"));
+                }
+                " ".repeat(n)
             }
             _ => {
                 count(1..=1)?;
                 let tokens = tokenize(&args[0], true);
-                self.expand(&tokens, 1)?.unwrap_or_else(|| args[0].clone())
+                self.expand(&tokens, env.depth + 1)?
+                    .unwrap_or_else(|| args[0].clone())
             }
         })
     }

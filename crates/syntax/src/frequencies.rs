@@ -164,9 +164,10 @@ fn percentiles(p: &mut Parser, list: &mut Vec<f64>) -> PResult<()> {
 fn ntiles(p: &mut Parser, list: &mut Vec<f64>) -> PResult<()> {
     let start = p.pos;
     let n = match p.number() {
-        Some(n) if n >= 1.0 && n.fract() == 0.0 => n,
+        // a bound keeps the n - 1 cut points from filling the memory
+        Some(n) if (1.0..=1000.0).contains(&n) && n.fract() == 0.0 => n,
         _ => {
-            let message = "NTILES takes a whole number of at least 1";
+            let message = "NTILES takes a whole number from 1 to 1000";
             return Err(SyntaxError::new(p.span_from(start), message));
         }
     };
