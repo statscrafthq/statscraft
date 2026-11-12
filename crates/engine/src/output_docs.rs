@@ -23,8 +23,9 @@
 //! - TEXT writes UTF-8 for LOCALE. Columns are as wide as their widest cell, or with
 //!   COLUMNWIDTH=n wrap at n characters; numbers align right.
 
+use crate::office::{CHART_COLUMNS, CHART_ROWS, Item, is_office_chart, put_chart};
 use crate::xlsx::{put_table, set_widths, sheet_name};
-use crate::{Cell, Engine, Error, Table, cell_text, header_rows};
+use crate::{Cell, Chart, Engine, Error, Table, cell_text, header_rows};
 use rust_xlsxwriter::{Workbook, XlsxError};
 use statscraft_syntax::{
     ExportTarget, OutputCommand, OutputExport, SheetLocation, SheetOperation, TextEncoding,
@@ -52,8 +53,8 @@ pub(crate) struct Documents {
 #[derive(Clone)]
 struct Document {
     name: String,
-    /// Each table with the command that made it.
-    tables: Vec<(String, Arc<Table>)>,
+    /// Each table with the command that made it; a chart as its data table and itself.
+    tables: Vec<(String, Shown)>,
 }
 
 /// A workbook as OUTPUT EXPORT wrote it, and when.
@@ -69,26 +70,44 @@ struct Sheet {
     blocks: Vec<Block>,
 }
 
+/// A table, or a chart with its data table.
+type Shown = (Arc<Table>, Option<Arc<Chart>>);
+
+/// The item of an export that `shown` is.
+fn item((table, chart): &Shown) -> Item<'_> {
+    match chart {
+        Some(chart) => Item::Chart(chart),
+        None => Item::Table(table),
+    }
+}
+
 /// Tables written one below the other from a cell.
 #[derive(Clone)]
 struct Block {
     top: u32,
     left: u16,
     notes: bool,
-    tables: Vec<Arc<Table>>,
+    tables: Vec<Shown>,
 }
 
 impl Block {
     /// The row and the column just after the block.
     fn end(&self) -> (u32, u16) {
         let mut row = self.top;
-        for (i, table) in self.tables.iter().enumerate() {
+        for (i, (table, chart)) in self.tables.iter().enumerate() {
             let caption = u32::from(self.notes && table.caption.is_some());
             let depth = header_rows(table).len() as u32;
-            row += u32::from(i > 0) + 1 + depth + table.rows.len() as u32 + caption;
+            let mut height = 1 + depth + table.rows.len() as u32 + caption;
+            if chart.as_deref().is_some_and(is_office_chart) {
+                height = height.max(1 + CHART_ROWS);
+            }
+            row += u32::from(i > 0) + height;
         }
-        let width = self.tables.iter().map(|t| t.columns.len()).max();
-        (row, self.left + width.unwrap_or(0) as u16)
+        let width = self.tables.iter().map(|(table, chart)| {
+            let beside = chart.as_deref().is_some_and(is_office_chart);
+            table.columns.len() as u16 + u16::from(beside) * (1 + CHART_COLUMNS)
+        });
+        (row, self.left + width.max().unwrap_or(0))
     }
 }
 
@@ -108,8 +127,14 @@ fn save(path: &Path, book: &Book) -> Result<(), XlsxError> {
         let mut widths = Vec::new();
         for block in &model.blocks {
             let mut top = block.top;
-            for table in &block.tables {
-                top = put_table(sheet, table, (top, block.left), block.notes, &mut widths)? + 1;
+            for (table, chart) in &block.tables {
+                let at = (top, block.left);
+                top = match chart {
+                    Some(chart) => {
+                        put_chart(sheet, table, chart, at, block.notes, &mut widths, true)
+                    }
+                    None => put_table(sheet, table, at, block.notes, &mut widths),
+                }? + 1;
             }
         }
         set_widths(sheet, &widths)?;
@@ -191,17 +216,22 @@ pub struct OutputDocument {
 }
 
 impl Engine {
-    /// Adds the tables of one command to the designated document and returns its name; None
-    /// when there were no tables.
+    /// Adds the tables and the charts of one command (those it made so far, before
+    /// `take_charts`) to the designated document and returns its name; None when there were
+    /// none.
     pub(crate) fn record_output(&mut self, command: &str, tables: &[Table]) -> Option<String> {
-        if tables.is_empty() {
+        if tables.is_empty() && self.charts.is_empty() {
             return None;
         }
+        let tables = tables.iter().map(|t| (Arc::new(t.clone()), None));
+        let charts = self.charts.iter().map(|c| {
+            let chart = Arc::new(c.clone());
+            (Arc::new(c.data_table()), Some(chart))
+        });
+        let shown: Vec<Shown> = tables.chain(charts).collect();
         let documents = &mut self.documents;
         let at = documents.designated();
-        let tables = tables
-            .iter()
-            .map(|t| (command.to_string(), Arc::new(t.clone())));
+        let tables = shown.into_iter().map(|s| (command.to_string(), s));
         documents.open[at].tables.extend(tables);
         Some(documents.open[at].name.clone())
     }
@@ -293,8 +323,14 @@ impl Engine {
                 ))
             })?),
         };
-        let tables: Vec<(String, Arc<Table>)> =
-            at.map_or_else(Vec::new, |at| documents.open[at].tables.clone());
+        let shown: Vec<Shown> = at.map_or_else(Vec::new, |at| {
+            let tables = documents.open[at].tables.iter();
+            tables.map(|(_, shown)| shown.clone()).collect()
+        });
+        let tables: Vec<(String, Arc<Table>)> = at.map_or_else(Vec::new, |at| {
+            let tables = documents.open[at].tables.iter();
+            tables.map(|(c, (t, _))| (c.clone(), t.clone())).collect()
+        });
         if tables.is_empty() {
             self.warn("the output document holds no tables yet; the files have none");
         }
@@ -309,17 +345,14 @@ impl Engine {
                     sheet,
                     location,
                     notes,
-                } => {
-                    let tables = tables.iter().map(|(_, t)| t.clone()).collect();
-                    self.export_xlsx(
-                        file,
-                        *operation,
-                        sheet.as_deref(),
-                        *location,
-                        *notes,
-                        tables,
-                    )?
-                }
+                } => self.export_xlsx(
+                    file,
+                    *operation,
+                    sheet.as_deref(),
+                    *location,
+                    *notes,
+                    shown.clone(),
+                )?,
                 ExportTarget::Html {
                     file,
                     notes,
@@ -356,6 +389,22 @@ impl Engine {
                     };
                     self.write_file(file, &bytes)?;
                 }
+                ExportTarget::Doc { file, notes } => {
+                    let items: Vec<Item> = shown.iter().map(item).collect();
+                    let bytes = crate::office::document(&items, *notes)
+                        .map_err(|e| Error(format!("OUTPUT EXPORT: {file}: {e}")))?;
+                    self.write_file(file, &bytes)?;
+                }
+                ExportTarget::Ppt {
+                    file,
+                    notes,
+                    titles,
+                } => {
+                    let items: Vec<Item> = shown.iter().map(item).collect();
+                    let bytes = crate::office::presentation(&items, *notes, *titles)
+                        .map_err(|e| Error(format!("OUTPUT EXPORT: {file}: {e}")))?;
+                    self.write_file(file, &bytes)?;
+                }
                 ExportTarget::Csv { file, notes } => {
                     let mut text = String::new();
                     for (i, (_, table)) in tables.iter().enumerate() {
@@ -383,7 +432,7 @@ impl Engine {
         sheet: Option<&str>,
         location: SheetLocation,
         notes: bool,
-        tables: Vec<Arc<Table>>,
+        tables: Vec<Shown>,
     ) -> Result<(), Error> {
         let path = self.path(file);
         let books = &mut self.documents.books;

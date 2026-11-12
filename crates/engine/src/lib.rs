@@ -43,6 +43,7 @@ mod mult_response;
 mod nonpar_corr;
 mod npar_groups;
 mod npar_tests;
+pub mod office;
 mod oneway;
 mod output;
 mod output_docs;

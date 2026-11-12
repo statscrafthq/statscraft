@@ -8,9 +8,11 @@
 //! - OUTPUT EXPORT: subcommand names and keywords are spelled in full, each subcommand and each
 //!   keyword at most once, and the equals signs are required. NAME=* or name, then /CONTENTS
 //!   and the document and image subcommands in any order.
-//! - Choices: Statscraft writes /XLSX, /HTML, /TEXT and /CSV (CSV is its own addition, the
-//!   tables as comma-separated values). /DOC, /PDF, /PPT, /XLS and /XLSM are refused; the image
-//!   subcommands only set how charts are written, and Statscraft draws none.
+//! - Choices: Statscraft writes /XLSX, /DOC, /PPT, /HTML, /TEXT and /CSV (CSV is its own
+//!   addition, the tables as comma-separated values). /DOC and /PPT write the current Word and
+//!   PowerPoint formats (.docx, .pptx) whatever the file is called; their page and slide
+//!   sizes, margins and wide-table settings are accepted and not applied. /PDF, /XLS and /XLSM
+//!   are refused; the image subcommands write no files, as Statscraft draws no pictures yet.
 
 use crate::ast::Command;
 use crate::error::SyntaxError;
@@ -87,6 +89,17 @@ pub enum ExportTarget {
     Csv {
         file: String,
         notes: bool,
+    },
+    /// A Word document: tables, and charts as editable charts.
+    Doc {
+        file: String,
+        notes: bool,
+    },
+    /// A presentation: a slide per table and per chart; `titles` is SLIDETITLES.
+    Ppt {
+        file: String,
+        notes: bool,
+        titles: bool,
     },
 }
 
@@ -249,10 +262,8 @@ fn keywords(
 }
 
 /// The refused document formats, with what they are.
-const REFUSED: [(&str, &str); 5] = [
-    ("DOC", "Word"),
+const REFUSED: [(&str, &str); 3] = [
     ("PDF", "PDF"),
-    ("PPT", "PowerPoint"),
     ("XLS", "Excel 97-2004"),
     ("XLSM", "macro-enabled Excel"),
 ];
@@ -267,7 +278,7 @@ const IMAGES: [(&str, &[&str]); 6] = [
     ("TIF", &["IMAGEROOT", "PERCENTSIZE"]),
 ];
 
-const SUPPORTED: &str = "/XLSX, /HTML, /TEXT or /CSV";
+const SUPPORTED: &str = "/XLSX, /DOC, /PPT, /HTML, /TEXT or /CSV";
 
 /// Passes over the value of an image setting: a word, number or string, or a function such
 /// as PERCENT(50).
@@ -540,6 +551,61 @@ pub(crate) fn output_export(p: &mut Parser) -> PResult<Command> {
                     });
                 }
             }
+            "DOC" | "PPT" => {
+                let mut titles = true;
+                let known: &[&str] = match word.as_str() {
+                    "DOC" => &[
+                        "DOCUMENTFILE",
+                        "NOTESCAPTIONS",
+                        "WIDETABLES",
+                        "PAGESIZE",
+                        "TOPMARGIN",
+                        "BOTTOMMARGIN",
+                        "LEFTMARGIN",
+                        "RIGHTMARGIN",
+                        "PAGEBREAKS",
+                    ],
+                    _ => &[
+                        "DOCUMENTFILE",
+                        "NOTESCAPTIONS",
+                        "SLIDETITLES",
+                        "WIDETABLES",
+                        "SLIDESIZE",
+                        "TOPMARGIN",
+                        "BOTTOMMARGIN",
+                        "LEFTMARGIN",
+                        "RIGHTMARGIN",
+                    ],
+                };
+                keywords(p, &word, known, |p, k| {
+                    match k {
+                        "DOCUMENTFILE" => {
+                            p.expect(Punct::Eq)?;
+                            file = Some(p.file("a file name in quotes")?);
+                        }
+                        "NOTESCAPTIONS" => notes = yes_no(p)?,
+                        "SLIDETITLES" => titles = yes_no(p)?,
+                        "PAGEBREAKS" => {
+                            yes_no(p)?;
+                        }
+                        "WIDETABLES" => {
+                            choice(p, &["WRAP", "SHRINK", "ASIS"])?;
+                        }
+                        // sizes and margins: INCHES(...) or MM(...)
+                        _ => skip_value(p)?,
+                    }
+                    Ok(())
+                })?;
+                let file = needs_file(p, at, &word, file.take())?;
+                export.targets.push(match word.as_str() {
+                    "DOC" => ExportTarget::Doc { file, notes },
+                    _ => ExportTarget::Ppt {
+                        file,
+                        notes,
+                        titles,
+                    },
+                });
+            }
             "CSV" => {
                 keywords(p, &word, &["DOCUMENTFILE", "NOTESCAPTIONS"], |p, k| {
                     if k == "DOCUMENTFILE" {
@@ -567,8 +633,8 @@ pub(crate) fn output_export(p: &mut Parser) -> PResult<Command> {
         return Err(SyntaxError::new(
             p.span_from(start),
             format!(
-                "OUTPUT EXPORT needs {SUPPORTED} with DOCUMENTFILE; Statscraft draws no charts, \
-                 so there are no images to export"
+                "OUTPUT EXPORT needs {SUPPORTED} with DOCUMENTFILE; Statscraft draws no \
+                 pictures yet, so the image subcommands write no files"
             ),
         ));
     }

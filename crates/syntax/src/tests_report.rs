@@ -180,6 +180,31 @@ fn output_export_targets() {
 }
 
 #[test]
+fn output_export_word_and_presentation() {
+    let e = export(
+        "OUTPUT EXPORT /DOC DOCUMENTFILE='fleet.docx' NOTESCAPTIONS=NO WIDETABLES=SHRINK\n\
+         PAGESIZE=MM(210, 297) TOPMARGIN=MM(20) BOTTOMMARGIN=INCHES(1) LEFTMARGIN=MM(25)\n\
+         RIGHTMARGIN=MM(25) PAGEBREAKS=NO\n\
+         /PPT DOCUMENTFILE='fleet.pptx' SLIDETITLES=NO WIDETABLES=ASIS SLIDESIZE=INCHES(13.3, 7.5)\n\
+         TOPMARGIN=MM(10) BOTTOMMARGIN=MM(10) LEFTMARGIN=MM(10) RIGHTMARGIN=MM(10).",
+    );
+    assert_eq!(
+        e.targets,
+        [
+            ExportTarget::Doc {
+                file: "fleet.docx".into(),
+                notes: false,
+            },
+            ExportTarget::Ppt {
+                file: "fleet.pptx".into(),
+                notes: true,
+                titles: false,
+            },
+        ]
+    );
+}
+
+#[test]
 fn output_export_errors() {
     for (source, message) in [
         (
@@ -187,14 +212,18 @@ fn output_export_errors() {
             "cannot write PDF files (/PDF)",
         ),
         (
-            "OUTPUT EXPORT /DOC DOCUMENTFILE='a.doc'.",
-            "cannot write Word files",
+            "OUTPUT EXPORT /DOC NOTESCAPTIONS=NO.",
+            "/DOC needs DOCUMENTFILE",
+        ),
+        (
+            "OUTPUT EXPORT /PPT DOCUMENTFILE='a.pptx' SLIDETITLES=MAYBE.",
+            "YES",
         ),
         (
             "OUTPUT EXPORT /XLS DOCUMENTFILE='a.xls'.",
-            "/XLSX, /HTML, /TEXT or /CSV",
+            "/XLSX, /DOC, /PPT, /HTML, /TEXT or /CSV",
         ),
-        ("OUTPUT EXPORT /PNG IMAGEROOT='a'.", "draws no charts"),
+        ("OUTPUT EXPORT /PNG IMAGEROOT='a'.", "write no files"),
         (
             "OUTPUT EXPORT /HTML NOTESCAPTIONS=NO.",
             "/HTML needs DOCUMENTFILE",

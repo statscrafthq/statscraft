@@ -2,6 +2,7 @@
 //! The number formats come from the `excel` module, which SAVE TRANSLATE shares.
 
 use crate::excel::excel_number;
+use crate::office::{Item, put_chart};
 use crate::{Cell, Table, cell_text, header_rows};
 use rust_xlsxwriter::{Color, Format, FormatAlign, FormatBorder, Workbook, Worksheet, XlsxError};
 use std::path::Path;
@@ -9,11 +10,12 @@ use std::path::Path;
 /// Columns never grow wider than this many characters; longer labels wrap.
 const MAX_WIDTH: usize = 50;
 
-/// Writes `tables` to a new workbook at `path`: one worksheet per table named after its title,
+/// Writes `items` to a new workbook at `path`: one worksheet per item named after its title,
 /// or with `one_sheet` all of them on one sheet, one below the other with a blank row between.
+/// A chart goes out as its data table with the office chart beside it.
 pub fn write_xlsx<'a>(
     path: &Path,
-    tables: impl IntoIterator<Item = &'a Table>,
+    items: impl IntoIterator<Item = Item<'a>>,
     one_sheet: bool,
 ) -> Result<(), XlsxError> {
     let mut workbook = Workbook::new();
@@ -21,23 +23,44 @@ pub fn write_xlsx<'a>(
         // no frozen panes here: every table has its own header
         let sheet = workbook.add_worksheet().set_name("Tables")?;
         let (mut top, mut widths) = (0, Vec::new());
-        for table in tables {
-            top = put_table(sheet, table, (top, 0), true, &mut widths)? + 1;
+        for item in items {
+            top = put_item(sheet, item, (top, 0), &mut widths)? + 1;
         }
         set_widths(sheet, &widths)?;
     } else {
         let mut names = Vec::new();
-        for table in tables {
+        for item in items {
             let sheet = workbook.add_worksheet();
+            let owned;
+            let table = match item {
+                Item::Table(table) => table,
+                Item::Chart(chart) => {
+                    owned = chart.data_table();
+                    &owned
+                }
+            };
             sheet.set_name(sheet_name(&table.title, &mut names))?;
             let mut widths = Vec::new();
-            put_table(sheet, table, (0, 0), true, &mut widths)?;
+            put_item(sheet, item, (0, 0), &mut widths)?;
             set_widths(sheet, &widths)?;
             let depth = header_rows(table).len() as u32;
             sheet.set_freeze_panes(1 + depth, table.row_headers as u16)?;
         }
     }
     workbook.save(path)
+}
+
+/// A table with its notes, or a chart with its data table, from `at`; returns the row after it.
+fn put_item(
+    sheet: &mut Worksheet,
+    item: Item,
+    at: (u32, u16),
+    widths: &mut Vec<usize>,
+) -> Result<u32, XlsxError> {
+    match item {
+        Item::Table(table) => put_table(sheet, table, at, true, widths),
+        Item::Chart(chart) => put_chart(sheet, &chart.data_table(), chart, at, true, widths, true),
+    }
 }
 
 /// Writes the title, header, body and, with `notes`, the caption of `table` from the cell

@@ -39,7 +39,7 @@ fn row_spans(table: &Table) -> Vec<Vec<usize>> {
 }
 
 /// Numbers, and text that stands for one, such as a hidden small count (<5), go right.
-fn right_aligned(table: &Table, row: usize, column: usize) -> bool {
+pub(crate) fn right_aligned(table: &Table, row: usize, column: usize) -> bool {
     match &table.rows[row][column] {
         Cell::Number(_) => true,
         Cell::Text(text) => text
@@ -50,7 +50,7 @@ fn right_aligned(table: &Table, row: usize, column: usize) -> bool {
     }
 }
 
-fn escape(text: &str) -> String {
+pub(crate) fn escape(text: &str) -> String {
     text.replace('&', "&amp;")
         .replace('<', "&lt;")
         .replace('>', "&gt;")

@@ -3,7 +3,7 @@
 
 use statscraft_engine::session::Session;
 use statscraft_engine::{Cell, Table, header_rows};
-use statscraft_export::write_xlsx;
+use statscraft_export::{Item, write_xlsx};
 use std::collections::HashMap;
 use std::io::Read;
 use std::path::PathBuf;
@@ -200,7 +200,7 @@ fn round_trip(test: &str, tables: &[Table], one_sheet: bool) -> Vec<Sheet> {
     let dir = std::env::temp_dir().join(format!("statscraft-xlsx-{test}-{}", std::process::id()));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("out.xlsx");
-    write_xlsx(&path, tables, one_sheet).unwrap();
+    write_xlsx(&path, tables.iter().map(Item::Table), one_sheet).unwrap();
     let sheets = read_xlsx(&path);
     std::fs::remove_dir_all(&dir).unwrap();
     sheets

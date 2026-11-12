@@ -97,7 +97,8 @@ struct RunArgs {
 
 #[derive(Args, Default)]
 struct XlsxArgs {
-    /// Also write every table of the run to this Excel workbook, one sheet per table
+    /// Also write every table and chart of the run to this Excel workbook, one sheet per table;
+    /// a chart as its data table with an editable chart beside it
     #[arg(long, value_name = "FILE")]
     xlsx: Option<PathBuf>,
     /// With --xlsx, put all tables on one sheet, one below the other
@@ -535,12 +536,16 @@ fn run_result(
     Ok(result)
 }
 
-/// Writes every table of the run to the workbook `--xlsx` names, if any.
+/// Writes every table and chart of the run to the workbook `--xlsx` names, if any.
 fn write_workbook(result: &RunResult, xlsx: &XlsxArgs) -> Result<(), Vec<Failure>> {
     let Some(path) = &xlsx.xlsx else {
         return Ok(());
     };
-    let tables = result.commands.iter().flat_map(|c| &c.tables);
-    statscraft_export::write_xlsx(path, tables, xlsx.xlsx_one_sheet)
+    use statscraft_export::Item;
+    let items = result.commands.iter().flat_map(|c| {
+        let tables = c.tables.iter().map(Item::Table);
+        tables.chain(c.charts.iter().map(Item::Chart))
+    });
+    statscraft_export::write_xlsx(path, items, xlsx.xlsx_one_sheet)
         .map_err(|e| vec![Failure::plain("file", format!("{}: {e}", path.display()))])
 }

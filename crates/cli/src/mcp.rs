@@ -79,7 +79,8 @@ struct SyntaxInput {
 struct RunInput {
     #[serde(flatten)]
     syntax: SyntaxInput,
-    /// Also write every table of this run to this Excel workbook (.xlsx), one sheet per table;
+    /// Also write every table and chart of this run to this Excel workbook (.xlsx), one sheet per
+    /// table, a chart as its data table with an editable chart beside it;
     /// an existing file is replaced. A relative path starts from folder.
     xlsx: Option<String>,
 }

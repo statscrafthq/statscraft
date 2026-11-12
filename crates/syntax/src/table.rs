@@ -1858,30 +1858,41 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "OUTPUT EXPORT",
-        summary: "Write the tables of an output document to an Excel workbook, web page, text or CSV file.",
+        summary: "Write the tables and charts of an output document to a workbook, document, presentation, web page, text or CSV file.",
         syntax: "OUTPUT EXPORT [NAME=* | name] [/CONTENTS [EXPORT=ALL | VISIBLE] [LAYERS=...] [MODELVIEWS=...]]\n\
                  \x20  [/XLSX DOCUMENTFILE='path' [OPERATION=CREATEFILE | CREATESHEET | MODIFYSHEET] [SHEET='name']\n\
                  \x20         [LOCATION=LASTCOLUMN | LASTROW | STARTCELL('B2')] [NOTESCAPTIONS=YES | NO]]\n\
+                 \x20  [/DOC DOCUMENTFILE='path' [NOTESCAPTIONS=YES | NO] [WIDETABLES=...] [PAGESIZE=...]\n\
+                 \x20         [TOPMARGIN=...] [BOTTOMMARGIN=...] [LEFTMARGIN=...] [RIGHTMARGIN=...] [PAGEBREAKS=...]]\n\
+                 \x20  [/PPT DOCUMENTFILE='path' [NOTESCAPTIONS=YES | NO] [SLIDETITLES=YES | NO] [WIDETABLES=...]\n\
+                 \x20         [SLIDESIZE=...] [TOPMARGIN=...] [BOTTOMMARGIN=...] [LEFTMARGIN=...] [RIGHTMARGIN=...]]\n\
                  \x20  [/HTML DOCUMENTFILE='path' [NOTESCAPTIONS=YES | NO] [STYLING=YES | NO] [IMAGEFORMAT=...]\n\
                  \x20         [INTERACTIVELAYERS=NO | YES]]\n\
                  \x20  [/TEXT DOCUMENTFILE='path' [ENCODING=LOCALE | UTF8 | UTF16] [NOTESCAPTIONS=YES | NO]\n\
                  \x20         [COLUMNWIDTH=AUTOFIT | n] [SEPARATOR=SPACE | TAB] [ROWBORDER='-'] [COLUMNBORDER='|']]\n\
                  \x20  [/CSV DOCUMENTFILE='path' [NOTESCAPTIONS=YES | NO]] [/BMP | /EMF | /EPS | /JPG | /PNG | /TIF ...].\n\
-                 Writes the tables that the designated document (NAME=*) or the named one holds so far, in\n\
-                 order; an existing file is replaced. Subcommands and keywords are spelled in full. Every\n\
+                 Writes the tables and charts that the designated document (NAME=*) or the named one holds so\n\
+                 far, in order; an existing file is replaced. Subcommands and keywords are spelled in full. Every\n\
                  table is visible and has one layer, so CONTENTS changes nothing. NOTESCAPTIONS=NO leaves out\n\
                  the notes under the tables. XLSX puts the tables one below the other on one sheet, named by\n\
                  SHEET or Tables, laid out as the Excel export of the window. CREATESHEET and MODIFYSHEET add\n\
                  to a workbook that OUTPUT EXPORT wrote earlier in the session and that has not changed since;\n\
                  another workbook is refused, so its formulas and formatting cannot be lost. CREATESHEET\n\
                  replaces or adds the sheet; MODIFYSHEET places the tables after the last column or row of\n\
-                 the sheet, one column or row apart, or from STARTCELL. HTML writes one web page; STYLING=NO\n\
+                 the sheet, one column or row apart, or from STARTCELL. A bar, pie, line or area chart goes to\n\
+                 the sheet as its data table with an editable chart beside it, drawn in the theme's colors.\n\
+                 DOC writes a Word document in the .docx format, whatever the file is called: each table\n\
+                 under its title, each chart as an editable chart whose numbers Edit Data opens. PPT writes a\n\
+                 presentation in the .pptx format with one slide per table or chart; SLIDETITLES=NO leaves the\n\
+                 slide titles out, and a chart then shows its own. Page and slide sizes, margins, WIDETABLES\n\
+                 and PAGEBREAKS are accepted and not applied. Other charts, such as a histogram, go out as\n\
+                 their data table. HTML writes one web page; STYLING=NO\n\
                  leaves out the style sheet. TEXT lines the columns up between the borders, or with\n\
                  SEPARATOR=TAB separates the cells by tabs; COLUMNWIDTH=n wraps longer cells; LOCALE and UTF8\n\
                  write UTF-8, UTF16 writes UTF-16 with a byte order mark. CSV, a Statscraft addition, writes\n\
                  each table as comma-separated values after its title, with a blank line between tables.\n\
-                 Statscraft draws no charts, so the image subcommands change nothing. /DOC, /PDF, /PPT, /XLS\n\
-                 and /XLSM are refused.",
+                 HTML, TEXT and CSV show a chart as its data table. The image subcommands write no files yet.\n\
+                 /PDF, /XLS and /XLSM are refused.",
         example: "OUTPUT EXPORT /XLSX DOCUMENTFILE='results.xlsx' SHEET='Region 1'.",
         parse: output_docs::output_export,
     },

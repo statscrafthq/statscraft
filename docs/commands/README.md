@@ -172,7 +172,7 @@ One page per supported command, generated from the same table that the parser an
 | [OUTPUT ACTIVATE](output-activate.md) | Send the tables from now on to an open output document. |
 | [OUTPUT CLOSE](output-close.md) | Close an output document, or all of them. |
 | [OUTPUT DISPLAY](output-display.md) | List the open output documents. |
-| [OUTPUT EXPORT](output-export.md) | Write the tables of an output document to an Excel workbook, web page, text or CSV file. |
+| [OUTPUT EXPORT](output-export.md) | Write the tables and charts of an output document to a workbook, document, presentation, web page, text or CSV file. |
 | [FINISH](finish.md) | End the job: the commands after it are not read. |
 
 ## General rules of the language
