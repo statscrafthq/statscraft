@@ -1,8 +1,10 @@
 //! Edit > Settings: every setting of the window in one dialog, by section. A change applies at
 //! once and is saved. How tables show variables and values are settings of the session: a
 //! choice there runs SET TVARS or SET TNUMBERS like any other command, the session keeps it, and
-//! the window saves it to run the same SET when it starts again.
+//! the window saves it to run the same SET when it starts again. AI agents connects Statscraft
+//! to the AI apps on this computer (connect_window.rs).
 
+use crate::connect_window::Connect;
 use crate::settings::Settings;
 use crate::themes;
 use eframe::egui::{self, Align2, ComboBox, Key, Ui, vec2};
@@ -13,16 +15,23 @@ pub enum Section {
     Editor,
     GridsAndOutput,
     Updates,
+    AiAgents,
 }
 
 impl Section {
-    const ALL: [Section; 3] = [Section::Editor, Section::GridsAndOutput, Section::Updates];
+    const ALL: [Section; 4] = [
+        Section::Editor,
+        Section::GridsAndOutput,
+        Section::Updates,
+        Section::AiAgents,
+    ];
 
     fn title(self) -> &'static str {
         match self {
             Section::Editor => "Editor",
             Section::GridsAndOutput => "Grids and output",
             Section::Updates => "Updates",
+            Section::AiAgents => "AI agents",
         }
     }
 }
@@ -58,6 +67,7 @@ pub fn show(
     section: &mut Option<Section>,
     settings: &mut Settings,
     labels: &TableLabels,
+    connect: &mut Connect,
 ) -> Option<String> {
     let current = section.as_mut()?;
     let mut open = true;
@@ -74,13 +84,21 @@ pub fn show(
                 ui.vertical(|ui| {
                     ui.set_width(140.0);
                     for s in Section::ALL {
-                        ui.selectable_value(current, s, s.title());
+                        if ui.selectable_value(current, s, s.title()).changed()
+                            && s == Section::AiAgents
+                        {
+                            connect.refresh();
+                        }
                     }
                 });
                 ui.add_space(16.0);
                 ui.vertical(|ui| {
-                    ui.set_width(320.0);
+                    let agents = *current == Section::AiAgents;
+                    ui.set_width(if agents { 560.0 } else { 320.0 });
                     ui.set_min_height(140.0);
+                    if agents {
+                        connect.ui(ui);
+                    }
                     changed = body(ui, *current, settings);
                     if *current == Section::GridsAndOutput {
                         ui.add_space(8.0);
@@ -193,6 +211,7 @@ fn body(ui: &mut Ui, section: Section, settings: &mut Settings) -> bool {
                 changed = true;
             }
         }
+        Section::AiAgents => {}
     }
     changed
 }

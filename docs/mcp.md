@@ -1,6 +1,6 @@
 # The MCP server
 
-`statscraft mcp` lets an AI agent work with Statscraft through tools instead of shell commands. It speaks the Model Context Protocol (MCP) over standard input and output, so any agent app that runs local MCP servers can use it: Claude Desktop, Claude Code, ChatGPT desktop and Codex, Cursor, VS Code with Copilot and others. It ships with the `statscraft` command line, so there is nothing more to install, and the data never leave your computer.
+`statscraft mcp` lets an AI agent work with Statscraft through tools instead of shell commands. It speaks the Model Context Protocol (MCP) over standard input and output, so any agent app that runs local MCP servers can use it: Claude Desktop, Claude Code, Codex (also in the ChatGPT app), Cursor, VS Code with Copilot and others. It ships with the `statscraft` command line, so there is nothing more to install, and the data never leave your computer.
 
 The easy way to connect an agent is `statscraft connect`, which finds the agent apps you have installed and adds Statscraft to each one. Claude Desktop also installs it from a bundle with a double click, and Claude Code from a plugin; see [Connect your AI agent](connect.md). To set one up by hand, give it the command `statscraft mcp`, with the full path to `statscraft` if it is not on your PATH.
 

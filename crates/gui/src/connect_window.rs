@@ -1,129 +1,181 @@
-//! Help > Connect an AI agent: `statscraft connect` with clicks. It adds the MCP server, the
+//! Edit > Settings > AI agents: `statscraft connect` with clicks. It adds the MCP server, the
 //! command-line program that ships next to the window, to the AI apps on this computer, through
-//! the same library as the command line.
+//! the same library as the command line. Claude Desktop gets the extension (.mcpb) of this
+//! release instead, which does not depend on its settings file.
 
-use eframe::egui::{self, Align2, Key, RichText, Ui, vec2};
-use statscraft_connect::{ClientStatus, Connector, DOCS, Outcome, plain_path};
+use eframe::egui::{self, RichText, Ui};
+use statscraft_connect::{ClientStatus, Connector, DOCS, Outcome, entry_in, note, plain_path};
+use statscraft_update::{Client, DOWNLOADS, Release, bundle, current};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::sync::mpsc;
 
-/// What a click asks for; it runs on a worker thread, as Claude Code's command can take a while.
+/// What a click asks for; it runs on a worker thread, as Claude Code's command and the download
+/// can take a while.
 enum Job {
     Connect(Vec<&'static str>),
     Remove(&'static str),
+    /// Download Claude Desktop's extension and open it.
+    Install,
 }
 
 /// One line per app about what an action did; an error is Err.
 type Messages = Vec<Result<String, String>>;
 
+/// The id of the app that gets the extension rather than a config entry.
+const DESKTOP: &str = "claude-desktop";
+
 #[derive(Default)]
-pub struct ConnectWindow {
-    open: bool,
-    /// The command-line program the entries start, or why there is none.
+pub struct Connect {
+    /// The command-line program the entries start, or why there is none; None until the section
+    /// is first shown.
     server: Option<Result<PathBuf, String>>,
     clients: Vec<ClientStatus>,
     messages: Messages,
+    /// The app whose files Check read last, with a line per file.
+    checked: Option<(&'static str, Vec<String>)>,
     /// The action running now, with its result to come.
     running: Option<mpsc::Receiver<(Messages, Vec<ClientStatus>)>>,
 }
 
-impl ConnectWindow {
-    /// Opens the dialog with a fresh look at the apps.
-    pub fn open(&mut self) {
-        self.open = true;
+impl Connect {
+    /// A fresh look at the apps, each time the section opens.
+    pub fn refresh(&mut self) {
         self.messages.clear();
+        self.checked = None;
         let server = this_server();
         self.clients = Connector::from_env().clients(server.as_deref().unwrap_or(Path::new("")));
         self.server = Some(server);
     }
 
-    pub fn show(&mut self, ctx: &egui::Context) {
-        if !self.open {
-            return;
+    /// The section in the Settings dialog.
+    pub fn ui(&mut self, ui: &mut Ui) {
+        if self.server.is_none() {
+            self.refresh();
         }
         if let Some(Ok((messages, clients))) = self.running.as_ref().map(|r| r.try_recv()) {
             self.messages = messages;
             self.clients = clients;
             self.running = None;
         }
-        let mut open = true;
-        let mut close = false;
-        let mut job = None;
-        egui::Window::new("Connect an AI agent")
-            .open(&mut open)
-            .collapsible(false)
-            .resizable(false)
-            .anchor(Align2::CENTER_CENTER, vec2(0.0, 0.0))
-            .show(ctx, |ui| {
-                ui.set_width(520.0);
-                job = self.body(ui);
-                ui.separator();
-                close = ui.button("Close").clicked() || ui.input(|i| i.key_pressed(Key::Escape));
-            });
-        if let (Some(job), Some(Ok(server))) = (job, &self.server) {
-            self.start(job, server.clone(), ctx.clone());
-        }
-        if close || !open {
-            self.open = false;
+        if let Some(job) = self.body(ui) {
+            self.start(job, ui.ctx().clone());
         }
     }
 
-    fn body(&self, ui: &mut Ui) -> Option<Job> {
+    fn body(&mut self, ui: &mut Ui) -> Option<Job> {
         let mut job = None;
         ui.label(
             "Statscraft can work as a set of tools inside your AI app. Your data stay on this \
              computer, but whatever the app reads from them goes to its AI provider.",
         );
         ui.add_space(8.0);
-        let server_ok = matches!(self.server, Some(Ok(_)));
-        if let Some(Err(e)) = &self.server {
-            ui.colored_label(ui.visuals().error_fg_color, e);
-            ui.add_space(8.0);
-        }
-        let idle = self.running.is_none() && server_ok;
-        egui::Grid::new("connect-apps")
-            .num_columns(3)
-            .spacing(vec2(16.0, 6.0))
+        let server = match &self.server {
+            Some(Ok(server)) => Some(server.clone()),
+            Some(Err(e)) => {
+                ui.colored_label(ui.visuals().error_fg_color, e);
+                ui.add_space(8.0);
+                None
+            }
+            None => None,
+        };
+        let server_ok = server.is_some();
+        let idle = self.running.is_none();
+        let mut check = None;
+        egui::ScrollArea::vertical()
+            .max_height(440.0)
+            .auto_shrink([false, true])
             .show(ui, |ui| {
                 for c in &self.clients {
-                    ui.label(RichText::new(c.name).strong());
-                    ui.label(state(c, server_ok));
                     ui.horizontal(|ui| {
+                        ui.label(RichText::new(c.name).strong());
+                        ui.weak(state(c, server_ok));
+                    });
+                    if let Some(note) = note(c.id) {
+                        ui.weak(note);
+                    }
+                    ui.horizontal_wrapped(|ui| {
                         let here = c.connected && c.points_here;
-                        if !here
+                        let can_connect = idle && server_ok && c.detected;
+                        if c.id == DESKTOP {
+                            if ui
+                                .add_enabled(idle, egui::Button::new("Install extension"))
+                                .on_hover_text(
+                                    "Downloads the Statscraft extension of this version, checks \
+                                     it and opens it. Claude Desktop then asks to install it.",
+                                )
+                                .clicked()
+                            {
+                                job = Some(Job::Install);
+                            }
+                            if !here
+                                && ui
+                                    .add_enabled(
+                                        can_connect,
+                                        egui::Button::new("Connect via config file"),
+                                    )
+                                    .on_hover_text(
+                                        "Writes the entry into Claude Desktop's settings file \
+                                         instead. Quit Claude Desktop completely first.",
+                                    )
+                                    .clicked()
+                            {
+                                job = Some(Job::Connect(vec![c.id]));
+                            }
+                        } else if !here
                             && ui
-                                .add_enabled(idle && c.detected, egui::Button::new("Connect"))
+                                .add_enabled(can_connect, egui::Button::new("Connect"))
                                 .clicked()
                         {
                             job = Some(Job::Connect(vec![c.id]));
                         }
                         if c.connected
-                            && ui.add_enabled(idle, egui::Button::new("Remove")).clicked()
+                            && ui
+                                .add_enabled(idle && server_ok, egui::Button::new("Remove"))
+                                .clicked()
                         {
                             job = Some(Job::Remove(c.id));
                         }
+                        if ui
+                            .button("Check")
+                            .on_hover_text(
+                                "Reads the settings files again and shows whether the \
+                                 Statscraft entry is in them now.",
+                            )
+                            .clicked()
+                        {
+                            check = Some(c.id);
+                        }
                     });
-                    ui.end_row();
+                    if let Some(problem) = &c.problem {
+                        ui.colored_label(ui.visuals().error_fg_color, problem);
+                    }
+                    if let Some((_, lines)) = self.checked.as_ref().filter(|(id, _)| *id == c.id) {
+                        for line in lines {
+                            ui.weak(line);
+                        }
+                    }
+                    ui.add_space(10.0);
                 }
             });
-        // below the list, where a long path can wrap
-        for c in &self.clients {
-            if let Some(problem) = &c.problem {
-                ui.colored_label(
-                    ui.visuals().error_fg_color,
-                    format!("{}: {problem}", c.name),
-                );
+        if let Some(id) = check {
+            let server = server.unwrap_or_default();
+            self.clients = Connector::from_env().clients(&server);
+            if let Some(c) = self.clients.iter().find(|c| c.id == id) {
+                self.checked = Some((id, check_lines(c)));
             }
         }
-        ui.add_space(8.0);
         let waiting = connect_all(&self.clients);
         ui.horizontal(|ui| {
             if ui
                 .add_enabled(
-                    idle && !waiting.is_empty(),
+                    idle && server_ok && !waiting.is_empty(),
                     egui::Button::new("Connect all"),
                 )
-                .on_hover_text("Connects every installed app that is not connected yet.")
+                .on_hover_text(
+                    "Connects every installed app that is not connected yet. Claude Desktop is \
+                     left to its own buttons.",
+                )
                 .clicked()
             {
                 job = Some(Job::Connect(waiting));
@@ -140,16 +192,21 @@ impl ConnectWindow {
         }
         ui.add_space(8.0);
         ui.horizontal_wrapped(|ui| {
-            ui.label("To connect an app by hand, or to install the Claude Desktop bundle, see");
+            ui.label("To connect an app by hand, see");
             ui.hyperlink_to("Connect your AI agent", DOCS);
         });
         job
     }
 
-    fn start(&mut self, job: Job, server: PathBuf, ctx: egui::Context) {
+    fn start(&mut self, job: Job, ctx: egui::Context) {
+        let server = match &self.server {
+            Some(Ok(server)) => server.clone(),
+            _ => PathBuf::new(),
+        };
         let (sender, receiver) = mpsc::channel();
         self.running = Some(receiver);
         self.messages.clear();
+        self.checked = None;
         std::thread::spawn(move || {
             // the connector holds a runner that cannot cross threads, so the worker makes its own
             let _ = sender.send(work(&Connector::from_env(), &server, &job));
@@ -161,6 +218,19 @@ impl ConnectWindow {
 /// Runs the job, then reads every app's state again.
 fn work(connector: &Connector, server: &Path, job: &Job) -> (Messages, Vec<ClientStatus>) {
     let done: Vec<(&str, Result<Outcome, String>, bool)> = match job {
+        Job::Install => {
+            let clients = connector.clients(server);
+            let mut messages = vec![install()];
+            let desktop = clients.iter().find(|c| c.id == DESKTOP);
+            if messages[0].is_ok() && desktop.is_some_and(|c| c.connected) {
+                messages.push(Ok(
+                    "Claude Desktop also has the entry in its settings file. \
+                     Remove takes it out, so that the tools do not show up twice."
+                        .into(),
+                ));
+            }
+            return (messages, clients);
+        }
         Job::Connect(ids) => ids
             .iter()
             .map(|id| (*id, connector.connect(id, server), false))
@@ -183,7 +253,7 @@ fn work(connector: &Connector, server: &Path, job: &Job) -> (Messages, Vec<Clien
 fn connect_all(clients: &[ClientStatus]) -> Vec<&'static str> {
     clients
         .iter()
-        .filter(|c| c.detected && !c.connected && c.problem.is_none())
+        .filter(|c| c.detected && !c.connected && c.problem.is_none() && c.id != DESKTOP)
         .map(|c| c.id)
         .collect()
 }
@@ -207,16 +277,99 @@ fn message(name: &str, result: Result<Outcome, String>, remove: bool) -> Result<
         Err(e) if remove => return Err(format!("Could not remove Statscraft from {name}: {e}.")),
         Err(e) => return Err(format!("Could not connect {name}: {e}.")),
     };
-    let done = match (outcome.changed, remove) {
-        (false, false) => return Ok(format!("{name} was already connected.")),
-        (false, true) => return Ok(format!("{name} was not connected.")),
-        (true, false) => "connected",
-        (true, true) => "Statscraft removed",
+    let files: Vec<String> = outcome
+        .files
+        .iter()
+        .map(|f| f.display().to_string())
+        .collect();
+    let files = files.join(" and ");
+    let mut text = match (outcome.changed, remove, files.is_empty()) {
+        (false, false, _) => return Ok(format!("{name} was already connected.")),
+        (false, true, _) => return Ok(format!("{name} was not connected.")),
+        (true, false, true) => format!("{name}: connected."),
+        (true, false, false) => format!("{name}: connected in {files}."),
+        (true, true, true) => format!("{name}: Statscraft removed."),
+        (true, true, false) => format!("{name}: Statscraft removed from {files}."),
     };
-    Ok(match outcome.restart {
-        Some(restart) => format!("{name}: {done}. To finish, {restart}."),
-        None => format!("{name}: {done}."),
-    })
+    if let Some(restart) = outcome.restart {
+        text.push_str(&format!(" To finish, {restart}."));
+    }
+    if let Some(warning) = outcome.warning {
+        text.push_str(&format!(" {warning}."));
+    }
+    Ok(text)
+}
+
+/// What Check shows for one app: each settings file and whether our entry is in it now.
+fn check_lines(c: &ClientStatus) -> Vec<String> {
+    if c.configs.is_empty() {
+        return vec![format!(
+            "{} keeps its own list of servers; `claude mcp list` in a terminal shows it.",
+            c.name
+        )];
+    }
+    c.configs
+        .iter()
+        .map(|path| match entry_in(path) {
+            Ok(Some(command)) => format!(
+                "{}: has the Statscraft entry, which starts {command}",
+                path.display()
+            ),
+            Ok(None) if path.is_file() => format!("{}: no Statscraft entry", path.display()),
+            Ok(None) => format!("{}: no such file", path.display()),
+            Err(e) => e,
+        })
+        .collect()
+}
+
+/// Downloads Claude Desktop's extension of this release for this system, checked against the
+/// release's SHA256SUMS, and opens it, which makes Claude Desktop offer to install it.
+fn install() -> Result<String, String> {
+    let version = current();
+    let name = bundle(&version, std::env::consts::OS, std::env::consts::ARCH)
+        .ok_or("There is no Claude Desktop extension for this system.")?;
+    let release = Release::files(DOWNLOADS, version, &[&name]);
+    let dir = downloads(std::env::home_dir());
+    let file = Client::new()
+        .download(&release, &name, &dir)
+        .map_err(|e| format!("Could not get the Claude Desktop extension: {e}."))?;
+    let drag = "drag it onto Claude Desktop's Settings, Extensions";
+    let mut child = opener(&file).spawn().map_err(|e| {
+        format!(
+            "Saved {}, but could not open it ({e}); {drag}.",
+            file.display()
+        )
+    })?;
+    // reaps the opener, which ends once it has handed the file over
+    std::thread::spawn(move || child.wait());
+    Ok(format!(
+        "Saved {} and opened it. Claude Desktop shows the extension: click Install. If nothing \
+         opens, {drag}.",
+        file.display()
+    ))
+}
+
+/// The user's Downloads folder, where the extension can be installed from again; else a folder
+/// of our own in the temporary folder.
+fn downloads(home: Option<PathBuf>) -> PathBuf {
+    home.map(|h| h.join("Downloads"))
+        .filter(|d| d.is_dir())
+        .unwrap_or_else(|| std::env::temp_dir().join("statscraft"))
+}
+
+/// Opens a file with the program the system has for its kind, as a double click does. On
+/// Windows, Explorer does that without a shell that would read characters of the path.
+fn opener(file: &Path) -> Command {
+    let program = if cfg!(windows) {
+        "explorer"
+    } else if cfg!(target_os = "macos") {
+        "open"
+    } else {
+        "xdg-open"
+    };
+    let mut command = Command::new(program);
+    command.arg(file);
+    command
 }
 
 /// The command-line program of this copy of Statscraft, named the way `statscraft connect` names
@@ -348,6 +501,10 @@ mod tests {
         assert_eq!(connect_all(&clients), ["gemini"]);
         clients[1].problem = Some("not plain JSON".into());
         assert!(connect_all(&clients).is_empty());
+        // Claude Desktop gets the extension from its own button, not a config entry
+        clients[1].problem = None;
+        clients[1].id = DESKTOP;
+        assert!(connect_all(&clients).is_empty());
     }
 
     fn outcome(changed: bool) -> Outcome {
@@ -359,6 +516,7 @@ mod tests {
             backups: Vec::new(),
             command: None,
             restart: changed.then_some("quit Cursor and open it again"),
+            warning: None,
         }
     }
 
@@ -380,6 +538,75 @@ mod tests {
             message("Cursor", Err("mcp.json is not plain JSON".into()), false),
             Err("Could not connect Cursor: mcp.json is not plain JSON.".into())
         );
+        // where it was written, both files when there are two, and a warning at the end
+        let mut two = outcome(true);
+        two.files = vec![PathBuf::from("/a/c.json"), PathBuf::from("/b/c.json")];
+        two.warning = Some("Quit it first");
+        assert_eq!(
+            message("Cursor", Ok(two.clone()), false),
+            Ok(
+                "Cursor: connected in /a/c.json and /b/c.json. To finish, quit Cursor and open \
+                it again. Quit it first."
+                    .into()
+            )
+        );
+        assert!(
+            message("Cursor", Ok(two), true)
+                .unwrap()
+                .starts_with("Cursor: Statscraft removed from /a/c.json and /b/c.json.")
+        );
+    }
+
+    #[test]
+    fn check_reads_each_file_again() {
+        let dir = temp();
+        let mut c = status(true, true, true);
+        c.configs = vec![dir.join("a.json"), dir.join("b.json"), dir.join("c.json")];
+        fs::write(
+            &c.configs[0],
+            r#"{"mcpServers":{"statscraft":{"command":"/opt/statscraft"}}}"#,
+        )
+        .unwrap();
+        fs::write(&c.configs[1], r#"{"mcpServers":{}}"#).unwrap();
+        let lines = check_lines(&c);
+        assert_eq!(
+            lines,
+            [
+                format!(
+                    "{}: has the Statscraft entry, which starts /opt/statscraft",
+                    c.configs[0].display()
+                ),
+                format!("{}: no Statscraft entry", c.configs[1].display()),
+                format!("{}: no such file", c.configs[2].display()),
+            ]
+        );
+        // an app that keeps the entry in its own file, out of the list
+        fs::write(&c.configs[0], r#"{"mcpServers":{}}"#).unwrap();
+        assert!(check_lines(&c)[0].ends_with("no Statscraft entry"));
+        c.configs.clear();
+        assert!(check_lines(&c)[0].contains("claude mcp list"));
+    }
+
+    #[test]
+    fn the_extension_goes_to_downloads_and_opens_with_the_system() {
+        let home = temp();
+        let fallback = std::env::temp_dir().join("statscraft");
+        assert_eq!(downloads(Some(home.clone())), fallback);
+        assert_eq!(downloads(None), fallback);
+        fs::create_dir_all(home.join("Downloads")).unwrap();
+        assert_eq!(downloads(Some(home.clone())), home.join("Downloads"));
+        // only built here, never started: no real app opens in a test
+        let file = home.join("Downloads/statscraft-1.0.0-linux-x86_64.mcpb");
+        let command = opener(&file);
+        let expected = if cfg!(windows) {
+            "explorer"
+        } else if cfg!(target_os = "macos") {
+            "open"
+        } else {
+            "xdg-open"
+        };
+        assert_eq!(command.get_program(), expected);
+        assert_eq!(command.get_args().collect::<Vec<_>>(), [file.as_os_str()]);
     }
 
     #[test]
@@ -411,14 +638,19 @@ mod tests {
             messages[0]
                 .as_ref()
                 .unwrap()
-                .starts_with("Cursor: connected.")
+                .starts_with("Cursor: connected in ")
         );
         assert!(home.join(".cursor/mcp.json").is_file());
         assert!(connect_all(&clients).is_empty());
         let (messages, clients) = work(&connector, server, &Job::Remove("gemini"));
         assert_eq!(
             messages[0].as_ref().unwrap(),
-            "Gemini CLI: Statscraft removed. To finish, start a new Gemini CLI session."
+            &format!(
+                "Gemini CLI: Statscraft removed from {}. To finish, start a new Gemini CLI session.",
+                fs::canonicalize(home.join(".gemini/settings.json"))
+                    .unwrap()
+                    .display()
+            )
         );
         assert_eq!(connect_all(&clients), ["gemini"]);
     }

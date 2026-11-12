@@ -2,15 +2,17 @@
 
 Statscraft has an MCP server built in: `statscraft mcp`. An AI agent that speaks MCP can then look at your data, look up syntax and run it through Statscraft, without a shell. Your data stay on your computer.
 
-## From the window: Help > Connect an AI agent
+## From the window: Edit > Settings > AI agents
 
-The easiest way needs no terminal. In the Statscraft window, open **Help > Connect an AI agent...**. The dialog lists every supported agent app with its state: not installed, not connected, connected, or connected to another Statscraft copy (an older install in another folder, for example).
+The easiest way needs no terminal. In the Statscraft window, open **Edit > Settings...** and choose **AI agents** (**Help > Connect an AI agent...** opens the same place). It lists every supported agent app with its state: not installed, not connected, connected, or connected to another Statscraft copy (an older install in another folder, for example).
 
-- **Connect** adds Statscraft to one app, **Remove** takes it out again, and **Connect all** connects every installed app that does not have it yet.
-- After each change the dialog says what it did and what to restart, for example to quit Claude Desktop completely and open it again.
-- The entry starts the `statscraft` command-line program that came with the window, from the same folder (on macOS, the folder that holds Statscraft.app). If that program is missing there, the dialog says so and changes nothing.
+- **Claude Desktop**: **Install extension** downloads the Statscraft extension (`.mcpb`) of this version for your system from the release, checks it against the release's `SHA256SUMS`, saves it in your Downloads folder and opens it. Claude Desktop then shows the extension; click **Install**. This is the way that lasts: the extension does not depend on Claude Desktop's settings file, which some versions rewrite or empty when they start or update. If nothing opens, drag the saved file onto Claude Desktop's **Settings**, **Extensions**. **Connect via config file** writes the entry into the settings file instead, as `statscraft connect` does.
+- **Connect** adds Statscraft to one of the other apps, **Remove** takes it out again, and **Connect all** connects every installed app that does not have it yet, except Claude Desktop.
+- **Check** reads the app's settings files again and shows each path and whether the Statscraft entry is in it right now. Use it after restarting an app, to see whether the app kept the entry.
+- After each change the section says which files it wrote and what to restart, for example to quit Claude Desktop completely and open it again. If Claude Desktop was running during the change, it says so: quit Claude Desktop completely and connect again, because a running Claude Desktop may write its settings file back without the entry.
+- The entry starts the `statscraft` command-line program that came with the window, from the same folder (on macOS, the folder that holds Statscraft.app). If that program is missing there, the section says so, and only **Install extension** works.
 
-The dialog makes exactly the changes `statscraft connect` makes, described below.
+Apart from the extension, the section makes exactly the changes `statscraft connect` makes, described below.
 
 ## From a terminal: statscraft connect
 
@@ -20,7 +22,7 @@ One command adds the server to every agent installed on your computer:
 statscraft connect
 ```
 
-It prints which agents it found, connects each of them and says what to restart. Run it again at any time: an agent that is already connected stays as it is.
+It prints which agents it found, connects each of them and says what to restart. Run it again at any time: an agent that is already connected stays as it is. If Claude Desktop is running while its settings file changes, `connect` warns you: quit Claude Desktop completely and run the command again.
 
 Claude Desktop and Claude Code have a way without a terminal too: [the bundle](#claude-desktop-double-click-the-bundle) and [the plugin](#claude-code-the-plugin). To teach an agent how to work with Statscraft, add [the skill](#teach-your-agent-the-skill).
 
@@ -36,7 +38,7 @@ Claude Desktop and Claude Code have a way without a terminal too: [the bundle](#
 
 Add `--json` to any of them for output an agent can read. The exit code is 1 when an agent could not be connected.
 
-The agents are `claude-desktop`, `claude-code`, `codex` (also `chatgpt`), `cursor`, `copilot` (also `vscode`), `gemini` and `antigravity`.
+The agents are `claude-desktop`, `claude-code`, `codex` (also `chatgpt`, for the Codex view of the ChatGPT app), `cursor`, `copilot` (also `vscode`), `gemini` and `antigravity`.
 
 ## What it changes
 
@@ -46,7 +48,7 @@ Every agent gets one entry named `statscraft`. It starts the Statscraft program 
 |---|---|
 | Claude Desktop | `mcpServers.statscraft` in `claude_desktop_config.json`: on Windows in `%APPDATA%\Claude\` and, for the Store version, in `%LOCALAPPDATA%\Packages\Claude_...\LocalCache\Roaming\Claude\`; on macOS in `~/Library/Application Support/Claude/`; on Linux in `~/.config/Claude/` |
 | Claude Code | runs `claude mcp add --scope user statscraft -- PATH mcp`, so Claude Code keeps the entry itself |
-| ChatGPT desktop and Codex | the table `[mcp_servers.statscraft]` in `~/.codex/config.toml` (or under `CODEX_HOME`) |
+| Codex, also the Codex view of the ChatGPT app | the table `[mcp_servers.statscraft]` in `~/.codex/config.toml` (or under `CODEX_HOME`) |
 | Cursor | `mcpServers.statscraft` in `~/.cursor/mcp.json` |
 | VS Code with Copilot | `mcpServers.statscraft` in `~/.copilot/mcp-config.json` (or under `COPILOT_HOME`) |
 | Gemini CLI | `mcpServers.statscraft` in `~/.gemini/settings.json` |
@@ -70,11 +72,13 @@ An agent reads its settings when it starts. After connecting:
 |---|---|
 | Claude Desktop | quit it completely, also from the tray or menu bar, and open it again; closing the window is not enough |
 | Claude Code | start a new session |
-| ChatGPT desktop, Codex | quit and open it again |
+| Codex, the ChatGPT app | quit and open it again |
 | Cursor, VS Code, Antigravity | quit and open it again |
 | Gemini CLI | start a new session |
 
 Then ask the agent what tools Statscraft gives it, or ask it to describe a data file.
+
+In the ChatGPT app, the tools work in its Codex view only. Ordinary ChatGPT chats cannot use tools that run on your computer, even when the app's settings list the Statscraft server.
 
 ## Undo
 
@@ -88,7 +92,7 @@ Every release has an MCP bundle for each system on the [Releases page](https://g
 - `statscraft-X-macos-universal.mcpb` for macOS, Apple silicon and Intel
 - `statscraft-X-linux-x86_64.mcpb` for Linux
 
-Download the one for your system and double-click it, or drag it onto Claude Desktop's **Settings**, **Extensions**. Claude Desktop shows the tools Statscraft gives and asks you to install it. That is all: no terminal and no settings file.
+In the window, **Install extension** under Edit > Settings > AI agents does this for you. By hand: download the one for your system and double-click it, or drag it onto Claude Desktop's **Settings**, **Extensions**. Claude Desktop shows the tools Statscraft gives and asks you to install it. That is all: no terminal and no settings file.
 
 The bundle carries its own copy of the `statscraft` program, so it works even where Statscraft is not installed. That copy does not update with `statscraft update`; install the bundle of the new release instead. The window, when you have it, still shows everything the agent runs.
 
@@ -113,7 +117,7 @@ The skill `statscraft-analysis` tells an agent how to work with Statscraft: look
 
 - **Claude Code**: it comes with the plugin.
 - **Claude Desktop and claude.ai**: download `statscraft-X-skill.zip` from the [Releases page](https://github.com/statscrafthq/statscraft/releases) and upload it as a skill in the settings.
-- **ChatGPT desktop and Codex**: ask Codex `$skill-installer install https://github.com/statscrafthq/statscraft/tree/main/plugins/statscraft/skills/statscraft-analysis`, then restart it.
+- **Codex and the ChatGPT app's Codex view**: ask Codex `$skill-installer install https://github.com/statscrafthq/statscraft/tree/main/plugins/statscraft/skills/statscraft-analysis`, then restart it.
 - **Other agents** that read Agent Skills: unpack the zip into their skills folder, so that it holds `statscraft-analysis/SKILL.md`.
 
 The skill uses the MCP tools when they are there, and the `statscraft` command line when the agent has only a shell.
@@ -170,7 +174,7 @@ claude mcp add --scope user statscraft -- /usr/bin/statscraft mcp
 }
 ```
 
-**ChatGPT desktop and Codex** (`~/.codex/config.toml`):
+**Codex and the ChatGPT app's Codex view** (`~/.codex/config.toml`):
 
 ```toml
 [mcp_servers.statscraft]
@@ -178,7 +182,7 @@ command = "/usr/bin/statscraft"
 args = ["mcp"]
 ```
 
-ChatGPT in the browser cannot start programs on your computer, so it cannot use Statscraft this way.
+ChatGPT in the browser and ordinary chats in the ChatGPT app cannot start programs on your computer, so they cannot use Statscraft this way.
 
 ## For agents
 

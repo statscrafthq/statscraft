@@ -412,7 +412,7 @@ See [The Window menu](#the-window-menu).
 ### Help
 
 - **Documentation** opens the documentation online.
-- **Connect an AI agent...** adds the Statscraft MCP server to the AI apps on this computer, or takes it out again, with a click per app, and says what to restart. See [Connect your AI agent](connect.md).
+- **Connect an AI agent...** opens Edit > Settings > AI agents.
 - **About Statscraft** shows the version, the license (MIT), links to the source code and the documentation, where the color themes come from with their licenses, and the licenses of the fonts.
 - **Check for updates**: see [Updates](#updates).
 
@@ -467,6 +467,8 @@ Edit > Settings holds every setting of the window in one dialog, with its sectio
   - **Variables in tables** (Labels, Names, or Names and labels) and **Values in tables** (Labels, Values, or Values and labels). These belong to the session, not the window. A choice runs `SET TVARS` or `SET TNUMBERS` like any other command, shows in the log and stays for the later runs. A SET in syntax changes the dialog too. The window also keeps the choice (lines such as `tvars names` and `tnumbers both` in `window.txt`) and runs the same SET when it starts, so you set it once.
 - **Updates**
   - **Check for updates automatically**: see [Updates](#updates).
+- **AI agents**
+  - Adds the Statscraft MCP server to the AI apps on this computer, or takes it out again, with a click per app, and says what to restart. For Claude Desktop, **Install extension** downloads and opens the Statscraft extension of this version. **Check** shows each app's settings files and whether the entry is in them now. See [Connect your AI agent](connect.md#from-the-window-edit--settings--ai-agents).
 
 ## What the window remembers
 

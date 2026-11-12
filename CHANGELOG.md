@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Connecting AI apps moved to Edit > Settings > AI agents; Help > Connect an AI agent opens it there. For Claude Desktop, **Install extension** downloads the extension (.mcpb) of this version for your system, checks it against SHA256SUMS and opens it, so Claude Desktop offers to install it; this does not depend on Claude Desktop's settings file, which some versions rewrite. **Connect via config file** stays as the second way and now says where it wrote. **Check** on each app reads its settings files again and shows whether the Statscraft entry is still there. See [Connect your AI agent](docs/connect.md).
+- A change of Claude Desktop's settings file while Claude Desktop runs now comes with a warning, in the window and in `statscraft connect`: quit it completely and connect again.
+- Codex is listed as Codex, also the Codex view of the ChatGPT app, with a note that ordinary ChatGPT chats cannot use tools on this computer.
+
 ## 0.9.0 (2026-11-12)
 
 - Every step leaves syntax. Each run that works and is sent to the open window, by an agent or with `statscraft run -s gui`, is added to a syntax window named Agent under a comment line with the time, so the person can read, change, rerun and save it. A file session adds the same to `syntax.sps` in its folder, with the date. `trail` in the JSON says where; failed runs and checks leave nothing. See [the MCP server](docs/mcp.md#every-step-leaves-syntax).
