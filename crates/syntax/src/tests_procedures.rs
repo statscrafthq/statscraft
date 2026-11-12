@@ -683,7 +683,9 @@ fn frequencies_errors() {
     let message = |source: &str| err(source).message;
     assert!(message("FREQUENCIES a /BARCHART /HISTOGRAM.").contains("cannot be used together"));
     assert!(message("FREQUENCIES a /PERCENTILES=101.").contains("between 0 and 100"));
-    assert!(message("FREQUENCIES a /NTILES=0.").contains("at least 1"));
+    assert!(message("FREQUENCIES a /NTILES=0.").contains("from 1 to 1000"));
+    // n - 1 cut points at once: 16 GB for this one
+    assert!(message("FREQUENCIES a /NTILES=2147483648.").contains("from 1 to 1000"));
     assert!(message("FREQUENCIES a /NTILES=2.5.").contains("whole number"));
     assert!(message("FREQUENCIES a /GROUPED=a (0).").contains("positive"));
     assert!(message("FREQUENCIES a /GROUPED=a (3 2 1).").contains("ascending"));
