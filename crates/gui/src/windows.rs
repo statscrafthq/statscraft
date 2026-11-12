@@ -163,15 +163,15 @@ impl Registry {
         }
     }
 
-    /// What closing this window takes. `data` is what its dataset holds unsaved, for a data
-    /// window; output is never asked about, as it cannot be saved yet.
+    /// What closing this window takes. `data` is what its dataset or output document holds
+    /// unsaved, for a data or an output window.
     pub fn closing(&self, id: WindowId, data: Option<String>) -> Closing {
         if self.windows.len() == 1 {
             return Closing::Quit;
         }
         let item = match &self.get(id).map(|w| &w.kind) {
             Some(Kind::Syntax(s)) => s.unsaved(),
-            Some(Kind::Data(_)) => data,
+            Some(Kind::Data(_) | Kind::Output(_)) => data,
             _ => None,
         };
         match item {
@@ -613,7 +613,7 @@ mod tests {
     }
 
     #[test]
-    fn a_data_window_asks_about_its_data_and_an_output_window_about_nothing() {
+    fn data_and_output_windows_ask_about_what_they_hold_unsaved() {
         let mut r = Registry::new();
         let data = r.with_dataset(None).unwrap();
         r.sync_output(&["Document1".into()], Some("Document1"), None);
@@ -623,7 +623,12 @@ mod tests {
             r.closing(data, item()),
             Closing::Ask(vec!["Data: a.sav".into()])
         );
-        assert_eq!(r.closing(output, item()), Closing::Close);
+        let output_item = || Some("Output: Document1, not saved to a file yet".to_string());
+        assert_eq!(
+            r.closing(output, output_item()),
+            Closing::Ask(vec!["Output: Document1, not saved to a file yet".into()])
+        );
+        assert_eq!(r.closing(output, None), Closing::Close);
         r.close(data);
         // the last window quits, and the question at the end covers the data
         assert_eq!(r.closing(output, None), Closing::Quit);

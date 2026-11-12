@@ -8,7 +8,7 @@ Icon=statscraft
 Terminal=false
 Categories=Science;Math;
 Keywords=statistics;survey;tables;crosstabs;sav;
-# statscraft.xml defines both types: data files (.sav, .zsav) and syntax files (.sps)
-MimeType=application/x-statscraft-data;text/x-statscraft-syntax;
+# statscraft.xml defines the types: data files (.sav, .zsav), syntax files (.sps) and output files (.scout)
+MimeType=application/x-statscraft-data;text/x-statscraft-syntax;application/x-statscraft-output;
 # the window's app id, so docks match the window to this entry; it keeps its first spelling
 StartupWMClass=statscraft

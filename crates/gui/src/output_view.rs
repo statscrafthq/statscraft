@@ -41,6 +41,9 @@ pub enum Request {
     Paste(String),
     /// Run the syntax again.
     Run(String),
+    /// Delete the selected tables, from the engine's document first (`positions`), then from
+    /// the view (`delete_selected`), so both always hold the same items.
+    Delete,
 }
 
 /// A table, or a chart as its data table with the chart.
@@ -155,16 +158,19 @@ impl OutputView {
         true
     }
 
-    pub fn clear(&mut self) {
-        self.runs.clear();
-        self.selected.clear();
-        self.layouts.clear();
-    }
-
-    fn delete_selected(&mut self) {
+    pub fn delete_selected(&mut self) {
         let selected = std::mem::take(&mut self.selected);
         output::retain(&mut self.runs, |id| !selected.contains(&id));
         self.layouts.retain(|id, _| !selected.contains(id));
+    }
+
+    /// The places of the selected tables among all, in order: as the engine counts the items
+    /// of the document (`output_file::leaves`).
+    pub fn selected_positions(&self) -> Vec<usize> {
+        let all = output::tables(&self.runs).enumerate();
+        all.filter(|(_, t)| self.selected.contains(&t.id))
+            .map(|(i, _)| i)
+            .collect()
     }
 
     fn selected_charts(&self) -> Vec<&Chart> {
@@ -273,7 +279,7 @@ impl OutputView {
                 request = Some(Request::Status(self.copy(ui, true)));
             }
             if delete && some {
-                self.delete_selected();
+                request = Some(Request::Delete);
             }
             if all {
                 self.selected = output::tables(&self.runs).map(|t| t.id).collect();
@@ -300,7 +306,7 @@ impl OutputView {
                 .on_hover_text("Delete the selected tables (Delete)")
                 .clicked()
             {
-                self.delete_selected();
+                request = Some(Request::Delete);
             }
             ui.add_enabled_ui(some, |ui| {
                 ui.menu_button("Export selection", |ui| {
@@ -320,7 +326,8 @@ impl OutputView {
                 self.selected = output::tables(&self.runs).map(|t| t.id).collect();
             }
             if ui.button("Clear output").clicked() {
-                self.clear();
+                self.selected = output::tables(&self.runs).map(|t| t.id).collect();
+                request = Some(Request::Delete);
             }
             match self.selected.len() {
                 0 => {}
@@ -589,10 +596,7 @@ impl OutputView {
         match menu {
             Some((Menu::Copy, _)) => Some(Request::Status(self.copy(ui, true))),
             Some((Menu::CopyText, _)) => Some(Request::Status(self.copy(ui, false))),
-            Some((Menu::Delete, _)) => {
-                self.delete_selected();
-                None
-            }
+            Some((Menu::Delete, _)) => Some(Request::Delete),
             Some((Menu::Open(program), id)) => {
                 let chart = output::tables(&self.runs).find(|t| t.id == id);
                 let chart = chart.and_then(|t| t.chart.as_ref())?;

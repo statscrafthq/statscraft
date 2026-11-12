@@ -59,7 +59,8 @@ Name: "{autoprograms}\Statscraft"; Filename: "{app}\statscraft-gui.exe"
 ; the command line on the user's PATH; the [Code] below takes it off again on uninstall
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{olddata};{app}"; Check: NeedsAddPath(ExpandConstant('{app}'))
 
-; .sav and .zsav open in the window, .sps opens in its syntax editor
+; .sav and .zsav open in the window, .sps opens in its syntax editor, .scout (our own output
+; file) in an output window
 ; registry names ignore case, so these are the same keys earlier versions registered
 Root: HKA; Subkey: "Software\Classes\Statscraft.Data"; ValueType: string; ValueName: ""; ValueData: "Statscraft data file"; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\Classes\Statscraft.Data\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\statscraft-gui.exe,0"
@@ -67,20 +68,26 @@ Root: HKA; Subkey: "Software\Classes\Statscraft.Data\shell\open\command"; ValueT
 Root: HKA; Subkey: "Software\Classes\Statscraft.Syntax"; ValueType: string; ValueName: ""; ValueData: "Statscraft syntax file"; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\Classes\Statscraft.Syntax\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\statscraft-gui.exe,0"
 Root: HKA; Subkey: "Software\Classes\Statscraft.Syntax\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\statscraft-gui.exe"" ""%1"""
+Root: HKA; Subkey: "Software\Classes\Statscraft.Output"; ValueType: string; ValueName: ""; ValueData: "Statscraft output file"; Flags: uninsdeletekey
+Root: HKA; Subkey: "Software\Classes\Statscraft.Output\DefaultIcon"; ValueType: string; ValueName: ""; ValueData: "{app}\statscraft-gui.exe,0"
+Root: HKA; Subkey: "Software\Classes\Statscraft.Output\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\statscraft-gui.exe"" ""%1"""
 
 ; Statscraft is offered under Open with for each type
 Root: HKA; Subkey: "Software\Classes\.sav\OpenWithProgids"; ValueType: string; ValueName: "Statscraft.Data"; ValueData: ""; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Classes\.zsav\OpenWithProgids"; ValueType: string; ValueName: "Statscraft.Data"; ValueData: ""; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Classes\.sps\OpenWithProgids"; ValueType: string; ValueName: "Statscraft.Syntax"; ValueData: ""; Flags: uninsdeletevalue
+Root: HKA; Subkey: "Software\Classes\.scout\OpenWithProgids"; ValueType: string; ValueName: "Statscraft.Output"; ValueData: ""; Flags: uninsdeletevalue
 Root: HKA; Subkey: "Software\Classes\Applications\statscraft-gui.exe"; Flags: uninsdeletekey
 Root: HKA; Subkey: "Software\Classes\Applications\statscraft-gui.exe\SupportedTypes"; ValueType: string; ValueName: ".sav"; ValueData: ""
 Root: HKA; Subkey: "Software\Classes\Applications\statscraft-gui.exe\SupportedTypes"; ValueType: string; ValueName: ".zsav"; ValueData: ""
 Root: HKA; Subkey: "Software\Classes\Applications\statscraft-gui.exe\SupportedTypes"; ValueType: string; ValueName: ".sps"; ValueData: ""
+Root: HKA; Subkey: "Software\Classes\Applications\statscraft-gui.exe\SupportedTypes"; ValueType: string; ValueName: ".scout"; ValueData: ""
 
 ; and it becomes the default only where no other program is the default already
 Root: HKA; Subkey: "Software\Classes\.sav"; ValueType: string; ValueName: ""; ValueData: "Statscraft.Data"; Flags: uninsdeletevalue; Check: FreeOrOurs('.sav', 'Statscraft.Data')
 Root: HKA; Subkey: "Software\Classes\.zsav"; ValueType: string; ValueName: ""; ValueData: "Statscraft.Data"; Flags: uninsdeletevalue; Check: FreeOrOurs('.zsav', 'Statscraft.Data')
 Root: HKA; Subkey: "Software\Classes\.sps"; ValueType: string; ValueName: ""; ValueData: "Statscraft.Syntax"; Flags: uninsdeletevalue; Check: FreeOrOurs('.sps', 'Statscraft.Syntax')
+Root: HKA; Subkey: "Software\Classes\.scout"; ValueType: string; ValueName: ""; ValueData: "Statscraft.Output"; Flags: uninsdeletevalue; Check: FreeOrOurs('.scout', 'Statscraft.Output')
 
 [Run]
 Filename: "{app}\statscraft-gui.exe"; Description: "Start Statscraft"; Flags: nowait postinstall skipifsilent

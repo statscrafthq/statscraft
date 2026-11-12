@@ -27,7 +27,8 @@
 	<string>MIT License</string>
 	<!-- .sav and .zsav open in the window, .sps in its syntax editor. Statscraft does not own
 	     these formats, so it imports their types; it becomes the default only where no other
-	     program is. -->
+	     program is. .scout, its own output file, opens in an output window; that type is
+	     exported, as Statscraft owns it. -->
 	<key>CFBundleDocumentTypes</key>
 	<array>
 		<dict>
@@ -54,6 +55,38 @@
 			<array>
 				<string>org.statscraft.syntax</string>
 			</array>
+		</dict>
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Statscraft output file</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Owner</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>org.statscraft.output</string>
+			</array>
+		</dict>
+	</array>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeIdentifier</key>
+			<string>org.statscraft.output</string>
+			<key>UTTypeDescription</key>
+			<string>Statscraft output file (.scout)</string>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.json</string>
+			</array>
+			<key>UTTypeTagSpecification</key>
+			<dict>
+				<key>public.filename-extension</key>
+				<array>
+					<string>scout</string>
+				</array>
+			</dict>
 		</dict>
 	</array>
 	<key>UTImportedTypeDeclarations</key>

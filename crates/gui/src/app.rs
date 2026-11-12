@@ -646,6 +646,8 @@ impl App {
             let path = PathBuf::from(arg);
             if is_syntax_file(&path) {
                 app.load_syntax(path);
+            } else if is_output_file(&path) {
+                app.open_output(path);
             } else {
                 app.open_data(path);
             }
@@ -944,32 +946,13 @@ impl App {
         }
         match result.map(|r| r.commands) {
             Ok(outputs) => {
-                // the tables of each command go to the window of their document
-                let mut documents: Vec<(Option<String>, Vec<_>)> = Vec::new();
-                for out in outputs {
-                    let heading = match (from_editor, out.first_line == out.last_line) {
-                        (false, _) => out.name,
-                        (true, true) => format!("{}, line {}", out.name, out.first_line),
-                        (true, false) => {
-                            format!("{}, lines {}-{}", out.name, out.first_line, out.last_line)
-                        }
-                    };
-                    let syntax = output::source_lines(&self.source, out.first_line, out.last_line);
-                    // shortcut: a chart shows as its data table until the window draws charts
-                    let mut tables: Vec<_> = out.tables.into_iter().map(|t| (t, None)).collect();
-                    let charts = out.charts.into_iter();
-                    tables.extend(charts.map(|chart| (chart.data_table(), Some(chart))));
-                    let command = (heading, syntax, tables);
-                    match documents.iter_mut().find(|(d, _)| *d == out.document) {
-                        Some((_, commands)) => commands.push(command),
-                        None => documents.push((out.document, vec![command])),
-                    }
-                }
                 let mut shown = None;
-                for (document, commands) in documents {
+                for (document, label, commands) in output_groups(outputs, &self.source, from_editor)
+                {
+                    let label = label.as_deref().unwrap_or(origin);
                     if let Some(id) = output_window(&self.windows, document.as_deref())
                         && let Some(o) = self.windows.output_mut(id)
-                        && o.view.add_run(origin, commands)
+                        && o.view.add_run(label, commands)
                     {
                         shown = Some(id);
                     }
@@ -990,6 +973,70 @@ impl App {
                 self.status = Err(error_text(&errors));
                 false
             }
+        }
+    }
+
+    /// Opens an output file into a new output window, through OUTPUT OPEN.
+    fn open_output(&mut self, path: PathBuf) {
+        self.add_recent(&path);
+        let syntax = format!("OUTPUT OPEN FILE={}.", quote(&path.to_string_lossy()));
+        self.run(&syntax, None, After::Show);
+    }
+
+    /// The document of an output window, with the file it was opened from or saved to, and
+    /// whether it holds output not saved.
+    fn output_document(&self, id: WindowId) -> Option<statscraft_engine::OutputDocument> {
+        output_document(&self.session, &self.windows.output(id)?.document)
+    }
+
+    /// What closing an output window would lose.
+    fn unsaved_output(&self, id: WindowId) -> Option<String> {
+        unsaved_output(&self.session, &self.windows.output(id)?.document)
+    }
+
+    /// The syntax that saves the document of an output window: to its file, or with `ask` (or
+    /// without a file) to one chosen now. None when no file was chosen.
+    fn save_output_syntax(&mut self, id: WindowId, ask: bool) -> Option<String> {
+        let document = self.output_document(id)?;
+        let file = document.file.filter(|_| !ask);
+        let path = file.or_else(|| {
+            let dialog = self
+                .file_dialog()
+                .add_filter("Statscraft output", &["scout"]);
+            let mut path = dialog.save_file()?;
+            if path.extension().is_none() {
+                path.set_extension("scout");
+            }
+            Some(path)
+        })?;
+        self.add_recent(&path);
+        let file = quote(&path.to_string_lossy());
+        Some(format!(
+            "OUTPUT SAVE NAME={} OUTFILE={file}.",
+            document.name
+        ))
+    }
+
+    /// File > Save output and Save output as: the document of an output window, through
+    /// OUTPUT SAVE.
+    fn save_output(&mut self, id: WindowId, ask: bool) {
+        if let Some(syntax) = self.save_output_syntax(id, ask) {
+            self.run(&syntax, None, After::Show);
+        }
+    }
+
+    /// Deletes the selected tables of an output window from its document, then from the
+    /// window, so both always hold the same items.
+    fn delete_output(&mut self, id: WindowId) {
+        if !self.runs.is_idle() {
+            // the run works on a copy of the session that still has them
+            self.status = Err("wait until the run ends to delete output".into());
+            return;
+        }
+        if let Some(o) = self.windows.output_mut(id)
+            && let Err(e) = delete_selected(&mut self.session, o)
+        {
+            self.status = Err(e);
         }
     }
 
@@ -1109,6 +1156,9 @@ impl App {
         let drop = dropped(paths);
         if let Some(path) = drop.syntax {
             self.load_syntax(path);
+        }
+        for path in drop.output {
+            self.open_output(path);
         }
         match drop.data {
             Some(path) if is_data_file(&path) => self.open_data(path),
@@ -1276,6 +1326,14 @@ impl App {
                 {
                     self.load_syntax(path);
                 }
+                if ui.button("Open output...").clicked()
+                    && let Some(path) = self
+                        .file_dialog()
+                        .add_filter("Statscraft output", &["scout"])
+                        .pick_file()
+                {
+                    self.open_output(path);
+                }
                 let recent = self.settings.recent.clone();
                 ui.add_enabled_ui(!recent.is_empty(), |ui| {
                     ui.menu_button("Recent files", |ui| {
@@ -1291,6 +1349,8 @@ impl App {
                             {
                                 if is_syntax_file(&path) {
                                     self.load_syntax(path);
+                                } else if is_output_file(&path) {
+                                    self.open_output(path);
                                 } else {
                                     self.open_data(path);
                                 }
@@ -1312,6 +1372,20 @@ impl App {
                     self.save_syntax_as(self.here);
                 }
                 ui.separator();
+                if ui
+                    .add_enabled(output.is_some(), egui::Button::new("Save output"))
+                    .clicked()
+                    && let Some(id) = output
+                {
+                    self.save_output(id, false);
+                }
+                if ui
+                    .add_enabled(output.is_some(), egui::Button::new("Save output as..."))
+                    .clicked()
+                    && let Some(id) = output
+                {
+                    self.save_output(id, true);
+                }
                 if ui
                     .add_enabled(has_output, egui::Button::new("Export output as HTML..."))
                     .clicked()
@@ -1613,13 +1687,15 @@ impl App {
     }
 
     /// What would be lost if the program ended now: every dataset, then the syntax of every
-    /// window.
+    /// window, then the output.
     fn unsaved(&self) -> Vec<String> {
         let data = self.unsaved_datasets().into_iter();
         let mut items: Vec<String> = data
             .filter_map(|name| self.unsaved_of(name.as_deref()))
             .collect();
         items.extend(self.windows.unsaved());
+        let ids = self.windows.ids().into_iter();
+        items.extend(ids.filter_map(|id| self.unsaved_output(id)));
         items
     }
 
@@ -1697,6 +1773,7 @@ impl App {
         }
         let data = self.windows.data(id).map(|w| w.dataset.clone());
         let item = data.and_then(|name| self.unsaved_of(name.as_deref()));
+        let item = item.or_else(|| self.unsaved_output(id));
         match self.windows.closing(id, item) {
             Closing::Quit => self.quit(id),
             Closing::Ask(items) => self.ask = Some(Ask::Unsaved(items, Then::Close(id))),
@@ -1877,11 +1954,13 @@ impl App {
         }
         let mut answer = None;
         let syntax = matches!(then, Then::Close(id) if self.windows.syntax(*id).is_some());
+        let output = matches!(then, Then::Close(id) if self.windows.output(*id).is_some());
         let modal = egui::Modal::new(egui::Id::unique("unsaved")).show(ctx, |ui| {
             ui.set_max_width(460.0);
             ui.label(match then {
                 Then::Quit(_) => "Save the changes before closing?",
                 Then::Close(_) if syntax => "Save the changes to the syntax first?",
+                Then::Close(_) if output => "Save the output first?",
                 Then::Close(_) | Then::Replace(..) => "Save the changes to the data first?",
             });
             ui.add_space(4.0);
@@ -1917,6 +1996,14 @@ impl App {
             (Answer::Save, Then::Close(id)) if self.windows.data(id).is_some() => {
                 self.save_and_close(id);
             }
+            (Answer::Save, Then::Close(id)) if self.windows.output(id).is_some() => {
+                // saved, then closed in the same run; no file chosen keeps the window
+                if let Some(save) = self.save_output_syntax(id, false) {
+                    let document = self.output_document(id).map(|d| d.name);
+                    let close = format!("OUTPUT CLOSE {}.", document.unwrap_or_default());
+                    self.run(&format!("{save}\n{close}"), None, After::CloseWindow(id));
+                }
+            }
             (Answer::Save, Then::Close(id)) => {
                 if self.save_syntax_now(id) {
                     self.drop_window(id);
@@ -1950,6 +2037,15 @@ impl App {
             if unsaved && !self.save_syntax_now(id) {
                 self.keep_open();
                 return;
+            }
+        }
+        // the output saves run first; the datasets wait until no run goes on
+        for id in self.windows.ids() {
+            if self.unsaved_output(id).is_some() {
+                match self.save_output_syntax(id, false) {
+                    Some(syntax) => self.run(&syntax, None, After::Show),
+                    None => return self.keep_open(),
+                }
             }
         }
         let mut pending = Vec::new();
@@ -3235,7 +3331,7 @@ impl App {
             painter.text(
                 screen.center(),
                 Align2::CENTER_CENTER,
-                "Drop data, workbook, text or .sps files to open them",
+                "Drop data, workbook, text, .sps or .scout files to open them",
                 FontId::proportional(20.0),
                 Color32::WHITE,
             );
@@ -3333,6 +3429,7 @@ impl App {
             Some(output_view::Request::Run(syntax)) => {
                 self.run(&syntax, None, After::Show);
             }
+            Some(output_view::Request::Delete) => self.delete_output(id),
             None => {}
         }
     }
@@ -3650,6 +3747,76 @@ fn close_data(
     }
 }
 
+/// The output of a run's commands as the output windows take it: per document a run label
+/// (None for the origin of the run) and each command's heading, syntax and tables. A file
+/// that OUTPUT OPEN read is a run of its own, labelled with the file.
+type Groups = Vec<(
+    Option<String>,
+    Option<String>,
+    Vec<(String, String, Vec<output_view::Shown>)>,
+)>;
+
+fn output_groups(outputs: Vec<CommandResult>, source: &str, from_editor: bool) -> Groups {
+    let mut groups: Groups = Vec::new();
+    for out in outputs {
+        if let Some((file, items)) = out.opened {
+            let commands = statscraft_engine::output_file::by_command(&items);
+            groups.push((out.document, Some(file), commands));
+            continue;
+        }
+        let heading = match (from_editor, out.first_line == out.last_line) {
+            (false, _) => out.name,
+            (true, true) => format!("{}, line {}", out.name, out.first_line),
+            (true, false) => {
+                format!("{}, lines {}-{}", out.name, out.first_line, out.last_line)
+            }
+        };
+        let syntax = output::source_lines(source, out.first_line, out.last_line);
+        // shortcut: a chart shows as its data table until the window draws charts
+        let mut tables: Vec<_> = out.tables.into_iter().map(|t| (t, None)).collect();
+        let charts = out.charts.into_iter();
+        tables.extend(charts.map(|chart| (chart.data_table(), Some(chart))));
+        let command = (heading, syntax, tables);
+        let group = groups
+            .iter_mut()
+            .find(|(d, label, _)| label.is_none() && *d == out.document);
+        match group {
+            Some((_, _, commands)) => commands.push(command),
+            None => groups.push((out.document, None, vec![command])),
+        }
+    }
+    groups
+}
+
+fn output_document(session: &Session, name: &str) -> Option<statscraft_engine::OutputDocument> {
+    let documents = session.output_documents().into_iter();
+    documents
+        .into_iter()
+        .find(|d| same(Some(&d.name), Some(name)))
+}
+
+/// What closing the window of an output document would lose.
+fn unsaved_output(session: &Session, name: &str) -> Option<String> {
+    let document = output_document(session, name).filter(|d| d.unsaved)?;
+    let file = document.file.as_deref().and_then(Path::file_name);
+    Some(match file {
+        Some(file) => format!("Output: {} ({})", document.name, file.to_string_lossy()),
+        None => format!("Output: {}, not saved to a file yet", document.name),
+    })
+}
+
+/// Deletes the selected tables of an output window from the session's document, then from
+/// the window; neither changes when the document refuses.
+fn delete_selected(
+    session: &mut Session,
+    window: &mut crate::windows::OutputWindow,
+) -> Result<(), String> {
+    let positions = window.view.selected_positions();
+    session.delete_output(&window.document, &positions)?;
+    window.view.delete_selected();
+    Ok(())
+}
+
 /// The output window that shows the tables of a command: the window of their document, else
 /// the designated output window (a document renamed or closed later in the same run).
 fn output_window(windows: &Registry, document: Option<&str>) -> Option<WindowId> {
@@ -3871,13 +4038,17 @@ fn import_body(ui: &mut Ui, d: &mut ImportData) {
 }
 
 /// The files the window opens, for the note on files it leaves alone.
-const OPENS: &str =
-    "Statscraft opens .sav, .zsav, .xlsx, .xlsm, .xls, .csv, .txt, .tab, .dat and .sps files";
+const OPENS: &str = "Statscraft opens .sav, .zsav, .xlsx, .xlsm, .xls, .csv, .txt, .tab, .dat, .sps and .scout files";
 
 /// A workbook or text file, which opens through the Open Data dialog.
 fn is_import_file(path: &Path) -> bool {
     let extension = path.extension().map(|e| e.to_string_lossy().to_lowercase());
     is_workbook(path) || matches!(extension.as_deref(), Some("csv" | "txt" | "tab" | "dat"))
+}
+
+fn is_output_file(path: &Path) -> bool {
+    path.extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("scout"))
 }
 
 fn is_data_file(path: &Path) -> bool {
@@ -3891,6 +4062,8 @@ fn is_data_file(path: &Path) -> bool {
 struct Dropped {
     data: Option<PathBuf>,
     syntax: Option<PathBuf>,
+    /// Output files, each opening in an output window of its own.
+    output: Vec<PathBuf>,
     note: Option<String>,
 }
 
@@ -3902,6 +4075,9 @@ fn dropped(paths: Vec<PathBuf>) -> Dropped {
             &mut drop.data
         } else if is_syntax_file(&path) {
             &mut drop.syntax
+        } else if is_output_file(&path) {
+            drop.output.push(path);
+            continue;
         } else {
             other.push(path);
             continue;
@@ -6104,6 +6280,91 @@ mod tests {
     }
 
     #[test]
+    fn the_output_window_and_its_document_always_hold_the_same_items() {
+        let dir = std::env::temp_dir().join(format!("statscraft-gui-scout-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut session = open("survey_basic.sav");
+        let mut r = Registry::new();
+        // a run shown in the windows, as `show` does
+        let show = |session: &mut Session, r: &mut Registry, syntax: &str| {
+            let out = session.run(syntax, None).unwrap().commands;
+            follow(r, session, None);
+            for (document, label, commands) in output_groups(out, syntax, false) {
+                let id = output_window(r, document.as_deref()).unwrap();
+                let view = &mut r.output_mut(id).unwrap().view;
+                view.add_run(label.as_deref().unwrap_or("window"), commands);
+            }
+        };
+        let titles = |session: &Session, r: &Registry, name: &str| {
+            let window = r.output(r.with_document(name).unwrap()).unwrap();
+            let shown = output::tables(&window.view.runs).map(|t| t.table.title.clone());
+            let items = session.output_items(name).unwrap();
+            let held = statscraft_engine::output_file::leaves(items).into_iter();
+            let held: Vec<String> = held.map(|(_, item)| item.shown().0.title).collect();
+            assert_eq!(shown.collect::<Vec<_>>(), held);
+            held
+        };
+        show(
+            &mut session,
+            &mut r,
+            "FREQUENCIES gender /BARCHART.\nDESCRIPTIVES age.\nCROSSTABS gender BY region.",
+        );
+        let all = titles(&session, &r, "Document1");
+        assert!(all.len() >= 4, "{all:?}");
+        assert_eq!(
+            unsaved_output(&session, "Document1").as_deref(),
+            Some("Output: Document1, not saved to a file yet")
+        );
+        // the second table and the last go from the window and the document
+        let id = r.with_document("Document1").unwrap();
+        let window = r.output_mut(id).unwrap();
+        let ids: Vec<u64> = output::tables(&window.view.runs).map(|t| t.id).collect();
+        window.view.selected = [ids[1], ids[ids.len() - 1]].into();
+        delete_selected(&mut session, window).unwrap();
+        let left = titles(&session, &r, "Document1");
+        assert_eq!(left.len(), all.len() - 2);
+        assert_eq!(left[0], all[0]);
+        // saved: nothing to ask about when the window closes
+        let file = dir.join("a.scout");
+        let save = format!("OUTPUT SAVE OUTFILE={}.", quote(&file.to_string_lossy()));
+        session.run(&save, None).unwrap();
+        assert_eq!(unsaved_output(&session, "Document1"), None);
+        // opened into a window of its own, as a run named after the file; new tables follow
+        let open = format!(
+            "OUTPUT OPEN FILE={} NAME=again.\nFREQUENCIES region.",
+            quote(&file.to_string_lossy())
+        );
+        show(&mut session, &mut r, &open);
+        let again = titles(&session, &r, "again");
+        assert_eq!(again[..left.len()], left[..]);
+        assert_eq!(again.len(), left.len() + 1);
+        let window = r.output(r.with_document("again").unwrap()).unwrap();
+        let labels: Vec<&str> = window
+            .view
+            .runs
+            .iter()
+            .map(|run| run.label.as_str())
+            .collect();
+        assert!(labels[0].ends_with("a.scout"), "{labels:?}");
+        assert!(labels[1].ends_with("window"), "{labels:?}");
+        assert_eq!(window.view.runs[0].items[0].heading, "FREQUENCIES");
+        // Clear output deletes everything from both
+        let window = r.output_mut(r.with_document("again").unwrap()).unwrap();
+        window.view.selected = output::tables(&window.view.runs).map(|t| t.id).collect();
+        delete_selected(&mut session, window).unwrap();
+        assert!(titles(&session, &r, "again").is_empty());
+        // a window out of step with its document deletes nothing from either
+        let window = r.output_mut(r.with_document("Document1").unwrap()).unwrap();
+        window.view.selected = ids.iter().copied().collect();
+        let before = output::tables(&window.view.runs).count();
+        let positions = window.view.selected_positions();
+        assert!(session.delete_output("Document1", &[before + 3]).is_err());
+        assert_eq!(positions.len(), before);
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[test]
     fn each_named_dataset_keeps_its_own_file() {
         let mut kept = std::collections::HashMap::new();
         let file = |name: &str| (Some(PathBuf::from(name)), None::<Dataset>);
@@ -6132,6 +6393,7 @@ mod tests {
                 charts: Vec::new(),
                 warnings: Vec::new(),
                 document: None,
+                opened: None,
             };
             names.iter().map(command).collect()
         };

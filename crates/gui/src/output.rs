@@ -40,16 +40,8 @@ pub fn item_of(runs: &[OutputRun], id: u64) -> Option<&OutputItem> {
         .find(|item| item.tables.iter().any(|t| t.id == id))
 }
 
-/// Lines `first` to `last` (from 1, inclusive) of a source: the syntax of one command.
-pub fn source_lines(source: &str, first: u32, last: u32) -> String {
-    let count = last.saturating_sub(first) as usize + 1;
-    let lines: Vec<&str> = source
-        .lines()
-        .skip(first.saturating_sub(1) as usize)
-        .take(count)
-        .collect();
-    lines.join("\n")
-}
+/// The syntax of one command, as the engine's output documents record it.
+pub use statscraft_engine::session::source_lines;
 
 /// Keeps the tables `keep` takes, and the commands and runs that still have one.
 pub fn retain(runs: &mut Vec<OutputRun>, keep: impl Fn(u64) -> bool) {

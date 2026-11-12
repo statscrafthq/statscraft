@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- Our own types for data files (.sav, .zsav) and syntax files (.sps). -->
+<!-- Our own types for data files (.sav, .zsav), syntax files (.sps) and output files (.scout). -->
 <mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
   <mime-type type="application/x-statscraft-data">
     <comment>Statscraft data file</comment>
@@ -11,5 +11,10 @@
     <comment>Statscraft syntax file</comment>
     <sub-class-of type="text/plain"/>
     <glob pattern="*.sps"/>
+  </mime-type>
+  <mime-type type="application/x-statscraft-output">
+    <comment>Statscraft output file</comment>
+    <sub-class-of type="application/json"/>
+    <glob pattern="*.scout"/>
   </mime-type>
 </mime-info>
