@@ -880,8 +880,9 @@ impl App {
                     };
                     let syntax = output::source_lines(&self.source, out.first_line, out.last_line);
                     // shortcut: a chart shows as its data table until the window draws charts
-                    let mut tables = out.tables;
-                    tables.extend(out.charts.iter().map(|chart| chart.data_table()));
+                    let mut tables: Vec<_> = out.tables.into_iter().map(|t| (t, None)).collect();
+                    let charts = out.charts.into_iter();
+                    tables.extend(charts.map(|chart| (chart.data_table(), Some(chart))));
                     let command = (heading, syntax, tables);
                     match documents.iter_mut().find(|(d, _)| *d == out.document) {
                         Some((_, commands)) => commands.push(command),
@@ -1913,10 +1914,13 @@ impl App {
                 return;
             };
             let chosen = &view.selected;
-            let tables = output::tables(&view.runs)
+            let items = output::tables(&view.runs)
                 .filter(|t| !selected || chosen.contains(&t.id))
-                .map(|t| &t.table);
-            self.status = match statscraft_export::write_xlsx(&path, tables, one_sheet) {
+                .map(|t| match &t.chart {
+                    Some(chart) => statscraft_export::Item::Chart(chart),
+                    None => statscraft_export::Item::Table(&t.table),
+                });
+            self.status = match statscraft_export::write_xlsx(&path, items, one_sheet) {
                 Ok(()) => Ok(format!("output exported to {}", path.display())),
                 Err(e) => Err(format!("{}: {e}", path.display())),
             };

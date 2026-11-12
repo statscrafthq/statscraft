@@ -30,6 +30,11 @@ block2 = "0.6.2"
 objc2-foundation = { version = "0.3.2", default-features = false, features = ["std", "block2", "NSArray", "NSEnumerator", "NSNotification", "NSOperation", "NSString", "NSURL"] }
 objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std", "NSApplication", "NSResponder"] }
 
+# Copy puts a chart on the Windows clipboard under the office programs' own format (BSL-1.0;
+# already built for arboard on Windows).
+[target.'cfg(windows)'.dependencies]
+clipboard-win = "5.4.3"
+
 # Embeds icons/statscraft.ico in the Windows executable (build.rs). Without default features it
 # does not pull in toml, which only reads resource settings from Cargo.toml.
 [build-dependencies]

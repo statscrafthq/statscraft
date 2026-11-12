@@ -15,6 +15,7 @@ mod grid_menu;
 mod highlight;
 mod model_dialogs;
 mod model_dialogs_view;
+mod office;
 #[cfg(target_os = "macos")]
 mod open_files;
 mod output;

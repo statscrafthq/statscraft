@@ -1,13 +1,15 @@
 //! The output: result tables grouped by run and command, and their text forms: tab-separated
 //! text and HTML.
 
-use statscraft_engine::{Cell, Table};
+use statscraft_engine::{Cell, Chart, Table};
 pub use statscraft_engine::{cell_text, header_rows};
 
-/// A table in the output, with an id that stays the same while other tables are deleted.
+/// A table in the output, with an id that stays the same while other tables are deleted. A
+/// chart shows as its data table and keeps the chart beside it.
 pub struct OutputTable {
     pub id: u64,
     pub table: Table,
+    pub chart: Option<Chart>,
 }
 
 /// The tables of one command.
@@ -401,7 +403,11 @@ mod tests {
     }
 
     fn runs() -> Vec<OutputRun> {
-        let t = |id| OutputTable { id, table: table() };
+        let t = |id| OutputTable {
+            id,
+            table: table(),
+            chart: None,
+        };
         vec![
             OutputRun {
                 label: s("Run 1"),

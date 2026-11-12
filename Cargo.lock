@@ -4346,6 +4346,7 @@ version = "0.8.0"
 dependencies = [
  "arboard",
  "block2 0.6.2",
+ "clipboard-win",
  "eframe",
  "objc2 0.6.5",
  "objc2-app-kit 0.3.2",

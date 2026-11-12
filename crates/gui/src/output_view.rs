@@ -2,12 +2,14 @@
 //! table is measured once, and a table out of view only takes its place, so hundreds of tables
 //! scroll smoothly.
 
+use crate::office::{self, Program};
 use crate::output::{self, OutputItem, OutputRun, OutputTable};
 use eframe::egui::{
     self, Align, Color32, FontId, Key, Painter, Pos2, Rect, RichText, ScrollArea, Sense, Stroke,
     StrokeKind, TextStyle, Ui, Vec2, pos2, text::LayoutJob, vec2,
 };
-use statscraft_engine::Table;
+use statscraft_engine::office::is_office_chart;
+use statscraft_engine::{Chart, Table};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
@@ -41,12 +43,17 @@ pub enum Request {
     Run(String),
 }
 
+/// A table, or a chart as its data table with the chart.
+pub type Shown = (Table, Option<Chart>);
+
 /// The context menu of a table.
 #[derive(Clone, Copy)]
 enum Menu {
     Copy,
     CopyText,
     Delete,
+    /// The chart of the table the menu belongs to, in an office program.
+    Open(Program),
 }
 
 /// Where everything of one table goes, measured once.
@@ -111,8 +118,9 @@ impl OutputView {
     }
 
     /// Adds the tables of one run, with a heading per command; returns whether there were any.
-    /// Each command comes with its heading and the syntax that made it.
-    pub fn add_run(&mut self, origin: &str, commands: Vec<(String, String, Vec<Table>)>) -> bool {
+    /// Each command comes with its heading and the syntax that made it; a chart comes as its
+    /// data table with the chart.
+    pub fn add_run(&mut self, origin: &str, commands: Vec<(String, String, Vec<Shown>)>) -> bool {
         let mut items = Vec::new();
         for (heading, syntax, tables) in commands {
             if tables.is_empty() {
@@ -120,11 +128,12 @@ impl OutputView {
             }
             let tables = tables
                 .into_iter()
-                .map(|table| {
+                .map(|(table, chart)| {
                     self.next_id += 1;
                     OutputTable {
                         id: self.next_id,
                         table,
+                        chart,
                     }
                 })
                 .collect();
@@ -158,6 +167,13 @@ impl OutputView {
         self.layouts.retain(|id, _| !selected.contains(id));
     }
 
+    fn selected_charts(&self) -> Vec<&Chart> {
+        output::tables(&self.runs)
+            .filter(|t| self.selected.contains(&t.id))
+            .filter_map(|t| t.chart.as_ref())
+            .collect()
+    }
+
     fn selected_tables(&self) -> Vec<&Table> {
         output::tables(&self.runs)
             .filter(|t| self.selected.contains(&t.id))
@@ -166,11 +182,23 @@ impl OutputView {
     }
 
     /// Puts the selected tables on the clipboard: as rich text with plain text beside it, or
-    /// as tab-separated text only.
+    /// as tab-separated text only. One chart alone goes, where the system allows, as an
+    /// editable office chart with its data as text beside it.
     fn copy(&mut self, ui: &Ui, rich: bool) -> Result<String, String> {
         let tables = self.selected_tables();
         let text: Vec<String> = tables.iter().map(|t| output::tsv(t)).collect();
         let text = text.join("\n");
+        let chart = match self.selected_charts()[..] {
+            [chart] if tables.len() == 1 => Some(chart),
+            _ => None,
+        };
+        if let Some(chart) = chart.filter(|_| rich) {
+            match office::copy(chart, &text) {
+                Ok(true) => return Ok("chart copied: it pastes as an editable chart".into()),
+                Ok(false) => {}
+                Err(e) => return Err(e),
+            }
+        }
         let what = match tables.len() {
             1 => "1 table".to_string(),
             n => format!("{n} tables"),
@@ -515,6 +543,7 @@ impl OutputView {
                     if response.secondary_clicked() {
                         secondary = Some(t.id);
                     }
+                    let office = t.chart.as_ref().is_some_and(is_office_chart);
                     response.context_menu(|ui| {
                         for (label, action) in [
                             ("Copy", Menu::Copy),
@@ -522,8 +551,17 @@ impl OutputView {
                             ("Delete", Menu::Delete),
                         ] {
                             if ui.button(label).clicked() {
-                                menu = Some(action);
+                                menu = Some((action, t.id));
                                 ui.close();
+                            }
+                        }
+                        if office {
+                            ui.separator();
+                            for program in Program::ALL {
+                                if ui.button(program.label()).clicked() {
+                                    menu = Some((Menu::Open(program), t.id));
+                                    ui.close();
+                                }
                             }
                         }
                     });
@@ -549,11 +587,16 @@ impl OutputView {
             self.selected.clear();
         }
         match menu {
-            Some(Menu::Copy) => Some(Request::Status(self.copy(ui, true))),
-            Some(Menu::CopyText) => Some(Request::Status(self.copy(ui, false))),
-            Some(Menu::Delete) => {
+            Some((Menu::Copy, _)) => Some(Request::Status(self.copy(ui, true))),
+            Some((Menu::CopyText, _)) => Some(Request::Status(self.copy(ui, false))),
+            Some((Menu::Delete, _)) => {
                 self.delete_selected();
                 None
+            }
+            Some((Menu::Open(program), id)) => {
+                let chart = output::tables(&self.runs).find(|t| t.id == id);
+                let chart = chart.and_then(|t| t.chart.as_ref())?;
+                Some(Request::Status(office::open(chart, program)))
             }
             None => None,
         }
