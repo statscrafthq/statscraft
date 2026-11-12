@@ -2,6 +2,8 @@
 
 Statscraft is built so that an AI agent with a shell can do the analysis work: everything is syntax, every result is JSON, every error has a line and a column, and a session keeps the data between steps. This page says how an agent should work, and gives a block of instructions you can paste into your agent.
 
+An agent app that runs MCP servers can use the same loop through tools instead of the shell: see [the MCP server](mcp.md).
+
 ## The loop
 
 1. **Look at the data.** `statscraft describe FILE --json` gives the dictionary: variable names, types, labels, value labels, missing values, valid counts, the weight variable and multiple response sets. Read it before writing syntax, so names and codes are right.

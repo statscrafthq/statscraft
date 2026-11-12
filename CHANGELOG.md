@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- `statscraft mcp`: an MCP server over standard input and output, so an AI agent app can describe data, look up commands, check and run syntax through tools. Calls go to the open window when there is one, else to a session in the user data folder. See [the MCP server](docs/mcp.md).
+
 ## 0.7.0 (2026-11-12)
 
 - Tables show variable and value labels, names or both, following SET TVARS, TNUMBERS, OVARS and ONUMBERS (labels by default, as the manual says). Edit > Settings has the two choices and keeps them.
