@@ -17,6 +17,10 @@ statscraft-update = { path = "../update" }
 serde_json = "1"
 clap = { version = "4.6.7", features = ["derive"] }
 serde = { version = "1.0.229", features = ["derive"] }
+# Apache-2.0: the official MCP SDK, for `statscraft mcp`
+rmcp = { version = "3.9.0", default-features = false, features = ["server", "transport-io", "macros"] }
+# MIT; already in the tree through openstatspec; the runtime starts only inside `statscraft mcp`
+tokio = { version = "1.54.1", features = ["rt"] }
 
 [dev-dependencies]
 # reads the written workbooks back in the tests (already a dependency of rust_xlsxwriter)
