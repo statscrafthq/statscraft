@@ -473,6 +473,8 @@ fn a_chart_that_would_not_draw_is_refused_by_name() {
         &with(&["value_axis", "format"], json!("F99999.2")),
         "is not a display format",
     );
+    // a custom currency format carries its specification
+    assert!(read(&with(&["value_axis", "format"], json!("CCA8.2 -,$,,"))).is_ok());
     refused(
         &with(&["title"], json!("x".repeat(1001))),
         "longer than 1000 characters",

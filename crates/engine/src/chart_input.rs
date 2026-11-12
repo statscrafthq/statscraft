@@ -289,11 +289,14 @@ fn check_categories(chart: &Chart, kind: &str) -> Result<(), String> {
     }
 }
 
-/// A display format such as F8.2, PCT8.1 or COMMA12, or none.
+/// A display format such as F8.2, PCT8.1 or COMMA12, or none; a custom currency format may
+/// carry its specification after a blank, as SET CCA gives it. Width and decimals are capped,
+/// since the text of a number is made that wide.
 fn is_format(format: &str) -> bool {
     if format.is_empty() {
         return true;
     }
+    let format = format.split_once(' ').map_or(format, |(format, _)| format);
     let letters = format.find(|c: char| !c.is_ascii_alphabetic());
     let (kind, size) = format.split_at(letters.unwrap_or(format.len()));
     let (width, decimals) = size.split_once('.').unwrap_or((size, "0"));
@@ -434,12 +437,15 @@ fn distinct(rows: &[&Row], channel: &Channel) -> Result<(Vec<Key>, Vec<usize>), 
         Sort::Ascending => order.sort_by(|&a, &b| keys[a].order(&keys[b])),
         Sort::Descending => order.sort_by(|&a, &b| keys[b].order(&keys[a])),
         Sort::Listed(listed) => {
-            let place = |k: &Key| {
-                listed
-                    .iter()
-                    .position(|v| Key::of(Some(v)).as_ref() == Some(k))
-            };
-            order.sort_by(|&a, &b| match (place(&keys[a]), place(&keys[b])) {
+            let mut places = HashMap::new();
+            for (p, v) in listed.iter().enumerate().rev() {
+                if let Some(key) = Key::of(Some(v)) {
+                    places.insert(key.id(), p);
+                }
+            }
+            let place: Vec<Option<usize>> =
+                keys.iter().map(|k| places.get(&k.id()).copied()).collect();
+            order.sort_by(|&a, &b| match (place[a], place[b]) {
                 (Some(x), Some(y)) => x.cmp(&y),
                 (Some(_), None) => std::cmp::Ordering::Less,
                 (None, Some(_)) => std::cmp::Ordering::Greater,
@@ -770,6 +776,8 @@ fn categorical(
         error_bars: None,
         second_axis: None,
         plot: None,
+        outline: None,
+        hidden: false,
     })
 }
 
@@ -822,6 +830,8 @@ fn pie(rows: &[&Row], channels: &HashMap<&str, Channel>) -> Result<Chart, String
         error_bars: None,
         second_axis: None,
         plot: None,
+        outline: None,
+        hidden: false,
     })
 }
 
