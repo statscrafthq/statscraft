@@ -139,10 +139,11 @@ fn beta_fraction(a: f64, b: f64, x: f64) -> f64 {
         let step = d * c;
         h *= step;
         if (step - 1.0).abs() < 1e-15 {
-            break;
+            return h;
         }
     }
-    h
+    // not converged: parameters this large (beyond about 1e10) need more terms than are taken
+    f64::NAN
 }
 
 /// The standard normal distribution function by Hart's rational approximation (as given by
@@ -187,6 +188,10 @@ pub(crate) fn normal_cdf(x: f64) -> f64 {
 /// variant of regula falsi, to a few units in the last place.
 pub(crate) fn solve(f: impl Fn(f64) -> f64, mut low: f64, mut high: f64) -> f64 {
     let (mut f_low, mut f_high) = (f(low), f(high));
+    // a function that cannot be evaluated has no root to find
+    if f_low.is_nan() || f_high.is_nan() {
+        return f64::NAN;
+    }
     if f_low == 0.0 {
         return low;
     }
@@ -208,6 +213,9 @@ pub(crate) fn solve(f: impl Fn(f64) -> f64, mut low: f64, mut high: f64) -> f64 
         let fx = f(x);
         if fx == 0.0 {
             return x;
+        }
+        if fx.is_nan() {
+            return f64::NAN;
         }
         if fx.abs() < best.0 {
             best = (fx.abs(), x);

@@ -231,6 +231,40 @@ fn hyper_pdf(x: f64, total: f64, sample: f64, hits: f64) -> f64 {
     (ln_choose(hits, x) + ln_choose(total - hits, sample - x) - ln_choose(total, sample)).exp()
 }
 
+/// P(X <= k) of the hypergeometric. The terms fall on both sides of the mode, so the tail
+/// on the far side of k from the mode is summed outwards from k until the terms no longer
+/// count: a billion terms from the lowest value would take minutes.
+fn hyper_cdf(k: f64, total: f64, sample: f64, hits: f64) -> f64 {
+    let low = (sample + hits - total).max(0.0);
+    let high = sample.min(hits);
+    if k < low {
+        return 0.0;
+    }
+    if k >= high {
+        return 1.0;
+    }
+    let tail = |from: f64, step: f64| {
+        let mut sum = 0.0;
+        let mut j = from;
+        while (low..=high).contains(&j) {
+            let p = hyper_pdf(j, total, sample, hits);
+            sum += p;
+            // the next value is no different at this size, or its term adds nothing
+            if p == 0.0 || p < 1e-17 * sum || j + step == j {
+                break;
+            }
+            j += step;
+        }
+        sum
+    };
+    let mode = ((sample + 1.0) * (hits + 1.0) / (total + 2.0)).floor();
+    if k < mode {
+        tail(k, -1.0).min(1.0)
+    } else {
+        (1.0 - tail(k + 1.0, 1.0)).max(0.0)
+    }
+}
+
 /// P(X = x) of the negative binomial: the trials up to the r-th success.
 fn negbin_pdf(x: f64, r: f64, p: f64) -> f64 {
     if x.fract() != 0.0 || x < r {
@@ -617,17 +651,7 @@ pub(crate) fn evaluate(name: &str, p: &[f64]) -> Option<f64> {
         {
             match family {
                 "PDF" => hyper_pdf(x, total, sample, hits),
-                "CDF" => {
-                    let k = x.floor();
-                    let low = (sample + hits - total).max(0.0);
-                    let mut sum = 0.0;
-                    let mut j = low;
-                    while j <= k.min(sample.min(hits)) {
-                        sum += hyper_pdf(j, total, sample, hits);
-                        j += 1.0;
-                    }
-                    sum.min(1.0)
-                }
+                "CDF" => hyper_cdf(x.floor(), total, sample, hits),
                 _ => return None,
             }
         }
