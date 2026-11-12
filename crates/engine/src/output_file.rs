@@ -121,9 +121,12 @@ pub fn leaves(items: &[Item]) -> Vec<(&str, &Item)> {
     out
 }
 
+/// One command as an output window shows it: its heading, its syntax and its leaves.
+pub type Shown = (String, String, Vec<(Table, Option<Chart>)>);
+
 /// The items grouped as an output window shows them: per command its name, its syntax and its
 /// leaves; a leaf at the top level stands alone under its own title.
-pub fn by_command(items: &[Item]) -> Vec<(String, String, Vec<(Table, Option<Chart>)>)> {
+pub fn by_command(items: &[Item]) -> Vec<Shown> {
     items
         .iter()
         .map(|item| match item {

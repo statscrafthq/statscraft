@@ -734,7 +734,17 @@ fn run_saves_output_that_a_later_run_opens_and_converts() {
     assert_eq!(command["command"], "FREQUENCIES");
     assert_eq!(command["syntax"], "FREQUENCIES gender /BARCHART.");
     let first_table = &first["commands"][1]["tables"][0];
-    assert_eq!(command["items"][0]["rows"], first_table["rows"]);
+    // the same cells; the file writes whole numbers without a fraction
+    let cells = |rows: &serde_json::Value| -> Vec<Option<f64>> {
+        let rows = rows.as_array().unwrap().iter();
+        rows.flat_map(|r| r.as_array().unwrap().iter().map(|c| c.as_f64()))
+            .collect()
+    };
+    assert_eq!(
+        cells(&command["items"][0]["rows"]),
+        cells(&first_table["rows"])
+    );
+    assert_eq!(command["items"][0]["rows"][1][2], first_table["rows"][1][2]);
     // a later run without data converts it; the opened items are not repeated in the JSON
     let open = "OUTPUT OPEN FILE='gender.scout'.\n\
                 OUTPUT EXPORT /CSV DOCUMENTFILE='gender.csv'.\n\
@@ -750,5 +760,5 @@ fn run_saves_output_that_a_later_run_opens_and_converts() {
     // OUTPUT DISPLAY counts the opened tables and chart; its own table joins after it
     let documents = &second["commands"][2]["tables"][0]["rows"];
     let items = command["items"].as_array().unwrap().len();
-    assert_eq!(documents[0][1], items);
+    assert_eq!(documents[0][1].as_f64(), Some(items as f64));
 }
