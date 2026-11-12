@@ -228,3 +228,32 @@ fn a_portable_install_gets_the_new_programs() {
         Install::Portable,
     );
 }
+
+#[test]
+fn the_bundle_of_a_known_version_is_checked_against_sha256sums() {
+    let version = semver::Version::new(9, 9, 9);
+    let name = statscraft_update::bundle(&version, "windows", "x86_64").unwrap();
+    let bundle = b"a bundle".to_vec();
+    let sums = format!(
+        "{}  {name}\n{}  other.mcpb\n",
+        sha256(&bundle),
+        sha256(b"x")
+    );
+    let base = serve(|_| {
+        HashMap::from([
+            ("/v9.9.9/SHA256SUMS".into(), (200, sums.into_bytes())),
+            (format!("/v9.9.9/{name}"), (200, bundle.clone())),
+            ("/v9.9.9/other.mcpb".into(), (200, b"tampered".to_vec())),
+        ])
+    });
+    let client = Client::at(&base);
+    let dir = temp("bundle");
+    let release = Release::files(&base, version.clone(), &[&name]);
+    let file = client.download(&release, &name, &dir).unwrap();
+    assert_eq!(std::fs::read(&file).unwrap(), bundle);
+    let release = Release::files(&base, version, &["other.mcpb"]);
+    let error = client.download(&release, "other.mcpb", &dir).unwrap_err();
+    assert!(error.contains("does not match SHA256SUMS"), "{error}");
+    assert_eq!(std::fs::read_dir(&dir).unwrap().count(), 1);
+    std::fs::remove_dir_all(dir).unwrap();
+}

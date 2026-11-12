@@ -86,6 +86,43 @@ impl Release {
     }
 }
 
+/// Where GitHub serves the files of each release, under `v{version}/`.
+pub const DOWNLOADS: &str = "https://github.com/statscrafthq/statscraft/releases/download";
+
+impl Release {
+    /// The release `version` with `SHA256SUMS` and the files `names`, at their fixed addresses
+    /// under `downloads`; no API call needed when the version is known.
+    pub fn files(downloads: &str, version: Version, names: &[&str]) -> Release {
+        let base = format!("{}/v{version}", downloads.trim_end_matches('/'));
+        let assets = ["SHA256SUMS"]
+            .iter()
+            .chain(names)
+            .map(|name| Asset {
+                name: name.to_string(),
+                url: format!("{base}/{name}"),
+            })
+            .collect();
+        Release {
+            version,
+            notes: base.replace("/releases/download/", "/releases/tag/"),
+            assets,
+        }
+    }
+}
+
+/// The MCP bundle (`.mcpb`, an extension for Claude Desktop) of `version` for a system, named
+/// as `std::env::consts` names it; None where the release has none.
+pub fn bundle(version: &Version, os: &str, arch: &str) -> Option<String> {
+    let platform = match (os, arch) {
+        // the x86_64 program also runs on Windows for ARM
+        ("windows", _) => "windows-x86_64",
+        ("macos", _) => "macos-universal",
+        ("linux", "x86_64") => "linux-x86_64",
+        _ => return None,
+    };
+    Some(format!("statscraft-{version}-{platform}.mcpb"))
+}
+
 /// The SHA-256 that a `SHA256SUMS` file (the output of `sha256sum`) gives for `name`.
 pub fn sum_of<'a>(sums: &'a str, name: &str) -> Option<&'a str> {
     sums.lines().find_map(|line| {
@@ -539,6 +576,43 @@ mod tests {
         );
         assert_eq!(sum_of(&sums, "short.tar.gz"), None);
         assert_eq!(sum_of(&sums, "statscraft_0.2.0"), None);
+    }
+
+    #[test]
+    fn the_bundle_of_this_version_has_a_fixed_address() {
+        let v = Version::new(0, 9, 0);
+        assert_eq!(
+            bundle(&v, "windows", "x86_64").unwrap(),
+            "statscraft-0.9.0-windows-x86_64.mcpb"
+        );
+        assert_eq!(
+            bundle(&v, "windows", "aarch64").unwrap(),
+            "statscraft-0.9.0-windows-x86_64.mcpb"
+        );
+        assert_eq!(
+            bundle(&v, "macos", "aarch64").unwrap(),
+            "statscraft-0.9.0-macos-universal.mcpb"
+        );
+        assert_eq!(
+            bundle(&v, "linux", "x86_64").unwrap(),
+            "statscraft-0.9.0-linux-x86_64.mcpb"
+        );
+        assert_eq!(bundle(&v, "linux", "aarch64"), None);
+        assert_eq!(bundle(&v, "freebsd", "x86_64"), None);
+        let name = bundle(&v, "windows", "x86_64").unwrap();
+        let release = Release::files(DOWNLOADS, v, &[&name]);
+        assert_eq!(
+            release.url(&name).unwrap(),
+            "https://github.com/statscrafthq/statscraft/releases/download/v0.9.0/statscraft-0.9.0-windows-x86_64.mcpb"
+        );
+        assert_eq!(
+            release.url("SHA256SUMS").unwrap(),
+            "https://github.com/statscrafthq/statscraft/releases/download/v0.9.0/SHA256SUMS"
+        );
+        assert_eq!(
+            release.notes,
+            "https://github.com/statscrafthq/statscraft/releases/tag/v0.9.0"
+        );
     }
 
     fn temp(tag: &str) -> PathBuf {
