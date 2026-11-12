@@ -64,6 +64,10 @@ The replies are the same JSON as for a file session, with `"session": "gui"`. Re
 
 Because the person may also change the data in the window, the agent should run `statscraft describe -s gui --json` again before it relies on names or counts it saw earlier.
 
+Every run that works leaves its syntax in the window: it is added to a syntax window named Agent, under a comment line with the time (`* Agent 14:32.`). The window opens with the first run, and again after the person closes it. The person can read what was done, change it, run it with Ctrl+Enter and save it. A failed run adds nothing. `trail` in the JSON names the window. A file session does the same in `syntax.sps` in its folder, with the date in each comment line, and `trail` gives that file's path.
+
+Through the MCP server an agent can also read, edit, run and save the person's syntax windows; see [the MCP server](mcp.md#syntax-windows). When the person asks to fix or explain their syntax, read the window, say what you would change, edit it there and run it from there, so the fix stays in their file.
+
 The window can hold several datasets and output documents at once. Under `session`, `describe` lists them as the person sees them: `active_dataset` is the dataset every command works on, `datasets` lists each open one with its size (a file opened from the window gets the name `DataSet1`, `DataSet2` and so on), `output_documents` lists the output documents, and `designated_output` is the one the next tables go to. Each command in a run's JSON names its document in `commands[].document`. To work on another dataset, run `DATASET ACTIVATE name.`; to send tables elsewhere, `OUTPUT NEW NAME=name.` or `OUTPUT ACTIVATE name.` A run from the agent waits while the window is busy, and runs after it.
 
 ## Instructions to paste into your agent
@@ -85,6 +89,8 @@ statistics command syntax (COMPUTE, RECODE, FREQUENCIES, CTABLES and so on). Use
   "hint") and run the same lines again; a failed run changes nothing. Read "warnings" of every
   command and "changes" to confirm what happened to the data.
 - If I have the Statscraft window open, use `-s gui` instead of `-s work`, so I see every result.
+  Each run that works is added to the syntax window Agent there; with `-s work` it goes to
+  `.statscraft/sessions/work/syntax.sps`. Tell me where ("trail" in the JSON).
 - Do not write data files unless I ask; nothing is saved to disk without a SAVE command.
 - Report numbers from the "tables" in the JSON; do not compute them yourself.
 ```
@@ -99,4 +105,4 @@ The window accepts syntax only from programs of the same user on the same comput
 - Requests larger than 64 MB are refused.
 - When the window closes, it removes its file.
 
-What this means in practice: any program running as you can drive the window, just as it could run `statscraft` itself. Syntax sent to the window can do what syntax can do: read files, and write files with `SAVE` or `AGGREGATE OUTFILE`. Treat an agent that can use `-s gui` like an agent that can run commands in your shell.
+What this means in practice: any program running as you can drive the window, just as it could run `statscraft` itself. Syntax sent to the window can do what syntax can do: read files, and write files with `SAVE` or `AGGREGATE OUTFILE`. The same connection lets a program read and change the text of your syntax windows, open .sps files in new ones, and save a syntax window to a file; saving does not replace another existing file unless the request says so. Treat an agent that can use `-s gui` like an agent that can run commands in your shell.

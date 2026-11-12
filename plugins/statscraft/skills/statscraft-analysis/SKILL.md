@@ -10,7 +10,7 @@ Statscraft runs statistics command syntax (GET FILE, COMPUTE, RECODE, FREQUENCIE
 
 ## Which way to call it
 
-- **MCP tools** (preferred): `describe`, `list_commands`, `command_help`, `check_syntax`, `run_syntax`, `window_status`. They appear when the Statscraft MCP server is connected.
+- **MCP tools** (preferred): `describe`, `list_commands`, `command_help`, `check_syntax`, `run_syntax`, `window_status`, and for the person's syntax windows `list_syntax_windows`, `read_syntax`, `edit_syntax`, `new_syntax_window`, `open_syntax_file`, `save_syntax`. They appear when the Statscraft MCP server is connected.
 - **Command line**, when you have a shell but no tools: `statscraft describe FILE --json`, `statscraft help [COMMAND]`, `statscraft check -s NAME --json FILE.sps`, `statscraft run -s NAME --json FILE.sps` (add `--lines A-B` for a range, or `-e "SYNTAX"` for inline syntax).
 - Neither available: tell the person to install Statscraft and run `statscraft connect` once, then start a new conversation. See https://docs.statscraft.org/connect.html.
 
@@ -28,6 +28,18 @@ Give absolute paths for data files, in tool arguments and in the syntax.
 ## The open window
 
 If the person has the Statscraft window open (`window_status` tells you), calls without a session go to it: they see every table appear in the Output tab and every command in the log. They can change the data there too, so call `describe` again before relying on names or counts from earlier.
+
+## The syntax trail
+
+Every run that works leaves its syntax where the person can read, edit and rerun it: in the open window it is added to the syntax window Agent, under a comment line with the time; in a file session it goes to `syntax.sps` in the session's folder. `trail` in each reply says where. Mention it when you report, so the person knows where to find the steps. Failed runs leave nothing.
+
+## The person's syntax windows
+
+- When the person asks you to fix, explain or extend their syntax, call `list_syntax_windows`, then `read_syntax` on their window. Explain what you see with its line numbers.
+- Say what you would change before changing it. Then change it in place with `edit_syntax` (replace lines, insert, append), so the fix stays in their syntax. They see it at once and can undo it in the editor.
+- Run it from the window with `run_syntax` and `window` (and `lines` for part of it), exactly as their Run does. Such a run is not copied to the Agent window; their window is its record.
+- When the person works in a syntax window, prefer putting new syntax there (or in a `new_syntax_window`) and running it from there over sending loose syntax.
+- `save_syntax` writes a file: use it only when asked, and never set `overwrite` without the person's yes.
 
 ## Files
 

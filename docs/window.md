@@ -143,6 +143,7 @@ Each syntax window holds one syntax file, or new syntax, in an editor with line 
 - The toolbar has **Run all**, **Run selection** and the **Active** list. The Active list shows the datasets of the session, with the active one chosen. Choosing another runs `DATASET ACTIVATE name.`, which shows in the log like any run.
 - Every window runs on the same session and the same active dataset. A run started while another goes on waits its turn, and the status bar says how many runs wait.
 - **Paste** in a dialog or the output puts the syntax at the end of the designated syntax window: the one opened last, or the one chosen with Window > Designate window. With no syntax window open, a new one opens.
+- **The Agent window.** Syntax that an AI agent or `statscraft run -s gui` runs in this window is added to a syntax window named Agent when it works, each run under a comment line with its time. It opens with the first such run, and again after you close it. Edit it, run lines from it and save it like any syntax window; pasted syntax never goes there. An agent can also read and edit your other syntax windows and run them, and you see each change in the editor as it happens (Ctrl+Z there takes it back). See [the MCP server](mcp.md#syntax-windows).
 
 ### The editor
 
