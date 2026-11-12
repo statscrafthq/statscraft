@@ -235,7 +235,7 @@ A custom table with two header levels, from `CTABLES /TABLE region [COUNT, COLPC
 
 ### Charts
 
-FREQUENCIES (BARCHART, PIECHART, HISTOGRAM), CROSSTABS (BARCHART), EXAMINE (PLOT), ONEWAY (PLOT MEANS), REGRESSION (RESIDUALS, SCATTERPLOT, PARTIALPLOT), FACTOR (PLOT), CLUSTER (PLOT) and TREE (the tree diagram) make charts. A chart is data: its kind, its labels and its numbers, with nothing about colors or layout. Labels follow SET TVARS, TNUMBERS and OVARS as tables do. `statscraft run --json -e "..."` with `CROSSTABS /TABLES=region BY gender /BARCHART.` gives (shortened):
+FREQUENCIES (BARCHART, PIECHART, HISTOGRAM), CROSSTABS (BARCHART), EXAMINE (PLOT), ONEWAY (PLOT MEANS), REGRESSION (RESIDUALS, SCATTERPLOT, PARTIALPLOT), LOGISTIC REGRESSION (CLASSPLOT), FACTOR (PLOT), CLUSTER (PLOT) and TREE (the tree diagram) make charts. A chart is data: its kind, its labels and its numbers, with nothing about colors or layout. Labels follow SET TVARS, TNUMBERS and OVARS as tables do. `statscraft run --json -e "..."` with `CROSSTABS /TABLES=region BY gender /BARCHART.` gives (shortened):
 
 ```json
 {

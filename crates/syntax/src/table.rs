@@ -1403,8 +1403,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  block only. CASEWISE lists every case, or those whose studentized residual is OUTLIER or more\n\
                  away from 0. SAVE adds PRE_1, PGR_1, RES_1, DEV_1, LRE_1, SRE_1, ZRE_1, LEV_1, COO_1 and DFB0_1,\n\
                  DFB1_1, ... (one per coefficient), or the names given (DFBETA(name) gives name0, name1, ...).\n\
-                 Weighted when a weight variable is set. CLASSPLOT is accepted with a warning that charts are not\n\
-                 drawn yet; EXTERNAL changes nothing. Not supported yet: SELECT, OUTFILE.",
+                 Weighted when a weight variable is set. CLASSPLOT gives, for every step shown, chart data of the\n\
+                 cases counted by their predicted probability of the second category in 40 bins of 0.025, stacked\n\
+                 by the observed category. EXTERNAL changes nothing. Not supported yet: SELECT, OUTFILE.",
         example: "LOGISTIC REGRESSION VARIABLES=bought WITH age income region /CATEGORICAL=region /METHOD=FSTEP(LR) /PRINT=GOODFIT CI(95) /SAVE=PRED.",
         parse: logistic::logistic,
     },

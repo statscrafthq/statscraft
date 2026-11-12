@@ -131,7 +131,7 @@ pub struct Logistic {
     pub include: bool,
     pub casewise: Option<LogisticCasewise>,
     pub save: Vec<(LogisticTemp, Option<String>)>,
-    /// CLASSPLOT, which is not drawn yet.
+    /// `/CLASSPLOT`: the classification plot of every step shown.
     pub classplot: bool,
 }
 

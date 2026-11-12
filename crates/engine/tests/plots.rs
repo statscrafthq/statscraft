@@ -616,6 +616,46 @@ fn cluster_dendrogram_and_icicle() {
 }
 
 #[test]
+fn logistic_classification_plot_bins_the_predicted_probabilities() {
+    // made-up trial sign-ups (1) by minutes on the site
+    let data = "DATA LIST LIST /signup minutes (F2).
+BEGIN DATA
+0 1
+0 2
+0 3
+1 4
+0 5
+1 6
+0 7
+1 8
+1 9
+1 10
+END DATA.
+";
+    let (tables, charts, warnings) =
+        run(data, "LOGISTIC REGRESSION signup WITH minutes /CLASSPLOT.");
+    assert!(warnings.is_empty(), "{warnings:?}");
+    assert_eq!(charts.len(), 1);
+    let chart = &charts[0];
+    assert_eq!(chart.title, "Classification plot, step 1");
+    assert_eq!(chart.categories.len(), 40);
+    assert_eq!(chart.categories[20].bin, Some([0.5, 0.525]));
+    let (no, yes) = (&chart.series[0].values, &chart.series[1].values);
+    assert_eq!(no.iter().sum::<f64>(), 5.0);
+    assert_eq!(yes.iter().sum::<f64>(), 5.0);
+    // the bins from 0.5 up hold what the Classification Table predicts as 1
+    let above = |v: &[f64]| v[20..].iter().sum::<f64>();
+    let classification = tables
+        .iter()
+        .filter(|t| t.title == "Classification Table")
+        .last()
+        .unwrap();
+    let rows = &classification.rows;
+    assert_eq!(rows[0][3], Cell::Number(above(no)));
+    assert_eq!(rows[1][3], Cell::Number(above(yes)));
+}
+
+#[test]
 fn tree_diagram_nodes_carry_their_statistics() {
     // a made-up loyalty survey: renewing (1) or not (2) by plan (1 to 3), with counts
     let data = "DATA LIST LIST /plan renew w (F3).

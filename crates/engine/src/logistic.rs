@@ -539,6 +539,7 @@ impl Engine {
         let shown = self.shown();
         let criteria = command.criteria;
         let mut warnings = Vec::new();
+        let mut charts = Vec::new();
         let dependent = data.variable(&command.dependent)?;
         // the terms: WITH first, then those named only on a METHOD
         let mut term_vars: Vec<Vec<String>> = Vec::new();
@@ -1124,6 +1125,9 @@ impl Engine {
                 tables.extend(context.hosmer_lemeshow(&shown, &caption));
             }
             tables.push(context.classification(&shown, &caption));
+            if command.classplot {
+                charts.extend(context.classplots(&shown));
+            }
             tables.push(context.in_equation(&shown, &caption));
             if command.print.corr {
                 tables.push(context.correlations(&shown, &caption));
@@ -1185,9 +1189,7 @@ impl Engine {
         for warning in warnings {
             self.warn(warning);
         }
-        if command.classplot {
-            self.warn("LOGISTIC REGRESSION: CLASSPLOT accepted; charts are not drawn yet");
-        }
+        self.charts.extend(charts);
         if !command.save.is_empty() {
             let original: Vec<Key> = values.iter().map(clone_key).collect();
             self.save_logistic(command, &design, final_fit, &stats, &original, cases)?;
@@ -1543,6 +1545,70 @@ impl Context<'_> {
         let mut notes = vec![caption.to_string()];
         notes.extend(steps.iter().map(|s| s.fit.note.clone()));
         table("Iteration History", 2, columns, rows, Some(notes.join(" ")))
+    }
+
+    /// CLASSPLOT: for each step shown, the cases of the analysis counted by their predicted
+    /// probability of the second category, in 40 bins of 0.025 (the manual does not give the
+    /// bins), stacked by the observed category.
+    fn classplots(&self, steps: &[(usize, &Step)]) -> Vec<crate::Chart> {
+        use crate::chart::{Axis, Category, ChartKind, Grouping, Orientation, Series, Statistic};
+        const BINS: usize = 40;
+        let d = self.design;
+        let cut = self.command.criteria.cut;
+        let width = 1.0 / BINS as f64;
+        let categories: Vec<Category> = (0..BINS)
+            .map(|b| {
+                let (from, to) = (b as f64 * width, (b + 1) as f64 * width);
+                Category {
+                    label: format!("{from:.3} to under {to:.3}"),
+                    value: Cell::Number((from + to) / 2.0),
+                    missing: false,
+                    bin: Some([from, to]),
+                }
+            })
+            .collect();
+        let mut charts = Vec::new();
+        for &(n, s) in steps {
+            let mut counts = [vec![0.0; BINS], vec![0.0; BINS]];
+            for i in (0..d.x.len()).filter(|&i| d.fitted(i)) {
+                let bin = ((s.fit.pi(d, i) * BINS as f64).floor() as usize).min(BINS - 1);
+                counts[usize::from(d.y[i] > 0.5)][bin] += d.c[i];
+            }
+            let format = crate::chart::count_format(counts.iter().flatten().copied());
+            let series = counts
+                .into_iter()
+                .enumerate()
+                .map(|(group, values)| Series {
+                    name: (self.dep_label)(group),
+                    statistic: Statistic::Count,
+                    variable: None,
+                    value: Cell::Empty,
+                    values,
+                })
+                .collect();
+            charts.push(crate::Chart {
+                kind: ChartKind::Bar,
+                tier: crate::chart::Tier::Statistical,
+                orientation: Some(Orientation::Vertical),
+                grouping: Some(Grouping::Stacked),
+                title: format!("Classification plot, step {n}"),
+                footnote: Some(format!(
+                    "Predicted probability of {}; the cut value is {cut}",
+                    (self.dep_label)(1)
+                )),
+                category_axis: Axis::titled("Predicted probability"),
+                value_axis: Axis {
+                    format,
+                    ..Axis::titled("Frequency")
+                },
+                legend: Some("Observed".into()),
+                categories: categories.clone(),
+                series,
+                normal: None,
+                plot: None,
+            });
+        }
+        charts
     }
 
     fn classification(&self, steps: &[(usize, &Step)], caption: &str) -> Table {

@@ -457,6 +457,7 @@ Where the documentation is silent:
 
 - METHOD takes FSTEP and BSTEP with COND, LR and WALD. Interactions, every contrast type, CASEWISE and SAVE are supported (GNU PSPP differs).
 - The terms keep the order of the VARIABLES list (GNU PSPP puts the covariates that are not categorical first).
+- CLASSPLOT counts the cases in 40 bins of 0.025 of the predicted probability, each bin holding its lower bound, with one plot per step shown.
 - Subcommands may come in any order; the last PRINT, CRITERIA, CASEWISE and SAVE apply.
 - PRINT without DEFAULT still shows the default tables. SUMMARY shows the last step of each block.
 - Newton-Raphson starts from all coefficients 0. BCON compares the absolute change of each coefficient.
@@ -726,7 +727,7 @@ Where the documentation is silent:
   - NPAR TESTS has no exact significance for K-S, the median, Kruskal-Wallis, Jonckheere-Terpstra, Friedman, Kendall, Cochran and marginal homogeneity tests.
   - REGRESSION has no METHOD=TEST, SELECT, MATRIX or OUTFILE.
   - RELIABILITY has no MODEL=OMEGA or MATRIX.
-  - LOGISTIC REGRESSION has no SELECT or OUTFILE and draws no CLASSPLOT (accepted with a warning).
+  - LOGISTIC REGRESSION has no SELECT or OUTFILE.
   - UNIANOVA and GLM have no multivariate model (GLM with several dependents without WSFACTOR), RANDOM, TEST, ROBUST, OUTFILE, MMATRIX, MEASURE, POSTHOC VS, CONTRAST SPECIAL or the heteroskedasticity tests, and draw no plots (PLOT is accepted with a warning). With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX or SAVE.
   - FACTOR has no METHOD=COVARIANCE, MATRIX=OUT or MATRIX=IN(FAC=...).
   - CLUSTER has no MATRIX=OUT.
@@ -738,7 +739,7 @@ Where the documentation is silent:
   - FILE HANDLE refuses MODE=BINARY, MULTIPUNCH, IMAGE and 360, since only text and data files are read.
 - **Expression functions.** APPLYMODEL and STRAPPLYMODEL, which need MODEL HANDLE. NUMBER reads the formats DATA LIST reads (F, N, E, COMMA, DOT, DOLLAR, PCT, DATE, ADATE, EDATE and SDATE). STRING writes the number, date and time formats, but not the custom currencies CCA to CCE.
 - **Transformations.** PRINT and WRITE have no binary formats (P, PK, IB, PIB, PIBHEX, RB, RBHEX, Z). DATA LIST reads only F, N, E, COMMA, DOT, DOLLAR, PCT, A, DATE, ADATE, EDATE and SDATE, and only UTF-8 files. Commands such as VALUE LABELS cannot stand inside LOOP. AUTORECODE has no templates.
-- **Charts.** FREQUENCIES, CROSSTABS, EXAMINE, ONEWAY, REGRESSION, FACTOR, CLUSTER and TREE give their charts as data: the window and the text output show each chart's numbers as a table, `--json` gives its description and `--vega-lite` a Vega-Lite specification, but the window does not draw them yet. Workbooks, Word documents and presentations hold the bar, pie and line charts (the means and scree plots among them) as editable charts and the statistical plots as their data tables. The other procedures (GLM and UNIANOVA PLOT, LOGISTIC REGRESSION CLASSPLOT, DISCRIMINANT PLOT, the TREE gain charts) accept their chart subcommands with a warning.
+- **Charts.** FREQUENCIES, CROSSTABS, EXAMINE, ONEWAY, REGRESSION, LOGISTIC REGRESSION, FACTOR, CLUSTER and TREE give their charts as data: the window and the text output show each chart's numbers as a table, `--json` gives its description and `--vega-lite` a Vega-Lite specification, but the window does not draw them yet. Workbooks, Word documents and presentations hold the bar, pie and line charts (the means and scree plots among them) as editable charts and the statistical plots as their data tables. The other procedures (GLM and UNIANOVA PLOT, DISCRIMINANT PLOT, the TREE gain charts) accept their chart subcommands with a warning.
 - **TREE.** CHAID and exhaustive CHAID with a nominal or ordinal dependent. Not supported yet: CRT, QUEST, a scale dependent, split-sample and cross-validation, SPLITMERGED=YES, custom costs, profits, percentile gain tables, rules, influence variables, model files and TARGETRESPONSE.
 - **Data files.** Statscraft reads and writes .sav and .zsav files, and portable (.por) files with IMPORT and EXPORT.
   - Text files are read with DATA LIST, GET DATA and GET TRANSLATE /TYPE=TAB; workbooks (.xlsx, .xlsm, .xls) with GET DATA and GET TRANSLATE; dBASE III and IV files with GET TRANSLATE. 1-2-3, Symphony, SYLK and dBASE II files are not read.
