@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.5.0 (2026-11-12)
+
+- New procedures: FACTOR (every extraction and rotation, KMO and Bartlett, saved scores), QUICK CLUSTER, CLUSTER (hierarchical, all measures and methods), DISCRIMINANT (direct and stepwise, classification, cross-validation), LOGISTIC REGRESSION (binary, contrasts, stepwise, Hosmer-Lemeshow), UNIANOVA and GLM (sums of squares types 1 to 4, EM means, post hoc, repeated measures) and ANOVA.
+- Input programs: INPUT PROGRAM, END CASE, END FILE, REPEATING DATA, FILE TYPE and RECORD TYPE, REREAD and LEAVE.
+- MATRIX DATA, REPORT, FINISH, and OUTPUT NEW, NAME, ACTIVATE, CLOSE, DISPLAY and EXPORT (Excel, HTML, text and CSV).
+- SHOW knows every keyword; SET LOCALE sets the decimal mark; PRESERVE and RESTORE with a setting name run without a warning.
+- Window: dialogs for Factor, K-Means Cluster, Hierarchical Cluster, Discriminant, Binary Logistic, General Linear Model Univariate and Repeated Measures.
+- New packages: a portable Windows ZIP without installer, and an app for macOS (Apple silicon and Intel, not signed yet: allow it once in System Settings, Privacy and Security). Both update from the window.
+
 ## 0.4.0 (2026-11-11)
 
 - Closing the window asks about unsaved data and syntax (Save, Don't save, Cancel); so do New syntax, Open syntax and Restart now. Nothing unsaved closes without asking.
