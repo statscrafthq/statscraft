@@ -17,8 +17,8 @@ In an input program the variables are not reset before each case.
 ## Example
 
 ```text
-COMPUTE total = total + salary.
-LEAVE total.
+COMPUTE runsum = runsum + amount.
+LEAVE runsum.
 ```
 
 `statscraft help LEAVE` prints the same text in the terminal. [All commands](README.md)

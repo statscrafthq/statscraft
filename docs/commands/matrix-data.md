@@ -22,7 +22,14 @@ N=n adds an N record to each split. LIST starts each row on a new record (a row 
 ## Example
 
 ```text
-[removed]
+MATRIX DATA VARIABLES=ROWTYPE_ q1 TO q3 /FORMAT=UPPER NODIAGONAL.
+BEGIN DATA
+MEAN 12 7 30
+SD 2 1.5 4
+N 40 40 40
+CORR .25 .4
+CORR -.3
+END DATA.
 ```
 
 `statscraft help MATRIX DATA` prints the same text in the terminal. [All commands](README.md)

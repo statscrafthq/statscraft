@@ -15,8 +15,8 @@ The program goes on with the command after END CASE, with the variables blank or
 ## Example
 
 ```text
-LOOP #i = 1 TO 3.
-COMPUTE x = v(#i).
+LOOP #k = 1 TO 4.
+COMPUTE score = item(#k).
 END CASE.
 END LOOP.
 ```

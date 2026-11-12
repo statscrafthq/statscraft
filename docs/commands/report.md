@@ -30,9 +30,9 @@ TOTAL on the first BREAK repeats its first SUMMARY for all cases at the end, und
 ## Example
 
 ```text
-SORT CASES BY dept.
-REPORT FORMAT=LIST /VARIABLES=product (LABEL) sales 'Annual' 'Sales'
-  /BREAK=dept 'Department' (LABEL) /SUMMARY=VALIDN(product) MEAN(sales).
+SORT CASES BY region.
+REPORT FORMAT=LIST /VARIABLES=shop (LABEL) visitors 'Weekly' 'visitors'
+  /BREAK=region 'Region' (LABEL) /SUMMARY=VALIDN(shop) MEAN(visitors).
 ```
 
 `statscraft help REPORT` prints the same text in the terminal. [All commands](README.md)

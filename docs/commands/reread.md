@@ -16,9 +16,9 @@ COLUMN makes that column of the record column 1 for the DATA LIST (default 1). F
 
 ```text
 DATA LIST /kind 10-14 (A).
-DO IF kind = 'FORD'.
+DO IF kind = 'BELT'.
 REREAD.
-DATA LIST /price 3-6 (DOLLAR,2).
+DATA LIST /cost 15-18 (DOLLAR,2).
 END CASE.
 END IF.
 ```

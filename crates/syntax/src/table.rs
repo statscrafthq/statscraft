@@ -150,7 +150,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  The program goes on with the command after END CASE, with the variables blank or\n\
                  system-missing again except scratch and LEAVE variables. With END CASE in a program\n\
                  no case is built at the end of a run.",
-        example: "LOOP #i = 1 TO 3.\nCOMPUTE x = v(#i).\nEND CASE.\nEND LOOP.",
+        example: "LOOP #k = 1 TO 4.\nCOMPUTE score = item(#k).\nEND CASE.\nEND LOOP.",
         parse: input_program::end_case,
     },
     CommandSpec {
@@ -158,7 +158,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "In an input program or FILE TYPE: stop reading; the case being built is dropped.",
         syntax: "END FILE.\n\
                  Usually inside DO IF. Put END CASE before it to keep the case being built.",
-        example: "DO IF year >= 1881.\nEND FILE.\nEND IF.",
+        example: "DO IF day > 30.\nEND FILE.\nEND IF.",
         parse: input_program::end_file,
     },
     CommandSpec {
@@ -169,7 +169,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  before LEAVE, and not scratch variables. A numeric one starts at 0 for the first case,\n\
                  a string one blank; each later case starts with the value the case before ended with.\n\
                  In an input program the variables are not reset before each case.",
-        example: "COMPUTE total = total + salary.\nLEAVE total.",
+        example: "COMPUTE runsum = runsum + amount.\nLEAVE runsum.",
         parse: input_program::leave,
     },
     CommandSpec {
@@ -180,7 +180,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  names the data of the DATA LIST to reread (default: the last DATA LIST's); a DATA\n\
                  LIST that reads other data ignores the REREAD. Of several REREAD commands in a row\n\
                  the last counts.",
-        example: "DATA LIST /kind 10-14 (A).\nDO IF kind = 'FORD'.\nREREAD.\nDATA LIST /price 3-6 (DOLLAR,2).\nEND CASE.\nEND IF.",
+        example: "DATA LIST /kind 10-14 (A).\nDO IF kind = 'BELT'.\nREREAD.\nDATA LIST /cost 15-18 (DOLLAR,2).\nEND CASE.\nEND IF.",
         parse: input_program::reread,
     },
     CommandSpec {
@@ -197,7 +197,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  the end column (default 80, or the longest record) go on in the next records, from\n\
                  the column given (default 1); ID checks that an identifier on those records matches.\n\
                  OCCURS missing or below 1 gives no case.",
-        example: "DATA LIST /seqnum 2-4 numveh 9-10.\nREPEATING DATA STARTS=12 /OCCURS=numveh\n /DATA=make 1-8 (A) model 9 (A) numcyl 10.",
+        example: "DATA LIST /truck 1-3 nload 7-8.\nREPEATING DATA STARTS=10 /OCCURS=nload\n /DATA=cargo 1-6 (A) crates 8-9.",
         parse: input_program::repeating_data,
     },
     CommandSpec {
@@ -214,7 +214,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  with the values of the records above it. Defaults: WILD=NOWARN (WARN for grouped),\n\
                  DUPLICATE and MISSING WARN for grouped and NOWARN for nested, ORDERED=YES (grouped\n\
                  only); DUPLICATE=CASE (nested) makes a case of a record that has no records below it.",
-        example: "FILE TYPE GROUPED RECORD=#test 6 CASE=student 1-4.\nRECORD TYPE 1.\nDATA LIST /english 8-9 (A).\nRECORD TYPE 2.\nDATA LIST /reading 8-10.\nEND FILE TYPE.",
+        example: "FILE TYPE GROUPED RECORD=#kind 6 CASE=runner 1-4.\nRECORD TYPE 1.\nDATA LIST /club 8-9 (A).\nRECORD TYPE 2.\nDATA LIST /sprint 8-10.\nEND FILE TYPE.",
         parse: input_program::file_type,
     },
     CommandSpec {
@@ -227,14 +227,14 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  gives other columns for the case identifier; DUPLICATE (grouped) and MISSING apply to\n\
                  these types only. SPREAD=NO (nested): the values go to the first case built under the\n\
                  record only.",
-        example: "RECORD TYPE 21, 22, 23.\nDATA LIST /sex 5 age 6-7.",
+        example: "RECORD TYPE 11, 12, 13.\nDATA LIST /team 4 age 5-6.",
         parse: input_program::record_type,
     },
     CommandSpec {
         name: "END FILE TYPE",
         summary: "End a FILE TYPE definition and read the file.",
         syntax: "END FILE TYPE.",
-        example: "FILE TYPE MIXED RECORD=recid 1-2.\nRECORD TYPE 23.\nDATA LIST /sex 5 age 6-7.\nEND FILE TYPE.",
+        example: "FILE TYPE MIXED RECORD=rectype 1-2.\nRECORD TYPE 13.\nDATA LIST /team 4 minutes 7-9.\nEND FILE TYPE.",
         parse: input_program::end_file_type,
     },
     CommandSpec {
@@ -261,7 +261,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  of materials are then numbered 1, 2, ... The result is split by the split variables. The\n\
                  data follow between BEGIN DATA and END DATA, or come from FILE. FACTOR, CLUSTER and the\n\
                  other procedures with MATRIX=IN(*) read it.",
-        [removed]
+        example: "MATRIX DATA VARIABLES=ROWTYPE_ q1 TO q3 /FORMAT=UPPER NODIAGONAL.\nBEGIN DATA\nMEAN 12 7 30\nSD 2 1.5 4\nN 40 40 40\nCORR .25 .4\nCORR -.3\nEND DATA.",
         parse: matrix_data::matrix_data,
     },
     CommandSpec {
@@ -552,7 +552,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "SPLIT FILE",
-        [removed]
+        summary: "Run each procedure once per run of consecutive cases that share the split values.",
         syntax: "SPLIT FILE [LAYERED | SEPARATE] BY varlist.\n\
                  SPLIT FILE OFF.\n\
                  A group ends where a split variable changes value, so sort the cases first.\n\
@@ -1482,7 +1482,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  writes the report as text, with the column widths, spacing and alignment, instead of\n\
                  showing it; a later REPORT of the same session appends to the file. The report is one\n\
                  page, so LENGTH, PAGE and PREVIEW change nothing.",
-        example: "SORT CASES BY dept.\nREPORT FORMAT=LIST /VARIABLES=product (LABEL) sales 'Annual' 'Sales'\n  /BREAK=dept 'Department' (LABEL) /SUMMARY=VALIDN(product) MEAN(sales).",
+        example: "SORT CASES BY region.\nREPORT FORMAT=LIST /VARIABLES=shop (LABEL) visitors 'Weekly' 'visitors'\n  /BREAK=region 'Region' (LABEL) /SUMMARY=VALIDN(shop) MEAN(visitors).",
         parse: report::report,
     },
     CommandSpec {

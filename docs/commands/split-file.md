@@ -2,7 +2,7 @@
 
 # SPLIT FILE
 
-[removed]
+Run each procedure once per run of consecutive cases that share the split values.
 
 ## Syntax
 
