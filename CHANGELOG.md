@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Agents inside WSL: on Windows, Edit > Settings > AI agents and `statscraft connect` also find Codex (including the ChatGPT app's Codex in WSL mode), Gemini CLI, Antigravity and Claude Code installed in a WSL distribution, listed as for example Codex (WSL: Ubuntu) or `codex-wsl:Ubuntu`. The entry starts the Windows program through its `/mnt/c` path, so the agent sees the open window, and tells the server the distribution. The server then takes Linux paths in tool arguments, gives the trail file and the workbook in both forms, and `window_status` says the platform and the distribution; file names inside syntax stay Windows paths. Listing the apps no longer holds up the window while WSL starts. See [Agents inside WSL](docs/connect.md#agents-inside-wsl).
+
 ## 0.9.0 (2026-11-12)
 
 - Connecting AI apps moved to Edit > Settings > AI agents; Help > Connect an AI agent opens it there. For Claude Desktop, **Install extension** downloads the extension (.mcpb) of this version for your system, checks it against SHA256SUMS and opens it, so Claude Desktop offers to install it; this does not depend on Claude Desktop's settings file, which some versions rewrite. **Connect via config file** stays as the second way and now says where it wrote. **Check** on each app reads its settings files again and shows whether the Statscraft entry is still there. See [Connect your AI agent](docs/connect.md).

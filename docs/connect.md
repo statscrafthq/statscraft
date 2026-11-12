@@ -38,7 +38,7 @@ Claude Desktop and Claude Code have a way without a terminal too: [the bundle](#
 
 Add `--json` to any of them for output an agent can read. The exit code is 1 when an agent could not be connected.
 
-The agents are `claude-desktop`, `claude-code`, `codex` (also `chatgpt`, for the Codex view of the ChatGPT app), `cursor`, `copilot` (also `vscode`), `gemini` and `antigravity`.
+The agents are `claude-desktop`, `claude-code`, `codex` (also `chatgpt`, for the Codex view of the ChatGPT app), `cursor`, `copilot` (also `vscode`), `gemini` and `antigravity`. On Windows, agents inside WSL have ids such as `codex-wsl:Ubuntu`; `--list` shows them (see [Agents inside WSL](#agents-inside-wsl)).
 
 ## What it changes
 
@@ -63,6 +63,50 @@ How the files are treated:
 - A file is written to a temporary file first and then put in place, so an agent never reads half a file.
 - A file that is not plain JSON, for example one with comments, is not touched. You get a message that names it, and you can add the entry by hand as shown below.
 - An agent counts as installed when its settings folder exists (for Claude Code: when the `claude` command is on PATH). A missing settings file is created only for an installed agent.
+
+## Agents inside WSL
+
+On Windows, many people run their AI agents inside WSL (the Windows Subsystem for Linux): Claude Code, Codex or Gemini CLI installed in Ubuntu, for example, or the ChatGPT app with Codex set to run in WSL. Such an agent reads its settings from the Linux home folder, not from `C:\Users\NAME`. Statscraft installed on Windows connects these agents too, so they use the Windows program and see the open Statscraft window.
+
+The window and `statscraft connect` ask WSL which distributions it has (Docker Desktop's own are left out) and look in each one's home folder. Every agent found there gets its own row, named after the distribution, such as **Codex (WSL: Ubuntu)**, with the id `codex-wsl:Ubuntu` on the command line. Rows appear only for agents that are installed there. WSL may need a few seconds to start the first time; the window says so while it waits, and gives up on a distribution that does not answer in 30 seconds.
+
+| Agent inside WSL | What changes |
+|---|---|
+| Codex, also the ChatGPT app's Codex in WSL mode | `[mcp_servers.statscraft]` in `~/.codex/config.toml` of the Linux home (`CODEX_HOME` set inside Linux is not seen from Windows) |
+| Gemini CLI | `mcpServers.statscraft` in `~/.gemini/settings.json` |
+| Antigravity | `mcpServers.statscraft` in `~/.gemini/config/mcp_config.json`, when that folder exists |
+| Claude Code | runs `claude mcp add --scope user statscraft -e ... -- PATH mcp` inside the distribution, in a login shell, when `claude` is found there |
+
+What the entry holds:
+
+- The command is the Windows program as Linux sees it, for example `/mnt/c/Users/anna/AppData/Local/Programs/Statscraft/statscraft.exe`. WSL starts Windows programs from Linux, so the agent talks to the Windows Statscraft, which knows the open window.
+- `env` sets `STATSCRAFT_WSL_DISTRO` to the distribution's name and `WSLENV=STATSCRAFT_WSL_DISTRO`. `WSLENV` tells WSL to hand that variable to the Windows program, which then knows that the agent gives Linux paths.
+- The files are reached from Windows through `\\wsl$\DISTRO\home\NAME`. They are merged, backed up and written the same way as on Windows, and a new file gets Linux line endings.
+
+By hand, for Codex inside WSL:
+
+```toml
+[mcp_servers.statscraft]
+command = "/mnt/c/Users/anna/AppData/Local/Programs/Statscraft/statscraft.exe"
+args = ["mcp"]
+env = { STATSCRAFT_WSL_DISTRO = "Ubuntu", WSLENV = "STATSCRAFT_WSL_DISTRO" }
+```
+
+and for Claude Code inside WSL, in its terminal:
+
+```
+claude mcp add --scope user statscraft -e STATSCRAFT_WSL_DISTRO=Ubuntu -e WSLENV=STATSCRAFT_WSL_DISTRO -- /mnt/c/Users/anna/AppData/Local/Programs/Statscraft/statscraft.exe mcp
+```
+
+Restart the agent as below: start a new Claude Code or Gemini CLI session in WSL, or quit the ChatGPT app and open it again.
+
+Paths: the agent works with Linux paths, the server with Windows paths.
+
+- In tool arguments (`file`, `folder`, `xlsx`, the path of `open_syntax_file` and `save_syntax`), Linux paths work: `/mnt/c/data/survey.sav` becomes `C:\data\survey.sav`, and a path inside Linux, such as `/home/anna/survey.sav`, becomes `\\wsl$\Ubuntu\home\anna\survey.sav`.
+- File names inside the syntax (GET FILE, SAVE and the others) are not changed. Write them as Windows paths: `GET FILE='C:\data\survey.sav'.` `window_status` gives `platform` and `wsl_distro`, so the agent can tell.
+- Where a run kept its syntax (`trail`) and the workbook it wrote come back in both forms: `trail_wsl` and `xlsx_wsl` hold the Linux path.
+
+If `claude` is not found inside WSL although it is installed, its folder is probably added to PATH only in `~/.bashrc`; add the entry by hand as above.
 
 ## Restart the agent
 

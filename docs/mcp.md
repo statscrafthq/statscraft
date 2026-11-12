@@ -13,7 +13,7 @@ The easy way to connect an agent is `statscraft connect`, which finds the agent 
 | `command_help` | `command` | the syntax, rules and an example of one command, as `statscraft help COMMAND` |
 | `check_syntax` | `syntax` or `file`, and optional `lines`, `session`, `folder`, `vega_lite` | the result of a check, as `statscraft check --json`; nothing is kept or written |
 | `run_syntax` | the same as `check_syntax`, and optional `xlsx`; or `window` (with optional `lines`) instead of `syntax` and `file` | the result of a run, as `statscraft run --json`; the session keeps the new state, and `trail` says where its syntax was kept |
-| `window_status` | none | whether a Statscraft window is open, and if so its datasets and output documents |
+| `window_status` | none | whether a Statscraft window is open, and if so its datasets and output documents; also `platform` (`windows`, `macos`, `linux`) and `wsl_distro` when the agent runs inside WSL |
 | `list_syntax_windows` | none | the syntax windows of the open window: `id`, `name`, `file`, `unsaved`, `lines`, and whether it is the Agent window, the designated one or the one the person used last |
 | `read_syntax` | `window` | the text of a syntax window, each line with its number |
 | `edit_syntax` | `window`, `mode`, `text`, and `lines` or `before` | changes the text: `replace` the lines `lines` (an empty text deletes them), `insert` before line `before`, `append`, or `replace_all`; gives the lines the new text takes |
@@ -26,6 +26,7 @@ The easy way to connect an agent is `statscraft connect`, which finds the agent 
 - `folder` is the absolute folder that relative file names in the syntax start from. Default: your home folder. Give absolute paths in the syntax to be sure.
 - `xlsx` also writes every table and chart of the run to an Excel workbook, one sheet per table; a chart as its data table with an editable chart beside it.
 - `vega_lite` set to true gives every chart also as a Vega-Lite specification, as `--vega-lite` does on the command line.
+- An agent inside WSL that uses Statscraft on Windows may give Linux paths in the arguments; the server translates them. Inside the syntax, file names must be Windows paths. See [Agents inside WSL](connect.md#agents-inside-wsl).
 - `window` names a syntax window of the open window by its id or its name, as `list_syntax_windows` shows them. The syntax window tools work only while the window is open; without it they fail with "no Statscraft window is running".
 
 A run or check returns the JSON described in [the command line](command-line.md#json-output) as structured content, and the tables and charts as Markdown text with a summary line for apps that show only text. A syntax or run error is a normal result: `ok` is false and `errors` gives the line, column and what was expected, so the agent can fix the syntax and try again. A call the server cannot carry out at all, such as a missing file or a bad argument, is marked as a tool error.

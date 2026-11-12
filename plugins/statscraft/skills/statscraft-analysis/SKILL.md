@@ -16,6 +16,8 @@ Statscraft runs statistics command syntax (GET FILE, COMPUTE, RECODE, FREQUENCIE
 
 Give absolute paths for data files, in tool arguments and in the syntax.
 
+When you run inside WSL and Statscraft runs on Windows, `window_status` shows `platform` `windows` and your `wsl_distro`. Tool arguments may then be Linux paths, which the server translates, but file names inside the syntax are read as written: use Windows paths there, such as `GET FILE='C:\data\survey.sav'.` for `/mnt/c/data/survey.sav`, or `\\wsl$\DISTRO\home\...` for a file in the Linux home.
+
 ## The loop
 
 1. **Know the data before writing anything.** Call `describe` on the file. Note the exact variable names, which codes carry value labels, the user-missing values, the weight variable and any multiple response sets. Do not guess names or codes.
