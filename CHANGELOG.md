@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.0 (2026-11-12)
+
+- Tables show variable and value labels, names or both, following SET TVARS, TNUMBERS, OVARS and ONUMBERS (labels by default, as the manual says). Edit > Settings has the two choices and keeps them.
+- Every dialog that writes syntax ends the same way: the syntax, OK, Paste and Cancel; Escape closes it. Hint lines and instruction tooltips are gone, and so is the View menu (the Data View has its own value labels switch).
+
 ## 0.6.0 (2026-11-12)
 
 - The MATRIX ... END MATRIX language: COMPUTE, PRINT, DO IF, LOOP, READ, WRITE, GET, SAVE, MGET, MSAVE, CALL EIGEN, SVD and SETDIAG, and the whole function library.
