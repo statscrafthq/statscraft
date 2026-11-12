@@ -527,6 +527,7 @@ impl Context<'_> {
             series,
             normal: None,
             plot: None,
+            error_bars: None,
         })
     }
 
@@ -607,6 +608,7 @@ impl Context<'_> {
             series,
             normal: None,
             plot: None,
+            error_bars: None,
         })
     }
 
