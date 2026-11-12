@@ -671,7 +671,7 @@ fn noncentral(family: &str, distribution: &str, x: f64, p: &[f64]) -> Option<f64
 }
 
 /// Whether x, the first argument of a CDF, PDF, NCDF, NPDF or SIG function, is a value the
-[removed]
+/// distribution takes, which transformation expressions require of x: the ranges are closed, and the discrete distributions take
 /// whole numbers only. The parameters are left to `evaluate`.
 pub(crate) fn x_in_range(name: &str, p: &[f64]) -> bool {
     let Some((family, distribution)) = name.split_once('.') else {

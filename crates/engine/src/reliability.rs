@@ -16,9 +16,8 @@
 //!   nonadditivity, Hotelling's T-squared and the intraclass correlations follow the formulas of
 //!   the Algorithms manual.
 //! - PARALLEL and STRICTPARALLEL: the goodness-of-fit test uses the determinant of the
-[removed]
-//!   gives it (its likelihood ratio formula prints k + 1 and 1 / k where that matrix has k - 1
-//!   and 1 / (k - 1)).
+//!   constrained matrix, as the manual's text describes (its likelihood ratio formula prints
+//!   k + 1 and 1 / k where that matrix has k - 1 and 1 / (k - 1)).
 
 use crate::descriptives::{case_weights, number};
 use crate::dist::{chi_square_p, f_p, f_quantile};

@@ -1420,10 +1420,10 @@ fn comparison_caption(
     };
     let rule = match merged {
         None => format!(
-            "For each significant pair the letter of the column with the smaller {smaller} appears in the column with the larger one."
+            "When a pair differs significantly, the column with the larger {smaller} shows the letter of the other column."
         ),
         Some(CompareStyle::Simple) => format!(
-            [removed]
+            "Each compared column is followed by a column of letters headed by its key; when a pair differs significantly, the column with the larger {smaller} shows the key of the other column."
         ),
         Some(CompareStyle::Apa) => "Each compared column is followed by its Group letters; within a row of a subtable, two columns whose letters have none in common differ significantly.".to_string(),
     };
