@@ -35,6 +35,42 @@ use statscraft_syntax::{
 };
 use std::collections::HashMap;
 
+/// A map with a fast hash for the cell keys, small vectors of category numbers that are added
+/// to once or more per case. The standard hash resists keys chosen to collide, which these
+/// keys cannot be, and costs most of the time of a large table.
+type FastMap<K, V> = HashMap<K, V, std::hash::BuildHasherDefault<FastHash>>;
+
+/// A multiply-and-rotate word hash.
+#[derive(Default)]
+struct FastHash(u64);
+
+impl FastHash {
+    fn add(&mut self, word: u64) {
+        self.0 = self.0.wrapping_add(word).wrapping_mul(0xf135_7aea_2e62_a9c5);
+    }
+}
+
+impl std::hash::Hasher for FastHash {
+    fn finish(&self) -> u64 {
+        // the multiplication leaves the low bits weakest; the table picks buckets with them
+        self.0.rotate_left(26)
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        let (words, rest) = bytes.as_chunks::<8>();
+        words.iter().for_each(|w| self.add(u64::from_le_bytes(*w)));
+        rest.iter().for_each(|b| self.add(u64::from(*b)));
+    }
+
+    fn write_u64(&mut self, n: u64) {
+        self.add(n);
+    }
+
+    fn write_usize(&mut self, n: usize) {
+        self.add(n as u64);
+    }
+}
+
 /// A category value: a number or a right-trimmed string.
 #[derive(Clone, Debug, PartialEq)]
 enum Key {
@@ -1031,7 +1067,7 @@ struct Choices {
 
 impl Choices {
     fn of(var: &TermVar, list: &CategoryList, cases: usize) -> Choices {
-        let mut seen: HashMap<Vec<(usize, u64)>, u32> = HashMap::new();
+        let mut seen: FastMap<Vec<(usize, u64)>, u32> = FastMap::default();
         let mut distinct = Vec::new();
         let ids = (0..cases)
             .map(|case| {
@@ -1970,12 +2006,12 @@ struct Section {
     /// The cells by category index, totals included. For the significance tests the innermost
     /// row and column variables also have the index MARGIN: every case of the other
     /// categories once, whatever its categories of that variable.
-    cells: HashMap<Vec<usize>, Tally>,
-    denominators: [HashMap<Vec<usize>, Tally>; 7],
+    cells: FastMap<Vec<usize>, Tally>,
+    denominators: [FastMap<Vec<usize>, Tally>; 7],
     /// For the tests, when the innermost column variable is a set: the cases two of its
     /// categories share, by the categories of the other variables (rows, outer columns,
     /// layers) and then the two categories.
-    pairs: HashMap<Vec<usize>, Tally>,
+    pairs: FastMap<Vec<usize>, Tally>,
     summaries: Vec<Indexed>,
     /// TOTALS: the summaries of the totals and subtotals of the summary variable, with its
     /// position among the categorical variables and which of its categories they are.
@@ -2075,9 +2111,9 @@ impl Section {
                         .collect()
                 })
                 .collect(),
-            cells: HashMap::new(),
+            cells: FastMap::default(),
             denominators: Default::default(),
-            pairs: HashMap::new(),
+            pairs: FastMap::default(),
             summaries: summaries.to_vec(),
             total_summaries: total_summaries.zip(summary_list).map(|(t, (i, list))| {
                 let total = list.total();
@@ -2100,7 +2136,7 @@ impl Section {
         // without a measured value, cases with the same categories add alike: they are added
         // once, as a group, which keeps large tables fast
         let mut groups: Vec<(Vec<u32>, Mass, Option<f64>)> = Vec::new();
-        let mut group_of: HashMap<Vec<u32>, usize> = HashMap::new();
+        let mut group_of: FastMap<Vec<u32>, usize> = FastMap::default();
         let mut ids: Vec<u32> = Vec::with_capacity(cats.len());
         'cases: for case in 0..data.case_count() {
             // the categories of the case: one per variable, any number for a set

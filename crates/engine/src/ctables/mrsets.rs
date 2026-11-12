@@ -312,20 +312,28 @@ pub(super) fn choice(var: &TermVar, list: &CategoryList, case: usize) -> Option<
 
 /// Every combination of one entry of each part, the first part varying slowest.
 pub(super) fn product(parts: &[Vec<usize>]) -> Vec<Vec<usize>> {
-    let mut combos = vec![Vec::new()];
-    for part in parts {
-        combos = combos
-            .into_iter()
-            .flat_map(|combo| {
-                part.iter().map(move |&i| {
-                    let mut next = combo.clone();
-                    next.push(i);
-                    next
-                })
-            })
-            .collect();
+    let count = parts.iter().map(Vec::len).product();
+    let mut combos = Vec::with_capacity(count);
+    if count == 0 {
+        return combos;
     }
-    combos
+    // an odometer over the parts, the last one turning fastest
+    let mut at = vec![0; parts.len()];
+    loop {
+        combos.push(at.iter().zip(parts).map(|(&i, part)| part[i]).collect());
+        let mut wheel = parts.len();
+        loop {
+            if wheel == 0 {
+                return combos;
+            }
+            wheel -= 1;
+            at[wheel] += 1;
+            if at[wheel] < parts[wheel].len() {
+                break;
+            }
+            at[wheel] = 0;
+        }
+    }
 }
 
 impl Tally {
