@@ -37,8 +37,12 @@ fn places(home: &Path, os: Os) -> Places {
     }
 }
 
+/// Answers the question whether Claude Desktop runs with no; any other command fails the test.
 fn no_commands() -> Runner {
-    Box::new(|program, _| panic!("no command may run here, asked for {}", program.display()))
+    Box::new(|program, _| match program.to_str() {
+        Some("pgrep" | "powershell") => Ok((false, String::new())),
+        _ => panic!("no command may run here, asked for {}", program.display()),
+    })
 }
 
 fn linux(home: &Path) -> Connector {
@@ -420,4 +424,95 @@ fn plain_path_drops_only_the_local_prefix() {
         PathBuf::from(r"\\?\UNC\server\share\statscraft.exe")
     );
     assert_eq!(plain(SERVER), PathBuf::from(SERVER));
+}
+
+/// A connector whose process list shows `programs` (pgrep's answer, or the paths PowerShell gives).
+fn with_processes(home: &Path, os: Os, running: &'static [&'static str]) -> Connector {
+    let runner: Runner = Box::new(move |program, args| {
+        let program = program.to_str().unwrap();
+        Ok(match (program, os) {
+            ("powershell", Os::Windows) => {
+                assert!(args.last().unwrap().contains("Get-Process -Name claude"));
+                let lines: Vec<String> = running.iter().map(|p| format!("process:{p}")).collect();
+                (true, lines.join("\r\n"))
+            }
+            ("pgrep", Os::Mac) => (running.contains(&args[1]), String::new()),
+            ("pgrep", Os::Linux) => (running.iter().any(|p| p.contains(args[2])), String::new()),
+            _ => panic!("unexpected {program} on {os:?}"),
+        })
+    });
+    Connector::new(places(home, os), runner)
+}
+
+#[test]
+fn the_running_desktop_app_is_told_from_the_claude_code_program() {
+    let home = temp_home();
+    let windows = |running| with_processes(&home, Os::Windows, running).desktop_running();
+    assert!(!windows(&[]));
+    assert!(!windows(&[r"C:\Users\anna\.local\bin\claude.exe"]));
+    assert!(windows(&[
+        r"C:\Users\anna\.local\bin\claude.exe",
+        r"C:\Program Files\WindowsApps\Claude_1.0.0_x64\app\claude.exe",
+    ]));
+    // a path the process list may not show still counts as the app
+    assert!(windows(&[""]));
+    assert!(with_processes(&home, Os::Mac, &["Claude"]).desktop_running());
+    assert!(!with_processes(&home, Os::Mac, &["claude"]).desktop_running());
+    assert!(with_processes(&home, Os::Linux, &["/opt/claude-desktop/electron"]).desktop_running());
+    assert!(!with_processes(&home, Os::Linux, &[]).desktop_running());
+    // no process list at all: nothing to warn about
+    let broken = Connector::new(
+        places(&home, Os::Linux),
+        Box::new(|_, _| Err(std::io::Error::other("no pgrep"))),
+    );
+    assert!(!broken.desktop_running());
+}
+
+#[test]
+fn a_change_while_the_desktop_app_runs_says_to_quit_it_first() {
+    let home = temp_home();
+    fs::create_dir_all(home.join(".config/Claude")).unwrap();
+    let running = with_processes(&home, Os::Linux, &["claude-desktop"]);
+    let out = running
+        .connect("claude-desktop", Path::new(SERVER))
+        .unwrap();
+    assert_eq!(out.warning, Some(statscraft_connect::DESKTOP_RUNNING));
+    // nothing changed, nothing to warn about
+    let again = running
+        .connect("claude-desktop", Path::new(SERVER))
+        .unwrap();
+    assert_eq!(again.warning, None);
+    let quiet = linux(&home).disconnect("claude-desktop").unwrap();
+    assert!(quiet.changed && quiet.warning.is_none());
+}
+
+#[test]
+fn entry_in_reads_one_file_afresh() {
+    use statscraft_connect::entry_in;
+    let home = temp_home();
+    let json = home.join("a.json");
+    let toml = home.join("config.toml");
+    assert_eq!(entry_in(&json), Ok(None));
+    write(
+        &json,
+        r#"{"mcpServers":{"statscraft":{"command":"/x/statscraft"}}}"#,
+    );
+    assert_eq!(entry_in(&json), Ok(Some("/x/statscraft".into())));
+    write(&json, r#"{"mcpServers":{}}"#);
+    assert_eq!(entry_in(&json), Ok(None));
+    write(
+        &toml,
+        "[mcp_servers.statscraft]\ncommand = \"/y/statscraft\"\n",
+    );
+    assert_eq!(entry_in(&toml), Ok(Some("/y/statscraft".into())));
+    write(&json, "{ // comment\n}");
+    assert!(entry_in(&json).is_err());
+}
+
+#[test]
+fn codex_tells_where_the_tools_show_up() {
+    use statscraft_connect::note;
+    assert!(note("codex").unwrap().contains("Codex view"));
+    assert_eq!(note("chatgpt"), note("codex"));
+    assert_eq!(note("cursor"), None);
 }

@@ -1,14 +1,14 @@
 //! `statscraft connect`: adds this binary's MCP server to the AI agents on this computer.
 
 use clap::Args;
-use statscraft_connect::{ClientStatus, Connector, DOCS, Outcome, plain_path};
+use statscraft_connect::{ClientStatus, Connector, DOCS, Outcome, note, plain_path};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
 #[derive(Args)]
 pub struct ConnectArgs {
-    /// The agent: claude-desktop, claude-code, codex (also ChatGPT desktop), cursor, copilot (VS Code),
-    /// gemini or antigravity. Default: every agent found on this computer
+    /// The agent: claude-desktop, claude-code, codex (also the Codex view of the ChatGPT app),
+    /// cursor, copilot (VS Code), gemini or antigravity. Default: every agent found on this computer
     client: Option<String>,
     /// Take Statscraft out of the agent's settings (every agent when none is named)
     #[arg(long)]
@@ -154,6 +154,9 @@ fn print_list(clients: &[ClientStatus]) {
             String::new()
         };
         println!("{:width$}  {state}{files}", c.name);
+        if let Some(note) = note(c.id) {
+            println!("{:width$}  {note}", "");
+        }
     }
 }
 
@@ -185,6 +188,12 @@ fn print_outcome(outcome: &Outcome, remove: bool) {
     println!("{name}: {}.", did.join("; "));
     if let Some(restart) = outcome.restart {
         println!("  To finish: {restart}.");
+    }
+    if let Some(warning) = outcome.warning {
+        println!("  Note: {warning}.");
+    }
+    if let Some(note) = note(outcome.id).filter(|_| !remove) {
+        println!("  {note}");
     }
 }
 

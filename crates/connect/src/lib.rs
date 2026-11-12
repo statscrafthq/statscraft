@@ -106,7 +106,12 @@ pub type Runner = Box<dyn Fn(&Path, &[&str]) -> io::Result<(bool, String)>>;
 /// Runs the program for real, without a shell.
 pub fn system_runner() -> Runner {
     Box::new(|program, args| {
-        let out = std::process::Command::new(program).args(args).output()?;
+        let mut command = std::process::Command::new(program);
+        command.args(args);
+        // no console window flashing up over the Statscraft window
+        #[cfg(windows)]
+        std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000);
+        let out = command.output()?;
         let mut text = String::from_utf8_lossy(&out.stderr).into_owned();
         text.push_str(&String::from_utf8_lossy(&out.stdout));
         Ok((out.status.success(), text.trim().to_string()))
@@ -137,6 +142,8 @@ struct Client {
     id: &'static str,
     name: &'static str,
     restart: &'static str,
+    /// What the user should know about where the tools show up.
+    note: Option<&'static str>,
     format: Format,
 }
 
@@ -145,42 +152,52 @@ const CLIENTS: [Client; 7] = [
         id: "claude-desktop",
         name: "Claude Desktop",
         restart: "quit Claude Desktop completely (also from the tray or menu bar) and open it again",
+        note: None,
         format: Format::Json(Entry::Plain),
     },
     Client {
         id: "claude-code",
         name: "Claude Code",
         restart: "start a new Claude Code session",
+        note: None,
         format: Format::ClaudeCode,
     },
     Client {
         id: "codex",
-        name: "ChatGPT desktop and Codex",
-        restart: "quit ChatGPT desktop or Codex and open it again",
+        name: "Codex",
+        restart: "quit Codex or the ChatGPT app and open it again",
+        note: Some(
+            "Also the Codex view of the ChatGPT app. Ordinary ChatGPT chats cannot use tools on \
+             this computer; open the Codex view.",
+        ),
         format: Format::Toml,
     },
     Client {
         id: "cursor",
         name: "Cursor",
         restart: "quit Cursor and open it again",
+        note: None,
         format: Format::Json(Entry::Typed),
     },
     Client {
         id: "copilot",
         name: "VS Code with Copilot",
         restart: "quit VS Code and open it again",
+        note: None,
         format: Format::Json(Entry::Copilot),
     },
     Client {
         id: "gemini",
         name: "Gemini CLI",
         restart: "start a new Gemini CLI session",
+        note: None,
         format: Format::Json(Entry::Plain),
     },
     Client {
         id: "antigravity",
         name: "Antigravity",
         restart: "quit Antigravity and open it again",
+        note: None,
         format: Format::Json(Entry::Plain),
     },
 ];
@@ -208,6 +225,25 @@ fn client(id: &str) -> Result<&'static Client, String> {
         .iter()
         .find(|c| c.id == id)
         .ok_or_else(|| format!("unknown agent {id}; the agents are {}", ids().join(", ")))
+}
+
+/// What the user should know about where an agent shows the tools, if anything.
+pub fn note(id: &str) -> Option<&'static str> {
+    client(id).ok()?.note
+}
+
+/// Said after a change of Claude Desktop's settings file while Claude Desktop runs.
+pub const DESKTOP_RUNNING: &str = "Claude Desktop is running and may write its settings file \
+     over this change. Quit it completely (also from the tray or menu bar), then do this step again";
+
+/// The `statscraft` entry in one config file: the command it starts, or None when the file or the
+/// entry is not there. Read afresh, so a check shows whether an app took the entry out again.
+pub fn entry_in(path: &Path) -> Result<Option<String>, String> {
+    if path.extension().is_some_and(|e| e == "toml") {
+        toml_entry(path)
+    } else {
+        json_entry(path)
+    }
 }
 
 /// What `clients` knows about one agent.
@@ -245,6 +281,9 @@ pub struct Outcome {
     /// What the user must do before the agent sees the change.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub restart: Option<&'static str>,
+    /// Why the change may not last, for example an app that runs and may write its file back.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<&'static str>,
 }
 
 pub struct Connector {
@@ -296,7 +335,7 @@ impl Connector {
                 }
             }
         }
-        outcome.restart = outcome.changed.then_some(client.restart);
+        self.finish(client, &mut outcome);
         Ok(outcome)
     }
 
@@ -318,8 +357,51 @@ impl Connector {
                 }
             }
         }
-        outcome.restart = outcome.changed.then_some(client.restart);
+        self.finish(client, &mut outcome);
         Ok(outcome)
+    }
+
+    fn finish(&self, client: &Client, outcome: &mut Outcome) {
+        outcome.restart = outcome.changed.then_some(client.restart);
+        if outcome.changed && client.id == "claude-desktop" && self.desktop_running() {
+            outcome.warning = Some(DESKTOP_RUNNING);
+        }
+    }
+
+    /// Whether Claude Desktop runs now; it may write its settings file back over a change. A
+    /// process list that cannot be read counts as not running.
+    pub fn desktop_running(&self) -> bool {
+        let (program, args): (&str, &[&str]) = match self.places.os {
+            // Claude Code's own program is claude.exe too, in ~\.local\bin; it keeps no such file
+            Os::Windows => (
+                "powershell",
+                &[
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-Command",
+                    "Get-Process -Name claude -ErrorAction SilentlyContinue | \
+                     ForEach-Object { 'process:' + $_.Path }",
+                ],
+            ),
+            // the app's process is Claude; Claude Code's is claude, and pgrep tells case apart
+            Os::Mac => ("pgrep", &["-x", "Claude"]),
+            // shortcut: the community builds' name; check others when an official build exists
+            Os::Linux => ("pgrep", &["-f", "-i", "claude-desktop"]),
+        };
+        match (self.runner)(Path::new(program), args) {
+            Ok((ok, text)) if self.places.os == Os::Windows => {
+                ok && text.lines().any(|line| {
+                    line.strip_prefix("process:").is_some_and(|path| {
+                        !path
+                            .to_ascii_lowercase()
+                            .replace('/', "\\")
+                            .ends_with("\\.local\\bin\\claude.exe")
+                    })
+                })
+            }
+            Ok((ok, _)) => ok,
+            Err(_) => false,
+        }
     }
 
     fn claude(&self, args: &[&str], outcome: &mut Outcome) -> Result<(), String> {
@@ -472,6 +554,7 @@ fn outcome(client: &'static Client) -> Outcome {
         backups: Vec::new(),
         command: None,
         restart: None,
+        warning: None,
     }
 }
 
