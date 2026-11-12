@@ -1396,6 +1396,13 @@ impl App {
                 {
                     self.export_html(id, false);
                 }
+                if ui
+                    .add_enabled(has_output, egui::Button::new("Export output as PDF..."))
+                    .clicked()
+                    && let Some(id) = output
+                {
+                    self.export_pdf(id);
+                }
                 ui.add_enabled_ui(has_output, |ui| {
                     ui.menu_button("Export output as Excel", |ui| {
                         if let Some(id) = output {
@@ -2078,6 +2085,24 @@ impl App {
             let chosen = &view.selected;
             let page = output::html(&view.runs, |id| !selected || chosen.contains(&id));
             self.status = match std::fs::write(&path, page) {
+                Ok(()) => Ok(format!("output exported to {}", path.display())),
+                Err(e) => Err(format!("{}: {e}", path.display())),
+            };
+        }
+    }
+
+    fn export_pdf(&mut self, id: WindowId) {
+        if let Some(path) = self
+            .file_dialog()
+            .add_filter("PDF document", &["pdf"])
+            .save_file()
+        {
+            self.settings.remember_folder(&path);
+            let Some(view) = self.windows.output(id).map(|o| &o.view) else {
+                return;
+            };
+            let bytes = output::pdf(&view.runs, |_| true);
+            self.status = match std::fs::write(&path, bytes) {
                 Ok(()) => Ok(format!("output exported to {}", path.display())),
                 Err(e) => Err(format!("{}: {e}", path.display())),
             };

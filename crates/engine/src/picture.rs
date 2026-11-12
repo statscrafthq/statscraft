@@ -198,7 +198,7 @@ impl Palette {
     }
 }
 
-fn font() -> skrifa::FontRef<'static> {
+pub(crate) fn font() -> skrifa::FontRef<'static> {
     skrifa::FontRef::new(FONT).expect("the bundled font parses")
 }
 

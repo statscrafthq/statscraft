@@ -222,6 +222,28 @@ pub fn html(runs: &[OutputRun], keep: impl Fn(u64) -> bool) -> String {
     page(&body)
 }
 
+/// The output as a PDF file, as OUTPUT EXPORT /PDF writes it: bookmarks and the font embedded.
+pub fn pdf(runs: &[OutputRun], keep: impl Fn(u64) -> bool) -> Vec<u8> {
+    use statscraft_engine::office::Item;
+    let items: Vec<(&str, Item)> = runs
+        .iter()
+        .flat_map(|run| &run.items)
+        .flat_map(|item| {
+            let tables = item.tables.iter().filter(|t| keep(t.id));
+            tables.map(|t| match &t.chart {
+                Some(chart) => (item.heading.as_str(), Item::Chart(chart)),
+                None => (item.heading.as_str(), Item::Table(&t.table)),
+            })
+        })
+        .collect();
+    let options = statscraft_engine::pdf::Options {
+        bookmarks: true,
+        embed_fonts: true,
+        title: None,
+    };
+    statscraft_engine::pdf::document(&items, &options)
+}
+
 /// Tables as rich text for the clipboard: an HTML page that word processors and spreadsheets
 /// paste with its layout.
 pub fn clipboard_html(tables: &[&Table]) -> String {
@@ -456,6 +478,15 @@ mod tests {
         assert_eq!(page.matches("<table>").count(), 1);
         assert!(page.contains("<h2>CROSSTABS</h2>") && !page.contains("FREQUENCIES"));
         assert!(clipboard_html(&[&table()]).starts_with("<!doctype html>"));
+    }
+
+    #[test]
+    fn pdf_holds_the_output_with_its_outline() {
+        let all = pdf(&runs(), |_| true);
+        assert!(all.starts_with(b"%PDF-1.") && all.ends_with(b"%%EOF"));
+        let outline = all.windows(9).any(|w| w == b"/Outlines");
+        assert!(outline);
+        assert!(pdf(&runs(), |id| id == 4).len() < all.len());
     }
 
     #[test]

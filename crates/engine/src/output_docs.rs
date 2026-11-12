@@ -698,6 +698,20 @@ impl Engine {
                         .map_err(|e| Error(format!("OUTPUT EXPORT: {file}: {e}")))?;
                     self.write_file(file, &bytes)?;
                 }
+                ExportTarget::Pdf {
+                    file,
+                    bookmarks,
+                    embed_fonts,
+                } => {
+                    let items: Vec<(&str, Item)> =
+                        all.iter().map(|(c, s)| (c.as_str(), item(s))).collect();
+                    let options = crate::pdf::Options {
+                        bookmarks: *bookmarks,
+                        embed_fonts: *embed_fonts,
+                        title: self.documents.title.clone(),
+                    };
+                    self.write_file(file, &crate::pdf::document(&items, &options))?;
+                }
                 ExportTarget::Csv { file, notes } => {
                     let mut text = String::new();
                     for (i, (_, table)) in tables.iter().enumerate() {

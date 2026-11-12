@@ -181,6 +181,12 @@ pub enum ExportTarget {
         notes: bool,
         titles: bool,
     },
+    /// A PDF file; `bookmarks` is EMBEDBOOKMARKS and `embed_fonts` EMBEDFONTS.
+    Pdf {
+        file: String,
+        bookmarks: bool,
+        embed_fonts: bool,
+    },
 }
 
 /// A document name, after an optional `NAME=` when `keyword`.
@@ -352,11 +358,7 @@ fn keywords_on(
 }
 
 /// The refused document formats, with what they are.
-const REFUSED: [(&str, &str); 3] = [
-    ("PDF", "PDF"),
-    ("XLS", "Excel 97-2004"),
-    ("XLSM", "macro-enabled Excel"),
-];
+const REFUSED: [(&str, &str); 2] = [("XLS", "Excel 97-2004"), ("XLSM", "macro-enabled Excel")];
 
 /// The image subcommands with their keywords.
 const IMAGES: [(&str, ImageFormat, &[&str]); 6] = [
@@ -461,7 +463,7 @@ fn image_export(
     Ok(image)
 }
 
-const SUPPORTED: &str = "/XLSX, /DOC, /PPT, /HTML, /TEXT or /CSV";
+const SUPPORTED: &str = "/XLSX, /DOC, /PPT, /PDF, /HTML, /TEXT or /CSV";
 
 /// Passes over the value of an image setting: a word, number or string, or a function such
 /// as PERCENT(50).
@@ -792,6 +794,24 @@ pub(crate) fn output_export(p: &mut Parser) -> PResult<Command> {
                         notes,
                         titles,
                     },
+                });
+            }
+            "PDF" => {
+                let (mut bookmarks, mut embed_fonts) = (true, true);
+                let known = ["DOCUMENTFILE", "EMBEDBOOKMARKS", "EMBEDFONTS"];
+                keywords(p, &word, &known, |p, k| {
+                    match k {
+                        "DOCUMENTFILE" => file = Some(file_value(p)?),
+                        "EMBEDBOOKMARKS" => bookmarks = yes_no(p)?,
+                        _ => embed_fonts = yes_no(p)?,
+                    }
+                    Ok(())
+                })?;
+                let file = needs_file(p, at, &word, file.take())?;
+                export.targets.push(ExportTarget::Pdf {
+                    file,
+                    bookmarks,
+                    embed_fonts,
                 });
             }
             "CSV" => {

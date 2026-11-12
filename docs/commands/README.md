@@ -177,7 +177,7 @@ One page per supported command, generated from the same table that the parser an
 | [OUTPUT ACTIVATE](output-activate.md) | Send the tables from now on to an open output document. |
 | [OUTPUT CLOSE](output-close.md) | Close an output document, or all of them. |
 | [OUTPUT DISPLAY](output-display.md) | List the open output documents. |
-| [OUTPUT EXPORT](output-export.md) | Write the tables and charts of an output document to a workbook, document, presentation, web page, text or CSV file. |
+| [OUTPUT EXPORT](output-export.md) | Write the tables and charts of an output document to a workbook, document, presentation, PDF, web page, text or CSV file. |
 | [OUTPUT SAVE](output-save.md) | Save an output document as a Statscraft output file (.scout). |
 | [OUTPUT OPEN](output-open.md) | Open a Statscraft output file (.scout) as a new output document. |
 | [OUTPUT MODIFY](output-modify.md) | Delete, hide, rename, sort, transpose or reformat items of an output document. |

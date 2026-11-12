@@ -54,6 +54,7 @@ pub mod output_file;
 pub mod output_modify;
 mod partial_corr;
 mod pass;
+pub mod pdf;
 pub mod picture;
 pub mod plot;
 mod portable;

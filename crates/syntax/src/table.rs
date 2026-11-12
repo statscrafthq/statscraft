@@ -2081,7 +2081,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "OUTPUT EXPORT",
-        summary: "Write the tables and charts of an output document to a workbook, document, presentation, web page, text or CSV file.",
+        summary: "Write the tables and charts of an output document to a workbook, document, presentation, PDF, web page, text or CSV file.",
         syntax: "OUTPUT EXPORT [NAME=* | name] [/CONTENTS [EXPORT=ALL | VISIBLE] [LAYERS=...] [MODELVIEWS=...]]\n\
                  \x20  [/XLSX DOCUMENTFILE='path' [OPERATION=CREATEFILE | CREATESHEET | MODIFYSHEET] [SHEET='name']\n\
                  \x20         [LOCATION=LASTCOLUMN | LASTROW | STARTCELL('B2')] [NOTESCAPTIONS=YES | NO]]\n\
@@ -2089,6 +2089,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20         [TOPMARGIN=...] [BOTTOMMARGIN=...] [LEFTMARGIN=...] [RIGHTMARGIN=...] [PAGEBREAKS=...]]\n\
                  \x20  [/PPT DOCUMENTFILE='path' [NOTESCAPTIONS=YES | NO] [SLIDETITLES=YES | NO] [WIDETABLES=...]\n\
                  \x20         [SLIDESIZE=...] [TOPMARGIN=...] [BOTTOMMARGIN=...] [LEFTMARGIN=...] [RIGHTMARGIN=...]]\n\
+                 \x20  [/PDF DOCUMENTFILE='path' [EMBEDBOOKMARKS=YES | NO] [EMBEDFONTS=YES | NO]]\n\
                  \x20  [/HTML DOCUMENTFILE='path' [NOTESCAPTIONS=YES | NO] [STYLING=YES | NO]\n\
                  \x20         [IMAGEFORMAT=JPG | BMP | PNG] [INTERACTIVELAYERS=NO | YES]]\n\
                  \x20  [/TEXT DOCUMENTFILE='path' [ENCODING=LOCALE | UTF8 | UTF16] [NOTESCAPTIONS=YES | NO]\n\
@@ -2114,7 +2115,15 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  under its title, each chart as an editable chart whose numbers Edit Data opens. PPT writes a\n\
                  presentation in the .pptx format with one slide per table or chart; SLIDETITLES=NO leaves the\n\
                  slide titles out, and a chart then shows its own. Page and slide sizes, margins, WIDETABLES\n\
-                 and PAGEBREAKS are accepted and not applied. Other charts, such as a histogram or a\n\
+                 and PAGEBREAKS are accepted and not applied. PDF lays the output on A4 portrait pages with\n\
+                 2 cm margins: each command's heading, then its tables as text you can select, header rows\n\
+                 repeated when a table goes on over the next page, the caption below. A table too wide for\n\
+                 the page is set smaller, to 70 percent at most; if it still does not fit, its columns come\n\
+                 in parts, one below the other, each with the row labels again. Charts are vector drawings.\n\
+                 The TITLE text heads every page and the page number stands at the foot. EMBEDBOOKMARKS=NO\n\
+                 leaves out the outline of commands and items; EMBEDFONTS=NO names the font instead of\n\
+                 embedding the glyphs used, so a reader without it uses one of its own, and characters\n\
+                 outside Windows Latin show as question marks. In DOC, PPT and XLSX, the other charts, such as a histogram or a\n\
                  boxplot, go in as a picture; on a sheet the picture stands beside the data table. HTML\n\
                  writes one web page with every chart in it as a picture, JPG unless IMAGEFORMAT names\n\
                  another; STYLING=NO\n\
@@ -2132,7 +2141,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  is 1280 pixels wide, the PNG of --charts. GRAYSCALE=YES, DEPTH=GRAYS256 and\n\
                  DEPTH=BLACKWHITE drop the color; the other depths and COMPRESS change nothing. EMF and EPS\n\
                  are not written yet: a warning, and their charts stay data tables, as does a kind that is\n\
-                 not drawn yet, such as a stem-and-leaf display. /PDF, /XLS and /XLSM are refused.",
+                 not drawn yet, such as a stem-and-leaf display. /XLS and /XLSM are refused.",
         example: "OUTPUT EXPORT /XLSX DOCUMENTFILE='results.xlsx' SHEET='Region 1'.",
         parse: output_docs::output_export,
     },

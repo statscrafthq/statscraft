@@ -249,6 +249,7 @@ The output of a window can be kept as a Statscraft output file (.scout) and open
 ### Exporting all output
 
 - File > Export output as HTML saves all the tables of the output window as one web page, each drawn chart as a PNG picture inside the page. Chosen in a data or syntax window, it exports the designated output window.
+- File > Export output as PDF saves all the tables and charts of the output window as one PDF file on A4 pages, as OUTPUT EXPORT /PDF writes it: tables as text, charts as vector drawings, and bookmarks for the commands and their items. Chosen in a data or syntax window, it exports the designated output window.
 - File > Export output as Excel saves them as a workbook, with **One sheet per table** or **All tables on one sheet**, laid out as `--xlsx` does: a chart as its data table with the editable chart, or the picture of a statistical plot, beside it.
 - From syntax, OUTPUT EXPORT writes the tables and charts of an output document to a workbook, a Word document, a presentation, a web page, text or a CSV file.
 
@@ -256,7 +257,7 @@ The output of a window can be kept as a Statscraft output file (.scout) and open
 
 ### File
 
-Open data, Save data, Save data as, Export data; New (Syntax, Output), Open syntax, Open output, Recent files, Save syntax, Save syntax as; Save output, Save output as, Export output as HTML, Export output as Excel; Close, Exit. Save data saves the dataset of the data window it is chosen in, and the active dataset elsewhere.
+Open data, Save data, Save data as, Export data; New (Syntax, Output), Open syntax, Open output, Recent files, Save syntax, Save syntax as; Save output, Save output as, Export output as HTML, Export output as PDF, Export output as Excel; Close, Exit. Save data saves the dataset of the data window it is chosen in, and the active dataset elsewhere.
 
 ### Window
 

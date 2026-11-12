@@ -247,14 +247,35 @@ fn output_export_word_and_presentation() {
             },
         ]
     );
+    let e = export(
+        "OUTPUT EXPORT /PDF DOCUMENTFILE='fleet.pdf' EMBEDFONTS=NO\n\
+         /CSV DOCUMENTFILE='fleet.csv'.\n",
+    );
+    assert_eq!(
+        e.targets[0],
+        ExportTarget::Pdf {
+            file: "fleet.pdf".into(),
+            bookmarks: true,
+            embed_fonts: false,
+        }
+    );
+    let e = export("OUTPUT EXPORT /PDF DOCUMENTFILE='a.pdf' EMBEDBOOKMARKS=NO.");
+    assert!(matches!(
+        e.targets[0],
+        ExportTarget::Pdf {
+            bookmarks: false,
+            embed_fonts: true,
+            ..
+        }
+    ));
 }
 
 #[test]
 fn output_export_errors() {
     for (source, message) in [
         (
-            "OUTPUT EXPORT /PDF DOCUMENTFILE='a.pdf'.",
-            "cannot write PDF files (/PDF)",
+            "OUTPUT EXPORT /PDF EMBEDFONTS=NO.",
+            "/PDF needs DOCUMENTFILE",
         ),
         (
             "OUTPUT EXPORT /DOC NOTESCAPTIONS=NO.",
@@ -266,7 +287,7 @@ fn output_export_errors() {
         ),
         (
             "OUTPUT EXPORT /XLS DOCUMENTFILE='a.xls'.",
-            "/XLSX, /DOC, /PPT, /HTML, /TEXT or /CSV",
+            "/XLSX, /DOC, /PPT, /PDF, /HTML, /TEXT or /CSV",
         ),
         ("OUTPUT EXPORT /PNG PERCENTSIZE=50.", "need IMAGEROOT"),
         (
