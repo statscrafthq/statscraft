@@ -455,6 +455,9 @@ pub(crate) fn define(tokens: &[Tok]) -> MResult<Macro> {
     })
 }
 
+/// How many values a !DO loop takes, and the values.
+type DoValues = (usize, Box<dyn Iterator<Item = String>>);
+
 /// The deepest macro nesting whatever SET MNEST says: a run's thread has a 2 MiB stack.
 const MAX_NEST: usize = 100;
 
@@ -795,10 +798,7 @@ impl Macros {
                     };
                     let mut k = i + 2;
                     // the values one by one: SET MITERATE may allow more than the memory holds
-                    let (count, items): (usize, Box<dyn Iterator<Item = String>>) = if tokens
-                        .get(k)
-                        .is_some_and(|e| e.is("="))
-                    {
+                    let (count, items): DoValues = if tokens.get(k).is_some_and(|e| e.is("=")) {
                         k += 1;
                         let number = |text: String, at: &Tok| {
                             unquote(&text).trim().parse::<f64>().map_err(|_| {
@@ -832,7 +832,8 @@ impl Macros {
                             );
                         }
                         let rounds = if after < 0.0 { 0 } else { after as usize + 1 };
-                        let values = (0..rounds).map(move |n| format_number(first + n as f64 * step));
+                        let values =
+                            (0..rounds).map(move |n| format_number(first + n as f64 * step));
                         (rounds, Box::new(values))
                     } else if tokens.get(k).is_some_and(|e| e.is("!IN")) {
                         k += 1;

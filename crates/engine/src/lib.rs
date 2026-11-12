@@ -232,8 +232,10 @@ impl Changes {
             .flat_map(Dataset::variables)
             .map(|v| (v.name(), v))
             .collect();
-        let now: std::collections::HashSet<&str> =
-            after.into_iter().flat_map(Dataset::variable_names).collect();
+        let now: std::collections::HashSet<&str> = after
+            .into_iter()
+            .flat_map(Dataset::variable_names)
+            .collect();
         for variable in after.into_iter().flat_map(Dataset::variables) {
             let name = variable.name();
             match previous.get(name) {

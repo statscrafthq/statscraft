@@ -184,7 +184,10 @@ fn sheet_range(
             continue;
         }
         (low, high) = ((low.0.min(r), low.1.min(c)), (high.0.max(r), high.1.max(c)));
-        cells.push(calamine::Cell::new((r, c), Data::from(found.get_value().clone())));
+        cells.push(calamine::Cell::new(
+            (r, c),
+            Data::from(found.get_value().clone()),
+        ));
     }
     let count = cells.len() as u64;
     if count > 0 {
