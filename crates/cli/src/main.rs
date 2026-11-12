@@ -43,6 +43,8 @@ enum Cmd {
         args: RunArgs,
         #[command(flatten)]
         xlsx: XlsxArgs,
+        #[command(flatten)]
+        charts: ChartArgs,
     },
     /// Validate syntax without saving or writing anything; with --session, against its dataset
     Check(RunArgs),
@@ -106,6 +108,23 @@ struct XlsxArgs {
     xlsx_one_sheet: bool,
 }
 
+#[derive(Args)]
+struct ChartArgs {
+    /// Also write every chart of the run as a picture into this folder, made if missing:
+    /// 01-<title>.svg, 02-<title>.svg and so on
+    #[arg(long, value_name = "DIR")]
+    charts: Option<PathBuf>,
+    /// With --charts, the picture format
+    #[arg(long, value_enum, default_value = "svg", requires = "charts")]
+    chart_format: ChartFormat,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
+enum ChartFormat {
+    Svg,
+    Png,
+}
+
 fn main() -> ExitCode {
     let cli = Cli::parse();
     let (json, outcome) = match cli.command {
@@ -117,8 +136,8 @@ fn main() -> ExitCode {
             json,
             describe(file, session, json).map(|text| print!("{text}")),
         ),
-        Cmd::Run { args, xlsx } => (args.json, run(args, false, &xlsx)),
-        Cmd::Check(args) => (args.json, run(args, true, &XlsxArgs::default())),
+        Cmd::Run { args, xlsx, charts } => (args.json, run(args, false, &xlsx, Some(&charts))),
+        Cmd::Check(args) => (args.json, run(args, true, &XlsxArgs::default(), None)),
         Cmd::Help { command } => (
             false,
             help(&command.join(" ")).map(|text| println!("{text}")),
@@ -460,8 +479,16 @@ fn parse_lines(spec: &str) -> Result<(u32, u32), Vec<Failure>> {
     }
 }
 
-fn run(args: RunArgs, check_only: bool, xlsx: &XlsxArgs) -> Result<(), Vec<Failure>> {
+fn run(
+    args: RunArgs,
+    check_only: bool,
+    xlsx: &XlsxArgs,
+    charts: Option<&ChartArgs>,
+) -> Result<(), Vec<Failure>> {
     let result = run_result(&args, check_only, xlsx)?;
+    if let Some(charts) = charts {
+        write_charts(&result, charts)?;
+    }
     print!(
         "{}",
         result.output_with(args.json, check_only, args.vega_lite)
@@ -575,4 +602,44 @@ fn write_workbook(result: &RunResult, xlsx: &XlsxArgs) -> Result<(), Vec<Failure
     });
     statscraft_export::write_xlsx(path, items, xlsx.xlsx_one_sheet)
         .map_err(|e| vec![Failure::plain("file", format!("{}: {e}", path.display()))])
+}
+
+/// Writes every chart of the run as a picture into the folder `--charts` names, if any, on light
+/// paper. A kind that has no drawing yet is left out; its data table is in the output.
+fn write_charts(result: &RunResult, args: &ChartArgs) -> Result<(), Vec<Failure>> {
+    use statscraft_export::picture::{self, Paper};
+    let Some(dir) = &args.charts else {
+        return Ok(());
+    };
+    let failed = |path: &std::path::Path, e: &dyn std::fmt::Display| {
+        vec![Failure::plain("file", format!("{}: {e}", path.display()))]
+    };
+    std::fs::create_dir_all(dir).map_err(|e| failed(dir, &e))?;
+    let charts = result.commands.iter().flat_map(|c| &c.charts);
+    for (n, chart) in charts.enumerate() {
+        let name: String = chart
+            .title
+            .to_lowercase()
+            .split(|c: char| !c.is_alphanumeric())
+            .filter(|w| !w.is_empty())
+            .collect::<Vec<_>>()
+            .join("-")
+            .chars()
+            .take(60)
+            .collect();
+        let bytes = match args.chart_format {
+            ChartFormat::Svg => picture::chart_svg(chart, Paper::Light).map(|s| Ok(s.into_bytes())),
+            ChartFormat::Png => picture::chart_png(chart, Paper::Light),
+        };
+        let extension = match args.chart_format {
+            ChartFormat::Svg => "svg",
+            ChartFormat::Png => "png",
+        };
+        let path = dir.join(format!("{:02}-{name}.{extension}", n + 1));
+        if let Some(bytes) = bytes {
+            let bytes = bytes.map_err(|e| failed(&path, &e))?;
+            std::fs::write(&path, bytes).map_err(|e| failed(&path, &e))?;
+        }
+    }
+    Ok(())
 }

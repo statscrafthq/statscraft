@@ -55,7 +55,7 @@ The open window (`-s gui`) lists what the window holds, the same way. A file ses
 ## run
 
 ```
-statscraft run [FILE | - | -e TEXT] [-s SESSION] [--lines FIRST-LAST] [--json] [--vega-lite] [--encoding NAME] [--xlsx FILE [--xlsx-one-sheet]]
+statscraft run [FILE | - | -e TEXT] [-s SESSION] [--lines FIRST-LAST] [--json] [--vega-lite] [--encoding NAME] [--xlsx FILE [--xlsx-one-sheet]] [--charts DIR [--chart-format svg|png]]
 ```
 
 | Flag | Meaning |
@@ -69,6 +69,8 @@ statscraft run [FILE | - | -e TEXT] [-s SESSION] [--lines FIRST-LAST] [--json] [
 | `--encoding NAME` | encoding of the syntax file or standard input, such as `windows-1257` or `1252`; without it a file that is valid UTF-8 (with or without a byte order mark) is read as UTF-8 and any other file in the system's legacy code page |
 | `--xlsx FILE` | also write every table and chart of the run to an Excel workbook, one sheet per table |
 | `--xlsx-one-sheet` | with `--xlsx`, put all tables on one sheet, one below the other |
+| `--charts DIR` | also write every chart of the run as a picture into this folder (see [Chart pictures](#chart-pictures)) |
+| `--chart-format svg\|png` | with `--charts`, the picture format; default `svg` |
 
 Without `--json`, every table is printed as a Markdown table under a `###` title, every chart as a table of its numbers whose caption names the kind of chart, warnings as `warning: line N: COMMAND: message`, then a summary: the dataset loaded, variables added, changed and removed, the case count when it changed, and `ran N command(s)`, with `, session saved` when the session was written.
 
@@ -492,6 +494,17 @@ The file is UTF-8 JSON, so an agent or a script reads it directly, with no Stats
 - `version` rises only when a field changes its meaning. A file from a newer Statscraft is refused with a message that says so; older versions are read and brought up to date. An item of a kind this version does not know is kept and written back as it was.
 - A path ending in `.spv`, `.spo` or `.spw` (another program's output files) is saved as `.scout` under the same name, with a warning; OUTPUT OPEN of such a path reads that `.scout` file. A password on OUTPUT SAVE /PASSPROTECT is an error, since a Statscraft output file is never encrypted.
 - OUTPUT OPEN of a missing or foreign file is a warning, and the run goes on.
+
+## Chart pictures
+
+```
+statscraft run job.sps --charts charts
+statscraft run job.sps --charts charts --chart-format png
+```
+
+Every chart of the run is written to the folder, which is made if it is missing, as `01-<title>.svg`, `02-<title>.svg` and so on: numbered in the order of the output, the title in lower case with hyphens between its words. An existing file of the same name is replaced. The pictures are 640 pixels wide on white paper (a PNG has twice the pixels, for sharp text), drawn as the window draws them: flat bars, lines, areas, dots and slices in petrol and amber, muted labels and thin rule lines, in Schibsted Grotesk with tabular figures. Every kind is drawn: bar charts in both orientations, side by side, stacked and stacked to 100%, pie, line, area and scatter charts and the histogram with its normal curve. An SVG names the font and falls back to the system's sans-serif font where Schibsted Grotesk is not installed; a PNG has it built in.
+
+The text output on the terminal is the same as without `--charts`. The charts are written after the run, so a folder that cannot be written fails the command but leaves the session as the run saved it.
 
 ## The live window session
 
