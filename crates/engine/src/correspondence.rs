@@ -295,7 +295,13 @@ fn solve(s: &Setup) -> Result<Solution, String> {
     let (mut u, q, mut v) = thin_svd(&z);
     let lambda: Vec<f64> = (0..k1.min(k2)).map(|t| q.at(t, t)).collect();
     let tolerance = k.0.sqrt() * k.1.sqrt() * 1e-7;
-    let rank = lambda.iter().filter(|&&l| l > tolerance).count();
+    // the thin decomposition has vectors for at least these, which the clamp makes sure of
+    let rank = lambda
+        .iter()
+        .filter(|&&l| l > tolerance)
+        .count()
+        .min(u.cols)
+        .min(v.cols);
     let max_dims = k1.min(k2) - 1;
     // every dimension with a singular value above 0 is listed, also one beyond max_dims that
     // a standardization removing only row or only column means leaves
@@ -1448,7 +1454,14 @@ impl Engine {
             }
         }
 
-        let charts = plots(command, &s, &rows, &columns, &norm, &mut warnings);
+        let charts = plots(
+            command,
+            &s,
+            (&rows, &row_values),
+            (&columns, &column_values),
+            &norm,
+            &mut warnings,
+        );
 
         if command.outfile_score.is_some() || command.outfile_variance.is_some() {
             let string = |values: &[String]| -> (usize, Vec<String>) {
@@ -1507,10 +1520,15 @@ impl Engine {
                     ));
                 }
                 for (side, points) in [(&rows, &s.rows), (&columns, &s.columns)] {
+                    // the file leaves out the rows and columns of EQUAL groups
+                    let mut grouped = vec![false; points.status.len()];
+                    for status in &points.status {
+                        if let Status::Merged(first) = status {
+                            grouped[*first] = true;
+                        }
+                    }
                     for (i, label) in side.labels.iter().enumerate() {
-                        // the file leaves out the rows and columns of EQUAL groups
-                        let grouped = points.status.contains(&Status::Merged(i));
-                        if points.status[i] == Status::Active && !grouped {
+                        if points.status[i] == Status::Active && !grouped[i] {
                             for t in 0..p {
                                 lines.push((
                                     side.name.clone(),
@@ -1561,8 +1579,8 @@ impl Engine {
 fn plots(
     command: &Correspondence,
     s: &Solution,
-    rows: &Side,
-    columns: &Side,
+    (rows, row_values): (&Side, &[f64]),
+    (columns, column_values): (&Side, &[f64]),
     norm: &str,
     warnings: &mut Vec<String>,
 ) -> Vec<crate::Chart> {
@@ -1573,8 +1591,19 @@ fn plots(
         None => (1, p),
         Some((a, b)) => (a, b.unwrap_or(p).min(p)),
     };
+    let mut biplot = plot.biplot;
+    if biplot.is_some() && command.normalization == CorrespondenceNormalization::Principal {
+        // the default biplot is dropped quietly; one asked for gets a warning
+        if plot.given {
+            warnings.push(
+            "CORRESPONDENCE: no biplot with NORMALIZATION=PRINCIPAL; plot RPOINTS and CPOINTS instead"
+                .into(),
+            );
+        }
+        biplot = None;
+    }
     let any = [
-        plot.biplot,
+        biplot,
         plot.rpoints,
         plot.cpoints,
         plot.trrows,
@@ -1583,7 +1612,7 @@ fn plots(
     .iter()
     .any(Option::is_some);
     if first > p {
-        if any && plot.given {
+        if any {
             warnings.push(format!(
             "CORRESPONDENCE: NDIM starts at dimension {first}, but the solution has {p}; no plots"
         ));
@@ -1617,17 +1646,6 @@ fn plots(
             .collect(),
         Some(_) => (first + 1..=last).map(|b| (first, b)).collect(),
     };
-    let mut biplot = plot.biplot;
-    if biplot.is_some() && command.normalization == CorrespondenceNormalization::Principal {
-        // the default biplot is dropped quietly; one asked for gets a warning
-        if plot.given {
-            warnings.push(
-            "CORRESPONDENCE: no biplot with NORMALIZATION=PRINCIPAL; plot RPOINTS and CPOINTS instead"
-                .into(),
-            );
-        }
-        biplot = None;
-    }
     let scatter: [(PlotLabels, &str, bool, bool); 3] = [
         (biplot, "Row and Column Points", true, true),
         (plot.rpoints, "Row Points", true, false),
@@ -1666,9 +1684,9 @@ fn plots(
             charts.push(chart);
         }
     }
-    for (labels, side, points) in [
-        (plot.trrows, rows, &s.rows),
-        (plot.trcolumns, columns, &s.columns),
+    for (labels, side, points, values) in [
+        (plot.trrows, rows, &s.rows, row_values),
+        (plot.trcolumns, columns, &s.columns, column_values),
     ] {
         let Some(length) = labels else { continue };
         let shown: Vec<usize> = (0..side.labels.len())
@@ -1679,7 +1697,7 @@ fn plots(
                 .iter()
                 .map(|&i| Category {
                     label: short(&side.labels[i], length).unwrap_or_default(),
-                    value: Cell::Number((i + 1) as f64),
+                    value: Cell::Number(values[i]),
                     missing: false,
                     bin: None,
                 })

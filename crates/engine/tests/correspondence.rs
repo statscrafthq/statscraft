@@ -957,4 +957,28 @@ fn variance_file_leaves_out_equal_groups() {
     let data = engine.dataset().unwrap();
     // 2 for the singular values, 2 for each of rows 1, 3 and 5 and of the 4 columns
     assert_eq!(data.case_count(), 16);
+    let Values::String(level) = data.variable("LEVEL_").unwrap().values() else {
+        panic!("string");
+    };
+    let Values::String(name) = data.variable("VARNAME_").unwrap().values() else {
+        panic!("string");
+    };
+    let row_levels: Vec<&str> = (0..16)
+        .filter(|&k| name.get(k) == "district")
+        .map(|k| level.get(k))
+        .collect();
+    assert_eq!(row_levels, ["1", "1", "3", "3", "5", "5"]);
+    // asked for, a plot beyond the solution warns
+    run(
+        &mut engine,
+        &format!("{DATA}{BASE} /PLOT=TRROWS NDIM(3,4)."),
+    );
+    assert!(engine.warnings().iter().any(|w| w.contains("NDIM starts")));
+    // the transformation plots put each category at its value
+    run(
+        &mut engine,
+        &format!("{DATA}CORRESPONDENCE TABLE=district(3,7) BY way(1,4) /PLOT=TRROWS."),
+    );
+    let charts = engine.take_charts();
+    assert_eq!(charts[0].categories[0].value, Cell::Number(3.0));
 }

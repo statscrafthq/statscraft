@@ -1602,10 +1602,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Plots: BIPLOT (the default) the rows and columns together, RPOINTS and CPOINTS each side alone,\n\
                  one chart for each pair of dimensions; TRROWS and TRCOLUMNS the scores of the categories in each\n\
                  dimension. NDIM(a, b) plots dimension a against a+1 to b, and the transformation plots of a to\n\
-                 b; without it, or without values, every pair. A number after a plot keyword cuts the labels to that length (60 at\n\
-                 most). OUTFILE SCORE writes ROWTYPE_, LEVEL_, VARNAME_ and DIM1, DIM2, ... for every category;\n\
-                 VARIANCE writes the covariances of the singular values (VARNAME_ SINGULAR) and of the scores of\n\
-                 each active point, one case per dimension (DIMNMBR_).",
+                 b; without it, or without values, every pair. A number after a plot keyword cuts the labels to\n\
+                 that length (60 at most). OUTFILE SCORE writes ROWTYPE_, LEVEL_, VARNAME_ and DIM1, DIM2, ...\n\
+                 for every category; VARIANCE writes the covariances of the singular values (VARNAME_ SINGULAR)\n\
+                 and of the scores of each active point outside the EQUAL groups, one case per dimension\n\
+                 (DIMNMBR_).",
         example: "CORRESPONDENCE TABLE=district(1,5) BY transport(1,4) /SUPPLEMENTARY=district(5) /PRINT=DEFAULT RPROFILES RCONF /PLOT=BIPLOT.",
         parse: correspondence::correspondence,
     },
