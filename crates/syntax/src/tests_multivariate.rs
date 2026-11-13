@@ -345,7 +345,7 @@ fn correspondence_defaults() {
     );
     assert_eq!(c.measure, CorrespondenceMeasure::Chisq);
     assert_eq!(c.standardize, CorrespondenceStandardize::Rcmean);
-    assert_eq!(c.dimension, 2);
+    assert_eq!(c.dimension, None);
     assert_eq!(c.normalization, CorrespondenceNormalization::Q(0.0));
     assert_eq!(c.print, CorrespondencePrint::default());
     assert_eq!(c.plot.biplot, Some(None));
@@ -355,8 +355,8 @@ fn correspondence_defaults() {
 #[test]
 fn correspondence_subcommands_and_abbreviations() {
     let c = correspondence(
-        "CORRESPONDENCE /TABLE=ALL(6,3) /SUPP ROW(2) COLUMN(1,3) ROW(5) /EQUAL ROW(1,4)(3,6)
-         /MEAS=EUCLID /STAN=CSUM /DIM=3 /NORM=-0.5
+        "CORRESPONDENCE /TABLE=ALL(6,3) /SUPP ROW(2) COL(1,3) ROW(5) /EQUAL ROW(1,4)(3,6)
+         /MEAS=EUCLID /STAN=CSU /DIM=3 /NORM=-0.5
          /PRINT=RPROF CPROF RCONF PERM(2) /PLOT=NDIM(1,MAX) TRROWS(12) BIPLOT CPOINTS(80)
          /OUTFILE=SCORE('s.sav') VARIANCE(v).",
     );
@@ -372,7 +372,7 @@ fn correspondence_subcommands_and_abbreviations() {
     assert_eq!(c.equal_rows, [vec![1.0, 4.0], vec![3.0, 6.0]]);
     assert_eq!(c.measure, CorrespondenceMeasure::Euclid);
     assert_eq!(c.standardize, CorrespondenceStandardize::Csum);
-    assert_eq!(c.dimension, 3);
+    assert_eq!(c.dimension, Some(3));
     assert_eq!(c.normalization, CorrespondenceNormalization::Q(-0.5));
     assert!(c.print.rprofiles && c.print.cprofiles && c.print.rconf);
     assert!(!c.print.table && !c.print.rpoints && !c.print.cconf);

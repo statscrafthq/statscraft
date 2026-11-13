@@ -648,6 +648,9 @@ Where the documentation is silent:
 - Plots are charts as data: one scatter chart for each pair of dimensions instead of a scatterplot matrix, the transformation plots as line charts of the category scores in category order. Supplementary points are drawn with the active ones. BIPLOT with NORMALIZATION=PRINCIPAL gives a warning and no chart.
 - The last row of the Row Profiles (Mass) and the last column of the Column Profiles are the profiles of the active margins. PERMUTATION puts categories without a score last.
 - DIMENSION above the largest possible number gives a warning and the largest number; dimensions with a singular value of at most sqrt(k1 k2) 1e-7 are left out with a warning.
+- RMEAN and RSUM take out only the row means (CMEAN and CSUM only the column means), so the table can keep one more dimension than the limit of one fewer than the smaller side. The Summary lists it, so that the shares of inertia add up to 1; the solution itself keeps to the limit.
+- Equal singular values leave the scores without standard deviations (a warning says so); those of the singular values remain.
+- The biplot that PLOT gives by default is left out quietly under NORMALIZATION=PRINCIPAL and with one dimension; a PLOT subcommand that asks for it gets a warning. A table of more than a million cells is refused.
 
 ### TREE
 

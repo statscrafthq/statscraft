@@ -1586,7 +1586,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  members share. Empty rows and columns are left out. CHISQ analyzes the standardized residuals of\n\
                  the table; EUCLID uses STANDARDIZE: RMEAN takes out the row means, CMEAN the column means, RCMEAN\n\
                  both (the same as CHISQ), RSUM and CSUM first bring the row or column totals to one value. The\n\
-                 solution has at most one dimension fewer than the smaller of the active rows and columns.\n\
+                 solution has at most one dimension fewer than the smaller of the active rows and columns; the\n\
+                 Summary lists every dimension with a singular value above 0.\n\
                  NORMALIZATION q gives the row scores the power (1 + q)/2 of each singular value and the column\n\
                  scores (1 - q)/2; PRINCIPAL gives both the full value, which rules out the biplot. In every\n\
                  dimension the active row with the largest absolute score scores positive.\n\
@@ -1601,7 +1602,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Plots: BIPLOT (the default) the rows and columns together, RPOINTS and CPOINTS each side alone,\n\
                  one chart for each pair of dimensions; TRROWS and TRCOLUMNS the scores of the categories in each\n\
                  dimension. NDIM(a, b) plots dimension a against a+1 to b, and the transformation plots of a to\n\
-                 b; without it every pair. A number after a plot keyword cuts the labels to that length (60 at\n\
+                 b; without it, or without values, every pair. A number after a plot keyword cuts the labels to that length (60 at\n\
                  most). OUTFILE SCORE writes ROWTYPE_, LEVEL_, VARNAME_ and DIM1, DIM2, ... for every category;\n\
                  VARIANCE writes the covariances of the singular values (VARNAME_ SINGULAR) and of the scores of\n\
                  each active point, one case per dimension (DIMNMBR_).",

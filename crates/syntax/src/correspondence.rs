@@ -22,6 +22,7 @@ use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
 use crate::procedures::at_end;
+use crate::table::matches_keyword;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum CorrespondenceTable {
@@ -97,8 +98,11 @@ pub struct CorrespondencePlot {
     pub rpoints: PlotLabels,
     pub cpoints: PlotLabels,
     pub biplot: PlotLabels,
-    /// NDIM: the first dimension and the last (None for MAX); None without NDIM.
+    /// NDIM: the first dimension and the last (None for MAX); None without NDIM or without
+    /// values, which plots every pair.
     pub ndim: Option<(usize, Option<usize>)>,
+    /// The PLOT subcommand was given; without it the default biplot goes without warnings.
+    pub given: bool,
 }
 
 impl Default for CorrespondencePlot {
@@ -110,6 +114,7 @@ impl Default for CorrespondencePlot {
             cpoints: None,
             biplot: Some(None),
             ndim: None,
+            given: false,
         }
     }
 }
@@ -125,7 +130,8 @@ pub struct Correspondence {
     pub equal_columns: Vec<Vec<f64>>,
     pub measure: CorrespondenceMeasure,
     pub standardize: CorrespondenceStandardize,
-    pub dimension: usize,
+    /// DIMENSION when given; the analysis takes 2 otherwise.
+    pub dimension: Option<usize>,
     pub normalization: CorrespondenceNormalization,
     pub print: CorrespondencePrint,
     pub plot: CorrespondencePlot,
@@ -247,9 +253,9 @@ fn sides(p: &mut Parser, table: &CorrespondenceTable, sub: &str) -> PResult<Grou
         };
         let is_row = match table {
             CorrespondenceTable::All { .. } => {
-                if word.eq_ignore_ascii_case("ROW") {
+                if matches_keyword(word, "ROW") {
                     true
-                } else if word.eq_ignore_ascii_case("COLUMN") {
+                } else if matches_keyword(word, "COLUMN") {
                     false
                 } else {
                     return Err(p.unexpected(&["ROW", "COLUMN"]));
@@ -345,6 +351,7 @@ fn plot(p: &mut Parser) -> PResult<CorrespondencePlot> {
     p.eat(Punct::Eq);
     let mut out = CorrespondencePlot {
         biplot: None,
+        given: true,
         ..CorrespondencePlot::default()
     };
     let mut any = false;
@@ -355,7 +362,7 @@ fn plot(p: &mut Parser) -> PResult<CorrespondencePlot> {
     };
     while !at_end(p) {
         if p.eat_keyword("NDIM") {
-            out.ndim = Some((1, None));
+            out.ndim = None;
             if p.eat(Punct::LParen) {
                 if p.eat(Punct::RParen) {
                     continue;
@@ -395,6 +402,7 @@ fn plot(p: &mut Parser) -> PResult<CorrespondencePlot> {
             out = CorrespondencePlot {
                 biplot: None,
                 ndim: out.ndim,
+                given: true,
                 ..CorrespondencePlot::default()
             };
         } else {
@@ -432,7 +440,7 @@ pub(crate) fn correspondence(p: &mut Parser) -> PResult<Command> {
         equal_columns: Vec::new(),
         measure: CorrespondenceMeasure::Chisq,
         standardize: CorrespondenceStandardize::Rcmean,
-        dimension: 2,
+        dimension: None,
         normalization: CorrespondenceNormalization::Q(0.0),
         print: CorrespondencePrint::default(),
         plot: CorrespondencePlot::default(),
@@ -476,9 +484,7 @@ pub(crate) fn correspondence(p: &mut Parser) -> PResult<Command> {
                 ("RSUM", CorrespondenceStandardize::Rsum),
                 ("CSUM", CorrespondenceStandardize::Csum),
             ];
-            match KINDS.iter().find(
-                |(n, _)| matches!(p.peek(), Some(TokenKind::Word(w)) if w.eq_ignore_ascii_case(n)),
-            ) {
+            match KINDS.iter().find(|(n, _)| p.at_keyword(n)) {
                 Some((_, kind)) => {
                     p.pos += 1;
                     command.standardize = *kind;
@@ -495,7 +501,7 @@ pub(crate) fn correspondence(p: &mut Parser) -> PResult<Command> {
                     "DIMENSION is at least 1",
                 ));
             }
-            command.dimension = n;
+            command.dimension = Some(n);
         } else if p.eat_keyword("NORMALIZATION") {
             p.eat(Punct::Eq);
             let start = p.pos;
@@ -547,7 +553,9 @@ pub(crate) fn correspondence(p: &mut Parser) -> PResult<Command> {
             if score.is_none() && variance.is_none() {
                 return Err(p.unexpected(&["SCORE", "VARIANCE"]));
             }
-            if score.is_some() && score == variance {
+            if let (Some(a), Some(b)) = (&score, &variance)
+                && a.eq_ignore_ascii_case(b)
+            {
                 return Err(SyntaxError::new(
                     p.span(),
                     "OUTFILE needs different names for SCORE and VARIANCE",

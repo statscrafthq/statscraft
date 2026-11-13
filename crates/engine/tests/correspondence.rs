@@ -764,7 +764,10 @@ fn plots_as_data() {
     assert_eq!(charts[1].value_axis.title, "Dimension 3");
     assert!((groups[1].points[2].x - 0.769163133423).abs() < 1e-9);
     // principal: no biplot
-    run(&mut engine, &format!("{BASE} /NORMALIZATION=PRINCIPAL."));
+    run(
+        &mut engine,
+        &format!("{BASE} /NORMALIZATION=PRINCIPAL /PLOT=BIPLOT."),
+    );
     assert!(engine.take_charts().is_empty());
     assert!(engine.warnings().iter().any(|w| w.contains("no biplot")));
 }
@@ -821,4 +824,84 @@ fn errors_and_warnings() {
     assert_eq!(summary.rows.len(), 4);
     let overview = t.iter().find(|t| t.title == "Overview Row Points").unwrap();
     assert!(overview.columns.iter().filter(|c| *c == "3").count() >= 2);
+}
+
+/// RMEAN takes out only the row means, so a 2 by 3 table keeps a second dimension; the
+/// Summary lists it so that the shares add up, while the solution has the one dimension the
+/// table size allows.
+#[test]
+fn row_means_alone_leave_an_extra_dimension() {
+    let source = "DATA LIST FREE /ROWCAT_ c1 c2 c3.
+BEGIN DATA.
+1 10 20 5
+2 3 7 30
+END DATA.
+CORRESPONDENCE TABLE=ALL(2,3) /MEASURE=EUCLID /STANDARDIZE=RMEAN /PRINT=RPOINTS.
+";
+    let mut engine = Engine::default();
+    let t = run(&mut engine, source);
+    check(&t, "Summary", "1", "Singular Value", 0.702151074921, 1e-10);
+    check(&t, "Summary", "2", "Singular Value", 0.254919336236, 1e-10);
+    check(
+        &t,
+        "Summary",
+        "2",
+        "Proportion of Inertia / Cumulative",
+        1.0,
+        1e-12,
+    );
+    check(&t, "Summary", "Total", "Inertia", 0.558, 1e-12);
+    let x = 1.25522684075 * 0.702151074921_f64.sqrt();
+    check(
+        &t,
+        "Overview Row Points",
+        "2",
+        "Score in Dimension / 1",
+        x,
+        1e-9,
+    );
+    // the default DIMENSION=2 does not warn
+    assert!(engine.warnings().is_empty(), "{:?}", engine.warnings());
+}
+
+#[test]
+fn ndim_without_values_plots_every_pair_and_ties_have_no_deviations() {
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        &format!("{DATA}{BASE} /DIMENSION=3 /PLOT=BIPLOT NDIM."),
+    );
+    assert_eq!(engine.take_charts().len(), 3);
+    // the default biplot goes quietly under PRINCIPAL
+    run(&mut engine, &format!("{BASE} /NORMALIZATION=PRINCIPAL."));
+    assert!(engine.warnings().is_empty(), "{:?}", engine.warnings());
+    // a table with two equal singular values
+    let source = "DATA LIST FREE /ROWCAT_ c1 c2 c3.
+BEGIN DATA.
+1 8 2 2
+2 2 8 2
+3 2 2 8
+END DATA.
+CORRESPONDENCE TABLE=ALL(3,3) /PRINT=RCONF.
+";
+    let t = run(&mut engine, source);
+    assert!(engine.warnings().iter().any(|w| w.contains("equal")));
+    assert_eq!(
+        cell(
+            &t,
+            "Confidence Row Points",
+            "1",
+            "Standard Deviation in Dimension / 1"
+        ),
+        &Cell::Empty
+    );
+    assert!(matches!(
+        cell(
+            &t,
+            "Summary",
+            "1",
+            "Confidence Singular Value / Standard Deviation"
+        ),
+        Cell::Number(_)
+    ));
 }

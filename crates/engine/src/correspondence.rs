@@ -34,6 +34,7 @@
 use crate::chart::{Axis, Category, Series, Statistic};
 use crate::descriptives::{case_weights, number};
 use crate::dist::chi_square_p;
+use crate::matrix::transpose;
 use crate::matrix_functions::svd;
 use crate::matrix_lang::Mat;
 use crate::means::is_valid;
@@ -41,7 +42,7 @@ use crate::plot::{Plot, Point, PointGroup};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Values};
 use statscraft_syntax::{
-    Correspondence, CorrespondenceMeasure, CorrespondenceNormalization,
+    Correspondence, CorrespondenceMeasure, CorrespondenceNormalization, CorrespondencePlot,
     CorrespondenceStandardize as Standardize, CorrespondenceTable, PlotLabels,
 };
 use std::ops::{Add, Div, Mul, Sub};
@@ -166,10 +167,13 @@ struct Setup {
     row_groups: Vec<Vec<usize>>,
     column_groups: Vec<Vec<usize>>,
     standardize: Standardize,
-    dimension: usize,
+    /// DIMENSION when given; 2 otherwise.
+    dimension: Option<usize>,
     /// The powers of the singular values on the row and the column scores.
     alpha: f64,
     beta: f64,
+    /// Whether the standard deviations of the scores are wanted.
+    scores: bool,
 }
 
 #[derive(Debug)]
@@ -213,13 +217,6 @@ fn merge(f: &mut [Vec<f64>], supplementary: &[bool], groups: &[Vec<usize>]) -> V
         }
     }
     status
-}
-
-fn transpose(f: &[Vec<f64>]) -> Vec<Vec<f64>> {
-    let cols = f.first().map_or(0, Vec::len);
-    (0..cols)
-        .map(|j| f.iter().map(|row| row[j]).collect())
-        .collect()
 }
 
 fn solve(s: &Setup) -> Result<Solution, String> {
@@ -297,12 +294,16 @@ fn solve(s: &Setup) -> Result<Solution, String> {
     let tolerance = k.0.sqrt() * k.1.sqrt() * 1e-7;
     let rank = lambda.iter().filter(|&&l| l > tolerance).count();
     let max_dims = k1.min(k2) - 1;
-    let kept = rank.min(max_dims);
+    // every dimension with a singular value above 0 is listed, also one beyond max_dims that
+    // a standardization removing only row or only column means leaves
+    let kept = rank;
     if kept == 0 {
         return Err("every singular value is zero: the rows do not differ from each other".into());
     }
     let mut warnings = Vec::new();
-    if s.dimension > max_dims {
+    if let Some(d) = s.dimension
+        && d > max_dims
+    {
         warnings.push(format!(
             "CORRESPONDENCE: the table allows at most {max_dims} dimension{}, so {} computed",
             if max_dims == 1 { "" } else { "s" },
@@ -316,7 +317,7 @@ fn solve(s: &Setup) -> Result<Solution, String> {
             if max_dims - kept == 1 { "" } else { "s" }
         ));
     }
-    let p = s.dimension.min(kept);
+    let p = s.dimension.unwrap_or(2).min(max_dims).min(kept);
     let total: f64 = z.data.iter().map(|x| x * x).sum();
     // the sign: the active row with the largest absolute standard score scores positive
     for t in 0..kept {
@@ -437,138 +438,211 @@ fn solve(s: &Setup) -> Result<Solution, String> {
     }
 
     // the delta method: derivatives of every statistic in each active cell proportion
-    let cells = k1 * k2;
-    let pi: Vec<f64> = ar
+    // The delta method: derivatives of the statistics in each active cell proportion p_kl.
+    // A change of p_kl moves the cell itself, row k's total, column l's total and the grand
+    // total, so dZ = zf [i=k][j=l] + zfi [i=k] + zfj [j=l] + zn, with the four partial
+    // derivatives of every cell of Z taken once.
+    let pi: Vec<Vec<f64>> = ar
         .iter()
-        .flat_map(|&i| ac.iter().map(move |&j| (i, j)))
-        .map(|(i, j)| f[i][j] / n)
+        .map(|&i| ac.iter().map(|&j| f[i][j] / n).collect())
         .collect();
     let rp: Vec<f64> = ar.iter().map(|&i| row_total[i] / n).collect();
     let cp: Vec<f64> = ac.iter().map(|&j| column_total[j] / n).collect();
-    let mut g_lambda = vec![vec![0.0; cells]; kept];
-    let mut g_row = vec![vec![vec![0.0; cells]; k1]; p];
-    let mut g_column = vec![vec![vec![0.0; cells]; k2]; p];
-    for (e, (kr, kc)) in (0..k1)
-        .flat_map(|a| (0..k2).map(move |b| (a, b)))
-        .enumerate()
-    {
-        let one = |x: bool| f64::from(u8::from(x));
-        let mut dz = vec![vec![0.0; k2]; k1];
-        let mut d_row_mass = vec![0.0; k1];
-        let mut d_column_mass = vec![0.0; k2];
-        let total = Dual { v: 1.0, d: 1.0 };
-        for a in 0..k1 {
-            for b in 0..k2 {
-                let [zd, ad, bd] = z_cell(
-                    st,
-                    Dual {
-                        v: pi[a * k2 + b],
-                        d: one(a == kr && b == kc),
-                    },
-                    Dual {
-                        v: rp[a],
-                        d: one(a == kr),
-                    },
-                    Dual {
-                        v: cp[b],
-                        d: one(b == kc),
-                    },
-                    total,
-                    k,
-                );
-                dz[a][b] = zd.d;
-                d_row_mass[a] = (ad / total).d;
-                d_column_mass[b] = (bd / total).d;
-            }
-        }
-        let times =
-            |vector: &[f64]| -> Vec<f64> { dz.iter().map(|row| dot(row, vector)).collect() };
-        let times_t = |vector: &[f64]| -> Vec<f64> {
+    let seeded = |a: usize, b: usize, seed: [f64; 4]| {
+        let d = |v: f64, d: f64| Dual { v, d };
+        let total = d(1.0, seed[3]);
+        let [z, ra, cb] = z_cell(
+            st,
+            d(pi[a][b], seed[0]),
+            d(rp[a], seed[1]),
+            d(cp[b], seed[2]),
+            total,
+            k,
+        );
+        [z.d, (ra / total).d, (cb / total).d]
+    };
+    let partial = |which: usize| -> Vec<Vec<[f64; 3]>> {
+        let mut seed = [0.0; 4];
+        seed[which] = 1.0;
+        (0..k1)
+            .map(|a| (0..k2).map(|b| seeded(a, b, seed)).collect())
+            .collect()
+    };
+    let (zf, zfi, zfj, zn) = (partial(0), partial(1), partial(2), partial(3));
+    let z_of = |m: &Vec<Vec<[f64; 3]>>, a: usize, b: usize| m[a][b][0];
+    // sums of (u_o)_i zfj_il over i and of zfi_kj (v_o)_j over j, for every singular vector
+    let q1: Vec<Vec<f64>> = us
+        .iter()
+        .map(|u| {
             (0..k2)
-                .map(|b| (0..k1).map(|a| dz[a][b] * vector[a]).sum())
+                .map(|b| (0..k1).map(|a| u[a] * z_of(&zfj, a, b)).sum())
                 .collect()
-        };
-        for t in 0..kept {
-            g_lambda[t][e] = dot(&us[t], &times(&vs[t]));
+        })
+        .collect();
+    let q3: Vec<Vec<f64>> = vs
+        .iter()
+        .map(|v| {
+            (0..k1)
+                .map(|a| (0..k2).map(|b| z_of(&zfi, a, b) * v[b]).sum())
+                .collect()
+        })
+        .collect();
+    // per dimension t: zfi v_t, zn v_t (by rows), zfj' u_t, zn' u_t (by columns)
+    struct Parts {
+        rfi: Vec<f64>,
+        nv: Vec<f64>,
+        cfj: Vec<f64>,
+        nu: Vec<f64>,
+        /// u_o . nv and nu . v_o for every singular vector o
+        q2: Vec<f64>,
+        q4: Vec<f64>,
+    }
+    let parts: Vec<Parts> = (0..kept)
+        .map(|t| {
+            let rows_by = |m: &Vec<Vec<[f64; 3]>>| -> Vec<f64> {
+                (0..k1)
+                    .map(|a| (0..k2).map(|b| z_of(m, a, b) * vs[t][b]).sum())
+                    .collect()
+            };
+            let columns_by = |m: &Vec<Vec<[f64; 3]>>| -> Vec<f64> {
+                (0..k2)
+                    .map(|b| (0..k1).map(|a| z_of(m, a, b) * us[t][a]).sum())
+                    .collect()
+            };
+            let (nv, nu) = (rows_by(&zn), columns_by(&zn));
+            Parts {
+                rfi: rows_by(&zfi),
+                cfj: columns_by(&zfj),
+                q2: us.iter().map(|u| dot(u, &nv)).collect(),
+                q4: vs.iter().map(|v| dot(&nu, v)).collect(),
+                nv,
+                nu,
+            }
+        })
+        .collect();
+    // weighted sums of the gradients and of their products, for the covariances
+    let mut lambda_sums = (vec![0.0; kept], vec![vec![0.0; kept]; kept]);
+    let mut row_sums = vec![(vec![0.0; p], vec![vec![0.0; p]; p]); k1];
+    let mut column_sums = vec![(vec![0.0; p], vec![vec![0.0; p]; p]); k2];
+    let add = |sums: &mut (Vec<f64>, Vec<Vec<f64>>), g: &[f64], weight: f64| {
+        for (s, gs) in g.iter().enumerate() {
+            sums.0[s] += weight * gs;
+            for (t, gt) in g.iter().enumerate() {
+                sums.1[s][t] += weight * gs * gt;
+            }
         }
-        for t in 0..p {
-            let w = times(&vs[t]);
-            let wt = times_t(&us[t]);
-            let ls = lambda[t];
-            // the null space parts first: (I - U U') w / lambda and (I - V V') w' / lambda
-            let mut du: Vec<f64> = w.iter().map(|x| x / ls).collect();
-            let mut dv: Vec<f64> = wt.iter().map(|x| x / ls).collect();
-            for o in 0..rank {
-                let a_ot = dot(&us[o], &w);
-                let b_to = dot(&wt, &vs[o]);
-                for (x, y) in du.iter_mut().zip(&us[o]) {
-                    *x -= y * a_ot / ls;
+    };
+    let mut tied = false;
+    let mut gl = vec![0.0; kept];
+    let mut gx = vec![vec![0.0; p]; k1];
+    let mut gy = vec![vec![0.0; p]; k2];
+    for kr in 0..k1 {
+        for kc in 0..k2 {
+            let weight = pi[kr][kc];
+            if weight == 0.0 {
+                continue;
+            }
+            let own = z_of(&zf, kr, kc);
+            for t in 0..kept {
+                let (u, v, q) = (&us[t], &vs[t], &parts[t]);
+                gl[t] = u[kr] * (own * v[kc] + q.rfi[kr]) + v[kc] * q.cfj[kc] + q.q2[t];
+            }
+            if s.scores {
+                for t in 0..p {
+                    let (u, v, q) = (&us[t], &vs[t], &parts[t]);
+                    // w = dZ v_t and w' = dZ' u_t
+                    let row_part = own * v[kc] + q.rfi[kr];
+                    let column_part = own * u[kr] + q.cfj[kc];
+                    let ls = lambda[t];
+                    let mut du: Vec<f64> = (0..k1)
+                        .map(|a| {
+                            let w = zfj[a][kc][0] * v[kc]
+                                + q.nv[a]
+                                + if a == kr { row_part } else { 0.0 };
+                            w / ls
+                        })
+                        .collect();
+                    let mut dv: Vec<f64> = (0..k2)
+                        .map(|b| {
+                            let w = zfi[kr][b][0] * u[kr]
+                                + q.nu[b]
+                                + if b == kc { column_part } else { 0.0 };
+                            w / ls
+                        })
+                        .collect();
+                    for o in 0..rank {
+                        // u_o' dZ v_t and u_t' dZ v_o
+                        let a_ot = us[o][kr] * row_part + v[kc] * q1[o][kc] + q.q2[o];
+                        let b_to = vs[o][kc] * column_part + u[kr] * q3[o][kr] + q.q4[o];
+                        // the null space parts: (I - U U') w / lambda and (I - V V') w' / lambda
+                        let mut cu = -a_ot / ls;
+                        let mut cv = -b_to / ls;
+                        if o != t {
+                            let lo = lambda[o];
+                            let gap = ls * ls - lo * lo;
+                            if gap.abs() <= 1e-10 * ls * ls {
+                                tied = true;
+                            }
+                            cu += (ls * a_ot + lo * b_to) / gap;
+                            cv += (ls * b_to + lo * a_ot) / gap;
+                        }
+                        for (x, y) in du.iter_mut().zip(&us[o]) {
+                            *x += y * cu;
+                        }
+                        for (x, y) in dv.iter_mut().zip(&vs[o]) {
+                            *x += y * cv;
+                        }
+                    }
+                    for (a, g) in gx.iter_mut().enumerate() {
+                        let m = row_mass[a];
+                        let dm = zfi[a][0][1] * f64::from(u8::from(a == kr)) + zn[a][0][1];
+                        g[t] = du[a] / m.sqrt() - 0.5 * u[a] * m.powf(-1.5) * dm;
+                    }
+                    for (b, g) in gy.iter_mut().enumerate() {
+                        let m = column_mass[b];
+                        let dm = zfj[0][b][2] * f64::from(u8::from(b == kc)) + zn[0][b][2];
+                        g[t] = dv[b] / m.sqrt() - 0.5 * v[b] * m.powf(-1.5) * dm;
+                    }
                 }
-                for (x, y) in dv.iter_mut().zip(&vs[o]) {
-                    *x -= y * b_to / ls;
+                for (sums, g) in row_sums.iter_mut().zip(&gx) {
+                    add(sums, g, weight);
                 }
-                if o == t {
-                    continue;
-                }
-                let lo = lambda[o];
-                let gap = ls * ls - lo * lo;
-                let cu = (ls * a_ot + lo * b_to) / gap;
-                let cv = (ls * b_to + lo * a_ot) / gap;
-                for (x, y) in du.iter_mut().zip(&us[o]) {
-                    *x += y * cu;
-                }
-                for (x, y) in dv.iter_mut().zip(&vs[o]) {
-                    *x += y * cv;
+                for (sums, g) in column_sums.iter_mut().zip(&gy) {
+                    add(sums, g, weight);
                 }
             }
-            for a in 0..k1 {
-                let m = row_mass[a];
-                g_row[t][a][e] = du[a] / m.sqrt() - 0.5 * us[t][a] * m.powf(-1.5) * d_row_mass[a];
-            }
-            for b in 0..k2 {
-                let m = column_mass[b];
-                g_column[t][b][e] =
-                    dv[b] / m.sqrt() - 0.5 * vs[t][b] * m.powf(-1.5) * d_column_mass[b];
-            }
+            add(&mut lambda_sums, &gl, weight);
         }
     }
-    let cov = |g: &[f64], h: &[f64]| -> f64 {
-        let (mut gh, mut mg, mut mh) = (0.0, 0.0, 0.0);
-        for e in 0..cells {
-            gh += pi[e] * g[e] * h[e];
-            mg += pi[e] * g[e];
-            mh += pi[e] * h[e];
-        }
-        (gh - mg * mh) / n
-    };
-    let singular_cov: Vec<Vec<f64>> = (0..kept)
-        .map(|s| (0..kept).map(|t| cov(&g_lambda[s], &g_lambda[t])).collect())
-        .collect();
-    for (a, &i) in ar.iter().enumerate() {
-        rows.cov[i] = (0..p)
+    let covariances = |sums: &(Vec<f64>, Vec<Vec<f64>>), scale: &dyn Fn(usize) -> f64| {
+        let d = sums.0.len();
+        (0..d)
             .map(|s| {
-                (0..p)
-                    .map(|t| {
-                        cov(&g_row[s][a], &g_row[t][a])
-                            * lambda[s].powf(alpha)
-                            * lambda[t].powf(alpha)
-                    })
-                    .collect()
+                (0..d)
+                    .map(|t| (sums.1[s][t] - sums.0[s] * sums.0[t]) / n * scale(s) * scale(t))
+                    .collect::<Vec<f64>>()
             })
-            .collect();
+            .collect::<Vec<Vec<f64>>>()
+    };
+    let singular_cov = covariances(&lambda_sums, &|_| 1.0);
+    if tied {
+        warnings.push(
+            "CORRESPONDENCE: two singular values are equal, so the scores have no standard deviations"
+                .into(),
+        );
+    }
+    let unknown = vec![vec![f64::NAN; p]; p];
+    for (a, &i) in ar.iter().enumerate() {
+        rows.cov[i] = match s.scores && !tied {
+            true => covariances(&row_sums[a], &|t| lambda[t].powf(alpha)),
+            false => unknown.clone(),
+        };
     }
     for (b, &j) in ac.iter().enumerate() {
-        columns.cov[j] = (0..p)
-            .map(|s| {
-                (0..p)
-                    .map(|t| {
-                        cov(&g_column[s][b], &g_column[t][b])
-                            * lambda[s].powf(beta)
-                            * lambda[t].powf(beta)
-                    })
-                    .collect()
-            })
-            .collect();
+        columns.cov[j] = match s.scores && !tied {
+            true => covariances(&column_sums[b], &|t| lambda[t].powf(beta)),
+            false => unknown.clone(),
+        };
     }
     Ok(Solution {
         singular: lambda[..kept].to_vec(),
@@ -731,6 +805,16 @@ fn confidence(title: &str, side: &Side, points: &Points, p: usize) -> Table {
     grouped(title, header, rows)
 }
 
+/// A limit on the cells of the table, which is held in full.
+fn too_large(rows: usize, columns: usize) -> Result<(), Error> {
+    match rows.saturating_mul(columns) > 1_000_000 {
+        true => Err(Error(format!(
+            "CORRESPONDENCE: a table of {rows} by {columns} categories is too large (a million cells at most)"
+        ))),
+        false => Ok(()),
+    }
+}
+
 fn short(label: &str, length: Option<usize>) -> Option<String> {
     let label: String = match length {
         Some(l) => label.chars().take(l).collect(),
@@ -764,6 +848,7 @@ impl Engine {
                     (0..=(max - min) as usize).map(|k| min + k as f64).collect()
                 };
                 let (row_values, column_values) = (values(*row_range), values(*column_range));
+                too_large(row_values.len(), column_values.len())?;
                 let weights = case_weights(data)?;
                 let index =
                     |var: &statscraft_data::Variable, case: usize, (min, max): (f64, f64)| {
@@ -815,6 +900,7 @@ impl Engine {
                         vars.len()
                     )));
                 }
+                too_large(*r, *c)?;
                 if *r > data.case_count() {
                     return Err(Error(format!(
                         "CORRESPONDENCE TABLE=ALL asks for {r} rows, but the data have {} cases",
@@ -957,6 +1043,9 @@ impl Engine {
             dimension: command.dimension,
             alpha,
             beta,
+            scores: command.print.rconf
+                || command.print.cconf
+                || command.outfile_variance.is_some(),
         };
         let s = solve(&setup).map_err(|e| Error(format!("CORRESPONDENCE: {e}")))?;
         warnings.extend(s.warnings.iter().cloned());
@@ -966,8 +1055,9 @@ impl Engine {
         let mut tables = Vec::new();
 
         // the input table and the profiles over it; margins over the active rows and columns
-        let in_rows: Vec<bool> = row_supplementary.iter().map(|s| !s).collect();
-        let in_columns: Vec<bool> = column_supplementary.iter().map(|s| !s).collect();
+        let in_analysis = |st: &Status| !matches!(st, Status::Supplementary | Status::Empty);
+        let in_rows: Vec<bool> = s.rows.status.iter().map(in_analysis).collect();
+        let in_columns: Vec<bool> = s.columns.status.iter().map(in_analysis).collect();
         let row_margin: Vec<f64> = counts
             .iter()
             .map(|row| {
@@ -1243,7 +1333,6 @@ impl Engine {
         }
 
         let charts = plots(command, &s, &rows, &columns, &norm, &mut warnings);
-        self.charts.extend(charts);
 
         if command.outfile_score.is_some() || command.outfile_variance.is_some() {
             let string = |values: &[String]| -> (usize, Vec<String>) {
@@ -1342,6 +1431,7 @@ impl Engine {
                 self.write_data_file(file, out)?;
             }
         }
+        self.charts.extend(charts);
         for warning in warnings {
             self.warn(warning);
         }
@@ -1400,10 +1490,13 @@ fn plots(
     };
     let mut biplot = plot.biplot;
     if biplot.is_some() && command.normalization == CorrespondenceNormalization::Principal {
-        warnings.push(
+        // the default biplot is dropped quietly; one asked for gets a warning
+        if plot.given {
+            warnings.push(
             "CORRESPONDENCE: no biplot with NORMALIZATION=PRINCIPAL; plot RPOINTS and CPOINTS instead"
                 .into(),
-        );
+            );
+        }
         biplot = None;
     }
     let scatter: [(PlotLabels, &str, bool, bool); 3] = [
@@ -1411,7 +1504,7 @@ fn plots(
         (plot.rpoints, "Row Points", true, false),
         (plot.cpoints, "Column Points", false, true),
     ];
-    if scatter.iter().any(|x| x.0.is_some()) && pairs.is_empty() {
+    if scatter.iter().any(|x| x.0.is_some()) && pairs.is_empty() && plot.given {
         warnings
             .push("CORRESPONDENCE: one dimension only, so there is no scatter of points".into());
     }
@@ -1492,9 +1585,10 @@ mod tests {
             row_groups: Vec::new(),
             column_groups: Vec::new(),
             standardize: Standardize::Rcmean,
-            dimension: 2,
+            dimension: Some(2),
             alpha: 0.5,
             beta: 0.5,
+            scores: true,
         }
     }
 
