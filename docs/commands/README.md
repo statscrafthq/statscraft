@@ -130,6 +130,9 @@ One page per supported command, generated from the same table that the parser an
 | [UNIANOVA](unianova.md) | General linear model of one dependent variable: factorial ANOVA, ANCOVA and regression. |
 | [GLM](glm.md) | General linear model: one dependent variable as in UNIANOVA, several (multivariate analysis of variance and covariance), or repeated measures with WSFACTOR. |
 | [MIXED](mixed.md) | Linear mixed model: fixed effects with random effects of subjects and correlated repeated measures. |
+| [COXREG](coxreg.md) | Cox proportional hazards regression of survival times, with strata, categorical covariates, stepwise selection and time-dependent covariates. |
+| [TIME PROGRAM](time-program.md) | Start the transformations that define time-dependent covariates for the next COXREG. |
+| [CLEAR TIME PROGRAM](clear-time-program.md) | Drop the time-dependent covariates of the last TIME PROGRAM. |
 | [ANOVA](anova.md) | Analysis of variance for factorial designs with covariates, the older form with MCA tables. |
 | [TREE](tree.md) | A classification tree grown by CHAID or exhaustive CHAID. |
 | [GRAPH](graph.md) | One chart: summaries by category as bars, lines, areas, a pie, points with error bars, a Pareto chart or ranges, a histogram, a scatterplot or a scatterplot matrix. |

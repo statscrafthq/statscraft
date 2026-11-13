@@ -471,6 +471,20 @@ Where the documentation is silent:
 - String covariates are categorical. A categorical variable needs two categories among the cases used.
 - The Categorical Variables Codings show weighted frequencies.
 
+### COXREG
+
+- GNU PSPP has no COXREG; the numbers are checked against R's `survival` package.
+- **Baseline.** The baseline survival is the maximum likelihood estimate given the coefficients (in R: `survfit` with `stype=1`), as documented, not the Breslow estimate `exp(-H)` that R gives by default; the cumulative hazard is -ln of that survival. The Survival Table's baseline cumulative hazard is at all covariates 0, its other columns at the covariate means (R's `basehaz` gives the Breslow hazard at the means). The standard error of the survival is the survival times the standard error of the Breslow cumulative hazard at the same covariates.
+- **Overall (score) test** is the score test at all coefficients 0 of the model's columns, also in later blocks.
+- **Dropped cases.** A censored case before the first event of its stratum is dropped and counted on its own; it does not enter the covariate means. A case missing on a covariate that is not in the model is still dropped when the covariate is named on the command.
+- **Weights** are case weights in the likelihood; the covariance is the inverse information (R gives a robust covariance with fractional weights).
+- **Convergence.** BCON compares each coefficient's change with its previous value (the absolute change when that was 0); LCON compares the change of the log likelihood with its previous value. A step that lowers the likelihood is halved. The default criteria stop slightly before R does; give CRITERIA BCON(1E-12) LCON(0) for full convergence.
+- **Saved variables.** DFBETA is the one-step approximation: the case's score residual times the covariance, the change b minus b without the case (R's `dfbeta`), times the case weight. PRESID is the Schoenfeld residual of an event, one variable per coded covariate (missing for covariates out of the model and for censored cases). Several variables of one temporary are named DFB1_1, DFB2_1 and PRE1_1, PRE2_1, ... in the order of the coded covariates.
+- **Time-dependent covariates.** The TIME PROGRAM runs for every case at each event time of its stratum up to its own time (in R: the counting-process form, or `tt()`). With them SAVE gives DFBETA only, and the Survival Table, PATTERN and the plots are left out with a warning.
+- **Tables.** Variables not in the Equation closes with a Residual Chi Square row. Model if Term Removed shows the loss chi-square for COND and LR. Covariate Means shows with BASELINE or PLOT, with a column per PATTERN. PRINT SUMMARY shows the last step of each block.
+- **Plots** are chart data of step curves, one line per stratum (and per category of a PATTERN BY variable), starting at time 0; LML starts at the first event.
+- PATTERN sets an interaction column from its variables when all are named, else to the column mean.
+
 ### NOMREG
 
 - The manual is followed where the usual R function for this model (`nnet::multinom`) differs: the reference category is the last one unless BASE says otherwise (`multinom` takes the first); a factor gets one parameter per level, the last redundant and shown as 0 (`multinom` drops the first level); the standard errors come from the information matrix, which here is the same observed or expected. The tests convert by releveling and by contrasts with the last level as base.
@@ -925,6 +939,7 @@ Where the documentation is silent:
   - REGRESSION has no METHOD=TEST, SELECT, MATRIX or OUTFILE.
   - RELIABILITY has no MODEL=OMEGA or MATRIX.
   - LOGISTIC REGRESSION has no SELECT or OUTFILE.
+  - COXREG has no OUTFILE.
   - NOMREG has no TEST, OUTFILE, or PRINT CELLPROB, HISTORY and ASSOCIATION.
   - GENLIN has no OUTFILE, TWEEDIE, INITIAL, CITYPE=PROFILE or PRINT GEF, HISTORY, LAGRANGE and LMATRIX, and with REPEATED no multinomial distribution and no generalized score tests.
   - CSPLAN has no SAMPLE designs; CSDESCRIPTIVES, CSTABULATE, CSGLM and CSLOGISTIC have no JOINTPROB and no UNEQUAL_WOR estimator; CSGLM and CSLOGISTIC have no OUTFILE or PRINT GEF.
@@ -940,7 +955,7 @@ Where the documentation is silent:
   - FILE HANDLE refuses MODE=BINARY, MULTIPUNCH, IMAGE and 360, since only text and data files are read.
 - **Expression functions.** APPLYMODEL and STRAPPLYMODEL, which need MODEL HANDLE. NUMBER reads the formats DATA LIST reads (F, N, E, COMMA, DOT, DOLLAR, PCT, DATE, ADATE, EDATE and SDATE). STRING writes the number, date and time formats, but not the custom currencies CCA to CCE.
 - **Transformations.** PRINT and WRITE have no binary formats (P, PK, IB, PIB, PIBHEX, RB, RBHEX, Z). DATA LIST reads only F, N, E, COMMA, DOT, DOLLAR, PCT, A, DATE, ADATE, EDATE and SDATE, and only UTF-8 files. Commands such as VALUE LABELS cannot stand inside LOOP. AUTORECODE has no templates.
-- **Charts.** GRAPH (see [GRAPH](#graph) for the parts not supported yet), FREQUENCIES, CROSSTABS, EXAMINE, ONEWAY, REGRESSION, LOGISTIC REGRESSION, UNIANOVA, GLM, DISCRIMINANT, FACTOR, CLUSTER and TREE give their charts as data (`--json` gives each chart's description and `--vega-lite` a Vega-Lite specification), and the window and `statscraft run --charts` draw them. The text output shows each chart's numbers as a table. A stem-and-leaf display and a plot in three dimensions are not drawn yet and show as their data table. Error bars (the profile plots of UNIANOVA and GLM) are drawn in the pictures, in Vega-Lite and in the office charts, where they are custom error bars whose lengths come from the chart's data table. Workbooks, Word documents and presentations hold the bar, pie and line charts (the means, scree, profile and gain charts among them) as editable charts and the statistical plots as pictures, a workbook with the data table beside each picture.
+- **Charts.** GRAPH (see [GRAPH](#graph) for the parts not supported yet), FREQUENCIES, CROSSTABS, EXAMINE, ONEWAY, REGRESSION, LOGISTIC REGRESSION, COXREG, UNIANOVA, GLM, DISCRIMINANT, FACTOR, CLUSTER and TREE give their charts as data (`--json` gives each chart's description and `--vega-lite` a Vega-Lite specification), and the window and `statscraft run --charts` draw them. The text output shows each chart's numbers as a table. A stem-and-leaf display and a plot in three dimensions are not drawn yet and show as their data table. Error bars (the profile plots of UNIANOVA and GLM) are drawn in the pictures, in Vega-Lite and in the office charts, where they are custom error bars whose lengths come from the chart's data table. Workbooks, Word documents and presentations hold the bar, pie and line charts (the means, scree, profile and gain charts among them) as editable charts and the statistical plots as pictures, a workbook with the data table beside each picture.
 - **TREE.** CHAID and exhaustive CHAID with a nominal or ordinal dependent. Not supported yet: CRT, QUEST, a scale dependent, split-sample and cross-validation, SPLITMERGED=YES, custom costs, profits, percentile gain tables, rules, influence variables, model files and TARGETRESPONSE.
 - **Data files.** Statscraft reads and writes .sav and .zsav files, and portable (.por) files with IMPORT and EXPORT.
   - Text files are read with DATA LIST, GET DATA and GET TRANSLATE /TYPE=TAB; workbooks (.xlsx, .xlsm, .xls) with GET DATA and GET TRANSLATE; dBASE III and IV files with GET TRANSLATE. 1-2-3, Symphony, SYLK and dBASE II files are not read.

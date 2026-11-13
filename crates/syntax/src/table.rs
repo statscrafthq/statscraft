@@ -1453,7 +1453,37 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/CRITERIA=[BCON(1E-4)] [LCON(1E-5)] [ITERATE(20)] [PIN(0.05)] [POUT(0.1)]]\n\
                  \x20  [/PLOT=[NONE] [SURVIVAL] [HAZARD] [LML] [OMS]] [/PATTERN=var(value) ... [BY var]] ...\n\
                  \x20  [/SAVE=tempvar[(name)] ...] [/EXTERNAL].\n\
-                 TODO",
+                 tempvar: SURVIVAL SE HAZARD (or RESID) LML XBETA DFBETA PRESID. A case is used when time, status,\n\
+                 strata and covariates are valid and its weight is positive; a negative time drops it, and so does\n\
+                 a censored time earlier than every event of its stratum. Status values on the EVENT list mark an\n\
+                 event; all others are censored (LOST changes nothing). String covariates are categorical; a\n\
+                 categorical variable with k values becomes k - 1 coded columns that enter and leave together\n\
+                 (DEVIATION, last category as reference, by default). Tied times follow Breslow. The fit is\n\
+                 Newton-Raphson from all coefficients 0 on covariates centered at their means; it stops when no\n\
+                 coefficient changes by BCON or more of its previous size, the log likelihood changes by less\n\
+                 than LCON of its previous value, or after ITERATE iterations. Each METHOD starts from the model\n\
+                 the one before it left: ENTER enters its terms, FSTEP enters by the score test (PIN) and removes\n\
+                 by the chosen statistic (POUT), BSTEP enters its terms first and then removes and enters the\n\
+                 same way. With no covariate only the beginning block and the baseline are shown. Tables: Case\n\
+                 Processing Summary, Categorical Variable Codings, Omnibus Tests of Model Coefficients (block 0:\n\
+                 -2 log likelihood; then per step the overall score test at all coefficients 0 and the changes\n\
+                 from the previous step and block), Variables in the Equation (with PRINT CI the interval of\n\
+                 Exp(B)), Model if Term Removed (COND and LR), Variables not in the Equation with the residual\n\
+                 chi-square, and with PRINT the Correlation Matrix of Regression Coefficients, Covariate Means\n\
+                 and a Survival Table per stratum: at every event time the baseline cumulative hazard with all\n\
+                 covariates 0, and survival, its standard error and the cumulative hazard at the means. The\n\
+                 baseline survival is the maximum likelihood estimate given the coefficients, so with no\n\
+                 covariate it is the Kaplan-Meier curve. SUMMARY shows the last step of each block only.\n\
+                 PLOT gives chart data of the step curves of each stratum at the means and at each PATTERN:\n\
+                 named covariates at the values given, the others at their means; BY draws one line per category\n\
+                 of a categorical covariate. SAVE adds, at each case's own time and covariates, SUR_1, SE_1, HAZ_1,\n\
+                 LML_1 and XBE_1 (the linear predictor with centered covariates), DFB1_1, DFB2_1, ... (the change\n\
+                 in each coefficient of the final model when the case is left out, from its score residual) and\n\
+                 PRE1_1, PRE2_1, ... (Schoenfeld residuals of events, one per coded covariate, missing for those\n\
+                 out of the model), or the names given (DFBETA(name) gives name1, name2, ...). Weighted when a\n\
+                 weight variable is set. After a TIME PROGRAM, covariates it creates change with time; SAVE then\n\
+                 gives DFBETA only and the survival table, PATTERN and plots are left out. EXTERNAL changes\n\
+                 nothing. Not supported yet: OUTFILE.",
         example: "COXREG months WITH plan spend /STATUS=ended(1) /STRATA=site /CATEGORICAL=plan /PRINT=CI(95) BASELINE /PLOT=SURVIVAL.",
         parse: coxreg::coxreg,
     },
@@ -1461,7 +1491,13 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "TIME PROGRAM",
         summary: "Start the transformations that define time-dependent covariates for the next COXREG.",
         syntax: "TIME PROGRAM.\n\
-                 TODO",
+                 The transformations that follow (COMPUTE, IF, RECODE, DO IF and the like), up to the next\n\
+                 command of another kind, are kept for the next COXREG instead of changing the data. COXREG runs\n\
+                 them for every case at each event time of its stratum up to the case's own time, with the\n\
+                 variable T_ holding that time, so a covariate they compute can change with time. The data may not\n\
+                 have a variable T_, and T_ itself is not a covariate. A missing value from the program where the\n\
+                 case is otherwise valid, or a program that adds or drops cases, is an error. The program ends\n\
+                 with that COXREG or with CLEAR TIME PROGRAM.",
         example: "TIME PROGRAM.\nCOMPUTE spend_t = spend * LN(T_ + 1).",
         parse: coxreg::time_program,
     },
@@ -1469,7 +1505,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "CLEAR TIME PROGRAM",
         summary: "Drop the time-dependent covariates of the last TIME PROGRAM.",
         syntax: "CLEAR TIME PROGRAM.\n\
-                 TODO",
+                 The transformations of the last TIME PROGRAM are dropped, so a new TIME PROGRAM can define the\n\
+                 time-dependent covariates afresh. COXREG drops them itself after it runs.",
         example: "CLEAR TIME PROGRAM.",
         parse: coxreg::clear_time_program,
     },
