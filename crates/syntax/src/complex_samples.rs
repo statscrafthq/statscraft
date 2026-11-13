@@ -23,6 +23,7 @@
 
 use crate::ast::{Command, Value, VarItem};
 use crate::error::SyntaxError;
+use crate::glm::list_until;
 use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
 use crate::procedures::at_end;
@@ -336,6 +337,8 @@ fn check_plan(p: &Parser, plan: &mut Csplan, estimators: &[bool]) -> PResult<()>
         ));
     };
     let mut roles: Vec<String> = vec![weight.to_uppercase()];
+    // the strata and clusters of the earlier stages, which a MATRIX may name
+    let mut earlier: Vec<String> = Vec::new();
     let last = plan.stages.len() - 1;
     for (s, stage) in plan.stages.iter_mut().enumerate() {
         let number = s + 1;
@@ -385,7 +388,7 @@ fn check_plan(p: &Parser, plan: &mut Csplan, estimators: &[bool]) -> PResult<()>
         }
         // a matrix may use the strata of this and earlier stages and the clusters of earlier ones
         let mut allowed: Vec<String> = stage.strata.iter().map(|v| v.to_uppercase()).collect();
-        allowed.extend(roles.iter().skip(1).cloned());
+        allowed.extend(earlier.iter().cloned());
         for name in stage.strata.iter().chain(&stage.clusters) {
             let upper = name.to_uppercase();
             if roles.contains(&upper) {
@@ -397,6 +400,13 @@ fn check_plan(p: &Parser, plan: &mut Csplan, estimators: &[bool]) -> PResult<()>
             }
             roles.push(upper);
         }
+        earlier.extend(
+            stage
+                .strata
+                .iter()
+                .chain(&stage.clusters)
+                .map(|v| v.to_uppercase()),
+        );
         for rate in stage.popsize.iter().chain(&stage.inclprob) {
             match rate {
                 CsRate::Matrix { variables, .. } => {
@@ -648,7 +658,8 @@ fn statistics(p: &mut Parser, tabulate: bool) -> PResult<CsStatistics> {
         } else if p.eat_word("DEFF") {
             // before DEFFSQRT, which DEFF would abbreviate
             s.deff = true;
-        } else if p.eat_keyword("DEFFSQRT") {
+        } else if p.at_keyword("DEFFSQRT") && !p.at_keyword("DEFF") {
+            p.pos += 1;
             s.deffsqrt = true;
         } else if p.eat_keyword("COUNT") {
             s.count = true;
@@ -802,9 +813,9 @@ pub(crate) fn csdescriptives(p: &mut Parser) -> PResult<Command> {
             };
             while !at_end(p) {
                 if eat_assignment(p, "NUMERATOR")? {
-                    ratio.numerators = list_to_keyword(p)?;
+                    ratio.numerators = list_until(p, &["DENOMINATOR", "TTEST"])?;
                 } else if eat_assignment(p, "DENOMINATOR")? {
-                    ratio.denominators = list_to_keyword(p)?;
+                    ratio.denominators = list_until(p, &["NUMERATOR", "TTEST"])?;
                 } else if eat_assignment(p, "TTEST")? {
                     ratio.test = Some(ttest(p)?);
                 } else {
@@ -845,31 +856,6 @@ pub(crate) fn csdescriptives(p: &mut Parser) -> PResult<Command> {
     Ok(Command::Csdescriptives(Box::new(c)))
 }
 
-/// A variable list that stops before BY or the next `KEYWORD =`.
-fn list_to_keyword(p: &mut Parser) -> PResult<Vec<VarItem>> {
-    let mut items = Vec::new();
-    while let Some(TokenKind::Word(w)) = p.peek() {
-        if p.peek_at(1) == Some(&TokenKind::Punct(Punct::Eq)) || w.eq_ignore_ascii_case("BY") {
-            break;
-        }
-        if p.eat_word("ALL") {
-            items.push(VarItem::All);
-        } else {
-            let first = p.name("a variable name")?;
-            if p.eat_word("TO") {
-                items.push(VarItem::Range(first, p.name("a variable name")?));
-            } else {
-                items.push(VarItem::Name(first));
-            }
-        }
-        p.eat(Punct::Comma);
-    }
-    if items.is_empty() {
-        return Err(p.unexpected(&["a variable name"]));
-    }
-    Ok(items)
-}
-
 pub(crate) fn cstabulate(p: &mut Parser) -> PResult<Command> {
     let mut c = Cstabulate {
         plan: String::new(),
@@ -896,7 +882,7 @@ pub(crate) fn cstabulate(p: &mut Parser) -> PResult<Command> {
         } else if p.eat_keyword("TABLES") {
             once(p, start, &mut seen, "TABLES")?;
             require_assignment(p, "VARIABLES")?;
-            c.variables = list_to_keyword(p)?;
+            c.variables = list_until(p, &["BY"])?;
             if p.eat_word("BY") {
                 c.by = Some(p.name("a variable name")?);
             }

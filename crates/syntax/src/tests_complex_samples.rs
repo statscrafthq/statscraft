@@ -114,6 +114,13 @@ fn csplan_rules_give_errors() {
     assert!(err(&format!("{base} /DESIGN /METHOD TYPE=SIMPLE_WOR.")).contains("not supported yet"));
     assert!(err("CSPLAN SAMPLE /PLAN FILE='a'.").contains("not supported yet"));
     assert!(
+        err(&format!(
+            "{base} /DESIGN CLUSTER=v /ESTIMATOR TYPE=EQUAL_WOR /POPSIZE VARIABLE=psz
+               /DESIGN /ESTIMATOR TYPE=EQUAL_WOR /INCLPROB MATRIX=psz; 100 0.2."
+        ))
+        .contains("not a stratum variable")
+    );
+    assert!(
         err("CSPLAN ANALYSIS /PLAN FILE='a' /DESIGN /ESTIMATOR TYPE=WR.")
             .contains("ANALYSISWEIGHT")
     );
@@ -163,6 +170,10 @@ fn csdescriptives_rules_give_errors() {
             .contains("below 100")
     );
     assert!(err("CSDESCRIPTIVES /PLAN FILE='p' /RATIO NUMERATOR=x.").contains("DENOMINATOR"));
+    assert!(
+        err("CSDESCRIPTIVES /PLAN FILE='p' /RATIO NUMERATOR=x DENOMINATOR=y /STATISTICS DEF.")
+            .contains("unexpected")
+    );
     assert!(
         err("CSDESCRIPTIVES /PLAN FILE='p' /JOINTPROB FILE='j' /RATIO NUMERATOR=x DENOMINATOR=y.")
             .contains("not supported yet")

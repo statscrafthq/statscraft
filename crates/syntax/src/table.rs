@@ -1800,8 +1800,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/SUBPOP TABLE=var [BY var ...] [DISPLAY=LAYERED | SEPARATE]]\n\
                  \x20  [/MISSING [SCOPE=ANALYSIS | LISTWISE] [CLASSMISSING=EXCLUDE | INCLUDE]].\n\
                  The design comes from a plan written by CSPLAN; WEIGHT and SPLIT FILE do not apply. A case\n\
-                 with a missing weight, stratum, cluster, population size or inclusion probability leaves\n\
-                 the design. Totals are weighted sums; a mean is the total over the summed weights and a\n\
+                 with a missing or non-positive weight, or a missing stratum, cluster, population size or\n\
+                 inclusion probability, leaves the design. Totals are weighted sums; a mean is the total over the summed weights and a\n\
                  ratio is one total over another, and their variances come from Taylor linearization. The\n\
                  variance adds, stratum by stratum, the spread of the cluster totals, times the finite\n\
                  population correction under EQUAL_WOR, plus the variance of later stages. A stratum with\n\
@@ -1809,7 +1809,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  clusters minus the number of first-stage strata as df. The design effect divides the\n\
                  variance by the one simple random sampling would give (see CSPLAN SRSESTIMATOR). Each\n\
                  RATIO crosses its numerators with its denominators. Subpopulations are domains: their\n\
-                 estimates use the whole design, with cases outside counting as zero. Under SCOPE=ANALYSIS\n\
+                 estimates use the whole design, with cases outside counting as zero; a Total row\n\
+                 follows them. Under SCOPE=ANALYSIS\n\
                  each statistic uses the cases valid on its own variables, under LISTWISE those valid on\n\
                  all of them; the others count as outside, so the design stays whole. Without STATISTICS:\n\
                  the estimate and its standard error. Not supported yet: JOINTPROB.",

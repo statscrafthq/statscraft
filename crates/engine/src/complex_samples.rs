@@ -32,6 +32,7 @@ use crate::matrix::{Matrix, inverse, multiply, transpose};
 use crate::npar_tests::text;
 use crate::regression::table;
 use crate::shown::Shown;
+use crate::variables::duplicate;
 use crate::{Cell, Engine, Error, Table};
 use serde::{Deserialize, Serialize};
 use statscraft_data::{Dataset, Variable};
@@ -308,6 +309,8 @@ pub(crate) struct Design {
     df: f64,
     total_w: f64,
     srs_wr: bool,
+    /// Whether design effects are asked for; without them V_srs is not computed.
+    deff: bool,
     /// Upper-case names of every plan variable, and of the first-stage strata.
     plan_vars: Vec<String>,
     strata_clusters: Vec<String>,
@@ -398,7 +401,7 @@ impl RateSource {
 }
 
 impl Design {
-    fn new(data: &Dataset, plan: &PlanFile, include: bool) -> Result<Design, Error> {
+    fn new(data: &Dataset, plan: &PlanFile, include: bool, deff: bool) -> Result<Design, Error> {
         let weight_var = data.variable(&plan.weight)?;
         let weights = numbers(&weight_var)?;
         let mut used: Vec<&PlanStage> = Vec::new();
@@ -474,7 +477,10 @@ impl Design {
         let mut w = Vec::new();
         let mut rate_values: Vec<Vec<f64>> = vec![Vec::new(); stage_data.len()];
         'cases: for case in 0..data.case_count() {
-            let Some(wt) = weights[case] else { continue };
+            // a weight that is missing or not above 0 is not a valid design value
+            let Some(wt) = weights[case].filter(|w| *w > 0.0) else {
+                continue;
+            };
             for sd in &stage_data {
                 if sd
                     .strata
@@ -630,6 +636,7 @@ impl Design {
             df,
             total_w,
             srs_wr: plan.srs_estimator == "WR",
+            deff,
             plan_vars,
             strata_clusters,
             first_strata: plan
@@ -715,7 +722,11 @@ impl Design {
         Estimate {
             value,
             variance,
-            srs: self.srs_variance(u),
+            srs: if self.deff {
+                self.srs_variance(u)
+            } else {
+                None
+            },
             count,
             popsize,
         }
@@ -888,22 +899,22 @@ fn domains(
     }
     let keys: Vec<Vec<Option<Key>>> = vars.iter().map(|v| keys_of(v, include)).collect();
     let mut combos: Vec<Vec<Key>> = Vec::new();
+    let mut index: HashMap<String, usize> = HashMap::new();
     let mut of_case: Vec<Option<usize>> = Vec::with_capacity(design.cases());
     for &case in &design.rows {
         let combo: Option<Vec<Key>> = keys.iter().map(|k| k[case].clone()).collect();
         of_case.push(combo.map(|combo| {
-            match combos.iter().position(|c| {
-                c.iter()
-                    .zip(&combo)
-                    .all(|(a, b)| a.compare(b) == std::cmp::Ordering::Equal)
-            }) {
-                Some(i) => i,
-                None => {
-                    combos.push(combo);
-                    combos.len() - 1
-                }
-            }
+            let hash: Vec<String> = combo.iter().map(key_part).collect();
+            *index.entry(hash.join("\u{1}")).or_insert_with(|| {
+                combos.push(combo);
+                combos.len() - 1
+            })
         }));
+    }
+    if combos.is_empty() {
+        return Err(Error(
+            "SUBPOP: no case in the design has valid values on every SUBPOP variable".into(),
+        ));
     }
     let mut order: Vec<usize> = (0..combos.len()).collect();
     order.sort_by(|&a, &b| {
@@ -1000,6 +1011,11 @@ impl Engine {
                 for note in &command.ignored {
                     self.warn(format!("CSPLAN: {note}"));
                 }
+                if let Some(data) = &self.dataset
+                    && (data.weight_variable().is_some() || data.split_file().is_some())
+                {
+                    self.warn("CSPLAN ignores WEIGHT and SPLIT FILE: the plan names its own weight, and the complex samples procedures do not split");
+                }
                 plan
             }
         };
@@ -1015,28 +1031,23 @@ impl Engine {
         let plan = self.read_plan(&c.plan)?;
         let data = self.active()?;
         let shown = self.shown();
-        let design = Design::new(data, &plan, c.include)?;
+        let deff = c.statistics.deff || c.statistics.deffsqrt;
+        let design = Design::new(data, &plan, c.include, deff)?;
         let summary = if c.mean.is_some() || c.sum.is_some() {
             self.expand(&c.summary)?
         } else {
             Vec::new()
         };
-        for (i, name) in summary.iter().enumerate() {
-            if summary[..i].iter().any(|n| n.eq_ignore_ascii_case(name)) {
-                return Err(Error(format!("{name} appears twice on SUMMARY")));
-            }
+        if let Some(name) = duplicate(&summary) {
+            return Err(Error(format!("{name} appears twice on SUMMARY")));
         }
         // (numerator, denominator, test value) per ratio, denominators fastest
         let mut ratios: Vec<(String, String, Option<f64>)> = Vec::new();
         for r in &c.ratios {
             let numerators = self.expand(&r.numerators)?;
             let denominators = self.expand(&r.denominators)?;
-            for list in [&numerators, &denominators] {
-                for (i, name) in list.iter().enumerate() {
-                    if list[..i].iter().any(|n| n.eq_ignore_ascii_case(name)) {
-                        return Err(Error(format!("{name} appears twice in a RATIO list")));
-                    }
-                }
+            if let Some(name) = duplicate(&numerators).or(duplicate(&denominators)) {
+                return Err(Error(format!("{name} appears twice in a RATIO list")));
             }
             let n = numerators.len() * denominators.len();
             let mut i = 0;
@@ -1080,9 +1091,19 @@ impl Engine {
         let listwise: Vec<bool> = (0..n)
             .map(|i| values.values().all(|v| v[i].is_some()))
             .collect();
-        let (subpop_labels, domains) =
+        let (subpop_labels, mut domains) =
             domains(data, &design, c.subpop.as_ref(), c.include, &shown)?;
-        let separate = c.subpop.as_ref().is_some_and(|s| s.separate);
+        if c.subpop.is_some() {
+            // the whole population too, as the manual's t tests imply
+            domains.push(Domain {
+                labels: vec!["Total".to_string(); subpop_labels.len()],
+                inside: vec![true; n],
+            });
+        }
+        let layout = Layout {
+            separate: c.subpop.as_ref().is_some_and(|s| s.separate),
+            subpop_labels: &subpop_labels,
+        };
         let s = &c.statistics;
         let df = design.df;
         let w = &design.w;
@@ -1099,34 +1120,7 @@ impl Engine {
                 .unwrap_or_else(|_| name.to_string())
         };
         let mut tables = Vec::new();
-        let layers = if separate { 0 } else { subpop_labels.len() };
-        let header = |names: &[&str]| -> Vec<(String, String)> {
-            let mut cols: Vec<(String, String)> = if separate {
-                Vec::new()
-            } else {
-                subpop_labels
-                    .iter()
-                    .map(|l| (String::new(), l.clone()))
-                    .collect()
-            };
-            cols.extend(names.iter().map(|n| (String::new(), n.to_string())));
-            cols
-        };
-        let caption = |d: &Domain| -> Option<String> {
-            (separate).then(|| {
-                let parts: Vec<String> = subpop_labels
-                    .iter()
-                    .zip(&d.labels)
-                    .map(|(n, v)| format!("{n} = {v}"))
-                    .collect();
-                format!("Subpopulation: {}", parts.join(", "))
-            })
-        };
-        let groups: Vec<Vec<&Domain>> = if separate {
-            domains.iter().map(|d| vec![d]).collect()
-        } else {
-            vec![domains.iter().collect()]
-        };
+        let groups = layout.groups(&domains);
         // univariate statistics
         let kinds: Vec<(&str, &Vec<f64>)> = [("Mean", &c.mean), ("Sum", &c.sum)]
             .into_iter()
@@ -1166,11 +1160,7 @@ impl Engine {
                                 Some(design.estimate(total, &u, count, big_n))
                             };
                             let test = test_value(tests, k, summary.len(), kind)?;
-                            let mut row: Vec<Cell> = if separate {
-                                Vec::new()
-                            } else {
-                                d.labels.iter().map(text).collect()
-                            };
+                            let mut row = layout.layer_cells(d);
                             row.push(text(label_of(name)));
                             row.push(text(*kind));
                             row.extend(stat_cells(
@@ -1185,14 +1175,16 @@ impl Engine {
                         }
                     }
                 }
-                let mut cols = header(&["Variable", "Statistic"]);
+                let mut cols = layout.layer_columns();
+                cols.push((String::new(), "Variable".into()));
+                cols.push((String::new(), "Statistic".into()));
                 cols.extend(stat_columns(s, has_test, true));
                 tables.push(table(
                     "Univariate Statistics",
-                    layers + 2,
+                    layout.layers() + 2,
                     cols,
                     rows,
-                    caption(group[0]),
+                    layout.caption(group[0]),
                 ));
             }
         }
@@ -1225,11 +1217,7 @@ impl Engine {
                                 .collect();
                             design.estimate(r, &u, count, big_n)
                         });
-                        let mut row: Vec<Cell> = if separate {
-                            Vec::new()
-                        } else {
-                            d.labels.iter().map(text).collect()
-                        };
+                        let mut row = layout.layer_cells(d);
                         row.push(text(label_of(num)));
                         row.push(text(label_of(den)));
                         row.extend(stat_cells(
@@ -1243,9 +1231,17 @@ impl Engine {
                         rows.push(row);
                     }
                 }
-                let mut cols = header(&["Numerator", "Denominator"]);
+                let mut cols = layout.layer_columns();
+                cols.push((String::new(), "Numerator".into()));
+                cols.push((String::new(), "Denominator".into()));
                 cols.extend(stat_columns(s, has_test, true));
-                tables.push(table("Ratios", layers + 2, cols, rows, caption(group[0])));
+                tables.push(table(
+                    "Ratios",
+                    layout.layers() + 2,
+                    cols,
+                    rows,
+                    layout.caption(group[0]),
+                ));
             }
         }
         Ok(tables)
@@ -1255,15 +1251,13 @@ impl Engine {
         let plan = self.read_plan(&c.plan)?;
         let data = self.active()?;
         let shown = self.shown();
-        let design = Design::new(data, &plan, c.include)?;
+        let deff = c.statistics.deff || c.statistics.deffsqrt;
+        let design = Design::new(data, &plan, c.include, deff)?;
         let rows_vars = self.expand(&c.variables)?;
-        for (i, name) in rows_vars.iter().enumerate() {
-            if rows_vars[..i].iter().any(|n| n.eq_ignore_ascii_case(name)) {
-                return Err(Error(format!("{name} appears twice on TABLES")));
-            }
-            if c.by.as_ref().is_some_and(|b| b.eq_ignore_ascii_case(name)) {
-                return Err(Error(format!("{name} is both before and after BY")));
-            }
+        let mut with_by = rows_vars.clone();
+        with_by.extend(c.by.clone());
+        if let Some(name) = duplicate(&with_by) {
+            return Err(Error(format!("{name} appears twice on TABLES")));
         }
         let subpop_names: Vec<String> = c
             .subpop
@@ -1350,7 +1344,10 @@ impl Engine {
         let ctx = Tabulation {
             design: &design,
             s,
-            separate,
+            layout: Layout {
+                separate,
+                subpop_labels: &subpop_labels,
+            },
             subpop_labels: &subpop_labels,
         };
         for row_name in &rows_vars {
@@ -1366,23 +1363,28 @@ impl Engine {
                 })
                 .collect();
             let cats = |k: &Vec<Option<Key>>| -> (Vec<Key>, Vec<Option<usize>>) {
-                let mut found: Vec<Key> = Vec::new();
+                let mut seen: HashMap<String, Key> = HashMap::new();
                 for (i, key) in k.iter().enumerate() {
                     if let Some(key) = key
                         && valid[i]
-                        && !found.iter().any(|f| f.compare(key).is_eq())
                     {
-                        found.push(key.clone());
+                        seen.entry(key_part(key)).or_insert_with(|| key.clone());
                     }
                 }
+                let mut found: Vec<Key> = seen.into_values().collect();
                 found.sort_by(|a, b| a.compare(b));
+                let position: HashMap<String, usize> = found
+                    .iter()
+                    .enumerate()
+                    .map(|(i, f)| (key_part(f), i))
+                    .collect();
                 let index = k
                     .iter()
                     .enumerate()
                     .map(|(i, key)| {
                         key.as_ref()
                             .filter(|_| valid[i])
-                            .and_then(|key| found.iter().position(|f| f.compare(key).is_eq()))
+                            .map(|key| position[&key_part(key)])
                     })
                     .collect();
                 (found, index)
@@ -1458,56 +1460,14 @@ impl Engine {
     }
 }
 
-/// What every CSTABULATE table shares.
-struct Tabulation<'a> {
-    design: &'a Design,
-    s: &'a CsStatistics,
+/// How subpopulations are laid out: as leading row headers (LAYERED) or one table each
+/// (SEPARATE).
+struct Layout<'a> {
     separate: bool,
     subpop_labels: &'a [String],
 }
 
-/// The cell kinds of CELLS that a table shows: (column group, base of the percent).
-#[derive(Clone, Copy, PartialEq)]
-enum Base {
-    /// A population size.
-    Size,
-    Row,
-    Column,
-    Table,
-}
-
-impl Tabulation<'_> {
-    fn n(&self) -> usize {
-        self.design.cases()
-    }
-
-    /// A population size in a set of cases.
-    fn size(&self, inside: &[bool]) -> Estimate {
-        let u: Vec<f64> = inside.iter().map(|&b| f64::from(u8::from(b))).collect();
-        let total: f64 = (0..self.n())
-            .filter(|&i| inside[i])
-            .map(|i| self.design.w[i])
-            .sum();
-        let count = inside.iter().filter(|b| **b).count() as f64;
-        self.design.estimate(total, &u, count, total)
-    }
-
-    /// The proportion of `base` that is in `part` (part inside base); None for an empty base.
-    fn proportion(&self, part: &[bool], base: &[bool]) -> Option<Estimate> {
-        let w = &self.design.w;
-        let nb: f64 = (0..self.n()).filter(|&i| base[i]).map(|i| w[i]).sum();
-        if nb == 0.0 {
-            return None;
-        }
-        let np: f64 = (0..self.n()).filter(|&i| part[i]).map(|i| w[i]).sum();
-        let p = np / nb;
-        let u: Vec<f64> = (0..self.n())
-            .map(|i| (f64::from(u8::from(part[i])) - f64::from(u8::from(base[i])) * p) / nb)
-            .collect();
-        let count = part.iter().filter(|b| **b).count() as f64;
-        Some(self.design.estimate(p, &u, count, np))
-    }
-
+impl Layout<'_> {
     fn layer_cells(&self, d: &Domain) -> Vec<Cell> {
         if self.separate {
             Vec::new()
@@ -1554,6 +1514,57 @@ impl Tabulation<'_> {
             vec![domains.iter().collect()]
         }
     }
+}
+
+/// What every CSTABULATE table shares.
+struct Tabulation<'a> {
+    design: &'a Design,
+    s: &'a CsStatistics,
+    layout: Layout<'a>,
+    subpop_labels: &'a [String],
+}
+
+/// The cell kinds of CELLS that a table shows: (column group, base of the percent).
+#[derive(Clone, Copy, PartialEq)]
+enum Base {
+    /// A population size.
+    Size,
+    Row,
+    Column,
+    Table,
+}
+
+impl Tabulation<'_> {
+    fn n(&self) -> usize {
+        self.design.cases()
+    }
+
+    /// A population size in a set of cases.
+    fn size(&self, inside: &[bool]) -> Estimate {
+        let u: Vec<f64> = inside.iter().map(|&b| f64::from(u8::from(b))).collect();
+        let total: f64 = (0..self.n())
+            .filter(|&i| inside[i])
+            .map(|i| self.design.w[i])
+            .sum();
+        let count = inside.iter().filter(|b| **b).count() as f64;
+        self.design.estimate(total, &u, count, total)
+    }
+
+    /// The proportion of `base` that is in `part` (part inside base); None for an empty base.
+    fn proportion(&self, part: &[bool], base: &[bool]) -> Option<Estimate> {
+        let w = &self.design.w;
+        let nb: f64 = (0..self.n()).filter(|&i| base[i]).map(|i| w[i]).sum();
+        if nb == 0.0 {
+            return None;
+        }
+        let np: f64 = (0..self.n()).filter(|&i| part[i]).map(|i| w[i]).sum();
+        let p = np / nb;
+        let u: Vec<f64> = (0..self.n())
+            .map(|i| (f64::from(u8::from(part[i])) - f64::from(u8::from(base[i])) * p) / nb)
+            .collect();
+        let count = part.iter().filter(|b| **b).count() as f64;
+        Some(self.design.estimate(p, &u, count, np))
+    }
 
     /// The columns of one cell kind.
     fn kind_columns(&self, group: &str, cumulative: bool, extra: &[&str]) -> Vec<(String, String)> {
@@ -1594,7 +1605,7 @@ impl Tabulation<'_> {
             kinds.push((Base::Table, "Table Percent"));
         }
         let mut out = Vec::new();
-        for group in self.groups(domains) {
+        for group in self.layout.groups(domains) {
             let mut rows = Vec::new();
             for d in &group {
                 let base: Vec<bool> = (0..n).map(|i| d.inside[i] && index[i].is_some()).collect();
@@ -1605,7 +1616,7 @@ impl Tabulation<'_> {
                     } else {
                         base.clone()
                     };
-                    let mut row = self.layer_cells(d);
+                    let mut row = self.layout.layer_cells(d);
                     row.push(text(cats.get(r).map_or("Total", String::as_str)));
                     for (k, (kind, _)) in kinds.iter().enumerate() {
                         let (e, scale) = match kind {
@@ -1636,7 +1647,7 @@ impl Tabulation<'_> {
                     rows.push(row);
                 }
             }
-            let mut cols = self.layer_columns();
+            let mut cols = self.layout.layer_columns();
             cols.push((String::new(), title.to_string()));
             for (_, name) in &kinds {
                 cols.extend(self.kind_columns(name, self.s.cumulative, &[]));
@@ -1646,10 +1657,10 @@ impl Tabulation<'_> {
             }
             out.push(table(
                 title,
-                self.layers() + 1,
+                self.layout.layers() + 1,
                 cols,
                 rows,
-                self.caption(group[0]),
+                self.layout.caption(group[0]),
             ));
         }
         out
@@ -1699,7 +1710,7 @@ impl Tabulation<'_> {
                 .collect()
         };
         let mut out = Vec::new();
-        for group in self.groups(domains) {
+        for group in self.layout.groups(domains) {
             let mut rows = Vec::new();
             for d in &group {
                 let residuals = (!extra.is_empty() && cells.tablepct)
@@ -1708,7 +1719,7 @@ impl Tabulation<'_> {
                     for c in 0..=nc {
                         let (ro, co) = ((r < nr).then_some(r), (c < nc).then_some(c));
                         let part = in_cell(ro, co, d);
-                        let mut row = self.layer_cells(d);
+                        let mut row = self.layout.layer_cells(d);
                         row.push(text(cats[0].get(r).map_or("Total", String::as_str)));
                         row.push(text(cats[1].get(c).map_or("Total", String::as_str)));
                         for (kind, _) in &kinds {
@@ -1759,7 +1770,7 @@ impl Tabulation<'_> {
                     }
                 }
             }
-            let mut cols = self.layer_columns();
+            let mut cols = self.layout.layer_columns();
             cols.push((String::new(), names[0].clone()));
             cols.push((String::new(), names[1].clone()));
             for (kind, name) in &kinds {
@@ -1772,10 +1783,10 @@ impl Tabulation<'_> {
             let title = format!("{} * {}", names[0], names[1]);
             out.push(table(
                 &title,
-                self.layers() + 2,
+                self.layout.layers() + 2,
                 cols,
                 rows,
-                self.caption(group[0]),
+                self.layout.caption(group[0]),
             ));
         }
         out

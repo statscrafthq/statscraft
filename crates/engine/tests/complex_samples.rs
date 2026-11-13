@@ -320,6 +320,14 @@ fn subpopulations_are_domains_of_the_whole_design() {
             ("2 / food / Mean", "Design Effect", 1.10013471868),
         ],
     );
+    // the whole population follows the subpopulations
+    check(
+        t,
+        "Total / food / Mean",
+        "Standard Error",
+        8.77779767543,
+        1e-8,
+    );
     let second = find(&tables, "Univariate Statistics", 2);
     assert_eq!(second.caption.as_deref(), Some("Subpopulation: town = 2"));
     check(second, "food / Mean", "Standard Error", 10.7342440449, 1e-8);
@@ -607,6 +615,11 @@ fn design_and_plan_errors() {
     let weight_subpop =
         format!("{d}{WR}CSTABULATE /PLAN FILE='wr.json' /TABLES VARIABLES=heat /SUBPOP TABLE=w.\n");
     assert!(run_error(&weight_subpop).contains("cannot be on SUBPOP"));
+    let empty_subpop = format!(
+        "{d}{WR}COMPUTE nothing = $SYSMIS.
+         CSDESCRIPTIVES /PLAN FILE='wr.json' /SUMMARY VARIABLES=food /MEAN /SUBPOP TABLE=nothing.\n"
+    );
+    assert!(run_error(&empty_subpop).contains("no case in the design"));
 }
 
 #[test]
@@ -623,4 +636,19 @@ fn csplan_needs_no_data() {
         cell(plan, "Stage 1 / Population size", "Value"),
         &Cell::Text("900".into())
     );
+}
+
+#[test]
+fn a_weight_of_zero_leaves_the_design() {
+    let source = format!(
+        "{}COMPUTE w2 = w.
+         IF (hh = 1) w2 = 0.
+         CSPLAN ANALYSIS /PLAN FILE='zero.json' /PLANVARS ANALYSISWEIGHT=w2
+           /DESIGN STRATA=district CLUSTER=village /ESTIMATOR TYPE=WR.
+         CSDESCRIPTIVES /PLAN FILE='zero.json' /SUMMARY VARIABLES=food /MEAN /STATISTICS COUNT.\n",
+        data("zero")
+    );
+    let (_, tables) = run(&source);
+    let t = find(&tables, "Univariate Statistics", 0);
+    check(t, "food / Mean", "Unweighted Count", 122.0, 0.0);
 }
