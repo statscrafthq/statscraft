@@ -686,8 +686,11 @@ fn weight_and_split_file_do_not_apply_and_say_so() {
         data("split")
     );
     let (engine, tables) = run(&split);
-    // one table for the whole file, not one per town
+    // one table for the whole file with the plan's weight: no town layer, all of the population
     assert_eq!(tables.iter().filter(|t| t.title == "online").count(), 1);
+    let t = find(&tables, "online", 0);
+    assert_eq!(t.row_headers, 1);
+    check(t, "Total", "Population Size / Estimate", 12762.2167, 1e-8);
     assert_eq!(
         engine.warnings(),
         [
