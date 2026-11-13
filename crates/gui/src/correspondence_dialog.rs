@@ -85,6 +85,16 @@ impl TableVariable {
                 Role::Equal(g) => groups.entry(g).or_default().push(value),
             }
         }
+        // the manual's limits for a variable
+        if supplementary.len() > 200 {
+            return Err(format!("{name} has more than 200 supplementary categories"));
+        }
+        let merged_points: usize = groups.values().map(Vec::len).sum();
+        if merged_points > 200 {
+            return Err(format!(
+                "{name} has more than 200 categories in equal groups"
+            ));
+        }
         if let Some((g, _)) = groups.iter().find(|(_, members)| members.len() < 2) {
             return Err(format!(
                 "equal group {g} of {name} needs at least two categories"
@@ -544,6 +554,15 @@ mod tests {
         assert_eq!(
             err(&|d| d.row.max = "10001".into()),
             "the range of region holds more than 10000 categories"
+        );
+        let mut d = base.clone();
+        d.row.max = "300".into();
+        for value in 1..=201 {
+            d.row.roles.insert(value, Role::Supplementary);
+        }
+        assert_eq!(
+            d.syntax(&data).unwrap_err(),
+            "region has more than 200 supplementary categories"
         );
         // roles outside the range are not shown, so they leave the syntax as it is
         let mut d = base.clone();

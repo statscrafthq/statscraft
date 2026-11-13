@@ -112,7 +112,10 @@ fn table_variable(
 /// Each category of the range with its label and its role.
 fn categories(ui: &mut Ui, data: &Dataset, id: &str, v: &mut TableVariable) {
     let Ok((min, max)) = v.range() else {
-        ui.weak("Choose the variable and give its range first");
+        ui.weak(match v.name.trim().is_empty() {
+            true => "Choose the variable and give its range first",
+            false => "Give the smallest and largest category value",
+        });
         return;
     };
     let labels = data
@@ -129,8 +132,9 @@ fn categories(ui: &mut Ui, data: &Dataset, id: &str, v: &mut TableVariable) {
     // one group more than are in use, to start a new one
     let groups = v
         .roles
-        .values()
-        .filter_map(|r| match r {
+        .iter()
+        .filter(|(value, _)| (min..=max).contains(*value))
+        .filter_map(|(_, r)| match r {
             Role::Equal(g) => Some(*g),
             Role::Supplementary => None,
         })
