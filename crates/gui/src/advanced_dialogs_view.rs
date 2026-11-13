@@ -375,8 +375,14 @@ fn mixed(ui: &mut Ui, d: &mut LinearMixed, picked: &mut Vec<String>) {
         iteration_fields(ui, &mut d.ci_level, &mut d.iterations, &mut d.halvings);
         ui.horizontal(|ui| {
             ui.label("Degrees of freedom");
-            for (i, (_, label)) in MIXED_DF_METHODS.iter().enumerate() {
-                ui.radio_value(&mut d.df_method, i, *label);
+            // Kenward-Roger only with REML; the radio shows the method the syntax uses
+            let used = d.df_used();
+            for (i, (keyword, label)) in MIXED_DF_METHODS.iter().enumerate() {
+                let enabled = !(d.ml && *keyword == "KENWARDROGER");
+                let radio = egui::RadioButton::new(used == i, *label);
+                if ui.add_enabled(enabled, radio).clicked() {
+                    d.df_method = i;
+                }
             }
         });
         ui.checkbox(&mut d.include, "Treat user-missing values as valid");

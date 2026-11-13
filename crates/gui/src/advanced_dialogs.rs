@@ -246,7 +246,9 @@ impl ContrastTest {
             if parts.next().is_some() {
                 return Err(format!("test {n}: a row has one | at most"));
             }
-            let mut row = row_part(fixed, n, false, "an effect of the model", &|t| {
+            // `ALL |` with no coefficients gives those of the random effects only
+            let bare_all = after.is_some();
+            let mut row = row_part(fixed, n, false, bare_all, "an effect of the model", &|t| {
                 (intercept && t.eq_ignore_ascii_case("INTERCEPT"))
                     || terms.iter().any(|term| same_term(term, t))
             })?;
@@ -254,7 +256,7 @@ impl ContrastTest {
                 let (random_terms, random_intercept) =
                     random.map_err(|why| format!("test {n}: | is for random effects, {why}"))?;
                 // values straight after `|` are for every random parameter, as after ALL
-                let part = row_part(after, n, true, "a random effect", &|t| {
+                let part = row_part(after, n, true, false, "a random effect", &|t| {
                     (random_intercept && t.eq_ignore_ascii_case("INTERCEPT"))
                         || random_terms.iter().any(|term| same_term(term, t))
                 })?;
@@ -279,12 +281,14 @@ impl ContrastTest {
 }
 
 /// One part of a test row, effects each followed by its coefficients, as the syntax writes it;
-/// empty when there is nothing. `leading` lets coefficients come before the first effect.
-/// ALL is an effect, the others are those `known` takes, `what` names them in the error.
+/// empty when there is nothing. `leading` lets coefficients come before the first effect,
+/// `bare_all` lets a last ALL go without them. ALL is an effect, the others are those `known`
+/// takes, `what` names them in the error.
 fn row_part(
     text: &str,
     n: usize,
     leading: bool,
+    bare_all: bool,
     what: &str,
     known: &dyn Fn(&str) -> bool,
 ) -> Result<String, String> {
@@ -315,6 +319,7 @@ fn row_part(
     }
     if let Some(last) = tokens.last()
         && after_effect == 0
+        && !(bare_all && last.eq_ignore_ascii_case("ALL"))
     {
         return Err(format!("test {n}: {last} needs coefficients"));
     }
@@ -1047,6 +1052,15 @@ impl Default for LinearMixed {
 }
 
 impl LinearMixed {
+    /// The index into `MIXED_DF_METHODS` the syntax uses: Kenward-Roger is made for restricted
+    /// maximum likelihood, so with ML a choice of it falls back to Satterthwaite.
+    pub fn df_used(&self) -> usize {
+        match self.ml && MIXED_DF_METHODS[self.df_method].0 == "KENWARDROGER" {
+            true => 0,
+            false => self.df_method,
+        }
+    }
+
     /// Unchecks the random-effect subjects taken out of Subjects, so the dialog shows what the
     /// syntax uses.
     pub fn forget_old_subjects(&mut self) {
@@ -1167,8 +1181,8 @@ impl LinearMixed {
         let mut criteria =
             // MIXED takes 0 iterations: the starting estimates only
             iteration_criteria(&self.ci_level, &self.iterations, &self.halvings, 10, 0)?;
-        if self.df_method > 0 {
-            criteria.push(format!("DFMETHOD({})", MIXED_DF_METHODS[self.df_method].0));
+        if self.df_used() > 0 {
+            criteria.push(format!("DFMETHOD({})", MIXED_DF_METHODS[self.df_used()].0));
         }
         if !criteria.is_empty() {
             text.push_str(&format!("\n  /CRITERIA={}", criteria.join(" ")));
@@ -2064,10 +2078,17 @@ mod tests {
             print: std::array::from_fn(|i| i >= 6),
             history: "2".into(),
             save: std::array::from_fn(|i| matches!(i, 4 | 5)),
-            tests: vec![ContrastTest {
-                label: "Women in a region".into(),
-                rows: "gender 1 -1 0 | INTERCEPT 1 age 40\n| 1 0\nINTERCEPT 1 | ALL 0 1".into(),
-            }],
+            // each matrix names effects in every row or starts every row with ALL
+            tests: vec![
+                ContrastTest {
+                    label: "Women in a region".into(),
+                    rows: "gender 1 -1 0 | INTERCEPT 1 age 40\nINTERCEPT 1 | age 1".into(),
+                },
+                ContrastTest {
+                    label: String::new(),
+                    rows: "ALL | ALL 0 1\nALL | ALL 1 0".into(),
+                },
+            ],
             ..Default::default()
         };
         let syntax = d.syntax().unwrap();
@@ -2077,13 +2098,24 @@ mod tests {
              /RANDOM=INTERCEPT age | SUBJECT(region) COVTYPE(CSH) SOLUTION\n  \
              /CRITERIA=DFMETHOD(KENWARDROGER)\n  /PRINT=CPS DESCRIPTIVES HISTORY(2) LMATRIX\n  \
              /SAVE=SEPRED DFPRED\n  \
-             /TEST='Women in a region' gender 1 -1 0 | INTERCEPT 1 age 40; | 1 0; INTERCEPT 1 | ALL 0 1."
+             /TEST='Women in a region' gender 1 -1 0 | INTERCEPT 1 age 40; INTERCEPT 1 | age 1\n  \
+             /TEST=ALL | ALL 0 1; ALL | ALL 1 0."
         );
         assert!(statscraft_syntax::parse(&syntax).1.is_empty());
         let mut session = open("survey_basic.sav");
         assert!(run_in(&mut session, &syntax) >= 8);
         let data = session.dataset().unwrap();
         assert!(data.variable("SEPRED_1").is_ok());
+
+        // Kenward-Roger is for REML: with ML the syntax falls back to Satterthwaite
+        d.ml = true;
+        assert_eq!(d.df_used(), 0);
+        let ml = d.syntax().unwrap();
+        assert!(ml.contains("/METHOD=ML") && !ml.contains("DFMETHOD"));
+        d.df_method = 1;
+        assert!(d.syntax().unwrap().contains("DFMETHOD(RESIDUAL)"));
+        d.ml = false;
+        d.df_method = 2;
 
         // the defaults write nothing, HISTORY every iteration has no count
         d.history = " 1 ".into();
@@ -2107,6 +2139,8 @@ mod tests {
             ("age 1 |", "test 1: | needs coefficients after it"),
             ("age 1 | age 1 | age 1", "test 1: a row has one | at most"),
             ("| age", "test 1: age needs coefficients"),
+            ("ALL", "test 1: ALL needs coefficients"),
+            ("ALL | ALL", "test 1: ALL needs coefficients"),
             ("| age INTERCEPT 1", "test 1: age needs coefficients"),
         ] {
             d.tests[0].rows = rows.into();

@@ -912,7 +912,8 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             // heterogeneous compound symmetry
             random_covariance: 9,
             random_solution: true,
-            ml: true,
+            // Kenward-Roger below needs REML
+            ml: false,
             print: [true; 10],
             history: s("3"),
             means: vec![
