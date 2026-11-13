@@ -6,7 +6,7 @@ use crate::correspondence_dialog::{
 };
 use crate::dialogs::labelled_range;
 use crate::stats_dialogs_view::small_field;
-use eframe::egui::{self, ComboBox, ScrollArea, Ui};
+use eframe::egui::{self, ComboBox, ScrollArea, TextEdit, Ui};
 use statscraft_data::{Dataset, Value};
 
 pub fn correspondence(
@@ -78,8 +78,8 @@ pub fn correspondence(
 }
 
 /// The variable with its range; a new variable starts from its lowest and highest labelled
-/// value that is not user-missing, and with every category active. A changed range forgets the
-/// roles of the categories left outside it.
+/// value that is not user-missing, and with every category active. Leaving a changed range
+/// field forgets the roles of the categories outside the range.
 fn table_variable(
     ui: &mut Ui,
     data: &Dataset,
@@ -88,21 +88,23 @@ fn table_variable(
     picked: &mut Vec<String>,
 ) {
     let before = v.name.clone();
-    let range = (v.min.clone(), v.max.clone());
     target_one(ui, title, &mut v.name, picked);
     if v.name != before {
         v.roles.clear();
         (v.min, v.max) = labelled_range(data, v.name.trim());
     }
-    ui.push_id(title, |ui| {
+    // roles are forgotten once a field is left (or Enter pressed), not at each digit typed
+    let left = ui.push_id(title, |ui| {
         ui.horizontal(|ui| {
             ui.label("Range from");
-            small_field(ui, true, &mut v.min);
+            let min = ui.add(TextEdit::singleline(&mut v.min).desired_width(50.0));
             ui.label("to");
-            small_field(ui, true, &mut v.max);
-        });
+            let max = ui.add(TextEdit::singleline(&mut v.max).desired_width(50.0));
+            min.lost_focus() || max.lost_focus()
+        })
+        .inner
     });
-    if (&v.min, &v.max) != (&range.0, &range.1) {
+    if left.inner {
         v.keep_roles_in_range();
     }
 }
