@@ -179,7 +179,7 @@ fn solution_print_save_and_random_test_coefficients() {
     let m = mixed(
         "MIXED gain BY crop /FIXED=crop /RANDOM=plot | SUBJECT(farm) SOLUTION\n\
          /PRINT=CPS DESC HIST(3) LMAT /SAVE=SEPRED(se) DFPRED\n\
-         /TEST(0 1)='both' crop 1 -1 | plot 1 -1 DIVISOR=2; | plot 1 0 0 1\n\
+         /TEST(0 1)='both' crop 1 -1 | plot 1 -1 DIVISOR=2; | plot 1 0\n\
          /TEST=| plot 1 -1 /TEST=ALL | ALL 1 0 0 1.",
     );
     assert!(m.random[0].solution);
@@ -193,7 +193,7 @@ fn solution_print_save_and_random_test_coefficients() {
     assert_eq!(t.random[0][0].1, [0.5, -0.5]);
     assert!(t.rows[1].is_empty());
     assert_eq!(t.random[1][0].0.as_ref().unwrap().label, "plot");
-    assert_eq!(t.random[1][0].1, [1.0, 0.0, 0.0, 1.0]);
+    assert_eq!(t.random[1][0].1, [1.0, 0.0]);
     assert_eq!(m.tests[1].random[0][0].1, [1.0, -1.0]);
     assert!(m.tests[1].rows[0].is_empty());
     assert!(m.tests[2].rows[0].is_empty());
@@ -206,7 +206,7 @@ fn solution_print_save_and_random_test_coefficients() {
     assert_eq!(m.tests[0].random[1][0], (None, vec![0.0, 1.0]));
 }
 
-/// ALL and effect names never mix in one TEST (MIXED and PLUM): the first of them sets the
+/// ALL and effect names never mix in one TEST (PLUM too, in tests_glm): the first of them sets the
 /// form of every row. Bare values after `|` fit either form. A mix is refused at the row that
 /// breaks the form.
 #[test]
@@ -251,10 +251,6 @@ fn test_rows_keep_the_form_of_the_first_row() {
         (
             "MIXED gain BY crop /FIXED=crop /RANDOM=plot /TEST=ALL 0 1 -1 | plot 1 0.",
             "row 1 has an effect name",
-        ),
-        (
-            "PLUM score BY shift /TEST=ALL 0 0 1 -1; shift 1 -1.",
-            "row 2 has an effect name",
         ),
     ] {
         let message = err(source);
