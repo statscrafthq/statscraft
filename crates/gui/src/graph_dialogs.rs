@@ -305,7 +305,7 @@ impl ChartBuilder {
             }
             spec.push_str(&format!("({inside})"));
         }
-        let many = !counts && self.variables.len() > 1;
+        let many = self.many();
         match kind {
             ChartKind::Pie if many => return Err("a pie summarizes one variable".into()),
             ChartKind::SimpleBar | ChartKind::SimpleLine if many => {
@@ -342,6 +342,11 @@ impl ChartBuilder {
         Ok(spec)
     }
 
+    /// Whether a summary function runs over several variables, one series each.
+    fn many(&self) -> bool {
+        self.function >= COUNT_FUNCTIONS && self.variables.len() > 1
+    }
+
     pub fn syntax(&self) -> Result<String, String> {
         let group = self.group.trim();
         let chart = match self.kind {
@@ -355,8 +360,7 @@ impl ChartBuilder {
             ChartKind::HighLow => format!("HILO={}", self.summary()?),
             ChartKind::Pareto => {
                 // several summed variables are stacked series, as a group variable is
-                let many = self.function >= COUNT_FUNCTIONS && self.variables.len() > 1;
-                let stacked = if group.is_empty() && !many {
+                let stacked = if group.is_empty() && !self.many() {
                     "SIMPLE"
                 } else {
                     "STACKED"
@@ -510,7 +514,7 @@ pub const PPLOT_TIES: [(&str, &str); 4] = [
     ("MEAN", "Mean rank"),
     ("HIGH", "Highest rank"),
     ("LOW", "Lowest rank"),
-    ("BREAK", "Consecutive ranks, ties share one"),
+    ("BREAK", "Dense: each distinct value one step up"),
 ];
 
 pub const PPLOT_PLOTS: [(&str, &str); 3] = [
@@ -723,9 +727,12 @@ impl RocCurve {
         if self.small_positive {
             criteria.push("TESTPOS(SMALL)".into());
         }
-        let level = percent(&self.level)?;
-        if level != 95.0 {
-            criteria.push(format!("CI({})", number(level)));
+        // the level only shapes the interval that the standard error part prints
+        if self.se {
+            let level = percent(&self.level)?;
+            if level != 95.0 {
+                criteria.push(format!("CI({})", number(level)));
+            }
         }
         if self.negexpo {
             criteria.push("DISTRIBUTION(NEGEXPO)".into());
@@ -1200,10 +1207,14 @@ mod tests {
         d.exclude_cutoff = false;
         d.negexpo = false;
         d.level = s("100");
+        // the level is not used without the standard error part, so it blocks nothing
+        assert!(d.syntax(false).is_ok());
+        d.se = true;
         assert_eq!(
             d.syntax(false).unwrap_err(),
             "the confidence level must be a percentage between 0 and 100"
         );
+        d.se = false;
         d.level = s("95");
         d.include = false;
         d.state = s("plan");
