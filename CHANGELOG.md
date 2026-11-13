@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.11.0 (2026-11-13)
 
 - Warnings name their command once: a warning that already starts with the command name (as some from CORRESPONDENCE, FACTOR and NOMREG do), also after a split group's name, no longer shows it twice in the text output and the log.
 - MATRIX: RANK, GINV and SVAL of a long thin matrix no longer build a square basis of its longer side, so a 20000 x 2 matrix finishes at once instead of running out of memory; the results are the same, except that GINV of a matrix with a missing, infinite or overflowing element is now missing throughout.
