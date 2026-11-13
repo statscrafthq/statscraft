@@ -92,13 +92,15 @@ fn with_command(command: &str, message: &str) -> String {
 /// or a subcommand after it ("SET LOCALE: ...", "FACTOR /SAVE: ...").
 fn own_name<'a>(command: &str, message: &'a str) -> Option<(&'a str, &'a str)> {
     let (name, rest) = message.split_once(": ")?;
+    // "RANK = 1: ..." is the split group of a variable named like the command, not the command
+    if name.contains(" = ") {
+        return None;
+    }
     let longer = name
         .strip_prefix(command)?
         .strip_prefix(' ')
         .is_some_and(|more| {
-            // "RANK = 1: ..." is a split group of a variable RANK, not the command
             !more.is_empty()
-                && !more.starts_with("= ")
                 && more
                     .chars()
                     .all(|c| c.is_ascii_uppercase() || " /=_-".contains(c))
@@ -1084,6 +1086,10 @@ mod tests {
         assert_eq!(
             with_command("RANK", "RANK = A: ties"),
             "RANK: RANK = A: ties"
+        );
+        assert_eq!(
+            with_command("FACTOR", "FACTOR GROUP = LOW: FACTOR: x"),
+            "FACTOR: FACTOR GROUP = LOW: x"
         );
         // a split group of a variable named like the command is not the command's own name
         assert_eq!(

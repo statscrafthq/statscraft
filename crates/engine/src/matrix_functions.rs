@@ -648,13 +648,13 @@ fn svd_tolerance(a: &Mat, top: f64) -> f64 {
 
 fn pseudo_inverse(a: &Mat) -> Mat {
     // a missing or infinite entry, or one so large that the sums of squares overflow, leaves
-    // no singular value to trust (a NaN sorts first), and the result says so
+    // no singular value to trust, and the result says so
     let missing = || Mat::filled(a.cols, a.rows, f64::NAN);
     if a.data.iter().any(|x| !x.is_finite()) {
         return missing();
     }
     let (u, q, v) = thin_svd(a);
-    if a.rows.min(a.cols) > 0 && !q.at(0, 0).is_finite() {
+    if (0..a.rows.min(a.cols)).any(|k| !q.at(k, k).is_finite()) {
         return missing();
     }
     let mut out = Mat::filled(a.cols, a.rows, 0.0);

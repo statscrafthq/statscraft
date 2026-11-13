@@ -73,7 +73,7 @@ statscraft run [FILE | - | -e TEXT] [-s SESSION] [--lines FIRST-LAST] [--json] [
 | `--charts DIR` | also write every chart of the run as a picture into this folder (see [Chart pictures](#chart-pictures)) |
 | `--chart-format svg\|png` | with `--charts`, the picture format; default `svg` |
 
-Without `--json`, every table is printed as a Markdown table under a `###` title, every chart as a table of its numbers whose caption names the kind of chart, warnings as `warning: line N: COMMAND: message`, then a summary: the dataset loaded, variables added, changed and removed, the case count when it changed, and `ran N command(s)`, with `, session saved` when the session was written.
+Without `--json`, every table is printed as a Markdown table under a `###` title, every chart as a table of its numbers whose caption names the kind of chart, warnings as `warning: line N: COMMAND: message` (the command named once: a message that names it itself, also with a subcommand as in `FACTOR /SAVE:`, keeps that name, and the name of a split group comes after it), then a summary: the dataset loaded, variables added, changed and removed, the case count when it changed, and `ran N command(s)`, with `, session saved` when the session was written.
 
 ```
 statscraft run job.sps
