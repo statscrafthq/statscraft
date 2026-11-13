@@ -157,7 +157,7 @@ pub(super) struct GeeFit {
     pub(super) robust: Matrix,
     pub(super) converged: bool,
     pub(super) hessian_ok: bool,
-    /// The estimated matrix was not positive definite and was pulled toward the identity.
+    /// The final estimated matrix was not positive definite and was pulled toward the identity.
     pub(super) ridged: bool,
 }
 
@@ -410,62 +410,59 @@ pub(super) fn fit(
         || "GENLIN REPEATED: the estimating equations give a case an invalid mean".to_string();
     let mut beta = beta0.to_vec();
     let mut mu = means(c, x, set, &beta).ok_or_else(failed)?;
-    let (mut r, _, mut ridged) = estimate(c, s, set, q, &mu)?;
-    let mut phi = phi0;
+    let (mut r, moment, mut ridged) = estimate(c, s, set, q, &mu)?;
+    // with SCALE=MLE the scale is the Pearson moment from the start
+    let mut phi = if set.update_scale { moment } else { phi0 };
     let (mut score, mut h, mut meat) = parts(c, x, s, set, &mu, &r, phi);
-    let quadratic = |score: &[f64], h: &Matrix| {
-        super::dot(score, &mat_vec(&ginverse(h, set.singular).0, score)).abs()
-    };
+    let mut inverse = ginverse(&h, set.singular).0;
+    let quadratic =
+        |score: &[f64], inverse: &Matrix| super::dot(score, &mat_vec(inverse, score)).abs();
     let mut converged = set.maxiterations == 0 || q == 0;
     for iteration in 1..=set.maxiterations {
         if q == 0 {
             break;
         }
-        let step = mat_vec(&ginverse(&h, set.singular).0, &score);
-        let next: Vec<f64> = beta.iter().zip(&step).map(|(b, d)| b + d).collect();
-        mu = means(c, x, set, &next).ok_or_else(failed)?;
-        if set.updatecorr > 0 && iteration % set.updatecorr == 0 {
-            let (nr, _, nridged) = estimate(c, s, set, q, &mu)?;
-            r = nr;
-            ridged |= nridged;
+        // a step that gives a case an invalid mean is halved
+        let step = mat_vec(&inverse, &score);
+        let mut size = 1.0;
+        let (next, next_mu) = loop {
+            let next: Vec<f64> = beta.iter().zip(&step).map(|(b, d)| b + size * d).collect();
+            if let Some(m) = means(c, x, set, &next) {
+                break (next, m);
+            }
+            size /= 2.0;
+            if size < 1e-9 {
+                return Err(failed());
+            }
+        };
+        mu = next_mu;
+        let update = set.updatecorr > 0 && iteration % set.updatecorr == 0;
+        if update || set.update_scale {
+            let (nr, moment, nridged) = estimate(c, s, set, q, &mu)?;
+            if update {
+                r = nr;
+                ridged = nridged;
+            }
+            if set.update_scale {
+                phi = moment;
+            }
         }
-        if set.update_scale {
-            phi = estimate(
-                c,
-                s,
-                &Settings {
-                    correlation: &GenlinCorrelation::Independent,
-                    ..*set
-                },
-                q,
-                &mu,
-            )?
-            .1;
-        }
-        let change = beta
-            .iter()
-            .zip(&next)
-            .map(|(old, new)| {
-                let d = (new - old).abs();
-                if set.pconverge.relative {
-                    d / (old.abs() + 1e-6)
-                } else {
-                    d
-                }
-            })
-            .fold(0.0, f64::max);
+        let change = super::largest_change(&beta, &next, set.pconverge.relative);
         beta = next;
         (score, h, meat) = parts(c, x, s, set, &mu, &r, phi);
+        inverse = ginverse(&h, set.singular).0;
         let p_met = set.pconverge.value == 0.0 || change < set.pconverge.value;
-        let h_met = set.hconverge == 0.0 || quadratic(&score, &h) < set.hconverge;
+        let h_met = set.hconverge == 0.0 || quadratic(&score, &inverse) < set.hconverge;
         if p_met && h_met {
             converged = true;
             break;
         }
     }
-    let hessian_ok =
-        set.hconverge > 0.0 || set.maxiterations == 0 || q == 0 || quadratic(&score, &h) < 1e-4;
-    let model = ginverse(&h, set.singular).0;
+    let hessian_ok = set.hconverge > 0.0
+        || set.maxiterations == 0
+        || q == 0
+        || quadratic(&score, &inverse) < 1e-4;
+    let model = inverse;
     let robust = multiply(&multiply(&model, &meat), &model);
     Ok(GeeFit {
         beta,

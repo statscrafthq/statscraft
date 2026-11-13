@@ -382,6 +382,17 @@ fn dot(a: &[f64], b: &[f64]) -> f64 {
     a.iter().zip(b).map(|(x, y)| x * y).sum()
 }
 
+/// The largest change of an estimate for PCONVERGE: absolute, or relative to the old value.
+fn largest_change(old: &[f64], new: &[f64], relative: bool) -> f64 {
+    old.iter()
+        .zip(new)
+        .map(|(o, n)| {
+            let d = (n - o).abs();
+            if relative { d / (o.abs() + 1e-6) } else { d }
+        })
+        .fold(0.0, f64::max)
+}
+
 fn mat_vec(m: &Matrix, v: &[f64]) -> Vec<f64> {
     m.iter().map(|row| dot(row, v)).collect()
 }
@@ -608,18 +619,7 @@ fn fit_beta(
             halving_failed = true;
             break;
         };
-        let change = beta
-            .iter()
-            .zip(&next)
-            .map(|(old, new)| {
-                let d = (new - old).abs();
-                if crit.pconverge.relative {
-                    d / (old.abs() + 1e-6)
-                } else {
-                    d
-                }
-            })
-            .fold(0.0, f64::max);
+        let change = largest_change(&beta, &next, crit.pconverge.relative);
         // the iterations work at scale 1; the criteria are on the model's own scale
         let (scale_now, l_model) = if criteria_used {
             criteria_scale(c, spec, k, &m, l)
@@ -1164,18 +1164,7 @@ fn fit_ordinal(
             halving_failed = true;
             break;
         };
-        let change = b
-            .iter()
-            .zip(&next)
-            .map(|(old, new)| {
-                let d = (new - old).abs();
-                if crit.pconverge.relative {
-                    d / (old.abs() + 1e-6)
-                } else {
-                    d
-                }
-            })
-            .fold(0.0, f64::max);
+        let change = largest_change(&b, &next, crit.pconverge.relative);
         // the iterations work at scale 1; the criteria are on the model's own scale
         let dl = if crit.lconverge.relative {
             (l - ll).abs() / (ll.abs() + 1e-6)
@@ -2164,16 +2153,18 @@ impl Engine {
                     warnings.push("The estimated working correlation matrix was not positive definite; it was moved toward the identity matrix until it was".into());
                 }
                 // H of the independent structure, for QIC
-                let independent = if r.correlation == GenlinCorrelation::Independent {
-                    g.information.clone()
+                let independent = if !command.print.fit {
+                    None
+                } else if r.correlation == GenlinCorrelation::Independent {
+                    Some(g.information.clone())
                 } else {
                     let set = gee::Settings {
                         correlation: &GenlinCorrelation::Independent,
                         ..set
                     };
                     gee::fit(&c, &x, s, &set, &result.b, phi)
-                        .map_err(Error)?
-                        .information
+                        .ok()
+                        .map(|f| f.information)
                 };
                 f.beta = g.beta.clone();
                 f.mu = g.mu.clone();
@@ -2584,11 +2575,13 @@ impl Engine {
                         * gee::quasi(family, c.y[i], g.mu[i], result.k, !crit.kernel)
                 })
                 .sum();
-            let trace: f64 = crate::matrix::multiply(independent, &g.robust)
-                .iter()
-                .enumerate()
-                .map(|(j, row)| row[j])
-                .sum();
+            let trace: Option<f64> = independent.as_ref().map(|h| {
+                crate::matrix::multiply(h, &g.robust)
+                    .iter()
+                    .enumerate()
+                    .map(|(j, row)| row[j])
+                    .sum()
+            });
             tables.push(table(
                 "Goodness of Fit",
                 1,
@@ -2596,7 +2589,7 @@ impl Engine {
                 vec![
                     vec![
                         text("Quasi-likelihood under Independence Model Criterion (QIC)"),
-                        Cell::Number(-2.0 * q + 2.0 * trace),
+                        number(trace.map(|t| -2.0 * q + 2.0 * t)),
                     ],
                     vec![
                         text("Corrected Quasi-likelihood under Independence Model Criterion (QICC)"),
@@ -2604,9 +2597,14 @@ impl Engine {
                     ],
                 ],
                 Some(format!(
-                    "{caption} Smaller values are better. Both criteria use the {} quasi-likelihood under independence at a scale of {}.",
+                    "{caption} Smaller values are better. Both criteria use the {} quasi-likelihood under independence at a scale of {}.{}",
                     if crit.kernel { "kernel of the" } else { "full" },
-                    phi_q
+                    phi_q,
+                    if trace.is_none() {
+                        " QIC is blank: the fit with the independent structure, which it needs, failed."
+                    } else {
+                        ""
+                    }
                 )),
             ));
         } else if print.fit {

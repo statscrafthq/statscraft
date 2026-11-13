@@ -520,13 +520,15 @@ Where the documentation is silent:
 - Confidence intervals of estimated marginal means on the response scale are symmetric around the mean (delta method), as documented. The covariates of EMMEANS default to their means weighted by frequency and scale weight.
 - REPEATED (generalized estimating equations) was checked against our own matrix implementation of the documented estimating equations in R; with the working correlation fixed at its final value, that implementation and the `geepack` package agree to 1E-13 in the estimates and the robust standard errors. Choices and differences:
   - The working correlation estimates follow the documentation: each mean product of residual pairs is divided by the Pearson scale moment, and with ADJUSTCORR=YES every count in a denominator (pairs and measurements) loses the number of parameters. `geepack` uses other estimators, so its correlations and estimates differ slightly.
-  - The documentation does not say how large the ridge is that makes an estimated matrix positive definite. Here it leaves 0.01 as the smallest eigenvalue, and a warning says the matrix was moved.
+  - The documentation does not say how large the ridge is that makes an estimated matrix positive definite. Here it leaves 0.01 as the smallest eigenvalue, and a warning says the final matrix was moved. A step that gives a case an invalid mean is halved until it does not.
+  - With SCALE=MLE the scale is the Pearson moment from the start values on, so MAXITERATIONS=0 shows that moment rather than the plain model's estimate.
+  - QIC needs a second fit with the independent structure; it runs only with PRINT FIT, and if it fails QIC is left blank with a note.
   - QIC takes H of the independent structure at the scale of the model (1 for the discrete distributions). `geepack` divides it by an estimated scale even when the scale is fixed, so its trace term differs; the quasi-likelihood and QICC (its QICu) agree.
   - The cases of a subject are its rows that are used in the fit; without WITHINSUBJECT a case left out for a missing value does not hold a position.
   - A frequency weight copies the whole subject, so it must be the same for all cases of a subject; otherwise the command stops with an error.
   - The Correlated Data Summary is laid out as levels of each subject and within-subject variable, the number of subjects, the smallest and largest number of measurements and the dimension of the matrix.
 - SAVE gives predictions to every case with valid factors, covariates and offset whose factor levels were fitted; residuals, leverage and Cook's distance only to the cases of the fit. For events/trials, MEANPRED and the intervals are numbers of events. A default name already in use gets a suffix _1, _2 and so on; a name given that exists is an error.
-- Not supported yet: REPEATED (generalized estimating equations), OUTFILE, DISTRIBUTION=TWEEDIE, INITIAL, CITYPE=PROFILE, and PRINT GEF, HISTORY, LAGRANGE and LMATRIX. WORKINGCORR is accepted and ignored, as there is no working correlation without REPEATED.
+- Not supported yet: OUTFILE, DISTRIBUTION=TWEEDIE, INITIAL, CITYPE=PROFILE, PRINT GEF, HISTORY, LAGRANGE and LMATRIX, and with REPEATED the multinomial distribution and generalized score tests (ANALYSISTYPE with LR). WORKINGCORR without REPEATED is accepted and ignored, as there is no working correlation then.
 
 ### UNIANOVA and GLM
 
