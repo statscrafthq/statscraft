@@ -19,8 +19,8 @@
 //! - Fitting starts at the estimates of the model without REPEATED. Each iteration is a Fisher
 //!   step on sum f D' V^-1 (y - mu) = 0 with V = phi A^1/2 R A^1/2, A the variance function over
 //!   the prior weight, D the derivative of the means. R is estimated at the start and again after
-//!   every UPDATECORR iterations (0: never again). With SCALE=MLE the scale becomes the Pearson
-//!   moment (from the start); any other scale keeps the value of the first fit, and so does a
+//!   every UPDATECORR iterations (0: never again). With SCALE=MLE the scale of the first fit is
+//!   replaced by the Pearson moment after every iteration; any other scale keeps the value of the first fit, and so does a
 //!   negative binomial k. A step that gives a case an invalid mean is halved.
 //! - The iterations stop when the largest change of an estimate (absolute or relative) is below
 //!   PCONVERGE (a full step only) and s' H^-1 s is below HCONVERGE, each when above 0. When HCONVERGE is 0, the
@@ -73,7 +73,7 @@ pub(super) enum Adjusted {
     No,
     /// Pulled toward the identity, (R + cI) / (1 + c).
     Ridge,
-    /// An AR(1) correlation of 1 or nearly 1 in size cut to 0.99.
+    /// An AR(1) correlation above 0.999 in size cut to 0.999.
     Clamp,
 }
 
@@ -236,7 +236,8 @@ fn estimate(
     match set.correlation {
         GenlinCorrelation::Independent => return Ok((m, phi, Adjusted::No)),
         GenlinCorrelation::Fixed(list) => {
-            if list.len() != t * t.saturating_sub(1) / 2 {
+            // one position leaves nothing to fix
+            if t > 1 && list.len() != t * t.saturating_sub(1) / 2 {
                 return Err(format!(
                     "GENLIN: REPEATED: CORRTYPE=FIXED gives {} correlations; the working correlation matrix has dimension {t}, so it needs {}",
                     list.len(),
@@ -304,12 +305,8 @@ fn estimate(
         GenlinCorrelation::Ar1 => {
             let estimate = if t > 1 { lag(1) } else { 0.0 };
             // a power matrix is positive definite only for |alpha| < 1
-            // near 1 the smallest eigenvalue, (1 - a) / (1 + a), falls below 1E-6
-            let alpha = if estimate.abs() > 1.0 - 2e-6 {
-                0.99 * estimate.signum()
-            } else {
-                estimate
-            };
+            // near 1 the matrix is nearly singular: its smallest eigenvalue is about (1 - a) / (1 + a)
+            let alpha = estimate.clamp(-0.999, 0.999);
             let adjusted = if alpha == estimate {
                 Adjusted::No
             } else {
@@ -462,9 +459,9 @@ pub(super) fn fit(
         || "GENLIN: REPEATED: the estimating equations give a case an invalid mean".to_string();
     let mut beta = beta0.to_vec();
     let mut mu = means(c, x, set, &beta).ok_or_else(failed)?;
-    let (mut r, start_moment, mut adjusted) = estimate(c, s, set, q, &mu)?;
-    // with SCALE=MLE the scale is the Pearson moment from the start
-    let mut phi = if set.update_scale { start_moment } else { phi0 };
+    let (mut r, _, mut adjusted) = estimate(c, s, set, q, &mu)?;
+    // the scale of the first fit; with SCALE=MLE each iteration replaces it by the moment
+    let mut phi = phi0;
     // the inverse of R over the positions of a subject, once per pattern while R stays
     let mut inverses: HashMap<Vec<usize>, Matrix> = HashMap::new();
     let (mut score, mut h, mut meat) = parts(c, x, s, set, &mu, &r, phi, &mut inverses);

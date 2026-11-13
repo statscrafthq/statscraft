@@ -2208,7 +2208,7 @@ impl Engine {
                 }
                 match g.adjusted {
                     gee::Adjusted::Ridge => warnings.push("The estimated working correlation matrix was not positive definite; it was moved toward the identity matrix until it was".into()),
-                    gee::Adjusted::Clamp => warnings.push("The estimated AR(1) correlation was 1 or more in size, or too close to 1; it was set to 0.99 with its sign so that the matrix is safely positive definite".into()),
+                    gee::Adjusted::Clamp => warnings.push("The estimated AR(1) correlation was above 0.999 in size; it was set to 0.999 with its sign so that the matrix is safely positive definite".into()),
                     gee::Adjusted::No => {}
                 }
                 // H of the independent structure at its estimates (those of the plain model) and
