@@ -122,6 +122,7 @@ One page per supported command, generated from the same table that the parser an
 | [QUICK CLUSTER](quick-cluster.md) | K-means clustering of cases into a given number of clusters. |
 | [CLUSTER](cluster.md) | Hierarchical clustering of cases by one of 37 proximity measures and seven methods. |
 | [DISCRIMINANT](discriminant.md) | Linear discriminant analysis with direct or stepwise entry and classification of cases. |
+| [CORRESPONDENCE](correspondence.md) | Correspondence analysis: rows and columns of a two-way table as points in a few dimensions. |
 | [LOGISTIC REGRESSION](logistic-regression.md) | Binary logistic regression with categorical covariates, stepwise selection and case diagnostics. |
 | [NOMREG](nomreg.md) | Multinomial logistic regression: a nominal dependent variable on factors and covariates. |
 | [PLUM](plum.md) | Ordinal regression: a cumulative link model of an ordered dependent variable. |

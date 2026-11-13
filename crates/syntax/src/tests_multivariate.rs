@@ -1,4 +1,4 @@
-//! Parser tests of CLUSTER, DISCRIMINANT and ANOVA.
+//! Parser tests of CLUSTER, DISCRIMINANT, ANOVA and CORRESPONDENCE.
 
 use super::*;
 
@@ -322,4 +322,100 @@ fn anova_errors() {
     assert!(err("ANOVA y a(1,2).").contains("unexpected '('"));
     assert!(err("ANOVA y BY a(3,1).").contains("smaller value first"));
     assert!(err("ANOVA y BY a(1,2) /MAXORDERS=6.").contains("1 to 5"));
+}
+
+fn correspondence(source: &str) -> Correspondence {
+    match one(source) {
+        Command::Correspondence(c) => *c,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn correspondence_defaults() {
+    let c = correspondence("CORRESPONDENCE TABLE=shop(1,4) BY fruit(2,6).");
+    assert_eq!(
+        c.table,
+        CorrespondenceTable::Variables {
+            row: "shop".into(),
+            row_range: (1.0, 4.0),
+            column: "fruit".into(),
+            column_range: (2.0, 6.0),
+        }
+    );
+    assert_eq!(c.measure, CorrespondenceMeasure::Chisq);
+    assert_eq!(c.standardize, CorrespondenceStandardize::Rcmean);
+    assert_eq!(c.dimension, 2);
+    assert_eq!(c.normalization, CorrespondenceNormalization::Q(0.0));
+    assert_eq!(c.print, CorrespondencePrint::default());
+    assert_eq!(c.plot.biplot, Some(None));
+    assert_eq!(c.plot.ndim, None);
+}
+
+#[test]
+fn correspondence_subcommands_and_abbreviations() {
+    let c = correspondence(
+        "CORRESPONDENCE /TABLE=ALL(6,3) /SUPP ROW(2) COLUMN(1,3) ROW(5) /EQUAL ROW(1,4)(3,6)
+         /MEAS=EUCLID /STAN=CSUM /DIM=3 /NORM=-0.5
+         /PRINT=RPROF CPROF RCONF PERM(2) /PLOT=NDIM(1,MAX) TRROWS(12) BIPLOT CPOINTS(80)
+         /OUTFILE=SCORE('s.sav') VARIANCE(v).",
+    );
+    assert_eq!(
+        c.table,
+        CorrespondenceTable::All {
+            rows: 6,
+            columns: 3
+        }
+    );
+    assert_eq!(c.supplementary_rows, [2.0, 5.0]);
+    assert_eq!(c.supplementary_columns, [1.0, 3.0]);
+    assert_eq!(c.equal_rows, [vec![1.0, 4.0], vec![3.0, 6.0]]);
+    assert_eq!(c.measure, CorrespondenceMeasure::Euclid);
+    assert_eq!(c.standardize, CorrespondenceStandardize::Csum);
+    assert_eq!(c.dimension, 3);
+    assert_eq!(c.normalization, CorrespondenceNormalization::Q(-0.5));
+    assert!(c.print.rprofiles && c.print.cprofiles && c.print.rconf);
+    assert!(!c.print.table && !c.print.rpoints && !c.print.cconf);
+    assert_eq!(c.print.permutation, Some(2));
+    assert_eq!(c.plot.ndim, Some((1, None)));
+    assert_eq!(c.plot.trrows, Some(Some(12)));
+    assert_eq!(c.plot.biplot, Some(None));
+    assert_eq!(c.plot.cpoints, Some(Some(60)));
+    assert_eq!(c.plot.rpoints, None);
+    assert_eq!(c.outfile_score.as_deref(), Some("s.sav"));
+    assert_eq!(c.outfile_variance.as_deref(), Some("v"));
+    // the last of a repeated subcommand counts; PLOT NONE and PRINT NONE
+    let c = correspondence(
+        "CORRESPONDENCE TABLE=a(1,3) BY b(1,3) /SUPPLEMENTARY a(1) /SUPPLEMENTARY b(2)
+         /NORMALIZATION=PRINCIPAL /PRINT=NONE /PLOT=NONE.",
+    );
+    assert!(c.supplementary_rows.is_empty());
+    assert_eq!(c.supplementary_columns, [2.0]);
+    assert_eq!(c.normalization, CorrespondenceNormalization::Principal);
+    assert!(!c.print.table && !c.print.rpoints && !c.print.cpoints);
+    assert_eq!(c.plot.biplot, None);
+    let c =
+        correspondence("CORRESPONDENCE TABLE=a(1,3) BY b(1,3) /NORMALIZATION=RPRINCIPAL /PLOT.");
+    assert_eq!(c.normalization, CorrespondenceNormalization::Q(1.0));
+    assert_eq!(c.plot.biplot, Some(None));
+}
+
+#[test]
+fn correspondence_errors() {
+    assert!(err("CORRESPONDENCE /DIMENSION=2 /TABLE=a(1,2) BY b(1,2).").contains("starts with"));
+    assert!(err("CORRESPONDENCE TABLE=a(3,1) BY b(1,2).").contains("smaller first"));
+    assert!(err("CORRESPONDENCE TABLE=a(1.5,3) BY b(1,2).").contains("whole numbers"));
+    assert!(err("CORRESPONDENCE TABLE=a(1,3) BY a(1,2).").contains("two different"));
+    assert!(err("CORRESPONDENCE TABLE=a(1,3) BY b(1,3) /EQUAL a(1).").contains("at least two"));
+    assert!(
+        err("CORRESPONDENCE TABLE=a(1,3) BY b(1,3) /SUPPLEMENTARY c(1).").contains("unexpected")
+    );
+    assert!(err("CORRESPONDENCE TABLE=a(1,3) BY b(1,3) /STANDARDIZE=RSUM.").contains("EUCLID"));
+    assert!(err("CORRESPONDENCE TABLE=a(1,3) BY b(1,3) /NORMALIZATION=1.5.").contains("-1 to 1"));
+    assert!(err("CORRESPONDENCE TABLE=a(1,3) BY b(1,3) /DIMENSION=0.").contains("at least 1"));
+    assert!(err("CORRESPONDENCE TABLE=a(1,3) BY b(1,3) /PLOT=NDIM(2,2).").contains("larger last"));
+    assert!(
+        err("CORRESPONDENCE TABLE=a(1,3) BY b(1,3) /OUTFILE=SCORE(x) VARIANCE(x).")
+            .contains("different")
+    );
 }

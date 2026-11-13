@@ -1577,7 +1577,34 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/PLOT=[BIPLOT[(len)]] [RPOINTS[(len)]] [CPOINTS[(len)]] [TRROWS[(len)]] [TRCOLUMNS[(len)]]\n\
                  \x20         [NDIM(first, last | MAX)] [NONE]]\n\
                  \x20  [/OUTFILE=[SCORE('file' | dataset)] [VARIANCE('file' | dataset)]]\n\
-                 HELP_TEXT",
+                 Each case adds its weight (0 when negative) to one cell: every whole number in a range is a\n\
+                 category, values are truncated to whole numbers, and a case outside a range or missing on either\n\
+                 variable is left out. With ALL the first cases are the rows and the first variables the columns\n\
+                 (ROWCAT_ aside, whose values and labels name the rows); a missing or negative cell counts as 0\n\
+                 and WEIGHT does not apply. SUPPLEMENTARY rows and columns are placed in the solution after it is\n\
+                 found and take no part in it; each EQUAL group is added up into one category whose point all its\n\
+                 members share. Empty rows and columns are left out. CHISQ analyzes the standardized residuals of\n\
+                 the table; EUCLID uses STANDARDIZE: RMEAN takes out the row means, CMEAN the column means, RCMEAN\n\
+                 both (the same as CHISQ), RSUM and CSUM first bring the row or column totals to one value. The\n\
+                 solution has at most one dimension fewer than the smaller of the active rows and columns.\n\
+                 NORMALIZATION q gives the row scores the power (1 + q)/2 of each singular value and the column\n\
+                 scores (1 - q)/2; PRINCIPAL gives both the full value, which rules out the biplot. In every\n\
+                 dimension the active row with the largest absolute score scores positive.\n\
+                 Tables: Summary always (singular values, inertia, the chi-square of the table with its\n\
+                 significance, the share of the inertia of each dimension, and the standard deviation of each\n\
+                 singular value with the correlations between them); TABLE, RPOINTS and CPOINTS without PRINT or\n\
+                 with DEFAULT: the table with its active margins and the Overview Row and Column Points (mass,\n\
+                 scores, inertia, each point's share of a dimension and each dimension's share of a point);\n\
+                 RPROFILES and CPROFILES the profiles; RCONF and CCONF the standard deviations of the active\n\
+                 scores and their correlations across dimensions (delta method under multinomial sampling);\n\
+                 PERMUTATION(n) the table sorted by the scores of each of the first n dimensions (1 by default).\n\
+                 Plots: BIPLOT (the default) the rows and columns together, RPOINTS and CPOINTS each side alone,\n\
+                 one chart for each pair of dimensions; TRROWS and TRCOLUMNS the scores of the categories in each\n\
+                 dimension. NDIM(a, b) plots dimension a against a+1 to b, and the transformation plots of a to\n\
+                 b; without it every pair. A number after a plot keyword cuts the labels to that length (60 at\n\
+                 most). OUTFILE SCORE writes ROWTYPE_, LEVEL_, VARNAME_ and DIM1, DIM2, ... for every category;\n\
+                 VARIANCE writes the covariances of the singular values (VARNAME_ SINGULAR) and of the scores of\n\
+                 each active point, one case per dimension (DIMNMBR_).",
         example: "CORRESPONDENCE TABLE=district(1,5) BY transport(1,4) /SUPPLEMENTARY=district(5) /PRINT=DEFAULT RPROFILES RCONF /PLOT=BIPLOT.",
         parse: correspondence::correspondence,
     },
