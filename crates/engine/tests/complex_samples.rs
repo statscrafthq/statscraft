@@ -678,4 +678,20 @@ fn weight_and_split_file_do_not_apply_and_say_so() {
         engine.warnings(),
         ["CSDESCRIPTIVES ignores WEIGHT (the plan names the weight)"]
     );
+    let split = format!(
+        "{}{WR}SORT CASES BY town.
+         SPLIT FILE BY town.
+         WEIGHT BY members.
+         CSTABULATE /PLAN FILE='wr.json' /TABLES VARIABLES=online.\n",
+        data("split")
+    );
+    let (engine, tables) = run(&split);
+    // one table for the whole file, not one per town
+    assert_eq!(tables.iter().filter(|t| t.title == "online").count(), 1);
+    assert_eq!(
+        engine.warnings(),
+        [
+            "CSTABULATE ignores WEIGHT (the plan names the weight) and SPLIT FILE (the design spans the whole file)"
+        ]
+    );
 }
