@@ -228,7 +228,8 @@ pub struct ContrastTest {
 
 impl ContrastTest {
     /// `/TEST='label' row; row`, every effect checked against `terms`, the effects of the
-    /// model. ALL is taken too, and INTERCEPT when the model has one (`intercept`).
+    /// model. ALL is taken too, but never next to effect names in one test, and INTERCEPT when
+    /// the model has one (`intercept`).
     pub(crate) fn syntax(
         &self,
         terms: &[Vec<String>],
@@ -2351,6 +2352,10 @@ mod tests {
                 "test 1: -1/0 is not an effect of the model",
             ),
             (" \n ", "give the coefficients of test 1"),
+            (
+                "gender 1 -1 0\nALL 0 1 -1 0 0 0",
+                "test 1: ALL and effect names cannot be mixed in one test",
+            ),
         ] {
             d.tests[0].rows = rows.into();
             assert_eq!(d.syntax().unwrap_err(), error, "{rows}");

@@ -1718,7 +1718,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/SAVE=tempvar[(name)] ...]\n\
                  \x20  [/EMMEANS=TABLES(OVERALL | factor[*factor...]) [WITH(covariate=value | MEAN ...)]\n\
                  \x20            [COMPARE[(factor)] [REFCAT(value | FIRST | LAST)] [ADJ(LSD | BONFERRONI | SIDAK)]]] ...\n\
-                 \x20  [/TEST[(constants)]=['label'] effect values ... [| effect values ...] [DIVISOR=n]; ...\n\
+                 \x20  [/TEST[(constants)]=['label'] effect values ... [| effect values ... | values ...] [DIVISOR=n]; ...\n\
                  \x20         | ALL values ... [| values ...] ...] ...\n\
                  effects: INTERCEPT (first), a factor or covariate, a*b or a BY b, a(b) or a WITHIN b.\n\
                  type: VC (the RANDOM default: one variance per effect), ID (one variance for the block), DIAG (the\n\

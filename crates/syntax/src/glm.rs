@@ -810,7 +810,7 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
                 return Err(SyntaxError::new(
                     p.span_from(start),
                     format!(
-                        "TEST row {n} has {found} after {set} {place}; one TEST uses either ALL with values or effect names, never both"
+                        "TEST row {n} has {found} after {set} {place}; one TEST uses either ALL or effect names, never both (bare values after '|' fit either)"
                     ),
                 ));
             }
