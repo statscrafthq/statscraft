@@ -105,7 +105,11 @@ pub fn genlin(ui: &mut Ui, d: &mut GeneralizedLinear, picked: &mut Vec<String>) 
             let model = d.model_variables();
             terms_editor(ui, "model", &model, &mut d.terms);
         });
-        ui.checkbox(&mut d.intercept, "Include intercept in the model");
+        // the ordinal multinomial always fits its thresholds
+        let optional = d.intercept_optional();
+        ui.add_enabled_ui(optional, |ui| {
+            ui.checkbox(&mut d.intercept, "Include intercept in the model");
+        });
         target_one(ui, "Offset", &mut d.offset, picked);
         target_one(ui, "Scale weight", &mut d.scale_weight, picked);
     });

@@ -278,11 +278,13 @@ impl GeneralizedLinear {
 
     /// The dependent is categorical: binary, or ordinal, so it may be a string.
     pub fn categorical(&self) -> bool {
-        match self.kind() {
-            D::Multinomial => true,
-            D::Binomial => !self.events,
-            _ => false,
-        }
+        !self.events && matches!(self.kind(), D::Multinomial | D::Binomial)
+    }
+
+    /// The intercept is a choice, except for the ordinal multinomial distribution, whose
+    /// thresholds are always fitted.
+    pub fn intercept_optional(&self) -> bool {
+        self.kind() != D::Multinomial
     }
 
     /// The distribution with its k, checked.
@@ -456,12 +458,13 @@ impl GeneralizedLinear {
 
         let mut model = Vec::new();
         let effects = self.effects()?;
-        match (effects.is_empty(), self.intercept) {
+        let intercept = self.intercept || !self.intercept_optional();
+        match (effects.is_empty(), intercept) {
             (true, false) => return Err("the model needs a term or the intercept".into()),
             (true, true) => {}
             (false, _) => model.push(effects),
         }
-        if !self.intercept {
+        if !intercept {
             model.push("INTERCEPT=NO".into());
         }
         if !offset.is_empty() {
@@ -995,6 +998,44 @@ mod tests {
         assert_eq!(d.saves_allowed(), [true; 14]);
         d.set_events(true);
         assert!(!d.saves_allowed()[5]);
+    }
+
+    #[test]
+    fn the_ordinal_multinomial_always_has_its_thresholds() {
+        let mut d = GeneralizedLinear {
+            dependent: "q1_satisfaction".into(),
+            factors: v(&["gender"]),
+            model: 2,
+            intercept: false,
+            ..Default::default()
+        };
+        d.set_distribution(6);
+        assert!(!d.intercept_optional());
+        let syntax = d.syntax(false).unwrap();
+        assert_eq!(
+            syntax,
+            "GENLIN q1_satisfaction BY gender\n  /MODEL DISTRIBUTION=MULTINOMIAL LINK=CUMLOGIT."
+        );
+        assert!(runs(&syntax) >= 3);
+    }
+
+    #[test]
+    fn an_events_response_is_never_categorical() {
+        let mut d = GeneralizedLinear {
+            events: true,
+            dependent: "plan".into(),
+            trials_by_variable: false,
+            trials: "3".into(),
+            ..Default::default()
+        };
+        d.set_distribution(6);
+        assert!(!d.categorical());
+        assert!(!d.saves_allowed()[5]);
+        let session = open("survey_basic.sav");
+        assert_eq!(
+            data_checks(&d, session.dataset().unwrap()).unwrap_err(),
+            "plan is a string; the command needs numbers"
+        );
     }
 
     #[test]

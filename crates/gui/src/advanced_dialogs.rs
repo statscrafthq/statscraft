@@ -758,7 +758,6 @@ impl Multinomial {
         Ok(text)
     }
 
-    /// The STEPWISE settings that differ from the defaults.
     /// Which stepping settings the chosen method uses: the least effects (the backward
     /// methods), the most effects (the forward ones), entry (all but backward elimination) and
     /// removal (all but forward entry).
