@@ -1043,10 +1043,6 @@ fn post_hoc_tests_equal_oneway_for_one_factor() {
 #[test]
 fn errors_name_the_problem() {
     assert_eq!(
-        run_error(&format!("{DATA}\nGLM y x BY a.")),
-        "GLM with several dependent variables (the multivariate model) is not supported yet; run UNIANOVA for each dependent variable"
-    );
-    assert_eq!(
         run_error(&format!("{DATA}\nGLM y x BY a /WSFACTOR=t 3.")),
         "WSFACTOR gives 3 level combinations for 2 dependent variables; they must be equal"
     );

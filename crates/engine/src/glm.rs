@@ -46,6 +46,7 @@ pub(crate) enum Part {
     Covariate(usize),
 }
 
+#[derive(Clone)]
 pub(crate) struct Effect {
     pub(crate) label: String,
     pub(crate) parts: Vec<Part>,
@@ -76,6 +77,7 @@ impl Effect {
 }
 
 /// The cases of the analysis.
+#[derive(Clone)]
 pub(crate) struct Data {
     /// The names of the factors, the value of each level as text and its label.
     pub(crate) factors: Vec<String>,
@@ -99,6 +101,14 @@ pub(crate) struct Data {
 impl Data {
     pub(crate) fn rows(&self) -> usize {
         self.case.len()
+    }
+
+    /// The same cases with dependent variable `j` alone.
+    fn only(&self, j: usize) -> Data {
+        Data {
+            y: self.y.iter().map(|row| vec![row[j]]).collect(),
+            ..self.clone()
+        }
     }
 
     fn w(&self, i: usize) -> f64 {
@@ -264,12 +274,20 @@ impl Fit {
         multiply(&self.ginv, &xwx)
     }
 
-    /// The hypothesis SSCP of L B = K and its degrees of freedom (the rank of L G L').
-    pub(crate) fn hypothesis(&self, l: &Matrix, k: Option<&Matrix>) -> (Matrix, usize) {
+    /// The hypothesis SSCP of L B M = K (M the identity when None) and its degrees of freedom
+    /// (the rank of L G L').
+    pub(crate) fn hypothesis(
+        &self,
+        l: &Matrix,
+        m: Option<&Matrix>,
+        k: Option<&Matrix>,
+    ) -> (Matrix, usize) {
+        let b = m.map_or_else(|| self.b.clone(), |m| multiply(&self.b, m));
+        let columns = m.map_or(self.r, |m| m[0].len());
         if l.is_empty() {
-            return (vec![vec![0.0; self.r]; self.r], 0);
+            return (vec![vec![0.0; columns]; columns], 0);
         }
-        let mut lb = multiply(l, &self.b);
+        let mut lb = multiply(l, &b);
         if let Some(k) = k {
             for (row, krow) in lb.iter_mut().zip(k) {
                 for (v, kv) in row.iter_mut().zip(krow) {
@@ -761,11 +779,6 @@ impl Engine {
         let factor_names = self.expand(&command.factors)?;
         let covariate_names = self.expand(&command.covariates)?;
         let name = command.command;
-        if command.wsfactors.is_empty() && dependents.len() > 1 {
-            return Err(Error(format!(
-                "{name} with several dependent variables (the multivariate model) is not supported yet; run UNIANOVA for each dependent variable"
-            )));
-        }
         let mut seen: Vec<String> = Vec::new();
         for n in dependents
             .iter()
@@ -977,6 +990,17 @@ impl Engine {
                 &mut warnings,
                 &label_of,
             )?);
+        } else if dependents.len() > 1 {
+            tables.extend(self.multivariate_model(
+                command,
+                &d,
+                effects,
+                &dependents,
+                &dependent_texts,
+                cases,
+                &label_of,
+                &mut warnings,
+            )?);
         } else {
             let y: Vec<Vec<f64>> = d.y.clone();
             let fit = Fit::new(&d, effects, &y, command.eps);
@@ -994,6 +1018,9 @@ impl Engine {
                 self.save_glm(command, &d, &fit, &dependents[0], cases)?;
             }
         }
+        // the dependents of the multivariate model repeat the same warnings
+        let mut seen = std::collections::HashSet::new();
+        warnings.retain(|w| seen.insert(w.clone()));
         for w in warnings {
             self.warn(w);
         }
@@ -1147,9 +1174,25 @@ fn effect_sscp(fit: &Fit, sstype: u8) -> Vec<(Matrix, usize)> {
         _ => (0..n_eff)
             .map(|e| {
                 let l = fit.type34(e, sstype == 4);
-                fit.hypothesis(&l, None)
+                fit.hypothesis(&l, None, None)
             })
             .collect(),
+    }
+}
+
+fn flags_of(command: &Glm) -> Flags {
+    Flags {
+        etasq: command.print.etasq,
+        opower: command.print.opower,
+        alpha: command.alpha,
+    }
+}
+
+fn power_note(flags: &Flags) -> String {
+    if flags.opower {
+        format!(" Computed using alpha = {}.", flags.alpha)
+    } else {
+        String::new()
     }
 }
 
@@ -1163,21 +1206,7 @@ fn univariate(
     warnings: &mut Vec<String>,
 ) -> Result<Vec<Table>, Error> {
     let mut out = Vec::new();
-    let flags = Flags {
-        etasq: command.print.etasq,
-        opower: command.print.opower,
-        alpha: command.alpha,
-    };
-    let sse = fit.s[0][0];
-    let dfe = fit.df_error();
-    let mse = sse / dfe;
-    let has_intercept = fit.effects.iter().any(Effect::is_intercept);
-    let w_total: f64 = (0..d.rows()).map(|i| d.w(i)).sum();
-    let mean = (0..d.rows()).map(|i| d.w(i) * d.y[i][0]).sum::<f64>() / w_total;
-    let total_ss: f64 = (0..d.rows()).map(|i| d.w(i) * d.y[i][0] * d.y[i][0]).sum();
-    let corrected_ss: f64 = (0..d.rows())
-        .map(|i| d.w(i) * (d.y[i][0] - mean).powi(2))
-        .sum();
+    let flags = flags_of(command);
     out.push(between_factors(d));
     if command.print.descriptive {
         out.push(descriptive_table(d, 0, dependent, label_of));
@@ -1188,7 +1217,58 @@ fn univariate(
             None => warnings.push("Levene's test needs at least one factor".into()),
         }
     }
-    // Tests of Between-Subjects Effects
+    let (mut table, r2) = between_subjects(command, d, fit, &flags);
+    table.caption = Some(format!(
+        "Dependent Variable: {dependent}. Type {} sums of squares. {r2}.{}",
+        roman(command.sstype),
+        power_note(&flags)
+    ));
+    out.push(table);
+    if command.print.parameter {
+        let dfe = fit.df_error();
+        out.push(parameter_table(
+            command,
+            d,
+            fit,
+            dependent,
+            &flags,
+            fit.s[0][0] / dfe,
+            dfe,
+        ));
+    }
+    if command.print.lof {
+        out.push(lack_of_fit(d, fit, dependent, &flags));
+    }
+    if command.mmatrix.is_some() {
+        warnings.push("MMATRIX applies only to several dependent variables and is ignored".into());
+    }
+    out.extend(custom_hypotheses(
+        command,
+        d,
+        fit,
+        None,
+        &[dependent.to_string()],
+        &flags,
+        warnings,
+    )?);
+    out.extend(means_and_posthoc(
+        command, d, fit, dependent, &flags, label_of, warnings,
+    )?);
+    Ok(out)
+}
+
+/// Tests of Between-Subjects Effects of one dependent variable, without a caption, and its R
+/// squared as text.
+fn between_subjects(command: &Glm, d: &Data, fit: &Fit, flags: &Flags) -> (Table, String) {
+    let sse = fit.s[0][0];
+    let dfe = fit.df_error();
+    let has_intercept = fit.effects.iter().any(Effect::is_intercept);
+    let w_total: f64 = (0..d.rows()).map(|i| d.w(i)).sum();
+    let mean = (0..d.rows()).map(|i| d.w(i) * d.y[i][0]).sum::<f64>() / w_total;
+    let total_ss: f64 = (0..d.rows()).map(|i| d.w(i) * d.y[i][0] * d.y[i][0]).sum();
+    let corrected_ss: f64 = (0..d.rows())
+        .map(|i| d.w(i) * (d.y[i][0] - mean).powi(2))
+        .sum();
     let sscp = effect_sscp(fit, command.sstype);
     let mut sources = Vec::new();
     let model_ss = if has_intercept {
@@ -1246,35 +1326,41 @@ fn univariate(
         let r2 = model_ss / total_ss;
         (r2, 1.0 - (1.0 - r2) * fit.n / dfe)
     };
-    let mut caption = format!(
-        "Dependent Variable: {dependent}. Type {} sums of squares. R Squared = {} (Adjusted R Squared = {}).",
-        roman(command.sstype),
-        round3(r2),
-        round3(adj)
-    );
-    if flags.opower {
-        caption.push_str(&format!(" Computed using alpha = {}.", command.alpha));
-    }
     let mut table = f_table(
         "Tests of Between-Subjects Effects",
         &sources,
         sse,
         dfe,
-        &flags,
+        flags,
         "Source",
-        caption,
+        String::new(),
     );
     table.columns[1] = format!("Type {} Sum of Squares", roman(command.sstype));
-    out.push(table);
-    if command.print.parameter {
-        out.push(parameter_table(
-            command, d, fit, dependent, &flags, mse, dfe,
-        ));
-    }
-    if command.print.lof {
-        out.push(lack_of_fit(d, fit, dependent, &flags));
-    }
+    let r2 = format!(
+        "R Squared = {} (Adjusted R Squared = {})",
+        round3(r2),
+        round3(adj)
+    );
+    (table, r2)
+}
+
+/// The custom hypothesis tests of CONTRAST and LMATRIX (with KMATRIX), and of the intercept
+/// when only KMATRIX or MMATRIX is given. `given_m` is the M matrix of MMATRIX with the names
+/// of its columns; CONTRAST always uses the identity.
+fn custom_hypotheses(
+    command: &Glm,
+    d: &Data,
+    fit: &Fit,
+    given_m: Option<&(Matrix, Vec<String>)>,
+    dependents: &[String],
+    flags: &Flags,
+    warnings: &mut Vec<String>,
+) -> Result<Vec<Table>, Error> {
+    let mut out = Vec::new();
     let h = fit.h();
+    let identity: Matrix = (0..fit.r)
+        .map(|i| (0..fit.r).map(|j| if i == j { 1.0 } else { 0.0 }).collect())
+        .collect();
     for (factor, kind) in &command.contrasts {
         let Some(f) = d
             .factors
@@ -1302,52 +1388,98 @@ fn univariate(
             fit,
             &h,
             &l,
+            (&identity, dependents),
             None,
             &format!("{factor} {kind_name} Contrast"),
-            dependent,
-            &flags,
+            flags,
             warnings,
         ));
     }
+    let (m, names) = given_m.map_or((&identity, dependents), |(m, n)| (m, n.as_slice()));
+    let mut matrices: Vec<(String, Vec<(String, Vec<f64>)>)> = Vec::new();
     for (n, lm) in command.lmatrix.iter().enumerate() {
-        let mut l: Vec<(String, Vec<f64>)> = Vec::new();
+        let mut l = Vec::new();
         for (r, row) in lm.rows.iter().enumerate() {
             l.push((format!("L{}", r + 1), l_row(d, fit, row, "LMATRIX")?));
         }
-        let k: Option<Matrix> = match &command.kmatrix {
-            Some(values) if values.len() == l.len() => {
-                Some(values.iter().map(|v| vec![*v]).collect())
-            }
-            Some(values) => {
-                return Err(Error(format!(
-                    "KMATRIX has {} rows and LMATRIX {}",
-                    values.len(),
-                    l.len()
-                )));
-            }
-            None => None,
-        };
         let title = lm
             .label
             .clone()
             .unwrap_or_else(|| format!("LMATRIX {}", n + 1));
+        matrices.push((title, l));
+    }
+    if command.lmatrix.is_empty() && (command.kmatrix.is_some() || given_m.is_some()) {
+        // the L matrix of the intercept's Type III test
+        let Some(e) = fit.effects.iter().position(Effect::is_intercept) else {
+            return Err(Error(
+                "KMATRIX or MMATRIX without LMATRIX tests the intercept, which the model leaves out"
+                    .into(),
+            ));
+        };
+        let l = fit
+            .type34(e, false)
+            .into_iter()
+            .enumerate()
+            .map(|(i, row)| (format!("L{}", i + 1), row))
+            .collect();
+        matrices.push(("Intercept".into(), l));
+    }
+    let columns = m[0].len();
+    for (title, l) in matrices {
+        let k: Option<Matrix> = match &command.kmatrix {
+            None => None,
+            Some(rows) if columns == 1 => {
+                let values = rows.concat();
+                if values.len() != l.len() {
+                    return Err(Error(format!(
+                        "KMATRIX has {} rows and LMATRIX {}",
+                        values.len(),
+                        l.len()
+                    )));
+                }
+                Some(values.into_iter().map(|v| vec![v]).collect())
+            }
+            Some(rows) => {
+                if rows.len() != l.len() || rows.iter().any(|r| r.len() != columns) {
+                    return Err(Error(format!(
+                        "KMATRIX needs a row for each of the {} rows of the L matrix, each with a value for each of the {columns} columns of the M matrix",
+                        l.len()
+                    )));
+                }
+                Some(rows.clone())
+            }
+        };
         out.extend(custom_tests(
             fit,
             &h,
             &l,
+            (m, names),
             k.as_ref(),
             &title,
-            dependent,
-            &flags,
+            flags,
             warnings,
         ));
     }
-    if command.kmatrix.is_some() && command.lmatrix.is_empty() {
-        warnings.push("KMATRIX without LMATRIX is ignored".into());
-    }
+    Ok(out)
+}
+
+/// The tables of EMMEANS and POSTHOC for one dependent variable.
+fn means_and_posthoc(
+    command: &Glm,
+    d: &Data,
+    fit: &Fit,
+    dependent: &str,
+    flags: &Flags,
+    label_of: &dyn Fn(usize, usize) -> String,
+    warnings: &mut Vec<String>,
+) -> Result<Vec<Table>, Error> {
+    let mut out = Vec::new();
+    let h = fit.h();
+    let dfe = fit.df_error();
+    let mse = fit.s[0][0] / dfe;
     for e in &command.emmeans {
         out.extend(emmeans_tables(
-            command, d, fit, &h, e, dependent, &flags, label_of,
+            command, d, fit, &h, e, dependent, flags, label_of,
         )?);
     }
     for (factors, tests) in &command.posthoc {
@@ -2451,7 +2583,7 @@ fn emmeans_tables(
             })
             .filter(|row: &Vec<f64>| fit.estimable(row, h))
             .collect();
-        let (ssh, df) = fit.hypothesis(&l, None);
+        let (ssh, df) = fit.hypothesis(&l, None, None);
         let label: Vec<String> = others
             .iter()
             .zip(other)
@@ -2513,22 +2645,31 @@ fn emmeans_tables(
     Ok(out)
 }
 
-/// The Contrast Results (K Matrix) and Test Results of the rows of `l`.
+/// The custom hypothesis test L B M = K of the rows of `l`: the Contrast Results (K Matrix),
+/// then for one dependent variable the Test Results, else the Multivariate and the Univariate
+/// Test Results of the transformed variables (the columns of M, named `names`).
 #[allow(clippy::too_many_arguments)]
 fn custom_tests(
     fit: &Fit,
     h: &Matrix,
     l: &[(String, Vec<f64>)],
+    (m, names): (&Matrix, &[String]),
     k: Option<&Matrix>,
     title: &str,
-    dependent: &str,
     flags: &Flags,
     warnings: &mut Vec<String>,
 ) -> Vec<Table> {
-    let mse = fit.s[0][0] / fit.df_error();
     let dfe = fit.df_error();
+    let bm = multiply(&fit.b, m);
+    let se_m = quadratic(m, &fit.s);
     let tc = t_quantile(flags.alpha / 2.0, dfe);
     let level = percent_title(flags.alpha);
+    let univariate = fit.r == 1 && names.len() == 1;
+    let caption = if univariate {
+        format!("{title}. Dependent Variable: {}.", names[0])
+    } else {
+        format!("{title}.")
+    };
     let mut rows = Vec::new();
     let mut kept: Matrix = Vec::new();
     let mut kept_k: Matrix = Vec::new();
@@ -2539,8 +2680,6 @@ fn custom_tests(
             ));
             continue;
         }
-        let hyp = k.map_or(0.0, |k| k[i][0]);
-        let estimate: f64 = row.iter().zip(&fit.b).map(|(a, b)| a * b[0]).sum();
         let v: f64 = (0..fit.p)
             .map(|a| {
                 (0..fit.p)
@@ -2548,69 +2687,119 @@ fn custom_tests(
                     .sum::<f64>()
             })
             .sum();
-        let se = (mse * v).sqrt();
-        let diff = estimate - hyp;
-        let lines: [(&str, Option<f64>); 7] = [
-            ("Contrast Estimate", Some(estimate)),
-            ("Hypothesized Value", Some(hyp)),
-            ("Difference (Estimate - Hypothesized)", Some(diff)),
-            ("Std. Error", Some(se)),
-            ("Sig.", Some(t_p(diff / se, dfe))),
-            ("Lower Bound", Some(diff - tc * se)),
-            ("Upper Bound", Some(diff + tc * se)),
+        let mut lines: Vec<Vec<Option<f64>>> = vec![Vec::new(); 7];
+        let hyps: Vec<f64> = (0..names.len())
+            .map(|c| k.map_or(0.0, |k| k[i][c]))
+            .collect();
+        for (c, hyp) in hyps.iter().enumerate() {
+            let estimate: f64 = row.iter().zip(&bm).map(|(a, b)| a * b[c]).sum();
+            let se = (se_m[c][c] / dfe * v).sqrt();
+            let diff = estimate - hyp;
+            for (line, value) in lines.iter_mut().zip([
+                estimate,
+                *hyp,
+                diff,
+                se,
+                t_p(diff / se, dfe),
+                diff - tc * se,
+                diff + tc * se,
+            ]) {
+                line.push(Some(value));
+            }
+        }
+        let whats = [
+            "Contrast Estimate",
+            "Hypothesized Value",
+            "Difference (Estimate - Hypothesized)",
+            "Std. Error",
+            "Sig.",
+            "Lower Bound",
+            "Upper Bound",
         ];
-        for (j, (what, value)) in lines.into_iter().enumerate() {
+        for (j, (what, values)) in whats.into_iter().zip(lines).enumerate() {
             let what = if j >= 5 {
                 format!("{level} Confidence Interval for Difference: {what}")
             } else {
                 what.to_string()
             };
-            rows.push(vec![
+            let mut cells = vec![
                 if j == 0 {
                     text(name.clone())
                 } else {
                     Cell::Empty
                 },
                 text(what),
-                number(value),
-            ]);
+            ];
+            cells.extend(values.into_iter().map(number));
+            rows.push(cells);
         }
         kept.push(row.clone());
-        kept_k.push(vec![hyp]);
+        kept_k.push(hyps);
     }
+    let mut columns = plain(&["Contrast", ""]);
+    columns.extend(names.iter().map(|n| (String::new(), n.clone())));
     let mut out = vec![table(
         "Contrast Results (K Matrix)",
         2,
-        plain(&["Contrast", "", dependent]),
+        columns,
         rows,
-        Some(format!("{title}. Dependent Variable: {dependent}.")),
+        Some(caption.clone()),
     )];
-    if !kept.is_empty() {
-        let (ssh, df) = fit.hypothesis(&kept, k.map(|_| &kept_k));
+    if kept.is_empty() {
+        return out;
+    }
+    let (ssh, df) = fit.hypothesis(&kept, Some(m), k.map(|_| &kept_k));
+    let tests = |c: usize| {
         let sources = [
             Source {
                 label: "Contrast".into(),
-                ss: ssh[0][0],
+                ss: ssh[c][c],
                 df: df as f64,
                 tested: true,
             },
             Source {
                 label: "Error".into(),
-                ss: fit.s[0][0],
+                ss: se_m[c][c],
                 df: dfe,
                 tested: false,
             },
         ];
-        out.push(f_table(
+        f_table(
             "Test Results",
             &sources,
-            fit.s[0][0],
+            se_m[c][c],
             dfe,
             flags,
             "Source",
-            format!("{title}. Dependent Variable: {dependent}."),
-        ));
+            caption.clone(),
+        )
+    };
+    if univariate {
+        out.push(tests(0));
+        return out;
     }
+    out.push(table(
+        "Multivariate Test Results",
+        1,
+        multivariate_columns(flags, false),
+        multivariate_rows(&ssh, &se_m, df as f64, dfe, flags),
+        Some(format!("{caption}{}", multivariate_note(flags))),
+    ));
+    let identity = m.len() == m[0].len()
+        && m.iter().enumerate().all(|(i, row)| {
+            row.iter()
+                .enumerate()
+                .all(|(j, v)| *v == if i == j { 1.0 } else { 0.0 })
+        });
+    let header = if identity {
+        "Dependent Variable"
+    } else {
+        "Transformed Variable"
+    };
+    let mut univariate = merge((0..names.len()).map(tests).collect(), names, true, header);
+    univariate.title = "Univariate Test Results".into();
+    univariate.caption = Some(caption);
+    out.push(univariate);
     out
 }
 
@@ -2645,16 +2834,18 @@ fn trace(a: &Matrix) -> f64 {
     (0..a.len()).map(|i| a[i][i]).sum()
 }
 
-/// The eigenvalues of S_E^-1 S_H, largest first.
-fn relative_eigenvalues(sh: &Matrix, se: &Matrix) -> Vec<f64> {
+/// The eigenvalues of S_E^-1 S_H, largest first, and the rank of S_E.
+fn relative_eigenvalues(sh: &Matrix, se: &Matrix) -> (Vec<f64>, usize) {
     let pairs = crate::matrix::symmetric_eigen(se);
     let n = se.len();
+    let mut rank = 0;
     // S_E^-1/2 = V diag(1/sqrt(e)) V'
     let mut root = vec![vec![0.0; n]; n];
     for (value, vector) in &pairs {
         if *value <= 1e-12 * pairs[0].0.abs().max(1e-300) {
             continue;
         }
+        rank += 1;
         for i in 0..n {
             for j in 0..n {
                 root[i][j] += vector[i] * vector[j] / value.sqrt();
@@ -2667,7 +2858,7 @@ fn relative_eigenvalues(sh: &Matrix, se: &Matrix) -> Vec<f64> {
         .map(|(v, _)| v.max(0.0))
         .collect();
     values.sort_by(|a, b| b.total_cmp(a));
-    values
+    (values, rank)
 }
 
 /// The four multivariate statistics: name, value, F, hypothesis df, error df, eta squared and
@@ -2678,8 +2869,8 @@ fn multivariate(
     l: f64,
     ne: f64,
 ) -> Vec<(&'static str, f64, f64, f64, f64, f64)> {
-    let lambdas = relative_eigenvalues(sh, se);
-    let re = se.len() as f64;
+    let (lambdas, re) = relative_eigenvalues(sh, se);
+    let re = re as f64;
     let s = l.min(re);
     let m = ((re - l).abs() - 1.0) / 2.0;
     let n = (ne - re - 1.0) / 2.0;
@@ -2840,11 +3031,7 @@ impl Engine {
         let fit = Fit::new(d, effects, &y, command.eps);
         let sscp = effect_sscp(&fit, command.sstype);
         let dfe = fit.df_error();
-        let flags = Flags {
-            etasq: command.print.etasq,
-            opower: command.print.opower,
-            alpha: command.alpha,
-        };
+        let flags = flags_of(command);
         let between_label = |e: &Effect| e.label.clone();
         let mut out = Vec::new();
         // Within-Subjects Factors
@@ -2947,31 +3134,16 @@ impl Engine {
                 };
                 let sh_mv = quadratic(&m_mv, sh);
                 let l = *rank as f64;
-                for (i, (stat, value, f, df1, df2, eta)) in
-                    multivariate(&sh_mv, &se_mv, l, dfe).into_iter().enumerate()
+                for (i, mut row) in multivariate_rows(&sh_mv, &se_mv, l, dfe, &flags)
+                    .into_iter()
+                    .enumerate()
                 {
-                    let mut row = vec![
-                        if i == 0 {
-                            text(label.clone())
-                        } else {
-                            Cell::Empty
-                        },
-                        text(stat),
-                        number(Some(value)),
-                        number(Some(f)),
-                        number(Some(df1)),
-                        number(Some(df2)),
-                        number(Some(f_p(f, df1, df2))),
-                    ];
-                    if flags.etasq {
-                        row.push(number(Some(eta)));
-                    }
-                    if flags.opower {
-                        let lambda = df2 * eta / (1.0 - eta);
-                        let crit = f_quantile(flags.alpha, df1, df2);
-                        row.push(number(Some(lambda)));
-                        row.push(number(Some(1.0 - noncentral_f_cdf(crit, df1, df2, lambda))));
-                    }
+                    let first = if i == 0 {
+                        text(label.clone())
+                    } else {
+                        Cell::Empty
+                    };
+                    row.insert(0, first);
                     mv_rows.push(row);
                 }
                 let sh_avg = quadratic(&m_avg, sh);
@@ -3033,26 +3205,10 @@ impl Engine {
                 ));
             }
         }
-        // Multivariate Tests
-        let mut columns = plain(&[
-            "Effect",
-            "",
-            "Value",
-            "F",
-            "Hypothesis df",
-            "Error df",
-            "Sig.",
-        ]);
-        if flags.etasq {
-            columns.extend(plain(&["Partial Eta Squared"]));
-        }
-        if flags.opower {
-            columns.extend(plain(&["Noncent. Parameter", "Observed Power"]));
-        }
         out.push(table(
             "Multivariate Tests",
             2,
-            columns,
+            multivariate_columns(&flags, true),
             mv_rows,
             Some(format!(
                 "Design: {}. Within Subjects Design: {}.",
@@ -3283,6 +3439,510 @@ impl Engine {
         out.push(between);
         if !command.emmeans.is_empty() {
             warnings.push("EMMEANS with WSFACTOR is not supported yet; it is left out".into());
+        }
+        Ok(out)
+    }
+}
+
+/// One table from the like tables of several dependent variables (or transformed variables),
+/// with a column `header` naming them: after the source column with the sources outermost
+/// (`by_source`), or first with the variables outermost. The caption is the first table's
+/// without its "Dependent Variable" sentence.
+fn merge(tables: Vec<Table>, names: &[String], by_source: bool, header: &str) -> Table {
+    let at = usize::from(by_source);
+    let mut out = tables[0].clone();
+    out.columns.insert(at, header.into());
+    out.column_groups.insert(at, Vec::new());
+    out.row_headers += 1;
+    out.rows.clear();
+    out.formats.clear();
+    let with_name = |row: &[Cell], name: Cell| {
+        let mut row = row.to_vec();
+        row.insert(at, name);
+        row
+    };
+    let name = |j: usize| text(names[j].clone());
+    if by_source {
+        for k in 0..tables[0].rows.len() {
+            for (j, t) in tables.iter().enumerate() {
+                let mut row = with_name(&t.rows[k], name(j));
+                if j > 0 {
+                    row[0] = Cell::Empty;
+                }
+                out.rows.push(row);
+            }
+        }
+    } else {
+        for (j, t) in tables.iter().enumerate() {
+            for (k, row) in t.rows.iter().enumerate() {
+                out.rows
+                    .push(with_name(row, if k == 0 { name(j) } else { Cell::Empty }));
+            }
+        }
+    }
+    let sentence = format!("Dependent Variable: {}.", names[0]);
+    out.caption = tables[0]
+        .caption
+        .as_ref()
+        .map(|c| c.replace(&sentence, "").trim().to_string())
+        .filter(|c| !c.is_empty());
+    out
+}
+
+fn multivariate_columns(flags: &Flags, effect: bool) -> Vec<(String, String)> {
+    let mut columns = if effect {
+        plain(&["Effect", ""])
+    } else {
+        plain(&[""])
+    };
+    columns.extend(plain(&["Value", "F", "Hypothesis df", "Error df", "Sig."]));
+    if flags.etasq {
+        columns.extend(plain(&["Partial Eta Squared"]));
+    }
+    if flags.opower {
+        columns.extend(plain(&["Noncent. Parameter", "Observed Power"]));
+    }
+    columns
+}
+
+/// The rows of the four multivariate statistics of S_H against S_E, with `l` hypothesis and
+/// `ne` error degrees of freedom; empty when the hypothesis has no degrees of freedom.
+fn multivariate_rows(sh: &Matrix, se: &Matrix, l: f64, ne: f64, flags: &Flags) -> Vec<Vec<Cell>> {
+    multivariate(sh, se, l, ne)
+        .into_iter()
+        .map(|(stat, value, f, df1, df2, eta)| {
+            let ok = l > 0.0 && df1 > 0.0 && df2 > 0.0 && f.is_finite();
+            let mut row = vec![
+                text(stat),
+                number(ok.then_some(value)),
+                number(ok.then_some(f)),
+                number(ok.then_some(df1)),
+                number(ok.then_some(df2)),
+                number(ok.then(|| f_p(f, df1, df2))),
+            ];
+            if flags.etasq {
+                row.push(number(ok.then_some(eta)));
+            }
+            if flags.opower {
+                let lambda = df2 * eta / (1.0 - eta);
+                let power = ok.then(|| {
+                    let crit = f_quantile(flags.alpha, df1, df2);
+                    1.0 - noncentral_f_cdf(crit, df1, df2, lambda)
+                });
+                row.push(number(ok.then_some(lambda)));
+                row.push(number(power));
+            }
+            row
+        })
+        .collect()
+}
+
+fn multivariate_note(flags: &Flags) -> String {
+    format!(
+        " F is exact when the smaller of the hypothesis df and the number of variables is 1 (for Wilks' lambda also when it is 2), else approximate; Roy's F is then an upper bound, so its Sig. is a lower bound.{}",
+        power_note(flags)
+    )
+}
+
+/// The determinant of a symmetric matrix and its rank, from its eigenvalues.
+fn determinant_and_rank(a: &Matrix) -> (f64, usize) {
+    let values: Vec<f64> = crate::matrix::symmetric_eigen(a)
+        .into_iter()
+        .map(|(v, _)| v)
+        .collect();
+    let top = values.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
+    let rank = values.iter().filter(|v| **v > 1e-10 * top).count();
+    (values.iter().product(), rank)
+}
+
+/// Box's M test that the covariance matrices of the dependent variables are equal in the cells
+/// of all factors, from the observed cell means. A cell with a singular covariance matrix is
+/// left out; None when fewer than two cells remain or the pooled matrix is singular.
+fn box_m(d: &Data, design: &str) -> Option<Table> {
+    let r = d.y.first()?.len();
+    let mut cells: Vec<Vec<usize>> = d.level.clone();
+    cells.sort();
+    cells.dedup();
+    let mut kept: Vec<(f64, Matrix, f64)> = Vec::new();
+    for cell in &cells {
+        let members: Vec<usize> = (0..d.rows()).filter(|&i| d.level[i] == *cell).collect();
+        let n: f64 = members.iter().map(|&i| d.f[i]).sum();
+        if n <= 1.0 {
+            continue;
+        }
+        let mean: Vec<f64> = (0..r)
+            .map(|a| members.iter().map(|&i| d.f[i] * d.y[i][a]).sum::<f64>() / n)
+            .collect();
+        let s: Matrix = (0..r)
+            .map(|a| {
+                (0..r)
+                    .map(|b| {
+                        members
+                            .iter()
+                            .map(|&i| d.w(i) * (d.y[i][a] - mean[a]) * (d.y[i][b] - mean[b]))
+                            .sum::<f64>()
+                            / (n - 1.0)
+                    })
+                    .collect()
+            })
+            .collect();
+        let (det, rank) = determinant_and_rank(&s);
+        if rank == r {
+            kept.push((n, s, det));
+        }
+    }
+    let g = kept.len() as f64;
+    let n: f64 = kept.iter().map(|k| k.0).sum();
+    if g < 2.0 || n <= g {
+        return None;
+    }
+    let pooled: Matrix = (0..r)
+        .map(|a| {
+            (0..r)
+                .map(|b| kept.iter().map(|k| (k.0 - 1.0) * k.1[a][b]).sum::<f64>() / (n - g))
+                .collect()
+        })
+        .collect();
+    let (det, rank) = determinant_and_rank(&pooled);
+    if rank < r || det <= 0.0 {
+        return None;
+    }
+    let m = (n - g) * det.ln() - kept.iter().map(|k| (k.0 - 1.0) * k.2.ln()).sum::<f64>();
+    let r = r as f64;
+    let f1 = (g - 1.0) * r * (r + 1.0) / 2.0;
+    let inverse_sum: f64 = kept.iter().map(|k| 1.0 / (k.0 - 1.0)).sum::<f64>() - 1.0 / (n - g);
+    let square_sum: f64 =
+        kept.iter().map(|k| 1.0 / (k.0 - 1.0).powi(2)).sum::<f64>() - 1.0 / (n - g).powi(2);
+    let rho = 1.0 - (2.0 * r * r + 3.0 * r - 1.0) / (6.0 * (r + 1.0) * (g - 1.0)) * inverse_sum;
+    let tau = (r - 1.0) * (r + 2.0) / (6.0 * (g - 1.0)) * square_sum;
+    let f2 = (f1 + 2.0) / (tau - (1.0 - rho).powi(2)).abs();
+    let gamma = (rho - f1 / f2) / f1;
+    let f = gamma * m;
+    let rows = vec![
+        vec![text("Box's M"), number(Some(m))],
+        vec![text("F"), number(f.is_finite().then_some(f))],
+        vec![text("df1"), number(Some(f1))],
+        vec![text("df2"), number(f2.is_finite().then_some(f2))],
+        vec![
+            text("Sig."),
+            number((f.is_finite() && f2.is_finite()).then(|| f_p(f, f1, f2))),
+        ],
+    ];
+    Some(table(
+        "Box's Test of Equality of Covariance Matrices",
+        1,
+        plain(&["", "Value"]),
+        rows,
+        Some(format!(
+            "Tests whether the covariance matrix of the dependent variables is the same in every cell. Design: {design}."
+        )),
+    ))
+}
+
+/// Residual SSCP Matrix (sums of squares and cross-products, covariance, correlation) and
+/// Bartlett's test of sphericity of the residual covariance matrix.
+fn residual_tables(fit: &Fit, names: &[String], design: &str) -> Vec<Table> {
+    let dfe = fit.df_error();
+    let s = &fit.s;
+    let r = s.len();
+    let mut columns = plain(&["", ""]);
+    columns.extend(names.iter().map(|n| (String::new(), n.clone())));
+    let mut rows = Vec::new();
+    let blocks: [(&str, &dyn Fn(usize, usize) -> f64); 3] = [
+        ("Sum-of-Squares and Cross-Products", &|a, b| s[a][b]),
+        ("Covariance", &|a, b| s[a][b] / dfe),
+        ("Correlation", &|a, b| s[a][b] / (s[a][a] * s[b][b]).sqrt()),
+    ];
+    for (name, value) in blocks {
+        for a in 0..r {
+            let mut row = vec![
+                if a == 0 { text(name) } else { Cell::Empty },
+                text(names[a].clone()),
+            ];
+            row.extend((0..r).map(|b| number(Some(value(a, b)).filter(|v| v.is_finite()))));
+            rows.push(row);
+        }
+    }
+    let residual = table("Residual SSCP Matrix", 2, columns, rows, None);
+    let (w, chi, df, sig) = mauchly(s, dfe);
+    let fine = w > 0.0 && dfe > 0.0;
+    let rows = vec![
+        vec![
+            text("Likelihood Ratio"),
+            number(fine.then(|| (fit.n / 2.0 * w.ln()).exp())),
+        ],
+        vec![text("Approx. Chi-Square"), number(fine.then_some(chi))],
+        vec![text("df"), number(Some(df))],
+        vec![text("Sig."), number(fine.then_some(sig))],
+    ];
+    let bartlett = table(
+        "Bartlett's Test of Sphericity",
+        1,
+        plain(&["", "Value"]),
+        rows,
+        Some(format!(
+            "Tests whether the residual covariance matrix is a multiple of the identity matrix. Design: {design}."
+        )),
+    );
+    vec![residual, bartlett]
+}
+
+/// Between-Subjects SSCP Matrix: the hypothesis SSCP of every effect and the error SSCP.
+fn sscp_table(fit: &Fit, sscp: &[(Matrix, usize)], names: &[String], sstype: u8) -> Table {
+    let r = names.len();
+    let mut columns = plain(&["", "", ""]);
+    columns.extend(names.iter().map(|n| (String::new(), n.clone())));
+    let mut rows = Vec::new();
+    let blocks = fit
+        .effects
+        .iter()
+        .zip(sscp)
+        .map(|(e, (m, _))| ("Hypothesis", e.label.as_str(), m))
+        .chain(std::iter::once(("Error", "", &fit.s)));
+    let mut previous = "";
+    for (kind, label, m) in blocks {
+        for a in 0..r {
+            let mut row = vec![
+                if a == 0 && kind != previous {
+                    text(kind)
+                } else {
+                    Cell::Empty
+                },
+                if a == 0 { text(label) } else { Cell::Empty },
+                text(names[a].clone()),
+            ];
+            row.extend((0..r).map(|b| number(Some(m[a][b]))));
+            rows.push(row);
+        }
+        previous = kind;
+    }
+    table(
+        "Between-Subjects SSCP Matrix",
+        3,
+        columns,
+        rows,
+        Some(format!("Based on Type {} Sum of Squares.", roman(sstype))),
+    )
+}
+
+/// The M matrix of MMATRIX (one row per dependent) with the names of its columns.
+fn m_matrix(command: &Glm, dependents: &[String]) -> Result<Option<(Matrix, Vec<String>)>, Error> {
+    let Some(columns) = &command.mmatrix else {
+        return Ok(None);
+    };
+    let r = dependents.len();
+    let mut m = vec![vec![0.0; columns.len()]; r];
+    let mut names = Vec::new();
+    for (c, column) in columns.iter().enumerate() {
+        for (name, values) in &column.entries {
+            match name {
+                Some(name) => {
+                    let Some(j) = dependents.iter().position(|d| d.eq_ignore_ascii_case(name))
+                    else {
+                        return Err(Error(format!(
+                            "MMATRIX names {name}, which is not a dependent variable"
+                        )));
+                    };
+                    m[j][c] = values[0];
+                }
+                None if values.len() == r => {
+                    for (row, v) in m.iter_mut().zip(values) {
+                        row[c] = *v;
+                    }
+                }
+                None => {
+                    return Err(Error(format!(
+                        "ALL in MMATRIX needs {r} values, one per dependent variable, but has {}",
+                        values.len()
+                    )));
+                }
+            }
+        }
+        names.push(
+            column
+                .label
+                .clone()
+                .unwrap_or_else(|| format!("T{}", c + 1)),
+        );
+    }
+    Ok(Some((m, names)))
+}
+
+impl Engine {
+    /// The multivariate model: several dependent variables without WSFACTOR.
+    #[allow(clippy::too_many_arguments)]
+    fn multivariate_model(
+        &mut self,
+        command: &Glm,
+        d: &Data,
+        effects: Vec<Effect>,
+        dependents: &[String],
+        texts: &[String],
+        cases: usize,
+        label_of: &dyn Fn(usize, usize) -> String,
+        warnings: &mut Vec<String>,
+    ) -> Result<Vec<Table>, Error> {
+        let flags = flags_of(command);
+        let given_m = m_matrix(command, dependents)?;
+        if command.save.iter().any(|(_, name)| name.is_some()) {
+            return Err(Error(format!(
+                "{}: SAVE with a variable name is not supported yet with several dependent variables; leave the name out",
+                command.command
+            )));
+        }
+        let fit = Fit::new(d, effects.clone(), &d.y, command.eps);
+        // each dependent alone gives the univariate tables
+        let parts: Vec<(Data, Fit)> = (0..texts.len())
+            .map(|j| {
+                let dj = d.only(j);
+                let fj = Fit::new(&dj, effects.clone(), &dj.y, command.eps);
+                (dj, fj)
+            })
+            .collect();
+        let dfe = fit.df_error();
+        let design = fit
+            .effects
+            .iter()
+            .map(|e| e.label.clone())
+            .collect::<Vec<_>>()
+            .join(" + ");
+        let mut out = Vec::new();
+        if !d.factors.is_empty() {
+            out.push(between_factors(d));
+        }
+        if command.print.descriptive {
+            for (j, dep) in texts.iter().enumerate() {
+                out.push(descriptive_table(d, j, dep, label_of));
+            }
+        }
+        if command.print.homogeneity {
+            match box_m(d, &design) {
+                Some(t) => out.push(t),
+                None => warnings.push(
+                    "Box's M test needs two cells or more whose covariance matrix is not singular"
+                        .into(),
+                ),
+            }
+        }
+        let sscp = effect_sscp(&fit, command.sstype);
+        let mut rows = Vec::new();
+        for (e, (sh, l)) in fit.effects.iter().zip(&sscp) {
+            for (i, mut row) in multivariate_rows(sh, &fit.s, *l as f64, dfe, &flags)
+                .into_iter()
+                .enumerate()
+            {
+                row.insert(
+                    0,
+                    if i == 0 {
+                        text(e.label.clone())
+                    } else {
+                        Cell::Empty
+                    },
+                );
+                rows.push(row);
+            }
+        }
+        out.push(table(
+            "Multivariate Tests",
+            2,
+            multivariate_columns(&flags, true),
+            rows,
+            Some(format!("Design: {design}.{}", multivariate_note(&flags))),
+        ));
+        if command.print.homogeneity {
+            let tables: Option<Vec<Table>> = parts.iter().map(|(dj, fj)| levene(dj, fj)).collect();
+            match tables {
+                Some(tables) => out.push(merge(tables, texts, false, "Dependent Variable")),
+                None => warnings.push("Levene's test needs at least one factor".into()),
+            }
+        }
+        let (tables, r2): (Vec<Table>, Vec<String>) = parts
+            .iter()
+            .map(|(dj, fj)| between_subjects(command, dj, fj, &flags))
+            .unzip();
+        let mut between = merge(tables, texts, true, "Dependent Variable");
+        between.caption = Some(format!(
+            "Type {} sums of squares. {}.{}",
+            roman(command.sstype),
+            texts
+                .iter()
+                .zip(&r2)
+                .map(|(n, r)| format!("{n}: {r}"))
+                .collect::<Vec<_>>()
+                .join("; "),
+            power_note(&flags)
+        ));
+        out.push(between);
+        if command.print.parameter {
+            let tables = parts
+                .iter()
+                .zip(texts)
+                .map(|((dj, fj), dep)| {
+                    parameter_table(command, dj, fj, dep, &flags, fj.s[0][0] / dfe, dfe)
+                })
+                .collect();
+            out.push(merge(tables, texts, false, "Dependent Variable"));
+        }
+        if command.print.lof {
+            let tables = parts
+                .iter()
+                .zip(texts)
+                .map(|((dj, fj), dep)| lack_of_fit(dj, fj, dep, &flags))
+                .collect();
+            out.push(merge(tables, texts, true, "Dependent Variable"));
+        }
+        if command.print.sscp {
+            out.push(sscp_table(&fit, &sscp, texts, command.sstype));
+        }
+        if command.print.rsscp {
+            out.extend(residual_tables(&fit, texts, &design));
+        }
+        if let (true, Some((m, names))) = (command.print.mmatrix, &given_m) {
+            let mut columns = plain(&["Dependent Variable"]);
+            columns.extend(
+                names
+                    .iter()
+                    .map(|n| ("Transformed Variable".into(), n.clone())),
+            );
+            let rows = texts
+                .iter()
+                .zip(m)
+                .map(|(dep, row)| {
+                    let mut cells = vec![text(dep.clone())];
+                    cells.extend(row.iter().map(|v| number(Some(*v))));
+                    cells
+                })
+                .collect();
+            out.push(table(
+                "Transformation Coefficients (M Matrix)",
+                1,
+                columns,
+                rows,
+                None,
+            ));
+        }
+        out.extend(custom_hypotheses(
+            command,
+            d,
+            &fit,
+            given_m.as_ref(),
+            texts,
+            &flags,
+            warnings,
+        )?);
+        for ((dj, fj), dep) in parts.iter().zip(texts) {
+            out.extend(means_and_posthoc(
+                command, dj, fj, dep, &flags, label_of, warnings,
+            )?);
+        }
+        for ((dj, fj), dep) in parts.iter().zip(texts) {
+            let charts = plots(command, dj, fj, dep, label_of)?;
+            self.charts.extend(charts);
+        }
+        if !command.save.is_empty() {
+            for ((dj, fj), name) in parts.iter().zip(dependents) {
+                self.save_glm(command, dj, fj, name, cases)?;
+            }
         }
         Ok(out)
     }

@@ -154,7 +154,7 @@ pub use genlin::{
 };
 pub use glm::{
     Adjustment, Contrast, CustomTest, Emmeans, ErrorBar, Glm, GlmPlot, GlmPrint, GlmTemp, LMatrix,
-    LRow, Profile, RefCat, Term, WsFactor,
+    LRow, MColumn, Profile, RefCat, Term, WsFactor,
 };
 pub use graph::{
     Graph, GraphChart, GraphData, GraphFunction, GraphInterval, GraphPanel, GraphSummary,

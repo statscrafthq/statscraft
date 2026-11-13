@@ -122,7 +122,7 @@ impl Model {
             .iter()
             .flat_map(|&t| self.fit.type34(t + 1, false))
             .collect();
-        let (ssh, rank) = self.fit.hypothesis(&l, None);
+        let (ssh, rank) = self.fit.hypothesis(&l, None, None);
         (ssh[0][0], rank as f64)
     }
 

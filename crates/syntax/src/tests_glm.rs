@@ -246,7 +246,7 @@ fn glm_methods_criteria_and_matrices() {
     assert_eq!(g.lmatrix[0].rows.len(), 2);
     assert_eq!(g.lmatrix[0].rows[0][1].1, [0.5, 0.5, -0.5, -0.5, 0.0, 0.0]);
     assert_eq!(g.lmatrix[1].rows[0][0].0, None);
-    assert_eq!(g.kmatrix, Some(vec![0.0, 0.0]));
+    assert_eq!(g.kmatrix, Some(vec![vec![0.0], vec![0.0]]));
     assert_eq!(g.contrasts, [("a".to_string(), Contrast::Repeated)]);
     assert_eq!(g.regwgt.as_deref(), Some("w"));
     let g = glm(
@@ -305,9 +305,40 @@ fn glm_errors() {
             "UNIANOVA y BY a /CONTRAST(a)=SPECIAL(1 -1).",
             "SPECIAL in CONTRAST is not supported yet; LMATRIX tests any contrast",
         ),
+        (
+            "GLM y1 y2 BY a /PRINT=TEST(LMATRIX).",
+            "TEST(LMATRIX) in PRINT is not supported yet",
+        ),
     ] {
         assert_eq!(err(source).message, message, "{source}");
     }
+}
+
+#[test]
+fn glm_multivariate_keywords() {
+    let g = glm(
+        "GLM y1 y2 y3 BY a /PRINT=RSSCP TEST(SSCP TRANSFORM) HOMOGENEITY \
+         /MMATRIX='first less second' y1 1 y2 -1; ALL 1/3 1/3 1/3; 'third' y3 1 \
+         /MMATRIX=y1 1 /MMAT 'pair' y1 1 y2 1 /KMATRIX=0 1; 2 3.",
+    );
+    assert!(g.print.rsscp && g.print.sscp && g.print.mmatrix && g.print.homogeneity);
+    let m = g.mmatrix.unwrap();
+    assert_eq!(m.len(), 1);
+    assert_eq!(m[0].label.as_deref(), Some("pair"));
+    assert_eq!(
+        m[0].entries,
+        [
+            (Some("y1".to_string()), vec![1.0]),
+            (Some("y2".to_string()), vec![1.0])
+        ]
+    );
+    assert_eq!(g.kmatrix, Some(vec![vec![0.0, 1.0], vec![2.0, 3.0]]));
+    let g = glm("GLM y1 y2 y3 /MMATRIX='d' y1 1 y2 -1; ALL 1/3 1/3 1/3; 'e' y3 1.");
+    let m = g.mmatrix.unwrap();
+    assert_eq!(m.len(), 3);
+    assert_eq!(m[1].label, None);
+    assert_eq!(m[1].entries[0], (None, vec![1.0 / 3.0; 3]));
+    assert_eq!(m[2].label.as_deref(), Some("e"));
 }
 
 #[test]

@@ -11,6 +11,9 @@
 //! - METHOD=SSTYPE(1 to 4), default 3. CRITERIA: EPS(1E-8), ALPHA(0.05).
 //! - GLM with several dependent variables is the multivariate model unless WSFACTOR turns them
 //!   into the levels of within-subjects factors (the first factor's levels change slowest).
+//! - MMATRIX: columns of a transformation of the dependents, ended by semicolons, each with an
+//!   optional label and `dependent value` pairs or `ALL` and one value per dependent; only the
+//!   last MMATRIX counts. KMATRIX rows end with semicolons.
 //! - CONTRAST(factor): DEVIATION (default), SIMPLE, DIFFERENCE, HELMERT, REPEATED, POLYNOMIAL,
 //!   with the reference category or the metric in parentheses.
 
@@ -53,6 +56,12 @@ pub struct GlmPrint {
     pub etasq: bool,
     pub opower: bool,
     pub lof: bool,
+    /// RSSCP: the residual SSCP, covariance and correlation matrices with Bartlett's test.
+    pub rsscp: bool,
+    /// TEST(SSCP): the hypothesis SSCP of every effect and the error SSCP.
+    pub sscp: bool,
+    /// TEST(MMATRIX) or TEST(TRANSFORM): the M matrix of MMATRIX.
+    pub mmatrix: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -91,6 +100,14 @@ pub type LRow = Vec<(Option<Term>, Vec<f64>)>;
 pub struct LMatrix {
     pub label: Option<String>,
     pub rows: Vec<LRow>,
+}
+
+/// One column of MMATRIX: its label and the coefficients after each dependent name, or after
+/// ALL (None).
+#[derive(Debug, Clone, PartialEq)]
+pub struct MColumn {
+    pub label: Option<String>,
+    pub entries: Vec<(Option<String>, Vec<f64>)>,
 }
 
 /// One TEST subcommand of MIXED, PLUM or NOMREG: rows of coefficients, DIVISOR already
@@ -167,7 +184,10 @@ pub struct Glm {
     pub posthoc: Vec<(Vec<String>, Vec<Posthoc>)>,
     pub contrasts: Vec<(String, Contrast)>,
     pub lmatrix: Vec<LMatrix>,
-    pub kmatrix: Option<Vec<f64>>,
+    /// KMATRIX, row by row (a semicolon ends a row).
+    pub kmatrix: Option<Vec<Vec<f64>>>,
+    /// The last MMATRIX: the columns of the transformation of the dependent variables.
+    pub mmatrix: Option<Vec<MColumn>>,
     pub save: Vec<(GlmTemp, Option<String>)>,
     /// PLOT, in the order asked.
     pub plots: Vec<GlmPlot>,
@@ -829,18 +849,25 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
     })
 }
 
-fn kmatrix(p: &mut Parser) -> PResult<Vec<f64>> {
+fn kmatrix(p: &mut Parser) -> PResult<Vec<Vec<f64>>> {
     p.eat(Punct::Eq);
     let mut out = Vec::new();
+    let mut row = Vec::new();
     while !matrix_end(p) {
         if p.eat(Punct::Semicolon) {
+            if !row.is_empty() {
+                out.push(std::mem::take(&mut row));
+            }
             continue;
         }
         match fraction(p)? {
-            Some(v) => out.push(v),
+            Some(v) => row.push(v),
             None => return Err(p.unexpected(&["a number"])),
         }
         p.eat(Punct::Comma);
+    }
+    if !row.is_empty() {
+        out.push(row);
     }
     if out.is_empty() {
         return Err(p.unexpected(&["a number"]));
@@ -848,34 +875,81 @@ fn kmatrix(p: &mut Parser) -> PResult<Vec<f64>> {
     Ok(out)
 }
 
+/// MMATRIX: columns ended by semicolons, each `['label'] dependent value ...` or
+/// `['label'] ALL values`.
+fn mmatrix(p: &mut Parser) -> PResult<Vec<MColumn>> {
+    p.eat(Punct::Eq);
+    let mut out = Vec::new();
+    let mut column = MColumn {
+        label: None,
+        entries: Vec::new(),
+    };
+    while !matrix_end(p) {
+        if p.eat(Punct::Semicolon) {
+            if !column.entries.is_empty() {
+                out.push(std::mem::replace(
+                    &mut column,
+                    MColumn {
+                        label: None,
+                        entries: Vec::new(),
+                    },
+                ));
+            }
+            continue;
+        }
+        if let Some(TokenKind::Str(_)) = p.peek() {
+            if !column.entries.is_empty() {
+                return Err(p.unexpected(&["';' before the next label"]));
+            }
+            column.label = Some(p.string("a label")?);
+            continue;
+        }
+        let all = p.eat_word("ALL");
+        let name = if all {
+            None
+        } else {
+            Some(p.name("a dependent variable or ALL")?)
+        };
+        let mut values = Vec::new();
+        while let Some(v) = fraction(p)? {
+            values.push(v);
+            p.eat(Punct::Comma);
+            if !all {
+                break;
+            }
+        }
+        if values.is_empty() {
+            return Err(p.unexpected(&["a number"]));
+        }
+        column.entries.push((name, values));
+    }
+    if !column.entries.is_empty() {
+        out.push(column);
+    }
+    if out.is_empty() {
+        return Err(p.unexpected(&["a dependent variable", "ALL"]));
+    }
+    Ok(out)
+}
+
 fn print(p: &mut Parser) -> PResult<GlmPrint> {
     p.eat(Punct::Eq);
     let mut out = GlmPrint::default();
-    const KEYWORDS: [&str; 7] = [
+    const KEYWORDS: [&str; 8] = [
         "DESCRIPTIVE",
         "HOMOGENEITY",
         "PARAMETER",
         "ETASQ",
         "OPOWER",
         "LOF",
-        "TEST",
-    ];
-    const LATER: [&str; 10] = [
-        "GEF",
-        "TEST",
-        "MBP",
-        "BP",
-        "F",
-        "WHITE",
         "RSSCP",
-        "SSCP",
-        "TRANSFORM",
-        "ERROR",
+        "TEST",
     ];
+    const LATER: [&str; 6] = ["GEF", "MBP", "BP", "F", "WHITE", "ERROR"];
     while !at_end(p) {
         let word = match p.peek() {
             Some(TokenKind::Word(w)) => w.to_uppercase(),
-            _ => return Err(p.unexpected(&KEYWORDS[..6])),
+            _ => return Err(p.unexpected(&KEYWORDS[..7])),
         };
         if p.eat_keyword("DESCRIPTIVE") {
             out.descriptive = true;
@@ -889,6 +963,26 @@ fn print(p: &mut Parser) -> PResult<GlmPrint> {
             out.opower = true;
         } else if p.eat_word("LOF") {
             out.lof = true;
+        } else if p.eat_keyword("RSSCP") {
+            out.rsscp = true;
+        } else if p.eat_keyword("TEST") {
+            p.expect(Punct::LParen)?;
+            while !p.at(Punct::RParen) {
+                if p.eat_keyword("SSCP") {
+                    out.sscp = true;
+                } else if p.eat_keyword("MMATRIX") || p.eat_keyword("TRANSFORM") {
+                    out.mmatrix = true;
+                } else if p.at_keyword("LMATRIX") || p.at_keyword("ESTIMABLE") {
+                    return Err(SyntaxError::new(
+                        p.span(),
+                        "TEST(LMATRIX) in PRINT is not supported yet",
+                    ));
+                } else {
+                    return Err(p.unexpected(&["SSCP", "LMATRIX", "MMATRIX"]));
+                }
+                p.eat(Punct::Comma);
+            }
+            p.expect(Punct::RParen)?;
         } else if let Some(name) = LATER
             .iter()
             .find(|k| word == **k || (k.len() > 3 && crate::table::matches_keyword(&word, k)))
@@ -898,7 +992,7 @@ fn print(p: &mut Parser) -> PResult<GlmPrint> {
                 format!("{name} in PRINT is not supported yet"),
             ));
         } else {
-            return Err(p.unexpected(&KEYWORDS[..6]));
+            return Err(p.unexpected(&KEYWORDS[..7]));
         }
         p.eat(Punct::Comma);
     }
@@ -975,7 +1069,7 @@ fn wsfactors(p: &mut Parser) -> PResult<Vec<WsFactor>> {
     Ok(out)
 }
 
-const SUBCOMMANDS_LATER: [&str; 12] = [
+const SUBCOMMANDS_LATER: [&str; 11] = [
     "RANDOM",
     "TEST",
     "ROBUST",
@@ -983,7 +1077,6 @@ const SUBCOMMANDS_LATER: [&str; 12] = [
     "MBPDESIGN",
     "BPDESIGN",
     "FDESIGN",
-    "MMATRIX",
     "MEASURE",
     "SPLIT",
     "PLOT",
@@ -1023,6 +1116,7 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
         contrasts: Vec::new(),
         lmatrix: Vec::new(),
         kmatrix: None,
+        mmatrix: None,
         save: Vec::new(),
         plots: Vec::new(),
     };
@@ -1162,6 +1256,8 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
             command.lmatrix.push(lmatrix(p)?);
         } else if p.eat_keyword("KMATRIX") {
             command.kmatrix = Some(kmatrix(p)?);
+        } else if p.eat_keyword("MMATRIX") {
+            command.mmatrix = Some(mmatrix(p)?);
         } else if p.eat_keyword("SAVE") {
             command.save = save(p)?;
         } else if p.eat_keyword("PLOT") {
