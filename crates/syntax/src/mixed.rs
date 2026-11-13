@@ -601,10 +601,9 @@ pub(crate) fn mixed(p: &mut Parser) -> PResult<Command> {
             }
         } else if p.eat_keyword("EMMEANS") {
             let e = emmeans(p, true)?;
-            // an identical EMMEANS counts once, where it was first written
-            if !m.emmeans.contains(&e) {
-                m.emmeans.push(e);
-            }
+            // of identical EMMEANS only the last one counts
+            m.emmeans.retain(|old| *old != e);
+            m.emmeans.push(e);
         } else if p.eat_keyword("TEST") {
             m.tests.push(custom_test(p, true)?);
         } else {

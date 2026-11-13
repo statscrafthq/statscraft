@@ -650,13 +650,6 @@ struct Infer<'a> {
 }
 
 impl Infer<'_> {
-    fn df(&self, l: &[f64]) -> f64 {
-        self.residual_df.unwrap_or_else(|| {
-            let (var, grad) = self.model.variance_and_gradient(self.e, l);
-            satterthwaite(var, &grad, self.sigma)
-        })
-    }
-
     /// l b with its standard error and degrees of freedom.
     fn estimate(&self, l: &[f64]) -> (f64, f64, f64) {
         let (var, grad) = self.model.variance_and_gradient(self.e, l);
@@ -776,14 +769,17 @@ impl FixedPart<'_> {
                 .map(|&f| d.values[f].len())
                 .collect::<Vec<_>>(),
         );
-        let ls: Vec<Option<Vec<f64>>> = combos
+        // every mean over all parameters; a difference is checked on its own, since it can be
+        // estimable when the two means are not
+        let full: Vec<Vec<f64>> = combos
             .iter()
             .map(|combo| {
                 let fixed: Vec<(usize, usize)> =
                     factors.iter().copied().zip(combo.iter().copied()).collect();
-                self.reduce(&emmeans_l(d, self.fit, &fixed, &with))
+                emmeans_l(d, self.fit, &fixed, &with)
             })
             .collect();
+        let ls: Vec<Option<Vec<f64>>> = full.iter().map(|l| self.reduce(l)).collect();
         let ci = |columns: &mut Vec<(String, String)>, what: &str| {
             let group = format!("{}{what}", ci_title(self.cin));
             columns.push((group.clone(), "Lower Bound".into()));
@@ -884,19 +880,22 @@ impl FixedPart<'_> {
                 .map(|&i| d.values[factors[i]].len())
                 .collect::<Vec<_>>(),
         );
-        let mean_at = |other: &[usize], lv: usize| -> &Option<Vec<f64>> {
+        let mean_at = |other: &[usize], lv: usize| -> &Vec<f64> {
             let mut combo = vec![0; factors.len()];
             for (o, &i) in other.iter().zip(&others) {
                 combo[i] = *o;
             }
             combo[at] = lv;
-            &ls[combos
+            &full[combos
                 .iter()
                 .position(|c| *c == combo)
                 .expect("a combination")]
         };
-        let difference =
-            |a: &[f64], b: &[f64]| -> Vec<f64> { a.iter().zip(b).map(|(x, y)| x - y).collect() };
+        // the difference of two means over the kept columns, when it is estimable
+        let difference = |a: &[f64], b: &[f64]| -> Option<Vec<f64>> {
+            self.reduce(&a.iter().zip(b).map(|(x, y)| x - y).collect::<Vec<f64>>())
+        };
+        let mut missing = false;
         let mut columns: Vec<(String, String)> = others
             .iter()
             .map(|&i| (String::new(), d.factor_texts[factors[i]].clone()))
@@ -933,9 +932,9 @@ impl FixedPart<'_> {
                     Cell::Empty
                 });
                 row.push(text(label_of(compared, j)));
-                match (mean_at(other, i), mean_at(other, j)) {
-                    (Some(li), Some(lj)) => {
-                        let (md, se, df) = self.inf.estimate(&difference(li, lj));
+                match difference(mean_at(other, i), mean_at(other, j)) {
+                    Some(diff) => {
+                        let (md, se, df) = self.inf.estimate(&diff);
                         let p = adjusted(t_p(md / se, df), m, e.adjustment);
                         let tc = if df.is_finite() {
                             adjusted_t(alpha, m, df, e.adjustment)
@@ -946,17 +945,19 @@ impl FixedPart<'_> {
                             [md, se, df, p, md - tc * se, md + tc * se].map(|v| number(Some(v))),
                         );
                     }
-                    _ => row.extend(std::iter::repeat_n(Cell::Empty, 6)),
+                    None => {
+                        missing = true;
+                        row.extend(std::iter::repeat_n(Cell::Empty, 6));
+                    }
                 }
                 rows.push(row);
             }
-            // the simple effect of the compared factor at these levels of the others: each
-            // estimable mean against the last estimable one
-            let means: Vec<&Vec<f64>> = (0..k).filter_map(|i| mean_at(other, i).as_ref()).collect();
-            let l: Matrix = means
-                .split_last()
-                .map(|(last, rest)| rest.iter().map(|li| difference(li, last)).collect())
-                .unwrap_or_default();
+            // the simple effect of the compared factor at these levels of the others: the
+            // estimable differences against the last level
+            let l: Matrix = (0..k - 1)
+                .filter_map(|i| difference(mean_at(other, i), mean_at(other, k - 1)))
+                .collect();
+            missing |= l.len() < k - 1;
             let label: Vec<String> = others
                 .iter()
                 .zip(other)
@@ -990,8 +991,13 @@ impl FixedPart<'_> {
             columns,
             rows,
             Some(format!(
-                "Dependent Variable: {dependent}. Based on estimated marginal means. Adjustment for multiple comparisons: {}.",
-                adjustment_name(e.adjustment)
+                "Dependent Variable: {dependent}. Based on estimated marginal means. Adjustment for multiple comparisons: {}.{}",
+                adjustment_name(e.adjustment),
+                if missing {
+                    " A difference without a value is not estimable; the F tests use the estimable ones."
+                } else {
+                    ""
+                }
             )),
         ));
         out.push(table(
@@ -1826,7 +1832,7 @@ impl Engine {
                     l[at] = 1.0;
                     let b = e.beta[at];
                     let se = e.a_inv[at][at].sqrt();
-                    let df = inf.df(&l);
+                    let (_, _, df) = inf.estimate(&l);
                     let t = b / se;
                     let tc = t_crit(alpha, df);
                     out.push(vec![

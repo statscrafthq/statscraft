@@ -112,6 +112,11 @@ fn emmeans_test_and_the_matrix_tables() {
     assert!(all.rows[0][0].0.is_none());
     assert!((all.rows[0][0].1[1] - 1.0 / 3.0).abs() < 1e-15);
     assert!(m.print.g && m.print.r && m.print.covb && m.print.corb);
+    // a REFCAT belongs to the COMPARE before it
+    let m = mixed(
+        "MIXED gain BY crop soil /EMMEANS=TABLES(crop*soil) COMPARE(crop) REFCAT(LAST) COMPARE(soil).",
+    );
+    assert_eq!(m.emmeans[0].refcat, None);
     assert!(err("MIXED gain BY crop /TEST(1 2)=crop 1 -1.").contains("2 constants for 1 rows"));
     assert!(err("MIXED gain BY crop /TEST=crop 1 -1 DIVISOR=0.").contains("DIVISOR"));
 }

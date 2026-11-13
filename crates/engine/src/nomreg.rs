@@ -41,7 +41,7 @@
 //!   (the same covariates, fewer factors), NONE without conditions; an effect that another
 //!   needs cannot leave. MAXEFFECT caps entry (FORWARD, FSTEP) and MINEFFECT removal (BACKWARD,
 //!   BSTEP), counting effects without the intercept. Entry p values that underflow to 0 are
-//!   ranked by chi-square per df. SCALE does not change the stepwise tests.
+//!   ranked by the leading term of log p; a test without a number (NaN) never qualifies. SCALE does not change the stepwise tests.
 
 use crate::crosstabs::{Key, categories};
 use crate::descriptives::{case_weights, number};
@@ -484,9 +484,15 @@ fn select(
                 )
             };
             let p = p_of(chi, df);
-            // p can underflow to 0 for several effects: then the larger chi-square per df wins
+            if p.is_nan() {
+                continue;
+            }
+            // p can underflow to 0 for several effects: compare the leading term of log p then
+            let log_p = |chi: f64, df: f64| {
+                (df / 2.0 - 1.0) * (chi / 2.0).ln() - chi / 2.0 - ln_gamma(df / 2.0)
+            };
             let better = best.is_none_or(|b| {
-                p < b.3 || (p == 0.0 && b.3 == 0.0 && df > 0.0 && chi / df > b.1 / b.2)
+                p < b.3 || (p == 0.0 && b.3 == 0.0 && log_p(chi, df) < log_p(b.1, b.2))
             });
             if better {
                 best = Some((e, chi, df, p));
@@ -538,6 +544,9 @@ fn select(
                 )
             };
             let p = p_of(chi, df);
+            if p.is_nan() {
+                continue;
+            }
             if best.is_none_or(|b| p > b.3) {
                 best = Some((e, chi, df, p));
             }

@@ -1505,16 +1505,17 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  then drops while it can, BSTEP starts with all, drops while it can and then adds one. An effect\n\
                  is added when its p (likelihood ratio, or the score test with ENTRYMETHOD(SCORE)) is the smallest\n\
                  and below PIN, and dropped when its p (likelihood ratio, or Wald with REMOVALMETHOD(WALD)) is the\n\
-                 largest and above POUT; on a tie the effect listed first goes. The steps stop when nothing\n\
-                 qualifies or a model would repeat. RULE(SINGLE) holds an effect back until the listed effects made\n\
-                 of a part of its variables are in, SFACTOR does that only for effects of factors alone,\n\
-                 CONTAINMENT waits for the effects it contains (same covariates, fewer factors), NONE never\n\
-                 waits; an effect that another one in the model needs is not dropped. MAXEFFECT limits adding\n\
-                 under FORWARD and FSTEP, MINEFFECT dropping under BACKWARD and BSTEP, counting effects without\n\
-                 the intercept. The Step Summary (STEP, shown by\n\
-                 default) lists each step with the -2 log likelihood after it and the test that decided it; the\n\
-                 other tables describe the final model. Not supported yet: TEST, OUTFILE and PRINT CELLPROB,\n\
-                 HISTORY and ASSOCIATION.",
+                 largest and above POUT; on a tie the effect listed first goes (entry p values too small to\n\
+                 hold are compared by their logarithms). The steps stop when nothing qualifies or a model would\n\
+                 repeat. RULE(SINGLE) holds an effect back until the listed effects made of a part of its\n\
+                 variables are in, SFACTOR does that only for effects of factors alone, CONTAINMENT waits for the\n\
+                 effects it contains (same covariates, fewer factors), NONE never waits; an effect that another\n\
+                 one in the model needs is not dropped. MAXEFFECT limits adding under FORWARD and FSTEP,\n\
+                 MINEFFECT dropping under BACKWARD and BSTEP, counting effects without the intercept. The Step\n\
+                 Summary (STEP, shown by default) lists each step with the -2 log likelihood after it and the\n\
+                 test that decided it; the other tables describe the final model, which without the intercept\n\
+                 can be the null model of equal probabilities. Not supported yet: TEST, OUTFILE and PRINT\n\
+                 CELLPROB, HISTORY and ASSOCIATION.",
         example: "NOMREG commute (BASE=FIRST) BY district WITH distance /PRINT=PARAMETER LRT FIT SUMMARY CLASSTABLE /SAVE=ESTPROB PREDCAT.",
         parse: nomreg::nomreg,
     },

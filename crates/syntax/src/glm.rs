@@ -548,6 +548,8 @@ pub(crate) fn emmeans(p: &mut Parser, refcat: bool) -> PResult<Emmeans> {
                 ));
             }
             e.compare = Some(factor);
+            // a REFCAT belongs to the COMPARE before it
+            e.refcat = None;
         } else if refcat && e.compare.is_some() && p.eat_keyword("REFCAT") {
             p.expect(Punct::LParen)?;
             e.refcat = Some(if p.eat_keyword("FIRST") {
