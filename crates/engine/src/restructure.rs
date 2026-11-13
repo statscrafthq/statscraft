@@ -177,7 +177,8 @@ fn hashed(key: &Key) -> Hashed {
     }
 }
 
-fn compare_keys(a: &[Key], b: &[Key]) -> Ordering {
+/// Orders combinations of key values, the first value first.
+pub(crate) fn compare_keys(a: &[Key], b: &[Key]) -> Ordering {
     a.iter()
         .zip(b)
         .map(|(a, b)| a.compare(b))

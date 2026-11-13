@@ -1987,7 +1987,7 @@ fn normal_ar1_updates_the_scale_and_gives_marginal_means() {
             "Quasi-likelihood under Independence Model Criterion (QIC)",
             "Value",
         ),
-        1573.1797625385,
+        1676.0043939734,
         1e-8,
         "QIC",
     );
@@ -2082,7 +2082,7 @@ fn normal_exchangeable_and_fixed_structures() {
             "Quasi-likelihood under Independence Model Criterion (QIC)",
             "Value",
         ),
-        1570.13249413161,
+        1672.38668550047,
         1e-8,
         "QIC",
     );
@@ -2341,7 +2341,7 @@ fn gamma_with_the_pearson_scale_held_from_the_first_fit() {
             "Quasi-likelihood under Independence Model Criterion (QIC)",
             "Value",
         ),
-        11.8598980971354,
+        0.89766936894172,
         1e-7,
         "QIC",
     );

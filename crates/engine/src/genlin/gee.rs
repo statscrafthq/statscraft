@@ -20,24 +20,24 @@
 //!   step on sum f D' V^-1 (y - mu) = 0 with V = phi A^1/2 R A^1/2, A the variance function over
 //!   the prior weight, D the derivative of the means. R is estimated at the start and again after
 //!   every UPDATECORR iterations (0: never again). With SCALE=MLE the scale becomes the Pearson
-//!   moment after every iteration; any other scale keeps the value of the first fit, and so does a
-//!   negative binomial k.
+//!   moment (from the start); any other scale keeps the value of the first fit, and so does a
+//!   negative binomial k. A step that gives a case an invalid mean is halved.
 //! - The iterations stop when the largest change of an estimate (absolute or relative) is below
-//!   PCONVERGE and s' H^-1 s is below HCONVERGE, each when above 0. When HCONVERGE is 0, the
+//!   PCONVERGE (a full step only) and s' H^-1 s is below HCONVERGE, each when above 0. When HCONVERGE is 0, the
 //!   last s' H^-1 s is held against 1E-4 and a warning says when it is above.
 //! - The model-based covariance is H^-1, H = sum f D' V^-1 D; the robust one is
 //!   H^-1 (sum f D' V^-1 e e' V^-1 D) H^-1 with e the residuals of a subject.
 //! - QIC = -2 Q + 2 trace(H_I C) and QICC = -2 Q + 2 p: Q is the quasi-likelihood under
 //!   independence at the estimates (full or kernel as LIKELIHOOD says), at a scale fixed on
-//!   CRITERIA or else 1; H_I is H of the fit with independent measurements; C is the robust
-//!   covariance.
+//!   CRITERIA or else 1; H_I is H of the independent structure at its solution (the estimates of
+//!   the first fit) and at that same scale; C is the robust covariance.
 
 use super::{Cases, Family, link_d1, link_inverse, mat_vec, mu_valid, variance};
 use crate::crosstabs::Key;
 use crate::glm::ginverse;
 use crate::matrix::{Matrix, multiply, symmetric_eigen};
+use crate::restructure::compare_keys as compare;
 use statscraft_syntax::{GenlinCorrelation, GenlinLink, GenlinTolerance};
-use std::cmp::Ordering;
 use std::collections::HashMap;
 
 /// The subjects of a fit.
@@ -48,14 +48,6 @@ pub(super) struct Subjects {
     pub(super) dim: usize,
     /// The WITHINSUBJECT values of each position, when they set the positions.
     pub(super) positions: Vec<Vec<Key>>,
-}
-
-fn compare(a: &[Key], b: &[Key]) -> Ordering {
-    a.iter()
-        .zip(b)
-        .map(|(x, y)| x.compare(y))
-        .find(|o| o.is_ne())
-        .unwrap_or(Ordering::Equal)
 }
 
 /// Groups the rows of the fit (in file order) into subjects. `subject` and `within` hold the
@@ -152,11 +144,11 @@ pub(super) struct GeeFit {
     pub(super) mu: Vec<f64>,
     pub(super) phi: f64,
     pub(super) r: Matrix,
-    /// H = sum f D' V^-1 D at the estimates.
-    pub(super) information: Matrix,
     pub(super) model: Matrix,
     pub(super) robust: Matrix,
     pub(super) converged: bool,
+    /// No shortened step kept every mean valid; the iterations stopped there.
+    pub(super) halving_failed: bool,
     pub(super) hessian_ok: bool,
     /// The final estimated matrix was not positive definite and was pulled toward the identity.
     pub(super) ridged: bool,
@@ -172,8 +164,6 @@ fn means(c: &Cases, x: &[Vec<f64>], set: &Settings, beta: &[f64]) -> Option<Vec<
         .collect()
 }
 
-/// The working correlation matrix at the means `mu`, the scale moment, and whether a ridge was
-/// needed.
 /// The Pearson residual of every row.
 fn residuals(c: &Cases, set: &Settings, mu: &[f64]) -> Vec<f64> {
     (0..c.n())
@@ -193,6 +183,8 @@ fn moment(c: &Cases, s: &Subjects, set: &Settings, px: usize, r: &[f64]) -> f64 
     (0..c.n()).map(|i| c.f[i] * r[i] * r[i]).sum::<f64>() / den
 }
 
+/// The working correlation matrix at the means `mu`, the scale moment, and whether the matrix
+/// had to be moved toward the identity to be positive definite.
 fn estimate(
     c: &Cases,
     s: &Subjects,
@@ -280,14 +272,12 @@ fn estimate(
         GenlinCorrelation::Exchangeable => {
             let mut num = 0.0;
             let mut den = 0.0;
-            for (row, (mm, f)) in grid.iter().zip(s.members.iter().zip(&freq)) {
+            for (mm, f) in s.members.iter().zip(&freq) {
                 let n = mm.len() as f64;
                 den += f * n * (n - 1.0) / 2.0;
-                for u in 0..t {
-                    for v in u + 1..t {
-                        if let (Some(a), Some(b)) = (row[u], row[v]) {
-                            num += f * a * b;
-                        }
+                for (at, &(i, _)) in mm.iter().enumerate() {
+                    for &(j, _) in &mm[at + 1..] {
+                        num += f * r[i] * r[j];
                     }
                 }
             }
@@ -304,15 +294,7 @@ fn estimate(
             let estimate = if t > 1 { lag(1) } else { 0.0 };
             // a power matrix is positive definite only for |alpha| < 1
             let alpha = estimate.clamp(-0.99, 0.99);
-            if alpha != estimate {
-                return Ok((ar1(t, alpha), phi, true));
-            }
-            for (u, row) in m.iter_mut().enumerate() {
-                for (v, cell) in row.iter_mut().enumerate() {
-                    *cell = alpha.powi(u.abs_diff(v) as i32);
-                }
-            }
-            return Ok((m, phi, false));
+            return Ok((ar1(t, alpha), phi, alpha != estimate));
         }
         GenlinCorrelation::MDependent(order) => {
             let order = (*order as usize).min(t.saturating_sub(1));
@@ -425,6 +407,20 @@ fn parts(
     (score, h, meat)
 }
 
+/// H of the independent structure at `beta` and the scale `phi`.
+pub(super) fn independent_information(
+    c: &Cases,
+    x: &[Vec<f64>],
+    s: &Subjects,
+    set: &Settings,
+    beta: &[f64],
+    phi: f64,
+) -> Option<Matrix> {
+    let mu = means(c, x, set, beta)?;
+    let identity = ar1(s.dim, 0.0);
+    Some(parts(c, x, s, set, &mu, &identity, phi).1)
+}
+
 /// Fits the generalized estimating equations from `beta0` and the scale `phi0`.
 pub(super) fn fit(
     c: &Cases,
@@ -447,6 +443,7 @@ pub(super) fn fit(
     let quadratic =
         |score: &[f64], inverse: &Matrix| super::dot(score, &mat_vec(inverse, score)).abs();
     let mut converged = set.maxiterations == 0 || q == 0;
+    let mut halving_failed = false;
     for iteration in 1..=set.maxiterations {
         if q == 0 {
             break;
@@ -454,15 +451,19 @@ pub(super) fn fit(
         // a step that gives a case an invalid mean is halved
         let step = mat_vec(&inverse, &score);
         let mut size = 1.0;
-        let (next, next_mu) = loop {
+        let found = loop {
             let next: Vec<f64> = beta.iter().zip(&step).map(|(b, d)| b + size * d).collect();
             if let Some(m) = means(c, x, set, &next) {
-                break (next, m);
+                break Some((next, m));
             }
             size /= 2.0;
             if size < 1e-9 {
-                return Err(failed());
+                break None;
             }
+        };
+        let Some((next, next_mu)) = found else {
+            halving_failed = true;
+            break;
         };
         mu = next_mu;
         let update = set.updatecorr > 0 && iteration % set.updatecorr == 0;
@@ -480,7 +481,8 @@ pub(super) fn fit(
         beta = next;
         (score, h, meat) = parts(c, x, s, set, &mu, &r, phi);
         inverse = ginverse(&h, set.singular).0;
-        let p_met = set.pconverge.value == 0.0 || change < set.pconverge.value;
+        // a shortened step says nothing about convergence
+        let p_met = set.pconverge.value == 0.0 || (size == 1.0 && change < set.pconverge.value);
         let h_met = set.hconverge == 0.0 || quadratic(&score, &inverse) < set.hconverge;
         if p_met && h_met {
             converged = true;
@@ -498,10 +500,10 @@ pub(super) fn fit(
         mu,
         phi,
         r,
-        information: h,
         model,
         robust,
         converged,
+        halving_failed,
         hessian_ok,
         ridged,
     })

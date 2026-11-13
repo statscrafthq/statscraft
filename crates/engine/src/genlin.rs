@@ -2141,7 +2141,9 @@ impl Engine {
                     singular: crit.singular,
                 };
                 let g = gee::fit(&c, &x, s, &set, &result.b, phi).map_err(Error)?;
-                if !g.converged {
+                if g.halving_failed {
+                    warnings.push("The generalized estimating equations stopped: no shortened step kept every mean valid; the results may not be final".into());
+                } else if !g.converged {
                     warnings.push(format!(
                         "The generalized estimating equations did not converge within {} iterations (REPEATED MAXITERATIONS); the results may not be final",
                         r.maxiterations
@@ -2152,20 +2154,19 @@ impl Engine {
                 if g.ridged {
                     warnings.push("The estimated working correlation matrix was not positive definite; it was moved toward the identity matrix until it was".into());
                 }
-                // H of the independent structure, for QIC
-                let independent = if !command.print.fit {
-                    None
-                } else if r.correlation == GenlinCorrelation::Independent {
-                    Some(g.information.clone())
-                } else {
-                    let set = gee::Settings {
-                        correlation: &GenlinCorrelation::Independent,
-                        ..set
-                    };
-                    gee::fit(&c, &x, s, &set, &result.b, phi)
-                        .ok()
-                        .map(|f| f.information)
-                };
+                // H of the independent structure at its estimates (those of the plain model) and
+                // at the scale of the quasi-likelihood, for QIC
+                let independent = command
+                    .print
+                    .fit
+                    .then(|| {
+                        let phi_q = match scale {
+                            ScaleMode::Fixed(v) => v,
+                            _ => 1.0,
+                        };
+                        gee::independent_information(&c, &x, s, &set, &result.b, phi_q)
+                    })
+                    .flatten();
                 f.beta = g.beta.clone();
                 f.mu = g.mu.clone();
                 result.b = g.beta.clone();
@@ -2602,7 +2603,7 @@ impl Engine {
                     if crit.kernel { "kernel of the" } else { "full" },
                     phi_q,
                     if trace.is_none() {
-                        " QIC is blank: the fit with the independent structure, which it needs, failed."
+                        " QIC is blank: the independent structure gives a case an invalid mean at the estimates of the plain model."
                     } else {
                         ""
                     }
