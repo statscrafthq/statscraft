@@ -1615,6 +1615,11 @@ impl App {
                         if ui.button("Factor...").clicked() {
                             self.open_dialog(Dialog::FactorAnalysis(Default::default()));
                         }
+                        if ui.button("Correspondence Analysis...").clicked() {
+                            self.open_dialog(Dialog::Advanced(Advanced::Correspondence(
+                                Default::default(),
+                            )));
+                        }
                     });
                     ui.menu_button("Scale", |ui| {
                         if ui.button("Reliability Analysis...").clicked() {
@@ -5813,7 +5818,7 @@ fn dialog_body(
         Dialog::ChartBuilder(d) => graph_dialogs_view::chart_builder(ui, d, picked),
         Dialog::ProbabilityPlot(d) => graph_dialogs_view::probability_plot(ui, d, picked),
         Dialog::RocCurve(d) => graph_dialogs_view::roc(ui, d, picked),
-        Dialog::Advanced(d) => advanced_dialogs_view::body(ui, d, picked, folder),
+        Dialog::Advanced(d) => advanced_dialogs_view::body(ui, data, d, picked, folder),
         Dialog::Restructure(d) => {
             ui.radio_value(
                 &mut d.kind,

@@ -413,6 +413,12 @@ See [The Window menu](#the-window-menu).
   - Rotation by varimax, direct oblimin with its delta, quartimax, equamax or promax with its kappa, or none.
   - Factor scores saved by the regression, Bartlett or Anderson-Rubin method, and the score coefficient matrix.
   - Listwise, pairwise or mean substitution of missing values, and loadings sorted by size with small ones left blank.
+- **Correspondence Analysis** (`CORRESPONDENCE`): a row variable by a column variable, each numeric with the smallest and largest category value to count. A newly set variable starts from its lowest and highest labeled value.
+  - Each category of the range, shown with its value label, is active, supplementary or in a numbered equal group whose members share one score. Groups need two categories or more, and each side needs at least two active categories, a group counting as one. A role given to a value that a later range leaves out is still listed, so you can set it back to active.
+  - The model: the number of dimensions (at most one less than the active categories of the smaller side), the chi-square distance or a Euclidean distance with one of its five standardizations, and symmetrical, principal, row principal, column principal or a custom normalization from -1 to 1.
+  - Statistics: the table, the row and column profiles, the overviews and the confidence of the row and column points, and permuted tables up to a dimension.
+  - Plots: the biplot (not with principal normalization), the row and column points, the transformation plots of the rows and the columns, a longest label and a range of dimensions instead of every pair.
+  - Writing the scores or variances to a file (`OUTFILE`) and table data (`TABLE=ALL`) are in the syntax.
 
 **Scale**
 
