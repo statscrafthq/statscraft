@@ -28,7 +28,7 @@ statscraft describe -s SESSION [--json]
 | `-s`, `--session NAME` | describe a session instead: its dataset and the state it keeps; `gui` is the open window |
 | `--json` | the full dictionary as JSON instead of one line per variable |
 
-Give either a file or a session. The text form prints `cases, variables` and then, per variable, name, format, measurement level, valid count and label, separated by tabs. For a session it goes on with what the session keeps besides the data, one line each when there is something: `settings:`, `PRESERVE levels:`, `directory:`, `active dataset:`, `datasets:`, `macros:`, `output documents:`, `designated output:`. In JSON these are the object `session` (see [Sessions](#sessions-and-line-ranges)).
+Give either a file or a session. The text form prints `cases, variables` and then, per variable, name, format, measurement level, valid count and label, separated by tabs. For a session it goes on with what the session keeps besides the data, one line each when there is something: `settings:`, `PRESERVE levels:`, `directory:` (where relative file names start: the folder of the last CD, else, for the window, its last caller's folder), `active dataset:`, `datasets:`, `macros:`, `output documents:`, `designated output:`. In JSON these are the object `session` (see [Sessions](#sessions-and-line-ranges)).
 
 The datasets and output documents in `session`:
 
@@ -133,7 +133,7 @@ A session is what one window would keep from one run to the next, stored on disk
 - The first run of a new session starts without data; its syntax usually begins with `GET FILE`. Settings, macros and a CD may come before any data.
 - With `--lines`, only the macros defined on those lines are kept; a macro defined elsewhere in the file still serves the run, as before.
 - A run saves the session when it changed anything in the table above, or when the session file did not exist yet. A failed run keeps none of its changes. A dataset keeps the encoding of the file it came from; when a label or value no longer fits that code page (a letter of another language), the session keeps it in UTF-8 instead.
-- `describe -s NAME` shows the active dataset and, under `session` in the JSON, the SET values given, the number of PRESERVE levels, the CD folder, the active dataset's name, every named dataset with its size, the macros, the output documents and the designated one ([describe](#describe)).
+- `describe -s NAME` shows the active dataset and, under `session` in the JSON, the SET values given, the number of PRESERVE levels, `directory`, where relative file names start (the folder of the last CD, else, for the window, its last caller's folder), the active dataset's name, every named dataset with its size, the macros, the output documents and the designated one ([describe](#describe)).
 - The trail in `syntax.sps` holds exactly the syntax that ran: only the chosen lines for `--lines`, nothing of a failed run or a check. Run it from the top on the original data to repeat the work, or copy steps from it. When it cannot be written, the run fails and the session stays as it was.
 - `check` and `describe` never write it.
 - Delete the session's folder to start over.
@@ -568,7 +568,8 @@ statscraft describe -s gui --json
 - The window runs the syntax as its own Run button does: the tables appear in the designated output window, the commands in the log, and the data windows show the new data.
 - The command line prints what it prints for a file session, with `"session": "gui"`. `saved` is true when the run changed the window's session (the table under [Sessions](#sessions-and-line-ranges)); nothing is written to disk unless the syntax says `SAVE`.
 - The window keeps the same state between runs as a file session, in memory until it closes; `describe -s gui` shows it the same way.
-- Relative paths in the syntax are read from the folder where `statscraft` was started, and the window stays in that folder.
+- Relative paths in the syntax start from the folder where `statscraft` was started, unless a CD is in force in the window's session: a CD starts from that folder too and then stays until the next CD, as in a file session. INSERT and INCLUDE in a syntax file given to `run` start from the file's folder, as in a file session. A run leaves the caller's folder to the window's own later runs, and `describe` shows it as `directory`; a check uses it only for itself. A syntax window that an agent runs starts from its own file's folder, or from the agent's folder when it has no file. A folder that is gone makes relative files fail with their own error; nothing is read or written anywhere else.
+- Unlike a file session, the window names files in its messages by their full path, since it resolves relative names against the caller's folder.
 - One run goes at a time. A request waits while the window is busy.
 - When no window is open, `-s gui` fails with "no Statscraft window is running". With several windows open, the one started last answers.
 
