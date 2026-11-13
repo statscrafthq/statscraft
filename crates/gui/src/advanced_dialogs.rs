@@ -291,8 +291,9 @@ impl Ordinal {
             let terms = self.scale_terms.syntax(&model, "scale model")?;
             text.push_str(&format!("\n  /SCALE={terms}"));
         }
+        // PLUM takes 0 iterations: the starting estimates only
         let mut criteria =
-            iteration_criteria(&self.ci_level, &self.iterations, &self.halvings, 5, 1)?;
+            iteration_criteria(&self.ci_level, &self.iterations, &self.halvings, 5, 0)?;
         // empty is the default, as for the iterations
         let delta = match self.delta.trim() {
             "" => 0.0,
@@ -664,10 +665,10 @@ impl LinearMixed {
                 && self
                     .subjects
                     .iter()
-                    .any(|s| self.random_subjects.contains(s)));
+                    .all(|s| self.random_subjects.contains(s)));
         if !self.subjects.is_empty() && !used {
             return Err(
-                "the subjects are used only by repeated measures or ticked under the random effects"
+                "every subject is used only by repeated measures or ticked under the random effects"
                     .into(),
             );
         }
@@ -889,7 +890,12 @@ fn plan_file(path: &str) -> Result<String, String> {
     if path.is_empty() {
         return Err("choose the plan file".into());
     }
-    Ok(format!("\n  /PLAN FILE={}", quote(path)))
+    // the same name as the Analysis Plan dialog writes it
+    let path = match std::path::Path::new(path).extension() {
+        Some(_) => path.to_string(),
+        None => format!("{path}.json"),
+    };
+    Ok(format!("\n  /PLAN FILE={}", quote(&path)))
 }
 
 /// The statistics of both complex samples analyses, keyword and label; the first is the
@@ -1150,8 +1156,9 @@ impl SampleTables {
         let mut tests = Vec::new();
         if self.crosstabs {
             // the residuals compare table percents
-            if self.cells[1] {
-                more = keywords(&SAMPLE_RESIDUALS, &self.residuals);
+            more = keywords(&SAMPLE_RESIDUALS, &self.residuals);
+            if !more.is_empty() && !self.cells[1] {
+                return Err("the residuals compare table percents: tick Table percent".into());
             }
             tests = keywords(&SAMPLE_TESTS, &self.tests);
         } else {
@@ -1630,6 +1637,11 @@ mod tests {
         t.cells = [true, false, true, true];
         t.residuals = [true; 3];
         t.tests = [true; 4];
+        assert_eq!(
+            t.syntax().unwrap_err(),
+            "the residuals compare table percents: tick Table percent"
+        );
+        t.residuals = [false; 3];
         let syntax = t.syntax().unwrap();
         assert!(
             syntax.ends_with(
@@ -1640,6 +1652,7 @@ mod tests {
         );
         t.column = "q5_3".into();
         t.cells[1] = true;
+        t.residuals = [true; 3];
         let syntax = t.syntax().unwrap();
         assert!(
             syntax.contains(
@@ -1830,14 +1843,16 @@ mod tests {
         };
         assert_eq!(
             d.syntax().unwrap_err(),
-            "the subjects are used only by repeated measures or ticked under the random effects"
+            "every subject is used only by repeated measures or ticked under the random effects"
         );
         d.random_subjects = v(&["region"]);
         assert!(d.syntax().is_ok());
+        d.subjects = v(&["region", "gender"]);
+        assert!(d.syntax().is_err());
     }
 
     #[test]
-    fn mixed_takes_zero_iterations_and_the_others_do_not() {
+    fn mixed_and_plum_take_zero_iterations() {
         let mut d = LinearMixed {
             dependent: "monthly_spend".into(),
             iterations: "0".into(),
@@ -1850,7 +1865,7 @@ mod tests {
             iterations: "0".into(),
             ..Default::default()
         };
-        assert!(o.syntax().is_err());
+        assert!(o.syntax().unwrap().contains("MXITER(0)"));
     }
 
     #[test]
