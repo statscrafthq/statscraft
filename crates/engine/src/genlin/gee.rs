@@ -247,13 +247,11 @@ fn estimate(
                     t * t.saturating_sub(1) / 2
                 ));
             }
-            let mut at = 0;
-            for u in 1..t {
-                for v in 0..u {
-                    m[u][v] = list[at];
-                    m[v][u] = list[at];
-                    at += 1;
-                }
+            // the lower triangle row by row
+            let below = (1..t).flat_map(|u| (0..u).map(move |v| (u, v)));
+            for ((u, v), value) in below.zip(list) {
+                m[u][v] = *value;
+                m[v][u] = *value;
             }
             let smallest = symmetric_eigen(&m)
                 .iter()
@@ -309,13 +307,11 @@ fn estimate(
             }
         }
         GenlinCorrelation::Unstructured => {
-            for u in 0..t {
-                for v in u + 1..t {
-                    let (num, den) = pair(u, v);
-                    let alpha = ratio(num, den);
-                    m[u][v] = alpha;
-                    m[v][u] = alpha;
-                }
+            for (u, v) in (0..t).flat_map(|u| (u + 1..t).map(move |v| (u, v))) {
+                let (num, den) = pair(u, v);
+                let alpha = ratio(num, den);
+                m[u][v] = alpha;
+                m[v][u] = alpha;
             }
         }
     }
