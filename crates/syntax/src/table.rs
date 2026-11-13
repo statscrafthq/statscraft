@@ -1629,8 +1629,13 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20            [CONTRAST=PAIRWISE | DEVIATION[(value)] | DIFFERENCE | HELMERT | POLYNOMIAL[(metric)] |\n\
                  \x20                      REPEATED | SIMPLE[(value)]]\n\
                  \x20            [PADJUST=LSD | BONFERRONI | SEQBONFERRONI | SIDAK | SEQSIDAK]] ...\n\
+                 \x20  [/REPEATED SUBJECT=variable[*variable...] [WITHINSUBJECT=variable[*variable...]] [SORT=YES | NO]\n\
+                 \x20            [CORRTYPE=INDEPENDENT | AR(1) | EXCHANGEABLE | MDEPENDENT(m) | UNSTRUCTURED | FIXED(list)]\n\
+                 \x20            [ADJUSTCORR=YES | NO] [COVB=ROBUST | MODEL] [HCONVERGE=0] [MAXITERATIONS=100]\n\
+                 \x20            [PCONVERGE=1E-6[(ABSOLUTE | RELATIVE)]] [UPDATECORR=1]]\n\
                  \x20  [/MISSING CLASSMISSING=EXCLUDE | INCLUDE]\n\
-                 \x20  [/PRINT [CPS] [DESCRIPTIVES] [MODELINFO] [FIT] [SUMMARY] [SOLUTION[(EXPONENTIATED)]] [COVB] [CORB] | NONE]\n\
+                 \x20  [/PRINT [CPS] [DESCRIPTIVES] [MODELINFO] [FIT] [SUMMARY] [SOLUTION[(EXPONENTIATED)]] [COVB] [CORB]\n\
+                 \x20          [WORKINGCORR] | NONE]\n\
                  \x20  [/SAVE [XBPRED] [XBSTDERROR] [MEANPRED] [CIMEANPREDL] [CIMEANPREDU] [PREDVAL] [LEVERAGE] [RESID]\n\
                  \x20         [PEARSONRESID] [DEVIANCERESID] [STDPEARSONRESID] [STDDEVIANCERESID] [LIKELIHOODRESID] [COOK]].\n\
                  Every keyword is written in full and every subcommand but EMMEANS appears at most once. The\n\
@@ -1663,8 +1668,24 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  response or the linear predictor scale, with pairwise or contrast comparisons and an overall\n\
                  Wald test. SAVE names the new variables after the keyword (XBPredicted, MeanPredicted, Residual\n\
                  and so on, a suffix _1 when taken) or as given; the multinomial ones are numbered per category.\n\
-                 Not supported yet: REPEATED (generalized estimating equations), OUTFILE, TWEEDIE, INITIAL,\n\
-                 CITYPE=PROFILE and PRINT GEF, HISTORY, LAGRANGE and LMATRIX.",
+                 REPEATED fits generalized estimating equations for measurements that are correlated within a\n\
+                 subject. A subject is a combination of the SUBJECT values; WITHINSUBJECT values put its cases in\n\
+                 order, and a value a subject lacks counts as a missing measurement. Without WITHINSUBJECT the file\n\
+                 order is kept. SORT=NO takes each run of equal SUBJECT values in the file as one subject and\n\
+                 ignores WITHINSUBJECT. The fit starts from the plain model and then updates the estimates and the\n\
+                 working correlation matrix in turn: AR(1), EXCHANGEABLE, MDEPENDENT(m) and UNSTRUCTURED are\n\
+                 estimated from the Pearson residuals (with ADJUSTCORR=YES each count in a denominator is less the\n\
+                 number of parameters), FIXED takes the correlations below the diagonal row by row. UPDATECORR=n\n\
+                 re-estimates the matrix every n iterations, 0 never. SCALE=MLE becomes the Pearson moment of the\n\
+                 residuals; another scale and an estimated NEGBIN k stay at the plain model's value. COVB=ROBUST\n\
+                 (the default) gives sandwich standard errors, MODEL the model-based ones; the CRITERIA COVB is not\n\
+                 used. FIT then shows QIC and QICC instead of the likelihood statistics, SUMMARY only the Wald\n\
+                 tests of the effects, CPS adds the Correlated Data Summary, WORKINGCORR the Working Correlation\n\
+                 Matrix. A frequency weight must be the same for all cases of a subject. SAVE has no leverage,\n\
+                 deviance-based or standardized residuals or Cook's distance here.\n\
+                 Not supported yet: OUTFILE, TWEEDIE, INITIAL, CITYPE=PROFILE, PRINT GEF, HISTORY, LAGRANGE and\n\
+                 LMATRIX, and with REPEATED the multinomial distribution and generalized score tests\n\
+                 (ANALYSISTYPE with LR).",
         example: "GENLIN visits BY clinic WITH age /MODEL clinic age DISTRIBUTION=NEGBIN(MLE) LINK=LOG OFFSET=logdays /PRINT FIT SUMMARY SOLUTION(EXPONENTIATED) /EMMEANS TABLES=clinic COMPARE=clinic.",
         parse: genlin::genlin,
     },

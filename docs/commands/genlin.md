@@ -23,8 +23,13 @@ GENLIN dependent [(REFERENCE=LAST | FIRST | value)] [(ORDER=ASCENDING | DESCENDI
              [CONTRAST=PAIRWISE | DEVIATION[(value)] | DIFFERENCE | HELMERT | POLYNOMIAL[(metric)] |
                        REPEATED | SIMPLE[(value)]]
              [PADJUST=LSD | BONFERRONI | SEQBONFERRONI | SIDAK | SEQSIDAK]] ...
+   [/REPEATED SUBJECT=variable[*variable...] [WITHINSUBJECT=variable[*variable...]] [SORT=YES | NO]
+             [CORRTYPE=INDEPENDENT | AR(1) | EXCHANGEABLE | MDEPENDENT(m) | UNSTRUCTURED | FIXED(list)]
+             [ADJUSTCORR=YES | NO] [COVB=ROBUST | MODEL] [HCONVERGE=0] [MAXITERATIONS=100]
+             [PCONVERGE=1E-6[(ABSOLUTE | RELATIVE)]] [UPDATECORR=1]]
    [/MISSING CLASSMISSING=EXCLUDE | INCLUDE]
-   [/PRINT [CPS] [DESCRIPTIVES] [MODELINFO] [FIT] [SUMMARY] [SOLUTION[(EXPONENTIATED)]] [COVB] [CORB] | NONE]
+   [/PRINT [CPS] [DESCRIPTIVES] [MODELINFO] [FIT] [SUMMARY] [SOLUTION[(EXPONENTIATED)]] [COVB] [CORB]
+           [WORKINGCORR] | NONE]
    [/SAVE [XBPRED] [XBSTDERROR] [MEANPRED] [CIMEANPREDL] [CIMEANPREDU] [PREDVAL] [LEVERAGE] [RESID]
           [PEARSONRESID] [DEVIANCERESID] [STDPEARSONRESID] [STDDEVIANCERESID] [LIKELIHOODRESID] [COOK]].
 ```
@@ -35,7 +40,9 @@ Effects are written as in UNIANOVA; a factor has one column per level and the co
 
 Tables: Model Information, Case Processing Summary, Categorical and Continuous Variable Information, Goodness of Fit (deviance and Pearson chi-square, raw and scaled, over the subpopulations of a binary response; the log likelihood, full or KERNEL; AIC, AICC, BIC and CAIC), Omnibus Test (a likelihood ratio test against the intercept-only model), Tests of Model Effects (Type I and III, Wald or likelihood ratio; with SCALE=DEVIANCE or PEARSON the likelihood ratio is divided by the scale and an F test added) and Parameter Estimates with Wald intervals and Exp(B), then the covariance and correlation of the estimates. The ordinal multinomial model puts the link of the cumulative probability at each threshold minus the effects, without an intercept. EMMEANS gives the predicted means of the factor cells (covariates at their means or CONTROL values), on the response or the linear predictor scale, with pairwise or contrast comparisons and an overall Wald test. SAVE names the new variables after the keyword (XBPredicted, MeanPredicted, Residual and so on, a suffix \_1 when taken) or as given; the multinomial ones are numbered per category.
 
-Not supported yet: REPEATED (generalized estimating equations), OUTFILE, TWEEDIE, INITIAL, CITYPE=PROFILE and PRINT GEF, HISTORY, LAGRANGE and LMATRIX.
+REPEATED fits generalized estimating equations for measurements that are correlated within a subject. A subject is a combination of the SUBJECT values; WITHINSUBJECT values put its cases in order, and a value a subject lacks counts as a missing measurement. Without WITHINSUBJECT the file order is kept. SORT=NO takes each run of equal SUBJECT values in the file as one subject and ignores WITHINSUBJECT. The fit starts from the plain model and then updates the estimates and the working correlation matrix in turn: AR(1), EXCHANGEABLE, MDEPENDENT(m) and UNSTRUCTURED are estimated from the Pearson residuals (with ADJUSTCORR=YES each count in a denominator is less the number of parameters), FIXED takes the correlations below the diagonal row by row. UPDATECORR=n re-estimates the matrix every n iterations, 0 never. SCALE=MLE becomes the Pearson moment of the residuals; another scale and an estimated NEGBIN k stay at the plain model's value. COVB=ROBUST (the default) gives sandwich standard errors, MODEL the model-based ones; the CRITERIA COVB is not used. FIT then shows QIC and QICC instead of the likelihood statistics, SUMMARY only the Wald tests of the effects, CPS adds the Correlated Data Summary, WORKINGCORR the Working Correlation Matrix. A frequency weight must be the same for all cases of a subject. SAVE has no leverage, deviance-based or standardized residuals or Cook's distance here.
+
+Not supported yet: OUTFILE, TWEEDIE, INITIAL, CITYPE=PROFILE, PRINT GEF, HISTORY, LAGRANGE and LMATRIX, and with REPEATED the multinomial distribution and generalized score tests (ANALYSISTYPE with LR).
 
 ## Example
 
