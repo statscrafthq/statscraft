@@ -511,7 +511,7 @@ Where the documentation is silent:
 - ORDER=DATA is accepted with SPLIT FILE; each group then orders the levels as they come in that group.
 - A POLYNOMIAL metric with fewer values than the factor has levels gives a warning and leaves out the comparisons of that EMMEANS; the means are still shown.
 - The omnibus test of the ordinal model compares with the fitted thresholds-only model; with an offset this is not the start values the documentation names.
-- Type I tests start from the model with no parameters, so the intercept has a test. Type I Wald tests use the rows of the forward Doolittle reduction of X'WX (W the frequency times scale weights); Type III Wald tests use the hypotheses of UNIANOVA. Likelihood ratio tests refit the model, Type III under its hypothesis.
+- Type I tests start from the model with no parameters, so the intercept has a test. Type I Wald tests use the rows of the forward Doolittle reduction of X'WX (W the frequency times the scale weight times the trials); Type III Wald tests use the hypotheses of UNIANOVA. Likelihood ratio tests refit the model, Type III under its hypothesis.
 - The scale estimate of DEVIANCE and PEARSON divides by N minus the parameters (minus one more for NEGBIN(MLE)); the F tests use the same degrees of freedom.
 - Only complete separation is checked (CHECKSEP), and it gives a warning; quasi-complete separation is not detected.
 - Confidence intervals of estimated marginal means on the response scale are symmetric around the mean (delta method), as documented. The covariates of EMMEANS default to their means weighted by frequency and scale weight.

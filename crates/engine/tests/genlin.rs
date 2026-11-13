@@ -1455,3 +1455,35 @@ GENLIN ok OF planted /MODEL INTERCEPT=NO OFFSET=0 /PRINT NONE /SAVE COOK.
     // a model with no parameters has no Cook's distance
     assert!(values(&engine, "CooksDistance").iter().all(Option::is_none));
 }
+
+#[test]
+fn type_one_wald_tests_weigh_events_by_their_trials() {
+    let binary = tables_of(&format!(
+        "{SEEDS}GENLIN sprout (REFERENCE=FIRST) BY soil WITH moist
+  /MODEL soil moist DISTRIBUTION=BINOMIAL /CRITERIA ANALYSISTYPE=1 /PRINT SUMMARY.
+"
+    ));
+    let events = tables_of(&format!(
+        "{TRAYS}GENLIN ok OF planted BY soil WITH moist /MODEL soil moist
+  /CRITERIA ANALYSISTYPE=1 /PRINT SUMMARY.
+"
+    ));
+    for row in ["(Intercept)", "soil", "moist"] {
+        let column = "Type I / Wald Chi-Square";
+        let title = "Tests of Model Effects";
+        close(
+            get(&binary, title, row, column),
+            get(&events, title, row, column),
+            1e-7,
+            row,
+        );
+    }
+}
+
+#[test]
+fn the_weight_variable_cannot_have_a_role_in_the_model() {
+    let error = run_error(&format!(
+        "{COUNTS}WEIGHT BY temp.\nGENLIN repairs WITH temp /MODEL temp DISTRIBUTION=POISSON.\n"
+    ));
+    assert!(error.contains("WEIGHT variable"), "{error}");
+}

@@ -698,9 +698,14 @@ fn fit_glm(c: &Cases, x: &[Vec<f64>], spec: &Spec, start: Option<&[f64]>) -> Opt
             let mut bf = fit_at(1.0, start)?;
             let h = 1e-4;
             let mut second = -1.0;
-            for _ in 0..200 {
+            let mut k_converged = spec.criteria.maxiterations == 0;
+            for _ in 0..spec.criteria.maxiterations {
                 let k = tau.exp();
                 let g = negbin_score(c, spec, &bf.eta, k);
+                if g.abs() <= 1e-9 * (1.0 + bf.ll.abs()) {
+                    k_converged = true;
+                    break;
+                }
                 let up = fit_at((tau + h).exp(), Some(&bf.beta))?;
                 let down = fit_at((tau - h).exp(), Some(&bf.beta))?;
                 second = (negbin_score(c, spec, &up.eta, (tau + h).exp())
@@ -727,10 +732,12 @@ fn fit_glm(c: &Cases, x: &[Vec<f64>], spec: &Spec, start: Option<&[f64]>) -> Opt
                 let moved = (next - tau).abs();
                 tau = next;
                 bf = f;
-                if moved < 1e-10 || g.abs() < 1e-10 {
+                if moved < 1e-10 {
+                    k_converged = true;
                     break;
                 }
             }
+            bf.converged &= k_converged;
             (bf, tau.exp(), Some(-1.0 / second))
         }
         (Family::NegBin, Some(k)) => (fit_at(k, start)?, k, None),
@@ -1081,10 +1088,13 @@ fn fit_ordinal(
     let hessian_ok = crit.hconverge.value > 0.0
         || b.is_empty()
         || dot(&s, &mat_vec(&ginverse(&info, crit.singular).0, &s)) < 1e-4;
-    let information = if expected_information(crit) {
-        info
-    } else {
-        ordinal_observed(o, x, link, &b).unwrap_or(info)
+    let positive = |m: &Matrix| {
+        let (g, rank) = ginverse(m, crit.singular);
+        rank == m.len() && (0..m.len()).all(|j| g[j][j] > 0.0)
+    };
+    let information = match ordinal_observed(o, x, link, &b) {
+        Some(h) if !expected_information(crit) && positive(&h) => h,
+        _ => info,
     };
     let cov = ginverse(&information, crit.singular).0;
     Some(OrdinalFit {
@@ -1387,6 +1397,13 @@ impl Engine {
                 )));
             }
             seen.push(v.name().to_string());
+        }
+        if let Some(w) = data.weight_variable()
+            && let Some(n) = seen.iter().find(|n| n.eq_ignore_ascii_case(w))
+        {
+            return Err(Error(format!(
+                "GENLIN cannot use the WEIGHT variable {n} in the model; it is the frequency weight"
+            )));
         }
         let dependent = data.variable(&response_names[0])?;
         let trials_var = match &command.response {
@@ -1707,7 +1724,7 @@ impl Engine {
                     .iter()
                     .chain(std::iter::once(&c.offset[*a]))
                     .zip(d.cov[*b].iter().chain(std::iter::once(&c.offset[*b])))
-                    .map(|(x, y)| x.total_cmp(y))
+                    .map(|(x, y)| (x + 0.0).total_cmp(&(y + 0.0)))
                     .find(|o| o.is_ne())
                     .unwrap_or(std::cmp::Ordering::Equal)
             })
@@ -1903,6 +1920,9 @@ impl Engine {
             _ => {}
         }
         let phi = result.phi;
+        if k_estimated {
+            result.log_variance = result.log_variance.map(|v| v * phi);
+        }
         // the covariance at the scale, robust if asked
         let cov_unit = result.cov.clone();
         result.cov = cov_unit
@@ -2396,7 +2416,22 @@ impl Engine {
                         columns.push((group.clone(), name.into()));
                     }
                 }
-                let type1 = (t == 1).then(|| type1_rows(&design.zwz, crit.singular));
+                let type1 = (t == 1).then(|| {
+                    // X'WX with W the frequency times the scale weight times the trials
+                    let p = design.p;
+                    let mut xwx = vec![vec![0.0; p]; p];
+                    for (i, row) in design.x.iter().enumerate() {
+                        let w = c.f[i] * c.a(i);
+                        for (a, out) in xwx.iter_mut().enumerate() {
+                            if row[a] != 0.0 {
+                                for (v, xb) in out.iter_mut().zip(row) {
+                                    *v += w * row[a] * xb;
+                                }
+                            }
+                        }
+                    }
+                    type1_rows(&xwx, crit.singular)
+                });
                 // the log likelihood of the model of the first effects, by their number
                 let mut prefix_ll: std::collections::HashMap<usize, Option<f64>> =
                     std::collections::HashMap::new();
@@ -2729,6 +2764,7 @@ impl Engine {
                 offset_of: &offset_of,
                 z,
                 categories: &categories_of,
+                dependent: &dependent,
                 j: j_categories,
                 px,
                 ordinal: &ordinal,
@@ -3256,15 +3292,19 @@ fn emmeans_tables(cx: EmmContext, warnings: &mut Vec<String>) -> Result<Vec<Tabl
         }
         // the overall test: the differences from the last cell, or the contrast rows
         let c_rows: Matrix = if pairwise {
-            (0..kc.saturating_sub(1))
-                .map(|a| {
-                    let mut c = vec![0.0; kc];
-                    c[a] = 1.0;
-                    c[kc - 1] = -1.0;
-                    c
-                })
-                .filter(|c| estimable(c))
-                .collect()
+            let usable: Vec<usize> = (0..kc).filter(|&a| ls[cells[a]].is_some()).collect();
+            match usable.split_last() {
+                Some((&last, rest)) => rest
+                    .iter()
+                    .map(|&a| {
+                        let mut c = vec![0.0; kc];
+                        c[a] = 1.0;
+                        c[last] = -1.0;
+                        c
+                    })
+                    .collect(),
+                None => Vec::new(),
+            }
         } else {
             contrast_list
                 .iter()
@@ -3391,6 +3431,7 @@ struct SaveContext<'a> {
     offset_of: &'a dyn Fn(usize) -> f64,
     z: f64,
     categories: &'a [Key],
+    dependent: &'a Variable<'a>,
     j: usize,
     px: usize,
     ordinal: &'a Ordinal,
@@ -3442,7 +3483,10 @@ fn save_columns(s: &SaveContext, warnings: &mut Vec<String>) -> Vec<Saved> {
                     .map(|j| Saved {
                         name: format!("{}_{}", root(default), j + 1),
                         given: item.name.is_some(),
-                        label: format!("{label} for category {}", key_text(&s.categories[j])),
+                        label: format!(
+                            "{label} for category {}",
+                            key_value_text(s.dependent, &s.categories[j])
+                        ),
                         values: SavedValues::Numbers(
                             (0..n)
                                 .map(|kc| eta(kc, j).and_then(|(e, se)| value(e, se)))
