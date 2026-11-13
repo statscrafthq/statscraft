@@ -23,7 +23,8 @@ fn defaults_with_only_the_variable_list() {
     assert_eq!(m.dependent, "gain");
     assert!(m.fixed.is_empty() && m.intercept && m.random.is_empty());
     assert_eq!(m.sstype, 3);
-    assert!(!m.ml && !m.include && !m.residual_df);
+    assert!(!m.ml && !m.include);
+    assert_eq!(m.df_method, DfMethod::Satterthwaite);
     assert_eq!((m.cin, m.mxiter, m.mxstep, m.scoring), (95.0, 100, 10, 1));
     assert_eq!(m.singular, 1e-12);
     assert_eq!(m.pconverge.value, 1e-6);
@@ -65,7 +66,8 @@ fn fixed_random_and_repeated_with_abbreviations() {
             CovType::Ar1
         )
     );
-    assert!(m.ml && m.include && m.residual_df);
+    assert!(m.ml && m.include);
+    assert_eq!(m.df_method, DfMethod::Residual);
     assert_eq!(
         (m.cin, m.mxiter, m.mxstep, m.scoring, m.singular),
         (90.0, 30, 5, 3, 1e-10)
@@ -160,14 +162,6 @@ fn what_is_not_supported_yet_says_so() {
             "random effects",
         ),
         ("MIXED gain /FIXED=| SSTYPE(1).", "SSTYPE(1)"),
-        (
-            "MIXED gain /CRITERIA=DFMETHOD(KENWARDROGER).",
-            "KENWARDROGER",
-        ),
-        (
-            "MIXED gain /RANDOM=INTERCEPT | COVTYPE(TPH).",
-            "COVTYPE(TPH)",
-        ),
         ("MIXED gain /RANDOM=INTERCEPT | SOLUTION.", "SOLUTION"),
         (
             "MIXED gain /REPEATED=week | SUBJECT(farm) COVTYPE(UN_AR1).",
@@ -187,6 +181,31 @@ fn what_is_not_supported_yet_says_so() {
             "{source}: {message}"
         );
     }
+}
+
+#[test]
+fn every_listed_structure_and_kenward_roger_parse() {
+    for (name, t) in [
+        ("AD1", CovType::Ad1),
+        ("ARH1", CovType::Arh1),
+        ("ARMA11", CovType::Arma11),
+        ("CSH", CovType::Csh),
+        ("CSR", CovType::Csr),
+        ("FA1", CovType::Fa1),
+        ("FAH1", CovType::Fah1),
+        ("HF", CovType::Hf),
+        ("TP", CovType::Tp),
+        ("TPH", CovType::Tph),
+        ("UNR", CovType::Unr),
+    ] {
+        let m = mixed(&format!(
+            "MIXED gain BY week /RANDOM=week | SUBJECT(farm) COVTYPE({name}) /REPEATED=week | SUBJECT(farm) COVTYPE({name})."
+        ));
+        assert_eq!((m.random[0].covtype, m.repeated.unwrap().covtype), (t, t));
+    }
+    let m = mixed("MIXED gain /CRITERIA=DFMETHOD(KENWARDROGER).");
+    assert_eq!(m.df_method, DfMethod::KenwardRoger);
+    assert!(err("MIXED gain /RANDOM=INTERCEPT | COVTYPE(SP_POWER).").contains("REPEATED"));
 }
 
 #[test]

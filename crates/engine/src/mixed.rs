@@ -12,6 +12,13 @@
 //!   between subcommands. VC is a scaled identity per effect. REPEATED gives every subject of
 //!   its SUBJECT variables a residual block over the sorted levels of its variables; without it
 //!   R is one variance times the identity.
+//! - Structures over t levels, by entry (i, j), s_k the standard deviation of a variance v_k:
+//!   CSR v (1 on the diagonal, else rho); ARMA11 v (1, else gamma rho^(|i-j|-1)); TP v (1, else
+//!   rho_|i-j|); CSH s_i s_j (1, else rho); ARH1 s_i s_j rho^|i-j|; TPH s_i s_j rho_|i-j|; AD1
+//!   s_i s_j times the neighbour correlations between i and j; UNR s_i s_j rho_ij; HF v_i on the
+//!   diagonal, else (v_i + v_j) / 2 - lambda; FA1 l_i l_j plus d on the diagonal; FAH1 the same
+//!   with d_i. Variances and diagonal offsets stay at least 0 and correlations inside (-1, 1);
+//!   nothing else is constrained. A factor's loadings are shown with a positive sum.
 //! - -2 log likelihood: ML log|V| + r'V^-1 r + n log 2 pi; REML adds log|X'V^-1 X| and has
 //!   (n - p) log 2 pi, p the rank of X. The covariance parameters minimize it by Newton steps
 //!   (the expected Hessian for the first SCORING iterations), halving a step that leaves the
@@ -25,6 +32,12 @@
 //!   l C l' in the covariance parameters. For several rows, the eigenvalues d_m of L C L' give
 //!   one df v_m per direction, E = sum v_m / (v_m - 2) over v_m > 2 and df = 2E / (E - q).
 //!   DFMETHOD(RESIDUAL): n - rank X.
+//! - DFMETHOD(KENWARDROGER), from Kenward and Roger (1997): every test uses the adjusted
+//!   covariance C_A = C + 2 C [sum W_ij (Q_ij - B_i C B_j - R_ij / 4)] C, with B_i =
+//!   X'V^-1 V_i V^-1 X, Q_ij = X'V^-1 V_i V^-1 V_j V^-1 X, R_ij = X'V^-1 V_ij V^-1 X and W the
+//!   inverse of the expected information of the covariance parameters, as published. An F test
+//!   of q rows is scaled by lambda and has m denominator df, both from A1 and A2 of the paper
+//!   (Theta built with C); for one row lambda is 1 and m is 2 / A2.
 //! - Information criteria from -2LL: AIC + 2d, AICC + 2dn / (n - d - 1), BIC + d ln n,
 //!   CAIC + d (ln n + 1); REML: n less the fixed parameters and d the covariance parameters;
 //!   ML: n all cases and d both kinds.
@@ -57,7 +70,7 @@ use crate::regression::{plain, table};
 use crate::shown::{Show, Shown};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Measure, Values, Variable};
-use statscraft_syntax::{CovType, CustomTest, Emmeans, Mixed, MixedTemp, RefCat, Term, Value};
+use statscraft_syntax::{CovType, CustomTest, DfMethod, Emmeans, Mixed, MixedTemp, RefCat, Term, Value};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
@@ -83,6 +96,99 @@ enum What {
     D2(usize, usize),
 }
 
+/// A number carrying two first-order parts and their cross part, so that one evaluation of a
+/// structure's formula gives an exact first or second derivative.
+#[derive(Clone, Copy)]
+struct Dual {
+    v: f64,
+    a: f64,
+    b: f64,
+    ab: f64,
+}
+
+impl Dual {
+    fn constant(v: f64) -> Dual {
+        Dual {
+            v,
+            a: 0.0,
+            b: 0.0,
+            ab: 0.0,
+        }
+    }
+}
+
+/// The arithmetic the structure formulas need.
+trait Num: Copy + std::ops::Add<Output = Self> + std::ops::Sub<Output = Self> {
+    fn mul(self, o: Self) -> Self;
+    fn sqrt(self) -> Self;
+    fn of(v: f64) -> Self;
+    fn pow(self, k: usize) -> Self {
+        (0..k).fold(Self::of(1.0), |acc, _| acc.mul(self))
+    }
+}
+
+impl Num for f64 {
+    fn mul(self, o: f64) -> f64 {
+        self * o
+    }
+    fn sqrt(self) -> f64 {
+        f64::sqrt(self)
+    }
+    fn of(v: f64) -> f64 {
+        v
+    }
+}
+
+impl std::ops::Add for Dual {
+    type Output = Dual;
+    fn add(self, o: Dual) -> Dual {
+        Dual {
+            v: self.v + o.v,
+            a: self.a + o.a,
+            b: self.b + o.b,
+            ab: self.ab + o.ab,
+        }
+    }
+}
+
+impl std::ops::Sub for Dual {
+    type Output = Dual;
+    fn sub(self, o: Dual) -> Dual {
+        Dual {
+            v: self.v - o.v,
+            a: self.a - o.a,
+            b: self.b - o.b,
+            ab: self.ab - o.ab,
+        }
+    }
+}
+
+impl Num for Dual {
+    fn mul(self, o: Dual) -> Dual {
+        Dual {
+            v: self.v * o.v,
+            a: self.a * o.v + self.v * o.a,
+            b: self.b * o.v + self.v * o.b,
+            ab: self.ab * o.v + self.a * o.b + self.b * o.a + self.v * o.ab,
+        }
+    }
+    fn sqrt(self) -> Dual {
+        let r = self.v.sqrt();
+        // d sqrt = 1 / (2r), d2 sqrt = -1 / (4 r^3)
+        let d1 = 0.5 / r;
+        let d2 = -0.25 / (r * r * r);
+        Dual {
+            v: r,
+            a: d1 * self.a,
+            b: d1 * self.b,
+            ab: d1 * self.ab + d2 * self.a * self.b,
+        }
+    }
+    fn of(v: f64) -> Dual {
+        Dual::constant(v)
+    }
+}
+
 impl Block {
     /// `effect_of` gives the effect of each column, for VC.
     fn new(covtype: CovType, effect_of: Vec<usize>, start: usize) -> Block {
@@ -92,10 +198,16 @@ impl Block {
             CovType::Id => vec![0; dim],
             _ => (0..dim).collect(),
         };
+        let t = dim;
         let count = match covtype {
             CovType::Vc | CovType::Id | CovType::Diag => group.iter().max().map_or(0, |m| m + 1),
-            CovType::Un => dim * (dim + 1) / 2,
-            CovType::Cs | CovType::Ar1 => 2,
+            CovType::Un | CovType::Unr => t * (t + 1) / 2,
+            CovType::Cs | CovType::Ar1 | CovType::Csr => 2,
+            CovType::Arma11 => 3,
+            CovType::Csh | CovType::Arh1 | CovType::Hf | CovType::Fa1 => t + 1,
+            CovType::Tp => t,
+            CovType::Tph | CovType::Ad1 => (2 * t).saturating_sub(1),
+            CovType::Fah1 => 2 * t,
         };
         Block {
             covtype,
@@ -106,67 +218,126 @@ impl Block {
         }
     }
 
+    /// Whether some entry depends on the parameters other than linearly.
+    fn nonlinear(&self) -> bool {
+        !matches!(
+            self.covtype,
+            CovType::Vc | CovType::Id | CovType::Diag | CovType::Un | CovType::Cs | CovType::Hf
+        )
+    }
+
     fn touches(&self, what: What) -> bool {
         let mine = |s: usize| (self.start..self.start + self.count).contains(&s);
         match what {
             What::Value => true,
             What::D1(s) => mine(s),
-            What::D2(s, t) => mine(s) && mine(t) && self.covtype == CovType::Ar1,
+            What::D2(s, t) => mine(s) && mine(t) && self.nonlinear(),
+        }
+    }
+
+    /// Entry (i, j) of the structure at the block's own parameters `th`.
+    fn formula<T: Num>(&self, th: &[T], i: usize, j: usize) -> T {
+        let t = self.dim;
+        let zero = T::of(0.0);
+        let d = i.abs_diff(j);
+        let same = i == j;
+        // the standard deviation of level k when the first t parameters are variances
+        let sd = |k: usize| th[k].sqrt();
+        match self.covtype {
+            CovType::Vc | CovType::Id | CovType::Diag => {
+                if same {
+                    th[self.group[i]]
+                } else {
+                    zero
+                }
+            }
+            CovType::Un => {
+                let (a, b) = (i.max(j), i.min(j));
+                th[a * (a + 1) / 2 + b]
+            }
+            CovType::Cs => {
+                if same {
+                    th[0] + th[1]
+                } else {
+                    th[1]
+                }
+            }
+            CovType::Ar1 => th[0].mul(th[1].pow(d)),
+            CovType::Csr => {
+                if same {
+                    th[0]
+                } else {
+                    th[0].mul(th[1])
+                }
+            }
+            CovType::Arma11 => {
+                if same {
+                    th[0]
+                } else {
+                    th[0].mul(th[2]).mul(th[1].pow(d - 1))
+                }
+            }
+            CovType::Tp => {
+                if same {
+                    th[0]
+                } else {
+                    th[0].mul(th[d])
+                }
+            }
+            _ if same && self.covtype != CovType::Fa1 && self.covtype != CovType::Fah1 => {
+                th[i]
+            }
+            CovType::Csh => sd(i).mul(sd(j)).mul(th[t]),
+            CovType::Arh1 => sd(i).mul(sd(j)).mul(th[t].pow(d)),
+            CovType::Tph => sd(i).mul(sd(j)).mul(th[t + d - 1]),
+            CovType::Ad1 => (i.min(j)..i.max(j)).fold(sd(i).mul(sd(j)), |acc, k| acc.mul(th[t + k])),
+            CovType::Unr => {
+                let (a, b) = (i.max(j), i.min(j));
+                sd(i).mul(sd(j)).mul(th[t + a * (a - 1) / 2 + b])
+            }
+            CovType::Hf => (th[i] + th[j]).mul(T::of(0.5)) - th[t],
+            CovType::Fa1 => {
+                let shared = th[i].mul(th[j]);
+                if same { shared + th[t] } else { shared }
+            }
+            CovType::Fah1 => {
+                let shared = th[i].mul(th[j]);
+                if same { shared + th[t + i] } else { shared }
+            }
         }
     }
 
     /// Entry (i, j) of the matrix or of a derivative, `th` the whole parameter vector.
     fn value(&self, th: &[f64], i: usize, j: usize, what: What) -> f64 {
         let th = &th[self.start..self.start + self.count];
-        let local = |s: usize| s - self.start;
-        let one = |b: bool| f64::from(u8::from(b));
-        match self.covtype {
-            CovType::Vc | CovType::Id | CovType::Diag => match what {
-                What::Value => one(i == j) * th[self.group[i]],
-                What::D1(s) => one(i == j && self.group[i] == local(s)),
-                What::D2(..) => 0.0,
-            },
-            CovType::Un => {
-                let (a, b) = if i >= j { (i, j) } else { (j, i) };
-                let k = a * (a + 1) / 2 + b;
-                match what {
-                    What::Value => th[k],
-                    What::D1(s) => one(k == local(s)),
-                    What::D2(..) => 0.0,
-                }
-            }
-            CovType::Cs => match what {
-                What::Value => th[0] * one(i == j) + th[1],
-                What::D1(s) => {
-                    if local(s) == 0 {
-                        one(i == j)
-                    } else {
-                        1.0
-                    }
-                }
-                What::D2(..) => 0.0,
-            },
-            CovType::Ar1 => {
-                let d = i.abs_diff(j) as i32;
-                let (s2, rho) = (th[0], th[1]);
-                // rho^k for k >= 0, 0 for a negative power (its coefficient is 0 there)
-                let pw = |k: i32| if k < 0 { 0.0 } else { rho.powi(k) };
-                let df = f64::from(d);
-                match what {
-                    What::Value => s2 * pw(d),
-                    What::D1(s) if local(s) == 0 => pw(d),
-                    What::D1(_) => s2 * df * pw(d - 1),
-                    What::D2(s, t) => match (local(s), local(t)) {
-                        (0, 0) => 0.0,
-                        (1, 1) => s2 * df * (df - 1.0) * pw(d - 2),
-                        _ => df * pw(d - 1),
-                    },
-                }
+        let seeded = |s: Option<usize>, t: Option<usize>| -> Vec<Dual> {
+            th.iter()
+                .enumerate()
+                .map(|(k, v)| Dual {
+                    v: *v,
+                    a: f64::from(u8::from(s == Some(k))),
+                    b: f64::from(u8::from(t == Some(k))),
+                    ab: 0.0,
+                })
+                .collect()
+        };
+        match what {
+            What::Value => self.formula(th, i, j),
+            What::D1(s) => self.formula(&seeded(Some(s - self.start), None), i, j).a,
+            What::D2(s, t) => {
+                self.formula(&seeded(Some(s - self.start), Some(t - self.start)), i, j)
+                    .ab
             }
         }
     }
 
     fn kinds(&self) -> Vec<Kind> {
+        let t = self.dim;
+        let rest = |first: Kind, n: usize, then: Kind| -> Vec<Kind> {
+            let mut out = vec![first; n];
+            out.resize(self.count, then);
+            out
+        };
         match self.covtype {
             CovType::Vc | CovType::Id | CovType::Diag => vec![Kind::Variance; self.count],
             CovType::Un => (0..self.dim)
@@ -181,11 +352,25 @@ impl Block {
                 })
                 .collect(),
             CovType::Cs => vec![Kind::Variance, Kind::General],
-            CovType::Ar1 => vec![Kind::Variance, Kind::Correlation],
+            CovType::Ar1 | CovType::Csr | CovType::Arma11 | CovType::Tp => {
+                rest(Kind::Variance, 1, Kind::Correlation)
+            }
+            CovType::Csh | CovType::Arh1 | CovType::Tph | CovType::Ad1 | CovType::Unr => {
+                rest(Kind::Variance, t, Kind::Correlation)
+            }
+            CovType::Hf => rest(Kind::Variance, t, Kind::General),
+            CovType::Fa1 | CovType::Fah1 => rest(Kind::General, t, Kind::Variance),
         }
     }
 
     fn names(&self) -> Vec<String> {
+        let t = self.dim;
+        let vars = || (1..=t).map(|i| format!("Var({i})"));
+        let pairs = || (2..=t).flat_map(|a| (1..a).map(move |b| (a, b)));
+        let lags = |prefix: &str| -> Vec<String> {
+            (1..t).map(|k| format!("{prefix} rho({k})")).collect()
+        };
+        let loadings = |prefix: &'static str| (1..=t).map(move |i| format!("{prefix} loading({i})"));
         match self.covtype {
             CovType::Vc | CovType::Id => vec!["Variance".into(); self.count],
             CovType::Diag => (1..=self.count).map(|i| format!("Var({i})")).collect(),
@@ -194,14 +379,53 @@ impl Block {
                 .collect(),
             CovType::Cs => vec!["CS diagonal offset".into(), "CS covariance".into()],
             CovType::Ar1 => vec!["AR1 diagonal".into(), "AR1 rho".into()],
+            CovType::Csr => vec!["CSR diagonal".into(), "CSR rho".into()],
+            CovType::Arma11 => vec![
+                "ARMA11 diagonal".into(),
+                "ARMA11 rho".into(),
+                "ARMA11 gamma".into(),
+            ],
+            CovType::Tp => std::iter::once("TP diagonal".to_string())
+                .chain(lags("TP"))
+                .collect(),
+            CovType::Csh => vars().chain(["CSH rho".to_string()]).collect(),
+            CovType::Arh1 => vars().chain(["ARH1 rho".to_string()]).collect(),
+            CovType::Hf => vars().chain(["HF lambda".to_string()]).collect(),
+            CovType::Tph => vars().chain(lags("TPH")).collect(),
+            CovType::Ad1 => vars()
+                .chain((1..t).map(|k| format!("Corr({},{k})", k + 1)))
+                .collect(),
+            CovType::Unr => vars()
+                .chain(pairs().map(|(a, b)| format!("Corr({a},{b})")))
+                .collect(),
+            CovType::Fa1 => loadings("FA1")
+                .chain(["FA1 diagonal offset".to_string()])
+                .collect(),
+            CovType::Fah1 => loadings("FAH1")
+                .chain((1..=t).map(|i| format!("FAH1 diagonal offset({i})")))
+                .collect(),
         }
     }
 
+    /// Every variance at `variance`, correlations at 0, so that the block starts as a scaled
+    /// identity; the factor loadings start at a common factor of half the variance.
     fn start_values(&self, variance: f64) -> Vec<f64> {
-        self.kinds()
-            .iter()
-            .map(|k| if *k == Kind::Variance { variance } else { 0.0 })
-            .collect()
+        let t = self.dim;
+        match self.covtype {
+            // lambda equal to the variances makes every covariance 0
+            CovType::Hf => vec![variance; self.count],
+            CovType::Arma11 => vec![variance, 0.5, 0.5],
+            CovType::Fa1 | CovType::Fah1 => {
+                let mut v = vec![(variance / 2.0).sqrt(); t];
+                v.resize(self.count, variance / 2.0);
+                v
+            }
+            _ => self
+                .kinds()
+                .iter()
+                .map(|k| if *k == Kind::Variance { variance } else { 0.0 })
+                .collect(),
+        }
     }
 }
 
@@ -213,6 +437,17 @@ fn structure_name(t: CovType) -> &'static str {
         CovType::Un => "Unstructured",
         CovType::Cs => "Compound Symmetry",
         CovType::Ar1 => "First-Order Autoregressive",
+        CovType::Ad1 => "First-Order Ante-Dependence",
+        CovType::Arh1 => "Heterogeneous First-Order Autoregressive",
+        CovType::Arma11 => "ARMA(1,1)",
+        CovType::Csh => "Heterogeneous Compound Symmetry",
+        CovType::Csr => "Compound Symmetry: Correlation Metric",
+        CovType::Fa1 => "First-Order Factor Analytic",
+        CovType::Fah1 => "Heterogeneous First-Order Factor Analytic",
+        CovType::Hf => "Huynh-Feldt",
+        CovType::Tp => "Toeplitz",
+        CovType::Tph => "Heterogeneous Toeplitz",
+        CovType::Unr => "Unstructured: Correlation Metric",
     }
 }
 
@@ -247,6 +482,9 @@ struct Eval {
     b: Vec<Matrix>,
     /// V^-1 of every group.
     vi: Vec<Matrix>,
+    /// X'V^-1 V_s V^-1 V_t V^-1 X and X'V^-1 V_st V^-1 X for s <= t (Hessian depth only).
+    q: Vec<Vec<Matrix>>,
+    r2: Vec<Vec<Matrix>>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -466,6 +704,8 @@ impl Model {
             hess: Vec::new(),
             b: Vec::new(),
             vi: Vec::new(),
+            q: Vec::new(),
+            r2: Vec::new(),
         };
         if depth == Depth::Objective {
             out.vi = vis;
@@ -564,6 +804,8 @@ impl Model {
                 }
             }
             out.hess = hm;
+            out.q = t2;
+            out.r2 = uv2u;
         }
         out.b = b;
         out.vi = vis;
@@ -640,6 +882,89 @@ fn satterthwaite(var: f64, grad: &[f64], sigma: Option<&Matrix>) -> f64 {
     }
 }
 
+/// Kenward-Roger: the adjusted covariance of the fixed effects and the covariance W of the
+/// covariance parameters it was built with.
+struct Kr {
+    phi_a: Matrix,
+    w: Matrix,
+}
+
+impl Kr {
+    /// Phi_A = Phi + 2 Phi [sum W_ij (Q_ij - P_i Phi P_j - R_ij / 4)] Phi, P_i = -B_i.
+    fn new(e: &Eval, w: Matrix) -> Kr {
+        let phi = &e.a_inv;
+        let p = phi.len();
+        let k = e.b.len();
+        let mut s = vec![vec![0.0; p]; p];
+        for i in 0..k {
+            for j in 0..k {
+                let wij = w[i][j];
+                if wij == 0.0 {
+                    continue;
+                }
+                let (lo, hi) = (i.min(j), i.max(j));
+                let q = &e.q[lo][hi];
+                let r = &e.r2[lo][hi];
+                let pp = product(&product(&e.b[i], phi), &e.b[j]);
+                for a in 0..p {
+                    for c in 0..p {
+                        // Q_ji is the transpose of Q_ij
+                        let qv = if i <= j { q[a][c] } else { q[c][a] };
+                        s[a][c] += wij * (qv - pp[a][c] - 0.25 * r[a][c]);
+                    }
+                }
+            }
+        }
+        let mut phi_a = product(&product(phi, &s), phi);
+        for (row, base) in phi_a.iter_mut().zip(phi) {
+            for (v, b) in row.iter_mut().zip(base) {
+                *v = b + 2.0 * *v;
+            }
+        }
+        Kr { phi_a, w }
+    }
+
+    /// The denominator df and the scale lambda of the F test of the full-rank rows `l`.
+    fn df_and_scale(&self, e: &Eval, l: &Matrix) -> (f64, f64) {
+        let phi = &e.a_inv;
+        let rows = l.len() as f64;
+        let lpl: Matrix = l
+            .iter()
+            .map(|x| l.iter().map(|y| dot(x, &mat_vec(phi, y))).collect())
+            .collect();
+        let Some((inv, _)) = cholesky_inverse(&lpl) else {
+            return (f64::NAN, 1.0);
+        };
+        // Theta = L' (L Phi L')^-1 L, then M_i = Theta Phi B_i Phi
+        let theta = product(&product(&crate::matrix::transpose(l), &inv), l);
+        let tp = product(&theta, phi);
+        let m: Vec<Matrix> = e.b.iter().map(|b| product(&product(&tp, b), phi)).collect();
+        let tr: Vec<f64> = m.iter().map(|mi| (0..mi.len()).map(|a| mi[a][a]).sum()).collect();
+        let (mut a1, mut a2) = (0.0, 0.0);
+        for i in 0..m.len() {
+            for j in 0..m.len() {
+                a1 += self.w[i][j] * tr[i] * tr[j];
+                a2 += self.w[i][j] * trace_product(&m[i], &m[j]);
+            }
+        }
+        let b = (a1 + 6.0 * a2) / (2.0 * rows);
+        let g = ((rows + 1.0) * a1 - (rows + 4.0) * a2) / ((rows + 2.0) * a2);
+        let den = 3.0 * rows + 2.0 * (1.0 - g);
+        let (c1, c2, c3) = (g / den, (rows - g) / den, (rows + 2.0 - g) / den);
+        let e_star = 1.0 / (1.0 - a2 / rows);
+        let v_star =
+            2.0 / rows * (1.0 + c1 * b) / ((1.0 - c2 * b).powi(2) * (1.0 - c3 * b));
+        let rho = v_star / (2.0 * e_star * e_star);
+        let m_df = 4.0 + (rows + 2.0) / (rows * rho - 1.0);
+        let lambda = m_df / (e_star * (m_df - 2.0));
+        if m_df.is_finite() && m_df > 0.0 {
+            (m_df, lambda)
+        } else {
+            (f64::NAN, 1.0)
+        }
+    }
+}
+
 /// Inference on combinations of the fixed effects, l in the reduced fixed coordinates.
 struct Infer<'a> {
     model: &'a Model,
@@ -647,16 +972,28 @@ struct Infer<'a> {
     sigma: Option<&'a Matrix>,
     /// DFMETHOD(RESIDUAL): n - rank X for every test; Satterthwaite otherwise.
     residual_df: Option<f64>,
+    kr: Option<Kr>,
 }
 
 impl Infer<'_> {
+    /// The covariance of the fixed effects that the tests use: Kenward-Roger's adjusted one or C.
+    fn cov(&self) -> &Matrix {
+        self.kr.as_ref().map_or(&self.e.a_inv, |k| &k.phi_a)
+    }
+
     /// l b with its standard error and degrees of freedom.
     fn estimate(&self, l: &[f64]) -> (f64, f64, f64) {
+        let b = dot(l, &self.e.beta);
+        if let Some(kr) = &self.kr {
+            let var = dot(l, &mat_vec(&kr.phi_a, l));
+            let df = kr.df_and_scale(self.e, &vec![l.to_vec()]).0;
+            return (b, var.sqrt(), df);
+        }
         let (var, grad) = self.model.variance_and_gradient(self.e, l);
         let df = self
             .residual_df
             .unwrap_or_else(|| satterthwaite(var, &grad, self.sigma));
-        (dot(l, &self.e.beta), var.sqrt(), df)
+        (b, var.sqrt(), df)
     }
 
     /// The F test of L b = a: the rank q of L C L', the denominator df and F; None when q is 0.
@@ -683,6 +1020,19 @@ impl Infer<'_> {
         let q = used.len();
         if q == 0 {
             return None;
+        }
+        if let Some(kr) = &self.kr {
+            // F with the adjusted covariance, scaled by lambda
+            let rows: Matrix = used.iter().map(|(_, lm, _)| lm.clone()).collect();
+            let shift: Vec<f64> = used.iter().map(|(_, _, s)| *s).collect();
+            let lal: Matrix = rows
+                .iter()
+                .map(|x| rows.iter().map(|y| dot(x, &mat_vec(&kr.phi_a, y))).collect())
+                .collect();
+            let (inv, _) = cholesky_inverse(&lal)?;
+            let f = dot(&shift, &mat_vec(&inv, &shift)) / q as f64;
+            let (df, lambda) = kr.df_and_scale(e, &rows);
+            return Some((q, df, lambda * f));
         }
         let f = used.iter().map(|(d, _, s)| s * s / d).sum::<f64>() / q as f64;
         let df = self.residual_df.unwrap_or_else(|| {
@@ -1249,6 +1599,15 @@ fn fit_model(
             command.mxiter
         ));
     }
+    // a factor's loadings and their negatives give the same matrix: show them summing up
+    for b in &model.blocks {
+        if matches!(b.covtype, CovType::Fa1 | CovType::Fah1) {
+            let loadings = &mut th[b.start..b.start + b.dim];
+            if loadings.iter().sum::<f64>() < 0.0 {
+                loadings.iter_mut().for_each(|v| *v = -*v);
+            }
+        }
+    }
     let eval = model
         .evaluate(&th, Depth::Hessian { expected: false })
         .ok_or_else(|| {
@@ -1662,11 +2021,32 @@ impl Engine {
         let e = &fitted.eval;
         let sigma = fitted.sigma.as_ref();
         let residual_df = (n - p) as f64;
+        let kr = if command.df_method == DfMethod::KenwardRoger {
+            // W is the inverse of the expected information, as the method was published
+            let w = model
+                .evaluate(&fitted.th, Depth::Hessian { expected: true })
+                .and_then(|ex| cholesky_inverse(&ex.hess))
+                .map(|(inv, _)| {
+                    inv.iter()
+                        .map(|row| row.iter().map(|v| 2.0 * v).collect())
+                        .collect()
+                });
+            match w {
+                Some(w) => Some(Kr::new(e, w)),
+                None => {
+                    warnings.push("MIXED: the expected information of the covariance parameters is singular, so the Kenward-Roger adjustment is not made and the degrees of freedom are Satterthwaite's".into());
+                    None
+                }
+            }
+        } else {
+            None
+        };
         let inf = Infer {
             model: &model,
             e,
             sigma,
-            residual_df: command.residual_df.then_some(residual_df),
+            residual_df: (command.df_method == DfMethod::Residual).then_some(residual_df),
+            kr,
         };
         let mut tables = Vec::new();
 
@@ -1895,7 +2275,7 @@ impl Engine {
                 "Covariance Matrix for Estimates of Fixed Effects",
                 &names,
                 &|i, j| match (at(i), at(j)) {
-                    (Some(a), Some(b)) => Cell::Number(e.a_inv[a][b]),
+                    (Some(a), Some(b)) => Cell::Number(inf.cov()[a][b]),
                     _ => Cell::Number(0.0),
                 },
                 caption.clone(),
@@ -1907,7 +2287,8 @@ impl Engine {
                 &names,
                 &|i, j| match (at(i), at(j)) {
                     (Some(a), Some(b)) => {
-                        Cell::Number(e.a_inv[a][b] / (e.a_inv[a][a] * e.a_inv[b][b]).sqrt())
+                        let c = inf.cov();
+                        Cell::Number(c[a][b] / (c[a][a] * c[b][b]).sqrt())
                     }
                     _ => Cell::Empty,
                 },

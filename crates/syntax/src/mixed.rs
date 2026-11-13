@@ -8,7 +8,9 @@
 //!   written; after `|`, NOINT drops the intercept and SSTYPE(1 | 3) picks the tests (3 by default).
 //!   Without FIXED the fixed part is the intercept alone.
 //! - RANDOM: terms, INTERCEPT first when written (never implied); after `|`, SUBJECT(a*b*...),
-//!   COVTYPE(type) (VC by default) and SOLUTION. Effects on one RANDOM share one covariance block.
+//!   COVTYPE(type) (VC by default) and SOLUTION. The types: VC, ID, DIAG, UN, CS, AR1, AD1,
+//!   ARH1, ARMA11, CSH, CSR, FA1, FAH1, HF, TP, TPH, UNR; the spatial and Kronecker types belong
+//!   to REPEATED only. Effects on one RANDOM share one covariance block.
 //! - REPEATED: variables joined by `*`, then `|` with SUBJECT (required) and COVTYPE (DIAG by
 //!   default; VC there means DIAG).
 //! - METHOD: REML (default) or ML. MISSING: EXCLUDE (default) or INCLUDE.
@@ -46,6 +48,28 @@ pub enum CovType {
     Cs,
     /// A variance and a correlation that falls by a power of the distance.
     Ar1,
+    /// First-order ante-dependence: a variance per level and a correlation per neighbouring pair.
+    Ad1,
+    /// A variance per level and one correlation that falls by a power of the distance.
+    Arh1,
+    /// A variance, a correlation gamma at distance 1 that falls by a factor rho per further step.
+    Arma11,
+    /// A variance per level and one common correlation.
+    Csh,
+    /// One variance and one common correlation.
+    Csr,
+    /// Loadings of one factor plus a common diagonal offset.
+    Fa1,
+    /// Loadings of one factor plus a diagonal offset per level.
+    Fah1,
+    /// A variance per level; covariances the mean of the two variances less lambda.
+    Hf,
+    /// One variance and a correlation per distance.
+    Tp,
+    /// A variance per level and a correlation per distance.
+    Tph,
+    /// A variance per level and a free correlation per pair.
+    Unr,
 }
 
 /// One RANDOM subcommand.
@@ -85,6 +109,14 @@ pub struct MixedPrint {
     pub corb: bool,
 }
 
+/// How the denominator degrees of freedom of the tests are found.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DfMethod {
+    Satterthwaite,
+    Residual,
+    KenwardRoger,
+}
+
 /// A convergence criterion: the value (0 turns it off) and whether it is relative.
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Convergence {
@@ -112,8 +144,7 @@ pub struct Mixed {
     pub pconverge: Convergence,
     pub lconverge: Convergence,
     pub hconverge: Convergence,
-    /// DFMETHOD(RESIDUAL); Satterthwaite otherwise.
-    pub residual_df: bool,
+    pub df_method: DfMethod,
     pub print: MixedPrint,
     pub random: Vec<RandomEffects>,
     pub repeated: Option<Repeated>,
@@ -123,27 +154,28 @@ pub struct Mixed {
     pub tests: Vec<CustomTest>,
 }
 
-const COVTYPES: [(&str, CovType); 6] = [
+const COVTYPES: [(&str, CovType); 17] = [
     ("VC", CovType::Vc),
     ("ID", CovType::Id),
     ("DIAG", CovType::Diag),
     ("UN", CovType::Un),
     ("CS", CovType::Cs),
     ("AR1", CovType::Ar1),
+    ("AD1", CovType::Ad1),
+    ("ARH1", CovType::Arh1),
+    ("ARMA11", CovType::Arma11),
+    ("CSH", CovType::Csh),
+    ("CSR", CovType::Csr),
+    ("FA1", CovType::Fa1),
+    ("FAH1", CovType::Fah1),
+    ("HF", CovType::Hf),
+    ("TP", CovType::Tp),
+    ("TPH", CovType::Tph),
+    ("UNR", CovType::Unr),
 ];
 
-const COVTYPES_LATER: [&str; 20] = [
-    "AD1",
-    "ARH1",
-    "ARMA11",
-    "CSH",
-    "CSR",
-    "FA1",
-    "FAH1",
-    "HF",
-    "TP",
-    "TPH",
-    "UNR",
+/// Structures of REPEATED only, not supported yet.
+const COVTYPES_LATER: [&str; 9] = [
     "SP_POWER",
     "SP_EXPONENTIAL",
     "SP_GAUSSIAN",
@@ -174,7 +206,7 @@ fn in_parens<T>(p: &mut Parser, rule: impl FnOnce(&mut Parser) -> PResult<T>) ->
     Ok(out)
 }
 
-fn covtype(p: &mut Parser) -> PResult<CovType> {
+fn covtype(p: &mut Parser, repeated: bool) -> PResult<CovType> {
     in_parens(p, |p| {
         let w = word(p).unwrap_or_default();
         if let Some((_, t)) = COVTYPES.iter().find(|(n, _)| w == *n) {
@@ -182,9 +214,16 @@ fn covtype(p: &mut Parser) -> PResult<CovType> {
             return Ok(*t);
         }
         if let Some(n) = COVTYPES_LATER.iter().find(|n| w == **n) {
+            if !repeated {
+                return Err(SyntaxError::new(
+                    p.span(),
+                    format!("COVTYPE({n}) belongs on REPEATED, not on RANDOM"),
+                ));
+            }
             return Err(not_yet(p, format!("COVTYPE({n})")));
         }
-        Err(p.unexpected(&["VC", "ID", "DIAG", "UN", "CS", "AR1"]))
+        let names: Vec<&str> = COVTYPES.iter().map(|(n, _)| *n).collect();
+        Err(p.unexpected(&names))
     })
 }
 
@@ -303,13 +342,13 @@ fn criteria(p: &mut Parser, m: &mut Mixed) -> PResult<()> {
         } else if p.eat_keyword("HCONVERGE") {
             m.hconverge = convergence(p, "HCONVERGE")?;
         } else if p.eat_keyword("DFMETHOD") {
-            m.residual_df = in_parens(p, |p| {
+            m.df_method = in_parens(p, |p| {
                 if p.eat_keyword("SATTERTHWAITE") {
-                    Ok(false)
+                    Ok(DfMethod::Satterthwaite)
                 } else if p.eat_keyword("RESIDUAL") {
-                    Ok(true)
-                } else if p.at_keyword("KENWARDROGER") {
-                    Err(not_yet(p, "DFMETHOD(KENWARDROGER)".into()))
+                    Ok(DfMethod::Residual)
+                } else if p.eat_keyword("KENWARDROGER") {
+                    Ok(DfMethod::KenwardRoger)
                 } else {
                     Err(p.unexpected(&["SATTERTHWAITE", "RESIDUAL", "KENWARDROGER"]))
                 }
@@ -410,7 +449,7 @@ fn random(p: &mut Parser) -> PResult<Option<RandomEffects>> {
             if p.eat_keyword("SUBJECT") {
                 r.subject = in_parens(p, starred)?;
             } else if p.eat_keyword("COVTYPE") {
-                r.covtype = covtype(p)?;
+                r.covtype = covtype(p, false)?;
             } else if p.at_keyword("SOLUTION") {
                 return Err(not_yet(p, "SOLUTION on RANDOM".into()));
             } else {
@@ -439,7 +478,7 @@ fn repeated(p: &mut Parser) -> PResult<Option<Repeated>> {
             r.subject = in_parens(p, starred)?;
         } else if p.eat_keyword("COVTYPE") {
             // VC stays VC here; the engine runs it as DIAG and says so
-            r.covtype = covtype(p)?;
+            r.covtype = covtype(p, true)?;
         } else if p.at_keyword("KRONECKER") || p.at_keyword("SPCOORDS") {
             let w = word(p).unwrap_or_default();
             return Err(not_yet(p, format!("{w} on REPEATED")));
@@ -502,7 +541,7 @@ pub(crate) fn mixed(p: &mut Parser) -> PResult<Command> {
         },
         lconverge: off,
         hconverge: off,
-        residual_df: false,
+        df_method: DfMethod::Satterthwaite,
         print: MixedPrint::default(),
         random: Vec::new(),
         repeated: None,

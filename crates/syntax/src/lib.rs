@@ -172,7 +172,7 @@ pub use matrix::{
     matrix_function, matrix_function_names,
 };
 pub use matrix_data::{MatrixData, MatrixShape, RowType};
-pub use mixed::{Convergence, CovType, Mixed, MixedPrint, MixedTemp, RandomEffects, Repeated};
+pub use mixed::{Convergence, CovType, DfMethod, Mixed, MixedPrint, MixedTemp, RandomEffects, Repeated};
 pub use mrsets::{Mrsets, MrsetsGroup};
 pub use nomreg::{
     Nomreg, NomregBase, NomregCriteria, NomregOrder, NomregPrint, NomregSave, NomregScale,
