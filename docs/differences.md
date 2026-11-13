@@ -739,9 +739,6 @@ Where GNU PSPP differs:
 - **Beyond the documentation:** keywords may be shortened as elsewhere in Statscraft, although the manual asks for them in full. The equals signs of the syntax charts are required.
 - Not supported yet: CSPLAN SAMPLE (sample designs and their METHOD, MOS, SIZE, RATE and STAGEVARS), the UNEQUAL_WOR estimator, which needs joint inclusion probabilities, and so JOINTPROB; reading XML plan files.
 
-## Custom tables and multiple response
-
-
 ### Complex samples models: CSGLM and CSLOGISTIC
 
 - **References.** R's survey package (`svyglm` with the gaussian and quasibinomial families, and `svytotal` for the design covariance of score totals) gave the estimates and their design-based covariance matrices. R has no complex samples multinomial logistic model installed here, so that model was fitted in R by solving the weighted score equations with Newton-Raphson and forming the sandwich from `svytotal`'s covariance of the score totals; the same code reproduces `svyglm` for the binary model. Estimates, standard errors and covariances agree to about 1e-8. Where the manual's definitions differ from R's, Statscraft follows the manual and the tests convert:
@@ -751,9 +748,12 @@ Where GNU PSPP differs:
 - **Cases left out.** Cases outside the DOMAIN and cases with a missing dependent, factor or covariate stay in the design with zero scores, so strata and clusters stay as they are and the df is that of the whole design; R's `subset` of a design gives the same variances.
 - **Pseudo R squares** use the summed weights of the analysis cases as N and the weighted log likelihoods of the model and of its start (the intercept-only fit, or equal probabilities without intercept). The Model Summary of CSGLM shows R Square; the manual defines no root mean square error, so it is not shown.
 - **Defaults.** Without STATISTICS, CSGLM shows the Parameter Estimates with estimate, standard error, interval and t test, as its basic output is described; CSLOGISTIC shows no parameter table. KMATRIX alone tests the intercept's row of the estimable functions (with factors, the intercept at the last level of each factor). The default model lists the factors before the covariates.
-- **Layout.** CUSTOM and EMMEANS COMPARE show one table each with a row per contrast (for CSLOGISTIC, a row per contrast and logit unless the row uses ALL) and a last Overall Test row; the Sig. of the single rows is adjusted as PADJUST says. ODDSRATIOS shows a row per comparison and logit, with the values the other variables are held at in the caption. The classification table sums the weights. Saved variables cover the cases in the analysis; the others stay missing.
+- **Layout.** CUSTOM and EMMEANS COMPARE show one table each with a row per contrast (for CSLOGISTIC, a row per contrast and logit unless the row uses ALL) and a last Overall Test row; the Sig. of the single rows is adjusted as PADJUST says. ODDSRATIOS shows a row per comparison and logit, with the values the other variables are held at in the caption. An odds ratio that goes through a cell without cases is not estimable and is left empty. The classification table sums the weights. Saved variables cover the cases in the analysis; the others stay missing. PREDVAL keeps the format and value labels of the dependent variable; names that are taken get a suffix.
 - **Beyond the documentation:** keywords may be shortened as elsewhere in Statscraft, although the manual asks for them in full.
 - Not supported yet: JOINTPROB and the UNEQUAL_WOR estimator, OUTFILE, PRINT GEF, and the modified estimates of marginal means that skip empty cells (a mean that is not estimable is left empty). The check for separation looks for complete separation only.
+
+## Custom tables and multiple response
+
 ### CTABLES
 
 - An empty count is 0 and EMPTY decides how it shows; the median and percentiles use the averaged empirical distribution; a variable without a measurement level is classed by all the documented rules (GNU PSPP differs).

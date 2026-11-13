@@ -629,6 +629,37 @@ fn criteria(p: &mut Parser, c: &mut CsCriteria, logistic: bool) -> PResult<()> {
     Ok(())
 }
 
+/// One keyword of `table`: written in full, or shortened to a prefix that fits only one of them.
+fn pick<T: Copy>(p: &mut Parser, table: &[(&str, T)]) -> PResult<Option<T>> {
+    let Some(TokenKind::Word(w)) = p.peek() else {
+        return Ok(None);
+    };
+    if let Some((_, t)) = table.iter().find(|(k, _)| w.eq_ignore_ascii_case(k)) {
+        p.pos += 1;
+        return Ok(Some(*t));
+    }
+    let hits: Vec<&(&str, T)> = table.iter().filter(|(k, _)| p.at_keyword(k)).collect();
+    match hits.as_slice() {
+        [] => Ok(None),
+        [(_, t)] => {
+            p.pos += 1;
+            Ok(Some(*t))
+        }
+        _ => {
+            let names: Vec<&str> = hits.iter().map(|(k, _)| *k).collect();
+            Err(error(
+                p,
+                p.pos,
+                format!(
+                    "{} is short for more than one keyword ({}); write more of it",
+                    w.to_uppercase(),
+                    names.join(", ")
+                ),
+            ))
+        }
+    }
+}
+
 /// A keyword of a list subcommand, given at most once.
 fn flag(p: &mut Parser, seen: &mut Vec<&'static str>, keyword: &'static str) -> PResult<bool> {
     let at = p.pos;
@@ -646,43 +677,25 @@ fn statistics(p: &mut Parser, logistic: bool) -> PResult<CsModelStatistics> {
     if at_end(p) {
         return Err(error(p, start, "STATISTICS needs at least one keyword"));
     }
+    let mut keywords = vec!["PARAMETER", "SE", "TTEST", "CINTERVAL", "DEFF", "DEFFSQRT"];
+    if logistic {
+        keywords.insert(1, "EXP");
+    }
+    let table: Vec<(&str, &'static str)> = keywords.iter().map(|k| (*k, *k)).collect();
     while !at_end(p) {
-        // DEFF before DEFFSQRT, which DEFF would abbreviate
-        if p.eat_word("DEFF") {
-            once(p, p.pos - 1, &mut seen, "DEFF")?;
-            s.deff = true;
-        } else if flag(p, &mut seen, "DEFFSQRT")? {
-            s.deffsqrt = true;
-        } else if flag(p, &mut seen, "PARAMETER")? {
-            s.parameter = true;
-        } else if logistic && flag(p, &mut seen, "EXP")? {
-            s.exp = true;
-        } else if p.eat_word("SE") {
-            once(p, p.pos - 1, &mut seen, "SE")?;
-            s.se = true;
-        } else if flag(p, &mut seen, "TTEST")? {
-            s.ttest = true;
-        } else if flag(p, &mut seen, "CINTERVAL")? {
-            s.cinterval = true;
-        } else if logistic {
-            return Err(p.unexpected(&[
-                "PARAMETER",
-                "EXP",
-                "SE",
-                "TTEST",
-                "CINTERVAL",
-                "DEFF",
-                "DEFFSQRT",
-            ]));
-        } else {
-            return Err(p.unexpected(&[
-                "PARAMETER",
-                "SE",
-                "TTEST",
-                "CINTERVAL",
-                "DEFF",
-                "DEFFSQRT",
-            ]));
+        let at = p.pos;
+        let Some(keyword) = pick(p, &table)? else {
+            return Err(p.unexpected(&keywords));
+        };
+        once(p, at, &mut seen, keyword)?;
+        match keyword {
+            "PARAMETER" => s.parameter = true,
+            "EXP" => s.exp = true,
+            "SE" => s.se = true,
+            "TTEST" => s.ttest = true,
+            "CINTERVAL" => s.cinterval = true,
+            "DEFF" => s.deff = true,
+            _ => s.deffsqrt = true,
         }
         p.eat(Punct::Comma);
     }
@@ -782,12 +795,23 @@ fn save(p: &mut Parser, logistic: bool) -> PResult<Vec<CsModelSave>> {
     if at_end(p) {
         return Err(error(p, start, "SAVE needs at least one keyword"));
     }
+    let keywords: &[&'static str] = if logistic {
+        &["PREDPROB", "PREDVAL"]
+    } else {
+        &["PRED", "RESID"]
+    };
+    let table: Vec<(&str, &'static str)> = keywords.iter().map(|k| (*k, *k)).collect();
     while !at_end(p) {
-        if !logistic && flag(p, &mut seen, "PRED")? {
+        let at = p.pos;
+        let Some(keyword) = pick(p, &table)? else {
+            return Err(p.unexpected(keywords));
+        };
+        once(p, at, &mut seen, keyword)?;
+        if keyword == "PRED" {
             out.push(CsModelSave::Pred(save_name(p)?));
-        } else if !logistic && flag(p, &mut seen, "RESID")? {
+        } else if keyword == "RESID" {
             out.push(CsModelSave::Resid(save_name(p)?));
-        } else if logistic && flag(p, &mut seen, "PREDPROB")? {
+        } else if keyword == "PREDPROB" {
             let (mut root, mut count) = (None, 25);
             if p.eat(Punct::LParen) {
                 if !p.at(Punct::Colon) {
@@ -799,12 +823,8 @@ fn save(p: &mut Parser, logistic: bool) -> PResult<Vec<CsModelSave>> {
                 p.expect(Punct::RParen)?;
             }
             out.push(CsModelSave::PredProb(root, count));
-        } else if logistic && flag(p, &mut seen, "PREDVAL")? {
-            out.push(CsModelSave::PredVal(save_name(p)?));
-        } else if logistic {
-            return Err(p.unexpected(&["PREDPROB", "PREDVAL"]));
         } else {
-            return Err(p.unexpected(&["PRED", "RESID"]));
+            out.push(CsModelSave::PredVal(save_name(p)?));
         }
         p.eat(Punct::Comma);
     }
@@ -948,30 +968,26 @@ fn model(p: &mut Parser, logistic: bool) -> PResult<Command> {
                 let at = p.pos;
                 if eat_assignment(p, "TYPE")? {
                     once(p, at, &mut inner, "TYPE")?;
-                    c.test = if p.eat_word("F") {
-                        CsTestType::F
-                    } else if p.eat_keyword("ADJF") {
-                        CsTestType::AdjF
-                    } else if p.eat_keyword("CHISQUARE") {
-                        CsTestType::ChiSquare
-                    } else if p.eat_keyword("ADJCHISQUARE") {
-                        CsTestType::AdjChiSquare
-                    } else {
+                    const TYPES: [(&str, CsTestType); 4] = [
+                        ("F", CsTestType::F),
+                        ("ADJF", CsTestType::AdjF),
+                        ("CHISQUARE", CsTestType::ChiSquare),
+                        ("ADJCHISQUARE", CsTestType::AdjChiSquare),
+                    ];
+                    let Some(t) = pick(p, &TYPES)? else {
                         return Err(p.unexpected(&["F", "ADJF", "CHISQUARE", "ADJCHISQUARE"]));
                     };
+                    c.test = t;
                 } else if eat_assignment(p, "PADJUST")? {
                     once(p, at, &mut inner, "PADJUST")?;
-                    c.padjust = if p.eat_keyword("LSD") {
-                        CsPadjust::Lsd
-                    } else if p.eat_keyword("BONFERRONI") {
-                        CsPadjust::Bonferroni
-                    } else if p.eat_keyword("SEQBONFERRONI") {
-                        CsPadjust::SeqBonferroni
-                    } else if p.eat_keyword("SIDAK") {
-                        CsPadjust::Sidak
-                    } else if p.eat_keyword("SEQSIDAK") {
-                        CsPadjust::SeqSidak
-                    } else {
+                    const METHODS: [(&str, CsPadjust); 5] = [
+                        ("LSD", CsPadjust::Lsd),
+                        ("BONFERRONI", CsPadjust::Bonferroni),
+                        ("SEQBONFERRONI", CsPadjust::SeqBonferroni),
+                        ("SIDAK", CsPadjust::Sidak),
+                        ("SEQSIDAK", CsPadjust::SeqSidak),
+                    ];
+                    let Some(m) = pick(p, &METHODS)? else {
                         return Err(p.unexpected(&[
                             "LSD",
                             "BONFERRONI",
@@ -980,6 +996,7 @@ fn model(p: &mut Parser, logistic: bool) -> PResult<Command> {
                             "SEQSIDAK",
                         ]));
                     };
+                    c.padjust = m;
                 } else {
                     return Err(p.unexpected(&["TYPE =", "PADJUST ="]));
                 }

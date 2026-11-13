@@ -323,7 +323,11 @@ fn cslogistic_reference_odds_ratios_criteria_and_save() {
             CsModelSave::PredVal(Some("v".into()))
         ]
     );
-    let m = model("CSLOGISTIC owner (3) /PLAN FILE='p.json' /SAVE PREDPROB(:4).");
+    let m = model(
+        "CSLOGISTIC owner (3) /PLAN FILE='p.json' /SAVE PREDPROB(:4) /TEST TYPE=ADJC PADJUST=SEQS.",
+    );
+    assert_eq!(m.test, CsTestType::AdjChiSquare);
+    assert_eq!(m.padjust, CsPadjust::SeqSidak);
     assert_eq!(m.reference, CsReference::Value(Value::Number(3.0)));
     assert_eq!(m.save, vec![CsModelSave::PredProb(None, 4)]);
 }
@@ -392,6 +396,22 @@ fn model_syntax_errors() {
         (
             "CSGLM y BY a /PLAN FILE='p' /CUSTOM LMATRIX=1 2 a 1 -1.",
             "one coefficient for the intercept",
+        ),
+        (
+            "CSGLM y /PLAN FILE='p' /TEST TYPE=ADJ.",
+            "more than one keyword",
+        ),
+        (
+            "CSGLM y /PLAN FILE='p' /TEST PADJUST=SEQ.",
+            "more than one keyword",
+        ),
+        (
+            "CSGLM y /PLAN FILE='p' /STATISTICS DEF.",
+            "more than one keyword",
+        ),
+        (
+            "CSLOGISTIC y /PLAN FILE='p' /SAVE PRED.",
+            "more than one keyword",
         ),
     ];
     for (source, expected) in cases {

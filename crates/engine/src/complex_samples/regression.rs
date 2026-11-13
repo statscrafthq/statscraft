@@ -51,15 +51,15 @@ use crate::crosstabs::Key;
 use crate::descriptives::number;
 use crate::dist::{chi_square_p, f_p, t_p, t_quantile};
 use crate::glm::{
-    Data, Fit, Part, covariate_note, covariate_values, effects_of, emmeans_l, ginverse,
-    intercept_term, key_value_text, l_row,
+    Data, Fit, Part, combinations, covariate_note, covariate_values, effects_of, emmeans_l,
+    ginverse, intercept_term, key_value_text, l_row,
 };
 use crate::matrix::{Matrix, inverse, multiply, transpose};
 use crate::npar_tests::text;
 use crate::regression::{plain, table};
 use crate::shown::{Show, Shown};
 use crate::{Cell, Engine, Error, Table};
-use statscraft_data::{Measure, Variable};
+use statscraft_data::{Measure, Value as DataValue, Variable};
 use statscraft_syntax::{
     Contrast, CsContrast, CsControl, CsIntercept, CsModel, CsModelSave, CsModelStatistics,
     CsPadjust, CsReference, CsTestType, LRow, Term, Value,
@@ -268,24 +268,6 @@ fn value_text(value: &Value) -> String {
     }
 }
 
-/// The level combinations of `sizes`, the last fastest.
-fn combinations(sizes: &[usize]) -> Vec<Vec<usize>> {
-    let mut out = vec![Vec::new()];
-    for &n in sizes {
-        out = out
-            .into_iter()
-            .flat_map(|c| {
-                (0..n).map(move |l| {
-                    let mut next = c.clone();
-                    next.push(l);
-                    next
-                })
-            })
-            .collect();
-    }
-    out
-}
-
 /// What the logistic fit gives besides the estimates.
 struct Logistic {
     /// The category of every analysis row and its probabilities.
@@ -375,6 +357,21 @@ impl LogitModel<'_> {
     }
 }
 
+/// The inverse of the information matrix, or a generalized inverse when it is singular (with
+/// one warning however often that happens).
+fn information_inverse(info: &Matrix, warnings: &mut Vec<String>) -> Matrix {
+    match inverse(info) {
+        Some((m, _)) => m,
+        None => {
+            const NOTE: &str = "CSLOGISTIC: the information matrix is singular (perhaps separation); a generalized inverse is used and the estimates and standard errors may not be reliable";
+            if !warnings.iter().any(|w| w == NOTE) {
+                warnings.push(NOTE.into());
+            }
+            ginverse(info, 1e-12).0
+        }
+    }
+}
+
 /// Fits the logistic model; returns the parameters over `cols`, logit by logit.
 fn fit_logistic(
     m: &LogitModel,
@@ -401,13 +398,7 @@ fn fit_logistic(
     let mut iteration = 0;
     while iteration < c.mxiter as usize && !b.is_empty() {
         let (g, info) = m.derivatives(&b);
-        let Some((inv, _)) = inverse(&info) else {
-            warnings.push(
-                "CSLOGISTIC: the information matrix became singular (perhaps separation); the estimates of the last iteration are shown"
-                    .into(),
-            );
-            break;
-        };
+        let inv = information_inverse(&info, warnings);
         let step: Vec<f64> = inv
             .iter()
             .map(|row| row.iter().zip(&g).map(|(a, v)| a * v).sum())
@@ -491,6 +482,8 @@ struct Saved {
     label: String,
     numbers: Option<Vec<Option<f64>>>,
     texts: Option<Vec<String>>,
+    /// For a saved category: the dependent's format and value labels.
+    category: Option<(String, Vec<(DataValue, String)>)>,
 }
 
 /// The parameter names of every parameter, with the category of its logit.
@@ -544,8 +537,17 @@ impl Engine {
                 if let Some(values) = column.numbers {
                     debug_assert_eq!(values.len(), cases);
                     data.set_numeric_values(&var, values)?;
-                    data.set_format(&var, "F11.5")?;
-                    data.set_measure(&var, Measure::Scale)?;
+                    match column.category {
+                        Some((format, labels)) => {
+                            data.set_format(&var, &format)?;
+                            data.set_measure(&var, Measure::Nominal)?;
+                            data.set_value_labels(&var, labels)?;
+                        }
+                        None => {
+                            data.set_format(&var, "F11.5")?;
+                            data.set_measure(&var, Measure::Scale)?;
+                        }
+                    }
                 } else if let Some(texts) = column.texts {
                     let width = texts.iter().map(String::len).max().unwrap_or(1).max(1);
                     data.set_string_values(&var, width, texts)?;
@@ -822,13 +824,13 @@ impl Engine {
             srs_factor.map(|f| {
                 let k = us.len();
                 let mut m = vec![vec![0.0; k]; k];
-                for i in 0..n {
+                for (i, w) in design.w.iter().enumerate() {
                     for a in 0..k {
                         if us[a][i] == 0.0 {
                             continue;
                         }
                         for b in 0..k {
-                            m[a][b] += f * design.w[i] * us[a][i] * us[b][i];
+                            m[a][b] += f * w * us[a][i] * us[b][i];
                         }
                     }
                 }
@@ -883,13 +885,7 @@ impl Engine {
                 }
             }
             let (_, info) = model.derivatives(&small);
-            let jinv = inverse(&info).map(|(m, _)| m).unwrap_or_else(|| {
-                warnings.push(
-                    "CSLOGISTIC: the information matrix is singular; the standard errors are not reliable"
-                        .into(),
-                );
-                ginverse(&info, 1e-12).0
-            });
+            let jinv = information_inverse(&info, warnings);
             let sandwich = |m: &Matrix| -> Matrix { multiply(&multiply(&jinv, m), &jinv) };
             let v_small = sandwich(&design.covariance(&us));
             let vs_small = srs_of(&us).map(|m| sandwich(&m));
@@ -1020,9 +1016,9 @@ impl Engine {
             let mut categorical =
                 |role: &str, var: &Variable, keys: &[Key], index: &dyn Fn(usize) -> usize| {
                     let mut sums = vec![(0.0, 0usize); keys.len()];
-                    for r in 0..rows.len() {
+                    for (r, w) in w_rows.iter().enumerate() {
                         let k = index(r);
-                        sums[k].0 += w_rows[r];
+                        sums[k].0 += w;
                         sums[k].1 += 1;
                     }
                     for (k, key) in keys.iter().enumerate() {
@@ -1144,12 +1140,12 @@ impl Engine {
                 let total_w: f64 = w_rows.iter().sum();
                 let mean = (0..rows.len()).map(|r| w_rows[r] * d.y[r][0]).sum::<f64>() / total_w;
                 let mut sst = 0.0;
-                for r in 0..rows.len() {
+                let centre = if intercept { mean } else { 0.0 };
+                for (r, w) in w_rows.iter().enumerate() {
                     let y = d.y[r][0];
                     let pred: f64 = fit.x[r].iter().zip(&est.b).map(|(a, b)| a * b).sum();
-                    sse += w_rows[r] * (y - pred).powi(2);
-                    let centre = if intercept { mean } else { 0.0 };
-                    sst += w_rows[r] * (y - centre).powi(2);
+                    sse += w * (y - pred).powi(2);
+                    sst += w * (y - centre).powi(2);
                 }
                 tables.push(table(
                     "Model Summary",
@@ -1542,12 +1538,22 @@ impl Engine {
                     ));
                 }
             }
+            for (label, diff) in &pairs {
+                if diff.iter().all(|v| *v == 0.0) {
+                    return Err(Error(format!(
+                        "ODDSRATIOS: {label} does not change the model, as the variable is in no effect of it"
+                    )));
+                }
+            }
             let mut out = Vec::new();
             for (l, label_l) in logit_labels.iter().enumerate() {
                 for (k, (label, diff)) in pairs.iter().enumerate() {
+                    // a comparison through a cell without cases is not estimable: no value
+                    let ok = fit.estimable(diff, &h);
                     let row_l = est.spread(diff, l);
                     let cc = est.estimate(&row_l);
                     let se = est.quad(&est.v, &row_l).max(0.0).sqrt();
+                    let shown_value = |v: f64| number(ok.then(|| v.exp()));
                     out.push(vec![
                         text(if k == 0 {
                             label_l.clone()
@@ -1555,9 +1561,9 @@ impl Engine {
                             String::new()
                         }),
                         text(label.clone()),
-                        number(Some(cc.exp())),
-                        number(Some((cc - tq * se).exp())),
-                        number(Some((cc + tq * se).exp())),
+                        shown_value(cc),
+                        shown_value(cc - tq * se),
+                        shown_value(cc + tq * se),
                     ]);
                 }
             }
@@ -1594,7 +1600,7 @@ impl Engine {
         }
 
         // Custom hypothesis tests
-        let row_cells = |l: &[f64], k: f64, sig: Option<f64>| -> Vec<Cell> {
+        let row_cells = |l: &[f64], k: f64, w: Option<&Wald>, sig: Option<f64>| -> Vec<Cell> {
             let e = est.estimate(l);
             let var = est.quad(&est.v, l);
             let se = var.max(0.0).sqrt();
@@ -1606,8 +1612,7 @@ impl Engine {
                 number(Some(e - k - tq * se)),
                 number(Some(e - k + tq * se)),
             ];
-            let w = wald(&est, &vec![l.to_vec()], &[k]);
-            cells.extend(test_cells(c.test, w.as_ref(), df, sig));
+            cells.extend(test_cells(c.test, w, df, sig));
             cells
         };
         let detail_columns = |first: &[&str]| -> Vec<(String, String)> {
@@ -1623,9 +1628,10 @@ impl Engine {
             cols.extend(test_columns(c.test));
             cols
         };
-        let single_p = |l: &[f64], k: f64| -> Option<f64> {
-            wald(&est, &vec![l.to_vec()], &[k])
-                .and_then(|w| test_values(c.test, &w, df))
+        let single = |l: &[f64], k: f64| wald(&est, &vec![l.to_vec()], &[k]);
+        let p_of = |w: &Option<Wald>| {
+            w.as_ref()
+                .and_then(|w| test_values(c.test, w, df))
                 .map(|(_, p)| p)
         };
         let has_intercept_column = fit.effects.first().is_some_and(|e| e.is_intercept());
@@ -1707,16 +1713,18 @@ impl Engine {
                     }
                 }
             }
-            let ps: Vec<Option<f64>> = expanded.iter().map(|(_, l, k)| single_p(l, *k)).collect();
+            let tests: Vec<Option<Wald>> = expanded.iter().map(|(_, l, k)| single(l, *k)).collect();
+            let ps: Vec<Option<f64>> = tests.iter().map(p_of).collect();
             let keyed: Vec<(Vec<f64>, f64)> =
                 expanded.iter().map(|(_, l, k)| (l.clone(), *k)).collect();
             let adjusted = padjust(c.padjust, &ps, &keyed);
             let mut out: Vec<Vec<Cell>> = expanded
                 .iter()
                 .zip(&adjusted)
-                .map(|((label, l, k), sig)| {
+                .zip(&tests)
+                .map(|(((label, l, k), sig), w)| {
                     let mut row = vec![text(label.clone())];
-                    row.extend(row_cells(l, *k, *sig));
+                    row.extend(row_cells(l, *k, w.as_ref(), *sig));
                     row
                 })
                 .collect();
@@ -1911,16 +1919,19 @@ impl Engine {
                         (rename(label), l)
                     })
                     .collect();
-                let ps: Vec<Option<f64>> = rows_l
+                let tests: Vec<Option<Wald>> = rows_l
                     .iter()
-                    .map(|(_, l)| l.as_ref().and_then(|l| single_p(l, 0.0)))
+                    .map(|(_, l)| l.as_ref().and_then(|l| single(l, 0.0)))
                     .collect();
+                let ps: Vec<Option<f64>> = tests.iter().map(p_of).collect();
                 let keyed: Vec<(Vec<f64>, f64)> = rows_l
                     .iter()
                     .map(|(_, l)| (l.clone().unwrap_or_default(), 0.0))
                     .collect();
                 let adjusted = padjust(c.padjust, &ps, &keyed);
-                for (idx, ((label, l), sig)) in rows_l.iter().zip(&adjusted).enumerate() {
+                for (idx, (((label, l), sig), w)) in
+                    rows_l.iter().zip(&adjusted).zip(&tests).enumerate()
+                {
                     let mut row: Vec<Cell> = if idx == 0 {
                         group_cells.clone()
                     } else {
@@ -1928,7 +1939,7 @@ impl Engine {
                     };
                     row.push(text(label.clone()));
                     match l {
-                        Some(l) => row.extend(row_cells(l, 0.0, *sig)),
+                        Some(l) => row.extend(row_cells(l, 0.0, w.as_ref(), *sig)),
                         None => row.extend(vec![Cell::Empty; 6 + test_columns(c.test).len()]),
                     }
                     out.push(row);
@@ -2028,6 +2039,7 @@ impl Engine {
                         ),
                         numbers: Some(put(values)),
                         texts: None,
+                        category: None,
                     });
                 }
                 CsModelSave::PredProb(root, count) => {
@@ -2038,8 +2050,9 @@ impl Engine {
                     for k in 0..categories.len().min(*count as usize) {
                         let values = lg.probs.iter().map(|p| p[k]).collect();
                         saved.push(Saved {
-                            name: Some(format!("{root}_{}", k + 1)),
-                            root: root.clone(),
+                            name: None,
+                            root: format!("{root}_{}", k + 1),
+                            category: None,
                             label: format!(
                                 "Predicted probability of {dependent} = {}",
                                 category_text(k)
@@ -2070,6 +2083,7 @@ impl Engine {
                             label,
                             numbers: None,
                             texts: Some(texts),
+                            category: None,
                         });
                     } else {
                         let values = best
@@ -2085,6 +2099,10 @@ impl Engine {
                             label,
                             numbers: Some(put(values)),
                             texts: None,
+                            category: Some((
+                                dep_var.format().to_string(),
+                                dep_var.value_labels().to_vec(),
+                            )),
                         });
                     }
                 }

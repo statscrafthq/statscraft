@@ -567,7 +567,9 @@ fn cslogistic_multinomial_with_custom_tests_and_saved_probabilities() {
     let source = format!(
         "{}CSLOGISTIC heat (LOW) BY town WITH members /PLAN FILE='wr.json'
            /STATISTICS PARAMETER SE DEFF /CUSTOM LMATRIX=ALL 0 0 0 1 0 0 0 -1
-           /CUSTOM LMATRIX=members 1 /PRINT SUMMARY CLASSTABLE /SAVE PREDPROB(pp) PREDVAL.\n",
+           /CUSTOM LMATRIX=members 1 /PRINT SUMMARY CLASSTABLE /SAVE PREDPROB(pp) PREDVAL.
+         CSLOGISTIC heat (LOW) BY town WITH members /PLAN FILE='wr.json' /PRINT NONE
+           /SAVE PREDPROB(pp:1).\n",
         data("multinomial")
     );
     let (engine, tables) = run(&source);
@@ -643,6 +645,10 @@ fn cslogistic_multinomial_with_custom_tests_and_saved_probabilities() {
         .max_by(|&a, &b| probs[a][0].unwrap().total_cmp(&probs[b][0].unwrap()))
         .unwrap();
     assert_eq!(predicted[0], Some(best as f64 + 1.0));
+    // the saved category keeps the dependent's format; a second run finds pp_1 taken
+    let data = engine.dataset().unwrap();
+    assert_eq!(data.variable("PredictedValue").unwrap().format(), "F8.2");
+    assert_eq!(column(&engine, "pp_1_1"), probs[0]);
 }
 
 #[test]
@@ -676,6 +682,10 @@ fn model_errors() {
         (
             "CSLOGISTIC food BY heat /PLAN FILE='wr.json' /DOMAIN VARIABLE=town(7).",
             "no case",
+        ),
+        (
+            "CSLOGISTIC online BY heat town /PLAN FILE='wr.json' /MODEL heat /ODDSRATIOS FACTOR=[town].",
+            "in no effect",
         ),
     ];
     for (syntax, expected) in cases {
