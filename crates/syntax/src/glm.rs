@@ -968,7 +968,8 @@ fn print(p: &mut Parser) -> PResult<GlmPrint> {
         } else if p.eat_keyword("RSSCP") {
             out.rsscp = true;
         } else if p.eat_keyword("TEST") {
-            if !p.at(Punct::LParen) {
+            if !p.at(Punct::LParen) || matches!(p.peek_at(1), Some(TokenKind::Punct(Punct::RParen)))
+            {
                 return Err(SyntaxError::new(
                     p.span(),
                     "TEST in PRINT names its matrices: TEST(SSCP), TEST(MMATRIX) or TEST(LMATRIX)",

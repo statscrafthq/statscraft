@@ -314,6 +314,10 @@ fn glm_errors() {
             "a label in MMATRIX needs the coefficients of its column after it",
         ),
         (
+            "GLM y1 y2 BY a /PRINT=TEST().",
+            "TEST in PRINT names its matrices: TEST(SSCP), TEST(MMATRIX) or TEST(LMATRIX)",
+        ),
+        (
             "GLM y1 y2 BY a /PRINT=TEST.",
             "TEST in PRINT names its matrices: TEST(SSCP), TEST(MMATRIX) or TEST(LMATRIX)",
         ),

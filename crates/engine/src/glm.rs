@@ -3844,6 +3844,17 @@ impl Engine {
                 command.command
             )));
         }
+        if command.emmeans.iter().any(|e| e.compare.is_some()) {
+            warnings.push(
+                "EMMEANS COMPARE gives the univariate tests of each dependent; its multivariate tests are not supported yet"
+                    .into(),
+            );
+        }
+        if command.print.mmatrix && given_m.is_none() {
+            warnings.push(
+                "PRINT TEST(MMATRIX) shows the M matrix of MMATRIX, which is not given".into(),
+            );
+        }
         let fit = Fit::new(d, effects.clone(), &d.y, command.eps);
         // each dependent alone gives the univariate tables
         let parts: Vec<(Data, Fit)> = (0..texts.len())
