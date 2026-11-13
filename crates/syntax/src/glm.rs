@@ -766,6 +766,9 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
         }
         let effect = if p.eat_word("ALL") {
             None
+        } else if row.2 && !matches!(p.peek(), Some(TokenKind::Word(_))) {
+            // values straight after `|` are for every random parameter, as after ALL
+            None
         } else if p.eat_keyword("INTERCEPT") {
             Some(Term {
                 variables: Vec::new(),

@@ -197,6 +197,11 @@ fn solution_print_save_and_random_test_coefficients() {
     assert_eq!(m.tests[1].random[0][0].1, [1.0, -1.0]);
     assert!(m.tests[1].rows[0].is_empty());
     assert_eq!(mixed("MIXED gain /PRINT=HISTORY.").print.history, Some(1));
+    // bare values after `|` are for all the random parameters
+    let m = mixed("MIXED gain /RANDOM=plot /TEST=ALL 1 | 1 -1; ALL | 0 1.");
+    assert_eq!(m.tests[0].rows[0][0], (None, vec![1.0]));
+    assert_eq!(m.tests[0].random[0][0], (None, vec![1.0, -1.0]));
+    assert_eq!(m.tests[0].random[1][0], (None, vec![0.0, 1.0]));
 }
 
 #[test]

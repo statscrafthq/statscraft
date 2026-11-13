@@ -6956,6 +6956,38 @@ fn errors_explain_what_is_wrong() {
     );
     assert!(error(format!("{w}MIXED level /REPEATED=arm | SUBJECT(person).")).contains("twice"));
     assert!(error(format!("{w}MIXED level BY wave /FIXED=dose.")).contains("dose"));
+    // an effect on two RANDOM subcommands cannot be named after `|`
+    assert!(
+        error(format!(
+            "{w}MIXED level BY arm /RANDOM=INTERCEPT | SUBJECT(person) /RANDOM=INTERCEPT | SUBJECT(arm) /TEST=| INTERCEPT 1."
+        ))
+        .contains("more than one RANDOM")
+    );
+}
+
+/// A structure over one level is one variance: CSH on a random intercept fits as ID, with a
+/// warning, instead of stalling on a correlation that enters nothing.
+#[test]
+fn a_structure_over_one_level_is_one_variance() {
+    let fit = |covtype: &str| {
+        let (engine, t) = run(&format!(
+            "{}MIXED level WITH dose /FIXED=dose /RANDOM=INTERCEPT | SUBJECT(person) COVTYPE({covtype}).",
+            waves()
+        ));
+        let m2ll = cell(
+            &t,
+            "Information Criteria",
+            "-2 Restricted Log Likelihood",
+            "Value",
+        );
+        (m2ll.unwrap(), engine.warnings().join(" "))
+    };
+    let (id, _) = fit("ID");
+    for covtype in ["CSH", "ARMA11", "FA1", "HF"] {
+        let (other, warnings) = fit(covtype);
+        assert!((other - id).abs() < 1e-8, "{covtype}: {other} vs {id}");
+        assert!(warnings.contains("one variance"), "{covtype}: {warnings}");
+    }
 }
 
 /// The value at (row, column) of the `n`-th table titled `title`.

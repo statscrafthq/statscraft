@@ -201,9 +201,15 @@ impl Num for Dual {
 }
 
 impl Block {
-    /// `effect_of` gives the effect of each column, for VC.
+    /// `effect_of` gives the effect of each column, for VC. A structure over one level is one
+    /// variance (its other parameters would enter nothing).
     fn new(covtype: CovType, effect_of: Vec<usize>, start: usize) -> Block {
         let dim = effect_of.len();
+        let covtype = if dim == 1 && !matches!(covtype, CovType::Vc | CovType::Diag | CovType::Un) {
+            CovType::Id
+        } else {
+            covtype
+        };
         let group = match covtype {
             CovType::Vc => effect_of,
             CovType::Id => vec![0; dim],
@@ -332,8 +338,24 @@ impl Block {
                 })
                 .collect()
         };
+        let one = |b: bool| f64::from(u8::from(b));
         match what {
             What::Value => self.formula(th, i, j),
+            // the linear structures in closed form, without building duals
+            What::D1(s) if !self.nonlinear() => {
+                let ls = s - self.start;
+                match self.covtype {
+                    CovType::Un => {
+                        let (a, b) = (i.max(j), i.min(j));
+                        one(a * (a + 1) / 2 + b == ls)
+                    }
+                    CovType::Cs => one(ls == 1 || i == j),
+                    CovType::Hf if i == j => one(i == ls),
+                    CovType::Hf => 0.5 * (one(i == ls) + one(j == ls)) - one(ls == self.dim),
+                    _ => one(i == j && self.group[i] == ls),
+                }
+            }
+            What::D2(..) if !self.nonlinear() => 0.0,
             What::D1(s) => self.formula(&seeded(Some(s - self.start), None), i, j).a,
             What::D2(s, t) => {
                 self.formula(&seeded(Some(s - self.start), Some(t - self.start)), i, j)
@@ -438,6 +460,35 @@ impl Block {
                 .map(|k| if *k == Kind::Variance { variance } else { 0.0 })
                 .collect(),
         }
+    }
+}
+
+fn one_level(t: CovType, on: &str) -> String {
+    format!(
+        "MIXED: {on} has a block of one level, so COVTYPE({}) is fitted as one variance (ID)",
+        structure_keyword(t)
+    )
+}
+
+fn structure_keyword(t: CovType) -> &'static str {
+    match t {
+        CovType::Vc => "VC",
+        CovType::Id => "ID",
+        CovType::Diag => "DIAG",
+        CovType::Un => "UN",
+        CovType::Cs => "CS",
+        CovType::Ar1 => "AR1",
+        CovType::Ad1 => "AD1",
+        CovType::Arh1 => "ARH1",
+        CovType::Arma11 => "ARMA11",
+        CovType::Csh => "CSH",
+        CovType::Csr => "CSR",
+        CovType::Fa1 => "FA1",
+        CovType::Fah1 => "FAH1",
+        CovType::Hf => "HF",
+        CovType::Tp => "TP",
+        CovType::Tph => "TPH",
+        CovType::Unr => "UNR",
     }
 }
 
@@ -899,13 +950,17 @@ fn satterthwaite(var: f64, grad: &[f64], sigma: Option<&Matrix>) -> f64 {
 struct Kr {
     phi_a: Matrix,
     w: Matrix,
+    /// Phi B_i Phi for each covariance parameter.
+    pbp: Vec<Matrix>,
 }
 
 impl Kr {
-    /// Phi_A = Phi + 2 Phi [sum W_ij (Q_ij - P_i Phi P_j - R_ij / 4)] Phi, P_i = -B_i.
-    fn new(e: &Eval, w: Matrix) -> Kr {
+    /// Phi_A = Phi + 2 Phi [sum W_ij (Q_ij - P_i Phi P_j - R_ij / 4)] Phi, P_i = -B_i; None
+    /// when Phi_A is not positive definite.
+    fn new(e: &Eval, w: Matrix) -> Option<Kr> {
         let phi = &e.a_inv;
         let p = phi.len();
+        let b_phi: Vec<Matrix> = e.b.iter().map(|b| product(b, phi)).collect();
         let mut s = vec![vec![0.0; p]; p];
         for (i, wi) in w.iter().enumerate() {
             for (j, &wij) in wi.iter().enumerate() {
@@ -915,7 +970,7 @@ impl Kr {
                 let (lo, hi) = (i.min(j), i.max(j));
                 let q = &e.q[lo][hi];
                 let r = &e.r2[lo][hi];
-                let pp = product(&product(&e.b[i], phi), &e.b[j]);
+                let pp = product(&b_phi[i], &e.b[j]);
                 for a in 0..p {
                     for c in 0..p {
                         // Q_ji is the transpose of Q_ij
@@ -931,7 +986,9 @@ impl Kr {
                 *v = b + 2.0 * *v;
             }
         }
-        Kr { phi_a, w }
+        cholesky_inverse(&phi_a)?;
+        let pbp = b_phi.iter().map(|bp| product(phi, bp)).collect();
+        Some(Kr { phi_a, w, pbp })
     }
 
     /// The denominator df and the scale lambda of the F test of the full-rank rows `l`.
@@ -947,8 +1004,7 @@ impl Kr {
         };
         // Theta = L' (L Phi L')^-1 L, then M_i = Theta Phi B_i Phi
         let theta = product(&product(&crate::matrix::transpose(l), &inv), l);
-        let tp = product(&theta, phi);
-        let m: Vec<Matrix> = e.b.iter().map(|b| product(&product(&tp, b), phi)).collect();
+        let m: Vec<Matrix> = self.pbp.iter().map(|x| product(&theta, x)).collect();
         let tr: Vec<f64> = m
             .iter()
             .map(|mi| (0..mi.len()).map(|a| mi[a][a]).sum())
@@ -974,6 +1030,36 @@ impl Kr {
         } else {
             (f64::NAN, 1.0)
         }
+    }
+}
+
+/// The eigenvalues and eigenvectors of L C L' that carry a direction: those above 1e-8 of the
+/// largest.
+fn directions(lcl: &Matrix) -> Vec<(f64, Vec<f64>)> {
+    let pairs = symmetric_eigen(lcl);
+    let top = pairs.first().map_or(0.0, |p| p.0);
+    pairs
+        .into_iter()
+        .filter(|(d, _)| top > 0.0 && *d > 1e-8 * top)
+        .collect()
+}
+
+/// The df of an F test from the Satterthwaite df of each direction: E = sum v / (v - 2) over
+/// v > 2 and df = 2E / (E - q), defined when E > q.
+fn combined_df(nus: &[f64]) -> f64 {
+    let q = nus.len() as f64;
+    if nus.len() == 1 {
+        return nus[0];
+    }
+    let big_e: f64 = nus
+        .iter()
+        .filter(|v| **v > 2.0)
+        .map(|v| v / (v - 2.0))
+        .sum();
+    if big_e > q {
+        2.0 * big_e / (big_e - q)
+    } else {
+        f64::NAN
     }
 }
 
@@ -1015,12 +1101,9 @@ impl Infer<'_> {
             .iter()
             .map(|x| l.iter().map(|y| dot(x, &mat_vec(&e.a_inv, y))).collect())
             .collect();
-        let pairs = symmetric_eigen(&lcl);
-        let top = pairs.first().map_or(0.0, |p| p.0);
         // each eigenvector v gives the direction v'L, tested by v'(L b - a)
-        let used: Vec<(f64, Vec<f64>, f64)> = pairs
+        let used: Vec<(f64, Vec<f64>, f64)> = directions(&lcl)
             .into_iter()
-            .filter(|(d, _)| top > 0.0 && *d > 1e-8 * top)
             .map(|(d, v)| {
                 let lm: Vec<f64> = (0..e.beta.len())
                     .map(|j| v.iter().zip(l).map(|(c, row)| c * row[j]).sum())
@@ -1059,19 +1142,7 @@ impl Infer<'_> {
                     satterthwaite(*d, &grad, self.sigma)
                 })
                 .collect();
-            if q == 1 {
-                return nus[0];
-            }
-            let big_e: f64 = nus
-                .iter()
-                .filter(|v| **v > 2.0)
-                .map(|v| v / (v - 2.0))
-                .sum();
-            if big_e > q as f64 {
-                2.0 * big_e / (big_e - q as f64)
-            } else {
-                f64::NAN
-            }
+            combined_df(&nus)
         });
         Some((q, df, f))
     }
@@ -1183,7 +1254,10 @@ impl<'a> Predict<'a> {
                     let at = |d: f64| {
                         let mut t = th.to_vec();
                         t[s] += d;
-                        model.evaluate(&t, Depth::Objective)
+                        model
+                            .valid(&t)
+                            .then(|| model.evaluate(&t, Depth::Objective))
+                            .flatten()
                     };
                     (h, at(h), at(-h))
                 })
@@ -1250,11 +1324,8 @@ impl<'a> Predict<'a> {
                     .collect()
             })
             .collect();
-        let pairs = symmetric_eigen(&lcl);
-        let top = pairs.first().map_or(0.0, |p| p.0);
-        let used: Vec<(f64, Vec<f64>, RandomRow, f64)> = pairs
+        let used: Vec<(f64, Vec<f64>, RandomRow, f64)> = directions(&lcl)
             .into_iter()
-            .filter(|(d, _)| top > 0.0 && *d > 1e-8 * top)
             .map(|(d, v)| {
                 let lf: Vec<f64> = (0..self.model.p)
                     .map(|j| v.iter().zip(rows).map(|(c, r)| c * r.0[j]).sum())
@@ -1282,19 +1353,10 @@ impl<'a> Predict<'a> {
             .iter()
             .map(|(d, lf, lr, _)| self.df(*d, lf, lr))
             .collect();
-        let df = if q == 1 || self.residual_df.is_some() {
+        let df = if self.residual_df.is_some() {
             nus[0]
         } else {
-            let big_e: f64 = nus
-                .iter()
-                .filter(|v| **v > 2.0)
-                .map(|v| v / (v - 2.0))
-                .sum();
-            if big_e > q as f64 {
-                2.0 * big_e / (big_e - q as f64)
-            } else {
-                f64::NAN
-            }
+            combined_df(&nus)
         };
         Some((q, df, f))
     }
@@ -2215,7 +2277,11 @@ impl Engine {
                     );
                     covtype = CovType::Diag;
                 }
-                blocks.push(Block::new(covtype, vec![0; distinct.len()], 0));
+                let block = Block::new(covtype, vec![0; distinct.len()], 0);
+                if block.covtype != covtype {
+                    warnings.push(one_level(covtype, "REPEATED"));
+                }
+                blocks.push(block);
                 Some((subj, level, subjects.len(), distinct))
             }
             None => {
@@ -2235,6 +2301,9 @@ impl Engine {
                 .flat_map(|(k, e)| std::iter::repeat_n(k, e.cells.len()))
                 .collect();
             let block = Block::new(r.covtype, effect_of, start);
+            if block.covtype != r.covtype {
+                warnings.push(one_level(r.covtype, "RANDOM"));
+            }
             start += block.count;
             blocks.push(block);
             nz.push(
@@ -2351,13 +2420,11 @@ impl Engine {
                         .map(|row| row.iter().map(|v| 2.0 * v).collect())
                         .collect()
                 });
-            match w {
-                Some(w) => Some(Kr::new(e, w)),
-                None => {
-                    warnings.push("MIXED: the expected information of the covariance parameters is singular, so the Kenward-Roger adjustment is not made and the degrees of freedom are Satterthwaite's".into());
-                    None
-                }
+            let kr = w.and_then(|w| Kr::new(e, w));
+            if kr.is_none() {
+                warnings.push("MIXED: the Kenward-Roger adjustment cannot be made (the expected information of the covariance parameters is singular or the adjusted covariance is not positive definite), so the degrees of freedom are Satterthwaite's".into());
             }
+            kr
         } else {
             None
         };
@@ -2887,8 +2954,13 @@ impl Engine {
                         let mut found = None;
                         for (k, f) in random_fits.iter().enumerate() {
                             if let Some(ef) = find_effect(&d, &f.effects, term)? {
+                                if found.is_some() {
+                                    return Err(Error(format!(
+                                        "TEST names {} after '|', which is on more than one RANDOM; give its coefficients with ALL",
+                                        term.label
+                                    )));
+                                }
                                 found = Some((k, ef.range()));
-                                break;
                             }
                         }
                         found.ok_or_else(|| {
@@ -2940,6 +3012,10 @@ impl Engine {
                 let mut ls: Vec<Vec<f64>> = Vec::new();
                 for (r, row) in t.rows.iter().enumerate() {
                     let mut l = l_row(&d, &fixed, row, "TEST")?;
+                    // a row that is not estimable is not tested, so not shown
+                    if part.reduce(&l).is_none() {
+                        continue;
+                    }
                     if let Some(given) = t.random.get(r).filter(|g| !g.is_empty()) {
                         let rr = random_row(given)?;
                         for (k2, f) in random_fits.iter().enumerate() {
@@ -3254,8 +3330,12 @@ impl Engine {
                     let fixpred = dot(&model.x[i], &e.beta);
                     let (_, se, df) = part.inf.estimate(&model.x[i]);
                     // PRED as x b + z u: the case's own random columns
+                    let wanted = command
+                        .save
+                        .iter()
+                        .any(|(t, _)| matches!(t, MixedTemp::Sepred | MixedTemp::Dfpred));
                     let (sepred, dfpred) = match &predict {
-                        Some(pr) => {
+                        Some(pr) if wanted => {
                             let lr: RandomRow = model
                                 .nz
                                 .iter()
@@ -3268,7 +3348,7 @@ impl Engine {
                             let (_, se, df) = pr.estimate(&model.x[i], &lr);
                             (se, df)
                         }
-                        None => (f64::NAN, f64::NAN),
+                        _ => (f64::NAN, f64::NAN),
                     };
                     values[i] = [
                         fixpred,
