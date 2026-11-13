@@ -1509,7 +1509,7 @@ impl Engine {
                 for (side, points) in [(&rows, &s.rows), (&columns, &s.columns)] {
                     for (i, label) in side.labels.iter().enumerate() {
                         // the file leaves out the rows and columns of EQUAL groups
-                        let grouped = points.status.iter().any(|s| *s == Status::Merged(i));
+                        let grouped = points.status.contains(&Status::Merged(i));
                         if points.status[i] == Status::Active && !grouped {
                             for t in 0..p {
                                 lines.push((
