@@ -330,9 +330,23 @@ See [The Window menu](#the-window-menu).
   - Fixed effects: the main effects of the factors and covariates, or custom terms; the intercept.
   - One set of random effects: the intercept and custom terms, the subject variables they vary over, and the covariance type (variance components, scaled identity, diagonal, unstructured, compound symmetry or first-order autoregressive). More sets of random effects are in the syntax.
   - Restricted or full maximum likelihood, the confidence level, the maximum iterations and step-halving, Satterthwaite or residual degrees of freedom, and user-missing values as valid.
-  - Estimates of the fixed effects and tests of the covariance parameters.
+  - Estimates of the fixed effects, tests of the covariance parameters, the covariance of the random effects (with random effects), the covariance of the residuals (with repeated variables), and the covariance and correlation of the fixed estimates.
+  - Estimated marginal means: any number of tables, each the overall mean or a crossing of factors. A table can compare the levels of one of its factors, every pair or each level with the first or the last, unadjusted or by Bonferroni or Sidak. Covariates stay at their means unless you give a value.
+  - Custom tests: a label and rows typed one per line, each row an effect of the fixed part (or `INTERCEPT`, or `ALL`) followed by its coefficients, such as `gender 1 -1 0`. Fractions such as `1/3` are allowed. The dialog checks that each effect is in the model; whether the number of coefficients fits is checked when the command runs.
   - Saving the fixed predicted values with their standard errors and degrees of freedom, the predicted values and the residuals.
-  - Estimated marginal means are not offered, since the command does not support `EMMEANS` yet.
+
+**Generalized Linear Models**
+
+- **Generalized Linear Models** (`GENLIN`): one response on factors and covariates.
+  - The response: one dependent variable, or a count of events out of trials, where the trials are a variable or one number for every case. A binary dependent with the binomial distribution takes a reference category (last, first or a value); an ordinal one takes the order of its categories.
+  - The distribution: normal, binomial, gamma, inverse Gaussian, negative binomial (k given or estimated), Poisson or ordinal multinomial. The link list shows only the links that go with it, and choosing a distribution sets its usual link and scale. Power and odds power links take an exponent.
+  - The model: main effects, the full factorial of the factors with the covariates, or custom terms; the intercept (always in for the ordinal multinomial distribution, whose thresholds are always fitted), an offset variable and a scale weight variable.
+  - Estimation: hybrid (Fisher scoring for a number of iterations, then Newton-Raphson), Fisher scoring or Newton-Raphson; the scale parameter by maximum likelihood (normal, gamma and inverse Gaussian only), deviance, Pearson chi-square or a fixed value; a model-based or robust covariance; the confidence level, the maximum iterations and step-halving, the parameter convergence and the full or kernel log-likelihood.
+  - Statistics: Type III, Type I or both tests of effects, by Wald or likelihood ratio; the tables of the output, with exponentiated estimates if you like.
+  - Estimated marginal means as in Linear Mixed Models, with seven ways to compare levels and five adjustments, on the scale of the response or of the linear predictor. Not offered for the ordinal multinomial distribution.
+  - Saving the linear predictor, the predicted mean with its interval, the predicted category, leverage, five kinds of residuals and Cook's distance. The ordinal multinomial distribution saves the first six only, and the predicted category needs a binary or ordinal dependent.
+  - User-missing values of the factors as valid.
+  - Generalized estimating equations (`REPEATED`) are not offered, since the command does not support them yet.
 
 **Correlate**
 
@@ -353,8 +367,9 @@ See [The Window menu](#the-window-menu).
   - The Hosmer-Lemeshow test, confidence intervals for exp(B), the iteration history, the classification cutoff, the stepwise entry and removal probabilities, the maximum iterations and the constant.
 - **Multinomial Logistic** (`NOMREG`): a nominal dependent variable, numeric or string, on factors and covariates.
   - The reference category: the last, the first or a value you type; the categories in ascending or descending order.
-  - The model: main effects, the full factorial, or custom terms built as in Univariate; the intercept.
-  - The tables: case processing, model fitting with or without the information criteria, pseudo R-square, goodness of fit, likelihood ratio tests, parameter estimates, classification, and the covariance and correlation of the estimates. With every table off the command shows none.
+  - The model: main effects, the full factorial, or custom terms built as in Univariate; the intercept. A custom model can add stepwise terms with a method (forward entry, backward elimination, forward stepwise or backward stepwise). Forward entry and forward stepwise start from the model terms, or from the intercept alone when the model is empty; backward elimination and backward stepwise start with every stepwise term entered.
+  - Stepping, for stepwise terms: the hierarchy rule, the least effects (backward methods), the most effects (forward methods), and the probabilities and tests for entry and for removal, each offered only for the methods that use it.
+  - The tables: case processing, model fitting with or without the information criteria, pseudo R-square, goodness of fit, likelihood ratio tests, parameter estimates, classification, the covariance and correlation of the estimates, and the step summary. With every table off the command shows none.
   - Saving the probability of each category, the predicted category, its probability and the probability of the observed category.
   - The confidence level, the maximum iterations and step-halving, and user-missing values as valid.
 - **Ordinal** (`PLUM`): an ordinal dependent variable on factors and covariates.
@@ -362,6 +377,7 @@ See [The Window menu](#the-window-menu).
   - The location part: the main effects, or custom terms. The scale part: none, or custom terms.
   - The tables: goodness of fit, the summary, parameter estimates, the test of parallel lines, cell information, the covariance and correlation of the estimates, the iteration history and the kernel of the log-likelihood.
   - The same saved variables as Multinomial Logistic; the confidence level, the maximum iterations and step-halving, the value added to empty cells, and user-missing values as valid.
+  - Custom tests typed as in Linear Mixed Models, where `INTERCEPT` stands for the thresholds. An effect that is in both the location and the scale part needs `ALL`.
 
 **Classify**
 

@@ -313,7 +313,7 @@ pub fn default_link(distribution: GenlinDistribution) -> GenlinLink {
 }
 
 /// Whether the manual allows `link` with `distribution`.
-fn allowed(distribution: GenlinDistribution, link: GenlinLink) -> bool {
+pub fn link_allowed(distribution: GenlinDistribution, link: GenlinLink) -> bool {
     use GenlinLink as L;
     match distribution {
         GenlinDistribution::Multinomial => link.is_cumulative(),
@@ -1135,7 +1135,7 @@ pub(crate) fn genlin(p: &mut Parser) -> PResult<Command> {
     });
     let link = spec.link.unwrap_or(default_link(distribution));
     let model_error = |message: String| Err(SyntaxError::new(model_span, message));
-    if !allowed(distribution, link) {
+    if !link_allowed(distribution, link) {
         return model_error(format!(
             "LINK={} cannot be used with DISTRIBUTION={}",
             link_keyword(link),

@@ -271,7 +271,7 @@ pub fn field_text(variable: &Variable, field: Field) -> String {
         Field::Name => variable.name().to_string(),
         Field::Type => match variable.is_string() {
             true => "String",
-            false if date_kind(variable.format()).is_some() || is_time(variable.format()) => "Date",
+            false if shows_date(variable.format()) => "Date",
             false => "Numeric",
         }
         .into(),
@@ -396,6 +396,11 @@ pub const FORMAT_KINDS: [FormatKind; 23] = [
 
 /// The index of the string format in `FORMAT_KINDS`.
 const STRING_KIND: usize = FORMAT_KINDS.len() - 1;
+
+/// Whether a format shows a date or a time, so its values are typed in quotes.
+pub(crate) fn shows_date(format: &str) -> bool {
+    date_kind(format).is_some() || is_time(format)
+}
 
 /// Whether a format shows a date, a time or a part of one: the formats from DATE to DTIME.
 fn is_time(format: &str) -> bool {

@@ -1,16 +1,20 @@
 //! Drawing of the Ordinal Regression, Multinomial Logistic Regression, Linear Mixed Models and
-//! complex samples dialogs.
+//! complex samples dialogs, and the editors of terms, means and tests they share with the
+//! Generalized Linear Models dialog.
 
 use crate::advanced_dialogs::{
-    Advanced, LinearMixed, MIXED_SAVE, Multinomial, NOMREG_BASES, NOMREG_MODELS, NOMREG_PRINT,
+    Advanced, ContrastTest, LinearMixed, MIXED_COMPARISONS, MIXED_PRINT, MIXED_SAVE, MeansTable,
+    Multinomial, NOMREG_BASES, NOMREG_MODELS, NOMREG_PRINT, NOMREG_STEP_METHODS, NOMREG_STEP_RULES,
     Ordinal, PLUM_LINKS, PLUM_PRINT, PROBABILITY_SAVE, RANDOM_COVARIANCES, REPEATED_COVARIANCES,
     SAMPLE_RESIDUALS, SAMPLE_STATISTICS, SAMPLE_TESTS, STAGE_ESTIMATORS, STAGE_RATES,
     SampleDescriptives, SampleOptions, SamplePlan, SampleTables, Stage, Terms,
 };
+use crate::advanced_dialogs::{forget_old_covariates, forget_old_factors};
 use crate::app::{checkboxes, choice, field, file_dialog, target_list, target_one};
+use crate::model_dialogs::GLM_ADJUSTMENTS;
 use crate::model_dialogs_view::name_checkboxes;
 use crate::stats_dialogs_view::small_field;
-use eframe::egui::{self, TextEdit, Ui};
+use eframe::egui::{self, ComboBox, TextEdit, Ui};
 use std::path::{Path, PathBuf};
 
 pub fn body(ui: &mut Ui, d: &mut Advanced, picked: &mut Vec<String>, folder: &mut Option<PathBuf>) {
@@ -18,6 +22,7 @@ pub fn body(ui: &mut Ui, d: &mut Advanced, picked: &mut Vec<String>, folder: &mu
         Advanced::Ordinal(d) => ordinal(ui, d, picked),
         Advanced::Multinomial(d) => multinomial(ui, d, picked),
         Advanced::Mixed(d) => mixed(ui, d, picked),
+        Advanced::Genlin(d) => crate::genlin_dialog_view::genlin(ui, d, picked),
         Advanced::Plan(d) => plan(ui, d, picked, folder),
         Advanced::Descriptives(d) => sample_descriptives(ui, d, picked, folder),
         Advanced::Tables(d) => sample_tables(ui, d, picked, folder),
@@ -26,7 +31,7 @@ pub fn body(ui: &mut Ui, d: &mut Advanced, picked: &mut Vec<String>, folder: &mu
 
 /// Checkboxes of the model's variables, Main effects and Interaction to make terms of the
 /// checked ones, and the terms, each removed by a click.
-fn terms_editor(ui: &mut Ui, id: &str, model: &[String], t: &mut Terms) {
+pub(crate) fn terms_editor(ui: &mut Ui, id: &str, model: &[String], t: &mut Terms) {
     ui.push_id(id, |ui| {
         name_checkboxes(ui, model, &mut t.building);
         ui.horizontal(|ui| {
@@ -65,6 +70,105 @@ fn terms_editor(ui: &mut Ui, id: &str, model: &[String], t: &mut Terms) {
             }
         });
     });
+}
+
+/// Tables of estimated marginal means, each of crossed factors (none for the overall mean) with
+/// an optional comparison of one factor's levels, and the values the covariates are held at.
+pub(crate) fn means_editor(
+    ui: &mut Ui,
+    factors: &[String],
+    covariates: &[String],
+    tables: &mut Vec<MeansTable>,
+    at: &mut Vec<(String, String)>,
+    comparisons: &[(&str, &str)],
+    adjustments: &[(&str, &str)],
+) {
+    let mut remove = None;
+    for (i, t) in tables.iter_mut().enumerate() {
+        ui.push_id(("means", i), |ui| {
+            ui.horizontal(|ui| {
+                ui.strong(format!("Table {}", i + 1));
+                if t.factors.is_empty() {
+                    ui.weak("overall mean");
+                }
+                if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
+                    remove = Some(i);
+                }
+            });
+            name_checkboxes(ui, factors, &mut t.factors);
+            if !t.factors.contains(&t.compare) {
+                t.compare.clear();
+            }
+            ui.horizontal(|ui| {
+                ui.label("Compare the levels of");
+                let shown = match t.compare.as_str() {
+                    "" => "no factor".to_string(),
+                    c => c.to_string(),
+                };
+                ComboBox::new("compare", "")
+                    .selected_text(shown)
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut t.compare, String::new(), "no factor");
+                        for f in factors.iter().filter(|f| t.factors.contains(f)) {
+                            ui.selectable_value(&mut t.compare, f.clone(), f.as_str());
+                        }
+                    });
+            });
+            ui.add_enabled_ui(!t.compare.is_empty(), |ui| {
+                choice(ui, "Comparison", comparisons, &mut t.contrast);
+                choice(ui, "Adjustment", adjustments, &mut t.adjustment);
+            });
+        });
+    }
+    if let Some(i) = remove {
+        tables.remove(i);
+    }
+    if ui.small_button("Add table").clicked() {
+        tables.push(MeansTable::default());
+    }
+    if !covariates.is_empty() {
+        ui.label("Covariates held at (empty: the mean)");
+        for c in covariates {
+            let i = match at.iter().position(|(n, _)| n == c) {
+                Some(i) => i,
+                None => {
+                    at.push((c.clone(), String::new()));
+                    at.len() - 1
+                }
+            };
+            ui.push_id(("at", c), |ui| field(ui, c, &mut at[i].1, 60.0));
+        }
+    }
+}
+
+/// Custom tests, each a label and rows of coefficients typed one row per line.
+fn tests_editor(ui: &mut Ui, tests: &mut Vec<ContrastTest>) {
+    ui.weak("One row per line: an effect, then a coefficient for each of its parameters");
+    let mut remove = None;
+    for (i, t) in tests.iter_mut().enumerate() {
+        ui.push_id(("test", i), |ui| {
+            ui.horizontal(|ui| {
+                ui.strong(format!("Test {}", i + 1));
+                ui.label("Label");
+                ui.add(TextEdit::singleline(&mut t.label).desired_width(160.0));
+                if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
+                    remove = Some(i);
+                }
+            });
+            ui.add(
+                TextEdit::multiline(&mut t.rows)
+                    .desired_rows(2)
+                    .desired_width(320.0)
+                    .font(egui::TextStyle::Monospace),
+            );
+        });
+    }
+    if let Some(i) = remove {
+        tests.remove(i);
+    }
+    if ui.small_button("Add test").clicked() {
+        tests.push(ContrastTest::default());
+    }
 }
 
 /// The confidence level, maximum iterations and maximum step-halving.
@@ -112,6 +216,10 @@ fn ordinal(ui: &mut Ui, d: &mut Ordinal, picked: &mut Vec<String>) {
         field(ui, "Delta added to empty cells", &mut d.delta, 50.0);
         ui.checkbox(&mut d.include, "Treat user-missing values as valid");
     });
+    egui::CollapsingHeader::new("Tests").show(ui, |ui| {
+        ui.weak("INTERCEPT stands for the thresholds");
+        tests_editor(ui, &mut d.tests);
+    });
 }
 
 fn multinomial(ui: &mut Ui, d: &mut Multinomial, picked: &mut Vec<String>) {
@@ -140,8 +248,41 @@ fn multinomial(ui: &mut Ui, d: &mut Multinomial, picked: &mut Vec<String>) {
         ui.add_enabled_ui(d.model == 2, |ui| {
             let model = d.model_variables();
             terms_editor(ui, "model", &model, &mut d.terms);
+            ui.add_space(4.0);
+            ui.label("Stepwise terms, entered or removed by the method");
+            choice(ui, "Method", &NOMREG_STEP_METHODS, &mut d.step_method);
+            terms_editor(ui, "stepwise", &model, &mut d.step_terms);
         });
         ui.checkbox(&mut d.intercept, "Include intercept in the model");
+    });
+    egui::CollapsingHeader::new("Stepping").show(ui, |ui| {
+        ui.add_enabled_ui(d.model == 2 && !d.step_terms.terms.is_empty(), |ui| {
+            choice(ui, "Hierarchy rule", &NOMREG_STEP_RULES, &mut d.step_rule);
+            // only what the chosen method uses
+            let [least, most, entry, removal] = d.stepping_fields();
+            ui.add_enabled_ui(least, |ui| {
+                field(ui, "Least effects in the model", &mut d.min_effects, 50.0);
+            });
+            ui.add_enabled_ui(most, |ui| {
+                field(ui, "Most effects (empty: all)", &mut d.max_effects, 50.0);
+            });
+            ui.add_enabled_ui(entry, |ui| {
+                field(ui, "Probability for entry", &mut d.entry, 50.0);
+                ui.horizontal(|ui| {
+                    ui.label("Entry test");
+                    ui.radio_value(&mut d.score_entry, false, "Likelihood ratio");
+                    ui.radio_value(&mut d.score_entry, true, "Score");
+                });
+            });
+            ui.add_enabled_ui(removal, |ui| {
+                field(ui, "Probability for removal", &mut d.removal, 50.0);
+                ui.horizontal(|ui| {
+                    ui.label("Removal test");
+                    ui.radio_value(&mut d.wald_removal, false, "Likelihood ratio");
+                    ui.radio_value(&mut d.wald_removal, true, "Wald");
+                });
+            });
+        });
     });
     egui::CollapsingHeader::new("Statistics").show(ui, |ui| {
         checkboxes(ui, &NOMREG_PRINT, &mut d.print);
@@ -170,7 +311,9 @@ fn mixed(ui: &mut Ui, d: &mut LinearMixed, picked: &mut Vec<String>) {
     ui.add_space(6.0);
     target_one(ui, "Dependent variable", &mut d.dependent, picked);
     target_list(ui, "Factors", &mut d.factors, picked);
+    forget_old_factors(&d.factors, &mut d.means);
     target_list(ui, "Covariates", &mut d.covariates, picked);
+    forget_old_covariates(&d.covariates, &mut d.means_at);
     ui.add_space(6.0);
     let model = d.model();
     egui::CollapsingHeader::new("Fixed").show(ui, |ui| {
@@ -218,11 +361,21 @@ fn mixed(ui: &mut Ui, d: &mut LinearMixed, picked: &mut Vec<String>) {
         ui.checkbox(&mut d.include, "Treat user-missing values as valid");
     });
     egui::CollapsingHeader::new("Statistics").show(ui, |ui| {
-        ui.checkbox(&mut d.solution, "Parameter estimates of the fixed effects");
-        ui.checkbox(
-            &mut d.covariance_tests,
-            "Tests of the covariance parameters",
+        checkboxes(ui, &MIXED_PRINT, &mut d.print);
+    });
+    egui::CollapsingHeader::new("EM means").show(ui, |ui| {
+        means_editor(
+            ui,
+            &d.factors,
+            &d.covariates,
+            &mut d.means,
+            &mut d.means_at,
+            &MIXED_COMPARISONS,
+            &GLM_ADJUSTMENTS,
         );
+    });
+    egui::CollapsingHeader::new("Tests").show(ui, |ui| {
+        tests_editor(ui, &mut d.tests);
     });
     egui::CollapsingHeader::new("Save").show(ui, |ui| {
         checkboxes(ui, &MIXED_SAVE, &mut d.save);
