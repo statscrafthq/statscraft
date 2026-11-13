@@ -2295,3 +2295,155 @@ WEIGHT BY w.
     ));
     assert!(e.contains("same for every case of a subject"), "{e}");
 }
+
+#[test]
+fn gamma_with_the_pearson_scale_held_from_the_first_fit() {
+    let source = "GENLIN score BY arm WITH time stress
+  /MODEL arm time stress DISTRIBUTION=GAMMA LINK=LOG
+  /CRITERIA SCALE=PEARSON PCONVERGE=1E-12
+  /REPEATED SUBJECT=id WITHINSUBJECT=wave CORRTYPE=EXCHANGEABLE PCONVERGE=1E-12 COVB
+  /PRINT FIT SOLUTION WORKINGCORR.
+";
+    let b = [
+        3.80007864497866,
+        -0.0528701236793887,
+        0.0446989938214625,
+        -0.01356457785648,
+    ];
+    let t = panel(&source.replace("COVB", "COVB=ROBUST"));
+    check_estimates(
+        &t,
+        b,
+        [
+            0.0149134967911842,
+            0.0179788331783936,
+            0.00456787267111524,
+            0.00158433587067826,
+        ],
+        "robust",
+    );
+    close(
+        get(&t, PE, "(Scale)", B),
+        0.00565534688913337,
+        1e-8,
+        "scale",
+    );
+    close(
+        get(&t, "Working Correlation Matrix", "[wave=1]", "[wave=2]"),
+        0.478038209204034,
+        1e-7,
+        "alpha",
+    );
+    close(
+        get(
+            &t,
+            FIT,
+            "Quasi-likelihood under Independence Model Criterion (QIC)",
+            "Value",
+        ),
+        11.8598980971354,
+        1e-7,
+        "QIC",
+    );
+    let t = panel(&source.replace("COVB", "COVB=MODEL"));
+    check_estimates(
+        &t,
+        b,
+        [
+            0.0173409279249992,
+            0.0187914727880157,
+            0.00390896047900123,
+            0.00169989324070798,
+        ],
+        "model",
+    );
+}
+
+#[test]
+fn negative_binomial_keeps_the_k_of_the_first_fit() {
+    let t = panel(
+        "GENLIN visits BY arm WITH time stress
+  /MODEL arm time stress DISTRIBUTION=NEGBIN(MLE)
+  /CRITERIA PCONVERGE=1E-12
+  /REPEATED SUBJECT=id WITHINSUBJECT=wave CORRTYPE=AR(1) PCONVERGE=1E-12
+  /PRINT FIT SOLUTION.
+",
+    );
+    close(
+        get(&t, PE, "(Negative binomial)", B),
+        0.130935170296472,
+        1e-6,
+        "k",
+    );
+    check_estimates(
+        &t,
+        [
+            0.65092257200504,
+            -0.339325040623231,
+            0.254115722104049,
+            0.037806872547385,
+        ],
+        [
+            0.176396366344534,
+            0.158586793589574,
+            0.0418694409635987,
+            0.0142275147184177,
+        ],
+        "negbin",
+    );
+    close(
+        get(
+            &t,
+            FIT,
+            "Quasi-likelihood under Independence Model Criterion (QIC)",
+            "Value",
+        ),
+        179.471132194918,
+        1e-7,
+        "QIC",
+    );
+}
+
+#[test]
+fn kernel_quasi_likelihood_and_a_correlation_that_is_never_updated() {
+    let t = panel(
+        "GENLIN visits BY arm WITH time stress /MODEL arm time stress DISTRIBUTION=POISSON
+  /CRITERIA LIKELIHOOD=KERNEL
+  /REPEATED SUBJECT=id WITHINSUBJECT=wave CORRTYPE=EXCHANGEABLE PCONVERGE=1E-12
+  /PRINT FIT.
+",
+    );
+    let qic = "Quasi-likelihood under Independence Model Criterion (QIC)";
+    let qicc = "Corrected Quasi-likelihood under Independence Model Criterion (QICC)";
+    close(get(&t, FIT, qic, "Value"), -167.262419899394, 1e-8, "QIC");
+    close(get(&t, FIT, qicc, "Value"), -174.104857778952, 1e-8, "QICC");
+    // UPDATECORR=0 keeps the matrix of the start values
+    let t = panel(
+        "GENLIN visits BY arm WITH time stress /MODEL arm time stress DISTRIBUTION=POISSON
+  /REPEATED SUBJECT=id WITHINSUBJECT=wave CORRTYPE=EXCHANGEABLE PCONVERGE=1E-12 UPDATECORR=0
+  /PRINT SOLUTION WORKINGCORR.
+",
+    );
+    check_estimates(
+        &t,
+        [
+            0.704484249404739,
+            -0.378465064615982,
+            0.243228654090408,
+            0.0384490231541395,
+        ],
+        [
+            0.168026072168536,
+            0.157491230944596,
+            0.0386392587196823,
+            0.0131829348807102,
+        ],
+        "updatecorr 0",
+    );
+    close(
+        get(&t, "Working Correlation Matrix", "[wave=1]", "[wave=2]"),
+        0.402643127344845,
+        1e-7,
+        "alpha",
+    );
+}
