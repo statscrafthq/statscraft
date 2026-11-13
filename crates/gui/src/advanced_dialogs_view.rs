@@ -15,9 +15,16 @@ use crate::model_dialogs::GLM_ADJUSTMENTS;
 use crate::model_dialogs_view::name_checkboxes;
 use crate::stats_dialogs_view::small_field;
 use eframe::egui::{self, ComboBox, TextEdit, Ui};
+use statscraft_data::Dataset;
 use std::path::{Path, PathBuf};
 
-pub fn body(ui: &mut Ui, d: &mut Advanced, picked: &mut Vec<String>, folder: &mut Option<PathBuf>) {
+pub fn body(
+    ui: &mut Ui,
+    data: &Dataset,
+    d: &mut Advanced,
+    picked: &mut Vec<String>,
+    folder: &mut Option<PathBuf>,
+) {
     match d {
         Advanced::Ordinal(d) => ordinal(ui, d, picked),
         Advanced::Multinomial(d) => multinomial(ui, d, picked),
@@ -26,6 +33,9 @@ pub fn body(ui: &mut Ui, d: &mut Advanced, picked: &mut Vec<String>, folder: &mu
         Advanced::Plan(d) => plan(ui, d, picked, folder),
         Advanced::Descriptives(d) => sample_descriptives(ui, d, picked, folder),
         Advanced::Tables(d) => sample_tables(ui, d, picked, folder),
+        Advanced::Correspondence(d) => {
+            crate::correspondence_dialog_view::correspondence(ui, data, d, picked)
+        }
     }
 }
 

@@ -1,8 +1,10 @@
 //! The Ordinal Regression, Multinomial Logistic Regression, Linear Mixed Models, Generalized
-//! Linear Models (in `genlin_dialog`) and complex samples dialogs (the analysis plan, Descriptives, Frequencies and Crosstabs). Options left as
-//! they are add nothing to the syntax, so the command runs with its own defaults.
+//! Linear Models (in `genlin_dialog`), Correspondence Analysis (in `correspondence_dialog`) and
+//! complex samples dialogs (the analysis plan, Descriptives, Frequencies and Crosstabs). Options
+//! left as they are add nothing to the syntax, so the command runs with its own defaults.
 
 use crate::analyze_dialogs::keywords;
+use crate::correspondence_dialog::Correspondence;
 use crate::dialogs::whole;
 use crate::genlin_dialog::{GeneralizedLinear, data_checks};
 use crate::model_dialogs::GLM_ADJUSTMENTS;
@@ -20,6 +22,7 @@ pub enum Advanced {
     Plan(SamplePlan),
     Descriptives(SampleDescriptives),
     Tables(SampleTables),
+    Correspondence(Correspondence),
 }
 
 impl Advanced {
@@ -33,6 +36,7 @@ impl Advanced {
             Advanced::Descriptives(_) => "Complex Samples Descriptives",
             Advanced::Tables(d) if d.crosstabs => "Complex Samples Crosstabs",
             Advanced::Tables(_) => "Complex Samples Frequencies",
+            Advanced::Correspondence(_) => "Correspondence Analysis",
         }
     }
 
@@ -49,6 +53,7 @@ impl Advanced {
                 crosstabs: d.crosstabs,
                 ..Default::default()
             }),
+            Advanced::Correspondence(_) => Advanced::Correspondence(Default::default()),
         }
     }
 
@@ -74,6 +79,7 @@ impl Advanced {
             )
             .and_then(|()| d.syntax()),
             Advanced::Tables(d) => d.syntax(),
+            Advanced::Correspondence(d) => d.syntax(data),
         }
     }
 }

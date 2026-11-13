@@ -30,7 +30,9 @@
 //!   element (the last of equal ones) positive. CALL SVD gives U square (rows of M), Q with the
 //!   dimensions of M and V square (columns of M), as the manual says.
 //! - Symmetry (CHOL, EVAL, EIGEN) and singularity (INV, SOLVE, GSCH) are judged relative to the
-//!   largest element; RANK and GINV ignore singular values below max(r, c) * largest * 2.2e-16.
+//!   largest element; RANK and GINV ignore singular values at or below
+//!   max(r, c) * largest * 2.2e-16. GINV of a matrix with a missing or infinite element, or
+//!   with elements so large that their sums of squares overflow, is missing throughout.
 //! - A distribution or random function whose parameters are out of range is an error.
 
 use crate::matrix_lang::{Mat, fits};
@@ -351,14 +353,14 @@ pub(crate) fn call(
             one(values)
         }
         "SVAL" => {
-            let (_, q, _) = svd(a);
+            let (_, q, _) = thin_svd(a);
             let n = a.rows.min(a.cols);
             one(Mat::new(n, 1, (0..n).map(|i| q.at(i, i)).collect()))
         }
         "RANK" => {
-            let (_, q, _) = svd(a);
+            let (_, q, _) = thin_svd(a);
             let n = a.rows.min(a.cols);
-            let tolerance = svd_tolerance(a, &q);
+            let tolerance = svd_tolerance(a, if n > 0 { q.at(0, 0) } else { 0.0 });
             s((0..n).filter(|&i| q.at(i, i) > tolerance).count() as f64)
         }
         "GINV" => one(pseudo_inverse(a)),
@@ -589,8 +591,7 @@ fn svd_basis(a: &Mat, full: bool) -> (Mat, Mat, Mat) {
     let mut q = Mat::filled(m, n, 0.0);
     let mut vm = Mat::filled(n, n, 0.0);
     let mut columns: Vec<Vec<f64>> = Vec::new();
-    let top = norms.iter().copied().fold(0.0, f64::max);
-    let tolerance = m.max(n) as f64 * top * f64::EPSILON;
+    let tolerance = svd_tolerance(a, norms.iter().copied().fold(0.0, f64::max));
     for (k, &j) in order.iter().enumerate() {
         let mut vector: Vec<f64> = v.iter().map(|row| row[j]).collect();
         orient(&mut vector);
@@ -640,24 +641,27 @@ fn complete_basis(mut columns: Vec<Vec<f64>>, m: usize, size: usize) -> Mat {
     u
 }
 
-fn svd_tolerance(a: &Mat, q: &Mat) -> f64 {
-    let top = if a.rows.min(a.cols) > 0 {
-        q.at(0, 0)
-    } else {
-        0.0
-    };
+/// Singular values at or below this, from the largest one `top`, count as zero.
+fn svd_tolerance(a: &Mat, top: f64) -> f64 {
     a.rows.max(a.cols) as f64 * top * f64::EPSILON
 }
 
 fn pseudo_inverse(a: &Mat) -> Mat {
-    let (u, q, v) = svd(a);
-    let tolerance = svd_tolerance(a, &q);
+    // a missing or infinite entry, or one so large that the sums of squares overflow, leaves
+    // no singular value to trust, and the result says so
+    let missing = || Mat::filled(a.cols, a.rows, f64::NAN);
+    if a.data.iter().any(|x| !x.is_finite()) {
+        return missing();
+    }
+    let (u, q, v) = thin_svd(a);
+    if (0..a.rows.min(a.cols)).any(|k| !q.at(k, k).is_finite()) {
+        return missing();
+    }
     let mut out = Mat::filled(a.cols, a.rows, 0.0);
-    for k in 0..a.rows.min(a.cols) {
+    // the thin side has a vector exactly for each singular value above svd_tolerance
+    for k in 0..u.cols.min(v.cols) {
         let sigma = q.at(k, k);
-        if sigma <= tolerance {
-            continue;
-        }
+        debug_assert!(sigma > svd_tolerance(a, q.at(0, 0)));
         for i in 0..a.cols {
             for j in 0..a.rows {
                 let value = out.at(i, j) + v.at(i, k) * u.at(j, k) / sigma;
@@ -923,6 +927,51 @@ mod tests {
                 close(&a.product(&vk), &uk);
             }
         }
+    }
+
+    #[test]
+    fn rank_ginv_and_sval_of_a_tall_matrix_stay_thin() {
+        // columns: all ones, alternating signs, twice the first; rank 2
+        let n = 5000;
+        let signs = |i: usize| if i.is_multiple_of(2) { 1.0 } else { -1.0 };
+        let a = Mat::new(n, 3, (0..n).flat_map(|i| [1.0, signs(i), 2.0]).collect());
+        // the longer side keeps a vector per nonzero singular value, not a square basis
+        assert_eq!(thin_svd(&a).0.cols, 2);
+        let random = RefCell::new(Random::default());
+        let mut warnings = Vec::new();
+        let mut run = |name: &str| call(name, std::slice::from_ref(&a), &random, &mut warnings);
+        close(&run("RANK").unwrap(), &Mat::scalar(2.0));
+        // the Gram matrix has eigenvalues 25000, 5000 and 0
+        close(
+            &run("SVAL").unwrap(),
+            &m(3, 1, &[25000f64.sqrt(), 5000f64.sqrt(), 0.0]),
+        );
+        // rows: ones / 25000, signs / 5000, twice the ones / 25000
+        let g = run("GINV").unwrap();
+        let expected = Mat::new(
+            3,
+            n,
+            (0..n)
+                .map(|_| 1.0 / 25000.0)
+                .chain((0..n).map(|j| signs(j) / 5000.0))
+                .chain((0..n).map(|_| 2.0 / 25000.0))
+                .collect(),
+        );
+        close(&g, &expected);
+        for bad in [
+            Mat::new(2, 1, vec![1.0, f64::NAN]),
+            Mat::new(2, 2, vec![f64::INFINITY, 0.0, 0.0, 1.0]),
+            Mat::new(2, 3, vec![1e200, 1e200, 1.0, 1e200, -1e200, 2.0]),
+        ] {
+            let g = call("GINV", &[bad], &random, &mut Vec::new()).unwrap();
+            assert!(g.data.iter().all(|x| x.is_nan()), "{g:?}");
+        }
+        // a wide matrix: the generalized inverse of the transpose is the transposed one
+        let wide = [a.transpose()];
+        close(
+            &call("GINV", &wide, &random, &mut Vec::new()).unwrap(),
+            &expected.transpose(),
+        );
     }
 
     #[test]

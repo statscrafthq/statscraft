@@ -2,6 +2,7 @@
 //! touches data: OK runs the syntax, Paste puts it in the syntax editor.
 
 use crate::syntax_text::{names, number, probability, quote, value};
+use statscraft_data::{Dataset, Value};
 
 /// Keyword and label of every statistic Frequencies offers, in the order shown.
 pub const FREQUENCIES_STATISTICS: [(&str, &str); 9] = [
@@ -66,6 +67,25 @@ pub(crate) fn whole(text: &str, least: u32, what: &str) -> Result<Option<u32>, S
         Ok(n) if n >= least => Ok(Some(n)),
         _ => Err(format!("{what} must be a whole number of at least {least}")),
     }
+}
+
+/// The lowest and highest whole labelled value of a numeric variable that is not user-missing,
+/// as a range to start from; empty without such labels.
+pub fn labelled_range(data: &Dataset, name: &str) -> (String, String) {
+    let Ok(var) = data.variable(name) else {
+        return Default::default();
+    };
+    let bounds = var
+        .value_labels()
+        .iter()
+        .filter_map(|(value, _)| match value {
+            Value::Number(n) if n.fract() == 0.0 && !var.is_user_missing(*n) => Some(*n),
+            _ => None,
+        })
+        .fold(None, |b: Option<(f64, f64)>, n| {
+            Some(b.map_or((n, n), |(lo, hi)| (lo.min(n), hi.max(n))))
+        });
+    bounds.map_or_else(Default::default, |(lo, hi)| (number(lo), number(hi)))
 }
 
 impl Frequencies {
@@ -1068,6 +1088,30 @@ pub(crate) mod testing {
 mod tests {
     use super::testing::{open, run_in, runs, v};
     use super::*;
+
+    #[test]
+    fn a_new_variable_starts_from_its_labelled_values_without_missing_codes() {
+        let mut session = open("survey_basic.sav");
+        session
+            .run(
+                "MISSING VALUES q1_satisfaction (98, 99).
+                 VALUE LABELS age 18 'Youngest' 20.5 'Half' 90 'Oldest'.",
+                None,
+            )
+            .unwrap();
+        let data = session.dataset().unwrap();
+        let range = |name: &str| {
+            let (min, max) = labelled_range(data, name);
+            format!("{min}..{max}")
+        };
+        // 98 and 99 are labelled but user-missing
+        assert_eq!(range("q1_satisfaction"), "1..5");
+        assert_eq!(range("region"), "1..5");
+        // a label of a fraction is no category value
+        assert_eq!(range("age"), "18..90");
+        assert_eq!(range("monthly_spend"), "..");
+        assert_eq!(range("gone"), "..");
+    }
 
     #[test]
     fn frequencies() {

@@ -4415,7 +4415,7 @@ checksum = "a2eb9349b6444b326872e140eb1cf5e7c522154d69e7a0ffb0fb81c06b37543f"
 
 [[package]]
 name = "statscraft"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "clap",
  "rmcp",
@@ -4434,7 +4434,7 @@ dependencies = [
 
 [[package]]
 name = "statscraft-connect"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -4443,7 +4443,7 @@ dependencies = [
 
 [[package]]
 name = "statscraft-data"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "arrow",
  "chrono",
@@ -4455,7 +4455,7 @@ dependencies = [
 
 [[package]]
 name = "statscraft-engine"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "calamine",
  "chrono",
@@ -4476,7 +4476,7 @@ dependencies = [
 
 [[package]]
 name = "statscraft-export"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "statscraft-engine",
  "zip",
@@ -4484,7 +4484,7 @@ dependencies = [
 
 [[package]]
 name = "statscraft-gui"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "arboard",
  "block2 0.6.2",
@@ -4505,7 +4505,7 @@ dependencies = [
 
 [[package]]
 name = "statscraft-openstatspec"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "bytes",
  "mysql",
@@ -4522,7 +4522,7 @@ dependencies = [
 
 [[package]]
 name = "statscraft-sav"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "arrow",
  "encoding_rs",
@@ -4534,14 +4534,14 @@ dependencies = [
 
 [[package]]
 name = "statscraft-syntax"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "encoding_rs",
 ]
 
 [[package]]
 name = "statscraft-update"
-version = "0.10.0"
+version = "0.11.0"
 dependencies = [
  "semver",
  "serde",

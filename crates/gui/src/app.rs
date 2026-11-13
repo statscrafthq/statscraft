@@ -1615,6 +1615,11 @@ impl App {
                         if ui.button("Factor...").clicked() {
                             self.open_dialog(Dialog::FactorAnalysis(Default::default()));
                         }
+                        if ui.button("Correspondence Analysis...").clicked() {
+                            self.open_dialog(Dialog::Advanced(Advanced::Correspondence(
+                                Default::default(),
+                            )));
+                        }
                     });
                     ui.menu_button("Scale", |ui| {
                         if ui.button("Reliability Analysis...").clicked() {
@@ -5686,29 +5691,10 @@ fn dialog_body(
                 }
                 for name in variables {
                     if !d.ranges.iter().any(|(n, ..)| *n == name) {
-                        // the lowest and highest labelled values, as a start
-                        let codes: Vec<f64> = data
-                            .variable(&name)
-                            .map(|v| {
-                                v.value_labels()
-                                    .iter()
-                                    .filter_map(|(value, _)| match value {
-                                        Value::Number(n) => Some(*n),
-                                        Value::String(_) => None,
-                                    })
-                                    .collect()
-                            })
-                            .unwrap_or_default();
-                        let bound = |f: fn(f64, f64) -> f64| {
-                            codes
-                                .iter()
-                                .copied()
-                                .reduce(f)
-                                .map(number)
-                                .unwrap_or_default()
-                        };
-                        d.ranges
-                            .push((name.clone(), bound(f64::min), bound(f64::max)));
+                        // the lowest and highest labelled whole values that are not
+                        // user-missing, as a start
+                        let (min, max) = crate::dialogs::labelled_range(data, &name);
+                        d.ranges.push((name.clone(), min, max));
                     }
                     if let Some((_, min, max)) = d.ranges.iter_mut().find(|(n, ..)| *n == name) {
                         ui.horizontal(|ui| {
@@ -5813,7 +5799,7 @@ fn dialog_body(
         Dialog::ChartBuilder(d) => graph_dialogs_view::chart_builder(ui, d, picked),
         Dialog::ProbabilityPlot(d) => graph_dialogs_view::probability_plot(ui, d, picked),
         Dialog::RocCurve(d) => graph_dialogs_view::roc(ui, d, picked),
-        Dialog::Advanced(d) => advanced_dialogs_view::body(ui, d, picked, folder),
+        Dialog::Advanced(d) => advanced_dialogs_view::body(ui, data, d, picked, folder),
         Dialog::Restructure(d) => {
             ui.radio_value(
                 &mut d.kind,

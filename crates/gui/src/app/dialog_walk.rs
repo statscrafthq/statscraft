@@ -10,6 +10,7 @@ use crate::analyze_dialogs::{
     Correlations, Explore, ExploreMissing, Means, MrGroup, MultResponse, Oneway, TTest, TTestKind,
     Tree,
 };
+use crate::correspondence_dialog::{Correspondence, Role, TableVariable};
 use crate::data_dialogs::{
     Aggregate, AggregateTo, Aggregated, ExportData, ImportData, Make, MergeFiles, Mrsets,
     Restructure, RestructureKind, SelectCases, SelectMode, SortCases, SortVariables, SplitFile,
@@ -31,6 +32,15 @@ use std::path::Path;
 
 fn s(text: &str) -> String {
     text.to_string()
+}
+
+fn table_variable(name: &str, min: &str, max: &str, roles: &[(i64, Role)]) -> TableVariable {
+    TableVariable {
+        name: s(name),
+        min: s(min),
+        max: s(max),
+        roles: roles.iter().copied().collect(),
+    }
 }
 
 /// Each dialog with the fewest choices that make its syntax.
@@ -224,6 +234,11 @@ fn minimal(out: &Path) -> Vec<Dialog> {
         })),
         Dialog::Advanced(Advanced::Genlin(GeneralizedLinear {
             dependent: s("monthly_spend"),
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Correspondence(Correspondence {
+            row: table_variable("region", "1", "5", &[]),
+            column: table_variable("q6_mention1", "1", "6", &[]),
             ..Default::default()
         })),
         // the plan before the analyses that read it
@@ -957,6 +972,32 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             save: [true; 14],
             include: true,
             ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Correspondence(Correspondence {
+            row: table_variable(
+                "region",
+                "1",
+                "5",
+                &[(4, Role::Equal(1)), (5, Role::Equal(1))],
+            ),
+            column: table_variable(
+                "q6_mention1",
+                "1",
+                "6",
+                &[(1, Role::Supplementary), (6, Role::Supplementary)],
+            ),
+            dimensions: s("3"),
+            distance: 5,
+            normalization: 4,
+            q: s("-0.5"),
+            print: [true; 7],
+            permutation: true,
+            permutation_dims: s("3"),
+            plots: [true; 5],
+            label_length: s("12"),
+            ndim: true,
+            ndim_first: s("1"),
+            ndim_last: s("3"),
         })),
         Dialog::Advanced(Advanced::Plan(SamplePlan {
             path: plan.clone(),

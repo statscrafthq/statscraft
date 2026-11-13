@@ -9,6 +9,8 @@ mod brand;
 mod chart_paint;
 mod complete;
 mod connect_window;
+mod correspondence_dialog;
+mod correspondence_dialog_view;
 mod data_dialogs;
 mod dialogs;
 mod editor;

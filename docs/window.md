@@ -413,6 +413,12 @@ See [The Window menu](#the-window-menu).
   - Rotation by varimax, direct oblimin with its delta, quartimax, equamax or promax with its kappa, or none.
   - Factor scores saved by the regression, Bartlett or Anderson-Rubin method, and the score coefficient matrix.
   - Listwise, pairwise or mean substitution of missing values, and loadings sorted by size with small ones left blank.
+- **Correspondence Analysis** (`CORRESPONDENCE`): a row variable by a column variable, each numeric with the smallest and largest category value to count. A newly set variable starts from its lowest and highest labeled whole value that is not user-missing.
+  - Each category of the range, shown with its value label, is active, supplementary or in a numbered equal group whose members share one score. Groups need two categories or more, and each side needs at least two active categories, a group counting as one. When you leave a changed range field, the roles of the categories now outside the range are forgotten.
+  - The model: the number of dimensions, the chi-square distance or a Euclidean distance with one of its five standardizations, and symmetrical, principal, row principal, column principal or a custom normalization from -1 to 1. When the table allows fewer dimensions than you ask for, for example because a side has few active or non-empty categories, the command computes fewer.
+  - Statistics: the table, the row and column profiles, the overviews and the confidence of the row and column points, and permuted tables up to a dimension.
+  - Plots: the biplot (not with principal normalization), the row and column points, the transformation plots of the rows and the columns, a longest label and a range of dimensions instead of every pair.
+  - Writing the scores or variances to a file (`OUTFILE`) and table data (`TABLE=ALL`) are in the syntax.
 
 **Scale**
 
@@ -438,7 +444,7 @@ See [The Window menu](#the-window-menu).
 
 - Groups defined in the dialog, as dichotomies with a counted value or as categories with a range. They are kept from one of the two dialogs to the other while the window is open.
 - Frequency tables of every group.
-- Crosstabulations of groups and variables in rows, columns and layers. Each variable has its range, starting from its lowest and highest labeled value.
+- Crosstabulations of groups and variables in rows, columns and layers. Each variable has its range, starting from its lowest and highest labeled whole value that is not user-missing.
 - Row, column and total percentages, based on cases or on responses.
 - Leaving out cases missing on any variable of a dichotomy or category group.
 

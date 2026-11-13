@@ -59,13 +59,10 @@ impl Failure {
         } else if let Some(line) = self.line {
             s.push_str(&format!("line {line}: "));
         }
-        // many commands name themselves in their messages; the text names the command once
-        if let Some(command) = &self.command
-            && !self.message.starts_with(&format!("{command}: "))
-        {
-            s.push_str(&format!("{command}: "));
+        match &self.command {
+            Some(command) => s.push_str(&with_command(command, &self.message)),
+            None => s.push_str(&self.message),
         }
-        s.push_str(&self.message);
         if !self.expected.is_empty() {
             s.push_str(&format!("; expected: {}", self.expected.join(", ")));
         }
@@ -74,6 +71,41 @@ impl Failure {
         }
         s
     }
+}
+
+/// The message after the name of its command, once: many commands name themselves in their
+/// messages already ("FACTOR: ...", "SET LOCALE: ..."), also after the name of a split group
+/// ("g = 1: FACTOR: ...", shown as "FACTOR: g = 1: ...").
+fn with_command(command: &str, message: &str) -> String {
+    if command.is_empty() || own_name(command, message).is_some() {
+        return message.to_string();
+    }
+    for (at, _) in message.match_indices(": ") {
+        if let Some((name, rest)) = own_name(command, &message[at + 2..]) {
+            return format!("{name}: {}: {rest}", &message[..at]);
+        }
+    }
+    format!("{command}: {message}")
+}
+
+/// The command's name and the rest when the message starts with it, alone or with keywords
+/// or a subcommand after it ("SET LOCALE: ...", "FACTOR /SAVE: ...").
+fn own_name<'a>(command: &str, message: &'a str) -> Option<(&'a str, &'a str)> {
+    let (name, rest) = message.split_once(": ")?;
+    // "RANK = 1: ..." is the split group of a variable named like the command, not the command
+    if name.contains(" = ") {
+        return None;
+    }
+    let longer = name
+        .strip_prefix(command)?
+        .strip_prefix(' ')
+        .is_some_and(|more| {
+            !more.is_empty()
+                && more
+                    .chars()
+                    .all(|c| c.is_ascii_uppercase() || " /=_-".contains(c))
+        });
+    (name == command || longer).then_some((name, rest))
 }
 
 /// The tables of one command, with the lines it came from.
@@ -178,8 +210,9 @@ impl RunResult {
             for warning in &command.warnings {
                 let _ = writeln!(
                     out,
-                    "warning: line {}: {}: {warning}",
-                    command.first_line, command.name
+                    "warning: line {}: {}",
+                    command.first_line,
+                    with_command(&command.name, warning)
                 );
             }
         }
@@ -306,7 +339,9 @@ pub struct NamedDataset {
 pub struct LogEntry {
     pub syntax: String,
     pub result: Result<String, Vec<Failure>>,
-    /// The warnings of the run's commands, each as "line N: COMMAND: message".
+    /// The warnings of the run's commands, each as "line N: COMMAND: message", where a message
+    /// that names its command (also with keywords or a subcommand, as in "SET LOCALE: " or
+    /// "FACTOR /SAVE: ") keeps its own name.
     pub warnings: Vec<String>,
     /// Taken back by `Session::undo`, so a script made from the log leaves it out.
     pub undone: bool,
@@ -567,8 +602,9 @@ impl Session {
                         self.previous = Some((before, self.log.len()));
                     }
                     let warnings = result.commands.iter().flat_map(|c| {
-                        let place = format!("line {}: {}", c.first_line, c.name);
-                        c.warnings.iter().map(move |w| format!("{place}: {w}"))
+                        c.warnings.iter().map(move |w| {
+                            format!("line {}: {}", c.first_line, with_command(&c.name, w))
+                        })
                     });
                     self.log.push(LogEntry {
                         syntax: done.syntax,
@@ -1020,6 +1056,80 @@ mod tests {
             session.log[1].warnings,
             [format!("line 2: DESCRIPTIVES: {warning}")]
         );
+    }
+
+    #[test]
+    fn a_message_names_its_command_once() {
+        assert_eq!(
+            with_command("PPLOT", "PPLOT: z is empty"),
+            "PPLOT: z is empty"
+        );
+        assert_eq!(with_command("PPLOT", "z is empty"), "PPLOT: z is empty");
+        assert_eq!(
+            with_command("PPLOT", "PPLOT APPLY: no earlier PPLOT"),
+            "PPLOT APPLY: no earlier PPLOT"
+        );
+        assert_eq!(with_command("SET", "SETTINGS: kept"), "SET: SETTINGS: kept");
+        assert_eq!(
+            with_command("FACTOR", "FACTOR /SAVE: 5 scores"),
+            "FACTOR /SAVE: 5 scores"
+        );
+        assert_eq!(
+            with_command("FACTOR", "g = 1: FACTOR /SAVE: 5 scores"),
+            "FACTOR /SAVE: g = 1: 5 scores"
+        );
+        assert_eq!(with_command("", "no command"), "no command");
+        assert_eq!(
+            with_command("FACTOR", "FACTOR /MATRIX=IN: no N"),
+            "FACTOR /MATRIX=IN: no N"
+        );
+        assert_eq!(
+            with_command("RANK", "RANK = A: ties"),
+            "RANK: RANK = A: ties"
+        );
+        assert_eq!(
+            with_command("FACTOR", "FACTOR GROUP = LOW: FACTOR: x"),
+            "FACTOR: FACTOR GROUP = LOW: x"
+        );
+        // a split group of a variable named like the command is not the command's own name
+        assert_eq!(
+            with_command("RANK", "RANK = 1: ties in x"),
+            "RANK: RANK = 1: ties in x"
+        );
+        assert_eq!(
+            with_command("WEIGHT", "WEIGHT has negative values"),
+            "WEIGHT: WEIGHT has negative values"
+        );
+        assert_eq!(
+            with_command("SET", "g = 1: SET LOCALE: no mark"),
+            "SET LOCALE: g = 1: no mark"
+        );
+        assert_eq!(
+            with_command("PPLOT", "g = 1: PPLOT: z is empty"),
+            "PPLOT: g = 1: z is empty"
+        );
+        assert_eq!(
+            with_command("PPLOT", "g = 1: z is empty"),
+            "PPLOT: g = 1: z is empty"
+        );
+    }
+
+    #[test]
+    fn a_warning_names_its_command_once() {
+        let mut session = survey();
+        let result = session
+            .run("COMPUTE z = $SYSMIS.\nPPLOT age z.", None)
+            .unwrap();
+        let warning = "PPLOT: z has fewer than two values to plot";
+        assert_eq!(result.commands[1].warnings, [warning]);
+        let text = result.output(false, false);
+        assert!(
+            text.contains(&format!("warning: line 2: {warning}\n")),
+            "{text}"
+        );
+        let json: serde_json::Value = serde_json::from_str(&result.output(true, false)).unwrap();
+        assert_eq!(json["commands"][1]["warnings"][0], warning);
+        assert_eq!(session.log[1].warnings, [format!("line 2: {warning}")]);
     }
 
     #[test]
