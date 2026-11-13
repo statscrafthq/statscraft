@@ -698,7 +698,9 @@ fn lmatrix(p: &mut Parser) -> PResult<LMatrix> {
 }
 
 /// TEST after its name: `[(constants)] = ['label'] row; row ...`. `mixed` allows DIVISOR and
-/// random-effect coefficients after `|` (ALL may then come without values).
+/// random-effect coefficients after `|` (ALL may then come without values), and holds every
+/// row to the form of the first: beginning with ALL (or bare values after `|`), or with an
+/// effect name and then no ALL.
 pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
     let mut constants = Vec::new();
     if p.eat(Punct::LParen) {
@@ -718,17 +720,21 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
     };
     let mut rows = Vec::new();
     let mut random = Vec::new();
-    // the fixed and the random part of the row being read, and whether `|` came
-    let mut row: (LRow, LRow, bool) = (Vec::new(), Vec::new(), false);
-    fn close(row: &mut (LRow, LRow, bool), rows: &mut Vec<LRow>, random: &mut Vec<LRow>) {
-        let (fixed, rand, _) = std::mem::take(row);
+    // the fixed and the random part of the row being read, whether `|` came, and whether the
+    // row began with ALL (None before its first item)
+    type Row = (LRow, LRow, bool, Option<bool>);
+    let mut row: Row = Default::default();
+    // whether the first row began with ALL
+    let mut first_all = None;
+    fn close(row: &mut Row, rows: &mut Vec<LRow>, random: &mut Vec<LRow>) {
+        let (fixed, rand, _, _) = std::mem::take(row);
         if !fixed.is_empty() || !rand.is_empty() {
             rows.push(fixed);
             random.push(rand);
         }
     }
     // `|` must be followed by coefficients
-    let bare_bar = |p: &Parser, row: &(LRow, LRow, bool)| -> PResult<()> {
+    let bare_bar = |p: &Parser, row: &Row| -> PResult<()> {
         if row.2 && row.1.is_empty() {
             return Err(p.unexpected(&["a coefficient"]));
         }
@@ -773,7 +779,9 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
             }
             continue;
         }
-        let effect = if p.eat_word("ALL") {
+        let start = p.pos;
+        let all_word = p.eat_word("ALL");
+        let effect = if all_word {
             None
         } else if row.2 && !matches!(p.peek(), Some(TokenKind::Word(_))) {
             // values straight after `|` are for every random parameter, as after ALL
@@ -786,6 +794,35 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
         } else {
             Some(term(p)?)
         };
+        if mixed {
+            let all = effect.is_none();
+            let leading = row.3.is_none();
+            if leading {
+                row.3 = Some(all);
+            }
+            let first = *first_all.get_or_insert(all);
+            // bare values after `|` may follow effect names: an effect on two RANDOM
+            // subcommands can be given no other way
+            if (leading && all != first) || (all_word && !first) {
+                let found = match effect {
+                    Some(_) => "an effect name",
+                    None if all_word => "ALL",
+                    None => "values without an effect name",
+                };
+                let began = if first {
+                    "begins with ALL"
+                } else {
+                    "names effects"
+                };
+                return Err(SyntaxError::new(
+                    p.span_from(start),
+                    format!(
+                        "TEST row {} has {found} where the first row {began}; one TEST begins every row with ALL or names effects in every row",
+                        rows.len() + 1
+                    ),
+                ));
+            }
+        }
         let mut values = Vec::new();
         while let Some(v) = fraction(p)? {
             values.push(v);

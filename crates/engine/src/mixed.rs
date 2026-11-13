@@ -2555,6 +2555,10 @@ impl Engine {
         let sigma = fitted.sigma.as_ref();
         let residual_df = (n - p) as f64;
         let kr = if command.df_method == DfMethod::KenwardRoger {
+            // the method was derived for REML; with ML it still runs, flagged (docs/differences.md)
+            if command.ml {
+                warnings.push("MIXED: the Kenward-Roger adjustment is meant for REML estimates; with METHOD=ML it is only approximate".into());
+            }
             // W is the inverse of the expected information, as the method was published
             let w = cholesky_inverse(&e.hess_expected).map(|(inv, _)| {
                 inv.iter()
