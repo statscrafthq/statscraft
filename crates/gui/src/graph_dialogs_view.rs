@@ -95,10 +95,10 @@ pub fn chart_builder(ui: &mut Ui, d: &mut ChartBuilder, picked: &mut Vec<String>
             for (i, (_, label)) in ERROR_BARS.iter().enumerate() {
                 ui.horizontal(|ui| {
                     ui.radio_value(&mut d.error_bar, i, *label);
-                    let text = if i == 0 {
-                        &mut d.level
-                    } else {
-                        &mut d.multiplier
+                    let text = match i {
+                        0 => &mut d.level,
+                        1 => &mut d.multiplier,
+                        _ => &mut d.deviations,
                     };
                     small_field(ui, d.error_bar == i, text);
                 });

@@ -854,6 +854,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             error_bar: 2,
             level: s("90"),
             multiplier: s("1"),
+            deviations: s("1"),
             cumulative: false,
             title: s("A title"),
             subtitle: s("A subtitle"),

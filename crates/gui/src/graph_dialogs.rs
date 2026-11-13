@@ -188,6 +188,8 @@ pub struct ChartBuilder {
     pub error_bar: usize,
     pub level: String,
     pub multiplier: String,
+    /// How many standard deviations, apart from the standard errors' `multiplier`.
+    pub deviations: String,
     /// The cumulative line of a Pareto chart.
     pub cumulative: bool,
     pub title: String,
@@ -221,6 +223,7 @@ impl Default for ChartBuilder {
             error_bar: 0,
             level: "95".into(),
             multiplier: "2".into(),
+            deviations: "2".into(),
             cumulative: true,
             title: String::new(),
             subtitle: String::new(),
@@ -305,6 +308,12 @@ impl ChartBuilder {
         let many = !counts && self.variables.len() > 1;
         match kind {
             ChartKind::Pie if many => return Err("a pie summarizes one variable".into()),
+            ChartKind::SimpleBar | ChartKind::SimpleLine if many => {
+                return Err(
+                    "a simple chart summarizes one variable; pick clustered bars or multiple lines for more"
+                        .into(),
+                );
+            }
             ChartKind::HighLow if !(2..=3).contains(&self.variables.len()) => {
                 return Err(
                     "a high-low chart takes two or three variables: high, low and close".into(),
@@ -345,7 +354,9 @@ impl ChartBuilder {
             ChartKind::Pie => format!("PIE={}", self.summary()?),
             ChartKind::HighLow => format!("HILO={}", self.summary()?),
             ChartKind::Pareto => {
-                let stacked = if group.is_empty() {
+                // several summed variables are stacked series, as a group variable is
+                let many = self.function >= COUNT_FUNCTIONS && self.variables.len() > 1;
+                let stacked = if group.is_empty() && !many {
                     "SIMPLE"
                 } else {
                     "STACKED"
@@ -385,7 +396,10 @@ impl ChartBuilder {
                 if self.variables.len() < 2 {
                     return Err("a scatterplot matrix needs two variables or more".into());
                 }
-                let mut spec = format!("SCATTERPLOT(MATRIX)={}", self.variables.join(" "));
+                let mut spec = format!(
+                    "SCATTERPLOT(MATRIX)={}",
+                    names(&self.variables, "Variables")?
+                );
                 if !group.is_empty() {
                     spec.push_str(&format!(" BY {group}"));
                 }
@@ -418,7 +432,11 @@ impl ChartBuilder {
                         }
                     }
                     keyword => {
-                        let n = parse(&self.multiplier, "the multiplier")?;
+                        let given = match keyword {
+                            "STDDEV" => &self.deviations,
+                            _ => &self.multiplier,
+                        };
+                        let n = parse(given, "the multiplier")?;
                         if n <= 0.0 {
                             return Err("the multiplier must be above 0".into());
                         }
@@ -492,7 +510,7 @@ pub const PPLOT_TIES: [(&str, &str); 4] = [
     ("MEAN", "Mean rank"),
     ("HIGH", "Highest rank"),
     ("LOW", "Lowest rank"),
-    ("BREAK", "Ties broken in case order"),
+    ("BREAK", "Consecutive ranks, ties share one"),
 ];
 
 pub const PPLOT_PLOTS: [(&str, &str); 3] = [
@@ -677,7 +695,7 @@ impl RocCurve {
         if self.value.trim().is_empty() {
             return Err("give the value of the positive state".into());
         }
-        let positive = value(&self.value, string)?;
+        let positive = value(self.value.trim(), string)?;
         let mut text = format!("ROC {tests} BY {state} ({positive})");
         if !self.curve {
             text.push_str("\n  /PLOT=NONE");
@@ -768,6 +786,15 @@ mod tests {
              /FOOTNOTE='Invented survey'."
         );
         assert_eq!(charts(&syntax), 1);
+
+        // a simple bar summarizes one variable
+        d.variables = v(&["age", "monthly_spend"]);
+        assert!(
+            d.syntax()
+                .unwrap_err()
+                .starts_with("a simple chart summarizes one variable")
+        );
+        d.variables = v(&["age"]);
 
         // clustered: a group variable or several variables
         d.kind = ChartKind::ClusteredBar;
@@ -915,8 +942,13 @@ mod tests {
         );
         assert_eq!(charts(&syntax), 1);
         d.error_bar = 2;
-        d.multiplier = s("0");
+        d.deviations = s("0");
         assert_eq!(d.syntax().unwrap_err(), "the multiplier must be above 0");
+        // standard errors and standard deviations keep their own counts
+        d.deviations = s("3");
+        assert!(d.syntax().unwrap().contains("(STDDEV 3)"));
+        d.error_bar = 1;
+        assert!(d.syntax().unwrap().contains("(STERROR 1.5)"));
 
         // Pareto: counts or sums, simple or stacked, with or without the line
         d.kind = ChartKind::Pareto;
@@ -940,6 +972,13 @@ mod tests {
             "GRAPH /PARETO(NOCUM)(STACKED)=SUM(monthly_spend) BY region BY gender."
         );
         assert_eq!(charts(&syntax), 1);
+        d.group.clear();
+        d.variables = v(&["monthly_spend", "age"]);
+        assert_eq!(
+            d.syntax().unwrap(),
+            "GRAPH /PARETO(NOCUM)(STACKED)=SUM(monthly_spend age) BY region."
+        );
+        d.variables = v(&["monthly_spend"]);
 
         // high-low of two or three variables
         d.kind = ChartKind::HighLow;
@@ -1168,7 +1207,7 @@ mod tests {
         d.level = s("95");
         d.include = false;
         d.state = s("plan");
-        d.value = s("basic");
+        d.value = s(" basic ");
         let syntax = d.syntax(true).unwrap();
         assert_eq!(
             syntax,
