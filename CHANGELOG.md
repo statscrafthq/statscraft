@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Window: Generalized Linear Models gains repeated measures (REPEATED): subject and within-subject variables, sorting, the working correlation structure with its m or fixed values, the adjustment, covariance and convergence settings, and the working correlation matrix table. With repeated measures the dialog greys out what the estimating equations do not give and checks roles, m and the fixed values before the command runs. See [the window](docs/window.md#analyze).
 - GENLIN: REPEATED fits generalized estimating equations for repeated measures of subjects, with SUBJECT and WITHINSUBJECT effects, SORT, the independent, AR(1), exchangeable, m-dependent, unstructured and fixed working correlation structures, ADJUSTCORR, UPDATECORR and the convergence settings. Standard errors and Wald tests use the robust (default) or the model-based covariance. FIT shows QIC and QICC, CPS adds the Correlated Data Summary and PRINT WORKINGCORR the Working Correlation Matrix; EMMEANS and SAVE work on the fit. Checked against our own implementation of the documented formulas in R, itself checked against R's `geepack`. Not supported yet with REPEATED: the multinomial distribution and generalized score tests. See [GENLIN](docs/commands/genlin.md).
 
 ## 0.11.0 (2026-11-13)

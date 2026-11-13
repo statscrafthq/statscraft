@@ -4,9 +4,9 @@ use crate::advanced_dialogs::{NOMREG_BASES, forget_old_covariates, forget_old_fa
 use crate::advanced_dialogs_view::{means_editor, terms_editor};
 use crate::app::{checkboxes, choice, field, target_list, target_one};
 use crate::genlin_dialog::{
-    GENLIN_ADJUSTMENTS, GENLIN_ANALYSES, GENLIN_CONTRASTS, GENLIN_DISTRIBUTIONS, GENLIN_LINKS,
-    GENLIN_METHODS, GENLIN_MODELS, GENLIN_ORDERS, GENLIN_PRINT, GENLIN_SAVE, GENLIN_SCALES,
-    GeneralizedLinear,
+    GENLIN_ADJUSTMENTS, GENLIN_ANALYSES, GENLIN_CONTRASTS, GENLIN_CORRELATIONS,
+    GENLIN_DISTRIBUTIONS, GENLIN_LINKS, GENLIN_METHODS, GENLIN_MODELS, GENLIN_ORDERS, GENLIN_PRINT,
+    GENLIN_SAVE, GENLIN_SCALES, GeneralizedLinear,
 };
 use crate::stats_dialogs_view::small_field;
 use eframe::egui::{self, ComboBox, Ui};
@@ -45,8 +45,12 @@ pub fn genlin(ui: &mut Ui, d: &mut GeneralizedLinear, picked: &mut Vec<String>) 
         let mut chosen = d.distribution;
         ComboBox::new("distribution", "")
             .selected_text(GENLIN_DISTRIBUTIONS[chosen].1)
-            .show_index(ui, &mut chosen, GENLIN_DISTRIBUTIONS.len(), |i| {
-                GENLIN_DISTRIBUTIONS[i].1
+            .show_ui(ui, |ui| {
+                for (i, (_, label)) in GENLIN_DISTRIBUTIONS.iter().enumerate() {
+                    ui.add_enabled_ui(d.distribution_allowed(i), |ui| {
+                        ui.selectable_value(&mut chosen, i, *label);
+                    });
+                }
             });
         if chosen != d.distribution {
             d.set_distribution(chosen);
@@ -120,6 +124,7 @@ pub fn genlin(ui: &mut Ui, d: &mut GeneralizedLinear, picked: &mut Vec<String>) 
         target_one(ui, "Offset", &mut d.offset, picked);
         target_one(ui, "Scale weight", &mut d.scale_weight, picked);
     });
+    egui::CollapsingHeader::new("Repeated measures").show(ui, |ui| repeated(ui, d, picked));
     egui::CollapsingHeader::new("Estimation").show(ui, |ui| {
         ui.horizontal(|ui| {
             choice(ui, "Method", &GENLIN_METHODS, &mut d.method);
@@ -150,12 +155,23 @@ pub fn genlin(ui: &mut Ui, d: &mut GeneralizedLinear, picked: &mut Vec<String>) 
     egui::CollapsingHeader::new("Statistics").show(ui, |ui| {
         ui.horizontal(|ui| {
             choice(ui, "Tests of effects", &GENLIN_ANALYSES, &mut d.analysis);
-            ui.checkbox(&mut d.likelihood_ratio, "Likelihood ratio");
+            // estimating equations have Wald tests only; a tick stays removable
+            ui.add_enabled(
+                !d.repeated || d.likelihood_ratio,
+                egui::Checkbox::new(&mut d.likelihood_ratio, "Likelihood ratio"),
+            );
         });
-        checkboxes(ui, &GENLIN_PRINT, &mut d.print);
+        let mut print = GENLIN_PRINT;
+        if d.repeated {
+            print[0].1 = "Case processing and correlated data summary";
+        }
+        checkboxes(ui, &print, &mut d.print);
         ui.add_enabled_ui(d.print[5], |ui| {
             ui.checkbox(&mut d.exponentiated, "Exponentiated parameter estimates");
         });
+        if d.repeated {
+            ui.checkbox(&mut d.working_corr, "Working correlation matrix");
+        }
     });
     egui::CollapsingHeader::new("EM means").show(ui, |ui| {
         if !d.means_allowed() {
@@ -192,5 +208,60 @@ pub fn genlin(ui: &mut Ui, d: &mut GeneralizedLinear, picked: &mut Vec<String>) 
     });
     egui::CollapsingHeader::new("Missing values").show(ui, |ui| {
         ui.checkbox(&mut d.include, "User-missing values of factors are valid");
+    });
+}
+
+/// Repeated measures of subjects, fitted by generalized estimating equations.
+fn repeated(ui: &mut Ui, d: &mut GeneralizedLinear, picked: &mut Vec<String>) {
+    ui.checkbox(
+        &mut d.repeated,
+        "Repeated measures of subjects (generalized estimating equations)",
+    );
+    ui.add_enabled_ui(d.repeated, |ui| {
+        target_list(ui, "Subject variables", &mut d.subjects, picked);
+        target_list(ui, "Within-subject variables", &mut d.within, picked);
+        ui.weak("Subjects and their measurements are categories: factors or variables outside the model, never covariates.");
+        ui.checkbox(
+            &mut d.sort,
+            "Sort the cases by subject and within-subject values",
+        );
+        ui.horizontal(|ui| {
+            choice(
+                ui,
+                "Working correlation",
+                &GENLIN_CORRELATIONS,
+                &mut d.correlation,
+            );
+            if GENLIN_CORRELATIONS[d.correlation].0 == "MDEPENDENT" {
+                ui.label("m");
+                small_field(ui, true, &mut d.m);
+            }
+        });
+        if GENLIN_CORRELATIONS[d.correlation].0 == "FIXED" {
+            field(ui, "Below the diagonal, row by row", &mut d.fixed, 200.0);
+        }
+        ui.checkbox(
+            &mut d.adjust,
+            "Adjust the correlation estimate by the number of parameters",
+        );
+        ui.horizontal(|ui| {
+            ui.label("Covariance matrix");
+            ui.radio_value(&mut d.gee_robust, true, "Robust");
+            ui.radio_value(&mut d.gee_robust, false, "Model-based");
+        });
+        field(ui, "Maximum iterations", &mut d.gee_iterations, 50.0);
+        field(
+            ui,
+            "Update the matrix every n iterations (0 never)",
+            &mut d.update,
+            50.0,
+        );
+        ui.horizontal(|ui| {
+            ui.label("Parameter convergence");
+            ui.add(egui::TextEdit::singleline(&mut d.gee_convergence).desired_width(80.0));
+            ui.radio_value(&mut d.gee_relative, false, "Absolute");
+            ui.radio_value(&mut d.gee_relative, true, "Relative");
+        });
+        field(ui, "Hessian convergence (0 not used)", &mut d.hessian, 80.0);
     });
 }

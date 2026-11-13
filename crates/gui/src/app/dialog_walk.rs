@@ -232,10 +232,10 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             dependent: s("monthly_spend"),
             ..Default::default()
         })),
-        Dialog::Advanced(Advanced::Genlin(GeneralizedLinear {
+        Dialog::Advanced(Advanced::Genlin(Box::new(GeneralizedLinear {
             dependent: s("monthly_spend"),
             ..Default::default()
-        })),
+        }))),
         Dialog::Advanced(Advanced::Correspondence(Correspondence {
             row: table_variable("region", "1", "5", &[]),
             column: table_variable("q6_mention1", "1", "6", &[]),
@@ -932,7 +932,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             residual_df: true,
             include: true,
         })),
-        Dialog::Advanced(Advanced::Genlin(GeneralizedLinear {
+        Dialog::Advanced(Advanced::Genlin(Box::new(GeneralizedLinear {
             dependent: s("q5_1"),
             reference: 2,
             reference_value: s("1"),
@@ -972,7 +972,34 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             save: [true; 14],
             include: true,
             ..Default::default()
-        })),
+        }))),
+        // repeated measures with every setting; they leave out likelihood ratio tests and the
+        // saved variables of influence, so they have an entry of their own
+        Dialog::Advanced(Advanced::Genlin(Box::new(GeneralizedLinear {
+            dependent: s("monthly_spend"),
+            factors: v(&["gender"]),
+            covariates: v(&["age"]),
+            analysis: 2,
+            print: [true; 8],
+            exponentiated: true,
+            means: vec![MeansTable::default()],
+            save: std::array::from_fn(|i| matches!(i, 0..=4 | 7 | 8)),
+            repeated: true,
+            subjects: v(&["region"]),
+            // ignored with a warning, as the cases are not sorted
+            within: v(&["resp_id"]),
+            sort: false,
+            correlation: 1,
+            adjust: false,
+            gee_robust: false,
+            gee_iterations: s("50"),
+            update: s("2"),
+            gee_convergence: s("1E-5"),
+            gee_relative: true,
+            hessian: s("0.001"),
+            working_corr: true,
+            ..Default::default()
+        }))),
         Dialog::Advanced(Advanced::Correspondence(Correspondence {
             row: table_variable(
                 "region",
