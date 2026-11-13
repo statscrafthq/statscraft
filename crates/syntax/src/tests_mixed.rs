@@ -205,59 +205,60 @@ fn solution_print_save_and_random_test_coefficients() {
     assert_eq!(m.tests[0].random[1][0], (None, vec![0.0, 1.0]));
 }
 
-/// The first row of a MIXED TEST sets the form of every row: beginning with ALL, or naming
-/// effects with no ALL. Mixing the two is refused at the row that breaks the form.
+/// ALL and effect names never mix in one TEST (MIXED and PLUM): the first of them sets the
+/// form of every row. Bare values after `|` fit either form. A mix is refused at the row that
+/// breaks the form.
 #[test]
 fn test_rows_keep_the_form_of_the_first_row() {
-    // ALL form: every row begins with ALL; values after `|` are for every random parameter
+    // ALL form: values after `|` are for every random parameter, ALL there too
     let m = mixed(
-        "MIXED gain BY crop /FIXED=crop /RANDOM=plot /TEST=ALL 0 1 -1 | 1 0; ALL | 0 1; ALL 1 0 0.",
+        "MIXED gain BY crop /FIXED=crop /RANDOM=plot /TEST=ALL 0 1 -1 | 1 0; ALL | 0 1; ALL | ALL 1 1; | 1 1; ALL 1 0 0.",
     );
-    assert_eq!(m.tests[0].rows.len(), 3);
-    // effect form: every row begins with an effect; bare values may follow `|`
+    assert_eq!(m.tests[0].rows.len(), 5);
+    assert_eq!(m.tests[0].random[2][0], (None, vec![1.0, 1.0]));
+    // effect form: bare values may follow `|`, and a row may have only them
     let m = mixed(
-        "MIXED gain BY crop /FIXED=crop /RANDOM=plot /TEST=crop 1 -1; | plot 1 -1; INTERCEPT 1 crop 0 1 | 0 1.",
+        "MIXED gain BY crop /FIXED=crop /RANDOM=plot /TEST=| 1 0; crop 1 -1; | plot 1 -1; INTERCEPT 1 crop 0 1 | 0 1.",
     );
-    assert_eq!(m.tests[0].rows.len(), 3);
-    assert_eq!(m.tests[0].random[2][0], (None, vec![0.0, 1.0]));
-    for (source, row) in [
+    assert_eq!(m.tests[0].rows.len(), 4);
+    assert_eq!(m.tests[0].random[3][0], (None, vec![0.0, 1.0]));
+    for (source, says) in [
         (
             "MIXED gain BY crop /FIXED=crop /TEST=ALL 0 1 -1; crop 1 -1.",
-            "row 2",
+            "row 2 has an effect name, but row 1 uses ALL",
         ),
         (
             "MIXED gain BY crop /FIXED=crop /TEST=crop 1 -1; ALL 0 1 -1.",
-            "row 2",
+            "row 2 has ALL, but row 1 names effects",
         ),
         (
-            "MIXED gain BY crop /FIXED=crop /RANDOM=plot /TEST=crop 1 -1; crop 0 1; | 1 0.",
-            "row 3",
+            "MIXED gain BY crop /FIXED=crop /RANDOM=plot /TEST=| 1 0; crop 0 1; | ALL 1 0.",
+            "row 3 has ALL, but row 2 names",
         ),
         (
             "MIXED gain BY crop /FIXED=crop /RANDOM=plot /TEST=crop 1 -1 | ALL 1 0.",
-            "row 1",
+            "row 1 has ALL, but this row names",
         ),
         (
             "MIXED gain BY crop /FIXED=crop /TEST=crop 1 -1; INTERCEPT 1 ALL 0 1 -1.",
-            "row 2",
+            "row 2 has ALL",
         ),
         (
-            "MIXED gain BY crop /FIXED=crop /RANDOM=plot /TEST=| 1 0; INTERCEPT 1.",
-            "row 2",
+            "MIXED gain BY crop /FIXED=crop /TEST=ALL 0 1 -1 crop 1 -1.",
+            "row 1 has an effect name",
+        ),
+        (
+            "MIXED gain BY crop /FIXED=crop /RANDOM=plot /TEST=ALL 0 1 -1 | plot 1 0.",
+            "row 1 has an effect name",
+        ),
+        (
+            "PLUM score BY shift /TEST=ALL 0 0 1 -1; shift 1 -1.",
+            "row 2 has an effect name",
         ),
     ] {
         let message = err(source);
-        assert!(
-            message.contains(row) && message.contains("first row"),
-            "{source}: {message}"
-        );
+        assert!(message.contains(says), "{source}: {message}");
     }
-    // the rule is MIXED's own: PLUM keeps taking ALL and effect rows in one TEST
-    assert!(
-        parse("PLUM score BY shift /TEST=ALL 0 0 1 -1; shift 1 -1.")
-            .1
-            .is_empty()
-    );
 }
 
 #[test]

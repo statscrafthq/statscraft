@@ -24,9 +24,8 @@
 //! - TEST may repeat: `TEST[(constants)] = ['label'] effect values ... [DIVISOR=v]; ...`, or ALL
 //!   with values for every fixed parameter. The constants, one per row, default to 0; DIVISOR
 //!   divides the coefficients of its row. Coefficients for random effects follow `|`, by effect
-//!   or as bare values for every random parameter. Every row takes the form of the first: each
-//!   begins with ALL (or bare values after `|`), or each begins with an effect name and has no
-//!   ALL (bare values after `|` stay allowed there).
+//!   or as bare values for every random parameter. ALL and effect names never mix in one TEST:
+//!   the first of them sets the form of every row (bare values after `|` fit either).
 
 use crate::ast::{Command, VarItem};
 use crate::error::SyntaxError;

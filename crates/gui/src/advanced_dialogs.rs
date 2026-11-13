@@ -236,6 +236,8 @@ impl ContrastTest {
         n: usize,
     ) -> Result<String, String> {
         let mut rows = Vec::new();
+        // whether the test uses ALL rather than effect names: never both
+        let mut all_form = None;
         for line in self.rows.lines() {
             // coefficients written plainly: `1.` would end the command
             let tokens: Vec<String> = line
@@ -262,7 +264,13 @@ impl ContrastTest {
                 }
                 after_effect = 0;
                 let token = token.as_str();
-                let known = token.eq_ignore_ascii_case("ALL")
+                let all = token.eq_ignore_ascii_case("ALL");
+                if *all_form.get_or_insert(all) != all {
+                    return Err(format!(
+                        "test {n}: ALL and effect names cannot be mixed in one test"
+                    ));
+                }
+                let known = all
                     || (intercept && token.eq_ignore_ascii_case("INTERCEPT"))
                     || terms.iter().any(|t| same_term(t, token));
                 if !known {
@@ -2406,6 +2414,11 @@ mod tests {
         assert_eq!(
             d.syntax().unwrap_err(),
             "test 1: age is in both the location and the scale part, so give its coefficients with ALL"
+        );
+        d.tests[0].rows = "ALL 0 0 0 1 -1 0\ngender 1 -1".into();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "test 1: ALL and effect names cannot be mixed in one test"
         );
     }
 

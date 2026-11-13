@@ -698,9 +698,8 @@ fn lmatrix(p: &mut Parser) -> PResult<LMatrix> {
 }
 
 /// TEST after its name: `[(constants)] = ['label'] row; row ...`. `mixed` allows DIVISOR and
-/// random-effect coefficients after `|` (ALL may then come without values), and holds every
-/// row to the form of the first: beginning with ALL (or bare values after `|`), or with an
-/// effect name and then no ALL.
+/// random-effect coefficients after `|` (ALL may then come without values). ALL and effect
+/// names never mix in one TEST: the first of them sets the form of every row.
 pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
     let mut constants = Vec::new();
     if p.eat(Punct::LParen) {
@@ -720,21 +719,19 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
     };
     let mut rows = Vec::new();
     let mut random = Vec::new();
-    // the fixed and the random part of the row being read, whether `|` came, and whether the
-    // row began with ALL (None before its first item)
-    type Row = (LRow, LRow, bool, Option<bool>);
-    let mut row: Row = Default::default();
-    // whether the first row began with ALL
-    let mut first_all = None;
-    fn close(row: &mut Row, rows: &mut Vec<LRow>, random: &mut Vec<LRow>) {
-        let (fixed, rand, _, _) = std::mem::take(row);
+    // the fixed and the random part of the row being read, and whether `|` came
+    let mut row: (LRow, LRow, bool) = (Vec::new(), Vec::new(), false);
+    // whether the TEST uses ALL rather than effect names, and the row that set it
+    let mut form: Option<(bool, usize)> = None;
+    fn close(row: &mut (LRow, LRow, bool), rows: &mut Vec<LRow>, random: &mut Vec<LRow>) {
+        let (fixed, rand, _) = std::mem::take(row);
         if !fixed.is_empty() || !rand.is_empty() {
             rows.push(fixed);
             random.push(rand);
         }
     }
     // `|` must be followed by coefficients
-    let bare_bar = |p: &Parser, row: &Row| -> PResult<()> {
+    let bare_bar = |p: &Parser, row: &(LRow, LRow, bool)| -> PResult<()> {
         if row.2 && row.1.is_empty() {
             return Err(p.unexpected(&["a coefficient"]));
         }
@@ -794,31 +791,26 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
         } else {
             Some(term(p)?)
         };
-        if mixed {
-            let all = effect.is_none();
-            let leading = row.3.is_none();
-            if leading {
-                row.3 = Some(all);
-            }
-            let first = *first_all.get_or_insert(all);
-            // bare values after `|` may follow effect names: an effect on two RANDOM
-            // subcommands can be given no other way
-            if (leading && all != first) || (all_word && !first) {
-                let found = match effect {
-                    Some(_) => "an effect name",
-                    None if all_word => "ALL",
-                    None => "values without an effect name",
-                };
-                let began = if first {
-                    "begins with ALL"
+        // bare values after `|` take either form: an effect on two RANDOM subcommands can be
+        // given no other way
+        if all_word || effect.is_some() {
+            let n = rows.len() + 1;
+            let (all, r) = *form.get_or_insert((all_word, n));
+            if all_word != all {
+                let (found, set) = if all_word {
+                    ("ALL", "names effects")
                 } else {
-                    "names effects"
+                    ("an effect name", "uses ALL")
+                };
+                let row = if r == n {
+                    "this row".to_string()
+                } else {
+                    format!("row {r}")
                 };
                 return Err(SyntaxError::new(
                     p.span_from(start),
                     format!(
-                        "TEST row {} has {found} where the first row {began}; one TEST begins every row with ALL or names effects in every row",
-                        rows.len() + 1
+                        "TEST row {n} has {found}, but {row} {set}; one TEST uses either ALL with values or effect names, never both"
                     ),
                 ));
             }
