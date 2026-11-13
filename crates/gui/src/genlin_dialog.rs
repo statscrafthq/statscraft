@@ -955,7 +955,7 @@ pub fn data_checks(d: &GeneralizedLinear, data: &Dataset) -> Result<bool, String
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::dialogs::testing::{open, run_in, runs, v};
+    use crate::dialogs::testing::{open, run_in, runs, v, waves};
 
     fn terms(list: &[&[&str]]) -> Terms {
         Terms {
@@ -1401,23 +1401,6 @@ mod tests {
             .iter()
             .flat_map(|c| c.tables.iter().map(|t| t.title.clone()))
             .collect()
-    }
-
-    /// Our synthetic panel: 30 people, each measured in up to four waves.
-    fn waves() -> statscraft_engine::session::Session {
-        let csv = include_str!("../../../tests/fixtures/mixed_waves.csv");
-        let rows: Vec<&str> = csv.lines().skip(1).collect();
-        let mut session = statscraft_engine::session::Session::default();
-        session
-            .run(
-                &format!(
-                    "DATA LIST LIST(\",\") /person arm wave dose level.\nBEGIN DATA\n{}\nEND DATA.",
-                    rows.join("\n")
-                ),
-                None,
-            )
-            .unwrap();
-        session
     }
 
     #[test]
