@@ -88,19 +88,19 @@ fn trigamma(mut x: f64) -> f64 {
     r + 1.0 / x + f / 2.0 + f / x * (1.0 / 6.0 - f * (1.0 / 30.0 - f * (1.0 / 42.0 - f / 30.0)))
 }
 
-/// ln Gamma(y + r) - ln Gamma(r); for a modest whole number y as a sum, which stays exact when
-/// r is large (k near 0).
+/// ln Gamma(y + r) - ln Gamma(r); with r large (k near 0) and a modest whole number y as a
+/// sum, which does not lose the difference of two large numbers.
 fn ln_gamma_ratio(y: f64, r: f64) -> f64 {
-    if y.fract() == 0.0 && y <= 10_000.0 {
+    if y.fract() == 0.0 && y <= 10_000.0 && r > 1e4 {
         (0..y as usize).map(|j| (r + j as f64).ln()).sum()
     } else {
         ln_gamma(y + r) - ln_gamma(r)
     }
 }
 
-/// digamma(y + r) - digamma(r), as a sum for a modest whole number y.
+/// digamma(y + r) - digamma(r), as a sum when r is large and y a modest whole number.
 fn digamma_difference(y: f64, r: f64) -> f64 {
-    if y.fract() == 0.0 && y <= 10_000.0 {
+    if y.fract() == 0.0 && y <= 10_000.0 && r > 1e4 {
         (0..y as usize).map(|j| 1.0 / (r + j as f64)).sum()
     } else {
         digamma(y + r) - digamma(r)
@@ -611,13 +611,12 @@ fn fit_beta(
             .fold(0.0, f64::max);
         // with an estimated scale the log likelihood here is at scale 1: the criteria are on the
         // model's own scale, the current estimate
-        let (ll_scale, quad_scale) = match spec.scale {
-            ScaleMode::Mle => {
-                let v = scale_estimate(c, spec.family, &m);
-                (v, v)
-            }
-            ScaleMode::Fixed(v) => (1.0, v),
-            _ => (1.0, 1.0),
+        let quad_scale = criteria_scale(c, spec, &m);
+        // the log likelihood is already at a fixed scale
+        let ll_scale = if spec.scale == ScaleMode::Mle {
+            quad_scale
+        } else {
+            1.0
         };
         let dl = if crit.lconverge.relative {
             (l - ll).abs() / (ll.abs() + 1e-6)
@@ -633,7 +632,7 @@ fn fit_beta(
             let h = if fisher { &expected } else { &observed };
             let quad = dot(&s, &mat_vec(&ginverse(h, tol).0, &s)) / quad_scale;
             if crit.hconverge.relative {
-                quad / (ll.abs() + 1e-6)
+                quad / (ll.abs() / ll_scale + 1e-6)
             } else {
                 quad
             }
@@ -653,12 +652,7 @@ fn fit_beta(
     }
     let hessian_ok = q == 0 || crit.hconverge.value > 0.0 || {
         let h = if fisher { &expected } else { &observed };
-        let divisor = match spec.scale {
-            ScaleMode::Mle => scale_estimate(c, spec.family, &mu),
-            ScaleMode::Fixed(v) => v,
-            _ => 1.0,
-        };
-        dot(&s, &mat_vec(&ginverse(h, tol).0, &s)) / divisor < 1e-4
+        dot(&s, &mat_vec(&ginverse(h, tol).0, &s)) / criteria_scale(c, spec, &mu) < 1e-4
     };
     Some(BetaFit {
         beta,
@@ -700,7 +694,26 @@ fn scale_estimate(c: &Cases, family: Family, mu: &[f64]) -> f64 {
     let d: f64 = (0..c.n())
         .map(|i| c.f[i] * c.a(i) * unit_deviance(family, c.y[i], mu[i], 0.0))
         .sum();
-    if d > 0.0 && n > 0.0 { d / n } else { 1.0 }
+    d / n
+}
+
+/// The scale the convergence criteria divide by: the current estimate for MLE, the fixed
+/// value, or 1. A fit so close that its deviance is rounding noise is taken at scale 1.
+fn criteria_scale(c: &Cases, spec: &Spec, mu: &[f64]) -> f64 {
+    match spec.scale {
+        ScaleMode::Mle => {
+            let size: f64 = (0..c.n()).map(|i| c.f[i] * c.a(i) * c.y[i] * c.y[i]).sum();
+            let n: f64 = c.f.iter().sum();
+            let v = scale_estimate(c, spec.family, mu);
+            if v > 1e-12 * (size / n).max(1e-300) {
+                v
+            } else {
+                1.0
+            }
+        }
+        ScaleMode::Fixed(v) => v,
+        _ => 1.0,
+    }
 }
 
 /// The score of the log likelihood in tau = ln phi and its second derivative, at fixed mu.
@@ -782,11 +795,14 @@ fn fit_glm(c: &Cases, x: &[Vec<f64>], spec: &Spec, start: Option<&[f64]>) -> Opt
                 }
             }
             bf.converged &= k_converged;
-            // the curvature of the profile at the final k, for the variance of ln k
-            if let (Some(up), Some(down)) = (
-                fit_at((tau + h).exp(), Some(&bf.beta)),
-                fit_at((tau - h).exp(), Some(&bf.beta)),
-            ) {
+            // the curvature of the profile at the final k, for the variance of ln k when there
+            // is no joint information (no parameters)
+            if q == 0
+                && let (Some(up), Some(down)) = (
+                    fit_at((tau + h).exp(), Some(&bf.beta)),
+                    fit_at((tau - h).exp(), Some(&bf.beta)),
+                )
+            {
                 second = (negbin_score(c, spec, &up.eta, (tau + h).exp())
                     - negbin_score(c, spec, &down.eta, (tau - h).exp()))
                     / (2.0 * h);
@@ -799,12 +815,9 @@ fn fit_glm(c: &Cases, x: &[Vec<f64>], spec: &Spec, start: Option<&[f64]>) -> Opt
     let mut phi = fixed_phi;
     let mut log_variance = log_variance_k;
     if spec.scale == ScaleMode::Mle {
-        let n: f64 = c.f.iter().sum();
-        let d: f64 = (0..c.n())
-            .map(|i| c.f[i] * c.a(i) * unit_deviance(spec.family, c.y[i], bf.mu[i], 0.0))
-            .sum();
-        phi = d / n;
-        if spec.family == Family::Gamma {
+        phi = scale_estimate(c, spec.family, &bf.mu);
+        // a perfect fit has scale 0 and nothing to iterate on
+        if spec.family == Family::Gamma && phi > 0.0 {
             let mut tau = phi.ln();
             for _ in 0..100 {
                 let (s, h) = scale_score(c, spec.family, &bf.mu, tau.exp());
@@ -820,7 +833,7 @@ fn fit_glm(c: &Cases, x: &[Vec<f64>], spec: &Spec, start: Option<&[f64]>) -> Opt
             phi = tau.exp();
         }
         let (_, h) = scale_score(c, spec.family, &bf.mu, phi);
-        log_variance = Some(-1.0 / h);
+        log_variance = (phi > 0.0 && h < 0.0).then(|| -1.0 / h);
     }
     let ll = (0..c.n())
         .map(|i| {
@@ -866,9 +879,13 @@ fn fit_glm(c: &Cases, x: &[Vec<f64>], spec: &Spec, start: Option<&[f64]>) -> Opt
         let mut full = vec![vec![0.0; q + 1]; q + 1];
         for j in 0..q {
             full[j][..q].copy_from_slice(&info[j]);
-            // with the negative binomial link mu moves with k, so even the expected cross
-            // information is not 0: take it from the scores either way
-            let cross = -(su[j] - sd[j]) / (2.0 * h);
+            // the expected cross information is 0 unless mu moves with k, as it does under the
+            // negative binomial link
+            let cross = if fisher && spec.link != GenlinLink::NegativeBinomial {
+                0.0
+            } else {
+                -(su[j] - sd[j]) / (2.0 * h)
+            };
             full[j][q] = cross;
             full[q][j] = cross;
         }

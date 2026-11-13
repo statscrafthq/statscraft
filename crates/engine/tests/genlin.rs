@@ -1487,3 +1487,18 @@ fn the_weight_variable_cannot_have_a_role_in_the_model() {
     ));
     assert!(error.contains("WEIGHT variable"), "{error}");
 }
+
+#[test]
+fn a_nearly_exact_normal_fit_gives_no_hessian_warning() {
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        "DATA LIST FREE /y x.
+BEGIN DATA.
+0.4 1 0.5 2 0.60000001 3 0.7 4 0.8 5 0.9 6
+END DATA.
+GENLIN y WITH x /MODEL x /PRINT NONE.
+",
+    );
+    assert!(engine.warnings().is_empty(), "{:?}", engine.warnings());
+}
