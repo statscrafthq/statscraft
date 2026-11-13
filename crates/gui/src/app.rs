@@ -20,6 +20,8 @@ use crate::dialogs::{
     RecodeRule, Subtotal, is_set, label_command,
 };
 use crate::edits::{self, Field};
+use crate::graph_dialogs::{ChartBuilder, ProbabilityPlot, RocCurve};
+use crate::graph_dialogs_view;
 use crate::model_dialogs::{
     Discriminant, FactorAnalysis, Hierarchical, KMeans, Logistic, RepeatedMeasures, Univariate,
 };
@@ -232,6 +234,9 @@ pub(crate) enum Dialog {
     SortVariables(SortVariables),
     ImportData(ImportData),
     ExportData(ExportData),
+    ChartBuilder(ChartBuilder),
+    ProbabilityPlot(ProbabilityPlot),
+    RocCurve(RocCurve),
 }
 
 impl Dialog {
@@ -275,6 +280,9 @@ impl Dialog {
             Dialog::SortVariables(_) => "Sort Variables",
             Dialog::ImportData(_) => "Open Data",
             Dialog::ExportData(_) => "Export Data",
+            Dialog::ChartBuilder(_) => "Chart Builder",
+            Dialog::ProbabilityPlot(d) => d.title(),
+            Dialog::RocCurve(_) => "ROC Curve",
         }
     }
 
@@ -328,6 +336,9 @@ impl Dialog {
             Dialog::SortVariables(_) => Dialog::SortVariables(Default::default()),
             Dialog::ImportData(d) => Dialog::ImportData(ImportData::new(Path::new(&d.path))),
             Dialog::ExportData(_) => Dialog::ExportData(Default::default()),
+            Dialog::ChartBuilder(_) => Dialog::ChartBuilder(Default::default()),
+            Dialog::ProbabilityPlot(d) => Dialog::ProbabilityPlot(ProbabilityPlot::new(d.pp)),
+            Dialog::RocCurve(_) => Dialog::RocCurve(Default::default()),
         }
     }
 
@@ -450,6 +461,13 @@ impl Dialog {
             Dialog::SortVariables(d) => d.syntax(),
             Dialog::ImportData(d) => d.syntax(),
             Dialog::ExportData(d) => d.syntax(),
+            // category, group and panel variables may be strings
+            Dialog::ChartBuilder(d) => numeric(data, d.measured()).and_then(|()| d.syntax()),
+            Dialog::ProbabilityPlot(d) => numeric(data, &d.variables).and_then(|()| d.syntax()),
+            // the state variable may be a string
+            Dialog::RocCurve(d) => {
+                numeric(data, &d.tests).and_then(|()| d.syntax(is_string(data, &d.state)))
+            }
         }
     }
 }
@@ -1594,6 +1612,24 @@ impl App {
                         }
                     });
                 });
+            });
+            ui.menu_button("Graphs", |ui| {
+                for (label, dialog) in [
+                    ("Chart Builder...", Dialog::ChartBuilder(Default::default())),
+                    (
+                        "P-P Plots...",
+                        Dialog::ProbabilityPlot(ProbabilityPlot::new(true)),
+                    ),
+                    (
+                        "Q-Q Plots...",
+                        Dialog::ProbabilityPlot(ProbabilityPlot::new(false)),
+                    ),
+                    ("ROC Curve...", Dialog::RocCurve(Default::default())),
+                ] {
+                    if ui.add_enabled(has_data, egui::Button::new(label)).clicked() {
+                        self.open_dialog(dialog);
+                    }
+                }
             });
             ui.menu_button("Transform", |ui| {
                 if ui
@@ -5724,6 +5760,9 @@ fn dialog_body(
         Dialog::Logistic(d) => model_dialogs_view::logistic(ui, d, picked),
         Dialog::Univariate(d) => model_dialogs_view::univariate(ui, d, picked),
         Dialog::RepeatedMeasures(d) => model_dialogs_view::repeated_measures(ui, d, picked),
+        Dialog::ChartBuilder(d) => graph_dialogs_view::chart_builder(ui, d, picked),
+        Dialog::ProbabilityPlot(d) => graph_dialogs_view::probability_plot(ui, d, picked),
+        Dialog::RocCurve(d) => graph_dialogs_view::roc(ui, d, picked),
         Dialog::Restructure(d) => {
             ui.radio_value(
                 &mut d.kind,

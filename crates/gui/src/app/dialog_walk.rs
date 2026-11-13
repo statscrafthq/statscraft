@@ -16,6 +16,7 @@ use crate::dialogs::{
     Adjust, Autorecode, Categories, Compute, Count, Crosstabs, CustomTables, Descriptives,
     Frequencies, Letters, NewValue, OldValue, Rank, Recode, RecodeRule, Subtotal,
 };
+use crate::graph_dialogs::{ChartBuilder, ChartKind, ProbabilityPlot, RocCurve};
 use crate::model_dialogs::{
     Categorical, Discriminant, FactorAnalysis, Hierarchical, KMeans, Logistic, RepeatedMeasures,
     Solutions, Univariate, WithinFactor,
@@ -230,6 +231,41 @@ fn minimal(out: &Path) -> Vec<Dialog> {
         d.pairs = vec![(s("age"), s("monthly_spend"))];
         list.push(Dialog::TTest(d));
     }
+    for kind in ChartKind::ALL {
+        // the fewest roles each chart needs
+        list.push(Dialog::ChartBuilder(ChartBuilder {
+            kind,
+            function: if kind == ChartKind::HighLow { 4 } else { 0 },
+            variables: match kind {
+                ChartKind::HighLow | ChartKind::OverlayScatter | ChartKind::MatrixScatter => {
+                    v(&["age", "monthly_spend"])
+                }
+                _ => v(&["age"]),
+            },
+            y_variables: v(&["q2_recommend"]),
+            category: s("region"),
+            group: if kind.group().is_some() && kind != ChartKind::ErrorBar {
+                s("gender")
+            } else {
+                String::new()
+            },
+            x: s("age"),
+            y: s("monthly_spend"),
+            ..Default::default()
+        }));
+    }
+    for pp in [false, true] {
+        list.push(Dialog::ProbabilityPlot(ProbabilityPlot {
+            variables: v(&["age"]),
+            ..ProbabilityPlot::new(pp)
+        }));
+    }
+    list.push(Dialog::RocCurve(RocCurve {
+        tests: v(&["age"]),
+        state: s("q5_1"),
+        value: s("1"),
+        ..Default::default()
+    }));
     for kind in NparKind::ALL {
         let mut d = NparTests::new(kind);
         d.variables = v(&["q1_satisfaction", "q2_recommend"]);
@@ -799,6 +835,78 @@ fn maximal(out: &Path) -> Vec<Dialog> {
         d.standardizer = 2;
         list.push(Dialog::TTest(d));
     }
+    for kind in ChartKind::ALL {
+        // the last function a chart takes, titles, panels and every missing-value option
+        let mut d = ChartBuilder {
+            kind,
+            function: *kind.functions().last().unwrap(),
+            low: s("20"),
+            high: s("60"),
+            variables: v(&["age", "monthly_spend"]),
+            y_variables: v(&["q2_recommend", "q1_satisfaction"]),
+            pair: true,
+            category: s("region"),
+            group: s("gender"),
+            x: s("age"),
+            y: s("monthly_spend"),
+            label: s("resp_id"),
+            normal: true,
+            error_bar: 2,
+            level: s("90"),
+            multiplier: s("1"),
+            cumulative: false,
+            title: s("A title"),
+            subtitle: s("A subtitle"),
+            footnote: s("A footnote"),
+            by_variable: true,
+            report: true,
+            include: true,
+            panel_columns: v(&["q5_1"]),
+            panel_rows: v(&["q5_2"]),
+        };
+        // a group variable and a pie take one summarized variable
+        d.variables = match kind {
+            ChartKind::OverlayScatter | ChartKind::MatrixScatter => d.variables,
+            ChartKind::HighLow => v(&["age", "monthly_spend", "q2_recommend"]),
+            _ => v(&["age"]),
+        };
+        list.push(Dialog::ChartBuilder(d));
+    }
+    for (pp, distribution) in [(false, 0), (true, 12)] {
+        list.push(Dialog::ProbabilityPlot(ProbabilityPlot {
+            variables: v(&["age", "monthly_spend"]),
+            distribution,
+            estimate: false,
+            parameters: [s("40"), s("12")],
+            fraction: 3,
+            ties: 3,
+            plot: 2,
+            ln: true,
+            standardize: true,
+            diff: true,
+            diff_degree: s("1"),
+            sdiff: true,
+            sdiff_degree: s("1"),
+            period: s("4"),
+            ..ProbabilityPlot::new(pp)
+        }));
+    }
+    list.push(Dialog::RocCurve(RocCurve {
+        tests: v(&["age", "monthly_spend"]),
+        state: s("plan"),
+        value: s("BASIC"),
+        curve: true,
+        reference: true,
+        se: true,
+        model_quality: true,
+        coordinates: true,
+        small_positive: true,
+        exclude_cutoff: true,
+        // the bi-negative exponential error needs as many positive as negative cases
+        negexpo: false,
+        level: s("90"),
+        include: true,
+    }));
     for kind in NparKind::ALL {
         let mut d = NparTests::new(kind);
         d.variables = v(&["q1_satisfaction", "q2_recommend", "age"]);

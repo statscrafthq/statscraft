@@ -12,6 +12,8 @@ mod dialogs;
 mod editor;
 mod edits;
 mod fonts;
+mod graph_dialogs;
+mod graph_dialogs_view;
 mod grid;
 mod grid_menu;
 mod highlight;

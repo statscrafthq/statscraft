@@ -404,6 +404,18 @@ See [The Window menu](#the-window-menu).
 - Row, column and total percentages, based on cases or on responses.
 - Leaving out cases missing on any variable of a dichotomy or category group.
 
+### Graphs
+
+- **Chart Builder** (`GRAPH`): one chart, picked from a list: simple, clustered or stacked bars; simple or multiple lines; an area chart; a pie; a histogram; simple, grouped, overlay or matrix scatterplots; error bars; a Pareto chart; or a high-low chart. Only the roles the chosen chart needs are shown.
+  - Bars, lines, areas, pies, Pareto and high-low charts show a function by the categories of a variable: the number or percentage of cases (also cumulative), or the mean, median, mode, sum, minimum, maximum, standard deviation, variance, grouped median, a percentile, or the share or number of values below, above or within a range, of one or more variables. Pareto charts show counts or sums; high-low charts summarize two or three variables (high, low and close).
+  - Clustered and stacked bars, multiple lines, areas and Pareto charts take a second category variable for their series; clustered bars and multiple lines can instead summarize several variables, one series each.
+  - A histogram can carry a normal curve. Scatterplots take their axes, a variable that groups the points and one whose values label them; an overlay pairs every X variable with every Y variable, or the lists in order.
+  - Error bars show the mean of each variable, by category and cluster, with a confidence interval at any level from 50 to 99.9, or a number of standard errors or standard deviations.
+  - A title, subtitle and footnote; panel variables, which draw a chart for each combination of their categories; and how missing values are left out, whether they get categories of their own, and whether user-missing values count as valid.
+  - There is no preview: OK draws the chart in the output.
+- **P-P Plots** and **Q-Q Plots** (`PPLOT`): variables against a test distribution (normal, exponential, Weibull, Pareto, lognormal, beta, gamma, logistic, Laplace, uniform, half-normal, chi-square or Student t), its parameters estimated from the data or given (chi-square and Student t always need their degrees of freedom). The proportion formula (Blom, Rankit, Tukey, Van der Waerden), the rank of tied values, the plot, the detrended plot or both, and the natural log, standardizing, differencing and seasonal differencing with its period.
+- **ROC Curve** (`ROC`): test variables against the value of a state variable that marks the positive state. The curve with or without the diagonal reference line, the standard error and confidence interval of the area with the chart of the model quality, and the coordinate points. Whether larger or smaller test values point to a positive test, whether a value at the cutoff counts as positive, the confidence level, a nonparametric or bi-negative exponential standard error, and user-missing values as valid.
+
 ### Transform
 
 - **Compute Variable**, **Recode** and **Count Values within Cases**.
