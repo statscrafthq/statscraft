@@ -2555,10 +2555,6 @@ impl Engine {
         let sigma = fitted.sigma.as_ref();
         let residual_df = (n - p) as f64;
         let kr = if command.df_method == DfMethod::KenwardRoger {
-            // the method was derived for REML; with ML it still runs, flagged (docs/differences.md)
-            if command.ml {
-                warnings.push("MIXED: the Kenward-Roger adjustment is meant for REML estimates; with METHOD=ML it is only approximate".into());
-            }
             // W is the inverse of the expected information, as the method was published
             let w = cholesky_inverse(&e.hess_expected).map(|(inv, _)| {
                 inv.iter()
@@ -2568,6 +2564,9 @@ impl Engine {
             let kr = w.and_then(|w| Kr::new(e, w));
             if kr.is_none() {
                 warnings.push("MIXED: the Kenward-Roger adjustment cannot be made (the expected information of the covariance parameters is singular or the adjusted covariance is not positive definite), so the degrees of freedom are Satterthwaite's".into());
+            } else if command.ml {
+                // the method was derived for REML; with ML it still runs, flagged (docs/differences.md)
+                warnings.push("MIXED: the Kenward-Roger adjustment is meant for REML estimates; with METHOD=ML it is only approximate".into());
             }
             kr
         } else {
@@ -3085,7 +3084,7 @@ impl Engine {
                 with_df,
             )
         });
-        // coefficients after `|` of TEST: per effect of a RANDOM (the first that has it) or ALL
+        // coefficients after `|` of TEST: per effect of a RANDOM (only one may have it) or ALL
         // over every RANDOM in order; each subject gets them divided by the number of subjects
         let random_row = |given: &LRow| -> Result<(RandomRow, Vec<f64>), Error> {
             let mut coef: Vec<Vec<f64>> = random_fits.iter().map(|f| vec![0.0; f.p]).collect();
