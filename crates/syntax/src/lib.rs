@@ -167,12 +167,12 @@ pub use output_docs::{
     ExportTarget, ImageExport, ImageFormat, ImageTone, OutputCommand, OutputExport, OutputOpen,
     OutputSave, SheetLocation, SheetOperation, TextEncoding,
 };
-pub use plum::{Plum, PlumCriteria, PlumLink, PlumPrint, PlumSave};
 pub use output_modify::{
     ApplyTo, CellArea, CellCondition, CommandPick, CompareOp, CompareValue, Dimension, IndexStyle,
     Indexing, Instance, ItemKind, LabelTest, ModifyBlock, ModifyTarget, OutputModify, SortColumn,
     TableCells, letters, roman,
 };
+pub use plum::{Plum, PlumCriteria, PlumLink, PlumPrint, PlumSave};
 pub use pplot::{Pplot, PplotPlot, Roc, TestDistribution};
 pub use preprocess::{FileHandle, MacroState};
 pub use regression::{
