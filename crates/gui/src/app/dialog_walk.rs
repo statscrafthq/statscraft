@@ -985,10 +985,10 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             means: vec![MeansTable::default()],
             save: std::array::from_fn(|i| matches!(i, 0..=4 | 7 | 8)),
             repeated: true,
-            subjects: v(&["region"]),
-            // ignored with a warning, as the cases are not sorted
-            within: v(&["resp_id"]),
-            sort: false,
+            // one case per respondent, placed by gender; sorting stays on, as WITHINSUBJECT
+            // needs it
+            subjects: v(&["resp_id"]),
+            within: v(&["gender"]),
             correlation: 1,
             adjust: false,
             gee_robust: false,

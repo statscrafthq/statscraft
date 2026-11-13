@@ -147,8 +147,20 @@ pub const GENLIN_SAVE: [(&str, &str); 14] = [
 /// The saved variables of the ordinal multinomial distribution.
 const MULTINOMIAL_SAVES: usize = 6;
 
-/// The `GENLIN_SAVE` entries that generalized estimating equations do not give.
-const NOT_WITH_REPEATED: [usize; 6] = [6, 9, 10, 11, 12, 13];
+/// The saved variables that generalized estimating equations do not give.
+const NOT_WITH_REPEATED: [&str; 6] = [
+    "LEVERAGE",
+    "DEVIANCERESID",
+    "STDPEARSONRESID",
+    "STDDEVIANCERESID",
+    "LIKELIHOODRESID",
+    "COOK",
+];
+
+/// Entry `i` of `GENLIN_SAVE` is given by generalized estimating equations.
+fn given_with_repeated(i: usize) -> bool {
+    !NOT_WITH_REPEATED.contains(&GENLIN_SAVE[i].0)
+}
 
 /// The working correlation structures of repeated measures; the first is the default.
 pub const GENLIN_CORRELATIONS: [(&str, &str); 6] = [
@@ -406,7 +418,7 @@ impl GeneralizedLinear {
                 5 => self.categorical(),
                 i => !multinomial || i < MULTINOMIAL_SAVES,
             };
-            given && !(self.repeated && NOT_WITH_REPEATED.contains(&i))
+            given && (!self.repeated || given_with_repeated(i))
         })
     }
 
@@ -581,7 +593,7 @@ impl GeneralizedLinear {
                         .into(),
                 );
             }
-            if NOT_WITH_REPEATED.iter().any(|&i| self.save[i]) {
+            if (0..GENLIN_SAVE.len()).any(|i| self.save[i] && !given_with_repeated(i)) {
                 return Err(
                     "with repeated measures leverage, Cook's distance and the deviance, standardized and likelihood residuals are not saved"
                         .into(),
@@ -676,6 +688,12 @@ impl GeneralizedLinear {
         Ok(text)
     }
 
+    /// The within-subject variables that count: none without sorting, which the command ignores
+    /// them under; the list is kept for when sorting is turned back on.
+    pub fn within_used(&self) -> &[String] {
+        if self.sort { &self.within } else { &[] }
+    }
+
     /// The settings of REPEATED that differ from the defaults, checked; `others` are the
     /// variables in the model that are not factors.
     fn repeated_syntax(&self, others: &[&str]) -> Result<String, String> {
@@ -683,7 +701,8 @@ impl GeneralizedLinear {
         if self.subjects.is_empty() {
             return Err("choose the subject variables of the repeated measures".into());
         }
-        for n in self.subjects.iter().chain(&self.within) {
+        let within = self.within_used();
+        for n in self.subjects.iter().chain(within) {
             if self.covariates.contains(n) {
                 return Err(format!(
                     "{n} is a covariate, so it cannot be a subject or within-subject variable"
@@ -693,14 +712,14 @@ impl GeneralizedLinear {
                 return Err(format!("{n} has more than one role in the model"));
             }
         }
-        if let Some(n) = self.within.iter().find(|n| self.subjects.contains(n)) {
+        if let Some(n) = within.iter().find(|n| self.subjects.contains(n)) {
             return Err(format!(
                 "{n} is both a subject and a within-subject variable"
             ));
         }
         let mut out = vec![format!("SUBJECT={}", self.subjects.join("*"))];
-        if !self.within.is_empty() {
-            out.push(format!("WITHINSUBJECT={}", self.within.join("*")));
+        if !within.is_empty() {
+            out.push(format!("WITHINSUBJECT={}", within.join("*")));
         }
         if !self.sort {
             out.push("SORT=NO".into());
@@ -802,7 +821,8 @@ impl GeneralizedLinear {
         if level != c.cilevel {
             out.push(format!("CILEVEL={}", number(level)));
         }
-        if self.robust {
+        // under repeated measures the covariance is chosen there
+        if self.robust && !self.repeated {
             out.push("COVB=ROBUST".into());
         }
         if self.kernel {
@@ -918,6 +938,15 @@ pub fn data_checks(d: &GeneralizedLinear, data: &Dataset) -> Result<bool, String
         return Err(format!(
             "{n} weights the cases, so it cannot be in the model as well"
         ));
+    }
+    if d.repeated
+        && let Some(n) = d
+            .subjects
+            .iter()
+            .chain(d.within_used())
+            .find(|n| data.variable(n).is_err())
+    {
+        return Err(format!("{n} is no longer a variable"));
     }
     let dependent = d.dependent.trim();
     match data.variable(dependent) {
@@ -1530,6 +1559,22 @@ mod tests {
         assert!(d.syntax(false).is_ok());
         d.within = v(&["wave"]);
 
+        // without sorting the within-subject list is kept but neither written nor checked
+        d.within = v(&["dose"]);
+        d.sort = false;
+        assert!(
+            d.syntax(false)
+                .unwrap()
+                .ends_with("/REPEATED SUBJECT=person SORT=NO.")
+        );
+        d.sort = true;
+        assert!(d.syntax(false).is_err());
+        d.within = v(&["wave"]);
+        // the covariance of the estimating equations is chosen in their section only
+        d.robust = true;
+        assert!(!d.syntax(false).unwrap().contains("COVB=ROBUST"));
+        d.robust = false;
+
         d.correlation = 3;
         d.m = "-1".into();
         assert_eq!(
@@ -1582,6 +1627,32 @@ mod tests {
     }
 
     #[test]
+    fn subjects_taken_out_of_the_data_are_reported() {
+        let session = open("survey_basic.sav");
+        let data = session.dataset().unwrap();
+        let mut d = GeneralizedLinear {
+            dependent: "monthly_spend".into(),
+            subjects: v(&["region"]),
+            within: v(&["gone"]),
+            ..Default::default()
+        };
+        // only the variables the syntax uses
+        assert_eq!(data_checks(&d, data), Ok(false));
+        d.repeated = true;
+        assert_eq!(
+            data_checks(&d, data).unwrap_err(),
+            "gone is no longer a variable"
+        );
+        d.sort = false;
+        assert_eq!(data_checks(&d, data), Ok(false));
+        d.subjects = v(&["lost"]);
+        assert_eq!(
+            data_checks(&d, data).unwrap_err(),
+            "lost is no longer a variable"
+        );
+    }
+
+    #[test]
     fn repeated_measures_leave_out_what_they_do_not_give() {
         let mut d = GeneralizedLinear {
             dependent: "q5_1".into(),
@@ -1603,16 +1674,20 @@ mod tests {
             "with repeated measures the tests of effects are Wald tests, not likelihood ratio tests"
         );
         d.likelihood_ratio = false;
+        // every keyword of the list is a saved variable
         assert_eq!(
-            d.saves_allowed(),
-            std::array::from_fn(|i| !NOT_WITH_REPEATED.contains(&i))
+            (0..14)
+                .filter(|&i| !given_with_repeated(i))
+                .collect::<Vec<_>>(),
+            [6, 9, 10, 11, 12, 13]
         );
+        assert_eq!(d.saves_allowed(), std::array::from_fn(given_with_repeated));
         d.save[13] = true;
         assert_eq!(
             d.syntax(false).unwrap_err(),
             "with repeated measures leverage, Cook's distance and the deviance, standardized and likelihood residuals are not saved"
         );
-        d.save = std::array::from_fn(|i| !NOT_WITH_REPEATED.contains(&i));
+        d.save = std::array::from_fn(given_with_repeated);
         let syntax = d.syntax(false).unwrap();
         assert!(
             syntax.ends_with(

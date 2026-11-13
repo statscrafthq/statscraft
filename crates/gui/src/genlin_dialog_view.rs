@@ -137,15 +137,26 @@ pub fn genlin(ui: &mut Ui, d: &mut GeneralizedLinear, picked: &mut Vec<String>) 
             choice(ui, "Scale parameter", &GENLIN_SCALES, &mut d.scale);
             small_field(ui, d.scale == 3, &mut d.scale_value);
         });
-        ui.horizontal(|ui| {
-            ui.label("Covariance matrix");
-            ui.radio_value(&mut d.robust, false, "Model-based");
-            ui.radio_value(&mut d.robust, true, "Robust");
+        // under repeated measures the covariance is chosen in their section
+        ui.add_enabled_ui(!d.repeated, |ui| {
+            ui.horizontal(|ui| {
+                ui.label("Covariance matrix");
+                ui.radio_value(&mut d.robust, false, "Model-based");
+                ui.radio_value(&mut d.robust, true, "Robust");
+            });
         });
         field(ui, "Confidence interval %", &mut d.ci_level, 50.0);
-        field(ui, "Maximum iterations", &mut d.iterations, 50.0);
+        // with repeated measures these settle the starting model only
+        let (iterations, convergence) = match d.repeated {
+            true => (
+                "Maximum iterations of the starting model",
+                "Parameter convergence of the starting model",
+            ),
+            false => ("Maximum iterations", "Parameter convergence"),
+        };
+        field(ui, iterations, &mut d.iterations, 50.0);
         field(ui, "Maximum step-halving", &mut d.halvings, 50.0);
-        field(ui, "Parameter convergence", &mut d.convergence, 80.0);
+        field(ui, convergence, &mut d.convergence, 80.0);
         ui.horizontal(|ui| {
             ui.label("Log-likelihood");
             ui.radio_value(&mut d.kernel, false, "Full");
@@ -219,12 +230,18 @@ fn repeated(ui: &mut Ui, d: &mut GeneralizedLinear, picked: &mut Vec<String>) {
     );
     ui.add_enabled_ui(d.repeated, |ui| {
         target_list(ui, "Subject variables", &mut d.subjects, picked);
-        target_list(ui, "Within-subject variables", &mut d.within, picked);
+        // the command orders measurements by them only when it sorts; the list is kept
+        ui.add_enabled_ui(d.sort, |ui| {
+            target_list(ui, "Within-subject variables", &mut d.within, picked);
+        });
         ui.weak("Subjects and their measurements are categories: factors or variables outside the model, never covariates.");
         ui.checkbox(
             &mut d.sort,
             "Sort the cases by subject and within-subject values",
         );
+        if !d.sort {
+            ui.weak("Without sorting each run of equal subject values is a subject, its cases in file order.");
+        }
         ui.horizontal(|ui| {
             choice(
                 ui,
