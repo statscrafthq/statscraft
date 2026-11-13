@@ -2147,7 +2147,7 @@ impl Engine {
                         r.maxiterations
                     ));
                 } else if !g.hessian_ok {
-                    warnings.push(HESSIAN_WARNING.into());
+                    warnings.push("The Hessian convergence criterion of the generalized estimating equations (1E-4, REPEATED HCONVERGE=0) is not met after the estimates converged; the results may not be final".into());
                 }
                 if g.ridged {
                     warnings.push("The estimated working correlation matrix was not positive definite; it was moved toward the identity matrix until it was".into());
@@ -2406,10 +2406,11 @@ impl Engine {
                     }
                 }
                 let sizes = s.members.iter().map(Vec::len);
+                // a frequency weight copies whole subjects
                 out.push(vec![
                     text("Number of Subjects"),
                     Cell::Empty,
-                    Cell::Number(s.members.len() as f64),
+                    Cell::Number(s.members.iter().map(|m| c.f[m[0].0]).sum()),
                 ]);
                 out.push(vec![
                     text("Measurements per Subject"),
