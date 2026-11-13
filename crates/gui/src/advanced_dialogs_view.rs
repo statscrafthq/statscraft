@@ -2,6 +2,7 @@
 //! complex samples dialogs, and the editors of terms, means and tests they share with the
 //! Generalized Linear Models dialog.
 
+use crate::advanced_dialogs::forget_old_factors;
 use crate::advanced_dialogs::{
     Advanced, ContrastTest, LinearMixed, MIXED_COMPARISONS, MIXED_PRINT, MIXED_SAVE, MeansTable,
     Multinomial, NOMREG_BASES, NOMREG_MODELS, NOMREG_PRINT, NOMREG_STEP_METHODS, NOMREG_STEP_RULES,
@@ -300,6 +301,7 @@ fn mixed(ui: &mut Ui, d: &mut LinearMixed, picked: &mut Vec<String>) {
     ui.add_space(6.0);
     target_one(ui, "Dependent variable", &mut d.dependent, picked);
     target_list(ui, "Factors", &mut d.factors, picked);
+    forget_old_factors(&d.factors, &mut d.means);
     target_list(ui, "Covariates", &mut d.covariates, picked);
     ui.add_space(6.0);
     let model = d.model();

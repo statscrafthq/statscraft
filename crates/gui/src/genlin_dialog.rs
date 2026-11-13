@@ -300,6 +300,18 @@ impl GeneralizedLinear {
             .collect()
     }
 
+    /// Events out of trials or one dependent; events take the binomial distribution.
+    pub fn set_events(&mut self, events: bool) {
+        self.events = events;
+        if events {
+            let binomial = GENLIN_DISTRIBUTIONS
+                .iter()
+                .position(|(d, _)| *d == D::Binomial)
+                .unwrap_or(1);
+            self.set_distribution(binomial);
+        }
+    }
+
     /// A new distribution with its own link and scale.
     pub fn set_distribution(&mut self, distribution: usize) {
         self.distribution = distribution;
@@ -459,10 +471,14 @@ impl GeneralizedLinear {
                 "the ordinal multinomial distribution has no estimated marginal means".into(),
             );
         }
-        let control: Vec<String> = covariate_values(&self.covariates, &self.means_at)?
-            .into_iter()
-            .map(|(n, v)| format!("{n}({v})"))
-            .collect();
+        // the values count only for tables of means
+        let control: Vec<String> = match self.means.is_empty() {
+            true => Vec::new(),
+            false => covariate_values(&self.covariates, &self.means_at)?
+                .into_iter()
+                .map(|(n, v)| format!("{n}({v})"))
+                .collect(),
+        };
         for (i, table) in self.means.iter().enumerate() {
             let (crossed, compare) = table.checked(&self.factors, i + 1)?;
             let mut parts = Vec::new();
@@ -606,11 +622,10 @@ impl GeneralizedLinear {
 /// The checks that need the data: numbers where the command needs them, and no role for the
 /// frequency weight. True when the dependent is a string.
 pub fn data_checks(d: &GeneralizedLinear, data: &Dataset) -> Result<bool, String> {
+    // only the fields the syntax uses
+    let trials = (d.events && d.trials_by_variable).then_some(&d.trials_variable);
     let mut numeric: Vec<&String> = d.covariates.iter().collect();
-    numeric.extend([&d.offset, &d.scale_weight]);
-    if d.events && d.trials_by_variable {
-        numeric.push(&d.trials_variable);
-    }
+    numeric.extend([&d.offset, &d.scale_weight].into_iter().chain(trials));
     if !d.categorical() {
         numeric.push(&d.dependent);
     }
@@ -619,8 +634,12 @@ pub fn data_checks(d: &GeneralizedLinear, data: &Dataset) -> Result<bool, String
         && let Some(n) = d
             .model_variables()
             .iter()
-            .chain([&d.dependent, &d.offset, &d.scale_weight, &d.trials_variable])
-            .find(|n| n.as_str() == w)
+            .chain(
+                [&d.dependent, &d.offset, &d.scale_weight]
+                    .into_iter()
+                    .chain(trials),
+            )
+            .find(|n| n.trim() == w)
     {
         return Err(format!(
             "{n} weights the cases, so it cannot be in the model as well"
@@ -899,6 +918,59 @@ mod tests {
             "GENLIN monthly_spend BY gender\n  \
              /MODEL gender INTERCEPT=NO DISTRIBUTION=NORMAL LINK=IDENTITY\n  \
              /CRITERIA METHOD=FISHER(3)."
+        );
+    }
+
+    #[test]
+    fn events_take_the_binomial_distribution() {
+        let mut d = GeneralizedLinear::default();
+        d.set_events(true);
+        assert_eq!(GENLIN_DISTRIBUTIONS[d.distribution].0, D::Binomial);
+        assert_eq!(GENLIN_LINKS[d.link].1, "Logit");
+        assert_eq!(d.scale, 3);
+        d.set_events(false);
+        assert!(!d.events);
+        assert_eq!(GENLIN_DISTRIBUTIONS[d.distribution].0, D::Binomial);
+    }
+
+    #[test]
+    fn covariate_values_count_only_with_tables_of_means() {
+        let mut d = GeneralizedLinear {
+            dependent: "monthly_spend".into(),
+            covariates: v(&["age"]),
+            means_at: vec![("age".into(), "x".into())],
+            ..Default::default()
+        };
+        assert!(d.syntax(false).is_ok());
+        d.means.push(MeansTable::default());
+        assert_eq!(
+            d.syntax(false).unwrap_err(),
+            "the value of age for the means must be a number"
+        );
+    }
+
+    #[test]
+    fn unused_fields_are_not_checked() {
+        let mut session = open("survey_basic.sav");
+        session.run("WEIGHT BY weight.", None).unwrap();
+        let data = session.dataset().unwrap();
+        // a trials variable left over from events out of trials
+        let mut d = GeneralizedLinear {
+            dependent: "monthly_spend".into(),
+            trials_variable: "weight".into(),
+            ..Default::default()
+        };
+        assert_eq!(data_checks(&d, data), Ok(false));
+        d.trials_variable = "plan".into();
+        assert_eq!(data_checks(&d, data), Ok(false));
+        d.dependent = "q5_1".into();
+        d.set_events(true);
+        d.trials_by_variable = false;
+        assert_eq!(data_checks(&d, data), Ok(false));
+        d.trials_by_variable = true;
+        assert_eq!(
+            data_checks(&d, data).unwrap_err(),
+            "plan is a string; the command needs numbers"
         );
     }
 

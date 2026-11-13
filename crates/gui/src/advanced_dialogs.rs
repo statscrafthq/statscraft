@@ -176,6 +176,17 @@ impl MeansTable {
     }
 }
 
+/// Unchecks the factors taken out of the dialog's Factors, and a comparison of one of them, so
+/// each table shows what its syntax uses.
+pub fn forget_old_factors(factors: &[String], tables: &mut [MeansTable]) {
+    for t in tables {
+        t.factors.retain(|f| factors.contains(f));
+        if !t.factors.contains(&t.compare) {
+            t.compare.clear();
+        }
+    }
+}
+
 /// The covariates given a value in `at`, as (name, value), in the order of `covariates`; the
 /// others stay at their means.
 pub(crate) fn covariate_values<'a>(
@@ -205,8 +216,13 @@ pub struct ContrastTest {
 
 impl ContrastTest {
     /// `/TEST='label' row; row`, every effect checked against `terms`, the effects of the
-    /// model. INTERCEPT and ALL are taken too.
-    pub(crate) fn syntax(&self, terms: &[Vec<String>], n: usize) -> Result<String, String> {
+    /// model. ALL is taken too, and INTERCEPT when the model has one (`intercept`).
+    pub(crate) fn syntax(
+        &self,
+        terms: &[Vec<String>],
+        intercept: bool,
+        n: usize,
+    ) -> Result<String, String> {
         let mut rows = Vec::new();
         for line in self.rows.lines() {
             let tokens: Vec<&str> = line
@@ -231,9 +247,8 @@ impl ContrastTest {
                     return Err(format!("test {n}: {} needs coefficients", tokens[i - 1]));
                 }
                 after_effect = 0;
-                let known = ["INTERCEPT", "ALL"]
-                    .iter()
-                    .any(|k| token.eq_ignore_ascii_case(k))
+                let known = token.eq_ignore_ascii_case("ALL")
+                    || (intercept && token.eq_ignore_ascii_case("INTERCEPT"))
                     || terms.iter().any(|t| same_term(t, token));
                 if !known {
                     return Err(format!("test {n}: {token} is not an effect of the model"));
@@ -507,7 +522,8 @@ impl Ordinal {
         }
         terms.extend(scale.iter().cloned());
         for (i, test) in self.tests.iter().enumerate() {
-            text.push_str(&test.syntax(&terms, i + 1)?);
+            // the thresholds are always there
+            text.push_str(&test.syntax(&terms, true, i + 1)?);
         }
         text.push('.');
         Ok(text)
@@ -673,12 +689,12 @@ impl Multinomial {
             _ => {
                 let model = self.model_variables();
                 let steps = self.step_terms.syntax(&model, "stepwise terms")?;
-                if let Some(t) = self.step_terms.terms.iter().find(|t| {
-                    self.terms
-                        .terms
-                        .iter()
-                        .any(|m| m.len() == t.len() && m.iter().all(|n| t.contains(n)))
-                }) {
+                if let Some(t) = self
+                    .step_terms
+                    .terms
+                    .iter()
+                    .find(|t| self.terms.terms.iter().any(|m| same_term(m, &t.join("*"))))
+                {
                     return Err(format!(
                         "{} is both a model term and a stepwise term",
                         t.join("*")
@@ -1018,7 +1034,11 @@ impl LinearMixed {
         if self.include {
             text.push_str("\n  /MISSING=INCLUDE");
         }
-        let at = covariate_values(&self.covariates, &self.means_at)?;
+        // the values count only for tables of means
+        let at = match self.means.is_empty() {
+            true => Vec::new(),
+            false => covariate_values(&self.covariates, &self.means_at)?,
+        };
         let with = match at.is_empty() {
             true => String::new(),
             false => {
@@ -1050,7 +1070,7 @@ impl LinearMixed {
             false => main_effects(&model),
         };
         for (i, test) in self.tests.iter().enumerate() {
-            text.push_str(&test.syntax(&terms, i + 1)?);
+            text.push_str(&test.syntax(&terms, self.intercept, i + 1)?);
         }
         text.push('.');
         Ok(text)
@@ -2405,6 +2425,73 @@ mod tests {
         assert_eq!(
             d.syntax(false).unwrap(),
             "NOMREG region BY gender WITH age\n  /MODEL=age."
+        );
+    }
+
+    #[test]
+    fn means_tables_forget_factors_taken_out() {
+        let mut tables = vec![MeansTable {
+            factors: v(&["gender", "region"]),
+            compare: "region".into(),
+            ..Default::default()
+        }];
+        forget_old_factors(&v(&["gender"]), &mut tables);
+        assert_eq!(tables[0].factors, v(&["gender"]));
+        assert_eq!(tables[0].compare, "");
+    }
+
+    #[test]
+    fn covariate_values_count_only_with_tables_of_means() {
+        let mut d = LinearMixed {
+            dependent: "monthly_spend".into(),
+            covariates: v(&["age"]),
+            means_at: vec![("age".into(), "x".into())],
+            ..Default::default()
+        };
+        assert_eq!(
+            d.syntax().unwrap(),
+            "MIXED monthly_spend WITH age\n  /FIXED=age."
+        );
+        d.means.push(MeansTable::default());
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "the value of age for the means must be a number"
+        );
+    }
+
+    #[test]
+    fn a_test_names_the_intercept_only_when_the_model_has_one() {
+        let mut d = LinearMixed {
+            dependent: "monthly_spend".into(),
+            covariates: v(&["age"]),
+            tests: vec![ContrastTest {
+                label: String::new(),
+                rows: "INTERCEPT 1".into(),
+            }],
+            ..Default::default()
+        };
+        assert!(d.syntax().unwrap().ends_with("/TEST=INTERCEPT 1."));
+        d.intercept = false;
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "test 1: INTERCEPT is not an effect of the model"
+        );
+    }
+
+    #[test]
+    fn a_stepwise_term_may_not_repeat_a_model_term_in_another_order() {
+        let d = Multinomial {
+            dependent: "region".into(),
+            factors: v(&["gender"]),
+            covariates: v(&["age"]),
+            model: 2,
+            terms: terms(&[&["age", "gender"]]),
+            step_terms: terms(&[&["gender", "age"]]),
+            ..Default::default()
+        };
+        assert_eq!(
+            d.syntax(false).unwrap_err(),
+            "gender*age is both a model term and a stepwise term"
         );
     }
 

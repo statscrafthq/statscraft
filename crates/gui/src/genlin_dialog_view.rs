@@ -1,6 +1,6 @@
 //! Drawing of the Generalized Linear Models dialog.
 
-use crate::advanced_dialogs::NOMREG_BASES;
+use crate::advanced_dialogs::{NOMREG_BASES, forget_old_factors};
 use crate::advanced_dialogs_view::{means_editor, terms_editor};
 use crate::app::{checkboxes, choice, field, target_list, target_one};
 use crate::genlin_dialog::{
@@ -15,8 +15,12 @@ use statscraft_syntax::{GenlinDistribution, GenlinLink};
 pub fn genlin(ui: &mut Ui, d: &mut GeneralizedLinear, picked: &mut Vec<String>) {
     ui.horizontal(|ui| {
         ui.label("Response");
-        ui.radio_value(&mut d.events, false, "One dependent variable");
-        ui.radio_value(&mut d.events, true, "Events out of trials");
+        if ui.radio(!d.events, "One dependent variable").clicked() {
+            d.set_events(false);
+        }
+        if ui.radio(d.events, "Events out of trials").clicked() && !d.events {
+            d.set_events(true);
+        }
     });
     if d.events {
         target_one(ui, "Events", &mut d.dependent, picked);
@@ -88,6 +92,7 @@ pub fn genlin(ui: &mut Ui, d: &mut GeneralizedLinear, picked: &mut Vec<String>) 
         choice(ui, "Category order", &GENLIN_ORDERS, &mut d.order);
     }
     target_list(ui, "Factors", &mut d.factors, picked);
+    forget_old_factors(&d.factors, &mut d.means);
     target_list(ui, "Covariates", &mut d.covariates, picked);
     ui.add_space(6.0);
     egui::CollapsingHeader::new("Model").show(ui, |ui| {
