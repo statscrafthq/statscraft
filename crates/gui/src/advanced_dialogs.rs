@@ -51,8 +51,14 @@ impl Advanced {
         match self {
             // the dependent may be a string, the factors too
             Advanced::Ordinal(d) => numeric(data, &d.covariates).and_then(|()| d.syntax()),
-            Advanced::Multinomial(d) => numeric(data, &d.covariates)
-                .and_then(|()| d.syntax(data.variable(&d.dependent).is_ok_and(|v| v.is_string()))),
+            Advanced::Multinomial(d) => {
+                let string = match data.variable(&d.dependent) {
+                    Ok(v) => v.is_string(),
+                    Err(_) if d.dependent.trim().is_empty() => false,
+                    Err(_) => return Err(format!("{} is no longer a variable", d.dependent)),
+                };
+                numeric(data, &d.covariates).and_then(|()| d.syntax(string))
+            }
             Advanced::Mixed(d) => numeric(data, std::iter::once(&d.dependent).chain(&d.covariates))
                 .and_then(|()| d.syntax()),
             Advanced::Plan(d) => numeric(data, d.numeric()).and_then(|()| d.syntax()),
@@ -83,8 +89,12 @@ impl Terms {
             .filter(|n| self.building.contains(n))
             .cloned()
             .collect();
+        // names taken out of the model since they were checked leave too few to combine
         let new: Vec<Vec<String>> = if interaction {
-            vec![checked]
+            match checked.len() {
+                0 | 1 => Vec::new(),
+                _ => vec![checked],
+            }
         } else {
             checked.into_iter().map(|n| vec![n]).collect()
         };
@@ -103,6 +113,9 @@ impl Terms {
         }
         let mut out = Vec::new();
         for term in &self.terms {
+            if term.is_empty() {
+                return Err(format!("an empty term in the {what}: remove it"));
+            }
             if let Some(n) = term.iter().find(|n| !model.contains(n)) {
                 return Err(format!(
                     "{n} in the {what} is no longer a factor or covariate"
@@ -149,7 +162,11 @@ fn iteration_criteria(
     steps: u32,
 ) -> Result<Vec<String>, String> {
     let mut out = Vec::new();
-    let level = percent(ci_level)?;
+    // an empty field means the default, as for the other fields here
+    let level = match ci_level.trim() {
+        "" => 95.0,
+        given => percent(given)?,
+    };
     if level != 95.0 {
         out.push(format!("CIN({})", number(level)));
     }
@@ -1164,6 +1181,20 @@ mod tests {
         assert_eq!(
             Terms::default().syntax(&model, "model").unwrap_err(),
             "add at least one term to the model"
+        );
+        // an interaction whose names left the model adds nothing, never an empty term
+        t.building = v(&["gender", "weight"]);
+        t.add(&model, true);
+        t.building = v(&["weight", "income"]);
+        t.add(&model, true);
+        assert_eq!(t.terms.len(), 3);
+        let empty = Terms {
+            terms: vec![Vec::new()],
+            ..Default::default()
+        };
+        assert_eq!(
+            empty.syntax(&model, "model").unwrap_err(),
+            "an empty term in the model: remove it"
         );
     }
 

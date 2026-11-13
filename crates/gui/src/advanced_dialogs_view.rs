@@ -240,7 +240,11 @@ fn plan_path(ui: &mut Ui, path: &mut String, save: bool, folder: &mut Option<Pat
             } else {
                 dialog.pick_file()
             };
-            if let Some(chosen) = chosen {
+            if let Some(mut chosen) = chosen {
+                // the pickers of the other dialogs list .json files only
+                if save && chosen.extension().is_none() {
+                    chosen.set_extension("json");
+                }
                 *folder = chosen.parent().map(Path::to_path_buf);
                 *path = chosen.to_string_lossy().into_owned();
             }
