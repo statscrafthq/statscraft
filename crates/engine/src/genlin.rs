@@ -1402,7 +1402,7 @@ fn adjust_name(a: GenlinAdjust) -> &'static str {
     }
 }
 
-fn value_matches(variable: &Variable, key: &Key, value: &Value) -> bool {
+pub(crate) fn value_matches(variable: &Variable, key: &Key, value: &Value) -> bool {
     match (key, value) {
         (Key::Number(n), Value::Number(v)) => n == v,
         (Key::Text(t), Value::String(s)) => t.trim_end() == s.trim_end(),

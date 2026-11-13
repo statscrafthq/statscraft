@@ -122,8 +122,10 @@ pub use anova::{Anova, AnovaList, AnovaMethod, CovariateOrder};
 pub use ast::*;
 pub use cluster::{BinaryMeasure, Cluster, ClusterPlot, Linkage, Proximity};
 pub use complex_samples::{
-    CsCells, CsEstimator, CsRate, CsRatio, CsStage, CsStatistics, CsSubpop, CsTests,
-    Csdescriptives, Csplan, CsplanMode, Cstabulate,
+    CsCells, CsContrast, CsControl, CsCriteria, CsCustom, CsEmmeans, CsEstimator, CsIntercept,
+    CsModel, CsModelPrint, CsModelSave, CsModelStatistics, CsOddsRatios, CsPadjust, CsRate,
+    CsRatio, CsReference, CsStage, CsStatistics, CsSubpop, CsTestType, CsTests, Csdescriptives,
+    Csplan, CsplanMode, Cstabulate,
 };
 pub use correspondence::{
     Correspondence, CorrespondenceMeasure, CorrespondenceNormalization, CorrespondencePlot,

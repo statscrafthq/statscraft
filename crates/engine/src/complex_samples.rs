@@ -41,6 +41,8 @@ use statscraft_syntax::{
 };
 use std::collections::HashMap;
 
+mod regression;
+
 const FORMAT: &str = "statscraft-analysis-plan";
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

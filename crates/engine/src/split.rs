@@ -228,6 +228,7 @@ impl Engine {
                 | Command::Tree(_)
                 | Command::Csdescriptives(_)
                 | Command::Cstabulate(_)
+                | Command::CsModel(_)
         );
         let result = self.in_view(command, use_split);
         if let Command::Aggregate(aggregate) = command

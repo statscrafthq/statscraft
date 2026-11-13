@@ -1980,7 +1980,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/INCLPROB VALUE=p | VARIABLE=var | MATRIX=vars; categories p; ...]\n\
                  \x20  [/DESIGN ... /ESTIMATOR ... (a second and a third stage)].\n\
                  CSPLAN VIEW /PLAN FILE='file' [/PRINT [PLAN] [MATRIX]].\n\
-                 The plan is a small JSON file that CSDESCRIPTIVES and CSTABULATE read; CSPLAN does not read\n\
+                 The plan is a small JSON file that the other CS commands read; CSPLAN does not read\n\
                  the data. Each DESIGN starts a stage; the ESTIMATOR, POPSIZE and INCLPROB after it belong\n\
                  to that stage. WR treats the units of the stage as drawn with replacement and ends the\n\
                  design: later stages add nothing to the variance. EQUAL_WOR treats them as drawn without\n\
@@ -2047,6 +2047,79 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  population sizes; without STATISTICS: standard errors. Not supported yet: JOINTPROB.",
         example: "CSTABULATE /PLAN FILE='farms_plan.json' /TABLES VARIABLES=irrigated BY organic /CELLS POPSIZE ROWPCT /STATISTICS SE CIN DEFF /TEST INDEPENDENCE ODDSRATIO.",
         parse: complex_samples::cstabulate,
+    },
+    CommandSpec {
+        name: "CSGLM",
+        summary: "Linear regression, ANOVA and ANCOVA on a complex sample, with design-based standard errors and tests.",
+        syntax: "CSGLM dependent [BY factors] [WITH covariates] /PLAN FILE='file'\n\
+                 \x20  [/MODEL effects] [/INTERCEPT [INCLUDE=YES | NO | ONLY] [SHOW=YES | NO]]\n\
+                 \x20  [/CUSTOM [LABEL='text'] [LMATRIX=[c] effect values ... | ALL values; ...] [KMATRIX=k; ...]] ...\n\
+                 \x20  [/EMMEANS [TABLES=factor[*factor ...]] [OTHER=[covariate(value | MEAN) ...]]\n\
+                 \x20           [COMPARE=factor] [CONTRAST=SIMPLE[(value)] | DEVIATION[(value)] | DIFFERENCE |\n\
+                 \x20                                   HELMERT | REPEATED | POLYNOMIAL[(metric)]]] ...\n\
+                 \x20  [/CRITERIA [CILEVEL=95] [DF=n] [SINGULAR=1E-12]]\n\
+                 \x20  [/STATISTICS [PARAMETER] [SE] [TTEST] [CINTERVAL] [DEFF] [DEFFSQRT]]\n\
+                 \x20  [/TEST [TYPE=F | ADJF | CHISQUARE | ADJCHISQUARE]\n\
+                 \x20         [PADJUST=LSD | BONFERRONI | SEQBONFERRONI | SIDAK | SEQSIDAK]]\n\
+                 \x20  [/DOMAIN VARIABLE=var(value)] [/MISSING CLASSMISSING=EXCLUDE | INCLUDE]\n\
+                 \x20  [/PRINT [SAMPLEINFO] [VARIABLEINFO] [SUMMARY] [LMATRIX] [COVB] [CORB] [NONE]]\n\
+                 \x20  [/SAVE [PRED[(name)]] [RESID[(name)]]].\n\
+                 The plan written by CSPLAN gives the weight and the design; WEIGHT and SPLIT FILE do not\n\
+                 apply. The coefficients solve the weighted normal equations, with one parameter per level of\n\
+                 each factor effect; a parameter that depends on earlier ones is redundant and set to 0. The\n\
+                 covariance of the coefficients is a sandwich: the inverse of X'WX on both sides of the design\n\
+                 covariance of the total of x times the residual, found as in CSDESCRIPTIVES. Every df is the\n\
+                 number of first-stage clusters minus the number of first-stage strata, unless CRITERIA DF\n\
+                 sets it. Without MODEL the model has the intercept, the factors and the covariates. Tests of\n\
+                 Model Effects use Type III hypotheses: TYPE=F gives the Wald F, (df - r + 1) / (r df) times\n\
+                 the Wald chi-square, on r and df - r + 1 df; ADJF divides the chi-square of the simple random\n\
+                 sampling covariance by the sum of the generalized design effects, on d and d times df (d as\n\
+                 in CSTABULATE); CHISQUARE and ADJCHISQUARE give the two chi-squares. CUSTOM tests L b = K\n\
+                 row by row and as a whole; EMMEANS gives the means of the factor cells averaged with equal\n\
+                 weights, covariates at their weighted means unless OTHER sets them, and COMPARE tests the\n\
+                 contrasts of one factor. PADJUST adjusts the p values of the single rows. DOMAIN analyzes\n\
+                 the cases with the value, keeping the whole design; cases with a missing value on a model\n\
+                 variable count as outside it. R Square compares the weighted residual sum of squares with\n\
+                 the weighted total sum of squares. Without STATISTICS the estimates come with SE, interval\n\
+                 and t test. Not supported yet: JOINTPROB, OUTFILE, PRINT GEF and the UNEQUAL_WOR estimator.",
+        example: "CSGLM yield BY soil WITH rainfall /PLAN FILE='farms_plan.json' /STATISTICS PARAMETER SE CINTERVAL DEFF /EMMEANS TABLES=soil COMPARE=soil CONTRAST=REPEATED.",
+        parse: complex_samples::csglm,
+    },
+    CommandSpec {
+        name: "CSLOGISTIC",
+        summary: "Binary and multinomial logistic regression on a complex sample, with design-based standard errors and tests.",
+        syntax: "CSLOGISTIC dependent [(LOW | HIGH | value)] [BY factors] [WITH covariates] /PLAN FILE='file'\n\
+                 \x20  [/MODEL effects] [/INTERCEPT [INCLUDE=YES | NO | ONLY] [SHOW=YES | NO]]\n\
+                 \x20  [/CUSTOM [LABEL='text'] [LMATRIX=[c] effect values ... | ALL values; ...] [KMATRIX=k; ...]] ...\n\
+                 \x20  [/ODDSRATIOS FACTOR=[factor[(LOW | HIGH | value)] ...] | COVARIATE=[covariate[(changes)] ...]\n\
+                 \x20               [CONTROL=[factor(LOW | HIGH | value) covariate(MEAN | value) ...]]] ...\n\
+                 \x20  [/CRITERIA [CHKSEP=20] [CILEVEL=95] [DF=n] [LCONVERGE=[0 RELATIVE | ABSOLUTE]] [MXITER=100]\n\
+                 \x20             [MXSTEP=5] [PCONVERGE=[1E-6 RELATIVE | ABSOLUTE]] [SINGULAR=1E-12]]\n\
+                 \x20  [/STATISTICS [PARAMETER] [EXP] [SE] [TTEST] [CINTERVAL] [DEFF] [DEFFSQRT]]\n\
+                 \x20  [/TEST [TYPE=F | ADJF | CHISQUARE | ADJCHISQUARE]\n\
+                 \x20         [PADJUST=LSD | BONFERRONI | SEQBONFERRONI | SIDAK | SEQSIDAK]]\n\
+                 \x20  [/DOMAIN VARIABLE=var(value)] [/MISSING CLASSMISSING=EXCLUDE | INCLUDE]\n\
+                 \x20  [/PRINT [SAMPLEINFO] [VARIABLEINFO] [SUMMARY] [HISTORY[(n)]] [LMATRIX] [COVB] [CORB]\n\
+                 \x20          [CLASSTABLE] [NONE]]\n\
+                 \x20  [/SAVE [PREDPROB[(root[:25])]] [PREDVAL[(name)]]].\n\
+                 Each category of the dependent variable but the reference one (the highest unless the\n\
+                 parentheses say otherwise) gets a logit against the reference with its own set of\n\
+                 parameters. The estimates maximize the weighted log likelihood (pseudo-likelihood) by\n\
+                 Newton-Raphson with step-halving; they start at 0 with the intercepts at the log ratio of\n\
+                 the weighted category counts, and stop when the parameters (PCONVERGE) or the log\n\
+                 likelihood (LCONVERGE) change little or after MXITER steps. The covariance is a sandwich:\n\
+                 the inverse information on both sides of the design covariance of the score total. Design,\n\
+                 df, domains, CUSTOM, TEST and PADJUST work as in CSGLM; a CUSTOM row without ALL is tested\n\
+                 for every logit, a row with ALL lists the parameters of all logits in turn. The model\n\
+                 summary gives the pseudo R squares of Cox and Snell, Nagelkerke and McFadden from the\n\
+                 weighted log likelihoods of the model and of the intercept-only start, with the summed\n\
+                 weights as N. ODDSRATIOS compares each level of a factor with its reference, or a covariate\n\
+                 moved by each change, with the other variables at CONTROL (factors at their highest level,\n\
+                 covariates at their weighted means by default). CLASSTABLE puts each case in its most\n\
+                 probable category and sums the weights. Without STATISTICS no parameter table is shown.\n\
+                 Not supported yet: JOINTPROB, OUTFILE, PRINT GEF and the UNEQUAL_WOR estimator.",
+        example: "CSLOGISTIC irrigated (LOW) BY soil WITH rainfall /PLAN FILE='farms_plan.json' /STATISTICS PARAMETER EXP SE CINTERVAL /ODDSRATIOS FACTOR=[soil(LOW)] /PRINT SUMMARY CLASSTABLE.",
+        parse: complex_samples::cslogistic,
     },
     CommandSpec {
         name: "REPORT",

@@ -63,6 +63,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Tree(_)
         | Command::Csdescriptives(_)
         | Command::Cstabulate(_)
+        | Command::CsModel(_)
         | Command::Graph(_)
         | Command::Pplot(_)
         | Command::Roc(_)

@@ -219,3 +219,206 @@ fn cstabulate_defaults_and_keywords() {
     assert!(err("CSTABULATE /PLAN FILE='p' /TABLES VARIABLES=a /CELLS.").contains("at least one"));
     assert!(err("CSTABULATE /PLAN FILE='p'.").contains("TABLES"));
 }
+
+fn model(source: &str) -> CsModel {
+    match one(source) {
+        Command::CsModel(m) => *m,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn csglm_every_subcommand() {
+    let m = model(
+        "CSGLM yield BY soil crop WITH rain /PLAN FILE='p.json' /MODEL soil crop soil*crop rain
+           /INTERCEPT INCLUDE=YES SHOW=NO
+           /CUSTOM LABEL='soils' LMATRIX=soil 1 -1 0; 1 soil 1/3 1/3 1/3 rain 2 KMATRIX=0; 10
+           /CUSTOM LMATRIX=ALL 0 1 -1 0
+           /EMMEANS TABLES=soil*crop OTHER=[rain(MEAN)] COMPARE=soil CONTRAST=SIMPLE(2)
+           /EMMEANS
+           /CRITERIA CILEVEL=90 DF=12 SINGULAR=1E-10 /STATISTICS PARAMETER SE DEFF DEFFSQRT
+           /TEST TYPE=ADJF PADJUST=SEQSIDAK /DOMAIN VARIABLE=region('north')
+           /MISSING CLASSMISSING=INCLUDE /PRINT SUMMARY COVB LMATRIX /SAVE PRED(p) RESID.",
+    );
+    assert!(!m.logistic);
+    assert_eq!(m.dependent, "yield");
+    assert_eq!(m.plan, "p.json");
+    assert_eq!(m.model.as_ref().unwrap().len(), 4);
+    assert!(!m.show_intercept);
+    assert_eq!(m.custom.len(), 2);
+    let c = &m.custom[0];
+    assert_eq!(c.label.as_deref(), Some("soils"));
+    assert_eq!(c.rows.len(), 2);
+    // the leading 1 is the intercept's coefficient
+    assert!(c.rows[1][0].0.as_ref().unwrap().variables.is_empty());
+    assert_eq!(c.rows[1][1].1, vec![1.0 / 3.0; 3]);
+    assert_eq!(c.k, Some(vec![0.0, 10.0]));
+    assert!(m.custom[1].rows[0][0].0.is_none());
+    assert_eq!(m.emmeans.len(), 2);
+    assert_eq!(m.emmeans[0].tables, ["soil", "crop"]);
+    assert_eq!(m.emmeans[0].other, vec![("rain".to_string(), None)]);
+    assert_eq!(
+        m.emmeans[0].contrast,
+        CsContrast::Simple(Some(Value::Number(2.0)))
+    );
+    assert!(m.emmeans[1].tables.is_empty());
+    assert_eq!(m.criteria.cilevel, 90.0);
+    assert_eq!(m.criteria.df, Some(12.0));
+    let s = m.statistics.unwrap();
+    assert!(s.parameter && s.se && s.deff && s.deffsqrt && !s.ttest);
+    assert_eq!(m.test, CsTestType::AdjF);
+    assert_eq!(m.padjust, CsPadjust::SeqSidak);
+    assert_eq!(
+        m.domain,
+        Some(("region".to_string(), Value::String("north".into())))
+    );
+    assert!(m.include);
+    assert!(m.print.summary && m.print.covb && m.print.lmatrix && !m.print.sampleinfo);
+    assert_eq!(
+        m.save,
+        vec![
+            CsModelSave::Pred(Some("p".into())),
+            CsModelSave::Resid(None)
+        ]
+    );
+}
+
+#[test]
+fn cslogistic_reference_odds_ratios_criteria_and_save() {
+    let m = model(
+        "CSLOGISTIC owner (LOW) BY soil WITH rain /PLAN FILE='p.json'
+           /ODDSRATIOS FACTOR=[soil('clay')] CONTROL=[rain(10)]
+           /ODDSRATIOS COVARIATE=[rain(1 5)]
+           /CRITERIA CHKSEP=0 LCONVERGE=[1E-8 ABSOLUTE] MXITER=50 MXSTEP=3 PCONVERGE=[0]
+           /STATISTICS EXP CINTERVAL /PRINT HISTORY(5) CLASSTABLE /SAVE PREDPROB(pr:2) PREDVAL(v).",
+    );
+    assert!(m.logistic);
+    assert_eq!(m.reference, CsReference::Low);
+    assert_eq!(
+        m.oddsratios[0].factors,
+        vec![(
+            "soil".to_string(),
+            CsReference::Value(Value::String("clay".into()))
+        )]
+    );
+    assert_eq!(
+        m.oddsratios[0].control,
+        vec![("rain".to_string(), CsControl::Value(Value::Number(10.0)))]
+    );
+    assert_eq!(
+        m.oddsratios[1].covariates,
+        vec![("rain".to_string(), vec![1.0, 5.0])]
+    );
+    assert_eq!(m.criteria.chksep, 0);
+    assert_eq!(m.criteria.lconverge, (1e-8, false));
+    assert_eq!(m.criteria.pconverge, (0.0, true));
+    assert_eq!(m.criteria.mxiter, 50);
+    assert_eq!(m.criteria.mxstep, 3);
+    assert_eq!(m.print.history, Some(5));
+    assert!(m.print.classtable && !m.print.summary);
+    assert_eq!(
+        m.save,
+        vec![
+            CsModelSave::PredProb(Some("pr".into()), 2),
+            CsModelSave::PredVal(Some("v".into()))
+        ]
+    );
+    let m = model(
+        "CSLOGISTIC owner (3) /PLAN FILE='p.json' /SAVE PREDPROB(:4) /TEST TYPE=ADJC PADJUST=SEQS.",
+    );
+    assert_eq!(m.test, CsTestType::AdjChiSquare);
+    assert_eq!(m.padjust, CsPadjust::SeqSidak);
+    assert_eq!(m.reference, CsReference::Value(Value::Number(3.0)));
+    assert_eq!(m.save, vec![CsModelSave::PredProb(None, 4)]);
+    // a PREDPROB root may equal the PREDVAL name: its variables get suffixes
+    let m = model("CSLOGISTIC owner /PLAN FILE='p.json' /SAVE PREDPROB(p) PREDVAL(p).");
+    assert_eq!(m.save.len(), 2);
+}
+
+#[test]
+fn model_syntax_errors() {
+    let cases = [
+        ("CSGLM y BY a.", "needs PLAN FILE"),
+        ("CSGLM y x /PLAN FILE='p'.", "one dependent variable"),
+        (
+            "CSGLM y BY a /PLAN FILE='p' /MODEL a /INTERCEPT INCLUDE=ONLY.",
+            "cannot go with MODEL",
+        ),
+        (
+            "CSGLM y /PLAN FILE='p' /INTERCEPT INCLUDE=NO.",
+            "needs factors",
+        ),
+        ("CSGLM y BY a /PLAN FILE='p' /CUSTOM LABEL='x'.", "LMATRIX"),
+        (
+            "CSGLM y BY a /PLAN FILE='p' /CUSTOM LMATRIX=a 1 -1; a 1 0 KMATRIX=0.",
+            "1 values for 2 rows",
+        ),
+        (
+            "CSGLM y BY a /PLAN FILE='p' /PRINT GEF.",
+            "not supported yet",
+        ),
+        (
+            "CSGLM y BY a /PLAN FILE='p' /OUTFILE COVB='c.sav'.",
+            "not supported yet",
+        ),
+        (
+            "CSGLM y BY a /PLAN FILE='p' /JOINTPROB FILE='j'.",
+            "not supported yet",
+        ),
+        (
+            "CSGLM y BY a /PLAN FILE='p' /ODDSRATIOS FACTOR=[a].",
+            "unknown subcommand",
+        ),
+        (
+            "CSLOGISTIC y BY a /PLAN FILE='p' /EMMEANS.",
+            "unknown subcommand",
+        ),
+        (
+            "CSGLM y BY a /PLAN FILE='p' /CRITERIA CILEVEL=100.",
+            "below 100",
+        ),
+        ("CSGLM y BY a /PLAN FILE='p' /PLAN FILE='q'.", "only once"),
+        (
+            "CSGLM y BY a /PLAN FILE='p' /EMMEANS COMPARE=a.",
+            "needs TABLES",
+        ),
+        (
+            "CSLOGISTIC y BY a WITH x /PLAN FILE='p' /ODDSRATIOS FACTOR=[a] COVARIATE=[x].",
+            "not both",
+        ),
+        (
+            "CSLOGISTIC y /PLAN FILE='p' /CRITERIA MXSTEP=0.",
+            "positive whole number",
+        ),
+        (
+            "CSGLM y /PLAN FILE='p' /CRITERIA MXITER=5.",
+            "unexpected word MXITER",
+        ),
+        ("CSGLM y /PLAN FILE='p' /SAVE PRED(a) RESID(A).", "twice"),
+        ("CSGLM y /PLAN FILE='p' /STATISTICS SE SE.", "only once"),
+        (
+            "CSGLM y BY a /PLAN FILE='p' /CUSTOM LMATRIX=1 2 a 1 -1.",
+            "one coefficient for the intercept",
+        ),
+        (
+            "CSGLM y /PLAN FILE='p' /TEST TYPE=ADJ.",
+            "more than one keyword",
+        ),
+        (
+            "CSGLM y /PLAN FILE='p' /TEST PADJUST=SEQ.",
+            "more than one keyword",
+        ),
+        (
+            "CSGLM y /PLAN FILE='p' /STATISTICS DEF.",
+            "more than one keyword",
+        ),
+        (
+            "CSLOGISTIC y /PLAN FILE='p' /SAVE PRED.",
+            "more than one keyword",
+        ),
+    ];
+    for (source, expected) in cases {
+        let message = err(source);
+        assert!(message.contains(expected), "{source}: {message}");
+    }
+}
