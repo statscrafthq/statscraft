@@ -2423,12 +2423,14 @@ fn emmeans_tables(
                 rows.push(row);
             }
         }
-        // the univariate test of the compared factor at these levels
-        let l: Matrix = (0..k - 1)
-            .map(|i| {
+        // the univariate test of the compared factor at these levels: every estimable pairwise
+        // difference (the F does not depend on which rows span the hypothesis)
+        let l: Matrix = (0..k)
+            .flat_map(|i| (i + 1..k).map(move |j| (i, j)))
+            .map(|(i, j)| {
                 let li = &ls[index_of(other, i)];
-                let lk = &ls[index_of(other, k - 1)];
-                li.iter().zip(lk).map(|(a, b)| a - b).collect()
+                let lj = &ls[index_of(other, j)];
+                li.iter().zip(lj).map(|(a, b)| a - b).collect()
             })
             .filter(|row: &Vec<f64>| fit.estimable(row, h))
             .collect();

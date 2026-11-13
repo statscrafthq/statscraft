@@ -952,13 +952,32 @@ impl FixedPart<'_> {
                 }
                 rows.push(row);
             }
-            // the simple effect of the compared factor at these levels of the others: every
-            // estimable difference; f_test finds their rank
-            let l: Matrix = (0..k)
-                .flat_map(|i| (i + 1..k).map(move |j| (i, j)))
-                .filter_map(|(i, j)| difference(mean_at(other, i), mean_at(other, j)))
-                .collect();
-            missing |= l.len() < k * (k - 1) / 2;
+            // the simple effect of the compared factor at these levels of the others: linearly
+            // independent estimable differences, those against the last level first. The
+            // Satterthwaite df of several rows depends on the rows, so with every mean
+            // estimable these are the k - 1 differences against the last level.
+            let pairs = (0..k - 1)
+                .map(|i| (i, k - 1))
+                .chain((0..k - 1).flat_map(|i| (i + 1..k - 1).map(move |j| (i, j))));
+            let mut l: Matrix = Vec::new();
+            let mut basis: Matrix = Vec::new();
+            for (i, j) in pairs {
+                let Some(row) = difference(mean_at(other, i), mean_at(other, j)) else {
+                    missing = true;
+                    continue;
+                };
+                // Gram-Schmidt: keep the row when it adds a new direction
+                let mut rest = row.clone();
+                for q in &basis {
+                    let c = dot(&rest, q);
+                    rest.iter_mut().zip(q).for_each(|(r, v)| *r -= c * v);
+                }
+                let size = dot(&rest, &rest).sqrt();
+                if size > 1e-9 * dot(&row, &row).sqrt() {
+                    basis.push(rest.iter().map(|v| v / size).collect());
+                    l.push(row);
+                }
+            }
             let label: Vec<String> = others
                 .iter()
                 .zip(other)

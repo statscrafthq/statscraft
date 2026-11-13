@@ -41,7 +41,8 @@
 //!   (the same covariates, fewer factors), NONE without conditions; an effect that another
 //!   needs cannot leave. MAXEFFECT caps entry (FORWARD, FSTEP) and MINEFFECT removal (BACKWARD,
 //!   BSTEP), counting effects without the intercept. Entry p values that underflow to 0 are
-//!   ranked by the leading term of log p; a test without a number (NaN) never qualifies. SCALE does not change the stepwise tests.
+//!   ranked by the leading term of log p; a test without a number (NaN) never enters and
+//!   leaves as if p were 1, with a warning. SCALE does not change the stepwise tests.
 
 use crate::crosstabs::{Key, categories};
 use crate::descriptives::{case_weights, number};
@@ -453,6 +454,7 @@ fn select(
         }
     };
     // the best entry: (effect, chi, df, p) with the smallest p, the first on a tie
+    let no_number = std::cell::Cell::new(false);
     let capped = matches!(method, StepMethod::Forward | StepMethod::Fstep);
     let entry = |set: &[bool], fit: &Fit, fit_of: &mut dyn FnMut(&[bool]) -> Fit| {
         if capped && count(set) >= max_effects {
@@ -489,11 +491,16 @@ fn select(
             };
             let p = p_of(chi, df);
             if p.is_nan() {
+                no_number.set(true);
                 continue;
             }
             // p can underflow to 0 for several effects: compare the leading term of log p then
             let log_p = |chi: f64, df: f64| {
-                (df / 2.0 - 1.0) * (chi / 2.0).ln() - chi / 2.0 - ln_gamma(df / 2.0)
+                if chi == f64::INFINITY {
+                    f64::NEG_INFINITY
+                } else {
+                    (df / 2.0 - 1.0) * (chi / 2.0).ln() - chi / 2.0 - ln_gamma(df / 2.0)
+                }
             };
             let better = best.is_none_or(|b| {
                 p < b.3 || (p == 0.0 && b.3 == 0.0 && log_p(chi, df) < log_p(b.1, b.2))
@@ -547,10 +554,12 @@ fn select(
                     (fit.parameters() - smaller.parameters()) as f64,
                 )
             };
+            // a removal test without a number counts as p = 1: nothing shows the effect is needed
             let p = p_of(chi, df);
             if p.is_nan() {
-                continue;
+                no_number.set(true);
             }
+            let p = if p.is_nan() { 1.0 } else { p };
             if best.is_none_or(|b| p > b.3) {
                 best = Some((e, chi, df, p));
             }
@@ -640,6 +649,12 @@ fn select(
         {
             break;
         }
+    }
+    if no_number.get() {
+        warnings.push(
+            "NOMREG: a stepwise test had no number (the fit broke down); such an effect does not enter, and it leaves as if its p were 1"
+                .into(),
+        );
     }
     if troubled {
         warnings.push(

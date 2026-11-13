@@ -1063,3 +1063,28 @@ fn errors_name_the_problem() {
         "LMATRIX gives 2 coefficients where the effect has 3 parameters"
     );
 }
+
+/// With the cell a = 3, b = 1 empty, the F test of a at b = 1 rests on the one estimable
+/// difference (a = 1 against a = 2) instead of coming out empty.
+#[test]
+fn emmeans_simple_effect_uses_the_estimable_differences() {
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        "DATA LIST FREE /plot a b y.
+BEGIN DATA
+1 1 1 12.3 1 1 2 13.5 1 2 1 13.4 1 2 2 15.5 1 3 2 14.6 2 1 1 13.2 2 1 2 14.7 2 2 1 14.7
+2 2 2 17.2 2 3 2 16.3 3 1 1 14.4 3 1 2 14.8 3 2 1 14.0 3 2 2 17.9 3 3 2 17.3 4 1 1 15.2
+4 1 2 14.3 4 2 1 14.8 4 2 2 17.5 4 3 2 17.4
+END DATA.
+UNIANOVA y BY a b /DESIGN=a b a*b /EMMEANS=TABLES(a*b) COMPARE(a).",
+    );
+    assert_eq!(
+        number(cell(&t, "Univariate Tests", "b = 1: Contrast", "df")),
+        1.0
+    );
+    assert_eq!(
+        number(cell(&t, "Univariate Tests", "b = 2: Contrast", "df")),
+        2.0
+    );
+}

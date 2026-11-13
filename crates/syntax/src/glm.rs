@@ -503,27 +503,24 @@ fn plot(p: &mut Parser) -> PResult<Vec<GlmPlot>> {
     Ok(out)
 }
 
-/// Adds an EMMEANS; of identical ones only the last counts. Names compare without case, a
-/// COMPARE without a factor is the one of TABLES, and the order of WITH does not matter.
+/// Adds an EMMEANS; of identical ones only the last counts. Names compare without ASCII case
+/// (as variable names do), a COMPARE without a factor is the one of TABLES, WITH(x=MEAN) is the
+/// same as leaving x out, and REFCAT and ADJ matter only with COMPARE.
 pub(crate) fn push_emmeans(list: &mut Vec<Emmeans>, e: Emmeans) {
     let key = |e: &Emmeans| {
-        let up = |s: &String| s.to_uppercase();
-        let mut with: Vec<(String, Option<u64>)> = e
+        let up = |s: &String| s.to_ascii_uppercase();
+        let with: Vec<(String, u64)> = e
             .with
             .iter()
-            .map(|(n, v)| (up(n), v.map(f64::to_bits)))
+            .filter_map(|(n, v)| v.map(|v| (up(n), v.to_bits())))
             .collect();
-        with.sort();
-        let compare = e
-            .compare
-            .as_ref()
-            .map(|c| c.as_ref().or(e.factors.first()).map(up));
-        (
-            e.factors.iter().map(up).collect::<Vec<_>>(),
-            with,
-            compare,
-            format!("{:?} {:?}", e.refcat, e.adjustment),
-        )
+        let compare = e.compare.as_ref().map(|c| {
+            (
+                c.as_ref().or(e.factors.first()).map(up),
+                format!("{:?} {:?}", e.refcat, e.adjustment),
+            )
+        });
+        (e.factors.iter().map(up).collect::<Vec<_>>(), with, compare)
     };
     let new = key(&e);
     list.retain(|old| key(old) != new);
