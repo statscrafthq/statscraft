@@ -90,7 +90,7 @@ fn value(tables: &[Table], title: &str, row: &str, column: &str) -> f64 {
 }
 
 /// The row of a table without row headers whose first cell is `first`.
-fn row_of<'t>(table: &'t Table, first: f64) -> &'t [Cell] {
+fn row_of(table: &Table, first: f64) -> &[Cell] {
     table
         .rows
         .iter()

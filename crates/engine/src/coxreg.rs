@@ -67,6 +67,12 @@ struct Row {
     x: Vec<f64>,
 }
 
+/// An expanded row of a time program: the analysis case, and the start and stop of its time.
+type Span = (usize, f64, f64);
+
+/// A line of a plot: its name and the centered covariates of the model's columns.
+type Line = (String, Vec<f64>);
+
 /// The sums of one event time of a stratum over its risk set.
 struct EventTime {
     stratum: usize,
@@ -170,10 +176,10 @@ fn derivatives(rows: &[Row], strata: usize, cols: &[usize], b: &[f64]) -> (f64, 
             .map(|&r| rows[r].w * dot(&pick(&rows[r].x, cols), b))
             .sum::<f64>()
             - e.d * e.s0.ln();
-        for i in 0..p {
-            u[i] += e.xd[i] - e.d * e.s1[i] / e.s0;
-            for j in 0..p {
-                info[i][j] += e.d * (e.s2[i][j] / e.s0 - e.s1[i] * e.s1[j] / (e.s0 * e.s0));
+        for (i, (u, row)) in u.iter_mut().zip(&mut info).enumerate() {
+            *u += e.xd[i] - e.d * e.s1[i] / e.s0;
+            for (j, cell) in row.iter_mut().enumerate() {
+                *cell += e.d * (e.s2[i][j] / e.s0 - e.s1[i] * e.s1[j] / (e.s0 * e.s0));
             }
         }
     }
@@ -340,6 +346,9 @@ struct Model<'a> {
     strata: usize,
     criteria: &'a CoxregCriteria,
     terms: &'a [crate::model_terms::TermInfo],
+    /// The rows' design columns and weights, for the redundancy check.
+    x: Vec<Vec<f64>>,
+    w: Vec<f64>,
 }
 
 impl Model<'_> {
@@ -406,9 +415,7 @@ impl Model<'_> {
     }
 
     fn independent(&self, wanted: &[usize]) -> Vec<usize> {
-        let x: Vec<Vec<f64>> = self.rows.iter().map(|r| r.x.clone()).collect();
-        let w: Vec<f64> = self.rows.iter().map(|r| r.w).collect();
-        independent(&x, &w, wanted, true, 1e-8)
+        independent(&self.x, &self.w, wanted, true, 1e-8)
     }
 }
 
@@ -481,8 +488,8 @@ fn baselines(rows: &[Row], strata: usize, fit: &Fit) -> Vec<Baseline> {
         let breslow = last(&base.breslow) + e.d / e.s0;
         let var = last(&base.var) + e.d / (e.s0 * e.s0);
         let mut a = base.a.last().cloned().unwrap_or_else(|| vec![0.0; p]);
-        for i in 0..p {
-            a[i] += e.d * e.s1[i] / (e.s0 * e.s0);
+        for (a, s1) in a.iter_mut().zip(&e.s1) {
+            *a += e.d * s1 / (e.s0 * e.s0);
         }
         base.times.push(e.time);
         base.survival.push(s);
@@ -617,6 +624,10 @@ impl Engine {
                 .iter()
                 .flatten()
                 .any(|n| data.variable_index(n).is_none());
+        if program.is_some() && !time_dependent {
+            warnings
+                .push("the TIME PROGRAM creates none of the covariates, so it is not used".into());
+        }
         if program.is_some() && data.variable_index("T_").is_some() {
             return Err(Error(
                 "the data has a variable T_, which a TIME PROGRAM reserves for the time; rename it"
@@ -784,7 +795,7 @@ impl Engine {
             t.sort_by(f64::total_cmp);
             t.dedup();
         }
-        let expanded: Option<(Dataset, Vec<(usize, f64, f64)>)> = if time_dependent {
+        let expanded: Option<(Dataset, Vec<Span>)> = if time_dependent {
             let program = program.as_ref().expect("checked");
             // (analysis case, start, stop) of every expanded row
             let mut origin = Vec::new();
@@ -904,6 +915,8 @@ impl Engine {
             strata,
             criteria: &criteria,
             terms,
+            x: rows.iter().map(|r| r.x.clone()).collect(),
+            w: rows.iter().map(|r| r.w).collect(),
         };
 
         // Block 0
@@ -1183,7 +1196,11 @@ impl Engine {
                 tables.push(table("Covariate Means", 1, columns, rows_out, None));
             }
             if command.print.baseline {
-                for (s, base) in bases.iter().enumerate() {
+                for (s, base) in bases
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, b)| !b.times.is_empty())
+                {
                     let rows_out = base
                         .times
                         .iter()
@@ -1203,7 +1220,7 @@ impl Engine {
                     for c in ["Survival", "SE", "Cum Hazard"] {
                         columns.push(("At mean of covariates".into(), c.into()));
                     }
-                    let caption = (strata > 1 || strata_var.is_some()).then(|| stratum_name(s));
+                    let caption = strata_var.is_some().then(|| stratum_name(s));
                     tables.push(table("Survival Table", 0, columns, rows_out, caption));
                 }
             }
@@ -1397,28 +1414,18 @@ impl CaseStats {
             dfbeta: vec![vec![0.0; p]; cases],
             presid: vec![vec![nan; columns]; cases],
         };
-        let times = event_times(rows, strata, &fit.cols, &fit.b);
-        // per stratum: event times with the running sums of d / S0 and d xbar / S0
-        let mut cumulative: Vec<Vec<(f64, f64, Vec<f64>)>> = vec![Vec::new(); strata];
-        for e in &times {
-            let list = &mut cumulative[e.stratum];
-            let (h, mut a) = list
-                .last()
-                .map_or((0.0, vec![0.0; p]), |(_, h, a)| (*h, a.clone()));
-            for j in 0..p {
-                a[j] += e.d * e.s1[j] / (e.s0 * e.s0);
-            }
-            list.push((e.time, h + e.d / e.s0, a));
+        for e in event_times(rows, strata, &fit.cols, &fit.b) {
             for &r in &e.deaths {
                 for (j, &c) in fit.cols.iter().enumerate() {
                     out.presid[rows[r].case][c] = rows[r].x[c] - e.s1[j] / e.s0;
                 }
             }
         }
+        // the running sums of d / S0 and d S1 / S0^2 up to time t
         let upto = |s: usize, t: f64| -> (f64, Vec<f64>) {
-            let list = &cumulative[s];
-            match list.partition_point(|(u, ..)| *u <= t).checked_sub(1) {
-                Some(i) => (list[i].1, list[i].2.clone()),
+            let base = &bases[s];
+            match base.index(t) {
+                Some(i) => (base.breslow[i], base.a[i].clone()),
                 None => (0.0, vec![0.0; p]),
             }
         };
@@ -1825,7 +1832,7 @@ impl Report<'_> {
         .collect();
         let zero = vec![0.0; fit.cols.len()];
         // (title part, lines: name and centered z of the model's columns)
-        let mut sets: Vec<(String, Vec<(String, Vec<f64>)>)> =
+        let mut sets: Vec<(String, Vec<Line>)> =
             vec![("at mean of covariates".into(), vec![(String::new(), zero)])];
         for p in patterns {
             let lines = p
@@ -1890,7 +1897,7 @@ impl Report<'_> {
                         });
                     }
                 }
-                let mut chart = crate::Chart::plot(
+                charts.push(crate::Chart::plot(
                     ChartKind::Line,
                     format!("{title} {part}"),
                     Axis::titled(time_title),
@@ -1900,9 +1907,7 @@ impl Report<'_> {
                         lines: Vec::new(),
                         z_axis: None,
                     },
-                );
-                chart.legend = (bases.len() > 1 || lines.len() > 1).then(|| "Lines".to_string());
-                charts.push(chart);
+                ));
             }
         }
         charts
