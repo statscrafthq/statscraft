@@ -657,3 +657,25 @@ fn a_weight_of_zero_leaves_the_design() {
     let t = find(&tables, "Univariate Statistics", 0);
     check(t, "food / Mean", "Unweighted Count", 122.0, 0.0);
 }
+
+#[test]
+fn weight_and_split_file_do_not_apply_and_say_so() {
+    let source = format!(
+        "{}{WR}WEIGHT BY members.
+         CSDESCRIPTIVES /PLAN FILE='wr.json' /SUMMARY VARIABLES=food /MEAN.\n",
+        data("weighted")
+    );
+    let (engine, tables) = run(&source);
+    // the weight of the plan, not members
+    check(
+        find(&tables, "Univariate Statistics", 0),
+        "food / Mean",
+        "Estimate",
+        397.55746832,
+        1e-8,
+    );
+    assert_eq!(
+        engine.warnings(),
+        ["CSDESCRIPTIVES ignores WEIGHT (the plan names the weight)"]
+    );
+}

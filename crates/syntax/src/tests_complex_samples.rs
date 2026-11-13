@@ -132,7 +132,7 @@ fn csplan_rules_give_errors() {
 fn csdescriptives_parses_every_subcommand() {
     let c = match one(
         "CSDESCRIPTIVES /PLAN FILE='p.json' /SUMMARY VARIABLES=yield acres /MEAN TTEST=3, 4
-           /SUM /RATIO DENOM=acres NUMERATOR=yield TTE=1.5 /RATIO NUMERATOR=a b DENOMINATOR=c
+           /SUM /RATIO DENOM=acres NUMERATOR=yield TTE=1.5 /RATIO NUMERATOR=ALL DENOMINATOR=c
            /STATISTICS COUNT POPSIZE CV DEFFSQRT CIN(90) /SUBPOP TABLE=organic BY county DISPLAY=SEPARATE
            /MISSING SCOPE=LISTWISE CLASSMISSING=INCLUDE.",
     ) {
@@ -146,6 +146,7 @@ fn csdescriptives_parses_every_subcommand() {
     assert_eq!(c.ratios.len(), 2);
     assert_eq!(c.ratios[0].numerators, [VarItem::Name("yield".into())]);
     assert_eq!(c.ratios[0].test, Some(vec![1.5]));
+    assert_eq!(c.ratios[1].numerators, [VarItem::All]);
     let s = c.statistics;
     assert!(s.count && s.popsize && s.cv && s.deffsqrt && !s.se && !s.deff);
     assert_eq!(s.cin, Some(90.0));

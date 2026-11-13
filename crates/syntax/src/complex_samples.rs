@@ -863,6 +863,11 @@ fn ratio_list(p: &mut Parser) -> PResult<Vec<VarItem>> {
         if p.peek_at(1) == Some(&TokenKind::Punct(Punct::Eq)) {
             break;
         }
+        if p.eat_word("ALL") {
+            items.push(VarItem::All);
+            p.eat(Punct::Comma);
+            continue;
+        }
         let first = p.name("a variable name")?;
         if p.eat_word("TO") {
             items.push(VarItem::Range(first, p.name("a variable name")?));

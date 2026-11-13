@@ -861,6 +861,7 @@ fn stat_cells(
 }
 
 /// A subpopulation: its category texts and which design cases are in it.
+#[derive(Clone)]
 struct Domain {
     labels: Vec<String>,
     inside: Vec<bool>,
@@ -1015,11 +1016,7 @@ impl Engine {
                 for note in &command.ignored {
                     self.warn(format!("CSPLAN: {note}"));
                 }
-                if let Some(data) = &self.dataset
-                    && (data.weight_variable().is_some() || data.split_file().is_some())
-                {
-                    self.warn("CSPLAN ignores WEIGHT and SPLIT FILE: the plan names its own weight, and the complex samples procedures do not split");
-                }
+                self.warn_weight_and_split("CSPLAN");
                 plan
             }
         };
@@ -1031,19 +1028,22 @@ impl Engine {
         ))
     }
 
-    /// The complex samples procedures take the weight from the plan and do not split.
-    fn warn_weight_and_split(&mut self, command: &str) -> Result<(), Error> {
-        let data = self.active()?;
-        if data.weight_variable().is_some() || data.split_file().is_some() {
-            self.warn(format!(
-                "{command} ignores WEIGHT and SPLIT FILE: the weight comes from the plan"
-            ));
+    /// The complex samples commands take the weight from the plan and do not split.
+    fn warn_weight_and_split(&mut self, command: &str) {
+        let Some(data) = &self.dataset else { return };
+        let mut ignored = Vec::new();
+        if data.weight_variable().is_some() {
+            ignored.push("WEIGHT (the plan names the weight)");
         }
-        Ok(())
+        if data.split_file().is_some() {
+            ignored.push("SPLIT FILE (the design spans the whole file)");
+        }
+        if !ignored.is_empty() {
+            self.warn(format!("{command} ignores {}", ignored.join(" and ")));
+        }
     }
 
     pub(crate) fn csdescriptives(&mut self, c: &Csdescriptives) -> Result<Vec<Table>, Error> {
-        self.warn_weight_and_split("CSDESCRIPTIVES")?;
         let plan = self.read_plan(&c.plan)?;
         let data = self.active()?;
         let shown = self.shown();
@@ -1261,11 +1261,11 @@ impl Engine {
                 ));
             }
         }
+        self.warn_weight_and_split("CSDESCRIPTIVES");
         Ok(tables)
     }
 
     pub(crate) fn cstabulate(&mut self, c: &Cstabulate) -> Result<Vec<Table>, Error> {
-        self.warn_weight_and_split("CSTABULATE")?;
         let plan = self.read_plan(&c.plan)?;
         let data = self.active()?;
         let shown = self.shown();
@@ -1277,9 +1277,7 @@ impl Engine {
         {
             return Err(Error(format!("{by} is both before and after BY")));
         }
-        let mut with_by = rows_vars.clone();
-        with_by.extend(c.by.clone());
-        if let Some(name) = duplicate(&with_by) {
+        if let Some(name) = duplicate(&rows_vars) {
             return Err(Error(format!("{name} appears twice on TABLES")));
         }
         let subpop_names: Vec<String> = c
@@ -1325,11 +1323,7 @@ impl Engine {
             whole: true,
         }];
         if strata_only {
-            test_domains.extend(domains.iter().map(|d| Domain {
-                labels: d.labels.clone(),
-                inside: d.inside.clone(),
-                whole: false,
-            }));
+            test_domains.extend(domains.iter().cloned());
         }
         let s = &c.statistics;
         let mut tables = Vec::new();
@@ -1477,6 +1471,7 @@ impl Engine {
                 }
             }
         }
+        self.warn_weight_and_split("CSTABULATE");
         for w in warnings {
             self.warn(w);
         }
