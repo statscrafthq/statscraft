@@ -96,8 +96,12 @@ fn own_name<'a>(command: &str, message: &'a str) -> Option<(&'a str, &'a str)> {
         .strip_prefix(command)?
         .strip_prefix(' ')
         .is_some_and(|more| {
-            more.chars()
-                .all(|c| c.is_ascii_uppercase() || " /_-".contains(c))
+            // "RANK = 1: ..." is a split group of a variable RANK, not the command
+            !more.is_empty()
+                && !more.starts_with("= ")
+                && more
+                    .chars()
+                    .all(|c| c.is_ascii_uppercase() || " /=_-".contains(c))
         });
     (name == command || longer).then_some((name, rest))
 }
@@ -1073,6 +1077,14 @@ mod tests {
             "FACTOR /SAVE: g = 1: 5 scores"
         );
         assert_eq!(with_command("", "no command"), "no command");
+        assert_eq!(
+            with_command("FACTOR", "FACTOR /MATRIX=IN: no N"),
+            "FACTOR /MATRIX=IN: no N"
+        );
+        assert_eq!(
+            with_command("RANK", "RANK = A: ties"),
+            "RANK: RANK = A: ties"
+        );
         // a split group of a variable named like the command is not the command's own name
         assert_eq!(
             with_command("RANK", "RANK = 1: ties in x"),

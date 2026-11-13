@@ -32,8 +32,7 @@
 //! - Symmetry (CHOL, EVAL, EIGEN) and singularity (INV, SOLVE, GSCH) are judged relative to the
 //!   largest element; RANK and GINV ignore singular values at or below
 //!   max(r, c) * largest * 2.2e-16. GINV of a matrix with a missing or infinite element, or
-//!   with elements so large (about 1e154) that their sums of squares overflow, is missing
-//!   throughout.
+//!   with elements so large that their sums of squares overflow, is missing throughout.
 //! - A distribution or random function whose parameters are out of range is an error.
 
 use crate::matrix_lang::{Mat, fits};
@@ -650,13 +649,13 @@ fn svd_tolerance(a: &Mat, top: f64) -> f64 {
 fn pseudo_inverse(a: &Mat) -> Mat {
     // a missing or infinite entry, or one so large that the sums of squares overflow, leaves
     // no singular value to trust (a NaN sorts first), and the result says so
-    let missing = Mat::filled(a.cols, a.rows, f64::NAN);
+    let missing = || Mat::filled(a.cols, a.rows, f64::NAN);
     if a.data.iter().any(|x| !x.is_finite()) {
-        return missing;
+        return missing();
     }
     let (u, q, v) = thin_svd(a);
     if a.rows.min(a.cols) > 0 && !q.at(0, 0).is_finite() {
-        return missing;
+        return missing();
     }
     let mut out = Mat::filled(a.cols, a.rows, 0.0);
     // the thin side has a vector exactly for each singular value above svd_tolerance
