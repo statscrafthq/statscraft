@@ -690,10 +690,11 @@ fn solve(s: &Setup) -> Result<Solution, String> {
             .collect::<Vec<Vec<f64>>>()
     };
     let mut singular_cov = covariances(&lambda_sums, &|_| 1.0);
-    for (t, _) in tied.iter().enumerate().filter(|x| *x.1) {
-        for o in 0..kept {
-            singular_cov[t][o] = f64::NAN;
-            singular_cov[o][t] = f64::NAN;
+    for (t, row) in singular_cov.iter_mut().enumerate() {
+        for (o, x) in row.iter_mut().enumerate() {
+            if tied[t] || tied[o] {
+                *x = f64::NAN;
+            }
         }
     }
     let unknown = vec![vec![f64::NAN; p]; p];
