@@ -2909,8 +2909,7 @@ fn relative_eigenvalues(sh: &Matrix, se: &Matrix, reference: &[f64]) -> (Vec<f64
     // S_E^-1/2 = V diag(1/sqrt(e)) V'
     let mut root = vec![vec![0.0; n]; n];
     for (value, vector) in &pairs {
-        // the cut of log_determinant_and_rank, on the same correlation form
-        if *value <= 1e-10 {
+        if *value <= RANK_CUT {
             continue;
         }
         rank += 1;
@@ -3634,6 +3633,9 @@ fn multivariate_note(flags: &Flags) -> String {
     )
 }
 
+/// The smallest eigenvalue of a matrix in correlation form that counts towards its rank.
+const RANK_CUT: f64 = 1e-10;
+
 /// The matrix in correlation form over the variables whose variance is more than a tiny share
 /// of `reference`, their own scale (such as the diagonal of their raw sums of squares), with
 /// those variables. Rounding noise left in the variance of a variable that is fitted exactly or
@@ -3661,7 +3663,7 @@ fn log_determinant_and_rank(a: &Matrix, reference: &[f64]) -> (f64, usize) {
         .into_iter()
         .map(|(v, _)| v)
         .collect();
-    let rank = values.iter().filter(|v| **v > 1e-10).count();
+    let rank = values.iter().filter(|v| **v > RANK_CUT).count();
     let log_det = values.iter().map(|v| v.ln()).sum::<f64>()
         + kept.iter().map(|&i| a[i][i].ln()).sum::<f64>();
     (log_det, rank)
@@ -3813,7 +3815,7 @@ fn residual_tables(fit: &Fit, names: &[String], design: &str) -> Vec<Table> {
     let residual = table("Residual SSCP Matrix", 2, columns, rows, None);
     let (w, chi, df, sig) = mauchly(s, dfe, &fit.raw());
     // mauchly gives no chi-square for a singular matrix; W itself may underflow to 0
-    let fine = chi.is_finite() && dfe > 0.0;
+    let fine = chi.is_finite();
     let rows = vec![
         // a singular residual SSCP gives a ratio of 0 but no chi-square
         vec![
