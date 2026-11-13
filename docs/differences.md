@@ -514,6 +514,19 @@ Where the documentation is silent:
 - SPREADLEVEL plots the cells of all factors that hold more than one case (frequency weights, as in the descriptive statistics), the mean against the standard deviation and the mean against the variance, each cell labeled. RESIDUALS gives one point per case: the predicted value across, the observed value up and the standardized residual (the residual over the root of the error mean square divided by the REGWGT weight) as the third coordinate, from which the matrix of the three pairs is drawn.
 - PLOT with WSFACTOR is ignored with a warning.
 
+### MIXED
+
+- GNU PSPP has no MIXED. The numbers were compared with R's nlme package (`lme` and `gls`), run as a separate program on synthetic data. nlme reports standard deviations and correlations; the tables here give variances and covariances, as the documentation does, and a compound symmetry structure as a diagonal offset and a common covariance. The -2 log likelihoods agree.
+- Degrees of freedom are Satterthwaite's by default, as documented; nlme uses its own count by grouping level. They were checked against a separate calculation in R from numerical derivatives of the likelihood.
+- Standard errors of covariance parameters come from the observed Hessian of the likelihood, the same Hessian that the Satterthwaite degrees of freedom use.
+- The Type III test of the Intercept tests the intercept at the average of the factor levels (covariates at 0), as UNIANOVA does, not the coefficient of the last cell.
+- Information criteria: for REML, n is the number of cases less the number of fixed parameters that are not redundant, and only covariance parameters count; for ML, n is all cases and both kinds count.
+- COVTYPE(VC) on REPEATED runs as DIAG with a warning. A case with a frequency weight above 1 counts that many times; with REPEATED the weight must be 1.
+- The likelihood can have more than one local maximum (for example COVTYPE(ID) over effects on very different scales). The fit starts from the least squares residual variance shared out, as documented, and can stop at a different maximum than another program.
+- When an iteration cannot improve the likelihood within MXSTEP halvings, or MXITER runs out, the fit stops with a warning and shows the estimates it reached.
+- SAVE names are FXPRED_1, PRED_1, RESID_1, SEFIXP_1 and DFFIXP_1, or the names given. RESID is the dependent minus PRED.
+- Cases that a random effect without SUBJECT links into one covariance block of more than 2000 cases are not supported yet; give RANDOM a SUBJECT.
+
 ### ANOVA
 
 - **Beyond the documentation:** the first analysis list may come without VARIABLES=, as the later lists of the manual's examples are written.
@@ -817,6 +830,7 @@ Where the documentation is silent:
   - NOMREG has no stepwise methods, TEST, OUTFILE, or PRINT CELLPROB, HISTORY and ASSOCIATION.
   - PLUM has no TEST.
   - UNIANOVA and GLM have no multivariate model (GLM with several dependents without WSFACTOR), RANDOM, TEST, ROBUST, OUTFILE, MMATRIX, MEASURE, POSTHOC VS, CONTRAST SPECIAL or the heteroskedasticity tests. With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX, SAVE or PLOT.
+  - MIXED has no EMMEANS, TEST, SSTYPE(1), DFMETHOD(KENWARDROGER), SOLUTION on RANDOM, PRINT CORB, COVB, CPS, DESCRIPTIVES, G, HISTORY, LMATRIX or R, SAVE SEPRED or DFPRED, and no COVTYPE other than VC, ID, DIAG, UN, CS and AR1 (no KRONECKER or SPCOORDS).
   - FACTOR has no METHOD=COVARIANCE, MATRIX=OUT or MATRIX=IN(FAC=...).
   - CLUSTER has no MATRIX=OUT.
   - DISCRIMINANT has no ROTATE=COEFF or STRUCTURE, MATRIX or OUTFILE, and no cross-validated rows in the casewise listing.

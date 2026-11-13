@@ -76,6 +76,7 @@ pub enum Command {
     Pplot(Box<crate::pplot::Pplot>),
     Roc(Box<crate::pplot::Roc>),
     Glm(Box<crate::glm::Glm>),
+    Mixed(Box<crate::mixed::Mixed>),
     Cluster(Box<crate::cluster::Cluster>),
     Discriminant(Box<crate::discriminant::Discriminant>),
     Anova(Box<crate::anova::Anova>),

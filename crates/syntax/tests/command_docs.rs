@@ -128,6 +128,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "PLUM",
             "UNIANOVA",
             "GLM",
+            "MIXED",
             "ANOVA",
             "TREE",
             "GRAPH",

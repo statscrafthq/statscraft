@@ -561,7 +561,7 @@ fn adjustment_name(a: Adjustment) -> &'static str {
     }
 }
 
-fn percent_title(alpha: f64) -> String {
+pub(crate) fn percent_title(alpha: f64) -> String {
     let p = 100.0 * (1.0 - alpha);
     if (p - p.round()).abs() < 1e-9 {
         format!("{p:.0}%")
