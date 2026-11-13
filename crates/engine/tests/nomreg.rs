@@ -524,10 +524,8 @@ fn nomreg_forward_entry_by_likelihood_ratio() {
     // MAXEFFECT stops after the first effect
     let t = run(
         &mut engine,
-        &format!(
-            "NOMREG mode BY district shift WITH km /MODEL=| FORWARD=km district shift\n\
-             /STEPWISE=MAXEFFECT(1) /PRINT=STEP KERNEL."
-        ),
+        "NOMREG mode BY district shift WITH km /MODEL=| FORWARD=km district shift\n\
+         /STEPWISE=MAXEFFECT(1) /PRINT=STEP KERNEL.",
     );
     assert_eq!(steps(&t).len(), 2);
 }
