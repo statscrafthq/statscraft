@@ -460,6 +460,14 @@ See [The Window menu](#the-window-menu).
   - The standard error, coefficient of variation, design effect and its square root, the unweighted count and a confidence interval at any level. Descriptives adds the population size, Frequencies cumulative values, Crosstabs the expected table percents and the residuals (with table percents).
   - Tests: equal shares in Frequencies; independence, the odds ratio, relative risk and risk difference in Crosstabs.
   - Subpopulations, shown together or in a table for each variable; cases valid on every variable only; user-missing values of categories as valid.
+- **General Linear Model** (`CSGLM`) and **Logistic Regression** (`CSLOGISTIC`) each pick a plan file and fit one dependent on factors and covariates. The linear model needs a numeric dependent; the logistic one takes a numeric or string dependent with its reference category: the highest (the default), the lowest or a value. Covariates are numeric.
+  - The model: main effects, the full factorial of the factors with the covariates, or custom terms; the intercept included, left out or alone, and shown in the tables or not.
+  - Statistics of the estimates (estimates, standard error, t test, confidence interval, design effect and its square root, and in Logistic Regression the exponentiated estimates), the test statistic (Wald F or chi-square, adjusted or not) and the adjustment of p values for several tests.
+  - Custom tests, typed one row per line as in the other model dialogs: INTERCEPT, when the model has it, comes first in a row, and a row can end with `= value` to test against that value instead of 0.
+  - General Linear Model: tables of estimated marginal means, each of crossed factors or the overall mean, with a comparison of one factor's levels by a contrast, and the values the covariates are held at.
+  - Logistic Regression: odds ratios, each of a factor against its lowest or highest level or a value, or of a covariate by one or more changes, with the values the other factors and covariates are held at; the iteration limits and convergence criteria.
+  - The confidence level, the degrees of freedom of the design, a subpopulation (a variable outside the model and its value), user-missing values of factors as valid, the tables to show (Logistic Regression adds the classification table and the iteration history every n-th step), and saving the predicted values and residuals or the predicted probabilities and category, with names of your own.
+  - The dialog checks roles, string variables where numbers are needed, a plan file that is missing and names of saved variables that are taken before the command runs. Plan variables in the model are found when it runs.
 
 ### Graphs
 

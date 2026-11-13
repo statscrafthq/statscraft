@@ -52,6 +52,31 @@ pub const GENLIN_ORDERS: [(&str, &str); 3] = [
     ("DATA", "As they come in the data"),
 ];
 
+/// Every crossing of the factors, smallest first, then the covariates each on its own.
+pub(crate) fn full_factorial(
+    factors: &[String],
+    covariates: &[String],
+) -> Result<Vec<Vec<String>>, String> {
+    let n = factors.len();
+    if n > 10 {
+        return Err(
+            "the full factorial of more than 10 factors is too large: choose custom terms".into(),
+        );
+    }
+    let mut masks: Vec<u32> = (1..1u32 << n).collect();
+    masks.sort_by_key(|m| m.count_ones());
+    Ok(masks
+        .iter()
+        .map(|m| {
+            (0..n)
+                .filter(|i| m & (1 << i) != 0)
+                .map(|i| factors[i].clone())
+                .collect()
+        })
+        .chain(covariates.iter().map(|c| vec![c.clone()]))
+        .collect())
+}
+
 /// The models offered.
 pub const GENLIN_MODELS: [&str; 3] = ["Main effects", "Full factorial", "Custom"];
 
@@ -442,30 +467,11 @@ impl GeneralizedLinear {
     fn effects(&self) -> Result<String, String> {
         Ok(match self.model {
             0 => self.model_variables().join(" "),
-            1 => {
-                // every crossing of the factors, smallest first, then the covariates
-                let n = self.factors.len();
-                if n > 10 {
-                    return Err(
-                        "the full factorial of more than 10 factors is too large: choose custom terms"
-                            .into(),
-                    );
-                }
-                let mut masks: Vec<u32> = (1..1u32 << n).collect();
-                masks.sort_by_key(|m| m.count_ones());
-                masks
-                    .iter()
-                    .map(|m| {
-                        let crossed: Vec<&str> = (0..n)
-                            .filter(|i| m & (1 << i) != 0)
-                            .map(|i| self.factors[i].as_str())
-                            .collect();
-                        crossed.join("*")
-                    })
-                    .chain(self.covariates.iter().cloned())
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            }
+            1 => full_factorial(&self.factors, &self.covariates)?
+                .iter()
+                .map(|term| term.join("*"))
+                .collect::<Vec<_>>()
+                .join(" "),
             _ if self.terms.terms.is_empty() => String::new(),
             _ => self.terms.syntax(&self.model_variables(), "model")?,
         })

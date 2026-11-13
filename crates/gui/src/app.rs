@@ -9,6 +9,7 @@ use crate::analyze_dialogs::{
     TTestKind, Tree,
 };
 use crate::connect_window::Connect;
+use crate::cs_model_dialog::SampleModel;
 use crate::data_dialogs::{
     AGGREGATE_FUNCTIONS, Aggregate, AggregateTo, Aggregated, EXPORT_NAMES, ExportData,
     FILTER_VARIABLE, ImportData, MergeFiles, Mrsets, Restructure, RestructureKind,
@@ -1675,6 +1676,14 @@ impl App {
                             ),
                             ("Frequencies...", tables(false)),
                             ("Crosstabs...", tables(true)),
+                            (
+                                "General Linear Model...",
+                                Advanced::Model(Box::new(SampleModel::new(false))),
+                            ),
+                            (
+                                "Logistic Regression...",
+                                Advanced::Model(Box::new(SampleModel::new(true))),
+                            ),
                         ] {
                             if ui.button(label).clicked() {
                                 self.open_dialog(Dialog::Advanced(dialog));

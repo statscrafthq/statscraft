@@ -11,6 +11,7 @@ use crate::analyze_dialogs::{
     Tree,
 };
 use crate::correspondence_dialog::{Correspondence, Role, TableVariable};
+use crate::cs_model_dialog::{OddsRatio, SampleModel};
 use crate::data_dialogs::{
     Aggregate, AggregateTo, Aggregated, ExportData, ImportData, Make, MergeFiles, Mrsets,
     Restructure, RestructureKind, SelectCases, SelectMode, SortCases, SortVariables, SplitFile,
@@ -257,6 +258,16 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             variables: v(&["gender"]),
             ..Default::default()
         })),
+        Dialog::Advanced(Advanced::Model(Box::new(SampleModel {
+            plan: plan.clone(),
+            dependent: s("monthly_spend"),
+            ..SampleModel::new(false)
+        }))),
+        Dialog::Advanced(Advanced::Model(Box::new(SampleModel {
+            plan: plan.clone(),
+            dependent: s("q5_1"),
+            ..SampleModel::new(true)
+        }))),
         Dialog::Advanced(Advanced::Tables(SampleTables {
             crosstabs: true,
             plan,
@@ -1074,6 +1085,95 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             options: sample_options(),
             ..Default::default()
         })),
+        // region, gender, q5_1 and resp_id are in the plan, so out of the model
+        Dialog::Advanced(Advanced::Model(Box::new(SampleModel {
+            plan: plan.clone(),
+            dependent: s("monthly_spend"),
+            factors: v(&["plan", "q5_2"]),
+            covariates: v(&["age"]),
+            model: 1,
+            show_intercept: false,
+            statistics: [true; 7],
+            test_type: 3,
+            adjustment: 4,
+            tests: vec![ContrastTest {
+                label: s("Second channel"),
+                rows: s("age 1 = 2"),
+            }],
+            means: vec![
+                MeansTable::default(),
+                MeansTable {
+                    factors: v(&["plan", "q5_2"]),
+                    compare: s("plan"),
+                    contrast: 1,
+                    adjustment: 0,
+                },
+            ],
+            means_at: vec![(s("age"), s("40"))],
+            ci_level: s("90"),
+            df: s("100"),
+            domain: s("region"),
+            domain_value: s("1"),
+            include: true,
+            print: [true; 8],
+            save: [true; 2],
+            save_names: [s("fitted"), s("residual")],
+            ..SampleModel::new(false)
+        }))),
+        Dialog::Advanced(Advanced::Model(Box::new(SampleModel {
+            plan: plan.clone(),
+            dependent: s("q5_3"),
+            reference: 2,
+            reference_value: s("0"),
+            factors: v(&["plan", "q5_2"]),
+            covariates: v(&["age"]),
+            model: 2,
+            terms: Terms {
+                terms: vec![
+                    v(&["plan"]),
+                    v(&["q5_2"]),
+                    v(&["age"]),
+                    v(&["plan", "q5_2"]),
+                ],
+                building: Vec::new(),
+            },
+            show_intercept: false,
+            statistics: [true; 7],
+            test_type: 2,
+            adjustment: 1,
+            tests: vec![ContrastTest {
+                label: s("Age"),
+                rows: s("age 1 = 0.1"),
+            }],
+            odds: vec![
+                OddsRatio {
+                    variable: s("plan"),
+                    reference: s("BASIC"),
+                    control: vec![(s("q5_2"), s("LOW")), (s("age"), s("MEAN"))],
+                },
+                OddsRatio {
+                    variable: s("age"),
+                    reference: s("1 10"),
+                    control: vec![(s("q5_2"), s("1"))],
+                },
+            ],
+            ci_level: s("99"),
+            df: s("100"),
+            iterations: s("50"),
+            halvings: s("10"),
+            pconverge: s("0.0000001"),
+            lconverge: s("0.00001"),
+            separation: s("5"),
+            domain: s("region"),
+            domain_value: s("1"),
+            include: true,
+            print: [true; 8],
+            history: s("2"),
+            save: [true; 2],
+            save_names: [s("prob"), s("guess")],
+            probabilities: s("2"),
+            ..SampleModel::new(true)
+        }))),
         Dialog::Advanced(Advanced::Tables(SampleTables {
             crosstabs: true,
             plan,
