@@ -657,9 +657,10 @@ fn fit_beta(
             break;
         }
     }
-    let hessian_ok = q == 0 || crit.hconverge.value > 0.0 || {
+    // no iterations (MAXITERATIONS=0) leave the start values, which nothing claims converged
+    let hessian_ok = q == 0 || crit.hconverge.value > 0.0 || crit.maxiterations == 0 || {
         let h = if fisher { &expected } else { &observed };
-        let scale_now = criteria_scale(c, spec, k, &mu, ll).0;
+        let scale_now = criteria_phi(c, spec, &mu);
         dot(&s, &mat_vec(&ginverse(h, tol).0, &s)) / scale_now < 1e-4
     };
     Some(BetaFit {
@@ -718,33 +719,39 @@ fn exact_fit(c: &Cases, family: Family, mu: &[f64]) -> bool {
     deviance(&|i| mu[i]) <= 1e-20 * deviance(&|_| mean)
 }
 
-/// The scale and the log likelihood that the convergence criteria use: the model's own (the
-/// current estimate for MLE, 1 for an exact fit), not the scale 1 the iterations work at.
-fn criteria_scale(c: &Cases, spec: &Spec, k: f64, mu: &[f64], ll: f64) -> (f64, f64) {
+/// The scale the convergence criteria use: the model's own (the current estimate for MLE, 1 for
+/// an exact fit), not the scale 1 the iterations work at.
+fn criteria_phi(c: &Cases, spec: &Spec, mu: &[f64]) -> f64 {
     match spec.scale {
-        ScaleMode::Mle if !exact_fit(c, spec.family, mu) => {
-            let phi = scale_estimate(c, spec.family, mu);
-            let at_phi = (0..c.n())
-                .map(|i| {
-                    c.f[i]
-                        * case_loglik(
-                            spec.family,
-                            c.y[i],
-                            mu[i],
-                            phi,
-                            c.a(i),
-                            c.omega[i],
-                            c.m[i],
-                            k,
-                            spec.full,
-                        )
-                })
-                .sum();
-            (phi, at_phi)
-        }
-        ScaleMode::Fixed(v) => (v, ll),
-        _ => (1.0, ll),
+        ScaleMode::Mle if !exact_fit(c, spec.family, mu) => scale_estimate(c, spec.family, mu),
+        ScaleMode::Fixed(v) => v,
+        _ => 1.0,
     }
+}
+
+/// The scale of `criteria_phi` and the log likelihood at it (`ll` is at the fixed scale or 1).
+fn criteria_scale(c: &Cases, spec: &Spec, k: f64, mu: &[f64], ll: f64) -> (f64, f64) {
+    let phi = criteria_phi(c, spec, mu);
+    if spec.scale != ScaleMode::Mle || phi == 1.0 {
+        return (phi, ll);
+    }
+    let at_phi = (0..c.n())
+        .map(|i| {
+            c.f[i]
+                * case_loglik(
+                    spec.family,
+                    c.y[i],
+                    mu[i],
+                    phi,
+                    c.a(i),
+                    c.omega[i],
+                    c.m[i],
+                    k,
+                    spec.full,
+                )
+        })
+        .sum();
+    (phi, at_phi)
 }
 
 /// The score of the log likelihood in tau = ln phi and its second derivative, at fixed mu.
@@ -816,7 +823,10 @@ fn fit_glm(c: &Cases, x: &[Vec<f64>], spec: &Spec, start: Option<&[f64]>) -> Opt
                     }
                     next = tau + (next - tau) / 2.0;
                 }
-                let Some(f) = accepted else { break };
+                let Some(f) = accepted else {
+                    bf.halving_failed = true;
+                    break;
+                };
                 let moved = (next - tau).abs();
                 tau = next;
                 bf = f;
@@ -1082,6 +1092,7 @@ fn fit_ordinal(
     x: &[Vec<f64>],
     link: GenlinLink,
     crit: &GenlinCriteria,
+    phi: f64,
 ) -> Option<OrdinalFit> {
     let k = o.j - 1;
     let q = x.first().map_or(0, Vec::len);
@@ -1163,20 +1174,25 @@ fn fit_ordinal(
                 }
             })
             .fold(0.0, f64::max);
+        // the iterations work at scale 1; the criteria are on the model's own scale
         let dl = if crit.lconverge.relative {
             (l - ll).abs() / (ll.abs() + 1e-6)
         } else {
-            (l - ll).abs()
+            (l - ll).abs() / phi
         };
         b = next;
         ll = l;
         s = s2;
         info = ordinal_eval(o, x, link, &b, true)?.2;
-        let quad = dot(&s, &mat_vec(&ginverse(&info, crit.singular).0, &s));
-        let hc = if crit.hconverge.relative {
-            quad / (ll.abs() + 1e-6)
+        let hc = if crit.hconverge.value > 0.0 {
+            let quad = dot(&s, &mat_vec(&ginverse(&info, crit.singular).0, &s)) / phi;
+            if crit.hconverge.relative {
+                quad / (ll.abs() / phi + 1e-6)
+            } else {
+                quad
+            }
         } else {
-            quad
+            0.0
         };
         let met = |t: statscraft_syntax::GenlinTolerance, v: f64| t.value == 0.0 || v < t.value;
         if met(crit.pconverge, change) && met(crit.lconverge, dl) && met(crit.hconverge, hc) {
@@ -1191,7 +1207,8 @@ fn fit_ordinal(
     }
     let hessian_ok = crit.hconverge.value > 0.0
         || b.is_empty()
-        || dot(&s, &mat_vec(&ginverse(&info, crit.singular).0, &s)) < 1e-4;
+        || crit.maxiterations == 0
+        || dot(&s, &mat_vec(&ginverse(&info, crit.singular).0, &s)) / phi < 1e-4;
     let positive = |m: &Matrix| {
         let (g, rank) = ginverse(m, crit.singular);
         rank == m.len() && (0..m.len()).all(|j| g[j][j] > 0.0)
@@ -1874,7 +1891,8 @@ impl Engine {
         };
         let refit = |xs: &[Vec<f64>]| -> Option<f64> {
             if multinomial {
-                fit_ordinal(&ordinal, xs, ord_link, &refit_criteria).map(|f| f.ll / fixed_phi)
+                fit_ordinal(&ordinal, xs, ord_link, &refit_criteria, fixed_phi)
+                    .map(|f| f.ll / fixed_phi)
             } else {
                 fit_glm(&c, xs, &refit_spec, None).map(|f| f.ll)
             }
@@ -1888,7 +1906,7 @@ impl Engine {
         let glm_fit;
         let result = if multinomial {
             glm_fit = None;
-            let f = fit_ordinal(&ordinal, &x, ord_link, crit).ok_or_else(failed)?;
+            let f = fit_ordinal(&ordinal, &x, ord_link, crit, fixed_phi).ok_or_else(failed)?;
             if !f.converged {
                 warnings.push(not_converged(crit, f.halving_failed));
             } else if !f.hessian_ok {
@@ -2036,6 +2054,12 @@ impl Engine {
         }
         if k_estimated {
             result.log_variance = result.log_variance.map(|v| v * phi);
+            if result.k < 1e-6 {
+                warnings.push(format!(
+                    "The negative binomial k ({:.3e}) is at the boundary 0: the counts are not overdispersed, a Poisson model fits as well, and the standard error and interval of k are not reliable",
+                    result.k
+                ));
+            }
         }
         // the covariance at the scale, robust if asked
         let cov_unit = result.cov.clone();
@@ -2468,6 +2492,7 @@ impl Engine {
             } else {
                 px
             } as f64;
+            let blank = if ll0.is_none() { NO_SMALLER_FIT } else { "" };
             let row = match ll0 {
                 Some(l0) => {
                     let chi = 2.0 * (result.ll - l0) / lr_scale;
@@ -2485,7 +2510,7 @@ impl Engine {
                 plain(&["Likelihood Ratio Chi-Square", "df", "Sig."]),
                 vec![row],
                 Some(format!(
-                    "{caption} Compares the fitted model against the {} model.",
+                    "{caption} Compares the fitted model against the {} model.{blank}",
                     if multinomial {
                         "thresholds-only"
                     } else if has_intercept {
@@ -2508,6 +2533,7 @@ impl Engine {
                 })
                 .collect();
             let f_too = crit.lr && matches!(scale, ScaleMode::Deviance | ScaleMode::Pearson);
+            let mut blank_lr = false;
             let mut types = Vec::new();
             if crit.type1 {
                 types.push(1);
@@ -2605,6 +2631,7 @@ impl Engine {
                     };
                     let df = df as f64;
                     let ok = df > 0.0 && chi.is_some_and(f64::is_finite);
+                    blank_lr |= crit.lr && df > 0.0 && chi.is_none();
                     values[slot].push(number(chi.filter(|_| ok)));
                     values[slot].push(Cell::Number(df));
                     values[slot].push(number(
@@ -2624,7 +2651,10 @@ impl Engine {
                 1,
                 columns,
                 values,
-                Some(caption.clone()),
+                Some(format!(
+                    "{caption}{}",
+                    if blank_lr { NO_SMALLER_FIT } else { "" }
+                )),
             ));
         }
         // parameter estimates
@@ -2698,9 +2728,14 @@ impl Engine {
                 match log_variance.filter(|v| *v > 0.0) {
                     Some(lv) => {
                         let s = lv.sqrt();
-                        row.push(Cell::Number(value * s));
-                        row.push(Cell::Number(value * (-z * s).exp()));
-                        row.push(Cell::Number(value * (z * s).exp()));
+                        for v in [value * s, value * (-z * s).exp(), value * (z * s).exp()] {
+                            // an estimate at the boundary of its range can have no finite bound
+                            row.push(if v.is_finite() {
+                                Cell::Number(v)
+                            } else {
+                                Cell::Empty
+                            });
+                        }
                     }
                     None => row.extend([Cell::Empty, Cell::Empty, Cell::Empty]),
                 }
@@ -2925,6 +2960,8 @@ impl Engine {
         Ok(tables)
     }
 }
+
+const NO_SMALLER_FIT: &str = " A blank likelihood ratio test has a smaller model that gives no valid means, such as one without parameters under an inverse or power link.";
 
 const HESSIAN_WARNING: &str = "The Hessian convergence criterion (1E-4) is not met after the estimates converged; the results may not be final";
 
@@ -3922,5 +3959,32 @@ fn category_column(name: Option<String>, predicted: &[Option<usize>], categories
         given,
         label,
         values,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn negative_binomial_series_match_exact_sums_at_large_r() {
+        // for a whole y both differences are finite sums over j below y
+        for r in [2e4, 1e8, 1e12] {
+            for y in [1.0, 7.0, 40.0] {
+                let terms = (0..y as usize).map(|j| r + j as f64);
+                let ln_sum: f64 = terms.clone().map(f64::ln).sum();
+                let inverse_sum: f64 = terms.map(|t| 1.0 / t).sum();
+                let ratio = ln_gamma_ratio(y, r);
+                let digammas = digamma_difference(y, r);
+                assert!(
+                    (ratio - ln_sum).abs() <= 1e-13 * ln_sum,
+                    "{r} {y} {ratio} {ln_sum}"
+                );
+                assert!(
+                    (digammas - inverse_sum).abs() <= 1e-11 * inverse_sum,
+                    "{r} {y} {digammas} {inverse_sum}"
+                );
+            }
+        }
     }
 }
