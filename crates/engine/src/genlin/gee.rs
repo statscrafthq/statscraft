@@ -220,31 +220,8 @@ fn estimate(
         }
     };
     let r = residuals(c, set, mu);
-    // the sums of residual products and the numbers of pairs at positions u < v
-    let mut sums = vec![vec![0.0; t]; t];
-    let mut counts = vec![vec![0.0; t]; t];
-    for m in &s.members {
-        let f = c.f[m[0].0];
-        for (at, &(i, u)) in m.iter().enumerate() {
-            for &(j, v) in &m[at + 1..] {
-                sums[u][v] += f * r[i] * r[j];
-                counts[u][v] += f;
-            }
-        }
-    }
     // the divisor of every correlation estimate, also when the model's scale is fixed
     let phi = moment(c, s, set, px as usize, &r);
-    let ratio = |num: f64, den: f64| {
-        let v = num / adj(den) / phi;
-        if den > 0.0 && v.is_finite() { v } else { 0.0 }
-    };
-    let pair = |u: usize, v: usize| (sums[u][v], counts[u][v]);
-    let lag = |j: usize| -> f64 {
-        let (num, den) = (0..t - j)
-            .map(|u| pair(u, u + j))
-            .fold((0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1));
-        ratio(num, den)
-    };
     let mut m: Matrix = (0..t)
         .map(|u| (0..t).map(|v| f64::from(u8::from(u == v))).collect())
         .collect();
@@ -276,6 +253,35 @@ fn estimate(
             }
             return Ok((m, phi, Adjusted::No));
         }
+        _ => {}
+    }
+    // the sums of residual products and the numbers of pairs at positions u < v
+    let mut sums = vec![vec![0.0; t]; t];
+    let mut counts = vec![vec![0.0; t]; t];
+    for m in &s.members {
+        let f = c.f[m[0].0];
+        for (at, &(i, u)) in m.iter().enumerate() {
+            for &(j, v) in &m[at + 1..] {
+                sums[u][v] += f * r[i] * r[j];
+                counts[u][v] += f;
+            }
+        }
+    }
+    let ratio = |num: f64, den: f64| {
+        let v = num / adj(den) / phi;
+        if den > 0.0 && v.is_finite() { v } else { 0.0 }
+    };
+    let pair = |u: usize, v: usize| (sums[u][v], counts[u][v]);
+    let lag = |j: usize| -> f64 {
+        let (num, den) = (0..t - j)
+            .map(|u| pair(u, u + j))
+            .fold((0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1));
+        ratio(num, den)
+    };
+    match set.correlation {
+        GenlinCorrelation::Independent | GenlinCorrelation::Fixed(_) => {
+            unreachable!("returned above")
+        }
         GenlinCorrelation::Exchangeable => {
             let num: f64 = sums.iter().flatten().sum();
             let den: f64 = counts.iter().flatten().sum();
@@ -291,7 +297,11 @@ fn estimate(
         GenlinCorrelation::Ar1 => {
             let estimate = if t > 1 { lag(1) } else { 0.0 };
             // a power matrix is positive definite only for |alpha| < 1
-            let alpha = estimate.clamp(-0.99, 0.99);
+            let alpha = if estimate.abs() >= 1.0 {
+                0.99 * estimate.signum()
+            } else {
+                estimate
+            };
             let adjusted = if alpha == estimate {
                 Adjusted::No
             } else {
@@ -322,7 +332,8 @@ fn estimate(
         .iter()
         .map(|(v, _)| *v)
         .fold(f64::INFINITY, f64::min);
-    if smallest > 0.0 {
+    // a nearly singular matrix would lose positions in the inverses of the subjects
+    if smallest > 1e-6 {
         return Ok((m, phi, Adjusted::No));
     }
     // the ridge that leaves 0.01 as the smallest eigenvalue

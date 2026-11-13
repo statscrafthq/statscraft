@@ -1880,6 +1880,7 @@ impl Engine {
                 // the positions are the WITHINSUBJECT values of every case with valid subject
                 // and within values, also one left out for another reason
                 let every: Vec<Vec<Key>> = (0..cases)
+                    .filter(|_| within.is_some() && r.sort)
                     .filter(|&k| {
                         subject_keys
                             .iter()
@@ -2408,13 +2409,7 @@ impl Engine {
             ));
             if let (Some(r), Some(s)) = (repeated, &subjects) {
                 let levels_of = |keys: &[Vec<Option<Key>>], at: usize| {
-                    let mut found: Vec<&Key> = rows
-                        .iter()
-                        .map(|&k| keys[at][k].as_ref().expect("valid"))
-                        .collect();
-                    found.sort_by(|a, b| a.compare(b));
-                    found.dedup_by(|a, b| a.compare(b).is_eq());
-                    found.len() as f64
+                    sorted(&keys[at], GenlinOrder::Data).len() as f64
                 };
                 let mut out = Vec::new();
                 for (at, v) in subject_vars.iter().enumerate() {
@@ -2609,11 +2604,12 @@ impl Engine {
                         * gee::quasi(family, c.y[i], g.mu[i], result.k, !crit.kernel)
                 })
                 .sum();
+            // trace(H C) of two symmetric matrices
             let trace: Option<f64> = independent.as_ref().map(|h| {
-                crate::matrix::multiply(h, &g.robust)
-                    .iter()
-                    .enumerate()
-                    .map(|(j, row)| row[j])
+                h.iter()
+                    .flatten()
+                    .zip(g.robust.iter().flatten())
+                    .map(|(a, b)| a * b)
                     .sum()
             });
             tables.push(table(
@@ -3145,7 +3141,7 @@ impl Engine {
                         within_vars
                             .iter()
                             .zip(keys)
-                            .map(|(v, k)| format!("{}={}", v.name(), key_value_text(v, k)))
+                            .map(|(v, k)| format!("{}={}", shown.variable(v), key_value_text(v, k)))
                             .collect::<Vec<_>>()
                             .join(", ")
                     ),
