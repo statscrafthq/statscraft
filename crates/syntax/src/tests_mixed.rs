@@ -158,11 +158,6 @@ fn random_with_the_same_effects_and_subjects_keeps_the_last() {
 fn what_is_not_supported_yet_says_so() {
     for (source, word) in [
         (
-            "MIXED gain BY crop /RANDOM=plot /TEST=crop 1 -1 | plot 1 -1.",
-            "random effects",
-        ),
-        ("MIXED gain /RANDOM=INTERCEPT | SOLUTION.", "SOLUTION"),
-        (
             "MIXED gain /REPEATED=week | SUBJECT(farm) COVTYPE(UN_AR1).",
             "UN_AR1",
         ),
@@ -170,9 +165,6 @@ fn what_is_not_supported_yet_says_so() {
             "MIXED gain /REPEATED=week | SUBJECT(farm) KRONECKER(a).",
             "KRONECKER",
         ),
-        ("MIXED gain /PRINT=SOLUTION CPS.", "CPS"),
-        ("MIXED gain /PRINT=HIST(2).", "HISTORY"),
-        ("MIXED gain /SAVE=SEPRED.", "SEPRED"),
     ] {
         let message = err(source);
         assert!(
@@ -180,6 +172,31 @@ fn what_is_not_supported_yet_says_so() {
             "{source}: {message}"
         );
     }
+}
+
+#[test]
+fn solution_print_save_and_random_test_coefficients() {
+    let m = mixed(
+        "MIXED gain BY crop /FIXED=crop /RANDOM=plot | SUBJECT(farm) SOLUTION\n\
+         /PRINT=CPS DESC HIST(3) LMAT /SAVE=SEPRED(se) DFPRED\n\
+         /TEST(0 1)='both' crop 1 -1 | plot 1 -1 DIVISOR=2; ALL | ALL 1 0 0 1\n\
+         /TEST=| plot 1 -1.",
+    );
+    assert!(m.random[0].solution);
+    assert!(m.print.cps && m.print.descriptives && m.print.lmatrix);
+    assert_eq!(m.print.history, Some(3));
+    assert_eq!(m.save[0], (MixedTemp::Sepred, Some("se".into())));
+    assert_eq!(m.save[1], (MixedTemp::Dfpred, None));
+    let t = &m.tests[0];
+    assert_eq!(t.rows.len(), 2);
+    assert_eq!(t.rows[0][0].1, [0.5, -0.5]);
+    assert_eq!(t.random[0][0].1, [0.5, -0.5]);
+    assert!(t.rows[1].is_empty());
+    assert_eq!(t.random[1][0].0, None);
+    assert_eq!(t.random[1][0].1, [1.0, 0.0, 0.0, 1.0]);
+    assert_eq!(m.tests[1].random[0][0].1, [1.0, -1.0]);
+    assert!(m.tests[1].rows[0].is_empty());
+    assert_eq!(mixed("MIXED gain /PRINT=HISTORY.").print.history, Some(1));
 }
 
 #[test]

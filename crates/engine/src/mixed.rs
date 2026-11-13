@@ -52,6 +52,12 @@
 //!   Satterthwaite df; a row that is not estimable is left out. Pairwise comparisons adjust the
 //!   significance and the interval for m comparisons (every pair, or each level against REFCAT):
 //!   Bonferroni p m, Sidak 1 - (1 - p)^m. The F tests of several rows use the df rule above.
+//! - Predicted random effects u = G Z'V^-1 (y - X b). A combination l_f b + l_r u (SOLUTION on
+//!   RANDOM, TEST after `|`, PRED for SEPRED) has the prediction error variance
+//!   d'C d + l_r G l_r' - w'V^-1 w with w = Z G l_r' and d = l_f - X'V^-1 w, the joint
+//!   covariance of the mixed model equations; its Satterthwaite df takes the gradient in θ by
+//!   central differences, and Kenward-Roger leaves these rows unadjusted. TEST coefficients of
+//!   a RANDOM with SUBJECT go to every subject divided by the number of subjects.
 //! - PRINT G shows the covariance of one subject's random effects, R that of one subject's
 //!   repeated levels (without regression weights); each is left out with a warning when there is
 //!   no RANDOM or REPEATED. COVB is C, CORB its correlations; a redundant parameter has 0 and no
@@ -64,8 +70,8 @@ use crate::descriptives::{case_weights, number};
 use crate::dist::{f_p, normal_p, normal_quantile, t_p, t_quantile};
 use crate::glm::{
     Data, Effect, Fit, Part, adjusted, adjusted_t, adjustment_name, combinations, covariate_note,
-    covariate_values, effects_of, emmeans_l, intercept_term, key_value_text, l_row, parameter_name,
-    percent_title,
+    covariate_values, effects_of, emmeans_l, find_effect, intercept_term, key_value_text, l_row,
+    parameter_name, percent_title,
 };
 use crate::matrix::{Matrix, symmetric_eigen};
 use crate::npar_tests::text;
@@ -73,7 +79,9 @@ use crate::regression::{plain, table};
 use crate::shown::{Show, Shown};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Measure, Values, Variable};
-use statscraft_syntax::{CovType, CustomTest, DfMethod, Emmeans, Mixed, MixedTemp, RefCat, Term, Value};
+use statscraft_syntax::{
+    CovType, CustomTest, DfMethod, Emmeans, LRow, Mixed, MixedTemp, RefCat, Term, Value,
+};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
@@ -287,13 +295,13 @@ impl Block {
                     th[0].mul(th[d])
                 }
             }
-            _ if same && self.covtype != CovType::Fa1 && self.covtype != CovType::Fah1 => {
-                th[i]
-            }
+            _ if same && self.covtype != CovType::Fa1 && self.covtype != CovType::Fah1 => th[i],
             CovType::Csh => sd(i).mul(sd(j)).mul(th[t]),
             CovType::Arh1 => sd(i).mul(sd(j)).mul(th[t].pow(d)),
             CovType::Tph => sd(i).mul(sd(j)).mul(th[t + d - 1]),
-            CovType::Ad1 => (i.min(j)..i.max(j)).fold(sd(i).mul(sd(j)), |acc, k| acc.mul(th[t + k])),
+            CovType::Ad1 => {
+                (i.min(j)..i.max(j)).fold(sd(i).mul(sd(j)), |acc, k| acc.mul(th[t + k]))
+            }
             CovType::Unr => {
                 let (a, b) = (i.max(j), i.min(j));
                 sd(i).mul(sd(j)).mul(th[t + a * (a - 1) / 2 + b])
@@ -373,7 +381,8 @@ impl Block {
         let lags = |prefix: &str| -> Vec<String> {
             (1..t).map(|k| format!("{prefix} rho({k})")).collect()
         };
-        let loadings = |prefix: &'static str| (1..=t).map(move |i| format!("{prefix} loading({i})"));
+        let loadings =
+            |prefix: &'static str| (1..=t).map(move |i| format!("{prefix} loading({i})"));
         match self.covtype {
             CovType::Vc | CovType::Id => vec!["Variance".into(); self.count],
             CovType::Diag => (1..=self.count).map(|i| format!("Var({i})")).collect(),
@@ -897,11 +906,9 @@ impl Kr {
     fn new(e: &Eval, w: Matrix) -> Kr {
         let phi = &e.a_inv;
         let p = phi.len();
-        let k = e.b.len();
         let mut s = vec![vec![0.0; p]; p];
-        for i in 0..k {
-            for j in 0..k {
-                let wij = w[i][j];
+        for (i, wi) in w.iter().enumerate() {
+            for (j, &wij) in wi.iter().enumerate() {
                 if wij == 0.0 {
                     continue;
                 }
@@ -942,7 +949,10 @@ impl Kr {
         let theta = product(&product(&crate::matrix::transpose(l), &inv), l);
         let tp = product(&theta, phi);
         let m: Vec<Matrix> = e.b.iter().map(|b| product(&product(&tp, b), phi)).collect();
-        let tr: Vec<f64> = m.iter().map(|mi| (0..mi.len()).map(|a| mi[a][a]).sum()).collect();
+        let tr: Vec<f64> = m
+            .iter()
+            .map(|mi| (0..mi.len()).map(|a| mi[a][a]).sum())
+            .collect();
         let (mut a1, mut a2) = (0.0, 0.0);
         for i in 0..m.len() {
             for j in 0..m.len() {
@@ -955,8 +965,7 @@ impl Kr {
         let den = 3.0 * rows + 2.0 * (1.0 - g);
         let (c1, c2, c3) = (g / den, (rows - g) / den, (rows + 2.0 - g) / den);
         let e_star = 1.0 / (1.0 - a2 / rows);
-        let v_star =
-            2.0 / rows * (1.0 + c1 * b) / ((1.0 - c2 * b).powi(2) * (1.0 - c3 * b));
+        let v_star = 2.0 / rows * (1.0 + c1 * b) / ((1.0 - c2 * b).powi(2) * (1.0 - c3 * b));
         let rho = v_star / (2.0 * e_star * e_star);
         let m_df = 4.0 + (rows + 2.0) / (rows * rho - 1.0);
         let lambda = m_df / (e_star * (m_df - 2.0));
@@ -1030,7 +1039,11 @@ impl Infer<'_> {
             let shift: Vec<f64> = used.iter().map(|(_, _, s)| *s).collect();
             let lal: Matrix = rows
                 .iter()
-                .map(|x| rows.iter().map(|y| dot(x, &mat_vec(&kr.phi_a, y))).collect())
+                .map(|x| {
+                    rows.iter()
+                        .map(|y| dot(x, &mat_vec(&kr.phi_a, y)))
+                        .collect()
+                })
                 .collect();
             let (inv, _) = cholesky_inverse(&lal)?;
             let f = dot(&shift, &mat_vec(&inv, &shift)) / q as f64;
@@ -1060,6 +1073,229 @@ impl Infer<'_> {
                 f64::NAN
             }
         });
+        Some((q, df, f))
+    }
+}
+
+/// Coefficients of predicted random effects: (RANDOM, subject, column, coefficient).
+type RandomRow = Vec<(usize, usize, usize, f64)>;
+
+/// Turns the coefficients after `|` of a TEST row into a RandomRow.
+type RandomBuilder<'a> = &'a dyn Fn(&LRow) -> Result<RandomRow, Error>;
+
+/// A combination l_f b + l_r u of fixed and predicted random effects, worked out at one θ.
+struct Combo {
+    estimate: f64,
+    /// l_f - X'V^-1 w, with w = Z G l_r'.
+    d: Vec<f64>,
+    w: Vec<f64>,
+    /// V^-1 w over the cases.
+    vw: Vec<f64>,
+    /// G l_r' for each (RANDOM, subject) the row touches.
+    gl: HashMap<(usize, usize), Vec<f64>>,
+    lr: RandomRow,
+}
+
+impl Model {
+    fn combo(&self, th: &[f64], e: &Eval, lf: &[f64], lr: &RandomRow) -> Combo {
+        let n = self.y.len();
+        let mut gl: HashMap<(usize, usize), Vec<f64>> = HashMap::new();
+        for &(k, s, col, c) in lr {
+            let block = &self.blocks[k + 1];
+            let v = gl.entry((k, s)).or_insert_with(|| vec![0.0; block.dim]);
+            for (j, vj) in v.iter_mut().enumerate() {
+                *vj += block.value(th, j, col, What::Value) * c;
+            }
+        }
+        let mut w = vec![0.0; n];
+        for (i, wi) in w.iter_mut().enumerate() {
+            for (&(k, s), g) in &gl {
+                if self.subject[k][i] == s {
+                    *wi += self.nz[k][i].iter().map(|&(c, z)| z * g[c]).sum::<f64>();
+                }
+            }
+        }
+        let mut vw = vec![0.0; n];
+        let mut u = vec![0.0; self.p];
+        let mut estimate = dot(lf, &e.beta);
+        for (g, cases) in self.groups.iter().enumerate() {
+            if cases.iter().all(|&i| w[i] == 0.0) {
+                continue;
+            }
+            let wg: Vec<f64> = cases.iter().map(|&i| w[i]).collect();
+            let v = mat_vec(&e.vi[g], &wg);
+            for (a, &i) in cases.iter().enumerate() {
+                vw[i] = v[a];
+                for (uj, xj) in u.iter_mut().zip(&self.x[i]) {
+                    *uj += xj * v[a];
+                }
+                // l_r u = l_r G Z' V^-1 (y - X b) = (V^-1 w)' (y - X b)
+                estimate += v[a] * (self.y[i] - dot(&self.x[i], &e.beta));
+            }
+        }
+        Combo {
+            estimate,
+            d: lf.iter().zip(&u).map(|(a, b)| a - b).collect(),
+            w,
+            vw,
+            gl,
+            lr: lr.clone(),
+        }
+    }
+
+    /// The covariance of the prediction errors of two combinations:
+    /// d_a' C d_b + l_a G l_b' - w_a' V^-1 w_b.
+    fn combo_cov(e: &Eval, a: &Combo, b: &Combo) -> f64 {
+        let lgl: f64 =
+            a.lr.iter()
+                .map(|&(k, s, col, c)| b.gl.get(&(k, s)).map_or(0.0, |g| c * g[col]))
+                .sum();
+        dot(&a.d, &mat_vec(&e.a_inv, &b.d)) + lgl - dot(&a.w, &b.vw)
+    }
+}
+
+/// Combinations with random effects: the estimate, the prediction error variance and its
+/// Satterthwaite df, the gradient in θ taken numerically.
+struct Predict<'a> {
+    model: &'a Model,
+    e: &'a Eval,
+    th: &'a [f64],
+    sigma: Option<&'a Matrix>,
+    residual_df: Option<f64>,
+    /// For each parameter: the step h and the evaluations at θ + h and θ - h.
+    shifted: Vec<(f64, Option<Eval>, Option<Eval>)>,
+}
+
+impl<'a> Predict<'a> {
+    fn new(
+        model: &'a Model,
+        e: &'a Eval,
+        th: &'a [f64],
+        sigma: Option<&'a Matrix>,
+        residual_df: Option<f64>,
+    ) -> Predict<'a> {
+        let shifted = if residual_df.is_some() {
+            Vec::new()
+        } else {
+            (0..th.len())
+                .map(|s| {
+                    let h = 1e-4 * th[s].abs().max(1e-3);
+                    let at = |d: f64| {
+                        let mut t = th.to_vec();
+                        t[s] += d;
+                        model.evaluate(&t, Depth::Objective)
+                    };
+                    (h, at(h), at(-h))
+                })
+                .collect()
+        };
+        Predict {
+            model,
+            e,
+            th,
+            sigma,
+            residual_df,
+            shifted,
+        }
+    }
+
+    /// The variance of one combination at θ shifted by d in parameter s.
+    fn variance_at(&self, s: usize, d: f64, e: &Eval, lf: &[f64], lr: &RandomRow) -> f64 {
+        let mut t = self.th.to_vec();
+        t[s] += d;
+        let c = self.model.combo(&t, e, lf, lr);
+        Model::combo_cov(e, &c, &c)
+    }
+
+    fn df(&self, var: f64, lf: &[f64], lr: &RandomRow) -> f64 {
+        if let Some(df) = self.residual_df {
+            return df;
+        }
+        let grad: Vec<f64> = self
+            .shifted
+            .iter()
+            .enumerate()
+            .map(|(s, (h, up, down))| match (up, down) {
+                (Some(u), Some(dn)) => {
+                    (self.variance_at(s, *h, u, lf, lr) - self.variance_at(s, -h, dn, lf, lr))
+                        / (2.0 * h)
+                }
+                (Some(u), None) => (self.variance_at(s, *h, u, lf, lr) - var) / h,
+                (None, Some(dn)) => (var - self.variance_at(s, -h, dn, lf, lr)) / h,
+                (None, None) => f64::NAN,
+            })
+            .collect();
+        satterthwaite(var, &grad, self.sigma)
+    }
+
+    /// l_f b + l_r u with its standard error and df.
+    fn estimate(&self, lf: &[f64], lr: &RandomRow) -> (f64, f64, f64) {
+        let c = self.model.combo(self.th, self.e, lf, lr);
+        let var = Model::combo_cov(self.e, &c, &c);
+        (c.estimate, var.max(0.0).sqrt(), self.df(var, lf, lr))
+    }
+
+    /// The F test of rows (l_f, l_r) against `a`, as Infer::f_test does for fixed rows.
+    fn f_test(&self, rows: &[(Vec<f64>, RandomRow)], a: &[f64]) -> Option<(usize, f64, f64)> {
+        let combos: Vec<Combo> = rows
+            .iter()
+            .map(|(lf, lr)| self.model.combo(self.th, self.e, lf, lr))
+            .collect();
+        let lcl: Matrix = combos
+            .iter()
+            .map(|x| {
+                combos
+                    .iter()
+                    .map(|y| Model::combo_cov(self.e, x, y))
+                    .collect()
+            })
+            .collect();
+        let pairs = symmetric_eigen(&lcl);
+        let top = pairs.first().map_or(0.0, |p| p.0);
+        let used: Vec<(f64, Vec<f64>, RandomRow, f64)> = pairs
+            .into_iter()
+            .filter(|(d, _)| top > 0.0 && *d > 1e-8 * top)
+            .map(|(d, v)| {
+                let lf: Vec<f64> = (0..self.model.p)
+                    .map(|j| v.iter().zip(rows).map(|(c, r)| c * r.0[j]).sum())
+                    .collect();
+                let lr: RandomRow = v
+                    .iter()
+                    .zip(rows)
+                    .flat_map(|(c, r)| r.1.iter().map(move |&(k, s, col, x)| (k, s, col, c * x)))
+                    .collect();
+                let shift = v
+                    .iter()
+                    .zip(&combos)
+                    .map(|(c, x)| c * x.estimate)
+                    .sum::<f64>()
+                    - dot(&v, a);
+                (d, lf, lr, shift)
+            })
+            .collect();
+        let q = used.len();
+        if q == 0 {
+            return None;
+        }
+        let f = used.iter().map(|(d, _, _, s)| s * s / d).sum::<f64>() / q as f64;
+        let nus: Vec<f64> = used
+            .iter()
+            .map(|(d, lf, lr, _)| self.df(*d, lf, lr))
+            .collect();
+        let df = if q == 1 || self.residual_df.is_some() {
+            nus[0]
+        } else {
+            let big_e: f64 = nus
+                .iter()
+                .filter(|v| **v > 2.0)
+                .map(|v| v / (v - 2.0))
+                .sum();
+            if big_e > q as f64 {
+                2.0 * big_e / (big_e - q as f64)
+            } else {
+                f64::NAN
+            }
+        };
         Some((q, df, f))
     }
 }
@@ -1392,11 +1628,13 @@ impl FixedPart<'_> {
         Ok(out)
     }
 
-    /// TEST: one row per estimable combination and the joint F test of all of them.
+    /// TEST: one row per estimable combination and the joint F test of all of them. With
+    /// coefficients for random effects, `random` turns them into a RandomRow and predicts.
     fn custom_test(
         &self,
         n: usize,
         t: &CustomTest,
+        random: Option<(&Predict, RandomBuilder)>,
         warnings: &mut Vec<String>,
     ) -> Result<Vec<Table>, Error> {
         let title = t
@@ -1410,13 +1648,20 @@ impl FixedPart<'_> {
         for (r, (row, constant)) in t.rows.iter().zip(&t.constants).enumerate() {
             let full = l_row(self.d, self.fit, row, "TEST")?;
             let name = format!("L{}", r + 1);
-            let Some(lr) = self.reduce(&full) else {
+            let Some(lf) = self.reduce(&full) else {
                 warnings.push(format!(
                     "TEST {title}: {name} is not estimable and is not tested"
                 ));
                 continue;
             };
-            let (est, se, df) = self.inf.estimate(&lr);
+            let lr = match (random, t.random.get(r)) {
+                (Some((_, build)), Some(given)) if !given.is_empty() => build(given)?,
+                _ => Vec::new(),
+            };
+            let (est, se, df) = match random {
+                Some((predict, _)) if !lr.is_empty() => predict.estimate(&lf, &lr),
+                _ => self.inf.estimate(&lf),
+            };
             let tv = (est - constant) / se;
             let tc = t_crit(alpha, df);
             let mut cells = vec![text(name)];
@@ -1434,7 +1679,7 @@ impl FixedPart<'_> {
                 .map(|v| number(Some(v))),
             );
             rows.push(cells);
-            l.push(lr);
+            l.push((lf, lr));
             a.push(*constant);
         }
         let caption = format!("{title}. Dependent Variable: {}.", self.dependent);
@@ -1461,7 +1706,14 @@ impl FixedPart<'_> {
             rows,
             Some(caption.clone()),
         ));
-        if let Some((q, df, f)) = self.inf.f_test(&l, &a) {
+        let joint = match random {
+            Some((predict, _)) if l.iter().any(|(_, lr)| !lr.is_empty()) => predict.f_test(&l, &a),
+            _ => {
+                let fixed: Matrix = l.into_iter().map(|(lf, _)| lf).collect();
+                self.inf.f_test(&fixed, &a)
+            }
+        };
+        if let Some((q, df, f)) = joint {
             out.push(table(
                 "Test Results",
                 1,
@@ -1478,6 +1730,25 @@ impl FixedPart<'_> {
         }
         Ok(out)
     }
+}
+
+/// The coefficients of a hypothesis, one column per row of L.
+fn l_table(title: &str, names: &[String], l: &Matrix, caption: String) -> Table {
+    let mut columns = plain(&["Parameter"]);
+    columns.extend((1..=l.len()).map(|r| (String::new(), format!("L{r}"))));
+    let rows = names
+        .iter()
+        .enumerate()
+        .map(|(j, n)| {
+            let mut row = vec![text(n.clone())];
+            row.extend(
+                l.iter()
+                    .map(|lr| Cell::Number(lr.get(j).copied().unwrap_or(0.0))),
+            );
+            row
+        })
+        .collect();
+    table(title, 1, columns, rows, Some(caption))
 }
 
 /// A square matrix table with the same names on its rows and columns.
@@ -1511,6 +1782,17 @@ struct Fitted {
     th: Vec<f64>,
     eval: Eval,
     sigma: Option<Matrix>,
+    history: Vec<Step>,
+}
+
+/// One row of the iteration history.
+struct Step {
+    iteration: usize,
+    update: &'static str,
+    halvings: usize,
+    f: f64,
+    th: Vec<f64>,
+    beta: Vec<f64>,
 }
 
 fn fit_model(
@@ -1522,6 +1804,7 @@ fn fit_model(
     let mut th = start;
     let mut converged = false;
     let mut iteration = 0;
+    let mut history = Vec::new();
     while iteration < command.mxiter {
         iteration += 1;
         let scoring = iteration <= command.scoring;
@@ -1531,10 +1814,22 @@ fn fit_model(
                     .into(),
             ));
         };
+        if iteration == 1 {
+            history.push(Step {
+                iteration: 0,
+                update: "Initial",
+                halvings: 0,
+                f: e.f,
+                th: th.clone(),
+                beta: e.beta.clone(),
+            });
+        }
         let mut step = solve_pd(&e.hess, &e.grad);
+        let mut update = if scoring { "Scoring" } else { "Newton" };
         if step.is_none() && !scoring {
             let ex = model.evaluate(&th, Depth::Hessian { expected: true });
             step = ex.and_then(|ex| solve_pd(&ex.hess, &ex.grad));
+            update = "Scoring";
         }
         let Some(step) = step else {
             warnings.push(format!(
@@ -1555,12 +1850,20 @@ fn fit_model(
         }
         let mut rho = 1.0;
         let mut accepted = None;
-        for _ in 0..=command.mxstep {
+        for halvings in 0..=command.mxstep {
             let candidate: Vec<f64> = th.iter().zip(&step).map(|(t, d)| t - rho * d).collect();
             if model.valid(&candidate)
                 && let Some(o) = model.evaluate(&candidate, Depth::Objective)
                 && o.f <= e.f + 1e-10 * e.f.abs().max(1.0)
             {
+                history.push(Step {
+                    iteration,
+                    update,
+                    halvings,
+                    f: o.f,
+                    th: candidate.clone(),
+                    beta: o.beta,
+                });
                 accepted = Some((candidate, o.f));
                 break;
             }
@@ -1605,9 +1908,11 @@ fn fit_model(
     // a factor's loadings and their negatives give the same matrix: show them summing up
     for b in &model.blocks {
         if matches!(b.covtype, CovType::Fa1 | CovType::Fah1) {
-            let loadings = &mut th[b.start..b.start + b.dim];
-            if loadings.iter().sum::<f64>() < 0.0 {
-                loadings.iter_mut().for_each(|v| *v = -*v);
+            let loadings = b.start..b.start + b.dim;
+            if th[loadings.clone()].iter().sum::<f64>() < 0.0 {
+                for t in std::iter::once(&mut th).chain(history.iter_mut().map(|h| &mut h.th)) {
+                    t[loadings.clone()].iter_mut().for_each(|v| *v = -*v);
+                }
             }
         }
     }
@@ -1621,7 +1926,15 @@ fn fit_model(
             .map(|row| row.iter().map(|v| 2.0 * v).collect())
             .collect()
     });
-    Ok((Fitted { th, eval, sigma }, warnings))
+    Ok((
+        Fitted {
+            th,
+            eval,
+            sigma,
+            history,
+        },
+        warnings,
+    ))
 }
 
 fn ci_title(cin: f64) -> String {
@@ -1866,6 +2179,8 @@ impl Engine {
         let mut nz = Vec::new();
         let mut subject = Vec::new();
         let mut subject_counts = Vec::new();
+        // the first case of every subject, for its label
+        let mut subject_first: Vec<Vec<usize>> = Vec::new();
         let group_column = |name: &String| {
             let at = group_names
                 .iter()
@@ -1937,11 +2252,13 @@ impl Engine {
             if r.subject.is_empty() {
                 subject.push(vec![0; n]);
                 subject_counts.push(1);
+                subject_first.push(vec![0]);
             } else {
                 let cols: Vec<&Vec<Option<Key>>> = r.subject.iter().map(group_column).collect();
                 let (index, members) = index_by(&rows, &cols);
                 subject.push(index);
                 subject_counts.push(members.len());
+                subject_first.push(members.iter().map(|m| m[0]).collect());
             }
             random_fits.push(fit);
         }
@@ -2053,6 +2370,127 @@ impl Engine {
         };
         let mut tables = Vec::new();
 
+        // Case Processing Summary: the sorted values of the factors, repeated variables and
+        // subject variables among the cases used
+        if command.print.cps {
+            let mut out = Vec::new();
+            let lists = factor_names.iter().chain(&group_names);
+            let mut listed: Vec<&String> = Vec::new();
+            for name in lists {
+                if listed.iter().any(|l| l.eq_ignore_ascii_case(name)) {
+                    continue;
+                }
+                listed.push(name);
+                let (var, col) = match factor_names.iter().position(|f| f == name) {
+                    Some(f) => (&factor_vars[f], &factor_keys[f]),
+                    None => {
+                        let at = group_names.iter().position(|g| g == name).expect("listed");
+                        (&group_vars[at], &group_keys[at])
+                    }
+                };
+                let (_, members) = index_by(&rows, &[col]);
+                for (m, list) in members.iter().enumerate() {
+                    let key = col[rows[list[0]]].as_ref().expect("valid");
+                    out.push(vec![
+                        text(if m == 0 {
+                            shown.variable(var)
+                        } else {
+                            String::new()
+                        }),
+                        text(shown.value(var, key)),
+                        Cell::Number(list.len() as f64),
+                        Cell::Number(100.0 * list.len() as f64 / n as f64),
+                    ]);
+                }
+            }
+            out.push(vec![
+                text("Total"),
+                Cell::Empty,
+                Cell::Number(n as f64),
+                Cell::Number(100.0),
+            ]);
+            tables.push(table(
+                "Case Processing Summary",
+                2,
+                plain(&["", "", "N", "Percent"]),
+                out,
+                Some("Cases used, each counted as many times as its frequency weight.".into()),
+            ));
+        }
+        // Descriptive Statistics of the dependent and covariates in each cell of the factors
+        if command.print.descriptives {
+            let mut cells: Vec<(Vec<usize>, Vec<usize>)> = Vec::new();
+            let mut order: Vec<usize> = (0..n).collect();
+            order.sort_by(|&a, &b| d.level[a].cmp(&d.level[b]));
+            for i in order {
+                match cells.last_mut() {
+                    Some((lv, members)) if *lv == d.level[i] => members.push(i),
+                    _ => cells.push((d.level[i].clone(), vec![i])),
+                }
+            }
+            let mut vars: Vec<(String, Vec<f64>)> =
+                vec![(dep_text.clone(), d.y.iter().map(|y| y[0]).collect())];
+            for (c, t) in covariate_texts.iter().enumerate() {
+                vars.push((t.clone(), d.cov.iter().map(|row| row[c]).collect()));
+            }
+            let stats = |members: &[usize]| -> Vec<Cell> {
+                let m = members.len() as f64;
+                let mut row = vec![Cell::Number(m)];
+                for (_, values) in &vars {
+                    let mean = members.iter().map(|&i| values[i]).sum::<f64>() / m;
+                    let ss: f64 = members.iter().map(|&i| (values[i] - mean).powi(2)).sum();
+                    row.push(Cell::Number(mean));
+                    row.push(number((m > 1.0).then(|| (ss / (m - 1.0)).sqrt())));
+                }
+                row
+            };
+            let headers = factor_names.len().max(1);
+            let mut out = Vec::new();
+            for (ci, (lv, members)) in cells.iter().enumerate() {
+                if factor_names.is_empty() {
+                    break;
+                }
+                let mut row: Vec<Cell> = lv
+                    .iter()
+                    .enumerate()
+                    .map(|(f, &l)| {
+                        let changed = ci == 0 || cells[ci - 1].0[..=f] != lv[..=f];
+                        text(if changed {
+                            shown.value(&factor_vars[f], &levels[f][l])
+                        } else {
+                            String::new()
+                        })
+                    })
+                    .collect();
+                row.extend(stats(members));
+                out.push(row);
+            }
+            let mut total = vec![text("Total")];
+            total.extend(std::iter::repeat_n(Cell::Empty, headers - 1));
+            total.extend(stats(&(0..n).collect::<Vec<_>>()));
+            out.push(total);
+            let mut columns: Vec<(String, String)> = if factor_names.is_empty() {
+                plain(&[""])
+            } else {
+                factor_vars
+                    .iter()
+                    .map(|v| (String::new(), shown.variable(v)))
+                    .collect()
+            };
+            columns.push((String::new(), "N".into()));
+            for (name, _) in &vars {
+                columns.push((name.clone(), "Mean".into()));
+                columns.push((name.clone(), "Std. Deviation".into()));
+            }
+            tables.push(table(
+                "Descriptive Statistics",
+                headers,
+                columns,
+                out,
+                Some(caption.clone()),
+            ));
+        }
+
         // Model Dimension
         let mut rows_md: Vec<Vec<Cell>> = Vec::new();
         let mut total_levels = 0usize;
@@ -2149,6 +2587,87 @@ impl Engine {
             rows_md,
             Some(caption.clone()),
         ));
+
+        // Iteration History: every n-th iteration from the start, and the last
+        if let Some(every) = command.print.history {
+            let mut columns = plain(&["Iteration", "Update Type", "Number of Step-halvings"]);
+            columns.push((
+                String::new(),
+                if command.ml {
+                    "-2 Log Likelihood".into()
+                } else {
+                    "-2 Restricted Log Likelihood".into()
+                },
+            ));
+            let residual_group = if command.repeated.is_some() {
+                "Repeated Measures"
+            } else {
+                "Residual"
+            };
+            for (k, block) in model.blocks.iter().enumerate() {
+                let owner = if k == 0 {
+                    residual_group.to_string()
+                } else {
+                    let r = &command.random[k - 1];
+                    let effects: Vec<&str> = random_fits[k - 1]
+                        .effects
+                        .iter()
+                        .map(|ef| ef.label.as_str())
+                        .collect();
+                    if r.subject.is_empty() {
+                        effects.join(" + ")
+                    } else {
+                        format!(
+                            "{} [subject = {}]",
+                            effects.join(" + "),
+                            r.subject.join(" * ")
+                        )
+                    }
+                };
+                for name in block.names() {
+                    let label = if command.repeated.is_none() && k == 0 {
+                        owner.clone()
+                    } else {
+                        format!("{owner} {name}")
+                    };
+                    columns.push(("Covariance Parameters".into(), label));
+                }
+            }
+            for ef in &fixed.effects {
+                for (c, cell) in ef.cells.iter().enumerate() {
+                    if !fixed.redundant[ef.start + c] {
+                        columns.push((
+                            "Fixed Effect Parameters".into(),
+                            parameter_name(&d, ef, cell),
+                        ));
+                    }
+                }
+            }
+            let last = fitted.history.len().saturating_sub(1);
+            let out = fitted
+                .history
+                .iter()
+                .enumerate()
+                .filter(|(at, h)| h.iteration % every == 0 || *at == last)
+                .map(|(_, h)| {
+                    let mut row = vec![
+                        Cell::Number(h.iteration as f64),
+                        text(h.update),
+                        Cell::Number(h.halvings as f64),
+                        Cell::Number(h.f),
+                    ];
+                    row.extend(h.th.iter().chain(&h.beta).map(|v| Cell::Number(*v)));
+                    row
+                })
+                .collect();
+            tables.push(table(
+                "Iteration History",
+                1,
+                columns,
+                out,
+                Some(caption.clone()),
+            ));
+        }
 
         // Information Criteria
         let m2ll = e.f;
@@ -2323,8 +2842,219 @@ impl Engine {
             cin: command.cin,
             dependent: &dep_text,
         };
+        // predictions with random effects, for SOLUTION on RANDOM, TEST after `|` and SAVE
+        let needs_predict = command.random.iter().any(|r| r.solution)
+            || command
+                .save
+                .iter()
+                .any(|(t, _)| matches!(t, MixedTemp::Sepred | MixedTemp::Dfpred))
+            || command
+                .tests
+                .iter()
+                .any(|t| t.random.iter().any(|r| !r.is_empty()));
+        let predict = needs_predict.then(|| {
+            Predict::new(
+                &model,
+                e,
+                &fitted.th,
+                sigma,
+                (command.df_method == DfMethod::Residual).then_some(residual_df),
+            )
+        });
+        // coefficients after `|` of TEST: per effect of a RANDOM (the first that has it) or ALL
+        // over every RANDOM in order; each subject gets them divided by the number of subjects
+        let random_row = |given: &LRow| -> Result<RandomRow, Error> {
+            let mut coef: Vec<Vec<f64>> = random_fits.iter().map(|f| vec![0.0; f.p]).collect();
+            for (effect, values) in given {
+                let (k, range) = match effect {
+                    None => {
+                        let total: usize = random_fits.iter().map(|f| f.p).sum();
+                        if values.len() != total {
+                            return Err(Error(format!(
+                                "TEST gives {} coefficients after '|' where the random effects have {total} parameters",
+                                values.len()
+                            )));
+                        }
+                        let mut at = values.iter();
+                        for c in &mut coef {
+                            for (v, x) in c.iter_mut().zip(&mut at) {
+                                *v += x;
+                            }
+                        }
+                        continue;
+                    }
+                    Some(term) => {
+                        let mut found = None;
+                        for (k, f) in random_fits.iter().enumerate() {
+                            if let Some(ef) = find_effect(&d, &f.effects, term)? {
+                                found = Some((k, ef.range()));
+                                break;
+                            }
+                        }
+                        found.ok_or_else(|| {
+                            Error(format!(
+                                "TEST names {} after '|', which is not a random effect",
+                                term.label
+                            ))
+                        })?
+                    }
+                };
+                if values.len() != range.len() {
+                    return Err(Error(format!(
+                        "TEST gives {} coefficients where the random effect has {} parameters",
+                        values.len(),
+                        range.len()
+                    )));
+                }
+                for (j, v) in range.zip(values) {
+                    coef[k][j] += v;
+                }
+            }
+            let mut out = Vec::new();
+            for (k, c) in coef.iter().enumerate() {
+                let subjects = subject_counts[k];
+                for s in 0..subjects {
+                    for (col, v) in c.iter().enumerate().filter(|(_, v)| **v != 0.0) {
+                        out.push((k, s, col, v / subjects as f64));
+                    }
+                }
+            }
+            Ok(out)
+        };
+        let random_names: Vec<Vec<String>> = random_fits
+            .iter()
+            .map(|fit| {
+                fit.effects
+                    .iter()
+                    .flat_map(|ef| ef.cells.iter().map(|cell| parameter_name(&d, ef, cell)))
+                    .collect()
+            })
+            .collect();
         for (k, t) in command.tests.iter().enumerate() {
-            tables.extend(part.custom_test(k + 1, t, &mut warnings)?);
+            let random = predict.as_ref().map(|p| (p, &random_row as RandomBuilder));
+            if command.print.lmatrix {
+                let title = t
+                    .label
+                    .clone()
+                    .unwrap_or_else(|| format!("Custom Hypothesis Test {}", k + 1));
+                let mut ls: Vec<Vec<f64>> = Vec::new();
+                for (r, row) in t.rows.iter().enumerate() {
+                    let mut l = l_row(&d, &fixed, row, "TEST")?;
+                    if let Some(given) = t.random.get(r).filter(|g| !g.is_empty()) {
+                        let rr = random_row(given)?;
+                        for (k2, f) in random_fits.iter().enumerate() {
+                            l.extend((0..f.p).map(|col| {
+                                rr.iter()
+                                    .filter(|x| x.0 == k2 && x.2 == col)
+                                    .fold(0.0, |acc, x| acc + x.3)
+                            }));
+                        }
+                    }
+                    ls.push(l);
+                }
+                let mut row_names = names.clone();
+                if ls.iter().any(|l| l.len() > names.len()) {
+                    for (k2, r) in command.random.iter().enumerate() {
+                        let subject = if r.subject.is_empty() {
+                            String::new()
+                        } else {
+                            format!(" [subject = {}]", r.subject.join(" * "))
+                        };
+                        row_names.extend(random_names[k2].iter().map(|n| format!("{n}{subject}")));
+                    }
+                }
+                tables.push(l_table(
+                    &format!("Estimable Function for {title}"),
+                    &row_names,
+                    &ls,
+                    format!("Coefficients of the rows of the test. {caption}"),
+                ));
+            }
+            tables.extend(part.custom_test(k + 1, t, random, &mut warnings)?);
+        }
+        if command.print.lmatrix {
+            let kind = if command.sstype == 1 { "I" } else { "III" };
+            for (i, ef) in fixed.effects.iter().enumerate() {
+                tables.push(l_table(
+                    &format!("Estimable Function for {}", ef.label),
+                    &names,
+                    &type_l(i),
+                    format!("Type {kind} test of {}. {caption}", ef.label),
+                ));
+            }
+        }
+        // the predicted random effects of each RANDOM with SOLUTION
+        for (k, r) in command.random.iter().enumerate() {
+            let Some(predict) = predict.as_ref().filter(|_| r.solution) else {
+                continue;
+            };
+            let mut columns = plain(&[
+                "Subject",
+                "Parameter",
+                "Estimate",
+                "Std. Error",
+                "df",
+                "t",
+                "Sig.",
+            ]);
+            let group = ci_title(command.cin);
+            columns.push((group.clone(), "Lower Bound".into()));
+            columns.push((group, "Upper Bound".into()));
+            let zero = vec![0.0; p];
+            let mut out = Vec::new();
+            for (s, &first) in subject_first[k].iter().enumerate() {
+                let label = r
+                    .subject
+                    .iter()
+                    .map(|v| {
+                        let at = group_names
+                            .iter()
+                            .position(|g| g.eq_ignore_ascii_case(v))
+                            .expect("listed");
+                        let key = group_keys[at][rows[first]].as_ref().expect("valid");
+                        format!("{v} = {}", shown.value(&group_vars[at], key))
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                for (col, name) in random_names[k].iter().enumerate() {
+                    let (est, se, df) = predict.estimate(&zero, &vec![(k, s, col, 1.0)]);
+                    let t = est / se;
+                    let tc = t_crit(alpha, df);
+                    let mut row = vec![
+                        text(if col == 0 {
+                            label.clone()
+                        } else {
+                            String::new()
+                        }),
+                        text(name.clone()),
+                    ];
+                    row.extend(
+                        [est, se, df, t, t_p(t, df), est - tc * se, est + tc * se]
+                            .map(|v| number(Some(v))),
+                    );
+                    out.push(row);
+                }
+            }
+            let effects: Vec<&str> = random_fits[k]
+                .effects
+                .iter()
+                .map(|ef| ef.label.as_str())
+                .collect();
+            let subject = if r.subject.is_empty() {
+                String::new()
+            } else {
+                format!(" [subject = {}]", r.subject.join(" * "))
+            };
+            tables.push(table(
+                "Estimates of Random Effects",
+                2,
+                columns,
+                out,
+                Some(format!(
+                    "Predicted random effects (EBLUP) of {}{subject}. {caption}",
+                    effects.join(" + ")
+                )),
+            ));
         }
 
         // Estimates of Covariance Parameters
@@ -2500,7 +3230,7 @@ impl Engine {
             self.warn(w);
         }
         if !command.save.is_empty() {
-            let mut values: Vec<[f64; 5]> = vec![[f64::NAN; 5]; n];
+            let mut values: Vec<[f64; 7]> = vec![[f64::NAN; 7]; n];
             for (gi, cases) in model.groups.iter().enumerate() {
                 let r: Vec<f64> = cases
                     .iter()
@@ -2523,7 +3253,32 @@ impl Engine {
                 for (a, &i) in cases.iter().enumerate() {
                     let fixpred = dot(&model.x[i], &e.beta);
                     let (_, se, df) = part.inf.estimate(&model.x[i]);
-                    values[i] = [fixpred, model.y[i] - resid[a], resid[a], se, df];
+                    // PRED as x b + z u: the case's own random columns
+                    let (sepred, dfpred) = match &predict {
+                        Some(pr) => {
+                            let lr: RandomRow = model
+                                .nz
+                                .iter()
+                                .enumerate()
+                                .flat_map(|(k, nz)| {
+                                    let s = model.subject[k][i];
+                                    nz[i].iter().map(move |&(col, z)| (k, s, col, z))
+                                })
+                                .collect();
+                            let (_, se, df) = pr.estimate(&model.x[i], &lr);
+                            (se, df)
+                        }
+                        None => (f64::NAN, f64::NAN),
+                    };
+                    values[i] = [
+                        fixpred,
+                        model.y[i] - resid[a],
+                        resid[a],
+                        se,
+                        df,
+                        sepred,
+                        dfpred,
+                    ];
                 }
             }
             self.save_mixed(command, &d.case, &values, &dep_text, cases)?;
@@ -2535,7 +3290,7 @@ impl Engine {
         &mut self,
         command: &Mixed,
         rows: &[usize],
-        values: &[[f64; 5]],
+        values: &[[f64; 7]],
         dependent: &str,
         cases: usize,
     ) -> Result<(), Error> {
@@ -2552,6 +3307,16 @@ impl Engine {
                 MixedTemp::Dffixp,
                 "DFFIXP",
                 "Degrees of Freedom of Fixed Predicted Values",
+            ),
+            (
+                MixedTemp::Sepred,
+                "SEPRED",
+                "Standard Errors of Predicted Values",
+            ),
+            (
+                MixedTemp::Dfpred,
+                "DFPRED",
+                "Degrees of Freedom of Predicted Values",
             ),
         ];
         self.all_or_nothing(|engine| {

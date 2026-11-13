@@ -79,6 +79,8 @@ pub struct RandomEffects {
     pub terms: Vec<Term>,
     pub subject: Vec<String>,
     pub covtype: CovType,
+    /// SOLUTION: show the predicted random effects.
+    pub solution: bool,
 }
 
 /// The REPEATED subcommand.
@@ -97,6 +99,8 @@ pub enum MixedTemp {
     Resid,
     Sefixp,
     Dffixp,
+    Sepred,
+    Dfpred,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -107,6 +111,11 @@ pub struct MixedPrint {
     pub r: bool,
     pub covb: bool,
     pub corb: bool,
+    pub cps: bool,
+    pub descriptives: bool,
+    /// HISTORY(n): every n-th iteration.
+    pub history: Option<usize>,
+    pub lmatrix: bool,
 }
 
 /// How the denominator degrees of freedom of the tests are found.
@@ -372,7 +381,6 @@ fn criteria(p: &mut Parser, m: &mut Mixed) -> PResult<()> {
 }
 
 fn print(p: &mut Parser) -> PResult<MixedPrint> {
-    const LATER: [&str; 4] = ["CPS", "DESCRIPTIVES", "HISTORY", "LMATRIX"];
     let mut out = MixedPrint::default();
     while !at_end(p) {
         if p.eat_keyword("SOLUTION") {
@@ -387,14 +395,31 @@ fn print(p: &mut Parser) -> PResult<MixedPrint> {
             out.covb = true;
         } else if p.eat_keyword("CORB") {
             out.corb = true;
-        } else if let Some(w) = word(p)
-            && let Some(name) = LATER
-                .iter()
-                .find(|k| w == **k || (w.len() >= 3 && k.starts_with(w.as_str())))
-        {
-            return Err(not_yet(p, format!("PRINT {name}")));
+        } else if p.eat_keyword("CPS") {
+            out.cps = true;
+        } else if p.eat_keyword("DESCRIPTIVES") {
+            out.descriptives = true;
+        } else if p.eat_keyword("LMATRIX") {
+            out.lmatrix = true;
+        } else if p.eat_keyword("HISTORY") {
+            out.history = Some(if p.at(Punct::LParen) {
+                positive_whole(p, "HISTORY", false)?
+            } else {
+                1
+            });
         } else {
-            return Err(p.unexpected(&["CORB", "COVB", "G", "R", "SOLUTION", "TESTCOV"]));
+            return Err(p.unexpected(&[
+                "CORB",
+                "COVB",
+                "CPS",
+                "DESCRIPTIVES",
+                "G",
+                "HISTORY",
+                "LMATRIX",
+                "R",
+                "SOLUTION",
+                "TESTCOV",
+            ]));
         }
         p.eat(Punct::Comma);
     }
@@ -402,21 +427,21 @@ fn print(p: &mut Parser) -> PResult<MixedPrint> {
 }
 
 fn save(p: &mut Parser) -> PResult<Vec<(MixedTemp, Option<String>)>> {
-    const TEMPS: [(&str, MixedTemp); 5] = [
+    const TEMPS: [(&str, MixedTemp); 7] = [
         ("FIXPRED", MixedTemp::Fixpred),
         ("PRED", MixedTemp::Pred),
         ("RESID", MixedTemp::Resid),
         ("SEFIXP", MixedTemp::Sefixp),
         ("DFFIXP", MixedTemp::Dffixp),
+        ("SEPRED", MixedTemp::Sepred),
+        ("DFPRED", MixedTemp::Dfpred),
     ];
     let mut out: Vec<(MixedTemp, Option<String>)> = Vec::new();
     while !at_end(p) {
         let w = word(p).unwrap_or_default();
         let Some(&(_, temp)) = TEMPS.iter().find(|(n, _)| w == *n) else {
-            if w == "SEPRED" || w == "DFPRED" {
-                return Err(not_yet(p, format!("SAVE {w}")));
-            }
-            return Err(p.unexpected(&["FIXPRED", "PRED", "RESID", "SEFIXP", "DFFIXP"]));
+            let names: Vec<&str> = TEMPS.iter().map(|(n, _)| *n).collect();
+            return Err(p.unexpected(&names));
         };
         let start = p.pos;
         p.pos += 1;
@@ -443,6 +468,7 @@ fn random(p: &mut Parser) -> PResult<Option<RandomEffects>> {
         terms,
         subject: Vec::new(),
         covtype: CovType::Vc,
+        solution: false,
     };
     if p.eat(Punct::Or) {
         while !at_end(p) {
@@ -450,8 +476,8 @@ fn random(p: &mut Parser) -> PResult<Option<RandomEffects>> {
                 r.subject = in_parens(p, starred)?;
             } else if p.eat_keyword("COVTYPE") {
                 r.covtype = covtype(p, false)?;
-            } else if p.at_keyword("SOLUTION") {
-                return Err(not_yet(p, "SOLUTION on RANDOM".into()));
+            } else if p.eat_keyword("SOLUTION") {
+                r.solution = true;
             } else {
                 return Err(p.unexpected(&["SUBJECT", "COVTYPE", "SOLUTION"]));
             }

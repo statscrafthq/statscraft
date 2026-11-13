@@ -99,6 +99,8 @@ pub struct LMatrix {
 pub struct CustomTest {
     pub label: Option<String>,
     pub rows: Vec<LRow>,
+    /// MIXED: the coefficients of random effects after `|`, one (maybe empty) per row.
+    pub random: Vec<LRow>,
     pub constants: Vec<f64>,
 }
 
@@ -696,7 +698,7 @@ fn lmatrix(p: &mut Parser) -> PResult<LMatrix> {
 }
 
 /// TEST after its name: `[(constants)] = ['label'] row; row ...`. `mixed` allows DIVISOR and
-/// says that random-effect coefficients after `|` are not supported yet.
+/// random-effect coefficients after `|` (ALL may then come without values).
 pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
     let mut constants = Vec::new();
     if p.eat(Punct::LParen) {
@@ -715,22 +717,28 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
         _ => None,
     };
     let mut rows = Vec::new();
-    let mut row: LRow = Vec::new();
-    fn close(row: &mut LRow, rows: &mut Vec<LRow>) {
-        if !row.is_empty() {
-            rows.push(std::mem::take(row));
+    let mut random = Vec::new();
+    // the fixed and the random part of the row being read, and whether `|` came
+    let mut row: (LRow, LRow, bool) = (Vec::new(), Vec::new(), false);
+    fn close(row: &mut (LRow, LRow, bool), rows: &mut Vec<LRow>, random: &mut Vec<LRow>) {
+        let (fixed, rand, _) = std::mem::take(row);
+        if !fixed.is_empty() || !rand.is_empty() {
+            rows.push(fixed);
+            random.push(rand);
         }
     }
     while !matrix_end(p) {
         if p.eat(Punct::Semicolon) {
-            close(&mut row, &mut rows);
+            close(&mut row, &mut rows, &mut random);
             continue;
         }
         if mixed && p.at(Punct::Or) {
-            return Err(SyntaxError::new(
-                p.span(),
-                "TEST coefficients for random effects are not supported yet",
-            ));
+            if row.2 {
+                return Err(p.unexpected(&["an effect name", "ALL", "';'"]));
+            }
+            p.pos += 1;
+            row.2 = true;
+            continue;
         }
         if mixed
             && p.at_keyword("DIVISOR")
@@ -744,13 +752,13 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
                     "DIVISOR needs a nonzero number",
                 ));
             };
-            if row.is_empty() {
+            if row.0.is_empty() && row.1.is_empty() {
                 return Err(p.unexpected(&["an effect name", "ALL"]));
             }
-            for (_, values) in &mut row {
+            for (_, values) in row.0.iter_mut().chain(row.1.iter_mut()) {
                 values.iter_mut().for_each(|v| *v /= d);
             }
-            close(&mut row, &mut rows);
+            close(&mut row, &mut rows, &mut random);
             if !matrix_end(p) && !p.eat(Punct::Semicolon) {
                 return Err(p.unexpected(&["';'", "'/'"]));
             }
@@ -772,11 +780,19 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
             p.eat(Punct::Comma);
         }
         if values.is_empty() {
+            // `ALL | ...` gives coefficients for random effects only
+            if mixed && effect.is_none() && !row.2 && p.at(Punct::Or) {
+                continue;
+            }
             return Err(p.unexpected(&["a coefficient"]));
         }
-        row.push((effect, values));
+        if row.2 {
+            row.1.push((effect, values));
+        } else {
+            row.0.push((effect, values));
+        }
     }
-    close(&mut row, &mut rows);
+    close(&mut row, &mut rows, &mut random);
     if rows.is_empty() {
         return Err(p.unexpected(&["an effect name", "ALL"]));
     }
@@ -795,6 +811,7 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
     Ok(CustomTest {
         label,
         rows,
+        random,
         constants,
     })
 }
