@@ -75,17 +75,28 @@ impl Failure {
 
 /// The message after the name of its command, once: many commands name themselves in their
 /// messages already ("FACTOR: ...", "SET LOCALE: ..."), also after the name of a split group
-/// ("g = 1: FACTOR: ...").
+/// ("g = 1: FACTOR: ...", shown as "FACTOR: g = 1: ...").
 fn with_command(command: &str, message: &str) -> String {
-    let own = format!("{command}: ");
-    let named = message.strip_prefix(command);
-    if named.is_some_and(|rest| rest.starts_with(": ") || rest.starts_with(' ')) {
+    if own_name(command, message).is_some() {
         return message.to_string();
     }
-    match message.split_once(&format!(": {own}")) {
-        Some((group, rest)) => format!("{own}{group}: {rest}"),
-        None => format!("{own}{message}"),
+    for (at, _) in message.match_indices(": ") {
+        if let Some((name, rest)) = own_name(command, &message[at + 2..]) {
+            return format!("{name}: {}: {rest}", &message[..at]);
+        }
     }
+    format!("{command}: {message}")
+}
+
+/// The command's name and the rest when the message starts with it, alone or with more words
+/// in capitals ("SET LOCALE: ...").
+fn own_name<'a>(command: &str, message: &'a str) -> Option<(&'a str, &'a str)> {
+    let (name, rest) = message.split_once(": ")?;
+    let longer = name
+        .strip_prefix(command)?
+        .strip_prefix(' ')
+        .is_some_and(|more| more.chars().all(|c| c.is_ascii_uppercase() || c == ' '));
+    (name == command || longer).then_some((name, rest))
 }
 
 /// The tables of one command, with the lines it came from.
@@ -319,7 +330,8 @@ pub struct NamedDataset {
 pub struct LogEntry {
     pub syntax: String,
     pub result: Result<String, Vec<Failure>>,
-    /// The warnings of the run's commands, each as "line N: COMMAND: message".
+    /// The warnings of the run's commands, each as "line N: COMMAND: message", where a message
+    /// that names its command (also in a longer form such as SET LOCALE) keeps its own name.
     pub warnings: Vec<String>,
     /// Taken back by `Session::undo`, so a script made from the log leaves it out.
     pub undone: bool,
@@ -1048,6 +1060,14 @@ mod tests {
             "PPLOT APPLY: no earlier PPLOT"
         );
         assert_eq!(with_command("SET", "SETTINGS kept"), "SET: SETTINGS kept");
+        assert_eq!(
+            with_command("WEIGHT", "WEIGHT has negative values"),
+            "WEIGHT: WEIGHT has negative values"
+        );
+        assert_eq!(
+            with_command("SET", "g = 1: SET LOCALE: no mark"),
+            "SET LOCALE: g = 1: no mark"
+        );
         assert_eq!(
             with_command("PPLOT", "g = 1: PPLOT: z is empty"),
             "PPLOT: g = 1: z is empty"
