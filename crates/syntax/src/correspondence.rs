@@ -418,6 +418,8 @@ fn plot(p: &mut Parser) -> PResult<CorrespondencePlot> {
         }
         p.eat(Punct::Comma);
     }
+    // NDIM alone keeps the default biplot, which then warns no more than without PLOT
+    out.given = any;
     if !any {
         out.biplot = Some(None);
     }

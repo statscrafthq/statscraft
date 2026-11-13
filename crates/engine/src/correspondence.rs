@@ -39,6 +39,7 @@ use crate::matrix_functions::thin_svd;
 use crate::matrix_lang::Mat;
 use crate::means::is_valid;
 use crate::plot::{Plot, Point, PointGroup};
+use crate::shown::Shown;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Values};
 use statscraft_syntax::{
@@ -172,8 +173,8 @@ struct Setup {
     /// The powers of the singular values on the row and the column scores.
     alpha: f64,
     beta: f64,
-    /// Whether the standard deviations of the scores are wanted.
-    scores: bool,
+    /// Whether the standard deviations of the row and of the column scores are wanted.
+    scores: [bool; 2],
 }
 
 #[derive(Debug)]
@@ -516,12 +517,13 @@ fn solve(s: &Setup) -> Result<Solution, String> {
         })
         .collect();
     let feasible = score_work_fits(k1, k2, rank, p);
-    if s.scores && !feasible {
+    if s.scores.contains(&true) && !feasible {
         warnings.push(format!(
             "CORRESPONDENCE: {k1} by {k2} active categories are too many for standard deviations of the scores"
         ));
     }
-    let scores = s.scores && feasible;
+    let (want_rows, want_columns) = (s.scores[0] && feasible, s.scores[1] && feasible);
+    let scores = want_rows || want_columns;
     if tied.iter().any(|&x| x) {
         warnings.push(
             "CORRESPONDENCE: equal singular values have no standard deviations, nor do the scores of their dimensions"
@@ -605,21 +607,28 @@ fn solve(s: &Setup) -> Result<Solution, String> {
                     .collect();
                 let q2: Vec<Vec<f64>> = us.iter().map(|u| vec![dot(u, &dim.nv)]).collect();
                 let q4: Vec<Vec<f64>> = vs.iter().map(|v| vec![dot(&dim.nu, v)]).collect();
+                // only the side that is wanted; the fourth row table serves both
+                let rows_only = |by: &[Vec<f64>], w: &[f64]| match want_rows {
+                    true => combine(by, w, &us),
+                    false => Vec::new(),
+                };
                 dim.du = [
-                    combine(&us, &wa, &us),
-                    combine(&q1, &wa, &us),
-                    combine(&q2, &wa, &us),
+                    rows_only(&us, &wa),
+                    rows_only(&q1, &wa),
+                    rows_only(&q2, &wa),
                     combine(&vs, &wb, &us),
-                    combine(&q3, &wb, &us),
-                    combine(&q4, &wb, &us),
+                    rows_only(&q3, &wb),
+                    rows_only(&q4, &wb),
                 ];
-                dim.dv = [
-                    combine(&vs, &wa, &vs),
-                    combine(&q3, &wa, &vs),
-                    combine(&q4, &wa, &vs),
-                    combine(&q1, &wb, &vs),
-                    combine(&q2, &wb, &vs),
-                ];
+                if want_columns {
+                    dim.dv = [
+                        combine(&vs, &wa, &vs),
+                        combine(&q3, &wa, &vs),
+                        combine(&q4, &wa, &vs),
+                        combine(&q1, &wb, &vs),
+                        combine(&q2, &wb, &vs),
+                    ];
+                }
             }
             dim
         })
@@ -671,7 +680,7 @@ fn solve(s: &Setup) -> Result<Solution, String> {
                 let row_part = own * v[kc] + q.rfi[kr];
                 let column_part = own * u[kr] + q.cfj[kc];
                 let [a1, a2, a3, a4, a5, a6] = &q.du;
-                for (a, g) in gx.iter_mut().enumerate() {
+                for (a, g) in gx.iter_mut().enumerate().filter(|_| want_rows) {
                     let w = zfj[a][kc] * v[kc] + q.nv[a] + if a == kr { row_part } else { 0.0 };
                     let du = w / ls
                         + a1[kr][a] * row_part
@@ -684,7 +693,7 @@ fn solve(s: &Setup) -> Result<Solution, String> {
                     g[t] = du * row_root[a][0] - 0.5 * u[a] * row_root[a][1] * dm;
                 }
                 let [b1, b2, b3, b5, b6] = &q.dv;
-                for (b, g) in gy.iter_mut().enumerate() {
+                for (b, g) in gy.iter_mut().enumerate().filter(|_| want_columns) {
                     let w = zfi[kr][b] * u[kr] + q.nu[b] + if b == kc { column_part } else { 0.0 };
                     let dv = w / ls
                         + b1[kc][b] * column_part
@@ -697,10 +706,10 @@ fn solve(s: &Setup) -> Result<Solution, String> {
                     g[t] = dv * column_root[b][0] - 0.5 * v[b] * column_root[b][1] * dm;
                 }
             }
-            for (sums, g) in row_sums.iter_mut().zip(&gx) {
+            for (sums, g) in row_sums.iter_mut().zip(&gx).filter(|_| want_rows) {
                 add(sums, g, weight);
             }
-            for (sums, g) in column_sums.iter_mut().zip(&gy) {
+            for (sums, g) in column_sums.iter_mut().zip(&gy).filter(|_| want_columns) {
                 add(sums, g, weight);
             }
         }
@@ -735,11 +744,11 @@ fn solve(s: &Setup) -> Result<Solution, String> {
         })
         .collect();
     // NaN where the scores were not wanted or their dimension is tied
-    let score_cov = |sums: &(Vec<f64>, Vec<Vec<f64>>), power: f64| -> Vec<Vec<f64>> {
+    let score_cov = |sums: &(Vec<f64>, Vec<Vec<f64>>), power: f64, wanted: bool| {
         let mut c = covariances(sums, &|t| lambda[t].powf(power));
         for (t, row) in c.iter_mut().enumerate() {
             for (o, x) in row.iter_mut().enumerate() {
-                if !scores || tied[t] || tied[o] {
+                if !wanted || tied[t] || tied[o] {
                     *x = f64::NAN;
                 }
             }
@@ -747,10 +756,10 @@ fn solve(s: &Setup) -> Result<Solution, String> {
         c
     };
     for (a, &i) in ar.iter().enumerate() {
-        rows.cov[i] = score_cov(&row_sums[a], alpha);
+        rows.cov[i] = score_cov(&row_sums[a], alpha, want_rows);
     }
     for (b, &j) in ac.iter().enumerate() {
-        columns.cov[j] = score_cov(&column_sums[b], beta);
+        columns.cov[j] = score_cov(&column_sums[b], beta, want_columns);
     }
     Ok(Solution {
         singular: lambda[..rank].to_vec(),
@@ -772,6 +781,8 @@ struct Side {
     /// The variable's name for OUTFILE.
     name: String,
     labels: Vec<String>,
+    /// LEVEL_ of the OUTFILE files: the value label, or the value, whatever SET TNUMBERS says.
+    levels: Vec<String>,
 }
 
 fn text(s: impl Into<String>) -> Cell {
@@ -948,6 +959,7 @@ impl Engine {
     pub(crate) fn correspondence(&mut self, command: &Correspondence) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
         let shown = self.shown();
+        let plain = Shown::labels(shown.currencies.clone());
         let mut warnings = Vec::new();
         // the table, its category values (for SUPPLEMENTARY and EQUAL) and its labels
         let (counts, row_values, column_values, rows, columns) = match &command.table {
@@ -999,6 +1011,7 @@ impl Engine {
                     title: shown.variable(var),
                     name: var.name().to_string(),
                     labels: values.iter().map(|&v| shown.number(var, v)).collect(),
+                    levels: values.iter().map(|&v| plain.number(var, v)).collect(),
                 };
                 let (rows, columns) = (side(&rv, &row_values), side(&cv, &column_values));
                 (counts, row_values, column_values, rows, columns)
@@ -1054,27 +1067,27 @@ impl Engine {
                             .collect()
                     })
                     .collect();
-                let row_labels: Vec<String> = (0..*r)
-                    .map(|case| {
-                        let value = category.as_ref().and_then(|v| match v.values() {
-                            Values::Numeric(values) => values.get(case),
-                            Values::String(_) => None,
-                        });
-                        match (&category, value) {
-                            (Some(v), Some(x)) => shown.number(v, x),
-                            _ => (case + 1).to_string(),
-                        }
-                    })
-                    .collect();
+                let row_label = |how: &Shown, case: usize| {
+                    let value = category.as_ref().and_then(|v| match v.values() {
+                        Values::Numeric(values) => values.get(case),
+                        Values::String(_) => None,
+                    });
+                    match (&category, value) {
+                        (Some(v), Some(x)) => how.number(v, x),
+                        _ => (case + 1).to_string(),
+                    }
+                };
                 let rows = Side {
                     title: "Row".into(),
                     name: "ROW".into(),
-                    labels: row_labels,
+                    labels: (0..*r).map(|case| row_label(&shown, case)).collect(),
+                    levels: (0..*r).map(|case| row_label(&plain, case)).collect(),
                 };
                 let columns = Side {
                     title: "Column".into(),
                     name: "COLUMN".into(),
                     labels: vars.iter().map(|v| shown.variable(v)).collect(),
+                    levels: vars.iter().map(|v| plain.variable(v)).collect(),
                 };
                 let positions = |k: usize| (1..=k).map(|x| x as f64).collect::<Vec<f64>>();
                 (counts, positions(*r), positions(*c), rows, columns)
@@ -1164,9 +1177,10 @@ impl Engine {
             dimension: command.dimension,
             alpha,
             beta,
-            scores: command.print.rconf
-                || command.print.cconf
-                || command.outfile_variance.is_some(),
+            scores: [
+                command.print.rconf || command.outfile_variance.is_some(),
+                command.print.cconf || command.outfile_variance.is_some(),
+            ],
         };
         let s = solve(&setup).map_err(|e| Error(format!("CORRESPONDENCE: {e}")))?;
         warnings.extend(s.warnings.iter().cloned());
@@ -1425,6 +1439,7 @@ impl Engine {
                     title: columns.title.clone(),
                     name: columns.name.clone(),
                     labels: co.iter().map(|&j| columns.labels[j].clone()).collect(),
+                    levels: Vec::new(),
                 };
                 let mut cells: Vec<Vec<Cell>> = ro
                     .iter()
@@ -1492,7 +1507,7 @@ impl Engine {
                 put(
                     &mut out,
                     "LEVEL_",
-                    all.iter().map(|x| x.1.labels[x.3].clone()).collect(),
+                    all.iter().map(|x| x.1.levels[x.3].clone()).collect(),
                 )?;
                 put(
                     &mut out,
@@ -1527,7 +1542,7 @@ impl Engine {
                             grouped[*first] = true;
                         }
                     }
-                    for (i, label) in side.labels.iter().enumerate() {
+                    for (i, label) in side.levels.iter().enumerate() {
                         if points.status[i] == Status::Active && !grouped[i] {
                             for t in 0..p {
                                 lines.push((
@@ -1739,7 +1754,7 @@ mod tests {
             dimension: Some(2),
             alpha: 0.5,
             beta: 0.5,
-            scores: true,
+            scores: [true, true],
         }
     }
 

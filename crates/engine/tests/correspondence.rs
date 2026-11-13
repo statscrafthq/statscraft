@@ -982,3 +982,32 @@ fn variance_file_leaves_out_equal_groups() {
     let charts = engine.take_charts();
     assert_eq!(charts[0].categories[0].value, Cell::Number(3.0));
 }
+
+/// LEVEL_ holds the value label whatever SET TNUMBERS shows; NDIM alone keeps the quiet
+/// default biplot; RCONF alone leaves the column deviations out.
+#[test]
+fn level_names_and_quiet_defaults() {
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        &format!(
+            "{DATA}VALUE LABELS district 1 'harbor'.\nSET TNUMBERS=BOTH.\nDATASET DECLARE sc.\n{BASE} /NORMALIZATION=PRINCIPAL /PRINT=NONE /PLOT=NDIM(1,2) /OUTFILE=SCORE(sc).\n"
+        ),
+    );
+    assert!(engine.warnings().is_empty(), "{:?}", engine.warnings());
+    run(&mut engine, "DATASET ACTIVATE sc.\n");
+    let data = engine.dataset().unwrap();
+    let Values::String(level) = data.variable("LEVEL_").unwrap().values() else {
+        panic!("string");
+    };
+    assert_eq!((level.get(0), level.get(1)), ("harbor", "2"));
+    let t = tables(&format!("{BASE} /PRINT=RCONF /PLOT=NONE."));
+    check(
+        &t,
+        "Confidence Row Points",
+        "2",
+        "Standard Deviation in Dimension / 1",
+        0.19852247652,
+        1e-7,
+    );
+}

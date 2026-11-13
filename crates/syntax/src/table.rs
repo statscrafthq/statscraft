@@ -1603,10 +1603,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  one chart for each pair of dimensions; TRROWS and TRCOLUMNS the scores of the categories in each\n\
                  dimension. NDIM(a, b) plots dimension a against a+1 to b, and the transformation plots of a to\n\
                  b; without it, or without values, every pair. A number after a plot keyword cuts the labels to\n\
-                 that length (60 at most). OUTFILE SCORE writes ROWTYPE_, LEVEL_, VARNAME_ and DIM1, DIM2, ...\n\
-                 for every category; VARIANCE writes the covariances of the singular values (VARNAME_ SINGULAR)\n\
-                 and of the scores of each active point outside the EQUAL groups, one case per dimension\n\
-                 (DIMNMBR_).",
+                 that length (60 at most). OUTFILE SCORE writes ROWTYPE_, LEVEL_, VARNAME_ and DIM1, DIM2 and\n\
+                 so on for every category; VARIANCE writes the covariances of the singular values (VARNAME_\n\
+                 SINGULAR) and of the scores of each active point outside the EQUAL groups, one case per\n\
+                 dimension (DIMNMBR_).",
         example: "CORRESPONDENCE TABLE=district(1,5) BY transport(1,4) /SUPPLEMENTARY=district(5) /PRINT=DEFAULT RPROFILES RCONF /PLOT=BIPLOT.",
         parse: correspondence::correspondence,
     },
