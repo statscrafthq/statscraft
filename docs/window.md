@@ -316,7 +316,13 @@ See [The Window menu](#the-window-menu).
   - Post hoc tests of chosen factors: the same tests as One-Way ANOVA.
   - Estimated marginal means overall and for each chosen factor, with main effects compared unadjusted or by Bonferroni or Sidak.
   - Saving predicted values, their standard errors, residuals, Cook's distance and leverage.
-  - Descriptive statistics, effect sizes, observed power, parameter estimates, homogeneity tests and the significance level.
+  - Contrasts of each factor (deviation, simple, difference, Helmert, repeated or polynomial; deviation and simple against the last or the first category).
+  - Plots: spread versus level, residuals against observed and predicted values, and profile plots of the estimated marginal means, each with a factor on the horizontal axis and maybe one for separate lines and one for separate charts, drawn as lines or bars with error bars and a reference line at the grand mean if you like.
+  - Descriptive statistics, effect sizes, observed power, parameter estimates, homogeneity tests, the lack of fit test and the significance level.
+- **Multivariate** (`GLM` with several dependent variables): the Univariate dialog with a list of at least two dependent variables, all numeric and none of them a factor or covariate.
+  - Everything Univariate offers; post hoc tests, estimated marginal means, plots and saved variables come for each dependent. Saved variables take their default names.
+  - Homogeneity tests add Box's M test of the covariance matrices to Levene's test of each dependent. Further tables: the residual SSCP, covariance and correlation matrices with Bartlett's test of sphericity, the hypothesis and error SSCP of each effect, and the coefficients of the M matrix.
+  - M matrix: columns, each with an optional label and a coefficient for each dependent (an empty cell is 0, fractions such as `1/2` are allowed). It transforms the dependents in the test of the intercept, so the intercept must be in the model, and each column needs a coefficient other than 0.
 - **Repeated Measures** (`GLM` with `WSFACTOR`):
   - Within-subjects factors, each with a name and its number of levels, and one variable for each combination of levels.
   - Between-subjects factors and covariates, and the type of sums of squares.

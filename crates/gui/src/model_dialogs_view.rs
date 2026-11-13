@@ -1,5 +1,5 @@
 //! Drawing of the Factor Analysis, K-Means Cluster, Hierarchical Cluster, Discriminant, Binary
-//! Logistic Regression, Univariate and Repeated Measures dialogs.
+//! Logistic Regression, Univariate, Multivariate and Repeated Measures dialogs.
 
 use crate::analyze_dialogs::{DUNNETT_SIDES, EQUAL_VARIANCE_TESTS, POST_HOC_TESTS};
 use crate::app::{checkboxes, choice, field, target_list, target_one};
@@ -7,10 +7,11 @@ use crate::model_dialogs::{
     CLUSTER_BINARY, CLUSTER_COUNTS, CLUSTER_DATA, CLUSTER_INTERVAL, CLUSTER_METHODS, Categorical,
     DISCRIMINANT_METHODS, DISCRIMINANT_SAVE, DISCRIMINANT_STATISTICS,
     DISCRIMINANT_STATISTICS_GROUPS, Discriminant, FACTOR_DESCRIPTIVES, FACTOR_EXTRACTIONS,
-    FACTOR_MISSING, FACTOR_ROTATIONS, FACTOR_SCORES, FactorAnalysis, GLM_ADJUSTMENTS, GLM_PRINT,
-    GLM_SAVE, GLM_SAVE_GROUPS, Hierarchical, KMeans, LOGISTIC_CONTRASTS, LOGISTIC_METHODS,
-    LOGISTIC_SAVE, LOGISTIC_SAVE_GROUPS, Logistic, RepeatedMeasures, SUM_OF_SQUARES, Solutions,
-    Univariate, WithinFactor, has_reference,
+    FACTOR_MISSING, FACTOR_ROTATIONS, FACTOR_SCORES, FactorAnalysis, GLM_ADJUSTMENTS,
+    GLM_CONTRASTS, GLM_PRINT, GLM_SAVE, GLM_SAVE_GROUPS, Hierarchical, KMeans, LOGISTIC_CONTRASTS,
+    LOGISTIC_METHODS, LOGISTIC_SAVE, LOGISTIC_SAVE_GROUPS, Logistic, MColumn, PROFILE_ERROR_BARS,
+    RepeatedMeasures, SUM_OF_SQUARES, Solutions, UNIVARIATE_PRINT, Univariate, WithinFactor,
+    has_reference,
 };
 use crate::stats_dialogs_view::{blocks, small_field};
 use eframe::egui::{self, ComboBox, TextEdit, Ui};
@@ -372,7 +373,11 @@ pub fn logistic(ui: &mut Ui, d: &mut Logistic, picked: &mut Vec<String>) {
 }
 
 pub fn univariate(ui: &mut Ui, d: &mut Univariate, picked: &mut Vec<String>) {
-    target_one(ui, "Dependent variable", &mut d.dependent, picked);
+    if d.multivariate {
+        target_list(ui, "Dependent variables", &mut d.dependents, picked);
+    } else {
+        target_one(ui, "Dependent variable", &mut d.dependent, picked);
+    }
     target_list(ui, "Fixed factors", &mut d.factors, picked);
     target_list(ui, "Covariates", &mut d.covariates, picked);
     ui.add_space(6.0);
@@ -423,6 +428,10 @@ pub fn univariate(ui: &mut Ui, d: &mut Univariate, picked: &mut Vec<String>) {
         choice(ui, "Sum of squares", &SUM_OF_SQUARES, &mut d.sstype);
         ui.checkbox(&mut d.intercept, "Include intercept in the model");
     });
+    egui::CollapsingHeader::new("Contrasts").show(ui, |ui| {
+        contrasts(ui, &d.factors, &mut d.contrasts);
+    });
+    egui::CollapsingHeader::new("Plots").show(ui, |ui| plots(ui, d));
     egui::CollapsingHeader::new("Post hoc").show(ui, |ui| {
         ui.label("Post hoc tests for");
         name_checkboxes(ui, &d.factors, &mut d.post_hoc_factors);
@@ -447,9 +456,157 @@ pub fn univariate(ui: &mut Ui, d: &mut Univariate, picked: &mut Vec<String>) {
         save_groups(ui, &GLM_SAVE_GROUPS, &GLM_SAVE, &mut d.save);
     });
     egui::CollapsingHeader::new("Options").show(ui, |ui| {
-        checkboxes(ui, &GLM_PRINT, &mut d.print);
+        let offered = if d.multivariate {
+            GLM_PRINT.len()
+        } else {
+            UNIVARIATE_PRINT
+        };
+        checkboxes(ui, &GLM_PRINT[..offered], &mut d.print[..offered]);
         field(ui, "Significance level", &mut d.alpha, 50.0);
     });
+    if d.multivariate {
+        egui::CollapsingHeader::new("M matrix").show(ui, |ui| m_matrix(ui, d));
+    }
+}
+
+/// A contrast for each factor, with the reference category where the contrast has one.
+fn contrasts(ui: &mut Ui, factors: &[String], contrasts: &mut Vec<Categorical>) {
+    if factors.is_empty() {
+        ui.weak("Add a fixed factor first");
+    }
+    egui::Grid::new("glm_contrasts")
+        .num_columns(3)
+        .show(ui, |ui| {
+            for name in factors {
+                let i = match contrasts.iter().position(|c| &c.name == name) {
+                    Some(i) => i,
+                    None => {
+                        contrasts.push(Categorical {
+                            name: name.clone(),
+                            contrast: 0,
+                            first: false,
+                        });
+                        contrasts.len() - 1
+                    }
+                };
+                let c = &mut contrasts[i];
+                ui.label(name.as_str());
+                ComboBox::from_id_salt(("glm_contrast", name))
+                    .width(100.0)
+                    .selected_text(GLM_CONTRASTS[c.contrast].1)
+                    .show_index(ui, &mut c.contrast, GLM_CONTRASTS.len(), |i| {
+                        GLM_CONTRASTS[i].1
+                    });
+                ui.add_enabled_ui(
+                    matches!(GLM_CONTRASTS[c.contrast].0, "DEVIATION" | "SIMPLE"),
+                    |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Reference");
+                            ui.radio_value(&mut c.first, false, "last");
+                            ui.radio_value(&mut c.first, true, "first");
+                        });
+                    },
+                );
+                ui.end_row();
+            }
+        });
+}
+
+/// The spread-versus-level and residual plots, and the profile plots of the factors.
+fn plots(ui: &mut Ui, d: &mut Univariate) {
+    ui.checkbox(&mut d.spread_level, "Spread versus level");
+    ui.checkbox(
+        &mut d.residual_plots,
+        "Residuals against observed and predicted",
+    );
+    ui.add_space(4.0);
+    ui.label("Profile plots of estimated marginal means");
+    for (slot, title) in
+        d.profile_draft
+            .iter_mut()
+            .zip(["Horizontal axis", "Separate lines", "Separate charts"])
+    {
+        ComboBox::new(title, title)
+            .selected_text(if slot.is_empty() {
+                "None"
+            } else {
+                slot.as_str()
+            })
+            .show_ui(ui, |ui| {
+                ui.selectable_value(slot, String::new(), "None");
+                for f in &d.factors {
+                    ui.selectable_value(slot, f.clone(), f.as_str());
+                }
+            });
+    }
+    if ui
+        .add_enabled(
+            !d.profile_draft[0].is_empty(),
+            egui::Button::new("Add plot"),
+        )
+        .clicked()
+    {
+        d.add_profile();
+    }
+    let mut remove = None;
+    ui.horizontal_wrapped(|ui| {
+        for (i, plot) in d.profiles.iter().enumerate() {
+            if ui
+                .button(format!("{}  \u{d7}", plot.join("*")))
+                .on_hover_text("Remove")
+                .clicked()
+            {
+                remove = Some(i);
+            }
+        }
+    });
+    if let Some(i) = remove {
+        d.profiles.remove(i);
+    }
+    ui.add_enabled_ui(!d.profiles.is_empty(), |ui| {
+        ui.horizontal(|ui| {
+            ui.radio_value(&mut d.profile_bars, false, "Lines");
+            ui.radio_value(&mut d.profile_bars, true, "Bars");
+        });
+        choice(ui, "Error bars", &PROFILE_ERROR_BARS, &mut d.profile_errors);
+        ui.checkbox(&mut d.profile_mean_line, "Reference line at the grand mean");
+    });
+}
+
+/// The columns of the M matrix: a label and a coefficient for each dependent variable.
+fn m_matrix(ui: &mut Ui, d: &mut Univariate) {
+    ui.weak("Transforms the dependent variables in the test of the intercept; an empty cell is 0.");
+    let mut remove = None;
+    egui::Grid::new("glm_m_matrix").show(ui, |ui| {
+        ui.label("");
+        for (i, column) in d.m_matrix.iter_mut().enumerate() {
+            ui.horizontal(|ui| {
+                ui.add(
+                    TextEdit::singleline(&mut column.label)
+                        .hint_text("label")
+                        .desired_width(80.0),
+                );
+                if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
+                    remove = Some(i);
+                }
+            });
+        }
+        ui.end_row();
+        for dependent in &d.dependents {
+            ui.label(dependent.as_str());
+            for column in &mut d.m_matrix {
+                let cell = column.coefficients.entry(dependent.clone()).or_default();
+                ui.add(TextEdit::singleline(cell).desired_width(80.0));
+            }
+            ui.end_row();
+        }
+    });
+    if let Some(i) = remove {
+        d.m_matrix.remove(i);
+    }
+    if ui.small_button("Add column").clicked() {
+        d.m_matrix.push(MColumn::default());
+    }
 }
 
 pub fn repeated_measures(ui: &mut Ui, d: &mut RepeatedMeasures, picked: &mut Vec<String>) {

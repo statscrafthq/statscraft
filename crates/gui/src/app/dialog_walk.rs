@@ -25,8 +25,8 @@ use crate::dialogs::{
 use crate::genlin_dialog::GeneralizedLinear;
 use crate::graph_dialogs::{ChartBuilder, ChartKind, ProbabilityPlot, RocCurve};
 use crate::model_dialogs::{
-    Categorical, Discriminant, FactorAnalysis, Hierarchical, KMeans, Logistic, RepeatedMeasures,
-    Solutions, Univariate, WithinFactor,
+    Categorical, Discriminant, FactorAnalysis, Hierarchical, KMeans, Logistic, MColumn,
+    RepeatedMeasures, Solutions, Univariate, WithinFactor,
 };
 use crate::stats_dialogs::{Block, NparKind, NparTests, PartialCorr, Regression, Reliability};
 use std::path::Path;
@@ -212,6 +212,11 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             dependent: s("monthly_spend"),
             factors: v(&["region"]),
             ..Default::default()
+        }),
+        Dialog::Univariate(Univariate {
+            dependents: v(&["monthly_spend", "q1_satisfaction"]),
+            factors: v(&["region"]),
+            ..Univariate::multivariate()
         }),
         Dialog::RepeatedMeasures(RepeatedMeasures {
             within: vec![WithinFactor {
@@ -841,9 +846,59 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             means_factors: v(&["region"]),
             compare: true,
             adjustment: 2,
+            contrasts: vec![Categorical {
+                name: s("region"),
+                contrast: 2,
+                first: true,
+            }],
+            spread_level: true,
+            residual_plots: true,
+            profiles: vec![v(&["region", "gender"]), v(&["gender"])],
+            profile_draft: Default::default(),
+            profile_bars: true,
+            profile_mean_line: true,
+            profile_errors: 2,
             save: [true; 8],
-            print: [true; 5],
+            print: [true; 9],
             alpha: s("0.01"),
+            ..Default::default()
+        }),
+        Dialog::Univariate(Univariate {
+            multivariate: true,
+            dependents: v(&["monthly_spend", "q1_satisfaction", "q2_recommend"]),
+            factors: v(&["region", "gender"]),
+            covariates: v(&["age"]),
+            custom: true,
+            terms: vec![v(&["region"]), v(&["gender"]), v(&["age"])],
+            sstype: 0,
+            post_hoc_factors: v(&["region"]),
+            post_hoc: [true; 16],
+            dunnett: true,
+            means_overall: true,
+            means_factors: v(&["region", "gender"]),
+            compare: true,
+            adjustment: 1,
+            contrasts: vec![Categorical {
+                name: s("gender"),
+                contrast: 6,
+                first: false,
+            }],
+            spread_level: true,
+            residual_plots: true,
+            profiles: vec![v(&["gender", "region"])],
+            profile_errors: 1,
+            save: [true; 8],
+            print: [true; 9],
+            alpha: s("0.1"),
+            m_matrix: vec![MColumn {
+                label: s("Spend minus satisfaction"),
+                coefficients: [
+                    (s("monthly_spend"), s("1")),
+                    (s("q1_satisfaction"), s("-1")),
+                ]
+                .into(),
+            }],
+            ..Default::default()
         }),
         Dialog::RepeatedMeasures(RepeatedMeasures {
             within: vec![WithinFactor {
