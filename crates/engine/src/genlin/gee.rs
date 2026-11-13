@@ -56,6 +56,17 @@ type Keys = [Vec<Key>];
 /// The largest working correlation matrix: its dimension squared is held in memory.
 const MAX_DIMENSION: usize = 200;
 
+/// A working correlation matrix whose smallest eigenvalue is at most this counts as not positive
+/// definite: a nearly singular one would lose positions in the inverses of the subjects.
+const SINGULAR: f64 = 1e-6;
+
+fn smallest_eigenvalue(m: &Matrix) -> f64 {
+    symmetric_eigen(m)
+        .iter()
+        .map(|(v, _)| *v)
+        .fold(f64::INFINITY, f64::min)
+}
+
 /// What the working correlation matrix was changed to so that it is positive definite.
 #[derive(Clone, Copy, PartialEq)]
 pub(super) enum Adjusted {
@@ -238,11 +249,7 @@ fn estimate(
                 m[u][v] = *value;
                 m[v][u] = *value;
             }
-            let smallest = symmetric_eigen(&m)
-                .iter()
-                .map(|(v, _)| *v)
-                .fold(f64::INFINITY, f64::min);
-            if smallest <= 0.0 {
+            if smallest_eigenvalue(&m) <= SINGULAR {
                 return Err(
                     "GENLIN: REPEATED: the FIXED working correlation matrix is not positive definite"
                         .into(),
@@ -329,14 +336,8 @@ fn estimate(
             }
         }
     }
-    let smallest = smallest.unwrap_or_else(|| {
-        symmetric_eigen(&m)
-            .iter()
-            .map(|(v, _)| *v)
-            .fold(f64::INFINITY, f64::min)
-    });
-    // a nearly singular matrix would lose positions in the inverses of the subjects
-    if smallest > 1e-6 {
+    let smallest = smallest.unwrap_or_else(|| smallest_eigenvalue(&m));
+    if smallest > SINGULAR {
         return Ok((m, phi, Adjusted::No));
     }
     // the ridge that leaves 0.01 as the smallest eigenvalue
@@ -356,6 +357,7 @@ fn ar1(t: usize, alpha: f64) -> Matrix {
 }
 
 /// The estimating equations s, H and the middle of the robust covariance at the means `mu`.
+#[allow(clippy::too_many_arguments)]
 fn parts(
     c: &Cases,
     x: &[Vec<f64>],
@@ -364,13 +366,12 @@ fn parts(
     mu: &[f64],
     r: &Matrix,
     phi: f64,
+    inverses: &mut HashMap<Vec<usize>, Matrix>,
 ) -> (Vec<f64>, Matrix, Matrix) {
     let q = x.first().map_or(0, Vec::len);
     let mut score = vec![0.0; q];
     let mut h = vec![vec![0.0; q]; q];
     let mut meat = vec![vec![0.0; q]; q];
-    // the inverse of R over the positions of a subject, once per pattern of positions
-    let mut inverses: HashMap<Vec<usize>, Matrix> = HashMap::new();
     for m in &s.members {
         let n = m.len();
         let f = c.f[m[0].0];
@@ -464,7 +465,9 @@ pub(super) fn fit(
     let (mut r, start_moment, mut adjusted) = estimate(c, s, set, q, &mu)?;
     // with SCALE=MLE the scale is the Pearson moment from the start
     let mut phi = if set.update_scale { start_moment } else { phi0 };
-    let (mut score, mut h, mut meat) = parts(c, x, s, set, &mu, &r, phi);
+    // the inverse of R over the positions of a subject, once per pattern while R stays
+    let mut inverses: HashMap<Vec<usize>, Matrix> = HashMap::new();
+    let (mut score, mut h, mut meat) = parts(c, x, s, set, &mu, &r, phi, &mut inverses);
     let mut inverse = ginverse(&h, set.singular).0;
     let quadratic =
         |score: &[f64], inverse: &Matrix| super::dot(score, &mat_vec(inverse, score)).abs();
@@ -492,11 +495,17 @@ pub(super) fn fit(
             break;
         };
         mu = next_mu;
-        let update = set.updatecorr > 0 && iteration % set.updatecorr == 0;
+        // the independent and the fixed structure have nothing to estimate again
+        let estimated = !matches!(
+            set.correlation,
+            GenlinCorrelation::Independent | GenlinCorrelation::Fixed(_)
+        );
+        let update = estimated && set.updatecorr > 0 && iteration % set.updatecorr == 0;
         if update {
             let (nr, m, now) = estimate(c, s, set, q, &mu)?;
             r = nr;
             adjusted = now;
+            inverses.clear();
             if set.update_scale {
                 phi = m;
             }
@@ -505,7 +514,7 @@ pub(super) fn fit(
         }
         let change = super::largest_change(&beta, &next, set.pconverge.relative);
         beta = next;
-        (score, h, meat) = parts(c, x, s, set, &mu, &r, phi);
+        (score, h, meat) = parts(c, x, s, set, &mu, &r, phi, &mut inverses);
         inverse = ginverse(&h, set.singular).0;
         // a shortened step says nothing about convergence
         let p_met = set.pconverge.value == 0.0 || (size == 1.0 && change < set.pconverge.value);

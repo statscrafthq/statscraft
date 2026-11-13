@@ -1899,12 +1899,13 @@ impl Engine {
                 let subject_of_row = if r.sort {
                     row_keys(&subject_keys)
                 } else {
-                    // a case with a missing subject value is not used and does not end a run
+                    // a case with a missing subject value or no weight is not used and does not
+                    // end a run
                     let mut run = vec![0.0; cases];
                     let mut last: Option<usize> = None;
                     let mut number = 0.0;
                     for k in 0..cases {
-                        if subject_keys.iter().any(|col| col[k].is_none()) {
+                        if freq(k) < 1.0 || subject_keys.iter().any(|col| col[k].is_none()) {
                             continue;
                         }
                         if let Some(l) = last {
