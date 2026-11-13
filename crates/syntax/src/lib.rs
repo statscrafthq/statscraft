@@ -149,7 +149,8 @@ pub use factor::{
 pub use genlin::{
     Genlin, GenlinAdjust, GenlinContrast, GenlinCriteria, GenlinDistribution, GenlinEmmeans,
     GenlinLink, GenlinMethod, GenlinOffset, GenlinOrder, GenlinPrint, GenlinReference,
-    GenlinResponse, GenlinSave, GenlinSaveKind, GenlinScale, GenlinTolerance, GenlinTrials,
+    GenlinCorrelation, GenlinRepeated, GenlinResponse, GenlinSave, GenlinSaveKind, GenlinScale,
+    GenlinTolerance, GenlinTrials,
     default_link, distribution_keyword, link_allowed, link_keyword,
 };
 pub use glm::{

@@ -256,8 +256,62 @@ fn genlin_print_save_missing_and_unsupported_parts() {
     assert!(err("GENLIN y /PRINT NONE FIT.").contains("NONE"));
     assert!(err("GENLIN y /PRINT LMATRIX.").contains("not supported yet"));
     assert!(err("GENLIN y /SAVE RESID RESID.").contains("only once"));
-    assert!(
-        err("GENLIN y /REPEATED SUBJECT=id.").contains("REPEATED of GENLIN is not supported yet")
-    );
     assert!(err("GENLIN y /OUTFILE COVB='b.sav'.").contains("not supported yet"));
+}
+
+#[test]
+fn repeated_defaults_and_every_keyword() {
+    let g = genlin("GENLIN pain BY ward /MODEL ward /REPEATED SUBJECT=patient.");
+    let r = g.repeated.expect("repeated");
+    assert_eq!(r.subject, ["patient"]);
+    assert!(r.within.is_empty() && r.sort && r.adjust && r.robust);
+    assert_eq!(r.correlation, GenlinCorrelation::Independent);
+    assert_eq!((r.hconverge, r.maxiterations, r.updatecorr), (0.0, 100, 1));
+    assert_eq!(
+        r.pconverge,
+        GenlinTolerance {
+            value: 1e-6,
+            relative: false
+        }
+    );
+    let g = genlin(
+        "GENLIN pain BY ward /MODEL ward /REPEATED SUBJECT=clinic*patient WITHINSUBJECT=week BY dose
+  SORT=NO CORRTYPE=AR(1) ADJUSTCORR=NO COVB=MODEL HCONVERGE=1E-5 MAXITERATIONS=40
+  PCONVERGE=1E-8(RELATIVE) UPDATECORR=2 /PRINT WORKINGCORR SOLUTION.",
+    );
+    let r = g.repeated.expect("repeated");
+    assert_eq!(r.subject, ["clinic", "patient"]);
+    assert_eq!(r.within, ["week", "dose"]);
+    assert!(!r.sort && !r.adjust && !r.robust);
+    assert_eq!(r.correlation, GenlinCorrelation::Ar1);
+    assert_eq!((r.hconverge, r.maxiterations, r.updatecorr), (1e-5, 40, 2));
+    assert!(r.pconverge.relative && r.pconverge.value == 1e-8);
+    assert!(g.print.workingcorr && g.print.solution && !g.print.fit);
+    for (text, expected) in [
+        ("EXCHANGEABLE", GenlinCorrelation::Exchangeable),
+        ("UNSTRUCTURED", GenlinCorrelation::Unstructured),
+        ("MDEPENDENT(2)", GenlinCorrelation::MDependent(2)),
+        ("FIXED(0.5, 0.2 0.4)", GenlinCorrelation::Fixed(vec![0.5, 0.2, 0.4])),
+    ] {
+        let g = genlin(&format!("GENLIN y /REPEATED SUBJECT=id CORRTYPE={text}."));
+        assert_eq!(g.repeated.expect("repeated").correlation, expected);
+    }
+}
+
+#[test]
+fn repeated_rules() {
+    assert!(err("GENLIN y /REPEATED CORRTYPE=AR(1).").contains("needs SUBJECT"));
+    assert!(err("GENLIN y /REPEATED SUBJECT=id*id.").contains("twice"));
+    assert!(err("GENLIN y /REPEATED SUBJECT=id WITHINSUBJECT=ID.").contains("both"));
+    assert!(err("GENLIN y /REPEATED SUBJECT=id PCONVERGE=0.").contains("HCONVERGE and PCONVERGE"));
+    assert!(err("GENLIN y /REPEATED SUBJECT=id MAXITERATIONS=3 UPDATECORR=4.").contains("UPDATECORR"));
+    assert!(err("GENLIN y /REPEATED SUBJECT=id CORRTYPE=AR(2).").contains("AR(1)"));
+    assert!(err("GENLIN y /REPEATED SUBJECT=id CORRTYPE=FIXED(0.5 1.2 0.3).").contains("from 0 to 1"));
+    assert!(err("GENLIN y /REPEATED SUBJECT=id CORRTYPE=MDEPENDENT(-1).").contains("0 or more"));
+    assert!(err("GENLIN y /REPEATED SUBJECT=id CORR=AR(1).").contains("unexpected word CORR"));
+    assert!(err("GENLIN y /REPEATED SUBJECT=id SORT=YES SORT=NO.").contains("only once"));
+    assert!(err("GENLIN y /REPEATED SUBJECT=id /REPEATED SUBJECT=id.").contains("only once"));
+    // MAXITERATIONS=0 keeps the default UPDATECORR
+    let g = genlin("GENLIN y /REPEATED SUBJECT=id MAXITERATIONS=0.");
+    assert_eq!(g.repeated.expect("repeated").maxiterations, 0);
 }

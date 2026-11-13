@@ -27,6 +27,13 @@
 //!   MODELINFO, SOLUTION and SUMMARY.
 //! - SAVE: each keyword with an optional new name in parentheses; the multinomial ones also take
 //!   `root:n` or `:n`.
+//! - REPEATED (generalized estimating equations): SUBJECT is required, a variable or a crossing
+//!   joined by `*` or BY; WITHINSUBJECT likewise. No variable twice, and none on both lists.
+//!   SORT=YES|NO, CORRTYPE=INDEPENDENT|AR(1)|EXCHANGEABLE|MDEPENDENT(m)|UNSTRUCTURED|FIXED(list),
+//!   the FIXED list being the lower triangle below the diagonal, row by row, each from 0 to 1.
+//!   ADJUSTCORR=YES|NO, COVB=ROBUST|MODEL, HCONVERGE (default 0), MAXITERATIONS (default 100),
+//!   PCONVERGE (default 1E-6 absolute), UPDATECORR (default 1, 0 keeps the first matrix, at most
+//!   MAXITERATIONS). HCONVERGE and PCONVERGE are not both 0.
 
 use crate::ast::{Command, Value};
 use crate::error::SyntaxError;
@@ -224,6 +231,55 @@ pub struct GenlinEmmeans {
     pub padjust: GenlinAdjust,
 }
 
+/// The working correlation structure of REPEATED.
+#[derive(Debug, Clone, PartialEq)]
+pub enum GenlinCorrelation {
+    Independent,
+    Ar1,
+    Exchangeable,
+    /// m of MDEPENDENT(m).
+    MDependent(u32),
+    Unstructured,
+    /// The correlations below the diagonal, row by row.
+    Fixed(Vec<f64>),
+}
+
+/// REPEATED: generalized estimating equations.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GenlinRepeated {
+    pub subject: Vec<String>,
+    pub within: Vec<String>,
+    pub sort: bool,
+    pub correlation: GenlinCorrelation,
+    /// ADJUSTCORR: the denominators of the correlation and scale estimates less the parameters.
+    pub adjust: bool,
+    pub robust: bool,
+    pub hconverge: f64,
+    pub maxiterations: u32,
+    pub pconverge: GenlinTolerance,
+    pub updatecorr: u32,
+}
+
+impl Default for GenlinRepeated {
+    fn default() -> Self {
+        Self {
+            subject: Vec::new(),
+            within: Vec::new(),
+            sort: true,
+            correlation: GenlinCorrelation::Independent,
+            adjust: true,
+            robust: true,
+            hconverge: 0.0,
+            maxiterations: 100,
+            pconverge: GenlinTolerance {
+                value: 1e-6,
+                relative: false,
+            },
+            updatecorr: 1,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct GenlinPrint {
     pub corb: bool,
@@ -235,6 +291,7 @@ pub struct GenlinPrint {
     pub solution: bool,
     pub exponentiated: bool,
     pub summary: bool,
+    pub workingcorr: bool,
 }
 
 impl Default for GenlinPrint {
@@ -249,6 +306,7 @@ impl Default for GenlinPrint {
             solution: true,
             exponentiated: false,
             summary: true,
+            workingcorr: false,
         }
     }
 }
@@ -293,6 +351,7 @@ pub struct Genlin {
     pub distribution: GenlinDistribution,
     pub link: GenlinLink,
     pub criteria: GenlinCriteria,
+    pub repeated: Option<GenlinRepeated>,
     pub emmeans: Vec<GenlinEmmeans>,
     /// `/MISSING CLASSMISSING=INCLUDE`
     pub include: bool,
@@ -813,8 +872,8 @@ fn print(p: &mut Parser) -> PResult<GenlinPrint> {
                     out.exponentiated = true;
                 }
             }
-            // a working correlation matrix exists only with REPEATED, which is not supported
-            "WORKINGCORR" => {}
+            // honored only with REPEATED
+            "WORKINGCORR" => out.workingcorr = true,
             "NONE" => none = true,
             _ => {
                 return Err(SyntaxError::new(
@@ -899,6 +958,150 @@ fn save(p: &mut Parser) -> PResult<Vec<GenlinSave>> {
         return Err(p.unexpected(&["a SAVE keyword"]));
     }
     Ok(out)
+}
+
+/// Variables joined by `*` or BY, each once.
+fn effect_variables(p: &mut Parser, what: &str) -> PResult<Vec<String>> {
+    let mut out: Vec<String> = Vec::new();
+    loop {
+        let start = p.pos;
+        let name = p.name(what)?;
+        if out.iter().any(|n| n.eq_ignore_ascii_case(&name)) {
+            return Err(SyntaxError::new(
+                p.span_from(start),
+                format!("{name} is given twice"),
+            ));
+        }
+        out.push(name);
+        if !(p.eat(Punct::Star) || p.eat_word("BY")) {
+            return Ok(out);
+        }
+    }
+}
+
+fn repeated(p: &mut Parser) -> PResult<GenlinRepeated> {
+    let mut r = GenlinRepeated::default();
+    let mut seen = Vec::new();
+    let begin = p.pos;
+    while !at_end(p) {
+        let start = p.pos;
+        const KEYWORDS: [&str; 10] = [
+            "SUBJECT",
+            "WITHINSUBJECT",
+            "SORT",
+            "CORRTYPE",
+            "ADJUSTCORR",
+            "COVB",
+            "HCONVERGE",
+            "MAXITERATIONS",
+            "PCONVERGE",
+            "UPDATECORR",
+        ];
+        let Some(&keyword) = KEYWORDS.iter().find(|k| word_is(p, k)) else {
+            return Err(p.unexpected(&KEYWORDS));
+        };
+        p.pos += 1;
+        first_time(p, &mut seen, keyword, start)?;
+        p.expect(Punct::Eq)?;
+        match keyword {
+            "SUBJECT" => r.subject = effect_variables(p, "a subject variable")?,
+            "WITHINSUBJECT" => r.within = effect_variables(p, "a within-subject variable")?,
+            "SORT" => r.sort = choice(p, &[("YES", true), ("NO", false)])?,
+            "CORRTYPE" => r.correlation = correlation(p)?,
+            "ADJUSTCORR" => r.adjust = choice(p, &[("YES", true), ("NO", false)])?,
+            "COVB" => r.robust = choice(p, &[("ROBUST", true), ("MODEL", false)])?,
+            "HCONVERGE" => {
+                let v = number(p, "a number")?;
+                if v < 0.0 {
+                    return Err(SyntaxError::new(
+                        p.span_from(start),
+                        "HCONVERGE is 0 or more",
+                    ));
+                }
+                r.hconverge = v;
+            }
+            "MAXITERATIONS" => r.maxiterations = whole(p, "MAXITERATIONS", 0.0)?,
+            "PCONVERGE" => r.pconverge = tolerance(p, "PCONVERGE")?,
+            "UPDATECORR" => r.updatecorr = whole(p, "UPDATECORR", 0.0)?,
+            _ => unreachable!("listed"),
+        }
+        p.eat(Punct::Comma);
+    }
+    let fail = |message: String| Err(SyntaxError::new(p.span_from(begin), message));
+    if r.subject.is_empty() {
+        return fail("REPEATED needs SUBJECT".into());
+    }
+    if let Some(n) = r
+        .within
+        .iter()
+        .find(|w| r.subject.iter().any(|s| s.eq_ignore_ascii_case(w)))
+    {
+        return fail(format!("{n} cannot be both a SUBJECT and a WITHINSUBJECT variable"));
+    }
+    if r.hconverge == 0.0 && r.pconverge.value == 0.0 {
+        return fail("at least one of HCONVERGE and PCONVERGE on REPEATED must be above 0".into());
+    }
+    if seen.contains(&"UPDATECORR") && r.updatecorr > r.maxiterations {
+        return fail(format!(
+            "UPDATECORR ({}) cannot be above the REPEATED MAXITERATIONS ({})",
+            r.updatecorr, r.maxiterations
+        ));
+    }
+    Ok(r)
+}
+
+fn correlation(p: &mut Parser) -> PResult<GenlinCorrelation> {
+    if p.eat_word("AR") {
+        p.expect(Punct::LParen)?;
+        let start = p.pos;
+        if number(p, "1")? != 1.0 {
+            return Err(SyntaxError::new(p.span_from(start), "the structure is AR(1)"));
+        }
+        p.expect(Punct::RParen)?;
+        return Ok(GenlinCorrelation::Ar1);
+    }
+    if p.eat_word("MDEPENDENT") {
+        p.expect(Punct::LParen)?;
+        let m = whole(p, "MDEPENDENT(m)", 0.0)?;
+        p.expect(Punct::RParen)?;
+        return Ok(GenlinCorrelation::MDependent(m));
+    }
+    if p.eat_word("FIXED") {
+        p.expect(Punct::LParen)?;
+        let mut list = Vec::new();
+        while !p.eat(Punct::RParen) {
+            let start = p.pos;
+            let v = number(p, "a correlation")?;
+            if !(0.0..=1.0).contains(&v) {
+                return Err(SyntaxError::new(
+                    p.span_from(start),
+                    "a FIXED correlation is from 0 to 1",
+                ));
+            }
+            list.push(v);
+            p.eat(Punct::Comma);
+        }
+        if list.is_empty() {
+            return Err(p.unexpected(&["a correlation"]));
+        }
+        return Ok(GenlinCorrelation::Fixed(list));
+    }
+    if p.eat_word("INDEPENDENT") {
+        Ok(GenlinCorrelation::Independent)
+    } else if p.eat_word("EXCHANGEABLE") {
+        Ok(GenlinCorrelation::Exchangeable)
+    } else if p.eat_word("UNSTRUCTURED") {
+        Ok(GenlinCorrelation::Unstructured)
+    } else {
+        Err(p.unexpected(&[
+            "INDEPENDENT",
+            "AR(1)",
+            "EXCHANGEABLE",
+            "MDEPENDENT(m)",
+            "UNSTRUCTURED",
+            "FIXED(list)",
+        ]))
+    }
 }
 
 /// What MODEL says.
@@ -1078,6 +1281,7 @@ pub(crate) fn genlin(p: &mut Parser) -> PResult<Command> {
     let mut include = false;
     let mut print_spec = None;
     let mut save_list = Vec::new();
+    let mut repeated_spec = None;
     let mut seen: Vec<&'static str> = Vec::new();
     while p.eat(Punct::Slash) {
         let start = p.pos;
@@ -1097,17 +1301,11 @@ pub(crate) fn genlin(p: &mut Parser) -> PResult<Command> {
                 model_span = p.span_from(start);
             }
             "CRITERIA" => criteria(p, &mut criteria_spec)?,
-            "REPEATED" | "OUTFILE" => {
+            "REPEATED" => repeated_spec = Some(repeated(p)?),
+            "OUTFILE" => {
                 return Err(SyntaxError::new(
                     p.span_from(start),
-                    format!(
-                        "subcommand {name} of GENLIN is not supported yet{}",
-                        if name == "REPEATED" {
-                            " (generalized estimating equations)"
-                        } else {
-                            ""
-                        }
-                    ),
+                    "subcommand OUTFILE of GENLIN is not supported yet",
                 ));
             }
             "EMMEANS" => emmeans_list.push(emmeans(p)?),
@@ -1175,6 +1373,7 @@ pub(crate) fn genlin(p: &mut Parser) -> PResult<Command> {
         distribution,
         link,
         criteria: criteria_spec,
+        repeated: repeated_spec,
         emmeans: emmeans_list,
         include,
         print: print_spec.unwrap_or_default(),
