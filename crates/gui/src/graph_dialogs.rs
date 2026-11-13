@@ -492,7 +492,7 @@ impl ChartBuilder {
 /// empty name for a distribution with one parameter.
 pub const PPLOT_DISTRIBUTIONS: [(&str, &str, [&str; 2]); 13] = [
     ("NORMAL", "Normal", ["Location", "Scale"]),
-    ("EXPONENTIAL", "Exponential", ["Rate (1 / mean)", ""]),
+    ("EXPONENTIAL", "Exponential", ["Rate", ""]),
     ("WEIBULL", "Weibull", ["Scale", "Shape"]),
     ("PARETO", "Pareto", ["Threshold", "Shape"]),
     ("LNORMAL", "Lognormal", ["Scale", "Shape"]),
@@ -702,7 +702,13 @@ impl RocCurve {
         if self.value.trim().is_empty() {
             return Err("give the value of the positive state".into());
         }
-        let positive = value(self.value.trim(), string)?;
+        // the engine compares string values without their trailing blanks only
+        let given = if string {
+            self.value.trim_end()
+        } else {
+            self.value.trim()
+        };
+        let positive = value(given, string)?;
         let mut text = format!("ROC {tests} BY {state} ({positive})");
         if !self.curve {
             text.push_str("\n  /PLOT=NONE");
@@ -1223,7 +1229,7 @@ mod tests {
         d.level = s("95");
         d.include = false;
         d.state = s("plan");
-        d.value = s(" basic ");
+        d.value = s("basic ");
         let syntax = d.syntax(true).unwrap();
         assert_eq!(
             syntax,
