@@ -27,14 +27,16 @@
 use crate::crosstabs::{Key, categories};
 use crate::descriptives::{case_weights, number};
 use crate::dist::{chi_square_p, ln_gamma, normal_cdf, normal_quantile};
-use crate::glm::{Data, Effect, design, effects_of, ginverse, key_value_text, parameter_name};
+use crate::glm::{
+    Data, Effect, design, effects_of, find_effect, ginverse, key_value_text, parameter_name,
+};
 use crate::matrix::{Matrix, inverse};
 use crate::npar_tests::text;
 use crate::regression::{plain, table};
 use crate::shown::Shown;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Measure, Values, Variable};
-use statscraft_syntax::{Plum, PlumLink, PlumSave, Term};
+use statscraft_syntax::{CustomTest, Plum, PlumLink, PlumSave, Term};
 use std::f64::consts::PI;
 
 /// The inverse link F, its density f and the derivative of the density.
@@ -408,6 +410,133 @@ fn maximize(
         history,
         converged,
     })
+}
+
+/// TEST: each row of coefficients over every parameter (`at` places a parameter in the
+/// estimates, None when it is redundant) is tested alone and all rows jointly by Wald
+/// chi-squares, (L b - c)' (L C L')^- (L b - c) on the rank of L C L'.
+// shortcut: a coefficient on a redundant parameter multiplies its fixed 0, with no
+// estimability check; check estimability if users write tests on those parameters.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn wald_tests(
+    t: &CustomTest,
+    n: usize,
+    rows: &[Vec<f64>],
+    at: &[Option<usize>],
+    b: &[f64],
+    cov: &Matrix,
+    cin: f64,
+    caption: &str,
+    warnings: &mut Vec<String>,
+) -> Vec<Table> {
+    let title = t
+        .label
+        .clone()
+        .unwrap_or_else(|| format!("Custom Hypothesis Test {n}"));
+    let z = normal_quantile(0.5 + cin / 200.0);
+    let mut out_rows = Vec::new();
+    let mut l: Matrix = Vec::new();
+    let mut c = Vec::new();
+    for (r, (full, constant)) in rows.iter().zip(&t.constants).enumerate() {
+        let mut row = vec![0.0; b.len()];
+        for (v, a) in full.iter().zip(at) {
+            if let Some(a) = a {
+                row[*a] += v;
+            }
+        }
+        let name = format!("L{}", r + 1);
+        let var: f64 = (0..b.len())
+            .map(|i| {
+                (0..b.len())
+                    .map(|j| row[i] * cov[i][j] * row[j])
+                    .sum::<f64>()
+            })
+            .sum();
+        if row.iter().all(|v| *v == 0.0) || var.is_nan() || var <= 0.0 {
+            warnings.push(format!(
+                "TEST {title}: {name} has no coefficient on an estimated parameter and is not tested"
+            ));
+            continue;
+        }
+        let est: f64 = row.iter().zip(b).map(|(x, y)| x * y).sum();
+        let se = var.sqrt();
+        let wald = ((est - constant) / se).powi(2);
+        out_rows.push(vec![
+            text(name),
+            Cell::Number(est),
+            Cell::Number(*constant),
+            Cell::Number(se),
+            Cell::Number(wald),
+            Cell::Number(1.0),
+            Cell::Number(chi_square_p(wald, 1.0)),
+            Cell::Number(est - z * se),
+            Cell::Number(est + z * se),
+        ]);
+        l.push(row);
+        c.push(*constant);
+    }
+    if l.is_empty() {
+        return Vec::new();
+    }
+    let caption = format!("{title}. {caption}");
+    let mut columns = plain(&[
+        "Contrast",
+        "Estimate",
+        "Test Value",
+        "Std. Error",
+        "Wald",
+        "df",
+        "Sig.",
+    ]);
+    let group = format!("{} Confidence Interval", percent(cin));
+    columns.push((group.clone(), "Lower Bound".into()));
+    columns.push((group, "Upper Bound".into()));
+    let lc: Matrix = l
+        .iter()
+        .map(|x| {
+            (0..b.len())
+                .map(|j| x.iter().zip(cov).map(|(v, row)| v * row[j]).sum())
+                .collect()
+        })
+        .collect();
+    let lcl: Matrix = lc
+        .iter()
+        .map(|x| {
+            l.iter()
+                .map(|y| x.iter().zip(y).map(|(p, q)| p * q).sum())
+                .collect()
+        })
+        .collect();
+    let (inv, rank) = ginverse(&lcl, 1e-10);
+    let d: Vec<f64> = l
+        .iter()
+        .zip(&c)
+        .map(|(x, ci)| x.iter().zip(b).map(|(p, q)| p * q).sum::<f64>() - ci)
+        .collect();
+    let wald: f64 = (0..d.len())
+        .map(|i| (0..d.len()).map(|j| d[i] * inv[i][j] * d[j]).sum::<f64>())
+        .sum();
+    vec![
+        table(
+            "Contrast Estimates",
+            1,
+            columns,
+            out_rows,
+            Some(caption.clone()),
+        ),
+        table(
+            "Test Results",
+            1,
+            plain(&["Source", "Wald", "df", "Sig."]),
+            vec![vec![
+                text(title),
+                Cell::Number(wald),
+                Cell::Number(rank as f64),
+                Cell::Number(chi_square_p(wald, rank as f64)),
+            ]],
+            Some(caption),
+        ),
+    ]
 }
 
 /// The multinomial constant log(n_i! / prod n_ij!) summed over the subpopulations.
@@ -986,6 +1115,70 @@ impl Engine {
                     (v > 0.0).then(|| covariance[i][j] / v.sqrt())
                 }));
             }
+        }
+        for (n, t) in command.tests.iter().enumerate() {
+            // every parameter in order: thresholds, location, scale, with redundant ones
+            let blocks: [(usize, &[Effect]); 2] = [
+                (k, &location),
+                (k + x_redundant.len(), if has_scale { &scale } else { &[] }),
+            ];
+            let full = parameters.len();
+            let mut rows = Vec::new();
+            for row in &t.rows {
+                let mut l = vec![0.0; full];
+                for (effect, values) in row {
+                    let range = match effect {
+                        None => 0..full,
+                        Some(term) if term.variables.is_empty() => 0..k,
+                        Some(term) => {
+                            let mut found = Vec::new();
+                            for (offset, effects) in blocks {
+                                if let Some(e) = find_effect(&d, effects, term)? {
+                                    found.push(offset + e.start..offset + e.start + e.cells.len());
+                                }
+                            }
+                            match found.len() {
+                                1 => found.remove(0),
+                                0 => {
+                                    return Err(Error(format!(
+                                        "TEST names {}, which is not a LOCATION or SCALE effect",
+                                        term.label
+                                    )));
+                                }
+                                _ => {
+                                    return Err(Error(format!(
+                                        "TEST names {}, which is both a LOCATION and a SCALE effect; give its coefficients with ALL",
+                                        term.label
+                                    )));
+                                }
+                            }
+                        }
+                    };
+                    if values.len() != range.len() {
+                        return Err(Error(format!(
+                            "TEST gives {} coefficients where {} parameters are expected",
+                            values.len(),
+                            range.len()
+                        )));
+                    }
+                    for (j, v) in range.zip(values) {
+                        l[j] += v;
+                    }
+                }
+                rows.push(l);
+            }
+            let at: Vec<Option<usize>> = parameters.iter().map(|p| p.2).collect();
+            tables.extend(wald_tests(
+                t,
+                n + 1,
+                &rows,
+                &at,
+                &fit.b,
+                &covariance,
+                criteria.cin,
+                &link_caption,
+                &mut warnings,
+            ));
         }
         if print.cellinfo {
             tables.push(cell_table(

@@ -3,7 +3,7 @@
 //! Rules from the Command Syntax Reference (PLUM), in our words:
 //! - `PLUM dependent [BY factors] [WITH covariates]`; the dependent comes first. BY, WITH and
 //!   WITHIN are reserved here. Subcommands follow in any order; a repeated one replaces the
-//!   earlier one (TEST would accumulate). An empty subcommand changes nothing, except LOCATION,
+//!   earlier one, except TEST, which accumulates. An empty subcommand changes nothing, except LOCATION,
 //!   where empty means the default model, and SCALE, where empty means no scale part.
 //! - CRITERIA: CIN(95), DELTA(0), BIAS(0) (both below 1), MXITER(100), MXSTEP(5), LCONVERGE(0),
 //!   PCONVERGE(1E-6), SINGULAR(1E-8).
@@ -14,10 +14,12 @@
 //! - PRINT: CELLINFO CORB COVB FIT HISTORY[(n)] KERNEL TPARALLEL PARAMETER SUMMARY.
 //! - SAVE: ESTPROB[(root[:n])] (n defaults to 25; `(:n)` gives only the count), PREDCAT,
 //!   PCPROB and ACPROB, each with an optional new name, saved in the order written.
+//! - TEST: `TEST[(constants)] = ['label'] effect values ...; ...` or ALL with values for every
+//!   parameter, the thresholds first. INTERCEPT names the thresholds, one value each.
 
 use crate::ast::{Command, VarItem};
 use crate::error::SyntaxError;
-use crate::glm::{Term, list_until, terms};
+use crate::glm::{CustomTest, Term, custom_test, list_until, terms};
 use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
 use crate::procedures::at_end;
@@ -103,6 +105,7 @@ pub struct Plum {
     /// None: no PRINT subcommand.
     pub print: Option<PlumPrint>,
     pub save: Vec<PlumSave>,
+    pub tests: Vec<CustomTest>,
 }
 
 /// A value in parentheses after a CRITERIA keyword.
@@ -337,6 +340,7 @@ pub(crate) fn plum(p: &mut Parser) -> PResult<Command> {
         include: false,
         print: None,
         save: Vec::new(),
+        tests: Vec::new(),
     };
     while p.eat(Punct::Slash) {
         if p.eat_keyword("CRITERIA") {
@@ -399,8 +403,10 @@ pub(crate) fn plum(p: &mut Parser) -> PResult<Command> {
             if !list.is_empty() {
                 command.save = list;
             }
+        } else if p.eat_keyword("TEST") {
+            command.tests.push(custom_test(p, false)?);
         } else {
-            return Err(p.subcommand_error("PLUM", &["TEST"]));
+            return Err(p.subcommand_error("PLUM", &[]));
         }
         if !at_end(p) {
             return Err(p.unexpected(&["'/'", "end of command"]));

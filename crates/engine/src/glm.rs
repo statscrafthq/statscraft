@@ -1839,26 +1839,15 @@ pub(crate) fn l_row(d: &Data, fit: &Fit, row: &LRow, what: &str) -> Result<Vec<f
     for (effect, values) in row {
         let range = match effect {
             None => 0..fit.p,
-            Some(term) => {
-                let wanted = effects_of(std::slice::from_ref(term), &d.factors, &d.covariates)?;
-                let target = &wanted[0];
-                let found = fit.effects.iter().find(|e| {
-                    let mut a = e.factors.clone();
-                    a.sort_unstable();
-                    let mut b = target.factors.clone();
-                    b.sort_unstable();
-                    a == b && e.covariates == target.covariates
-                });
-                match found {
-                    Some(e) => e.range(),
-                    None => {
-                        return Err(Error(format!(
-                            "{what} names {}, which is not an effect of the design",
-                            term.label
-                        )));
-                    }
+            Some(term) => match find_effect(d, &fit.effects, term)? {
+                Some(e) => e.range(),
+                None => {
+                    return Err(Error(format!(
+                        "{what} names {}, which is not an effect of the design",
+                        term.label
+                    )));
                 }
-            }
+            },
         };
         if values.len() != range.len() {
             return Err(Error(format!(
@@ -1872,6 +1861,23 @@ pub(crate) fn l_row(d: &Data, fit: &Fit, row: &LRow, what: &str) -> Result<Vec<f
         }
     }
     Ok(coefficients)
+}
+
+/// The effect of `effects` that `term` names, its factors in any order.
+pub(crate) fn find_effect<'e>(
+    d: &Data,
+    effects: &'e [Effect],
+    term: &Term,
+) -> Result<Option<&'e Effect>, Error> {
+    let wanted = effects_of(std::slice::from_ref(term), &d.factors, &d.covariates)?;
+    let target = &wanted[0];
+    let mut b = target.factors.clone();
+    b.sort_unstable();
+    Ok(effects.iter().find(|e| {
+        let mut a = e.factors.clone();
+        a.sort_unstable();
+        a == b && e.covariates == target.covariates
+    }))
 }
 
 /// The caption note on the values the covariates are held at.

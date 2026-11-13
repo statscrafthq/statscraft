@@ -594,3 +594,118 @@ PLUM grade WITH x /SAVE=PREDCAT.",
     let error = run_error("DATA LIST FREE /y x.\nBEGIN DATA.\n1 1 1 2\nEND DATA.\nPLUM y WITH x.");
     assert!(error.contains("at least two values"), "{error}");
 }
+
+/// TEST: Wald tests of combinations of the thresholds and location parameters, each row alone
+/// and the rows jointly. The expected values come from R: polr's estimates on the same cases,
+/// their covariance from a numerical Hessian of the log-likelihood, and the tests computed
+/// separately from the formula of the documentation.
+#[test]
+fn test_gives_wald_tests_of_combinations() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        &format!(
+            "{DATA}PLUM delay BY region plan WITH dist /PRINT=PARAMETER\n\
+             /TEST(0 0)='thresholds' INTERCEPT 1 -1 0; INTERCEPT 0 1 -1\n\
+             /TEST(0.5)=region 1 -1 0\n\
+             /TEST(0.05 2)=ALL 0 0 0 1 0 0 0 0 0; ALL 0 0 0 0 1 0 0 1 0\n\
+             /TEST=region 0 0 1."
+        ),
+    );
+    let nth = |title: &str, n: usize, row: &str, column: &str| {
+        let found: Vec<&Table> = tables.iter().filter(|t| t.title == title).collect();
+        number(cell(std::slice::from_ref(found[n]), title, row, column))
+    };
+    let ce = "Contrast Estimates";
+    for (n, row, est, se, wald, p) in [
+        (
+            0,
+            "L1",
+            -1.52828964783,
+            0.254894268696,
+            35.9493631994,
+            2.02512549463e-09,
+        ),
+        (
+            0,
+            "L2",
+            -0.929978109818,
+            0.234371994536,
+            15.7446865968,
+            7.24912621421e-05,
+        ),
+        (
+            1,
+            "L1",
+            -0.547723236436,
+            0.456647821697,
+            5.26417563814,
+            0.0217687302977,
+        ),
+        (
+            2,
+            "L1",
+            0.0531691518583,
+            0.0194178808626,
+            0.0266368236705,
+            0.870354734132,
+        ),
+        (
+            2,
+            "L2",
+            1.87309556111,
+            0.614435064255,
+            0.0426581132423,
+            0.836370367576,
+        ),
+    ] {
+        let what = format!("test {n} {row}");
+        assert_close(nth(ce, n, row, "Estimate"), est, 2e-6, &what);
+        assert_close(nth(ce, n, row, "Std. Error"), se, 1e-4, &what);
+        assert_close(nth(ce, n, row, "Wald"), wald, 1e-4, &what);
+        assert_close(nth(ce, n, row, "Sig."), p, 1e-4, &what);
+    }
+    assert_close(
+        nth(ce, 0, "L1", "95% Confidence Interval / Lower Bound"),
+        -2.02787323434,
+        1e-4,
+        "lower bound",
+    );
+    let tr = "Test Results";
+    assert_close(
+        nth(tr, 0, "thresholds", "Wald"),
+        56.0847879529,
+        1e-4,
+        "joint",
+    );
+    assert_eq!(nth(tr, 0, "thresholds", "df"), 2.0);
+    assert_close(
+        nth(tr, 0, "thresholds", "Sig."),
+        6.62739776025e-13,
+        1e-4,
+        "joint p",
+    );
+    assert_close(
+        nth(tr, 2, "Custom Hypothesis Test 3", "Wald"),
+        0.0951365517442,
+        1e-4,
+        "joint",
+    );
+    assert_eq!(tables.iter().filter(|t| t.title == tr).count(), 3);
+    assert!(
+        engine
+            .warnings()
+            .iter()
+            .any(|w| w.contains("Custom Hypothesis Test 4: L1 has no coefficient"))
+    );
+    assert!(
+        run_error(&format!("{DATA}PLUM delay BY region /TEST=region 1 -1."))
+            .contains("3 parameters")
+    );
+    assert!(
+        run_error(&format!(
+            "{DATA}PLUM delay BY region WITH dist /LOCATION=region /TEST=dist 1."
+        ))
+        .contains("not a LOCATION or SCALE effect")
+    );
+}

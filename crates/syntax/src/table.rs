@@ -1509,7 +1509,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/CRITERIA=[CIN(95)] [DELTA(0)] [BIAS(0)] [MXITER(100)] [MXSTEP(5)] [LCONVERGE(0)]\n\
                  \x20             [PCONVERGE(1E-6)] [SINGULAR(1E-8)]] [/MISSING=EXCLUDE | INCLUDE]\n\
                  \x20  [/PRINT=[FIT] [SUMMARY] [PARAMETER] [TPARALLEL] [CELLINFO] [COVB] [CORB] [HISTORY[(n)]] [KERNEL]]\n\
-                 \x20  [/SAVE=[ESTPROB[(root[:n])]] [PREDCAT[(name)]] [PCPROB[(name)]] [ACPROB[(name)]]].\n\
+                 \x20  [/SAVE=[ESTPROB[(root[:n])]] [PREDCAT[(name)]] [PCPROB[(name)]] [ACPROB[(name)]]]\n\
+                 \x20  [/TEST[(constants)]=['label'] effect values ...; ... | ALL values ...] ...\n\
                  The values of the dependent, sorted ascending (numbers or strings), are the ordered\n\
                  categories. Factors may be strings; covariates are numeric. A case missing on any variable is left out (INCLUDE\n\
                  keeps user-missing values); the weight is rounded to a whole number and a case below 1 after\n\
@@ -1535,7 +1536,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  SAVE adds EST1_m, EST2_m, ... (the first n categories, 25 by default), PRE_m, PCP_m and ACP_m with\n\
                  the smallest free m, or root1, root2, ... and the names given: the probability of each category, the\n\
                  most likely category, its probability and the probability of the observed category, for every case\n\
-                 with valid factors and covariates. Not supported yet: TEST.",
+                 with valid factors and covariates. TEST gives Wald tests of combinations of the parameters, in the\n\
+                 order of the Parameter Estimates (thresholds, location, scale, redundant ones included): INTERCEPT\n\
+                 takes one value per threshold, ALL one per parameter. Each row is tested against its constant (0\n\
+                 by default) on 1 df and the rows together on the rank of their covariance; a coefficient on a\n\
+                 redundant parameter multiplies its 0.",
         example: "PLUM comfort BY seat_row WITH trip_hours /LINK=PROBIT /PRINT=FIT PARAMETER SUMMARY TPARALLEL /SAVE=ESTPROB PREDCAT.",
         parse: plum::plum,
     },

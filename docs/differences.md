@@ -492,6 +492,7 @@ Where the documentation is silent:
 - The test of parallel lines is a likelihood ratio test, as the Algorithms manual describes, on (J - 2) times the number of location parameters. It is left out with SCALE, with a warning.
 - The Missing row of the Case Processing Summary counts the weighted cases with a positive rounded weight and a missing value.
 - SAVE writes predictions for every case with valid factors and covariates, also one outside the fit through its weight or a missing dependent; ACPROB needs the dependent. ESTPROB(root) names the variables root1, root2 and so on. PREDCAT of a string dependent is a string.
+- TEST: the manual asks both for one value after INTERCEPT and for one per threshold; INTERCEPT here takes one per threshold, since the thresholds are the intercepts. An effect in both LOCATION and SCALE cannot be named on TEST (an error says to use ALL). A coefficient on a redundant parameter multiplies its fixed 0; there is no estimability check. A row with no coefficient on an estimated parameter is left out with a warning. The tables are Contrast Estimates (each row's estimate, test value, standard error, Wald chi-square on 1 df, significance and interval) and Test Results (the joint Wald chi-square). The numbers were checked against R: polr's estimates with the covariance from a numerical Hessian of the log-likelihood (polr's own Hessian is on its internal threshold scale).
 
 ### UNIANOVA and GLM
 
@@ -847,7 +848,6 @@ Where the documentation is silent:
   - RELIABILITY has no MODEL=OMEGA or MATRIX.
   - LOGISTIC REGRESSION has no SELECT or OUTFILE.
   - NOMREG has no stepwise methods, TEST, OUTFILE, or PRINT CELLPROB, HISTORY and ASSOCIATION.
-  - PLUM has no TEST.
   - CSPLAN has no SAMPLE designs; CSDESCRIPTIVES and CSTABULATE have no JOINTPROB and no UNEQUAL_WOR estimator.
   - UNIANOVA and GLM have no multivariate model (GLM with several dependents without WSFACTOR), RANDOM, TEST, ROBUST, OUTFILE, MMATRIX, MEASURE, POSTHOC VS, CONTRAST SPECIAL or the heteroskedasticity tests. With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX, SAVE or PLOT.
   - MIXED has no TEST coefficients for random effects, SSTYPE(1), DFMETHOD(KENWARDROGER), SOLUTION on RANDOM, PRINT CPS, DESCRIPTIVES, HISTORY or LMATRIX, SAVE SEPRED or DFPRED, and no COVTYPE other than VC, ID, DIAG, UN, CS and AR1 (no KRONECKER or SPCOORDS).

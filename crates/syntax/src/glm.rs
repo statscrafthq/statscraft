@@ -93,6 +93,16 @@ pub struct LMatrix {
     pub rows: Vec<LRow>,
 }
 
+/// One TEST subcommand of MIXED, PLUM or NOMREG: rows of coefficients, DIVISOR already
+/// applied, and the value each row is tested against.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CustomTest {
+    pub label: Option<String>,
+    pub rows: Vec<LRow>,
+    pub constants: Vec<f64>,
+}
+
+/// A convergence criterion: the value (0 turns it off) and whether it is relative.
 /// The temporary variables of SAVE.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GlmTemp {
@@ -649,6 +659,110 @@ fn lmatrix(p: &mut Parser) -> PResult<LMatrix> {
         return Err(p.unexpected(&["an effect name", "ALL"]));
     }
     Ok(LMatrix { label, rows })
+}
+
+/// TEST after its name: `[(constants)] = ['label'] row; row ...`. `mixed` allows DIVISOR and
+/// says that random-effect coefficients after `|` are not supported yet.
+pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
+    let mut constants = Vec::new();
+    if p.eat(Punct::LParen) {
+        while !p.at(Punct::RParen) {
+            match fraction(p)? {
+                Some(v) => constants.push(v),
+                None => return Err(p.unexpected(&["a number", "')'"])),
+            }
+            p.eat(Punct::Comma);
+        }
+        p.expect(Punct::RParen)?;
+    }
+    p.eat(Punct::Eq);
+    let label = match p.peek() {
+        Some(TokenKind::Str(_)) => Some(p.string("a label")?),
+        _ => None,
+    };
+    let mut rows = Vec::new();
+    let mut row: LRow = Vec::new();
+    fn close(row: &mut LRow, rows: &mut Vec<LRow>) {
+        if !row.is_empty() {
+            rows.push(std::mem::take(row));
+        }
+    }
+    while !matrix_end(p) {
+        if p.eat(Punct::Semicolon) {
+            close(&mut row, &mut rows);
+            continue;
+        }
+        if mixed && p.at(Punct::Or) {
+            return Err(SyntaxError::new(
+                p.span(),
+                "TEST coefficients for random effects are not supported yet",
+            ));
+        }
+        if mixed
+            && p.at_keyword("DIVISOR")
+            && matches!(p.peek_at(1), Some(TokenKind::Punct(Punct::Eq)))
+        {
+            p.pos += 2;
+            let start = p.pos;
+            let Some(d) = fraction(p)?.filter(|d| *d != 0.0) else {
+                return Err(SyntaxError::new(
+                    p.span_from(start),
+                    "DIVISOR needs a nonzero number",
+                ));
+            };
+            if row.is_empty() {
+                return Err(p.unexpected(&["an effect name", "ALL"]));
+            }
+            for (_, values) in &mut row {
+                values.iter_mut().for_each(|v| *v /= d);
+            }
+            close(&mut row, &mut rows);
+            if !matrix_end(p) && !p.eat(Punct::Semicolon) {
+                return Err(p.unexpected(&["';'", "'/'"]));
+            }
+            continue;
+        }
+        let effect = if p.eat_word("ALL") {
+            None
+        } else if p.eat_keyword("INTERCEPT") {
+            Some(Term {
+                variables: Vec::new(),
+                label: "Intercept".into(),
+            })
+        } else {
+            Some(term(p)?)
+        };
+        let mut values = Vec::new();
+        while let Some(v) = fraction(p)? {
+            values.push(v);
+            p.eat(Punct::Comma);
+        }
+        if values.is_empty() {
+            return Err(p.unexpected(&["a coefficient"]));
+        }
+        row.push((effect, values));
+    }
+    close(&mut row, &mut rows);
+    if rows.is_empty() {
+        return Err(p.unexpected(&["an effect name", "ALL"]));
+    }
+    if constants.is_empty() {
+        constants = vec![0.0; rows.len()];
+    } else if constants.len() != rows.len() {
+        return Err(SyntaxError::new(
+            p.span(),
+            format!(
+                "TEST gives {} constants for {} rows of coefficients",
+                constants.len(),
+                rows.len()
+            ),
+        ));
+    }
+    Ok(CustomTest {
+        label,
+        rows,
+        constants,
+    })
 }
 
 fn kmatrix(p: &mut Parser) -> PResult<Vec<f64>> {

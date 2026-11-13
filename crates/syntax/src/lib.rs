@@ -139,8 +139,8 @@ pub use factor::{
     FactorPrint, FactorSave, MatrixKind, QuickCluster, Rotation, ScoreMethod,
 };
 pub use glm::{
-    Adjustment, Contrast, Emmeans, ErrorBar, Glm, GlmPlot, GlmPrint, GlmTemp, LMatrix, LRow,
-    Profile, RefCat, Term, WsFactor,
+    Adjustment, Contrast, CustomTest, Emmeans, ErrorBar, Glm, GlmPlot, GlmPrint, GlmTemp, LMatrix,
+    LRow, Profile, RefCat, Term, WsFactor,
 };
 pub use graph::{
     Graph, GraphChart, GraphData, GraphFunction, GraphInterval, GraphPanel, GraphSummary,
@@ -158,9 +158,7 @@ pub use matrix::{
     matrix_function, matrix_function_names,
 };
 pub use matrix_data::{MatrixData, MatrixShape, RowType};
-pub use mixed::{
-    Convergence, CovType, Mixed, MixedPrint, MixedTemp, MixedTest, RandomEffects, Repeated,
-};
+pub use mixed::{Convergence, CovType, Mixed, MixedPrint, MixedTemp, RandomEffects, Repeated};
 pub use mrsets::{Mrsets, MrsetsGroup};
 pub use nomreg::{
     Nomreg, NomregBase, NomregCriteria, NomregOrder, NomregPrint, NomregSave, NomregScale,

@@ -414,6 +414,15 @@ fn plum_location_and_scale() {
         Some(Vec::new())
     );
     assert_eq!(plum("PLUM score BY shift /SCALE.").scale, None);
+    // TEST accumulates; INTERCEPT names the thresholds
+    let p = plum(
+        "PLUM score BY shift WITH hours /TEST(0 1)='steps' INTERCEPT 1 -1 0; hours 1          /TEST=ALL 0 0 0 1 1 -1.",
+    );
+    assert_eq!(p.tests.len(), 2);
+    assert_eq!(p.tests[0].label.as_deref(), Some("steps"));
+    assert_eq!(p.tests[0].constants, [0.0, 1.0]);
+    assert_eq!(p.tests[0].rows[0][0].0.as_ref().unwrap().label, "Intercept");
+    assert!(p.tests[1].rows[0][0].0.is_none());
 }
 
 #[test]
@@ -445,8 +454,8 @@ fn plum_errors() {
             "each SAVE keyword is given only once",
         ),
         (
-            "PLUM score BY a /TEST=a 1 -1.",
-            "subcommand TEST of PLUM is not supported yet",
+            "PLUM score BY a /TEST(1 2)=a 1 -1.",
+            "TEST gives 2 constants for 1 rows of coefficients",
         ),
     ] {
         assert_eq!(err(source).message, message, "{source}");

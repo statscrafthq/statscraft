@@ -57,7 +57,7 @@ use crate::regression::{plain, table};
 use crate::shown::{Show, Shown};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Measure, Values, Variable};
-use statscraft_syntax::{CovType, Emmeans, Mixed, MixedTemp, MixedTest, RefCat, Term, Value};
+use statscraft_syntax::{CovType, CustomTest, Emmeans, Mixed, MixedTemp, RefCat, Term, Value};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
@@ -1007,7 +1007,7 @@ impl FixedPart<'_> {
     fn custom_test(
         &self,
         n: usize,
-        t: &MixedTest,
+        t: &CustomTest,
         warnings: &mut Vec<String>,
     ) -> Result<Vec<Table>, Error> {
         let title = t
