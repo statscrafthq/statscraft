@@ -42,7 +42,8 @@
 //!   needs cannot leave. MAXEFFECT caps entry (FORWARD, FSTEP) and MINEFFECT removal (BACKWARD,
 //!   BSTEP), counting effects without the intercept. Entry p values that underflow to 0 are
 //!   ranked by the leading term of log p; a test without a number (NaN) never enters and
-//!   leaves as if p were 1, with a warning. SCALE does not change the stepwise tests.
+//!   leaves as if p were 1, with a warning; a model whose own fit has no likelihood loses
+//!   nothing. SCALE does not change the stepwise tests.
 
 use crate::crosstabs::{Key, categories};
 use crate::descriptives::{case_weights, number};
@@ -514,6 +515,11 @@ fn select(
     // the best removal: (effect, chi, df, p) with the largest p, the first on a tie
     let removal = |set: &[bool], fit: &Fit, fit_of: &mut dyn FnMut(&[bool]) -> Fit| {
         let mut best: Option<(usize, f64, f64, f64)> = None;
+        // a model without a likelihood cannot be judged: nothing leaves it
+        if !fit.ll.is_finite() || fit.b.iter().any(|b| !b.is_finite()) {
+            no_number.set(true);
+            return None;
+        }
         let cov = if rules.wald_removal {
             ginverse(&fit.info, 1e-10).0
         } else {
@@ -555,13 +561,9 @@ fn select(
                 )
             };
             // a removal test without a number counts as p = 1: nothing shows the effect is needed
-            // (only when the current model has a number: otherwise nothing can be judged)
             let p = p_of(chi, df);
             if p.is_nan() {
                 no_number.set(true);
-                if !fit.ll.is_finite() {
-                    continue;
-                }
             }
             let p = if p.is_nan() { 1.0 } else { p };
             if best.is_none_or(|b| p > b.3) {
@@ -656,7 +658,7 @@ fn select(
     }
     if no_number.get() {
         warnings.push(
-            "NOMREG: a stepwise test had no number (the fit broke down); such an effect does not enter, and it leaves as if its p were 1"
+            "NOMREG: a stepwise test had no number (a fit broke down); such an effect does not enter and leaves as if its p were 1, and a model without a likelihood loses no effect"
                 .into(),
         );
     }

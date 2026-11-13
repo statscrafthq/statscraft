@@ -895,9 +895,9 @@ impl FixedPart<'_> {
         let difference = |a: &[f64], b: &[f64]| -> Option<Vec<f64>> {
             self.reduce(&a.iter().zip(b).map(|(x, y)| x - y).collect::<Vec<f64>>())
         };
-        // a shown difference without a value; an F test on fewer than all differences
+        // a difference that is not estimable; then some shown one is too, since
+        // d(i, j) = d(i, r) - d(j, r)
         let mut missing = false;
-        let mut partial = false;
         let mut columns: Vec<(String, String)> = others
             .iter()
             .map(|&i| (String::new(), d.factor_texts[factors[i]].clone()))
@@ -965,7 +965,7 @@ impl FixedPart<'_> {
             let mut basis: Matrix = Vec::new();
             for (i, j) in pairs {
                 let Some(row) = difference(mean_at(other, i), mean_at(other, j)) else {
-                    partial = true;
+                    missing = true;
                     continue;
                 };
                 // Gram-Schmidt: keep the row when it adds a new direction
@@ -1029,7 +1029,7 @@ impl FixedPart<'_> {
             tests,
             Some(format!(
                 "Dependent Variable: {dependent}. The F tests the effect of {name}, based on the linearly independent pairwise comparisons among the estimated marginal means.{}",
-                if partial {
+                if missing {
                     " Comparisons that are not estimable are left out."
                 } else {
                     ""

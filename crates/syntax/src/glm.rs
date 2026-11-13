@@ -511,15 +511,14 @@ pub(crate) fn push_emmeans(list: &mut Vec<Emmeans>, e: Emmeans) {
     let key = |e: &Emmeans| {
         let up = |s: &String| s.to_ascii_uppercase();
         // the engine takes the first value given for a covariate; their order does not matter
-        let mut with: Vec<(String, u64)> = Vec::new();
-        for (n, v) in &e.with {
-            if let Some(v) = v
-                && !with.iter().any(|(m, _)| *m == up(n))
-            {
-                with.push((up(n), (v + 0.0).to_bits()));
-            }
-        }
-        with.sort();
+        let mut with: Vec<(String, u64)> = e
+            .with
+            .iter()
+            .filter_map(|(n, v)| v.map(|v| (up(n), (v + 0.0).to_bits())))
+            .collect();
+        // a stable sort keeps the first value of each name ahead of the others
+        with.sort_by(|a, b| a.0.cmp(&b.0));
+        with.dedup_by(|a, b| a.0 == b.0);
         let compare = e.compare.as_ref().map(|c| {
             (
                 c.as_ref().or(e.factors.first()).map(up),

@@ -4564,4 +4564,6 @@ MIXED y BY a b plot /FIXED=a b a*b /RANDOM=plot /EMMEANS=TABLES(a*b) COMPARE(a).
     let ut = "Univariate Tests";
     assert_eq!(nth(&t, ut, 0, "b = 1", "Numerator df"), 1.0);
     assert_eq!(nth(&t, ut, 0, "b = 2", "Numerator df"), 2.0);
+    let univariate = t.iter().find(|x| x.title == ut).unwrap();
+    assert!(univariate.caption.as_deref().unwrap().contains("left out"));
 }
