@@ -102,7 +102,6 @@ pub struct CustomTest {
     pub constants: Vec<f64>,
 }
 
-/// A convergence criterion: the value (0 turns it off) and whether it is relative.
 /// The temporary variables of SAVE.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GlmTemp {
@@ -574,7 +573,11 @@ pub(crate) fn emmeans(p: &mut Parser, refcat: bool) -> PResult<Emmeans> {
             };
             p.expect(Punct::RParen)?;
         } else {
-            return Err(p.unexpected(&["WITH", "COMPARE", "ADJ"]));
+            return Err(if refcat {
+                p.unexpected(&["WITH", "COMPARE", "REFCAT (after COMPARE)", "ADJ"])
+            } else {
+                p.unexpected(&["WITH", "COMPARE", "ADJ"])
+            });
         }
     }
     Ok(e)

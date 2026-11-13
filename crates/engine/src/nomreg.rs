@@ -39,8 +39,9 @@
 //!   effect in only with every effect of the list made of a part of its variables, SFACTOR
 //!   applies that to effects of factors alone, CONTAINMENT only with every effect it contains
 //!   (the same covariates, fewer factors), NONE without conditions; an effect that another
-//!   needs cannot leave. MAXEFFECT caps entry and MINEFFECT removal, counting effects without
-//!   the intercept. SCALE does not change the stepwise tests.
+//!   needs cannot leave. MAXEFFECT caps entry (FORWARD, FSTEP) and MINEFFECT removal (BACKWARD,
+//!   BSTEP), counting effects without the intercept. Entry p values that underflow to 0 are
+//!   ranked by chi-square per df. SCALE does not change the stepwise tests.
 
 use crate::crosstabs::{Key, categories};
 use crate::descriptives::{case_weights, number};
@@ -448,8 +449,9 @@ fn select(
         }
     };
     // the best entry: (effect, chi, df, p) with the smallest p, the first on a tie
+    let capped = matches!(method, StepMethod::Forward | StepMethod::Fstep);
     let entry = |set: &[bool], fit: &Fit, fit_of: &mut dyn FnMut(&[bool]) -> Fit| {
-        if count(set) >= max_effects {
+        if capped && count(set) >= max_effects {
             return None;
         }
         let mut best: Option<(usize, f64, f64, f64)> = None;
@@ -482,7 +484,11 @@ fn select(
                 )
             };
             let p = p_of(chi, df);
-            if best.is_none_or(|b| p < b.3) {
+            // p can underflow to 0 for several effects: then the larger chi-square per df wins
+            let better = best.is_none_or(|b| {
+                p < b.3 || (p == 0.0 && b.3 == 0.0 && df > 0.0 && chi / df > b.1 / b.2)
+            });
+            if better {
                 best = Some((e, chi, df, p));
             }
         }
@@ -491,6 +497,11 @@ fn select(
     // the best removal: (effect, chi, df, p) with the largest p, the first on a tie
     let removal = |set: &[bool], fit: &Fit, fit_of: &mut dyn FnMut(&[bool]) -> Fit| {
         let mut best: Option<(usize, f64, f64, f64)> = None;
+        let cov = if rules.wald_removal {
+            ginverse(&fit.info, 1e-10).0
+        } else {
+            Vec::new()
+        };
         for e in first..effects.len() {
             let needed = (0..effects.len()).any(|f| set[f] && needs[f].contains(&e));
             if !set[e] || needed {
@@ -507,7 +518,6 @@ fn select(
                             .map(move |(s, _)| l * q + s)
                     })
                     .collect();
-                let (cov, _) = ginverse(&fit.info, 1e-10);
                 let sub: Matrix = at
                     .iter()
                     .map(|&i| at.iter().map(|&j| cov[i][j]).collect())
@@ -1037,11 +1047,6 @@ impl Engine {
                 at += 1;
                 chosen.chosen[at - 1]
             });
-            if effects.is_empty() {
-                return Err(Error(
-                    "NOMREG: the stepwise method left no effects and no intercept".into(),
-                ));
-            }
             p = place_effects(&mut effects, &subpop_levels);
             model.x = members
                 .iter()

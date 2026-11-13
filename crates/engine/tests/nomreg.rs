@@ -617,6 +617,13 @@ fn nomreg_stepwise_rules_and_errors() {
         entered(&mut engine, "SINGLE"),
         ["km", "shift", "km * shift"]
     );
+    // without intercept and with nothing entering, the result is the null model
+    let t = run(
+        &mut engine,
+        "NOMREG mode BY shift /INTERCEPT=EXCLUDE /MODEL=| FORWARD=shift /STEPWISE=PIN(0.000001)\n\
+         /PRINT=STEP MFI.",
+    );
+    assert_eq!(steps(&t), [("Entered".to_string(), "(none)".to_string())]);
     assert!(
         run_error(&format!(
             "{DATA}NOMREG mode BY district /MODEL=district | FORWARD=district."

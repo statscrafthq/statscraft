@@ -1509,8 +1509,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  qualifies or a model would repeat. RULE(SINGLE) holds an effect back until the listed effects made\n\
                  of a part of its variables are in, SFACTOR does that only for effects of factors alone,\n\
                  CONTAINMENT waits for the effects it contains (same covariates, fewer factors), NONE never\n\
-                 waits; an effect that another one in the model needs is not dropped. MAXEFFECT limits adding,\n\
-                 MINEFFECT dropping, counting effects without the intercept. The Step Summary (STEP, shown by\n\
+                 waits; an effect that another one in the model needs is not dropped. MAXEFFECT limits adding\n\
+                 under FORWARD and FSTEP, MINEFFECT dropping under BACKWARD and BSTEP, counting effects without\n\
+                 the intercept. The Step Summary (STEP, shown by\n\
                  default) lists each step with the -2 log likelihood after it and the test that decided it; the\n\
                  other tables describe the final model. Not supported yet: TEST, OUTFILE and PRINT CELLPROB,\n\
                  HISTORY and ASSOCIATION.",

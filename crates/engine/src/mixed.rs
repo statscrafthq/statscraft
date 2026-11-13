@@ -659,8 +659,11 @@ impl Infer<'_> {
 
     /// l b with its standard error and degrees of freedom.
     fn estimate(&self, l: &[f64]) -> (f64, f64, f64) {
-        let (var, _) = self.model.variance_and_gradient(self.e, l);
-        (dot(l, &self.e.beta), var.sqrt(), self.df(l))
+        let (var, grad) = self.model.variance_and_gradient(self.e, l);
+        let df = self
+            .residual_df
+            .unwrap_or_else(|| satterthwaite(var, &grad, self.sigma));
+        (dot(l, &self.e.beta), var.sqrt(), df)
     }
 
     /// The F test of L b = a: the rank q of L C L', the denominator df and F; None when q is 0.
@@ -947,13 +950,13 @@ impl FixedPart<'_> {
                 }
                 rows.push(row);
             }
-            // the simple effect of the compared factor at these levels of the others
-            let l: Matrix = (0..k - 1)
-                .filter_map(|i| match (mean_at(other, i), mean_at(other, k - 1)) {
-                    (Some(li), Some(lk)) => Some(difference(li, lk)),
-                    _ => None,
-                })
-                .collect();
+            // the simple effect of the compared factor at these levels of the others: each
+            // estimable mean against the last estimable one
+            let means: Vec<&Vec<f64>> = (0..k).filter_map(|i| mean_at(other, i).as_ref()).collect();
+            let l: Matrix = means
+                .split_last()
+                .map(|(last, rest)| rest.iter().map(|li| difference(li, last)).collect())
+                .unwrap_or_default();
             let label: Vec<String> = others
                 .iter()
                 .zip(other)
@@ -1884,7 +1887,12 @@ impl Engine {
             inf,
             d: &d,
             fit: &fixed,
-            h: fixed.h(),
+            // H only serves the estimability checks of TEST and EMMEANS
+            h: if command.tests.is_empty() && command.emmeans.is_empty() {
+                Vec::new()
+            } else {
+                fixed.h()
+            },
             kept: &kept,
             cin: command.cin,
             dependent: &dep_text,
