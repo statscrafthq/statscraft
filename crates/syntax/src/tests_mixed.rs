@@ -230,15 +230,15 @@ fn test_rows_keep_the_form_of_the_first_row() {
         ),
         (
             "MIXED gain BY crop /FIXED=crop /TEST=crop 1 -1; ALL 0 1 -1.",
-            "row 2 has ALL after effect names in row 1",
+            "row 2 has ALL after an effect name in row 1",
         ),
         (
             "MIXED gain BY crop /FIXED=crop /RANDOM=plot /TEST=| 1 0; crop 0 1; | ALL 1 0.",
-            "row 3 has ALL after effect names in row 2",
+            "row 3 has ALL after an effect name in row 2",
         ),
         (
             "MIXED gain BY crop /FIXED=crop /RANDOM=plot /TEST=crop 1 -1 | ALL 1 0.",
-            "row 1 has ALL after effect names earlier in the same row",
+            "row 1 has ALL after an effect name earlier in the same row",
         ),
         (
             "MIXED gain BY crop /FIXED=crop /TEST=crop 1 -1; INTERCEPT 1 ALL 0 1 -1.",
@@ -251,6 +251,20 @@ fn test_rows_keep_the_form_of_the_first_row() {
         (
             "MIXED gain BY crop /FIXED=crop /RANDOM=plot /TEST=ALL 0 1 -1 | plot 1 0.",
             "row 1 has an effect name",
+        ),
+    ] {
+        let message = err(source);
+        assert!(message.contains(says), "{source}: {message}");
+    }
+    // INTERCEPT is named as such, whichever comes first
+    for (source, says) in [
+        (
+            "MIXED gain BY crop /FIXED=crop /RANDOM=INTERCEPT plot /TEST=ALL 0 1 -1 | INTERCEPT 1.",
+            "row 1 has INTERCEPT after ALL earlier in the same row",
+        ),
+        (
+            "MIXED gain BY crop /FIXED=crop /TEST=INTERCEPT 1; ALL 0 1 -1.",
+            "row 2 has ALL after INTERCEPT in row 1",
         ),
     ] {
         let message = err(source);

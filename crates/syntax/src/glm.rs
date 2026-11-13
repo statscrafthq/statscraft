@@ -721,8 +721,8 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
     let mut random = Vec::new();
     // the fixed and the random part of the row being read, and whether `|` came
     let mut row: (LRow, LRow, bool) = (Vec::new(), Vec::new(), false);
-    // whether the TEST uses ALL rather than effect names, and the row that set it
-    let mut form: Option<(bool, usize)> = None;
+    // whether the TEST uses ALL rather than effect names, the row that set it and the word
+    let mut form: Option<(bool, usize, &str)> = None;
     fn close(row: &mut (LRow, LRow, bool), rows: &mut Vec<LRow>, random: &mut Vec<LRow>) {
         let (fixed, rand, _) = std::mem::take(row);
         if !fixed.is_empty() || !rand.is_empty() {
@@ -778,6 +778,7 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
         }
         let start = p.pos;
         let all_word = p.eat_word("ALL");
+        let intercept = !all_word && p.at_keyword("INTERCEPT");
         let effect = if all_word {
             None
         } else if row.2 && !matches!(p.peek(), Some(TokenKind::Word(_))) {
@@ -795,13 +796,13 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
         // given no other way
         if all_word || effect.is_some() {
             let n = rows.len() + 1;
-            let (all, r) = *form.get_or_insert((all_word, n));
+            let found = match () {
+                _ if all_word => "ALL",
+                _ if intercept => "INTERCEPT",
+                _ => "an effect name",
+            };
+            let (all, r, set) = *form.get_or_insert((all_word, n, found));
             if all_word != all {
-                let (found, set) = match &effect {
-                    None => ("ALL", "effect names"),
-                    Some(t) if t.variables.is_empty() => ("INTERCEPT", "ALL"),
-                    Some(_) => ("an effect name", "ALL"),
-                };
                 let place = if r == n {
                     "earlier in the same row".to_string()
                 } else {
