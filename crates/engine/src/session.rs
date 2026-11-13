@@ -8,7 +8,7 @@ use statscraft_data::Dataset;
 use statscraft_syntax::{Command, RawCommand, SyntaxError};
 use std::collections::VecDeque;
 use std::fmt::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, mpsc};
 
 /// One error, at a line and column of the syntax when known. `kind` is "syntax", "run",
@@ -309,7 +309,8 @@ pub struct SessionState {
     pub settings: std::collections::BTreeMap<String, String>,
     /// How many PRESERVE levels wait for a RESTORE.
     pub preserved: usize,
-    /// The folder of the last CD.
+    /// Where relative file names start: the folder of the last CD, else the window caller's
+    /// folder; None for the folder the program runs in.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub directory: Option<String>,
     /// The name of the active dataset; None when it has none, or when there is no data.
@@ -383,6 +384,30 @@ impl Session {
     /// current folder.
     pub fn set_base_dir(&mut self, dir: Option<std::path::PathBuf>) {
         self.engine.base_dir = dir;
+    }
+
+    /// The folder of the window's caller of a run: relative file names start from it while no
+    /// CD is in force, and it stays for later runs until another caller gives its own; undo
+    /// keeps it. The process's folder is never changed, so windows in one process do not
+    /// disturb each other. A relative folder is refused: it would mean the process's folder.
+    pub fn set_work_dir(&mut self, dir: PathBuf) -> Result<(), Vec<Failure>> {
+        absolute(&dir)?;
+        self.engine.work_dir = Some(dir);
+        Ok(())
+    }
+
+    /// `check` with relative file names from the caller's folder `dir`, which the session does
+    /// not keep. A relative `dir` is refused, as by `set_work_dir`.
+    pub fn check_in(
+        &mut self,
+        dir: &Path,
+        source: &str,
+        lines: Option<(u32, u32)>,
+    ) -> Result<RunResult, Vec<Failure>> {
+        absolute(dir)?;
+        let mut job = self.job(source, lines, true);
+        job.engine.work_dir = Some(dir.to_path_buf());
+        self.apply(job.execute())
     }
 
     /// The named datasets other than the active one, and the active one's name.
@@ -641,10 +666,13 @@ impl Session {
         let Some((engine, entry)) = self.previous.take() else {
             return false;
         };
-        // the output stays: the window keeps showing it, and undo is about the data
+        // the output and the caller's folder stay: the window keeps showing the output, and
+        // undo is about the data
         let documents = std::mem::take(&mut self.engine.documents);
+        let work_dir = self.engine.work_dir.take();
         self.engine = engine;
         self.engine.documents = documents;
+        self.engine.work_dir = work_dir;
         self.log[entry].undone = true;
         true
     }
@@ -679,6 +707,18 @@ impl Job {
     }
 }
 
+/// Refuses a relative caller's folder: it would mean the process's folder.
+pub(crate) fn absolute(dir: &Path) -> Result<(), Vec<Failure>> {
+    if dir.is_absolute() {
+        return Ok(());
+    }
+    let message = format!(
+        "the caller's folder {} is not an absolute path",
+        dir.display()
+    );
+    Err(vec![Failure::plain("usage", message)])
+}
+
 /// A run waiting in a `RunQueue`.
 pub struct Queued<T> {
     pub source: String,
@@ -686,6 +726,10 @@ pub struct Queued<T> {
     pub check: bool,
     /// The folder of the syntax file the run came from (see `Session::set_base_dir`).
     pub base_dir: Option<PathBuf>,
+    /// The caller's folder, absolute (the caller checks it): a run keeps it for the runs after
+    /// it, as `Session::set_work_dir`; a check uses it alone, as `Session::check_in`. None: the
+    /// session's.
+    pub work_dir: Option<PathBuf>,
     /// What the caller wants back with the result, such as the window that asked.
     pub tag: T,
 }
@@ -777,7 +821,15 @@ impl<T> RunQueue<T> {
             return;
         };
         session.set_base_dir(run.base_dir);
-        let job = session.job(&run.source, run.lines, run.check);
+        // a run keeps its caller's folder, as `set_work_dir`; a check uses it alone
+        if let Some(dir) = run.work_dir.clone().filter(|_| !run.check) {
+            debug_assert!(dir.is_absolute(), "the caller checks the folder");
+            session.engine.work_dir = Some(dir);
+        }
+        let mut job = session.job(&run.source, run.lines, run.check);
+        if run.check && run.work_dir.is_some() {
+            job.engine.work_dir = run.work_dir;
+        }
         let label = job.label();
         let (sender, done) = mpsc::channel();
         let wake = Arc::clone(&self.wake);
@@ -803,7 +855,8 @@ fn run(
     let mut macros = start.clone();
     let all = statscraft_syntax::split_commands_with(
         source,
-        engine.base_dir.as_deref(),
+        // INSERT and INCLUDE read their files here, from where the run's commands would look
+        Some(&engine.syntax_folder()),
         &mut macros,
         lines,
     )
@@ -1368,6 +1421,7 @@ mod tests {
             lines: None,
             check: false,
             base_dir: None,
+            work_dir: None,
             tag,
         }
     }

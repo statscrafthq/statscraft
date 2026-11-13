@@ -338,6 +338,9 @@ pub struct Engine {
     vectors: std::collections::HashMap<String, Vec<String>>,
     /// The folder of the syntax file: INSERT and CD start from it. None: the current folder.
     pub base_dir: Option<std::path::PathBuf>,
+    /// The folder of the window's caller: relative names start from it while no CD is in
+    /// force (see `Session::set_work_dir`). None: the process's folder.
+    pub work_dir: Option<std::path::PathBuf>,
     /// Settings, named datasets and the CD folder (see `session_commands`).
     session: session_commands::State,
     /// What PRINT, WRITE and XSAVE gave in the case-by-case pass, in order.

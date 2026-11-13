@@ -125,14 +125,27 @@ pub(crate) fn missing_text(missing: &MissingValues) -> String {
 }
 
 impl Engine {
-    /// A file name as the commands use it: relative names start from the folder of the last CD.
-    /// A file handle in it stands for its path.
+    /// A file name as the commands use it, a relative one resolved by `relative_base`. A file
+    /// handle in it stands for its path.
     pub(crate) fn path(&self, file: &str) -> PathBuf {
         let (file, _) = self.session.macros.resolve_file(file);
-        match &self.session.cwd {
+        match self.relative_base(false) {
             Some(dir) if Path::new(&file).is_relative() => dir.join(file),
             _ => PathBuf::from(file),
         }
+    }
+
+    /// Where every relative name starts, the first found: the folder of the last CD; for a
+    /// syntax file (INSERT, INCLUDE, CD) the folder of the syntax file that runs, which syntax
+    /// sent by a caller does not have; the folder of the window's caller; else None, the
+    /// process's folder.
+    pub(crate) fn relative_base(&self, syntax: bool) -> Option<&Path> {
+        let file = self.base_dir.as_deref().filter(|_| syntax);
+        self.session
+            .cwd
+            .as_deref()
+            .or(file)
+            .or(self.work_dir.as_deref())
     }
 
     /// The encoding FILE HANDLE gave the handle that `file` uses, if any.
@@ -140,13 +153,10 @@ impl Engine {
         self.session.macros.resolve_file(file).1.map(str::to_string)
     }
 
-    /// The folder relative names of syntax files start from.
-    fn syntax_folder(&self) -> PathBuf {
-        self.session
-            .cwd
-            .clone()
-            .or_else(|| self.base_dir.clone())
-            .unwrap_or_else(|| PathBuf::from("."))
+    /// `relative_base` for syntax files, with "." for the process's folder.
+    pub(crate) fn syntax_folder(&self) -> PathBuf {
+        self.relative_base(true)
+            .map_or_else(|| PathBuf::from("."), Path::to_path_buf)
     }
 
     /// The value of a setting: as SET gave it, else its default.
@@ -455,7 +465,8 @@ impl Engine {
         crate::session::SessionState {
             settings: s.settings.clone(),
             preserved: s.preserved.len(),
-            directory: s.cwd.as_ref().map(|d| d.display().to_string()),
+            // where relative file names start: the CD folder, else the caller's
+            directory: self.relative_base(false).map(|d| d.display().to_string()),
             active_dataset: s.active_name.clone(),
             datasets: active.chain(others).map(entry).collect(),
             macros: s.macros.names(),
@@ -524,7 +535,7 @@ impl Engine {
                 }
                 // a relative name starts from the working folder of this moment
                 let (resolved, _) = self.session.macros.resolve_file(path);
-                let path = match &self.session.cwd {
+                let path = match self.relative_base(false) {
                     Some(dir) if Path::new(&resolved).is_relative() => {
                         dir.join(&resolved).display().to_string()
                     }
@@ -897,7 +908,8 @@ impl Engine {
                 _ => return Err(Error(format!("CD: no folder {folder}"))),
             }
         };
-        self.session.cwd = Some(dir);
+        // kept absolute: a later run from another folder still means this one
+        self.session.cwd = Some(std::path::absolute(&dir).unwrap_or(dir));
         Ok(())
     }
 
