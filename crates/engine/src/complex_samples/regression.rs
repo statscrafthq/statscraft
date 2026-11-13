@@ -34,7 +34,7 @@
 //! - Model effects use Type III L matrices (block diagonal over the logits); the corrected
 //!   model tests every parameter but the intercept. A single row gives the same value under
 //!   every test type, on 1 and df (or 1 df). PADJUST adjusts the p values of the single rows
-//!   of CUSTOM and EMMEANS, R being the rows that are not multiples of an earlier one:
+//!   of CUSTOM and EMMEANS, R being the tested rows that are not multiples of an earlier one:
 //!   Bonferroni R p, Sidak 1 - (1 - p)^R, their sequential forms over the sorted p values with
 //!   R - i + 1 and a running maximum; every result at most 1.
 //! - Pseudo R squares from l of the model and l0 of the start (the intercept-only fit, or every
@@ -867,16 +867,21 @@ impl Engine {
                     .iter()
                     .map(|u| u.iter().zip(&design.w).map(|(u, w)| u * w).sum::<f64>() / big_n)
                     .collect();
+                // sum w (d - mean)(d - mean)' = sum w d d' - N mean mean', the sum skipping zeros
                 let mut m = vec![vec![0.0; k]; k];
                 for (i, w) in design.w.iter().enumerate() {
-                    let centred: Vec<f64> = (0..k).map(|a| us[a][i] - means[a]).collect();
                     for a in 0..k {
-                        if centred[a] == 0.0 {
+                        if us[a][i] == 0.0 {
                             continue;
                         }
                         for b in 0..k {
-                            m[a][b] += f * w * centred[a] * centred[b];
+                            m[a][b] += w * us[a][i] * us[b][i];
                         }
+                    }
+                }
+                for a in 0..k {
+                    for b in 0..k {
+                        m[a][b] = f * (m[a][b] - big_n * means[a] * means[b]);
                     }
                 }
                 m
@@ -1762,12 +1767,9 @@ impl Engine {
                             i + 1
                         )));
                     }
+                    // one row per logit (CSLOGISTIC); CSGLM has no logit labels
                     for (l, logit) in logit_labels.iter().enumerate() {
-                        let label = if c.logistic {
-                            format!("{label} ({logit})")
-                        } else {
-                            label.clone()
-                        };
+                        let label = format!("{label} ({logit})");
                         expanded.push((label, est.spread(&l_star, l), k_values[i]));
                     }
                     if !c.logistic {
