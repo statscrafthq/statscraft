@@ -35,7 +35,7 @@ use crate::chart::{Axis, Category, Series, Statistic};
 use crate::descriptives::{case_weights, number};
 use crate::dist::chi_square_p;
 use crate::matrix::transpose;
-use crate::matrix_functions::svd;
+use crate::matrix_functions::thin_svd;
 use crate::matrix_lang::Mat;
 use crate::means::is_valid;
 use crate::plot::{Plot, Point, PointGroup};
@@ -292,7 +292,7 @@ fn solve(s: &Setup) -> Result<Solution, String> {
             column_mass[b] = cb / n;
         }
     }
-    let (mut u, q, mut v) = svd(&z);
+    let (mut u, q, mut v) = thin_svd(&z);
     let lambda: Vec<f64> = (0..k1.min(k2)).map(|t| q.at(t, t)).collect();
     let tolerance = k.0.sqrt() * k.1.sqrt() * 1e-7;
     let rank = lambda.iter().filter(|&&l| l > tolerance).count();
@@ -615,7 +615,9 @@ fn solve(s: &Setup) -> Result<Solution, String> {
         |m: &[f64]| -> Vec<[f64; 2]> { m.iter().map(|m| [1.0 / m.sqrt(), m.powf(-1.5)]).collect() };
     let (row_root, column_root) = (root(&row_mass), root(&column_mass));
     // weighted sums of the gradients and of their products, for the covariances
-    let mut lambda_sums = (vec![0.0; kept], vec![vec![0.0; kept]; kept]);
+    let mut lambda_means = vec![0.0; kept];
+    let mut lambda_squares = vec![0.0; kept];
+    let mut lambda_pairs = (vec![0.0; p], vec![vec![0.0; p]; p]);
     let mut row_sums = vec![(vec![0.0; p], vec![vec![0.0; p]; p]); k1];
     let mut column_sums = vec![(vec![0.0; p], vec![vec![0.0; p]; p]); k2];
     let add = |sums: &mut (Vec<f64>, Vec<Vec<f64>>), g: &[f64], weight: f64| {
@@ -640,17 +642,12 @@ fn solve(s: &Setup) -> Result<Solution, String> {
                 let (u, v, q) = (&us[t], &vs[t], &dims[t]);
                 *g = u[kr] * (own * v[kc] + q.rfi[kr]) + v[kc] * q.cfj[kc] + q.unv;
             }
-            // the products of the singular value gradients: all pairs among the first p
-            // dimensions, squares for the others
+            // squares of every singular value gradient, products only among the first p
             for (t, g) in gl.iter().enumerate() {
-                lambda_sums.0[t] += weight * g;
-                let pairs = if t < p { p } else { t + 1 };
-                for (o, h) in gl.iter().enumerate().take(pairs) {
-                    if o < p || o == t {
-                        lambda_sums.1[t][o] += weight * g * h;
-                    }
-                }
+                lambda_means[t] += weight * g;
+                lambda_squares[t] += weight * g * g;
             }
+            add(&mut lambda_pairs, &gl[..p], weight);
             if !scores {
                 continue;
             }
@@ -705,16 +702,23 @@ fn solve(s: &Setup) -> Result<Solution, String> {
             })
             .collect::<Vec<Vec<f64>>>()
     };
-    let mut singular_cov = covariances(&lambda_sums, &|_| 1.0);
-    for (t, row) in singular_cov.iter_mut().enumerate() {
-        for (o, x) in row.iter_mut().enumerate() {
-            // only the pairs among the first p dimensions were summed
-            let summed = o == t || (o < p && t < p);
-            if tied[t] || tied[o] || !summed {
-                *x = f64::NAN;
-            }
-        }
-    }
+    let pairs = covariances(&lambda_pairs, &|_| 1.0);
+    let singular_cov: Vec<Vec<f64>> = (0..kept)
+        .map(|t| {
+            (0..kept)
+                .map(|o| {
+                    let mean = &lambda_means;
+                    match () {
+                        _ if tied[t] || tied[o] => f64::NAN,
+                        _ if o == t => (lambda_squares[t] - mean[t] * mean[t]) / n,
+                        _ if o < p && t < p => pairs[t][o],
+                        // only the pairs among the first p dimensions were summed
+                        _ => f64::NAN,
+                    }
+                })
+                .collect()
+        })
+        .collect();
     // NaN where the scores were not wanted or their dimension is tied
     let score_cov = |sums: &(Vec<f64>, Vec<Vec<f64>>), power: f64| -> Vec<Vec<f64>> {
         let mut c = covariances(sums, &|t| lambda[t].powf(power));
@@ -896,11 +900,14 @@ fn confidence(title: &str, side: &Side, points: &Points, p: usize) -> Table {
 
 /// Whether the standard deviations of the scores take a reasonable time and memory: the
 /// combined tables hold about 2 (k1 + k2)^2 numbers per dimension and cost the rank times that
-/// to build, and every cell of the table then costs k1 + k2 per dimension.
+/// to build, and every cell of the table then costs k1 + k2 per dimension and per pair of
+/// dimensions.
 fn score_work_fits(k1: usize, k2: usize, rank: usize, p: usize) -> bool {
     let side = (k1 + k2) as f64;
     let tables = 2.0 * side * side * p as f64;
-    let work = tables * rank as f64 + (k1 * k2) as f64 * side * p as f64;
+    // building the tables, then for every cell each point's gradient and its products
+    let cells = (k1 * k2) as f64;
+    let work = tables * rank as f64 + cells * side * (p + p * p) as f64;
     tables <= 25e6 && work <= 2e9
 }
 

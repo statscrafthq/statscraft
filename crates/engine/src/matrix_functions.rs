@@ -531,8 +531,19 @@ pub(crate) fn eigen(a: &Mat) -> (Mat, Mat) {
 /// the singular values from the largest on its diagonal, V square with the columns of A. By
 /// one-sided Jacobi rotations.
 pub(crate) fn svd(a: &Mat) -> (Mat, Mat, Mat) {
+    svd_basis(a, true)
+}
+
+/// As `svd`, but the vectors of the longer side are only those of the singular values above
+/// the rounding tolerance, from the largest: no square basis of the longer side, which a long
+/// thin matrix would make large.
+pub(crate) fn thin_svd(a: &Mat) -> (Mat, Mat, Mat) {
+    svd_basis(a, false)
+}
+
+fn svd_basis(a: &Mat, full: bool) -> (Mat, Mat, Mat) {
     if a.rows < a.cols {
-        let (u, q, v) = svd(&a.transpose());
+        let (u, q, v) = svd_basis(&a.transpose(), full);
         return (v, q.transpose(), u);
     }
     let (m, n) = (a.rows, a.cols);
@@ -595,7 +606,18 @@ pub(crate) fn svd(a: &Mat) -> (Mat, Mat, Mat) {
             columns.push(u);
         }
     }
-    let u = complete_basis(columns, m);
+    let u = match full {
+        true => complete_basis(columns, m),
+        false => {
+            let mut u = Mat::filled(m, columns.len(), 0.0);
+            for (j, c) in columns.iter().enumerate() {
+                for (i, x) in c.iter().enumerate() {
+                    u.set(i, j, *x);
+                }
+            }
+            u
+        }
+    };
     (u, q, vm)
 }
 
