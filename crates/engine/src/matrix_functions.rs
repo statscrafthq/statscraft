@@ -30,7 +30,9 @@
 //!   element (the last of equal ones) positive. CALL SVD gives U square (rows of M), Q with the
 //!   dimensions of M and V square (columns of M), as the manual says.
 //! - Symmetry (CHOL, EVAL, EIGEN) and singularity (INV, SOLVE, GSCH) are judged relative to the
-//!   largest element; RANK and GINV ignore singular values below max(r, c) * largest * 2.2e-16.
+//!   largest element; RANK and GINV ignore singular values at or below
+//!   max(r, c) * largest * 2.2e-16. GINV of a matrix with a missing or infinite element is
+//!   missing throughout.
 //! - A distribution or random function whose parameters are out of range is an error.
 
 use crate::matrix_lang::{Mat, fits};
