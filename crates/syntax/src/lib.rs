@@ -31,6 +31,7 @@ mod expr;
 mod factor;
 mod files;
 mod frequencies;
+mod genlin;
 mod get_data;
 mod glm;
 mod graph;
@@ -78,6 +79,8 @@ mod tests_data;
 mod tests_data_list;
 #[cfg(test)]
 mod tests_factor;
+#[cfg(test)]
+mod tests_genlin;
 #[cfg(test)]
 mod tests_glm;
 #[cfg(test)]
@@ -137,6 +140,12 @@ pub use error::{Span, SyntaxError};
 pub use factor::{
     ClusterMethod, ClusterSave, Extraction, Factor, FactorCriteria, FactorMissing, FactorPlot,
     FactorPrint, FactorSave, MatrixKind, QuickCluster, Rotation, ScoreMethod,
+};
+pub use genlin::{
+    Genlin, GenlinAdjust, GenlinContrast, GenlinCriteria, GenlinDistribution, GenlinEmmeans,
+    GenlinLink, GenlinMethod, GenlinOffset, GenlinOrder, GenlinPrint, GenlinReference,
+    GenlinResponse, GenlinSave, GenlinSaveKind, GenlinScale, GenlinTolerance, GenlinTrials,
+    default_link, distribution_keyword, link_keyword,
 };
 pub use glm::{
     Adjustment, Contrast, CustomTest, Emmeans, ErrorBar, Glm, GlmPlot, GlmPrint, GlmTemp, LMatrix,

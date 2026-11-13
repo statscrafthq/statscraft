@@ -25,6 +25,7 @@ mod expr_functions;
 mod factor;
 mod format;
 mod frequencies;
+mod genlin;
 mod get_data;
 mod get_translate;
 mod glm;
@@ -663,6 +664,7 @@ impl Engine {
             | Command::Logistic(_)
             | Command::Nomreg(_)
             | Command::Plum(_)
+            | Command::Genlin(_)
             | Command::Pplot(_)
             | Command::Roc(_)
             | Command::Glm(_)
@@ -895,6 +897,7 @@ impl Engine {
             Command::Logistic(command) => self.logistic(command),
             Command::Nomreg(command) => self.nomreg(command),
             Command::Plum(command) => self.plum(command),
+            Command::Genlin(command) => self.genlin(command),
             Command::Pplot(command) => self.pplot(command),
             Command::Roc(command) => self.roc(command),
             Command::Glm(command) => self.glm(command),

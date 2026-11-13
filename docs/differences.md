@@ -496,6 +496,31 @@ Where the documentation is silent:
 - SAVE writes predictions for every case with valid factors and covariates, also one outside the fit through its weight or a missing dependent; ACPROB needs the dependent. ESTPROB(root) names the variables root1, root2 and so on. PREDCAT of a string dependent is a string.
 - TEST: the manual asks both for one value after INTERCEPT and for one per threshold; INTERCEPT here takes one per threshold, since the thresholds are the intercepts. An effect in both LOCATION and SCALE cannot be named on TEST (an error says to use ALL). A coefficient on a redundant parameter multiplies its fixed 0; there is no estimability check. A row with no coefficient on an estimated parameter is left out with a warning. The tables are Contrast Estimates (each row's estimate, test value, standard error, Wald chi-square on 1 df, significance and interval) and Test Results (the joint Wald chi-square). The numbers were checked against R: polr's estimates with the covariance from a numerical Hessian of the log-likelihood (polr's own Hessian is on its internal threshold scale).
 
+### GENLIN
+
+- GNU PSPP has no GENLIN. The numbers were compared with R (`glm`, `MASS::glm.nb`, `MASS::polr`) run as a separate program on synthetic data, converting where the documented definitions differ from R's:
+  - A binary dependent models its first value (ascending) unless REFERENCE says otherwise, so with 0 and 1 the signs are those of R's model of 0; REFERENCE=FIRST gives R's signs.
+  - The last level of a factor is the redundant one, shown as 0; R drops the first unless told otherwise.
+  - The scale of the normal, gamma and inverse Gaussian models is the maximum likelihood estimate (for the normal, the residual sum of squares over n), not R's Pearson-based dispersion; SCALE=DEVIANCE or PEARSON gives the moment estimates.
+  - Standard errors come from the observed information, as Newton-Raphson after the first Fisher scoring iteration ends; R reports the expected information. They agree for the canonical links. METHOD=FISHER (scoring throughout, or FISHER(n) with n at least MAXITERATIONS) gives the expected information. With the observed information not positive definite, the expected one is used.
+  - With NEGBIN(MLE) the covariance of the coefficients is the corresponding block of the inverse of the joint information of the coefficients and ln k; R's `glm.nb` holds k fixed.
+  - The deviance and Pearson chi-square of a binary dependent are summed over subpopulations (cases with the same factor levels, covariate values and offset), on their number minus the parameters; the full log likelihood adds the binomial coefficients of the subpopulations. Events/trials data then give the same statistics, and N in BIC and AICC is the number of trials.
+  - The full log likelihood of the ordinal model adds the multinomial constant of its subpopulations; LIKELIHOOD=KERNEL leaves it out.
+  - AIC and the other criteria count the scale and k when estimated.
+- With NEGBIN(MLE), k counts against the degrees of freedom of the goodness-of-fit statistics. An estimate of k below 1E-6 gives a warning: the counts are not overdispersed, and the standard error and interval of k are not reliable (a bound that is not finite is left blank).
+- Events/trials without DISTRIBUTION and LINK is a binomial model with the logit link. Read literally, the documentation would give it the identity link, which leaves most data with probabilities outside 0 to 1; the canonical link is what a careful analyst expects.
+- The reduced and constrained models of the likelihood ratio tests stop when the log likelihood changes less than LCONVERGE (1E-4 absolute when it is 0), as documented; the full model uses all the criteria. FISHER(n) that converges during its scoring iterations goes on with Newton-Raphson steps until those converge too.
+- Estimated marginal means leave the offset out (the means of the linear predictor without it), as the documented formula does; with OFFSET=number that is the intercept's shift.
+- ORDER=DATA is accepted with SPLIT FILE; each group then orders the levels as they come in that group.
+- A POLYNOMIAL metric with fewer values than the factor has levels gives a warning and leaves out the comparisons of that EMMEANS; the means are still shown.
+- The omnibus test of the ordinal model compares with the fitted thresholds-only model; with an offset this is not the start values the documentation names.
+- Type I tests start from the model with no parameters, so the intercept has a test. Under a link that gives no valid means at a linear predictor of 0 (the inverse link of the gamma, a power link) that model cannot be fitted, and its likelihood ratio test is left blank with a note. Type I Wald tests use the rows of the forward Doolittle reduction of X'WX (W the frequency times the scale weight times the trials); Type III Wald tests use the hypotheses of UNIANOVA. Likelihood ratio tests refit the model, Type III under its hypothesis.
+- The scale estimate of DEVIANCE and PEARSON divides by N minus the parameters (minus one more for NEGBIN(MLE)); the F tests use the same degrees of freedom.
+- Only complete separation is checked (CHECKSEP), and it gives a warning; quasi-complete separation is not detected.
+- Confidence intervals of estimated marginal means on the response scale are symmetric around the mean (delta method), as documented. The covariates of EMMEANS default to their means weighted by frequency and scale weight.
+- SAVE gives predictions to every case with valid factors, covariates and offset whose factor levels were fitted; residuals, leverage and Cook's distance only to the cases of the fit. For events/trials, MEANPRED and the intervals are numbers of events. A default name already in use gets a suffix _1, _2 and so on; a name given that exists is an error.
+- Not supported yet: REPEATED (generalized estimating equations), OUTFILE, DISTRIBUTION=TWEEDIE, INITIAL, CITYPE=PROFILE, and PRINT GEF, HISTORY, LAGRANGE and LMATRIX. WORKINGCORR is accepted and ignored, as there is no working correlation without REPEATED.
+
 ### UNIANOVA and GLM
 
 - A frequency weight is rounded to a whole number, as documented (GNU PSPP uses fractional weights as they are).
@@ -850,6 +875,7 @@ Where the documentation is silent:
   - RELIABILITY has no MODEL=OMEGA or MATRIX.
   - LOGISTIC REGRESSION has no SELECT or OUTFILE.
   - NOMREG has no TEST, OUTFILE, or PRINT CELLPROB, HISTORY and ASSOCIATION.
+  - GENLIN has no REPEATED, OUTFILE, TWEEDIE, INITIAL, CITYPE=PROFILE or PRINT GEF, HISTORY, LAGRANGE and LMATRIX.
   - CSPLAN has no SAMPLE designs; CSDESCRIPTIVES and CSTABULATE have no JOINTPROB and no UNEQUAL_WOR estimator.
   - UNIANOVA and GLM have no multivariate model (GLM with several dependents without WSFACTOR), RANDOM, TEST, ROBUST, OUTFILE, MMATRIX, MEASURE, POSTHOC VS, CONTRAST SPECIAL or the heteroskedasticity tests. With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX, SAVE or PLOT.
   - MIXED has no TEST coefficients for random effects, SSTYPE(1), DFMETHOD(KENWARDROGER), SOLUTION on RANDOM, PRINT CPS, DESCRIPTIVES, HISTORY or LMATRIX, SAVE SEPRED or DFPRED, and no COVTYPE other than VC, ID, DIAG, UN, CS and AR1 (no KRONECKER or SPCOORDS).

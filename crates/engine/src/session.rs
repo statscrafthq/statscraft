@@ -59,7 +59,10 @@ impl Failure {
         } else if let Some(line) = self.line {
             s.push_str(&format!("line {line}: "));
         }
-        if let Some(command) = &self.command {
+        // many commands name themselves in their messages; the text names the command once
+        if let Some(command) = &self.command
+            && !self.message.starts_with(&format!("{command}: "))
+        {
             s.push_str(&format!("{command}: "));
         }
         s.push_str(&self.message);

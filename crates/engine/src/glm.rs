@@ -110,7 +110,7 @@ impl Data {
     }
 
     /// The weighted mean of the product of covariates.
-    fn covariate_mean(&self, covariates: &[usize]) -> f64 {
+    pub(crate) fn covariate_mean(&self, covariates: &[usize]) -> f64 {
         let w: f64 = (0..self.rows()).map(|i| self.w(i)).sum();
         (0..self.rows())
             .map(|i| self.w(i) * covariates.iter().map(|&c| self.cov[i][c]).product::<f64>())

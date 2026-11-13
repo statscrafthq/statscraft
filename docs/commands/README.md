@@ -125,6 +125,7 @@ One page per supported command, generated from the same table that the parser an
 | [LOGISTIC REGRESSION](logistic-regression.md) | Binary logistic regression with categorical covariates, stepwise selection and case diagnostics. |
 | [NOMREG](nomreg.md) | Multinomial logistic regression: a nominal dependent variable on factors and covariates. |
 | [PLUM](plum.md) | Ordinal regression: a cumulative link model of an ordered dependent variable. |
+| [GENLIN](genlin.md) | Generalized linear models: normal, binomial, Poisson, gamma, inverse Gaussian, negative binomial and ordinal responses. |
 | [UNIANOVA](unianova.md) | General linear model of one dependent variable: factorial ANOVA, ANCOVA and regression. |
 | [GLM](glm.md) | General linear model: one dependent variable as in UNIANOVA, or repeated measures with WSFACTOR. |
 | [MIXED](mixed.md) | Linear mixed model: fixed effects with random effects of subjects and correlated repeated measures. |
