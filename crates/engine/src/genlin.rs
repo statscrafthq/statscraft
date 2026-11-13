@@ -88,20 +88,23 @@ fn trigamma(mut x: f64) -> f64 {
     r + 1.0 / x + f / 2.0 + f / x * (1.0 / 6.0 - f * (1.0 / 30.0 - f * (1.0 / 42.0 - f / 30.0)))
 }
 
-/// ln Gamma(y + r) - ln Gamma(r); with r large (k near 0) and a modest whole number y as a
-/// sum, which does not lose the difference of two large numbers.
+/// ln Gamma(y + r) - ln Gamma(r). For large r (k near 0) the two terms are huge and nearly
+/// equal, so the difference of their Stirling series is taken term by term.
 fn ln_gamma_ratio(y: f64, r: f64) -> f64 {
-    if y.fract() == 0.0 && y <= 10_000.0 && r > 1e4 {
-        (0..y as usize).map(|j| (r + j as f64).ln()).sum()
+    if r > 1e4 {
+        let s = y + r;
+        y * s.ln() + (r - 0.5) * (y / r).ln_1p() - y + (1.0 / s - 1.0 / r) / 12.0
+            - (1.0 / s.powi(3) - 1.0 / r.powi(3)) / 360.0
     } else {
         ln_gamma(y + r) - ln_gamma(r)
     }
 }
 
-/// digamma(y + r) - digamma(r), as a sum when r is large and y a modest whole number.
+/// digamma(y + r) - digamma(r), by the difference of the asymptotic series for large r.
 fn digamma_difference(y: f64, r: f64) -> f64 {
-    if y.fract() == 0.0 && y <= 10_000.0 && r > 1e4 {
-        (0..y as usize).map(|j| 1.0 / (r + j as f64)).sum()
+    if r > 1e4 {
+        let s = y + r;
+        (y / r).ln_1p() - (1.0 / s - 1.0 / r) / 2.0 - (1.0 / (s * s) - 1.0 / (r * r)) / 12.0
     } else {
         digamma(y + r) - digamma(r)
     }
@@ -548,6 +551,12 @@ fn fit_beta(
     };
     let (mut eta, mut mu, mut ll) = evaluate(c, x, spec, k, phi, &beta)?;
     let (mut s, mut expected, mut observed) = derivatives(c, x, spec, k, &mu);
+    let criteria_used = crit.lconverge.value > 0.0 || crit.hconverge.value > 0.0;
+    let mut ll_model = if criteria_used {
+        criteria_scale(c, spec, k, &mu, ll).1
+    } else {
+        ll
+    };
     let mut converged = q == 0 || crit.maxiterations == 0;
     let mut halving_failed = false;
     let mut fisher = true;
@@ -609,20 +618,18 @@ fn fit_beta(
                 }
             })
             .fold(0.0, f64::max);
-        // with an estimated scale the log likelihood here is at scale 1: the criteria are on the
-        // model's own scale, the current estimate
-        let quad_scale = criteria_scale(c, spec, &m);
-        // the log likelihood is already at a fixed scale
-        let ll_scale = if spec.scale == ScaleMode::Mle {
-            quad_scale
+        // the iterations work at scale 1; the criteria are on the model's own scale
+        let (scale_now, l_model) = if criteria_used {
+            criteria_scale(c, spec, k, &m, l)
         } else {
-            1.0
+            (1.0, l)
         };
         let dl = if crit.lconverge.relative {
-            (l - ll).abs() / (ll.abs() + 1e-6)
+            (l_model - ll_model).abs() / (ll_model.abs() + 1e-6)
         } else {
-            (l - ll).abs() / ll_scale
+            (l_model - ll_model).abs()
         };
+        ll_model = l_model;
         beta = next;
         eta = e;
         mu = m;
@@ -630,9 +637,9 @@ fn fit_beta(
         (s, expected, observed) = derivatives(c, x, spec, k, &mu);
         let hc = if crit.hconverge.value > 0.0 {
             let h = if fisher { &expected } else { &observed };
-            let quad = dot(&s, &mat_vec(&ginverse(h, tol).0, &s)) / quad_scale;
+            let quad = dot(&s, &mat_vec(&ginverse(h, tol).0, &s)) / scale_now;
             if crit.hconverge.relative {
-                quad / (ll.abs() / ll_scale + 1e-6)
+                quad / (ll_model.abs() + 1e-6)
             } else {
                 quad
             }
@@ -652,7 +659,8 @@ fn fit_beta(
     }
     let hessian_ok = q == 0 || crit.hconverge.value > 0.0 || {
         let h = if fisher { &expected } else { &observed };
-        dot(&s, &mat_vec(&ginverse(h, tol).0, &s)) / criteria_scale(c, spec, &mu) < 1e-4
+        let scale_now = criteria_scale(c, spec, k, &mu, ll).0;
+        dot(&s, &mat_vec(&ginverse(h, tol).0, &s)) / scale_now < 1e-4
     };
     Some(BetaFit {
         beta,
@@ -697,22 +705,45 @@ fn scale_estimate(c: &Cases, family: Family, mu: &[f64]) -> f64 {
     d / n
 }
 
-/// The scale the convergence criteria divide by: the current estimate for MLE, the fixed
-/// value, or 1. A fit so close that its deviance is rounding noise is taken at scale 1.
-fn criteria_scale(c: &Cases, spec: &Spec, mu: &[f64]) -> f64 {
+/// The deviance of the means `mu` against that of the weighted mean of the response: below
+/// 1E-20 of it the fit is exact up to rounding.
+fn exact_fit(c: &Cases, family: Family, mu: &[f64]) -> bool {
+    let total: f64 = (0..c.n()).map(|i| c.f[i] * c.a(i)).sum();
+    let mean = (0..c.n()).map(|i| c.f[i] * c.a(i) * c.y[i]).sum::<f64>() / total;
+    let deviance = |m: &dyn Fn(usize) -> f64| -> f64 {
+        (0..c.n())
+            .map(|i| c.f[i] * c.a(i) * unit_deviance(family, c.y[i], m(i), 0.0))
+            .sum()
+    };
+    deviance(&|i| mu[i]) <= 1e-20 * deviance(&|_| mean)
+}
+
+/// The scale and the log likelihood that the convergence criteria use: the model's own (the
+/// current estimate for MLE, 1 for an exact fit), not the scale 1 the iterations work at.
+fn criteria_scale(c: &Cases, spec: &Spec, k: f64, mu: &[f64], ll: f64) -> (f64, f64) {
     match spec.scale {
-        ScaleMode::Mle => {
-            let size: f64 = (0..c.n()).map(|i| c.f[i] * c.a(i) * c.y[i] * c.y[i]).sum();
-            let n: f64 = c.f.iter().sum();
-            let v = scale_estimate(c, spec.family, mu);
-            if v > 1e-12 * (size / n).max(1e-300) {
-                v
-            } else {
-                1.0
-            }
+        ScaleMode::Mle if !exact_fit(c, spec.family, mu) => {
+            let phi = scale_estimate(c, spec.family, mu);
+            let at_phi = (0..c.n())
+                .map(|i| {
+                    c.f[i]
+                        * case_loglik(
+                            spec.family,
+                            c.y[i],
+                            mu[i],
+                            phi,
+                            c.a(i),
+                            c.omega[i],
+                            c.m[i],
+                            k,
+                            spec.full,
+                        )
+                })
+                .sum();
+            (phi, at_phi)
         }
-        ScaleMode::Fixed(v) => v,
-        _ => 1.0,
+        ScaleMode::Fixed(v) => (v, ll),
+        _ => (1.0, ll),
     }
 }
 
@@ -807,7 +838,12 @@ fn fit_glm(c: &Cases, x: &[Vec<f64>], spec: &Spec, start: Option<&[f64]>) -> Opt
                     - negbin_score(c, spec, &down.eta, (tau - h).exp()))
                     / (2.0 * h);
             }
-            (bf, tau.exp(), (second < 0.0).then(|| -1.0 / second))
+            // with parameters the joint information gives the variance of ln k
+            (
+                bf,
+                tau.exp(),
+                (q == 0 && second < 0.0).then(|| -1.0 / second),
+            )
         }
         (Family::NegBin, Some(k)) => (fit_at(k, start)?, k, None),
         _ => (fit_at(0.0, start)?, 0.0, None),
@@ -1988,6 +2024,16 @@ impl Engine {
             _ => {}
         }
         let phi = result.phi;
+        let scale_estimated = !matches!(scale, ScaleMode::Fixed(_));
+        let exact = match &glm_fit {
+            Some(f) => exact_fit(&c, family, &f.mu),
+            None => deviance <= 0.0,
+        };
+        if scale_estimated && (exact || phi.is_nan() || phi <= 0.0) {
+            return Err(Error(
+                "GENLIN: the model fits every case exactly, so the scale cannot be estimated; fix it with CRITERIA SCALE=number".into(),
+            ));
+        }
         if k_estimated {
             result.log_variance = result.log_variance.map(|v| v * phi);
         }

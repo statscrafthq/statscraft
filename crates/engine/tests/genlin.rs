@@ -1502,3 +1502,39 @@ GENLIN y WITH x /MODEL x /PRINT NONE.
     );
     assert!(engine.warnings().is_empty(), "{:?}", engine.warnings());
 }
+
+#[test]
+fn an_exact_fit_with_an_estimated_scale_is_an_error() {
+    let error = run_error(
+        "DATA LIST FREE /y x.
+BEGIN DATA.
+1 1 2 2 3 3 4 4 5 5 6 6
+END DATA.
+GENLIN y WITH x /MODEL x.
+",
+    );
+    assert!(error.contains("fits every case exactly"), "{error}");
+    let t = tables_of(
+        "DATA LIST FREE /y x.
+BEGIN DATA.
+1 1 2 2 3 3 4 4 5 5 6 6
+END DATA.
+GENLIN y WITH x /MODEL x /CRITERIA SCALE=1 /PRINT SOLUTION.
+",
+    );
+    close(get(&t, PE, "x", B), 1.0, 1e-9, "slope");
+}
+
+#[test]
+fn negative_binomial_terms_agree_on_both_sides_of_the_large_k_switch() {
+    // the series form for small k (large 1/k) must join the direct form smoothly
+    let t = |k: f64| {
+        tables_of(&format!(
+            "{COUNTS}GENLIN repairs BY shop WITH temp /MODEL shop temp DISTRIBUTION=NEGBIN({k}) OFFSET=lnh /PRINT FIT.
+"
+        ))
+    };
+    let below = get(&t(1.0001e-4), FIT, "Log Likelihood", "Value");
+    let above = get(&t(0.9999e-4), FIT, "Log Likelihood", "Value");
+    close(below, above, 1e-6, "log likelihood across the switch");
+}
