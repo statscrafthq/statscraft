@@ -440,3 +440,99 @@ fn saved_case_statistics_match_r() {
     }
     assert_eq!(sur[64], None);
 }
+
+#[test]
+fn forward_stepwise_scores_match_r() {
+    let t = tables(&format!(
+        "COXREG months WITH plan spend site /STATUS=ended(1) /CATEGORICAL=plan /METHOD=FSTEP(LR) {TIGHT}"
+    ));
+    let not_in = "Variables not in the Equation";
+    // block 0: score tests at b = 0
+    let block0 = t.iter().find(|t| t.title == not_in).unwrap();
+    let keys = row_keys(block0);
+    let at = |key: &str| num(&block0.rows[keys.iter().position(|k| k == key).unwrap()][2]);
+    near(at("Step 0 / plan"), 15.08410446512, 1e-7);
+    near(at("Step 0 / spend"), 1.115641647733, 1e-7);
+    near(at("Step 0 / site"), 0.2327510716202, 1e-7);
+    // plan enters; spend and site stay out
+    near(value(&t, not_in, "Step 1 / spend", "Score"), 0.5714025873041, 1e-6);
+    near(value(&t, not_in, "Step 1 / site", "Score"), 1.106055238518, 1e-6);
+    near(value(&t, not_in, "Step 1 / Residual Chi Square", "Score"), 1.817669835563, 1e-6);
+    let omnibus = "Omnibus Tests of Model Coefficients";
+    near(value(&t, omnibus, "Step 1", "-2 Log Likelihood"), 261.931985375, 1e-9);
+    let eq = "Variables in the Equation";
+    near(value(&t, eq, "Step 1 / plan(1)", "B"), 0.8112524943775, 1e-6);
+    assert!(
+        t.iter()
+            .filter(|t| t.title == eq)
+            .all(|t| !row_keys(t).iter().any(|k| k.contains("spend")))
+    );
+}
+
+#[test]
+fn backward_removal_statistics_match_r() {
+    for (method, plan, spend, site) in [
+        ("COND", 14.23127448898, 0.7172620287832, 1.241851099585),
+        ("WALD", 13.73579905479, 0.7147031828356, 1.243976700992),
+        ("LR", 14.21798813504, 0.7172160223896, 1.241783130596),
+    ] {
+        let t = tables(&format!(
+            "COXREG months WITH plan spend site /STATUS=ended(1) /CATEGORICAL=plan
+              /METHOD=BSTEP({method}) {TIGHT}"
+        ));
+        let omnibus = "Omnibus Tests of Model Coefficients";
+        let first = t
+            .iter()
+            .filter(|t| t.title == omnibus)
+            .nth(1)
+            .unwrap();
+        near(num(&first.rows[0][1]), 260.1200035605, 1e-9);
+        if method == "WALD" {
+            // the Wald statistics are the rows of Variables in the Equation
+            let eq = "Variables in the Equation";
+            let table = t.iter().find(|t| t.title == eq).unwrap();
+            let keys = row_keys(table);
+            let wald = |key: &str| num(&table.rows[keys.iter().position(|k| k == key).unwrap()][4]);
+            near(wald("Step 1 / plan"), plan, 1e-6);
+            near(wald("Step 1 / spend"), spend, 1e-6);
+            near(wald("Step 1 / site"), site, 1e-6);
+        } else {
+            let removed = "Model if Term Removed";
+            let table = t.iter().find(|t| t.title == removed).unwrap();
+            let keys = row_keys(table);
+            let loss = |key: &str| num(&table.rows[keys.iter().position(|k| k == key).unwrap()][2]);
+            near(loss("Step 1 / plan"), plan, 1e-6);
+            near(loss("Step 1 / spend"), spend, 1e-6);
+            near(loss("Step 1 / site"), site, 1e-6);
+        }
+        // spend and then site leave; plan stays
+        near(
+            value(&t, omnibus, "Step 3", "-2 Log Likelihood"),
+            261.931985375,
+            1e-9,
+        );
+    }
+}
+
+#[test]
+fn second_block_changes_from_step_and_block() {
+    let t = tables(&format!(
+        "COXREG months WITH plan spend /STATUS=ended(1) /CATEGORICAL=plan
+          /METHOD=ENTER plan /METHOD=ENTER spend {TIGHT}"
+    ));
+    let omnibus: Vec<&Table> = t
+        .iter()
+        .filter(|t| t.title == "Omnibus Tests of Model Coefficients")
+        .collect();
+    let block2 = omnibus[2];
+    let column = |name: &str| {
+        let c = block2.column_titles().iter().position(|t| t == name).unwrap();
+        num(&block2.rows[0][c])
+    };
+    near(column("-2 Log Likelihood"), 261.3617866911, 1e-9);
+    // the overall score test of plan and spend at b = 0
+    near(column("Overall (score) / Chi-square"), 15.64687006851, 1e-7);
+    near(column("Overall (score) / df"), 3.0, 0.0);
+    near(column("Change From Previous Step / Chi-square"), 261.931985375 - 261.3617866911, 1e-7);
+    near(column("Change From Previous Block / df"), 1.0, 0.0);
+}
