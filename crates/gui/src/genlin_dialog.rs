@@ -695,9 +695,7 @@ impl GeneralizedLinear {
         if self.subjects.is_empty() {
             return Err("choose the subject variables of the repeated measures".into());
         }
-        // without sorting they still leave out cases with a missing value, so they always count
-        let within = &self.within;
-        for n in self.subjects.iter().chain(within) {
+        for n in self.subjects.iter().chain(&self.within) {
             if self.covariates.contains(n) {
                 return Err(format!(
                     "{n} is a covariate, so it cannot be a subject or within-subject variable"
@@ -707,14 +705,14 @@ impl GeneralizedLinear {
                 return Err(format!("{n} has more than one role in the model"));
             }
         }
-        if let Some(n) = within.iter().find(|n| self.subjects.contains(n)) {
+        if let Some(n) = self.within.iter().find(|n| self.subjects.contains(n)) {
             return Err(format!(
                 "{n} is both a subject and a within-subject variable"
             ));
         }
         let mut out = vec![format!("SUBJECT={}", self.subjects.join("*"))];
-        if !within.is_empty() {
-            out.push(format!("WITHINSUBJECT={}", within.join("*")));
+        if !self.within.is_empty() {
+            out.push(format!("WITHINSUBJECT={}", self.within.join("*")));
         }
         if !self.sort {
             out.push("SORT=NO".into());
@@ -875,12 +873,15 @@ impl GeneralizedLinear {
 
 /// The fixed correlations typed below the diagonal, row by row, checked: each from 0 to 1, and
 /// as many as the lower triangle of a matrix holds. Whether the matrix has a row for each
-/// measurement of a subject is checked when the command runs.
+/// measurement of a subject is checked when the command runs. Values are apart by spaces only,
+/// so a decimal comma is refused rather than read as two values.
 fn fixed_correlations(text: &str) -> Result<Vec<String>, String> {
     let values = text
-        .split(|c: char| c.is_whitespace() || c == ',')
-        .filter(|t| !t.is_empty())
-        .map(|t| parse(t, "each fixed correlation"))
+        .split_whitespace()
+        .map(|t| match t.contains(',') {
+            true => Err(format!("use a point for decimals: {t}")),
+            false => parse(t, "each fixed correlation"),
+        })
         .collect::<Result<Vec<f64>, _>>()?;
     if values.is_empty() {
         return Err("give the fixed correlations below the diagonal, row by row".into());
@@ -1501,7 +1502,7 @@ mod tests {
 
         // four waves: a fixed matrix takes six correlations
         d.correlation = 5;
-        d.fixed = "0.5, 0.3 0.5 0.2 0.3 0.5".into();
+        d.fixed = "0.5 0.3 0.5 0.2 0.3 0.5".into();
         let syntax = d.syntax(false).unwrap();
         assert!(
             syntax.contains("CORRTYPE=FIXED(0.5 0.3 0.5 0.2 0.3 0.5) ADJUSTCORR=NO"),
@@ -1596,6 +1597,11 @@ mod tests {
             error(&d),
             "4 fixed correlations do not fill the lower triangle of a matrix: 3 rows take 3, 4 rows take 6"
         );
+        // a decimal comma would otherwise read as two values
+        d.fixed = "0,5".into();
+        assert_eq!(error(&d), "use a point for decimals: 0,5");
+        d.fixed = "0.5, 0.3 0.2".into();
+        assert_eq!(error(&d), "use a point for decimals: 0.5,");
         d.fixed = "0.5 x".into();
         assert_eq!(error(&d), "each fixed correlation must be a number");
         d.fixed = "0.4".into();
