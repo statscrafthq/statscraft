@@ -351,12 +351,12 @@ pub(crate) fn call(
             one(values)
         }
         "SVAL" => {
-            let (_, q, _) = svd(a);
+            let (_, q, _) = thin_svd(a);
             let n = a.rows.min(a.cols);
             one(Mat::new(n, 1, (0..n).map(|i| q.at(i, i)).collect()))
         }
         "RANK" => {
-            let (_, q, _) = svd(a);
+            let (_, q, _) = thin_svd(a);
             let n = a.rows.min(a.cols);
             let tolerance = svd_tolerance(a, &q);
             s((0..n).filter(|&i| q.at(i, i) > tolerance).count() as f64)
@@ -650,14 +650,11 @@ fn svd_tolerance(a: &Mat, q: &Mat) -> f64 {
 }
 
 fn pseudo_inverse(a: &Mat) -> Mat {
-    let (u, q, v) = svd(a);
-    let tolerance = svd_tolerance(a, &q);
+    let (u, q, v) = thin_svd(a);
     let mut out = Mat::filled(a.cols, a.rows, 0.0);
-    for k in 0..a.rows.min(a.cols) {
+    // the thin side has a vector exactly for each singular value above the rounding tolerance
+    for k in 0..u.cols.min(v.cols) {
         let sigma = q.at(k, k);
-        if sigma <= tolerance {
-            continue;
-        }
         for i in 0..a.cols {
             for j in 0..a.rows {
                 let value = out.at(i, j) + v.at(i, k) * u.at(j, k) / sigma;
@@ -923,6 +920,37 @@ mod tests {
                 close(&a.product(&vk), &uk);
             }
         }
+    }
+
+    #[test]
+    fn rank_ginv_and_sval_of_a_tall_matrix_stay_thin() {
+        // columns: all ones, alternating signs, twice the first; rank 2
+        let n = 5000;
+        let signs = |i: usize| if i.is_multiple_of(2) { 1.0 } else { -1.0 };
+        let a = Mat::new(n, 3, (0..n).flat_map(|i| [1.0, signs(i), 2.0]).collect());
+        let start = std::time::Instant::now();
+        let random = RefCell::new(Random::default());
+        let mut warnings = Vec::new();
+        let mut run = |name: &str| call(name, std::slice::from_ref(&a), &random, &mut warnings);
+        close(&run("RANK").unwrap(), &Mat::scalar(2.0));
+        // the Gram matrix has eigenvalues 25000, 5000 and 0
+        close(
+            &run("SVAL").unwrap(),
+            &m(3, 1, &[25000f64.sqrt(), 5000f64.sqrt(), 0.0]),
+        );
+        // rows: ones / 25000, signs / 5000, twice the ones / 25000
+        let g = run("GINV").unwrap();
+        let expected = Mat::new(
+            3,
+            n,
+            (0..n)
+                .map(|_| 1.0 / 25000.0)
+                .chain((0..n).map(|j| signs(j) / 5000.0))
+                .chain((0..n).map(|_| 2.0 / 25000.0))
+                .collect(),
+        );
+        close(&g, &expected);
+        assert!(start.elapsed().as_secs() < 10, "{:?}", start.elapsed());
     }
 
     #[test]

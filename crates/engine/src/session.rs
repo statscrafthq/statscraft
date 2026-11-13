@@ -59,13 +59,10 @@ impl Failure {
         } else if let Some(line) = self.line {
             s.push_str(&format!("line {line}: "));
         }
-        // many commands name themselves in their messages; the text names the command once
-        if let Some(command) = &self.command
-            && !self.message.starts_with(&format!("{command}: "))
-        {
-            s.push_str(&format!("{command}: "));
+        match &self.command {
+            Some(command) => s.push_str(&with_command(command, &self.message)),
+            None => s.push_str(&self.message),
         }
-        s.push_str(&self.message);
         if !self.expected.is_empty() {
             s.push_str(&format!("; expected: {}", self.expected.join(", ")));
         }
@@ -73,6 +70,15 @@ impl Failure {
             s.push_str(&format!("; hint: {hint}"));
         }
         s
+    }
+}
+
+/// The message after the name of its command, once: many commands name themselves in their
+/// messages already.
+fn with_command(command: &str, message: &str) -> String {
+    match message.starts_with(&format!("{command}: ")) {
+        true => message.to_string(),
+        false => format!("{command}: {message}"),
     }
 }
 
@@ -178,8 +184,9 @@ impl RunResult {
             for warning in &command.warnings {
                 let _ = writeln!(
                     out,
-                    "warning: line {}: {}: {warning}",
-                    command.first_line, command.name
+                    "warning: line {}: {}",
+                    command.first_line,
+                    with_command(&command.name, warning)
                 );
             }
         }
@@ -567,8 +574,9 @@ impl Session {
                         self.previous = Some((before, self.log.len()));
                     }
                     let warnings = result.commands.iter().flat_map(|c| {
-                        let place = format!("line {}: {}", c.first_line, c.name);
-                        c.warnings.iter().map(move |w| format!("{place}: {w}"))
+                        c.warnings.iter().map(move |w| {
+                            format!("line {}: {}", c.first_line, with_command(&c.name, w))
+                        })
                     });
                     self.log.push(LogEntry {
                         syntax: done.syntax,
@@ -1020,6 +1028,24 @@ mod tests {
             session.log[1].warnings,
             [format!("line 2: DESCRIPTIVES: {warning}")]
         );
+    }
+
+    #[test]
+    fn a_warning_names_its_command_once() {
+        let mut session = survey();
+        let result = session
+            .run("COMPUTE z = $SYSMIS.\nPPLOT age z.", None)
+            .unwrap();
+        let warning = "PPLOT: z has fewer than two values to plot";
+        assert_eq!(result.commands[1].warnings, [warning]);
+        let text = result.output(false, false);
+        assert!(
+            text.contains(&format!("warning: line 2: {warning}\n")),
+            "{text}"
+        );
+        let json: serde_json::Value = serde_json::from_str(&result.output(true, false)).unwrap();
+        assert_eq!(json["commands"][1]["warnings"][0], warning);
+        assert_eq!(session.log[1].warnings, [format!("line 2: {warning}")]);
     }
 
     #[test]
