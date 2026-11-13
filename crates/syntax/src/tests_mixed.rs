@@ -79,6 +79,44 @@ fn fixed_random_and_repeated_with_abbreviations() {
 }
 
 #[test]
+fn emmeans_test_and_the_matrix_tables() {
+    let m = mixed(
+        "MIXED gain BY crop soil WITH rain /FIXED=crop soil rain\n\
+         /EMM=TABLES(crop*soil) WITH(rain=2.5) COMPARE(soil) REFCAT(LAST) ADJ(SIDAK)\n\
+         /EMMEANS=TABLES(crop) COMPARE REFCAT('oat')\n\
+         /EMMEANS=TABLES(crop) COMPARE REFCAT('oat')\n\
+         /EMMEANS=TABLES(OVERALL)\n\
+         /TEST(0.5 2)='soil steps' soil 1 -1 0; soil 0 2 -2 DIVISOR=2\n\
+         /TEST=ALL 1 1/3 1/3 1/3 0 0 0\n\
+         /PRINT=G R COVB CORB.",
+    );
+    assert_eq!(m.emmeans.len(), 3, "the identical EMMEANS counts once");
+    let e = &m.emmeans[0];
+    assert_eq!(e.factors, ["crop", "soil"]);
+    assert_eq!(e.with, [("rain".to_string(), Some(2.5))]);
+    assert_eq!(e.compare, Some(Some("soil".into())));
+    assert_eq!(e.refcat, Some(RefCat::Last));
+    assert_eq!(e.adjustment, Adjustment::Sidak);
+    assert_eq!(
+        m.emmeans[1].refcat,
+        Some(RefCat::Value(Value::String("oat".into())))
+    );
+    assert!(m.emmeans[2].factors.is_empty());
+    let t = &m.tests[0];
+    assert_eq!(t.label.as_deref(), Some("soil steps"));
+    assert_eq!(t.constants, [0.5, 2.0]);
+    assert_eq!(t.rows.len(), 2);
+    assert_eq!(t.rows[1][0].1, [0.0, 1.0, -1.0]);
+    let all = &m.tests[1];
+    assert_eq!(all.constants, [0.0]);
+    assert!(all.rows[0][0].0.is_none());
+    assert!((all.rows[0][0].1[1] - 1.0 / 3.0).abs() < 1e-15);
+    assert!(m.print.g && m.print.r && m.print.covb && m.print.corb);
+    assert!(err("MIXED gain BY crop /TEST(1 2)=crop 1 -1.").contains("2 constants for 1 rows"));
+    assert!(err("MIXED gain BY crop /TEST=crop 1 -1 DIVISOR=0.").contains("DIVISOR"));
+}
+
+#[test]
 fn random_with_the_same_effects_and_subjects_keeps_the_last() {
     let m = mixed(
         "MIXED gain /RANDOM=INTERCEPT | SUBJECT(farm) /RANDOM=INTERCEPT | SUBJECT(farm) COVTYPE(ID) /RANDOM=INTERCEPT.",
@@ -91,8 +129,10 @@ fn random_with_the_same_effects_and_subjects_keeps_the_last() {
 #[test]
 fn what_is_not_supported_yet_says_so() {
     for (source, word) in [
-        ("MIXED gain BY crop /EMMEANS=TABLES(crop).", "EMMEANS"),
-        ("MIXED gain BY crop /TEST='a' crop 1 -1.", "TEST"),
+        (
+            "MIXED gain BY crop /RANDOM=plot /TEST=crop 1 -1 | plot 1 -1.",
+            "random effects",
+        ),
         ("MIXED gain /FIXED=| SSTYPE(1).", "SSTYPE(1)"),
         (
             "MIXED gain /CRITERIA=DFMETHOD(KENWARDROGER).",
@@ -111,7 +151,7 @@ fn what_is_not_supported_yet_says_so() {
             "MIXED gain /REPEATED=week | SUBJECT(farm) KRONECKER(a).",
             "KRONECKER",
         ),
-        ("MIXED gain /PRINT=SOLUTION COVB.", "COVB"),
+        ("MIXED gain /PRINT=SOLUTION CPS.", "CPS"),
         ("MIXED gain /PRINT=HIST(2).", "HISTORY"),
         ("MIXED gain /SAVE=SEPRED.", "SEPRED"),
     ] {

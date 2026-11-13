@@ -70,7 +70,18 @@ pub struct Emmeans {
     pub with: Vec<(String, Option<f64>)>,
     /// `COMPARE[(factor)]`: Some(None) when no factor is named.
     pub compare: Option<Option<String>>,
+    /// `REFCAT(value | FIRST | LAST)` after COMPARE (MIXED only): compare each level with this
+    /// one instead of every pair.
+    pub refcat: Option<RefCat>,
     pub adjustment: Adjustment,
+}
+
+/// The reference category of COMPARE.
+#[derive(Debug, Clone, PartialEq)]
+pub enum RefCat {
+    First,
+    Last,
+    Value(crate::ast::Value),
 }
 
 /// One row of an L matrix: coefficients after an effect name, or after ALL (None).
@@ -483,7 +494,8 @@ fn plot(p: &mut Parser) -> PResult<Vec<GlmPlot>> {
     Ok(out)
 }
 
-fn emmeans(p: &mut Parser) -> PResult<Emmeans> {
+/// EMMEANS; `refcat` allows REFCAT after COMPARE.
+pub(crate) fn emmeans(p: &mut Parser, refcat: bool) -> PResult<Emmeans> {
     p.eat(Punct::Eq);
     if !p.eat_keyword("TABLES") {
         return Err(p.unexpected(&["TABLES"]));
@@ -499,6 +511,7 @@ fn emmeans(p: &mut Parser) -> PResult<Emmeans> {
         factors,
         with: Vec::new(),
         compare: None,
+        refcat: None,
         adjustment: Adjustment::Lsd,
     };
     while !at_end(p) {
@@ -526,6 +539,18 @@ fn emmeans(p: &mut Parser) -> PResult<Emmeans> {
                 ));
             }
             e.compare = Some(factor);
+        } else if refcat && e.compare.is_some() && p.eat_keyword("REFCAT") {
+            p.expect(Punct::LParen)?;
+            e.refcat = Some(if p.eat_keyword("FIRST") {
+                RefCat::First
+            } else if p.eat_keyword("LAST") {
+                RefCat::Last
+            } else if let Some(v) = p.value() {
+                RefCat::Value(v)
+            } else {
+                return Err(p.unexpected(&["a value", "FIRST", "LAST"]));
+            });
+            p.expect(Punct::RParen)?;
         } else if p.eat_keyword("ADJ") {
             p.expect(Punct::LParen)?;
             e.adjustment = if p.eat_keyword("LSD") {
@@ -546,7 +571,7 @@ fn emmeans(p: &mut Parser) -> PResult<Emmeans> {
 }
 
 /// Numbers of an L or K matrix: `a`, `-a` or `a/b` with a positive b.
-fn fraction(p: &mut Parser) -> PResult<Option<f64>> {
+pub(crate) fn fraction(p: &mut Parser) -> PResult<Option<f64>> {
     let start = p.pos;
     let Some(n) = p.number() else {
         return Ok(None);
@@ -572,7 +597,7 @@ fn fraction(p: &mut Parser) -> PResult<Option<f64>> {
 }
 
 /// The end of an L or K matrix: the end of the command or a slash before a subcommand name.
-fn matrix_end(p: &Parser) -> bool {
+pub(crate) fn matrix_end(p: &Parser) -> bool {
     match p.peek() {
         None => true,
         Some(TokenKind::Punct(Punct::Slash)) => {
@@ -908,7 +933,7 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
             p.eat(Punct::Eq);
             command.regwgt = Some(p.name("a variable name")?);
         } else if p.eat_keyword("EMMEANS") {
-            command.emmeans.push(emmeans(p)?);
+            command.emmeans.push(emmeans(p, false)?);
         } else if p.eat_keyword("POSTHOC") {
             p.eat(Punct::Eq);
             let mut factors = Vec::new();

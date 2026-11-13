@@ -36,7 +36,8 @@ use crate::shown::{Show, Shown};
 use crate::{Cell, Chart, Engine, Error, Table};
 use statscraft_data::{Measure, Values, Variable};
 use statscraft_syntax::{
-    Adjustment, Contrast, Emmeans, Glm, GlmPlot, GlmTemp, PercentileMethod, Posthoc, Profile, Term,
+    Adjustment, Contrast, Emmeans, Glm, GlmPlot, GlmTemp, LRow, PercentileMethod, Posthoc, Profile,
+    Term,
 };
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -256,7 +257,7 @@ impl Fit {
         (s, swept.iter().filter(|&&s| s).count())
     }
 
-    fn h(&self) -> Matrix {
+    pub(crate) fn h(&self) -> Matrix {
         let xwx: Matrix = (0..self.p)
             .map(|i| self.zwz[i][..self.p].to_vec())
             .collect();
@@ -283,7 +284,7 @@ impl Fit {
     }
 
     /// Whether l is estimable: l' H = l'.
-    fn estimable(&self, l: &[f64], h: &Matrix) -> bool {
+    pub(crate) fn estimable(&self, l: &[f64], h: &Matrix) -> bool {
         let scale = l.iter().fold(1.0_f64, |m, v| m.max(v.abs()));
         (0..self.p).all(|j| {
             let lh: f64 = (0..self.p).map(|i| l[i] * h[i][j]).sum();
@@ -535,7 +536,7 @@ fn f_table(
     }
 }
 
-fn adjusted(p: f64, m: f64, adjustment: Adjustment) -> f64 {
+pub(crate) fn adjusted(p: f64, m: f64, adjustment: Adjustment) -> f64 {
     match adjustment {
         Adjustment::Lsd => p,
         Adjustment::Bonferroni => (p * m).min(1.0),
@@ -544,7 +545,7 @@ fn adjusted(p: f64, m: f64, adjustment: Adjustment) -> f64 {
 }
 
 /// The t value of a two-sided interval at `alpha`, adjusted for m comparisons.
-fn adjusted_t(alpha: f64, m: f64, df: f64, adjustment: Adjustment) -> f64 {
+pub(crate) fn adjusted_t(alpha: f64, m: f64, df: f64, adjustment: Adjustment) -> f64 {
     let level = match adjustment {
         Adjustment::Lsd => alpha,
         Adjustment::Bonferroni => alpha / m,
@@ -553,7 +554,7 @@ fn adjusted_t(alpha: f64, m: f64, df: f64, adjustment: Adjustment) -> f64 {
     t_quantile(level / 2.0, df)
 }
 
-fn adjustment_name(a: Adjustment) -> &'static str {
+pub(crate) fn adjustment_name(a: Adjustment) -> &'static str {
     match a {
         Adjustment::Lsd => "Least Significant Difference (equivalent to no adjustments)",
         Adjustment::Bonferroni => "Bonferroni",
@@ -571,7 +572,7 @@ pub(crate) fn percent_title(alpha: f64) -> String {
 }
 
 /// Every combination of one level from each list, the first outermost.
-fn combinations(sizes: &[usize]) -> Vec<Vec<usize>> {
+pub(crate) fn combinations(sizes: &[usize]) -> Vec<Vec<usize>> {
     let mut out: Vec<Vec<usize>> = vec![Vec::new()];
     for &n in sizes {
         out = out
@@ -1294,44 +1295,7 @@ fn univariate(
     for (n, lm) in command.lmatrix.iter().enumerate() {
         let mut l: Vec<(String, Vec<f64>)> = Vec::new();
         for (r, row) in lm.rows.iter().enumerate() {
-            let mut coefficients = vec![0.0; fit.p];
-            for (effect, values) in row {
-                let range = match effect {
-                    None => 0..fit.p,
-                    Some(term) => {
-                        let wanted =
-                            effects_of(std::slice::from_ref(term), &d.factors, &d.covariates)?;
-                        let target = &wanted[0];
-                        let found = fit.effects.iter().find(|e| {
-                            let mut a = e.factors.clone();
-                            a.sort_unstable();
-                            let mut b = target.factors.clone();
-                            b.sort_unstable();
-                            a == b && e.covariates == target.covariates
-                        });
-                        match found {
-                            Some(e) => e.range(),
-                            None => {
-                                return Err(Error(format!(
-                                    "LMATRIX names {}, which is not an effect of the design",
-                                    term.label
-                                )));
-                            }
-                        }
-                    }
-                };
-                if values.len() != range.len() {
-                    return Err(Error(format!(
-                        "LMATRIX gives {} coefficients where the effect has {} parameters",
-                        values.len(),
-                        range.len()
-                    )));
-                }
-                for (j, v) in range.zip(values) {
-                    coefficients[j] += v;
-                }
-            }
-            l.push((format!("L{}", r + 1), coefficients));
+            l.push((format!("L{}", r + 1), l_row(d, fit, row, "LMATRIX")?));
         }
         let k: Option<Matrix> = match &command.kmatrix {
             Some(values) if values.len() == l.len() => {
@@ -1818,7 +1782,12 @@ fn lack_of_fit(d: &Data, fit: &Fit, dependent: &str, flags: &Flags) -> Table {
 
 /// The l vector of the estimated marginal mean at the fixed levels, covariates at their means
 /// or at the values of `with` (by covariate index).
-fn emmeans_l(d: &Data, fit: &Fit, fixed: &[(usize, usize)], with: &[(usize, f64)]) -> Vec<f64> {
+pub(crate) fn emmeans_l(
+    d: &Data,
+    fit: &Fit,
+    fixed: &[(usize, usize)],
+    with: &[(usize, f64)],
+) -> Vec<f64> {
     let mut l = vec![0.0; fit.p];
     for e in &fit.effects {
         let agree: Vec<usize> = e
@@ -1863,9 +1832,74 @@ fn emmeans_l(d: &Data, fit: &Fit, fixed: &[(usize, usize)], with: &[(usize, f64)
     l
 }
 
+/// One row of an L matrix over every parameter of `fit`, from coefficients given by effect
+/// (or for ALL of them); `what` names the subcommand in errors.
+pub(crate) fn l_row(d: &Data, fit: &Fit, row: &LRow, what: &str) -> Result<Vec<f64>, Error> {
+    let mut coefficients = vec![0.0; fit.p];
+    for (effect, values) in row {
+        let range = match effect {
+            None => 0..fit.p,
+            Some(term) => {
+                let wanted = effects_of(std::slice::from_ref(term), &d.factors, &d.covariates)?;
+                let target = &wanted[0];
+                let found = fit.effects.iter().find(|e| {
+                    let mut a = e.factors.clone();
+                    a.sort_unstable();
+                    let mut b = target.factors.clone();
+                    b.sort_unstable();
+                    a == b && e.covariates == target.covariates
+                });
+                match found {
+                    Some(e) => e.range(),
+                    None => {
+                        return Err(Error(format!(
+                            "{what} names {}, which is not an effect of the design",
+                            term.label
+                        )));
+                    }
+                }
+            }
+        };
+        if values.len() != range.len() {
+            return Err(Error(format!(
+                "{what} gives {} coefficients where the effect has {} parameters",
+                values.len(),
+                range.len()
+            )));
+        }
+        for (j, v) in range.zip(values) {
+            coefficients[j] += v;
+        }
+    }
+    Ok(coefficients)
+}
+
+/// The caption note on the values the covariates are held at.
+pub(crate) fn covariate_note(d: &Data, with: &[(usize, f64)]) -> String {
+    if d.covariates.is_empty() {
+        return String::new();
+    }
+    let values: Vec<String> = d
+        .covariates
+        .iter()
+        .enumerate()
+        .map(|(c, n)| {
+            let v = with
+                .iter()
+                .find(|(w, _)| *w == c)
+                .map_or_else(|| d.covariate_mean(&[c]), |(_, v)| *v);
+            format!("{n} = {}", (v * 1e4).round() / 1e4)
+        })
+        .collect();
+    format!(
+        " Covariates appearing in the model are evaluated at the following values: {}.",
+        values.join(", ")
+    )
+}
+
 /// The covariates of WITH by index, with the values given; MEAN ones are left out, so that
 /// they stay at their means.
-fn covariate_values(
+pub(crate) fn covariate_values(
     d: &Data,
     with: &[(String, Option<f64>)],
     what: &str,
@@ -2271,26 +2305,7 @@ fn emmeans_tables(
         }
         rows.push(row);
     }
-    let covariate_note = if d.covariates.is_empty() {
-        String::new()
-    } else {
-        let values: Vec<String> = d
-            .covariates
-            .iter()
-            .enumerate()
-            .map(|(c, n)| {
-                let v = with
-                    .iter()
-                    .find(|(w, _)| *w == c)
-                    .map_or_else(|| d.covariate_mean(&[c]), |(_, v)| *v);
-                format!("{n} = {}", (v * 1e4).round() / 1e4)
-            })
-            .collect();
-        format!(
-            " Covariates appearing in the model are evaluated at the following values: {}.",
-            values.join(", ")
-        )
-    };
+    let covariate_note = covariate_note(d, &with);
     let mut caption = format!("Dependent Variable: {dependent}.{covariate_note}");
     if not_estimable {
         caption.push_str(" A mean without a value is not estimable.");

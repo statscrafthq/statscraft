@@ -526,6 +526,10 @@ Where the documentation is silent:
 - When an iteration cannot improve the likelihood within MXSTEP halvings, or MXITER runs out, the fit stops with a warning and shows the estimates it reached.
 - SAVE names are FXPRED_1, PRED_1, RESID_1, SEFIXP_1 and DFFIXP_1, or the names given. RESID is the dependent minus PRED.
 - Cases that a random effect without SUBJECT links into one covariance block of more than 2000 cases are not supported yet; give RANDOM a SUBJECT.
+- EMMEANS and TEST were checked against a separate R calculation: the means built from the predicted cells, their standard errors from the covariance of the fixed estimates, and the Satterthwaite degrees of freedom of each mean, difference and F test from numerical derivatives. Every estimated marginal mean and every pairwise difference has its own degrees of freedom, so the table of means has a df column. The covariate means that EMMEANS uses count frequency weights but not REGWGT.
+- Pairwise comparisons with REFCAT list each level against the reference level once, and the Bonferroni and Sidak adjustments count those comparisons (levels less one) instead of every pair.
+- TEST tables: Contrast Estimates (each row's estimate, the value it is tested against, standard error, df, t, significance and the interval of the estimate) and Test Results (the joint F test of the rows). A test without a label is called Custom Hypothesis Test 1, 2 and so on.
+- PRINT G without RANDOM and PRINT R without REPEATED are ignored with a warning. R shows the structure of one subject without regression weights. COVB shows 0 and CORB nothing for a redundant parameter.
 
 ### ANOVA
 
@@ -846,7 +850,7 @@ Where the documentation is silent:
   - PLUM has no TEST.
   - CSPLAN has no SAMPLE designs; CSDESCRIPTIVES and CSTABULATE have no JOINTPROB and no UNEQUAL_WOR estimator.
   - UNIANOVA and GLM have no multivariate model (GLM with several dependents without WSFACTOR), RANDOM, TEST, ROBUST, OUTFILE, MMATRIX, MEASURE, POSTHOC VS, CONTRAST SPECIAL or the heteroskedasticity tests. With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX, SAVE or PLOT.
-  - MIXED has no EMMEANS, TEST, SSTYPE(1), DFMETHOD(KENWARDROGER), SOLUTION on RANDOM, PRINT CORB, COVB, CPS, DESCRIPTIVES, G, HISTORY, LMATRIX or R, SAVE SEPRED or DFPRED, and no COVTYPE other than VC, ID, DIAG, UN, CS and AR1 (no KRONECKER or SPCOORDS).
+  - MIXED has no TEST coefficients for random effects, SSTYPE(1), DFMETHOD(KENWARDROGER), SOLUTION on RANDOM, PRINT CPS, DESCRIPTIVES, HISTORY or LMATRIX, SAVE SEPRED or DFPRED, and no COVTYPE other than VC, ID, DIAG, UN, CS and AR1 (no KRONECKER or SPCOORDS).
   - FACTOR has no METHOD=COVARIANCE, MATRIX=OUT or MATRIX=IN(FAC=...).
   - CLUSTER has no MATRIX=OUT.
   - DISCRIMINANT has no ROTATE=COEFF or STRUCTURE, MATRIX or OUTFILE, and no cross-validated rows in the casewise listing.

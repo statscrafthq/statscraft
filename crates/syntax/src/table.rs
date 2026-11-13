@@ -1563,7 +1563,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/CRITERIA=[CIN(95)] [MXITER(100)] [MXSTEP(10)] [SCORING(1)] [SINGULAR(1E-12)]\n\
                  \x20            [PCONVERGE(1E-6[, ABSOLUTE | RELATIVE])] [LCONVERGE(0[, ...])] [HCONVERGE(0[, ...])]\n\
                  \x20            [DFMETHOD(SATTERTHWAITE | RESIDUAL)]]\n\
-                 \x20  [/PRINT=[SOLUTION] [TESTCOV]] [/SAVE=tempvar[(name)] ...].\n\
+                 \x20  [/PRINT=[SOLUTION] [TESTCOV] [G] [R] [COVB] [CORB]] [/SAVE=tempvar[(name)] ...]\n\
+                 \x20  [/EMMEANS=TABLES(OVERALL | factor[*factor...]) [WITH(covariate=value | MEAN ...)]\n\
+                 \x20            [COMPARE[(factor)] [REFCAT(value | FIRST | LAST)] [ADJ(LSD | BONFERRONI | SIDAK)]]] ...\n\
+                 \x20  [/TEST[(constants)]=['label'] effect values ... [DIVISOR=n]; ... | ALL values ...] ...\n\
                  effects: INTERCEPT (first), a factor or covariate, a*b or a BY b, a(b) or a WITHIN b.\n\
                  type: VC (the RANDOM default: one variance per effect), ID (one variance for the block), DIAG (the\n\
                  REPEATED default: one variance per level), UN (every variance and covariance), CS (a diagonal\n\
@@ -1587,10 +1590,20 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Estimates of Fixed Effects (SOLUTION) and Estimates of Covariance Parameters (with TESTCOV the\n\
                  standard errors from the observed Hessian, Wald Z and intervals on the log scale for variances\n\
                  and the Fisher z scale for correlations). Degrees of freedom are Satterthwaite's, or the cases\n\
-                 less the rank of the fixed design with DFMETHOD(RESIDUAL). Not supported yet: EMMEANS, TEST,\n\
-                 SSTYPE(1), DFMETHOD(KENWARDROGER), COVTYPE AD1, ARH1, ARMA11, CSH, CSR, FA1, FAH1, HF, TP, TPH,\n\
-                 UNR and the spatial and Kronecker types, KRONECKER, SPCOORDS, SOLUTION on RANDOM, PRINT CORB,\n\
-                 COVB, CPS, DESCRIPTIVES, G, HISTORY, LMATRIX and R, SAVE SEPRED and DFPRED.",
+                 less the rank of the fixed design with DFMETHOD(RESIDUAL). EMMEANS averages the fitted cells\n\
+                 equally over the factors left out, covariates at their means or the WITH values; each mean and\n\
+                 each difference gets its own degrees of freedom. COMPARE lists every pair of levels, or each\n\
+                 level against REFCAT, with Bonferroni or Sidak adjustment over that number of comparisons, and\n\
+                 an F test of the compared factor at each level of the others. TEST takes coefficients for the\n\
+                 parameters of named fixed effects (redundant ones included) or ALL of them, one row per\n\
+                 combination; the constants in parentheses are the values tested against (0 by default) and\n\
+                 DIVISOR divides a row. It gives each row's estimate with a t test and the joint F test; a row\n\
+                 that is not estimable is dropped with a warning. PRINT G and R show the covariance of one\n\
+                 subject's random effects and repeated levels, COVB and CORB the covariance and correlation of\n\
+                 the fixed estimates. Not supported yet: TEST coefficients for random effects, SSTYPE(1),\n\
+                 DFMETHOD(KENWARDROGER), COVTYPE AD1, ARH1, ARMA11, CSH, CSR, FA1, FAH1, HF, TP, TPH, UNR and the\n\
+                 spatial and Kronecker types, KRONECKER, SPCOORDS, SOLUTION on RANDOM, PRINT CPS, DESCRIPTIVES,\n\
+                 HISTORY and LMATRIX, SAVE SEPRED and DFPRED.",
         example: "MIXED yield BY plot_type WITH rain /FIXED=plot_type rain /RANDOM=INTERCEPT rain | SUBJECT(farm) COVTYPE(UN) /PRINT=SOLUTION TESTCOV.",
         parse: mixed::mixed,
     },

@@ -30,6 +30,16 @@
 //!   ML: n all cases and d both kinds.
 //! - Wald intervals: variances on the log scale, correlations on the Fisher z scale, other
 //!   parameters as they are.
+//! - EMMEANS and TEST are combinations l b of the fixed effects, built as in UNIANOVA (a mean
+//!   averages the cells of the other factors equally; covariates sit at their means over the
+//!   cases, or at the WITH values). Each has the standard error sqrt(l C l') and its own
+//!   Satterthwaite df; a row that is not estimable is left out. Pairwise comparisons adjust the
+//!   significance and the interval for m comparisons (every pair, or each level against REFCAT):
+//!   Bonferroni p m, Sidak 1 - (1 - p)^m. The F tests of several rows use the df rule above.
+//! - PRINT G shows the covariance of one subject's random effects, R that of one subject's
+//!   repeated levels (without regression weights); each is left out with a warning when there is
+//!   no RANDOM or REPEATED. COVB is C, CORB its correlations; a redundant parameter has 0 and no
+//!   correlation.
 
 use std::collections::HashMap;
 
@@ -37,7 +47,8 @@ use crate::crosstabs::{Key, categories};
 use crate::descriptives::{case_weights, number};
 use crate::dist::{f_p, normal_p, normal_quantile, t_p, t_quantile};
 use crate::glm::{
-    Data, Effect, Fit, Part, effects_of, intercept_term, key_value_text, parameter_name,
+    Data, Effect, Fit, Part, adjusted, adjusted_t, adjustment_name, combinations, covariate_note,
+    covariate_values, effects_of, emmeans_l, intercept_term, key_value_text, l_row, parameter_name,
     percent_title,
 };
 use crate::matrix::{Matrix, symmetric_eigen};
@@ -46,7 +57,7 @@ use crate::regression::{plain, table};
 use crate::shown::{Show, Shown};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Measure, Values, Variable};
-use statscraft_syntax::{CovType, Mixed, MixedTemp, Term};
+use statscraft_syntax::{CovType, Emmeans, Mixed, MixedTemp, MixedTest, RefCat, Term, Value};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Kind {
@@ -629,6 +640,478 @@ fn satterthwaite(var: f64, grad: &[f64], sigma: Option<&Matrix>) -> f64 {
     }
 }
 
+/// Inference on combinations of the fixed effects, l in the reduced fixed coordinates.
+struct Infer<'a> {
+    model: &'a Model,
+    e: &'a Eval,
+    sigma: Option<&'a Matrix>,
+    /// DFMETHOD(RESIDUAL): n - rank X for every test; Satterthwaite otherwise.
+    residual_df: Option<f64>,
+}
+
+impl Infer<'_> {
+    fn df(&self, l: &[f64]) -> f64 {
+        self.residual_df.unwrap_or_else(|| {
+            let (var, grad) = self.model.variance_and_gradient(self.e, l);
+            satterthwaite(var, &grad, self.sigma)
+        })
+    }
+
+    /// l b with its standard error and degrees of freedom.
+    fn estimate(&self, l: &[f64]) -> (f64, f64, f64) {
+        let (var, _) = self.model.variance_and_gradient(self.e, l);
+        (dot(l, &self.e.beta), var.sqrt(), self.df(l))
+    }
+
+    /// The F test of L b = a: the rank q of L C L', the denominator df and F; None when q is 0.
+    fn f_test(&self, l: &Matrix, a: &[f64]) -> Option<(usize, f64, f64)> {
+        let e = self.e;
+        let lcl: Matrix = l
+            .iter()
+            .map(|x| l.iter().map(|y| dot(x, &mat_vec(&e.a_inv, y))).collect())
+            .collect();
+        let pairs = symmetric_eigen(&lcl);
+        let top = pairs.first().map_or(0.0, |p| p.0);
+        // each eigenvector v gives the direction v'L, tested by v'(L b - a)
+        let used: Vec<(f64, Vec<f64>, f64)> = pairs
+            .into_iter()
+            .filter(|(d, _)| top > 0.0 && *d > 1e-8 * top)
+            .map(|(d, v)| {
+                let lm: Vec<f64> = (0..e.beta.len())
+                    .map(|j| v.iter().zip(l).map(|(c, row)| c * row[j]).sum())
+                    .collect();
+                let shift = dot(&lm, &e.beta) - dot(&v, a);
+                (d, lm, shift)
+            })
+            .collect();
+        let q = used.len();
+        if q == 0 {
+            return None;
+        }
+        let f = used.iter().map(|(d, _, s)| s * s / d).sum::<f64>() / q as f64;
+        let df = self.residual_df.unwrap_or_else(|| {
+            let nus: Vec<f64> = used
+                .iter()
+                .map(|(d, lm, _)| {
+                    let (_, grad) = self.model.variance_and_gradient(e, lm);
+                    satterthwaite(*d, &grad, self.sigma)
+                })
+                .collect();
+            if q == 1 {
+                return nus[0];
+            }
+            let big_e: f64 = nus
+                .iter()
+                .filter(|v| **v > 2.0)
+                .map(|v| v / (v - 2.0))
+                .sum();
+            if big_e > q as f64 {
+                2.0 * big_e / (big_e - q as f64)
+            } else {
+                f64::NAN
+            }
+        });
+        Some((q, df, f))
+    }
+}
+
+/// The t value of a two-sided interval at `alpha` on `df`, NaN when df is not known.
+fn t_crit(alpha: f64, df: f64) -> f64 {
+    if df.is_finite() {
+        t_quantile(alpha / 2.0, df)
+    } else {
+        f64::NAN
+    }
+}
+
+/// The fixed part for EMMEANS and TEST: combinations over every parameter of `fit` are checked
+/// for estimability and reduced to the kept columns.
+struct FixedPart<'a> {
+    inf: Infer<'a>,
+    d: &'a Data,
+    fit: &'a Fit,
+    h: Matrix,
+    kept: &'a [usize],
+    cin: f64,
+    dependent: &'a str,
+}
+
+impl FixedPart<'_> {
+    fn reduce(&self, l: &[f64]) -> Option<Vec<f64>> {
+        self.fit
+            .estimable(l, &self.h)
+            .then(|| self.kept.iter().map(|&j| l[j]).collect())
+    }
+
+    fn alpha(&self) -> f64 {
+        1.0 - self.cin / 100.0
+    }
+
+    fn emmeans(
+        &self,
+        e: &Emmeans,
+        label_of: &dyn Fn(usize, usize) -> String,
+        level_of: &dyn Fn(usize, &Value) -> Option<usize>,
+    ) -> Result<Vec<Table>, Error> {
+        let d = self.d;
+        let find = |name: &str| -> Result<usize, Error> {
+            d.factors
+                .iter()
+                .position(|v| v.eq_ignore_ascii_case(name))
+                .ok_or_else(|| Error(format!("EMMEANS names {name}, which is not a factor")))
+        };
+        let factors: Vec<usize> = e
+            .factors
+            .iter()
+            .map(|n| find(n))
+            .collect::<Result<_, _>>()?;
+        let with = covariate_values(d, &e.with, "EMMEANS")?;
+        let alpha = self.alpha();
+        let combos = combinations(
+            &factors
+                .iter()
+                .map(|&f| d.values[f].len())
+                .collect::<Vec<_>>(),
+        );
+        let ls: Vec<Option<Vec<f64>>> = combos
+            .iter()
+            .map(|combo| {
+                let fixed: Vec<(usize, usize)> =
+                    factors.iter().copied().zip(combo.iter().copied()).collect();
+                self.reduce(&emmeans_l(d, self.fit, &fixed, &with))
+            })
+            .collect();
+        let ci = |columns: &mut Vec<(String, String)>, what: &str| {
+            let group = format!("{}{what}", ci_title(self.cin));
+            columns.push((group.clone(), "Lower Bound".into()));
+            columns.push((group, "Upper Bound".into()));
+        };
+        let mut columns: Vec<(String, String)> = factors
+            .iter()
+            .map(|&f| (String::new(), d.factor_texts[f].clone()))
+            .collect();
+        columns.extend(plain(&["Mean", "Std. Error", "df"]));
+        ci(&mut columns, "");
+        let mut rows = Vec::new();
+        let mut not_estimable = false;
+        for (combo, l) in combos.iter().zip(&ls) {
+            let mut row: Vec<Cell> = factors
+                .iter()
+                .zip(combo)
+                .enumerate()
+                .map(|(k, (&f, &lv))| {
+                    if rows.is_empty() || combo[k + 1..].iter().all(|&x| x == 0) {
+                        text(label_of(f, lv))
+                    } else {
+                        Cell::Empty
+                    }
+                })
+                .collect();
+            match l {
+                Some(l) => {
+                    let (m, se, df) = self.inf.estimate(l);
+                    let tc = t_crit(alpha, df);
+                    row.extend([m, se, df, m - tc * se, m + tc * se].map(|v| number(Some(v))));
+                }
+                None => {
+                    not_estimable = true;
+                    row.extend(std::iter::repeat_n(Cell::Empty, 5));
+                }
+            }
+            rows.push(row);
+        }
+        let dependent = self.dependent;
+        let mut caption = format!(
+            "Dependent Variable: {dependent}.{}",
+            covariate_note(d, &with)
+        );
+        if not_estimable {
+            caption.push_str(" A mean without a value is not estimable.");
+        }
+        let title = if factors.is_empty() {
+            "Estimated Marginal Means: Grand Mean".to_string()
+        } else {
+            format!("Estimated Marginal Means: {}", e.factors.join(" * "))
+        };
+        let mut out = vec![table(&title, factors.len(), columns, rows, Some(caption))];
+        let Some(compare) = &e.compare else {
+            return Ok(out);
+        };
+        let compared = match compare {
+            Some(n) => find(n)?,
+            None => factors[0],
+        };
+        let Some(at) = factors.iter().position(|&f| f == compared) else {
+            return Err(Error(format!(
+                "COMPARE names {}, which is not in TABLES",
+                d.factors[compared]
+            )));
+        };
+        let k = d.values[compared].len();
+        let reference = match &e.refcat {
+            None => None,
+            Some(RefCat::First) => Some(0),
+            Some(RefCat::Last) => Some(k - 1),
+            Some(RefCat::Value(v)) => Some(level_of(compared, v).ok_or_else(|| {
+                let shown_value = match v {
+                    Value::Number(n) => n.to_string(),
+                    Value::String(s) => format!("'{s}'"),
+                };
+                Error(format!(
+                    "REFCAT {shown_value} is not a level of {} among the cases used",
+                    d.factors[compared]
+                ))
+            })?),
+        };
+        let pairs: Vec<(usize, usize)> = match reference {
+            Some(r) => (0..k).filter(|&i| i != r).map(|i| (i, r)).collect(),
+            None => (0..k)
+                .flat_map(|i| (0..k).filter(move |&j| j != i).map(move |j| (i, j)))
+                .collect(),
+        };
+        let m = if reference.is_some() {
+            k as f64 - 1.0
+        } else {
+            (k * (k - 1) / 2) as f64
+        };
+        let others: Vec<usize> = (0..factors.len()).filter(|&i| i != at).collect();
+        let other_combos = combinations(
+            &others
+                .iter()
+                .map(|&i| d.values[factors[i]].len())
+                .collect::<Vec<_>>(),
+        );
+        let mean_at = |other: &[usize], lv: usize| -> &Option<Vec<f64>> {
+            let mut combo = vec![0; factors.len()];
+            for (o, &i) in other.iter().zip(&others) {
+                combo[i] = *o;
+            }
+            combo[at] = lv;
+            &ls[combos
+                .iter()
+                .position(|c| *c == combo)
+                .expect("a combination")]
+        };
+        let difference =
+            |a: &[f64], b: &[f64]| -> Vec<f64> { a.iter().zip(b).map(|(x, y)| x - y).collect() };
+        let mut columns: Vec<(String, String)> = others
+            .iter()
+            .map(|&i| (String::new(), d.factor_texts[factors[i]].clone()))
+            .collect();
+        let name = d.factor_texts[compared].as_str();
+        columns.push((String::new(), format!("(I) {name}")));
+        columns.push((String::new(), format!("(J) {name}")));
+        columns.extend(plain(&[
+            "Mean Difference (I-J)",
+            "Std. Error",
+            "df",
+            "Sig.",
+        ]));
+        ci(&mut columns, " for Difference");
+        let mut rows = Vec::new();
+        let mut tests = Vec::new();
+        for other in &other_combos {
+            for (n, &(i, j)) in pairs.iter().enumerate() {
+                let mut row: Vec<Cell> = others
+                    .iter()
+                    .zip(other)
+                    .map(|(&o, &lv)| {
+                        if n == 0 {
+                            text(label_of(factors[o], lv))
+                        } else {
+                            Cell::Empty
+                        }
+                    })
+                    .collect();
+                let first_of_i = n == 0 || pairs[n - 1].0 != i;
+                row.push(if first_of_i {
+                    text(label_of(compared, i))
+                } else {
+                    Cell::Empty
+                });
+                row.push(text(label_of(compared, j)));
+                match (mean_at(other, i), mean_at(other, j)) {
+                    (Some(li), Some(lj)) => {
+                        let (md, se, df) = self.inf.estimate(&difference(li, lj));
+                        let p = adjusted(t_p(md / se, df), m, e.adjustment);
+                        let tc = if df.is_finite() {
+                            adjusted_t(alpha, m, df, e.adjustment)
+                        } else {
+                            f64::NAN
+                        };
+                        row.extend(
+                            [md, se, df, p, md - tc * se, md + tc * se].map(|v| number(Some(v))),
+                        );
+                    }
+                    _ => row.extend(std::iter::repeat_n(Cell::Empty, 6)),
+                }
+                rows.push(row);
+            }
+            // the simple effect of the compared factor at these levels of the others
+            let l: Matrix = (0..k - 1)
+                .filter_map(|i| match (mean_at(other, i), mean_at(other, k - 1)) {
+                    (Some(li), Some(lk)) => Some(difference(li, lk)),
+                    _ => None,
+                })
+                .collect();
+            let label: Vec<String> = others
+                .iter()
+                .zip(other)
+                .map(|(&o, &lv)| {
+                    format!(
+                        "{} = {}",
+                        d.factor_texts[factors[o]],
+                        label_of(factors[o], lv)
+                    )
+                })
+                .collect();
+            let mut row = vec![text(if label.is_empty() {
+                name.to_string()
+            } else {
+                label.join(", ")
+            })];
+            match self.inf.f_test(&l, &vec![0.0; l.len()]) {
+                Some((q, df, f)) => row.extend([
+                    Cell::Number(q as f64),
+                    number(Some(df)),
+                    number(Some(f)),
+                    number(Some(f_p(f, q as f64, df))),
+                ]),
+                None => row.extend(std::iter::repeat_n(Cell::Empty, 4)),
+            }
+            tests.push(row);
+        }
+        out.push(table(
+            "Pairwise Comparisons",
+            others.len() + 2,
+            columns,
+            rows,
+            Some(format!(
+                "Dependent Variable: {dependent}. Based on estimated marginal means. Adjustment for multiple comparisons: {}.",
+                adjustment_name(e.adjustment)
+            )),
+        ));
+        out.push(table(
+            "Univariate Tests",
+            1,
+            plain(&["", "Numerator df", "Denominator df", "F", "Sig."]),
+            tests,
+            Some(format!(
+                "Dependent Variable: {dependent}. The F tests the effect of {name}, based on the linearly independent pairwise comparisons among the estimated marginal means."
+            )),
+        ));
+        Ok(out)
+    }
+
+    /// TEST: one row per estimable combination and the joint F test of all of them.
+    fn custom_test(
+        &self,
+        n: usize,
+        t: &MixedTest,
+        warnings: &mut Vec<String>,
+    ) -> Result<Vec<Table>, Error> {
+        let title = t
+            .label
+            .clone()
+            .unwrap_or_else(|| format!("Custom Hypothesis Test {n}"));
+        let alpha = self.alpha();
+        let mut rows = Vec::new();
+        let mut l = Vec::new();
+        let mut a = Vec::new();
+        for (r, (row, constant)) in t.rows.iter().zip(&t.constants).enumerate() {
+            let full = l_row(self.d, self.fit, row, "TEST")?;
+            let name = format!("L{}", r + 1);
+            let Some(lr) = self.reduce(&full) else {
+                warnings.push(format!(
+                    "TEST {title}: {name} is not estimable and is not tested"
+                ));
+                continue;
+            };
+            let (est, se, df) = self.inf.estimate(&lr);
+            let tv = (est - constant) / se;
+            let tc = t_crit(alpha, df);
+            let mut cells = vec![text(name)];
+            cells.extend(
+                [
+                    est,
+                    *constant,
+                    se,
+                    df,
+                    tv,
+                    t_p(tv, df),
+                    est - tc * se,
+                    est + tc * se,
+                ]
+                .map(|v| number(Some(v))),
+            );
+            rows.push(cells);
+            l.push(lr);
+            a.push(*constant);
+        }
+        let caption = format!("{title}. Dependent Variable: {}.", self.dependent);
+        let mut out = Vec::new();
+        if rows.is_empty() {
+            return Ok(out);
+        }
+        let mut columns = plain(&[
+            "Contrast",
+            "Estimate",
+            "Test Value",
+            "Std. Error",
+            "df",
+            "t",
+            "Sig.",
+        ]);
+        let group = ci_title(self.cin);
+        columns.push((group.clone(), "Lower Bound".into()));
+        columns.push((group, "Upper Bound".into()));
+        out.push(table(
+            "Contrast Estimates",
+            1,
+            columns,
+            rows,
+            Some(caption.clone()),
+        ));
+        if let Some((q, df, f)) = self.inf.f_test(&l, &a) {
+            out.push(table(
+                "Test Results",
+                1,
+                plain(&["Source", "Numerator df", "Denominator df", "F", "Sig."]),
+                vec![vec![
+                    text(title),
+                    Cell::Number(q as f64),
+                    number(Some(df)),
+                    number(Some(f)),
+                    number(Some(f_p(f, q as f64, df))),
+                ]],
+                Some(caption),
+            ));
+        }
+        Ok(out)
+    }
+}
+
+/// A square matrix table with the same names on its rows and columns.
+fn matrix_table(
+    title: &str,
+    names: &[String],
+    value: &dyn Fn(usize, usize) -> Cell,
+    caption: String,
+) -> Table {
+    let mut columns = plain(&[""]);
+    columns.extend(names.iter().map(|n| (String::new(), n.clone())));
+    let rows = names
+        .iter()
+        .enumerate()
+        .map(|(i, n)| {
+            let mut row = vec![text(n.clone())];
+            row.extend((0..names.len()).map(|j| value(i, j)));
+            row
+        })
+        .collect();
+    table(title, 1, columns, rows, Some(caption))
+}
+
 /// The largest block of cases the dense likelihood takes.
 // shortcut: V is formed densely per independent set of cases; a random effect without SUBJECT
 // that links every case makes one set of all cases. Upgrade to the sparse mixed model
@@ -889,7 +1372,7 @@ impl Engine {
             levels.push(found);
         }
         let labels = Shown::labels(shown.currencies.clone());
-        let d = Data {
+        let mut d = Data {
             factors: factor_names.clone(),
             factor_texts: factor_vars.iter().map(|v| shown.variable(v)).collect(),
             values: factor_vars
@@ -1134,6 +1617,8 @@ impl Engine {
             .iter()
             .flat_map(|b| b.start_values(share))
             .collect();
+        // EMMEANS holds covariates at their means over the cases, not weighted by REGWGT
+        d.g = vec![1.0; n];
         let (fitted, more) = fit_model(&model, start_values, command)?;
         warnings.extend(more);
         let dep_text = shown.variable(&dependent);
@@ -1141,13 +1626,11 @@ impl Engine {
         let e = &fitted.eval;
         let sigma = fitted.sigma.as_ref();
         let residual_df = (n - p) as f64;
-        let df_of = |l: &[f64]| -> f64 {
-            if command.residual_df {
-                residual_df
-            } else {
-                let (var, grad) = model.variance_and_gradient(e, l);
-                satterthwaite(var, &grad, sigma)
-            }
+        let inf = Infer {
+            model: &model,
+            e,
+            sigma,
+            residual_df: command.residual_df.then_some(residual_df),
         };
         let mut tables = Vec::new();
 
@@ -1288,24 +1771,7 @@ impl Engine {
         let mut tests = Vec::new();
         for (i, ef) in fixed.effects.iter().enumerate() {
             let l: Matrix = fixed.type34(i, false).iter().map(|r| reduce(r)).collect();
-            let lcl: Matrix = l
-                .iter()
-                .map(|a| l.iter().map(|b| dot(a, &mat_vec(&e.a_inv, b))).collect())
-                .collect();
-            let pairs = symmetric_eigen(&lcl);
-            let top = pairs.first().map_or(0.0, |p| p.0);
-            let used: Vec<(f64, Vec<f64>)> = pairs
-                .into_iter()
-                .filter(|(d, _)| top > 0.0 && *d > 1e-8 * top)
-                .map(|(d, v)| {
-                    let lm: Vec<f64> = (0..p)
-                        .map(|j| v.iter().zip(&l).map(|(c, row)| c * row[j]).sum())
-                        .collect();
-                    (d, lm)
-                })
-                .collect();
-            let q = used.len();
-            if q == 0 {
+            let Some((q, df, f)) = inf.f_test(&l, &vec![0.0; l.len()]) else {
                 tests.push(vec![
                     text(ef.label.clone()),
                     Cell::Number(0.0),
@@ -1314,31 +1780,6 @@ impl Engine {
                     Cell::Empty,
                 ]);
                 continue;
-            }
-            let f: f64 = used
-                .iter()
-                .map(|(d, lm)| dot(lm, &e.beta).powi(2) / d)
-                .sum::<f64>()
-                / q as f64;
-            let df = if command.residual_df {
-                residual_df
-            } else if q == 1 {
-                df_of(&used[0].1)
-            } else {
-                let big_e: f64 = used
-                    .iter()
-                    .map(|(d, lm)| {
-                        let (_, grad) = model.variance_and_gradient(e, lm);
-                        satterthwaite(*d, &grad, sigma)
-                    })
-                    .filter(|v| *v > 2.0)
-                    .map(|v| v / (v - 2.0))
-                    .sum();
-                if big_e > q as f64 {
-                    2.0 * big_e / (big_e - q as f64)
-                } else {
-                    f64::NAN
-                }
             };
             tests.push(vec![
                 text(ef.label.clone()),
@@ -1382,13 +1823,9 @@ impl Engine {
                     l[at] = 1.0;
                     let b = e.beta[at];
                     let se = e.a_inv[at][at].sqrt();
-                    let df = df_of(&l);
+                    let df = inf.df(&l);
                     let t = b / se;
-                    let tc = if df.is_finite() {
-                        t_quantile(alpha / 2.0, df)
-                    } else {
-                        f64::NAN
-                    };
+                    let tc = t_crit(alpha, df);
                     out.push(vec![
                         text(name),
                         number(Some(b)),
@@ -1412,6 +1849,48 @@ impl Engine {
                 out,
                 Some(cap),
             ));
+        }
+        let names: Vec<String> = fixed
+            .effects
+            .iter()
+            .flat_map(|ef| ef.cells.iter().map(|cell| parameter_name(&d, ef, cell)))
+            .collect();
+        let at = |j: usize| kept.iter().position(|&c| c == j);
+        if command.print.covb {
+            tables.push(matrix_table(
+                "Covariance Matrix for Estimates of Fixed Effects",
+                &names,
+                &|i, j| match (at(i), at(j)) {
+                    (Some(a), Some(b)) => Cell::Number(e.a_inv[a][b]),
+                    _ => Cell::Number(0.0),
+                },
+                caption.clone(),
+            ));
+        }
+        if command.print.corb {
+            tables.push(matrix_table(
+                "Correlation Matrix for Estimates of Fixed Effects",
+                &names,
+                &|i, j| match (at(i), at(j)) {
+                    (Some(a), Some(b)) => {
+                        Cell::Number(e.a_inv[a][b] / (e.a_inv[a][a] * e.a_inv[b][b]).sqrt())
+                    }
+                    _ => Cell::Empty,
+                },
+                caption.clone(),
+            ));
+        }
+        let part = FixedPart {
+            inf,
+            d: &d,
+            fit: &fixed,
+            h: fixed.h(),
+            kept: &kept,
+            cin: command.cin,
+            dependent: &dep_text,
+        };
+        for (k, t) in command.tests.iter().enumerate() {
+            tables.extend(part.custom_test(k + 1, t, &mut warnings)?);
         }
 
         // Estimates of Covariance Parameters
@@ -1504,6 +1983,85 @@ impl Engine {
             cov_rows,
             Some(caption.clone()),
         ));
+        if command.print.g && command.random.is_empty() {
+            warnings.push("MIXED: PRINT G needs a RANDOM subcommand and is ignored".into());
+        }
+        if command.print.g {
+            for (k, (r, fit)) in command.random.iter().zip(&random_fits).enumerate() {
+                let block = &model.blocks[k + 1];
+                let names: Vec<String> = fit
+                    .effects
+                    .iter()
+                    .flat_map(|ef| ef.cells.iter().map(|cell| parameter_name(&d, ef, cell)))
+                    .collect();
+                let effects: Vec<&str> = fit.effects.iter().map(|ef| ef.label.as_str()).collect();
+                let subject = if r.subject.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [subject = {}]", r.subject.join(" * "))
+                };
+                tables.push(matrix_table(
+                    "Random Effect Covariance Structure (G)",
+                    &names,
+                    &|i, j| Cell::Number(block.value(&fitted.th, i, j, What::Value)),
+                    format!(
+                        "{}: {}{subject}. {caption}",
+                        structure_name(block.covtype),
+                        effects.join(" + ")
+                    ),
+                ));
+            }
+        }
+        match (&command.repeated, &repeated) {
+            (Some(rep), Some((_, _, _, distinct))) if command.print.r => {
+                let block = &model.blocks[0];
+                let names: Vec<String> = distinct
+                    .iter()
+                    .map(|members| {
+                        let k = rows[members[0]];
+                        rep.variables
+                            .iter()
+                            .map(|v| {
+                                let at = group_names
+                                    .iter()
+                                    .position(|g| g.eq_ignore_ascii_case(v))
+                                    .expect("listed");
+                                let key = group_keys[at][k].as_ref().expect("valid");
+                                format!("[{v} = {}]", key_value_text(&group_vars[at], key))
+                            })
+                            .collect::<Vec<_>>()
+                            .join(" * ")
+                    })
+                    .collect();
+                tables.push(matrix_table(
+                    "Residual Covariance (R) Matrix",
+                    &names,
+                    &|i, j| Cell::Number(block.value(&fitted.th, i, j, What::Value)),
+                    format!("{}. {caption}", structure_name(block.covtype)),
+                ));
+            }
+            _ if command.print.r => {
+                warnings.push("MIXED: PRINT R needs a REPEATED subcommand and is ignored".into());
+            }
+            _ => {}
+        }
+        let level_texts: Vec<Vec<String>> = factor_vars
+            .iter()
+            .zip(&levels)
+            .map(|(v, ls)| ls.iter().map(|k| shown.value(v, k)).collect())
+            .collect();
+        let label_of = |f: usize, l: usize| level_texts[f][l].clone();
+        let level_of = |f: usize, v: &Value| -> Option<usize> {
+            levels[f].iter().position(|key| match (v, key) {
+                (Value::Number(a), Key::Number(b)) => a == b,
+                (Value::String(a), Key::Text(b)) => a.trim_end() == b.trim_end(),
+                (Value::String(a), Key::Number(b)) => a.trim().parse::<f64>().ok() == Some(*b),
+                _ => false,
+            })
+        };
+        for em in &command.emmeans {
+            tables.extend(part.emmeans(em, &label_of, &level_of)?);
+        }
         for w in warnings {
             self.warn(w);
         }

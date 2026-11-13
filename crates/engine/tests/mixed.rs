@@ -4245,3 +4245,295 @@ fn errors_explain_what_is_wrong() {
     assert!(error(format!("{w}MIXED level /REPEATED=arm | SUBJECT(person).")).contains("twice"));
     assert!(error(format!("{w}MIXED level BY wave /FIXED=dose.")).contains("dose"));
 }
+
+/// The value at (row, column) of the `n`-th table titled `title`.
+fn nth(tables: &[Table], title: &str, n: usize, row: &str, column: &str) -> f64 {
+    let found: Vec<Table> = tables
+        .iter()
+        .filter(|t| t.title == title)
+        .cloned()
+        .collect();
+    let table = found
+        .get(n)
+        .unwrap_or_else(|| panic!("no table {n} {title}"));
+    cell(std::slice::from_ref(table), title, row, column)
+        .unwrap_or_else(|| panic!("{title} {n}: no {row} / {column}"))
+}
+
+/// EMMEANS, TEST, COVB and CORB of a random intercept model with an interaction. The expected
+/// values come from the separate R check: the same likelihood, maximized and differentiated
+/// numerically, the means built from the cell predictions averaged over the other factor, and
+/// the Satterthwaite df of each combination from its own gradient.
+#[test]
+fn emmeans_and_test_agree_with_the_black_box_check() {
+    let (engine, t) = run(&format!(
+        "{}MIXED mark BY girl track WITH hours /FIXED=girl track girl*track hours\n\
+         /RANDOM=INTERCEPT | SUBJECT(school) /PRINT=COVB CORB G\n\
+         /EMMEANS=TABLES(track) COMPARE ADJ(BONFERRONI)\n\
+         /EMMEANS=TABLES(girl*track) WITH(hours=5) COMPARE(girl) ADJ(SIDAK)\n\
+         /EMMEANS=TABLES(track) COMPARE REFCAT('sci')\n\
+         /EMMEANS=TABLES(OVERALL)\n\
+         /TEST(0 1.5)='two rows' track 1 -1 0 girl*track 1/2 -1/2 0 1/2 -1/2 0; hours 1\n\
+         /TEST=track 2 -2 0 girl*track 1 -1 0 1 -1 0 DIVISOR=2\n\
+         /TEST=track 1 -1 0.",
+        pupils()
+    ));
+    let check = |got: f64, want: f64, what: &str| {
+        assert!(
+            (got - want).abs() <= 1e-3 * want.abs().max(1.0),
+            "{what}: {got} vs {want}"
+        );
+    };
+    let ci = "95% Confidence Interval / Lower Bound";
+    let cid = "95% Confidence Interval for Difference / Lower Bound";
+    let em = "Estimated Marginal Means: track";
+    for (row, mean, se, df, lo) in [
+        (
+            "arts",
+            58.9117253007,
+            1.49327882081,
+            9.55440906283,
+            55.5633388613,
+        ),
+        (
+            "sci",
+            61.2859741198,
+            1.49834445138,
+            9.68481913878,
+            57.9326687733,
+        ),
+        (
+            "tech",
+            57.6129371841,
+            1.49159594353,
+            9.52142810124,
+            54.2666715695,
+        ),
+    ] {
+        check(nth(&t, em, 0, row, "Mean"), mean, row);
+        check(nth(&t, em, 0, row, "Std. Error"), se, row);
+        check(nth(&t, em, 0, row, "df"), df, row);
+        check(nth(&t, em, 0, row, ci), lo, row);
+    }
+    let grand = "Estimated Marginal Means: Grand Mean";
+    let only = |column: &str| {
+        let table = t.iter().find(|x| x.title == grand).unwrap();
+        let at = table
+            .column_titles()
+            .iter()
+            .position(|c| c == column)
+            .unwrap();
+        match table.rows[0][at] {
+            Cell::Number(v) => v,
+            _ => panic!("{column}"),
+        }
+    };
+    check(only("Mean"), 59.2702122016, "grand mean");
+    check(only("df"), 7.71365020864, "grand df");
+    let pc = "Pairwise Comparisons";
+    // Bonferroni over three pairs
+    for (row, diff, df, p, lo) in [
+        (
+            "arts / sci",
+            -2.37424881908,
+            175.403692979,
+            0.0144159815967,
+            -4.38353409341,
+        ),
+        (
+            "sci / tech",
+            3.67303693568,
+            175.875073949,
+            6.11753375803e-05,
+            1.64579234993,
+        ),
+        (
+            "tech / arts",
+            -1.2987881166,
+            175.857983045,
+            0.354017974163,
+            -3.29720992692,
+        ),
+    ] {
+        check(nth(&t, pc, 0, row, "Mean Difference (I-J)"), diff, row);
+        check(nth(&t, pc, 0, row, "df"), df, row);
+        check(nth(&t, pc, 0, row, "Sig."), p, row);
+        check(nth(&t, pc, 0, row, cid), lo, row);
+    }
+    // Sidak within each track, girl compared
+    check(
+        nth(&t, pc, 1, "sci / 0 / 1", "Mean Difference (I-J)"),
+        -1.5719120839,
+        "sci",
+    );
+    check(nth(&t, pc, 1, "sci / 0 / 1", "Sig."), 0.18878652495, "sci");
+    check(nth(&t, pc, 1, "tech / 0 / 1", cid), -3.25046037308, "tech");
+    check(
+        nth(
+            &t,
+            "Estimated Marginal Means: girl * track",
+            0,
+            "1 / sci",
+            "df",
+        ),
+        11.6260990511,
+        "cell",
+    );
+    // each track against sci, no adjustment
+    check(
+        nth(&t, pc, 2, "tech / sci", "Sig."),
+        2.03917791934e-05,
+        "refcat",
+    );
+    check(nth(&t, pc, 2, "arts / sci", cid), -4.01480609582, "refcat");
+    let ut = "Univariate Tests";
+    check(nth(&t, ut, 0, "track", "F"), 9.85221107684, "univariate");
+    check(
+        nth(&t, ut, 0, "track", "Denominator df"),
+        175.709792999,
+        "univariate",
+    );
+    check(
+        nth(&t, ut, 1, "track = arts", "F"),
+        (0.0618917055795_f64 / 1.16684150975).powi(2),
+        "simple",
+    );
+    // TEST with constants
+    let ce = "Contrast Estimates";
+    check(nth(&t, ce, 0, "L1", "Estimate"), -2.37424881908, "L1");
+    check(nth(&t, ce, 0, "L1", "df"), 175.403692979, "L1");
+    check(nth(&t, ce, 0, "L2", "t"), 2.14226982309, "L2");
+    check(nth(&t, ce, 0, "L2", "Sig."), 0.0335503260666, "L2");
+    check(nth(&t, ce, 0, "L2", ci), 1.5196768809, "L2");
+    let tr = "Test Results";
+    check(nth(&t, tr, 0, "two rows", "F"), 6.72492765487, "F");
+    check(
+        nth(&t, tr, 0, "two rows", "Denominator df"),
+        175.449527698,
+        "F",
+    );
+    check(nth(&t, tr, 0, "two rows", "Sig."), 0.00153438927206, "F");
+    // DIVISOR halves the row back to the first one
+    check(nth(&t, ce, 1, "L1", "Estimate"), -2.37424881908, "divisor");
+    assert!(
+        engine
+            .warnings()
+            .iter()
+            .any(|w| w.contains("Custom Hypothesis Test 3: L1 is not estimable"))
+    );
+    let covb = "Covariance Matrix for Estimates of Fixed Effects";
+    check(
+        nth(&t, covb, 0, "[track=arts]", "[girl=0] * [track=arts]"),
+        -1.584687689186124,
+        "covb",
+    );
+    check(
+        nth(&t, covb, 0, "hours", "hours"),
+        0.013605233285273,
+        "covb",
+    );
+    assert_eq!(nth(&t, covb, 0, "[girl=1]", "Intercept"), 0.0);
+    let corb = "Correlation Matrix for Estimates of Fixed Effects";
+    check(
+        nth(&t, corb, 0, "Intercept", "hours"),
+        -0.318612722115,
+        "corb",
+    );
+    check(
+        nth(&t, corb, 0, "[track=sci]", "[girl=0] * [track=sci]"),
+        -0.6958634308126,
+        "corb",
+    );
+    let g = nth(
+        &t,
+        "Random Effect Covariance Structure (G)",
+        0,
+        "Intercept",
+        "Intercept",
+    );
+    let variance = cell(
+        &t,
+        "Estimates of Covariance Parameters",
+        "Intercept [subject = school] / Variance",
+        "Estimate",
+    )
+    .unwrap();
+    assert_eq!(g, variance);
+}
+
+/// In the balanced block design the means and differences have closed forms: a treatment
+/// mean is the raw mean with variance (block variance + residual variance) / 5, and the
+/// difference of two treatments has variance 2 x residual / 5 on the 12 error df.
+#[test]
+fn emmeans_of_a_balanced_block_design_by_hand() {
+    let (_, t) = run(&format!(
+        "{BLOCKS}MIXED y BY treat block /FIXED=treat /RANDOM=block /EMMEANS=TABLES(treat) COMPARE."
+    ));
+    let close = |a: f64, b: f64| (a - b).abs() <= 1e-7 * b.abs().max(1.0);
+    let em = "Estimated Marginal Means: treat";
+    // treatment 3: 21.8, 23.9, 25.5, 23.2, 23.0
+    assert!(close(nth(&t, em, 0, "3", "Mean"), 23.48));
+    let se = ((0.58625 + 1.17625) / 5.0_f64).sqrt();
+    assert!(close(nth(&t, em, 0, "3", "Std. Error"), se));
+    let pc = "Pairwise Comparisons";
+    let se_diff = (2.0 * 1.17625 / 5.0_f64).sqrt();
+    assert!(close(nth(&t, pc, 0, "1 / 2", "Std. Error"), se_diff));
+    assert!(close(nth(&t, pc, 0, "1 / 2", "df"), 12.0));
+    assert!(close(
+        nth(&t, "Univariate Tests", 0, "treat", "F"),
+        13.09812256464754
+    ));
+    assert!(close(
+        nth(&t, "Univariate Tests", 0, "treat", "Denominator df"),
+        12.0
+    ));
+    // the residual method gives every mean n - rank X
+    let (_, t) = run(&format!(
+        "{BLOCKS}MIXED y BY treat block /FIXED=treat /RANDOM=block /EMMEANS=TABLES(treat) /CRITERIA=DFMETHOD(RESIDUAL)."
+    ));
+    assert_eq!(nth(&t, em, 0, "1", "df"), 16.0);
+}
+
+/// PRINT G shows the unstructured block of one school; PRINT R the first-order
+/// autoregressive block of one person, sigma^2 rho^|i - j|. Both from the covariance
+/// parameters of the same run. G and R without RANDOM or REPEATED are ignored with a warning.
+#[test]
+fn print_g_and_r_show_the_blocks_of_one_subject() {
+    let (_, t) = run(&format!(
+        "{}MIXED mark BY girl WITH hours /FIXED=girl hours /RANDOM=INTERCEPT hours | SUBJECT(school) COVTYPE(UN) /PRINT=G.",
+        pupils()
+    ));
+    let cov = |row: &str| cell(&t, "Estimates of Covariance Parameters", row, "Estimate").unwrap();
+    let g = "Random Effect Covariance Structure (G)";
+    let prefix = "Intercept + hours [subject = school]";
+    assert_eq!(
+        nth(&t, g, 0, "Intercept", "Intercept"),
+        cov(&format!("{prefix} / UN (1,1)"))
+    );
+    assert_eq!(
+        nth(&t, g, 0, "hours", "Intercept"),
+        cov(&format!("{prefix} / UN (2,1)"))
+    );
+    assert_eq!(
+        nth(&t, g, 0, "Intercept", "hours"),
+        cov(&format!("{prefix} / UN (2,1)"))
+    );
+    assert_eq!(
+        nth(&t, g, 0, "hours", "hours"),
+        cov(&format!("{prefix} / UN (2,2)"))
+    );
+    let (engine, t) = run(&format!(
+        "{}MIXED level BY arm wave WITH dose /FIXED=arm wave dose /REPEATED=wave | SUBJECT(person) COVTYPE(AR1) /PRINT=R G.",
+        waves()
+    ));
+    let cov = |row: &str| cell(&t, "Estimates of Covariance Parameters", row, "Estimate").unwrap();
+    let (s2, rho) = (
+        cov("Repeated Measures / AR1 diagonal"),
+        cov("Repeated Measures / AR1 rho"),
+    );
+    let r = "Residual Covariance (R) Matrix";
+    let got = nth(&t, r, 0, "[wave = 1]", "[wave = 4]");
+    assert!((got - s2 * rho.powi(3)).abs() <= 1e-12 * s2);
+    assert_eq!(nth(&t, r, 0, "[wave = 2]", "[wave = 2]"), s2);
+    assert!(engine.warnings().iter().any(|w| w.contains("PRINT G")));
+}
