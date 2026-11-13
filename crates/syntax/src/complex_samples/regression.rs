@@ -158,7 +158,7 @@ impl Default for CsCriteria {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct CsModelPrint {
     pub sampleinfo: bool,
     pub variableinfo: bool,
@@ -704,16 +704,7 @@ fn statistics(p: &mut Parser, logistic: bool) -> PResult<CsModelStatistics> {
 
 fn print(p: &mut Parser, logistic: bool) -> PResult<CsModelPrint> {
     let start = p.pos;
-    let mut out = CsModelPrint {
-        sampleinfo: false,
-        variableinfo: false,
-        summary: false,
-        history: None,
-        lmatrix: false,
-        covb: false,
-        corb: false,
-        classtable: false,
-    };
+    let mut out = CsModelPrint::default();
     let mut seen = Vec::new();
     if at_end(p) {
         return Err(error(p, start, "PRINT needs at least one keyword"));
@@ -831,10 +822,11 @@ fn save(p: &mut Parser, logistic: bool) -> PResult<Vec<CsModelSave>> {
     let names: Vec<String> = out
         .iter()
         .filter_map(|s| match s {
-            CsModelSave::Pred(n)
-            | CsModelSave::Resid(n)
-            | CsModelSave::PredVal(n)
-            | CsModelSave::PredProb(n, _) => n.as_ref().map(|n| n.to_uppercase()),
+            // a PREDPROB root gets suffixes, so it cannot clash
+            CsModelSave::Pred(n) | CsModelSave::Resid(n) | CsModelSave::PredVal(n) => {
+                n.as_ref().map(|n| n.to_uppercase())
+            }
+            CsModelSave::PredProb(..) => None,
         })
         .collect();
     if let Some(i) = (1..names.len()).find(|&i| names[..i].contains(&names[i])) {
@@ -869,11 +861,7 @@ fn model(p: &mut Parser, logistic: bool) -> PResult<Command> {
             sampleinfo: true,
             variableinfo: true,
             summary: true,
-            history: None,
-            lmatrix: false,
-            covb: false,
-            corb: false,
-            classtable: false,
+            ..CsModelPrint::default()
         },
         save: Vec::new(),
     };

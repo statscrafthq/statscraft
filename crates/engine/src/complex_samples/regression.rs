@@ -1592,9 +1592,14 @@ impl Engine {
             let mut cols = plain(&["", "Comparison", "Odds Ratio"]);
             cols.push((ci_group.clone(), "Lower".into()));
             cols.push((ci_group.clone(), "Upper".into()));
+            let compared = |n: &String| {
+                o.factors.iter().any(|(x, _)| x.eq_ignore_ascii_case(n))
+                    || o.covariates.iter().any(|(x, _)| x.eq_ignore_ascii_case(n))
+            };
             let mut held: Vec<String> = factor_vars
                 .iter()
                 .enumerate()
+                .filter(|(f, _)| !compared(&factor_names[*f]))
                 .map(|(f, v)| {
                     format!(
                         "{} = {}",
@@ -1685,20 +1690,26 @@ impl Engine {
             }
             for (i, row) in given_rows.iter().enumerate() {
                 let all = row.iter().any(|(e, _)| e.is_none());
-                if all && row.len() > 1 {
+                if all && row.iter().any(|(e, _)| e.is_some()) {
                     return Err(Error(format!(
                         "{what}: a row with ALL cannot also name effects"
                     )));
                 }
                 let label = format!("Contrast {}", i + 1);
                 if all {
-                    let values = &row[0].1;
-                    if values.len() != est.len() {
-                        return Err(Error(format!(
-                            "{what} gives {} coefficients after ALL where the model has {} parameters",
-                            values.len(),
-                            est.len()
-                        )));
+                    // several ALL lists in one row add up
+                    let mut values = vec![0.0; est.len()];
+                    for (_, list) in row {
+                        if list.len() != est.len() {
+                            return Err(Error(format!(
+                                "{what} gives {} coefficients after ALL where the model has {} parameters",
+                                list.len(),
+                                est.len()
+                            )));
+                        }
+                        for (v, x) in values.iter_mut().zip(list) {
+                            *v += x;
+                        }
                     }
                     for l in 0..est.logits {
                         let block = &values[l * p..(l + 1) * p];
@@ -1709,7 +1720,7 @@ impl Engine {
                             )));
                         }
                     }
-                    expanded.push((label, values.clone(), k_values[i]));
+                    expanded.push((label, values, k_values[i]));
                 } else {
                     let l_star = if row.is_empty() {
                         h[0].clone()

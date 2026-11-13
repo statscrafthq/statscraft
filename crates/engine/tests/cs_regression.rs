@@ -574,7 +574,7 @@ fn cslogistic_binary_estimates_pseudo_r_squares_odds_ratios_and_classification()
 fn cslogistic_multinomial_with_custom_tests_and_saved_probabilities() {
     let source = format!(
         "{}CSLOGISTIC heat (LOW) BY town WITH members /PLAN FILE='wr.json'
-           /STATISTICS PARAMETER SE DEFF /CUSTOM LMATRIX=ALL 0 0 0 1 0 0 0 -1
+           /STATISTICS PARAMETER SE DEFF /CUSTOM LMATRIX=ALL 0 0 0 1 0 0 0 0 ALL 0 0 0 0 0 0 0 -1
            /CUSTOM LMATRIX=members 1 /PRINT SUMMARY CLASSTABLE /SAVE PREDPROB(pp) PREDVAL.
          CSLOGISTIC heat (LOW) BY town WITH members /PLAN FILE='wr.json' /PRINT NONE
            /SAVE PREDPROB(pp:1).\n",

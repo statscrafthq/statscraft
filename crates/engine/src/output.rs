@@ -40,8 +40,8 @@ pub(crate) enum Stage {
 
 pub(crate) fn stage(command: &Command) -> Stage {
     match command {
-        // CSGLM and CSLOGISTIC change the data only with SAVE
-        Command::CsModel(c) if c.save.is_empty() => Stage::Pass,
+        // CSGLM and CSLOGISTIC read the data; SAVE adds columns like REGRESSION's
+        Command::CsModel(_) => Stage::Pass,
         Command::Frequencies(_)
         | Command::Descriptives(_)
         | Command::Crosstabs(_)

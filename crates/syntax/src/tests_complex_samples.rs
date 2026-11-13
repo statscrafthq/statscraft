@@ -330,6 +330,9 @@ fn cslogistic_reference_odds_ratios_criteria_and_save() {
     assert_eq!(m.padjust, CsPadjust::SeqSidak);
     assert_eq!(m.reference, CsReference::Value(Value::Number(3.0)));
     assert_eq!(m.save, vec![CsModelSave::PredProb(None, 4)]);
+    // a PREDPROB root may equal the PREDVAL name: its variables get suffixes
+    let m = model("CSLOGISTIC owner /PLAN FILE='p.json' /SAVE PREDPROB(p) PREDVAL(p).");
+    assert_eq!(m.save.len(), 2);
 }
 
 #[test]
