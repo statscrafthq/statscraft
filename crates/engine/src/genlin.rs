@@ -88,6 +88,25 @@ fn trigamma(mut x: f64) -> f64 {
     r + 1.0 / x + f / 2.0 + f / x * (1.0 / 6.0 - f * (1.0 / 30.0 - f * (1.0 / 42.0 - f / 30.0)))
 }
 
+/// ln Gamma(y + r) - ln Gamma(r); for a modest whole number y as a sum, which stays exact when
+/// r is large (k near 0).
+fn ln_gamma_ratio(y: f64, r: f64) -> f64 {
+    if y.fract() == 0.0 && y <= 10_000.0 {
+        (0..y as usize).map(|j| (r + j as f64).ln()).sum()
+    } else {
+        ln_gamma(y + r) - ln_gamma(r)
+    }
+}
+
+/// digamma(y + r) - digamma(r), as a sum for a modest whole number y.
+fn digamma_difference(y: f64, r: f64) -> f64 {
+    if y.fract() == 0.0 && y <= 10_000.0 {
+        (0..y as usize).map(|j| 1.0 / (r + j as f64)).sum()
+    } else {
+        digamma(y + r) - digamma(r)
+    }
+}
+
 fn normal_density(z: f64) -> f64 {
     (-0.5 * z * z).exp() / (2.0 * PI).sqrt()
 }
@@ -271,7 +290,7 @@ fn case_loglik(
             let kernel = if y == 0.0 {
                 -(k * mu).ln_1p() / k
             } else {
-                y * (k * mu).ln() - (y + r) * (k * mu).ln_1p() + ln_gamma(y + r) - ln_gamma(r)
+                y * (k * mu).ln() - (y + r) * (k * mu).ln_1p() + ln_gamma_ratio(y, r)
             };
             a / phi * (kernel - full * ln_gamma(y + 1.0))
         }
@@ -590,10 +609,20 @@ fn fit_beta(
                 }
             })
             .fold(0.0, f64::max);
+        // with an estimated scale the log likelihood here is at scale 1: the criteria are on the
+        // model's own scale, the current estimate
+        let (ll_scale, quad_scale) = match spec.scale {
+            ScaleMode::Mle => {
+                let v = scale_estimate(c, spec.family, &m);
+                (v, v)
+            }
+            ScaleMode::Fixed(v) => (1.0, v),
+            _ => (1.0, 1.0),
+        };
         let dl = if crit.lconverge.relative {
             (l - ll).abs() / (ll.abs() + 1e-6)
         } else {
-            (l - ll).abs()
+            (l - ll).abs() / ll_scale
         };
         beta = next;
         eta = e;
@@ -602,7 +631,7 @@ fn fit_beta(
         (s, expected, observed) = derivatives(c, x, spec, k, &mu);
         let hc = if crit.hconverge.value > 0.0 {
             let h = if fisher { &expected } else { &observed };
-            let quad = dot(&s, &mat_vec(&ginverse(h, tol).0, &s));
+            let quad = dot(&s, &mat_vec(&ginverse(h, tol).0, &s)) / quad_scale;
             if crit.hconverge.relative {
                 quad / (ll.abs() + 1e-6)
             } else {
@@ -624,7 +653,12 @@ fn fit_beta(
     }
     let hessian_ok = q == 0 || crit.hconverge.value > 0.0 || {
         let h = if fisher { &expected } else { &observed };
-        dot(&s, &mat_vec(&ginverse(h, tol).0, &s)) < 1e-4
+        let divisor = match spec.scale {
+            ScaleMode::Mle => scale_estimate(c, spec.family, &mu),
+            ScaleMode::Fixed(v) => v,
+            _ => 1.0,
+        };
+        dot(&s, &mat_vec(&ginverse(h, tol).0, &s)) / divisor < 1e-4
     };
     Some(BetaFit {
         beta,
@@ -649,7 +683,7 @@ fn negbin_score(c: &Cases, spec: &Spec, eta: &[f64], k: f64) -> f64 {
         let r = 1.0 / k;
         let mut d = y / k + (k * mu).ln_1p() / (k * k)
             - (y + r) * mu / (1.0 + k * mu)
-            - (digamma(y + r) - digamma(r)) / (k * k);
+            - digamma_difference(y, r) / (k * k);
         if spec.link == GenlinLink::NegativeBinomial {
             // mu moves with k at a fixed linear predictor: d mu / d k = -mu / k
             d -= (y - mu) / (mu + k * mu * mu) * mu / k;
@@ -657,6 +691,16 @@ fn negbin_score(c: &Cases, spec: &Spec, eta: &[f64], k: f64) -> f64 {
         s += a * d * k;
     }
     s
+}
+
+/// The deviance over the number of cases: the scale of a normal or inverse Gaussian model at
+/// these means, and near it for the gamma.
+fn scale_estimate(c: &Cases, family: Family, mu: &[f64]) -> f64 {
+    let n: f64 = c.f.iter().sum();
+    let d: f64 = (0..c.n())
+        .map(|i| c.f[i] * c.a(i) * unit_deviance(family, c.y[i], mu[i], 0.0))
+        .sum();
+    if d > 0.0 && n > 0.0 { d / n } else { 1.0 }
 }
 
 /// The score of the log likelihood in tau = ln phi and its second derivative, at fixed mu.
@@ -738,7 +782,16 @@ fn fit_glm(c: &Cases, x: &[Vec<f64>], spec: &Spec, start: Option<&[f64]>) -> Opt
                 }
             }
             bf.converged &= k_converged;
-            (bf, tau.exp(), Some(-1.0 / second))
+            // the curvature of the profile at the final k, for the variance of ln k
+            if let (Some(up), Some(down)) = (
+                fit_at((tau + h).exp(), Some(&bf.beta)),
+                fit_at((tau - h).exp(), Some(&bf.beta)),
+            ) {
+                second = (negbin_score(c, spec, &up.eta, (tau + h).exp())
+                    - negbin_score(c, spec, &down.eta, (tau - h).exp()))
+                    / (2.0 * h);
+            }
+            (bf, tau.exp(), (second < 0.0).then(|| -1.0 / second))
         }
         (Family::NegBin, Some(k)) => (fit_at(k, start)?, k, None),
         _ => (fit_at(0.0, start)?, 0.0, None),
@@ -813,11 +866,9 @@ fn fit_glm(c: &Cases, x: &[Vec<f64>], spec: &Spec, start: Option<&[f64]>) -> Opt
         let mut full = vec![vec![0.0; q + 1]; q + 1];
         for j in 0..q {
             full[j][..q].copy_from_slice(&info[j]);
-            let cross = if fisher {
-                0.0
-            } else {
-                -(su[j] - sd[j]) / (2.0 * h)
-            };
+            // with the negative binomial link mu moves with k, so even the expected cross
+            // information is not 0: take it from the scores either way
+            let cross = -(su[j] - sd[j]) / (2.0 * h);
             full[j][q] = cross;
             full[q][j] = cross;
         }
@@ -3604,6 +3655,18 @@ fn save_columns(s: &SaveContext, warnings: &mut Vec<String>) -> Vec<Saved> {
         let dev = (a * unit_deviance(s.family, y, m, k)).max(0.0).sqrt() * (y - m).signum();
         Some((raw, pearson, dev, leverage(i)))
     };
+    let any_residual = s.command.save.iter().any(|i| {
+        !matches!(
+            i.kind,
+            K::XbPred | K::XbStdError | K::MeanPred | K::CiMeanPredL | K::CiMeanPredU | K::PredVal
+        )
+    });
+    let computed: Vec<Option<(f64, f64, f64, f64)>> = if any_residual {
+        (0..n).map(residuals).collect()
+    } else {
+        vec![None; n]
+    };
+    let residuals = |kc: usize| computed[kc];
     let column = |f: &dyn Fn(usize) -> Option<f64>| -> Vec<Option<f64>> { (0..n).map(f).collect() };
     let std_pearson = |kc: usize| residuals(kc).map(|(_, p, _, h)| p / (phi * (1.0 - h)).sqrt());
     let std_deviance = |kc: usize| residuals(kc).map(|(_, _, dv, h)| dv / (phi * (1.0 - h)).sqrt());
