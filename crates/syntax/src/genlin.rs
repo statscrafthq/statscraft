@@ -917,12 +917,6 @@ fn model(p: &mut Parser) -> PResult<ModelSpec> {
     let mut seen = Vec::new();
     while !at_end(p) {
         if !at_setting(p) {
-            if !seen.is_empty() {
-                return Err(SyntaxError::new(
-                    p.span(),
-                    "the effects of MODEL come before its keywords",
-                ));
-            }
             m.effects.push(term(p)?);
             p.eat(Punct::Comma);
             continue;

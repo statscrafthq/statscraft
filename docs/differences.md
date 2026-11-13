@@ -505,6 +505,9 @@ Where the documentation is silent:
   - The full log likelihood of the ordinal model adds the multinomial constant of its subpopulations; LIKELIHOOD=KERNEL leaves it out.
   - AIC and the other criteria count the scale and k when estimated.
 - With NEGBIN(MLE), k counts against the degrees of freedom of the goodness-of-fit statistics.
+- Events/trials without DISTRIBUTION and LINK is a binomial model with the logit link. Read literally, the documentation would give it the identity link, which leaves most data with probabilities outside 0 to 1; the canonical link is what a careful analyst expects.
+- The reduced and constrained models of the likelihood ratio tests stop when the log likelihood changes less than LCONVERGE (1E-4 absolute when it is 0), as documented; the full model uses all the criteria. FISHER(n) that converges during its scoring iterations goes on with Newton-Raphson steps until those converge too.
+- A POLYNOMIAL metric with fewer values than the factor has levels gives a warning and leaves out the comparisons of that EMMEANS; the means are still shown.
 - The omnibus test of the ordinal model compares with the fitted thresholds-only model; with an offset this is not the start values the documentation names.
 - Type I tests start from the model with no parameters, so the intercept has a test. Type I Wald tests use the rows of the forward Doolittle reduction of X'WX (W the frequency times scale weights); Type III Wald tests use the hypotheses of UNIANOVA. Likelihood ratio tests refit the model, Type III under its hypothesis.
 - The scale estimate of DEVIANCE and PEARSON divides by N minus the parameters (minus one more for NEGBIN(MLE)); the F tests use the same degrees of freedom.

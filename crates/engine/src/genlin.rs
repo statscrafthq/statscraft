@@ -532,16 +532,18 @@ fn fit_beta(
     let mut converged = q == 0 || crit.maxiterations == 0;
     let mut halving_failed = false;
     let mut fisher = true;
+    let mut newton_forced = false;
     let tol = crit.singular;
     for iteration in 0..crit.maxiterations {
         if q == 0 {
             break;
         }
-        let use_fisher = match crit.method {
-            GenlinMethod::Fisher(n) => iteration < n,
-            GenlinMethod::FisherOnly => true,
-            GenlinMethod::Newton => false,
-        };
+        let use_fisher = !newton_forced
+            && match crit.method {
+                GenlinMethod::Fisher(n) => iteration < n,
+                GenlinMethod::FisherOnly => true,
+                GenlinMethod::Newton => false,
+            };
         let solve = |h: &Matrix| -> Option<Vec<f64>> {
             let (g, rank) = ginverse(h, tol);
             let d = mat_vec(&g, &s);
@@ -606,6 +608,11 @@ fn fit_beta(
         };
         let met = |t: statscraft_syntax::GenlinTolerance, v: f64| t.value == 0.0 || v < t.value;
         if met(crit.pconverge, change) && met(crit.lconverge, dl) && met(crit.hconverge, hc) {
+            // converged by Fisher scoring in a hybrid method: Newton-Raphson must converge too
+            if fisher && !expected_information(crit) && !newton_forced {
+                newton_forced = true;
+                continue;
+            }
             converged = true;
             break;
         }
@@ -867,13 +874,14 @@ fn ordinal_eval(
     x: &[Vec<f64>],
     link: GenlinLink,
     b: &[f64],
-    full: bool,
+    with_information: bool,
 ) -> Option<(f64, Vec<f64>, Matrix)> {
     let k = o.j - 1;
     let n = b.len();
     let mut ll = 0.0;
     let mut s = vec![0.0; n];
-    let mut info = vec![vec![0.0; n]; n];
+    let mut info =
+        vec![vec![0.0; if with_information { n } else { 0 }]; if with_information { n } else { 0 }];
     for (i, xi) in x.iter().enumerate().take(o.category.len()) {
         let w = o.f[i] * o.omega[i];
         let xb = dot(xi, &b[k..]);
@@ -910,7 +918,7 @@ fn ordinal_eval(
             s[a] += w * dpis[c][a] / pis[c];
         }
         for (pi, d) in pis.iter().zip(&dpis) {
-            if *pi <= 0.0 {
+            if *pi <= 0.0 || !with_information {
                 continue;
             }
             for a in 0..n {
@@ -923,7 +931,6 @@ fn ordinal_eval(
             }
         }
     }
-    let _ = full;
     Some((ll, s, info))
 }
 
@@ -981,7 +988,7 @@ fn fit_ordinal(
             b[j] = b[j - 1] + 1e-3;
         }
     }
-    let (mut ll, mut s, mut info) = ordinal_eval(o, x, link, &b, false)?;
+    let (mut ll, mut s, mut info) = ordinal_eval(o, x, link, &b, true)?;
     let mut converged = crit.maxiterations == 0;
     let mut halving_failed = false;
     for iteration in 0..crit.maxiterations {
@@ -1013,7 +1020,7 @@ fn fit_ordinal(
                 .zip(&direction)
                 .map(|(v, d)| v + step * d)
                 .collect();
-            if let Some((l, s2, i2)) = ordinal_eval(o, x, link, &next, false)
+            if let Some((l, s2, i2)) = ordinal_eval(o, x, link, &next, true)
                 && l >= ll - 1e-10 * (1.0 + ll.abs())
             {
                 accepted = Some((next, l, s2, i2));
@@ -1720,11 +1727,26 @@ impl Engine {
             ScaleMode::Fixed(v) => v,
             _ => 1.0,
         };
+        // the reduced and constrained models stop on the log likelihood alone: LCONVERGE, or
+        // 1E-4 absolute when it is 0
+        let mut refit_criteria = *crit;
+        refit_criteria.pconverge.value = 0.0;
+        refit_criteria.hconverge.value = 0.0;
+        if crit.lconverge.value == 0.0 {
+            refit_criteria.lconverge = statscraft_syntax::GenlinTolerance {
+                value: 1e-4,
+                relative: false,
+            };
+        }
+        let refit_spec = Spec {
+            criteria: &refit_criteria,
+            ..spec
+        };
         let refit = |xs: &[Vec<f64>]| -> Option<f64> {
             if multinomial {
-                fit_ordinal(&ordinal, xs, ord_link, crit).map(|f| f.ll / fixed_phi)
+                fit_ordinal(&ordinal, xs, ord_link, &refit_criteria).map(|f| f.ll / fixed_phi)
             } else {
-                fit_glm(&c, xs, &spec, None).map(|f| f.ll)
+                fit_glm(&c, xs, &refit_spec, None).map(|f| f.ll)
             }
         };
         let failed = || {
@@ -2162,7 +2184,11 @@ impl Engine {
         if print.fit {
             let ll = ll_one;
             let aic = -2.0 * ll + 2.0 * d_params;
-            let aicc = -2.0 * ll + 2.0 * d_params * n_ic / (n_ic - d_params - 1.0);
+            let aicc = if n_ic - d_params - 1.0 > 0.0 {
+                -2.0 * ll + 2.0 * d_params * n_ic / (n_ic - d_params - 1.0)
+            } else {
+                f64::NAN
+            };
             let bic = -2.0 * ll + d_params * n_ic.ln();
             let caic = -2.0 * ll + d_params * (n_ic.ln() + 1.0);
             let per = |v: f64| number((df_fit > 0.0).then(|| v / df_fit));
@@ -2358,6 +2384,9 @@ impl Engine {
                     }
                 }
                 let type1 = (t == 1).then(|| type1_rows(&design.zwz, crit.singular));
+                // the log likelihood of the model of the first effects, by their number
+                let mut prefix_ll: std::collections::HashMap<usize, Option<f64>> =
+                    std::collections::HashMap::new();
                 for (slot, &e) in tested.iter().enumerate() {
                     let effect = &design.effects[e];
                     let l: Matrix = match &type1 {
@@ -2392,10 +2421,15 @@ impl Engine {
                                     .collect()
                             };
                             let df = effect.range().filter(|c| kept.contains(c)).count();
-                            (
-                                refit(&columns_up_to(e + 1)).zip(refit(&columns_up_to(e))),
-                                df,
-                            )
+                            let mut nested = |last: usize| -> Option<f64> {
+                                if last == design.effects.len() {
+                                    return Some(result.ll);
+                                }
+                                *prefix_ll
+                                    .entry(last)
+                                    .or_insert_with(|| refit(&columns_up_to(last)))
+                            };
+                            (nested(e + 1).zip(nested(e)), df)
                         } else {
                             // the model constrained to the Type III hypothesis
                             let basis = null_space(&l, px);
@@ -2815,7 +2849,6 @@ fn emmeans_tables(cx: EmmContext, warnings: &mut Vec<String>) -> Result<Vec<Tabl
             .map(|&f| d.values[f].len())
             .collect::<Vec<_>>(),
     );
-    let p = cx.b.len();
     // the linear predictor of each cell and its covariance
     let ls: Vec<Option<Vec<f64>>> = combos
         .iter()
@@ -2841,7 +2874,6 @@ fn emmeans_tables(cx: EmmContext, warnings: &mut Vec<String>) -> Result<Vec<Tabl
             }
         }
     }
-    let _ = p;
     if !e.transformed {
         let slope: Vec<f64> = est
             .iter()
@@ -3025,11 +3057,12 @@ fn emmeans_tables(cx: EmmContext, warnings: &mut Vec<String>) -> Result<Vec<Tabl
             GenlinContrast::Polynomial(metric) => {
                 let metric = match metric {
                     Some(m) if m.len() < k => {
-                        return Err(Error(format!(
-                            "GENLIN EMMEANS: the POLYNOMIAL metric has {} values for the {k} levels of {}",
+                        warnings.push(format!(
+                            "The POLYNOMIAL metric has {} values for the {k} levels of {}; the comparisons are left out",
                             m.len(),
                             d.factor_texts[f]
-                        )));
+                        ));
+                        return Ok(out);
                     }
                     Some(m) => {
                         if m.len() > k {

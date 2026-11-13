@@ -135,10 +135,10 @@ fn genlin_model_offset_scale_weight_and_order_of_parts() {
     assert_eq!(g.scale_weight.as_deref(), Some("w"));
     let g = genlin("GENLIN y /MODEL OFFSET=-1.5.");
     assert_eq!(g.offset, Some(GenlinOffset::Value(-1.5)));
-    assert!(
-        err("GENLIN y BY a /MODEL DISTRIBUTION=POISSON a.")
-            .contains("effects of MODEL come before")
-    );
+    // effects and keywords in any order
+    let g = genlin("GENLIN y BY a /MODEL DISTRIBUTION=POISSON a INTERCEPT=NO.");
+    assert_eq!(g.effects.len(), 1);
+    assert!(!g.intercept);
     assert!(err("GENLIN y /MODEL INTERCEPT=NO INTERCEPT=YES.").contains("only once"));
 }
 

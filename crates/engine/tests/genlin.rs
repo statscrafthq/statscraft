@@ -1406,3 +1406,31 @@ fn intercept_only_normal_model_without_model_subcommand() {
     close(get(&t, PE, "(Intercept)", B), mean, 1e-9, "mean");
     assert_eq!(get(&t, "Omnibus Test", "", "df"), 0.0);
 }
+
+#[test]
+fn a_short_polynomial_metric_leaves_out_the_comparisons_only() {
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!(
+            "{COUNTS}GENLIN repairs BY shop WITH temp /MODEL shop temp DISTRIBUTION=POISSON OFFSET=lnh
+  /EMMEANS TABLES=shop COMPARE=shop CONTRAST=POLYNOMIAL(1 2).
+"
+        ),
+    );
+    assert!(t.iter().any(|t| t.title == PE));
+    assert!(
+        t.iter()
+            .any(|t| t.title == "Estimated Marginal Means: shop")
+    );
+    assert!(
+        t.iter()
+            .all(|t| !t.title.starts_with("Individual Test Results"))
+    );
+    assert!(
+        engine
+            .warnings()
+            .iter()
+            .any(|w| w.contains("POLYNOMIAL metric"))
+    );
+}
