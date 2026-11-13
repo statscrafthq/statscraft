@@ -650,7 +650,7 @@ Where the documentation is silent:
 - DIMENSION above the largest possible number gives a warning and the largest number; dimensions with a singular value of at most sqrt(k1 k2) 1e-7 are left out with a warning.
 - RMEAN and RSUM take out only the row means (CMEAN and CSUM only the column means), so the table can keep one more dimension than the limit of one fewer than the smaller side. The Summary lists it, so that the shares of inertia add up to 1; the solution itself keeps to the limit.
 - Equal singular values (equal to 1e-8 relative) have no derivatives, so they get no standard deviations or correlations, and the scores of their dimensions none either; the other dimensions keep theirs, and a warning says so.
-- The biplot that PLOT gives by default is left out quietly under NORMALIZATION=PRINCIPAL and with one dimension; a PLOT subcommand that asks for it gets a warning. A table of more than a million cells is refused, and the standard deviations of the scores are left out (with a warning) when the active rows and columns add up to more than about 2500.
+- The biplot that PLOT gives by default is left out quietly under NORMALIZATION=PRINCIPAL and with one dimension; a PLOT subcommand that asks for it gets a warning. A table of more than a million cells is refused, and the standard deviations of the scores are left out (with a warning) when their work would be too large: it grows with the cube of the number of active categories and with the number of dimensions, so the limit lies near 1000 categories on each side for two dimensions and lower for more.
 
 ### TREE
 

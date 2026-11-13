@@ -502,8 +502,7 @@ fn solve(s: &Setup) -> Result<Solution, String> {
             })
         })
         .collect();
-    // the score tables below take about 2 (k1 + k2)^2 numbers per dimension
-    let feasible = 2 * (k1 + k2).pow(2) * p <= 25_000_000;
+    let feasible = score_work_fits(k1, k2, rank, p);
     if s.scores && !feasible {
         warnings.push(format!(
             "CORRESPONDENCE: {k1} by {k2} active categories are too many for standard deviations of the scores"
@@ -641,7 +640,17 @@ fn solve(s: &Setup) -> Result<Solution, String> {
                 let (u, v, q) = (&us[t], &vs[t], &dims[t]);
                 *g = u[kr] * (own * v[kc] + q.rfi[kr]) + v[kc] * q.cfj[kc] + q.unv;
             }
-            add(&mut lambda_sums, &gl, weight);
+            // the products of the singular value gradients: all pairs among the first p
+            // dimensions, squares for the others
+            for (t, g) in gl.iter().enumerate() {
+                lambda_sums.0[t] += weight * g;
+                let pairs = if t < p { p } else { t + 1 };
+                for (o, h) in gl.iter().enumerate().take(pairs) {
+                    if o < p || o == t {
+                        lambda_sums.1[t][o] += weight * g * h;
+                    }
+                }
+            }
             if !scores {
                 continue;
             }
@@ -699,7 +708,9 @@ fn solve(s: &Setup) -> Result<Solution, String> {
     let mut singular_cov = covariances(&lambda_sums, &|_| 1.0);
     for (t, row) in singular_cov.iter_mut().enumerate() {
         for (o, x) in row.iter_mut().enumerate() {
-            if tied[t] || tied[o] {
+            // only the pairs among the first p dimensions were summed
+            let summed = o == t || (o < p && t < p);
+            if tied[t] || tied[o] || !summed {
                 *x = f64::NAN;
             }
         }
@@ -881,6 +892,16 @@ fn confidence(title: &str, side: &Side, points: &Points, p: usize) -> Table {
         })
         .collect();
     grouped(title, header, rows)
+}
+
+/// Whether the standard deviations of the scores take a reasonable time and memory: the
+/// combined tables hold about 2 (k1 + k2)^2 numbers per dimension and cost the rank times that
+/// to build, and every cell of the table then costs k1 + k2 per dimension.
+fn score_work_fits(k1: usize, k2: usize, rank: usize, p: usize) -> bool {
+    let side = (k1 + k2) as f64;
+    let tables = 2.0 * side * side * p as f64;
+    let work = tables * rank as f64 + (k1 * k2) as f64 * side * p as f64;
+    tables <= 25e6 && work <= 2e9
 }
 
 /// A limit on the cells of the table, which is held in full.
@@ -1732,5 +1753,59 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn score_deviations_have_a_size_limit() {
+        assert!(score_work_fits(20, 30, 19, 2));
+        assert!(score_work_fits(200, 200, 199, 2));
+        assert!(!score_work_fits(800, 800, 799, 2));
+        assert!(!score_work_fits(2, 100_000, 1, 1));
+    }
+
+    /// Dimension 1 stands apart from a tied pair: it keeps its deviations, which match central
+    /// differences, while the pair gets none.
+    #[test]
+    fn a_dimension_next_to_a_tie_keeps_its_deviations() {
+        let counts = vec![
+            vec![8.0, 2.0, 3.0, 2.0],
+            vec![2.0, 8.0, 2.0, 3.0],
+            vec![3.0, 2.0, 8.0, 2.0],
+            vec![2.0, 3.0, 2.0, 8.0],
+        ];
+        let mut base = setup(counts.clone());
+        base.dimension = Some(3);
+        let s = solve(&base).unwrap();
+        assert!(s.warnings.iter().any(|w| w.contains("equal")));
+        assert!(s.singular_cov[1][1].is_nan() && s.singular_cov[2][2].is_nan());
+        assert!(s.rows.cov[0][1][1].is_nan());
+        let n: f64 = counts.iter().flatten().sum();
+        let pi: Vec<f64> = counts.iter().flatten().map(|x| x / n).collect();
+        let (mut gl, mut gx) = (Vec::new(), Vec::new());
+        let h = 1e-6;
+        for a in 0..4 {
+            for b in 0..4 {
+                let shifted = |d: f64| {
+                    let mut c = counts.clone();
+                    c[a][b] += d * n;
+                    let mut t = setup(c);
+                    t.dimension = Some(3);
+                    solve(&t).unwrap()
+                };
+                let (up, down) = (shifted(h), shifted(-h));
+                gl.push((up.singular[0] - down.singular[0]) / (2.0 * h));
+                // every row scores equally far out in this dimension, so the sign rule may flip
+                // under a small change; the absolute score has the same derivative up to sign
+                let x = |sol: &Solution| (sol.rows.score[1][0] / sol.singular[0].sqrt()).abs();
+                gx.push((x(&up) - x(&down)) / (2.0 * h));
+            }
+        }
+        let sd = |g: &[f64]| {
+            let m: f64 = pi.iter().zip(g).map(|(p, x)| p * x).sum();
+            (pi.iter().zip(g).map(|(p, x)| p * x * x).sum::<f64>() / n - m * m / n).sqrt()
+        };
+        assert!((s.singular_cov[0][0].sqrt() - sd(&gl)).abs() < 1e-6);
+        let analytic = s.rows.cov[1][0][0].sqrt() / s.singular[0].sqrt();
+        assert!((analytic - sd(&gx)).abs() < 1e-5, "{analytic} {}", sd(&gx));
     }
 }
