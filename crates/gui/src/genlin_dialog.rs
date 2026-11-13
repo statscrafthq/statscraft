@@ -394,8 +394,9 @@ impl GeneralizedLinear {
         })
     }
 
-    /// `string`: the dependent variable is a string, so a reference value is quoted.
-    pub fn syntax(&self, string: bool) -> Result<String, String> {
+    /// `quoted`: the dependent is a string or shows dates or times, so a reference value is
+    /// quoted.
+    pub fn syntax(&self, quoted: bool) -> Result<String, String> {
         let dependent = self.dependent.trim();
         if dependent.is_empty() {
             return Err(match self.events {
@@ -428,7 +429,7 @@ impl GeneralizedLinear {
                 1 => "FIRST".to_string(),
                 _ => match self.reference_value.trim() {
                     "" => return Err("give the value of the reference category".into()),
-                    given => value(given, string)?,
+                    given => value(given, quoted)?,
                 },
             };
             text.push_str(&format!(" (REFERENCE={reference})"));
@@ -456,15 +457,13 @@ impl GeneralizedLinear {
             text.push_str(&format!(" WITH {}", self.covariates.join(" ")));
         }
 
+        // no effects and no intercept is a null model, such as counts fitted by an offset alone
         let mut model = Vec::new();
         let effects = self.effects()?;
-        let intercept = self.intercept || !self.intercept_optional();
-        match (effects.is_empty(), intercept) {
-            (true, false) => return Err("the model needs a term or the intercept".into()),
-            (true, true) => {}
-            (false, _) => model.push(effects),
+        if !effects.is_empty() {
+            model.push(effects);
         }
-        if !intercept {
+        if !self.intercept && self.intercept_optional() {
             model.push("INTERCEPT=NO".into());
         }
         if !offset.is_empty() {
@@ -657,7 +656,8 @@ impl GeneralizedLinear {
 }
 
 /// The checks that need the data: numbers where the command needs them, and no role for the
-/// frequency weight. True when the dependent is a string.
+/// frequency weight. True when a reference value is quoted: the dependent is a string or shows
+/// dates or times.
 pub fn data_checks(d: &GeneralizedLinear, data: &Dataset) -> Result<bool, String> {
     // only the fields the syntax uses
     let trials = (d.events && d.trials_by_variable).then_some(&d.trials_variable);
@@ -684,7 +684,7 @@ pub fn data_checks(d: &GeneralizedLinear, data: &Dataset) -> Result<bool, String
     }
     let dependent = d.dependent.trim();
     match data.variable(dependent) {
-        Ok(v) => Ok(v.is_string()),
+        Ok(v) => Ok(v.is_string() || crate::edits::shows_date(v.format())),
         Err(_) if dependent.is_empty() => Ok(false),
         Err(_) => Err(format!("{dependent} is no longer a variable")),
     }
@@ -941,8 +941,8 @@ mod tests {
         );
         d.intercept = false;
         assert_eq!(
-            d.syntax(false).unwrap_err(),
-            "the model needs a term or the intercept"
+            d.syntax(false).unwrap(),
+            "GENLIN monthly_spend BY gender\n  /MODEL INTERCEPT=NO DISTRIBUTION=NORMAL LINK=IDENTITY."
         );
         d.model = 0;
         d.method = 0;
@@ -958,6 +958,44 @@ mod tests {
             "GENLIN monthly_spend BY gender\n  \
              /MODEL gender INTERCEPT=NO DISTRIBUTION=NORMAL LINK=IDENTITY\n  \
              /CRITERIA METHOD=FISHER(3)."
+        );
+    }
+
+    #[test]
+    fn a_null_model_with_an_offset_runs() {
+        let mut d = GeneralizedLinear {
+            dependent: "q2_recommend".into(),
+            model: 2,
+            intercept: false,
+            offset: "q5_2".into(),
+            ..Default::default()
+        };
+        d.set_distribution(5);
+        let syntax = d.syntax(false).unwrap();
+        assert_eq!(
+            syntax,
+            "GENLIN q2_recommend\n  /MODEL INTERCEPT=NO OFFSET=q5_2 DISTRIBUTION=POISSON LINK=LOG."
+        );
+        assert!(runs(&syntax) >= 3);
+    }
+
+    #[test]
+    fn a_reference_value_of_a_date_is_quoted() {
+        let session = open("survey_basic.sav");
+        let data = session.dataset().unwrap();
+        let mut d = GeneralizedLinear {
+            dependent: "signup_date".into(),
+            reference: 2,
+            reference_value: "01-JAN-2024".into(),
+            ..Default::default()
+        };
+        d.set_distribution(1);
+        let quoted = data_checks(&d, data).unwrap();
+        assert!(quoted);
+        assert!(
+            d.syntax(quoted)
+                .unwrap()
+                .starts_with("GENLIN signup_date (REFERENCE='01-JAN-2024')")
         );
     }
 

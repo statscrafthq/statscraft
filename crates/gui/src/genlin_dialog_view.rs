@@ -1,6 +1,6 @@
 //! Drawing of the Generalized Linear Models dialog.
 
-use crate::advanced_dialogs::{NOMREG_BASES, forget_old_factors};
+use crate::advanced_dialogs::{NOMREG_BASES, forget_old_covariates, forget_old_factors};
 use crate::advanced_dialogs_view::{means_editor, terms_editor};
 use crate::app::{checkboxes, choice, field, target_list, target_one};
 use crate::genlin_dialog::{
@@ -94,6 +94,7 @@ pub fn genlin(ui: &mut Ui, d: &mut GeneralizedLinear, picked: &mut Vec<String>) 
     target_list(ui, "Factors", &mut d.factors, picked);
     forget_old_factors(&d.factors, &mut d.means);
     target_list(ui, "Covariates", &mut d.covariates, picked);
+    forget_old_covariates(&d.covariates, &mut d.means_at);
     ui.add_space(6.0);
     egui::CollapsingHeader::new("Model").show(ui, |ui| {
         ui.horizontal(|ui| {
@@ -107,8 +108,14 @@ pub fn genlin(ui: &mut Ui, d: &mut GeneralizedLinear, picked: &mut Vec<String>) 
         });
         // the ordinal multinomial always fits its thresholds
         let optional = d.intercept_optional();
+        let mut forced = true;
+        let intercept = if optional {
+            &mut d.intercept
+        } else {
+            &mut forced
+        };
         ui.add_enabled_ui(optional, |ui| {
-            ui.checkbox(&mut d.intercept, "Include intercept in the model");
+            ui.checkbox(intercept, "Include intercept in the model");
         });
         target_one(ui, "Offset", &mut d.offset, picked);
         target_one(ui, "Scale weight", &mut d.scale_weight, picked);

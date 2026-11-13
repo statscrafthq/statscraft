@@ -126,7 +126,6 @@ pub(crate) fn means_editor(
     if ui.small_button("Add table").clicked() {
         tables.push(MeansTable::default());
     }
-    forget_old_covariates(covariates, at);
     if !covariates.is_empty() {
         ui.label("Covariates held at (empty: the mean)");
         for c in covariates {
@@ -314,6 +313,7 @@ fn mixed(ui: &mut Ui, d: &mut LinearMixed, picked: &mut Vec<String>) {
     target_list(ui, "Factors", &mut d.factors, picked);
     forget_old_factors(&d.factors, &mut d.means);
     target_list(ui, "Covariates", &mut d.covariates, picked);
+    forget_old_covariates(&d.covariates, &mut d.means_at);
     ui.add_space(6.0);
     let model = d.model();
     egui::CollapsingHeader::new("Fixed").show(ui, |ui| {
