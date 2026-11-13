@@ -1877,8 +1877,43 @@ impl Engine {
                 if !r.sort && within.is_some() {
                     warnings.push("WITHINSUBJECT is ignored with SORT=NO: the cases of each subject are taken in file order".into());
                 }
-                let s = gee::subjects(&row_keys(&subject_keys), within.as_deref(), r.sort)
-                    .map_err(Error)?;
+                // the positions are the WITHINSUBJECT values of every case with valid subject
+                // and within values, also one left out for another reason
+                let every: Vec<Vec<Key>> = (0..cases)
+                    .filter(|&k| {
+                        subject_keys
+                            .iter()
+                            .chain(&within_keys)
+                            .all(|col| col[k].is_some())
+                    })
+                    .map(|k| {
+                        within_keys
+                            .iter()
+                            .map(|col| col[k].clone().expect("valid"))
+                            .collect()
+                    })
+                    .collect();
+                // without sorting a subject is a run of equal values in the whole file, so a
+                // case left out between two runs still separates them
+                let subject_of_row = if r.sort {
+                    row_keys(&subject_keys)
+                } else {
+                    let mut run = vec![0.0; cases];
+                    for k in 1..cases {
+                        let same = subject_keys.iter().all(|col| match (&col[k - 1], &col[k]) {
+                            (Some(a), Some(b)) => a.compare(b).is_eq(),
+                            _ => false,
+                        });
+                        run[k] = run[k - 1] + if same { 0.0 } else { 1.0 };
+                    }
+                    rows.iter().map(|&k| vec![Key::Number(run[k])]).collect()
+                };
+                let s = gee::subjects(
+                    &subject_of_row,
+                    within.as_deref().map(|w| (w, &every[..])),
+                    r.sort,
+                )
+                .map_err(Error)?;
                 // a frequency weight copies a whole subject
                 if s.members
                     .iter()
@@ -2151,21 +2186,21 @@ impl Engine {
                 } else if !g.hessian_ok {
                     warnings.push("The Hessian convergence criterion of the generalized estimating equations (1E-4, REPEATED HCONVERGE=0) is not met after the estimates converged; the results may not be final".into());
                 }
-                if g.ridged {
-                    warnings.push("The estimated working correlation matrix was not positive definite; it was moved toward the identity matrix until it was".into());
+                match g.adjusted {
+                    gee::Adjusted::Ridge => warnings.push("The estimated working correlation matrix was not positive definite; it was moved toward the identity matrix until it was".into()),
+                    gee::Adjusted::Clamp => warnings.push("The estimated AR(1) correlation was 1 or more in size; it was set to 0.99 with its sign so that the matrix is positive definite".into()),
+                    gee::Adjusted::No => {}
                 }
                 // H of the independent structure at its estimates (those of the plain model) and
                 // at the scale of the quasi-likelihood, for QIC
+                let phi_q = match scale {
+                    ScaleMode::Fixed(v) => v,
+                    _ => 1.0,
+                };
                 let independent = command
                     .print
                     .fit
-                    .then(|| {
-                        let phi_q = match scale {
-                            ScaleMode::Fixed(v) => v,
-                            _ => 1.0,
-                        };
-                        gee::independent_information(&c, &x, s, &set, &result.b, phi_q)
-                    })
+                    .then(|| gee::independent_information(&c, &x, &set, &result.b, phi_q))
                     .flatten();
                 f.beta = g.beta.clone();
                 f.mu = g.mu.clone();
@@ -2177,7 +2212,7 @@ impl Engine {
                     g.model.clone()
                 };
                 result.log_variance = None;
-                Some((g, independent))
+                Some((g, independent, phi_q))
             }
             _ => None,
         };
@@ -2565,12 +2600,9 @@ impl Engine {
         } else {
             n_total
         };
-        if let (true, Some((g, independent))) = (print.fit, &gee_fit) {
+        if let (true, Some((g, independent, phi_q))) = (print.fit, &gee_fit) {
             // the quasi-likelihood at a scale fixed on CRITERIA, or else 1
-            let phi_q = match scale {
-                ScaleMode::Fixed(v) => v,
-                _ => 1.0,
-            };
+            let phi_q = *phi_q;
             let q: f64 = (0..n_rows)
                 .map(|i| {
                     c.f[i] * c.a(i) / phi_q
@@ -3103,7 +3135,7 @@ impl Engine {
                 }));
             }
         }
-        if let (true, Some((g, _)), Some(r), Some(s)) =
+        if let (true, Some((g, _, _)), Some(r), Some(s)) =
             (print.workingcorr, &gee_fit, repeated, &subjects)
         {
             let names: Vec<String> = (0..s.dim)
@@ -4066,7 +4098,8 @@ fn save_columns(s: &SaveContext, warnings: &mut Vec<String>) -> Vec<Saved> {
         let g1 = link_d1(link, m, k);
         c.a(i) / (variance(s.family, m, k) * g1 * g1)
     };
-    for i in 0..c.n() {
+    // no leverage for generalized estimating equations
+    for i in (0..c.n()).filter(|_| !s.gee) {
         let w = c.f[i] * weight(i);
         for (a, row) in xwx.iter_mut().enumerate() {
             for (b, v) in row.iter_mut().enumerate() {
@@ -4074,8 +4107,18 @@ fn save_columns(s: &SaveContext, warnings: &mut Vec<String>) -> Vec<Saved> {
             }
         }
     }
-    let inverse = ginverse(&xwx, s.command.criteria.singular).0;
-    let leverage = |i: usize| weight(i) * dot(&s.x[i], &mat_vec(&inverse, &s.x[i]));
+    let inverse = if s.gee {
+        Vec::new()
+    } else {
+        ginverse(&xwx, s.command.criteria.singular).0
+    };
+    let leverage = |i: usize| {
+        if s.gee {
+            f64::NAN
+        } else {
+            weight(i) * dot(&s.x[i], &mat_vec(&inverse, &s.x[i]))
+        }
+    };
     let residuals = |kc: usize| -> Option<(f64, f64, f64, f64)> {
         // raw, Pearson, deviance residual and leverage of a case of the fit
         let i = s.fitted_row[kc]?;

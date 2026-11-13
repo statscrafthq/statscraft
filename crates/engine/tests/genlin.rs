@@ -2447,3 +2447,30 @@ fn kernel_quasi_likelihood_and_a_correlation_that_is_never_updated() {
         "alpha",
     );
 }
+
+#[test]
+fn positions_come_from_every_case_and_runs_from_the_whole_file() {
+    let summary = |data: &str, sort: &str| {
+        let t = tables_of(&format!(
+            "DATA LIST FREE /team week y.
+BEGIN DATA.
+{data}
+END DATA.
+GENLIN y /REPEATED SUBJECT=team WITHINSUBJECT=week SORT={sort} /PRINT CPS.
+"
+        ));
+        let cds = "Correlated Data Summary";
+        [
+            get(&t, cds, "Number of Subjects", "N"),
+            get(&t, cds, "Measurements per Subject / Minimum", "N"),
+            get(&t, cds, "Measurements per Subject / Maximum", "N"),
+            get(&t, cds, "Working Correlation Matrix Dimension", "N"),
+        ]
+    };
+    // week 3 has no response at all, but it is still a position
+    let gap = "1 1 3.2 1 2 4.1 1 3 . 2 1 2.5 2 2 3.3 2 3 . 1 4 5.0 2 4 3.6";
+    assert_eq!(summary(gap, "YES"), [2.0, 3.0, 3.0, 4.0]);
+    // the case of team 2 is left out, yet it still ends the first run of team 1
+    let runs = "1 1 3.2 1 2 4.1 2 1 . 1 3 4.4 1 4 5.0";
+    assert_eq!(summary(runs, "NO"), [2.0, 2.0, 2.0, 2.0]);
+}

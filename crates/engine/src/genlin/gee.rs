@@ -50,11 +50,28 @@ pub(super) struct Subjects {
     pub(super) positions: Vec<Vec<Key>>,
 }
 
-/// Groups the rows of the fit (in file order) into subjects. `subject` and `within` hold the
-/// values of each row.
+/// The value combinations of a list of rows or cases.
+type Keys = [Vec<Key>];
+
+/// The largest working correlation matrix: its dimension squared is held in memory.
+const MAX_DIMENSION: usize = 1000;
+
+/// What the working correlation matrix was changed to so that it is positive definite.
+#[derive(Clone, Copy, PartialEq)]
+pub(super) enum Adjusted {
+    No,
+    /// Pulled toward the identity, (R + cI) / (1 + c).
+    Ridge,
+    /// An AR(1) correlation of 1 or more in size cut to 0.99.
+    Clamp,
+}
+
+/// Groups the rows of the fit (in file order) into subjects. `subject` holds the values of each
+/// row; `within` those of each row and those of every case with valid subject and within values,
+/// which set the positions.
 pub(super) fn subjects(
     subject: &[Vec<Key>],
-    within: Option<&[Vec<Key>]>,
+    within: Option<(&Keys, &Keys)>,
     sort: bool,
 ) -> Result<Subjects, String> {
     let n = subject.len();
@@ -77,17 +94,13 @@ pub(super) fn subjects(
             groups.last_mut().expect("a group").push(r);
         }
     }
-    let within = within.filter(|_| sort);
-    let mut positions: Vec<Vec<Key>> = Vec::new();
-    if let Some(w) = within {
-        let mut order: Vec<usize> = (0..n).collect();
-        order.sort_by(|a, b| compare(&w[*a], &w[*b]));
-        for (at, &r) in order.iter().enumerate() {
-            if at == 0 || compare(&w[order[at - 1]], &w[r]).is_ne() {
-                positions.push(w[r].clone());
-            }
-        }
-    }
+    let (within, every) = match within.filter(|_| sort) {
+        Some((w, every)) => (Some(w), every),
+        None => (None, &[][..]),
+    };
+    let mut positions: Vec<Vec<Key>> = every.to_vec();
+    positions.sort_by(|a, b| compare(a, b));
+    positions.dedup_by(|a, b| compare(a, b).is_eq());
     let mut members = Vec::with_capacity(groups.len());
     for g in groups {
         let mut m: Vec<(usize, usize)> = match within {
@@ -116,6 +129,11 @@ pub(super) fn subjects(
     } else {
         members.iter().map(Vec::len).max().unwrap_or(0)
     };
+    if dim > MAX_DIMENSION {
+        return Err(format!(
+            "GENLIN REPEATED: the working correlation matrix would have dimension {dim}; at most {MAX_DIMENSION} measurements per subject (or WITHINSUBJECT values) are supported"
+        ));
+    }
     Ok(Subjects {
         members,
         dim,
@@ -150,8 +168,8 @@ pub(super) struct GeeFit {
     /// No shortened step kept every mean valid; the iterations stopped there.
     pub(super) halving_failed: bool,
     pub(super) hessian_ok: bool,
-    /// The final estimated matrix was not positive definite and was pulled toward the identity.
-    pub(super) ridged: bool,
+    /// How the final estimated matrix was made positive definite.
+    pub(super) adjusted: Adjusted,
 }
 
 fn means(c: &Cases, x: &[Vec<f64>], set: &Settings, beta: &[f64]) -> Option<Vec<f64>> {
@@ -191,7 +209,7 @@ fn estimate(
     set: &Settings,
     px: usize,
     mu: &[f64],
-) -> Result<(Matrix, f64, bool), String> {
+) -> Result<(Matrix, f64, Adjusted), String> {
     let t = s.dim;
     let px = px as f64;
     let adj = |den: f64| {
@@ -202,36 +220,25 @@ fn estimate(
         }
     };
     let r = residuals(c, set, mu);
-    // the residual of each subject at each position; the frequency of each subject
-    let grid: Vec<Vec<Option<f64>>> = s
-        .members
-        .iter()
-        .map(|m| {
-            let mut row = vec![None; t];
-            for &(i, p) in m {
-                row[p] = Some(r[i]);
+    // the sums of residual products and the numbers of pairs at positions u < v
+    let mut sums = vec![vec![0.0; t]; t];
+    let mut counts = vec![vec![0.0; t]; t];
+    for m in &s.members {
+        let f = c.f[m[0].0];
+        for (at, &(i, u)) in m.iter().enumerate() {
+            for &(j, v) in &m[at + 1..] {
+                sums[u][v] += f * r[i] * r[j];
+                counts[u][v] += f;
             }
-            row
-        })
-        .collect();
-    let freq: Vec<f64> = s.members.iter().map(|m| c.f[m[0].0]).collect();
+        }
+    }
     // the divisor of every correlation estimate, also when the model's scale is fixed
     let phi = moment(c, s, set, px as usize, &r);
     let ratio = |num: f64, den: f64| {
         let v = num / adj(den) / phi;
         if den > 0.0 && v.is_finite() { v } else { 0.0 }
     };
-    // the sum of products and the number of pairs at positions u and v
-    let pair = |u: usize, v: usize| -> (f64, f64) {
-        let (mut num, mut den) = (0.0, 0.0);
-        for (row, f) in grid.iter().zip(&freq) {
-            if let (Some(a), Some(b)) = (row[u], row[v]) {
-                num += f * a * b;
-                den += f;
-            }
-        }
-        (num, den)
-    };
+    let pair = |u: usize, v: usize| (sums[u][v], counts[u][v]);
     let lag = |j: usize| -> f64 {
         let (num, den) = (0..t - j)
             .map(|u| pair(u, u + j))
@@ -242,7 +249,7 @@ fn estimate(
         .map(|u| (0..t).map(|v| f64::from(u8::from(u == v))).collect())
         .collect();
     match set.correlation {
-        GenlinCorrelation::Independent => return Ok((m, phi, false)),
+        GenlinCorrelation::Independent => return Ok((m, phi, Adjusted::No)),
         GenlinCorrelation::Fixed(list) => {
             if list.len() != t * t.saturating_sub(1) / 2 {
                 return Err(format!(
@@ -267,20 +274,11 @@ fn estimate(
                         .into(),
                 );
             }
-            return Ok((m, phi, false));
+            return Ok((m, phi, Adjusted::No));
         }
         GenlinCorrelation::Exchangeable => {
-            let mut num = 0.0;
-            let mut den = 0.0;
-            for (mm, f) in s.members.iter().zip(&freq) {
-                let n = mm.len() as f64;
-                den += f * n * (n - 1.0) / 2.0;
-                for (at, &(i, _)) in mm.iter().enumerate() {
-                    for &(j, _) in &mm[at + 1..] {
-                        num += f * r[i] * r[j];
-                    }
-                }
-            }
+            let num: f64 = sums.iter().flatten().sum();
+            let den: f64 = counts.iter().flatten().sum();
             let alpha = ratio(num, den);
             for (u, row) in m.iter_mut().enumerate() {
                 for (v, cell) in row.iter_mut().enumerate() {
@@ -294,7 +292,12 @@ fn estimate(
             let estimate = if t > 1 { lag(1) } else { 0.0 };
             // a power matrix is positive definite only for |alpha| < 1
             let alpha = estimate.clamp(-0.99, 0.99);
-            return Ok((ar1(t, alpha), phi, alpha != estimate));
+            let adjusted = if alpha == estimate {
+                Adjusted::No
+            } else {
+                Adjusted::Clamp
+            };
+            return Ok((ar1(t, alpha), phi, adjusted));
         }
         GenlinCorrelation::MDependent(order) => {
             let order = (*order as usize).min(t.saturating_sub(1));
@@ -320,7 +323,7 @@ fn estimate(
         .map(|(v, _)| *v)
         .fold(f64::INFINITY, f64::min);
     if smallest > 0.0 {
-        return Ok((m, phi, false));
+        return Ok((m, phi, Adjusted::No));
     }
     // the ridge that leaves 0.01 as the smallest eigenvalue
     let ridge = (0.01 - smallest) / 0.99;
@@ -329,7 +332,7 @@ fn estimate(
             *cell = (*cell + if u == v { ridge } else { 0.0 }) / (1.0 + ridge);
         }
     }
-    Ok((m, phi, true))
+    Ok((m, phi, Adjusted::Ridge))
 }
 
 fn ar1(t: usize, alpha: f64) -> Matrix {
@@ -407,18 +410,27 @@ fn parts(
     (score, h, meat)
 }
 
-/// H of the independent structure at `beta` and the scale `phi`.
+/// H of the independent structure at `beta` and the scale `phi`: sum f D' A^-1 D / phi.
 pub(super) fn independent_information(
     c: &Cases,
     x: &[Vec<f64>],
-    s: &Subjects,
     set: &Settings,
     beta: &[f64],
     phi: f64,
 ) -> Option<Matrix> {
     let mu = means(c, x, set, beta)?;
-    let identity = ar1(s.dim, 0.0);
-    Some(parts(c, x, s, set, &mu, &identity, phi).1)
+    let q = beta.len();
+    let mut h = vec![vec![0.0; q]; q];
+    for (i, row) in x.iter().enumerate().take(c.n()) {
+        let g = link_d1(set.link, mu[i], set.k);
+        let w = c.f[i] * c.a(i) / (phi * variance(set.family, mu[i], set.k) * g * g);
+        for (j, out) in h.iter_mut().enumerate() {
+            for (l, v) in out.iter_mut().enumerate() {
+                *v += w * row[j] * row[l];
+            }
+        }
+    }
+    Some(h)
 }
 
 /// Fits the generalized estimating equations from `beta0` and the scale `phi0`.
@@ -435,7 +447,7 @@ pub(super) fn fit(
         || "GENLIN REPEATED: the estimating equations give a case an invalid mean".to_string();
     let mut beta = beta0.to_vec();
     let mut mu = means(c, x, set, &beta).ok_or_else(failed)?;
-    let (mut r, start_moment, mut ridged) = estimate(c, s, set, q, &mu)?;
+    let (mut r, start_moment, mut adjusted) = estimate(c, s, set, q, &mu)?;
     // with SCALE=MLE the scale is the Pearson moment from the start
     let mut phi = if set.update_scale { start_moment } else { phi0 };
     let (mut score, mut h, mut meat) = parts(c, x, s, set, &mu, &r, phi);
@@ -468,9 +480,9 @@ pub(super) fn fit(
         mu = next_mu;
         let update = set.updatecorr > 0 && iteration % set.updatecorr == 0;
         if update {
-            let (nr, m, nridged) = estimate(c, s, set, q, &mu)?;
+            let (nr, m, now) = estimate(c, s, set, q, &mu)?;
             r = nr;
-            ridged = nridged;
+            adjusted = now;
             if set.update_scale {
                 phi = m;
             }
@@ -505,7 +517,7 @@ pub(super) fn fit(
         converged,
         halving_failed,
         hessian_ok,
-        ridged,
+        adjusted,
     })
 }
 
