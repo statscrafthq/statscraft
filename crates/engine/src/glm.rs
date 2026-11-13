@@ -273,11 +273,9 @@ impl Fit {
         (s, swept.iter().filter(|&&s| s).count())
     }
 
-    /// Y'WY, the raw sums of squares and cross-products of the dependents.
-    fn raw(&self) -> Matrix {
-        (self.p..self.p + self.r)
-            .map(|i| self.zwz[i][self.p..].to_vec())
-            .collect()
+    /// The diagonal of Y'WY: each dependent's raw sum of squares.
+    fn raw(&self) -> Vec<f64> {
+        (self.p..self.p + self.r).map(|i| self.zwz[i][i]).collect()
     }
 
     pub(crate) fn h(&self) -> Matrix {
@@ -2825,7 +2823,7 @@ fn custom_tests(
         multivariate_rows(
             &ssh,
             &se_m,
-            &transformed_scale(m, &diagonal(&fit.raw())),
+            &transformed_scale(m, &fit.raw()),
             df as f64,
             dfe,
             flags,
@@ -2886,10 +2884,6 @@ fn transformed_scale(m: &Matrix, raw: &[f64]) -> Vec<f64> {
         .collect()
 }
 
-fn diagonal(a: &Matrix) -> Vec<f64> {
-    (0..a.len()).map(|i| a[i][i]).collect()
-}
-
 fn trace(a: &Matrix) -> f64 {
     (0..a.len()).map(|i| a[i][i]).sum()
 }
@@ -2909,15 +2903,14 @@ fn relative_eigenvalues(sh: &Matrix, se: &Matrix, reference: &[f64]) -> (Vec<f64
                 .collect()
         })
         .collect();
-    let se = &se;
-    let sh = &sh;
-    let pairs = crate::matrix::symmetric_eigen(se);
+    let pairs = crate::matrix::symmetric_eigen(&se);
     let n = se.len();
     let mut rank = 0;
     // S_E^-1/2 = V diag(1/sqrt(e)) V'
     let mut root = vec![vec![0.0; n]; n];
     for (value, vector) in &pairs {
-        if *value <= 1e-12 * pairs[0].0.abs().max(1e-300) {
+        // the cut of log_determinant_and_rank, on the same correlation form
+        if *value <= 1e-10 {
             continue;
         }
         rank += 1;
@@ -2927,7 +2920,7 @@ fn relative_eigenvalues(sh: &Matrix, se: &Matrix, reference: &[f64]) -> (Vec<f64
             }
         }
     }
-    let middle = multiply(&multiply(&root, sh), &root);
+    let middle = multiply(&multiply(&root, &sh), &root);
     let mut values: Vec<f64> = crate::matrix::symmetric_eigen(&middle)
         .into_iter()
         .map(|(v, _)| v.max(0.0))
@@ -3118,7 +3111,7 @@ impl Engine {
         let fit = Fit::new(d, effects, &y, command.eps);
         let sscp = effect_sscp(&fit, command.sstype);
         let dfe = fit.df_error();
-        let raw = diagonal(&fit.raw());
+        let raw = fit.raw();
         let flags = flags_of(command);
         let between_label = |e: &Effect| e.label.clone();
         let mut out = Vec::new();
@@ -3596,7 +3589,7 @@ fn multivariate_columns(flags: &Flags, effect: bool) -> Vec<(String, String)> {
 
 /// The rows of the four multivariate statistics of S_H against S_E, with `l` hypothesis and
 /// `ne` error degrees of freedom; empty when the hypothesis has no degrees of freedom.
-/// `reference` is each variable's raw sum of squares (see `correlation_form`).
+/// `reference` is each variable's noise scale (see `correlation_form` and `transformed_scale`).
 fn multivariate_rows(
     sh: &Matrix,
     se: &Matrix,
@@ -3791,7 +3784,7 @@ fn residual_tables(fit: &Fit, names: &[String], design: &str) -> Vec<Table> {
         ("Covariance", scaled(&|_, _| dfe)),
         ("Correlation", {
             // a dependent with no residual variance has no correlation
-            let (_, kept) = correlation_form(s, &diagonal(&fit.raw()));
+            let (_, kept) = correlation_form(s, &fit.raw());
             let mut c = scaled(&|a, b| (s[a][a] * s[b][b]).sqrt());
             for (a, row) in c.iter_mut().enumerate() {
                 for (b, v) in row.iter_mut().enumerate() {
@@ -3818,8 +3811,9 @@ fn residual_tables(fit: &Fit, names: &[String], design: &str) -> Vec<Table> {
         }
     }
     let residual = table("Residual SSCP Matrix", 2, columns, rows, None);
-    let (w, chi, df, sig) = mauchly(s, dfe, &diagonal(&fit.raw()));
-    let fine = w > 0.0 && dfe > 0.0;
+    let (w, chi, df, sig) = mauchly(s, dfe, &fit.raw());
+    // mauchly gives no chi-square for a singular matrix; W itself may underflow to 0
+    let fine = chi.is_finite() && dfe > 0.0;
     let rows = vec![
         // a singular residual SSCP gives a ratio of 0 but no chi-square
         vec![
@@ -4016,7 +4010,7 @@ impl Engine {
             }
         }
         let sscp = effect_sscp(&fit, command.sstype);
-        let reference = diagonal(&fit.raw());
+        let reference = fit.raw();
         let mut rows = Vec::new();
         for (e, (sh, l)) in fit.effects.iter().zip(&sscp) {
             for (i, mut row) in multivariate_rows(sh, &fit.s, &reference, *l as f64, dfe, &flags)
