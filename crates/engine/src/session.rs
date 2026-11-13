@@ -77,7 +77,7 @@ impl Failure {
 /// messages already ("FACTOR: ...", "SET LOCALE: ..."), also after the name of a split group
 /// ("g = 1: FACTOR: ...", shown as "FACTOR: g = 1: ...").
 fn with_command(command: &str, message: &str) -> String {
-    if own_name(command, message).is_some() {
+    if command.is_empty() || own_name(command, message).is_some() {
         return message.to_string();
     }
     for (at, _) in message.match_indices(": ") {
@@ -88,14 +88,17 @@ fn with_command(command: &str, message: &str) -> String {
     format!("{command}: {message}")
 }
 
-/// The command's name and the rest when the message starts with it, alone or with more words
-/// in capitals ("SET LOCALE: ...").
+/// The command's name and the rest when the message starts with it, alone or with keywords
+/// or a subcommand after it ("SET LOCALE: ...", "FACTOR /SAVE: ...").
 fn own_name<'a>(command: &str, message: &'a str) -> Option<(&'a str, &'a str)> {
     let (name, rest) = message.split_once(": ")?;
     let longer = name
         .strip_prefix(command)?
         .strip_prefix(' ')
-        .is_some_and(|more| more.chars().all(|c| c.is_ascii_uppercase() || c == ' '));
+        .is_some_and(|more| {
+            more.chars()
+                .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || " /=_-".contains(c))
+        });
     (name == command || longer).then_some((name, rest))
 }
 
@@ -331,7 +334,8 @@ pub struct LogEntry {
     pub syntax: String,
     pub result: Result<String, Vec<Failure>>,
     /// The warnings of the run's commands, each as "line N: COMMAND: message", where a message
-    /// that names its command (also in a longer form such as SET LOCALE) keeps its own name.
+    /// that names its command (also with keywords or a subcommand, as in "SET LOCALE: " or
+    /// "FACTOR /SAVE: ") keeps its own name.
     pub warnings: Vec<String>,
     /// Taken back by `Session::undo`, so a script made from the log leaves it out.
     pub undone: bool,
@@ -1059,7 +1063,16 @@ mod tests {
             with_command("PPLOT", "PPLOT APPLY: no earlier PPLOT"),
             "PPLOT APPLY: no earlier PPLOT"
         );
-        assert_eq!(with_command("SET", "SETTINGS kept"), "SET: SETTINGS kept");
+        assert_eq!(with_command("SET", "SETTINGS: kept"), "SET: SETTINGS: kept");
+        assert_eq!(
+            with_command("FACTOR", "FACTOR /SAVE: 5 scores"),
+            "FACTOR /SAVE: 5 scores"
+        );
+        assert_eq!(
+            with_command("FACTOR", "g = 1: FACTOR /SAVE: 5 scores"),
+            "FACTOR /SAVE: g = 1: 5 scores"
+        );
+        assert_eq!(with_command("", "no command"), "no command");
         assert_eq!(
             with_command("WEIGHT", "WEIGHT has negative values"),
             "WEIGHT: WEIGHT has negative values"
