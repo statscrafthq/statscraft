@@ -3769,6 +3769,12 @@ fn m_matrix(command: &Glm, dependents: &[String]) -> Result<Option<(Matrix, Vec<
     let mut m = vec![vec![0.0; columns.len()]; r];
     let mut names = Vec::new();
     for (c, column) in columns.iter().enumerate() {
+        if column.entries.len() > 1 && column.entries.iter().any(|(n, _)| n.is_none()) {
+            return Err(Error(
+                "ALL in MMATRIX gives a whole column; end the column with ';' before naming dependents"
+                    .into(),
+            ));
+        }
         for (name, values) in &column.entries {
             match name {
                 Some(name) => {

@@ -606,6 +606,10 @@ fn errors_name_the_problem() {
         "MMATRIX names y1 twice in one column"
     );
     assert_eq!(
+        run_error(&format!("{DATA}\nGLM y1 y2 BY g /MMATRIX=ALL 1 1 y1 2.")),
+        "ALL in MMATRIX gives a whole column; end the column with ';' before naming dependents"
+    );
+    assert_eq!(
         run_error(&format!("{DATA}\nUNIANOVA y1 y2 BY g.")),
         "UNIANOVA takes one dependent variable; GLM analyzes several"
     );
@@ -617,4 +621,32 @@ fn errors_name_the_problem() {
         "{:?}",
         engine.warnings()
     );
+}
+
+/// KMATRIX alone tests the intercept's Type III L matrix: with K = 0 its F is the F of the
+/// intercept in the Tests of Between-Subjects Effects, also with one dependent.
+#[test]
+fn kmatrix_alone_tests_the_intercept() {
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!("{DATA}\nUNIANOVA y2 BY g h WITH x /KMATRIX=0."),
+    );
+    let custom = value(&t, "Test Results", "Contrast", "F");
+    let between = value(&t, BETWEEN, "Intercept", "F");
+    assert!(close(custom, between), "{custom} vs {between}");
+    let t = run(&mut engine, "UNIANOVA y2 BY g h WITH x /KMATRIX=5.");
+    let estimate = value(
+        &t,
+        "Contrast Results (K Matrix)",
+        "L1 / Contrast Estimate",
+        "y2",
+    );
+    let diff = value(
+        &t,
+        "Contrast Results (K Matrix)",
+        "L1 / Difference (Estimate - Hypothesized)",
+        "y2",
+    );
+    assert!(close(diff, estimate - 5.0), "{diff} vs {estimate}");
 }
