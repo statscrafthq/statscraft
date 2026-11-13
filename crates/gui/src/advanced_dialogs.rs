@@ -160,6 +160,7 @@ fn iteration_criteria(
     iterations: &str,
     halvings: &str,
     steps: u32,
+    least_iterations: u32,
 ) -> Result<Vec<String>, String> {
     let mut out = Vec::new();
     // an empty field means the default, as for the other fields here
@@ -170,7 +171,11 @@ fn iteration_criteria(
     if level != 95.0 {
         out.push(format!("CIN({})", number(level)));
     }
-    match whole(iterations, 1, "the maximum number of iterations")? {
+    match whole(
+        iterations,
+        least_iterations,
+        "the maximum number of iterations",
+    )? {
         Some(n) if n != 100 => out.push(format!("MXITER({n})")),
         _ => {}
     }
@@ -286,7 +291,8 @@ impl Ordinal {
             let terms = self.scale_terms.syntax(&model, "scale model")?;
             text.push_str(&format!("\n  /SCALE={terms}"));
         }
-        let mut criteria = iteration_criteria(&self.ci_level, &self.iterations, &self.halvings, 5)?;
+        let mut criteria =
+            iteration_criteria(&self.ci_level, &self.iterations, &self.halvings, 5, 1)?;
         // empty is the default, as for the iterations
         let delta = match self.delta.trim() {
             "" => 0.0,
@@ -438,7 +444,7 @@ impl Multinomial {
         if !self.intercept {
             text.push_str("\n  /INTERCEPT=EXCLUDE");
         }
-        let criteria = iteration_criteria(&self.ci_level, &self.iterations, &self.halvings, 5)?;
+        let criteria = iteration_criteria(&self.ci_level, &self.iterations, &self.halvings, 5, 1)?;
         if !criteria.is_empty() {
             text.push_str(&format!("\n  /CRITERIA={}", criteria.join(" ")));
         }
@@ -653,11 +659,24 @@ impl LinearMixed {
                 text.push_str(&format!(" COVTYPE({covariance})"));
             }
         }
+        let used = !self.repeated.is_empty()
+            || (self.random
+                && self
+                    .subjects
+                    .iter()
+                    .any(|s| self.random_subjects.contains(s)));
+        if !self.subjects.is_empty() && !used {
+            return Err(
+                "the subjects are used only by repeated measures or ticked under the random effects"
+                    .into(),
+            );
+        }
         if self.ml {
             text.push_str("\n  /METHOD=ML");
         }
         let mut criteria =
-            iteration_criteria(&self.ci_level, &self.iterations, &self.halvings, 10)?;
+            // MIXED takes 0 iterations: the starting estimates only
+            iteration_criteria(&self.ci_level, &self.iterations, &self.halvings, 10, 0)?;
         if self.residual_df {
             criteria.push("DFMETHOD(RESIDUAL)".into());
         }
@@ -763,9 +782,14 @@ impl SamplePlan {
         if weight.is_empty() {
             return Err("choose the sample weight variable".into());
         }
+        // the other Complex Samples dialogs list .json files only
+        let path = match std::path::Path::new(path).extension() {
+            Some(_) => path.to_string(),
+            None => format!("{path}.json"),
+        };
         let mut text = format!(
             "CSPLAN ANALYSIS\n  /PLAN FILE={}\n  /PLANVARS ANALYSISWEIGHT={weight}",
-            quote(path)
+            quote(&path)
         );
         if self.srs_with_replacement {
             text.push_str("\n  /SRSESTIMATOR TYPE=WR");
@@ -917,7 +941,11 @@ impl SampleOptions {
             .map(str::to_string)
             .collect();
         if self.ci {
-            let level = percent(&self.ci_level)?;
+            // an empty field means the default, as in the other dialogs here
+            let level = match self.ci_level.trim() {
+                "" => 95.0,
+                given => percent(given)?,
+            };
             statistics.push(if level == 95.0 {
                 "CIN".into()
             } else {
@@ -1790,5 +1818,48 @@ mod tests {
             ..Default::default()
         };
         assert_eq!(d.syntax(true).unwrap(), "NOMREG plan (BASE='BASIC').");
+    }
+
+    #[test]
+    fn subjects_that_nothing_uses_are_an_error() {
+        let mut d = LinearMixed {
+            dependent: "monthly_spend".into(),
+            subjects: v(&["region"]),
+            random: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "the subjects are used only by repeated measures or ticked under the random effects"
+        );
+        d.random_subjects = v(&["region"]);
+        assert!(d.syntax().is_ok());
+    }
+
+    #[test]
+    fn mixed_takes_zero_iterations_and_the_others_do_not() {
+        let mut d = LinearMixed {
+            dependent: "monthly_spend".into(),
+            iterations: "0".into(),
+            ..Default::default()
+        };
+        assert!(d.syntax().unwrap().contains("MXITER(0)"));
+        d.iterations = "100".into();
+        let o = Ordinal {
+            dependent: "q1_satisfaction".into(),
+            iterations: "0".into(),
+            ..Default::default()
+        };
+        assert!(o.syntax().is_err());
+    }
+
+    #[test]
+    fn a_plan_file_without_extension_gets_json() {
+        let d = SamplePlan {
+            path: "design".into(),
+            weight: "weight".into(),
+            ..Default::default()
+        };
+        assert!(d.syntax().unwrap().contains("/PLAN FILE='design.json'"));
     }
 }
