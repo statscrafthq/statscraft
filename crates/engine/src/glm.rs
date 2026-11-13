@@ -1,5 +1,5 @@
-//! UNIANOVA and GLM: the general linear model with one dependent variable, and GLM's repeated
-//! measures model.
+//! UNIANOVA and GLM: the general linear model with one dependent variable, and GLM's
+//! multivariate and repeated measures models.
 //!
 //! Rules from the Command Syntax Reference (UNIANOVA, GLM) and the Algorithms manual (GLM, and
 //! the appendix Sums of Squares):
@@ -21,6 +21,12 @@
 //!   product) or the WITH values; a mean that is not estimable has no value.
 //! - Observed power: noncentrality F times df (|t| for a parameter), power from the noncentral F
 //!   (t) at ALPHA.
+//! - Multivariate tests of L B M = K: S_H = (LBM - K)' (L G L')^- (LBM - K) against
+//!   S_E = M' S M, from the eigenvalues of S_E^-1 S_H; s is the smaller of the hypothesis df and
+//!   the rank of S_E. Each statistic's noncentrality is its error df times eta^2 / (1 - eta^2).
+//! - Box's M: observed cell means and covariances in the cells of all factors, cells with a
+//!   singular matrix left out, F approximation of Box. Bartlett's sphericity test of the
+//!   residual SSCP uses the same chi-square expansion as Mauchly's test.
 
 use crate::contrast::contrast_rows;
 use crate::crosstabs::{Key, categories};

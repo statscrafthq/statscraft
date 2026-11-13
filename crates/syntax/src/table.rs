@@ -66,12 +66,14 @@ macro_rules! glm_syntax {
                  \x20  [/WSFACTOR=name levels [POLYNOMIAL | contrast] ...] [/WSDESIGN=effects] (GLM)\n\
                  \x20  [/METHOD=SSTYPE(1 | 2 | 3 | 4)] [/INTERCEPT=INCLUDE | EXCLUDE] [/MISSING=EXCLUDE | INCLUDE]\n\
                  \x20  [/CRITERIA=[EPS(1E-8)] [ALPHA(0.05)]] [/REGWGT=var]\n\
-                 \x20  [/PRINT=[DESCRIPTIVE] [HOMOGENEITY] [PARAMETER] [ETASQ] [OPOWER] [LOF]]\n\
+                 \x20  [/PRINT=[DESCRIPTIVE] [HOMOGENEITY] [PARAMETER] [ETASQ] [OPOWER] [LOF] [RSSCP]\n\
+                 \x20         [TEST([SSCP] [MMATRIX | TRANSFORM])]]\n\
                  \x20  [/EMMEANS=TABLES(OVERALL | factor[*factor...]) [WITH(covariate=value | MEAN ...)]\n\
                  \x20            [COMPARE[(factor)] [ADJ(LSD | BONFERRONI | SIDAK)]]] ...\n\
                  \x20  [/POSTHOC=factor ... (tests)] ... [/CONTRAST(factor)=DEVIATION[(ref)] | SIMPLE[(ref)] |\n\
                  \x20  DIFFERENCE | HELMERT | REPEATED | POLYNOMIAL[(metric)]] ...\n\
-                 \x20  [/LMATRIX=['label'] effect coefficients ... [; ...] | ALL coefficients] ... [/KMATRIX=values]\n\
+                 \x20  [/LMATRIX=['label'] effect coefficients ... [; ...] | ALL coefficients] ...\n\
+                 \x20  [/MMATRIX=['label'] dependent value ... | ALL values [; ...]] (GLM) [/KMATRIX=values [; ...]]\n\
                  \x20  [/SAVE=tempvar[(name)] ...] [/DESIGN=effects]\n\
                  \x20  [/PLOT=[SPREADLEVEL] [RESIDUALS] [PROFILE(factor[*factor[*factor]] ...) [WITH(covariate=value | MEAN ...)]\n\
                  \x20         [TYPE=LINE | BAR] [MEANREFERENCE=NO | YES] [ERRORBAR=NO | CI | SE[(2)]] [YAXIS=AUTO | 0]]] ...\n\
@@ -95,6 +97,18 @@ macro_rules! glm_syntax {
                  factor's levels change slowest); Multivariate Tests, Mauchly's Test of Sphericity, Tests of\n\
                  Within-Subjects Effects (sphericity assumed, Greenhouse-Geisser, Huynh-Feldt, lower bound), Tests\n\
                  of Within-Subjects Contrasts and Tests of Between-Subjects Effects on the average.\n\
+                 GLM with several dependents and no WSFACTOR is the multivariate model: Multivariate Tests of every\n\
+                 effect (Pillai's trace, Wilks' lambda, Hotelling's trace, Roy's largest root, each with F, df and\n\
+                 Sig., and with ETASQ and OPOWER partial eta squared, noncentrality and power), then the univariate\n\
+                 tables with a row per dependent. HOMOGENEITY adds Box's M test of equal covariance matrices in\n\
+                 the cells to Levene's test of each dependent; RSSCP gives the residual SSCP, covariance and\n\
+                 correlation matrices and Bartlett's test of sphericity; TEST(SSCP) the SSCP of each effect and of\n\
+                 the error. A custom test L B M = K takes L from LMATRIX (or the intercept's test when only\n\
+                 MMATRIX or KMATRIX is given), M from MMATRIX (the identity by default; columns end with ';' and\n\
+                 are named by their label or T1, T2, ...) and K from KMATRIX (rows end with ';', zero by default);\n\
+                 CONTRAST always uses the identity. Each test gives Contrast Results (K Matrix), Multivariate\n\
+                 Test Results and Univariate Test Results; TEST(MMATRIX) shows M. EMMEANS, POSTHOC, PLOT and SAVE\n\
+                 work on each dependent in turn (SAVE without names).\n\
                  PLOT gives chart data. PROFILE draws the estimated marginal means as a line chart (bars with\n\
                  TYPE=BAR) over the levels of the first factor, one line per level of a second factor and one chart\n\
                  per level of a third; MEANREFERENCE adds the grand mean as a flat line. ERRORBAR=CI spans each\n\
@@ -102,11 +116,11 @@ macro_rules! glm_syntax {
                  side (2 by default); YAXIS is left to the drawing. SPREADLEVEL plots the mean of every\n\
                  cell with two cases or more against its standard deviation, then against its variance. RESIDUALS\n\
                  gives every case's predicted value, observed value and standardized residual. With WSFACTOR, PLOT\n\
-                 is ignored with a warning. Not supported yet: GLM with several\n\
-                 dependents without WSFACTOR (the multivariate model), RANDOM, TEST, ROBUST, OUTFILE, MMATRIX,\n\
-                 MEASURE, POSTHOC VS, CONTRAST SPECIAL, PRINT GEF, TEST(LMATRIX), MBP, BP, F and WHITE; with\n\
-                 WSFACTOR also EMMEANS (left out with a warning), POSTHOC, CONTRAST, LMATRIX, SAVE and PRINT\n\
-                 PARAMETER, HOMOGENEITY and LOF.")
+                 is ignored with a warning. Not supported yet: RANDOM, TEST,\n\
+                 ROBUST, OUTFILE, MEASURE, POSTHOC VS, CONTRAST SPECIAL, PRINT GEF, TEST(LMATRIX), MBP, BP, F and\n\
+                 WHITE; in the multivariate model the multivariate tests of EMMEANS COMPARE; with WSFACTOR also\n\
+                 EMMEANS (left out with a warning), POSTHOC, CONTRAST, LMATRIX, MMATRIX, SAVE and PRINT\n\
+                 PARAMETER, HOMOGENEITY, LOF, RSSCP and TEST(SSCP).")
     };
 }
 
@@ -1698,7 +1712,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "GLM",
-        summary: "General linear model: one dependent variable as in UNIANOVA, or repeated measures with WSFACTOR.",
+        summary: "General linear model: one dependent variable as in UNIANOVA, several (multivariate analysis of variance and covariance), or repeated measures with WSFACTOR.",
         syntax: glm_syntax!("GLM"),
         example: "GLM t1 t2 t3 BY group /WSFACTOR=time 3 POLYNOMIAL /WSDESIGN=time /DESIGN=group.",
         parse: glm::glm,

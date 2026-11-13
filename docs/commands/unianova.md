@@ -11,12 +11,14 @@ UNIANOVA dependent [BY factors] [WITH covariates]
    [/WSFACTOR=name levels [POLYNOMIAL | contrast] ...] [/WSDESIGN=effects] (GLM)
    [/METHOD=SSTYPE(1 | 2 | 3 | 4)] [/INTERCEPT=INCLUDE | EXCLUDE] [/MISSING=EXCLUDE | INCLUDE]
    [/CRITERIA=[EPS(1E-8)] [ALPHA(0.05)]] [/REGWGT=var]
-   [/PRINT=[DESCRIPTIVE] [HOMOGENEITY] [PARAMETER] [ETASQ] [OPOWER] [LOF]]
+   [/PRINT=[DESCRIPTIVE] [HOMOGENEITY] [PARAMETER] [ETASQ] [OPOWER] [LOF] [RSSCP]
+          [TEST([SSCP] [MMATRIX | TRANSFORM])]]
    [/EMMEANS=TABLES(OVERALL | factor[*factor...]) [WITH(covariate=value | MEAN ...)]
              [COMPARE[(factor)] [ADJ(LSD | BONFERRONI | SIDAK)]]] ...
    [/POSTHOC=factor ... (tests)] ... [/CONTRAST(factor)=DEVIATION[(ref)] | SIMPLE[(ref)] |
    DIFFERENCE | HELMERT | REPEATED | POLYNOMIAL[(metric)]] ...
-   [/LMATRIX=['label'] effect coefficients ... [; ...] | ALL coefficients] ... [/KMATRIX=values]
+   [/LMATRIX=['label'] effect coefficients ... [; ...] | ALL coefficients] ...
+   [/MMATRIX=['label'] dependent value ... | ALL values [; ...]] (GLM) [/KMATRIX=values [; ...]]
    [/SAVE=tempvar[(name)] ...] [/DESIGN=effects]
    [/PLOT=[SPREADLEVEL] [RESIDUALS] [PROFILE(factor[*factor[*factor]] ...) [WITH(covariate=value | MEAN ...)]
           [TYPE=LINE | BAR] [MEANREFERENCE=NO | YES] [ERRORBAR=NO | CI | SE[(2)]] [YAXIS=AUTO | 0]]] ...
@@ -28,7 +30,9 @@ tempvar: PRED WPRED RESID WRESID DRESID ZRESID SRESID SEPRED COOK LEVER. tests: 
 
 GLM with WSFACTOR: the dependents are the levels of the within-subjects factors (the first factor's levels change slowest); Multivariate Tests, Mauchly's Test of Sphericity, Tests of Within-Subjects Effects (sphericity assumed, Greenhouse-Geisser, Huynh-Feldt, lower bound), Tests of Within-Subjects Contrasts and Tests of Between-Subjects Effects on the average.
 
-PLOT gives chart data. PROFILE draws the estimated marginal means as a line chart (bars with TYPE=BAR) over the levels of the first factor, one line per level of a second factor and one chart per level of a third; MEANREFERENCE adds the grand mean as a flat line. ERRORBAR=CI spans each mean's confidence interval at 1 minus CRITERIA ALPHA, ERRORBAR=SE(n) n standard errors on each side (2 by default); YAXIS is left to the drawing. SPREADLEVEL plots the mean of every cell with two cases or more against its standard deviation, then against its variance. RESIDUALS gives every case's predicted value, observed value and standardized residual. With WSFACTOR, PLOT is ignored with a warning. Not supported yet: GLM with several dependents without WSFACTOR (the multivariate model), RANDOM, TEST, ROBUST, OUTFILE, MMATRIX, MEASURE, POSTHOC VS, CONTRAST SPECIAL, PRINT GEF, TEST(LMATRIX), MBP, BP, F and WHITE; with WSFACTOR also EMMEANS (left out with a warning), POSTHOC, CONTRAST, LMATRIX, SAVE and PRINT PARAMETER, HOMOGENEITY and LOF.
+GLM with several dependents and no WSFACTOR is the multivariate model: Multivariate Tests of every effect (Pillai's trace, Wilks' lambda, Hotelling's trace, Roy's largest root, each with F, df and Sig., and with ETASQ and OPOWER partial eta squared, noncentrality and power), then the univariate tables with a row per dependent. HOMOGENEITY adds Box's M test of equal covariance matrices in the cells to Levene's test of each dependent; RSSCP gives the residual SSCP, covariance and correlation matrices and Bartlett's test of sphericity; TEST(SSCP) the SSCP of each effect and of the error. A custom test L B M = K takes L from LMATRIX (or the intercept's test when only MMATRIX or KMATRIX is given), M from MMATRIX (the identity by default; columns end with ';' and are named by their label or T1, T2, ...) and K from KMATRIX (rows end with ';', zero by default); CONTRAST always uses the identity. Each test gives Contrast Results (K Matrix), Multivariate Test Results and Univariate Test Results; TEST(MMATRIX) shows M. EMMEANS, POSTHOC, PLOT and SAVE work on each dependent in turn (SAVE without names).
+
+PLOT gives chart data. PROFILE draws the estimated marginal means as a line chart (bars with TYPE=BAR) over the levels of the first factor, one line per level of a second factor and one chart per level of a third; MEANREFERENCE adds the grand mean as a flat line. ERRORBAR=CI spans each mean's confidence interval at 1 minus CRITERIA ALPHA, ERRORBAR=SE(n) n standard errors on each side (2 by default); YAXIS is left to the drawing. SPREADLEVEL plots the mean of every cell with two cases or more against its standard deviation, then against its variance. RESIDUALS gives every case's predicted value, observed value and standardized residual. With WSFACTOR, PLOT is ignored with a warning. Not supported yet: RANDOM, TEST, ROBUST, OUTFILE, MEASURE, POSTHOC VS, CONTRAST SPECIAL, PRINT GEF, TEST(LMATRIX), MBP, BP, F and WHITE; in the multivariate model the multivariate tests of EMMEANS COMPARE; with WSFACTOR also EMMEANS (left out with a warning), POSTHOC, CONTRAST, LMATRIX, MMATRIX, SAVE and PRINT PARAMETER, HOMOGENEITY, LOF, RSSCP and TEST(SSCP).
 
 ## Example
 

@@ -1,5 +1,5 @@
 //! Parser of UNIANOVA and GLM: the general linear model with one dependent variable, and GLM's
-//! repeated measures form.
+//! multivariate and repeated measures forms.
 //!
 //! Rules from the Command Syntax Reference (UNIANOVA, GLM, GLM: Repeated Measures):
 //! - `dependent [BY factors] [WITH covariates]` comes first; the subcommands follow in any order.

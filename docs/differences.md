@@ -536,7 +536,7 @@ Where the documentation is silent:
 - A frequency weight is rounded to a whole number, as documented (GNU PSPP uses fractional weights as they are).
 - An interaction with empty cells has as many degrees of freedom as its parameters that are not redundant (GNU PSPP counts every cell, filled or not).
 - The Tests of Between-Subjects Effects show the Intercept.
-- Covariates, Type IV sums of squares, EMMEANS, POSTHOC, CONTRAST, LMATRIX, SAVE and WSFACTOR are supported.
+- Covariates, Type IV sums of squares, EMMEANS, POSTHOC, CONTRAST, LMATRIX, MMATRIX, SAVE, WSFACTOR and the multivariate model are supported.
 - Nested design terms such as a(b(c)) nest at most 64 levels, as expressions do.
 - The columns of an effect are the level combinations that occur in the data, so an L matrix lists one coefficient per occurring combination.
 - Type IV spreads each coefficient of the tested effect equally over the cells of a containing effect at those levels of its other factors where every level with a coefficient has a cell, and sets the rest to 0.
@@ -551,6 +551,10 @@ Where the documentation is silent:
 - Plots come as chart data. A profile plot is a line chart (TYPE=BAR: a bar chart) of the estimated marginal means as EMMEANS computes them, with WITH fixing covariates for every crossing of that PROFILE list; a mean that is not estimable has no value. MEANREFERENCE draws the grand mean (the estimated marginal mean of the whole model at the same covariate values) as a flat line. Error bars use the standard error of each estimated marginal mean, the same one the EMMEANS table shows: CI reaches the t quantile at 1 minus ALPHA/2 on the error degrees of freedom times it on each side, SE(n) reaches n times it. A mean that is not estimable has no bar, and neither has the grand mean line. YAXIS is left to the drawing.
 - SPREADLEVEL plots the cells of all factors that hold more than one case (frequency weights, as in the descriptive statistics), the mean against the standard deviation and the mean against the variance, each cell labeled. RESIDUALS gives one point per case: the predicted value across, the observed value up and the standardized residual (the residual over the root of the error mean square divided by the REGWGT weight) as the third coordinate, from which the matrix of the three pairs is drawn.
 - PLOT with WSFACTOR is ignored with a warning.
+- GNU PSPP 2.0 has no multivariate GLM (several dependents without WSFACTOR). Its numbers were compared with R run as a separate program on synthetic data: `manova` and model comparisons of multivariate `lm` fits for the four statistics and their F approximations, and matrix arithmetic on the fitted model (sum-to-zero codings) for the Type III SSCP matrices, Box's M, Bartlett's test and the custom tests.
+- In the multivariate model the four statistics use the rank of the error SSCP as the number of variables. Roy's largest root has the hypothesis df plus the error df minus the larger of the hypothesis df and that rank as its error df, as R does. Box's M uses the cells of all factors, leaves out a cell whose covariance matrix is singular, and is not given when fewer than two cells remain.
+- MMATRIX or KMATRIX without LMATRIX tests the L matrix of the intercept's Type III test, whatever METHOD says. The documentation names the estimable function of the intercept without saying which form.
+- In the multivariate model EMMEANS, POSTHOC, PLOT and SAVE run for each dependent in turn, with that dependent's tables. EMMEANS COMPARE gives the univariate tests only; SAVE takes no variable names.
 
 ### MIXED
 
@@ -908,7 +912,7 @@ Where the documentation is silent:
   - NOMREG has no TEST, OUTFILE, or PRINT CELLPROB, HISTORY and ASSOCIATION.
   - GENLIN has no OUTFILE, TWEEDIE, INITIAL, CITYPE=PROFILE or PRINT GEF, HISTORY, LAGRANGE and LMATRIX, and with REPEATED no multinomial distribution and no generalized score tests.
   - CSPLAN has no SAMPLE designs; CSDESCRIPTIVES and CSTABULATE have no JOINTPROB and no UNEQUAL_WOR estimator.
-  - UNIANOVA and GLM have no multivariate model (GLM with several dependents without WSFACTOR), RANDOM, TEST, ROBUST, OUTFILE, MMATRIX, MEASURE, POSTHOC VS, CONTRAST SPECIAL or the heteroskedasticity tests. With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX, SAVE or PLOT.
+  - UNIANOVA and GLM have no RANDOM, TEST, ROBUST, OUTFILE, MEASURE, POSTHOC VS, CONTRAST SPECIAL, PRINT GEF and TEST(LMATRIX) or the heteroskedasticity tests, and no multivariate tests in EMMEANS COMPARE of the multivariate model. With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX, MMATRIX, SAVE, PLOT, or PRINT PARAMETER, HOMOGENEITY, LOF, RSSCP and TEST(SSCP).
   - MIXED has no spatial (SP_*) or Kronecker (UN_AR1, UN_CS, UN_UN) structures on REPEATED, and no KRONECKER or SPCOORDS.
   - FACTOR has no METHOD=COVARIANCE, MATRIX=OUT or MATRIX=IN(FAC=...).
   - CLUSTER has no MATRIX=OUT.
