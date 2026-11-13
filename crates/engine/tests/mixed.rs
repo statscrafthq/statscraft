@@ -7456,6 +7456,13 @@ fn kenward_roger_agrees_with_the_black_box_check() {
     assert!(close(get("treat", "Denominator df"), 12.0));
     assert!(close(get("Intercept", "F"), 2528.704295349665));
     assert!(close(get("Intercept", "Denominator df"), 4.0));
+    // with two blocks the intercept has 1 df, below 2, and keeps it
+    let (_, t) = run(&format!(
+        "{BLOCKS}SELECT IF block <= 2.\nMIXED y BY treat block /FIXED=treat /RANDOM=block /CRITERIA=DFMETHOD(KENWARDROGER)."
+    ));
+    let df = cell(&t, tests, "Intercept", "Denominator df").unwrap();
+    assert!((df - 1.0).abs() < 1e-6, "{df}");
+    assert!(cell(&t, tests, "Intercept", "Sig.").is_some());
 }
 
 /// SOLUTION on RANDOM, SAVE SEPRED and DFPRED and TEST coefficients after `|`, against a

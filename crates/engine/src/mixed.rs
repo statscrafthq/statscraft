@@ -1079,6 +1079,10 @@ impl Kr {
         let g = ((rows + 1.0) * a1 - (rows + 4.0) * a2) / ((rows + 2.0) * a2);
         let den = 3.0 * rows + 2.0 * (1.0 - g);
         let (c1, c2, c3) = (g / den, (rows - g) / den, (rows + 2.0 - g) / den);
+        if l.len() == 1 {
+            // one row: A1 = A2, lambda is 1 and m is 2 / A2
+            return (if a2 > 0.0 { 2.0 / a2 } else { f64::NAN }, 1.0);
+        }
         if a2 >= rows {
             // E(F) would not be positive: the expansion does not hold
             return (f64::NAN, 1.0);
@@ -1195,7 +1199,9 @@ impl Infer<'_> {
             let (inv, _) = cholesky_inverse(&lal)?;
             let f = dot(&shift, &mat_vec(&inv, &shift)) / q as f64;
             let (df, lambda) = kr.df_and_scale(e, &rows);
-            return Some((q, df, lambda * f));
+            // without the method's df its scaled F is not known either
+            let f = if df.is_nan() { f64::NAN } else { lambda * f };
+            return Some((q, df, f));
         }
         let f = used.iter().map(|(d, _, s)| s * s / d).sum::<f64>() / q as f64;
         let df = self.residual_df.unwrap_or_else(|| {
