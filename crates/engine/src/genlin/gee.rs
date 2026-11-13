@@ -54,7 +54,7 @@ pub(super) struct Subjects {
 type Keys = [Vec<Key>];
 
 /// The largest working correlation matrix: its dimension squared is held in memory.
-const MAX_DIMENSION: usize = 1000;
+const MAX_DIMENSION: usize = 200;
 
 /// What the working correlation matrix was changed to so that it is positive definite.
 #[derive(Clone, Copy, PartialEq)]
@@ -62,7 +62,7 @@ pub(super) enum Adjusted {
     No,
     /// Pulled toward the identity, (R + cI) / (1 + c).
     Ridge,
-    /// An AR(1) correlation of 1 or more in size cut to 0.99.
+    /// An AR(1) correlation of 1 or nearly 1 in size cut to 0.99.
     Clamp,
 }
 
@@ -297,7 +297,8 @@ fn estimate(
         GenlinCorrelation::Ar1 => {
             let estimate = if t > 1 { lag(1) } else { 0.0 };
             // a power matrix is positive definite only for |alpha| < 1
-            let alpha = if estimate.abs() >= 1.0 {
+            // near 1 the smallest eigenvalue, (1 - a) / (1 + a), falls below 1E-6
+            let alpha = if estimate.abs() > 1.0 - 2e-6 {
                 0.99 * estimate.signum()
             } else {
                 estimate

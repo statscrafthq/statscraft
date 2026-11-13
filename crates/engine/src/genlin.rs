@@ -1880,7 +1880,7 @@ impl Engine {
                 // the positions are the WITHINSUBJECT values of every case with valid subject
                 // and within values, also one left out for another reason
                 let every: Vec<Vec<Key>> = (0..cases)
-                    .filter(|_| within.is_some() && r.sort)
+                    .filter(|&k| within.is_some() && r.sort && freq(k) >= 1.0)
                     .filter(|&k| {
                         subject_keys
                             .iter()
@@ -2207,7 +2207,7 @@ impl Engine {
                 }
                 match g.adjusted {
                     gee::Adjusted::Ridge => warnings.push("The estimated working correlation matrix was not positive definite; it was moved toward the identity matrix until it was".into()),
-                    gee::Adjusted::Clamp => warnings.push("The estimated AR(1) correlation was 1 or more in size; it was set to 0.99 with its sign so that the matrix is positive definite".into()),
+                    gee::Adjusted::Clamp => warnings.push("The estimated AR(1) correlation was 1 or more in size, or too close to 1; it was set to 0.99 with its sign so that the matrix is safely positive definite".into()),
                     gee::Adjusted::No => {}
                 }
                 // H of the independent structure at its estimates (those of the plain model) and
@@ -2216,11 +2216,10 @@ impl Engine {
                     ScaleMode::Fixed(v) => v,
                     _ => 1.0,
                 };
-                let independent = command
-                    .print
-                    .fit
-                    .then(|| gee::independent_information(&c, &x, &set, &result.b, phi_q))
-                    .flatten();
+                let independent = command.print.fit.then(|| {
+                    gee::independent_information(&c, &x, &set, &result.b, phi_q)
+                        .expect("the means of the plain model are valid")
+                });
                 f.beta = g.beta.clone();
                 f.mu = g.mu.clone();
                 result.b = g.beta.clone();
@@ -2386,7 +2385,10 @@ impl Engine {
                 }
                 out.push(vec![
                     text("Working Correlation Matrix Structure"),
-                    text(correlation_name(&r.correlation)),
+                    text(correlation_name(
+                        &r.correlation,
+                        subjects.as_ref().map_or(0, |s| s.dim),
+                    )),
                 ]);
             }
             let note = binary.then(|| {
@@ -2657,14 +2659,9 @@ impl Engine {
                     ],
                 ],
                 Some(format!(
-                    "{caption} Smaller values are better. Both criteria use the {} quasi-likelihood under independence at a scale of {}.{}",
+                    "{caption} Smaller values are better. Both criteria use the {} quasi-likelihood under independence at a scale of {}.",
                     if crit.kernel { "kernel of the" } else { "full" },
                     phi_q,
-                    if trace.is_none() {
-                        " QIC is blank: the independent structure gives a case an invalid mean at the estimates of the plain model."
-                    } else {
-                        ""
-                    }
                 )),
             ));
         } else if print.fit {
@@ -3194,7 +3191,7 @@ impl Engine {
                 out,
                 Some(format!(
                     "{caption} Working correlation structure: {}.",
-                    correlation_name(&r.correlation)
+                    correlation_name(&r.correlation, s.dim)
                 )),
             ));
         }
@@ -3338,12 +3335,15 @@ impl Engine {
     }
 }
 
-fn correlation_name(c: &GenlinCorrelation) -> String {
+/// The name of a structure; m of MDEPENDENT as used, at most the dimension `dim` less 1.
+fn correlation_name(c: &GenlinCorrelation, dim: usize) -> String {
     match c {
         GenlinCorrelation::Independent => "Independent".into(),
         GenlinCorrelation::Ar1 => "AR(1)".into(),
         GenlinCorrelation::Exchangeable => "Exchangeable".into(),
-        GenlinCorrelation::MDependent(m) => format!("M-dependent ({m})"),
+        GenlinCorrelation::MDependent(m) => {
+            format!("M-dependent ({})", (*m as usize).min(dim.saturating_sub(1)))
+        }
         GenlinCorrelation::Unstructured => "Unstructured".into(),
         GenlinCorrelation::Fixed(_) => "Fixed".into(),
     }
