@@ -1434,7 +1434,7 @@ fn custom_hypotheses(
     if command.lmatrix.is_empty() && (command.kmatrix.is_some() || given_m.is_some()) {
         // the L matrix of the intercept's Type III test
         match fit.effects.iter().position(Effect::is_intercept) {
-            Some(e) => {
+            Some(e) if !fit.redundant[fit.effects[e].start] => {
                 let l = fit
                     .type34(e, false)
                     .into_iter()
@@ -1443,9 +1443,9 @@ fn custom_hypotheses(
                     .collect();
                 matrices.push(("Intercept".into(), l));
             }
-            None => {
+            _ => {
                 return Err(Error(
-                    "KMATRIX or MMATRIX without LMATRIX tests the intercept, which the model leaves out"
+                    "KMATRIX or MMATRIX without LMATRIX tests the intercept, which the model leaves out or makes redundant"
                         .into(),
                 ));
             }
@@ -3702,9 +3702,16 @@ fn residual_tables(fit: &Fit, names: &[String], design: &str) -> Vec<Table> {
     let (w, chi, df, sig) = mauchly(s, dfe);
     let fine = w > 0.0 && dfe > 0.0;
     let rows = vec![
+        // a singular residual SSCP gives a ratio of 0 but no chi-square
         vec![
             text("Likelihood Ratio"),
-            number(fine.then(|| (fit.n / 2.0 * w.ln()).exp())),
+            number((trace(s) > 0.0).then(|| {
+                if w > 0.0 {
+                    (fit.n / 2.0 * w.ln()).exp()
+                } else {
+                    0.0
+                }
+            })),
         ],
         vec![text("Approx. Chi-Square"), number(fine.then_some(chi))],
         vec![text("df"), number(Some(df))],

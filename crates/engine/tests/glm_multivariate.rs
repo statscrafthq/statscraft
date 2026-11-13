@@ -599,7 +599,7 @@ fn errors_name_the_problem() {
         run_error(&format!(
             "{DATA}\nGLM y1 y2 BY g /INTERCEPT=EXCLUDE /MMATRIX=y1 1 y2 -1."
         )),
-        "KMATRIX or MMATRIX without LMATRIX tests the intercept, which the model leaves out"
+        "KMATRIX or MMATRIX without LMATRIX tests the intercept, which the model leaves out or makes redundant"
     );
     assert_eq!(
         run_error(&format!("{DATA}\nGLM y1 y2 BY g /MMATRIX=y1 1 y2 -1 y1 2.")),
