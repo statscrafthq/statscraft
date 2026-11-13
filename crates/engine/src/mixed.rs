@@ -63,7 +63,7 @@
 //!   no RANDOM or REPEATED. COVB is C, CORB its correlations; a redundant parameter has 0 and no
 //!   correlation.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::crosstabs::{Key, categories};
 use crate::descriptives::{case_weights, number};
@@ -463,33 +463,22 @@ impl Block {
     }
 }
 
+/// ARMA11 and FAH1 over two levels have a parameter more than the matrix can tell apart.
+fn too_few_levels(b: &Block, on: &str) -> Result<(), Error> {
+    if matches!(b.covtype, CovType::Arma11 | CovType::Fah1) && b.dim == 2 {
+        return Err(Error(format!(
+            "MIXED: COVTYPE({}) on {on} needs at least 3 levels, since over 2 its parameters cannot all be estimated",
+            b.covtype.keyword()
+        )));
+    }
+    Ok(())
+}
+
 fn one_level(t: CovType, on: &str) -> String {
     format!(
         "MIXED: {on} has a block of one level, so COVTYPE({}) is fitted as one variance (ID)",
-        structure_keyword(t)
+        t.keyword()
     )
-}
-
-fn structure_keyword(t: CovType) -> &'static str {
-    match t {
-        CovType::Vc => "VC",
-        CovType::Id => "ID",
-        CovType::Diag => "DIAG",
-        CovType::Un => "UN",
-        CovType::Cs => "CS",
-        CovType::Ar1 => "AR1",
-        CovType::Ad1 => "AD1",
-        CovType::Arh1 => "ARH1",
-        CovType::Arma11 => "ARMA11",
-        CovType::Csh => "CSH",
-        CovType::Csr => "CSR",
-        CovType::Fa1 => "FA1",
-        CovType::Fah1 => "FAH1",
-        CovType::Hf => "HF",
-        CovType::Tp => "TP",
-        CovType::Tph => "TPH",
-        CovType::Unr => "UNR",
-    }
 }
 
 fn structure_name(t: CovType) -> &'static str {
@@ -532,6 +521,9 @@ struct Model {
     g: Vec<f64>,
     /// Sets of cases that no covariance links: V is block diagonal over them.
     groups: Vec<Vec<usize>>,
+    /// The group of every case, and for each RANDOM the cases of each subject.
+    group_of: Vec<usize>,
+    members: Vec<Vec<Vec<usize>>>,
     np: usize,
 }
 
@@ -1083,9 +1075,10 @@ impl Infer<'_> {
     fn estimate(&self, l: &[f64]) -> (f64, f64, f64) {
         let b = dot(l, &self.e.beta);
         if let Some(kr) = &self.kr {
+            // for one row the method's df is 2 / A2: Satterthwaite's with W
             let var = dot(l, &mat_vec(&kr.phi_a, l));
-            let df = kr.df_and_scale(self.e, &vec![l.to_vec()]).0;
-            return (b, var.sqrt(), df);
+            let (var0, grad) = self.model.variance_and_gradient(self.e, l);
+            return (b, var.sqrt(), satterthwaite(var0, &grad, Some(&kr.w)));
         }
         let (var, grad) = self.model.variance_and_gradient(self.e, l);
         let df = self
@@ -1163,14 +1156,14 @@ struct Combo {
     /// V^-1 w over the cases.
     vw: Vec<f64>,
     /// G l_r' for each (RANDOM, subject) the row touches.
-    gl: HashMap<(usize, usize), Vec<f64>>,
+    gl: BTreeMap<(usize, usize), Vec<f64>>,
     lr: RandomRow,
 }
 
 impl Model {
     fn combo(&self, th: &[f64], e: &Eval, lf: &[f64], lr: &RandomRow) -> Combo {
         let n = self.y.len();
-        let mut gl: HashMap<(usize, usize), Vec<f64>> = HashMap::new();
+        let mut gl: BTreeMap<(usize, usize), Vec<f64>> = BTreeMap::new();
         for &(k, s, col, c) in lr {
             let block = &self.blocks[k + 1];
             let v = gl.entry((k, s)).or_insert_with(|| vec![0.0; block.dim]);
@@ -1178,21 +1171,20 @@ impl Model {
                 *vj += block.value(th, j, col, What::Value) * c;
             }
         }
+        // only the cases of the subjects the row touches, and their groups
         let mut w = vec![0.0; n];
-        for (i, wi) in w.iter_mut().enumerate() {
-            for (&(k, s), g) in &gl {
-                if self.subject[k][i] == s {
-                    *wi += self.nz[k][i].iter().map(|&(c, z)| z * g[c]).sum::<f64>();
-                }
+        let mut touched = BTreeSet::new();
+        for (&(k, s), g) in &gl {
+            for &i in &self.members[k][s] {
+                w[i] += self.nz[k][i].iter().map(|&(c, z)| z * g[c]).sum::<f64>();
+                touched.insert(self.group_of[i]);
             }
         }
         let mut vw = vec![0.0; n];
         let mut u = vec![0.0; self.p];
         let mut estimate = dot(lf, &e.beta);
-        for (g, cases) in self.groups.iter().enumerate() {
-            if cases.iter().all(|&i| w[i] == 0.0) {
-                continue;
-            }
+        for g in touched {
+            let cases = &self.groups[g];
             let wg: Vec<f64> = cases.iter().map(|&i| w[i]).collect();
             let v = mat_vec(&e.vi[g], &wg);
             for (a, &i) in cases.iter().enumerate() {
@@ -1250,7 +1242,16 @@ impl<'a> Predict<'a> {
         } else {
             (0..th.len())
                 .map(|s| {
-                    let h = 1e-4 * th[s].abs().max(1e-3);
+                    // relative to the parameter, or to its standard error at 0, so units do
+                    // not matter
+                    let se = sigma.map_or(0.0, |m| m[s][s].max(0.0).sqrt());
+                    let h = if th[s] != 0.0 {
+                        1e-4 * th[s].abs()
+                    } else if se > 0.0 {
+                        1e-4 * se
+                    } else {
+                        1e-6
+                    };
                     let at = |d: f64| {
                         let mut t = th.to_vec();
                         t[s] += d;
@@ -1304,9 +1305,19 @@ impl<'a> Predict<'a> {
 
     /// l_f b + l_r u with its standard error and df.
     fn estimate(&self, lf: &[f64], lr: &RandomRow) -> (f64, f64, f64) {
+        self.estimate_with(lf, lr, true)
+    }
+
+    /// The same, the df (NaN) skipped unless `with_df`.
+    fn estimate_with(&self, lf: &[f64], lr: &RandomRow, with_df: bool) -> (f64, f64, f64) {
         let c = self.model.combo(self.th, self.e, lf, lr);
         let var = Model::combo_cov(self.e, &c, &c);
-        (c.estimate, var.max(0.0).sqrt(), self.df(var, lf, lr))
+        let df = if with_df {
+            self.df(var, lf, lr)
+        } else {
+            f64::NAN
+        };
+        (c.estimate, var.max(0.0).sqrt(), df)
     }
 
     /// The F test of rows (l_f, l_r) against `a`, as Infer::f_test does for fixed rows.
@@ -1707,6 +1718,8 @@ impl FixedPart<'_> {
         let mut rows = Vec::new();
         let mut l = Vec::new();
         let mut a = Vec::new();
+        // a test with random coefficients in any row treats all its rows alike, unadjusted
+        let any_random = random.is_some() && t.random.iter().any(|r| !r.is_empty());
         for (r, (row, constant)) in t.rows.iter().zip(&t.constants).enumerate() {
             let full = l_row(self.d, self.fit, row, "TEST")?;
             let name = format!("L{}", r + 1);
@@ -1721,7 +1734,7 @@ impl FixedPart<'_> {
                 _ => Vec::new(),
             };
             let (est, se, df) = match random {
-                Some((predict, _)) if !lr.is_empty() => predict.estimate(&lf, &lr),
+                Some((predict, _)) if any_random => predict.estimate(&lf, &lr),
                 _ => self.inf.estimate(&lf),
             };
             let tv = (est - constant) / se;
@@ -1769,7 +1782,7 @@ impl FixedPart<'_> {
             Some(caption.clone()),
         ));
         let joint = match random {
-            Some((predict, _)) if l.iter().any(|(_, lr)| !lr.is_empty()) => predict.f_test(&l, &a),
+            Some((predict, _)) if any_random => predict.f_test(&l, &a),
             _ => {
                 let fixed: Matrix = l.into_iter().map(|(lf, _)| lf).collect();
                 self.inf.f_test(&fixed, &a)
@@ -2243,6 +2256,7 @@ impl Engine {
         let mut subject_counts = Vec::new();
         // the first case of every subject, for its label
         let mut subject_first: Vec<Vec<usize>> = Vec::new();
+        let mut members: Vec<Vec<Vec<usize>>> = Vec::new();
         let group_column = |name: &String| {
             let at = group_names
                 .iter()
@@ -2281,6 +2295,7 @@ impl Engine {
                 if block.covtype != covtype {
                     warnings.push(one_level(covtype, "REPEATED"));
                 }
+                too_few_levels(&block, "REPEATED")?;
                 blocks.push(block);
                 Some((subj, level, subjects.len(), distinct))
             }
@@ -2304,6 +2319,7 @@ impl Engine {
             if block.covtype != r.covtype {
                 warnings.push(one_level(r.covtype, "RANDOM"));
             }
+            too_few_levels(&block, "RANDOM")?;
             start += block.count;
             blocks.push(block);
             nz.push(
@@ -2322,12 +2338,14 @@ impl Engine {
                 subject.push(vec![0; n]);
                 subject_counts.push(1);
                 subject_first.push(vec![0]);
+                members.push(vec![(0..n).collect()]);
             } else {
                 let cols: Vec<&Vec<Option<Key>>> = r.subject.iter().map(group_column).collect();
-                let (index, members) = index_by(&rows, &cols);
+                let (index, group_members) = index_by(&rows, &cols);
                 subject.push(index);
-                subject_counts.push(members.len());
-                subject_first.push(members.iter().map(|m| m[0]).collect());
+                subject_counts.push(group_members.len());
+                subject_first.push(group_members.iter().map(|m| m[0]).collect());
+                members.push(group_members);
             }
             random_fits.push(fit);
         }
@@ -2369,6 +2387,12 @@ impl Engine {
                 "MIXED: random effects that link {big} cases into one covariance block are not supported yet (at most {LARGEST_GROUP}); give RANDOM a SUBJECT"
             )));
         }
+        let mut group_of = vec![0; n];
+        for (g, cases) in groups.iter().enumerate() {
+            for &i in cases {
+                group_of[i] = g;
+            }
+        }
         let model = Model {
             y: d.y.iter().map(|y| y[0]).collect(),
             x: fixed
@@ -2385,6 +2409,8 @@ impl Engine {
                 .as_ref()
                 .map(|(subj, level, ..)| (subj.clone(), level.clone())),
             g: d.g.clone(),
+            group_of,
+            members,
             groups,
             np,
         };
@@ -3306,6 +3332,9 @@ impl Engine {
             self.warn(w);
         }
         if !command.save.is_empty() {
+            let saved = |t: MixedTemp| command.save.iter().any(|(s, _)| *s == t);
+            let want_df = saved(MixedTemp::Dfpred);
+            let wanted = want_df || saved(MixedTemp::Sepred);
             let mut values: Vec<[f64; 7]> = vec![[f64::NAN; 7]; n];
             for (gi, cases) in model.groups.iter().enumerate() {
                 let r: Vec<f64> = cases
@@ -3330,10 +3359,6 @@ impl Engine {
                     let fixpred = dot(&model.x[i], &e.beta);
                     let (_, se, df) = part.inf.estimate(&model.x[i]);
                     // PRED as x b + z u: the case's own random columns
-                    let wanted = command
-                        .save
-                        .iter()
-                        .any(|(t, _)| matches!(t, MixedTemp::Sepred | MixedTemp::Dfpred));
                     let (sepred, dfpred) = match &predict {
                         Some(pr) if wanted => {
                             let lr: RandomRow = model
@@ -3345,7 +3370,7 @@ impl Engine {
                                     nz[i].iter().map(move |&(col, z)| (k, s, col, z))
                                 })
                                 .collect();
-                            let (_, se, df) = pr.estimate(&model.x[i], &lr);
+                            let (_, se, df) = pr.estimate_with(&model.x[i], &lr, want_df);
                             (se, df)
                         }
                         _ => (f64::NAN, f64::NAN),

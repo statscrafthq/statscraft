@@ -727,8 +727,16 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
             random.push(rand);
         }
     }
+    // `|` must be followed by coefficients
+    let bare_bar = |p: &Parser, row: &(LRow, LRow, bool)| -> PResult<()> {
+        if row.2 && row.1.is_empty() {
+            return Err(p.unexpected(&["a coefficient"]));
+        }
+        Ok(())
+    };
     while !matrix_end(p) {
         if p.eat(Punct::Semicolon) {
+            bare_bar(p, &row)?;
             close(&mut row, &mut rows, &mut random);
             continue;
         }
@@ -755,6 +763,7 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
             if row.0.is_empty() && row.1.is_empty() {
                 return Err(p.unexpected(&["an effect name", "ALL"]));
             }
+            bare_bar(p, &row)?;
             for (_, values) in row.0.iter_mut().chain(row.1.iter_mut()) {
                 values.iter_mut().for_each(|v| *v /= d);
             }
@@ -795,6 +804,7 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
             row.0.push((effect, values));
         }
     }
+    bare_bar(p, &row)?;
     close(&mut row, &mut rows, &mut random);
     if rows.is_empty() {
         return Err(p.unexpected(&["an effect name", "ALL"]));

@@ -1768,11 +1768,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  estimate with a t test and the joint F test; a row whose fixed part is not estimable is dropped\n\
                  with a warning. SOLUTION on RANDOM lists the predicted random effects of every subject with the\n\
                  standard error of their prediction error, df, a t test and an interval. Rows with random\n\
-                 effects keep the unadjusted covariance and Satterthwaite's df (from numerical derivatives) even\n\
-                 with KENWARDROGER. PRINT G and R show the covariance of one subject's random effects and\n\
-                 repeated levels, COVB and CORB the covariance and correlation of the fixed estimates (adjusted\n\
-                 with KENWARDROGER). CPS counts the cases at each value of the factors and of the repeated and\n\
-                 subject variables; DESCRIPTIVES gives the count, mean and standard deviation of the dependent\n\
+                 effects, and the other rows of their TEST, keep the unadjusted covariance and Satterthwaite's df\n\
+                 (from numerical derivatives) even with KENWARDROGER. PRINT G and R show the covariance of one\n\
+                 subject's random effects and repeated levels, COVB and CORB the covariance and correlation of\n\
+                 the fixed estimates (adjusted with KENWARDROGER). CPS counts the cases at each value of the\n\
+                 factors and of the repeated and subject variables; DESCRIPTIVES gives the count, mean and standard deviation of the dependent\n\
                  and covariates in each cell of the factors; HISTORY(n) lists the start and every n-th iteration\n\
                  (update type, step halvings, -2 log likelihood and every parameter) and always the last;\n\
                  LMATRIX shows the coefficients of each test of a fixed effect and of each TEST. Not supported\n\

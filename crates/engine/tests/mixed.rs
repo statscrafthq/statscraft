@@ -6963,6 +6963,12 @@ fn errors_explain_what_is_wrong() {
         ))
         .contains("more than one RANDOM")
     );
+    assert!(
+        error(format!(
+            "{w}SELECT IF wave <= 2.\nMIXED level /REPEATED=wave | SUBJECT(person) COVTYPE(ARMA11)."
+        ))
+        .contains("at least 3 levels")
+    );
 }
 
 /// A structure over one level is one variance: CSH on a random intercept fits as ID, with a

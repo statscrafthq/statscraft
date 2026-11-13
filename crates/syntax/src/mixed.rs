@@ -183,6 +183,16 @@ const COVTYPES: [(&str, CovType); 17] = [
     ("UNR", CovType::Unr),
 ];
 
+impl CovType {
+    /// The keyword of the structure.
+    pub fn keyword(self) -> &'static str {
+        COVTYPES
+            .iter()
+            .find(|(_, t)| *t == self)
+            .map_or("VC", |(n, _)| n)
+    }
+}
+
 /// Structures of REPEATED only, not supported yet.
 const COVTYPES_LATER: [&str; 9] = [
     "SP_POWER",

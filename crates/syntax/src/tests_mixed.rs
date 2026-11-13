@@ -239,4 +239,5 @@ fn errors_name_the_problem() {
     assert!(err("MIXED gain /CRITERIA=CIN(100).").contains("below 100"));
     assert!(err("MIXED gain /RANDOM=INTERCEPT | SUBJECT(a*a).").contains("twice"));
     assert!(err("MIXED gain /PLOT=x.").contains("PLOT"));
+    assert!(err("MIXED gain /TEST=ALL 1 0; ALL |.").contains("end of command"));
 }
