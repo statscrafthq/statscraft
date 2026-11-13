@@ -98,6 +98,8 @@ struct Block {
     group: Vec<usize>,
     start: usize,
     count: usize,
+    /// Which pairs of the block's parameters have a second derivative somewhere.
+    d2: Vec<Vec<bool>>,
 }
 
 #[derive(Clone, Copy)]
@@ -226,13 +228,58 @@ impl Block {
             CovType::Tph | CovType::Ad1 => (2 * t).saturating_sub(1),
             CovType::Fah1 => 2 * t,
         };
-        Block {
+        let mut block = Block {
             covtype,
             dim,
             group,
             start,
             count,
-        }
+            d2: Vec::new(),
+        };
+        // probe the pairs at an ordinary point inside the parameter space, so that a mixed
+        // second derivative that is 0 everywhere costs nothing in the Hessian
+        let point: Vec<f64> = block
+            .kinds()
+            .iter()
+            .enumerate()
+            .map(|(k, kind)| {
+                let k = k as f64;
+                match kind {
+                    Kind::Variance => 1.3 + 0.1 * k,
+                    Kind::Correlation => 0.31 + 0.6 * (k / (count as f64 + 1.0)),
+                    Kind::General => 0.7 + 0.05 * k,
+                }
+            })
+            .collect();
+        block.d2 = (0..count)
+            .map(|s| {
+                (0..count)
+                    .map(|t| {
+                        block.nonlinear()
+                            && (0..dim).any(|i| {
+                                (0..dim).any(|j| {
+                                    let seeded = |k: usize| Dual {
+                                        v: point[k],
+                                        a: f64::from(u8::from(k == s)),
+                                        b: f64::from(u8::from(k == t)),
+                                        ab: 0.0,
+                                    };
+                                    block.formula(seeded, i, j).ab != 0.0
+                                })
+                            })
+                    })
+                    .collect()
+            })
+            .collect();
+        block
+    }
+
+    /// Whether the first `dim` parameters are variances whose square roots scale correlations.
+    fn uses_sd(&self) -> bool {
+        matches!(
+            self.covtype,
+            CovType::Csh | CovType::Arh1 | CovType::Tph | CovType::Ad1 | CovType::Unr
+        )
     }
 
     /// Whether some entry depends on the parameters other than linearly.
@@ -248,78 +295,78 @@ impl Block {
         match what {
             What::Value => true,
             What::D1(s) => mine(s),
-            What::D2(s, t) => mine(s) && mine(t) && self.nonlinear(),
+            What::D2(s, t) => mine(s) && mine(t) && self.d2[s - self.start][t - self.start],
         }
     }
 
     /// Entry (i, j) of the structure at the block's own parameters `th`.
-    fn formula<T: Num>(&self, th: &[T], i: usize, j: usize) -> T {
+    fn formula<T: Num>(&self, th: impl Fn(usize) -> T, i: usize, j: usize) -> T {
         let t = self.dim;
         let zero = T::of(0.0);
         let d = i.abs_diff(j);
         let same = i == j;
         // the standard deviation of level k when the first t parameters are variances
-        let sd = |k: usize| th[k].sqrt();
+        let sd = |k: usize| th(k).sqrt();
         match self.covtype {
             CovType::Vc | CovType::Id | CovType::Diag => {
                 if same {
-                    th[self.group[i]]
+                    th(self.group[i])
                 } else {
                     zero
                 }
             }
             CovType::Un => {
                 let (a, b) = (i.max(j), i.min(j));
-                th[a * (a + 1) / 2 + b]
+                th(a * (a + 1) / 2 + b)
             }
             CovType::Cs => {
                 if same {
-                    th[0] + th[1]
+                    th(0) + th(1)
                 } else {
-                    th[1]
+                    th(1)
                 }
             }
-            CovType::Ar1 => th[0].mul(th[1].pow(d)),
+            CovType::Ar1 => th(0).mul(th(1).pow(d)),
             CovType::Csr => {
                 if same {
-                    th[0]
+                    th(0)
                 } else {
-                    th[0].mul(th[1])
+                    th(0).mul(th(1))
                 }
             }
             CovType::Arma11 => {
                 if same {
-                    th[0]
+                    th(0)
                 } else {
-                    th[0].mul(th[2]).mul(th[1].pow(d - 1))
+                    th(0).mul(th(2)).mul(th(1).pow(d - 1))
                 }
             }
             CovType::Tp => {
                 if same {
-                    th[0]
+                    th(0)
                 } else {
-                    th[0].mul(th[d])
+                    th(0).mul(th(d))
                 }
             }
-            _ if same && self.covtype != CovType::Fa1 && self.covtype != CovType::Fah1 => th[i],
-            CovType::Csh => sd(i).mul(sd(j)).mul(th[t]),
-            CovType::Arh1 => sd(i).mul(sd(j)).mul(th[t].pow(d)),
-            CovType::Tph => sd(i).mul(sd(j)).mul(th[t + d - 1]),
+            _ if same && self.covtype != CovType::Fa1 && self.covtype != CovType::Fah1 => th(i),
+            CovType::Csh => sd(i).mul(sd(j)).mul(th(t)),
+            CovType::Arh1 => sd(i).mul(sd(j)).mul(th(t).pow(d)),
+            CovType::Tph => sd(i).mul(sd(j)).mul(th(t + d - 1)),
             CovType::Ad1 => {
-                (i.min(j)..i.max(j)).fold(sd(i).mul(sd(j)), |acc, k| acc.mul(th[t + k]))
+                (i.min(j)..i.max(j)).fold(sd(i).mul(sd(j)), |acc, k| acc.mul(th(t + k)))
             }
             CovType::Unr => {
                 let (a, b) = (i.max(j), i.min(j));
-                sd(i).mul(sd(j)).mul(th[t + a * (a - 1) / 2 + b])
+                sd(i).mul(sd(j)).mul(th(t + a * (a - 1) / 2 + b))
             }
-            CovType::Hf => (th[i] + th[j]).mul(T::of(0.5)) - th[t],
+            CovType::Hf => (th(i) + th(j)).mul(T::of(0.5)) - th(t),
             CovType::Fa1 => {
-                let shared = th[i].mul(th[j]);
-                if same { shared + th[t] } else { shared }
+                let shared = th(i).mul(th(j));
+                if same { shared + th(t) } else { shared }
             }
             CovType::Fah1 => {
-                let shared = th[i].mul(th[j]);
-                if same { shared + th[t + i] } else { shared }
+                let shared = th(i).mul(th(j));
+                if same { shared + th(t + i) } else { shared }
             }
         }
     }
@@ -327,20 +374,18 @@ impl Block {
     /// Entry (i, j) of the matrix or of a derivative, `th` the whole parameter vector.
     fn value(&self, th: &[f64], i: usize, j: usize, what: What) -> f64 {
         let th = &th[self.start..self.start + self.count];
-        let seeded = |s: Option<usize>, t: Option<usize>| -> Vec<Dual> {
-            th.iter()
-                .enumerate()
-                .map(|(k, v)| Dual {
-                    v: *v,
-                    a: f64::from(u8::from(s == Some(k))),
-                    b: f64::from(u8::from(t == Some(k))),
-                    ab: 0.0,
-                })
-                .collect()
+        // the parameters as duals, seeded on s and t, without building a vector
+        let seeded = |s: Option<usize>, t: Option<usize>| {
+            move |k: usize| Dual {
+                v: th[k],
+                a: f64::from(u8::from(s == Some(k))),
+                b: f64::from(u8::from(t == Some(k))),
+                ab: 0.0,
+            }
         };
         let one = |b: bool| f64::from(u8::from(b));
         match what {
-            What::Value => self.formula(th, i, j),
+            What::Value => self.formula(|k| th[k], i, j),
             // the linear structures in closed form, without building duals
             What::D1(s) if !self.nonlinear() => {
                 let ls = s - self.start;
@@ -356,9 +401,9 @@ impl Block {
                 }
             }
             What::D2(..) if !self.nonlinear() => 0.0,
-            What::D1(s) => self.formula(&seeded(Some(s - self.start), None), i, j).a,
+            What::D1(s) => self.formula(seeded(Some(s - self.start), None), i, j).a,
             What::D2(s, t) => {
-                self.formula(&seeded(Some(s - self.start), Some(t - self.start)), i, j)
+                self.formula(seeded(Some(s - self.start), Some(t - self.start)), i, j)
                     .ab
             }
         }
@@ -696,6 +741,8 @@ impl Model {
                 .iter()
                 .zip(&th[b.start..b.start + b.count])
                 .all(|(k, v)| match k {
+                    // a standard deviation of 0 has no derivative
+                    Kind::Variance if b.uses_sd() => *v > 0.0,
                     Kind::Variance => *v >= 0.0,
                     Kind::Correlation => v.abs() < 1.0,
                     Kind::General => v.is_finite(),
@@ -1152,9 +1199,9 @@ struct Combo {
     estimate: f64,
     /// l_f - X'V^-1 w, with w = Z G l_r'.
     d: Vec<f64>,
-    w: Vec<f64>,
-    /// V^-1 w over the cases.
-    vw: Vec<f64>,
+    /// w and V^-1 w at the cases they touch.
+    w: Vec<(usize, f64)>,
+    vw: HashMap<usize, f64>,
     /// G l_r' for each (RANDOM, subject) the row touches.
     gl: BTreeMap<(usize, usize), Vec<f64>>,
     lr: RandomRow,
@@ -1162,7 +1209,6 @@ struct Combo {
 
 impl Model {
     fn combo(&self, th: &[f64], e: &Eval, lf: &[f64], lr: &RandomRow) -> Combo {
-        let n = self.y.len();
         let mut gl: BTreeMap<(usize, usize), Vec<f64>> = BTreeMap::new();
         for &(k, s, col, c) in lr {
             let block = &self.blocks[k + 1];
@@ -1172,23 +1218,27 @@ impl Model {
             }
         }
         // only the cases of the subjects the row touches, and their groups
-        let mut w = vec![0.0; n];
+        let mut w: BTreeMap<usize, f64> = BTreeMap::new();
         let mut touched = BTreeSet::new();
         for (&(k, s), g) in &gl {
             for &i in &self.members[k][s] {
-                w[i] += self.nz[k][i].iter().map(|&(c, z)| z * g[c]).sum::<f64>();
+                *w.entry(i).or_insert(0.0) +=
+                    self.nz[k][i].iter().map(|&(c, z)| z * g[c]).sum::<f64>();
                 touched.insert(self.group_of[i]);
             }
         }
-        let mut vw = vec![0.0; n];
+        let mut vw = HashMap::new();
         let mut u = vec![0.0; self.p];
         let mut estimate = dot(lf, &e.beta);
         for g in touched {
             let cases = &self.groups[g];
-            let wg: Vec<f64> = cases.iter().map(|&i| w[i]).collect();
+            let wg: Vec<f64> = cases
+                .iter()
+                .map(|i| w.get(i).copied().unwrap_or(0.0))
+                .collect();
             let v = mat_vec(&e.vi[g], &wg);
             for (a, &i) in cases.iter().enumerate() {
-                vw[i] = v[a];
+                vw.insert(i, v[a]);
                 for (uj, xj) in u.iter_mut().zip(&self.x[i]) {
                     *uj += xj * v[a];
                 }
@@ -1199,7 +1249,7 @@ impl Model {
         Combo {
             estimate,
             d: lf.iter().zip(&u).map(|(a, b)| a - b).collect(),
-            w,
+            w: w.into_iter().collect(),
             vw,
             gl,
             lr: lr.clone(),
@@ -1213,7 +1263,11 @@ impl Model {
             a.lr.iter()
                 .map(|&(k, s, col, c)| b.gl.get(&(k, s)).map_or(0.0, |g| c * g[col]))
                 .sum();
-        dot(&a.d, &mat_vec(&e.a_inv, &b.d)) + lgl - dot(&a.w, &b.vw)
+        let wvw: f64 =
+            a.w.iter()
+                .map(|(i, x)| x * b.vw.get(i).copied().unwrap_or(0.0))
+                .sum();
+        dot(&a.d, &mat_vec(&e.a_inv, &b.d)) + lgl - wvw
     }
 }
 
@@ -1242,16 +1296,11 @@ impl<'a> Predict<'a> {
         } else {
             (0..th.len())
                 .map(|s| {
-                    // relative to the parameter, or to its standard error at 0, so units do
-                    // not matter
+                    // relative to the parameter or its standard error, whichever is larger, so
+                    // units do not matter and a value near 0 still moves V
                     let se = sigma.map_or(0.0, |m| m[s][s].max(0.0).sqrt());
-                    let h = if th[s] != 0.0 {
-                        1e-4 * th[s].abs()
-                    } else if se > 0.0 {
-                        1e-4 * se
-                    } else {
-                        1e-6
-                    };
+                    let h = 1e-4 * th[s].abs().max(se);
+                    let h = if h > 0.0 { h } else { 1e-6 };
                     let at = |d: f64| {
                         let mut t = th.to_vec();
                         t[s] += d;
@@ -1808,9 +1857,9 @@ impl FixedPart<'_> {
 }
 
 /// The coefficients of a hypothesis, one column per row of L.
-fn l_table(title: &str, names: &[String], l: &Matrix, caption: String) -> Table {
+fn l_table(title: &str, names: &[String], l: &[(String, Vec<f64>)], caption: String) -> Table {
     let mut columns = plain(&["Parameter"]);
-    columns.extend((1..=l.len()).map(|r| (String::new(), format!("L{r}"))));
+    columns.extend(l.iter().map(|(name, _)| (String::new(), name.clone())));
     let rows = names
         .iter()
         .enumerate()
@@ -1818,7 +1867,7 @@ fn l_table(title: &str, names: &[String], l: &Matrix, caption: String) -> Table 
             let mut row = vec![text(n.clone())];
             row.extend(
                 l.iter()
-                    .map(|lr| Cell::Number(lr.get(j).copied().unwrap_or(0.0))),
+                    .map(|(_, lr)| Cell::Number(lr.get(j).copied().unwrap_or(0.0))),
             );
             row
         })
@@ -1985,7 +2034,9 @@ fn fit_model(
         if matches!(b.covtype, CovType::Fa1 | CovType::Fah1) {
             let loadings = b.start..b.start + b.dim;
             if th[loadings.clone()].iter().sum::<f64>() < 0.0 {
-                for t in std::iter::once(&mut th).chain(history.iter_mut().map(|h| &mut h.th)) {
+                // the start row keeps the values the fit started from
+                let steps = history.iter_mut().skip(1).map(|h| &mut h.th);
+                for t in std::iter::once(&mut th).chain(steps) {
                     t[loadings.clone()].iter_mut().for_each(|v| *v = -*v);
                 }
             }
@@ -3035,7 +3086,8 @@ impl Engine {
                     .label
                     .clone()
                     .unwrap_or_else(|| format!("Custom Hypothesis Test {}", k + 1));
-                let mut ls: Vec<Vec<f64>> = Vec::new();
+                // each row keeps its number, as in Contrast Estimates
+                let mut ls: Vec<(String, Vec<f64>)> = Vec::new();
                 for (r, row) in t.rows.iter().enumerate() {
                     let mut l = l_row(&d, &fixed, row, "TEST")?;
                     // a row that is not estimable is not tested, so not shown
@@ -3052,10 +3104,10 @@ impl Engine {
                             }));
                         }
                     }
-                    ls.push(l);
+                    ls.push((format!("L{}", r + 1), l));
                 }
                 let mut row_names = names.clone();
-                if ls.iter().any(|l| l.len() > names.len()) {
+                if ls.iter().any(|(_, l)| l.len() > names.len()) {
                     for (k2, r) in command.random.iter().enumerate() {
                         let subject = if r.subject.is_empty() {
                             String::new()
@@ -3080,7 +3132,11 @@ impl Engine {
                 tables.push(l_table(
                     &format!("Estimable Function for {}", ef.label),
                     &names,
-                    &type_l(i),
+                    &type_l(i)
+                        .into_iter()
+                        .enumerate()
+                        .map(|(r, l)| (format!("L{}", r + 1), l))
+                        .collect::<Vec<_>>(),
                     format!("Type {kind} test of {}. {caption}", ef.label),
                 ));
             }

@@ -1772,8 +1772,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  (from numerical derivatives) even with KENWARDROGER. PRINT G and R show the covariance of one\n\
                  subject's random effects and repeated levels, COVB and CORB the covariance and correlation of\n\
                  the fixed estimates (adjusted with KENWARDROGER). CPS counts the cases at each value of the\n\
-                 factors and of the repeated and subject variables; DESCRIPTIVES gives the count, mean and standard deviation of the dependent\n\
-                 and covariates in each cell of the factors; HISTORY(n) lists the start and every n-th iteration\n\
+                 factors and of the repeated and subject variables; DESCRIPTIVES gives the count, mean and\n\
+                 standard deviation of the dependent and covariates in each cell of the factors; HISTORY(n) lists\n\
+                 the start and every n-th iteration\n\
                  (update type, step halvings, -2 log likelihood and every parameter) and always the last;\n\
                  LMATRIX shows the coefficients of each test of a fixed effect and of each TEST. Not supported\n\
                  yet: the spatial and Kronecker types of REPEATED, KRONECKER and SPCOORDS.",
