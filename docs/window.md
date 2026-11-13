@@ -326,14 +326,15 @@ See [The Window menu](#the-window-menu).
 **Mixed Models**
 
 - **Linear** (`MIXED`): one dependent variable with factors and covariates.
-  - Subject variables, and repeated variables that tell the measurements of one subject apart, with the covariance type of the repeated measures (diagonal, scaled identity, compound symmetry, first-order autoregressive or unstructured). The repeated measures use every subject variable.
-  - Fixed effects: the main effects of the factors and covariates, or custom terms; the intercept.
-  - One set of random effects: the intercept and custom terms, the subject variables they vary over, and the covariance type (variance components, scaled identity, diagonal, unstructured, compound symmetry or first-order autoregressive). More sets of random effects are in the syntax.
-  - Restricted or full maximum likelihood, the confidence level, the maximum iterations and step-halving, Satterthwaite or residual degrees of freedom, and user-missing values as valid.
-  - Estimates of the fixed effects, tests of the covariance parameters, the covariance of the random effects (with random effects), the covariance of the residuals (with repeated variables), and the covariance and correlation of the fixed estimates.
+  - Subject variables, and repeated variables that tell the measurements of one subject apart, with the covariance type of the repeated measures. The repeated measures use every subject variable.
+  - Covariance types: variance components (random effects only), scaled identity, diagonal, unstructured, compound symmetry, first-order autoregressive, and the further types `AD1`, `ARH1`, `ARMA11`, `CSH`, `CSR`, `FA1`, `FAH1`, `HF`, `TP`, `TPH` and `UNR`, each listed by its name. `ARMA11` and `FAH1` need at least three random parameters or repeated levels; the dialog counts the random parameters when no random term holds a factor.
+  - Fixed effects: the main effects of the factors and covariates, or custom terms; the intercept; Type III (default) or Type I sums of squares.
+  - One set of random effects: the intercept and custom terms, the subject variables they vary over, the covariance type, and the predicted random effects of every subject (`SOLUTION`). More sets of random effects are in the syntax.
+  - Restricted or full maximum likelihood, the confidence level, the maximum iterations and step-halving, Satterthwaite, residual or Kenward-Roger degrees of freedom, and user-missing values as valid.
+  - Estimates of the fixed effects, tests of the covariance parameters, the covariance of the random effects (with random effects), the covariance of the residuals (with repeated variables), the covariance and correlation of the fixed estimates, the case processing summary, descriptive statistics, the iteration history (every n-th iteration) and the coefficients of every test.
   - Estimated marginal means: any number of tables, each the overall mean or a crossing of factors. A table can compare the levels of one of its factors, every pair or each level with the first or the last, unadjusted or by Bonferroni or Sidak. Covariates stay at their means unless you give a value.
-  - Custom tests: a label and rows typed one per line, each row an effect of the fixed part (or `INTERCEPT`, or `ALL`) followed by its coefficients, such as `gender 1 -1 0`. Fractions such as `1/3` are allowed. The dialog checks that each effect is in the model; whether the number of coefficients fits is checked when the command runs.
-  - Saving the fixed predicted values with their standard errors and degrees of freedom, the predicted values and the residuals.
+  - Custom tests: a label and rows typed one per line, each row an effect of the fixed part (or `INTERCEPT`, or `ALL`) followed by its coefficients, such as `gender 1 -1 0`. Fractions such as `1/3` are allowed. With random effects, a row may go on after `|` with coefficients of random effects: a random term, `INTERCEPT` when the random intercept is in, or `ALL`, or plain values for every random parameter, as in `gender 1 -1 0 | INTERCEPT 1`. The part before `|` may be empty. The dialog checks that each effect is in the model or among the random effects; whether the number of coefficients fits is checked when the command runs.
+  - Saving the fixed predicted values with their standard errors and degrees of freedom, the predicted values with theirs, and the residuals.
 
 **Generalized Linear Models**
 

@@ -3,11 +3,12 @@
 //! Generalized Linear Models dialog.
 
 use crate::advanced_dialogs::{
-    Advanced, ContrastTest, LinearMixed, MIXED_COMPARISONS, MIXED_PRINT, MIXED_SAVE, MeansTable,
-    Multinomial, NOMREG_BASES, NOMREG_MODELS, NOMREG_PRINT, NOMREG_STEP_METHODS, NOMREG_STEP_RULES,
-    Ordinal, PLUM_LINKS, PLUM_PRINT, PROBABILITY_SAVE, RANDOM_COVARIANCES, REPEATED_COVARIANCES,
-    SAMPLE_RESIDUALS, SAMPLE_STATISTICS, SAMPLE_TESTS, STAGE_ESTIMATORS, STAGE_RATES,
-    SampleDescriptives, SampleOptions, SamplePlan, SampleTables, Stage, Terms,
+    Advanced, ContrastTest, LinearMixed, MIXED_COMPARISONS, MIXED_DF_METHODS, MIXED_HISTORY,
+    MIXED_PRINT, MIXED_SAVE, MeansTable, Multinomial, NOMREG_BASES, NOMREG_MODELS, NOMREG_PRINT,
+    NOMREG_STEP_METHODS, NOMREG_STEP_RULES, Ordinal, PLUM_LINKS, PLUM_PRINT, PROBABILITY_SAVE,
+    RANDOM_COVARIANCES, REPEATED_COVARIANCES, SAMPLE_RESIDUALS, SAMPLE_STATISTICS, SAMPLE_TESTS,
+    STAGE_ESTIMATORS, STAGE_RATES, SampleDescriptives, SampleOptions, SamplePlan, SampleTables,
+    Stage, Terms,
 };
 use crate::advanced_dialogs::{forget_old_covariates, forget_old_factors};
 use crate::app::{checkboxes, choice, field, file_dialog, target_list, target_one};
@@ -335,6 +336,11 @@ fn mixed(ui: &mut Ui, d: &mut LinearMixed, picked: &mut Vec<String>) {
             terms_editor(ui, "fixed", &model, &mut d.fixed);
         });
         ui.checkbox(&mut d.intercept, "Include intercept");
+        ui.horizontal(|ui| {
+            ui.label("Sum of squares");
+            ui.radio_value(&mut d.type_one, false, "Type III");
+            ui.radio_value(&mut d.type_one, true, "Type I");
+        });
     });
     egui::CollapsingHeader::new("Random").show(ui, |ui| {
         ui.checkbox(&mut d.random, "Random effects");
@@ -354,6 +360,10 @@ fn mixed(ui: &mut Ui, d: &mut LinearMixed, picked: &mut Vec<String>) {
             ui.push_id("random subjects", |ui| {
                 name_checkboxes(ui, &d.subjects, &mut d.random_subjects);
             });
+            ui.checkbox(
+                &mut d.random_solution,
+                "Predicted random effects of every subject",
+            );
         });
     });
     egui::CollapsingHeader::new("Estimation").show(ui, |ui| {
@@ -365,13 +375,18 @@ fn mixed(ui: &mut Ui, d: &mut LinearMixed, picked: &mut Vec<String>) {
         iteration_fields(ui, &mut d.ci_level, &mut d.iterations, &mut d.halvings);
         ui.horizontal(|ui| {
             ui.label("Degrees of freedom");
-            ui.radio_value(&mut d.residual_df, false, "Satterthwaite");
-            ui.radio_value(&mut d.residual_df, true, "Residual");
+            for (i, (_, label)) in MIXED_DF_METHODS.iter().enumerate() {
+                ui.radio_value(&mut d.df_method, i, *label);
+            }
         });
         ui.checkbox(&mut d.include, "Treat user-missing values as valid");
     });
     egui::CollapsingHeader::new("Statistics").show(ui, |ui| {
         checkboxes(ui, &MIXED_PRINT, &mut d.print);
+        ui.horizontal(|ui| {
+            ui.label("Iteration history: every n-th iteration, n =");
+            small_field(ui, d.print[MIXED_HISTORY], &mut d.history);
+        });
     });
     egui::CollapsingHeader::new("EM means").show(ui, |ui| {
         means_editor(
@@ -385,6 +400,7 @@ fn mixed(ui: &mut Ui, d: &mut LinearMixed, picked: &mut Vec<String>) {
         );
     });
     egui::CollapsingHeader::new("Tests").show(ui, |ui| {
+        ui.weak("After | a row may go on with coefficients of random effects");
         tests_editor(ui, &mut d.tests);
     });
     egui::CollapsingHeader::new("Save").show(ui, |ui| {
