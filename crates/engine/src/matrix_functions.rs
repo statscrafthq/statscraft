@@ -645,11 +645,16 @@ fn svd_tolerance(a: &Mat, top: f64) -> f64 {
 }
 
 fn pseudo_inverse(a: &Mat) -> Mat {
+    // a missing or infinite entry leaves no singular value to trust, and the result says so
+    if a.data.iter().any(|x| !x.is_finite()) {
+        return Mat::filled(a.cols, a.rows, f64::NAN);
+    }
     let (u, q, v) = thin_svd(a);
     let mut out = Mat::filled(a.cols, a.rows, 0.0);
     // the thin side has a vector exactly for each singular value above svd_tolerance
     for k in 0..u.cols.min(v.cols) {
         let sigma = q.at(k, k);
+        debug_assert!(sigma > svd_tolerance(a, q.at(0, 0)));
         for i in 0..a.cols {
             for j in 0..a.rows {
                 let value = out.at(i, j) + v.at(i, k) * u.at(j, k) / sigma;
@@ -946,6 +951,9 @@ mod tests {
                 .collect(),
         );
         close(&g, &expected);
+        let missing = [Mat::new(2, 1, vec![1.0, f64::NAN])];
+        let g = call("GINV", &missing, &random, &mut Vec::new()).unwrap();
+        assert!(g.data.iter().all(|x| x.is_nan()), "{g:?}");
         // a wide matrix: the generalized inverse of the transpose is the transposed one
         let wide = [a.transpose()];
         close(
