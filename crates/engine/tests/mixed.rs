@@ -4567,3 +4567,29 @@ MIXED y BY a b plot /FIXED=a b a*b /RANDOM=plot /EMMEANS=TABLES(a*b) COMPARE(a).
     let univariate = t.iter().find(|x| x.title == ut).unwrap();
     assert!(univariate.caption.as_deref().unwrap().contains("left out"));
 }
+
+/// Without /FIXED the fixed part is the intercept alone: the same fit as /FIXED=INTERCEPT, and
+/// in the balanced block design the intercept is the grand mean.
+#[test]
+fn without_fixed_the_fixed_part_is_the_intercept() {
+    let (_, without) = run(&format!(
+        "{BLOCKS}MIXED y BY treat block /RANDOM=block /PRINT=SOLUTION."
+    ));
+    let (_, with) = run(&format!(
+        "{BLOCKS}MIXED y BY treat block /FIXED=INTERCEPT /RANDOM=block /PRINT=SOLUTION."
+    ));
+    let fe = "Estimates of Fixed Effects";
+    let a = cell(&without, fe, "Intercept", "Estimate").unwrap();
+    assert_eq!(Some(a), cell(&with, fe, "Intercept", "Estimate"));
+    // the 20 values sum to 422.0
+    assert!((a - 21.1).abs() < 1e-9, "{a}");
+    assert_eq!(
+        cell(
+            &without,
+            "Model Dimension",
+            "Fixed Effects / Intercept",
+            "Number of Parameters"
+        ),
+        Some(1.0)
+    );
+}
