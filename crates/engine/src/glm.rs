@@ -1350,6 +1350,8 @@ fn between_subjects(command: &Glm, d: &Data, fit: &Fit, flags: &Flags) -> (Table
     (table, r2)
 }
 
+type NamedRow = (String, Vec<f64>);
+
 /// The custom hypothesis tests of CONTRAST and LMATRIX (with KMATRIX), and of the intercept
 /// when only KMATRIX or MMATRIX is given. `given_m` is the M matrix of MMATRIX with the names
 /// of its columns; CONTRAST always uses the identity.
@@ -1402,7 +1404,8 @@ fn custom_hypotheses(
         ));
     }
     let (m, names) = given_m.map_or((&identity, dependents), |(m, n)| (m, n.as_slice()));
-    let mut matrices: Vec<(String, Vec<(String, Vec<f64>)>)> = Vec::new();
+    // each L matrix: its title and its named rows
+    let mut matrices: Vec<(String, Vec<NamedRow>)> = Vec::new();
     for (n, lm) in command.lmatrix.iter().enumerate() {
         let mut l = Vec::new();
         for (r, row) in lm.rows.iter().enumerate() {
@@ -3650,22 +3653,30 @@ fn box_m(d: &Data, design: &str) -> Option<Table> {
 fn residual_tables(fit: &Fit, names: &[String], design: &str) -> Vec<Table> {
     let dfe = fit.df_error();
     let s = &fit.s;
-    let r = s.len();
     let mut columns = plain(&["", ""]);
     columns.extend(names.iter().map(|n| (String::new(), n.clone())));
     let mut rows = Vec::new();
-    let blocks: [(&str, &dyn Fn(usize, usize) -> f64); 3] = [
-        ("Sum-of-Squares and Cross-Products", &|a, b| s[a][b]),
-        ("Covariance", &|a, b| s[a][b] / dfe),
-        ("Correlation", &|a, b| s[a][b] / (s[a][a] * s[b][b]).sqrt()),
+    let scaled = |f: &dyn Fn(usize, usize) -> f64| -> Matrix {
+        (0..s.len())
+            .map(|a| (0..s.len()).map(|b| s[a][b] / f(a, b)).collect())
+            .collect()
+    };
+    let blocks = [
+        ("Sum-of-Squares and Cross-Products", s.clone()),
+        ("Covariance", scaled(&|_, _| dfe)),
+        ("Correlation", scaled(&|a, b| (s[a][a] * s[b][b]).sqrt())),
     ];
-    for (name, value) in blocks {
-        for a in 0..r {
+    for (block, m) in blocks {
+        for (a, (name, values)) in names.iter().zip(&m).enumerate() {
             let mut row = vec![
-                if a == 0 { text(name) } else { Cell::Empty },
-                text(names[a].clone()),
+                if a == 0 { text(block) } else { Cell::Empty },
+                text(name.clone()),
             ];
-            row.extend((0..r).map(|b| number(Some(value(a, b)).filter(|v| v.is_finite()))));
+            row.extend(
+                values
+                    .iter()
+                    .map(|v| number(Some(*v).filter(|v| v.is_finite()))),
+            );
             rows.push(row);
         }
     }

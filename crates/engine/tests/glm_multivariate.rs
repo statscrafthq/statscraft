@@ -358,7 +358,7 @@ fn type_one_matches_the_sequential_tests() {
         &[
             (MV, "Intercept / Pillai's Trace", "Value", 0.995149029906893),
             (MV, "Intercept / Pillai's Trace", "F", 1436.01033930251),
-            (MV, "x / Wilks' Lambda", "Value", 0.52264003976480555),
+            (MV, "x / Wilks' Lambda", "Value", 0.522640039764806),
             (MV, "x / Wilks' Lambda", "F", 6.393539467718711),
             (MV, "g / Pillai's Trace", "F", 2.554554107410112),
             (MV, "g / Wilks' Lambda", "F", 2.824819455781187),
