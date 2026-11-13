@@ -1,6 +1,8 @@
 //! The window. Drawing only: every change to data and every result goes through `Session::run`
 //! with syntax built by the plain modules.
 
+use crate::advanced_dialogs::{Advanced, SampleTables};
+use crate::advanced_dialogs_view;
 use crate::analyze_dialogs::{
     Correlations, Explore, ExploreMissing, MEANS_CELLS, MULT_RESPONSE_CELLS, Means, MrGroup,
     MultResponse, ONEWAY_STATISTICS, Oneway, STANDARDIZERS, TREE_LEVELS, TREE_SAVE, TTest,
@@ -230,6 +232,7 @@ pub(crate) enum Dialog {
     Logistic(Logistic),
     Univariate(Univariate),
     RepeatedMeasures(RepeatedMeasures),
+    Advanced(Advanced),
     Restructure(Restructure),
     SortVariables(SortVariables),
     ImportData(ImportData),
@@ -276,6 +279,7 @@ impl Dialog {
             Dialog::Logistic(_) => "Logistic Regression",
             Dialog::Univariate(_) => "Univariate",
             Dialog::RepeatedMeasures(_) => "Repeated Measures",
+            Dialog::Advanced(d) => d.title(),
             Dialog::Restructure(_) => "Restructure",
             Dialog::SortVariables(_) => "Sort Variables",
             Dialog::ImportData(_) => "Open Data",
@@ -332,6 +336,7 @@ impl Dialog {
             Dialog::Logistic(_) => Dialog::Logistic(Default::default()),
             Dialog::Univariate(_) => Dialog::Univariate(Default::default()),
             Dialog::RepeatedMeasures(_) => Dialog::RepeatedMeasures(Default::default()),
+            Dialog::Advanced(d) => Dialog::Advanced(d.reset()),
             Dialog::Restructure(_) => Dialog::Restructure(Default::default()),
             Dialog::SortVariables(_) => Dialog::SortVariables(Default::default()),
             Dialog::ImportData(d) => Dialog::ImportData(ImportData::new(Path::new(&d.path))),
@@ -457,6 +462,7 @@ impl Dialog {
             Dialog::RepeatedMeasures(d) => {
                 numeric(data, d.dependents.iter().chain(&d.covariates)).and_then(|()| d.syntax())
             }
+            Dialog::Advanced(d) => d.syntax(data),
             Dialog::Restructure(d) => d.syntax(),
             Dialog::SortVariables(d) => d.syntax(),
             Dialog::ImportData(d) => d.syntax(),
@@ -1552,6 +1558,11 @@ impl App {
                             self.open_dialog(Dialog::RepeatedMeasures(Default::default()));
                         }
                     });
+                    ui.menu_button("Mixed Models", |ui| {
+                        if ui.button("Linear...").clicked() {
+                            self.open_dialog(Dialog::Advanced(Advanced::Mixed(Default::default())));
+                        }
+                    });
                     ui.menu_button("Correlate", |ui| {
                         if ui.button("Bivariate...").clicked() {
                             self.open_dialog(Dialog::Correlations(Default::default()));
@@ -1566,6 +1577,17 @@ impl App {
                         }
                         if ui.button("Binary Logistic...").clicked() {
                             self.open_dialog(Dialog::Logistic(Default::default()));
+                        }
+                        for (label, dialog) in [
+                            (
+                                "Multinomial Logistic...",
+                                Advanced::Multinomial(Default::default()),
+                            ),
+                            ("Ordinal...", Advanced::Ordinal(Default::default())),
+                        ] {
+                            if ui.button(label).clicked() {
+                                self.open_dialog(Dialog::Advanced(dialog));
+                            }
                         }
                     });
                     ui.menu_button("Classify", |ui| {
@@ -1608,6 +1630,27 @@ impl App {
                                     crosstabs,
                                     ..Default::default()
                                 }));
+                            }
+                        }
+                    });
+                    ui.menu_button("Complex Samples", |ui| {
+                        let tables = |crosstabs| {
+                            Advanced::Tables(SampleTables {
+                                crosstabs,
+                                ..Default::default()
+                            })
+                        };
+                        for (label, dialog) in [
+                            ("Analysis Plan...", Advanced::Plan(Default::default())),
+                            (
+                                "Descriptives...",
+                                Advanced::Descriptives(Default::default()),
+                            ),
+                            ("Frequencies...", tables(false)),
+                            ("Crosstabs...", tables(true)),
+                        ] {
+                            if ui.button(label).clicked() {
+                                self.open_dialog(Dialog::Advanced(dialog));
                             }
                         }
                     });
@@ -4101,7 +4144,7 @@ fn error_text(errors: &[Failure]) -> String {
 }
 
 /// A file dialog that opens in `folder` when there is one.
-fn file_dialog(folder: &Option<PathBuf>) -> rfd::FileDialog {
+pub(crate) fn file_dialog(folder: &Option<PathBuf>) -> rfd::FileDialog {
     match folder {
         Some(folder) => rfd::FileDialog::new().set_directory(folder),
         None => rfd::FileDialog::new(),
@@ -5763,6 +5806,7 @@ fn dialog_body(
         Dialog::ChartBuilder(d) => graph_dialogs_view::chart_builder(ui, d, picked),
         Dialog::ProbabilityPlot(d) => graph_dialogs_view::probability_plot(ui, d, picked),
         Dialog::RocCurve(d) => graph_dialogs_view::roc(ui, d, picked),
+        Dialog::Advanced(d) => advanced_dialogs_view::body(ui, d, picked, folder),
         Dialog::Restructure(d) => {
             ui.radio_value(
                 &mut d.kind,

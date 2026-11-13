@@ -2,6 +2,10 @@
 //! that the parser takes and that runs on the survey file.
 
 use super::{CategoryDraft, Dialog, RuleDraft};
+use crate::advanced_dialogs::{
+    Advanced, LinearMixed, Multinomial, Ordinal, SampleDescriptives, SampleOptions, SamplePlan,
+    SampleTables, Stage, Terms,
+};
 use crate::analyze_dialogs::{
     Correlations, Explore, ExploreMissing, Means, MrGroup, MultResponse, Oneway, TTest, TTestKind,
     Tree,
@@ -30,6 +34,7 @@ fn s(text: &str) -> String {
 
 /// Each dialog with the fewest choices that make its syntax.
 fn minimal(out: &Path) -> Vec<Dialog> {
+    let plan = out.join("min_plan.json").to_string_lossy().into_owned();
     let mut list = vec![
         Dialog::Frequencies(Frequencies {
             variables: v(&["gender"]),
@@ -204,6 +209,41 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             dependents: v(&["q6_mention1", "q6_mention2", "q6_mention3"]),
             ..Default::default()
         }),
+        Dialog::Advanced(Advanced::Ordinal(Ordinal {
+            dependent: s("q1_satisfaction"),
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Multinomial(Multinomial {
+            dependent: s("plan"),
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Mixed(LinearMixed {
+            dependent: s("monthly_spend"),
+            ..Default::default()
+        })),
+        // the plan before the analyses that read it
+        Dialog::Advanced(Advanced::Plan(SamplePlan {
+            path: plan.clone(),
+            weight: s("weight"),
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Descriptives(SampleDescriptives {
+            plan: plan.clone(),
+            summary: v(&["age"]),
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Tables(SampleTables {
+            plan: plan.clone(),
+            variables: v(&["gender"]),
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Tables(SampleTables {
+            crosstabs: true,
+            plan,
+            variables: v(&["gender"]),
+            column: s("q5_1"),
+            ..Default::default()
+        })),
         Dialog::Restructure(Restructure {
             makes: vec![Make {
                 name: s("mention"),
@@ -280,6 +320,20 @@ fn minimal(out: &Path) -> Vec<Dialog> {
 
 /// Each dialog with every option on, or the last of a choice.
 fn maximal(out: &Path) -> Vec<Dialog> {
+    let plan = out.join("max_plan.json").to_string_lossy().into_owned();
+    let terms = |list: &[&[&str]]| Terms {
+        terms: list.iter().map(|t| v(t)).collect(),
+        building: Vec::new(),
+    };
+    let sample_options = || SampleOptions {
+        statistics: [true; 5],
+        ci: true,
+        ci_level: s("90"),
+        subpopulations: v(&["gender"]),
+        separate: true,
+        listwise: true,
+        include: true,
+    };
     let mut list = vec![
         Dialog::Frequencies(Frequencies {
             variables: v(&["gender", "age"]),
@@ -772,6 +826,117 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             print: [true; 3],
             alpha: s("0.01"),
         }),
+        Dialog::Advanced(Advanced::Ordinal(Ordinal {
+            dependent: s("q1_satisfaction"),
+            factors: v(&["gender"]),
+            covariates: v(&["age"]),
+            link: 4,
+            custom_location: true,
+            location: terms(&[&["gender"], &["age"], &["gender", "age"]]),
+            scale: true,
+            scale_terms: terms(&[&["age"]]),
+            print: [true; 9],
+            save: [true; 4],
+            ci_level: s("90"),
+            iterations: s("150"),
+            halvings: s("10"),
+            delta: s("0.5"),
+            include: true,
+        })),
+        Dialog::Advanced(Advanced::Multinomial(Multinomial {
+            dependent: s("plan"),
+            base: 2,
+            base_value: s("BASIC"),
+            descending: true,
+            factors: v(&["gender"]),
+            covariates: v(&["age"]),
+            model: 2,
+            terms: terms(&[&["gender"], &["age"], &["gender", "age"]]),
+            intercept: true,
+            print: [true; 11],
+            save: [true; 4],
+            ci_level: s("90"),
+            iterations: s("150"),
+            halvings: s("10"),
+            include: true,
+        })),
+        Dialog::Advanced(Advanced::Mixed(LinearMixed {
+            subjects: v(&["region"]),
+            repeated: v(&["resp_id"]),
+            repeated_covariance: 1,
+            dependent: s("monthly_spend"),
+            factors: v(&["gender"]),
+            covariates: v(&["age"]),
+            custom_fixed: true,
+            fixed: terms(&[&["gender"], &["age"]]),
+            intercept: true,
+            random: true,
+            random_intercept: true,
+            random_terms: terms(&[&["age"]]),
+            random_subjects: v(&["region"]),
+            random_covariance: 2,
+            ml: true,
+            solution: true,
+            covariance_tests: true,
+            save: [true; 5],
+            ci_level: s("90"),
+            iterations: s("150"),
+            halvings: s("5"),
+            residual_df: true,
+            include: true,
+        })),
+        Dialog::Advanced(Advanced::Plan(SamplePlan {
+            path: plan.clone(),
+            weight: s("weight"),
+            stages: vec![
+                Stage {
+                    label: s("Regions"),
+                    strata: v(&["region"]),
+                    clusters: v(&["gender"]),
+                    estimator: 1,
+                    rate: 1,
+                    rate_value: s("0.5"),
+                    ..Default::default()
+                },
+                Stage {
+                    strata: v(&["q5_1"]),
+                    clusters: v(&["resp_id"]),
+                    ..Default::default()
+                },
+                Stage::default(),
+            ],
+            srs_with_replacement: true,
+        })),
+        Dialog::Advanced(Advanced::Descriptives(SampleDescriptives {
+            plan: plan.clone(),
+            summary: v(&["age", "monthly_spend"]),
+            mean: true,
+            sum: true,
+            numerators: v(&["monthly_spend"]),
+            denominators: v(&["age"]),
+            population_size: true,
+            options: sample_options(),
+        })),
+        Dialog::Advanced(Advanced::Tables(SampleTables {
+            plan: plan.clone(),
+            variables: v(&["q5_5", "q6_mention1"]),
+            cells: [true; 4],
+            cumulative: true,
+            homogeneity: true,
+            options: sample_options(),
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Tables(SampleTables {
+            crosstabs: true,
+            plan,
+            variables: v(&["q5_2", "q5_3"]),
+            column: s("q5_4"),
+            cells: [true; 4],
+            residuals: [true; 3],
+            tests: [true; 4],
+            options: sample_options(),
+            ..Default::default()
+        })),
         Dialog::Restructure(Restructure {
             makes: vec![
                 Make {
