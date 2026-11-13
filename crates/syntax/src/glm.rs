@@ -778,7 +778,6 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
         }
         let start = p.pos;
         let all_word = p.eat_word("ALL");
-        let intercept = !all_word && p.at_keyword("INTERCEPT");
         let effect = if all_word {
             None
         } else if row.2 && !matches!(p.peek(), Some(TokenKind::Word(_))) {
@@ -796,10 +795,12 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
         // given no other way
         if all_word || effect.is_some() {
             let n = rows.len() + 1;
-            let found = match () {
-                _ if all_word => "ALL",
-                _ if intercept => "INTERCEPT",
-                _ => "an effect name",
+            let found = if all_word {
+                "ALL"
+            } else if effect.as_ref().is_some_and(|t| t.variables.is_empty()) {
+                "INTERCEPT"
+            } else {
+                "an effect name"
             };
             let (all, r, set) = *form.get_or_insert((all_word, n, found));
             if all_word != all {
