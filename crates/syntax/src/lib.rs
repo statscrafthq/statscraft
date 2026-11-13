@@ -162,6 +162,7 @@ pub use mixed::{Convergence, CovType, Mixed, MixedPrint, MixedTemp, RandomEffect
 pub use mrsets::{Mrsets, MrsetsGroup};
 pub use nomreg::{
     Nomreg, NomregBase, NomregCriteria, NomregOrder, NomregPrint, NomregSave, NomregScale,
+    NomregStepwise, StepMethod, StepRule,
 };
 pub use npar::{
     BinomialSplit, GroupTest, KsDistribution, NparTest, NparTests, PairedTest, PartialCorr,

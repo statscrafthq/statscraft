@@ -28,19 +28,35 @@
 //!   effect: the model refitted without it, df the difference in non-redundant parameters.
 //! - Classification: each subpopulation goes to its most probable category (the first on a
 //!   tie); counts use the case weights.
+//! - Stepwise (MODEL with `|`): the effects left of `|` and the intercept stay in the model;
+//!   the listed effects enter by the smallest p below PIN (likelihood ratio, or the score
+//!   statistic U' I^- U at the current estimates with the new parameters at 0) and leave by the
+//!   largest p above POUT (likelihood ratio, or Wald b' C^- b of the effect's parameters), each
+//!   on the number of parameters that are not redundant; a tie goes to the effect listed first.
+//!   FORWARD only enters, BACKWARD starts from all and only removes, FSTEP enters one and then
+//!   removes while it can, BSTEP starts from all, removes while it can and then enters one. The
+//!   stepping stops when nothing qualifies or a model would come back. RULE: SINGLE lets an
+//!   effect in only with every effect of the list made of a part of its variables, SFACTOR
+//!   applies that to effects of factors alone, CONTAINMENT only with every effect it contains
+//!   (the same covariates, fewer factors), NONE without conditions; an effect that another
+//!   needs cannot leave. MAXEFFECT caps entry and MINEFFECT removal, counting effects without
+//!   the intercept. SCALE does not change the stepwise tests.
 
 use crate::crosstabs::{Key, categories};
 use crate::descriptives::{case_weights, number};
 use crate::dist::{chi_square_p, ln_gamma, normal_quantile};
 use crate::format::category_text;
-use crate::glm::{Effect, Part, default_terms, effects_of, intercept_term, sweep_in_order};
+use crate::glm::{
+    Effect, Part, default_terms, effects_of, ginverse, intercept_term, sweep_in_order,
+};
 use crate::matrix::{Matrix, inverse};
 use crate::npar_tests::text;
 use crate::regression::{plain, table};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Measure, Values, Variable};
 use statscraft_syntax::{
-    Nomreg, NomregBase, NomregCriteria, NomregOrder, NomregSave, NomregScale, Term, Value,
+    Nomreg, NomregBase, NomregCriteria, NomregOrder, NomregSave, NomregScale, NomregStepwise,
+    StepMethod, StepRule, Term, Value,
 };
 use std::collections::HashMap;
 
@@ -203,6 +219,17 @@ impl Model {
         c: &NomregCriteria,
         warnings: &mut Vec<String>,
     ) -> Fit {
+        if cols.is_empty() {
+            // the null model: every category equally likely, nothing to estimate
+            return Fit {
+                ll: self.log_likelihood(&cols, &[]),
+                cols,
+                b: Vec::new(),
+                info: Vec::new(),
+                converged: true,
+                iterations: 0,
+            };
+        }
         let q = cols.len();
         let l_count = self.others.len();
         let mut b = vec![0.0; l_count * q];
@@ -300,6 +327,308 @@ impl Model {
             converged,
             iterations,
         }
+    }
+}
+
+/// One step of a stepwise method: the effect entered or removed, the kernel log likelihood
+/// of the model after it, and the test that decided.
+struct Step {
+    entered: bool,
+    effect: usize,
+    ll: f64,
+    chi: f64,
+    df: f64,
+    p: f64,
+}
+
+/// The outcome of a stepwise method: the effects of the starting model and its kernel log
+/// likelihood, the steps, and which effects end in the model.
+struct Selection {
+    start: Vec<usize>,
+    start_ll: f64,
+    steps: Vec<Step>,
+    chosen: Vec<bool>,
+}
+
+/// The effects that must be in the model before effect `e` may be, by RULE.
+fn required(effects: &[Effect], e: usize, rule: StepRule) -> Vec<usize> {
+    let me = &effects[e];
+    let sub_multiset = |small: &[usize], big: &[usize]| {
+        let mut rest = big.to_vec();
+        small
+            .iter()
+            .all(|x| match rest.iter().position(|y| y == x) {
+                Some(at) => {
+                    rest.remove(at);
+                    true
+                }
+                None => false,
+            })
+    };
+    (0..effects.len())
+        .filter(|&f| f != e && !effects[f].is_intercept())
+        .filter(|&f| {
+            let other = &effects[f];
+            let factors_inside = other.factors.iter().all(|x| me.factors.contains(x));
+            let smaller = other.factors.len() + other.covariates.len()
+                < me.factors.len() + me.covariates.len();
+            match rule {
+                StepRule::Single => {
+                    factors_inside && sub_multiset(&other.covariates, &me.covariates) && smaller
+                }
+                StepRule::Sfactor => {
+                    me.covariates.is_empty()
+                        && other.covariates.is_empty()
+                        && factors_inside
+                        && smaller
+                }
+                StepRule::Containment => {
+                    other.covariates == me.covariates
+                        && me.factors.len() > other.factors.len()
+                        && factors_inside
+                }
+                StepRule::None => false,
+            }
+        })
+        .collect()
+}
+
+/// A stepwise method over the effects from `first` on; the earlier ones (and the intercept)
+/// stay in the model.
+#[allow(clippy::too_many_arguments)]
+fn select(
+    model: &Model,
+    effects: &[Effect],
+    first: usize,
+    method: StepMethod,
+    rules: &NomregStepwise,
+    intercept: bool,
+    c: &NomregCriteria,
+    warnings: &mut Vec<String>,
+) -> Selection {
+    let count = |set: &[bool]| {
+        set.iter()
+            .zip(effects)
+            .filter(|(on, e)| **on && !e.is_intercept())
+            .count()
+    };
+    let needs: Vec<Vec<usize>> = (0..effects.len())
+        .map(|e| required(effects, e, rules.rule))
+        .collect();
+    let max_effects = rules
+        .maxeffect
+        .unwrap_or_else(|| effects.iter().filter(|e| !e.is_intercept()).count());
+    let mut troubled = false;
+    let mut refit = |set: &[bool]| -> Fit {
+        let wanted: Vec<usize> = effects
+            .iter()
+            .zip(set)
+            .filter(|(_, on)| **on)
+            .flat_map(|(e, _)| e.range())
+            .collect();
+        let cols = model.independent(&wanted, c.singular);
+        let mut quiet = Vec::new();
+        let fit = model.fit(cols, intercept, c, &mut quiet);
+        troubled |= !quiet.is_empty() || !fit.converged;
+        fit
+    };
+    let all_in = matches!(method, StepMethod::Backward | StepMethod::Bstep);
+    let mut set: Vec<bool> = (0..effects.len()).map(|e| e < first || all_in).collect();
+    let mut fit = refit(&set);
+    let start: Vec<usize> = (0..effects.len()).filter(|&e| set[e]).collect();
+    let start_ll = fit.ll;
+    let mut visited = vec![set.clone()];
+    let mut steps = Vec::new();
+    let l_count = model.others.len();
+    let p_of = |chi: f64, df: f64| {
+        if df > 0.0 {
+            chi_square_p(chi.max(0.0), df)
+        } else {
+            1.0
+        }
+    };
+    // the best entry: (effect, chi, df, p) with the smallest p, the first on a tie
+    let entry = |set: &[bool], fit: &Fit, fit_of: &mut dyn FnMut(&[bool]) -> Fit| {
+        if count(set) >= max_effects {
+            return None;
+        }
+        let mut best: Option<(usize, f64, f64, f64)> = None;
+        for e in first..effects.len() {
+            if set[e] || !needs[e].iter().all(|&f| set[f]) {
+                continue;
+            }
+            let (chi, df) = if rules.score_entry {
+                let mut wanted = fit.cols.clone();
+                wanted.extend(effects[e].range());
+                let cols = model.independent(&wanted, c.singular);
+                let (q0, q1) = (fit.cols.len(), cols.len());
+                let mut b = vec![0.0; l_count * q1];
+                for l in 0..l_count {
+                    b[l * q1..l * q1 + q0].copy_from_slice(&fit.b[l * q0..(l + 1) * q0]);
+                }
+                let (info, g) = model.information(&cols, &b);
+                let (inv, _) = ginverse(&info, 1e-10);
+                let score: f64 = (0..g.len())
+                    .map(|i| (0..g.len()).map(|j| g[i] * inv[i][j] * g[j]).sum::<f64>())
+                    .sum();
+                (score, ((q1 - q0) * l_count) as f64)
+            } else {
+                let mut more = set.to_vec();
+                more[e] = true;
+                let bigger = fit_of(&more);
+                (
+                    2.0 * (bigger.ll - fit.ll),
+                    (bigger.parameters() - fit.parameters()) as f64,
+                )
+            };
+            let p = p_of(chi, df);
+            if best.is_none_or(|b| p < b.3) {
+                best = Some((e, chi, df, p));
+            }
+        }
+        best
+    };
+    // the best removal: (effect, chi, df, p) with the largest p, the first on a tie
+    let removal = |set: &[bool], fit: &Fit, fit_of: &mut dyn FnMut(&[bool]) -> Fit| {
+        let mut best: Option<(usize, f64, f64, f64)> = None;
+        for e in first..effects.len() {
+            let needed = (0..effects.len()).any(|f| set[f] && needs[f].contains(&e));
+            if !set[e] || needed {
+                continue;
+            }
+            let (chi, df) = if rules.wald_removal {
+                let q = fit.cols.len();
+                let at: Vec<usize> = (0..l_count)
+                    .flat_map(|l| {
+                        fit.cols
+                            .iter()
+                            .enumerate()
+                            .filter(|(_, col)| effects[e].range().contains(col))
+                            .map(move |(s, _)| l * q + s)
+                    })
+                    .collect();
+                let (cov, _) = ginverse(&fit.info, 1e-10);
+                let sub: Matrix = at
+                    .iter()
+                    .map(|&i| at.iter().map(|&j| cov[i][j]).collect())
+                    .collect();
+                let (inv, rank) = ginverse(&sub, 1e-10);
+                let b: Vec<f64> = at.iter().map(|&i| fit.b[i]).collect();
+                let wald: f64 = (0..b.len())
+                    .map(|i| (0..b.len()).map(|j| b[i] * inv[i][j] * b[j]).sum::<f64>())
+                    .sum();
+                (wald, rank as f64)
+            } else {
+                let mut fewer = set.to_vec();
+                fewer[e] = false;
+                let smaller = fit_of(&fewer);
+                (
+                    2.0 * (fit.ll - smaller.ll),
+                    (fit.parameters() - smaller.parameters()) as f64,
+                )
+            };
+            let p = p_of(chi, df);
+            if best.is_none_or(|b| p > b.3) {
+                best = Some((e, chi, df, p));
+            }
+        }
+        best
+    };
+    // removals while they qualify; false when a model would come back
+    let remove_all = |set: &mut Vec<bool>,
+                      fit: &mut Fit,
+                      steps: &mut Vec<Step>,
+                      visited: &mut Vec<Vec<bool>>,
+                      refit: &mut dyn FnMut(&[bool]) -> Fit,
+                      minimum: bool|
+     -> bool {
+        loop {
+            if minimum && count(set) <= rules.mineffect {
+                return true;
+            }
+            let Some((e, chi, df, p)) = removal(set, fit, refit) else {
+                return true;
+            };
+            if p <= rules.pout {
+                return true;
+            }
+            set[e] = false;
+            if visited.contains(set) {
+                set[e] = true;
+                return false;
+            }
+            visited.push(set.clone());
+            *fit = refit(set);
+            steps.push(Step {
+                entered: false,
+                effect: e,
+                ll: fit.ll,
+                chi,
+                df,
+                p,
+            });
+        }
+    };
+    loop {
+        if all_in {
+            let minimum = true;
+            if !remove_all(
+                &mut set,
+                &mut fit,
+                &mut steps,
+                &mut visited,
+                &mut refit,
+                minimum,
+            ) || method == StepMethod::Backward
+            {
+                break;
+            }
+        }
+        let Some((e, chi, df, p)) = entry(&set, &fit, &mut refit) else {
+            break;
+        };
+        if p >= rules.pin {
+            break;
+        }
+        set[e] = true;
+        if visited.contains(&set) {
+            set[e] = false;
+            break;
+        }
+        visited.push(set.clone());
+        fit = refit(&set);
+        steps.push(Step {
+            entered: true,
+            effect: e,
+            ll: fit.ll,
+            chi,
+            df,
+            p,
+        });
+        if method == StepMethod::Fstep
+            && !remove_all(
+                &mut set,
+                &mut fit,
+                &mut steps,
+                &mut visited,
+                &mut refit,
+                false,
+            )
+        {
+            break;
+        }
+    }
+    if troubled {
+        warnings.push(
+            "NOMREG: a model fitted during the stepwise method did not converge cleanly; its tests are approximate"
+                .into(),
+        );
+    }
+    Selection {
+        start,
+        start_ll,
+        steps,
+        chosen: set,
     }
 }
 
@@ -427,7 +756,8 @@ impl Engine {
         };
         // the model
         let terms: Vec<Term> = match &command.model {
-            Some(terms) if !terms.is_empty() => {
+            // with a stepwise method the left side is the starting model, even when empty
+            Some(terms) if !terms.is_empty() || command.stepwise.is_some() => {
                 let mut terms = terms.clone();
                 if command.intercept {
                     terms.insert(0, intercept_term());
@@ -451,7 +781,20 @@ impl Engine {
                 terms
             }
         };
+        let first = effects_of(&terms, &factor_names, &covariate_names)?.len();
+        let mut terms = terms;
+        if let Some((_, stepped)) = &command.stepwise {
+            terms.extend(stepped.iter().cloned());
+        }
         let mut effects = effects_of(&terms, &factor_names, &covariate_names)?;
+        if let Some((_, stepped)) = &command.stepwise
+            && effects.len() - first < stepped.len()
+        {
+            return Err(Error(
+                "NOMREG: an effect of the stepwise method repeats an effect of the model or of its list"
+                    .into(),
+            ));
+        }
         if effects.is_empty() {
             return Err(Error(
                 "NOMREG: the model has no effects and no intercept".into(),
@@ -624,7 +967,7 @@ impl Engine {
             .iter()
             .map(|&k| case_levels(k).expect("valid"))
             .collect();
-        let p = place_effects(&mut effects, &subpop_levels);
+        let mut p = place_effects(&mut effects, &subpop_levels);
         let x: Vec<Vec<f64>> = members
             .iter()
             .zip(&subpop_levels)
@@ -648,12 +991,67 @@ impl Engine {
                     .collect()
             })
             .collect();
-        let model = Model {
+        let mut model = Model {
             x,
             n,
             base,
             others: others.clone(),
         };
+        let effect_label = |e: &Effect| -> String {
+            if e.label.contains('(') {
+                return e.label.clone();
+            }
+            e.parts
+                .iter()
+                .map(|part| match part {
+                    Part::Factor(f) => shown.variable(&factor_vars[*f]),
+                    Part::Covariate(v) => shown.variable(&cov_vars[*v]),
+                })
+                .collect::<Vec<_>>()
+                .join(" * ")
+        };
+        let mut selection = None;
+        if let Some((method, _)) = &command.stepwise {
+            let chosen = select(
+                &model,
+                &effects,
+                first,
+                *method,
+                &command.step_criteria,
+                command.intercept,
+                &c,
+                &mut warnings,
+            );
+            let labels: Vec<String> = effects
+                .iter()
+                .map(|e| {
+                    if e.is_intercept() {
+                        "Intercept".to_string()
+                    } else {
+                        effect_label(e)
+                    }
+                })
+                .collect();
+            let mut at = 0;
+            effects.retain(|_| {
+                at += 1;
+                chosen.chosen[at - 1]
+            });
+            if effects.is_empty() {
+                return Err(Error(
+                    "NOMREG: the stepwise method left no effects and no intercept".into(),
+                ));
+            }
+            p = place_effects(&mut effects, &subpop_levels);
+            model.x = members
+                .iter()
+                .zip(&subpop_levels)
+                .map(|(&k, l)| {
+                    design_row(&effects, p, l, &case_covs(k).expect("valid")).expect("a column")
+                })
+                .collect();
+            selection = Some((*method, chosen, labels));
+        }
         let l_count = others.len() as f64;
         // the fit
         let all: Vec<usize> = (0..p).collect();
@@ -762,19 +1160,6 @@ impl Engine {
                 .collect::<Vec<_>>()
                 .join(" * ")
         };
-        let effect_label = |e: &Effect| -> String {
-            if e.label.contains('(') {
-                return e.label.clone();
-            }
-            e.parts
-                .iter()
-                .map(|part| match part {
-                    Part::Factor(f) => shown.variable(&factor_vars[*f]),
-                    Part::Covariate(v) => shown.variable(&cov_vars[*v]),
-                })
-                .collect::<Vec<_>>()
-                .join(" * ")
-        };
         let print = command.print;
         let mut tables = Vec::new();
         if print.cps {
@@ -791,6 +1176,72 @@ impl Engine {
                 missing,
                 &raw,
                 &shown,
+            ));
+        }
+        let kernel_note = if print.kernel {
+            " The -2 log likelihoods are the kernel, without the multinomial constant."
+        } else {
+            ""
+        };
+        if let Some((method, chosen, labels)) = &selection
+            && print.step
+        {
+            let mut columns = plain(&["Model", "Action", "Effect(s)"]);
+            columns.push(("Model Fitting Criteria".into(), "-2 Log Likelihood".into()));
+            for name in ["Chi-Square", "df", "Sig."] {
+                columns.push(("Effect Selection Tests".into(), name.into()));
+            }
+            let start: Vec<&str> = chosen.start.iter().map(|&e| labels[e].as_str()).collect();
+            let mut rows = vec![vec![
+                Cell::Number(0.0),
+                text("Entered"),
+                text(if start.is_empty() {
+                    "(none)".to_string()
+                } else {
+                    start.join(", ")
+                }),
+                number(Some(shown_m2ll(chosen.start_ll))),
+                Cell::Empty,
+                Cell::Empty,
+                Cell::Empty,
+            ]];
+            for (k, step) in chosen.steps.iter().enumerate() {
+                rows.push(vec![
+                    Cell::Number((k + 1) as f64),
+                    text(if step.entered { "Entered" } else { "Removed" }),
+                    text(labels[step.effect].clone()),
+                    number(Some(shown_m2ll(step.ll))),
+                    number(Some(step.chi)),
+                    Cell::Number(step.df),
+                    number(Some(step.p)),
+                ]);
+            }
+            let rules = &command.step_criteria;
+            let name = match method {
+                StepMethod::Backward => "Backward Entry",
+                StepMethod::Forward => "Forward Entry",
+                StepMethod::Bstep => "Backward Stepwise",
+                StepMethod::Fstep => "Forward Stepwise",
+            };
+            let entry = if rules.score_entry {
+                "the score statistic"
+            } else {
+                "the likelihood ratio"
+            };
+            let removal = if rules.wald_removal {
+                "the Wald statistic"
+            } else {
+                "the likelihood ratio"
+            };
+            tables.push(table(
+                "Step Summary",
+                1,
+                columns,
+                rows,
+                Some(format!(
+                    "Stepwise method: {name}. An effect enters by {entry} (p below {}) and leaves by {removal} (p above {}).{kernel_note}",
+                    rules.pin, rules.pout
+                )),
             ));
         }
         let ic_columns = |rows_aic: bool| -> Vec<(String, String)> {
@@ -821,11 +1272,6 @@ impl Engine {
             }
             out.push(number(Some(m2ll)));
             out
-        };
-        let kernel_note = if print.kernel {
-            " The -2 log likelihoods are the kernel, without the multinomial constant."
-        } else {
-            ""
         };
         if print.mfi {
             let mut columns = plain(&["Model"]);

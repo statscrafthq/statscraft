@@ -6,10 +6,13 @@
 //!   last one of each kind applies. Empty subcommands other than MODEL are ignored.
 //! - MODEL and FULLFACTORIAL exclude each other. MODEL terms as in GLM: `a`, `a*b`, `a BY b`,
 //!   `a(b)`, `a WITHIN b`, `x*x`; the word INTERCEPT among them is allowed and ignored (the
-//!   INTERCEPT subcommand decides). A `|` starts the stepwise part, not supported yet.
+//!   INTERCEPT subcommand decides). After `|` comes one stepwise method, BACKWARD, FORWARD,
+//!   BSTEP or FSTEP, `=` and the effects it may enter or remove (at least one, no INTERCEPT).
+//! - STEPWISE: RULE(SINGLE | SFACTOR | CONTAINMENT | NONE), MINEFFECT(0), MAXEFFECT(n),
+//!   PIN(0.05), POUT(0.1), ENTRYMETHOD(LR | SCORE), REMOVALMETHOD(LR | WALD).
 //! - CRITERIA: CIN(95), DELTA(0), MXITER(100), MXSTEP(5), LCONVERGE(0), PCONVERGE(1E-6),
 //!   SINGULAR(1E-8), BIAS(0), CHKSEP(20).
-//! - PRINT keywords; NONE overrides the others. Without PRINT: CPS, MFI (and STEP).
+//! - PRINT keywords; NONE overrides the others. Without PRINT: CPS, MFI and STEP.
 //! - SAVE: ACPROB, ESTPROB[(root[:n])], PCPROB, PREDCAT, each with an optional new name.
 //! - SCALE: a positive number, DEVIANCE or PEARSON. SUBPOP: a variable list.
 
@@ -77,6 +80,8 @@ pub struct NomregPrint {
     pub kernel: bool,
     pub covb: bool,
     pub corb: bool,
+    /// The step summary of a stepwise method.
+    pub step: bool,
 }
 
 impl Default for NomregPrint {
@@ -93,6 +98,54 @@ impl Default for NomregPrint {
             kernel: false,
             covb: false,
             corb: false,
+            step: true,
+        }
+    }
+}
+
+/// A stepwise method after `|` on MODEL.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepMethod {
+    Backward,
+    Forward,
+    Bstep,
+    Fstep,
+}
+
+/// Which effects must be in the model before another may enter (RULE).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StepRule {
+    Single,
+    Sfactor,
+    Containment,
+    None,
+}
+
+/// The STEPWISE subcommand.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct NomregStepwise {
+    pub rule: StepRule,
+    pub mineffect: usize,
+    /// None: every effect of MODEL.
+    pub maxeffect: Option<usize>,
+    pub pin: f64,
+    pub pout: f64,
+    /// ENTRYMETHOD(SCORE); the likelihood ratio otherwise.
+    pub score_entry: bool,
+    /// REMOVALMETHOD(WALD); the likelihood ratio otherwise.
+    pub wald_removal: bool,
+}
+
+impl Default for NomregStepwise {
+    fn default() -> Self {
+        Self {
+            rule: StepRule::Single,
+            mineffect: 0,
+            maxeffect: None,
+            pin: 0.05,
+            pout: 0.1,
+            score_entry: false,
+            wald_removal: false,
         }
     }
 }
@@ -135,6 +188,9 @@ pub struct Nomreg {
     pub save: Vec<NomregSave>,
     pub scale: NomregScale,
     pub subpop: Option<Vec<VarItem>>,
+    /// The stepwise method of MODEL and the effects it works on.
+    pub stepwise: Option<(StepMethod, Vec<Term>)>,
+    pub step_criteria: NomregStepwise,
 }
 
 fn value_in_parens(p: &mut Parser) -> PResult<f64> {
@@ -261,6 +317,7 @@ fn print(p: &mut Parser) -> PResult<Option<NomregPrint>> {
     let mut out = NomregPrint {
         cps: false,
         mfi: false,
+        step: false,
         ..NomregPrint::default()
     };
     let mut none = false;
@@ -294,7 +351,7 @@ fn print(p: &mut Parser) -> PResult<Option<NomregPrint>> {
         } else if p.eat_keyword("CORB") {
             out.corb = true;
         } else if p.eat_keyword("STEP") {
-            // the step summary exists only with a stepwise method, which is not supported yet
+            out.step = true;
         } else if let Some(word) = ["CELLPROB", "HISTORY", "ASSOCIATION"]
             .into_iter()
             .find(|k| p.at_keyword(k))
@@ -327,10 +384,89 @@ fn print(p: &mut Parser) -> PResult<Option<NomregPrint>> {
         out = NomregPrint {
             cps: false,
             mfi: false,
+            step: false,
             ..NomregPrint::default()
         };
     }
     Ok(Some(out))
+}
+
+fn stepwise(p: &mut Parser, s: &mut NomregStepwise) -> PResult<()> {
+    p.eat(Punct::Eq);
+    while !at_end(p) {
+        let start = p.pos;
+        let choice = |p: &mut Parser, options: &[&str]| -> PResult<usize> {
+            p.expect(Punct::LParen)?;
+            let Some(at) = options.iter().position(|o| p.at_keyword(o)) else {
+                return Err(p.unexpected(options));
+            };
+            p.pos += 1;
+            p.expect(Punct::RParen)?;
+            Ok(at)
+        };
+        if p.eat_keyword("RULE") {
+            s.rule = [
+                StepRule::Single,
+                StepRule::Sfactor,
+                StepRule::Containment,
+                StepRule::None,
+            ][choice(p, &["SINGLE", "SFACTOR", "CONTAINMENT", "NONE"])?];
+        } else if let Some(max) = [("MINEFFECT", false), ("MAXEFFECT", true)]
+            .into_iter()
+            .find(|(k, _)| p.at_keyword(k))
+            .map(|(_, max)| max)
+        {
+            p.pos += 1;
+            let v = value_in_parens(p)?;
+            let n = checked(
+                p,
+                start,
+                v,
+                v >= 0.0 && v.fract() == 0.0,
+                "the number of effects is a whole number, 0 or more",
+            )? as usize;
+            if max {
+                s.maxeffect = Some(n);
+            } else {
+                s.mineffect = n;
+            }
+        } else if let Some(out) = [("PIN", false), ("POUT", true)]
+            .into_iter()
+            .find(|(k, _)| p.at_keyword(k))
+            .map(|(_, out)| out)
+        {
+            p.pos += 1;
+            let v = value_in_parens(p)?;
+            let v = checked(
+                p,
+                start,
+                v,
+                v > 0.0 && v <= 1.0,
+                "PIN and POUT are probabilities above 0 and at most 1",
+            )?;
+            if out {
+                s.pout = v;
+            } else {
+                s.pin = v;
+            }
+        } else if p.eat_keyword("ENTRYMETHOD") {
+            s.score_entry = choice(p, &["LR", "SCORE"])? == 1;
+        } else if p.eat_keyword("REMOVALMETHOD") {
+            s.wald_removal = choice(p, &["LR", "WALD"])? == 1;
+        } else {
+            return Err(p.unexpected(&[
+                "RULE",
+                "MINEFFECT",
+                "MAXEFFECT",
+                "PIN",
+                "POUT",
+                "ENTRYMETHOD",
+                "REMOVALMETHOD",
+            ]));
+        }
+        p.eat(Punct::Comma);
+    }
+    Ok(())
 }
 
 fn new_name(p: &mut Parser) -> PResult<Option<String>> {
@@ -411,6 +547,8 @@ pub(crate) fn nomreg(p: &mut Parser) -> PResult<Command> {
         save: Vec::new(),
         scale: NomregScale::Value(1.0),
         subpop: None,
+        stepwise: None,
+        step_criteria: NomregStepwise::default(),
     };
     if p.eat(Punct::LParen) {
         dependent_options(p, &mut command)?;
@@ -457,12 +595,39 @@ pub(crate) fn nomreg(p: &mut Parser) -> PResult<Command> {
             p.eat(Punct::Eq);
             model_given = true;
             let mut terms = Vec::new();
+            command.stepwise = None;
             while !at_end(p) {
-                if p.at(Punct::Or) {
-                    return Err(SyntaxError::new(
-                        p.span(),
-                        "stepwise methods on NOMREG MODEL (after '|') are not supported yet",
-                    ));
+                if p.eat(Punct::Or) {
+                    const METHODS: [(&str, StepMethod); 4] = [
+                        ("BACKWARD", StepMethod::Backward),
+                        ("FORWARD", StepMethod::Forward),
+                        ("BSTEP", StepMethod::Bstep),
+                        ("FSTEP", StepMethod::Fstep),
+                    ];
+                    let Some(&(_, method)) = METHODS.iter().find(|(k, _)| p.at_keyword(k)) else {
+                        return Err(p.unexpected(&["BACKWARD", "FORWARD", "BSTEP", "FSTEP"]));
+                    };
+                    p.pos += 1;
+                    p.expect(Punct::Eq)?;
+                    let mut stepped = Vec::new();
+                    while !at_end(p) {
+                        if p.at_keyword("INTERCEPT") {
+                            return Err(SyntaxError::new(
+                                p.span(),
+                                "the intercept cannot be entered or removed by a stepwise method",
+                            ));
+                        }
+                        stepped.push(term(p)?);
+                        p.eat(Punct::Comma);
+                    }
+                    if stepped.is_empty() {
+                        return Err(SyntaxError::new(
+                            p.span(),
+                            "the stepwise method needs at least one effect",
+                        ));
+                    }
+                    command.stepwise = Some((method, stepped));
+                    break;
                 }
                 if !p.eat_keyword("INTERCEPT") {
                     terms.push(term(p)?);
@@ -499,13 +664,15 @@ pub(crate) fn nomreg(p: &mut Parser) -> PResult<Command> {
             } else {
                 return Err(p.unexpected(&["a positive number", "DEVIANCE", "PEARSON"]));
             };
+        } else if p.eat_keyword("STEPWISE") {
+            stepwise(p, &mut command.step_criteria)?;
         } else if p.eat_keyword("SUBPOP") {
             p.eat(Punct::Eq);
             if !at_end(p) {
                 command.subpop = Some(p.var_list()?);
             }
         } else {
-            return Err(p.subcommand_error("NOMREG", &["STEPWISE", "TEST", "OUTFILE"]));
+            return Err(p.subcommand_error("NOMREG", &["TEST", "OUTFILE"]));
         }
         if !at_end(p) {
             return Err(p.unexpected(&["'/'", "end of command"]));

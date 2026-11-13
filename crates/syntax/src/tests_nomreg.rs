@@ -102,9 +102,36 @@ fn nomreg_model_terms_intercept_and_save() {
 }
 
 #[test]
+fn nomreg_stepwise_methods_and_criteria() {
+    let n = nomreg(
+        "NOMREG pick BY zone shift WITH age /MODEL=age | BSTEP=zone shift zone*shift\n\
+         /STEPW=RULE(CONTAINMENT) MINEFF(1) MAXEFF(2) PIN(0.1) POUT(0.2) ENTRY(SCORE) REMOVAL(WALD).",
+    );
+    let (method, terms) = n.stepwise.unwrap();
+    assert_eq!(method, StepMethod::Bstep);
+    let labels: Vec<&str> = terms.iter().map(|t| t.label.as_str()).collect();
+    assert_eq!(labels, ["zone", "shift", "zone*shift"]);
+    assert_eq!(n.model.unwrap().len(), 1);
+    let s = n.step_criteria;
+    assert_eq!(s.rule, StepRule::Containment);
+    assert_eq!(
+        (s.mineffect, s.maxeffect, s.pin, s.pout),
+        (1, Some(2), 0.1, 0.2)
+    );
+    assert!(s.score_entry && s.wald_removal);
+    assert!(n.print.step, "the step summary is on by default");
+    let n = nomreg("NOMREG pick BY zone /MODEL=| FORWARD=zone /PRINT=PARAMETER.");
+    assert!(n.model.unwrap().is_empty() && !n.print.step);
+    assert_eq!(n.step_criteria, NomregStepwise::default());
+}
+
+#[test]
 fn nomreg_errors_name_what_is_not_supported() {
-    assert!(err("NOMREG pick BY zone /MODEL=zone | FORWARD=zone.").contains("stepwise"));
-    assert!(err("NOMREG pick BY zone /STEPWISE=PIN(0.1).").contains("not supported yet"));
+    assert!(err("NOMREG pick BY zone /MODEL=| FSTEP=.").contains("at least one effect"));
+    assert!(err("NOMREG pick BY zone /MODEL=| FSTEP=INTERCEPT zone.").contains("intercept"));
+    assert!(err("NOMREG pick BY zone /MODEL=| STEP=zone.").contains("unexpected word STEP"));
+    assert!(err("NOMREG pick BY zone /STEPWISE=PIN(0).").contains("PIN"));
+    assert!(err("NOMREG pick BY zone /STEPWISE=MAXEFFECT(1.5).").contains("whole number"));
     assert!(err("NOMREG pick BY zone /TEST=ALL 1 0.").contains("not supported yet"));
     assert!(err("NOMREG pick BY zone /OUTFILE=MODEL('m.xml').").contains("not supported yet"));
     assert!(err("NOMREG pick BY zone /PRINT=HISTORY(2).").contains("HISTORY"));

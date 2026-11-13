@@ -464,3 +464,165 @@ fn nomreg_explains_what_it_cannot_fit() {
         .contains("SUBPOP")
     );
 }
+
+const STEP: &str = "Step Summary";
+const SEL_CHI: &str = "Effect Selection Tests / Chi-Square";
+const SEL_DF: &str = "Effect Selection Tests / df";
+const SEL_SIG: &str = "Effect Selection Tests / Sig.";
+const STEP_M2LL: &str = "Model Fitting Criteria / -2 Log Likelihood";
+
+/// The rows of the Step Summary as (action, effect).
+fn steps(tables: &[Table]) -> Vec<(String, String)> {
+    let table = tables
+        .iter()
+        .find(|t| t.title == STEP)
+        .expect("a step summary");
+    let texts = |row: &Vec<Cell>, at: usize| match &row[at] {
+        Cell::Text(t) => t.clone(),
+        other => panic!("{other:?}"),
+    };
+    table
+        .rows
+        .iter()
+        .map(|row| (texts(row, 1), texts(row, 2)))
+        .collect()
+}
+
+/// Stepwise methods. The expected values come from R: each model of the path fitted by
+/// nnet's multinom (then polished by Newton steps), the likelihood ratio chi-squares from
+/// their log likelihoods, the score statistics from the gradient and information of the
+/// weighted multinomial log likelihood written out separately, and the Wald statistics from a
+/// numerical Hessian of it.
+#[test]
+fn nomreg_forward_entry_by_likelihood_ratio() {
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!(
+            "{DATA}WEIGHT BY w.\nNOMREG mode BY district shift WITH km\n\
+             /MODEL=| FORWARD=km district shift district*shift /PRINT=STEP MFI KERNEL."
+        ),
+    );
+    assert_eq!(
+        steps(&t),
+        [
+            ("Entered".into(), "Intercept".into()),
+            ("Entered".into(), "district".into()),
+            ("Entered".into(), "km".into()),
+            ("Entered".into(), "shift".into()),
+        ]
+    );
+    check(&t, STEP, "0", STEP_M2LL, 188.7038262);
+    check(&t, STEP, "1", SEL_CHI, 19.27417417);
+    check(&t, STEP, "1", SEL_SIG, 0.0006942069745);
+    assert_eq!(value(&t, STEP, "1", SEL_DF), 4.0);
+    check(&t, STEP, "2", SEL_CHI, 13.42983607);
+    check(&t, STEP, "3", SEL_CHI, 8.408423726);
+    check(&t, STEP, "3", STEP_M2LL, 147.5913923);
+    // the interaction (p 0.43) stays out; the final model is the one of the last step
+    check(&t, MFI, "Final", M2LL, 147.5913923);
+    // MAXEFFECT stops after the first effect
+    let t = run(
+        &mut engine,
+        &format!(
+            "NOMREG mode BY district shift WITH km /MODEL=| FORWARD=km district shift\n\
+             /STEPWISE=MAXEFFECT(1) /PRINT=STEP KERNEL."
+        ),
+    );
+    assert_eq!(steps(&t).len(), 2);
+}
+
+#[test]
+fn nomreg_forward_stepwise_by_score_and_backward_by_wald() {
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!(
+            "{DATA}WEIGHT BY w.\nNOMREG mode BY district shift WITH km\n\
+             /MODEL=km | FSTEP=district shift district*shift\n\
+             /STEPWISE=ENTRYMETHOD(SCORE) PIN(0.2) POUT(0.25) /PRINT=STEP KERNEL."
+        ),
+    );
+    assert_eq!(
+        steps(&t),
+        [
+            ("Entered".into(), "Intercept, km".into()),
+            ("Entered".into(), "district".into()),
+            ("Entered".into(), "shift".into()),
+        ]
+    );
+    check(&t, STEP, "0", STEP_M2LL, 175.2658946);
+    check(&t, STEP, "1", SEL_CHI, 20.04097664);
+    check(&t, STEP, "2", SEL_CHI, 8.186459356);
+    check(&t, STEP, "2", SEL_SIG, 0.01668525843);
+    let t = run(
+        &mut engine,
+        "NOMREG mode BY district shift WITH km /MODEL=| BACKWARD=km district shift\n\
+         /STEPWISE=REMOVALMETHOD(WALD) POUT(0.02) /PRINT=STEP KERNEL.",
+    );
+    assert_eq!(
+        steps(&t),
+        [
+            ("Entered".into(), "Intercept, km, district, shift".into()),
+            ("Removed".into(), "shift".into()),
+        ]
+    );
+    check(&t, STEP, "0", STEP_M2LL, 147.5913923);
+    check(&t, STEP, "1", SEL_CHI, 7.343015698);
+    assert_eq!(value(&t, STEP, "1", SEL_DF), 2.0);
+    check(&t, STEP, "1", SEL_SIG, 0.02543808423);
+    check(&t, STEP, "1", STEP_M2LL, 155.999816);
+    // BSTEP drops the interaction by its likelihood ratio, then finds nothing to enter
+    let t = run(
+        &mut engine,
+        "NOMREG mode BY district shift WITH km /MODEL=| BSTEP=km district shift district*shift\n\
+         /PRINT=STEP KERNEL.",
+    );
+    assert_eq!(steps(&t)[1], ("Removed".into(), "district * shift".into()));
+    assert_eq!(steps(&t).len(), 2);
+    check(&t, STEP, "1", SEL_CHI, 3.807959116);
+    check(&t, STEP, "1", STEP_M2LL, 147.5913923);
+    // MINEFFECT(4) keeps all four effects
+    let t = run(
+        &mut engine,
+        "NOMREG mode BY district shift WITH km /MODEL=| BSTEP=km district shift district*shift\n\
+         /STEPWISE=MINEFFECT(4) /PRINT=STEP.",
+    );
+    assert_eq!(steps(&t).len(), 1);
+}
+
+/// RULE decides when km * shift may enter. On its own it has the smallest p, so it enters first
+/// when nothing holds it back: under SFACTOR (the rule covers only effects of factors alone)
+/// and NONE. CONTAINMENT makes it wait for km (the same covariate, fewer factors), SINGLE for
+/// km and shift. A stepwise effect that repeats one of the model is refused.
+#[test]
+fn nomreg_stepwise_rules_and_errors() {
+    let mut engine = Engine::default();
+    run(&mut engine, &format!("{DATA}WEIGHT BY w."));
+    let entered = |engine: &mut Engine, rule: &str| -> Vec<String> {
+        let t = run(
+            engine,
+            &format!(
+                "NOMREG mode BY shift WITH km /MODEL=| FORWARD=km*shift km shift\n\
+                 /STEPWISE=RULE({rule}) PIN(1) /PRINT=STEP."
+            ),
+        );
+        steps(&t).into_iter().skip(1).map(|(_, e)| e).collect()
+    };
+    assert_eq!(entered(&mut engine, "SFACTOR")[0], "km * shift");
+    assert_eq!(entered(&mut engine, "NONE")[0], "km * shift");
+    assert_eq!(
+        entered(&mut engine, "CONTAINMENT"),
+        ["km", "shift", "km * shift"]
+    );
+    assert_eq!(
+        entered(&mut engine, "SINGLE"),
+        ["km", "shift", "km * shift"]
+    );
+    assert!(
+        run_error(&format!(
+            "{DATA}NOMREG mode BY district /MODEL=district | FORWARD=district."
+        ))
+        .contains("repeats")
+    );
+}

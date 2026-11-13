@@ -481,7 +481,9 @@ Where the documentation is silent:
 - SAVE gives values to every case whose factors and covariates are valid and whose factor levels occur among the cases used, also to cases left out for a missing dependent value or a weight of 0; ACPROB needs a dependent value that is one of the categories. ESTPROB with a root name gives root1, root2, ...; without one EST1_1, EST2_1, ....
 - Convergence: the change of each parameter is absolute (PCONVERGE), and the gradient test uses the smaller of the criteria above 0. Step-halving accepts a step when the log likelihood does not fall.
 - A string BASE value for a numeric dependent is read as a number, or matched against the formatted value.
-- Not supported yet: stepwise methods (MODEL with `|`, STEPWISE), TEST, OUTFILE, PRINT CELLPROB, HISTORY and ASSOCIATION.
+- Stepwise methods: an effect whose parameters are all redundant given the rest of the model has a test on 0 df with p = 1, so it is the first to leave. The Wald test of an effect with very large estimates (near separation) depends on where the fit stopped, as for any Wald test. SCALE does not change the stepwise tests. The step tests were checked against R: nnet's multinom fits of each model on the path for the likelihood ratios, and the score and Wald statistics written out from the gradient and information of the multinomial log likelihood.
+- Under RULE(SINGLE), SFACTOR and CONTAINMENT only effects on MODEL count: an interaction listed without its main effects may enter on its own.
+- Not supported yet: TEST, OUTFILE, PRINT CELLPROB, HISTORY and ASSOCIATION.
 
 ### PLUM
 
@@ -847,7 +849,7 @@ Where the documentation is silent:
   - REGRESSION has no METHOD=TEST, SELECT, MATRIX or OUTFILE.
   - RELIABILITY has no MODEL=OMEGA or MATRIX.
   - LOGISTIC REGRESSION has no SELECT or OUTFILE.
-  - NOMREG has no stepwise methods, TEST, OUTFILE, or PRINT CELLPROB, HISTORY and ASSOCIATION.
+  - NOMREG has no TEST, OUTFILE, or PRINT CELLPROB, HISTORY and ASSOCIATION.
   - CSPLAN has no SAMPLE designs; CSDESCRIPTIVES and CSTABULATE have no JOINTPROB and no UNEQUAL_WOR estimator.
   - UNIANOVA and GLM have no multivariate model (GLM with several dependents without WSFACTOR), RANDOM, TEST, ROBUST, OUTFILE, MMATRIX, MEASURE, POSTHOC VS, CONTRAST SPECIAL or the heteroskedasticity tests. With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX, SAVE or PLOT.
   - MIXED has no TEST coefficients for random effects, SSTYPE(1), DFMETHOD(KENWARDROGER), SOLUTION on RANDOM, PRINT CPS, DESCRIPTIVES, HISTORY or LMATRIX, SAVE SEPRED or DFPRED, and no COVTYPE other than VC, ID, DIAG, UN, CS and AR1 (no KRONECKER or SPCOORDS).

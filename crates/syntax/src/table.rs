@@ -1464,7 +1464,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "Multinomial logistic regression: a nominal dependent variable on factors and covariates.",
         syntax: "NOMREG dependent [(BASE=FIRST | LAST | value  ORDER=ASCENDING | DATA | DESCENDING)]\n\
                  \x20  [BY factors] [WITH covariates]\n\
-                 \x20  [/MODEL=effects | /FULLFACTORIAL] [/INTERCEPT=INCLUDE | EXCLUDE]\n\
+                 \x20  [/MODEL=[effects] [| BACKWARD | FORWARD | BSTEP | FSTEP = effects] | /FULLFACTORIAL]\n\
+                 \x20  [/STEPWISE=[RULE(SINGLE | SFACTOR | CONTAINMENT | NONE)] [MINEFFECT(0)] [MAXEFFECT(n)]\n\
+                 \x20             [PIN(0.05)] [POUT(0.1)] [ENTRYMETHOD(LR | SCORE)] [REMOVALMETHOD(LR | WALD)]]\n\
+                 \x20  [/INTERCEPT=INCLUDE | EXCLUDE]\n\
                  \x20  [/CRITERIA=[CIN(95)] [DELTA(0)] [MXITER(100)] [MXSTEP(5)] [LCONVERGE(0)] [PCONVERGE(1E-6)]\n\
                  \x20             [SINGULAR(1E-8)] [BIAS(0)] [CHKSEP(20)]]\n\
                  \x20  [/PRINT=[CPS] [MFI] [PARAMETER] [LRT] [FIT] [SUMMARY] [CLASSTABLE] [IC] [KERNEL] [COVB] [CORB]\n\
@@ -1491,13 +1494,26 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  chi-square (FIT), Likelihood Ratio Tests of each effect against the model without it (LRT),\n\
                  Parameter Estimates with Wald tests and the CIN interval of Exp(B) (PARAMETER), the\n\
                  Classification table (CLASSTABLE) and the covariance or correlation matrix of the estimates\n\
-                 (COVB, CORB). Without PRINT: CPS and MFI. -2 log likelihoods include the multinomial constant\n\
+                 (COVB, CORB). Without PRINT: CPS, MFI and STEP. -2 log likelihoods include the multinomial constant\n\
                  of the subpopulations; KERNEL leaves it out. SCALE multiplies the covariance matrix by the\n\
                  value, or by the Pearson or deviance chi-square over its df. SAVE adds the probability of each\n\
                  response category (EST1_1, EST2_1, ... or root1, root2, ...; the first n, 25 by default), the\n\
                  predicted category (PRE_1), its probability (PCP_1) and the probability of the observed\n\
-                 category (ACP_1), for every case with valid factors and covariates. Not supported yet: stepwise\n\
-                 methods (MODEL with |, STEPWISE), TEST, OUTFILE and PRINT CELLPROB, HISTORY and ASSOCIATION.",
+                 category (ACP_1), for every case with valid factors and covariates.\n\
+                 Stepwise: the intercept and the effects before | are always in; the method picks among the\n\
+                 effects after it. FORWARD adds, BACKWARD starts with all of them and drops, FSTEP adds one and\n\
+                 then drops while it can, BSTEP starts with all, drops while it can and then adds one. An effect\n\
+                 is added when its p (likelihood ratio, or the score test with ENTRYMETHOD(SCORE)) is the smallest\n\
+                 and below PIN, and dropped when its p (likelihood ratio, or Wald with REMOVALMETHOD(WALD)) is the\n\
+                 largest and above POUT; on a tie the effect listed first goes. The steps stop when nothing\n\
+                 qualifies or a model would repeat. RULE(SINGLE) holds an effect back until the listed effects made\n\
+                 of a part of its variables are in, SFACTOR does that only for effects of factors alone,\n\
+                 CONTAINMENT waits for the effects it contains (same covariates, fewer factors), NONE never\n\
+                 waits; an effect that another one in the model needs is not dropped. MAXEFFECT limits adding,\n\
+                 MINEFFECT dropping, counting effects without the intercept. The Step Summary (STEP, shown by\n\
+                 default) lists each step with the -2 log likelihood after it and the test that decided it; the\n\
+                 other tables describe the final model. Not supported yet: TEST, OUTFILE and PRINT CELLPROB,\n\
+                 HISTORY and ASSOCIATION.",
         example: "NOMREG commute (BASE=FIRST) BY district WITH distance /PRINT=PARAMETER LRT FIT SUMMARY CLASSTABLE /SAVE=ESTPROB PREDCAT.",
         parse: nomreg::nomreg,
     },
