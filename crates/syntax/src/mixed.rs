@@ -23,8 +23,8 @@
 //!   ADJ(LSD | BONFERRONI | SIDAK), as in UNIANOVA plus REFCAT.
 //! - TEST may repeat: `TEST[(constants)] = ['label'] effect values ... [DIVISOR=v]; ...`, or ALL
 //!   with values for every fixed parameter. The constants, one per row, default to 0; DIVISOR
-//!   divides the coefficients of its row. After `|` a row takes coefficients for the random
-//!   effects, by effect or ALL (values straight after `|` cover every random parameter).
+//!   divides the coefficients of its row. Coefficients for random effects after `|` are not
+//!   supported yet.
 
 use crate::ast::{Command, VarItem};
 use crate::error::SyntaxError;
