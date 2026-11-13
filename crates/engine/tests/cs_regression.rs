@@ -457,10 +457,18 @@ fn csglm_domain_two_stages_and_interaction() {
 #[test]
 fn csglm_saves_predicted_values_and_residuals() {
     let source = format!(
-        "{}{GLM} /SAVE PRED RESID(res) /PRINT NONE.\n{GLM} /SAVE PRED /PRINT NONE.\n",
+        "{}{GLM} /SAVE PRED RESID(res) /PRINT NONE.\n{GLM} /SAVE PRED /PRINT NONE.\n\
+         {GLM} /SAVE PRED RESID(Predicted_2) /STATISTICS SE CINTERVAL /PRINT NONE.\n",
         data("save")
     );
-    let (engine, _) = run(&source);
+    let (engine, tables) = run(&source);
+    // the interval without PARAMETER
+    checks(
+        find(&tables, "Parameter Estimates", 2),
+        &[("members", LOWER, 48.2171793615)],
+    );
+    // a name given in SAVE is kept for its column; the default name moves on
+    assert_eq!(column(&engine, "Predicted_3"), column(&engine, "Predicted"));
     let pred = column(&engine, "Predicted");
     let res = column(&engine, "res");
     assert!((pred[0].unwrap() - 454.013064788).abs() < 1e-7);

@@ -50,6 +50,7 @@ use crate::contrast::contrast_rows;
 use crate::crosstabs::Key;
 use crate::descriptives::number;
 use crate::dist::{chi_square_p, f_p, t_p, t_quantile};
+use crate::genlin::value_matches;
 use crate::glm::{
     Data, Fit, Part, combinations, covariate_note, covariate_values, effects_of, emmeans_l,
     ginverse, intercept_term, key_value_text, l_row,
@@ -161,11 +162,14 @@ fn test_values(t: CsTestType, w: &Wald, df: f64) -> Option<(Vec<f64>, f64)> {
             (vec![r, df - r + 1.0, f], f_p(f, r, df - r + 1.0))
         }),
         CsTestType::ChiSquare => Some((vec![w.x2, r], chi_square_p(w.x2, r))),
+        // a single row: the adjusted test is the Wald test, defined without the SRS covariance
         CsTestType::AdjF => w
             .adjusted
+            .or((w.r == 1).then_some((w.x2, 1.0)))
             .map(|(f, d)| (vec![d, d * df, f], f_p(f, d, d * df))),
         CsTestType::AdjChiSquare => w
             .adjusted
+            .or((w.r == 1).then_some((w.x2, 1.0)))
             .map(|(f, d)| (vec![f * d, d], chi_square_p(f * d, d))),
     }
 }
@@ -247,17 +251,12 @@ fn padjust_note(method: CsPadjust) -> Option<&'static str> {
     }
 }
 
-/// Whether a dataset key is the value given in the syntax.
-fn same(key: &Key, value: &Value) -> bool {
-    match (key, value) {
-        (Key::Number(a), Value::Number(b)) => a == b,
-        (Key::Text(a), Value::String(b)) => a.trim_end() == b.trim_end(),
-        _ => false,
-    }
-}
-
-fn level_of(levels: &[Key], value: &Value) -> Option<usize> {
-    levels.iter().position(|k| same(k, value))
+/// The level of `variable` that a value given in the syntax names; a quoted value may also be
+/// the formatted text of a number.
+fn level_of(variable: &Variable, levels: &[Key], value: &Value) -> Option<usize> {
+    levels
+        .iter()
+        .position(|k| value_matches(variable, k, value))
 }
 
 /// The value as written, for messages.
@@ -481,7 +480,8 @@ struct Saved {
     root: String,
     label: String,
     numbers: Option<Vec<Option<f64>>>,
-    texts: Option<Vec<String>>,
+    /// A string column with its width.
+    texts: Option<(usize, Vec<String>)>,
     /// For a saved category: the dependent's format and value labels.
     category: Option<(String, Vec<(DataValue, String)>)>,
 }
@@ -512,6 +512,11 @@ impl Engine {
     }
 
     fn cs_save(&mut self, name: &str, saved: Vec<Saved>, cases: usize) -> Result<(), Error> {
+        // names given in SAVE are kept free for their own columns
+        let given: Vec<String> = saved
+            .iter()
+            .filter_map(|c| c.name.as_ref().map(|n| n.to_uppercase()))
+            .collect();
         self.all_or_nothing(|engine| {
             let data = engine.active_mut()?;
             for column in saved {
@@ -527,7 +532,9 @@ impl Engine {
                     None => {
                         let mut candidate = column.root.clone();
                         let mut k = 1;
-                        while data.variable_index(&candidate).is_some() {
+                        while data.variable_index(&candidate).is_some()
+                            || given.contains(&candidate.to_uppercase())
+                        {
                             candidate = format!("{}_{k}", column.root);
                             k += 1;
                         }
@@ -548,9 +555,12 @@ impl Engine {
                             data.set_measure(&var, Measure::Scale)?;
                         }
                     }
-                } else if let Some(texts) = column.texts {
-                    let width = texts.iter().map(String::len).max().unwrap_or(1).max(1);
+                } else if let Some((width, texts)) = column.texts {
                     data.set_string_values(&var, width, texts)?;
+                    if let Some((_, labels)) = column.category {
+                        data.set_measure(&var, Measure::Nominal)?;
+                        data.set_value_labels(&var, labels)?;
+                    }
                 }
                 data.set_variable_label(&var, Some(&column.label))?;
             }
@@ -658,9 +668,13 @@ impl Engine {
         let in_domain: Vec<bool> = match &c.domain {
             None => vec![true; n],
             Some((v, value)) => {
-                let keys = keys_at(&data.variable(v)?);
-                keys.iter()
-                    .map(|k| k.as_ref().is_some_and(|k| same(k, value)))
+                let variable = data.variable(v)?;
+                keys_at(&variable)
+                    .iter()
+                    .map(|k| {
+                        k.as_ref()
+                            .is_some_and(|k| value_matches(&variable, k, value))
+                    })
                     .collect()
             }
         };
@@ -710,7 +724,7 @@ impl Engine {
             _ if !c.logistic => 0,
             CsReference::High => categories.len() - 1,
             CsReference::Low => 0,
-            CsReference::Value(v) => match level_of(&categories, v) {
+            CsReference::Value(v) => match level_of(&dep_var, &categories, v) {
                 Some(k) => k,
                 None => {
                     warnings.push(format!(
@@ -818,6 +832,14 @@ impl Engine {
         }
         .filter(|_| n > 1)
         .map(|fpc| fpc * big_n / (n as f64 - 1.0));
+        let wants_srs = matches!(c.test, CsTestType::AdjF | CsTestType::AdjChiSquare)
+            || c.statistics.is_some_and(|s| s.deff || s.deffsqrt);
+        if wants_srs && srs_factor.is_none() {
+            warnings.push(format!(
+                "{name}: the simple random sampling variance is not defined (without replacement it needs a sample smaller than the estimated population), so design effects and adjusted tests of several rows are left empty"
+            ));
+        }
+        let srs_factor = srs_factor.filter(|_| wants_srs);
         // scores: one column per parameter (of the non-redundant columns for logistic) over the
         // design cases
         let srs_of = |us: &[Vec<f64>]| -> Option<Matrix> {
@@ -1002,7 +1024,7 @@ impl Engine {
             out.push(vec![
                 text("Sampling Design Degrees of Freedom"),
                 text(""),
-                Cell::Number(df),
+                Cell::Number(design.df),
             ]);
             let mut cols = plain(&["", ""]);
             cols.push((String::new(), "Value".into()));
@@ -1241,7 +1263,7 @@ impl Engine {
             if s.se {
                 cols.extend(plain(&["Std. Error"]));
             }
-            if s.cinterval && s.parameter {
+            if s.cinterval && (s.parameter || !s.exp) {
                 cols.push((ci_group.clone(), "Lower".into()));
                 cols.push((ci_group.clone(), "Upper".into()));
             }
@@ -1310,7 +1332,7 @@ impl Engine {
                 if s.se {
                     row.push(number(Some(se)));
                 }
-                if s.cinterval && s.parameter {
+                if s.cinterval && (s.parameter || !s.exp) {
                     row.push(number(Some(lo)));
                     row.push(number(Some(hi)));
                 }
@@ -1443,7 +1465,7 @@ impl Engine {
                     fixed_levels[f] = match value {
                         CsControl::Low => 0,
                         CsControl::High => control_default(f),
-                        CsControl::Value(v) => level_of(&levels[f], v).unwrap_or_else(|| {
+                        CsControl::Value(v) => level_of(&factor_vars[f], &levels[f], v).unwrap_or_else(|| {
                             warnings.push(format!(
                                 "CSLOGISTIC ODDSRATIOS: {n} has no level {}; its highest level is used",
                                 value_text(v)
@@ -1494,7 +1516,7 @@ impl Engine {
                 let r = match reference {
                     CsReference::Low => 0,
                     CsReference::High => control_default(f),
-                    CsReference::Value(v) => level_of(&levels[f], v).unwrap_or_else(|| {
+                    CsReference::Value(v) => level_of(&factor_vars[f], &levels[f], v).unwrap_or_else(|| {
                         warnings.push(format!(
                             "CSLOGISTIC ODDSRATIOS: {n} has no level {}; its highest level is the reference",
                             value_text(v)
@@ -1844,7 +1866,7 @@ impl Engine {
             let k = levels[f].len();
             let mut pos = |v: &Option<Value>| -> Option<u32> {
                 let v = v.as_ref()?;
-                match level_of(&levels[f], v) {
+                match level_of(&factor_vars[f], &levels[f], v) {
                     Some(l) => Some(l as u32 + 1),
                     None => {
                         warnings.push(format!(
@@ -1873,9 +1895,13 @@ impl Engine {
                 contrast_rows(&kind, k).map_err(|e| Error(format!("EMMEANS CONTRAST: {e}")))?;
             let level_names: Vec<String> = (0..k).map(|l| text_of(f, l)).collect();
             let rename = |label: &str| -> String {
+                // through placeholders, so that a level name holding "Level n" stays as it is
                 let mut s = label.to_string();
                 for l in (0..k).rev() {
-                    s = s.replace(&format!("Level {}", l + 1), &level_names[l]);
+                    s = s.replace(&format!("Level {}", l + 1), &format!("\u{0}{l}\u{0}"));
+                }
+                for (l, name) in level_names.iter().enumerate() {
+                    s = s.replace(&format!("\u{0}{l}\u{0}"), name);
                 }
                 s
             };
@@ -2070,7 +2096,7 @@ impl Engine {
                         .map(|p| (0..p.len()).fold(0, |m, j| if p[j] > p[m] { j } else { m }))
                         .collect();
                     let label = format!("Predicted value of {dependent}");
-                    if dep_var.is_string() {
+                    if let Some(width) = dep_var.string_width() {
                         let mut texts = vec![String::new(); cases];
                         for (r, &k) in best.iter().enumerate() {
                             if let Key::Text(t) = &categories[k] {
@@ -2082,8 +2108,11 @@ impl Engine {
                             root: "PredictedValue".into(),
                             label,
                             numbers: None,
-                            texts: Some(texts),
-                            category: None,
+                            texts: Some((width, texts)),
+                            category: Some((
+                                dep_var.format().to_string(),
+                                dep_var.value_labels().to_vec(),
+                            )),
                         });
                     } else {
                         let values = best
