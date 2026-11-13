@@ -595,22 +595,26 @@ fn errors_name_the_problem() {
         )),
         "MMATRIX with WSFACTOR is not supported yet"
     );
+    assert_eq!(
+        run_error(&format!(
+            "{DATA}\nGLM y1 y2 BY g /INTERCEPT=EXCLUDE /MMATRIX=y1 1 y2 -1."
+        )),
+        "KMATRIX or MMATRIX without LMATRIX tests the intercept, which the model leaves out"
+    );
+    assert_eq!(
+        run_error(&format!("{DATA}\nGLM y1 y2 BY g /MMATRIX=y1 1 y2 -1 y1 2.")),
+        "MMATRIX names y1 twice in one column"
+    );
+    assert_eq!(
+        run_error(&format!("{DATA}\nUNIANOVA y1 y2 BY g.")),
+        "UNIANOVA takes one dependent variable; GLM analyzes several"
+    );
     let mut engine = Engine::default();
-    for (syntax, want) in [
-        (
-            format!("{DATA}\nGLM y1 y2 BY g /INTERCEPT=EXCLUDE /MMATRIX=y1 1 y2 -1."),
-            "KMATRIX or MMATRIX without LMATRIX tests the intercept, which the model leaves out; no custom test is made",
-        ),
-        (
-            "GLM y1 BY g /PRINT=RSSCP.".to_string(),
-            "PRINT RSSCP applies only to several dependent variables and is ignored",
-        ),
-    ] {
-        run(&mut engine, &syntax);
-        assert!(
-            engine.warnings().iter().any(|w| w.ends_with(want)),
-            "{want}: {:?}",
-            engine.warnings()
-        );
-    }
+    run(&mut engine, &format!("{DATA}\nGLM y1 BY g /PRINT=RSSCP."));
+    let want = "PRINT RSSCP applies only to several dependent variables and is ignored";
+    assert!(
+        engine.warnings().iter().any(|w| w.ends_with(want)),
+        "{:?}",
+        engine.warnings()
+    );
 }

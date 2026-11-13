@@ -310,6 +310,10 @@ fn glm_errors() {
             "TEST(LMATRIX) in PRINT is not supported yet",
         ),
         (
+            "GLM y1 y2 BY a /MMATRIX=y1 1 'diff'; y2 1.",
+            "a label in MMATRIX needs the coefficients of its column after it",
+        ),
+        (
             "GLM y1 y2 BY a /PRINT=TEST.",
             "TEST in PRINT names its matrices: TEST(SSCP), TEST(MMATRIX) or TEST(LMATRIX)",
         ),

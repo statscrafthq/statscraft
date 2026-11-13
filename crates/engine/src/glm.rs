@@ -785,6 +785,11 @@ impl Engine {
         let factor_names = self.expand(&command.factors)?;
         let covariate_names = self.expand(&command.covariates)?;
         let name = command.command;
+        if name == "UNIANOVA" && dependents.len() > 1 {
+            return Err(Error(
+                "UNIANOVA takes one dependent variable; GLM analyzes several".into(),
+            ));
+        }
         let mut seen: Vec<String> = Vec::new();
         for n in dependents
             .iter()
@@ -1405,7 +1410,7 @@ fn custom_hypotheses(
             fit,
             &h,
             &l,
-            (&identity, dependents),
+            (&identity, dependents, false),
             None,
             &format!("{factor} {kind_name} Contrast"),
             flags,
@@ -1438,10 +1443,12 @@ fn custom_hypotheses(
                     .collect();
                 matrices.push(("Intercept".into(), l));
             }
-            None => warnings.push(
-                "KMATRIX or MMATRIX without LMATRIX tests the intercept, which the model leaves out; no custom test is made"
-                    .into(),
-            ),
+            None => {
+                return Err(Error(
+                    "KMATRIX or MMATRIX without LMATRIX tests the intercept, which the model leaves out"
+                        .into(),
+                ));
+            }
         }
     }
     let columns = m[0].len();
@@ -1473,7 +1480,7 @@ fn custom_hypotheses(
             fit,
             &h,
             &l,
-            (m, names),
+            (m, names, given_m.is_some()),
             k.as_ref(),
             &title,
             flags,
@@ -2673,7 +2680,7 @@ fn custom_tests(
     fit: &Fit,
     h: &Matrix,
     l: &[(String, Vec<f64>)],
-    (m, names): (&Matrix, &[String]),
+    (m, names, transformed): (&Matrix, &[String], bool),
     k: Option<&Matrix>,
     title: &str,
     flags: &Flags,
@@ -2805,16 +2812,10 @@ fn custom_tests(
         multivariate_rows(&ssh, &se_m, df as f64, dfe, flags),
         Some(format!("{caption}{}", multivariate_note(flags))),
     ));
-    let identity = m.len() == m[0].len()
-        && m.iter().enumerate().all(|(i, row)| {
-            row.iter()
-                .enumerate()
-                .all(|(j, v)| *v == if i == j { 1.0 } else { 0.0 })
-        });
-    let header = if identity {
-        "Dependent Variable"
-    } else {
+    let header = if transformed {
         "Transformed Variable"
+    } else {
+        "Dependent Variable"
     };
     let mut univariate = merge((0..names.len()).map(tests).collect(), names, true, header);
     univariate.title = "Univariate Test Results".into();
@@ -3777,6 +3778,15 @@ fn m_matrix(command: &Glm, dependents: &[String]) -> Result<Option<(Matrix, Vec<
                             "MMATRIX names {name}, which is not a dependent variable"
                         )));
                     };
+                    let twice = column
+                        .entries
+                        .iter()
+                        .filter(|(n, _)| n.as_ref().is_some_and(|n| n.eq_ignore_ascii_case(name)))
+                        .count()
+                        > 1;
+                    if twice {
+                        return Err(Error(format!("MMATRIX names {name} twice in one column")));
+                    }
                     m[j][c] = values[0];
                 }
                 None if values.len() == r => {

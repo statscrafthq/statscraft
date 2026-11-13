@@ -104,7 +104,7 @@ pub struct LMatrix {
 
 /// One column of MMATRIX: its label and the coefficients after each dependent name, or after
 /// ALL (None).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct MColumn {
     pub label: Option<String>,
     pub entries: Vec<(Option<String>, Vec<f64>)>,
@@ -875,38 +875,30 @@ fn kmatrix(p: &mut Parser) -> PResult<Vec<Vec<f64>>> {
     Ok(out)
 }
 
+const LABEL_ALONE: &str = "a label in MMATRIX needs the coefficients of its column after it";
+
 /// MMATRIX: columns ended by semicolons, each `['label'] dependent value ...` or
 /// `['label'] ALL values`.
 fn mmatrix(p: &mut Parser) -> PResult<Vec<MColumn>> {
     p.eat(Punct::Eq);
     let mut out = Vec::new();
-    let mut column = MColumn {
-        label: None,
-        entries: Vec::new(),
-    };
+    let mut column = MColumn::default();
     while !matrix_end(p) {
+        let label_alone = column.label.is_some() && column.entries.is_empty();
+        let column_ends = p.at(Punct::Semicolon) || matches!(p.peek(), Some(TokenKind::Str(_)));
+        if label_alone && column_ends {
+            return Err(SyntaxError::new(p.span(), LABEL_ALONE));
+        }
         if p.eat(Punct::Semicolon) {
             if !column.entries.is_empty() {
-                out.push(std::mem::replace(
-                    &mut column,
-                    MColumn {
-                        label: None,
-                        entries: Vec::new(),
-                    },
-                ));
+                out.push(std::mem::take(&mut column));
             }
             continue;
         }
         if let Some(TokenKind::Str(_)) = p.peek() {
             // a label opens a column, so it also ends the one before
             if !column.entries.is_empty() {
-                out.push(std::mem::replace(
-                    &mut column,
-                    MColumn {
-                        label: None,
-                        entries: Vec::new(),
-                    },
-                ));
+                out.push(std::mem::take(&mut column));
             }
             column.label = Some(p.string("a label")?);
             continue;
@@ -929,6 +921,9 @@ fn mmatrix(p: &mut Parser) -> PResult<Vec<MColumn>> {
             return Err(p.unexpected(&["a number"]));
         }
         column.entries.push((name, values));
+    }
+    if column.label.is_some() && column.entries.is_empty() {
+        return Err(SyntaxError::new(p.span(), LABEL_ALONE));
     }
     if !column.entries.is_empty() {
         out.push(column);
