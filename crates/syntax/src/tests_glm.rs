@@ -461,6 +461,10 @@ fn plum_errors() {
             "PLUM score BY shift /TEST=ALL 0 0 1 -1; shift 1 -1.",
             "TEST row 2 has an effect name after ALL in row 1; one TEST uses either ALL or effect names, never both",
         ),
+        (
+            "PLUM score BY shift /TEST=ALL 0 0 1 -1; INTERCEPT 1 1.",
+            "TEST row 2 has INTERCEPT after ALL in row 1; one TEST uses either ALL or effect names, never both",
+        ),
     ] {
         assert_eq!(err(source).message, message, "{source}");
     }

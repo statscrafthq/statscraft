@@ -797,10 +797,10 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
             let n = rows.len() + 1;
             let (all, r) = *form.get_or_insert((all_word, n));
             if all_word != all {
-                let (found, set) = if all_word {
-                    ("ALL", "effect names")
-                } else {
-                    ("an effect name", "ALL")
+                let (found, set) = match &effect {
+                    None => ("ALL", "effect names"),
+                    Some(t) if t.variables.is_empty() => ("INTERCEPT", "ALL"),
+                    Some(_) => ("an effect name", "ALL"),
                 };
                 let place = if r == n {
                     "earlier in the same row".to_string()

@@ -15,7 +15,8 @@
 //! - SAVE: ESTPROB[(root[:n])] (n defaults to 25; `(:n)` gives only the count), PREDCAT,
 //!   PCPROB and ACPROB, each with an optional new name, saved in the order written.
 //! - TEST: `TEST[(constants)] = ['label'] effect values ...; ...` or ALL with values for every
-//!   parameter, the thresholds first. INTERCEPT names the thresholds, one value each.
+//!   parameter, the thresholds first. INTERCEPT names the thresholds, one value each. ALL and
+//!   effect names never mix in one TEST.
 
 use crate::ast::{Command, VarItem};
 use crate::error::SyntaxError;

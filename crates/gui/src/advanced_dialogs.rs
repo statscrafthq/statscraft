@@ -228,9 +228,10 @@ pub struct ContrastTest {
 
 impl ContrastTest {
     /// `/TEST='label' row; row`, every effect checked against `terms`, the effects of the
-    /// model. ALL is taken too (never next to effect names in one test), and INTERCEPT when the model has one (`intercept`). With
-    /// `random` Ok (the random terms and whether the random intercept is in), a row may go on
-    /// after `|` with coefficients of random effects, checked the same way; Err says why not.
+    /// model. ALL is taken too (never next to effect names in one test), and INTERCEPT when the
+    /// model has one (`intercept`). With `random` Ok (the random terms and whether the random
+    /// intercept is in), a row may go on after `|` with coefficients of random effects, checked
+    /// the same way; Err says why not.
     pub(crate) fn syntax(
         &self,
         terms: &[Vec<String>],

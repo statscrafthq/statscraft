@@ -380,7 +380,7 @@ See [The Window menu](#the-window-menu).
   - The location part: the main effects, or custom terms. The scale part: none, or custom terms.
   - The tables: goodness of fit, the summary, parameter estimates, the test of parallel lines, cell information, the covariance and correlation of the estimates, the iteration history and the kernel of the log-likelihood.
   - The same saved variables as Multinomial Logistic; the confidence level, the maximum iterations and step-halving, the value added to empty cells, and user-missing values as valid.
-  - Custom tests typed as in Linear Mixed Models, where `INTERCEPT` stands for the thresholds. An effect that is in both the location and the scale part needs `ALL`.
+  - Custom tests typed as in Linear Mixed Models, where `INTERCEPT` stands for the thresholds. An effect that is in both the location and the scale part needs `ALL`, and then every row of that test uses `ALL`.
 
 **Classify**
 
