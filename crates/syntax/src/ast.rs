@@ -73,6 +73,7 @@ pub enum Command {
     Logistic(Box<crate::logistic::Logistic>),
     Nomreg(Box<crate::nomreg::Nomreg>),
     Plum(Box<crate::plum::Plum>),
+    Correspondence(Box<crate::correspondence::Correspondence>),
     Genlin(Box<crate::genlin::Genlin>),
     Pplot(Box<crate::pplot::Pplot>),
     Roc(Box<crate::pplot::Roc>),

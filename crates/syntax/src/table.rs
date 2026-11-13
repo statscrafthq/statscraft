@@ -5,6 +5,7 @@ use crate::ast::Command;
 use crate::cluster;
 use crate::commands;
 use crate::complex_samples;
+use crate::correspondence;
 use crate::ctables;
 use crate::data_commands;
 use crate::data_list;
@@ -1562,6 +1563,23 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  redundant parameter multiplies its 0.",
         example: "PLUM comfort BY seat_row WITH trip_hours /LINK=PROBIT /PRINT=FIT PARAMETER SUMMARY TPARALLEL /SAVE=ESTPROB PREDCAT.",
         parse: plum::plum,
+    },
+    CommandSpec {
+        name: "CORRESPONDENCE",
+        summary: "Correspondence analysis: rows and columns of a two-way table as points in a few dimensions.",
+        syntax: "CORRESPONDENCE TABLE=rowvar(min,max) BY colvar(min,max) | ALL(rows,columns)\n\
+                 \x20  [/SUPPLEMENTARY=[rowvar | ROW (values)] [colvar | COLUMN (values)]]\n\
+                 \x20  [/EQUAL=[rowvar | ROW (values) (values) ...] [colvar | COLUMN (values) ...]]\n\
+                 \x20  [/MEASURE=CHISQ | EUCLID] [/STANDARDIZE=RCMEAN | RMEAN | CMEAN | RSUM | CSUM]\n\
+                 \x20  [/DIMENSION=2 | n] [/NORMALIZATION=SYMMETRICAL | PRINCIPAL | RPRINCIPAL | CPRINCIPAL | q]\n\
+                 \x20  [/PRINT=[TABLE] [RPROFILES] [CPROFILES] [RPOINTS] [CPOINTS] [RCONF] [CCONF]\n\
+                 \x20          [PERMUTATION[(n)]] [DEFAULT] [NONE]]\n\
+                 \x20  [/PLOT=[BIPLOT[(len)]] [RPOINTS[(len)]] [CPOINTS[(len)]] [TRROWS[(len)]] [TRCOLUMNS[(len)]]\n\
+                 \x20         [NDIM(first, last | MAX)] [NONE]]\n\
+                 \x20  [/OUTFILE=[SCORE('file' | dataset)] [VARIANCE('file' | dataset)]]\n\
+                 HELP_TEXT",
+        example: "CORRESPONDENCE TABLE=district(1,5) BY transport(1,4) /SUPPLEMENTARY=district(5) /PRINT=DEFAULT RPROFILES RCONF /PLOT=BIPLOT.",
+        parse: correspondence::correspondence,
     },
     CommandSpec {
         name: "GENLIN",

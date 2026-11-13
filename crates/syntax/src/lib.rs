@@ -19,6 +19,7 @@ mod ast;
 mod cluster;
 mod commands;
 mod complex_samples;
+mod correspondence;
 mod ctables;
 mod data_commands;
 mod data_list;
@@ -123,6 +124,10 @@ pub use cluster::{BinaryMeasure, Cluster, ClusterPlot, Linkage, Proximity};
 pub use complex_samples::{
     CsCells, CsEstimator, CsRate, CsRatio, CsStage, CsStatistics, CsSubpop, CsTests,
     Csdescriptives, Csplan, CsplanMode, Cstabulate,
+};
+pub use correspondence::{
+    Correspondence, CorrespondenceMeasure, CorrespondenceNormalization, CorrespondencePlot,
+    CorrespondencePrint, CorrespondenceStandardize, CorrespondenceTable, PlotLabels,
 };
 pub use ctables::{
     Adjust, AxisExpr, AxisVariable, Categories, CategoryItem, CategoryOrder, CompareKind,

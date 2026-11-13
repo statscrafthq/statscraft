@@ -9,6 +9,7 @@ mod cluster;
 mod complex_samples;
 mod contrast;
 mod correlations;
+mod correspondence;
 mod crosstabs;
 mod ctables;
 mod data_list;
@@ -664,6 +665,7 @@ impl Engine {
             | Command::Logistic(_)
             | Command::Nomreg(_)
             | Command::Plum(_)
+            | Command::Correspondence(_)
             | Command::Genlin(_)
             | Command::Pplot(_)
             | Command::Roc(_)
@@ -897,6 +899,7 @@ impl Engine {
             Command::Logistic(command) => self.logistic(command),
             Command::Nomreg(command) => self.nomreg(command),
             Command::Plum(command) => self.plum(command),
+            Command::Correspondence(command) => self.correspondence(command),
             Command::Genlin(command) => self.genlin(command),
             Command::Pplot(command) => self.pplot(command),
             Command::Roc(command) => self.roc(command),
