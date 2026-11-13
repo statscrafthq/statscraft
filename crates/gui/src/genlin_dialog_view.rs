@@ -175,6 +175,8 @@ pub fn genlin(ui: &mut Ui, d: &mut GeneralizedLinear, picked: &mut Vec<String>) 
         let mut print = GENLIN_PRINT;
         if d.repeated {
             print[0].1 = "Case processing and correlated data summary";
+            // the estimating equations have no omnibus test
+            print[4].1 = "Tests of effects";
         }
         checkboxes(ui, &print, &mut d.print);
         ui.add_enabled_ui(d.print[5], |ui| {
@@ -230,18 +232,15 @@ fn repeated(ui: &mut Ui, d: &mut GeneralizedLinear, picked: &mut Vec<String>) {
     );
     ui.add_enabled_ui(d.repeated, |ui| {
         target_list(ui, "Subject variables", &mut d.subjects, picked);
-        // the command orders measurements by them only when it sorts; the list is kept
-        ui.add_enabled_ui(d.sort, |ui| {
-            target_list(ui, "Within-subject variables", &mut d.within, picked);
-        });
+        target_list(ui, "Within-subject variables", &mut d.within, picked);
         ui.weak("Subjects and their measurements are categories: factors or variables outside the model, never covariates.");
+        if !d.sort {
+            ui.weak("Without sorting each run of equal subject values is a subject with its records in file order; the within-subject variables still decide which cases are complete.");
+        }
         ui.checkbox(
             &mut d.sort,
             "Sort the cases by subject and within-subject values",
         );
-        if !d.sort {
-            ui.weak("Without sorting each run of equal subject values is a subject, its cases in file order.");
-        }
         ui.horizontal(|ui| {
             choice(
                 ui,

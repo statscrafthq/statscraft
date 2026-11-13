@@ -688,12 +688,6 @@ impl GeneralizedLinear {
         Ok(text)
     }
 
-    /// The within-subject variables that count: none without sorting, which the command ignores
-    /// them under; the list is kept for when sorting is turned back on.
-    pub fn within_used(&self) -> &[String] {
-        if self.sort { &self.within } else { &[] }
-    }
-
     /// The settings of REPEATED that differ from the defaults, checked; `others` are the
     /// variables in the model that are not factors.
     fn repeated_syntax(&self, others: &[&str]) -> Result<String, String> {
@@ -701,7 +695,8 @@ impl GeneralizedLinear {
         if self.subjects.is_empty() {
             return Err("choose the subject variables of the repeated measures".into());
         }
-        let within = self.within_used();
+        // without sorting they still leave out cases with a missing value, so they always count
+        let within = &self.within;
         for n in self.subjects.iter().chain(within) {
             if self.covariates.contains(n) {
                 return Err(format!(
@@ -943,7 +938,7 @@ pub fn data_checks(d: &GeneralizedLinear, data: &Dataset) -> Result<bool, String
         && let Some(n) = d
             .subjects
             .iter()
-            .chain(d.within_used())
+            .chain(&d.within)
             .find(|n| data.variable(n).is_err())
     {
         return Err(format!("{n} is no longer a variable"));
@@ -1557,19 +1552,22 @@ mod tests {
         // a factor of the model may set the positions
         d.within = v(&["arm"]);
         assert!(d.syntax(false).is_ok());
-        d.within = v(&["wave"]);
 
-        // without sorting the within-subject list is kept but neither written nor checked
+        // without sorting the within-subject variables still decide which cases are complete,
+        // so they are written and checked
         d.within = v(&["dose"]);
         d.sort = false;
+        assert_eq!(
+            error(&d),
+            "dose is a covariate, so it cannot be a subject or within-subject variable"
+        );
+        d.within = v(&["wave"]);
         assert!(
             d.syntax(false)
                 .unwrap()
-                .ends_with("/REPEATED SUBJECT=person SORT=NO.")
+                .ends_with("/REPEATED SUBJECT=person WITHINSUBJECT=wave SORT=NO.")
         );
         d.sort = true;
-        assert!(d.syntax(false).is_err());
-        d.within = v(&["wave"]);
         // the covariance of the estimating equations is chosen in their section only
         d.robust = true;
         assert!(!d.syntax(false).unwrap().contains("COVB=ROBUST"));
@@ -1643,8 +1641,10 @@ mod tests {
             data_checks(&d, data).unwrap_err(),
             "gone is no longer a variable"
         );
+        // also without sorting, as they still decide which cases are complete
         d.sort = false;
-        assert_eq!(data_checks(&d, data), Ok(false));
+        assert!(data_checks(&d, data).is_err());
+        d.within.clear();
         d.subjects = v(&["lost"]);
         assert_eq!(
             data_checks(&d, data).unwrap_err(),
