@@ -292,6 +292,23 @@ impl Fit {
         })
     }
 
+    /// The hypothesis matrix of Type I for effect `e`: its rows of X'WX after sweeping the
+    /// columns of the effects before it, with those columns set to 0. The row of a redundant
+    /// column is a combination of the rows before it and is left out.
+    pub(crate) fn type1(&self, e: usize) -> Matrix {
+        let before: Vec<usize> = self.effects[..e].iter().flat_map(Effect::range).collect();
+        let (m, _) = sweep_in_order(&self.zwz, &before, self.eps);
+        self.effects[e]
+            .range()
+            .filter(|&r| !self.redundant[r])
+            .map(|r| {
+                (0..self.p)
+                    .map(|c| if before.contains(&c) { 0.0 } else { m[r][c] })
+                    .collect()
+            })
+            .collect()
+    }
+
     /// The hypothesis matrix of Type III (or IV) for effect `e`.
     pub(crate) fn type34(&self, e: usize, type4: bool) -> Matrix {
         let p = self.p;

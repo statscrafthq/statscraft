@@ -161,7 +161,6 @@ fn what_is_not_supported_yet_says_so() {
             "MIXED gain BY crop /RANDOM=plot /TEST=crop 1 -1 | plot 1 -1.",
             "random effects",
         ),
-        ("MIXED gain /FIXED=| SSTYPE(1).", "SSTYPE(1)"),
         ("MIXED gain /RANDOM=INTERCEPT | SOLUTION.", "SOLUTION"),
         (
             "MIXED gain /REPEATED=week | SUBJECT(farm) COVTYPE(UN_AR1).",
@@ -203,6 +202,7 @@ fn every_listed_structure_and_kenward_roger_parse() {
         ));
         assert_eq!((m.random[0].covtype, m.repeated.unwrap().covtype), (t, t));
     }
+    assert_eq!(mixed("MIXED gain /FIXED=| SSTYPE(1).").sstype, 1);
     let m = mixed("MIXED gain /CRITERIA=DFMETHOD(KENWARDROGER).");
     assert_eq!(m.df_method, DfMethod::KenwardRoger);
     assert!(err("MIXED gain /RANDOM=INTERCEPT | COVTYPE(SP_POWER).").contains("REPEATED"));

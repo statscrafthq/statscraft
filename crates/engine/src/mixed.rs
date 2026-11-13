@@ -43,6 +43,9 @@
 //!   ML: n all cases and d both kinds.
 //! - Wald intervals: variances on the log scale, correlations on the Fisher z scale, other
 //!   parameters as they are.
+//! - SSTYPE(1) tests each effect after those before it: the rows of X'X (with regression weights)
+//!   for its columns once the columns of the earlier effects are swept out, as the sums of
+//!   squares appendix builds a Type I hypothesis matrix.
 //! - EMMEANS and TEST are combinations l b of the fixed effects, built as in UNIANOVA (a mean
 //!   averages the cells of the other factors equally; covariates sit at their means over the
 //!   cases, or at the WITH values). Each has the standard error sqrt(l C l') and its own
@@ -2182,11 +2185,18 @@ impl Engine {
             Some(format!("Smaller values mean a better fit. {caption}")),
         ));
 
-        // Type III Tests of Fixed Effects
+        // Type I or III Tests of Fixed Effects
         let reduce = |row: &[f64]| -> Vec<f64> { kept.iter().map(|&j| row[j]).collect() };
         let mut tests = Vec::new();
+        let type_l = |i: usize| {
+            if command.sstype == 1 {
+                fixed.type1(i)
+            } else {
+                fixed.type34(i, false)
+            }
+        };
         for (i, ef) in fixed.effects.iter().enumerate() {
-            let l: Matrix = fixed.type34(i, false).iter().map(|r| reduce(r)).collect();
+            let l: Matrix = type_l(i).iter().map(|r| reduce(r)).collect();
             let Some((q, df, f)) = inf.f_test(&l, &vec![0.0; l.len()]) else {
                 tests.push(vec![
                     text(ef.label.clone()),
@@ -2207,7 +2217,11 @@ impl Engine {
         }
         if !tests.is_empty() {
             tables.push(table(
-                "Type III Tests of Fixed Effects",
+                if command.sstype == 1 {
+                    "Type I Tests of Fixed Effects"
+                } else {
+                    "Type III Tests of Fixed Effects"
+                },
                 1,
                 plain(&["Source", "Numerator df", "Denominator df", "F", "Sig."]),
                 tests,

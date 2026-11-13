@@ -4577,6 +4577,37 @@ const CASES: &[Case] = &[
             ("Type III Tests of Fixed Effects", "hours", "F", 45.5138914009),
         ],
     },
+    // Type I: each effect after those listed before it, the R side building L from X with
+    // the earlier effects projected out
+    Case {
+        name: "Type I tests, random intercept",
+        syntax: "MIXED mark BY girl track WITH hours /FIXED=girl track hours | SSTYPE(1) /RANDOM=INTERCEPT | SUBJECT(school).",
+        expected: &[
+            ("Type I Tests of Fixed Effects", "Intercept", "Denominator df", 7.70743952781),
+            ("Type I Tests of Fixed Effects", "Intercept", "F", 1763.11055557),
+            ("Type I Tests of Fixed Effects", "girl", "Denominator df", 177.393201126),
+            ("Type I Tests of Fixed Effects", "girl", "F", 1.20620121014),
+            ("Type I Tests of Fixed Effects", "track", "Denominator df", 177.69516314),
+            ("Type I Tests of Fixed Effects", "track", "F", 16.7023790494),
+            ("Type I Tests of Fixed Effects", "hours", "Denominator df", 177.497281804),
+            ("Type I Tests of Fixed Effects", "hours", "F", 227.202813314),
+        ],
+    },
+    Case {
+        name: "Type I tests, repeated AR1",
+        syntax: "MIXED level BY arm wave WITH dose /FIXED=dose wave arm | SSTYPE(1) /REPEATED=wave | SUBJECT(person) COVTYPE(AR1).",
+        expected: &[
+            ("Information Criteria", "-2 Restricted Log Likelihood", "Value", 477.45506756),
+            ("Type I Tests of Fixed Effects", "Intercept", "Denominator df", 30.2578158705),
+            ("Type I Tests of Fixed Effects", "Intercept", "F", 4893.58343131),
+            ("Type I Tests of Fixed Effects", "dose", "Denominator df", 88.1648371838),
+            ("Type I Tests of Fixed Effects", "dose", "F", 67.6694178285),
+            ("Type I Tests of Fixed Effects", "wave", "Denominator df", 73.179021158),
+            ("Type I Tests of Fixed Effects", "wave", "F", 16.3168604025),
+            ("Type I Tests of Fixed Effects", "arm", "Denominator df", 30.8893813089),
+            ("Type I Tests of Fixed Effects", "arm", "F", 6.43355289912),
+        ],
+    },
 ];
 
 /// Estimates and likelihoods agree to 1e-6; standard errors, degrees of freedom, F, t and Wald Z

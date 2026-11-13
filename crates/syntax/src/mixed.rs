@@ -564,12 +564,7 @@ pub(crate) fn mixed(p: &mut Parser) -> PResult<Command> {
                         let start = p.pos;
                         match in_parens(p, |p| Ok(p.number()))? {
                             Some(3.0) => m.sstype = 3,
-                            Some(1.0) => {
-                                return Err(SyntaxError::new(
-                                    p.span_from(start),
-                                    "SSTYPE(1) is not supported yet",
-                                ));
-                            }
+                            Some(1.0) => m.sstype = 1,
                             _ => {
                                 return Err(SyntaxError::new(
                                     p.span_from(start),
