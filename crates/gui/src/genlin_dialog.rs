@@ -1,4 +1,5 @@
-//! The Generalized Linear Models dialog: GENLIN of one response on factors and covariates.
+//! The Generalized Linear Models dialog: GENLIN of one response on factors and covariates, with
+//! repeated measures of subjects by generalized estimating equations (REPEATED) if you like.
 //! Options left as they are add nothing to the syntax, except the distribution and the link,
 //! which are always written so the model reads plainly.
 
@@ -10,7 +11,7 @@ use crate::syntax_text::{number, value};
 use statscraft_data::Dataset;
 use statscraft_syntax::{
     GenlinCriteria, GenlinDistribution as D, GenlinLink as L, GenlinMethod, GenlinPrint,
-    default_link, distribution_keyword, link_allowed, link_keyword,
+    GenlinRepeated, default_link, distribution_keyword, link_allowed, link_keyword,
 };
 use std::mem::discriminant;
 
@@ -146,6 +147,31 @@ pub const GENLIN_SAVE: [(&str, &str); 14] = [
 /// The saved variables of the ordinal multinomial distribution.
 const MULTINOMIAL_SAVES: usize = 6;
 
+/// The saved variables that generalized estimating equations do not give.
+const NOT_WITH_REPEATED: [&str; 6] = [
+    "LEVERAGE",
+    "DEVIANCERESID",
+    "STDPEARSONRESID",
+    "STDDEVIANCERESID",
+    "LIKELIHOODRESID",
+    "COOK",
+];
+
+/// Entry `i` of `GENLIN_SAVE` is given by generalized estimating equations.
+fn given_with_repeated(i: usize) -> bool {
+    !NOT_WITH_REPEATED.contains(&GENLIN_SAVE[i].0)
+}
+
+/// The working correlation structures of repeated measures; the first is the default.
+pub const GENLIN_CORRELATIONS: [(&str, &str); 6] = [
+    ("INDEPENDENT", "Independent"),
+    ("AR(1)", "First-order autoregressive, AR(1)"),
+    ("EXCHANGEABLE", "Exchangeable"),
+    ("MDEPENDENT", "M-dependent"),
+    ("UNSTRUCTURED", "Unstructured"),
+    ("FIXED", "Fixed values"),
+];
+
 /// GENLIN: a generalized linear model of one response.
 #[derive(Clone, PartialEq, Debug)]
 pub struct GeneralizedLinear {
@@ -208,12 +234,38 @@ pub struct GeneralizedLinear {
     pub save: [bool; 14],
     /// User-missing values of the factors are valid.
     pub include: bool,
+    /// Repeated measures of subjects: generalized estimating equations.
+    pub repeated: bool,
+    pub subjects: Vec<String>,
+    pub within: Vec<String>,
+    /// Sort the cases by subject and within-subject values.
+    pub sort: bool,
+    /// Index into `GENLIN_CORRELATIONS`.
+    pub correlation: usize,
+    /// m of the m-dependent structure.
+    pub m: String,
+    /// The fixed correlations below the diagonal, row by row.
+    pub fixed: String,
+    /// Adjust the correlation estimate by the number of parameters.
+    pub adjust: bool,
+    /// The robust covariance of the estimating equations, not the model-based one.
+    pub gee_robust: bool,
+    pub gee_iterations: String,
+    /// Update the working correlation every this many iterations; 0 never.
+    pub update: String,
+    pub gee_convergence: String,
+    pub gee_relative: bool,
+    /// The Hessian convergence; 0 is not used.
+    pub hessian: String,
+    /// Print the working correlation matrix, with repeated measures only.
+    pub working_corr: bool,
 }
 
 impl Default for GeneralizedLinear {
     fn default() -> Self {
         // the fields start at the command's own defaults
         let c = GenlinCriteria::default();
+        let r = GenlinRepeated::default();
         Self {
             events: false,
             dependent: String::new(),
@@ -254,6 +306,21 @@ impl Default for GeneralizedLinear {
             transformed: false,
             save: [false; 14],
             include: false,
+            repeated: false,
+            subjects: Vec::new(),
+            within: Vec::new(),
+            sort: r.sort,
+            correlation: 0,
+            m: "1".into(),
+            fixed: String::new(),
+            adjust: r.adjust,
+            gee_robust: r.robust,
+            gee_iterations: r.maxiterations.to_string(),
+            update: r.updatecorr.to_string(),
+            gee_convergence: number(r.pconverge.value),
+            gee_relative: r.pconverge.relative,
+            hessian: number(r.hconverge),
+            working_corr: false,
         }
     }
 }
@@ -334,14 +401,24 @@ impl GeneralizedLinear {
         self.kind() != D::Multinomial
     }
 
-    /// Which saved variables the response and distribution give, one flag per `GENLIN_SAVE`
-    /// entry: the ordinal multinomial gives the first six only, and the predicted category needs
-    /// a categorical dependent.
+    /// Distribution `i` of `GENLIN_DISTRIBUTIONS` goes with the repeated measures setting: the
+    /// estimating equations take every distribution but the ordinal multinomial.
+    pub fn distribution_allowed(&self, i: usize) -> bool {
+        !(self.repeated && GENLIN_DISTRIBUTIONS[i].0 == D::Multinomial)
+    }
+
+    /// Which saved variables the response, distribution and repeated measures give, one flag per
+    /// `GENLIN_SAVE` entry: the ordinal multinomial gives the first six only, the predicted
+    /// category needs a categorical dependent, and the estimating equations give no leverage,
+    /// Cook's distance or the residuals that need them.
     pub fn saves_allowed(&self) -> [bool; 14] {
         let multinomial = self.kind() == D::Multinomial;
-        std::array::from_fn(|i| match i {
-            5 => self.categorical(),
-            i => !multinomial || i < MULTINOMIAL_SAVES,
+        std::array::from_fn(|i| {
+            let given = match i {
+                5 => self.categorical(),
+                i => !multinomial || i < MULTINOMIAL_SAVES,
+            };
+            given && (!self.repeated || given_with_repeated(i))
         })
     }
 
@@ -450,6 +527,12 @@ impl GeneralizedLinear {
         {
             return Err(format!("{n} has more than one role in the model"));
         }
+        // the variables in the model that are not factors, for the subjects to stay clear of
+        let others: Vec<&str> = roles
+            .iter()
+            .copied()
+            .filter(|n| !self.factors.iter().any(|f| f == n))
+            .collect();
         if !self.factors.is_empty() {
             text.push_str(&format!(" BY {}", self.factors.join(" ")));
         }
@@ -497,6 +580,26 @@ impl GeneralizedLinear {
         let criteria = self.criteria()?;
         if !criteria.is_empty() {
             text.push_str(&format!("\n  /CRITERIA {}", criteria.join(" ")));
+        }
+        if self.repeated {
+            if distribution == D::Multinomial {
+                return Err(
+                    "repeated measures do not go with the ordinal multinomial distribution".into(),
+                );
+            }
+            if self.likelihood_ratio {
+                return Err(
+                    "with repeated measures the tests of effects are Wald tests, not likelihood ratio tests"
+                        .into(),
+                );
+            }
+            if (0..GENLIN_SAVE.len()).any(|i| self.save[i] && !given_with_repeated(i)) {
+                return Err(
+                    "with repeated measures leverage, Cook's distance and the deviance, standardized and likelihood residuals are not saved"
+                        .into(),
+                );
+            }
+            text.push_str(&format!("\n  /REPEATED {}", self.repeated_syntax(&others)?));
         }
 
         if !self.means.is_empty() && distribution == D::Multinomial {
@@ -546,14 +649,19 @@ impl GeneralizedLinear {
             text.push_str("\n  /MISSING CLASSMISSING=INCLUDE");
         }
         let exponentiated = self.exponentiated && self.print[5];
-        if self.print != default_print() || exponentiated {
-            let print: Vec<&str> = keywords(&GENLIN_PRINT, &self.print)
+        // the matrix is a table of the estimating equations only
+        let working = self.working_corr && self.repeated;
+        if self.print != default_print() || exponentiated || working {
+            let mut print: Vec<&str> = keywords(&GENLIN_PRINT, &self.print)
                 .into_iter()
                 .map(|k| match k {
                     "SOLUTION" if exponentiated => "SOLUTION(EXPONENTIATED)",
                     k => k,
                 })
                 .collect();
+            if working {
+                print.push("WORKINGCORR");
+            }
             let print = match print.is_empty() {
                 true => "NONE".to_string(),
                 false => print.join(" "),
@@ -580,6 +688,113 @@ impl GeneralizedLinear {
         Ok(text)
     }
 
+    /// The settings of REPEATED that differ from the defaults, checked; `others` are the
+    /// variables in the model that are not factors.
+    fn repeated_syntax(&self, others: &[&str]) -> Result<String, String> {
+        let r = GenlinRepeated::default();
+        if self.subjects.is_empty() {
+            return Err("choose the subject variables of the repeated measures".into());
+        }
+        for n in self.subjects.iter().chain(&self.within) {
+            if self.covariates.contains(n) {
+                return Err(format!(
+                    "{n} is a covariate, so it cannot be a subject or within-subject variable"
+                ));
+            }
+            if others.contains(&n.as_str()) {
+                return Err(format!("{n} has more than one role in the model"));
+            }
+        }
+        if let Some(n) = self.within.iter().find(|n| self.subjects.contains(n)) {
+            return Err(format!(
+                "{n} is both a subject and a within-subject variable"
+            ));
+        }
+        let mut out = vec![format!("SUBJECT={}", self.subjects.join("*"))];
+        if !self.within.is_empty() {
+            out.push(format!("WITHINSUBJECT={}", self.within.join("*")));
+        }
+        if !self.sort {
+            out.push("SORT=NO".into());
+        }
+        match GENLIN_CORRELATIONS[self.correlation].0 {
+            "INDEPENDENT" => {}
+            "MDEPENDENT" => {
+                let m = whole(&self.m, 0, "m of the m-dependent structure")?
+                    .ok_or("give m of the m-dependent structure")?;
+                out.push(format!("CORRTYPE=MDEPENDENT({m})"));
+            }
+            "FIXED" => out.push(format!(
+                "CORRTYPE=FIXED({})",
+                fixed_correlations(&self.fixed)?.join(" ")
+            )),
+            k => out.push(format!("CORRTYPE={k}")),
+        }
+        if self.adjust != r.adjust {
+            out.push("ADJUSTCORR=NO".into());
+        }
+        if self.gee_robust != r.robust {
+            out.push("COVB=MODEL".into());
+        }
+        let hessian = match self.hessian.trim() {
+            "" => r.hconverge,
+            given => parse(given, "the Hessian convergence")?,
+        };
+        if hessian < 0.0 {
+            return Err("the Hessian convergence must be 0 or more".into());
+        }
+        if hessian != r.hconverge {
+            out.push(format!("HCONVERGE={}", number(hessian)));
+        }
+        let iterations = whole(
+            &self.gee_iterations,
+            0,
+            "the maximum iterations of the repeated measures",
+        )?
+        .unwrap_or(r.maxiterations);
+        if iterations != r.maxiterations {
+            out.push(format!("MAXITERATIONS={iterations}"));
+        }
+        let convergence = match self.gee_convergence.trim() {
+            "" => r.pconverge.value,
+            given => parse(given, "the parameter convergence of the repeated measures")?,
+        };
+        if convergence < 0.0 {
+            return Err(
+                "the parameter convergence of the repeated measures must be 0 or more".into(),
+            );
+        }
+        if convergence == 0.0 && hessian == 0.0 {
+            return Err(
+                "the parameter and the Hessian convergence of the repeated measures cannot both be 0"
+                    .into(),
+            );
+        }
+        if convergence != r.pconverge.value || self.gee_relative != r.pconverge.relative {
+            let kind = if self.gee_relative {
+                "RELATIVE"
+            } else {
+                "ABSOLUTE"
+            };
+            out.push(format!("PCONVERGE={}({kind})", number(convergence)));
+        }
+        let update = whole(
+            &self.update,
+            0,
+            "the iterations between updates of the matrix",
+        )?
+        .unwrap_or(r.updatecorr);
+        if update != r.updatecorr {
+            if update > iterations {
+                return Err(format!(
+                    "the matrix cannot be updated every {update} iterations with at most {iterations} iterations"
+                ));
+            }
+            out.push(format!("UPDATECORR={update}"));
+        }
+        Ok(out.join(" "))
+    }
+
     /// The CRITERIA settings that differ from the defaults.
     fn criteria(&self) -> Result<Vec<String>, String> {
         let c = GenlinCriteria::default();
@@ -599,7 +814,8 @@ impl GeneralizedLinear {
         if level != c.cilevel {
             out.push(format!("CILEVEL={}", number(level)));
         }
-        if self.robust {
+        // under repeated measures the covariance is chosen there
+        if self.robust && !self.repeated {
             out.push("COVB=ROBUST".into());
         }
         if self.kernel {
@@ -655,6 +871,43 @@ impl GeneralizedLinear {
     }
 }
 
+/// The fixed correlations typed below the diagonal, row by row, checked: each from 0 to 1, and
+/// as many as the lower triangle of a matrix holds. Whether the matrix has a row for each
+/// measurement of a subject is checked when the command runs. Values are apart by spaces only,
+/// so a decimal comma is refused rather than read as two values.
+fn fixed_correlations(text: &str) -> Result<Vec<String>, String> {
+    let values = text
+        .split_whitespace()
+        .map(|t| match t.contains(',') {
+            true => Err(format!("use a point for decimals: {t}")),
+            false => parse(t, "each fixed correlation"),
+        })
+        .collect::<Result<Vec<f64>, _>>()?;
+    if values.is_empty() {
+        return Err("give the fixed correlations below the diagonal, row by row".into());
+    }
+    if let Some(v) = values.iter().find(|v| !(0.0..=1.0).contains(*v)) {
+        return Err(format!(
+            "the fixed correlation {} is not from 0 to 1",
+            number(*v)
+        ));
+    }
+    let n = values.len();
+    let mut rows = 2;
+    while rows * (rows - 1) / 2 < n {
+        rows += 1;
+    }
+    if rows * (rows - 1) / 2 != n {
+        return Err(format!(
+            "{n} fixed correlations do not fill the lower triangle of a matrix: {} rows take {}, {rows} rows take {}",
+            rows - 1,
+            (rows - 1) * (rows - 2) / 2,
+            rows * (rows - 1) / 2
+        ));
+    }
+    Ok(values.into_iter().map(number).collect())
+}
+
 /// The checks that need the data: numbers where the command needs them, and no role for the
 /// frequency weight. True when a reference value is quoted: the dependent is a string or shows
 /// dates or times.
@@ -681,6 +934,15 @@ pub fn data_checks(d: &GeneralizedLinear, data: &Dataset) -> Result<bool, String
         return Err(format!(
             "{n} weights the cases, so it cannot be in the model as well"
         ));
+    }
+    if d.repeated
+        && let Some(n) = d
+            .subjects
+            .iter()
+            .chain(&d.within)
+            .find(|n| data.variable(n).is_err())
+    {
+        return Err(format!("{n} is no longer a variable"));
     }
     let dependent = d.dependent.trim();
     match data.variable(dependent) {
@@ -1127,6 +1389,324 @@ mod tests {
         assert_eq!(d.convergence, "0.000001");
         assert!(!d.syntax(false).unwrap().contains("CRITERIA"));
         assert_eq!(d.print, [true, true, true, true, true, true, false, false]);
+    }
+
+    /// The tables of the run, by title.
+    fn titles(session: &mut statscraft_engine::session::Session, syntax: &str) -> Vec<String> {
+        let result = session
+            .run(syntax, None)
+            .unwrap_or_else(|e| panic!("{syntax}\n{e:?}"));
+        result
+            .commands
+            .iter()
+            .flat_map(|c| c.tables.iter().map(|t| t.title.clone()))
+            .collect()
+    }
+
+    /// Our synthetic panel: 30 people, each measured in up to four waves.
+    fn waves() -> statscraft_engine::session::Session {
+        let csv = include_str!("../../../tests/fixtures/mixed_waves.csv");
+        let rows: Vec<&str> = csv.lines().skip(1).collect();
+        let mut session = statscraft_engine::session::Session::default();
+        session
+            .run(
+                &format!(
+                    "DATA LIST LIST(\",\") /person arm wave dose level.\nBEGIN DATA\n{}\nEND DATA.",
+                    rows.join("\n")
+                ),
+                None,
+            )
+            .unwrap();
+        session
+    }
+
+    #[test]
+    fn spending_clustered_by_region_runs_on_the_survey() {
+        let mut d = GeneralizedLinear {
+            dependent: "monthly_spend".into(),
+            factors: v(&["gender"]),
+            repeated: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            d.syntax(false).unwrap_err(),
+            "choose the subject variables of the repeated measures"
+        );
+        d.subjects = v(&["region"]);
+        d.correlation = 2;
+        // the matrix is written only with repeated measures on
+        d.working_corr = true;
+        let syntax = d.syntax(false).unwrap();
+        assert_eq!(
+            syntax,
+            "GENLIN monthly_spend BY gender\n  \
+             /MODEL gender DISTRIBUTION=NORMAL LINK=IDENTITY\n  \
+             /REPEATED SUBJECT=region CORRTYPE=EXCHANGEABLE\n  \
+             /PRINT CPS DESCRIPTIVES MODELINFO FIT SUMMARY SOLUTION WORKINGCORR."
+        );
+        let tables = titles(&mut open("survey_basic.sav"), &syntax);
+        assert!(
+            tables.iter().any(|t| t == "Correlated Data Summary"),
+            "{tables:?}"
+        );
+        assert!(
+            tables.iter().any(|t| t == "Working Correlation Matrix"),
+            "{tables:?}"
+        );
+        d.repeated = false;
+        assert_eq!(
+            d.syntax(false).unwrap(),
+            "GENLIN monthly_spend BY gender\n  /MODEL gender DISTRIBUTION=NORMAL LINK=IDENTITY."
+        );
+    }
+
+    #[test]
+    fn repeated_measures_with_every_setting() {
+        let mut d = GeneralizedLinear {
+            dependent: "level".into(),
+            factors: v(&["arm"]),
+            covariates: v(&["dose"]),
+            repeated: true,
+            subjects: v(&["person"]),
+            within: v(&["wave"]),
+            correlation: 4,
+            adjust: false,
+            gee_robust: false,
+            gee_iterations: "50".into(),
+            update: "2".into(),
+            gee_convergence: "1E-8".into(),
+            gee_relative: true,
+            hessian: "0.0001".into(),
+            working_corr: true,
+            ..Default::default()
+        };
+        d.print = [false; 8];
+        d.print[5] = true;
+        let syntax = d.syntax(false).unwrap();
+        assert_eq!(
+            syntax,
+            "GENLIN level BY arm WITH dose\n  \
+             /MODEL arm dose DISTRIBUTION=NORMAL LINK=IDENTITY\n  \
+             /REPEATED SUBJECT=person WITHINSUBJECT=wave CORRTYPE=UNSTRUCTURED ADJUSTCORR=NO \
+             COVB=MODEL HCONVERGE=0.0001 MAXITERATIONS=50 PCONVERGE=0.00000001(RELATIVE) \
+             UPDATECORR=2\n  \
+             /PRINT SOLUTION WORKINGCORR."
+        );
+        let (_, errors) = statscraft_syntax::parse(&syntax);
+        assert!(errors.is_empty(), "{errors:?}");
+        let mut session = waves();
+        assert_eq!(
+            titles(&mut session, &syntax),
+            ["Parameter Estimates", "Working Correlation Matrix"]
+        );
+
+        // four waves: a fixed matrix takes six correlations
+        d.correlation = 5;
+        d.fixed = "0.5 0.3 0.5 0.2 0.3 0.5".into();
+        let syntax = d.syntax(false).unwrap();
+        assert!(
+            syntax.contains("CORRTYPE=FIXED(0.5 0.3 0.5 0.2 0.3 0.5) ADJUSTCORR=NO"),
+            "{syntax}"
+        );
+        assert!(titles(&mut session, &syntax).len() == 2);
+        // m-dependent, and a Poisson count of the same people
+        d.correlation = 3;
+        d.m = "2".into();
+        d.dependent = "wave".into();
+        d.within.clear();
+        d.set_distribution(5);
+        d.sort = false;
+        let syntax = d.syntax(false).unwrap();
+        assert!(
+            syntax.contains(
+                "/MODEL arm dose DISTRIBUTION=POISSON LINK=LOG\n  \
+                 /REPEATED SUBJECT=person SORT=NO CORRTYPE=MDEPENDENT(2) ADJUSTCORR=NO"
+            ),
+            "{syntax}"
+        );
+        assert!(titles(&mut session, &syntax).len() == 2);
+    }
+
+    #[test]
+    fn repeated_settings_are_checked_before_the_run() {
+        let mut d = GeneralizedLinear {
+            dependent: "level".into(),
+            factors: v(&["arm"]),
+            covariates: v(&["dose"]),
+            repeated: true,
+            subjects: v(&["person"]),
+            within: v(&["dose"]),
+            ..Default::default()
+        };
+        let error = |d: &GeneralizedLinear| d.syntax(false).unwrap_err();
+        assert_eq!(
+            error(&d),
+            "dose is a covariate, so it cannot be a subject or within-subject variable"
+        );
+        d.within = v(&["level"]);
+        assert_eq!(error(&d), "level has more than one role in the model");
+        d.within = v(&["person"]);
+        assert_eq!(
+            error(&d),
+            "person is both a subject and a within-subject variable"
+        );
+        // a factor of the model may set the positions
+        d.within = v(&["arm"]);
+        assert!(d.syntax(false).is_ok());
+
+        // without sorting the within-subject variables still decide which cases are complete,
+        // so they are written and checked
+        d.within = v(&["dose"]);
+        d.sort = false;
+        assert_eq!(
+            error(&d),
+            "dose is a covariate, so it cannot be a subject or within-subject variable"
+        );
+        d.within = v(&["wave"]);
+        assert!(
+            d.syntax(false)
+                .unwrap()
+                .ends_with("/REPEATED SUBJECT=person WITHINSUBJECT=wave SORT=NO.")
+        );
+        d.sort = true;
+        // the covariance of the estimating equations is chosen in their section only
+        d.robust = true;
+        assert!(!d.syntax(false).unwrap().contains("COVB=ROBUST"));
+        d.robust = false;
+
+        d.correlation = 3;
+        d.m = "-1".into();
+        assert_eq!(
+            error(&d),
+            "m of the m-dependent structure must be a whole number of at least 0"
+        );
+        d.m = String::new();
+        assert_eq!(error(&d), "give m of the m-dependent structure");
+        d.m = "0".into();
+        assert!(d.syntax(false).unwrap().contains("CORRTYPE=MDEPENDENT(0)"));
+
+        d.correlation = 5;
+        assert_eq!(
+            error(&d),
+            "give the fixed correlations below the diagonal, row by row"
+        );
+        d.fixed = "0.5 -0.2 0.1".into();
+        assert_eq!(error(&d), "the fixed correlation -0.2 is not from 0 to 1");
+        d.fixed = "0.5 0.2 0.1 0.3".into();
+        assert_eq!(
+            error(&d),
+            "4 fixed correlations do not fill the lower triangle of a matrix: 3 rows take 3, 4 rows take 6"
+        );
+        // a decimal comma would otherwise read as two values
+        d.fixed = "0,5".into();
+        assert_eq!(error(&d), "use a point for decimals: 0,5");
+        d.fixed = "0.5, 0.3 0.2".into();
+        assert_eq!(error(&d), "use a point for decimals: 0.5,");
+        d.fixed = "0.5 x".into();
+        assert_eq!(error(&d), "each fixed correlation must be a number");
+        d.fixed = "0.4".into();
+        assert!(d.syntax(false).unwrap().contains("CORRTYPE=FIXED(0.4)"));
+
+        d.gee_convergence = "0".into();
+        assert_eq!(
+            error(&d),
+            "the parameter and the Hessian convergence of the repeated measures cannot both be 0"
+        );
+        d.hessian = "-1".into();
+        assert_eq!(error(&d), "the Hessian convergence must be 0 or more");
+        d.hessian = "0.001".into();
+        assert!(
+            d.syntax(false)
+                .unwrap()
+                .contains("HCONVERGE=0.001 PCONVERGE=0(ABSOLUTE)")
+        );
+        d.gee_iterations = "3".into();
+        d.update = "4".into();
+        assert_eq!(
+            error(&d),
+            "the matrix cannot be updated every 4 iterations with at most 3 iterations"
+        );
+        d.update = "0".into();
+        assert!(d.syntax(false).unwrap().ends_with("UPDATECORR=0."));
+    }
+
+    #[test]
+    fn subjects_taken_out_of_the_data_are_reported() {
+        let session = open("survey_basic.sav");
+        let data = session.dataset().unwrap();
+        let mut d = GeneralizedLinear {
+            dependent: "monthly_spend".into(),
+            subjects: v(&["region"]),
+            within: v(&["gone"]),
+            ..Default::default()
+        };
+        // only the variables the syntax uses
+        assert_eq!(data_checks(&d, data), Ok(false));
+        d.repeated = true;
+        assert_eq!(
+            data_checks(&d, data).unwrap_err(),
+            "gone is no longer a variable"
+        );
+        // also without sorting, as they still decide which cases are complete
+        d.sort = false;
+        assert!(data_checks(&d, data).is_err());
+        d.within.clear();
+        d.subjects = v(&["lost"]);
+        assert_eq!(
+            data_checks(&d, data).unwrap_err(),
+            "lost is no longer a variable"
+        );
+    }
+
+    #[test]
+    fn repeated_measures_leave_out_what_they_do_not_give() {
+        let mut d = GeneralizedLinear {
+            dependent: "q5_1".into(),
+            subjects: v(&["region"]),
+            ..Default::default()
+        };
+        d.set_distribution(6);
+        d.repeated = true;
+        assert!(!d.distribution_allowed(6));
+        assert!((0..6).all(|i| d.distribution_allowed(i)));
+        assert_eq!(
+            d.syntax(false).unwrap_err(),
+            "repeated measures do not go with the ordinal multinomial distribution"
+        );
+        d.set_distribution(1);
+        d.likelihood_ratio = true;
+        assert_eq!(
+            d.syntax(false).unwrap_err(),
+            "with repeated measures the tests of effects are Wald tests, not likelihood ratio tests"
+        );
+        d.likelihood_ratio = false;
+        // every keyword of the list is a saved variable
+        assert_eq!(
+            (0..14)
+                .filter(|&i| !given_with_repeated(i))
+                .collect::<Vec<_>>(),
+            [6, 9, 10, 11, 12, 13]
+        );
+        assert_eq!(d.saves_allowed(), std::array::from_fn(given_with_repeated));
+        d.save[13] = true;
+        assert_eq!(
+            d.syntax(false).unwrap_err(),
+            "with repeated measures leverage, Cook's distance and the deviance, standardized and likelihood residuals are not saved"
+        );
+        d.save = std::array::from_fn(given_with_repeated);
+        let syntax = d.syntax(false).unwrap();
+        assert!(
+            syntax.ends_with(
+                "/REPEATED SUBJECT=region\n  \
+                 /SAVE XBPRED XBSTDERROR MEANPRED CIMEANPREDL CIMEANPREDU PREDVAL RESID PEARSONRESID."
+            ),
+            "{syntax}"
+        );
+        assert!(runs(&syntax) >= 3);
+        // without repeated measures every choice comes back
+        d.repeated = false;
+        assert!(d.distribution_allowed(6));
+        assert_eq!(d.saves_allowed(), [true; 14]);
     }
 
     #[test]

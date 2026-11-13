@@ -18,7 +18,8 @@ pub enum Advanced {
     Ordinal(Ordinal),
     Multinomial(Multinomial),
     Mixed(LinearMixed),
-    Genlin(GeneralizedLinear),
+    // boxed: the largest dialog by far
+    Genlin(Box<GeneralizedLinear>),
     Plan(SamplePlan),
     Descriptives(SampleDescriptives),
     Tables(SampleTables),
