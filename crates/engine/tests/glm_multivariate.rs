@@ -610,12 +610,18 @@ fn errors_name_the_problem() {
         "ALL in MMATRIX gives a whole column; end the column with ';' before naming dependents"
     );
     assert_eq!(
+        run_error(&format!(
+            "{DATA}\nGLM y1 y2 BY g /MMATRIX='z' y1 0; y1 1 y2 -1."
+        )),
+        "MMATRIX column z has no coefficient other than 0"
+    );
+    assert_eq!(
         run_error(&format!("{DATA}\nUNIANOVA y1 y2 BY g.")),
         "UNIANOVA takes one dependent variable; GLM analyzes several"
     );
     let mut engine = Engine::default();
     run(&mut engine, &format!("{DATA}\nGLM y1 BY g /PRINT=RSSCP."));
-    let want = "PRINT RSSCP applies only to several dependent variables and is ignored";
+    let want = "PRINT RSSCP applies only to GLM with several dependent variables and is ignored";
     assert!(
         engine.warnings().iter().any(|w| w.ends_with(want)),
         "{:?}",

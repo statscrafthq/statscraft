@@ -1258,7 +1258,7 @@ fn univariate(
     ] {
         if given {
             warnings.push(format!(
-                "{what} applies only to several dependent variables and is ignored"
+                "{what} applies only to GLM with several dependent variables and is ignored"
             ));
         }
     }
@@ -3808,12 +3808,16 @@ fn m_matrix(command: &Glm, dependents: &[String]) -> Result<Option<(Matrix, Vec<
                 }
             }
         }
-        names.push(
-            column
-                .label
-                .clone()
-                .unwrap_or_else(|| format!("T{}", c + 1)),
-        );
+        let name = column
+            .label
+            .clone()
+            .unwrap_or_else(|| format!("T{}", c + 1));
+        if m.iter().all(|row| row[c] == 0.0) {
+            return Err(Error(format!(
+                "MMATRIX column {name} has no coefficient other than 0"
+            )));
+        }
+        names.push(name);
     }
     Ok(Some((m, names)))
 }

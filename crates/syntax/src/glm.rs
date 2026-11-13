@@ -951,7 +951,7 @@ fn print(p: &mut Parser) -> PResult<GlmPrint> {
     while !at_end(p) {
         let word = match p.peek() {
             Some(TokenKind::Word(w)) => w.to_uppercase(),
-            _ => return Err(p.unexpected(&KEYWORDS[..7])),
+            _ => return Err(p.unexpected(&KEYWORDS)),
         };
         if p.eat_keyword("DESCRIPTIVE") {
             out.descriptive = true;
@@ -1000,7 +1000,7 @@ fn print(p: &mut Parser) -> PResult<GlmPrint> {
                 format!("{name} in PRINT is not supported yet"),
             ));
         } else {
-            return Err(p.unexpected(&KEYWORDS[..7]));
+            return Err(p.unexpected(&KEYWORDS));
         }
         p.eat(Punct::Comma);
     }
