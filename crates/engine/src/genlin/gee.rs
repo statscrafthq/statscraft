@@ -56,6 +56,9 @@ type Keys = [Vec<Key>];
 /// The largest working correlation matrix: its dimension squared is held in memory.
 const MAX_DIMENSION: usize = 200;
 
+/// The most patterns of positions whose inverses `parts` keeps.
+const CACHED: usize = 64;
+
 /// A working correlation matrix whose smallest eigenvalue is at most this counts as not positive
 /// definite: a nearly singular one would lose positions in the inverses of the subjects.
 const SINGULAR: f64 = 1e-6;
@@ -377,13 +380,21 @@ fn parts(
         let n = m.len();
         let f = c.f[m[0].0];
         let pattern: Vec<usize> = m.iter().map(|&(_, u)| u).collect();
-        let inverse = inverses.entry(pattern).or_insert_with(|| {
+        let invert = || {
             let sub: Matrix = m
                 .iter()
                 .map(|&(_, u)| m.iter().map(|&(_, v)| r[u][v]).collect())
                 .collect();
             ginverse(&sub, 1e-12).0
-        });
+        };
+        // shortcut: at most CACHED patterns are kept, so many distinct patterns do not fill memory
+        let own;
+        let inverse = if inverses.contains_key(&pattern) || inverses.len() < CACHED {
+            &*inverses.entry(pattern).or_insert_with(invert)
+        } else {
+            own = invert();
+            &own
+        };
         let root: Vec<f64> = m
             .iter()
             .map(|&(i, _)| (variance(set.family, mu[i], set.k) / c.a(i)).sqrt())
