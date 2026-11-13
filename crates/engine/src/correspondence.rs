@@ -257,8 +257,18 @@ fn solve(s: &Setup) -> Result<Solution, String> {
             *status = Status::Empty;
         }
     }
-    // again without the empty ones, which a supplementary point may have counts in
+    // again without the empty ones, which a supplementary point may have counts in; one with
+    // counts only there is empty too
     let (row_total, column_total) = totals(&row_status, &column_status);
+    for (status, total) in row_status
+        .iter_mut()
+        .zip(&row_total)
+        .chain(column_status.iter_mut().zip(&column_total))
+    {
+        if *status == Status::Supplementary && *total <= 0.0 {
+            *status = Status::Empty;
+        }
+    }
     let ar: Vec<usize> = (0..t1)
         .filter(|&i| row_status[i] == Status::Active)
         .collect();
@@ -437,11 +447,10 @@ fn solve(s: &Setup) -> Result<Solution, String> {
         }
     }
 
-    // the delta method: derivatives of every statistic in each active cell proportion
     // The delta method: derivatives of the statistics in each active cell proportion p_kl.
     // A change of p_kl moves the cell itself, row k's total, column l's total and the grand
     // total, so dZ = zf [i=k][j=l] + zfi [i=k] + zfj [j=l] + zn, with the four partial
-    // derivatives of every cell of Z taken once.
+    // derivatives of every cell of Z taken once; the masses depend on their own total and N.
     let pi: Vec<Vec<f64>> = ar
         .iter()
         .map(|&i| ac.iter().map(|&j| f[i][j] / n).collect())
@@ -461,65 +470,144 @@ fn solve(s: &Setup) -> Result<Solution, String> {
         );
         [z.d, (ra / total).d, (cb / total).d]
     };
-    let partial = |which: usize| -> Vec<Vec<[f64; 3]>> {
+    let partial = |which: usize| -> Vec<Vec<f64>> {
         let mut seed = [0.0; 4];
         seed[which] = 1.0;
         (0..k1)
-            .map(|a| (0..k2).map(|b| seeded(a, b, seed)).collect())
+            .map(|a| (0..k2).map(|b| seeded(a, b, seed)[0]).collect())
             .collect()
     };
     let (zf, zfi, zfj, zn) = (partial(0), partial(1), partial(2), partial(3));
-    let z_of = |m: &Vec<Vec<[f64; 3]>>, a: usize, b: usize| m[a][b][0];
-    // sums of (u_o)_i zfj_il over i and of zfi_kj (v_o)_j over j, for every singular vector
-    let q1: Vec<Vec<f64>> = us
-        .iter()
-        .map(|u| {
-            (0..k2)
-                .map(|b| (0..k1).map(|a| u[a] * z_of(&zfj, a, b)).sum())
-                .collect()
+    // the row masses in their own total and in N, the column masses likewise
+    let row_dm: Vec<[f64; 2]> = (0..k1)
+        .map(|a| {
+            [
+                seeded(a, 0, [0.0, 1.0, 0.0, 0.0])[1],
+                seeded(a, 0, [0.0, 0.0, 0.0, 1.0])[1],
+            ]
         })
         .collect();
-    let q3: Vec<Vec<f64>> = vs
-        .iter()
-        .map(|v| {
-            (0..k1)
-                .map(|a| (0..k2).map(|b| z_of(&zfi, a, b) * v[b]).sum())
-                .collect()
+    let column_dm: Vec<[f64; 2]> = (0..k2)
+        .map(|b| {
+            [
+                seeded(0, b, [0.0, 0.0, 1.0, 0.0])[2],
+                seeded(0, b, [0.0, 0.0, 0.0, 1.0])[2],
+            ]
         })
         .collect();
-    // per dimension t: zfi v_t, zn v_t (by rows), zfj' u_t, zn' u_t (by columns)
-    struct Parts {
-        rfi: Vec<f64>,
-        nv: Vec<f64>,
-        cfj: Vec<f64>,
-        nu: Vec<f64>,
-        /// u_o . nv and nu . v_o for every singular vector o
-        q2: Vec<f64>,
-        q4: Vec<f64>,
-    }
-    let parts: Vec<Parts> = (0..kept)
+    let rows_by = |m: &[Vec<f64>], v: &[f64]| -> Vec<f64> { m.iter().map(|r| dot(r, v)).collect() };
+    let columns_by = |m: &[Vec<f64>], u: &[f64]| -> Vec<f64> {
+        (0..k2)
+            .map(|b| (0..k1).map(|a| m[a][b] * u[a]).sum())
+            .collect()
+    };
+    // a derivative of a singular value or vector needs that value to be distinct
+    let tied: Vec<bool> = (0..kept)
         .map(|t| {
-            let rows_by = |m: &Vec<Vec<[f64; 3]>>| -> Vec<f64> {
-                (0..k1)
-                    .map(|a| (0..k2).map(|b| z_of(m, a, b) * vs[t][b]).sum())
-                    .collect()
-            };
-            let columns_by = |m: &Vec<Vec<[f64; 3]>>| -> Vec<f64> {
-                (0..k2)
-                    .map(|b| (0..k1).map(|a| z_of(m, a, b) * us[t][a]).sum())
-                    .collect()
-            };
-            let (nv, nu) = (rows_by(&zn), columns_by(&zn));
-            Parts {
-                rfi: rows_by(&zfi),
-                cfj: columns_by(&zfj),
-                q2: us.iter().map(|u| dot(u, &nv)).collect(),
-                q4: vs.iter().map(|v| dot(&nu, v)).collect(),
+            (0..rank).any(|o| {
+                o != t && (lambda[t].powi(2) - lambda[o].powi(2)).abs() <= 1e-10 * lambda[t].powi(2)
+            })
+        })
+        .collect();
+    let scores = s.scores && !tied[..p].iter().any(|&x| x);
+    if tied.iter().any(|&x| x) {
+        warnings.push(
+            "CORRESPONDENCE: equal singular values have no standard deviations, nor do the scores of their dimensions"
+                .into(),
+        );
+    }
+    // dZ v_t = [i=k] (zf_kl v_l + rfi_k) + zfj_il v_l + nv_i, and dZ' u_t likewise
+    struct Dim {
+        rfi: Vec<f64>,
+        cfj: Vec<f64>,
+        nv: Vec<f64>,
+        nu: Vec<f64>,
+        /// u_t . nv
+        unv: f64,
+        /// For the scores: du = dZ v / lambda + the sums over the other singular vectors, each
+        /// a table indexed by the changed cell's row or column, then the element.
+        du: [Vec<Vec<f64>>; 6],
+        dv: [Vec<Vec<f64>>; 6],
+    }
+    // out[x][i] = sum over o of by[o][x] w[o] over[o][i]
+    let combine = |by: &[Vec<f64>], w: &[f64], over: &[Vec<f64>]| -> Vec<Vec<f64>> {
+        let size = over.first().map_or(0, Vec::len);
+        (0..by.first().map_or(0, Vec::len))
+            .map(|x| {
+                let mut out = vec![0.0; size];
+                for o in 0..rank {
+                    let c = by[o][x] * w[o];
+                    if c != 0.0 {
+                        for (y, z) in out.iter_mut().zip(&over[o]) {
+                            *y += c * z;
+                        }
+                    }
+                }
+                out
+            })
+            .collect()
+    };
+    // sums of (u_o)_i zfj_il over i and of zfi_kj (v_o)_j over j
+    let (q1, q3): (Vec<Vec<f64>>, Vec<Vec<f64>>) = match scores {
+        true => (
+            us.iter().map(|u| columns_by(&zfj, u)).collect(),
+            vs.iter().map(|v| rows_by(&zfi, v)).collect(),
+        ),
+        false => (Vec::new(), Vec::new()),
+    };
+    let dims: Vec<Dim> = (0..kept)
+        .map(|t| {
+            let (nv, nu) = (rows_by(&zn, &vs[t]), columns_by(&zn, &us[t]));
+            let mut dim = Dim {
+                rfi: rows_by(&zfi, &vs[t]),
+                cfj: columns_by(&zfj, &us[t]),
+                unv: dot(&us[t], &nv),
                 nv,
                 nu,
+                du: Default::default(),
+                dv: Default::default(),
+            };
+            if scores && t < p {
+                let ls = lambda[t];
+                // the coefficient of u_o is alpha_o (u_o' dZ v_t) + beta_o (u_t' dZ v_o); the
+                // -1/lambda part takes the null space as I - U U'
+                let alpha: Vec<f64> = (0..rank)
+                    .map(|o| match o == t {
+                        true => -1.0 / ls,
+                        false => -1.0 / ls + ls / (ls * ls - lambda[o] * lambda[o]),
+                    })
+                    .collect();
+                let beta: Vec<f64> = (0..rank)
+                    .map(|o| match o == t {
+                        true => 0.0,
+                        false => lambda[o] / (ls * ls - lambda[o] * lambda[o]),
+                    })
+                    .collect();
+                let q2: Vec<Vec<f64>> = us.iter().map(|u| vec![dot(u, &dim.nv)]).collect();
+                let q4: Vec<Vec<f64>> = vs.iter().map(|v| vec![dot(&dim.nu, v)]).collect();
+                dim.du = [
+                    combine(&us, &alpha, &us),
+                    combine(&q1, &alpha, &us),
+                    combine(&q2, &alpha, &us),
+                    combine(&vs, &beta, &us),
+                    combine(&q3, &beta, &us),
+                    combine(&q4, &beta, &us),
+                ];
+                dim.dv = [
+                    combine(&vs, &alpha, &vs),
+                    combine(&q3, &alpha, &vs),
+                    combine(&q4, &alpha, &vs),
+                    combine(&us, &beta, &vs),
+                    combine(&q1, &beta, &vs),
+                    combine(&q2, &beta, &vs),
+                ];
             }
+            dim
         })
         .collect();
+    let root =
+        |m: &[f64]| -> Vec<[f64; 2]> { m.iter().map(|m| [1.0 / m.sqrt(), m.powf(-1.5)]).collect() };
+    let (row_root, column_root) = (root(&row_mass), root(&column_mass));
     // weighted sums of the gradients and of their products, for the covariances
     let mut lambda_sums = (vec![0.0; kept], vec![vec![0.0; kept]; kept]);
     let mut row_sums = vec![(vec![0.0; p], vec![vec![0.0; p]; p]); k1];
@@ -532,7 +620,6 @@ fn solve(s: &Setup) -> Result<Solution, String> {
             }
         }
     };
-    let mut tied = false;
     let mut gl = vec![0.0; kept];
     let mut gx = vec![vec![0.0; p]; k1];
     let mut gy = vec![vec![0.0; p]; k2];
@@ -542,76 +629,54 @@ fn solve(s: &Setup) -> Result<Solution, String> {
             if weight == 0.0 {
                 continue;
             }
-            let own = z_of(&zf, kr, kc);
-            for t in 0..kept {
-                let (u, v, q) = (&us[t], &vs[t], &parts[t]);
-                gl[t] = u[kr] * (own * v[kc] + q.rfi[kr]) + v[kc] * q.cfj[kc] + q.q2[t];
-            }
-            if s.scores {
-                for t in 0..p {
-                    let (u, v, q) = (&us[t], &vs[t], &parts[t]);
-                    // w = dZ v_t and w' = dZ' u_t
-                    let row_part = own * v[kc] + q.rfi[kr];
-                    let column_part = own * u[kr] + q.cfj[kc];
-                    let ls = lambda[t];
-                    let mut du: Vec<f64> = (0..k1)
-                        .map(|a| {
-                            let w = zfj[a][kc][0] * v[kc]
-                                + q.nv[a]
-                                + if a == kr { row_part } else { 0.0 };
-                            w / ls
-                        })
-                        .collect();
-                    let mut dv: Vec<f64> = (0..k2)
-                        .map(|b| {
-                            let w = zfi[kr][b][0] * u[kr]
-                                + q.nu[b]
-                                + if b == kc { column_part } else { 0.0 };
-                            w / ls
-                        })
-                        .collect();
-                    for o in 0..rank {
-                        // u_o' dZ v_t and u_t' dZ v_o
-                        let a_ot = us[o][kr] * row_part + v[kc] * q1[o][kc] + q.q2[o];
-                        let b_to = vs[o][kc] * column_part + u[kr] * q3[o][kr] + q.q4[o];
-                        // the null space parts: (I - U U') w / lambda and (I - V V') w' / lambda
-                        let mut cu = -a_ot / ls;
-                        let mut cv = -b_to / ls;
-                        if o != t {
-                            let lo = lambda[o];
-                            let gap = ls * ls - lo * lo;
-                            if gap.abs() <= 1e-10 * ls * ls {
-                                tied = true;
-                            }
-                            cu += (ls * a_ot + lo * b_to) / gap;
-                            cv += (ls * b_to + lo * a_ot) / gap;
-                        }
-                        for (x, y) in du.iter_mut().zip(&us[o]) {
-                            *x += y * cu;
-                        }
-                        for (x, y) in dv.iter_mut().zip(&vs[o]) {
-                            *x += y * cv;
-                        }
-                    }
-                    for (a, g) in gx.iter_mut().enumerate() {
-                        let m = row_mass[a];
-                        let dm = zfi[a][0][1] * f64::from(u8::from(a == kr)) + zn[a][0][1];
-                        g[t] = du[a] / m.sqrt() - 0.5 * u[a] * m.powf(-1.5) * dm;
-                    }
-                    for (b, g) in gy.iter_mut().enumerate() {
-                        let m = column_mass[b];
-                        let dm = zfj[0][b][2] * f64::from(u8::from(b == kc)) + zn[0][b][2];
-                        g[t] = dv[b] / m.sqrt() - 0.5 * v[b] * m.powf(-1.5) * dm;
-                    }
-                }
-                for (sums, g) in row_sums.iter_mut().zip(&gx) {
-                    add(sums, g, weight);
-                }
-                for (sums, g) in column_sums.iter_mut().zip(&gy) {
-                    add(sums, g, weight);
-                }
+            let own = zf[kr][kc];
+            for (t, g) in gl.iter_mut().enumerate() {
+                let (u, v, q) = (&us[t], &vs[t], &dims[t]);
+                *g = u[kr] * (own * v[kc] + q.rfi[kr]) + v[kc] * q.cfj[kc] + q.unv;
             }
             add(&mut lambda_sums, &gl, weight);
+            if !scores {
+                continue;
+            }
+            for t in 0..p {
+                let (u, v, q) = (&us[t], &vs[t], &dims[t]);
+                let ls = lambda[t];
+                // the changed cell's parts of dZ v_t (its row) and dZ' u_t (its column)
+                let row_part = own * v[kc] + q.rfi[kr];
+                let column_part = own * u[kr] + q.cfj[kc];
+                let [a1, a2, a3, a4, a5, a6] = &q.du;
+                for (a, g) in gx.iter_mut().enumerate() {
+                    let w = zfj[a][kc] * v[kc] + q.nv[a] + if a == kr { row_part } else { 0.0 };
+                    let du = w / ls
+                        + a1[kr][a] * row_part
+                        + a2[kc][a] * v[kc]
+                        + a3[0][a]
+                        + a4[kc][a] * column_part
+                        + a5[kr][a] * u[kr]
+                        + a6[0][a];
+                    let dm = row_dm[a][0] * f64::from(u8::from(a == kr)) + row_dm[a][1];
+                    g[t] = du * row_root[a][0] - 0.5 * u[a] * row_root[a][1] * dm;
+                }
+                let [b1, b2, b3, b4, b5, b6] = &q.dv;
+                for (b, g) in gy.iter_mut().enumerate() {
+                    let w = zfi[kr][b] * u[kr] + q.nu[b] + if b == kc { column_part } else { 0.0 };
+                    let dv = w / ls
+                        + b1[kc][b] * column_part
+                        + b2[kr][b] * u[kr]
+                        + b3[0][b]
+                        + b4[kr][b] * row_part
+                        + b5[kc][b] * v[kc]
+                        + b6[0][b];
+                    let dm = column_dm[b][0] * f64::from(u8::from(b == kc)) + column_dm[b][1];
+                    g[t] = dv * column_root[b][0] - 0.5 * v[b] * column_root[b][1] * dm;
+                }
+            }
+            for (sums, g) in row_sums.iter_mut().zip(&gx) {
+                add(sums, g, weight);
+            }
+            for (sums, g) in column_sums.iter_mut().zip(&gy) {
+                add(sums, g, weight);
+            }
         }
     }
     let covariances = |sums: &(Vec<f64>, Vec<Vec<f64>>), scale: &dyn Fn(usize) -> f64| {
@@ -624,22 +689,22 @@ fn solve(s: &Setup) -> Result<Solution, String> {
             })
             .collect::<Vec<Vec<f64>>>()
     };
-    let singular_cov = covariances(&lambda_sums, &|_| 1.0);
-    if tied {
-        warnings.push(
-            "CORRESPONDENCE: two singular values are equal, so the scores have no standard deviations"
-                .into(),
-        );
+    let mut singular_cov = covariances(&lambda_sums, &|_| 1.0);
+    for (t, _) in tied.iter().enumerate().filter(|x| *x.1) {
+        for o in 0..kept {
+            singular_cov[t][o] = f64::NAN;
+            singular_cov[o][t] = f64::NAN;
+        }
     }
     let unknown = vec![vec![f64::NAN; p]; p];
     for (a, &i) in ar.iter().enumerate() {
-        rows.cov[i] = match s.scores && !tied {
+        rows.cov[i] = match scores {
             true => covariances(&row_sums[a], &|t| lambda[t].powf(alpha)),
             false => unknown.clone(),
         };
     }
     for (b, &j) in ac.iter().enumerate() {
-        columns.cov[j] = match s.scores && !tied {
+        columns.cov[j] = match scores {
             true => covariances(&column_sums[b], &|t| lambda[t].powf(beta)),
             false => unknown.clone(),
         };

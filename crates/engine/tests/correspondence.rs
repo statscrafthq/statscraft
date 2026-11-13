@@ -895,13 +895,48 @@ CORRESPONDENCE TABLE=ALL(3,3) /PRINT=RCONF.
         ),
         &Cell::Empty
     );
-    assert!(matches!(
-        cell(
+    // the two equal singular values have no deviations, the total still has its inertia
+    for dim in ["1", "2"] {
+        let sd = cell(
             &t,
             "Summary",
-            "1",
-            "Confidence Singular Value / Standard Deviation"
-        ),
+            dim,
+            "Confidence Singular Value / Standard Deviation",
+        );
+        assert_eq!(sd, &Cell::Empty);
+    }
+    assert!(matches!(
+        cell(&t, "Summary", "Total", "Inertia"),
         Cell::Number(_)
     ));
+}
+
+/// A supplementary column whose counts all sit in an empty row is empty too.
+#[test]
+fn supplementary_counts_only_in_an_empty_row() {
+    let source = "DATA LIST FREE /c1 c2 c3 c4.
+BEGIN DATA.
+5 3 2 0
+1 4 6 0
+0 0 0 7
+3 3 1 0
+END DATA.
+CORRESPONDENCE TABLE=ALL(4,4) /SUPPLEMENTARY COLUMN(4) /PRINT=CPOINTS.
+";
+    let t = run(&mut Engine::default(), source);
+    let overview = t
+        .iter()
+        .find(|t| t.title == "Overview Column Points")
+        .unwrap();
+    assert!(
+        overview
+            .caption
+            .as_deref()
+            .unwrap()
+            .contains("No counts: c4.")
+    );
+    assert_eq!(
+        cell(&t, "Overview Column Points", "c4", "Mass"),
+        &Cell::Empty
+    );
 }
