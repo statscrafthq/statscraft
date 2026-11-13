@@ -1079,12 +1079,16 @@ impl Kr {
         let g = ((rows + 1.0) * a1 - (rows + 4.0) * a2) / ((rows + 2.0) * a2);
         let den = 3.0 * rows + 2.0 * (1.0 - g);
         let (c1, c2, c3) = (g / den, (rows - g) / den, (rows + 2.0 - g) / den);
+        if a2 >= rows {
+            // E(F) would not be positive: the expansion does not hold
+            return (f64::NAN, 1.0);
+        }
         let e_star = 1.0 / (1.0 - a2 / rows);
         let v_star = 2.0 / rows * (1.0 + c1 * b) / ((1.0 - c2 * b).powi(2) * (1.0 - c3 * b));
         let rho = v_star / (2.0 * e_star * e_star);
         let m_df = 4.0 + (rows + 2.0) / (rows * rho - 1.0);
         let lambda = m_df / (e_star * (m_df - 2.0));
-        if m_df.is_finite() && m_df > 0.0 {
+        if m_df.is_finite() && m_df > 2.0 && lambda.is_finite() && lambda > 0.0 {
             (m_df, lambda)
         } else {
             (f64::NAN, 1.0)
@@ -1799,24 +1803,27 @@ impl FixedPart<'_> {
         for (r, (row, constant)) in t.rows.iter().zip(&t.constants).enumerate() {
             let full = l_row(self.d, self.fit, row, "TEST")?;
             let name = format!("L{}", r + 1);
+            // the random part is checked even when the row turns out not estimable
+            let given = t.random.get(r).filter(|g| !g.is_empty());
+            let (lr, written) = match (random, given) {
+                (Some((_, build)), Some(given)) => build(given)?,
+                _ => (Vec::new(), Vec::new()),
+            };
             let Some(lf) = self.reduce(&full) else {
                 warnings.push(format!(
                     "TEST {title}: {name} is not estimable and is not tested"
                 ));
                 continue;
             };
-            let (lr, written) = match (random, t.random.get(r)) {
-                (Some((_, build)), Some(given)) if !given.is_empty() => build(given)?,
-                _ => (Vec::new(), Vec::new()),
-            };
-            kept.push((name, full, lf, lr, written, *constant));
+            let has_random = random.is_some() && given.is_some();
+            kept.push((name, full, lf, lr, written, *constant, has_random));
         }
-        // a test with random coefficients in any tested row treats all its rows alike,
+        // a test where any tested row has coefficients after `|` treats all its rows alike,
         // unadjusted
-        let any_random = kept.iter().any(|row| !row.3.is_empty());
+        let any_random = kept.iter().any(|row| row.6);
         // the coefficients of each tested row for PRINT LMATRIX, numbered as below
         let mut coefficients: Vec<(String, Vec<f64>)> = Vec::new();
-        for (name, full, lf, lr, written, constant) in kept {
+        for (name, full, lf, lr, written, constant, _) in kept {
             if let Some((_, random_columns)) = lmatrix {
                 let mut column = full;
                 if any_random {

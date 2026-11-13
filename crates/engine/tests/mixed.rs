@@ -7430,6 +7430,22 @@ fn kenward_roger_agrees_with_the_black_box_check() {
         ],
         "repeated AR1",
     );
+    // a TEST with coefficients after `|` stays unadjusted in all its rows, KR or not
+    let random_test = |method: &str| {
+        let (_, t) = run(&format!(
+            "{}MIXED mark BY girl WITH hours /FIXED=girl hours /RANDOM=INTERCEPT | SUBJECT(school) /CRITERIA=DFMETHOD({method}) /TEST=girl 1 -1; INTERCEPT 1 girl 0 1 | INTERCEPT 1.",
+            pupils()
+        ));
+        let get = |row, column| cell(&t, "Contrast Estimates", row, column).unwrap();
+        (get("L1", "Std. Error"), get("L1", "df"), get("L2", "df"))
+    };
+    let (kr, satterthwaite) = (random_test("KENWARDROGER"), random_test("SATTERTHWAITE"));
+    assert!(
+        (kr.0 - satterthwaite.0).abs() < 1e-12,
+        "{kr:?} {satterthwaite:?}"
+    );
+    assert!((kr.1 - satterthwaite.1).abs() < 1e-9 * satterthwaite.1);
+    assert!((kr.2 - satterthwaite.2).abs() < 1e-9 * satterthwaite.2);
     // balanced complete blocks: the method gives the analysis of variance exactly
     let (_, t) = run(&format!(
         "{BLOCKS}MIXED y BY treat block /FIXED=treat /RANDOM=block /CRITERIA=DFMETHOD(KENWARDROGER)."
