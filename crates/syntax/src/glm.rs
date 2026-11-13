@@ -798,19 +798,19 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
             let (all, r) = *form.get_or_insert((all_word, n));
             if all_word != all {
                 let (found, set) = if all_word {
-                    ("ALL", "names effects")
+                    ("ALL", "effect names")
                 } else {
-                    ("an effect name", "uses ALL")
+                    ("an effect name", "ALL")
                 };
-                let row = if r == n {
-                    "this row".to_string()
+                let place = if r == n {
+                    "earlier in the same row".to_string()
                 } else {
-                    format!("row {r}")
+                    format!("in row {r}")
                 };
                 return Err(SyntaxError::new(
                     p.span_from(start),
                     format!(
-                        "TEST row {n} has {found}, but {row} {set}; one TEST uses either ALL with values or effect names, never both"
+                        "TEST row {n} has {found} after {set} {place}; one TEST uses either ALL with values or effect names, never both"
                     ),
                 ));
             }

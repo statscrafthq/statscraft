@@ -265,16 +265,16 @@ impl ContrastTest {
                 after_effect = 0;
                 let token = token.as_str();
                 let all = token.eq_ignore_ascii_case("ALL");
-                if *all_form.get_or_insert(all) != all {
-                    return Err(format!(
-                        "test {n}: ALL and effect names cannot be mixed in one test"
-                    ));
-                }
                 let known = all
                     || (intercept && token.eq_ignore_ascii_case("INTERCEPT"))
                     || terms.iter().any(|t| same_term(t, token));
                 if !known {
                     return Err(format!("test {n}: {token} is not an effect of the model"));
+                }
+                if *all_form.get_or_insert(all) != all {
+                    return Err(format!(
+                        "test {n}: ALL and effect names cannot be mixed in one test"
+                    ));
                 }
             }
             if after_effect == 0 {
@@ -542,7 +542,7 @@ impl Ordinal {
                 });
             if let Some(t) = both {
                 return Err(format!(
-                    "test {}: {t} is in both the location and the scale part, so give its coefficients with ALL",
+                    "test {}: {t} is in both the location and the scale part, so give the coefficients of every row with ALL",
                     i + 1
                 ));
             }
@@ -2413,7 +2413,7 @@ mod tests {
         d.tests[0].rows = "age 1".into();
         assert_eq!(
             d.syntax().unwrap_err(),
-            "test 1: age is in both the location and the scale part, so give its coefficients with ALL"
+            "test 1: age is in both the location and the scale part, so give the coefficients of every row with ALL"
         );
         d.tests[0].rows = "ALL 0 0 0 1 -1 0\ngender 1 -1".into();
         assert_eq!(

@@ -3113,7 +3113,7 @@ impl Engine {
                             if let Some(ef) = find_effect(&d, &f.effects, term)? {
                                 if found.is_some() {
                                     return Err(Error(format!(
-                                        "TEST names {} after '|', which is on more than one RANDOM; give its coefficients with ALL",
+                                        "TEST names {} after '|', which is on more than one RANDOM; give the random coefficients as bare values after '|'",
                                         term.label
                                     )));
                                 }

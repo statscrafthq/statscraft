@@ -1147,7 +1147,7 @@ impl Engine {
                                 }
                                 _ => {
                                     return Err(Error(format!(
-                                        "TEST names {}, which is both a LOCATION and a SCALE effect; give its coefficients with ALL",
+                                        "TEST names {}, which is both a LOCATION and a SCALE effect; give the coefficients of every row with ALL",
                                         term.label
                                     )));
                                 }

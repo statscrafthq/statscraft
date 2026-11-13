@@ -192,6 +192,7 @@ fn solution_print_save_and_random_test_coefficients() {
     assert_eq!(t.rows[0][0].1, [0.5, -0.5]);
     assert_eq!(t.random[0][0].1, [0.5, -0.5]);
     assert!(t.rows[1].is_empty());
+    assert_eq!(t.random[1][0].0.as_ref().unwrap().label, "plot");
     assert_eq!(t.random[1][0].1, [1.0, 0.0, 0.0, 1.0]);
     assert_eq!(m.tests[1].random[0][0].1, [1.0, -1.0]);
     assert!(m.tests[1].rows[0].is_empty());
@@ -225,19 +226,19 @@ fn test_rows_keep_the_form_of_the_first_row() {
     for (source, says) in [
         (
             "MIXED gain BY crop /FIXED=crop /TEST=ALL 0 1 -1; crop 1 -1.",
-            "row 2 has an effect name, but row 1 uses ALL",
+            "row 2 has an effect name after ALL in row 1",
         ),
         (
             "MIXED gain BY crop /FIXED=crop /TEST=crop 1 -1; ALL 0 1 -1.",
-            "row 2 has ALL, but row 1 names effects",
+            "row 2 has ALL after effect names in row 1",
         ),
         (
             "MIXED gain BY crop /FIXED=crop /RANDOM=plot /TEST=| 1 0; crop 0 1; | ALL 1 0.",
-            "row 3 has ALL, but row 2 names",
+            "row 3 has ALL after effect names in row 2",
         ),
         (
             "MIXED gain BY crop /FIXED=crop /RANDOM=plot /TEST=crop 1 -1 | ALL 1 0.",
-            "row 1 has ALL, but this row names",
+            "row 1 has ALL after effect names earlier in the same row",
         ),
         (
             "MIXED gain BY crop /FIXED=crop /TEST=crop 1 -1; INTERCEPT 1 ALL 0 1 -1.",
