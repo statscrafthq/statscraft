@@ -17,8 +17,9 @@
 //!   rho_|i-j|); CSH s_i s_j (1, else rho); ARH1 s_i s_j rho^|i-j|; TPH s_i s_j rho_|i-j|; AD1
 //!   s_i s_j times the neighbour correlations between i and j; UNR s_i s_j rho_ij; HF v_i on the
 //!   diagonal, else (v_i + v_j) / 2 - lambda; FA1 l_i l_j plus d on the diagonal; FAH1 the same
-//!   with d_i. Variances and diagonal offsets stay at least 0 and correlations inside (-1, 1);
-//!   nothing else is constrained. A factor's loadings are shown with a positive sum.
+//!   with d_i. Variances that scale correlations stay above 0, other variances and diagonal
+//!   offsets at least 0, and correlations inside (-1, 1); nothing else is constrained. A
+//!   factor's loadings are shown with a positive sum.
 //! - -2 log likelihood: ML log|V| + r'V^-1 r + n log 2 pi; REML adds log|X'V^-1 X| and has
 //!   (n - p) log 2 pi, p the rank of X. The covariance parameters minimize it by Newton steps
 //!   (the expected Hessian for the first SCORING iterations), halving a step that leaves the
@@ -251,26 +252,34 @@ impl Block {
                 }
             })
             .collect();
-        block.d2 = (0..count)
-            .map(|s| {
-                (0..count)
-                    .map(|t| {
-                        block.nonlinear()
-                            && (0..dim).any(|i| {
-                                (0..dim).any(|j| {
-                                    let seeded = |k: usize| Dual {
-                                        v: point[k],
-                                        a: f64::from(u8::from(k == s)),
-                                        b: f64::from(u8::from(k == t)),
-                                        ab: 0.0,
-                                    };
-                                    block.formula(seeded, i, j).ab != 0.0
-                                })
-                            })
-                    })
-                    .collect()
-            })
-            .collect();
+        let mut d2 = vec![vec![false; count]; count];
+        if block.nonlinear() {
+            let at = |s: usize, t: usize, i: usize, j: usize| {
+                let seeded = |k: usize| Dual {
+                    v: point[k],
+                    a: f64::from(u8::from(k == s)),
+                    b: f64::from(u8::from(k == t)),
+                    ab: 0.0,
+                };
+                block.formula(seeded, i, j)
+            };
+            // only parameters an entry depends on can pair up in its second derivative
+            for i in 0..dim {
+                for j in 0..=i {
+                    let used: Vec<usize> = (0..count)
+                        .filter(|&s| at(s, usize::MAX, i, j).a != 0.0)
+                        .collect();
+                    for &s in &used {
+                        for &t in &used {
+                            if !d2[s][t] && at(s, t, i, j).ab != 0.0 {
+                                d2[s][t] = true;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        block.d2 = d2;
         block
     }
 
@@ -585,6 +594,8 @@ struct Eval {
     /// X'V^-1 V_s V^-1 V_t V^-1 X and X'V^-1 V_st V^-1 X for s <= t (Hessian depth only).
     q: Vec<Vec<Matrix>>,
     r2: Vec<Vec<Matrix>>,
+    /// The expected Hessian, kept beside the one asked for (Hessian depth only).
+    hess_expected: Matrix,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -808,6 +819,7 @@ impl Model {
             vi: Vec::new(),
             q: Vec::new(),
             r2: Vec::new(),
+            hess_expected: Vec::new(),
         };
         if depth == Depth::Objective {
             out.vi = vis;
@@ -863,7 +875,10 @@ impl Model {
                     t1[s][t] += trace_product(&ws[s], &ws[t]);
                     add_to(&mut t2[s][t], &cross(&ds[s], &es[t]));
                     avia[s][t] += dot(&avs[s], &vias[t]);
-                    if self.blocks[self.block_of(s)].touches(What::D2(s, t)) {
+                    // the expected Hessian has no second derivatives of V
+                    if depth == (Depth::Hessian { expected: false })
+                        && self.blocks[self.block_of(s)].touches(What::D2(s, t))
+                    {
                         let dv2 = self.matrix(cases, th, What::D2(s, t));
                         tr2[s][t] += trace_product(vi, &dv2);
                         qv2q[s][t] += dot(&q, &mat_vec(&dv2, &q));
@@ -879,17 +894,21 @@ impl Model {
             .collect();
         if let Depth::Hessian { expected } = depth {
             let mut hm = vec![vec![0.0; k]; k];
+            let mut he = vec![vec![0.0; k]; k];
             for s in 0..k {
                 for t in s..k {
                     let aib_s = product(ai, &b[s]);
                     let aib_t = product(ai, &b[t]);
                     let bb = trace_product(&aib_s, &aib_t);
+                    let ex = if self.ml {
+                        t1[s][t]
+                    } else {
+                        t1[s][t] - 2.0 * tr_ai(&t2[s][t]) + bb
+                    };
+                    he[s][t] = ex;
+                    he[t][s] = ex;
                     let v = if expected {
-                        if self.ml {
-                            t1[s][t]
-                        } else {
-                            t1[s][t] - 2.0 * tr_ai(&t2[s][t]) + bb
-                        }
+                        ex
                     } else {
                         let ml = -t1[s][t]
                             + tr2[s][t]
@@ -906,6 +925,7 @@ impl Model {
                 }
             }
             out.hess = hm;
+            out.hess_expected = he;
             out.q = t2;
             out.r2 = uv2u;
         }
@@ -1190,6 +1210,10 @@ impl Infer<'_> {
 
 /// Coefficients of predicted random effects: (RANDOM, subject, column, coefficient).
 type RandomRow = Vec<(usize, usize, usize, f64)>;
+
+/// PRINT LMATRIX for TEST: the parameter names (fixed, then one subject's random effects) and
+/// the columns and subjects of each RANDOM.
+type LmatrixRows<'a> = (&'a [String], &'a [(usize, usize)]);
 
 /// Turns the coefficients after `|` of a TEST row into a RandomRow.
 type RandomBuilder<'a> = &'a dyn Fn(&LRow) -> Result<RandomRow, Error>;
@@ -1757,6 +1781,7 @@ impl FixedPart<'_> {
         n: usize,
         t: &CustomTest,
         random: Option<(&Predict, RandomBuilder)>,
+        lmatrix: Option<LmatrixRows>,
         warnings: &mut Vec<String>,
     ) -> Result<Vec<Table>, Error> {
         let title = t
@@ -1769,6 +1794,8 @@ impl FixedPart<'_> {
         let mut a = Vec::new();
         // a test with random coefficients in any row treats all its rows alike, unadjusted
         let any_random = random.is_some() && t.random.iter().any(|r| !r.is_empty());
+        // the coefficients of each tested row for PRINT LMATRIX, numbered as below
+        let mut coefficients: Vec<(String, Vec<f64>)> = Vec::new();
         for (r, (row, constant)) in t.rows.iter().zip(&t.constants).enumerate() {
             let full = l_row(self.d, self.fit, row, "TEST")?;
             let name = format!("L{}", r + 1);
@@ -1782,6 +1809,20 @@ impl FixedPart<'_> {
                 (Some((_, build)), Some(given)) if !given.is_empty() => build(given)?,
                 _ => Vec::new(),
             };
+            if let Some((_, dims)) = lmatrix {
+                let mut column = full.clone();
+                if any_random {
+                    // one subject's share times the subjects: the coefficient as given
+                    for (k, &(dim, subjects)) in dims.iter().enumerate() {
+                        column.extend((0..dim).map(|col| {
+                            lr.iter()
+                                .find(|x| x.0 == k && x.1 == 0 && x.2 == col)
+                                .map_or(0.0, |x| x.3 * subjects as f64)
+                        }));
+                    }
+                }
+                coefficients.push((name.clone(), column));
+            }
             let (est, se, df) = match random {
                 Some((predict, _)) if any_random => predict.estimate(&lf, &lr),
                 _ => self.inf.estimate(&lf),
@@ -1808,6 +1849,17 @@ impl FixedPart<'_> {
         }
         let caption = format!("{title}. Dependent Variable: {}.", self.dependent);
         let mut out = Vec::new();
+        if let Some((names, _)) = lmatrix
+            && !coefficients.is_empty()
+        {
+            let shown = coefficients.iter().map(|(_, c)| c.len()).max().unwrap_or(0);
+            out.push(l_table(
+                &format!("Estimable Function for {title}"),
+                &names[..shown.min(names.len())],
+                &coefficients,
+                format!("Coefficients of the rows of the test. {caption}"),
+            ));
+        }
         if rows.is_empty() {
             return Ok(out);
         }
@@ -2489,14 +2541,11 @@ impl Engine {
         let residual_df = (n - p) as f64;
         let kr = if command.df_method == DfMethod::KenwardRoger {
             // W is the inverse of the expected information, as the method was published
-            let w = model
-                .evaluate(&fitted.th, Depth::Hessian { expected: true })
-                .and_then(|ex| cholesky_inverse(&ex.hess))
-                .map(|(inv, _)| {
-                    inv.iter()
-                        .map(|row| row.iter().map(|v| 2.0 * v).collect())
-                        .collect()
-                });
+            let w = cholesky_inverse(&e.hess_expected).map(|(inv, _)| {
+                inv.iter()
+                    .map(|row| row.iter().map(|v| 2.0 * v).collect())
+                    .collect()
+            });
             let kr = w.and_then(|w| Kr::new(e, w));
             if kr.is_none() {
                 warnings.push("MIXED: the Kenward-Roger adjustment cannot be made (the expected information of the covariance parameters is singular or the adjusted covariance is not positive definite), so the degrees of freedom are Satterthwaite's".into());
@@ -2513,6 +2562,40 @@ impl Engine {
             kr,
         };
         let mut tables = Vec::new();
+        // labels shared by the tables: each RANDOM's subject suffix and the owner of each of
+        // its covariance parameters (VC: the effect, otherwise all its effects)
+        let subject_suffix: Vec<String> = command
+            .random
+            .iter()
+            .map(|r| {
+                if r.subject.is_empty() {
+                    String::new()
+                } else {
+                    format!(" [subject = {}]", r.subject.join(" * "))
+                }
+            })
+            .collect();
+        let random_groups: Vec<Vec<String>> = random_fits
+            .iter()
+            .enumerate()
+            .map(|(k, fit)| {
+                let sfx = &subject_suffix[k];
+                if model.blocks[k + 1].covtype == CovType::Vc {
+                    fit.effects
+                        .iter()
+                        .map(|ef| format!("{}{sfx}", ef.label))
+                        .collect()
+                } else {
+                    let all: Vec<&str> = fit.effects.iter().map(|ef| ef.label.as_str()).collect();
+                    vec![format!("{}{sfx}", all.join(" + ")); model.blocks[k + 1].count]
+                }
+            })
+            .collect();
+        let residual_group = if command.repeated.is_some() {
+            "Repeated Measures"
+        } else {
+            "Residual"
+        };
 
         // Case Processing Summary: the sorted values of the factors, repeated variables and
         // subject variables among the cases used
@@ -2743,36 +2826,12 @@ impl Engine {
                     "-2 Restricted Log Likelihood".into()
                 },
             ));
-            let residual_group = if command.repeated.is_some() {
-                "Repeated Measures"
-            } else {
-                "Residual"
-            };
             for (k, block) in model.blocks.iter().enumerate() {
-                let owner = if k == 0 {
-                    residual_group.to_string()
-                } else {
-                    let r = &command.random[k - 1];
-                    let effects: Vec<&str> = random_fits[k - 1]
-                        .effects
-                        .iter()
-                        .map(|ef| ef.label.as_str())
-                        .collect();
-                    if r.subject.is_empty() {
-                        effects.join(" + ")
-                    } else {
-                        format!(
-                            "{} [subject = {}]",
-                            effects.join(" + "),
-                            r.subject.join(" * ")
-                        )
-                    }
-                };
-                for name in block.names() {
-                    let label = if command.repeated.is_none() && k == 0 {
-                        owner.clone()
-                    } else {
-                        format!("{owner} {name}")
+                for (i, name) in block.names().into_iter().enumerate() {
+                    let label = match k {
+                        0 if command.repeated.is_none() => residual_group.to_string(),
+                        0 => format!("{residual_group} {name}"),
+                        _ => format!("{} {name}", random_groups[k - 1][i]),
                     };
                     columns.push(("Covariance Parameters".into(), label));
                 }
@@ -2851,15 +2910,17 @@ impl Engine {
         // Type I or III Tests of Fixed Effects
         let reduce = |row: &[f64]| -> Vec<f64> { kept.iter().map(|&j| row[j]).collect() };
         let mut tests = Vec::new();
-        let type_l = |i: usize| {
-            if command.sstype == 1 {
-                fixed.type1(i)
-            } else {
-                fixed.type34(i, false)
-            }
-        };
+        let type_l: Vec<Matrix> = (0..fixed.effects.len())
+            .map(|i| {
+                if command.sstype == 1 {
+                    fixed.type1(i)
+                } else {
+                    fixed.type34(i, false)
+                }
+            })
+            .collect();
         for (i, ef) in fixed.effects.iter().enumerate() {
-            let l: Matrix = type_l(i).iter().map(|r| reduce(r)).collect();
+            let l: Matrix = type_l[i].iter().map(|r| reduce(r)).collect();
             let Some((q, df, f)) = inf.f_test(&l, &vec![0.0; l.len()]) else {
                 tests.push(vec![
                     text(ef.label.clone()),
@@ -3079,52 +3140,23 @@ impl Engine {
                     .collect()
             })
             .collect();
+        // the rows of the Estimable Function of a TEST: fixed, then one subject's random
+        let random_dims: Vec<(usize, usize)> = random_fits
+            .iter()
+            .zip(&subject_counts)
+            .map(|(f, &subjects)| (f.p, subjects))
+            .collect();
+        let mut lmatrix_names = names.clone();
+        for (k, sfx) in subject_suffix.iter().enumerate() {
+            lmatrix_names.extend(random_names[k].iter().map(|n| format!("{n}{sfx}")));
+        }
         for (k, t) in command.tests.iter().enumerate() {
             let random = predict.as_ref().map(|p| (p, &random_row as RandomBuilder));
-            if command.print.lmatrix {
-                let title = t
-                    .label
-                    .clone()
-                    .unwrap_or_else(|| format!("Custom Hypothesis Test {}", k + 1));
-                // each row keeps its number, as in Contrast Estimates
-                let mut ls: Vec<(String, Vec<f64>)> = Vec::new();
-                for (r, row) in t.rows.iter().enumerate() {
-                    let mut l = l_row(&d, &fixed, row, "TEST")?;
-                    // a row that is not estimable is not tested, so not shown
-                    if part.reduce(&l).is_none() {
-                        continue;
-                    }
-                    if let Some(given) = t.random.get(r).filter(|g| !g.is_empty()) {
-                        let rr = random_row(given)?;
-                        for (k2, f) in random_fits.iter().enumerate() {
-                            l.extend((0..f.p).map(|col| {
-                                rr.iter()
-                                    .filter(|x| x.0 == k2 && x.2 == col)
-                                    .fold(0.0, |acc, x| acc + x.3)
-                            }));
-                        }
-                    }
-                    ls.push((format!("L{}", r + 1), l));
-                }
-                let mut row_names = names.clone();
-                if ls.iter().any(|(_, l)| l.len() > names.len()) {
-                    for (k2, r) in command.random.iter().enumerate() {
-                        let subject = if r.subject.is_empty() {
-                            String::new()
-                        } else {
-                            format!(" [subject = {}]", r.subject.join(" * "))
-                        };
-                        row_names.extend(random_names[k2].iter().map(|n| format!("{n}{subject}")));
-                    }
-                }
-                tables.push(l_table(
-                    &format!("Estimable Function for {title}"),
-                    &row_names,
-                    &ls,
-                    format!("Coefficients of the rows of the test. {caption}"),
-                ));
-            }
-            tables.extend(part.custom_test(k + 1, t, random, &mut warnings)?);
+            let lmatrix = command
+                .print
+                .lmatrix
+                .then_some((lmatrix_names.as_slice(), random_dims.as_slice()));
+            tables.extend(part.custom_test(k + 1, t, random, lmatrix, &mut warnings)?);
         }
         if command.print.lmatrix {
             let kind = if command.sstype == 1 { "I" } else { "III" };
@@ -3132,8 +3164,9 @@ impl Engine {
                 tables.push(l_table(
                     &format!("Estimable Function for {}", ef.label),
                     &names,
-                    &type_l(i)
-                        .into_iter()
+                    &type_l[i]
+                        .iter()
+                        .cloned()
                         .enumerate()
                         .map(|(r, l)| (format!("L{}", r + 1), l))
                         .collect::<Vec<_>>(),
@@ -3198,11 +3231,7 @@ impl Engine {
                 .iter()
                 .map(|ef| ef.label.as_str())
                 .collect();
-            let subject = if r.subject.is_empty() {
-                String::new()
-            } else {
-                format!(" [subject = {}]", r.subject.join(" * "))
-            };
+            let subject = &subject_suffix[k];
             tables.push(table(
                 "Estimates of Random Effects",
                 2,
@@ -3271,32 +3300,12 @@ impl Engine {
                 cov_rows.push(row);
             }
         };
-        let residual_group = if command.repeated.is_some() {
-            "Repeated Measures"
-        } else {
-            "Residual"
-        };
         push_block(
             &model.blocks[0],
             vec![residual_group.into(); model.blocks[0].count],
         );
-        for (k, (r, fit)) in command.random.iter().zip(&random_fits).enumerate() {
-            let block = &model.blocks[k + 1];
-            let subject = if r.subject.is_empty() {
-                String::new()
-            } else {
-                format!(" [subject = {}]", r.subject.join(" * "))
-            };
-            let groups = if block.covtype == CovType::Vc {
-                fit.effects
-                    .iter()
-                    .map(|ef| format!("{}{subject}", ef.label))
-                    .collect()
-            } else {
-                let all: Vec<&str> = fit.effects.iter().map(|ef| ef.label.as_str()).collect();
-                vec![format!("{}{subject}", all.join(" + ")); block.count]
-            };
-            push_block(block, groups);
+        for (k, groups) in random_groups.iter().enumerate() {
+            push_block(&model.blocks[k + 1], groups.clone());
         }
         tables.push(table(
             "Estimates of Covariance Parameters",
@@ -3309,7 +3318,7 @@ impl Engine {
             warnings.push("MIXED: PRINT G needs a RANDOM subcommand and is ignored".into());
         }
         if command.print.g {
-            for (k, (r, fit)) in command.random.iter().zip(&random_fits).enumerate() {
+            for (k, fit) in random_fits.iter().enumerate() {
                 let block = &model.blocks[k + 1];
                 let names: Vec<String> = fit
                     .effects
@@ -3317,11 +3326,7 @@ impl Engine {
                     .flat_map(|ef| ef.cells.iter().map(|cell| parameter_name(&d, ef, cell)))
                     .collect();
                 let effects: Vec<&str> = fit.effects.iter().map(|ef| ef.label.as_str()).collect();
-                let subject = if r.subject.is_empty() {
-                    String::new()
-                } else {
-                    format!(" [subject = {}]", r.subject.join(" * "))
-                };
+                let subject = &subject_suffix[k];
                 tables.push(matrix_table(
                     "Random Effect Covariance Structure (G)",
                     &names,

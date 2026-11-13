@@ -7452,7 +7452,7 @@ fn random_effect_predictions_agree_with_the_black_box_check() {
     let (engine, t) = run(&format!(
         "{}MIXED mark BY girl WITH hours /FIXED=girl hours /RANDOM=INTERCEPT hours | SUBJECT(school) COVTYPE(UN) SOLUTION\n\
          /SAVE=PRED SEPRED DFPRED(dfp) /TEST='line at 5' INTERCEPT 1 girl 0 1 hours 5 | INTERCEPT 1 hours 5\n\
-         /TEST='both' INTERCEPT 1 girl 0 1 | INTERCEPT 1; hours 1 | hours 1.",
+         /TEST='both' INTERCEPT 1 girl 0 1 | INTERCEPT 1; hours 1 | hours 1 /PRINT=LMATRIX.",
         pupils()
     ));
     let close = |got: f64, want: f64, tolerance: f64, what: &str| {
@@ -7511,6 +7511,14 @@ fn random_effect_predictions_agree_with_the_black_box_check() {
     close(contrast(1, "L2", "df"), 179.118051726, 1e-3, "row 2 df");
     let both = |column: &str| nth(&t, "Test Results", 1, "both", column);
     close(both("F"), 8577.16517196, 1e-6, "F");
+    // the coefficients of one subject's random effects, as given
+    let lm = "Estimable Function for both";
+    assert_eq!(cell(&t, lm, "hours [subject = school]", "L2"), Some(1.0));
+    assert_eq!(
+        cell(&t, lm, "Intercept [subject = school]", "L2"),
+        Some(0.0)
+    );
+    assert_eq!(cell(&t, lm, "[girl=1]", "L1"), Some(1.0));
     close(both("Denominator df"), 178.331537424, 1e-3, "F df");
     let data = engine.dataset().unwrap();
     let value = |name: &str, case: usize| match data.variable(name).unwrap().values() {

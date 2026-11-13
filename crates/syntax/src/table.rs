@@ -1730,11 +1730,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  level; two levels correlate by the product of the neighbour correlations between them), UNR (a\n\
                  variance per level and a correlation per pair), HF (a variance per level; two levels have their\n\
                  mean variance less lambda as covariance), FA1 and FAH1 (the loadings of one factor plus a\n\
-                 diagonal offset, common or per level). Variances and offsets stay at least 0 and correlations\n\
-                 between -1 and 1. VC on REPEATED is DIAG. tempvar: FIXPRED (X b), PRED (X b plus the predicted\n\
-                 random effects), RESID (dependent minus PRED), SEFIXP and DFFIXP (the standard error and degrees\n\
-                 of freedom of FIXPRED), SEPRED and DFPRED (the same for PRED, counting the prediction error of\n\
-                 the random effects).\n\
+                 diagonal offset, common or per level). Variances that scale correlations stay above 0, other\n\
+                 variances and offsets at least 0, correlations between -1 and 1. VC on REPEATED is DIAG.\n\
+                 tempvar: FIXPRED (X b), PRED (X b plus the predicted random effects), RESID (dependent minus\n\
+                 PRED), SEFIXP and DFFIXP (the standard error and degrees of freedom of FIXPRED), SEPRED and\n\
+                 DFPRED (the same for PRED, counting the prediction error of the random effects).\n\
                  The fixed part is the intercept unless NOINT, plus the FIXED effects. Each RANDOM adds one\n\
                  covariance block per subject, the same for every subject; subjects are independent, and so are\n\
                  the RANDOM subcommands. Without SUBJECT the whole file is one subject. REPEATED orders the\n\
@@ -1774,8 +1774,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  the fixed estimates (adjusted with KENWARDROGER). CPS counts the cases at each value of the\n\
                  factors and of the repeated and subject variables; DESCRIPTIVES gives the count, mean and\n\
                  standard deviation of the dependent and covariates in each cell of the factors; HISTORY(n) lists\n\
-                 the start and every n-th iteration\n\
-                 (update type, step halvings, -2 log likelihood and every parameter) and always the last;\n\
+                 the start and every n-th iteration (update type, step halvings, -2 log likelihood and every\n\
+                 parameter) and always the last;\n\
                  LMATRIX shows the coefficients of each test of a fixed effect and of each TEST. Not supported\n\
                  yet: the spatial and Kronecker types of REPEATED, KRONECKER and SPCOORDS.",
         example: "MIXED yield BY plot_type WITH rain /FIXED=plot_type rain /RANDOM=INTERCEPT rain | SUBJECT(farm) COVTYPE(UN) /PRINT=SOLUTION TESTCOV.",
