@@ -5,7 +5,7 @@ use crate::analyze_dialogs::keywords;
 use crate::dialogs::whole;
 use crate::stats_dialogs::parse;
 use crate::syntax_text::number;
-use statscraft_data::{Dataset, Value};
+use statscraft_data::Dataset;
 use std::collections::BTreeMap;
 
 /// What a category of the row or column variable is in the analysis; active when not listed.
@@ -31,25 +31,6 @@ struct Checked {
     range: (i64, i64),
     supplementary: Vec<i64>,
     groups: Vec<Vec<i64>>,
-}
-
-/// The lowest and highest whole labelled value of a numeric variable that is not user-missing,
-/// as a range to start from; empty without such labels.
-pub fn labelled_range(data: &Dataset, name: &str) -> (String, String) {
-    let Ok(var) = data.variable(name) else {
-        return Default::default();
-    };
-    let bounds = var
-        .value_labels()
-        .iter()
-        .filter_map(|(value, _)| match value {
-            Value::Number(n) if n.fract() == 0.0 && !var.is_user_missing(*n) => Some(*n),
-            _ => None,
-        })
-        .fold(None, |b: Option<(f64, f64)>, n| {
-            Some(b.map_or((n, n), |(lo, hi)| (lo.min(n), hi.max(n))))
-        });
-    bounds.map_or_else(Default::default, |(lo, hi)| (number(lo), number(hi)))
 }
 
 impl TableVariable {
@@ -80,6 +61,13 @@ impl TableVariable {
             ));
         }
         Ok((min, max))
+    }
+
+    /// Forgets the roles of categories outside a valid range, after the range changed.
+    pub fn keep_roles_in_range(&mut self) {
+        if let Ok((min, max)) = self.range() {
+            self.roles.retain(|value, _| (min..=max).contains(value));
+        }
     }
 
     fn checked(&self) -> Result<Checked, String> {
@@ -280,6 +268,10 @@ impl Correspondence {
         }
         // the engine lowers more dimensions than the table allows, empty categories left out
         let dims = whole(&self.dimensions, 1, "the number of dimensions")?.unwrap_or(2) as usize;
+        // the syntax takes no larger number
+        if dims >= 1_000_000_000 {
+            return Err("the number of dimensions must be below 1000000000".into());
+        }
         if dims != 2 {
             text.push_str(&format!("\n  /DIMENSION={dims}"));
         }
@@ -330,6 +322,14 @@ impl Correspondence {
     fn plot(&self, dims: usize) -> Result<String, String> {
         let mut plots = self.plots;
         plots[0] &= self.biplot_allowed();
+        let chosen = keywords(&CA_PLOTS, &plots);
+        if chosen.is_empty() {
+            // principal normalization draws nothing by default
+            return Ok(match self.biplot_allowed() {
+                true => "\n  /PLOT=NONE".into(),
+                false => String::new(),
+            });
+        }
         let length = match self.label_length.trim() {
             "" => None,
             t => match t.parse::<u32>() {
@@ -337,20 +337,13 @@ impl Correspondence {
                 _ => return Err("the label length is a whole number from 0 to 60".into()),
             },
         };
-        let mut words: Vec<String> = keywords(&CA_PLOTS, &plots)
+        let mut words: Vec<String> = chosen
             .into_iter()
             .map(|k| match length {
                 Some(n) => format!("{k}({n})"),
                 None => k.to_string(),
             })
             .collect();
-        if words.is_empty() {
-            // principal normalization draws nothing by default
-            return Ok(match self.biplot_allowed() {
-                true => "\n  /PLOT=NONE".into(),
-                false => String::new(),
-            });
-        }
         if self.ndim {
             if dims < 2 {
                 return Err("plotting a range of dimensions needs at least two".into());
@@ -493,27 +486,22 @@ mod tests {
     }
 
     #[test]
-    fn a_new_variable_starts_from_its_labelled_values_without_missing_codes() {
-        let mut session = open("survey_basic.sav");
-        session
-            .run(
-                "MISSING VALUES q1_satisfaction (98, 99).
-                 VALUE LABELS age 18 'Youngest' 20.5 'Half' 90 'Oldest'.",
-                None,
-            )
-            .unwrap();
-        let data = session.dataset().unwrap();
-        let range = |name: &str| {
-            let (min, max) = labelled_range(data, name);
-            format!("{min}..{max}")
-        };
-        // 98 and 99 are labelled but user-missing
-        assert_eq!(range("q1_satisfaction"), "1..5");
-        assert_eq!(range("region"), "1..5");
-        // a label of a fraction is no category value
-        assert_eq!(range("age"), "18..90");
-        assert_eq!(range("monthly_spend"), "..");
-        assert_eq!(range("gone"), "..");
+    fn a_changed_range_forgets_the_roles_outside_it() {
+        let mut v = side("region", "1", "5");
+        v.roles.insert(1, Role::Supplementary);
+        v.roles.insert(4, Role::Equal(1));
+        v.roles.insert(5, Role::Equal(1));
+        // a range still being typed keeps every role
+        v.max.clear();
+        v.keep_roles_in_range();
+        assert_eq!(v.roles.len(), 3);
+        v.min = "2".into();
+        v.max = "4".into();
+        v.keep_roles_in_range();
+        assert_eq!(
+            v.roles.into_iter().collect::<Vec<_>>(),
+            [(4, Role::Equal(1))]
+        );
     }
 
     #[test]
@@ -607,6 +595,29 @@ mod tests {
         assert_eq!(
             err(&|d| d.label_length = "61".into()),
             "the label length is a whole number from 0 to 60"
+        );
+        // without a plot the label length is not written, so not checked
+        let mut d = base.clone();
+        d.label_length = "61".into();
+        d.plots = [false; 5];
+        assert!(d.syntax(&data).unwrap().ends_with("/PLOT=NONE."));
+        assert_eq!(
+            err(&|d| d.dimensions = "1000000000".into()),
+            "the number of dimensions must be below 1000000000"
+        );
+        assert_eq!(
+            err(&|d| {
+                d.permutation = true;
+                d.permutation_dims = "1000000000".into();
+            }),
+            "permuted tables for 1000000000 dimensions, but the solution has 2"
+        );
+        assert_eq!(
+            err(&|d| {
+                d.ndim = true;
+                d.ndim_last = "1000000000".into();
+            }),
+            "the last plotted dimension must be above the first and at most 2"
         );
         assert_eq!(
             err(&|d| {

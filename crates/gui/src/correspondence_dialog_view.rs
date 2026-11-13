@@ -3,8 +3,8 @@
 use crate::app::{checkboxes, choice, field, target_one};
 use crate::correspondence_dialog::{
     CA_DISTANCES, CA_NORMALIZATIONS, CA_PLOTS, CA_PRINT, Correspondence, Role, TableVariable,
-    labelled_range,
 };
+use crate::dialogs::labelled_range;
 use crate::stats_dialogs_view::small_field;
 use eframe::egui::{self, ComboBox, ScrollArea, Ui};
 use statscraft_data::{Dataset, Value};
@@ -78,7 +78,8 @@ pub fn correspondence(
 }
 
 /// The variable with its range; a new variable starts from its lowest and highest labelled
-/// value that is not user-missing, and with every category active.
+/// value that is not user-missing, and with every category active. A changed range forgets the
+/// roles of the categories left outside it.
 fn table_variable(
     ui: &mut Ui,
     data: &Dataset,
@@ -87,6 +88,7 @@ fn table_variable(
     picked: &mut Vec<String>,
 ) {
     let before = v.name.clone();
+    let range = (v.min.clone(), v.max.clone());
     target_one(ui, title, &mut v.name, picked);
     if v.name != before {
         v.roles.clear();
@@ -100,10 +102,12 @@ fn table_variable(
             small_field(ui, true, &mut v.max);
         });
     });
+    if (&v.min, &v.max) != (&range.0, &range.1) {
+        v.keep_roles_in_range();
+    }
 }
 
-/// Each category of the range with its label and its role; a role given to a value outside
-/// the range stays listed so it can be set back to active.
+/// Each category of the range with its label and its role.
 fn categories(ui: &mut Ui, data: &Dataset, id: &str, v: &mut TableVariable) {
     let Ok((min, max)) = v.range() else {
         ui.weak("Choose the variable and give its range first");
@@ -119,9 +123,7 @@ fn categories(ui: &mut Ui, data: &Dataset, id: &str, v: &mut TableVariable) {
             .find(|(l, _)| *l == Value::Number(value as f64))
             .map_or("", |(_, text)| text.as_str())
     };
-    let mut values: Vec<i64> = (min..=max).collect();
-    values.extend(v.roles.keys().filter(|k| **k < min || **k > max));
-    values.sort_unstable();
+    let values: Vec<i64> = (min..=max).collect();
     // one group more than are in use, to start a new one
     let groups = v
         .roles
@@ -158,10 +160,9 @@ fn categories(ui: &mut Ui, data: &Dataset, id: &str, v: &mut TableVariable) {
                                 ui.selectable_value(&mut chosen, Some(role), text(Some(role)));
                             }
                         });
-                    match (value < min || value > max, label(value)) {
-                        (true, _) => ui.weak(format!("{value}: outside the range")),
-                        (false, "") => ui.label(value.to_string()),
-                        (false, l) => ui.label(format!("{value}  {l}")),
+                    match label(value) {
+                        "" => ui.label(value.to_string()),
+                        l => ui.label(format!("{value}  {l}")),
                     };
                     if chosen != current {
                         match chosen {
