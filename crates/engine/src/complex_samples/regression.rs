@@ -16,7 +16,7 @@
 //!   sum of squares about the weighted mean (about 0 without intercept).
 //! - CSLOGISTIC: each category but the reference has a logit against it with its own
 //!   parameters. The estimates maximize the weighted log likelihood l = sum w log p(y) by
-//!   Newton-Raphson with step-halving (at most MXSTEP halvings); they start at 0 with each
+//!   Newton-Raphson with step-halving (MXSTEP step sizes 1, 1/2, 1/4, ...); they start at 0 with each
 //!   intercept at log(N_k / N_ref), N_k the weighted count of category k. Stop when the
 //!   parameters change by less than PCONVERGE (relative: over |b| + 1e-6) or the log likelihood
 //!   by less than LCONVERGE (relative: over |l| + 1e-6), only criteria above 0 counting, or
@@ -419,7 +419,7 @@ fn fit_logistic(
         iteration += 1;
         let Some((candidate, lc, halvings)) = accepted else {
             warnings.push(format!(
-                "CSLOGISTIC: the log pseudo-likelihood did not increase within {} step-halvings at iteration {iteration}; the estimates before it are shown",
+                "CSLOGISTIC: the log pseudo-likelihood did not increase with any of the {} step sizes (MXSTEP) at iteration {iteration}; the estimates before it are shown",
                 c.mxstep
             ));
             break;
@@ -1599,10 +1599,11 @@ impl Engine {
                 }
             }
             let mut out = Vec::new();
+            let estimable: Vec<bool> = pairs.iter().map(|(_, d)| fit.estimable(d, &h)).collect();
             for (l, label_l) in logit_labels.iter().enumerate() {
                 for (k, (label, diff)) in pairs.iter().enumerate() {
+                    let ok = estimable[k];
                     // a comparison through a cell without cases is not estimable: no value
-                    let ok = fit.estimable(diff, &h);
                     let row_l = est.spread(diff, l);
                     let cc = est.estimate(&row_l);
                     let se = est.quad(&est.v, &row_l).max(0.0).sqrt();
@@ -1623,14 +1624,9 @@ impl Engine {
             let mut cols = plain(&["", "Comparison", "Odds Ratio"]);
             cols.push((ci_group.clone(), "Lower".into()));
             cols.push((ci_group.clone(), "Upper".into()));
-            let compared = |n: &String| {
-                o.factors.iter().any(|(x, _)| x.eq_ignore_ascii_case(n))
-                    || o.covariates.iter().any(|(x, _)| x.eq_ignore_ascii_case(n))
-            };
             let mut held: Vec<String> = factor_vars
                 .iter()
                 .enumerate()
-                .filter(|(f, _)| !compared(&factor_names[*f]))
                 .map(|(f, v)| {
                     format!(
                         "{} = {}",
@@ -1648,13 +1644,15 @@ impl Engine {
             let mut cap = caption_base.clone();
             if !held.is_empty() {
                 cap.push_str(&format!(
-                    ". The other variables are held at: {}.",
+                    ". Each row holds the variables it does not compare at: {}.",
                     held.join(", ")
                 ));
             } else {
                 cap.push('.');
             }
-            tables.push(table("Odds Ratios", 2, cols, out, Some(cap)));
+            if !out.is_empty() {
+                tables.push(table("Odds Ratios", 2, cols, out, Some(cap)));
+            }
         }
 
         // Custom hypothesis tests
@@ -1765,7 +1763,7 @@ impl Engine {
                         )));
                     }
                     for (l, logit) in logit_labels.iter().enumerate() {
-                        let label = if est.logits > 1 || c.logistic {
+                        let label = if c.logistic {
                             format!("{label} ({logit})")
                         } else {
                             label.clone()
