@@ -1048,3 +1048,25 @@ CORRESPONDENCE TABLE=ALL(4,3) /PLOT=TRROWS.
     );
     assert!(engine.warnings().iter().any(|w| w.contains("NDIM starts")));
 }
+
+#[test]
+fn rowcat_missing_for_a_row_falls_back_to_case_numbers() {
+    let source = "DATA LIST FREE /ROWCAT_ c1 c2 c3.
+BEGIN DATA.
+2 4 4 9
+. 2 8 5
+7 9 3 4
+END DATA.
+CORRESPONDENCE TABLE=ALL(3,3) /PRINT=TABLE.
+";
+    let mut engine = Engine::default();
+    let t = run(&mut engine, source);
+    assert!(
+        engine
+            .warnings()
+            .iter()
+            .any(|w| w.contains("by case number"))
+    );
+    assert!(!engine.warnings().iter().any(|w| w.contains("repeats")));
+    check(&t, "Correspondence Table", "3", "Column / c1", 9.0, 0.0);
+}

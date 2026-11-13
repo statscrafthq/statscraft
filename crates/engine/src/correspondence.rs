@@ -1069,15 +1069,34 @@ impl Engine {
                             .collect()
                     })
                     .collect();
-                let row_label = |how: &Shown, case: usize| {
-                    let value = category.as_ref().and_then(|v| match v.values() {
-                        Values::Numeric(values) => values.get(case),
-                        Values::String(_) => None,
-                    });
-                    match (&category, value) {
-                        (Some(v), Some(x)) => how.number(v, x),
-                        _ => (case + 1).to_string(),
-                    }
+                let positions = |k: usize| (1..=k).map(|x| x as f64).collect::<Vec<f64>>();
+                // the ROWCAT_ codes of the rows; case numbers when there is no ROWCAT_ or it misses
+                // a row, so that no code is taken twice
+                let rowcat: Option<Vec<f64>> = category.as_ref().and_then(|v| match v.values() {
+                    Values::Numeric(values) => (0..*r).map(|case| values.get(case)).collect(),
+                    Values::String(_) => None,
+                });
+                if category.is_some() && rowcat.is_none() {
+                    warnings.push(
+                        "CORRESPONDENCE: ROWCAT_ is missing for a row, so the rows go by case number"
+                            .to_string(),
+                    );
+                }
+                let codes: Vec<f64> = match &rowcat {
+                    Some(codes) => codes.clone(),
+                    None => positions(*r),
+                };
+                let mut sorted = codes.clone();
+                sorted.sort_by(f64::total_cmp);
+                if sorted.windows(2).any(|w| w[0] == w[1]) {
+                    warnings.push(
+                        "CORRESPONDENCE: ROWCAT_ repeats a value, so two rows carry the same name"
+                            .to_string(),
+                    );
+                }
+                let row_label = |how: &Shown, case: usize| match (&category, &rowcat) {
+                    (Some(v), Some(codes)) => how.number(v, codes[case]),
+                    _ => (case + 1).to_string(),
                 };
                 let rows = Side {
                     title: "Row".into(),
@@ -1091,25 +1110,6 @@ impl Engine {
                     labels: vars.iter().map(|v| shown.variable(v)).collect(),
                     levels: vars.iter().map(|v| plain.variable(v)).collect(),
                 };
-                let positions = |k: usize| (1..=k).map(|x| x as f64).collect::<Vec<f64>>();
-                // the ROWCAT_ code of each row, its case number where it has none, as the labels
-                let codes: Vec<f64> = (0..*r)
-                    .map(|case| {
-                        category
-                            .as_ref()
-                            .and_then(|v| match v.values() {
-                                Values::Numeric(values) => values.get(case),
-                                Values::String(_) => None,
-                            })
-                            .unwrap_or((case + 1) as f64)
-                    })
-                    .collect();
-                if (1..codes.len()).any(|i| codes[..i].contains(&codes[i])) {
-                    warnings.push(
-                        "CORRESPONDENCE: ROWCAT_ repeats a value, so two rows carry the same name"
-                            .to_string(),
-                    );
-                }
                 (counts, positions(*r), positions(*c), rows, columns, codes)
             }
         };
