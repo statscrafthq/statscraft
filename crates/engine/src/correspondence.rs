@@ -42,7 +42,7 @@ use crate::plot::{Plot, Point, PointGroup};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Values};
 use statscraft_syntax::{
-    Correspondence, CorrespondenceMeasure, CorrespondenceNormalization, CorrespondencePlot,
+    Correspondence, CorrespondenceMeasure, CorrespondenceNormalization,
     CorrespondenceStandardize as Standardize, CorrespondenceTable, PlotLabels,
 };
 use std::ops::{Add, Div, Mul, Sub};
