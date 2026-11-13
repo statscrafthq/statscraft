@@ -813,9 +813,9 @@ pub(crate) fn csdescriptives(p: &mut Parser) -> PResult<Command> {
             };
             while !at_end(p) {
                 if eat_assignment(p, "NUMERATOR")? {
-                    ratio.numerators = list_until(p, &["DENOMINATOR", "TTEST"])?;
+                    ratio.numerators = ratio_list(p)?;
                 } else if eat_assignment(p, "DENOMINATOR")? {
-                    ratio.denominators = list_until(p, &["NUMERATOR", "TTEST"])?;
+                    ratio.denominators = ratio_list(p)?;
                 } else if eat_assignment(p, "TTEST")? {
                     ratio.test = Some(ttest(p)?);
                 } else {
@@ -854,6 +854,27 @@ pub(crate) fn csdescriptives(p: &mut Parser) -> PResult<Command> {
         return Err(error(p, end, "MEAN and SUM need SUMMARY VARIABLES=list"));
     }
     Ok(Command::Csdescriptives(Box::new(c)))
+}
+
+/// A RATIO variable list: it ends before the next keyword (shortened or not) and its '='.
+fn ratio_list(p: &mut Parser) -> PResult<Vec<VarItem>> {
+    let mut items = Vec::new();
+    while let Some(TokenKind::Word(_)) = p.peek() {
+        if p.peek_at(1) == Some(&TokenKind::Punct(Punct::Eq)) {
+            break;
+        }
+        let first = p.name("a variable name")?;
+        if p.eat_word("TO") {
+            items.push(VarItem::Range(first, p.name("a variable name")?));
+        } else {
+            items.push(VarItem::Name(first));
+        }
+        p.eat(Punct::Comma);
+    }
+    if items.is_empty() {
+        return Err(p.unexpected(&["a variable name"]));
+    }
+    Ok(items)
 }
 
 pub(crate) fn cstabulate(p: &mut Parser) -> PResult<Command> {

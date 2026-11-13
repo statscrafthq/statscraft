@@ -132,7 +132,7 @@ fn csplan_rules_give_errors() {
 fn csdescriptives_parses_every_subcommand() {
     let c = match one(
         "CSDESCRIPTIVES /PLAN FILE='p.json' /SUMMARY VARIABLES=yield acres /MEAN TTEST=3, 4
-           /SUM /RATIO DENOMINATOR=acres NUMERATOR=yield TTEST=1.5 /RATIO NUMERATOR=a b DENOMINATOR=c
+           /SUM /RATIO DENOM=acres NUMERATOR=yield TTE=1.5 /RATIO NUMERATOR=a b DENOMINATOR=c
            /STATISTICS COUNT POPSIZE CV DEFFSQRT CIN(90) /SUBPOP TABLE=organic BY county DISPLAY=SEPARATE
            /MISSING SCOPE=LISTWISE CLASSMISSING=INCLUDE.",
     ) {

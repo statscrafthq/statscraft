@@ -864,6 +864,8 @@ fn stat_cells(
 struct Domain {
     labels: Vec<String>,
     inside: Vec<bool>,
+    /// The whole population, shown after the subpopulations.
+    whole: bool,
 }
 
 /// The subpopulations of SUBPOP in category order, or the whole sample.
@@ -880,6 +882,7 @@ fn domains(
             vec![Domain {
                 labels: Vec::new(),
                 inside: vec![true; design.cases()],
+                whole: true,
             }],
         ));
     };
@@ -935,6 +938,7 @@ fn domains(
                 .map(|(v, k)| shown.value(v, k))
                 .collect(),
             inside: of_case.iter().map(|c| *c == Some(i)).collect(),
+            whole: false,
         })
         .collect();
     Ok((names, out))
@@ -1027,7 +1031,19 @@ impl Engine {
         ))
     }
 
+    /// The complex samples procedures take the weight from the plan and do not split.
+    fn warn_weight_and_split(&mut self, command: &str) -> Result<(), Error> {
+        let data = self.active()?;
+        if data.weight_variable().is_some() || data.split_file().is_some() {
+            self.warn(format!(
+                "{command} ignores WEIGHT and SPLIT FILE: the weight comes from the plan"
+            ));
+        }
+        Ok(())
+    }
+
     pub(crate) fn csdescriptives(&mut self, c: &Csdescriptives) -> Result<Vec<Table>, Error> {
+        self.warn_weight_and_split("CSDESCRIPTIVES")?;
         let plan = self.read_plan(&c.plan)?;
         let data = self.active()?;
         let shown = self.shown();
@@ -1098,6 +1114,7 @@ impl Engine {
             domains.push(Domain {
                 labels: vec!["Total".to_string(); subpop_labels.len()],
                 inside: vec![true; n],
+                whole: true,
             });
         }
         let layout = Layout {
@@ -1248,12 +1265,18 @@ impl Engine {
     }
 
     pub(crate) fn cstabulate(&mut self, c: &Cstabulate) -> Result<Vec<Table>, Error> {
+        self.warn_weight_and_split("CSTABULATE")?;
         let plan = self.read_plan(&c.plan)?;
         let data = self.active()?;
         let shown = self.shown();
         let deff = c.statistics.deff || c.statistics.deffsqrt;
         let design = Design::new(data, &plan, c.include, deff)?;
         let rows_vars = self.expand(&c.variables)?;
+        if let Some(by) = &c.by
+            && rows_vars.iter().any(|r| r.eq_ignore_ascii_case(by))
+        {
+            return Err(Error(format!("{by} is both before and after BY")));
+        }
         let mut with_by = rows_vars.clone();
         with_by.extend(c.by.clone());
         if let Some(name) = duplicate(&with_by) {
@@ -1299,11 +1322,13 @@ impl Engine {
         let mut test_domains: Vec<Domain> = vec![Domain {
             labels: vec!["Total".to_string(); subpop_labels.len()],
             inside: vec![true; n],
+            whole: true,
         }];
         if strata_only {
             test_domains.extend(domains.iter().map(|d| Domain {
                 labels: d.labels.clone(),
                 inside: d.inside.clone(),
+                whole: false,
             }));
         }
         let s = &c.statistics;
@@ -1348,7 +1373,6 @@ impl Engine {
                 separate,
                 subpop_labels: &subpop_labels,
             },
-            subpop_labels: &subpop_labels,
         };
         for row_name in &rows_vars {
             let (row_var, row_keys) = &keys[row_name];
@@ -1488,6 +1512,9 @@ impl Layout<'_> {
     }
 
     fn caption(&self, d: &Domain) -> Option<String> {
+        if d.whole {
+            return self.separate.then(|| "The whole population".to_string());
+        }
         self.separate.then(|| {
             let parts: Vec<String> = self
                 .subpop_labels
@@ -1521,7 +1548,6 @@ struct Tabulation<'a> {
     design: &'a Design,
     s: &'a CsStatistics,
     layout: Layout<'a>,
-    subpop_labels: &'a [String],
 }
 
 /// The cell kinds of CELLS that a table shows: (column group, base of the percent).
@@ -1882,6 +1908,7 @@ impl Tabulation<'_> {
 
     fn test_table(&self, title: &str, caption: String, rows: Vec<Vec<Cell>>) -> Table {
         let mut cols: Vec<(String, String)> = self
+            .layout
             .subpop_labels
             .iter()
             .map(|l| (String::new(), l.clone()))
@@ -1892,7 +1919,7 @@ impl Tabulation<'_> {
         }
         table(
             title,
-            self.subpop_labels.len() + 1,
+            self.layout.subpop_labels.len() + 1,
             cols,
             rows,
             Some(caption),
@@ -2176,6 +2203,7 @@ impl Tabulation<'_> {
             }
         }
         let mut cols: Vec<(String, String)> = self
+            .layout
             .subpop_labels
             .iter()
             .map(|l| (String::new(), l.clone()))
@@ -2184,7 +2212,7 @@ impl Tabulation<'_> {
         cols.extend(stat_columns(&stats, false, false));
         table(
             "Odds Ratios and Risks",
-            self.subpop_labels.len() + 1,
+            self.layout.subpop_labels.len() + 1,
             cols,
             rows,
             Some(format!("{} * {}", names[0], names[1])),

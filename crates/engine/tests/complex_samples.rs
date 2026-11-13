@@ -331,6 +331,8 @@ fn subpopulations_are_domains_of_the_whole_design() {
     let second = find(&tables, "Univariate Statistics", 2);
     assert_eq!(second.caption.as_deref(), Some("Subpopulation: town = 2"));
     check(second, "food / Mean", "Standard Error", 10.7342440449, 1e-8);
+    let whole = find(&tables, "Univariate Statistics", 3);
+    assert_eq!(whole.caption.as_deref(), Some("The whole population"));
 }
 
 #[test]
@@ -615,6 +617,9 @@ fn design_and_plan_errors() {
     let weight_subpop =
         format!("{d}{WR}CSTABULATE /PLAN FILE='wr.json' /TABLES VARIABLES=heat /SUBPOP TABLE=w.\n");
     assert!(run_error(&weight_subpop).contains("cannot be on SUBPOP"));
+    let crossed =
+        format!("{d}{WR}CSTABULATE /PLAN FILE='wr.json' /TABLES VARIABLES=heat BY heat.\n");
+    assert!(run_error(&crossed).contains("both before and after BY"));
     let empty_subpop = format!(
         "{d}{WR}COMPUTE nothing = $SYSMIS.
          CSDESCRIPTIVES /PLAN FILE='wr.json' /SUMMARY VARIABLES=food /MEAN /SUBPOP TABLE=nothing.\n"
