@@ -423,23 +423,25 @@ fn run_window(input: RunInput, window: String) -> CallToolResult {
         Ok(lines) => lines,
         Err(errors) => return failed(errors),
     };
-    let request = Request {
-        action: Action::RunWindow,
-        window: Some(window),
-        lines,
-        json: true,
-        ..Request::default()
-    };
     let xlsx = XlsxArgs {
         xlsx: input.xlsx.map(local).map(PathBuf::from),
         xlsx_one_sheet: false,
     };
-    // only for a relative xlsx: the syntax starts from the window's file, as its Run does
+    // for a relative xlsx, and for the relative names of a window without a file: one with a
+    // file starts from its own folder, as its Run does
     let folder = syntax.folder.map(local).map(PathBuf::from);
     let folder = folder.unwrap_or_else(|| std::env::home_dir().unwrap_or_else(std::env::temp_dir));
     if !folder.is_absolute() || std::env::set_current_dir(&folder).is_err() {
         return usage("folder must be an absolute folder that exists");
     }
+    let request = Request {
+        action: Action::RunWindow,
+        window: Some(window),
+        lines,
+        json: true,
+        cwd: Some(folder),
+        ..Request::default()
+    };
     match crate::run_in_window(request, &xlsx) {
         Ok(result) => run_reply(
             &result,

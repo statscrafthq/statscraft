@@ -82,6 +82,10 @@ pub struct Request {
     /// file session.
     #[serde(default)]
     pub cwd: Option<PathBuf>,
+    /// The folder of the syntax file the caller runs: INSERT and INCLUDE in it start there, as
+    /// in a file session.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub syntax_dir: Option<PathBuf>,
     /// The syntax window a request names: its id or its name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub window: Option<String>,
@@ -99,11 +103,41 @@ pub struct Request {
 }
 
 impl Request {
-    /// Moves the window to the caller's working folder; it stays there for later runs.
-    pub fn enter_folder(&self) {
-        if let Some(dir) = &self.cwd {
-            let _ = std::env::set_current_dir(dir);
+    /// The caller's folder of a run or check, where its relative file names start while no CD
+    /// is in force. A request without one is refused, so that an older or broken client cannot
+    /// work in another caller's folder, and so is a relative one.
+    pub fn folder(&self) -> Result<&Path, Vec<Failure>> {
+        let dir = self.cwd.as_deref().ok_or_else(|| {
+            let message = "the request names no caller's folder: update Statscraft";
+            vec![Failure::plain("usage", message)]
+        })?;
+        crate::session::absolute(dir)?;
+        Ok(dir)
+    }
+
+    /// The caller's folder when the request gives one (a syntax window's run may not); a
+    /// relative one is refused.
+    pub fn folder_if_given(&self) -> Result<Option<&Path>, Vec<Failure>> {
+        self.cwd.as_ref().map(|_| self.folder()).transpose()
+    }
+
+    /// The folder of the syntax file the caller runs, if any; a relative one is refused.
+    pub fn syntax_folder(&self) -> Result<Option<&Path>, Vec<Failure>> {
+        let dir = self.syntax_dir.as_deref();
+        dir.map(|d| crate::session::absolute(d).map(|()| d))
+            .transpose()
+    }
+
+    /// Hands a run's folder to the session for this run and later ones, or checks in it alone;
+    /// INSERT and INCLUDE start from the syntax file's folder when the caller runs one.
+    pub fn run_or_check(&self, session: &mut Session) -> Result<RunResult, Vec<Failure>> {
+        let dir = self.folder()?;
+        session.set_base_dir(self.syntax_folder()?.map(Path::to_path_buf));
+        if self.action == Action::Check {
+            return session.check_in(dir, &self.source, self.lines);
         }
+        session.set_work_dir(dir.to_path_buf())?;
+        session.run(&self.source, self.lines)
     }
 }
 
@@ -150,11 +184,9 @@ pub fn describe(session: &Session, json: bool) -> Response {
 /// Answers a request on the calling thread. The window runs on a worker thread instead, with
 /// the same `Session` calls and `reply`.
 pub fn answer(session: &mut Session, request: &Request) -> Response {
-    request.enter_folder();
     match request.action {
         Action::Describe => describe(session, request.json),
-        Action::Run => reply(&mut session.run(&request.source, request.lines), request),
-        Action::Check => reply(&mut session.check(&request.source, request.lines), request),
+        Action::Run | Action::Check => reply(&mut request.run_or_check(session), request),
         _ => Err(window_failure("this session has no syntax windows")),
     }
 }
@@ -583,8 +615,7 @@ impl Desk {
     pub fn answer(&mut self, request: &Request) -> Response {
         match request.action {
             Action::Run => {
-                request.enter_folder();
-                let mut result = self.session.run(&request.source, request.lines);
+                let mut result = request.run_or_check(&mut self.session);
                 if let Ok(result) = &mut result {
                     let syntax = last_syntax(&self.session);
                     result.trail = Some(keep_trail(self, &syntax));
@@ -593,6 +624,14 @@ impl Desk {
             }
             Action::RunWindow => {
                 let (window, text) = window_source(self, request)?;
+                let caller = request.folder_if_given()?;
+                // a window with a file runs as its own Run does; an untitled one in the caller's
+                // folder, so it cannot write into an earlier caller's
+                let own = window.file.as_deref().and_then(Path::parent);
+                self.session.set_base_dir(own.map(Path::to_path_buf));
+                if let (None, Some(dir)) = (own, caller) {
+                    self.session.set_work_dir(dir.to_path_buf())?;
+                }
                 let mut result = self.session.run(&text, request.lines);
                 if let Ok(result) = &mut result {
                     // the window's own text is the trail of this run
@@ -841,12 +880,237 @@ mod tests {
         Request {
             action,
             json: true,
+            cwd: Some(std::env::temp_dir()),
             ..Request::default()
         }
     }
 
     fn reply_json(response: Response) -> serde_json::Value {
         serde_json::from_str(&response.unwrap()).unwrap()
+    }
+
+    fn folder(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("statscraft-live-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    fn run_in(dir: &Path, source: &str) -> Request {
+        Request {
+            source: source.into(),
+            cwd: Some(dir.to_path_buf()),
+            ..request(Action::Run)
+        }
+    }
+
+    /// Two windows of one process, as in the tests: each writes and reads the same relative
+    /// name in its own folder at the same time, and each always gets its own file back.
+    #[test]
+    fn windows_in_one_process_keep_their_relative_files_apart() {
+        let windows: Vec<_> = [2, 3]
+            .into_iter()
+            .map(|cases| {
+                std::thread::spawn(move || {
+                    let dir = folder(&format!("own-{cases}"));
+                    let values = vec!["1"; cases].join(" ");
+                    let source = format!(
+                        "DATA LIST FREE /x.\nBEGIN DATA\n{values}\nEND DATA.\n\
+                         SAVE OUTFILE='mine.sav'.\nGET FILE='mine.sav'."
+                    );
+                    let mut session = Session::default();
+                    for _ in 0..50 {
+                        let result = reply_json(answer(&mut session, &run_in(&dir, &source)));
+                        assert_eq!(result["dataset"], serde_json::json!([cases, 1]));
+                    }
+                    std::fs::remove_dir_all(&dir).unwrap();
+                })
+            })
+            .collect();
+        for window in windows {
+            window.join().unwrap();
+        }
+        assert!(
+            !Path::new("mine.sav").exists(),
+            "nothing in the process's folder"
+        );
+    }
+
+    #[test]
+    fn a_missing_folder_fails_a_relative_save_and_writes_nothing() {
+        let missing = std::env::temp_dir().join(format!("statscraft-no-folder-{}", line!()));
+        let save = run_in(
+            &missing,
+            "DATA LIST FREE /x.\nBEGIN DATA\n1 2\nEND DATA.\nSAVE OUTFILE='lost.sav'.",
+        );
+        let errors = Desk::default().answer(&save).unwrap_err();
+        assert!(errors[0].message.contains("lost.sav"), "{errors:?}");
+        assert!(!missing.exists());
+        assert!(
+            !Path::new("lost.sav").exists(),
+            "nothing in the process's folder"
+        );
+        // a relative folder is refused before anything runs
+        let relative = Request {
+            cwd: Some(PathBuf::from("some/folder")),
+            ..save
+        };
+        let mut session = Session::default();
+        let errors = answer(&mut session, &relative).unwrap_err();
+        let expected = format!(
+            "the caller's folder {} is not an absolute path",
+            Path::new("some/folder").display()
+        );
+        assert_eq!(errors[0].message, expected);
+        assert!(session.dataset().is_none());
+    }
+
+    /// A CD stays in force, as in a file session: it starts from the caller's folder, and a later
+    /// caller's folder does not undo it.
+    #[test]
+    fn a_cd_starts_from_the_callers_folder_and_stays() {
+        let first = folder("cd-first");
+        let second = folder("cd-second");
+        std::fs::create_dir(first.join("sub")).unwrap();
+        let mut session = Session::default();
+        let data = "DATA LIST FREE /x.\nBEGIN DATA\n1\nEND DATA.\n";
+        let cd = format!("{data}CD 'sub'.\nSAVE OUTFILE='a.sav'.");
+        reply_json(answer(&mut session, &run_in(&first, &cd)));
+        reply_json(answer(
+            &mut session,
+            &run_in(&second, "SAVE OUTFILE='b.sav'."),
+        ));
+        assert!(first.join("sub/a.sav").is_file() && first.join("sub/b.sav").is_file());
+        assert_eq!(std::fs::read_dir(&second).unwrap().count(), 0);
+        std::fs::remove_dir_all(first).unwrap();
+        std::fs::remove_dir_all(second).unwrap();
+    }
+
+    fn directory(session: &Session) -> serde_json::Value {
+        reply_json(describe(session, true))["session"]["directory"].clone()
+    }
+
+    /// A run keeps its caller's folder, which describe shows; a check and describe leave it,
+    /// and undo does not take it back. INSERT starts from it too.
+    #[test]
+    fn a_run_keeps_its_callers_folder_and_nothing_else_moves_it() {
+        let first = folder("keep-first");
+        let second = folder("keep-second");
+        std::fs::write(first.join("more.sps"), "COMPUTE y = x + 1.\n").unwrap();
+        let shown = |dir: &Path| serde_json::json!(dir.display().to_string());
+        let mut session = Session::default();
+        let data = "DATA LIST FREE /x.\nBEGIN DATA\n1 2\nEND DATA.\nINSERT FILE='more.sps'.";
+        reply_json(answer(&mut session, &run_in(&first, data)));
+        assert_eq!(directory(&session), shown(&first));
+        let check = Request {
+            action: Action::Check,
+            ..run_in(&second, "SAVE OUTFILE='checked.sav'.")
+        };
+        reply_json(answer(&mut session, &check));
+        let look = Request {
+            action: Action::Describe,
+            ..run_in(&second, "")
+        };
+        reply_json(answer(&mut session, &look));
+        assert_eq!(directory(&session), shown(&first));
+        reply_json(answer(&mut session, &run_in(&second, "COMPUTE z = 1.")));
+        assert!(session.undo());
+        assert_eq!(directory(&session), shown(&second));
+        assert!(session.dataset().unwrap().variable_index("y").is_some());
+        std::fs::remove_dir_all(first).unwrap();
+        std::fs::remove_dir_all(second).unwrap();
+    }
+
+    /// The window's own run of a syntax file: INSERT starts from the file's folder, data files
+    /// from the caller's. Syntax sent by a caller has no file, so both start from its folder.
+    #[test]
+    fn a_syntax_files_folder_serves_insert_and_the_callers_serves_data() {
+        let file = folder("order-file");
+        let caller = folder("order-caller");
+        std::fs::write(file.join("more.sps"), "COMPUTE y = 1.\n").unwrap();
+        let mut session = Session::default();
+        session.set_work_dir(caller.clone()).unwrap();
+        session.set_base_dir(Some(file.clone()));
+        let syntax = "DATA LIST FREE /x.\nBEGIN DATA\n1\nEND DATA.\nINSERT FILE='more.sps'.\n\
+                      SAVE OUTFILE='out.sav'.";
+        session.run(syntax, None).unwrap();
+        assert!(caller.join("out.sav").is_file() && !file.join("out.sav").exists());
+        std::fs::remove_dir_all(file).unwrap();
+        std::fs::remove_dir_all(caller).unwrap();
+    }
+
+    /// A syntax window run for a caller: an untitled window runs in the caller's folder, one
+    /// with a file as its own Run does, INSERT from the file's folder and the rest not in the
+    /// caller's folder.
+    #[test]
+    fn a_window_run_uses_the_callers_folder_only_without_a_file() {
+        let earlier = folder("window-earlier");
+        let caller = folder("window-caller");
+        let filed = folder("window-filed");
+        std::fs::write(filed.join("more.sps"), "COMPUTE y = 1.\n").unwrap();
+        let mut desk = Desk::default();
+        reply_json(desk.answer(&run_in(&earlier, "SET SEED=1.")));
+        let data = "DATA LIST FREE /x.\nBEGIN DATA\n1\nEND DATA.\n";
+        let save = format!("{data}SAVE OUTFILE='w.sav'.");
+        desk.create(None, save.clone(), None, true);
+        let file = filed.join("job.sps");
+        let text = format!("{data}INSERT FILE='more.sps'.\nSAVE OUTFILE='f.sav'.");
+        desk.create(None, text, Some(file), true);
+        let run_window = |desk: &mut Desk, window: &str, dir: &Path| {
+            reply_json(desk.answer(&Request {
+                action: Action::RunWindow,
+                window: Some(window.into()),
+                ..run_in(dir, "")
+            }))
+        };
+        run_window(&mut desk, "Syntax1", &caller);
+        assert!(caller.join("w.sav").is_file() && !earlier.join("w.sav").exists());
+        // a window with a file leaves this caller's folder alone: the session's stays
+        let other = folder("window-other");
+        let result = run_window(&mut desk, "job.sps", &other);
+        assert_eq!(result["dataset"], serde_json::json!([1, 2]), "INSERT ran");
+        assert!(caller.join("f.sav").is_file());
+        assert_eq!(std::fs::read_dir(&other).unwrap().count(), 0);
+        for dir in [earlier, caller, filed, other] {
+            std::fs::remove_dir_all(dir).unwrap();
+        }
+    }
+
+    /// A run or check from a client that names no folder, or a relative one, does nothing.
+    #[test]
+    fn a_run_or_check_without_an_absolute_folder_is_refused() {
+        let mut session = Session::default();
+        let data = "DATA LIST FREE /x.\nBEGIN DATA\n1\nEND DATA.";
+        for action in [Action::Run, Action::Check] {
+            let bare = Request {
+                action,
+                source: data.into(),
+                ..Request::default()
+            };
+            let errors = answer(&mut session, &bare).unwrap_err();
+            assert!(
+                errors[0].message.contains("names no caller's folder"),
+                "{errors:?}"
+            );
+        }
+        let errors = Desk::default()
+            .answer(&Request {
+                cwd: None,
+                ..run_in(Path::new("/"), data)
+            })
+            .unwrap_err();
+        assert!(
+            errors[0].message.contains("names no caller's folder"),
+            "{errors:?}"
+        );
+        assert!(session.dataset().is_none());
+        let relative = session.set_work_dir(PathBuf::from("some/folder"));
+        assert!(
+            relative.unwrap_err()[0]
+                .message
+                .ends_with("is not an absolute path")
+        );
     }
 
     #[test]

@@ -103,6 +103,15 @@ fn the_window_answers_exactly_like_a_file_session() {
         vec!["run", "-e", "COMPUTE bad = ."],
         vec!["run", "--json", "-e", "FREQUENCEIS gender."],
     ];
+    // the window's describe shows the caller's folder, where its relative names start; a file
+    // session without a CD starts from the folder it runs in and shows none
+    let folder = dir.0.display().to_string();
+    let folder_line = format!("directory: {folder}");
+    let mut folder_shown = 0;
+    // JSON compares as values, text as it is
+    let parsed = |out: &str| {
+        serde_json::from_str(out).unwrap_or_else(|_| serde_json::Value::String(out.into()))
+    };
     for step in &steps {
         let with = |session: &str| {
             let mut args = vec![step[0], "-s", session];
@@ -113,20 +122,38 @@ fn the_window_answers_exactly_like_a_file_session() {
         // a file session keeps its data as .zsav; the window keeps the file as it was read
         let file = (
             file.0,
-            without_trail(&file.1)
-                .replace("\"compression\": \"zlib\"", "\"compression\": \"none\""),
+            parsed(
+                &without_trail(&file.1)
+                    .replace("\"compression\": \"zlib\"", "\"compression\": \"none\""),
+            ),
             file.2,
         );
         let window = with("gui");
-        let window = (
-            window.0,
-            window
+        let mut out = parsed(
+            &window
                 .1
                 .replace("\"session\": \"gui\"", "\"session\": \"t1\""),
-            window.2,
         );
-        assert_eq!(window, file, "{step:?}");
+        match &mut out {
+            serde_json::Value::String(text) if text.lines().any(|l| l == folder_line) => {
+                *text = text
+                    .lines()
+                    .filter(|l| *l != folder_line)
+                    .map(|l| format!("{l}\n"))
+                    .collect();
+                folder_shown += 1;
+            }
+            value => {
+                let session = value.get_mut("session").and_then(|s| s.as_object_mut());
+                if let Some(shown) = session.and_then(|s| s.remove("directory")) {
+                    assert_eq!(shown, folder.as_str());
+                    folder_shown += 1;
+                }
+            }
+        }
+        assert_eq!((window.0, out, window.2), file, "{step:?}");
     }
+    assert_eq!(folder_shown, 2, "both describes show the caller's folder");
     let report: serde_json::Value = serde_json::from_slice(
         &dir.cli(&["run", "-s", "gui", "--json", "-e", "COMPUTE z = 3."])
             .stdout,
@@ -318,5 +345,54 @@ fn an_older_window_asks_for_an_update() {
     assert!(
         errors[0].message.contains("update Statscraft"),
         "{errors:?}"
+    );
+}
+
+/// A syntax file sent to the window inserts from its own folder, as in a file session, while
+/// its data files start from the caller's folder.
+#[test]
+fn a_syntax_file_sent_to_the_window_inserts_from_its_own_folder() {
+    let dir = Workdir::new("insert");
+    let _server = start_window(&dir.endpoint());
+    std::fs::create_dir(dir.0.join("jobs")).unwrap();
+    let main = "DATA LIST FREE /x.\nBEGIN DATA\n1 2\nEND DATA.\nINSERT FILE='more.sps'.\n\
+                SAVE OUTFILE='out.sav'.\n";
+    std::fs::write(dir.0.join("jobs/main.sps"), main).unwrap();
+    std::fs::write(dir.0.join("jobs/more.sps"), "COMPUTE y = x * 2.\n").unwrap();
+    for session in ["t1", "gui"] {
+        let (ok, out, err) = text(&dir.cli(&["run", "-s", session, "--json", "jobs/main.sps"]));
+        assert!(ok, "{session}: {out}{err}");
+        let out: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(out["dataset"], serde_json::json!([2, 2]), "{session}");
+        assert!(dir.0.join("out.sav").is_file(), "{session}");
+        std::fs::remove_file(dir.0.join("out.sav")).unwrap();
+    }
+}
+
+/// A command line that cannot read its own folder sends nothing: the window would not know
+/// where relative file names start.
+#[cfg(unix)]
+#[test]
+fn a_command_line_without_a_readable_folder_sends_nothing() {
+    let dir = Workdir::new("gone");
+    let gone = dir.0.join("gone");
+    std::fs::create_dir(&gone).unwrap();
+    // the shell enters the folder and removes it before the command line starts there
+    let out = Command::new("sh")
+        .arg("-c")
+        .arg("cd \"$1\" && rmdir \"$1\" && exec \"$2\" run -s gui -e 'SET SEED=1.'")
+        .args([
+            "sh",
+            gone.to_str().unwrap(),
+            env!("CARGO_BIN_EXE_statscraft"),
+        ])
+        .env("XDG_RUNTIME_DIR", dir.0.join("runtime"))
+        .output()
+        .unwrap();
+    let (ok, _, stderr) = text(&out);
+    assert!(!ok);
+    assert!(
+        stderr.contains("cannot read the current folder"),
+        "{stderr}"
     );
 }

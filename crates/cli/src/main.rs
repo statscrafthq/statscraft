@@ -557,6 +557,14 @@ fn run_result(
     let source = read_source(args)?;
     let lines = args.lines.as_deref().map(parse_lines).transpose()?;
     if args.session.as_deref() == Some(live::SESSION) {
+        // the window reads relative file names from here: without it, nothing is sent
+        let cwd = std::env::current_dir().map_err(|e| {
+            let message = format!("cannot read the current folder: {e}");
+            vec![Failure::plain("usage", message)]
+        })?;
+        // INSERT and INCLUDE in a syntax file start from its folder, as in a file session
+        let file = args.file.as_deref().filter(|f| *f != "-");
+        let syntax_dir = file.and_then(|f| cwd.join(f).parent().map(std::path::Path::to_path_buf));
         let request = Request {
             action: if check_only {
                 Action::Check
@@ -567,7 +575,8 @@ fn run_result(
             lines,
             // the result comes back in the JSON form and is shown here
             json: true,
-            cwd: std::env::current_dir().ok(),
+            cwd: Some(cwd),
+            syntax_dir,
             ..Request::default()
         };
         return run_in_window(request, xlsx);

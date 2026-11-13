@@ -690,14 +690,22 @@ impl App {
         {
             w.closing = true;
         }
-        // relative file names: from the folder of the syntax that runs, or of the designated
-        // syntax window
-        let window = match &after {
-            After::Editor(id) | After::Window(_, id) => Some(*id),
-            _ => self.windows.designated_syntax(),
+        // relative syntax file names: from the folder of the syntax that runs, or of the
+        // designated syntax window; sent syntax from the folder of the caller's syntax file,
+        // if any. The caller's folder goes with the run (`RunQueue::start` hands it over); a
+        // syntax window with a file of its own runs as its own Run does.
+        let (window, sent, caller) = match &after {
+            After::Editor(id) => (Some(*id), None, None),
+            After::Window((r, _), id) => (Some(*id), None, r.cwd.clone()),
+            After::Remote((r, _)) => (None, Some(r.syntax_dir.clone()), r.cwd.clone()),
+            _ => (self.windows.designated_syntax(), None, None),
         };
         let file = window.and_then(|id| self.windows.syntax(id)?.file.as_deref());
-        let base_dir = file.and_then(Path::parent).map(Path::to_path_buf);
+        let work_dir = caller.filter(|_| file.is_none());
+        let base_dir = match sent {
+            Some(dir) => dir,
+            None => file.and_then(Path::parent).map(Path::to_path_buf),
+        };
         let tag = Run {
             after,
             source: source.to_string(),
@@ -707,6 +715,7 @@ impl App {
             lines,
             check,
             base_dir,
+            work_dir,
             tag,
         };
         self.runs.push(&mut self.session, run);
@@ -746,12 +755,18 @@ impl App {
                 let _ = reply.send(live::describe(&self.session, request.json));
             }
             Action::Run | Action::Check => {
-                request.enter_folder();
+                // the folders go with the run (see `run`); here they are only checked
+                if let Err(errors) = request.folder().and(request.syntax_folder()) {
+                    let _ = reply.send(Err(errors));
+                    return;
+                }
                 let source = std::mem::take(&mut request.source);
                 let lines = request.lines;
                 self.run(&source, lines, After::Remote((request, reply)));
             }
-            Action::RunWindow => match live::window_source(&mut self.windows, &request) {
+            Action::RunWindow => match live::window_source(&mut self.windows, &request)
+                .and_then(|found| request.folder_if_given().map(|_| found))
+            {
                 // the lines widen to whole commands, as Ctrl+Enter does
                 Ok((window, text)) => {
                     let lines = request.lines.map(|l| editor::whole_commands(&text, l));

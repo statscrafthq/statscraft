@@ -594,7 +594,7 @@ statscraft describe -s gui --json                        dictionary of the windo
 
 - The window runs the syntax exactly as its own Run button does. The tables appear in the designated output window, the commands in the log, and the data windows show the result.
 - The command line prints what it prints for a file session, with `"session": "gui"`. `saved` is true when the run changed the window's dataset. Nothing is written to disk unless the syntax says SAVE.
-- Relative paths in the syntax are read from the folder where `statscraft` was started. The window stays in that folder.
+- Relative paths in the syntax start from the folder where `statscraft` was started, unless a CD is in force in the window's session; a CD stays until the next CD. A run leaves that folder to the window's own runs.
 
 So an AI agent with a shell can work in the open window. Start `statscraft-gui`, then tell the agent to use `statscraft run -s gui --json` for every step and `statscraft help COMMAND` for the syntax. The person watching sees each table appear, and can keep working in the window between the agent's runs.
 

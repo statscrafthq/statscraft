@@ -604,7 +604,9 @@ fn a_session_keeps_its_settings_preserve_levels_and_folder_between_runs() {
     assert_eq!(description["session"]["settings"]["FORMAT"], "F4.0");
     assert_eq!(description["session"]["preserved"], 1);
     let folder = description["session"]["directory"].as_str().unwrap();
+    // absolute, so that a run from another folder still means this one
     assert!(folder.ends_with("data"), "{folder}");
+    assert!(std::path::Path::new(folder).is_absolute(), "{folder}");
 
     // a relative SAVE goes to the CD folder of the first run
     let data = "DATA LIST LIST /x.\nBEGIN DATA\n1\nEND DATA.\nSAVE OUTFILE='x.sav'.";
