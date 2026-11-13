@@ -807,10 +807,15 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
                 } else {
                     format!("in row {r}")
                 };
+                let bare = if mixed {
+                    " (bare values after '|' fit either)"
+                } else {
+                    ""
+                };
                 return Err(SyntaxError::new(
                     p.span_from(start),
                     format!(
-                        "TEST row {n} has {found} after {set} {place}; one TEST uses either ALL or effect names, never both (bare values after '|' fit either)"
+                        "TEST row {n} has {found} after {set} {place}; one TEST uses either ALL or effect names, never both{bare}"
                     ),
                 ));
             }

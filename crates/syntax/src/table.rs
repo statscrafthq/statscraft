@@ -1718,7 +1718,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/SAVE=tempvar[(name)] ...]\n\
                  \x20  [/EMMEANS=TABLES(OVERALL | factor[*factor...]) [WITH(covariate=value | MEAN ...)]\n\
                  \x20            [COMPARE[(factor)] [REFCAT(value | FIRST | LAST)] [ADJ(LSD | BONFERRONI | SIDAK)]]] ...\n\
-                 \x20  [/TEST[(constants)]=['label'] effect values ... [| effect values ... | values ...] [DIVISOR=n]; ...\n\
+                 \x20  [/TEST[(constants)]=['label'] effect values ... [| effect values ...] [DIVISOR=n]; ...\n\
                  \x20         | ALL values ... [| values ...] ...] ...\n\
                  effects: INTERCEPT (first), a factor or covariate, a*b or a BY b, a(b) or a WITHIN b.\n\
                  type: VC (the RANDOM default: one variance per effect), ID (one variance for the block), DIAG (the\n\
@@ -1763,10 +1763,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  takes coefficients for the parameters of named fixed effects (redundant ones included) or ALL\n\
                  of them, one row per combination; the constants in parentheses are the values tested against\n\
                  (0 by default) and DIVISOR divides a row. ALL and effect names never mix in one TEST: the\n\
-                 first of them decides whether every row begins with ALL or names its effects. After | come\n\
+                 first of them decides whether the rows use ALL or name their effects. After | come\n\
                  coefficients for one subject's random effects, by effect or as bare values for all of them\n\
-                 over the RANDOM subcommands in order (in a TEST that uses ALL, ALL may come before them); an\n\
-                 effect on two RANDOM subcommands needs the bare values. With SUBJECT they are shared\n\
+                 over the RANDOM subcommands in order; the bare values fit either form, even as a whole row,\n\
+                 and in a TEST that uses ALL, ALL may come before them. An effect on two RANDOM subcommands\n\
+                 needs the bare values. With SUBJECT they are shared\n\
                  equally among the subjects, so the row speaks of their average. TEST gives each row's\n\
                  estimate with a t test and the joint F test; a row whose fixed part is not estimable is dropped\n\
                  with a warning. SOLUTION on RANDOM lists the predicted random effects of every subject with the\n\
