@@ -1718,12 +1718,9 @@ mod tests {
                     }
                 }
             }
-            for t in 0..2 {
+            for (t, g) in grads.iter().enumerate().take(2) {
                 let sd = s.singular_cov[t][t].sqrt();
-                assert!(
-                    (sd - var(&grads[t]).sqrt()).abs() < 1e-6,
-                    "{standardize:?} {t}"
-                );
+                assert!((sd - var(g).sqrt()).abs() < 1e-6, "{standardize:?} {t}");
             }
             for (g, &(rows, i, t)) in grads[2..].iter().zip(&picks) {
                 let points = if rows { &s.rows } else { &s.columns };
