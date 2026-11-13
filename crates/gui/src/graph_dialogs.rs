@@ -492,12 +492,12 @@ impl ChartBuilder {
 /// empty name for a distribution with one parameter.
 pub const PPLOT_DISTRIBUTIONS: [(&str, &str, [&str; 2]); 13] = [
     ("NORMAL", "Normal", ["Location", "Scale"]),
-    ("EXPONENTIAL", "Exponential", ["Scale", ""]),
+    ("EXPONENTIAL", "Exponential", ["Rate (1 / mean)", ""]),
     ("WEIBULL", "Weibull", ["Scale", "Shape"]),
     ("PARETO", "Pareto", ["Threshold", "Shape"]),
     ("LNORMAL", "Lognormal", ["Scale", "Shape"]),
     ("BETA", "Beta", ["Shape 1", "Shape 2"]),
-    ("GAMMA", "Gamma", ["Shape", "Scale"]),
+    ("GAMMA", "Gamma", ["Shape", "Rate"]),
     ("LOGISTIC", "Logistic", ["Location", "Scale"]),
     ("LAPLACE", "Laplace", ["Location", "Scale"]),
     ("UNIFORM", "Uniform", ["Minimum", "Maximum"]),
@@ -736,9 +736,9 @@ impl RocCurve {
             if level != 95.0 {
                 criteria.push(format!("CI({})", number(level)));
             }
-        }
-        if self.negexpo {
-            criteria.push("DISTRIBUTION(NEGEXPO)".into());
+            if self.negexpo {
+                criteria.push("DISTRIBUTION(NEGEXPO)".into());
+            }
         }
         if !criteria.is_empty() {
             text.push_str(&format!("\n  /CRITERIA={}", criteria.join(" ")));
@@ -1210,8 +1210,10 @@ mod tests {
         d.exclude_cutoff = false;
         d.negexpo = false;
         d.level = s("100");
-        // the level is not used without the standard error part, so it blocks nothing
-        assert!(d.syntax(false).is_ok());
+        // the level and the error method are not used without the standard error part
+        d.negexpo = true;
+        assert!(!d.syntax(false).unwrap().contains("NEGEXPO"));
+        d.negexpo = false;
         d.se = true;
         assert_eq!(
             d.syntax(false).unwrap_err(),
