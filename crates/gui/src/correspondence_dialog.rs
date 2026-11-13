@@ -76,15 +76,9 @@ impl TableVariable {
         let mut supplementary = Vec::new();
         let mut groups: BTreeMap<usize, Vec<i64>> = BTreeMap::new();
         for (&value, &role) in &self.roles {
+            // a role left outside a changed range is not shown, so it does not count
             if value < range.0 || value > range.1 {
-                let what = match role {
-                    Role::Supplementary => "supplementary".to_string(),
-                    Role::Equal(g) => format!("in equal group {g}"),
-                };
-                return Err(format!(
-                    "category {value} of {name} is {what} but outside the range {} to {}",
-                    range.0, range.1
-                ));
+                continue;
             }
             match role {
                 Role::Supplementary => supplementary.push(value),
@@ -299,11 +293,12 @@ impl Correspondence {
                     1,
                     "the dimensions of the permuted tables",
                 )? {
-                    Some(n) if n as usize > dims => {
-                        return Err(format!(
-                            "permuted tables for {n} dimensions, but the solution has {dims}"
-                        ));
+                    Some(n) if n >= 1_000_000_000 => {
+                        return Err(
+                            "the dimensions of the permuted tables must be below 1000000000".into(),
+                        );
                     }
+                    // the command keeps to the dimensions it computes
                     Some(n) if n > 1 => print.push(format!("PERMUTATION({n})")),
                     _ => print.push("PERMUTATION".into()),
                 }
@@ -333,8 +328,9 @@ impl Correspondence {
         let length = match self.label_length.trim() {
             "" => None,
             t => match t.parse::<u32>() {
-                Ok(n) if n <= 60 => Some(n),
-                _ => return Err("the label length is a whole number from 0 to 60".into()),
+                // the command treats a longer length as 60
+                Ok(n) => Some(n.min(60)),
+                _ => return Err("the label length is a whole number of 0 or more".into()),
             },
         };
         let mut words: Vec<String> = chosen
@@ -549,17 +545,13 @@ mod tests {
             err(&|d| d.row.max = "10001".into()),
             "the range of region holds more than 10000 categories"
         );
+        // roles outside the range are not shown, so they leave the syntax as it is
+        let mut d = base.clone();
+        d.row.roles.insert(7, Role::Supplementary);
+        d.column.roles.insert(0, Role::Equal(3));
         assert_eq!(
-            err(&|d| {
-                d.row.roles.insert(7, Role::Supplementary);
-            }),
-            "category 7 of region is supplementary but outside the range 1 to 5"
-        );
-        assert_eq!(
-            err(&|d| {
-                d.column.roles.insert(0, Role::Equal(3));
-            }),
-            "category 0 of q6_mention1 is in equal group 3 but outside the range 1 to 6"
+            d.syntax(&data).unwrap(),
+            "CORRESPONDENCE TABLE=region(1,5) BY q6_mention1(1,6)."
         );
         assert_eq!(
             err(&|d| {
@@ -585,16 +577,15 @@ mod tests {
             }),
             "the normalization value lies from -1 to 1"
         );
-        assert_eq!(
-            err(&|d| {
-                d.permutation = true;
-                d.permutation_dims = "3".into();
-            }),
-            "permuted tables for 3 dimensions, but the solution has 2"
-        );
-        assert_eq!(
-            err(&|d| d.label_length = "61".into()),
-            "the label length is a whole number from 0 to 60"
+        // more permuted dimensions than the solution, and a label over 60, are the command's to cap
+        let mut d = base.clone();
+        d.permutation = true;
+        d.permutation_dims = "3".into();
+        d.label_length = "61".into();
+        let syntax = d.syntax(&data).unwrap();
+        assert!(
+            syntax.contains("PERMUTATION(3)") && syntax.contains("(60)"),
+            "{syntax}"
         );
         // without a plot the label length is not written, so not checked
         let mut d = base.clone();
@@ -610,7 +601,7 @@ mod tests {
                 d.permutation = true;
                 d.permutation_dims = "1000000000".into();
             }),
-            "permuted tables for 1000000000 dimensions, but the solution has 2"
+            "the dimensions of the permuted tables must be below 1000000000"
         );
         assert_eq!(
             err(&|d| {
