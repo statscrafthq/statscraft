@@ -698,3 +698,40 @@ fn units_of_the_dependents_do_not_matter() {
     );
     assert!(chi.is_finite() && chi > 0.0, "{chi}");
 }
+
+/// A dependent that the model fits exactly, or that is constant, adds no error variance: its
+/// rounding noise does not count, so the tests rest on the other dependents.
+#[test]
+fn an_exactly_fitted_dependent_adds_nothing() {
+    let mut engine = Engine::default();
+    let two = run(
+        &mut engine,
+        &format!("{DATA}\nGLM y1 y2 BY g WITH x /PRINT=RSSCP HOMOGENEITY."),
+    );
+    let three = run(
+        &mut engine,
+        "COMPUTE z = x * 1.7.\nCOMPUTE c = 0.1.\nGLM y1 y2 z BY g WITH x /PRINT=RSSCP.",
+    );
+    for row in ["x / Pillai's Trace", "g / Wilks' Lambda"] {
+        let a = value(&two, MV, row, "F");
+        let b = value(&three, MV, row, "F");
+        assert!(close(a, b), "{row}: {a} vs {b}");
+        assert_eq!(
+            value(&three, MV, row, "Hypothesis df"),
+            value(&two, MV, row, "Hypothesis df")
+        );
+    }
+    // the residual SSCP is singular: no chi-square
+    let t = three
+        .iter()
+        .find(|t| t.title == "Bartlett's Test of Sphericity")
+        .unwrap();
+    assert_eq!(t.rows[1][1], Cell::Empty);
+    let with_constant = run(&mut engine, "GLM y1 y2 c BY g /PRINT=HOMOGENEITY.");
+    assert!(
+        !with_constant
+            .iter()
+            .any(|t| t.title == "Box's Test of Equality of Covariance Matrices"),
+        "a constant dependent leaves every cell singular"
+    );
+}

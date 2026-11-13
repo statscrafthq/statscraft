@@ -273,6 +273,13 @@ impl Fit {
         (s, swept.iter().filter(|&&s| s).count())
     }
 
+    /// Y'WY, the raw sums of squares and cross-products of the dependents.
+    fn raw(&self) -> Matrix {
+        (self.p..self.p + self.r)
+            .map(|i| self.zwz[i][self.p..].to_vec())
+            .collect()
+    }
+
     pub(crate) fn h(&self) -> Matrix {
         let xwx: Matrix = (0..self.p)
             .map(|i| self.zwz[i][..self.p].to_vec())
@@ -2773,7 +2780,7 @@ fn custom_tests(
         Some(caption.clone()),
     )];
     // the hypothesis is testable only when every row is estimable
-    if kept.len() < l.len() {
+    if kept.is_empty() || kept.len() < l.len() {
         if !kept.is_empty() {
             warnings.push(format!(
                 "{title}: the joint test needs every row estimable and is left out"
@@ -2815,7 +2822,14 @@ fn custom_tests(
         "Multivariate Test Results",
         1,
         multivariate_columns(flags, false),
-        multivariate_rows(&ssh, &se_m, df as f64, dfe, flags),
+        multivariate_rows(
+            &ssh,
+            &se_m,
+            &diagonal(&quadratic(m, &fit.raw())),
+            df as f64,
+            dfe,
+            flags,
+        ),
         Some(format!("{caption}{}", multivariate_note(flags))),
     ));
     let header = if transformed {
@@ -2857,29 +2871,31 @@ fn quadratic(m: &Matrix, a: &Matrix) -> Matrix {
     multiply(&multiply(&transpose(m), a), m)
 }
 
+fn diagonal(a: &Matrix) -> Vec<f64> {
+    (0..a.len()).map(|i| a[i][i]).collect()
+}
+
 fn trace(a: &Matrix) -> f64 {
     (0..a.len()).map(|i| a[i][i]).sum()
 }
 
-/// The eigenvalues of S_E^-1 S_H, largest first, and the rank of S_E.
-fn relative_eigenvalues(sh: &Matrix, se: &Matrix) -> (Vec<f64>, usize) {
-    // both scaled by the root of S_E's diagonal, which keeps the eigenvalues and makes the rank
-    // independent of the units of the variables
-    let d: Vec<f64> = (0..se.len())
-        .map(|i| {
-            if se[i][i] > 0.0 {
-                1.0 / se[i][i].sqrt()
-            } else {
-                0.0
-            }
+/// The eigenvalues of S_E^-1 S_H, largest first, and the rank of S_E. `reference` is each
+/// variable's own scale (see `correlation_form`).
+fn relative_eigenvalues(sh: &Matrix, se: &Matrix, reference: &[f64]) -> (Vec<f64>, usize) {
+    // in correlation form, which keeps the eigenvalues and makes the rank independent of the
+    // units of the variables; a variable with no error variance drops out
+    let scale: Vec<f64> = (0..se.len()).map(|i| se[i][i].max(0.0).sqrt()).collect();
+    let (se, kept) = correlation_form(se, reference);
+    let sh: Matrix = kept
+        .iter()
+        .map(|&i| {
+            kept.iter()
+                .map(|&j| sh[i][j] / (scale[i] * scale[j]))
+                .collect()
         })
         .collect();
-    let scale = |a: &Matrix| -> Matrix {
-        (0..a.len())
-            .map(|i| (0..a.len()).map(|j| d[i] * a[i][j] * d[j]).collect())
-            .collect()
-    };
-    let (sh, se) = (&scale(sh), &scale(se));
+    let se = &se;
+    let sh = &sh;
     let pairs = crate::matrix::symmetric_eigen(se);
     let n = se.len();
     let mut rank = 0;
@@ -2910,10 +2926,11 @@ fn relative_eigenvalues(sh: &Matrix, se: &Matrix) -> (Vec<f64>, usize) {
 fn multivariate(
     sh: &Matrix,
     se: &Matrix,
+    reference: &[f64],
     l: f64,
     ne: f64,
 ) -> Vec<(&'static str, f64, f64, f64, f64, f64)> {
-    let (lambdas, re) = relative_eigenvalues(sh, se);
+    let (lambdas, re) = relative_eigenvalues(sh, se, reference);
     let re = re as f64;
     let s = l.min(re);
     let m = ((re - l).abs() - 1.0) / 2.0;
@@ -2972,9 +2989,10 @@ fn multivariate(
 }
 
 /// The significance of Mauchly's chi-square by the manual's expansion.
-fn mauchly(xi: &Matrix, dfe: f64) -> (f64, f64, f64, f64) {
+/// A singular matrix gives W = 0 and no chi-square or Sig.
+fn mauchly(xi: &Matrix, dfe: f64, reference: &[f64]) -> (f64, f64, f64, f64) {
     let m = xi.len() as f64;
-    let (log_det, rank) = log_determinant_and_rank(xi);
+    let (log_det, rank) = log_determinant_and_rank(xi, reference);
     let w = if rank == xi.len() {
         (log_det - m * (trace(xi) / m).ln()).exp()
     } else {
@@ -2988,7 +3006,11 @@ fn mauchly(xi: &Matrix, dfe: f64) -> (f64, f64, f64, f64) {
             / (288.0 * m * m * dfe * dfe * rho * rho);
     let cdf = |c: f64, f: f64| 1.0 - crate::dist::chi_square_p(c, f);
     let sig = (1.0 - cdf(c, f) - omega2 * (cdf(c, f + 4.0) - cdf(c, f))).max(0.0);
-    (w, c, f, sig)
+    if w > 0.0 {
+        (w, c, f, sig)
+    } else {
+        (w, f64::NAN, f, f64::NAN)
+    }
 }
 
 impl Engine {
@@ -3084,6 +3106,7 @@ impl Engine {
         let fit = Fit::new(d, effects, &y, command.eps);
         let sscp = effect_sscp(&fit, command.sstype);
         let dfe = fit.df_error();
+        let raw = fit.raw();
         let flags = flags_of(command);
         let between_label = |e: &Effect| e.label.clone();
         let mut out = Vec::new();
@@ -3156,6 +3179,7 @@ impl Engine {
             let m_avg = kronecker(&avg_parts);
             let dd = m_avg[0].len() as f64;
             let se_mv = quadratic(&m_mv, &fit.s);
+            let raw_mv = diagonal(&quadratic(&m_mv, &raw));
             let se_avg = quadratic(&m_avg, &fit.s);
             // Mauchly's test and the epsilons
             let gg = trace(&se_avg).powi(2) / (dd * trace(&multiply(&se_avg, &se_avg)));
@@ -3163,7 +3187,7 @@ impl Engine {
             let hf = ((n * dd * gg - 2.0) / (dd * dfe - dd * dd * gg)).min(1.0);
             let lb = 1.0 / dd;
             let (w, chi, df, sig) = if dd >= 2.0 {
-                mauchly(&se_avg, dfe)
+                mauchly(&se_avg, dfe, &diagonal(&quadratic(&m_avg, &raw)))
             } else {
                 (1.0, 0.0, 0.0, f64::NAN)
             };
@@ -3187,7 +3211,7 @@ impl Engine {
                 };
                 let sh_mv = quadratic(&m_mv, sh);
                 let l = *rank as f64;
-                for (i, mut row) in multivariate_rows(&sh_mv, &se_mv, l, dfe, &flags)
+                for (i, mut row) in multivariate_rows(&sh_mv, &se_mv, &raw_mv, l, dfe, &flags)
                     .into_iter()
                     .enumerate()
                 {
@@ -3560,8 +3584,16 @@ fn multivariate_columns(flags: &Flags, effect: bool) -> Vec<(String, String)> {
 
 /// The rows of the four multivariate statistics of S_H against S_E, with `l` hypothesis and
 /// `ne` error degrees of freedom; empty when the hypothesis has no degrees of freedom.
-fn multivariate_rows(sh: &Matrix, se: &Matrix, l: f64, ne: f64, flags: &Flags) -> Vec<Vec<Cell>> {
-    multivariate(sh, se, l, ne)
+/// `reference` is each variable's raw sum of squares (see `correlation_form`).
+fn multivariate_rows(
+    sh: &Matrix,
+    se: &Matrix,
+    reference: &[f64],
+    l: f64,
+    ne: f64,
+    flags: &Flags,
+) -> Vec<Vec<Cell>> {
+    multivariate(sh, se, reference, l, ne)
         .into_iter()
         .map(|(stat, value, f, df1, df2, eta)| {
             let ok = l > 0.0 && df1 > 0.0 && df2 > 0.0 && f.is_finite();
@@ -3597,28 +3629,36 @@ fn multivariate_note(flags: &Flags) -> String {
     )
 }
 
-/// The log determinant of a symmetric matrix and its rank, from its eigenvalues (the log is
-/// meaningful only at full rank).
-fn log_determinant_and_rank(a: &Matrix) -> (f64, usize) {
-    // in correlation form, so that the units of the variables do not matter
-    let n = a.len();
-    let positive: Vec<usize> = (0..n).filter(|&i| a[i][i] > 0.0).collect();
-    let r: Matrix = positive
+/// The matrix in correlation form over the variables whose variance is more than a tiny share
+/// of `reference`, their own scale (the diagonal of their raw sums of squares), with those
+/// variables. Rounding noise left in the variance of a variable that is fitted exactly or
+/// constant is thus no variance, whatever the units.
+fn correlation_form(a: &Matrix, reference: &[f64]) -> (Matrix, Vec<usize>) {
+    let kept: Vec<usize> = (0..a.len())
+        .filter(|&i| a[i][i] > 1e-14 * reference[i])
+        .collect();
+    let r = kept
         .iter()
         .map(|&i| {
-            positive
-                .iter()
+            kept.iter()
                 .map(|&j| a[i][j] / (a[i][i] * a[j][j]).sqrt())
                 .collect()
         })
         .collect();
+    (r, kept)
+}
+
+/// The log determinant of a symmetric matrix and its rank (see `correlation_form`); the log is
+/// meaningful only at full rank.
+fn log_determinant_and_rank(a: &Matrix, reference: &[f64]) -> (f64, usize) {
+    let (r, kept) = correlation_form(a, reference);
     let values: Vec<f64> = crate::matrix::symmetric_eigen(&r)
         .into_iter()
         .map(|(v, _)| v)
         .collect();
     let rank = values.iter().filter(|v| **v > 1e-10).count();
     let log_det = values.iter().map(|v| v.ln()).sum::<f64>()
-        + positive.iter().map(|&i| a[i][i].ln()).sum::<f64>();
+        + kept.iter().map(|&i| a[i][i].ln()).sum::<f64>();
     (log_det, rank)
 }
 
@@ -3630,6 +3670,16 @@ fn box_m(d: &Data, design: &str) -> Option<Table> {
     let mut cells: Vec<Vec<usize>> = d.level.clone();
     cells.sort();
     cells.dedup();
+    // each variable's raw mean square, the scale its variances are judged against
+    let total: f64 = (0..d.rows()).map(|i| d.f[i]).sum();
+    let reference: Vec<f64> = (0..r)
+        .map(|a| {
+            (0..d.rows())
+                .map(|i| d.w(i) * d.y[i][a] * d.y[i][a])
+                .sum::<f64>()
+                / total
+        })
+        .collect();
     let mut kept: Vec<(f64, Matrix, f64)> = Vec::new();
     for cell in &cells {
         let members: Vec<usize> = (0..d.rows()).filter(|&i| d.level[i] == *cell).collect();
@@ -3653,7 +3703,7 @@ fn box_m(d: &Data, design: &str) -> Option<Table> {
                     .collect()
             })
             .collect();
-        let (log_det, rank) = log_determinant_and_rank(&s);
+        let (log_det, rank) = log_determinant_and_rank(&s, &reference);
         if rank == r {
             kept.push((n, s, log_det));
         }
@@ -3670,7 +3720,7 @@ fn box_m(d: &Data, design: &str) -> Option<Table> {
                 .collect()
         })
         .collect();
-    let (log_det, rank) = log_determinant_and_rank(&pooled);
+    let (log_det, rank) = log_determinant_and_rank(&pooled, &reference);
     if rank < r {
         return None;
     }
@@ -3739,7 +3789,7 @@ fn residual_tables(fit: &Fit, names: &[String], design: &str) -> Vec<Table> {
         }
     }
     let residual = table("Residual SSCP Matrix", 2, columns, rows, None);
-    let (w, chi, df, sig) = mauchly(s, dfe);
+    let (w, chi, df, sig) = mauchly(s, dfe, &diagonal(&fit.raw()));
     let fine = w > 0.0 && dfe > 0.0;
     let rows = vec![
         // a singular residual SSCP gives a ratio of 0 but no chi-square
@@ -3937,9 +3987,10 @@ impl Engine {
             }
         }
         let sscp = effect_sscp(&fit, command.sstype);
+        let reference = diagonal(&fit.raw());
         let mut rows = Vec::new();
         for (e, (sh, l)) in fit.effects.iter().zip(&sscp) {
-            for (i, mut row) in multivariate_rows(sh, &fit.s, *l as f64, dfe, &flags)
+            for (i, mut row) in multivariate_rows(sh, &fit.s, &reference, *l as f64, dfe, &flags)
                 .into_iter()
                 .enumerate()
             {
