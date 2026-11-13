@@ -606,25 +606,15 @@ fn svd_basis(a: &Mat, full: bool) -> (Mat, Mat, Mat) {
             columns.push(u);
         }
     }
-    let u = match full {
-        true => complete_basis(columns, m),
-        false => {
-            let mut u = Mat::filled(m, columns.len(), 0.0);
-            for (j, c) in columns.iter().enumerate() {
-                for (i, x) in c.iter().enumerate() {
-                    u.set(i, j, *x);
-                }
-            }
-            u
-        }
-    };
-    (u, q, vm)
+    let size = if full { m } else { columns.len() };
+    (complete_basis(columns, m, size), q, vm)
 }
 
-/// Orthonormal columns completed to a square orthonormal matrix with unit vectors.
-fn complete_basis(mut columns: Vec<Vec<f64>>, m: usize) -> Mat {
+/// Orthonormal columns of length m completed with unit vectors to `size` columns (m for a
+/// square orthonormal matrix).
+fn complete_basis(mut columns: Vec<Vec<f64>>, m: usize, size: usize) -> Mat {
     for e in 0..m {
-        if columns.len() == m {
+        if columns.len() >= size {
             break;
         }
         let mut x: Vec<f64> = (0..m).map(|i| f64::from(u8::from(i == e))).collect();
@@ -641,7 +631,7 @@ fn complete_basis(mut columns: Vec<Vec<f64>>, m: usize) -> Mat {
             columns.push(x.into_iter().map(|v| v / norm).collect());
         }
     }
-    let mut u = Mat::filled(m, m, 0.0);
+    let mut u = Mat::filled(m, size, 0.0);
     for (j, c) in columns.iter().enumerate() {
         for (i, x) in c.iter().enumerate() {
             u.set(i, j, *x);
@@ -901,6 +891,37 @@ mod tests {
             close(&u.product(&q).product(&v.transpose()), &a);
             close(&u.transpose().product(&u), &Mat::identity(a.rows));
             close(&v.transpose().product(&v), &Mat::identity(a.cols));
+        }
+    }
+
+    #[test]
+    fn thin_svd_keeps_only_the_vectors_it_needs() {
+        for a in [
+            m(
+                6,
+                2,
+                &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 1.0, 2.0, 0.0],
+            ),
+            m(
+                2,
+                6,
+                &[1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 1.0, 2.0, 0.0],
+            ),
+        ] {
+            let (u, q, v) = thin_svd(&a);
+            // the shorter side square, the longer one with a column per singular value
+            assert_eq!((u.rows, u.cols, v.rows, v.cols), (a.rows, 2, a.cols, 2));
+            close(&u.transpose().product(&u), &Mat::identity(2));
+            close(&v.transpose().product(&v), &Mat::identity(2));
+            for k in 0..2 {
+                let vk = Mat::new(a.cols, 1, (0..a.cols).map(|i| v.at(i, k)).collect());
+                let uk = Mat::new(
+                    a.rows,
+                    1,
+                    (0..a.rows).map(|i| u.at(i, k) * q.at(k, k)).collect(),
+                );
+                close(&a.product(&vk), &uk);
+            }
         }
     }
 

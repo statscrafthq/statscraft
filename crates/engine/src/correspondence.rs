@@ -707,13 +707,15 @@ fn solve(s: &Setup) -> Result<Solution, String> {
         .map(|t| {
             (0..kept)
                 .map(|o| {
-                    let mean = &lambda_means;
-                    match () {
-                        _ if tied[t] || tied[o] => f64::NAN,
-                        _ if o == t => (lambda_squares[t] - mean[t] * mean[t]) / n,
-                        _ if o < p && t < p => pairs[t][o],
+                    if tied[t] || tied[o] {
+                        f64::NAN
+                    } else if o == t {
+                        (lambda_squares[t] - lambda_means[t] * lambda_means[t]) / n
+                    } else if o < p && t < p {
+                        pairs[t][o]
+                    } else {
                         // only the pairs among the first p dimensions were summed
-                        _ => f64::NAN,
+                        f64::NAN
                     }
                 })
                 .collect()
@@ -1324,10 +1326,11 @@ impl Engine {
         total.extend((0..p).map(|_| Cell::Empty));
         summary_rows.push(total);
         let mut summary = grouped("Summary", header, summary_rows);
+        let plural = if kept == 1 { "" } else { "s" };
         summary.caption = Some(if chisq {
-            format!("{df} degrees of freedom; {kept} dimensions in the table.")
+            format!("{df} degrees of freedom; {kept} dimension{plural} in the table.")
         } else {
-            format!("{kept} dimensions in the table.")
+            format!("{kept} dimension{plural} in the table.")
         });
         tables.push(summary);
 
@@ -1611,8 +1614,12 @@ fn plots(
         (plot.cpoints, "Column Points", false, true),
     ];
     if scatter.iter().any(|x| x.0.is_some()) && pairs.is_empty() && plot.given {
-        warnings
-            .push("CORRESPONDENCE: one dimension only, so there is no scatter of points".into());
+        warnings.push(match p {
+            1 => "CORRESPONDENCE: one dimension only, so there is no scatter of points".into(),
+            _ => format!(
+                "CORRESPONDENCE: NDIM leaves no pair of the {p} dimensions to plot against each other"
+            ),
+        });
     }
     for (labels, title, with_rows, with_columns) in scatter {
         let Some(length) = labels else { continue };
