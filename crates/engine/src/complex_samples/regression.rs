@@ -499,6 +499,20 @@ fn parameter_names(d: &Data, fit: &Fit) -> Vec<String> {
 
 impl Engine {
     pub(crate) fn cs_model(&mut self, c: &CsModel) -> Result<Vec<Table>, Error> {
+        // a SAVE name that is taken stops the command before the fit
+        let data = self.active()?;
+        for s in &c.save {
+            if let CsModelSave::Pred(Some(n))
+            | CsModelSave::Resid(Some(n))
+            | CsModelSave::PredVal(Some(n)) = s
+                && data.variable_index(n).is_some()
+            {
+                return Err(Error(format!(
+                    "{} /SAVE: variable {n} already exists",
+                    c.name()
+                )));
+            }
+        }
         let mut warnings = Vec::new();
         let (tables, saved, cases) = self.cs_model_tables(c, &mut warnings)?;
         self.warn_weight_and_split(c.name());
@@ -1374,7 +1388,10 @@ impl Engine {
         }
 
         // Covariances and correlations of the parameter estimates
-        let used: Vec<usize> = (0..est.len()).filter(|&a| !est.redundant[a]).collect();
+        // SHOW=NO leaves the intercept out of these tables too
+        let used: Vec<usize> = (0..est.len())
+            .filter(|&a| !est.redundant[a] && (show_intercept || !(intercept && a % p == 0)))
+            .collect();
         for (wanted, title) in [
             (c.print.covb, "Covariances of Parameter Estimates"),
             (c.print.corb, "Correlations of Parameter Estimates"),
@@ -1525,6 +1542,11 @@ impl Engine {
                     }),
                 };
                 let text_of = |l: usize| shown.value(&factor_vars[f], &levels[f][l]);
+                if levels[f].len() < 2 {
+                    warnings.push(format!(
+                        "CSLOGISTIC ODDSRATIOS: {n} has one level among the cases analyzed, so it has no odds ratios"
+                    ));
+                }
                 for l in (0..levels[f].len()).filter(|&l| l != r) {
                     let mut a = fixed_levels.clone();
                     a[f] = l;
@@ -1864,6 +1886,20 @@ impl Engine {
             ));
             let Some(compare) = &em.compare else {
                 continue;
+            };
+            // a bare COMPARE names the only factor of TABLES
+            let compare = if compare.is_empty() {
+                match em.tables.as_slice() {
+                    [only] => only,
+                    _ => {
+                        return Err(Error(
+                            "EMMEANS COMPARE without a factor needs exactly one factor on TABLES"
+                                .into(),
+                        ));
+                    }
+                }
+            } else {
+                compare
             };
             let Some(at) = fs
                 .iter()

@@ -80,6 +80,7 @@ pub struct CsEmmeans {
     pub tables: Vec<String>,
     /// OTHER: each covariate with its value, None for MEAN.
     pub other: Vec<(String, Option<f64>)>,
+    /// COMPARE: the factor, or an empty name when COMPARE stands alone.
     pub compare: Option<String>,
     pub contrast: CsContrast,
 }
@@ -457,6 +458,10 @@ fn emmeans(p: &mut Parser) -> PResult<CsEmmeans> {
         } else if eat_assignment(p, "COMPARE")? {
             once(p, at, &mut seen, "COMPARE")?;
             e.compare = Some(p.name("a factor")?);
+        } else if p.eat_keyword("COMPARE") {
+            // COMPARE alone: the only factor of TABLES (an empty name here)
+            once(p, at, &mut seen, "COMPARE")?;
+            e.compare = Some(String::new());
         } else if eat_assignment(p, "CONTRAST")? {
             once(p, at, &mut seen, "CONTRAST")?;
             e.contrast = if p.eat_keyword("SIMPLE") {

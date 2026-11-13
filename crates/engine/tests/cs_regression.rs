@@ -274,7 +274,7 @@ fn csglm_custom_tests_and_estimated_marginal_means() {
            /CUSTOM LMATRIX=1 heat 1/3 1/3 1/3 members 3 earn 1500; heat 1 -1 0 KMATRIX=400; 0
            /EMMEANS TABLES=heat COMPARE=heat /TEST PADJUST=BONFERRONI /PRINT LMATRIX
            /CUSTOM KMATRIX=100.
-         {GLM} /EMMEANS TABLES=heat COMPARE=heat /TEST PADJUST=SEQBONFERRONI /PRINT NONE.
+         {GLM} /EMMEANS TABLES=heat COMPARE /TEST PADJUST=SEQBONFERRONI /PRINT NONE.
          {GLM} /EMMEANS TABLES=heat COMPARE=heat CONTRAST=SIMPLE(3) /TEST PADJUST=SIDAK /PRINT NONE.\n",
         data("custom")
     );

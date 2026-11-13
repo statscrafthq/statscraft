@@ -40,8 +40,6 @@ pub(crate) enum Stage {
 
 pub(crate) fn stage(command: &Command) -> Stage {
     match command {
-        // CSGLM and CSLOGISTIC read the data; SAVE adds columns like REGRESSION's
-        Command::CsModel(_) => Stage::Pass,
         Command::Frequencies(_)
         | Command::Descriptives(_)
         | Command::Crosstabs(_)
@@ -65,6 +63,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Tree(_)
         | Command::Csdescriptives(_)
         | Command::Cstabulate(_)
+        | Command::CsModel(_)
         | Command::Graph(_)
         | Command::Pplot(_)
         | Command::Roc(_)
