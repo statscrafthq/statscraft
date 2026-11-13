@@ -323,6 +323,17 @@ See [The Window menu](#the-window-menu).
   - Descriptive statistics, effect sizes, observed power and the significance level.
   - One measure only, since `MEASURE` is not supported yet.
 
+**Mixed Models**
+
+- **Linear** (`MIXED`): one dependent variable with factors and covariates.
+  - Subject variables, and repeated variables that tell the measurements of one subject apart, with the covariance type of the repeated measures (diagonal, scaled identity, compound symmetry, first-order autoregressive or unstructured). The repeated measures use every subject variable.
+  - Fixed effects: the main effects of the factors and covariates, or custom terms; the intercept.
+  - One set of random effects: the intercept and custom terms, the subject variables they vary over, and the covariance type (variance components, scaled identity, diagonal, unstructured, compound symmetry or first-order autoregressive). More sets of random effects are in the syntax.
+  - Restricted or full maximum likelihood, the confidence level, the maximum iterations and step-halving, Satterthwaite or residual degrees of freedom, and user-missing values as valid.
+  - Estimates of the fixed effects and tests of the covariance parameters.
+  - Saving the fixed predicted values with their standard errors and degrees of freedom, the predicted values and the residuals.
+  - Estimated marginal means are not offered, since the command does not support `EMMEANS` yet.
+
 **Correlate**
 
 - **Bivariate**: Pearson by CORRELATIONS, Spearman and Kendall by NONPAR CORR, and both commands when both kinds are chosen.
@@ -340,6 +351,17 @@ See [The Window menu](#the-window-menu).
   - Categorical covariates, each with its contrast and the first or last category as reference.
   - Saving predicted probabilities, group membership, residuals and influence statistics.
   - The Hosmer-Lemeshow test, confidence intervals for exp(B), the iteration history, the classification cutoff, the stepwise entry and removal probabilities, the maximum iterations and the constant.
+- **Multinomial Logistic** (`NOMREG`): a nominal dependent variable, numeric or string, on factors and covariates.
+  - The reference category: the last, the first or a value you type; the categories in ascending or descending order.
+  - The model: main effects, the full factorial, or custom terms built as in Univariate; the intercept.
+  - The tables: case processing, model fitting with or without the information criteria, pseudo R-square, goodness of fit, likelihood ratio tests, parameter estimates, classification, and the covariance and correlation of the estimates. With every table off the command shows none.
+  - Saving the probability of each category, the predicted category, its probability and the probability of the observed category.
+  - The confidence level, the maximum iterations and step-halving, and user-missing values as valid.
+- **Ordinal** (`PLUM`): an ordinal dependent variable on factors and covariates.
+  - The link: logit, probit, complementary log-log, negative log-log or Cauchit.
+  - The location part: the main effects, or custom terms. The scale part: none, or custom terms.
+  - The tables: goodness of fit, the summary, parameter estimates, the test of parallel lines, cell information, the covariance and correlation of the estimates, the iteration history and the kernel of the log-likelihood.
+  - The same saved variables as Multinomial Logistic; the confidence level, the maximum iterations and step-halving, the value added to empty cells, and user-missing values as valid.
 
 **Classify**
 
@@ -403,6 +425,28 @@ See [The Window menu](#the-window-menu).
 - Crosstabulations of groups and variables in rows, columns and layers. Each variable has its range, starting from its lowest and highest labeled value.
 - Row, column and total percentages, based on cases or on responses.
 - Leaving out cases missing on any variable of a dichotomy or category group.
+
+**Complex Samples**
+
+- **Analysis Plan** (`CSPLAN ANALYSIS`): writes a plan file, a small JSON file, with the sample weight and one to three stages. Each stage has an optional label, strata and clusters (every stage but the last needs clusters), and is drawn with replacement or with equal probability without replacement. A stage drawn with replacement ends the design, so no stage can follow it. Without replacement needs the population size or the inclusion probability, as one value or read from a variable. Design effects compare with simple random sampling with or without replacement. Matrices of population sizes are in the syntax.
+- **Descriptives** (`CSDESCRIPTIVES`), **Frequencies** and **Crosstabs** (`CSTABULATE`, one-way and two-way tables) each pick a plan file.
+  - Descriptives: means and sums of the measures, and one ratio of numerators to denominators.
+  - Frequencies and Crosstabs: population sizes and table percents; in Crosstabs also row and column percents.
+  - The standard error, coefficient of variation, design effect and its square root, the unweighted count and a confidence interval at any level. Descriptives adds the population size, Frequencies cumulative values, Crosstabs the expected table percents and the residuals (with table percents).
+  - Tests: equal shares in Frequencies; independence, the odds ratio, relative risk and risk difference in Crosstabs.
+  - Subpopulations, shown together or in a table for each variable; cases valid on every variable only; user-missing values of categories as valid.
+
+### Graphs
+
+- **Chart Builder** (`GRAPH`): one chart, picked from a list: simple, clustered or stacked bars; simple or multiple lines; an area chart; a pie; a histogram; simple, grouped, overlay or matrix scatterplots; error bars; a Pareto chart; or a high-low chart. Only the roles the chosen chart needs are shown.
+  - Bars, lines, areas, pies, Pareto and high-low charts show a function by the categories of a variable: the number or percentage of cases (also cumulative), or the mean, median, mode, sum, minimum, maximum, standard deviation, variance, grouped median, a percentile, or the share or number of values below, above or within a range, of one or more variables. Pareto charts show counts or sums; high-low charts summarize two or three variables (high, low and close).
+  - Clustered and stacked bars, multiple lines, areas and Pareto charts take a second category variable for their series, or instead summarize several variables, one series each. Simple bars and lines and pies summarize one variable.
+  - A histogram can carry a normal curve. Scatterplots take their axes, a variable that groups the points and one whose values label them; an overlay pairs every X variable with every Y variable, or the lists in order.
+  - Error bars show the mean of each variable, by category and cluster, with a confidence interval at any level from 50 to 99.9, or a number of standard errors or standard deviations.
+  - A title, subtitle and footnote; panel variables, which draw a chart for each combination of their categories; and how missing values are left out, whether they get categories of their own, and whether user-missing values count as valid.
+  - There is no preview: OK draws the chart in the output.
+- **P-P Plots** and **Q-Q Plots** (`PPLOT`): variables against a test distribution (normal, exponential, Weibull, Pareto, lognormal, beta, gamma, logistic, Laplace, uniform, half-normal, chi-square or Student t), its parameters estimated from the data or given (chi-square and Student t always need their degrees of freedom). The proportion formula (Blom, Rankit, Tukey, Van der Waerden), the rank of tied values, the plot, the detrended plot or both, and the natural log, standardizing, differencing and seasonal differencing with its period.
+- **ROC Curve** (`ROC`): test variables against the value of a state variable that marks the positive state. The curve with or without the diagonal reference line, the standard error and confidence interval of the area with the chart of the model quality, and a table of the cutoffs with their sensitivity and specificity. Whether larger or smaller test values point to a positive test, whether a value at the cutoff counts as positive, the confidence level, a nonparametric or bi-negative exponential standard error, and user-missing values as valid.
 
 ### Transform
 

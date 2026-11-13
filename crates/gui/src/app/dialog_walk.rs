@@ -2,6 +2,10 @@
 //! that the parser takes and that runs on the survey file.
 
 use super::{CategoryDraft, Dialog, RuleDraft};
+use crate::advanced_dialogs::{
+    Advanced, LinearMixed, Multinomial, Ordinal, SampleDescriptives, SampleOptions, SamplePlan,
+    SampleTables, Stage, Terms,
+};
 use crate::analyze_dialogs::{
     Correlations, Explore, ExploreMissing, Means, MrGroup, MultResponse, Oneway, TTest, TTestKind,
     Tree,
@@ -16,6 +20,7 @@ use crate::dialogs::{
     Adjust, Autorecode, Categories, Compute, Count, Crosstabs, CustomTables, Descriptives,
     Frequencies, Letters, NewValue, OldValue, Rank, Recode, RecodeRule, Subtotal,
 };
+use crate::graph_dialogs::{ChartBuilder, ChartKind, ProbabilityPlot, RocCurve};
 use crate::model_dialogs::{
     Categorical, Discriminant, FactorAnalysis, Hierarchical, KMeans, Logistic, RepeatedMeasures,
     Solutions, Univariate, WithinFactor,
@@ -29,6 +34,7 @@ fn s(text: &str) -> String {
 
 /// Each dialog with the fewest choices that make its syntax.
 fn minimal(out: &Path) -> Vec<Dialog> {
+    let plan = out.join("min_plan.json").to_string_lossy().into_owned();
     let mut list = vec![
         Dialog::Frequencies(Frequencies {
             variables: v(&["gender"]),
@@ -203,6 +209,41 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             dependents: v(&["q6_mention1", "q6_mention2", "q6_mention3"]),
             ..Default::default()
         }),
+        Dialog::Advanced(Advanced::Ordinal(Ordinal {
+            dependent: s("q1_satisfaction"),
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Multinomial(Multinomial {
+            dependent: s("plan"),
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Mixed(LinearMixed {
+            dependent: s("monthly_spend"),
+            ..Default::default()
+        })),
+        // the plan before the analyses that read it
+        Dialog::Advanced(Advanced::Plan(SamplePlan {
+            path: plan.clone(),
+            weight: s("weight"),
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Descriptives(SampleDescriptives {
+            plan: plan.clone(),
+            summary: v(&["age"]),
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Tables(SampleTables {
+            plan: plan.clone(),
+            variables: v(&["gender"]),
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Tables(SampleTables {
+            crosstabs: true,
+            plan,
+            variables: v(&["gender"]),
+            column: s("q5_1"),
+            ..Default::default()
+        })),
         Dialog::Restructure(Restructure {
             makes: vec![Make {
                 name: s("mention"),
@@ -230,6 +271,41 @@ fn minimal(out: &Path) -> Vec<Dialog> {
         d.pairs = vec![(s("age"), s("monthly_spend"))];
         list.push(Dialog::TTest(d));
     }
+    for kind in ChartKind::ALL {
+        // the fewest roles each chart needs
+        list.push(Dialog::ChartBuilder(ChartBuilder {
+            kind,
+            function: if kind == ChartKind::HighLow { 4 } else { 0 },
+            variables: match kind {
+                ChartKind::HighLow | ChartKind::OverlayScatter | ChartKind::MatrixScatter => {
+                    v(&["age", "monthly_spend"])
+                }
+                _ => v(&["age"]),
+            },
+            y_variables: v(&["q2_recommend"]),
+            category: s("region"),
+            group: if kind.group().is_some() && kind != ChartKind::ErrorBar {
+                s("gender")
+            } else {
+                String::new()
+            },
+            x: s("age"),
+            y: s("monthly_spend"),
+            ..Default::default()
+        }));
+    }
+    for pp in [false, true] {
+        list.push(Dialog::ProbabilityPlot(ProbabilityPlot {
+            variables: v(&["age"]),
+            ..ProbabilityPlot::new(pp)
+        }));
+    }
+    list.push(Dialog::RocCurve(RocCurve {
+        tests: v(&["age"]),
+        state: s("q5_1"),
+        value: s("1"),
+        ..Default::default()
+    }));
     for kind in NparKind::ALL {
         let mut d = NparTests::new(kind);
         d.variables = v(&["q1_satisfaction", "q2_recommend"]);
@@ -244,6 +320,20 @@ fn minimal(out: &Path) -> Vec<Dialog> {
 
 /// Each dialog with every option on, or the last of a choice.
 fn maximal(out: &Path) -> Vec<Dialog> {
+    let plan = out.join("max_plan.json").to_string_lossy().into_owned();
+    let terms = |list: &[&[&str]]| Terms {
+        terms: list.iter().map(|t| v(t)).collect(),
+        building: Vec::new(),
+    };
+    let sample_options = || SampleOptions {
+        statistics: [true; 5],
+        ci: true,
+        ci_level: s("90"),
+        subpopulations: v(&["gender"]),
+        separate: true,
+        listwise: true,
+        include: true,
+    };
     let mut list = vec![
         Dialog::Frequencies(Frequencies {
             variables: v(&["gender", "age"]),
@@ -736,6 +826,120 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             print: [true; 3],
             alpha: s("0.01"),
         }),
+        Dialog::Advanced(Advanced::Ordinal(Ordinal {
+            dependent: s("q1_satisfaction"),
+            factors: v(&["gender"]),
+            covariates: v(&["age"]),
+            link: 4,
+            custom_location: true,
+            location: terms(&[&["gender"], &["age"], &["gender", "age"]]),
+            scale: true,
+            scale_terms: terms(&[&["age"]]),
+            print: [true; 9],
+            save: [true; 4],
+            ci_level: s("90"),
+            iterations: s("150"),
+            halvings: s("10"),
+            delta: s("0.5"),
+            include: true,
+        })),
+        Dialog::Advanced(Advanced::Multinomial(Multinomial {
+            dependent: s("plan"),
+            base: 2,
+            base_value: s("BASIC"),
+            descending: true,
+            factors: v(&["gender"]),
+            covariates: v(&["age"]),
+            model: 2,
+            terms: terms(&[&["gender"], &["age"], &["gender", "age"]]),
+            intercept: true,
+            print: [true; 11],
+            save: [true; 4],
+            ci_level: s("90"),
+            iterations: s("150"),
+            halvings: s("10"),
+            include: true,
+        })),
+        Dialog::Advanced(Advanced::Mixed(LinearMixed {
+            subjects: v(&["region"]),
+            repeated: v(&["resp_id"]),
+            repeated_covariance: 1,
+            dependent: s("monthly_spend"),
+            factors: v(&["gender"]),
+            covariates: v(&["age"]),
+            custom_fixed: true,
+            fixed: terms(&[&["gender"], &["age"]]),
+            intercept: true,
+            random: true,
+            random_intercept: true,
+            random_terms: terms(&[&["age"]]),
+            random_subjects: v(&["region"]),
+            random_covariance: 2,
+            ml: true,
+            solution: true,
+            covariance_tests: true,
+            save: [true; 5],
+            ci_level: s("90"),
+            iterations: s("150"),
+            halvings: s("5"),
+            residual_df: true,
+            include: true,
+        })),
+        Dialog::Advanced(Advanced::Plan(SamplePlan {
+            path: plan.clone(),
+            weight: s("weight"),
+            stages: vec![
+                Stage {
+                    label: s("Regions"),
+                    strata: v(&["region"]),
+                    clusters: v(&["gender"]),
+                    estimator: 1,
+                    rate: 1,
+                    rate_value: s("0.5"),
+                    ..Default::default()
+                },
+                Stage {
+                    strata: v(&["q5_1"]),
+                    clusters: v(&["resp_id"]),
+                    estimator: 1,
+                    rate: 1,
+                    rate_value: s("0.5"),
+                    ..Default::default()
+                },
+                Stage::default(),
+            ],
+            srs_with_replacement: true,
+        })),
+        Dialog::Advanced(Advanced::Descriptives(SampleDescriptives {
+            plan: plan.clone(),
+            summary: v(&["age", "monthly_spend"]),
+            mean: true,
+            sum: true,
+            numerators: v(&["monthly_spend"]),
+            denominators: v(&["age"]),
+            population_size: true,
+            options: sample_options(),
+        })),
+        Dialog::Advanced(Advanced::Tables(SampleTables {
+            plan: plan.clone(),
+            variables: v(&["q5_5", "q6_mention1"]),
+            cells: [true; 4],
+            cumulative: true,
+            homogeneity: true,
+            options: sample_options(),
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Tables(SampleTables {
+            crosstabs: true,
+            plan,
+            variables: v(&["q5_2", "q5_3"]),
+            column: s("q5_4"),
+            cells: [true; 4],
+            residuals: [true; 3],
+            tests: [true; 4],
+            options: sample_options(),
+            ..Default::default()
+        })),
         Dialog::Restructure(Restructure {
             makes: vec![
                 Make {
@@ -799,6 +1003,79 @@ fn maximal(out: &Path) -> Vec<Dialog> {
         d.standardizer = 2;
         list.push(Dialog::TTest(d));
     }
+    for kind in ChartKind::ALL {
+        // the last function a chart takes, titles, panels and every missing-value option
+        let mut d = ChartBuilder {
+            kind,
+            function: *kind.functions().last().unwrap(),
+            low: s("20"),
+            high: s("60"),
+            variables: v(&["age", "monthly_spend"]),
+            y_variables: v(&["q2_recommend", "q1_satisfaction"]),
+            pair: true,
+            category: s("region"),
+            group: s("gender"),
+            x: s("age"),
+            y: s("monthly_spend"),
+            label: s("resp_id"),
+            normal: true,
+            error_bar: 2,
+            level: s("90"),
+            multiplier: s("1"),
+            deviations: s("1"),
+            cumulative: false,
+            title: s("A title"),
+            subtitle: s("A subtitle"),
+            footnote: s("A footnote"),
+            by_variable: true,
+            report: true,
+            include: true,
+            panel_columns: v(&["q5_1"]),
+            panel_rows: v(&["q5_2"]),
+        };
+        // a group variable and a pie take one summarized variable
+        d.variables = match kind {
+            ChartKind::OverlayScatter | ChartKind::MatrixScatter => d.variables,
+            ChartKind::HighLow => v(&["age", "monthly_spend", "q2_recommend"]),
+            _ => v(&["age"]),
+        };
+        list.push(Dialog::ChartBuilder(d));
+    }
+    for (pp, distribution) in [(false, 0), (true, 12)] {
+        list.push(Dialog::ProbabilityPlot(ProbabilityPlot {
+            variables: v(&["age", "monthly_spend"]),
+            distribution,
+            estimate: false,
+            parameters: [s("40"), s("12")],
+            fraction: 3,
+            ties: 3,
+            plot: 2,
+            ln: true,
+            standardize: true,
+            diff: true,
+            diff_degree: s("1"),
+            sdiff: true,
+            sdiff_degree: s("1"),
+            period: s("4"),
+            ..ProbabilityPlot::new(pp)
+        }));
+    }
+    list.push(Dialog::RocCurve(RocCurve {
+        tests: v(&["age", "monthly_spend"]),
+        state: s("plan"),
+        value: s("BASIC"),
+        curve: true,
+        reference: true,
+        se: true,
+        model_quality: true,
+        coordinates: true,
+        small_positive: true,
+        exclude_cutoff: true,
+        // unequal groups fall back to the nonparametric error with a note
+        negexpo: true,
+        level: s("90"),
+        include: true,
+    }));
     for kind in NparKind::ALL {
         let mut d = NparTests::new(kind);
         d.variables = v(&["q1_satisfaction", "q2_recommend", "age"]);

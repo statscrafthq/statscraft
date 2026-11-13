@@ -16,7 +16,7 @@ use crate::stats_dialogs_view::{blocks, small_field};
 use eframe::egui::{self, ComboBox, TextEdit, Ui};
 
 /// A checkbox for each of `options`, adding to or taking from `chosen`.
-fn name_checkboxes(ui: &mut Ui, options: &[String], chosen: &mut Vec<String>) {
+pub(crate) fn name_checkboxes(ui: &mut Ui, options: &[String], chosen: &mut Vec<String>) {
     ui.horizontal_wrapped(|ui| {
         for name in options {
             let mut on = chosen.contains(name);
