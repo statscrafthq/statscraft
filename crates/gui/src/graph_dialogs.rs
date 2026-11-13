@@ -310,7 +310,7 @@ impl ChartBuilder {
             ChartKind::Pie if many => return Err("a pie summarizes one variable".into()),
             ChartKind::SimpleBar | ChartKind::SimpleLine if many => {
                 return Err(
-                    "a simple chart summarizes one variable; pick clustered bars or multiple lines for more"
+                    "by a category axis, a simple chart summarizes one variable; pick clustered bars or multiple lines for more"
                         .into(),
                 );
             }
@@ -335,7 +335,10 @@ impl ChartBuilder {
                 spec.push_str(&format!(" BY {group}"));
             }
             Some(title) if kind.needs_series() && !many => {
-                return Err(format!("set {title}, or summarize two variables or more"));
+                return Err(match counts {
+                    true => format!("set {title}"),
+                    false => format!("set {title}, or summarize two variables or more"),
+                });
             }
             _ => {}
         }
@@ -799,7 +802,7 @@ mod tests {
         assert!(
             d.syntax()
                 .unwrap_err()
-                .starts_with("a simple chart summarizes one variable")
+                .starts_with("by a category axis, a simple chart summarizes one variable")
         );
         d.variables = v(&["age"]);
 

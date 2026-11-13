@@ -200,7 +200,10 @@ pub fn roc(ui: &mut Ui, d: &mut RocCurve, picked: &mut Vec<String>) {
     ui.add_enabled_ui(d.se, |ui| {
         ui.checkbox(&mut d.model_quality, "Chart of the model quality");
     });
-    ui.checkbox(&mut d.coordinates, "Coordinate points of the curve");
+    ui.checkbox(
+        &mut d.coordinates,
+        "Table of cutoffs with sensitivity and specificity",
+    );
     ui.add_space(6.0);
     egui::CollapsingHeader::new("Options").show(ui, |ui| {
         ui.label("A positive test is");
@@ -210,10 +213,13 @@ pub fn roc(ui: &mut Ui, d: &mut RocCurve, picked: &mut Vec<String>) {
             &mut d.exclude_cutoff,
             "A value equal to the cutoff counts as negative",
         );
-        field(ui, "Confidence level %", &mut d.level, 50.0);
-        ui.label("Standard error of the area");
-        ui.radio_value(&mut d.negexpo, false, "Nonparametric");
-        ui.radio_value(&mut d.negexpo, true, "Bi-negative exponential");
+        // both only shape the standard error part, so they wait for it
+        ui.add_enabled_ui(d.se, |ui| {
+            field(ui, "Confidence level %", &mut d.level, 50.0);
+            ui.label("Standard error of the area");
+            ui.radio_value(&mut d.negexpo, false, "Nonparametric");
+            ui.radio_value(&mut d.negexpo, true, "Bi-negative exponential");
+        });
         ui.checkbox(&mut d.include, "Treat user-missing values as valid");
     });
 }

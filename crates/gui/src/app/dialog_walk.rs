@@ -903,8 +903,8 @@ fn maximal(out: &Path) -> Vec<Dialog> {
         coordinates: true,
         small_positive: true,
         exclude_cutoff: true,
-        // the bi-negative exponential error needs as many positive as negative cases
-        negexpo: false,
+        // unequal groups fall back to the nonparametric error with a note
+        negexpo: true,
         level: s("90"),
         include: true,
     }));
