@@ -1875,7 +1875,7 @@ impl Engine {
             Some(r) => {
                 let within = (!within_vars.is_empty()).then(|| row_keys(&within_keys));
                 if !r.sort && within.is_some() {
-                    warnings.push("WITHINSUBJECT is ignored with SORT=NO: the cases of each subject are taken in file order".into());
+                    warnings.push("WITHINSUBJECT is ignored with SORT=NO: the cases of each subject are taken in file order (a case with a missing WITHINSUBJECT value is still left out)".into());
                 }
                 // the positions are the WITHINSUBJECT values of every case with valid subject
                 // and within values, also one left out for another reason
@@ -1899,19 +1899,37 @@ impl Engine {
                 let subject_of_row = if r.sort {
                     row_keys(&subject_keys)
                 } else {
+                    // a case with a missing subject value is not used and does not end a run
                     let mut run = vec![0.0; cases];
-                    for k in 1..cases {
-                        let same = subject_keys.iter().all(|col| match (&col[k - 1], &col[k]) {
-                            (Some(a), Some(b)) => a.compare(b).is_eq(),
-                            _ => false,
-                        });
-                        run[k] = run[k - 1] + if same { 0.0 } else { 1.0 };
+                    let mut last: Option<usize> = None;
+                    let mut number = 0.0;
+                    for k in 0..cases {
+                        if subject_keys.iter().any(|col| col[k].is_none()) {
+                            continue;
+                        }
+                        if let Some(l) = last {
+                            let same = subject_keys.iter().all(|col| {
+                                col[l]
+                                    .as_ref()
+                                    .expect("valid")
+                                    .compare(col[k].as_ref().expect("valid"))
+                                    .is_eq()
+                            });
+                            if !same {
+                                number += 1.0;
+                            }
+                        }
+                        run[k] = number;
+                        last = Some(k);
                     }
                     rows.iter().map(|&k| vec![Key::Number(run[k])]).collect()
                 };
                 let s = gee::subjects(
                     &subject_of_row,
-                    within.as_deref().map(|w| (w, &every[..])),
+                    within
+                        .as_deref()
+                        .filter(|_| r.sort)
+                        .map(|w| (w, &every[..])),
                     r.sort,
                 )
                 .map_err(Error)?;
@@ -1921,7 +1939,7 @@ impl Engine {
                     .any(|m| m.iter().any(|&(i, _)| c.f[i] != c.f[m[0].0]))
                 {
                     return Err(Error(
-                        "GENLIN REPEATED: the frequency weight (WEIGHT) must be the same for every case of a subject".into(),
+                        "GENLIN: REPEATED: the frequency weight (WEIGHT) must be the same for every case of a subject".into(),
                     ));
                 }
                 Some(s)
@@ -2256,7 +2274,7 @@ impl Engine {
         // the log likelihood shown: at scale 1 for DEVIANCE and PEARSON
         let ll_one = result.ll + constant / fixed_phi;
         let ll_adjusted = match (scale, &glm_fit) {
-            (ScaleMode::Deviance | ScaleMode::Pearson, Some(f)) => Some(
+            (ScaleMode::Deviance | ScaleMode::Pearson, Some(f)) if !gee => Some(
                 (0..n_rows)
                     .map(|i| {
                         c.f[i]
@@ -2408,9 +2426,21 @@ impl Engine {
                 None,
             ));
             if let (Some(r), Some(s)) = (repeated, &subjects) {
-                let levels_of = |keys: &[Vec<Option<Key>>], at: usize| {
-                    sorted(&keys[at], GenlinOrder::Data).len() as f64
+                let distinct = |mut found: Vec<&Key>| {
+                    found.sort_by(|a, b| a.compare(b));
+                    found.dedup_by(|a, b| a.compare(b).is_eq());
+                    found.len() as f64
                 };
+                let levels_of = |keys: &[Vec<Option<Key>>], at: usize| {
+                    distinct(
+                        rows.iter()
+                            .map(|&k| keys[at][k].as_ref().expect("valid"))
+                            .collect(),
+                    )
+                };
+                // the within-subject levels of the positions, which count every valid case
+                let within_levels =
+                    |at: usize| distinct(s.positions.iter().map(|p| &p[at]).collect());
                 let mut out = Vec::new();
                 for (at, v) in subject_vars.iter().enumerate() {
                     out.push(vec![
@@ -2432,7 +2462,7 @@ impl Engine {
                                 ""
                             }),
                             text(shown.variable(v)),
-                            Cell::Number(levels_of(&within_keys, at)),
+                            Cell::Number(within_levels(at)),
                         ]);
                     }
                 }

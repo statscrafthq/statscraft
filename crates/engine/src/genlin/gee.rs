@@ -94,7 +94,7 @@ pub(super) fn subjects(
             groups.last_mut().expect("a group").push(r);
         }
     }
-    let (within, every) = match within.filter(|_| sort) {
+    let (within, every) = match within {
         Some((w, every)) => (Some(w), every),
         None => (None, &[][..]),
     };
@@ -118,7 +118,7 @@ pub(super) fn subjects(
         m.sort_by_key(|&(_, p)| p);
         if m.windows(2).any(|w| w[0].1 == w[1].1) {
             return Err(
-                "GENLIN REPEATED: two cases of one subject have the same WITHINSUBJECT values"
+                "GENLIN: REPEATED: two cases of one subject have the same WITHINSUBJECT values"
                     .into(),
             );
         }
@@ -131,7 +131,7 @@ pub(super) fn subjects(
     };
     if dim > MAX_DIMENSION {
         return Err(format!(
-            "GENLIN REPEATED: the working correlation matrix would have dimension {dim}; at most {MAX_DIMENSION} measurements per subject (or WITHINSUBJECT values) are supported"
+            "GENLIN: REPEATED: the working correlation matrix would have dimension {dim}; at most {MAX_DIMENSION} measurements per subject (or WITHINSUBJECT values) are supported"
         ));
     }
     Ok(Subjects {
@@ -189,16 +189,20 @@ fn residuals(c: &Cases, set: &Settings, mu: &[f64]) -> Vec<f64> {
         .collect()
 }
 
+/// A count of a denominator less the parameters with ADJUSTCORR=YES, when it is larger.
+fn adjusted(set: &Settings, count: f64, px: usize) -> f64 {
+    let px = px as f64;
+    if set.adjust && count > px {
+        count - px
+    } else {
+        count
+    }
+}
+
 /// The scale moment sum f r^2 / N', N' less the parameters with ADJUSTCORR=YES when larger.
 fn moment(c: &Cases, s: &Subjects, set: &Settings, px: usize, r: &[f64]) -> f64 {
     let n_prime: f64 = s.members.iter().map(|m| c.f[m[0].0] * m.len() as f64).sum();
-    let px = px as f64;
-    let den = if set.adjust && n_prime > px {
-        n_prime - px
-    } else {
-        n_prime
-    };
-    (0..c.n()).map(|i| c.f[i] * r[i] * r[i]).sum::<f64>() / den
+    (0..c.n()).map(|i| c.f[i] * r[i] * r[i]).sum::<f64>() / adjusted(set, n_prime, px)
 }
 
 /// The working correlation matrix at the means `mu`, the scale moment, and whether the matrix
@@ -211,17 +215,10 @@ fn estimate(
     mu: &[f64],
 ) -> Result<(Matrix, f64, Adjusted), String> {
     let t = s.dim;
-    let px = px as f64;
-    let adj = |den: f64| {
-        if set.adjust && den > px {
-            den - px
-        } else {
-            den
-        }
-    };
+    let adj = |den: f64| adjusted(set, den, px);
     let r = residuals(c, set, mu);
     // the divisor of every correlation estimate, also when the model's scale is fixed
-    let phi = moment(c, s, set, px as usize, &r);
+    let phi = moment(c, s, set, px, &r);
     let mut m: Matrix = (0..t)
         .map(|u| (0..t).map(|v| f64::from(u8::from(u == v))).collect())
         .collect();
@@ -230,7 +227,7 @@ fn estimate(
         GenlinCorrelation::Fixed(list) => {
             if list.len() != t * t.saturating_sub(1) / 2 {
                 return Err(format!(
-                    "GENLIN REPEATED: CORRTYPE=FIXED gives {} correlations; the working correlation matrix has dimension {t}, so it needs {}",
+                    "GENLIN: REPEATED: CORRTYPE=FIXED gives {} correlations; the working correlation matrix has dimension {t}, so it needs {}",
                     list.len(),
                     t * t.saturating_sub(1) / 2
                 ));
@@ -247,7 +244,7 @@ fn estimate(
                 .fold(f64::INFINITY, f64::min);
             if smallest <= 0.0 {
                 return Err(
-                    "GENLIN REPEATED: the FIXED working correlation matrix is not positive definite"
+                    "GENLIN: REPEATED: the FIXED working correlation matrix is not positive definite"
                         .into(),
                 );
             }
@@ -278,6 +275,8 @@ fn estimate(
             .fold((0.0, 0.0), |a, b| (a.0 + b.0, a.1 + b.1));
         ratio(num, den)
     };
+    // the smallest eigenvalue where it has a closed form
+    let mut smallest = None;
     match set.correlation {
         GenlinCorrelation::Independent | GenlinCorrelation::Fixed(_) => {
             unreachable!("returned above")
@@ -293,6 +292,7 @@ fn estimate(
                     }
                 }
             }
+            smallest = Some((1.0 - alpha).min(1.0 + (t as f64 - 1.0) * alpha));
         }
         GenlinCorrelation::Ar1 => {
             let estimate = if t > 1 { lag(1) } else { 0.0 };
@@ -328,10 +328,12 @@ fn estimate(
             }
         }
     }
-    let smallest = symmetric_eigen(&m)
-        .iter()
-        .map(|(v, _)| *v)
-        .fold(f64::INFINITY, f64::min);
+    let smallest = smallest.unwrap_or_else(|| {
+        symmetric_eigen(&m)
+            .iter()
+            .map(|(v, _)| *v)
+            .fold(f64::INFINITY, f64::min)
+    });
     // a nearly singular matrix would lose positions in the inverses of the subjects
     if smallest > 1e-6 {
         return Ok((m, phi, Adjusted::No));
@@ -455,7 +457,7 @@ pub(super) fn fit(
 ) -> Result<GeeFit, String> {
     let q = beta0.len();
     let failed =
-        || "GENLIN REPEATED: the estimating equations give a case an invalid mean".to_string();
+        || "GENLIN: REPEATED: the estimating equations give a case an invalid mean".to_string();
     let mut beta = beta0.to_vec();
     let mut mu = means(c, x, set, &beta).ok_or_else(failed)?;
     let (mut r, start_moment, mut adjusted) = estimate(c, s, set, q, &mu)?;

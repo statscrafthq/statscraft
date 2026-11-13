@@ -2473,4 +2473,7 @@ GENLIN y /REPEATED SUBJECT=team WITHINSUBJECT=week SORT={sort} /PRINT CPS.
     // the case of team 2 is left out, yet it still ends the first run of team 1
     let runs = "1 1 3.2 1 2 4.1 2 1 . 1 3 4.4 1 4 5.0";
     assert_eq!(summary(runs, "NO"), [2.0, 2.0, 2.0, 2.0]);
+    // a case without a team is not used and does not end the run around it
+    let unknown = "1 1 3.2 . 2 4.1 1 3 4.4 2 1 2.0 2 2 2.5";
+    assert_eq!(summary(unknown, "NO"), [2.0, 2.0, 2.0, 2.0]);
 }
