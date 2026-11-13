@@ -962,7 +962,8 @@ impl Engine {
         let plain = Shown::labels(shown.currencies.clone());
         let mut warnings = Vec::new();
         // the table, its category values (for SUPPLEMENTARY and EQUAL) and its labels
-        let (counts, row_values, column_values, rows, columns) = match &command.table {
+        // row_codes: the row values the transformation plots put the rows at
+        let (counts, row_values, column_values, rows, columns, row_codes) = match &command.table {
             CorrespondenceTable::Variables {
                 row,
                 row_range,
@@ -1014,7 +1015,8 @@ impl Engine {
                     levels: values.iter().map(|&v| plain.number(var, v)).collect(),
                 };
                 let (rows, columns) = (side(&rv, &row_values), side(&cv, &column_values));
-                (counts, row_values, column_values, rows, columns)
+                let codes = row_values.clone();
+                (counts, row_values, column_values, rows, columns, codes)
             }
             CorrespondenceTable::All {
                 rows: r,
@@ -1090,7 +1092,17 @@ impl Engine {
                     levels: vars.iter().map(|v| plain.variable(v)).collect(),
                 };
                 let positions = |k: usize| (1..=k).map(|x| x as f64).collect::<Vec<f64>>();
-                (counts, positions(*r), positions(*c), rows, columns)
+                // ROWCAT_ codes when every row has one, else positions
+                let codes: Option<Vec<f64>> = (0..*r)
+                    .map(|case| {
+                        category.as_ref().and_then(|v| match v.values() {
+                            Values::Numeric(values) => values.get(case),
+                            Values::String(_) => None,
+                        })
+                    })
+                    .collect();
+                let codes = codes.unwrap_or_else(|| positions(*r));
+                (counts, positions(*r), positions(*c), rows, columns, codes)
             }
         };
         if counts.is_empty() || counts[0].is_empty() {
@@ -1390,7 +1402,10 @@ impl Engine {
             }
             let empty = list(side, &points.status, &|s| s == Status::Empty);
             if !empty.is_empty() {
-                out.push(format!("No counts: {}.", empty.join(", ")));
+                out.push(format!(
+                    "Left out, without counts in the active categories: {}.",
+                    empty.join(", ")
+                ));
             }
             out.join(" ")
         };
@@ -1472,7 +1487,7 @@ impl Engine {
         let charts = plots(
             command,
             &s,
-            (&rows, &row_values),
+            (&rows, &row_codes),
             (&columns, &column_values),
             &norm,
             &mut warnings,
@@ -1627,7 +1642,7 @@ fn plots(
     .iter()
     .any(Option::is_some);
     if first > p {
-        if any {
+        if any && (plot.given || plot.ndim.is_some()) {
             warnings.push(format!(
             "CORRESPONDENCE: NDIM starts at dimension {first}, but the solution has {p}; no plots"
         ));
@@ -1666,7 +1681,11 @@ fn plots(
         (plot.rpoints, "Row Points", true, false),
         (plot.cpoints, "Column Points", false, true),
     ];
-    if scatter.iter().any(|x| x.0.is_some()) && pairs.is_empty() && plot.given {
+    // a PLOT keyword or NDIM asked for the scatter; the default without either goes quietly
+    if scatter.iter().any(|x| x.0.is_some())
+        && pairs.is_empty()
+        && (plot.given || plot.ndim.is_some())
+    {
         warnings.push(match p {
             1 => "CORRESPONDENCE: one dimension only, so there is no scatter of points".into(),
             _ => format!(

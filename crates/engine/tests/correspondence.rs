@@ -933,7 +933,7 @@ CORRESPONDENCE TABLE=ALL(4,4) /SUPPLEMENTARY COLUMN(4) /PRINT=CPOINTS.
             .caption
             .as_deref()
             .unwrap()
-            .contains("No counts: c4.")
+            .contains("Left out, without counts in the active categories: c4.")
     );
     assert_eq!(
         cell(&t, "Overview Column Points", "c4", "Mass"),
@@ -1010,4 +1010,38 @@ fn level_names_and_quiet_defaults() {
         0.19852247652,
         1e-7,
     );
+}
+
+/// TRROWS puts the rows of TABLE=ALL at their ROWCAT_ codes; NDIM that leaves nothing to plot
+/// warns even without plot keywords.
+#[test]
+fn row_codes_in_plots_and_ndim_warnings() {
+    let source = "DATA LIST FREE /ROWCAT_ c1 c2 c3.
+BEGIN DATA.
+10 9 3 4
+20 2 8 5
+30 4 4 9
+40 7 2 2
+END DATA.
+CORRESPONDENCE TABLE=ALL(4,3) /PLOT=TRROWS.
+";
+    let mut engine = Engine::default();
+    run(&mut engine, source);
+    let charts = engine.take_charts();
+    assert_eq!(charts[0].categories[1].value, Cell::Number(20.0));
+    run(
+        &mut engine,
+        "CORRESPONDENCE TABLE=ALL(4,3) /PLOT=NDIM(2,3).",
+    );
+    assert!(
+        engine
+            .warnings()
+            .iter()
+            .any(|w| w.contains("NDIM leaves no pair"))
+    );
+    run(
+        &mut engine,
+        "CORRESPONDENCE TABLE=ALL(4,3) /PLOT=NDIM(3,4).",
+    );
+    assert!(engine.warnings().iter().any(|w| w.contains("NDIM starts")));
 }
