@@ -1639,7 +1639,8 @@ impl Engine {
                         "{what}: KMATRIX without LMATRIX tests the intercept, which the model does not have"
                     )));
                 }
-                vec![vec![(Some(intercept_term()), vec![1.0])]]
+                // an empty row stands for the intercept's row of the estimable functions
+                vec![Vec::new()]
             } else {
                 custom.rows.clone()
             };
@@ -1682,7 +1683,11 @@ impl Engine {
                     }
                     expanded.push((label, values.clone(), k_values[i]));
                 } else {
-                    let l_star = l_row(&d, &fit, row, &what)?;
+                    let l_star = if row.is_empty() {
+                        h[0].clone()
+                    } else {
+                        l_row(&d, &fit, row, &what)?
+                    };
                     if !fit.estimable(&l_star, &h) {
                         return Err(Error(format!(
                             "{what}: row {} of the L matrix is not estimable",
@@ -1754,6 +1759,15 @@ impl Engine {
                         })
                 })
                 .collect::<Result<_, _>>()?;
+            if let Some((other, _)) = em
+                .other
+                .iter()
+                .find(|(o, _)| !covariate_names.iter().any(|n| n.eq_ignore_ascii_case(o)))
+            {
+                return Err(Error(format!(
+                    "EMMEANS OTHER names {other}, which is not a covariate of the model"
+                )));
+            }
             let with = covariate_values(&d, &em.other, "EMMEANS OTHER")?;
             let sizes: Vec<usize> = fs.iter().map(|&f| levels[f].len()).collect();
             let combos = combinations(&sizes);

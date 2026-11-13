@@ -272,7 +272,8 @@ fn csglm_custom_tests_and_estimated_marginal_means() {
     let source = format!(
         "{}{GLM} /CUSTOM LABEL='gas against wood' LMATRIX=heat 1 -1 0
            /CUSTOM LMATRIX=1 heat 1/3 1/3 1/3 members 3 earn 1500; heat 1 -1 0 KMATRIX=400; 0
-           /EMMEANS TABLES=heat COMPARE=heat /TEST PADJUST=BONFERRONI /PRINT LMATRIX.
+           /EMMEANS TABLES=heat COMPARE=heat /TEST PADJUST=BONFERRONI /PRINT LMATRIX
+           /CUSTOM KMATRIX=100.
          {GLM} /EMMEANS TABLES=heat COMPARE=heat /TEST PADJUST=SEQBONFERRONI /PRINT NONE.
          {GLM} /EMMEANS TABLES=heat COMPARE=heat CONTRAST=SIMPLE(3) /TEST PADJUST=SIDAK /PRINT NONE.\n",
         data("custom")
@@ -313,6 +314,17 @@ fn csglm_custom_tests_and_estimated_marginal_means() {
             ("Contrast 1", "Sig.", 1.0),
             ("Contrast 2", "Sig.", (2.0 * 0.654968675883_f64).min(1.0)),
             ("Overall Test", "df1", 2.0),
+        ],
+    );
+    // KMATRIX alone: the intercept's estimable function, here the intercept itself
+    let k = find(&tables, "Custom Hypothesis Tests", 2);
+    let z: f64 = (102.531710704 - 100.0) / 17.7037050209;
+    checks(
+        k,
+        &[
+            ("Contrast 1", "Estimate", 102.531710704),
+            ("Contrast 1", "Hypothesized Value", 100.0),
+            ("Contrast 1", "Wald F", z * z),
         ],
     );
     let em = find(&tables, "Estimated Marginal Means", 0);
