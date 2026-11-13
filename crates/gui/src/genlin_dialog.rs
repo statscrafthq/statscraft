@@ -9,8 +9,8 @@ use crate::stats_dialogs::{parse, percent};
 use crate::syntax_text::{number, value};
 use statscraft_data::Dataset;
 use statscraft_syntax::{
-    GenlinDistribution as D, GenlinLink as L, default_link, distribution_keyword, link_allowed,
-    link_keyword,
+    GenlinCriteria, GenlinDistribution as D, GenlinLink as L, GenlinMethod, GenlinPrint,
+    default_link, distribution_keyword, link_allowed, link_keyword,
 };
 use std::mem::discriminant;
 
@@ -89,8 +89,20 @@ pub const GENLIN_PRINT: [(&str, &str); 8] = [
     ("CORB", "Correlation of the estimates"),
 ];
 
-/// The tables GENLIN shows without /PRINT.
-const GENLIN_DEFAULT_PRINT: [bool; 8] = [true, true, true, true, true, true, false, false];
+/// The tables GENLIN shows without /PRINT, in the order of `GENLIN_PRINT`.
+fn default_print() -> [bool; 8] {
+    let p = GenlinPrint::default();
+    [
+        p.cps,
+        p.descriptives,
+        p.modelinfo,
+        p.fit,
+        p.summary,
+        p.solution,
+        p.covb,
+        p.corb,
+    ]
+}
 
 /// How the levels of a compared factor are contrasted; the first is the default.
 pub const GENLIN_CONTRASTS: [(&str, &str); 7] = [
@@ -200,6 +212,8 @@ pub struct GeneralizedLinear {
 
 impl Default for GeneralizedLinear {
     fn default() -> Self {
+        // the fields start at the command's own defaults
+        let c = GenlinCriteria::default();
         Self {
             events: false,
             dependent: String::new(),
@@ -226,14 +240,14 @@ impl Default for GeneralizedLinear {
             scale: 0,
             scale_value: "1".into(),
             robust: false,
-            ci_level: "95".into(),
-            iterations: "100".into(),
-            halvings: "5".into(),
-            convergence: "0.000001".into(),
+            ci_level: number(c.cilevel),
+            iterations: c.maxiterations.to_string(),
+            halvings: c.maxstephalving.to_string(),
+            convergence: number(c.pconverge.value),
             kernel: false,
             analysis: 0,
             likelihood_ratio: false,
-            print: GENLIN_DEFAULT_PRINT,
+            print: default_print(),
             exponentiated: false,
             means: Vec::new(),
             means_at: Vec::new(),
@@ -513,7 +527,7 @@ impl GeneralizedLinear {
             text.push_str("\n  /MISSING CLASSMISSING=INCLUDE");
         }
         let exponentiated = self.exponentiated && self.print[5];
-        if self.print != GENLIN_DEFAULT_PRINT || exponentiated {
+        if self.print != default_print() || exponentiated {
             let print: Vec<&str> = keywords(&GENLIN_PRINT, &self.print)
                 .into_iter()
                 .map(|k| match k {
@@ -549,6 +563,7 @@ impl GeneralizedLinear {
 
     /// The CRITERIA settings that differ from the defaults.
     fn criteria(&self) -> Result<Vec<String>, String> {
+        let c = GenlinCriteria::default();
         let mut out = Vec::new();
         if self.analysis > 0 || self.likelihood_ratio {
             let lr = if self.likelihood_ratio { "(LR)" } else { "" };
@@ -559,10 +574,10 @@ impl GeneralizedLinear {
         }
         // an empty field means the default, as in the other dialogs
         let level = match self.ci_level.trim() {
-            "" => 95.0,
+            "" => c.cilevel,
             given => percent(given)?,
         };
-        if level != 95.0 {
+        if level != c.cilevel {
             out.push(format!("CILEVEL={}", number(level)));
         }
         if self.robust {
@@ -572,28 +587,30 @@ impl GeneralizedLinear {
             out.push("LIKELIHOOD=KERNEL".into());
         }
         match whole(&self.iterations, 0, "the maximum number of iterations")? {
-            Some(n) if n != 100 => out.push(format!("MAXITERATIONS={n}")),
+            Some(n) if n != c.maxiterations => out.push(format!("MAXITERATIONS={n}")),
             _ => {}
         }
         match whole(&self.halvings, 1, "the maximum step-halving")? {
-            Some(n) if n != 5 => out.push(format!("MAXSTEPHALVING={n}")),
+            Some(n) if n != c.maxstephalving => out.push(format!("MAXSTEPHALVING={n}")),
             _ => {}
         }
         match self.method {
             0 => match whole(&self.fisher_iterations, 1, "the Fisher scoring iterations")? {
-                Some(n) if n != 1 => out.push(format!("METHOD=FISHER({n})")),
+                Some(n) if GenlinMethod::Fisher(n) != c.method => {
+                    out.push(format!("METHOD=FISHER({n})"))
+                }
                 _ => {}
             },
             m => out.push(format!("METHOD={}", GENLIN_METHODS[m].0)),
         }
         let convergence = match self.convergence.trim() {
-            "" => 1e-6,
+            "" => c.pconverge.value,
             given => parse(given, "the parameter convergence")?,
         };
         if convergence <= 0.0 {
             return Err("the parameter convergence must be above 0".into());
         }
-        if convergence != 1e-6 {
+        if convergence != c.pconverge.value {
             out.push(format!("PCONVERGE={}", number(convergence)));
         }
         match self.scale {
@@ -645,9 +662,12 @@ pub fn data_checks(d: &GeneralizedLinear, data: &Dataset) -> Result<bool, String
             "{n} weights the cases, so it cannot be in the model as well"
         ));
     }
-    Ok(data
-        .variable(d.dependent.trim())
-        .is_ok_and(|v| v.is_string()))
+    let dependent = d.dependent.trim();
+    match data.variable(dependent) {
+        Ok(v) => Ok(v.is_string()),
+        Err(_) if dependent.is_empty() => Ok(false),
+        Err(_) => Err(format!("{dependent} is no longer a variable")),
+    }
 }
 
 #[cfg(test)]
@@ -971,6 +991,32 @@ mod tests {
         assert_eq!(
             data_checks(&d, data).unwrap_err(),
             "plan is a string; the command needs numbers"
+        );
+    }
+
+    #[test]
+    fn the_defaults_are_the_command_s_own() {
+        let d = GeneralizedLinear {
+            dependent: "monthly_spend".into(),
+            ..Default::default()
+        };
+        assert_eq!(d.ci_level, "95");
+        assert_eq!(d.convergence, "0.000001");
+        assert!(!d.syntax(false).unwrap().contains("CRITERIA"));
+        assert_eq!(d.print, [true, true, true, true, true, true, false, false]);
+    }
+
+    #[test]
+    fn a_dependent_taken_out_of_the_data_is_reported() {
+        let session = open("survey_basic.sav");
+        let mut d = GeneralizedLinear {
+            dependent: "gone".into(),
+            ..Default::default()
+        };
+        d.set_distribution(1);
+        assert_eq!(
+            data_checks(&d, session.dataset().unwrap()).unwrap_err(),
+            "gone is no longer a variable"
         );
     }
 

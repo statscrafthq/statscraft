@@ -2,7 +2,6 @@
 //! complex samples dialogs, and the editors of terms, means and tests they share with the
 //! Generalized Linear Models dialog.
 
-use crate::advanced_dialogs::forget_old_factors;
 use crate::advanced_dialogs::{
     Advanced, ContrastTest, LinearMixed, MIXED_COMPARISONS, MIXED_PRINT, MIXED_SAVE, MeansTable,
     Multinomial, NOMREG_BASES, NOMREG_MODELS, NOMREG_PRINT, NOMREG_STEP_METHODS, NOMREG_STEP_RULES,
@@ -10,6 +9,7 @@ use crate::advanced_dialogs::{
     SAMPLE_RESIDUALS, SAMPLE_STATISTICS, SAMPLE_TESTS, STAGE_ESTIMATORS, STAGE_RATES,
     SampleDescriptives, SampleOptions, SamplePlan, SampleTables, Stage, Terms,
 };
+use crate::advanced_dialogs::{forget_old_covariates, forget_old_factors};
 use crate::app::{checkboxes, choice, field, file_dialog, target_list, target_one};
 use crate::model_dialogs::GLM_ADJUSTMENTS;
 use crate::model_dialogs_view::name_checkboxes;
@@ -126,6 +126,7 @@ pub(crate) fn means_editor(
     if ui.small_button("Add table").clicked() {
         tables.push(MeansTable::default());
     }
+    forget_old_covariates(covariates, at);
     if !covariates.is_empty() {
         ui.label("Covariates held at (empty: the mean)");
         for c in covariates {

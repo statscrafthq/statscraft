@@ -187,6 +187,11 @@ pub fn forget_old_factors(factors: &[String], tables: &mut [MeansTable]) {
     }
 }
 
+/// Forgets the values of covariates taken out of the dialog's Covariates.
+pub fn forget_old_covariates(covariates: &[String], at: &mut Vec<(String, String)>) {
+    at.retain(|(n, _)| covariates.contains(n));
+}
+
 /// The covariates given a value in `at`, as (name, value), in the order of `covariates`; the
 /// others stay at their means.
 pub(crate) fn covariate_values<'a>(
@@ -225,16 +230,18 @@ impl ContrastTest {
     ) -> Result<String, String> {
         let mut rows = Vec::new();
         for line in self.rows.lines() {
-            let tokens: Vec<&str> = line
+            // coefficients written plainly: `1.` would end the command
+            let tokens: Vec<String> = line
                 .split(|c: char| c.is_whitespace() || c == ',')
                 .filter(|t| !t.is_empty())
+                .map(|t| coefficient(t).unwrap_or_else(|| t.to_string()))
                 .collect();
             if tokens.is_empty() {
                 continue;
             }
             let mut after_effect = 0;
             for (i, token) in tokens.iter().enumerate() {
-                if coefficient(token) {
+                if coefficient(token).is_some() {
                     if i == 0 {
                         return Err(format!(
                             "test {n}: a row starts with an effect, then its coefficients"
@@ -247,6 +254,7 @@ impl ContrastTest {
                     return Err(format!("test {n}: {} needs coefficients", tokens[i - 1]));
                 }
                 after_effect = 0;
+                let token = token.as_str();
                 let known = token.eq_ignore_ascii_case("ALL")
                     || (intercept && token.eq_ignore_ascii_case("INTERCEPT"))
                     || terms.iter().any(|t| same_term(t, token));
@@ -273,12 +281,16 @@ impl ContrastTest {
     }
 }
 
-/// A number of an L matrix: `1`, `-0.5` or a fraction such as `1/3`.
-fn coefficient(token: &str) -> bool {
-    let finite = |t: &str| t.parse::<f64>().is_ok_and(f64::is_finite);
+/// A number of an L matrix, `1`, `-0.5` or a fraction such as `1/3`, as the syntax writes it;
+/// None for anything else.
+fn coefficient(token: &str) -> Option<String> {
+    let finite = |t: &str| t.parse::<f64>().ok().filter(|v| v.is_finite());
     match token.split_once('/') {
-        Some((a, b)) => finite(a) && b.parse::<f64>().is_ok_and(|d| d > 0.0 && d.is_finite()),
-        None => finite(token),
+        Some((a, b)) => {
+            let (a, b) = (finite(a)?, finite(b).filter(|d| *d > 0.0)?);
+            Some(format!("{}/{}", number(a), number(b)))
+        }
+        None => finite(token).map(number),
     }
 }
 
@@ -706,6 +718,12 @@ impl Multinomial {
                     false => format!("{} ", self.terms.syntax(&model, "model")?),
                 };
                 let method = NOMREG_STEP_METHODS[self.step_method].0;
+                // forward methods start from the model alone, which must not be empty
+                if fixed.is_empty() && !self.intercept && matches!(method, "FORWARD" | "FSTEP") {
+                    return Err(
+                        "forward stepping needs a model term or the intercept to start from".into(),
+                    );
+                }
                 text.push_str(&format!("\n  /MODEL={fixed}| {method}={steps}"));
                 stepwise = Some(self.stepwise_criteria()?);
             }
@@ -2493,6 +2511,45 @@ mod tests {
             d.syntax(false).unwrap_err(),
             "gender*age is both a model term and a stepwise term"
         );
+    }
+
+    #[test]
+    fn coefficients_are_written_plainly() {
+        let t = ContrastTest {
+            label: String::new(),
+            rows: "gender 1. -1. 0\nage .5 2./4.".into(),
+        };
+        let terms = vec![v(&["gender"]), v(&["age"])];
+        assert_eq!(
+            t.syntax(&terms, true, 1).unwrap(),
+            "\n  /TEST=gender 1 -1 0; age 0.5 2/4"
+        );
+    }
+
+    #[test]
+    fn forward_stepping_needs_something_to_start_from() {
+        let mut d = Multinomial {
+            dependent: "region".into(),
+            covariates: v(&["age"]),
+            model: 2,
+            step_terms: terms(&[&["age"]]),
+            intercept: false,
+            ..Default::default()
+        };
+        assert_eq!(
+            d.syntax(false).unwrap_err(),
+            "forward stepping needs a model term or the intercept to start from"
+        );
+        // backward methods start with every term in
+        d.step_method = 1;
+        assert!(d.syntax(false).is_ok());
+    }
+
+    #[test]
+    fn values_of_covariates_taken_out_are_forgotten() {
+        let mut at = vec![("age".into(), "40".into()), ("weight".into(), "2".into())];
+        forget_old_covariates(&v(&["age"]), &mut at);
+        assert_eq!(at, vec![("age".to_string(), "40".to_string())]);
     }
 
     #[test]
