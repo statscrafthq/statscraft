@@ -376,6 +376,31 @@ pub(crate) fn main_effects(model: &[String]) -> Vec<Vec<String>> {
     model.iter().map(|n| vec![n.clone()]).collect()
 }
 
+/// Every crossing of the factors, smallest first, then the covariates each on its own.
+pub(crate) fn full_factorial(
+    factors: &[String],
+    covariates: &[String],
+) -> Result<Vec<Vec<String>>, String> {
+    let n = factors.len();
+    if n > 10 {
+        return Err(
+            "the full factorial of more than 10 factors is too large: choose custom terms".into(),
+        );
+    }
+    let mut masks: Vec<u32> = (1..1u32 << n).collect();
+    masks.sort_by_key(|m| m.count_ones());
+    Ok(masks
+        .iter()
+        .map(|m| {
+            (0..n)
+                .filter(|i| m & (1 << i) != 0)
+                .map(|i| factors[i].clone())
+                .collect()
+        })
+        .chain(covariates.iter().map(|c| vec![c.clone()]))
+        .collect())
+}
+
 /// `dependent BY factors WITH covariates`, checked: the dependent is chosen and is neither a
 /// factor nor a covariate, and no variable is both.
 pub(crate) fn model_variables(
@@ -403,20 +428,25 @@ pub(crate) fn model_variables(
     Ok(text)
 }
 
+/// A confidence level in percent; an empty field means the default of 95, as for the other
+/// fields of these dialogs.
+pub(crate) fn ci_level(text: &str) -> Result<f64, String> {
+    match text.trim() {
+        "" => Ok(95.0),
+        given => percent(given),
+    }
+}
+
 /// `CIN(n) MXITER(n) MXSTEP(n)` where they differ from the defaults (95, 100 and `steps`).
 fn iteration_criteria(
-    ci_level: &str,
+    level_text: &str,
     iterations: &str,
     halvings: &str,
     steps: u32,
     least_iterations: u32,
 ) -> Result<Vec<String>, String> {
     let mut out = Vec::new();
-    // an empty field means the default, as for the other fields here
-    let level = match ci_level.trim() {
-        "" => 95.0,
-        given => percent(given)?,
-    };
+    let level = ci_level(level_text)?;
     if level != 95.0 {
         out.push(format!("CIN({})", number(level)));
     }
@@ -1524,11 +1554,7 @@ impl SampleOptions {
             .map(str::to_string)
             .collect();
         if self.ci {
-            // an empty field means the default, as in the other dialogs here
-            let level = match self.ci_level.trim() {
-                "" => 95.0,
-                given => percent(given)?,
-            };
+            let level = ci_level(&self.ci_level)?;
             statistics.push(if level == 95.0 {
                 "CIN".into()
             } else {

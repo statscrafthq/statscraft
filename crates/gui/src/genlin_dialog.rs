@@ -3,7 +3,7 @@
 //! Options left as they are add nothing to the syntax, except the distribution and the link,
 //! which are always written so the model reads plainly.
 
-use crate::advanced_dialogs::{MeansTable, Terms, covariate_values};
+use crate::advanced_dialogs::{MeansTable, Terms, covariate_values, full_factorial};
 use crate::analyze_dialogs::keywords;
 use crate::dialogs::whole;
 use crate::stats_dialogs::{parse, percent};
@@ -51,31 +51,6 @@ pub const GENLIN_ORDERS: [(&str, &str); 3] = [
     ("DESCENDING", "Descending"),
     ("DATA", "As they come in the data"),
 ];
-
-/// Every crossing of the factors, smallest first, then the covariates each on its own.
-pub(crate) fn full_factorial(
-    factors: &[String],
-    covariates: &[String],
-) -> Result<Vec<Vec<String>>, String> {
-    let n = factors.len();
-    if n > 10 {
-        return Err(
-            "the full factorial of more than 10 factors is too large: choose custom terms".into(),
-        );
-    }
-    let mut masks: Vec<u32> = (1..1u32 << n).collect();
-    masks.sort_by_key(|m| m.count_ones());
-    Ok(masks
-        .iter()
-        .map(|m| {
-            (0..n)
-                .filter(|i| m & (1 << i) != 0)
-                .map(|i| factors[i].clone())
-                .collect()
-        })
-        .chain(covariates.iter().map(|c| vec![c.clone()]))
-        .collect())
-}
 
 /// The models offered.
 pub const GENLIN_MODELS: [&str; 3] = ["Main effects", "Full factorial", "Custom"];

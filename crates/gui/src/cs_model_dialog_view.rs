@@ -83,7 +83,7 @@ pub fn sample_model(
                 &d.covariates,
                 &mut d.means,
                 &mut d.means_at,
-                CS_CONTRASTS,
+                &CS_CONTRASTS,
                 &[],
             );
         });

@@ -3,13 +3,12 @@
 //! file. Options left as they are add nothing to the syntax.
 
 use crate::advanced_dialogs::{
-    ContrastTest, MeansTable, Terms, coefficient, covariate_values, main_effects, model_variables,
-    plan_file, row_part, same_term,
+    ContrastTest, MeansTable, Terms, ci_level, coefficient, covariate_values, full_factorial,
+    main_effects, model_variables, plan_file, row_part, same_term,
 };
 use crate::analyze_dialogs::keywords;
 use crate::dialogs::whole;
-use crate::genlin_dialog::{GENLIN_CONTRASTS, full_factorial};
-use crate::stats_dialogs::{numeric, parse, percent};
+use crate::stats_dialogs::{numeric, parse};
 use crate::syntax_text::{number, quote, value};
 use statscraft_data::{Dataset, is_valid_name};
 
@@ -55,8 +54,15 @@ pub const CS_ADJUSTMENTS: [(&str, &str); 5] = [
     ("SEQSIDAK", "Sequential Sidak"),
 ];
 
-/// The contrasts of EMMEANS: those of GENLIN after its pairwise one; SIMPLE is the default.
-pub const CS_CONTRASTS: &[(&str, &str)] = GENLIN_CONTRASTS.split_at(1).1;
+/// CONTRAST of EMMEANS; the first is the default.
+pub const CS_CONTRASTS: [(&str, &str); 6] = [
+    ("SIMPLE", "Each with the last"),
+    ("DEVIATION", "Each with the overall mean"),
+    ("DIFFERENCE", "Each with the mean of those before"),
+    ("HELMERT", "Each with the mean of those after"),
+    ("REPEATED", "Each with the next"),
+    ("POLYNOMIAL", "Polynomial trends"),
+];
 
 /// The tables of PRINT, keyword and label; the last two are for CSLOGISTIC only.
 pub const CS_PRINT: [(&str, &str); 8] = [
@@ -210,14 +216,6 @@ impl SampleModel {
     pub fn syntax(&self, data: &Dataset) -> Result<String, String> {
         let command = if self.logistic { "CSLOGISTIC" } else { "CSGLM" };
         let plan = plan_file(&self.plan)?;
-        let mut path = std::path::PathBuf::from(self.plan.trim());
-        if path.extension().is_none() {
-            path.set_extension("json");
-        }
-        // a relative name is read from the session's folder, which the dialog does not know
-        if path.is_absolute() && !path.exists() {
-            return Err(format!("the plan file {} does not exist", path.display()));
-        }
         let variables = model_variables(&self.dependent, &self.factors, &self.covariates)?;
         let dependent = self.dependent.trim();
         let mut numbers: Vec<&String> = self.covariates.iter().collect();
@@ -322,7 +320,7 @@ impl SampleModel {
             }
             let given = match self.domain_value.trim() {
                 "" => return Err(format!("give the value of {domain} for the subpopulation")),
-                _ => value(&self.domain_value, quoted(domain)?)?,
+                given => value(given, quoted(domain)?)?,
             };
             text.push_str(&format!("\n  /DOMAIN VARIABLE={domain}({given})"));
         }
@@ -331,7 +329,10 @@ impl SampleModel {
         }
         let print = &self.print[..tables];
         if print != &DEFAULT_PRINT[..tables] {
-            let every = whole(&self.history, 1, "the iteration history step")?;
+            let every = match self.logistic && print.last() == Some(&true) {
+                true => whole(&self.history, 1, "the iteration history step")?,
+                false => None,
+            };
             let print: Vec<String> = keywords(&CS_PRINT, print)
                 .into_iter()
                 .map(|k| match every {
@@ -459,11 +460,7 @@ impl SampleModel {
     /// The criteria that differ from their defaults.
     fn criteria(&self) -> Result<Vec<String>, String> {
         let mut out = Vec::new();
-        // an empty field means the default, as in the other dialogs
-        let level = match self.ci_level.trim() {
-            "" => 95.0,
-            given => percent(given)?,
-        };
+        let level = ci_level(&self.ci_level)?;
         if level != 95.0 {
             out.push(format!("CILEVEL={}", number(level)));
         }
@@ -590,6 +587,8 @@ fn custom(
 ) -> Result<String, String> {
     let mut rows = Vec::new();
     let mut k = Vec::new();
+    // whether the test uses ALL rather than effect names: never both, as in the other dialogs
+    let mut all_form = None;
     for line in t.rows.lines() {
         let (l, against) = match line.split_once('=') {
             Some((l, v)) => (l, Some(v)),
@@ -610,10 +609,13 @@ fn custom(
             .filter(|&i| coefficient(tokens[i]).is_none())
             .collect();
         let is = |i: usize, word: &str| tokens[i].eq_ignore_ascii_case(word);
-        if names.len() > 1 && names.iter().any(|&i| is(i, "ALL")) {
-            return Err(format!(
-                "test {n}: ALL and effect names cannot be mixed in one row"
-            ));
+        for &i in &names {
+            let all = is(i, "ALL");
+            if *all_form.get_or_insert(all) != all {
+                return Err(format!(
+                    "test {n}: ALL and effect names cannot be mixed in one test"
+                ));
+            }
         }
         if names.iter().any(|&i| i > 0 && is(i, "INTERCEPT")) {
             return Err(format!("test {n}: INTERCEPT comes first in a row"));
@@ -689,8 +691,6 @@ mod tests {
         let data = data(&session);
         let mut d = SampleModel::default();
         assert_eq!(d.syntax(&data).unwrap_err(), "choose the plan file");
-        d.plan = dir.join("gone.json").to_string_lossy().into_owned();
-        assert!(d.syntax(&data).unwrap_err().ends_with("does not exist"));
         d.plan = path.clone();
         assert_eq!(
             d.syntax(&data).unwrap_err(),
@@ -969,8 +969,16 @@ mod tests {
             custom(&t, &terms, intercept, 1)
         };
         assert_eq!(
-            test("INTERCEPT 1/2 age*gender 1 -1\nALL 1 0 0 = -1/4", true).unwrap(),
-            "\n  /CUSTOM LMATRIX=1/2 age*gender 1 -1; ALL 1 0 0 KMATRIX=0; -1/4"
+            test("INTERCEPT 1/2 age*gender 1 -1\ngender 1 0 -1 = -1/4", true).unwrap(),
+            "\n  /CUSTOM LMATRIX=1/2 age*gender 1 -1; gender 1 0 -1 KMATRIX=0; -1/4"
+        );
+        assert_eq!(
+            test("ALL 1 0 0\nALL 0 1 0 = 2", true).unwrap(),
+            "\n  /CUSTOM LMATRIX=ALL 1 0 0; ALL 0 1 0 KMATRIX=0; 2"
+        );
+        assert_eq!(
+            test("gender 1 0 -1\nALL 1 0 0", true).unwrap_err(),
+            "test 1: ALL and effect names cannot be mixed in one test"
         );
         assert_eq!(
             test("INTERCEPT 1", false).unwrap_err(),
@@ -986,7 +994,7 @@ mod tests {
         );
         assert_eq!(
             test("ALL 1 gender 1", true).unwrap_err(),
-            "test 1: ALL and effect names cannot be mixed in one row"
+            "test 1: ALL and effect names cannot be mixed in one test"
         );
         assert_eq!(
             test("gender 1 = x", true).unwrap_err(),

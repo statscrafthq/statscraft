@@ -467,7 +467,7 @@ See [The Window menu](#the-window-menu).
   - General Linear Model: tables of estimated marginal means, each of crossed factors or the overall mean, with a comparison of one factor's levels by a contrast, and the values the covariates are held at.
   - Logistic Regression: odds ratios, each of a factor against its lowest or highest level or a value, or of a covariate by one or more changes, with the values the other factors and covariates are held at; the iteration limits and convergence criteria.
   - The confidence level, the degrees of freedom of the design, a subpopulation (a variable outside the model and its value), user-missing values of factors as valid, the tables to show (Logistic Regression adds the classification table and the iteration history every n-th step), and saving the predicted values and residuals or the predicted probabilities and category, with names of your own.
-  - The dialog checks roles, string variables where numbers are needed, a plan file that is missing and names of saved variables that are taken before the command runs. Plan variables in the model are found when it runs.
+  - The dialog checks roles, string variables where numbers are needed and names of saved variables that are taken before the command runs. A missing plan file and plan variables in the model are found when it runs.
 
 ### Graphs
 
