@@ -14,6 +14,7 @@ use crate::examine;
 use crate::factor;
 use crate::files;
 use crate::frequencies;
+use crate::genlin;
 use crate::get_data;
 use crate::glm;
 use crate::graph;
@@ -1538,6 +1539,64 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  with valid factors and covariates. Not supported yet: TEST.",
         example: "PLUM comfort BY seat_row WITH trip_hours /LINK=PROBIT /PRINT=FIT PARAMETER SUMMARY TPARALLEL /SAVE=ESTPROB PREDCAT.",
         parse: plum::plum,
+    },
+    CommandSpec {
+        name: "GENLIN",
+        summary: "Generalized linear models: normal, binomial, Poisson, gamma, inverse Gaussian, negative binomial and ordinal responses.",
+        syntax: "GENLIN dependent [(REFERENCE=LAST | FIRST | value)] [(ORDER=ASCENDING | DESCENDING | DATA)]\n\
+                 \x20  | events OF trials-variable | n\n\
+                 \x20  [BY factors [(ORDER=ASCENDING | DESCENDING | DATA)]] [WITH covariates]\n\
+                 \x20  [/MODEL [effects] [INTERCEPT=YES | NO] [OFFSET=variable | value] [SCALEWEIGHT=variable]\n\
+                 \x20          [DISTRIBUTION=NORMAL | BINOMIAL | GAMMA | IGAUSS | POISSON | NEGBIN[(k | MLE)] | MULTINOMIAL]\n\
+                 \x20          [LINK=IDENTITY | LOG | LOGIT | PROBIT | CLOGLOG | NLOGLOG | LOGC | NEGBIN | POWER(a) |\n\
+                 \x20                ODDSPOWER(a) | CUMLOGIT | CUMPROBIT | CUMCLOGLOG | CUMNLOGLOG | CUMCAUCHIT]]\n\
+                 \x20  [/CRITERIA [ANALYSISTYPE=3 | 1 | ALL [(WALD | LR)]] [CHECKSEP=20] [CILEVEL=95] [CITYPE=WALD]\n\
+                 \x20             [COVB=MODEL | ROBUST] [HCONVERGE=0] [LCONVERGE=0] [PCONVERGE=1E-6] (each [(ABSOLUTE | RELATIVE)])\n\
+                 \x20             [LIKELIHOOD=FULL | KERNEL] [MAXITERATIONS=100] [MAXSTEPHALVING=5]\n\
+                 \x20             [METHOD=FISHER[(n)] | NEWTON] [SCALE=MLE | DEVIANCE | PEARSON | value] [SINGULAR=1E-12]]\n\
+                 \x20  [/EMMEANS [TABLES=factor[*factor...]] [CONTROL=covariate(value | MEAN) ...]\n\
+                 \x20            [SCALE=ORIGINAL | TRANSFORMED] [COMPARE=factor[*factor...]]\n\
+                 \x20            [CONTRAST=PAIRWISE | DEVIATION[(value)] | DIFFERENCE | HELMERT | POLYNOMIAL[(metric)] |\n\
+                 \x20                      REPEATED | SIMPLE[(value)]]\n\
+                 \x20            [PADJUST=LSD | BONFERRONI | SEQBONFERRONI | SIDAK | SEQSIDAK]] ...\n\
+                 \x20  [/MISSING CLASSMISSING=EXCLUDE | INCLUDE]\n\
+                 \x20  [/PRINT [CPS] [DESCRIPTIVES] [MODELINFO] [FIT] [SUMMARY] [SOLUTION[(EXPONENTIATED)]] [COVB] [CORB] | NONE]\n\
+                 \x20  [/SAVE [XBPRED] [XBSTDERROR] [MEANPRED] [CIMEANPREDL] [CIMEANPREDU] [PREDVAL] [LEVERAGE] [RESID]\n\
+                 \x20         [PEARSONRESID] [DEVIANCERESID] [STDPEARSONRESID] [STDDEVIANCERESID] [LIKELIHOODRESID] [COOK]].\n\
+                 Every keyword is written in full and every subcommand but EMMEANS appears at most once. The\n\
+                 response is one dependent variable or a count of events out of a number of trials (a variable or\n\
+                 a constant); covariates, offset and scale weight are numeric, factors and a categorical dependent\n\
+                 may be strings. Without DISTRIBUTION, events/trials is binomial and anything else normal; without\n\
+                 LINK each distribution takes its own (identity, logit, inverse, inverse square, log, cumulative\n\
+                 logit), and pairs the model cannot use are an error. A case is left out when its rounded weight is\n\
+                 below 1, a variable is missing (CLASSMISSING=INCLUDE keeps user-missing factor values), the scale\n\
+                 weight is not positive, or the response is out of range: not above 0 for GAMMA and IGAUSS, not a\n\
+                 whole number of 0 or more for POISSON and NEGBIN, events above the trials. A binary dependent must\n\
+                 have two values; the procedure models the lower one unless REFERENCE names another reference.\n\
+                 Effects are written as in UNIANOVA; a factor has one column per level and the column of the last\n\
+                 level (in the ORDER given) is redundant and shown as 0. The estimates maximize the log likelihood\n\
+                 by Newton steps from weighted least squares start values: Fisher scoring for the first n\n\
+                 iterations of METHOD=FISHER(n) (1 by default), the observed information after; a step is halved\n\
+                 while the log likelihood falls. The scale is estimated with the coefficients (MLE, the default for\n\
+                 NORMAL, GAMMA and IGAUSS), set from the deviance or Pearson chi-square over its degrees of freedom,\n\
+                 or fixed (1 for the other distributions). NEGBIN(MLE) estimates k jointly; NEGBIN alone fixes k at\n\
+                 1. ROBUST gives the sandwich covariance.\n\
+                 Tables: Model Information, Case Processing Summary, Categorical and Continuous Variable Information,\n\
+                 Goodness of Fit (deviance and Pearson chi-square, raw and scaled, over the subpopulations of a\n\
+                 binary response; the log likelihood, full or KERNEL; AIC, AICC, BIC and CAIC), Omnibus Test (a\n\
+                 likelihood ratio test against the intercept-only model), Tests of Model Effects (Type I and III,\n\
+                 Wald or likelihood ratio; with SCALE=DEVIANCE or PEARSON the likelihood ratio is divided by the\n\
+                 scale and an F test added) and Parameter Estimates with Wald intervals and Exp(B), then the\n\
+                 covariance and correlation of the estimates. The ordinal multinomial model puts the link of the\n\
+                 cumulative probability at each threshold minus the effects, without an intercept. EMMEANS gives\n\
+                 the predicted means of the factor cells (covariates at their means or CONTROL values), on the\n\
+                 response or the linear predictor scale, with pairwise or contrast comparisons and an overall\n\
+                 Wald test. SAVE names the new variables after the keyword (XBPredicted, MeanPredicted, Residual\n\
+                 and so on, a suffix _1 when taken) or as given; the multinomial ones are numbered per category.\n\
+                 Not supported yet: REPEATED (generalized estimating equations), OUTFILE, TWEEDIE, INITIAL,\n\
+                 CITYPE=PROFILE and PRINT GEF, HISTORY, LAGRANGE and LMATRIX.",
+        example: "GENLIN visits BY clinic WITH age /MODEL clinic age DISTRIBUTION=NEGBIN(MLE) LINK=LOG OFFSET=logdays /PRINT FIT SUMMARY SOLUTION(EXPONENTIATED) /EMMEANS TABLES=clinic COMPARE=clinic.",
+        parse: genlin::genlin,
     },
     CommandSpec {
         name: "UNIANOVA",

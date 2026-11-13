@@ -256,7 +256,7 @@ impl Fit {
         (s, swept.iter().filter(|&&s| s).count())
     }
 
-    fn h(&self) -> Matrix {
+    pub(crate) fn h(&self) -> Matrix {
         let xwx: Matrix = (0..self.p)
             .map(|i| self.zwz[i][..self.p].to_vec())
             .collect();
@@ -283,7 +283,7 @@ impl Fit {
     }
 
     /// Whether l is estimable: l' H = l'.
-    fn estimable(&self, l: &[f64], h: &Matrix) -> bool {
+    pub(crate) fn estimable(&self, l: &[f64], h: &Matrix) -> bool {
         let scale = l.iter().fold(1.0_f64, |m, v| m.max(v.abs()));
         (0..self.p).all(|j| {
             let lh: f64 = (0..self.p).map(|i| l[i] * h[i][j]).sum();
@@ -571,7 +571,7 @@ pub(crate) fn percent_title(alpha: f64) -> String {
 }
 
 /// Every combination of one level from each list, the first outermost.
-fn combinations(sizes: &[usize]) -> Vec<Vec<usize>> {
+pub(crate) fn combinations(sizes: &[usize]) -> Vec<Vec<usize>> {
     let mut out: Vec<Vec<usize>> = vec![Vec::new()];
     for &n in sizes {
         out = out
@@ -1818,7 +1818,12 @@ fn lack_of_fit(d: &Data, fit: &Fit, dependent: &str, flags: &Flags) -> Table {
 
 /// The l vector of the estimated marginal mean at the fixed levels, covariates at their means
 /// or at the values of `with` (by covariate index).
-fn emmeans_l(d: &Data, fit: &Fit, fixed: &[(usize, usize)], with: &[(usize, f64)]) -> Vec<f64> {
+pub(crate) fn emmeans_l(
+    d: &Data,
+    fit: &Fit,
+    fixed: &[(usize, usize)],
+    with: &[(usize, f64)],
+) -> Vec<f64> {
     let mut l = vec![0.0; fit.p];
     for e in &fit.effects {
         let agree: Vec<usize> = e
