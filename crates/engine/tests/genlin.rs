@@ -1434,3 +1434,24 @@ fn a_short_polynomial_metric_leaves_out_the_comparisons_only() {
             .any(|w| w.contains("POLYNOMIAL metric"))
     );
 }
+
+#[test]
+fn events_predictions_reach_cases_outside_the_fit_and_impossible_values_are_missing() {
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        &format!(
+            "{TRAYS}IF ($CASENUM = 1) ok = $SYSMIS.
+GENLIN ok OF planted BY soil WITH moist /MODEL soil moist /PRINT NONE
+  /SAVE MEANPRED RESID.
+GENLIN ok OF planted /MODEL INTERCEPT=NO OFFSET=0 /PRINT NONE /SAVE COOK.
+"
+        ),
+    );
+    // the first tray has no count of sprouted seeds: a predicted number, no residual
+    let mean = values(&engine, "MeanPredicted");
+    assert!(mean[0].is_some_and(|m| m > 0.0 && m < 4.0));
+    assert!(values(&engine, "Residual")[0].is_none());
+    // a model with no parameters has no Cook's distance
+    assert!(values(&engine, "CooksDistance").iter().all(Option::is_none));
+}

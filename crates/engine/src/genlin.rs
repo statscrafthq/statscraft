@@ -38,7 +38,7 @@ use crate::descriptives::{case_weights, number};
 use crate::dist::{chi_square_p, f_p, ln_gamma, normal_cdf, normal_quantile};
 use crate::glm::{
     Data, Fit, combinations, effects_of, emmeans_l, ginverse, intercept_term, key_value_text,
-    parameter_name,
+    parameter_name, percent_title,
 };
 use crate::matrix::{Matrix, symmetric_eigen};
 use crate::npar_tests::text;
@@ -549,9 +549,10 @@ fn fit_beta(
             let d = mat_vec(&g, &s);
             (rank == q && dot(&d, &s) >= 0.0).then_some(d)
         };
-        let (direction, used_fisher) = match (use_fisher, solve(&observed)) {
-            (false, Some(d)) => (d, false),
-            _ => (
+        let newton = if use_fisher { None } else { solve(&observed) };
+        let (direction, used_fisher) = match newton {
+            Some(d) => (d, false),
+            None => (
                 solve(&expected).unwrap_or_else(|| mat_vec(&ginverse(&expected, tol).0, &s)),
                 true,
             ),
@@ -599,12 +600,16 @@ fn fit_beta(
         mu = m;
         ll = l;
         (s, expected, observed) = derivatives(c, x, spec, k, &mu);
-        let h = if fisher { &expected } else { &observed };
-        let quad = dot(&s, &mat_vec(&ginverse(h, tol).0, &s));
-        let hc = if crit.hconverge.relative {
-            quad / (ll.abs() + 1e-6)
+        let hc = if crit.hconverge.value > 0.0 {
+            let h = if fisher { &expected } else { &observed };
+            let quad = dot(&s, &mat_vec(&ginverse(h, tol).0, &s));
+            if crit.hconverge.relative {
+                quad / (ll.abs() + 1e-6)
+            } else {
+                quad
+            }
         } else {
-            quad
+            0.0
         };
         let met = |t: statscraft_syntax::GenlinTolerance, v: f64| t.value == 0.0 || v < t.value;
         if met(crit.pconverge, change) && met(crit.lconverge, dl) && met(crit.hconverge, hc) {
@@ -855,6 +860,7 @@ struct OrdinalFit {
     b: Vec<f64>,
     ll: f64,
     converged: bool,
+    hessian_ok: bool,
     halving_failed: bool,
     /// The inverse of the observed information.
     cov: Matrix,
@@ -991,12 +997,14 @@ fn fit_ordinal(
     let (mut ll, mut s, mut info) = ordinal_eval(o, x, link, &b, true)?;
     let mut converged = crit.maxiterations == 0;
     let mut halving_failed = false;
+    let mut newton_forced = false;
     for iteration in 0..crit.maxiterations {
-        let use_fisher = match crit.method {
-            GenlinMethod::Fisher(n) => iteration < n,
-            GenlinMethod::FisherOnly => true,
-            GenlinMethod::Newton => false,
-        };
+        let use_fisher = !newton_forced
+            && match crit.method {
+                GenlinMethod::Fisher(n) => iteration < n,
+                GenlinMethod::FisherOnly => true,
+                GenlinMethod::Newton => false,
+            };
         let solve = |h: &Matrix| -> Option<Vec<f64>> {
             let (g, rank) = ginverse(h, crit.singular);
             let d = mat_vec(&g, &s);
@@ -1020,15 +1028,15 @@ fn fit_ordinal(
                 .zip(&direction)
                 .map(|(v, d)| v + step * d)
                 .collect();
-            if let Some((l, s2, i2)) = ordinal_eval(o, x, link, &next, true)
+            if let Some((l, s2, _)) = ordinal_eval(o, x, link, &next, false)
                 && l >= ll - 1e-10 * (1.0 + ll.abs())
             {
-                accepted = Some((next, l, s2, i2));
+                accepted = Some((next, l, s2));
                 break;
             }
             step /= 2.0;
         }
-        let Some((next, l, s2, i2)) = accepted else {
+        let Some((next, l, s2)) = accepted else {
             halving_failed = true;
             break;
         };
@@ -1052,7 +1060,7 @@ fn fit_ordinal(
         b = next;
         ll = l;
         s = s2;
-        info = i2;
+        info = ordinal_eval(o, x, link, &b, true)?.2;
         let quad = dot(&s, &mat_vec(&ginverse(&info, crit.singular).0, &s));
         let hc = if crit.hconverge.relative {
             quad / (ll.abs() + 1e-6)
@@ -1061,10 +1069,18 @@ fn fit_ordinal(
         };
         let met = |t: statscraft_syntax::GenlinTolerance, v: f64| t.value == 0.0 || v < t.value;
         if met(crit.pconverge, change) && met(crit.lconverge, dl) && met(crit.hconverge, hc) {
+            // converged by Fisher scoring in a hybrid method: Newton-Raphson must converge too
+            if use_fisher && !expected_information(crit) && !newton_forced {
+                newton_forced = true;
+                continue;
+            }
             converged = true;
             break;
         }
     }
+    let hessian_ok = crit.hconverge.value > 0.0
+        || b.is_empty()
+        || dot(&s, &mat_vec(&ginverse(&info, crit.singular).0, &s)) < 1e-4;
     let information = if expected_information(crit) {
         info
     } else {
@@ -1075,6 +1091,7 @@ fn fit_ordinal(
         b,
         ll,
         converged,
+        hessian_ok,
         halving_failed,
         cov,
     })
@@ -1166,14 +1183,6 @@ fn type1_rows(xwx: &Matrix, eps: f64) -> Vec<Option<Vec<f64>>> {
         out.push(Some(row));
     }
     out
-}
-
-fn percent(level: f64) -> String {
-    if (level - level.round()).abs() < 1e-9 {
-        format!("{level:.0}%")
-    } else {
-        format!("{level}%")
-    }
 }
 
 fn distribution_name(d: GenlinDistribution, k: Option<f64>) -> String {
@@ -1761,6 +1770,8 @@ impl Engine {
             let f = fit_ordinal(&ordinal, &x, ord_link, crit).ok_or_else(failed)?;
             if !f.converged {
                 warnings.push(not_converged(crit, f.halving_failed));
+            } else if !f.hessian_ok {
+                warnings.push(HESSIAN_WARNING.into());
             }
             Result_ {
                 ll: f.ll / fixed_phi,
@@ -1775,7 +1786,7 @@ impl Engine {
             if !f.converged {
                 warnings.push(not_converged(crit, f.halving_failed));
             } else if !f.hessian_ok {
-                warnings.push("The Hessian convergence criterion (1E-4) is not met after the estimates converged; the results may not be final".into());
+                warnings.push(HESSIAN_WARNING.into());
             }
             let r = Result_ {
                 b: f.beta.clone(),
@@ -1813,10 +1824,12 @@ impl Engine {
         };
         // complete separation: every case gets its observed response with a probability above
         // 0.99 (the quasi-complete case is not checked)
-        if crit.checksep > 0 && (binary || multinomial) {
+        if crit.checksep > 0 && (family == Family::Binomial || multinomial) {
+            // a proportion strictly between 0 and 1 cannot be separated
             let observed = (0..n_rows).map(|i| match &glm_fit {
                 Some(f) if c.y[i] == 1.0 => f.mu[i],
-                Some(f) => 1.0 - f.mu[i],
+                Some(f) if c.y[i] == 0.0 => 1.0 - f.mu[i],
+                Some(_) => 0.0,
                 None => probabilities[i][category[i]],
             });
             if observed.fold(1.0, f64::min) > 0.99 {
@@ -2467,7 +2480,7 @@ impl Engine {
         }
         // parameter estimates
         let z = normal_quantile(0.5 + crit.cilevel / 200.0);
-        let level = percent(crit.cilevel);
+        let level = percent_title(1.0 - crit.cilevel / 100.0);
         if print.solution {
             let mut columns = plain(&["Parameter", "B", "Std. Error"]);
             let ci = format!("{level} Wald Confidence Interval");
@@ -2688,7 +2701,20 @@ impl Engine {
                 }
                 v
             };
+            let trials_of: Vec<Option<f64>> = (0..cases)
+                .map(|kc| match &command.response {
+                    GenlinResponse::Events { trials, .. } => {
+                        let m = match trials {
+                            GenlinTrials::Number(n) => Some(*n),
+                            GenlinTrials::Variable(_) => numeric(trials_var.as_ref()?, kc),
+                        }?;
+                        (m >= 1.0 && m.fract() == 0.0).then_some(m)
+                    }
+                    GenlinResponse::Dependent { .. } => Some(1.0),
+                })
+                .collect();
             let save_ctx = SaveContext {
+                trials: &trials_of,
                 command,
                 multinomial,
                 binary,
@@ -2749,6 +2775,8 @@ impl Engine {
         Ok(tables)
     }
 }
+
+const HESSIAN_WARNING: &str = "The Hessian convergence criterion (1E-4) is not met after the estimates converged; the results may not be final";
 
 fn not_converged(crit: &GenlinCriteria, halving_failed: bool) -> String {
     if halving_failed {
@@ -2908,7 +2936,7 @@ fn emmeans_tables(cx: EmmContext, warnings: &mut Vec<String>) -> Result<Vec<Tabl
                 let v = with
                     .iter()
                     .find(|(w, _)| *w == ci)
-                    .map_or_else(|| covariate_mean(d, ci), |(_, v)| *v);
+                    .map_or_else(|| d.covariate_mean(&[ci]), |(_, v)| *v);
                 format!("{n} = {}", (v * 1e4).round() / 1e4)
             })
             .collect();
@@ -3341,15 +3369,6 @@ fn emmeans_tables(cx: EmmContext, warnings: &mut Vec<String>) -> Result<Vec<Tabl
     Ok(out)
 }
 
-/// The weighted mean of covariate `ci` over the cases of the fit.
-fn covariate_mean(d: &Data, ci: usize) -> f64 {
-    let w: f64 = (0..d.rows()).map(|i| d.f[i] * d.g[i]).sum();
-    (0..d.rows())
-        .map(|i| d.f[i] * d.g[i] * d.cov[i][ci])
-        .sum::<f64>()
-        / w
-}
-
 // ---------------------------------------------------------------------------------------------
 // SAVE
 
@@ -3367,6 +3386,8 @@ struct SaveContext<'a> {
     rows_of: &'a [Option<Vec<f64>>],
     /// The row of the fit of each case of the dataset.
     fitted_row: &'a [Option<usize>],
+    /// The number of trials of each case of the dataset, where valid.
+    trials: &'a [Option<f64>],
     offset_of: &'a dyn Fn(usize) -> f64,
     z: f64,
     categories: &'a [Key],
@@ -3386,7 +3407,14 @@ fn save_columns(s: &SaveContext, warnings: &mut Vec<String>) -> Vec<Saved> {
             name: given.clone().unwrap_or_else(|| name.to_string()),
             given: given.is_some(),
             label: label.to_string(),
-            values: SavedValues::Numbers(values, "F11.5"),
+            // a value that cannot be computed (leverage 1, no parameters) is missing
+            values: SavedValues::Numbers(
+                values
+                    .into_iter()
+                    .map(|v| v.filter(|x| x.is_finite()))
+                    .collect(),
+                "F11.5",
+            ),
         };
     if s.multinomial {
         let k = s.j - 1;
@@ -3501,12 +3529,7 @@ fn save_columns(s: &SaveContext, warnings: &mut Vec<String>) -> Vec<Saved> {
         let var = dot(x, &mat_vec(&r.cov, x));
         Some((value, var.max(0.0).sqrt()))
     };
-    let trials = |kc: usize| -> Option<f64> {
-        if !s.events {
-            return Some(1.0);
-        }
-        s.fitted_row[kc].map(|i| s.cases.m[i])
-    };
+    let trials = |kc: usize| -> Option<f64> { if s.events { s.trials[kc] } else { Some(1.0) } };
     // leverage from the expected information of the fit at scale 1
     let c = s.cases;
     let q = r.b.len();
