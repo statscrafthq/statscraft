@@ -47,11 +47,13 @@ use crate::shown::{Show, Shown};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Measure, Values, Variable};
 use statscraft_syntax::{
-    Contrast, Genlin, GenlinAdjust, GenlinContrast, GenlinCriteria, GenlinDistribution,
-    GenlinEmmeans, GenlinLink, GenlinMethod, GenlinOffset, GenlinOrder, GenlinReference,
-    GenlinResponse, GenlinSaveKind, GenlinScale, GenlinTrials, Term, Value,
+    Contrast, Genlin, GenlinAdjust, GenlinContrast, GenlinCorrelation, GenlinCriteria,
+    GenlinDistribution, GenlinEmmeans, GenlinLink, GenlinMethod, GenlinOffset, GenlinOrder,
+    GenlinReference, GenlinResponse, GenlinSaveKind, GenlinScale, GenlinTrials, Term, Value,
 };
 use std::f64::consts::PI;
+
+mod gee;
 
 // ---------------------------------------------------------------------------------------------
 // distributions and links
@@ -1487,6 +1489,19 @@ impl Engine {
             None if continuous => ScaleMode::Mle,
             None => ScaleMode::Fixed(1.0),
         };
+        let repeated = command.repeated.as_ref();
+        if repeated.is_some() {
+            if multinomial {
+                return Err(Error(
+                    "GENLIN: REPEATED with DISTRIBUTION=MULTINOMIAL (ordinal generalized estimating equations) is not supported yet".into(),
+                ));
+            }
+            if crit.lr {
+                return Err(Error(
+                    "GENLIN: ANALYSISTYPE with (LR) under REPEATED (generalized score tests) is not supported yet; use (WALD)".into(),
+                ));
+            }
+        }
         // the variables, each in one role
         let (response_names, events) = match &command.response {
             GenlinResponse::Dependent { name, .. } => (vec![name.clone()], false),
@@ -1525,6 +1540,25 @@ impl Engine {
             return Err(Error(format!(
                 "GENLIN cannot use the WEIGHT variable {n} in the model; it is the frequency weight"
             )));
+        }
+        let lookup = |names: &[String]| -> Result<Vec<Variable>, Error> {
+            names.iter().map(|n| Ok(data.variable(n)?)).collect()
+        };
+        let subject_vars = lookup(repeated.map_or(&[][..], |r| &r.subject))?;
+        let within_vars = lookup(repeated.map_or(&[][..], |r| &r.within))?;
+        for v in subject_vars.iter().chain(&within_vars) {
+            let other_role = response_names
+                .iter()
+                .chain(&command.covariates)
+                .chain(&offset_name)
+                .chain(&command.scale_weight)
+                .any(|n| n.eq_ignore_ascii_case(v.name()));
+            if other_role {
+                return Err(Error(format!(
+                    "{} cannot be a SUBJECT or WITHINSUBJECT variable of GENLIN: it is the response, a covariate, the offset or the scale weight",
+                    v.name()
+                )));
+            }
         }
         let dependent = data.variable(&response_names[0])?;
         let trials_var = match &command.response {
@@ -1590,6 +1624,11 @@ impl Engine {
             .map(|v| categories(v, command.include))
             .collect();
         let dep_keys = categories(&dependent, false);
+        // user-missing values of the subject variables are always missing
+        let subject_keys: Vec<Vec<Option<Key>>> =
+            subject_vars.iter().map(|v| categories(v, false)).collect();
+        let within_keys: Vec<Vec<Option<Key>>> =
+            within_vars.iter().map(|v| categories(v, false)).collect();
         // everything but the response
         let predictors_valid: Vec<bool> = (0..cases)
             .map(|k| {
@@ -1600,6 +1639,10 @@ impl Engine {
             .collect();
         let others_valid = |k: usize| {
             predictors_valid[k]
+                && subject_keys
+                    .iter()
+                    .chain(&within_keys)
+                    .all(|col| col[k].is_some())
                 && freq(k) >= 1.0
                 && weight_var
                     .as_ref()
@@ -1829,6 +1872,37 @@ impl Engine {
         let has_intercept = command.intercept && !multinomial;
         let n_total: f64 = c.f.iter().sum();
         let mut warnings: Vec<String> = Vec::new();
+        // the subjects of the estimating equations; the keys of each row of the fit
+        let row_keys = |keys: &[Vec<Option<Key>>]| -> Vec<Vec<Key>> {
+            rows.iter()
+                .map(|&k| {
+                    keys.iter()
+                        .map(|col| col[k].clone().expect("valid"))
+                        .collect()
+                })
+                .collect()
+        };
+        let subjects = match repeated {
+            Some(r) => {
+                let within = (!within_vars.is_empty()).then(|| row_keys(&within_keys));
+                if !r.sort && within.is_some() {
+                    warnings.push("WITHINSUBJECT is ignored with SORT=NO: the cases of each subject are taken in file order".into());
+                }
+                let s = gee::subjects(&row_keys(&subject_keys), within.as_deref(), r.sort)
+                    .map_err(Error)?;
+                // a frequency weight copies a whole subject
+                if s.members
+                    .iter()
+                    .any(|m| m.iter().any(|&(i, _)| c.f[i] != c.f[m[0].0]))
+                {
+                    return Err(Error(
+                        "GENLIN REPEATED: the frequency weight (WEIGHT) must be the same for every case of a subject".into(),
+                    ));
+                }
+                Some(s)
+            }
+            None => None,
+        };
         let spec = Spec {
             family,
             link: command.link,
@@ -1903,7 +1977,7 @@ impl Engine {
                     .into(),
             )
         };
-        let glm_fit;
+        let mut glm_fit;
         let result = if multinomial {
             glm_fit = None;
             let f = fit_ordinal(&ordinal, &x, ord_link, crit, fixed_phi).ok_or_else(failed)?;
@@ -2061,13 +2135,71 @@ impl Engine {
                 ));
             }
         }
+        // generalized estimating equations from the fit so far
+        let gee_fit = match (repeated, &subjects, glm_fit.as_mut()) {
+            (Some(r), Some(s), Some(f)) => {
+                let set = gee::Settings {
+                    family,
+                    link: command.link,
+                    k: result.k,
+                    correlation: &r.correlation,
+                    adjust: r.adjust,
+                    update_scale: scale == ScaleMode::Mle,
+                    maxiterations: r.maxiterations,
+                    pconverge: r.pconverge,
+                    hconverge: r.hconverge,
+                    updatecorr: r.updatecorr,
+                    singular: crit.singular,
+                };
+                let g = gee::fit(&c, &x, s, &set, &result.b, phi).map_err(Error)?;
+                if !g.converged {
+                    warnings.push(format!(
+                        "The generalized estimating equations did not converge within {} iterations (REPEATED MAXITERATIONS); the results may not be final",
+                        r.maxiterations
+                    ));
+                } else if !g.hessian_ok {
+                    warnings.push(HESSIAN_WARNING.into());
+                }
+                if g.ridged {
+                    warnings.push("The estimated working correlation matrix was not positive definite; it was moved toward the identity matrix until it was".into());
+                }
+                // H of the independent structure, for QIC
+                let independent = if r.correlation == GenlinCorrelation::Independent {
+                    g.information.clone()
+                } else {
+                    let set = gee::Settings {
+                        correlation: &GenlinCorrelation::Independent,
+                        ..set
+                    };
+                    gee::fit(&c, &x, s, &set, &result.b, phi)
+                        .map_err(Error)?
+                        .information
+                };
+                f.beta = g.beta.clone();
+                f.mu = g.mu.clone();
+                result.b = g.beta.clone();
+                result.phi = g.phi;
+                result.cov = if r.robust {
+                    g.robust.clone()
+                } else {
+                    g.model.clone()
+                };
+                result.log_variance = None;
+                Some((g, independent))
+            }
+            _ => None,
+        };
+        let phi = result.phi;
+        let gee = gee_fit.is_some();
         // the covariance at the scale, robust if asked
-        let cov_unit = result.cov.clone();
-        result.cov = cov_unit
-            .iter()
-            .map(|r| r.iter().map(|v| v * phi).collect())
-            .collect();
-        if crit.robust {
+        if !gee {
+            result.cov = result
+                .cov
+                .iter()
+                .map(|r| r.iter().map(|v| v * phi).collect())
+                .collect();
+        }
+        if crit.robust && !gee {
             let q = result.b.len();
             let mut meat = vec![vec![0.0; q]; q];
             for i in 0..n_rows {
@@ -2192,6 +2324,25 @@ impl Engine {
             if let Some(v) = &weight_var {
                 out.push(vec![text("Scale Weight Variable"), text(shown.variable(v))]);
             }
+            if let Some(r) = repeated {
+                let effect = |vars: &[Variable]| {
+                    vars.iter()
+                        .map(|v| shown.variable(v))
+                        .collect::<Vec<_>>()
+                        .join(" * ")
+                };
+                out.push(vec![text("Subject Effect"), text(effect(&subject_vars))]);
+                if !within_vars.is_empty() && r.sort {
+                    out.push(vec![
+                        text("Within-Subject Effect"),
+                        text(effect(&within_vars)),
+                    ]);
+                }
+                out.push(vec![
+                    text("Working Correlation Matrix Structure"),
+                    text(correlation_name(&r.correlation)),
+                ]);
+            }
             let note = binary.then(|| {
                 format!(
                     "The procedure models {} as the response, treating {} as the reference category.",
@@ -2228,6 +2379,75 @@ impl Engine {
                 ],
                 None,
             ));
+            if let (Some(r), Some(s)) = (repeated, &subjects) {
+                let levels_of = |keys: &[Vec<Option<Key>>], at: usize| {
+                    let mut found: Vec<&Key> = rows
+                        .iter()
+                        .map(|&k| keys[at][k].as_ref().expect("valid"))
+                        .collect();
+                    found.sort_by(|a, b| a.compare(b));
+                    found.dedup_by(|a, b| a.compare(b).is_eq());
+                    found.len() as f64
+                };
+                let mut out = Vec::new();
+                for (at, v) in subject_vars.iter().enumerate() {
+                    out.push(vec![
+                        text(if at == 0 {
+                            "Levels of the Subject Effect"
+                        } else {
+                            ""
+                        }),
+                        text(shown.variable(v)),
+                        Cell::Number(levels_of(&subject_keys, at)),
+                    ]);
+                }
+                if r.sort {
+                    for (at, v) in within_vars.iter().enumerate() {
+                        out.push(vec![
+                            text(if at == 0 {
+                                "Levels of the Within-Subject Effect"
+                            } else {
+                                ""
+                            }),
+                            text(shown.variable(v)),
+                            Cell::Number(levels_of(&within_keys, at)),
+                        ]);
+                    }
+                }
+                let sizes = s.members.iter().map(Vec::len);
+                out.push(vec![
+                    text("Number of Subjects"),
+                    Cell::Empty,
+                    Cell::Number(s.members.len() as f64),
+                ]);
+                out.push(vec![
+                    text("Measurements per Subject"),
+                    text("Minimum"),
+                    Cell::Number(sizes.clone().min().unwrap_or(0) as f64),
+                ]);
+                out.push(vec![
+                    Cell::Empty,
+                    text("Maximum"),
+                    Cell::Number(sizes.max().unwrap_or(0) as f64),
+                ]);
+                out.push(vec![
+                    text("Working Correlation Matrix Dimension"),
+                    Cell::Empty,
+                    Cell::Number(s.dim as f64),
+                ]);
+                for row in &mut out {
+                    if matches!(&row[0], Cell::Text(t) if t.is_empty()) {
+                        row[0] = Cell::Empty;
+                    }
+                }
+                tables.push(table(
+                    "Correlated Data Summary",
+                    2,
+                    plain(&["", "", "N"]),
+                    out,
+                    None,
+                ));
+            }
         }
         if print.descriptives {
             let mut out: Vec<Vec<Cell>> = Vec::new();
@@ -2352,7 +2572,44 @@ impl Engine {
         } else {
             n_total
         };
-        if print.fit {
+        if let (true, Some((g, independent))) = (print.fit, &gee_fit) {
+            // the quasi-likelihood at a scale fixed on CRITERIA, or else 1
+            let phi_q = match scale {
+                ScaleMode::Fixed(v) => v,
+                _ => 1.0,
+            };
+            let q: f64 = (0..n_rows)
+                .map(|i| {
+                    c.f[i] * c.a(i) / phi_q
+                        * gee::quasi(family, c.y[i], g.mu[i], result.k, !crit.kernel)
+                })
+                .sum();
+            let trace: f64 = crate::matrix::multiply(independent, &g.robust)
+                .iter()
+                .enumerate()
+                .map(|(j, row)| row[j])
+                .sum();
+            tables.push(table(
+                "Goodness of Fit",
+                1,
+                plain(&["", "Value"]),
+                vec![
+                    vec![
+                        text("Quasi-likelihood under Independence Model Criterion (QIC)"),
+                        Cell::Number(-2.0 * q + 2.0 * trace),
+                    ],
+                    vec![
+                        text("Corrected Quasi-likelihood under Independence Model Criterion (QICC)"),
+                        Cell::Number(-2.0 * q + 2.0 * px as f64),
+                    ],
+                ],
+                Some(format!(
+                    "{caption} Smaller values are better. Both criteria use the {} quasi-likelihood under independence at a scale of {}.",
+                    if crit.kernel { "kernel of the" } else { "full" },
+                    phi_q
+                )),
+            ));
+        } else if print.fit {
             let ll = ll_one;
             let aic = -2.0 * ll + 2.0 * d_params;
             let aicc = if n_ic - d_params - 1.0 > 0.0 {
@@ -2476,7 +2733,7 @@ impl Engine {
         let tested: Vec<usize> = (0..design.effects.len())
             .filter(|&e| !(multinomial && design.effects[e].is_intercept()))
             .collect();
-        if print.summary {
+        if print.summary && !gee {
             // omnibus test
             let base: Vec<Vec<f64>> = if has_intercept {
                 let at = kept.iter().position(|&j| j == 0);
@@ -2520,7 +2777,8 @@ impl Engine {
                     }
                 )),
             ));
-            // tests of model effects
+        }
+        if print.summary {
             let mut columns: Vec<(String, String)> = plain(&["Source"]);
             let mut values: Vec<Vec<Cell>> = tested
                 .iter()
@@ -2752,6 +3010,18 @@ impl Engine {
                 },
             ));
             notes.push(match scale {
+                ScaleMode::Mle if gee => {
+                    "(Scale) is computed from the Pearson residuals of the estimating equations."
+                        .into()
+                }
+                ScaleMode::Deviance | ScaleMode::Pearson if gee => format!(
+                    "(Scale) is computed from the {} of the generalized linear model that gives the start values, and held there.",
+                    if scale == ScaleMode::Deviance {
+                        "deviance"
+                    } else {
+                        "Pearson chi-square"
+                    }
+                ),
                 ScaleMode::Mle => "(Scale) is a maximum likelihood estimate.".into(),
                 ScaleMode::Deviance => "(Scale) is computed from the deviance.".into(),
                 ScaleMode::Pearson => "(Scale) is computed from the Pearson chi-square.".into(),
@@ -2767,14 +3037,25 @@ impl Engine {
                         None
                     },
                 ));
-                notes.push(if k_estimated {
+                notes.push(if k_estimated && gee {
+                    "(Negative binomial) is the maximum likelihood estimate of the generalized linear model that gives the start values, held there.".into()
+                } else if k_estimated {
                     "(Negative binomial) is a maximum likelihood estimate.".into()
                 } else {
                     "(Negative binomial) is fixed at the displayed value.".into()
                 });
             }
-            if crit.robust {
-                notes.push("The standard errors are robust (sandwich) estimates.".into());
+            match repeated {
+                Some(r) if !r.robust => {
+                    notes.push("The standard errors are model-based.".into());
+                }
+                Some(_) => {
+                    notes.push("The standard errors are robust (sandwich) estimates.".into());
+                }
+                None if crit.robust => {
+                    notes.push("The standard errors are robust (sandwich) estimates.".into());
+                }
+                None => {}
             }
             tables.push(table(
                 "Parameter Estimates",
@@ -2821,6 +3102,43 @@ impl Engine {
                     (v > 0.0).then(|| result.cov[i][j] / v.sqrt())
                 }));
             }
+        }
+        if let (true, Some((g, _)), Some(r), Some(s)) =
+            (print.workingcorr, &gee_fit, repeated, &subjects)
+        {
+            let names: Vec<String> = (0..s.dim)
+                .map(|u| match s.positions.get(u) {
+                    Some(keys) => format!(
+                        "[{}]",
+                        within_vars
+                            .iter()
+                            .zip(keys)
+                            .map(|(v, k)| format!("{}={}", v.name(), key_value_text(v, k)))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    ),
+                    None => format!("Measurement {}", u + 1),
+                })
+                .collect();
+            let mut columns = plain(&[""]);
+            columns.extend(names.iter().map(|n| (String::new(), n.clone())));
+            let out = (0..s.dim)
+                .map(|u| {
+                    let mut row = vec![text(names[u].clone())];
+                    row.extend(g.r[u].iter().map(|v| Cell::Number(*v)));
+                    row
+                })
+                .collect();
+            tables.push(table(
+                "Working Correlation Matrix",
+                1,
+                columns,
+                out,
+                Some(format!(
+                    "{caption} Working correlation structure: {}.",
+                    correlation_name(&r.correlation)
+                )),
+            ));
         }
         // estimated marginal means
         if !command.emmeans.is_empty() {
@@ -2917,6 +3235,7 @@ impl Engine {
                 j: j_categories,
                 px,
                 ordinal: &ordinal,
+                gee,
             };
             saved = save_columns(&save_ctx, &mut warnings);
         }
@@ -2958,6 +3277,17 @@ impl Engine {
             })?;
         }
         Ok(tables)
+    }
+}
+
+fn correlation_name(c: &GenlinCorrelation) -> String {
+    match c {
+        GenlinCorrelation::Independent => "Independent".into(),
+        GenlinCorrelation::Ar1 => "AR(1)".into(),
+        GenlinCorrelation::Exchangeable => "Exchangeable".into(),
+        GenlinCorrelation::MDependent(m) => format!("M-dependent ({m})"),
+        GenlinCorrelation::Unstructured => "Unstructured".into(),
+        GenlinCorrelation::Fixed(_) => "Fixed".into(),
     }
 }
 
@@ -3586,6 +3916,8 @@ struct SaveContext<'a> {
     j: usize,
     px: usize,
     ordinal: &'a Ordinal,
+    /// Generalized estimating equations: no leverage, deviance or standardized residuals.
+    gee: bool,
 }
 
 fn save_columns(s: &SaveContext, warnings: &mut Vec<String>) -> Vec<Saved> {
@@ -3773,6 +4105,23 @@ fn save_columns(s: &SaveContext, warnings: &mut Vec<String>) -> Vec<Saved> {
     for item in &s.command.save {
         let given = &item.name;
         let z = s.z;
+        if s.gee
+            && matches!(
+                item.kind,
+                K::Leverage
+                    | K::DevianceResid
+                    | K::StdPearsonResid
+                    | K::StdDevianceResid
+                    | K::LikelihoodResid
+                    | K::Cook
+            )
+        {
+            warnings.push(format!(
+                "SAVE {} is not available for generalized estimating equations; it is left out",
+                save_keyword(item.kind)
+            ));
+            continue;
+        }
         match item.kind {
             K::XbPred => out.push(numbers(
                 "XBPredicted",

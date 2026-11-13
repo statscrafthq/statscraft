@@ -1036,7 +1036,9 @@ fn repeated(p: &mut Parser) -> PResult<GenlinRepeated> {
         .iter()
         .find(|w| r.subject.iter().any(|s| s.eq_ignore_ascii_case(w)))
     {
-        return fail(format!("{n} cannot be both a SUBJECT and a WITHINSUBJECT variable"));
+        return fail(format!(
+            "{n} cannot be both a SUBJECT and a WITHINSUBJECT variable"
+        ));
     }
     if r.hconverge == 0.0 && r.pconverge.value == 0.0 {
         return fail("at least one of HCONVERGE and PCONVERGE on REPEATED must be above 0".into());
@@ -1055,7 +1057,10 @@ fn correlation(p: &mut Parser) -> PResult<GenlinCorrelation> {
         p.expect(Punct::LParen)?;
         let start = p.pos;
         if number(p, "1")? != 1.0 {
-            return Err(SyntaxError::new(p.span_from(start), "the structure is AR(1)"));
+            return Err(SyntaxError::new(
+                p.span_from(start),
+                "the structure is AR(1)",
+            ));
         }
         p.expect(Punct::RParen)?;
         return Ok(GenlinCorrelation::Ar1);

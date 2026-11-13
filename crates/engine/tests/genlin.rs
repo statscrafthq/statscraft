@@ -1203,12 +1203,6 @@ fn errors_for_combinations_the_manual_does_not_allow() {
     );
     assert!(
         run_error(&format!(
-            "{COUNTS}GENLIN repairs BY shop /MODEL shop /REPEATED SUBJECT=shop.\n"
-        ))
-        .contains("not supported yet")
-    );
-    assert!(
-        run_error(&format!(
             "{SEEDS}GENLIN moist /MODEL DISTRIBUTION=BINOMIAL.\n"
         ))
         .contains("exactly two values")
@@ -1537,4 +1531,767 @@ fn negative_binomial_terms_agree_on_both_sides_of_the_large_k_switch() {
     let below = get(&t(1.0001e-4), FIT, "Log Likelihood", "Value");
     let above = get(&t(0.9999e-4), FIT, "Log Likelihood", "Value");
     close(below, above, 1e-6, "log likelihood across the switch");
+}
+
+// ---------------------------------------------------------------------------------------------
+// REPEATED: generalized estimating equations. The expected numbers come from our own matrix
+// implementation of the estimating equations, the working correlation estimators and QIC in a
+// general statistics package, run to a change below 1E-13. With the working correlation fixed at
+// its final value, that implementation agrees with the package's own estimating equations
+// routine to 1E-13 in the estimates and robust standard errors.
+
+/// Persons in two programs (arm) seen at up to four waves: a stress rating, a wellbeing score,
+/// the number of clinic visits and whether the person was active. Some waves are missing and
+/// the waves of some persons are entered out of order.
+const PANEL: &str = "DATA LIST FREE /id wave arm stress score visits active.
+BEGIN DATA.
+1 1 1 5.0 42.8 2 1  1 2 1 4.8 44.4 6 0  1 3 1 3.0 46.0 6 0  1 4 1 3.3 49.9 8 0  2 1 2 3.1 47.8 4 1  2 2 2 8.1 43.5 6 0
+2 4 2 9.4 43.7 7 1  3 2 1 2.0 40.6 0 0  3 3 1 9.5 38.2 1 0  3 1 1 4.0 35.9 4 0  3 4 1 8.4 40.6 6 1  4 1 2 3.6 43.9 4 1
+4 2 2 4.2 45.6 5 1  4 3 2 5.1 43.9 3 0  4 4 2 2.6 46.2 4 1  5 1 1 9.9 39.9 3 0  5 2 1 5.2 42.2 1 0  5 3 1 1.6 47.7 2 1
+5 4 1 0.8 49.8 8 1  6 1 2 6.6 42.0 1 0  6 3 2 8.2 43.7 2 0  6 4 2 9.4 43.3 4 0  7 1 1 5.0 41.9 1 1  7 2 1 6.6 42.8 3 1
+7 3 1 3.0 48.4 1 0  7 4 1 5.0 47.1 7 1  8 3 2 0.8 49.5 3 0  8 1 2 1.4 47.7 2 1  8 4 2 9.0 51.1 6 0  8 2 2 8.6 41.4 3 1
+9 1 1 0.5 43.5 0 1  9 2 1 3.9 47.0 2 0  9 3 1 4.5 40.0 1 1  9 4 1 3.1 44.4 3 0  10 1 2 7.3 39.4 2 0  10 3 2 2.0 53.4 7 0
+10 4 2 3.2 55.8 7 1  11 1 1 6.9 38.3 2 0  11 2 1 2.4 39.8 1 0  11 3 1 5.3 36.1 3 0  11 4 1 5.9 43.1 3 1  12 1 2 0.8 42.8 0 0
+12 2 2 5.9 41.3 3 0  12 3 2 7.3 50.5 5 1  12 4 2 0.4 57.6 4 1  13 1 1 8.4 36.1 3 0  13 2 1 0.7 45.7 4 1  13 4 1 1.9 49.5 1 0
+14 1 2 2.7 43.1 5 1  14 2 2 1.1 48.1 9 1  14 3 2 9.3 42.2 13 1  14 4 2 5.6 46.0 8 1  15 2 1 5.3 42.5 1 1  15 3 1 3.0 48.4 2 1
+15 1 1 5.6 38.1 1 0  15 4 1 1.9 50.9 3 1  16 1 2 1.8 43.7 2 0  16 2 2 9.2 42.0 4 0  16 3 2 1.5 50.1 2 1  16 4 2 5.0 43.2 3 1
+17 1 1 2.2 39.8 3 0  17 3 1 6.8 42.0 3 1  17 4 1 1.8 48.0 5 0  18 1 2 7.9 42.7 6 1  18 2 2 9.4 46.3 10 1  18 3 2 1.7 48.9 6 1
+18 4 2 4.0 49.3 9 1  19 1 1 5.3 42.0 0 1  19 2 1 10.0 41.9 5 1  19 3 1 8.1 44.6 4 1  19 4 1 0.9 49.8 4 1  20 3 2 3.7 43.9 1 0
+20 2 2 7.1 38.7 1 0  20 4 2 5.9 43.2 2 0  20 1 2 1.7 41.3 1 0  21 1 1 5.6 38.9 3 0  21 2 1 4.2 41.6 1 0  21 4 1 0.9 42.3 0 0
+22 1 2 8.8 41.2 1 0  22 2 2 4.9 40.4 5 1  22 3 2 8.9 45.7 8 1  22 4 2 0.8 51.4 6 1  23 1 1 1.4 41.2 1 1  23 3 1 1.5 43.7 0 0
+23 4 1 7.1 48.0 2 0  24 1 2 1.7 43.0 1 0  24 2 2 8.7 41.2 3 0  24 3 2 2.6 46.8 2 1  24 4 2 7.1 49.4 4 1  25 1 1 5.8 36.4 5 0
+25 2 1 8.3 35.8 3 0  25 3 1 5.7 41.7 4 0  25 4 1 0.7 44.1 2 0  26 2 2 4.4 45.0 2 0  26 3 2 1.5 51.2 5 0  26 4 2 3.6 53.3 4 1
+27 1 1 2.7 40.9 0 0  27 2 1 2.3 47.2 2 1  27 3 1 8.4 47.7 1 1  27 4 1 9.2 44.3 1 0  28 1 2 4.4 42.0 2 0  28 2 2 3.1 45.8 3 0
+28 3 2 4.9 45.9 4 1  28 4 2 8.3 44.2 6 1  29 1 1 9.7 34.8 1 0  29 2 1 1.9 41.1 2 1  29 3 1 0.9 44.3 1 0  29 4 1 1.9 46.3 1 0
+30 1 2 8.8 41.9 4 0  30 3 2 4.1 45.2 3 1  30 4 2 7.7 46.6 7 0  31 1 1 4.0 41.7 0 0  31 2 1 5.5 46.6 6 0  31 3 1 8.4 46.4 5 1
+31 4 1 5.9 43.7 3 1  32 1 2 1.7 44.2 0 1  32 2 2 6.5 45.2 1 1  32 4 2 3.2 45.5 3 0  33 1 1 9.8 30.6 0 0  33 2 1 0.9 42.7 3 1
+33 3 1 9.6 40.5 3 0  33 4 1 3.2 47.1 4 0  34 1 2 8.9 37.2 2 1  34 2 2 6.9 44.5 3 0  34 3 2 9.2 45.4 4 1  34 4 2 5.0 43.4 6 0
+35 1 1 2.8 41.6 0 0  35 2 1 8.8 38.6 2 0  35 3 1 2.6 46.9 4 1  35 4 1 6.5 49.5 3 1  36 1 2 2.3 48.0 0 0  36 3 2 0.4 46.3 3 1
+36 4 2 7.8 46.3 5 1  37 1 1 9.4 36.7 3 0  37 2 1 7.0 37.6 1 0  37 3 1 1.8 37.5 3 0  37 4 1 6.7 37.8 1 0  38 1 2 5.8 35.0 0 0
+38 2 2 6.5 38.6 0 0  38 3 2 5.5 36.5 3 0  38 4 2 7.2 41.8 4 0  39 1 1 0.3 40.2 4 1  39 2 1 1.9 42.7 0 1  39 4 1 0.7 45.2 1 0
+40 1 2 9.3 31.8 0 0  40 2 2 9.8 35.7 2 0  40 3 2 6.4 38.6 1 0  40 4 2 9.2 40.4 2 0
+END DATA.
+COMPUTE time = wave - 1.
+";
+
+const GEE_ROWS: [&str; 4] = ["(Intercept)", "[arm=1]", "time", "stress"];
+
+/// Checks the estimates and standard errors of the four parameters.
+fn check_estimates(t: &[Table], b: [f64; 4], se: [f64; 4], what: &str) {
+    for (i, row) in GEE_ROWS.iter().enumerate() {
+        close(get(t, PE, row, B), b[i], 1e-8, &format!("{what} {row}"));
+        close(
+            get(t, PE, row, SE),
+            se[i],
+            1e-7,
+            &format!("{what} {row} se"),
+        );
+    }
+}
+
+fn panel(model: &str) -> Vec<Table> {
+    tables_of(&format!("{PANEL}{model}"))
+}
+
+#[test]
+fn poisson_exchangeable_estimating_equations() {
+    let t = panel(
+        "GENLIN visits BY arm WITH time stress
+  /MODEL arm time stress DISTRIBUTION=POISSON LINK=LOG
+  /REPEATED SUBJECT=id WITHINSUBJECT=wave CORRTYPE=EXCHANGEABLE PCONVERGE=1E-12
+  /PRINT CPS MODELINFO FIT SUMMARY SOLUTION WORKINGCORR.
+",
+    );
+    let b = [
+        0.704511862636629,
+        -0.378225864755569,
+        0.243218205797944,
+        0.0384294258373128,
+    ];
+    let se = [
+        0.168046616849281,
+        0.157465272644031,
+        0.0386400987614665,
+        0.013189315900894,
+    ];
+    check_estimates(&t, b, se, "exchangeable");
+    // Wald tests of one degree of freedom with the robust covariance
+    let tests = "Tests of Model Effects";
+    for (row, at) in [("arm", 1), ("time", 2), ("stress", 3)] {
+        close(
+            get(&t, tests, row, "Type III / Wald Chi-Square"),
+            (b[at] / se[at]).powi(2),
+            1e-7,
+            row,
+        );
+    }
+    assert!(t.iter().all(|t| t.title != "Omnibus Test"));
+    close(
+        get(
+            &t,
+            FIT,
+            "Quasi-likelihood under Independence Model Criterion (QIC)",
+            "Value",
+        ),
+        241.294648218194,
+        1e-8,
+        "QIC",
+    );
+    close(
+        get(
+            &t,
+            FIT,
+            "Corrected Quasi-likelihood under Independence Model Criterion (QICC)",
+            "Value",
+        ),
+        234.452210338636,
+        1e-8,
+        "QICC",
+    );
+    let wc = "Working Correlation Matrix";
+    close(
+        get(&t, wc, "[wave=1]", "[wave=2]"),
+        0.400334333253509,
+        1e-7,
+        "alpha",
+    );
+    close(
+        get(&t, wc, "[wave=4]", "[wave=1]"),
+        0.400334333253509,
+        1e-7,
+        "alpha",
+    );
+    assert_eq!(get(&t, wc, "[wave=3]", "[wave=3]"), 1.0);
+    let cds = "Correlated Data Summary";
+    assert_eq!(get(&t, cds, "Levels of the Subject Effect / id", "N"), 40.0);
+    assert_eq!(
+        get(&t, cds, "Levels of the Within-Subject Effect / wave", "N"),
+        4.0
+    );
+    assert_eq!(get(&t, cds, "Number of Subjects", "N"), 40.0);
+    assert_eq!(get(&t, cds, "Measurements per Subject / Minimum", "N"), 3.0);
+    assert_eq!(get(&t, cds, "Measurements per Subject / Maximum", "N"), 4.0);
+    assert_eq!(
+        get(&t, cds, "Working Correlation Matrix Dimension", "N"),
+        4.0
+    );
+    let info = find(&t, "Model Information");
+    let texts: Vec<String> = info.rows.iter().map(|r| format!("{:?}", r)).collect();
+    assert!(
+        texts
+            .iter()
+            .any(|r| r.contains("Subject Effect") && r.contains("id"))
+    );
+    assert!(texts.iter().any(|r| r.contains("Exchangeable")));
+}
+
+#[test]
+fn poisson_time_structures_and_model_based_errors() {
+    for (corr, extra, b, se, qic) in [
+        (
+            "AR(1)",
+            "",
+            [
+                0.654563230095701,
+                -0.349553497089478,
+                0.251614356479344,
+                0.0384709587651064,
+            ],
+            [
+                0.172359136662159,
+                0.158930169318541,
+                0.0402412634859607,
+                0.0135220329604915,
+            ],
+            241.696989199688,
+        ),
+        (
+            "AR(1)",
+            "COVB=MODEL",
+            [
+                0.654563230095701,
+                -0.349553497089478,
+                0.251614356479344,
+                0.0384709587651064,
+            ],
+            [
+                0.144150079777374,
+                0.130583325181978,
+                0.0417545256693158,
+                0.0131439224854754,
+            ],
+            241.696989199688,
+        ),
+        (
+            "MDEPENDENT(2)",
+            "",
+            [
+                0.618494415732957,
+                -0.306601535076875,
+                0.232282924970726,
+                0.0458597352122075,
+            ],
+            [
+                0.180233250477956,
+                0.166793211319502,
+                0.0395264607146703,
+                0.015268825725667,
+            ],
+            243.806792302822,
+        ),
+        (
+            "UNSTRUCTURED",
+            "",
+            [
+                0.795910770335938,
+                -0.44453150698138,
+                0.194134421708201,
+                0.0369036337113296,
+            ],
+            [
+                0.172295609183761,
+                0.174698839000002,
+                0.047777904017582,
+                0.0173725220930604,
+            ],
+            246.701916972777,
+        ),
+        (
+            "UNSTRUCTURED",
+            "ADJUSTCORR=NO",
+            [
+                0.745135195768292,
+                -0.384416976157917,
+                0.211461515331614,
+                0.0367187285541319,
+            ],
+            [
+                0.166347901182589,
+                0.160623958554953,
+                0.0407979702791597,
+                0.0155889035347207,
+            ],
+            242.814937248915,
+        ),
+    ] {
+        let t = panel(&format!(
+            "GENLIN visits BY arm WITH time stress
+  /MODEL arm time stress DISTRIBUTION=POISSON
+  /REPEATED SUBJECT=id WITHINSUBJECT=wave CORRTYPE={corr} {extra} PCONVERGE=1E-12
+  /PRINT FIT SOLUTION WORKINGCORR.
+"
+        ));
+        let what = format!("{corr} {extra}");
+        check_estimates(&t, b, se, &what);
+        close(
+            get(
+                &t,
+                FIT,
+                "Quasi-likelihood under Independence Model Criterion (QIC)",
+                "Value",
+            ),
+            qic,
+            1e-8,
+            &what,
+        );
+    }
+    // the matrices themselves
+    let t = panel(
+        "GENLIN visits BY arm WITH time stress /MODEL arm time stress DISTRIBUTION=POISSON
+  /REPEATED SUBJECT=id WITHINSUBJECT=wave CORRTYPE=MDEPENDENT(2) PCONVERGE=1E-12
+  /PRINT WORKINGCORR.
+",
+    );
+    let wc = "Working Correlation Matrix";
+    close(
+        get(&t, wc, "[wave=1]", "[wave=2]"),
+        0.512854598618658,
+        1e-7,
+        "lag 1",
+    );
+    close(
+        get(&t, wc, "[wave=1]", "[wave=3]"),
+        0.413566067887356,
+        1e-7,
+        "lag 2",
+    );
+    assert_eq!(get(&t, wc, "[wave=1]", "[wave=4]"), 0.0);
+    let t = panel(
+        "GENLIN visits BY arm WITH time stress /MODEL arm time stress DISTRIBUTION=POISSON
+  /REPEATED SUBJECT=id WITHINSUBJECT=wave CORRTYPE=UNSTRUCTURED PCONVERGE=1E-12
+  /PRINT WORKINGCORR.
+",
+    );
+    close(
+        get(&t, wc, "[wave=2]", "[wave=3]"),
+        0.916240131214379,
+        1e-7,
+        "2-3",
+    );
+    close(
+        get(&t, wc, "[wave=3]", "[wave=4]"),
+        0.494422935226873,
+        1e-7,
+        "3-4",
+    );
+}
+
+#[test]
+fn binary_exchangeable_with_saved_values() {
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!(
+            "{PANEL}GENLIN active (REFERENCE=FIRST) BY arm WITH time stress
+  /MODEL arm time stress DISTRIBUTION=BINOMIAL LINK=LOGIT
+  /REPEATED SUBJECT=id WITHINSUBJECT=wave CORRTYPE=EXCHANGEABLE PCONVERGE=1E-12
+  /PRINT FIT SOLUTION WORKINGCORR
+  /SAVE MEANPRED XBSTDERROR PEARSONRESID LEVERAGE.
+"
+        ),
+    );
+    check_estimates(
+        &t,
+        [
+            -0.0238444484616804,
+            -0.385534796903718,
+            0.242041179588297,
+            -0.0818823668277366,
+        ],
+        [
+            0.455486054790276,
+            0.376865346643433,
+            0.166750114636787,
+            0.0499911301579503,
+        ],
+        "binary",
+    );
+    close(
+        get(
+            &t,
+            FIT,
+            "Quasi-likelihood under Independence Model Criterion (QIC)",
+            "Value",
+        ),
+        205.772203918029,
+        1e-8,
+        "QIC",
+    );
+    close(
+        get(&t, "Working Correlation Matrix", "[wave=2]", "[wave=3]"),
+        0.0962292470952251,
+        1e-7,
+        "alpha",
+    );
+    for (name, expected) in [
+        (
+            "MeanPredicted",
+            [0.306020340400179, 0.363461060423734, 0.457367768848711],
+        ),
+        (
+            "XBStandardError",
+            [0.356404770561658, 0.268470244094594, 0.26351106354666],
+        ),
+        (
+            "PearsonResidual",
+            [1.50590724888004, -0.755642639771266, -0.918078855020115],
+        ),
+    ] {
+        let v = values(&engine, name);
+        for (i, e) in expected.iter().enumerate() {
+            close(v[i].unwrap(), *e, 1e-7, name);
+        }
+    }
+    assert!(engine.dataset().unwrap().variable("Leverage").is_err());
+    assert!(
+        engine
+            .warnings()
+            .iter()
+            .any(|w| w
+                .contains("SAVE LEVERAGE is not available for generalized estimating equations")),
+        "{:?}",
+        engine.warnings()
+    );
+}
+
+#[test]
+fn binary_ar1_with_the_kernel_quasi_likelihood() {
+    let t = panel(
+        "GENLIN active (REFERENCE=FIRST) BY arm WITH time stress
+  /MODEL arm time stress DISTRIBUTION=BINOMIAL
+  /CRITERIA LIKELIHOOD=KERNEL
+  /REPEATED SUBJECT=id WITHINSUBJECT=wave CORRTYPE=AR(1) PCONVERGE=1E-12
+  /PRINT FIT SOLUTION.
+",
+    );
+    check_estimates(
+        &t,
+        [
+            0.0144043066258222,
+            -0.407737494848398,
+            0.235526373395587,
+            -0.0905707495312397,
+        ],
+        [
+            0.432849303204828,
+            0.372600570831996,
+            0.162596819441313,
+            0.0488797892788535,
+        ],
+        "binary ar1",
+    );
+    close(
+        get(
+            &t,
+            FIT,
+            "Quasi-likelihood under Independence Model Criterion (QIC)",
+            "Value",
+        ),
+        205.456899668638,
+        1e-8,
+        "QIC",
+    );
+}
+
+#[test]
+fn normal_ar1_updates_the_scale_and_gives_marginal_means() {
+    let source = "GENLIN score BY arm WITH time stress
+  /MODEL arm time stress
+  /REPEATED SUBJECT=id WITHINSUBJECT=wave CORRTYPE=AR(1) PCONVERGE=1E-12 COVB
+  /PRINT FIT SOLUTION
+  /EMMEANS TABLES=arm.
+";
+    let b = [
+        44.5786568012956,
+        -2.33750134674831,
+        1.96573243476415,
+        -0.56388942875969,
+    ];
+    let t = panel(&source.replace("COVB", "COVB=ROBUST"));
+    check_estimates(
+        &t,
+        b,
+        [
+            0.630448160242324,
+            0.775652269337606,
+            0.196496385472131,
+            0.0594705243621189,
+        ],
+        "robust",
+    );
+    close(get(&t, PE, "(Scale)", B), 10.8515095331394, 1e-8, "scale");
+    close(
+        get(
+            &t,
+            FIT,
+            "Quasi-likelihood under Independence Model Criterion (QIC)",
+            "Value",
+        ),
+        1573.1797625385,
+        1e-8,
+        "QIC",
+    );
+    close(
+        get(
+            &t,
+            FIT,
+            "Corrected Quasi-likelihood under Independence Model Criterion (QICC)",
+            "Value",
+        ),
+        1570.61737277208,
+        1e-8,
+        "QICC",
+    );
+    let emm = "Estimated Marginal Means: arm";
+    close(get(&t, emm, "1", "Mean"), 42.4121111695476, 1e-8, "mean 1");
+    close(get(&t, emm, "2", "Mean"), 44.7496125162959, 1e-8, "mean 2");
+    close(get(&t, emm, "1", SE), 0.500265641205375, 1e-7, "se 1");
+    close(get(&t, emm, "2", SE), 0.594008253337632, 1e-7, "se 2");
+    let t = panel(&source.replace("COVB", "COVB=MODEL"));
+    check_estimates(
+        &t,
+        b,
+        [
+            0.743705399898288,
+            0.827051847551395,
+            0.20707540323616,
+            0.06210741914508,
+        ],
+        "model",
+    );
+}
+
+#[test]
+fn normal_exchangeable_and_fixed_structures() {
+    let t = panel(
+        "GENLIN score BY arm WITH time stress /MODEL arm time stress
+  /REPEATED SUBJECT=id WITHINSUBJECT=wave CORRTYPE=EXCHANGEABLE PCONVERGE=1E-12
+  /PRINT FIT SOLUTION WORKINGCORR.
+",
+    );
+    check_estimates(
+        &t,
+        [
+            44.8201280757571,
+            -2.30575465721225,
+            1.92859195401153,
+            -0.587716702346627,
+        ],
+        [
+            0.644336422574544,
+            0.782836374283529,
+            0.204333927795719,
+            0.0658805100383203,
+        ],
+        "exchangeable",
+    );
+    close(get(&t, PE, "(Scale)", B), 10.8067737935674, 1e-8, "scale");
+    close(
+        get(&t, "Working Correlation Matrix", "[wave=1]", "[wave=2]"),
+        0.470636527984629,
+        1e-7,
+        "alpha",
+    );
+    let t = panel(
+        "GENLIN score BY arm WITH time stress /MODEL arm time stress
+  /REPEATED SUBJECT=id WITHINSUBJECT=wave CORRTYPE=FIXED(0.6 0.4 0.6 0.3 0.4 0.6)
+    PCONVERGE=1E-12
+  /PRINT FIT SOLUTION WORKINGCORR.
+",
+    );
+    check_estimates(
+        &t,
+        [
+            44.6531754583505,
+            -2.32752003671959,
+            1.9583454839578,
+            -0.573502339351372,
+        ],
+        [
+            0.620948997095577,
+            0.771191654699056,
+            0.197516224261084,
+            0.0600159007024564,
+        ],
+        "fixed",
+    );
+    close(
+        get(
+            &t,
+            FIT,
+            "Quasi-likelihood under Independence Model Criterion (QIC)",
+            "Value",
+        ),
+        1570.13249413161,
+        1e-8,
+        "QIC",
+    );
+    assert_eq!(
+        get(&t, "Working Correlation Matrix", "[wave=4]", "[wave=1]"),
+        0.3
+    );
+}
+
+#[test]
+fn independent_working_correlation_reduces_to_the_generalized_linear_model() {
+    let model = "GENLIN visits BY arm WITH time stress /MODEL arm time stress DISTRIBUTION=POISSON";
+    // model-based errors under independence are those of the plain fit
+    let plain = panel(&format!(
+        "{model}.
+"
+    ));
+    let gee = panel(&format!(
+        "{model} /REPEATED SUBJECT=id WITHINSUBJECT=wave COVB=MODEL PCONVERGE=1E-12.
+"
+    ));
+    for row in GEE_ROWS {
+        close(get(&gee, PE, row, B), get(&plain, PE, row, B), 1e-10, row);
+        close(get(&gee, PE, row, SE), get(&plain, PE, row, SE), 1e-9, row);
+    }
+    // robust errors with one case a subject are the sandwich of the plain fit
+    let sandwich = panel(&format!(
+        "{model} /CRITERIA COVB=ROBUST.
+"
+    ));
+    let single = panel(&format!(
+        "COMPUTE case = $CASENUM.
+{model} /REPEATED SUBJECT=case PCONVERGE=1E-12.
+"
+    ));
+    for row in GEE_ROWS {
+        close(
+            get(&single, PE, row, SE),
+            get(&sandwich, PE, row, SE),
+            1e-9,
+            row,
+        );
+    }
+    // and by person, the cluster sandwich
+    check_estimates(
+        &panel(&format!(
+            "{model} /REPEATED SUBJECT=id PCONVERGE=1E-12 /PRINT FIT SOLUTION.
+"
+        )),
+        [
+            0.73955768479059,
+            -0.356352781034674,
+            0.239635921828399,
+            0.0315882629955167,
+        ],
+        [
+            0.179027869627651,
+            0.15895876386162,
+            0.0390441254776384,
+            0.0170993242899202,
+        ],
+        "independent",
+    );
+}
+
+#[test]
+fn a_frequency_weight_copies_a_whole_subject() {
+    let model = "GENLIN visits BY arm WITH time stress /MODEL arm time stress DISTRIBUTION=POISSON
+  /REPEATED SUBJECT=id WITHINSUBJECT=wave CORRTYPE=EXCHANGEABLE PCONVERGE=1E-12
+  /PRINT FIT SOLUTION WORKINGCORR.
+";
+    let weighted = panel(&format!(
+        "COMPUTE w = 1 + (id = 5 OR id = 12).
+WEIGHT BY w.
+{model}"
+    ));
+    // persons 5 and 12 written twice, the copies as persons 105 and 112
+    let body = PANEL
+        .split("BEGIN DATA.\n")
+        .nth(1)
+        .unwrap()
+        .split("END DATA.")
+        .next()
+        .unwrap();
+    let words: Vec<&str> = body.split_whitespace().collect();
+    let mut doubled = body.to_string();
+    for record in words.chunks(7) {
+        if record[0] == "5" || record[0] == "12" {
+            doubled.push_str(&format!("1{:0>2} {}\n", record[0], record[1..].join(" ")));
+        }
+    }
+    let copies = tables_of(&format!(
+        "DATA LIST FREE /id wave arm stress score visits active.
+BEGIN DATA.
+{doubled}END DATA.
+COMPUTE time = wave - 1.
+{model}"
+    ));
+    for row in GEE_ROWS {
+        close(
+            get(&weighted, PE, row, B),
+            get(&copies, PE, row, B),
+            1e-9,
+            row,
+        );
+        close(
+            get(&weighted, PE, row, SE),
+            get(&copies, PE, row, SE),
+            1e-8,
+            row,
+        );
+    }
+    let wc = "Working Correlation Matrix";
+    close(
+        get(&weighted, wc, "[wave=1]", "[wave=2]"),
+        get(&copies, wc, "[wave=1]", "[wave=2]"),
+        1e-9,
+        "alpha",
+    );
+    let qic = "Quasi-likelihood under Independence Model Criterion (QIC)";
+    close(
+        get(&weighted, FIT, qic, "Value"),
+        get(&copies, FIT, qic, "Value"),
+        1e-9,
+        "QIC",
+    );
+}
+
+#[test]
+fn subjects_without_sorting_are_runs_of_equal_values() {
+    let data = "DATA LIST FREE /team week y.
+BEGIN DATA.
+1 1 3.1 1 2 4.0 2 1 2.2 1 3 5.3 2 2 2.9 2 3 4.4 3 1 1.8 3 3 3.9
+END DATA.
+";
+    let summary = |sort: &str| {
+        let mut engine = Engine::default();
+        let t = run(
+            &mut engine,
+            &format!(
+                "{data}GENLIN y
+  /REPEATED SUBJECT=team WITHINSUBJECT=week SORT={sort} CORRTYPE=EXCHANGEABLE /PRINT CPS.
+"
+            ),
+        );
+        let cds = "Correlated Data Summary";
+        let numbers = [
+            get(&t, cds, "Number of Subjects", "N"),
+            get(&t, cds, "Measurements per Subject / Minimum", "N"),
+            get(&t, cds, "Measurements per Subject / Maximum", "N"),
+            get(&t, cds, "Working Correlation Matrix Dimension", "N"),
+        ];
+        (numbers, engine.warnings().to_vec())
+    };
+    let (sorted, warnings) = summary("YES");
+    assert_eq!(sorted, [3.0, 2.0, 3.0, 3.0]);
+    assert!(warnings.is_empty(), "{warnings:?}");
+    // in file order team 1 and team 2 each come in two runs
+    let (runs, warnings) = summary("NO");
+    assert_eq!(runs, [5.0, 1.0, 2.0, 2.0]);
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("WITHINSUBJECT is ignored"))
+    );
+}
+
+#[test]
+fn repeated_errors() {
+    let model = "GENLIN visits BY arm WITH time stress /MODEL arm time stress DISTRIBUTION=POISSON";
+    for (tail, message) in [
+        (
+            "/REPEATED SUBJECT=id WITHINSUBJECT=wave CORRTYPE=FIXED(0.5 0.5 0.5).",
+            "needs 6",
+        ),
+        (
+            "/REPEATED SUBJECT=id WITHINSUBJECT=wave CORRTYPE=FIXED(1 0 0 0 0 0).",
+            "not positive definite",
+        ),
+        (
+            "/REPEATED SUBJECT=arm WITHINSUBJECT=wave.",
+            "same WITHINSUBJECT values",
+        ),
+        ("/REPEATED SUBJECT=stress.", "cannot be a SUBJECT"),
+        (
+            "/REPEATED SUBJECT=id WITHINSUBJECT=visits.",
+            "cannot be a SUBJECT",
+        ),
+        (
+            "/CRITERIA ANALYSISTYPE=3(LR) /REPEATED SUBJECT=id.",
+            "generalized score tests",
+        ),
+    ] {
+        let e = run_error(&format!(
+            "{PANEL}{model} {tail}
+"
+        ));
+        assert!(e.contains(message), "{tail}: {e}");
+    }
+    let e = run_error(&format!(
+        "{PANEL}GENLIN visits BY arm /MODEL arm DISTRIBUTION=MULTINOMIAL /REPEATED SUBJECT=id.
+"
+    ));
+    assert!(e.contains("not supported yet"), "{e}");
+    let e = run_error(&format!(
+        "{PANEL}COMPUTE w = 1 + (wave = 2).
+WEIGHT BY w.
+{model} /REPEATED SUBJECT=id.
+"
+    ));
+    assert!(e.contains("same for every case of a subject"), "{e}");
 }

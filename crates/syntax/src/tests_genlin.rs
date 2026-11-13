@@ -291,7 +291,10 @@ fn repeated_defaults_and_every_keyword() {
         ("EXCHANGEABLE", GenlinCorrelation::Exchangeable),
         ("UNSTRUCTURED", GenlinCorrelation::Unstructured),
         ("MDEPENDENT(2)", GenlinCorrelation::MDependent(2)),
-        ("FIXED(0.5, 0.2 0.4)", GenlinCorrelation::Fixed(vec![0.5, 0.2, 0.4])),
+        (
+            "FIXED(0.5, 0.2 0.4)",
+            GenlinCorrelation::Fixed(vec![0.5, 0.2, 0.4]),
+        ),
     ] {
         let g = genlin(&format!("GENLIN y /REPEATED SUBJECT=id CORRTYPE={text}."));
         assert_eq!(g.repeated.expect("repeated").correlation, expected);
@@ -304,9 +307,13 @@ fn repeated_rules() {
     assert!(err("GENLIN y /REPEATED SUBJECT=id*id.").contains("twice"));
     assert!(err("GENLIN y /REPEATED SUBJECT=id WITHINSUBJECT=ID.").contains("both"));
     assert!(err("GENLIN y /REPEATED SUBJECT=id PCONVERGE=0.").contains("HCONVERGE and PCONVERGE"));
-    assert!(err("GENLIN y /REPEATED SUBJECT=id MAXITERATIONS=3 UPDATECORR=4.").contains("UPDATECORR"));
+    assert!(
+        err("GENLIN y /REPEATED SUBJECT=id MAXITERATIONS=3 UPDATECORR=4.").contains("UPDATECORR")
+    );
     assert!(err("GENLIN y /REPEATED SUBJECT=id CORRTYPE=AR(2).").contains("AR(1)"));
-    assert!(err("GENLIN y /REPEATED SUBJECT=id CORRTYPE=FIXED(0.5 1.2 0.3).").contains("from 0 to 1"));
+    assert!(
+        err("GENLIN y /REPEATED SUBJECT=id CORRTYPE=FIXED(0.5 1.2 0.3).").contains("from 0 to 1")
+    );
     assert!(err("GENLIN y /REPEATED SUBJECT=id CORRTYPE=MDEPENDENT(-1).").contains("0 or more"));
     assert!(err("GENLIN y /REPEATED SUBJECT=id CORR=AR(1).").contains("unexpected word CORR"));
     assert!(err("GENLIN y /REPEATED SUBJECT=id SORT=YES SORT=NO.").contains("only once"));

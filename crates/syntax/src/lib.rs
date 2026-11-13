@@ -147,11 +147,10 @@ pub use factor::{
     FactorPrint, FactorSave, MatrixKind, QuickCluster, Rotation, ScoreMethod,
 };
 pub use genlin::{
-    Genlin, GenlinAdjust, GenlinContrast, GenlinCriteria, GenlinDistribution, GenlinEmmeans,
-    GenlinLink, GenlinMethod, GenlinOffset, GenlinOrder, GenlinPrint, GenlinReference,
-    GenlinCorrelation, GenlinRepeated, GenlinResponse, GenlinSave, GenlinSaveKind, GenlinScale,
-    GenlinTolerance, GenlinTrials,
-    default_link, distribution_keyword, link_allowed, link_keyword,
+    Genlin, GenlinAdjust, GenlinContrast, GenlinCorrelation, GenlinCriteria, GenlinDistribution,
+    GenlinEmmeans, GenlinLink, GenlinMethod, GenlinOffset, GenlinOrder, GenlinPrint,
+    GenlinReference, GenlinRepeated, GenlinResponse, GenlinSave, GenlinSaveKind, GenlinScale,
+    GenlinTolerance, GenlinTrials, default_link, distribution_keyword, link_allowed, link_keyword,
 };
 pub use glm::{
     Adjustment, Contrast, CustomTest, Emmeans, ErrorBar, Glm, GlmPlot, GlmPrint, GlmTemp, LMatrix,
