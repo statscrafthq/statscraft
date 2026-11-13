@@ -3067,7 +3067,7 @@ impl Engine {
             ));
             notes.push(match scale {
                 ScaleMode::Mle if gee => {
-                    "(Scale) is computed from the Pearson residuals of the estimating equations."
+                    "(Scale) is computed from the Pearson residuals of the estimating equations; it stays at the plain model's estimate when no iteration ran."
                         .into()
                 }
                 ScaleMode::Deviance | ScaleMode::Pearson if gee => format!(

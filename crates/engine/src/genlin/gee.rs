@@ -245,7 +245,7 @@ fn estimate(
                 return Err(format!(
                     "GENLIN: REPEATED: CORRTYPE=FIXED gives {} correlations; the working correlation matrix has dimension {t}, so it needs {}",
                     list.len(),
-                    t * t.saturating_sub(1) / 2
+                    t * (t - 1) / 2
                 ));
             }
             // the lower triangle row by row
