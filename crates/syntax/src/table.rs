@@ -4,6 +4,7 @@ use crate::anova;
 use crate::ast::Command;
 use crate::cluster;
 use crate::commands;
+use crate::complex_samples;
 use crate::ctables;
 use crate::data_commands;
 use crate::data_list;
@@ -1762,6 +1763,85 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  diagonal; MODELQUALITY adds a bar chart of the lower bounds of the intervals.",
         example: "ROC risk_score lab_index BY relapsed (1) /PLOT=CURVE(REFERENCE) /PRINT=SE COORDINATES.",
         parse: pplot::roc,
+    },
+    CommandSpec {
+        name: "CSPLAN",
+        summary: "Write or show an analysis plan of a complex sample: strata, clusters, weight and estimator per stage.",
+        syntax: "CSPLAN ANALYSIS /PLAN FILE='file' /PLANVARS ANALYSISWEIGHT=var [/SRSESTIMATOR TYPE=WOR | WR]\n\
+                 \x20  [/PRINT [PLAN] [MATRIX]]\n\
+                 \x20  /DESIGN [STAGELABEL='label'] [STRATA=vars] [CLUSTER=vars]\n\
+                 \x20  /ESTIMATOR TYPE=EQUAL_WOR | UNEQUAL_WOR | WR\n\
+                 \x20  [/POPSIZE VALUE=n | VARIABLE=var | MATRIX=vars; categories n; ...]\n\
+                 \x20  [/INCLPROB VALUE=p | VARIABLE=var | MATRIX=vars; categories p; ...]\n\
+                 \x20  [/DESIGN ... /ESTIMATOR ... (a second and a third stage)].\n\
+                 CSPLAN VIEW /PLAN FILE='file' [/PRINT [PLAN] [MATRIX]].\n\
+                 The plan is a small JSON file that CSDESCRIPTIVES and CSTABULATE read; CSPLAN does not read\n\
+                 the data. Each DESIGN starts a stage; the ESTIMATOR, POPSIZE and INCLPROB after it belong\n\
+                 to that stage. WR treats the units of the stage as drawn with replacement and ends the\n\
+                 design: later stages add nothing to the variance. EQUAL_WOR treats them as drawn without\n\
+                 replacement with equal chances and needs either the population size of each stratum\n\
+                 (POPSIZE, whole numbers) or the share of units drawn (INCLPROB, above 0 and at most 1), as\n\
+                 one value, a variable that holds it, or a matrix with one row per stratum; it brings the\n\
+                 finite population correction. A stage followed by another needs CLUSTER. SRSESTIMATOR picks\n\
+                 the simple random sampling variance that design effects compare with: WOR (the default)\n\
+                 includes the finite population correction, WR does not. PRINT PLAN (the default) shows the\n\
+                 plan, MATRIX the matrix rows. Not supported yet: CSPLAN SAMPLE and the UNEQUAL_WOR\n\
+                 estimator in analysis.",
+        example: "CSPLAN ANALYSIS /PLAN FILE='farms_plan.json' /PLANVARS ANALYSISWEIGHT=wt /DESIGN STRATA=county CLUSTER=parish /ESTIMATOR TYPE=WR.",
+        parse: complex_samples::csplan,
+    },
+    CommandSpec {
+        name: "CSDESCRIPTIVES",
+        summary: "Means, sums and ratios of a complex sample with design-based standard errors and design effects.",
+        syntax: "CSDESCRIPTIVES /PLAN FILE='file' [/SUMMARY VARIABLES=vars]\n\
+                 \x20  [/MEAN [TTEST=value | values]] [/SUM [TTEST=value | values]]\n\
+                 \x20  [/RATIO NUMERATOR=vars DENOMINATOR=vars [TTEST=value | values]] ...\n\
+                 \x20  [/STATISTICS [COUNT] [POPSIZE] [SE] [CV] [DEFF] [DEFFSQRT] [CIN[(95)]]]\n\
+                 \x20  [/SUBPOP TABLE=var [BY var ...] [DISPLAY=LAYERED | SEPARATE]]\n\
+                 \x20  [/MISSING [SCOPE=ANALYSIS | LISTWISE] [CLASSMISSING=EXCLUDE | INCLUDE]].\n\
+                 The design comes from a plan written by CSPLAN; WEIGHT and SPLIT FILE do not apply. A case\n\
+                 with a missing weight, stratum, cluster, population size or inclusion probability leaves\n\
+                 the design. Totals are weighted sums; a mean is the total over the summed weights and a\n\
+                 ratio is one total over another, and their variances come from Taylor linearization. The\n\
+                 variance adds, stratum by stratum, the spread of the cluster totals, times the finite\n\
+                 population correction under EQUAL_WOR, plus the variance of later stages. A stratum with\n\
+                 one cluster adds nothing. Intervals and t tests use t with the number of first-stage\n\
+                 clusters minus the number of first-stage strata as df. The design effect divides the\n\
+                 variance by the one simple random sampling would give (see CSPLAN SRSESTIMATOR). Each\n\
+                 RATIO crosses its numerators with its denominators. Subpopulations are domains: their\n\
+                 estimates use the whole design, with cases outside counting as zero. Under SCOPE=ANALYSIS\n\
+                 each statistic uses the cases valid on its own variables, under LISTWISE those valid on\n\
+                 all of them; the others count as outside, so the design stays whole. Without STATISTICS:\n\
+                 the estimate and its standard error. Not supported yet: JOINTPROB.",
+        example: "CSDESCRIPTIVES /PLAN FILE='farms_plan.json' /SUMMARY VARIABLES=yield acres /MEAN /RATIO NUMERATOR=yield DENOMINATOR=acres /STATISTICS SE CIN DEFF /SUBPOP TABLE=organic.",
+        parse: complex_samples::csdescriptives,
+    },
+    CommandSpec {
+        name: "CSTABULATE",
+        summary: "One-way and two-way tables of a complex sample with design-based errors and adjusted tests.",
+        syntax: "CSTABULATE /PLAN FILE='file' /TABLES VARIABLES=vars [BY var]\n\
+                 \x20  [/CELLS [POPSIZE] [ROWPCT] [COLPCT] [TABLEPCT]]\n\
+                 \x20  [/STATISTICS [SE] [CV] [DEFF] [DEFFSQRT] [CIN[(95)]] [COUNT] [CUMULATIVE]\n\
+                 \x20              [EXPECTED] [RESID] [ASRESID]]\n\
+                 \x20  [/TEST [HOMOGENEITY] [INDEPENDENCE] [ODDSRATIO] [RELRISK] [RISKDIFF]]\n\
+                 \x20  [/SUBPOP TABLE=var [BY var ...] [DISPLAY=LAYERED | SEPARATE]]\n\
+                 \x20  [/MISSING [SCOPE=TABLE | LISTWISE] [CLASSMISSING=EXCLUDE | INCLUDE]].\n\
+                 Each variable gets a one-way table, or with BY a two-way table against the BY variable, with\n\
+                 estimated population sizes and percents for every cell and margin. The design comes from a\n\
+                 CSPLAN plan, as in CSDESCRIPTIVES, and so do the standard errors, df and design effects.\n\
+                 Percents are ratios of population sizes; their intervals are found on the logit scale.\n\
+                 CUMULATIVE (one-way) adds running sums. EXPECTED, RESID and ASRESID (two-way, with\n\
+                 TABLEPCT) show the table percent expected under independence, the difference from it and\n\
+                 that difference over its design-based standard error. HOMOGENEITY tests equal shares of a\n\
+                 one-way table, INDEPENDENCE the rows against the columns: the Pearson and likelihood ratio\n\
+                 chi-squares are divided by the sum of the generalized design effects and referred to F\n\
+                 with d and d times the design df, d being the squared sum over the sum of squares of those\n\
+                 effects (a second-order adjustment). ODDSRATIO, RELRISK and RISKDIFF give the 2 x 2\n\
+                 measures with intervals (log scale for the first two). Tests are for the whole population,\n\
+                 and also for each subpopulation when SUBPOP names only first-stage strata. Without CELLS:\n\
+                 population sizes; without STATISTICS: standard errors. Not supported yet: JOINTPROB.",
+        example: "CSTABULATE /PLAN FILE='farms_plan.json' /TABLES VARIABLES=irrigated BY organic /CELLS POPSIZE ROWPCT /STATISTICS SE CIN DEFF /TEST INDEPENDENCE ODDSRATIO.",
+        parse: complex_samples::cstabulate,
     },
     CommandSpec {
         name: "REPORT",

@@ -18,6 +18,7 @@ mod anova;
 mod ast;
 mod cluster;
 mod commands;
+mod complex_samples;
 mod ctables;
 mod data_commands;
 mod data_list;
@@ -68,6 +69,8 @@ mod table;
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_complex_samples;
+#[cfg(test)]
 mod tests_ctables;
 #[cfg(test)]
 mod tests_data;
@@ -114,6 +117,10 @@ mod tree;
 pub use anova::{Anova, AnovaList, AnovaMethod, CovariateOrder};
 pub use ast::*;
 pub use cluster::{BinaryMeasure, Cluster, ClusterPlot, Linkage, Proximity};
+pub use complex_samples::{
+    CsCells, CsEstimator, CsRate, CsRatio, CsStage, CsStatistics, CsSubpop, CsTests,
+    Csdescriptives, Csplan, CsplanMode, Cstabulate,
+};
 pub use ctables::{
     Adjust, AxisExpr, AxisVariable, Categories, CategoryItem, CategoryOrder, CompareKind,
     CompareStyle, Comparetest, Ctables, CtablesTable, EmptyCells, Estimate, LabelsMoved,

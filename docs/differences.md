@@ -661,6 +661,21 @@ Where GNU PSPP differs:
 
 - Its interval uses the one-sided normal quantile (at 90 percent its interval is that of 80 percent) and its coordinates table misses some cutoffs; the area, the standard error and the significance agree.
 
+### Complex samples: CSPLAN, CSDESCRIPTIVES and CSTABULATE
+
+- **The plan file** is a small JSON file of Statscraft's own (`"format": "statscraft-analysis-plan"`), not the XML plan the documentation describes, which Statscraft neither reads nor writes. It keeps the analysis weight, the simple random sampling estimator and, per stage, the label, strata, clusters, estimator and population size or inclusion probability. People and agents can read and write it directly.
+- **R's survey package** was the reference for the numbers, as GNU PSPP has no complex samples procedures. Estimates, standard errors, intervals (with the design df, number of first-stage clusters minus first-stage strata, which R calls `degf`), the finite population correction of one and two stages, domain estimates and the Rao-Scott F test of independence agree. Where the manual defines a number differently, Statscraft follows the manual:
+  - **Design effects of subpopulations and of variables with missing values** compare with simple random sampling over every case in the design, with the whole sample's size and estimated population (the manual's formula); R compares with sampling inside the domain or the cases with valid values. Without missing values and subpopulations both agree.
+  - **The test of homogeneity** of a one-way table takes the multinomial covariance from the estimated proportions, as the manual says; R's `svygofchisq` takes it from the hypothesized equal proportions and gives a slightly different test.
+  - **The likelihood ratio tests** (independence and homogeneity) are adjusted with the same design effect matrix as the Pearson test; R's `svychisq` has no such test.
+  - Under SRSESTIMATOR WOR a design effect exists only when the sample is smaller than the estimated population, as the manual says; otherwise the cell is empty.
+- **Domains.** A subpopulation, and under MISSING SCOPE the cases without valid analysis values, keep the whole design: cases outside count as zero, strata and clusters stay as they are. So a stratum or cluster without a case of the domain still counts in the variance and the df.
+- **Missing design values.** A case with a missing weight, stratum, cluster, population size or inclusion probability leaves the design. A population size or inclusion probability given by a variable must be the same within a stratum, else the command stops; a population size below the number of units drawn stops it too. A stratum with a single unit adds nothing to the variance, as the manual says.
+- **Tests with SUBPOP.** CSTABULATE always tests the whole population, and also each subpopulation when the SUBPOP variables are all first-stage strata, as the manual describes; otherwise a warning says the tests are for the whole population only. The F tests use the design df of the whole sample also inside a subpopulation.
+- **Layout.** CSDESCRIPTIVES shows one Univariate Statistics table (means, then sums) and one Ratios table; a two-way table of CSTABULATE has a row per cell, row total, column total and grand total, with a column group per CELLS keyword. EXPECTED and RESID are table percents; ASRESID is the residual over its design-based standard error. Odds ratios, relative risks and risk differences show their standard errors and intervals in one table, with the interval at the CIN level (95 by default).
+- **Beyond the documentation:** keywords may be shortened as elsewhere in Statscraft, although the manual asks for them in full. The equals signs of the syntax charts are required.
+- Not supported yet: CSPLAN SAMPLE (sample designs and their METHOD, MOS, SIZE, RATE and STAGEVARS), the UNEQUAL_WOR estimator, which needs joint inclusion probabilities, and so JOINTPROB; reading XML plan files.
+
 ## Custom tables and multiple response
 
 ### CTABLES
@@ -829,6 +844,7 @@ Where the documentation is silent:
   - LOGISTIC REGRESSION has no SELECT or OUTFILE.
   - NOMREG has no stepwise methods, TEST, OUTFILE, or PRINT CELLPROB, HISTORY and ASSOCIATION.
   - PLUM has no TEST.
+  - CSPLAN has no SAMPLE designs; CSDESCRIPTIVES and CSTABULATE have no JOINTPROB and no UNEQUAL_WOR estimator.
   - UNIANOVA and GLM have no multivariate model (GLM with several dependents without WSFACTOR), RANDOM, TEST, ROBUST, OUTFILE, MMATRIX, MEASURE, POSTHOC VS, CONTRAST SPECIAL or the heteroskedasticity tests. With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX, SAVE or PLOT.
   - MIXED has no EMMEANS, TEST, SSTYPE(1), DFMETHOD(KENWARDROGER), SOLUTION on RANDOM, PRINT CORB, COVB, CPS, DESCRIPTIVES, G, HISTORY, LMATRIX or R, SAVE SEPRED or DFPRED, and no COVTYPE other than VC, ID, DIAG, UN, CS and AR1 (no KRONECKER or SPCOORDS).
   - FACTOR has no METHOD=COVARIANCE, MATRIX=OUT or MATRIX=IN(FAC=...).

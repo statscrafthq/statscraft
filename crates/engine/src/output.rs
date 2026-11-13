@@ -61,6 +61,8 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Anova(_)
         | Command::QuickCluster(_)
         | Command::Tree(_)
+        | Command::Csdescriptives(_)
+        | Command::Cstabulate(_)
         | Command::Graph(_)
         | Command::Pplot(_)
         | Command::Roc(_)
@@ -109,6 +111,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::BeginChart(_)
         | Command::Cache
         | Command::Display(_)
+        | Command::Csplan(_)
         | Command::Output(_)
         | Command::Finish
         | Command::ClearTransformations => Stage::Neutral,

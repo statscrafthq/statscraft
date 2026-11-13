@@ -6,6 +6,7 @@ mod autorecode;
 pub mod chart;
 mod chart_input;
 mod cluster;
+mod complex_samples;
 mod contrast;
 mod correlations;
 mod crosstabs;
@@ -666,6 +667,8 @@ impl Engine {
             | Command::Roc(_)
             | Command::Glm(_)
             | Command::Mixed(_)
+            | Command::Csdescriptives(_)
+            | Command::Cstabulate(_)
             | Command::Cluster(_)
             | Command::Discriminant(_)
             | Command::Anova(_)
@@ -732,6 +735,7 @@ impl Engine {
             Command::Else => self.next_branch(None)?,
             Command::EndIf => self.end_if()?,
             Command::Mrsets(subcommands) => return self.mrsets(subcommands),
+            Command::Csplan(command) => return self.csplan(command),
             Command::AddFiles(merge) => {
                 self.not_temporary("ADD FILES")?;
                 self.begin_pass()?;
@@ -895,6 +899,8 @@ impl Engine {
             Command::Roc(command) => self.roc(command),
             Command::Glm(command) => self.glm(command),
             Command::Mixed(command) => self.mixed_model(command),
+            Command::Csdescriptives(command) => self.csdescriptives(command),
+            Command::Cstabulate(command) => self.cstabulate(command),
             Command::Cluster(command) => self.cluster(command),
             Command::Discriminant(command) => self.discriminant(command),
             Command::Anova(command) => self.anova(command),

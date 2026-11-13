@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Complex samples: CSPLAN ANALYSIS writes an analysis plan (strata, clusters, weight and estimator for up to three stages, with population sizes or inclusion probabilities as values, variables or matrices) to a small JSON file, and CSPLAN VIEW shows one. CSDESCRIPTIVES estimates means, sums and ratios with design-based standard errors (Taylor linearization, with replacement or equal probability without replacement with the finite population correction), intervals and t tests on the design df, design effects, coefficients of variation, counts and population sizes, for subpopulations as domains of the whole design. CSTABULATE gives one-way and two-way tables of population sizes and row, column and table percents with standard errors, logit intervals and design effects, cumulative values, expected values and adjusted residuals, the Rao-Scott adjusted Pearson and likelihood ratio tests of homogeneity and independence, and odds ratios, relative risks and risk differences of 2 x 2 tables. Checked against R's survey package. Not supported yet: CSPLAN SAMPLE and the UNEQUAL_WOR estimator. See [CSPLAN](docs/commands/csplan.md), [CSDESCRIPTIVES](docs/commands/csdescriptives.md) and [CSTABULATE](docs/commands/cstabulate.md).
+
 ## 0.10.0 (2026-11-13)
 
 - GRAPH: overlay scatterplots (several pairs in one frame, every combination or PAIR), scatterplot matrices (one chart with a cell per pair, with a control variable and point labels) and scatterplots with three axes, which show as the table of their points. INTERVAL adds error bars to bar and line charts of means (CI, SE, STDDEV) and medians (CI, interpolated between order statistics, so the bar may reach further on one side; `lower` in the chart's JSON). See [GRAPH](docs/commands/graph.md).

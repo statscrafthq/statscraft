@@ -144,6 +144,14 @@ One page per supported command, generated from the same table that the parser an
 | [CTABLES](ctables.md) | Custom tables: counts, percentages and statistics by categories. |
 | [MRSETS](mrsets.md) | Define, delete and list multiple response sets. |
 
+## Complex samples
+
+| Command | What it does |
+|---|---|
+| [CSPLAN](csplan.md) | Write or show an analysis plan of a complex sample: strata, clusters, weight and estimator per stage. |
+| [CSDESCRIPTIVES](csdescriptives.md) | Means, sums and ratios of a complex sample with design-based standard errors and design effects. |
+| [CSTABULATE](cstabulate.md) | One-way and two-way tables of a complex sample with design-based errors and adjusted tests. |
+
 ## Macros, files and session
 
 | Command | What it does |

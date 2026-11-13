@@ -221,8 +221,14 @@ impl Engine {
     pub(crate) fn procedure(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
         self.begin_pass()?;
         let before = self.dataset.clone();
-        // TREE ignores SPLIT FILE, as the manual says
-        let use_split = !matches!(command, Command::Aggregate(_) | Command::Tree(_));
+        // TREE and the complex samples procedures ignore SPLIT FILE, as the manual says
+        let use_split = !matches!(
+            command,
+            Command::Aggregate(_)
+                | Command::Tree(_)
+                | Command::Csdescriptives(_)
+                | Command::Cstabulate(_)
+        );
         let result = self.in_view(command, use_split);
         if let Command::Aggregate(aggregate) = command
             && aggregate.outfile.is_none()
