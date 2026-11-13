@@ -3,14 +3,14 @@
 //! Generalized Linear Models dialog.
 
 use crate::advanced_dialogs::{
-    Advanced, ContrastTest, LinearMixed, MIXED_COMPARISONS, MIXED_DF_METHODS, MIXED_HISTORY,
-    MIXED_PRINT, MIXED_SAVE, MeansTable, Multinomial, NOMREG_BASES, NOMREG_MODELS, NOMREG_PRINT,
+    Advanced, ContrastTest, LinearMixed, MIXED_COMPARISONS, MIXED_DF_METHODS, MIXED_PRINT,
+    MIXED_SAVE, MeansTable, Multinomial, NOMREG_BASES, NOMREG_MODELS, NOMREG_PRINT,
     NOMREG_STEP_METHODS, NOMREG_STEP_RULES, Ordinal, PLUM_LINKS, PLUM_PRINT, PROBABILITY_SAVE,
     RANDOM_COVARIANCES, REPEATED_COVARIANCES, SAMPLE_RESIDUALS, SAMPLE_STATISTICS, SAMPLE_TESTS,
     STAGE_ESTIMATORS, STAGE_RATES, SampleDescriptives, SampleOptions, SamplePlan, SampleTables,
     Stage, Terms,
 };
-use crate::advanced_dialogs::{forget_old_covariates, forget_old_factors};
+use crate::advanced_dialogs::{forget_old_covariates, forget_old_factors, mixed_print};
 use crate::app::{checkboxes, choice, field, file_dialog, target_list, target_one};
 use crate::model_dialogs::GLM_ADJUSTMENTS;
 use crate::model_dialogs_view::name_checkboxes;
@@ -385,7 +385,7 @@ fn mixed(ui: &mut Ui, d: &mut LinearMixed, picked: &mut Vec<String>) {
         checkboxes(ui, &MIXED_PRINT, &mut d.print);
         ui.horizontal(|ui| {
             ui.label("Iteration history: every n-th iteration, n =");
-            small_field(ui, d.print[MIXED_HISTORY], &mut d.history);
+            small_field(ui, d.print[mixed_print("HISTORY")], &mut d.history);
         });
     });
     egui::CollapsingHeader::new("EM means").show(ui, |ui| {
@@ -400,7 +400,9 @@ fn mixed(ui: &mut Ui, d: &mut LinearMixed, picked: &mut Vec<String>) {
         );
     });
     egui::CollapsingHeader::new("Tests").show(ui, |ui| {
-        ui.weak("After | a row may go on with coefficients of random effects");
+        if d.random {
+            ui.weak("After | a row may go on with coefficients of random effects");
+        }
         tests_editor(ui, &mut d.tests);
     });
     egui::CollapsingHeader::new("Save").show(ui, |ui| {

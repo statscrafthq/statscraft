@@ -229,13 +229,13 @@ pub struct ContrastTest {
 impl ContrastTest {
     /// `/TEST='label' row; row`, every effect checked against `terms`, the effects of the
     /// model. ALL is taken too, and INTERCEPT when the model has one (`intercept`). With
-    /// `random` (the random terms and whether the random intercept is in), a row may go on
-    /// after `|` with coefficients of random effects, checked the same way.
+    /// `random` Ok (the random terms and whether the random intercept is in), a row may go on
+    /// after `|` with coefficients of random effects, checked the same way; Err says why not.
     pub(crate) fn syntax(
         &self,
         terms: &[Vec<String>],
         intercept: bool,
-        random: Option<(&[Vec<String>], bool)>,
+        random: Result<(&[Vec<String>], bool), &str>,
         n: usize,
     ) -> Result<String, String> {
         let mut rows = Vec::new();
@@ -251,11 +251,8 @@ impl ContrastTest {
                     || terms.iter().any(|term| same_term(term, t))
             })?;
             if let Some(after) = after {
-                let Some((random_terms, random_intercept)) = random else {
-                    return Err(format!(
-                        "test {n}: coefficients after | are for random effects, and the model has none"
-                    ));
-                };
+                let (random_terms, random_intercept) =
+                    random.map_err(|why| format!("test {n}: | is for random effects, {why}"))?;
                 // values straight after `|` are for every random parameter, as after ALL
                 let part = row_part(after, n, true, "a random effect", &|t| {
                     (random_intercept && t.eq_ignore_ascii_case("INTERCEPT"))
@@ -578,7 +575,12 @@ impl Ordinal {
         terms.extend(scale.iter().cloned());
         for (i, test) in self.tests.iter().enumerate() {
             // the thresholds are always there
-            text.push_str(&test.syntax(&terms, true, None, i + 1)?);
+            text.push_str(&test.syntax(
+                &terms,
+                true,
+                Err("which ordinal regression has none of"),
+                i + 1,
+            )?);
         }
         text.push('.');
         Ok(text)
@@ -861,17 +863,20 @@ impl Multinomial {
 
 /// The covariance structures MIXED takes on both RANDOM and REPEATED, after the first few.
 const MORE_COVARIANCES: [(&str, &str); 11] = [
-    ("AD1", "Ante-dependence, first order"),
-    ("ARH1", "Heterogeneous first-order autoregressive"),
-    ("ARMA11", "Autoregressive moving average (1,1)"),
-    ("CSH", "Heterogeneous compound symmetry"),
-    ("CSR", "Compound symmetry, correlation form"),
-    ("FA1", "Factor-analytic, first order"),
-    ("FAH1", "Factor-analytic, first order, heterogeneous"),
-    ("HF", "Huynh-Feldt"),
-    ("TP", "Toeplitz"),
-    ("TPH", "Heterogeneous Toeplitz"),
-    ("UNR", "Unstructured, correlation form"),
+    ("AD1", "Ante-dependence, first order (AD1)"),
+    ("ARH1", "Heterogeneous first-order autoregressive (ARH1)"),
+    (
+        "ARMA11",
+        "First-order autoregressive moving average (ARMA11)",
+    ),
+    ("CSH", "Heterogeneous compound symmetry (CSH)"),
+    ("CSR", "Compound symmetry, correlation form (CSR)"),
+    ("FA1", "Factor-analytic, first order (FA1)"),
+    ("FAH1", "Factor-analytic, first order, heterogeneous (FAH1)"),
+    ("HF", "Huynh-Feldt (HF)"),
+    ("TP", "Toeplitz (TP)"),
+    ("TPH", "Heterogeneous Toeplitz (TPH)"),
+    ("UNR", "Unstructured, correlation form (UNR)"),
 ];
 
 /// `first` followed by `MORE_COVARIANCES`.
@@ -894,22 +899,22 @@ const fn with_more<const N: usize, const M: usize>(
 
 /// The covariance structures of random effects, keyword and label; the first is the default.
 pub const RANDOM_COVARIANCES: [(&str, &str); 17] = with_more([
-    ("VC", "Variance components"),
-    ("ID", "Scaled identity"),
-    ("DIAG", "Diagonal"),
-    ("UN", "Unstructured"),
-    ("CS", "Compound symmetry"),
-    ("AR1", "First-order autoregressive"),
+    ("VC", "Variance components (VC)"),
+    ("ID", "Scaled identity (ID)"),
+    ("DIAG", "Diagonal (DIAG)"),
+    ("UN", "Unstructured (UN)"),
+    ("CS", "Compound symmetry (CS)"),
+    ("AR1", "First-order autoregressive (AR1)"),
 ]);
 
 /// The covariance structures of repeated measures; the first is the default. VC is left out:
 /// on REPEATED it is DIAG.
 pub const REPEATED_COVARIANCES: [(&str, &str); 16] = with_more([
-    ("DIAG", "Diagonal"),
-    ("ID", "Scaled identity"),
-    ("CS", "Compound symmetry"),
-    ("AR1", "First-order autoregressive"),
-    ("UN", "Unstructured"),
+    ("DIAG", "Diagonal (DIAG)"),
+    ("ID", "Scaled identity (ID)"),
+    ("CS", "Compound symmetry (CS)"),
+    ("AR1", "First-order autoregressive (AR1)"),
+    ("UN", "Unstructured (UN)"),
 ]);
 
 /// Keyword and label of every variable MIXED saves.
@@ -937,8 +942,13 @@ pub const MIXED_PRINT: [(&str, &str); 10] = [
     ("LMATRIX", "Coefficients of the tests (L matrix)"),
 ];
 
-/// The index of HISTORY in `MIXED_PRINT`.
-pub const MIXED_HISTORY: usize = 8;
+/// The place of a /PRINT keyword of MIXED in `MIXED_PRINT`.
+pub fn mixed_print(keyword: &str) -> usize {
+    MIXED_PRINT
+        .iter()
+        .position(|(k, _)| *k == keyword)
+        .unwrap_or_else(|| panic!("{keyword} is not in MIXED_PRINT"))
+}
 
 /// How MIXED finds the denominator degrees of freedom, DFMETHOD keyword and label.
 pub const MIXED_DF_METHODS: [(&str, &str); 3] = [
@@ -1114,19 +1124,8 @@ impl LinearMixed {
             if !subjects.is_empty() {
                 options.push(format!("SUBJECT({})", subjects.join("*")));
             }
-            let covariance = RANDOM_COVARIANCES[self.random_covariance].0;
-            // over two random parameters these structures have one parameter too many
-            // shortcut: counted only without factors among the random terms, whose levels the
-            // dialog does not know; the command says it then
-            let parameters = usize::from(self.random_intercept) + self.random_terms.terms.len();
-            let factor =
-                (self.random_terms.terms.iter().flatten()).any(|n| self.factors.contains(n));
-            if matches!(covariance, "ARMA11" | "FAH1") && !factor && parameters == 2 {
-                return Err(format!(
-                    "the random covariance type {covariance} needs at least 3 random parameters: add a term or choose another type"
-                ));
-            }
             if self.random_covariance > 0 {
+                let covariance = RANDOM_COVARIANCES[self.random_covariance].0;
                 options.push(format!("COVTYPE({covariance})"));
             }
             if self.random_solution {
@@ -1174,10 +1173,10 @@ impl LinearMixed {
         if !criteria.is_empty() {
             text.push_str(&format!("\n  /CRITERIA={}", criteria.join(" ")));
         }
-        if self.print[2] && !self.random {
+        if self.print[mixed_print("G")] && !self.random {
             return Err("the covariance of the random effects needs random effects".into());
         }
-        if self.print[3] && self.repeated.is_empty() {
+        if self.print[mixed_print("R")] && self.repeated.is_empty() {
             return Err("the covariance of the residuals needs repeated variables".into());
         }
         let mut print: Vec<String> = keywords(&MIXED_PRINT, &self.print)
@@ -1235,9 +1234,10 @@ impl LinearMixed {
             true => self.fixed.terms.clone(),
             false => main_effects(&model),
         };
-        let random = self
-            .random
-            .then_some((self.random_terms.terms.as_slice(), self.random_intercept));
+        let random = match self.random {
+            true => Ok((self.random_terms.terms.as_slice(), self.random_intercept)),
+            false => Err("and the model has none"),
+        };
         for (i, test) in self.tests.iter().enumerate() {
             text.push_str(&test.syntax(&terms, self.intercept, random, i + 1)?);
         }
@@ -1973,7 +1973,7 @@ mod tests {
         assert!(run_in(&mut session, &syntax) >= 5);
         let data = session.dataset().unwrap();
         assert!(data.variable("FXPRED_1").is_ok());
-        d.print[3] = true;
+        d.print[mixed_print("R")] = true;
         assert_eq!(
             d.syntax().unwrap_err(),
             "the covariance of the residuals needs repeated variables"
@@ -2098,7 +2098,7 @@ mod tests {
             "the step of the iteration history must be a whole number of at least 1"
         );
         // the count is checked only when the history is shown
-        d.print[MIXED_HISTORY] = false;
+        d.print[mixed_print("HISTORY")] = false;
         assert!(d.syntax().is_ok());
 
         // a random effect of a test is one of the random terms or the random intercept
@@ -2122,23 +2122,8 @@ mod tests {
         d.subjects.clear();
         assert_eq!(
             d.syntax().unwrap_err(),
-            "test 1: coefficients after | are for random effects, and the model has none"
+            "test 1: | is for random effects, and the model has none"
         );
-
-        // over two random parameters ARMA11 and FAH1 cannot be fitted
-        d.tests.clear();
-        d.random = true;
-        d.random_intercept = true;
-        d.random_subjects.clear();
-        d.random_solution = false;
-        d.random_covariance = 8;
-        assert_eq!(
-            d.syntax().unwrap_err(),
-            "the random covariance type ARMA11 needs at least 3 random parameters: add a term or choose another type"
-        );
-        // with a factor the dialog does not count, the command does
-        d.random_terms = terms(&[&["gender"]]);
-        assert!(d.syntax().is_ok());
     }
 
     #[test]
@@ -2155,12 +2140,13 @@ mod tests {
         };
         for (i, (keyword, _)) in RANDOM_COVARIANCES.iter().enumerate() {
             d.random_covariance = i;
-            match d.syntax() {
-                Ok(syntax) => {
-                    assert!(i == 0 || syntax.contains(&format!("COVTYPE({keyword})")));
-                    run_in(&mut waves(), &syntax);
-                }
-                Err(e) => assert!(matches!(*keyword, "ARMA11" | "FAH1"), "{keyword}: {e}"),
+            let syntax = d.syntax().unwrap();
+            assert!(i == 0 || syntax.contains(&format!("COVTYPE({keyword})")));
+            // over two random parameters these have one parameter too many: the command says so
+            if matches!(*keyword, "ARMA11" | "FAH1") {
+                assert!(waves().run(&syntax, None).is_err(), "{keyword}");
+            } else {
+                assert!(run_in(&mut waves(), &syntax) >= 4, "{keyword}");
             }
         }
         d.random = false;
@@ -2672,6 +2658,11 @@ mod tests {
             d.syntax().unwrap_err(),
             "test 1: age is in both the location and the scale part, so give its coefficients with ALL"
         );
+        d.tests[0].rows = "gender 1 -1 0 | INTERCEPT 1".into();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "test 1: | is for random effects, which ordinal regression has none of"
+        );
     }
 
     #[test]
@@ -2843,7 +2834,8 @@ mod tests {
         };
         let terms = vec![v(&["gender"]), v(&["age"])];
         assert_eq!(
-            t.syntax(&terms, true, None, 1).unwrap(),
+            t.syntax(&terms, true, Err("which ordinal regression has none of"), 1)
+                .unwrap(),
             "\n  /TEST=gender 1 -1 0; age 0.5 2/4"
         );
     }
