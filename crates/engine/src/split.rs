@@ -231,6 +231,10 @@ impl Engine {
                 | Command::CsModel(_)
         );
         let result = self.in_view(command, use_split);
+        if matches!(command, Command::Coxreg(_)) {
+            // the procedure that runs a time program ends it
+            self.time_program = None;
+        }
         if let Command::Aggregate(aggregate) = command
             && aggregate.outfile.is_none()
             && !aggregate.add_variables

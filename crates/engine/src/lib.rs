@@ -10,6 +10,7 @@ mod complex_samples;
 mod contrast;
 mod correlations;
 mod correspondence;
+mod coxreg;
 mod crosstabs;
 mod ctables;
 mod data_list;
@@ -44,6 +45,7 @@ mod matrix_lang;
 mod means;
 mod merge;
 mod mixed;
+mod model_terms;
 mod mrsets;
 mod mult_response;
 mod nomreg;
@@ -334,6 +336,8 @@ pub struct Engine {
     collecting: Option<loops::Collecting>,
     /// How many loops are running.
     loop_depth: usize,
+    /// TIME PROGRAM: the transformations that define time-dependent covariates for COXREG.
+    time_program: Option<coxreg::TimeProgram>,
     /// The vectors by lower-case name, with their variables.
     vectors: std::collections::HashMap<String, Vec<String>>,
     /// The folder of the syntax file: INSERT and CD start from it. None: the current folder.
@@ -447,6 +451,31 @@ pub(crate) fn expand_in(data: &Dataset, items: &[VarItem]) -> Result<Vec<String>
     Ok(names)
 }
 
+/// The commands that run case by case on the data as they come.
+fn is_transformation(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::Compute { .. }
+            | Command::If { .. }
+            | Command::SelectIf(_)
+            | Command::Recode(_)
+            | Command::Count(_)
+            | Command::String(_)
+            | Command::Numeric(_)
+            | Command::DoIf(_)
+            | Command::ElseIf(_)
+            | Command::Else
+            | Command::EndIf
+            | Command::Break
+            | Command::Vector(_)
+            | Command::VectorAssign { .. }
+            | Command::DoRepeat(_)
+            | Command::Print(_)
+            | Command::PrintSpace(_)
+            | Command::Xsave(_)
+    )
+}
+
 impl Engine {
     pub fn execute(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
         self.warnings.clear();
@@ -485,28 +514,16 @@ impl Engine {
             self.leave(items)?;
             return Ok(std::mem::take(&mut self.flushed));
         }
+        // the transformations after TIME PROGRAM wait for COXREG
+        if let Some(program) = self.time_program.as_mut().filter(|p| p.collecting) {
+            if is_transformation(command) {
+                program.commands.push(command.clone());
+                return Ok(Vec::new());
+            }
+            program.collecting = false;
+        }
         if self.row.is_none() && self.loop_depth == 0 {
-            let transformation = matches!(
-                command,
-                Command::Compute { .. }
-                    | Command::If { .. }
-                    | Command::SelectIf(_)
-                    | Command::Recode(_)
-                    | Command::Count(_)
-                    | Command::String(_)
-                    | Command::Numeric(_)
-                    | Command::DoIf(_)
-                    | Command::ElseIf(_)
-                    | Command::Else
-                    | Command::EndIf
-                    | Command::Break
-                    | Command::Vector(_)
-                    | Command::VectorAssign { .. }
-                    | Command::DoRepeat(_)
-                    | Command::Print(_)
-                    | Command::PrintSpace(_)
-                    | Command::Xsave(_)
-            );
+            let transformation = is_transformation(command);
             if self.pending.is_none() && transformation && self.needs_rows(command)? {
                 self.pending = Some(Vec::new());
                 self.pending_depth = self.blocks.len();
@@ -666,6 +683,7 @@ impl Engine {
             | Command::Factor(_)
             | Command::QuickCluster(_)
             | Command::Logistic(_)
+            | Command::Coxreg(_)
             | Command::Nomreg(_)
             | Command::Plum(_)
             | Command::Correspondence(_)
@@ -685,6 +703,13 @@ impl Engine {
             | Command::Report(_)
             | Command::Rank(_)
             | Command::Aggregate(_) => return self.procedure(command),
+            Command::TimeProgram => {
+                self.time_program = Some(coxreg::TimeProgram {
+                    collecting: true,
+                    commands: Vec::new(),
+                });
+            }
+            Command::ClearTimeProgram => self.time_program = None,
             Command::Execute => {
                 self.begin_pass()?;
                 let before = self.dataset.clone();
@@ -901,6 +926,7 @@ impl Engine {
             Command::Factor(command) => self.factor(command),
             Command::QuickCluster(command) => self.quick_cluster(command),
             Command::Logistic(command) => self.logistic(command),
+            Command::Coxreg(command) => self.coxreg(command),
             Command::Nomreg(command) => self.nomreg(command),
             Command::Plum(command) => self.plum(command),
             Command::Correspondence(command) => self.correspondence(command),

@@ -136,7 +136,7 @@ pub struct Logistic {
 }
 
 /// Terms separated by commas or blanks, each `a` or `a BY b ...`, up to a slash or the end.
-fn terms(p: &mut Parser) -> PResult<Vec<Vec<String>>> {
+pub(crate) fn terms(p: &mut Parser) -> PResult<Vec<Vec<String>>> {
     let mut out = Vec::new();
     while matches!(p.peek(), Some(TokenKind::Word(_))) {
         let mut term = vec![p.name("a variable name")?];
@@ -149,7 +149,7 @@ fn terms(p: &mut Parser) -> PResult<Vec<Vec<String>>> {
     Ok(out)
 }
 
-fn value(p: &mut Parser, what: &str) -> PResult<f64> {
+pub(crate) fn value(p: &mut Parser, what: &str) -> PResult<f64> {
     p.expect(Punct::LParen)?;
     let Some(n) = p.number() else {
         return Err(p.unexpected(&[what]));
@@ -158,7 +158,7 @@ fn value(p: &mut Parser, what: &str) -> PResult<f64> {
     Ok(n)
 }
 
-fn checked(p: &Parser, start: usize, value: f64, ok: bool, what: &str) -> PResult<f64> {
+pub(crate) fn checked(p: &Parser, start: usize, value: f64, ok: bool, what: &str) -> PResult<f64> {
     if ok {
         Ok(value)
     } else {
@@ -169,7 +169,7 @@ fn checked(p: &Parser, start: usize, value: f64, ok: bool, what: &str) -> PResul
     }
 }
 
-fn method(p: &mut Parser) -> PResult<LogisticMethod> {
+pub(crate) fn method(p: &mut Parser) -> PResult<LogisticMethod> {
     let kind = if p.eat_keyword("ENTER") {
         LogisticMethodKind::Enter
     } else {

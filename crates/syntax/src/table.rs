@@ -6,6 +6,7 @@ use crate::cluster;
 use crate::commands;
 use crate::complex_samples;
 use crate::correspondence;
+use crate::coxreg;
 use crate::ctables;
 use crate::data_commands;
 use crate::data_list;
@@ -1439,6 +1440,38 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  OUTFILE, cross-validated rows in the casewise listing.",
         example: "DISCRIMINANT GROUPS=segment(1,3) /VARIABLES=q1 TO q6 /METHOD=WILKS /PRIORS=SIZE /STATISTICS=MEAN STDDEV UNIVF BOXM TABLE /SAVE=CLASS SCORES PROBS.",
         parse: discriminant::discriminant,
+    },
+    CommandSpec {
+        name: "COXREG",
+        summary: "Cox proportional hazards regression of survival times, with strata, categorical covariates, stepwise selection and time-dependent covariates.",
+        syntax: "COXREG [VARIABLES=] time [WITH var | var BY var ...]\n\
+                 \x20  /STATUS=var [EVENT] (values) [LOST (values)] [/STRATA=var]\n\
+                 \x20  [/CATEGORICAL=varlist] [/CONTRAST(var)=DEVIATION[(ref)] | SIMPLE[(ref)] | DIFFERENCE |\n\
+                 \x20  HELMERT | REPEATED | POLYNOMIAL[(metric)] | SPECIAL(matrix) | INDICATOR[(ref)]]\n\
+                 \x20  [/METHOD=ENTER | FSTEP[(COND | LR | WALD)] | BSTEP[(COND | LR | WALD)] [ALL | terms]] ...\n\
+                 \x20  [/MISSING=EXCLUDE | INCLUDE] [/PRINT=[DEFAULT] [SUMMARY] [BASELINE] [CORR] [CI[(95)]] [ALL]]\n\
+                 \x20  [/CRITERIA=[BCON(1E-4)] [LCON(1E-5)] [ITERATE(20)] [PIN(0.05)] [POUT(0.1)]]\n\
+                 \x20  [/PLOT=[NONE] [SURVIVAL] [HAZARD] [LML] [OMS]] [/PATTERN=var(value) ... [BY var]] ...\n\
+                 \x20  [/SAVE=tempvar[(name)] ...] [/EXTERNAL].\n\
+                 TODO",
+        example: "COXREG months WITH plan spend /STATUS=ended(1) /STRATA=site /CATEGORICAL=plan /PRINT=CI(95) BASELINE /PLOT=SURVIVAL.",
+        parse: coxreg::coxreg,
+    },
+    CommandSpec {
+        name: "TIME PROGRAM",
+        summary: "Start the transformations that define time-dependent covariates for the next COXREG.",
+        syntax: "TIME PROGRAM.\n\
+                 TODO",
+        example: "TIME PROGRAM.\nCOMPUTE spend_t = spend * LN(T_ + 1).",
+        parse: coxreg::time_program,
+    },
+    CommandSpec {
+        name: "CLEAR TIME PROGRAM",
+        summary: "Drop the time-dependent covariates of the last TIME PROGRAM.",
+        syntax: "CLEAR TIME PROGRAM.\n\
+                 TODO",
+        example: "CLEAR TIME PROGRAM.",
+        parse: coxreg::clear_time_program,
     },
     CommandSpec {
         name: "LOGISTIC REGRESSION",

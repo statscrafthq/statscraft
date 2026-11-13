@@ -58,6 +58,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Factor(_)
         | Command::Cluster(_)
         | Command::Discriminant(_)
+        | Command::Coxreg(_)
         | Command::Anova(_)
         | Command::QuickCluster(_)
         | Command::Tree(_)
@@ -115,7 +116,8 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Csplan(_)
         | Command::Output(_)
         | Command::Finish
-        | Command::ClearTransformations => Stage::Neutral,
+        | Command::ClearTransformations
+        | Command::ClearTimeProgram => Stage::Neutral,
         _ => Stage::Change,
     }
 }
