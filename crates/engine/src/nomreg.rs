@@ -555,6 +555,11 @@ fn select(
                 let mut fewer = set.to_vec();
                 fewer[e] = false;
                 let smaller = fit_of(&fewer);
+                // never step into a model whose fit has no likelihood
+                if !smaller.ll.is_finite() {
+                    no_number.set(true);
+                    continue;
+                }
                 (
                     2.0 * (fit.ll - smaller.ll),
                     (fit.parameters() - smaller.parameters()) as f64,
