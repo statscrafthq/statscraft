@@ -9,6 +9,7 @@ use crate::analyze_dialogs::{
     TTestKind, Tree,
 };
 use crate::connect_window::Connect;
+use crate::correspondence_dialog::labelled_range;
 use crate::data_dialogs::{
     AGGREGATE_FUNCTIONS, Aggregate, AggregateTo, Aggregated, EXPORT_NAMES, ExportData,
     FILTER_VARIABLE, ImportData, MergeFiles, Mrsets, Restructure, RestructureKind,
@@ -5692,28 +5693,8 @@ fn dialog_body(
                 for name in variables {
                     if !d.ranges.iter().any(|(n, ..)| *n == name) {
                         // the lowest and highest labelled values, as a start
-                        let codes: Vec<f64> = data
-                            .variable(&name)
-                            .map(|v| {
-                                v.value_labels()
-                                    .iter()
-                                    .filter_map(|(value, _)| match value {
-                                        Value::Number(n) => Some(*n),
-                                        Value::String(_) => None,
-                                    })
-                                    .collect()
-                            })
-                            .unwrap_or_default();
-                        let bound = |f: fn(f64, f64) -> f64| {
-                            codes
-                                .iter()
-                                .copied()
-                                .reduce(f)
-                                .map(number)
-                                .unwrap_or_default()
-                        };
-                        d.ranges
-                            .push((name.clone(), bound(f64::min), bound(f64::max)));
+                        let (min, max) = labelled_range(data, &name);
+                        d.ranges.push((name.clone(), min, max));
                     }
                     if let Some((_, min, max)) = d.ranges.iter_mut().find(|(n, ..)| *n == name) {
                         ui.horizontal(|ui| {

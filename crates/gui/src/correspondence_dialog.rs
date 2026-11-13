@@ -3,9 +3,9 @@
 
 use crate::analyze_dialogs::keywords;
 use crate::dialogs::whole;
-use crate::stats_dialogs::{numeric, parse};
+use crate::stats_dialogs::parse;
 use crate::syntax_text::number;
-use statscraft_data::Dataset;
+use statscraft_data::{Dataset, Value};
 use std::collections::BTreeMap;
 
 /// What a category of the row or column variable is in the analysis; active when not listed.
@@ -31,8 +31,25 @@ struct Checked {
     range: (i64, i64),
     supplementary: Vec<i64>,
     groups: Vec<Vec<i64>>,
-    /// The active categories, an equal group counting as one.
-    active: usize,
+}
+
+/// The lowest and highest whole labelled value of a numeric variable that is not user-missing,
+/// as a range to start from; empty without such labels.
+pub fn labelled_range(data: &Dataset, name: &str) -> (String, String) {
+    let Ok(var) = data.variable(name) else {
+        return Default::default();
+    };
+    let bounds = var
+        .value_labels()
+        .iter()
+        .filter_map(|(value, _)| match value {
+            Value::Number(n) if n.fract() == 0.0 && !var.is_user_missing(*n) => Some(*n),
+            _ => None,
+        })
+        .fold(None, |b: Option<(f64, f64)>, n| {
+            Some(b.map_or((n, n), |(lo, hi)| (lo.min(n), hi.max(n))))
+        });
+    bounds.map_or_else(Default::default, |(lo, hi)| (number(lo), number(hi)))
 }
 
 impl TableVariable {
@@ -102,7 +119,6 @@ impl TableVariable {
             range,
             supplementary,
             groups: groups.into_values().collect(),
-            active,
         })
     }
 }
@@ -215,11 +231,14 @@ impl Correspondence {
             if name.is_empty() {
                 return Err(format!("choose the {what} variable"));
             }
-            if data.variable(name).is_err() {
-                return Err(format!("{name} is no longer a variable"));
+            match data.variable(name) {
+                Err(_) => return Err(format!("{name} is no longer a variable")),
+                Ok(var) if var.is_string() => {
+                    return Err(format!("{name} is a string; the command needs numbers"));
+                }
+                Ok(_) => {}
             }
         }
-        numeric(data, [&self.row.name, &self.column.name])?;
         let (row, column) = (self.row.name.trim(), self.column.name.trim());
         if row.eq_ignore_ascii_case(column) {
             return Err(format!(
@@ -259,16 +278,8 @@ impl Correspondence {
             "RCMEAN" => text.push_str("\n  /MEASURE=EUCLID"),
             s => text.push_str(&format!("\n  /MEASURE=EUCLID\n  /STANDARDIZE={s}")),
         }
+        // the engine lowers more dimensions than the table allows, empty categories left out
         let dims = whole(&self.dimensions, 1, "the number of dimensions")?.unwrap_or(2) as usize;
-        let most = r.active.min(c.active) - 1;
-        if dims > most {
-            return Err(format!(
-                "with {} active row and {} active column categories the table has at most {most} dimension{}",
-                r.active,
-                c.active,
-                if most == 1 { "" } else { "s" }
-            ));
-        }
         if dims != 2 {
             text.push_str(&format!("\n  /DIMENSION={dims}"));
         }
@@ -465,12 +476,44 @@ mod tests {
             "CORRESPONDENCE TABLE=region(1,5) BY q6_mention1(1,6)\n  \
              /EQUAL=region(2,3)(1,4)\n  /DIMENSION=1."
         );
-        // with three active rows left the table has two dimensions at most
+        // more dimensions than the table allows are left to the engine, which lowers them
         d.dimensions = "3".into();
-        assert_eq!(
-            d.syntax(&data).unwrap_err(),
-            "with 3 active row and 6 active column categories the table has at most 2 dimensions"
-        );
+        let syntax = d.syntax(&data).unwrap();
+        assert!(syntax.ends_with("/DIMENSION=3."));
+        assert!(run_in(&mut session, &syntax) >= 4);
+        // a side of two categories with the default two dimensions: one is computed
+        d = Correspondence {
+            row: side("gender", "1", "2"),
+            column: side("region", "1", "5"),
+            ..Default::default()
+        };
+        let syntax = d.syntax(&data).unwrap();
+        assert_eq!(syntax, "CORRESPONDENCE TABLE=gender(1,2) BY region(1,5).");
+        assert!(run_in(&mut session, &syntax) >= 4);
+    }
+
+    #[test]
+    fn a_new_variable_starts_from_its_labelled_values_without_missing_codes() {
+        let mut session = open("survey_basic.sav");
+        session
+            .run(
+                "MISSING VALUES q1_satisfaction (98, 99).
+                 VALUE LABELS age 18 'Youngest' 20.5 'Half' 90 'Oldest'.",
+                None,
+            )
+            .unwrap();
+        let data = session.dataset().unwrap();
+        let range = |name: &str| {
+            let (min, max) = labelled_range(data, name);
+            format!("{min}..{max}")
+        };
+        // 98 and 99 are labelled but user-missing
+        assert_eq!(range("q1_satisfaction"), "1..5");
+        assert_eq!(range("region"), "1..5");
+        // a label of a fraction is no category value
+        assert_eq!(range("age"), "18..90");
+        assert_eq!(range("monthly_spend"), "..");
+        assert_eq!(range("gone"), "..");
     }
 
     #[test]
@@ -546,10 +589,6 @@ mod tests {
         assert_eq!(
             err(&|d| d.dimensions = "0".into()),
             "the number of dimensions must be a whole number of at least 1"
-        );
-        assert_eq!(
-            err(&|d| d.dimensions = "5".into()),
-            "with 5 active row and 6 active column categories the table has at most 4 dimensions"
         );
         assert_eq!(
             err(&|d| {

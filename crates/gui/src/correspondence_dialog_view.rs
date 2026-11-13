@@ -3,6 +3,7 @@
 use crate::app::{checkboxes, choice, field, target_one};
 use crate::correspondence_dialog::{
     CA_DISTANCES, CA_NORMALIZATIONS, CA_PLOTS, CA_PRINT, Correspondence, Role, TableVariable,
+    labelled_range,
 };
 use crate::stats_dialogs_view::small_field;
 use eframe::egui::{self, ComboBox, ScrollArea, Ui};
@@ -77,7 +78,7 @@ pub fn correspondence(
 }
 
 /// The variable with its range; a new variable starts from its lowest and highest labelled
-/// value and with every category active.
+/// value that is not user-missing, and with every category active.
 fn table_variable(
     ui: &mut Ui,
     data: &Dataset,
@@ -89,28 +90,7 @@ fn table_variable(
     target_one(ui, title, &mut v.name, picked);
     if v.name != before {
         v.roles.clear();
-        let codes: Vec<f64> = data
-            .variable(&v.name)
-            .map(|var| {
-                var.value_labels()
-                    .iter()
-                    .filter_map(|(value, _)| match value {
-                        Value::Number(n) if n.fract() == 0.0 => Some(*n),
-                        _ => None,
-                    })
-                    .collect()
-            })
-            .unwrap_or_default();
-        let bound = |f: fn(f64, f64) -> f64| {
-            codes
-                .iter()
-                .copied()
-                .reduce(f)
-                .map(|n| n.to_string())
-                .unwrap_or_default()
-        };
-        v.min = bound(f64::min);
-        v.max = bound(f64::max);
+        (v.min, v.max) = labelled_range(data, v.name.trim());
     }
     ui.push_id(title, |ui| {
         ui.horizontal(|ui| {
