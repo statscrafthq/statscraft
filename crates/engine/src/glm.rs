@@ -2825,7 +2825,7 @@ fn custom_tests(
         multivariate_rows(
             &ssh,
             &se_m,
-            &diagonal(&quadratic(m, &fit.raw())),
+            &transformed_scale(m, &diagonal(&fit.raw())),
             df as f64,
             dfe,
             flags,
@@ -2869,6 +2869,21 @@ fn kronecker(parts: &[Matrix]) -> Matrix {
 /// M' A M.
 fn quadratic(m: &Matrix, a: &Matrix) -> Matrix {
     multiply(&multiply(&transpose(m), a), m)
+}
+
+/// The scale of each column of M' Y M from the raw sums of squares of Y: the square of the sum of
+/// |coefficient| times the root of each variable's raw sum of squares, the size of the rounding
+/// noise a transformed variable inherits.
+fn transformed_scale(m: &Matrix, raw: &[f64]) -> Vec<f64> {
+    (0..m.first().map_or(0, Vec::len))
+        .map(|c| {
+            m.iter()
+                .zip(raw)
+                .map(|(row, r)| row[c].abs() * r.max(0.0).sqrt())
+                .sum::<f64>()
+                .powi(2)
+        })
+        .collect()
 }
 
 fn diagonal(a: &Matrix) -> Vec<f64> {
@@ -2993,20 +3008,17 @@ fn multivariate(
 fn mauchly(xi: &Matrix, dfe: f64, reference: &[f64]) -> (f64, f64, f64, f64) {
     let m = xi.len() as f64;
     let (log_det, rank) = log_determinant_and_rank(xi, reference);
-    let w = if rank == xi.len() {
-        (log_det - m * (trace(xi) / m).ln()).exp()
-    } else {
-        0.0
-    };
+    let log_w = log_det - m * (trace(xi) / m).ln();
+    let w = if rank == xi.len() { log_w.exp() } else { 0.0 };
     let rho = 1.0 - (2.0 * m * m + m + 2.0) / (6.0 * m * dfe);
     let f = m * (m + 1.0) / 2.0 - 1.0;
-    let c = -rho * dfe * w.ln();
+    let c = -rho * dfe * log_w;
     let omega2 =
         (m + 2.0) * (m - 1.0) * (m - 2.0) * (2.0 * m.powi(3) + 6.0 * m * m + 3.0 * m + 2.0)
             / (288.0 * m * m * dfe * dfe * rho * rho);
     let cdf = |c: f64, f: f64| 1.0 - crate::dist::chi_square_p(c, f);
     let sig = (1.0 - cdf(c, f) - omega2 * (cdf(c, f + 4.0) - cdf(c, f))).max(0.0);
-    if w > 0.0 {
+    if rank == xi.len() {
         (w, c, f, sig)
     } else {
         (w, f64::NAN, f, f64::NAN)
@@ -3106,7 +3118,7 @@ impl Engine {
         let fit = Fit::new(d, effects, &y, command.eps);
         let sscp = effect_sscp(&fit, command.sstype);
         let dfe = fit.df_error();
-        let raw = fit.raw();
+        let raw = diagonal(&fit.raw());
         let flags = flags_of(command);
         let between_label = |e: &Effect| e.label.clone();
         let mut out = Vec::new();
@@ -3179,7 +3191,7 @@ impl Engine {
             let m_avg = kronecker(&avg_parts);
             let dd = m_avg[0].len() as f64;
             let se_mv = quadratic(&m_mv, &fit.s);
-            let raw_mv = diagonal(&quadratic(&m_mv, &raw));
+            let raw_mv = transformed_scale(&m_mv, &raw);
             let se_avg = quadratic(&m_avg, &fit.s);
             // Mauchly's test and the epsilons
             let gg = trace(&se_avg).powi(2) / (dd * trace(&multiply(&se_avg, &se_avg)));
@@ -3187,7 +3199,7 @@ impl Engine {
             let hf = ((n * dd * gg - 2.0) / (dd * dfe - dd * dd * gg)).min(1.0);
             let lb = 1.0 / dd;
             let (w, chi, df, sig) = if dd >= 2.0 {
-                mauchly(&se_avg, dfe, &diagonal(&quadratic(&m_avg, &raw)))
+                mauchly(&se_avg, dfe, &transformed_scale(&m_avg, &raw))
             } else {
                 (1.0, 0.0, 0.0, f64::NAN)
             };
@@ -3630,12 +3642,12 @@ fn multivariate_note(flags: &Flags) -> String {
 }
 
 /// The matrix in correlation form over the variables whose variance is more than a tiny share
-/// of `reference`, their own scale (the diagonal of their raw sums of squares), with those
-/// variables. Rounding noise left in the variance of a variable that is fitted exactly or
+/// of `reference`, their own scale (such as the diagonal of their raw sums of squares), with
+/// those variables. Rounding noise left in the variance of a variable that is fitted exactly or
 /// constant is thus no variance, whatever the units.
 fn correlation_form(a: &Matrix, reference: &[f64]) -> (Matrix, Vec<usize>) {
     let kept: Vec<usize> = (0..a.len())
-        .filter(|&i| a[i][i] > 1e-14 * reference[i])
+        .filter(|&i| a[i][i] > 0.0 && a[i][i] > 1e-12 * reference[i])
         .collect();
     let r = kept
         .iter()
@@ -3670,14 +3682,19 @@ fn box_m(d: &Data, design: &str) -> Option<Table> {
     let mut cells: Vec<Vec<usize>> = d.level.clone();
     cells.sort();
     cells.dedup();
-    // each variable's raw mean square, the scale its variances are judged against
+    // the scale cell variances are judged against: each variable's variance over all cases,
+    // and at least a tiny share of its raw mean square, so that a constant has none
     let total: f64 = (0..d.rows()).map(|i| d.f[i]).sum();
     let reference: Vec<f64> = (0..r)
         .map(|a| {
-            (0..d.rows())
+            let mean = (0..d.rows()).map(|i| d.f[i] * d.y[i][a]).sum::<f64>() / total;
+            let centred = (0..d.rows())
+                .map(|i| d.w(i) * (d.y[i][a] - mean).powi(2))
+                .sum::<f64>();
+            let raw = (0..d.rows())
                 .map(|i| d.w(i) * d.y[i][a] * d.y[i][a])
-                .sum::<f64>()
-                / total
+                .sum::<f64>();
+            centred.max(1e-10 * raw) / total
         })
         .collect();
     let mut kept: Vec<(f64, Matrix, f64)> = Vec::new();
@@ -3772,7 +3789,19 @@ fn residual_tables(fit: &Fit, names: &[String], design: &str) -> Vec<Table> {
     let blocks = [
         ("Sum-of-Squares and Cross-Products", s.clone()),
         ("Covariance", scaled(&|_, _| dfe)),
-        ("Correlation", scaled(&|a, b| (s[a][a] * s[b][b]).sqrt())),
+        ("Correlation", {
+            // a dependent with no residual variance has no correlation
+            let (_, kept) = correlation_form(s, &diagonal(&fit.raw()));
+            let mut c = scaled(&|a, b| (s[a][a] * s[b][b]).sqrt());
+            for (a, row) in c.iter_mut().enumerate() {
+                for (b, v) in row.iter_mut().enumerate() {
+                    if !kept.contains(&a) || !kept.contains(&b) {
+                        *v = f64::NAN;
+                    }
+                }
+            }
+            c
+        }),
     ];
     for (block, m) in blocks {
         for (a, (name, values)) in names.iter().zip(&m).enumerate() {
