@@ -2772,7 +2772,13 @@ fn custom_tests(
         rows,
         Some(caption.clone()),
     )];
-    if kept.is_empty() {
+    // the hypothesis is testable only when every row is estimable
+    if kept.len() < l.len() {
+        if !kept.is_empty() {
+            warnings.push(format!(
+                "{title}: the joint test needs every row estimable and is left out"
+            ));
+        }
         return out;
     }
     let (ssh, df) = fit.hypothesis(&kept, Some(m), k.map(|_| &kept_k));
@@ -2857,6 +2863,23 @@ fn trace(a: &Matrix) -> f64 {
 
 /// The eigenvalues of S_E^-1 S_H, largest first, and the rank of S_E.
 fn relative_eigenvalues(sh: &Matrix, se: &Matrix) -> (Vec<f64>, usize) {
+    // both scaled by the root of S_E's diagonal, which keeps the eigenvalues and makes the rank
+    // independent of the units of the variables
+    let d: Vec<f64> = (0..se.len())
+        .map(|i| {
+            if se[i][i] > 0.0 {
+                1.0 / se[i][i].sqrt()
+            } else {
+                0.0
+            }
+        })
+        .collect();
+    let scale = |a: &Matrix| -> Matrix {
+        (0..a.len())
+            .map(|i| (0..a.len()).map(|j| d[i] * a[i][j] * d[j]).collect())
+            .collect()
+    };
+    let (sh, se) = (&scale(sh), &scale(se));
     let pairs = crate::matrix::symmetric_eigen(se);
     let n = se.len();
     let mut rank = 0;
@@ -2951,8 +2974,12 @@ fn multivariate(
 /// The significance of Mauchly's chi-square by the manual's expansion.
 fn mauchly(xi: &Matrix, dfe: f64) -> (f64, f64, f64, f64) {
     let m = xi.len() as f64;
-    let det = crate::matrix::inverse(xi).map_or(0.0, |(_, d)| d);
-    let w = det / (trace(xi) / m).powf(m);
+    let (log_det, rank) = log_determinant_and_rank(xi);
+    let w = if rank == xi.len() {
+        (log_det - m * (trace(xi) / m).ln()).exp()
+    } else {
+        0.0
+    };
     let rho = 1.0 - (2.0 * m * m + m + 2.0) / (6.0 * m * dfe);
     let f = m * (m + 1.0) / 2.0 - 1.0;
     let c = -rho * dfe * w.ln();
@@ -3573,13 +3600,26 @@ fn multivariate_note(flags: &Flags) -> String {
 /// The log determinant of a symmetric matrix and its rank, from its eigenvalues (the log is
 /// meaningful only at full rank).
 fn log_determinant_and_rank(a: &Matrix) -> (f64, usize) {
-    let values: Vec<f64> = crate::matrix::symmetric_eigen(a)
+    // in correlation form, so that the units of the variables do not matter
+    let n = a.len();
+    let positive: Vec<usize> = (0..n).filter(|&i| a[i][i] > 0.0).collect();
+    let r: Matrix = positive
+        .iter()
+        .map(|&i| {
+            positive
+                .iter()
+                .map(|&j| a[i][j] / (a[i][i] * a[j][j]).sqrt())
+                .collect()
+        })
+        .collect();
+    let values: Vec<f64> = crate::matrix::symmetric_eigen(&r)
         .into_iter()
         .map(|(v, _)| v)
         .collect();
-    let top = values.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
-    let rank = values.iter().filter(|v| **v > 1e-10 * top).count();
-    (values.iter().map(|v| v.ln()).sum(), rank)
+    let rank = values.iter().filter(|v| **v > 1e-10).count();
+    let log_det = values.iter().map(|v| v.ln()).sum::<f64>()
+        + positive.iter().map(|&i| a[i][i].ln()).sum::<f64>();
+    (log_det, rank)
 }
 
 /// Box's M test that the covariance matrices of the dependent variables are equal in the cells

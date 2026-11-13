@@ -656,3 +656,45 @@ fn kmatrix_alone_tests_the_intercept() {
     );
     assert!(close(diff, estimate - 5.0), "{diff} vs {estimate}");
 }
+
+/// The tests do not depend on the units of the dependents: one in millions and one in
+/// millionths give the same Box's M and multivariate tests. Bartlett's test compares with the
+/// identity, so it changes, but it is still given.
+#[test]
+fn units_of_the_dependents_do_not_matter() {
+    let mut engine = Engine::default();
+    let syntax = "/PRINT=HOMOGENEITY RSSCP.";
+    let plain = run(
+        &mut engine,
+        &format!("{DATA}\nGLM y1 y2 y3 BY g h WITH x {syntax}"),
+    );
+    let scaled = run(
+        &mut engine,
+        &format!(
+            "COMPUTE big = y1 * 1e6.\nCOMPUTE small = y2 / 1e6.\nGLM big small y3 BY g h WITH x {syntax}"
+        ),
+    );
+    for (title, row, column) in [
+        (
+            "Box's Test of Equality of Covariance Matrices",
+            "Box's M",
+            "Value",
+        ),
+        (MV, "g / Wilks' Lambda", "F"),
+        (MV, "g / Roy's Largest Root", "Hypothesis df"),
+    ] {
+        let a = value(&plain, title, row, column);
+        let b = value(&scaled, title, row, column);
+        assert!(
+            (a - b).abs() <= 1e-6 * a.abs().max(1.0),
+            "{title} / {row}: {a} vs {b}"
+        );
+    }
+    let chi = value(
+        &scaled,
+        "Bartlett's Test of Sphericity",
+        "Approx. Chi-Square",
+        "Value",
+    );
+    assert!(chi.is_finite() && chi > 0.0, "{chi}");
+}

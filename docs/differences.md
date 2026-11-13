@@ -543,6 +543,7 @@ Where the documentation is silent:
 - Estimated marginal means weight the cells of an effect equally over the levels not fixed by TABLES (with empty cells: over the cells that occur). A mean that is not estimable is left empty with a note.
 - COMPARE adjusts for the k(k - 1)/2 pairs of the compared factor.
 - CONTRAST compares the marginal means of the factor's levels.
+- A custom test (CONTRAST, LMATRIX) with a row that is not estimable shows the estimable rows in Contrast Results, but no joint test: the documented hypothesis is testable only when every row is estimable.
 - Levene's test uses the absolute residuals of the model in the cells of all factors; with a full factorial and no covariates, also the median, the median with adjusted df and the 5% trimmed mean.
 - POSTHOC uses the observed means with frequency weights and the model's error mean square. T2, T3, GH and C need a model with one factor.
 - With WSFACTOR, the Tests of Between-Subjects Effects analyze the sum of the measures over the root of their number, the averaged tests use orthonormal polynomial contrasts whatever the contrast type, and the contrast type shapes the Tests of Within-Subjects Contrasts.
