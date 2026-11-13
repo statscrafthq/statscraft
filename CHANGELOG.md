@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.0 (2026-11-13)
 
 - GRAPH: overlay scatterplots (several pairs in one frame, every combination or PAIR), scatterplot matrices (one chart with a cell per pair, with a control variable and point labels) and scatterplots with three axes, which show as the table of their points. INTERVAL adds error bars to bar and line charts of means (CI, SE, STDDEV) and medians (CI, interpolated between order statistics, so the bar may reach further on one side; `lower` in the chart's JSON). See [GRAPH](docs/commands/graph.md).
 - PDF output: OUTPUT EXPORT /PDF and File > Export output as PDF write A4 pages with each command's heading, tables as selectable text whose header rows repeat on every page, wide tables shrunk or split into parts with the row labels again, charts as vector drawings, the TITLE text and page numbers. EMBEDBOOKMARKS adds an outline of commands and items; EMBEDFONTS embeds only the glyphs used. See [OUTPUT EXPORT](docs/commands/output-export.md).
