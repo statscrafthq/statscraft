@@ -1317,7 +1317,7 @@ impl<'a> Predict<'a> {
         residual_df: Option<f64>,
         with_df: bool,
     ) -> Predict<'a> {
-        let shifted = if residual_df.is_some() || !with_df {
+        let shifted = if residual_df.is_some() || sigma.is_none() || !with_df {
             Vec::new()
         } else {
             (0..th.len())
@@ -1794,10 +1794,8 @@ impl FixedPart<'_> {
         let mut rows = Vec::new();
         let mut l = Vec::new();
         let mut a = Vec::new();
-        // a test with random coefficients in any row treats all its rows alike, unadjusted
-        let any_random = random.is_some() && t.random.iter().any(|r| !r.is_empty());
-        // the coefficients of each tested row for PRINT LMATRIX, numbered as below
-        let mut coefficients: Vec<(String, Vec<f64>)> = Vec::new();
+        // the rows that can be tested, with their random parts
+        let mut kept = Vec::new();
         for (r, (row, constant)) in t.rows.iter().zip(&t.constants).enumerate() {
             let full = l_row(self.d, self.fit, row, "TEST")?;
             let name = format!("L{}", r + 1);
@@ -1811,8 +1809,16 @@ impl FixedPart<'_> {
                 (Some((_, build)), Some(given)) if !given.is_empty() => build(given)?,
                 _ => (Vec::new(), Vec::new()),
             };
+            kept.push((name, full, lf, lr, written, *constant));
+        }
+        // a test with random coefficients in any tested row treats all its rows alike,
+        // unadjusted
+        let any_random = kept.iter().any(|row| !row.3.is_empty());
+        // the coefficients of each tested row for PRINT LMATRIX, numbered as below
+        let mut coefficients: Vec<(String, Vec<f64>)> = Vec::new();
+        for (name, full, lf, lr, written, constant) in kept {
             if let Some((_, random_columns)) = lmatrix {
-                let mut column = full.clone();
+                let mut column = full;
                 if any_random {
                     let mut written = written;
                     written.resize(random_columns, 0.0);
@@ -1830,7 +1836,7 @@ impl FixedPart<'_> {
             cells.extend(
                 [
                     est,
-                    *constant,
+                    constant,
                     se,
                     df,
                     tv,
@@ -1842,7 +1848,7 @@ impl FixedPart<'_> {
             );
             rows.push(cells);
             l.push((lf, lr));
-            a.push(*constant);
+            a.push(constant);
         }
         let caption = format!("{title}. Dependent Variable: {}.", self.dependent);
         let mut out = Vec::new();
@@ -3044,15 +3050,14 @@ impl Engine {
             dependent: &dep_text,
         };
         // predictions with random effects, for SOLUTION on RANDOM, TEST after `|` and SAVE
-        let needs_predict = command.random.iter().any(|r| r.solution)
-            || command
-                .save
-                .iter()
-                .any(|(t, _)| matches!(t, MixedTemp::Sepred | MixedTemp::Dfpred))
+        // every user of prediction df; SEPRED alone needs predictions without df
+        let with_df = command.random.iter().any(|r| r.solution)
+            || command.save.iter().any(|(t, _)| *t == MixedTemp::Dfpred)
             || command
                 .tests
                 .iter()
                 .any(|t| t.random.iter().any(|r| !r.is_empty()));
+        let needs_predict = with_df || command.save.iter().any(|(t, _)| *t == MixedTemp::Sepred);
         let predict = needs_predict.then(|| {
             Predict::new(
                 &model,
@@ -3060,13 +3065,7 @@ impl Engine {
                 &fitted.th,
                 sigma,
                 (command.df_method == DfMethod::Residual).then_some(residual_df),
-                // the shifted fits serve df only: not needed for SEPRED alone
-                command.random.iter().any(|r| r.solution)
-                    || command.save.iter().any(|(t, _)| *t == MixedTemp::Dfpred)
-                    || command
-                        .tests
-                        .iter()
-                        .any(|t| t.random.iter().any(|r| !r.is_empty())),
+                with_df,
             )
         });
         // coefficients after `|` of TEST: per effect of a RANDOM (the first that has it) or ALL
