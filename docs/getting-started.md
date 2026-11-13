@@ -230,7 +230,7 @@ Each file opens in a window of its own, and all windows work on one session:
 1. The data window shows the dataset. Its **Data** tab shows the cases: double-click a cell, or press Enter, to change it. **Show value labels**, above the grid, switches value labels on and off. Its **Variables** tab has one row per variable: double-click a label, a format or the missing values to change them.
 2. The syntax window holds `job.sps`. Select lines 4 to 6 and press Ctrl+Enter to run only those commands. F1 shows help for the command at the cursor. An error is marked at its line and column.
 3. The output window opens with the first table and collects every table after it. **Copy** puts a table on the clipboard for a spreadsheet; File > Export output as Excel saves all its tables as a workbook.
-4. The menus **Data**, **Analyze** and **Transform** open dialogs that build syntax. **OK** runs it, **Paste** puts it in the syntax window.
+4. The menus **Data**, **Analyze**, **Graphs** and **Transform** open dialogs that build syntax. **OK** runs it, **Paste** puts it in the syntax window.
 5. Open a second data file and it gets a second data window. A click in a data window makes its dataset the active one, the one every command works on.
 
 Everything the window does is syntax. The log in the syntax and output windows lists every command it ran, and **Copy syntax** there gives a script that repeats your session with `statscraft run`. Edit > Undo last change (Ctrl+Z) takes back the last run that changed the data.

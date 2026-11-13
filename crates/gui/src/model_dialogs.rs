@@ -1055,8 +1055,12 @@ impl Univariate {
             .into_iter()
             .filter(|n| self.building.contains(n))
             .collect();
+        // names taken out of the model since they were checked leave too few to combine
         let new: Vec<Vec<String>> = if interaction {
-            vec![checked]
+            match checked.len() {
+                0 | 1 => Vec::new(),
+                _ => vec![checked],
+            }
         } else {
             checked.into_iter().map(|n| vec![n]).collect()
         };
