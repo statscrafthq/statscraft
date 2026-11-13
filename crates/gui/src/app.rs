@@ -1558,6 +1558,13 @@ impl App {
                             self.open_dialog(Dialog::RepeatedMeasures(Default::default()));
                         }
                     });
+                    ui.menu_button("Generalized Linear Models", |ui| {
+                        if ui.button("Generalized Linear Models...").clicked() {
+                            self.open_dialog(Dialog::Advanced(
+                                Advanced::Genlin(Default::default()),
+                            ));
+                        }
+                    });
                     ui.menu_button("Mixed Models", |ui| {
                         if ui.button("Linear...").clicked() {
                             self.open_dialog(Dialog::Advanced(Advanced::Mixed(Default::default())));

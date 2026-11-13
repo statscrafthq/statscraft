@@ -1,9 +1,11 @@
-//! The Ordinal Regression, Multinomial Logistic Regression, Linear Mixed Models and complex
-//! samples dialogs (the analysis plan, Descriptives, Frequencies and Crosstabs). Options left as
+//! The Ordinal Regression, Multinomial Logistic Regression, Linear Mixed Models, Generalized
+//! Linear Models (in `genlin_dialog`) and complex samples dialogs (the analysis plan, Descriptives, Frequencies and Crosstabs). Options left as
 //! they are add nothing to the syntax, so the command runs with its own defaults.
 
 use crate::analyze_dialogs::keywords;
 use crate::dialogs::whole;
+use crate::genlin_dialog::{GeneralizedLinear, data_checks};
+use crate::model_dialogs::GLM_ADJUSTMENTS;
 use crate::stats_dialogs::{numeric, parse, percent};
 use crate::syntax_text::{names, number, quote, value};
 use statscraft_data::Dataset;
@@ -14,6 +16,7 @@ pub enum Advanced {
     Ordinal(Ordinal),
     Multinomial(Multinomial),
     Mixed(LinearMixed),
+    Genlin(GeneralizedLinear),
     Plan(SamplePlan),
     Descriptives(SampleDescriptives),
     Tables(SampleTables),
@@ -25,6 +28,7 @@ impl Advanced {
             Advanced::Ordinal(_) => "Ordinal Regression",
             Advanced::Multinomial(_) => "Multinomial Logistic Regression",
             Advanced::Mixed(_) => "Linear Mixed Models",
+            Advanced::Genlin(_) => "Generalized Linear Models",
             Advanced::Plan(_) => "Complex Samples Analysis Plan",
             Advanced::Descriptives(_) => "Complex Samples Descriptives",
             Advanced::Tables(d) if d.crosstabs => "Complex Samples Crosstabs",
@@ -38,6 +42,7 @@ impl Advanced {
             Advanced::Ordinal(_) => Advanced::Ordinal(Default::default()),
             Advanced::Multinomial(_) => Advanced::Multinomial(Default::default()),
             Advanced::Mixed(_) => Advanced::Mixed(Default::default()),
+            Advanced::Genlin(_) => Advanced::Genlin(Default::default()),
             Advanced::Plan(_) => Advanced::Plan(Default::default()),
             Advanced::Descriptives(_) => Advanced::Descriptives(Default::default()),
             Advanced::Tables(d) => Advanced::Tables(SampleTables {
@@ -61,6 +66,7 @@ impl Advanced {
             }
             Advanced::Mixed(d) => numeric(data, std::iter::once(&d.dependent).chain(&d.covariates))
                 .and_then(|()| d.syntax()),
+            Advanced::Genlin(d) => data_checks(d, data).and_then(|string| d.syntax(string)),
             Advanced::Plan(d) => numeric(data, d.numeric()).and_then(|()| d.syntax()),
             Advanced::Descriptives(d) => numeric(
                 data,
@@ -107,7 +113,7 @@ impl Terms {
     }
 
     /// The terms as `a b a*b`, checked against the variables of the model.
-    fn syntax(&self, model: &[String], what: &str) -> Result<String, String> {
+    pub(crate) fn syntax(&self, model: &[String], what: &str) -> Result<String, String> {
         if self.terms.is_empty() {
             return Err(format!("add at least one term to the {what}"));
         }
@@ -125,6 +131,154 @@ impl Terms {
         }
         Ok(out.join(" "))
     }
+}
+
+/// One table of estimated marginal means: the crossed factors, none for the overall mean, and
+/// the factor whose levels are compared.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct MeansTable {
+    pub factors: Vec<String>,
+    /// Empty: no comparison.
+    pub compare: String,
+    /// Index into the comparisons of the command (`MIXED_COMPARISONS`, `GENLIN_CONTRASTS`).
+    pub contrast: usize,
+    /// Index into the adjustments of the command.
+    pub adjustment: usize,
+}
+
+impl MeansTable {
+    /// The factors of table `n` in the order of the model, and the compared one, checked.
+    pub(crate) fn checked<'a>(
+        &self,
+        factors: &'a [String],
+        n: usize,
+    ) -> Result<(Vec<&'a str>, Option<&str>), String> {
+        if let Some(f) = self.factors.iter().find(|f| !factors.contains(f)) {
+            return Err(format!(
+                "{f} in estimated marginal means table {n} is no longer a factor"
+            ));
+        }
+        let crossed: Vec<&str> = factors
+            .iter()
+            .filter(|f| self.factors.contains(f))
+            .map(String::as_str)
+            .collect();
+        let compare = match self.compare.as_str() {
+            "" => None,
+            c if crossed.contains(&c) => Some(c),
+            c => {
+                return Err(format!(
+                    "estimated marginal means table {n} compares {c}, which is not in the table"
+                ));
+            }
+        };
+        Ok((crossed, compare))
+    }
+}
+
+/// The covariates given a value in `at`, as (name, value), in the order of `covariates`; the
+/// others stay at their means.
+pub(crate) fn covariate_values<'a>(
+    covariates: &'a [String],
+    at: &[(String, String)],
+) -> Result<Vec<(&'a str, String)>, String> {
+    let mut out = Vec::new();
+    for c in covariates {
+        let Some((_, text)) = at.iter().find(|(n, _)| n == c) else {
+            continue;
+        };
+        if !text.trim().is_empty() {
+            let v = parse(text, &format!("the value of {c} for the means"))?;
+            out.push((c.as_str(), number(v)));
+        }
+    }
+    Ok(out)
+}
+
+/// A custom test: a label and rows of coefficients, one row per line, each an effect followed by
+/// its coefficients, such as `gender 1 -1` or `INTERCEPT 1 age 0.5`.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct ContrastTest {
+    pub label: String,
+    pub rows: String,
+}
+
+impl ContrastTest {
+    /// `/TEST='label' row; row`, every effect checked against `terms`, the effects of the
+    /// model. INTERCEPT and ALL are taken too.
+    pub(crate) fn syntax(&self, terms: &[Vec<String>], n: usize) -> Result<String, String> {
+        let mut rows = Vec::new();
+        for line in self.rows.lines() {
+            let tokens: Vec<&str> = line
+                .split(|c: char| c.is_whitespace() || c == ',')
+                .filter(|t| !t.is_empty())
+                .collect();
+            if tokens.is_empty() {
+                continue;
+            }
+            let mut after_effect = 0;
+            for (i, token) in tokens.iter().enumerate() {
+                if coefficient(token) {
+                    if i == 0 {
+                        return Err(format!(
+                            "test {n}: a row starts with an effect, then its coefficients"
+                        ));
+                    }
+                    after_effect += 1;
+                    continue;
+                }
+                if i > 0 && after_effect == 0 {
+                    return Err(format!("test {n}: {} needs coefficients", tokens[i - 1]));
+                }
+                after_effect = 0;
+                let known = ["INTERCEPT", "ALL"]
+                    .iter()
+                    .any(|k| token.eq_ignore_ascii_case(k))
+                    || terms.iter().any(|t| same_term(t, token));
+                if !known {
+                    return Err(format!("test {n}: {token} is not an effect of the model"));
+                }
+            }
+            if after_effect == 0 {
+                return Err(format!(
+                    "test {n}: {} needs coefficients",
+                    tokens[tokens.len() - 1]
+                ));
+            }
+            rows.push(tokens.join(" "));
+        }
+        if rows.is_empty() {
+            return Err(format!("give the coefficients of test {n}"));
+        }
+        let label = match self.label.trim() {
+            "" => String::new(),
+            label => format!("{} ", quote(label)),
+        };
+        Ok(format!("\n  /TEST={label}{}", rows.join("; ")))
+    }
+}
+
+/// A number of an L matrix: `1`, `-0.5` or a fraction such as `1/3`.
+fn coefficient(token: &str) -> bool {
+    let finite = |t: &str| t.parse::<f64>().is_ok_and(f64::is_finite);
+    match token.split_once('/') {
+        Some((a, b)) => finite(a) && b.parse::<f64>().is_ok_and(|d| d > 0.0 && d.is_finite()),
+        None => finite(token),
+    }
+}
+
+/// `a*b` written as `b*a` or in other case is the same term.
+fn same_term(term: &[String], written: &str) -> bool {
+    let parts: Vec<&str> = written.split('*').collect();
+    parts.len() == term.len()
+        && term
+            .iter()
+            .all(|t| parts.iter().any(|p| p.eq_ignore_ascii_case(t)))
+}
+
+/// Each name of `model` as a term of its own.
+fn main_effects(model: &[String]) -> Vec<Vec<String>> {
+    model.iter().map(|n| vec![n.clone()]).collect()
 }
 
 /// `dependent BY factors WITH covariates`, checked: the dependent is chosen and is neither a
@@ -242,6 +396,7 @@ pub struct Ordinal {
     pub delta: String,
     /// User-missing values count as valid.
     pub include: bool,
+    pub tests: Vec<ContrastTest>,
 }
 
 impl Default for Ordinal {
@@ -262,6 +417,7 @@ impl Default for Ordinal {
             halvings: "5".into(),
             delta: "0".into(),
             include: false,
+            tests: Vec::new(),
         }
     }
 }
@@ -322,6 +478,37 @@ impl Ordinal {
         if self.include {
             text.push_str("\n  /MISSING=INCLUDE");
         }
+        // the thresholds are INTERCEPT; the scale terms have parameters of their own
+        let mut terms = if self.custom_location {
+            self.location.terms.clone()
+        } else {
+            main_effects(&model)
+        };
+        let scale: &[Vec<String>] = match self.scale {
+            true => &self.scale_terms.terms,
+            false => &[],
+        };
+        for (i, test) in self.tests.iter().enumerate() {
+            // an effect of both parts is ambiguous by name
+            let both = test
+                .rows
+                .split(|c: char| c.is_whitespace() || c == ',')
+                .find(|t| {
+                    [&terms[..], scale]
+                        .iter()
+                        .all(|part| part.iter().any(|term| same_term(term, t)))
+                });
+            if let Some(t) = both {
+                return Err(format!(
+                    "test {}: {t} is in both the location and the scale part, so give its coefficients with ALL",
+                    i + 1
+                ));
+            }
+        }
+        terms.extend(scale.iter().cloned());
+        for (i, test) in self.tests.iter().enumerate() {
+            text.push_str(&test.syntax(&terms, i + 1)?);
+        }
         text.push('.');
         Ok(text)
     }
@@ -333,8 +520,24 @@ pub const NOMREG_BASES: [&str; 3] = ["Last", "First", "Custom"];
 /// The models of NOMREG.
 pub const NOMREG_MODELS: [&str; 3] = ["Main effects", "Full factorial", "Custom"];
 
+/// The stepwise methods of NOMREG, keyword and label.
+pub const NOMREG_STEP_METHODS: [(&str, &str); 4] = [
+    ("FORWARD", "Forward entry"),
+    ("BACKWARD", "Backward elimination"),
+    ("FSTEP", "Forward stepwise"),
+    ("BSTEP", "Backward stepwise"),
+];
+
+/// Which effects may enter or leave together, keyword and label; the first is the default.
+pub const NOMREG_STEP_RULES: [(&str, &str); 4] = [
+    ("SINGLE", "Hierarchy of all effects"),
+    ("SFACTOR", "Hierarchy of factor effects"),
+    ("CONTAINMENT", "Containment"),
+    ("NONE", "None"),
+];
+
 /// Keyword and label of every table on /PRINT of NOMREG.
-pub const NOMREG_PRINT: [(&str, &str); 11] = [
+pub const NOMREG_PRINT: [(&str, &str); 12] = [
     ("CPS", "Case processing summary"),
     ("MFI", "Model fitting information"),
     ("IC", "Information criteria"),
@@ -346,11 +549,12 @@ pub const NOMREG_PRINT: [(&str, &str); 11] = [
     ("COVB", "Covariance of the estimates"),
     ("CORB", "Correlation of the estimates"),
     ("KERNEL", "Kernel of the log-likelihood"),
+    ("STEP", "Step summary"),
 ];
 
 /// The tables NOMREG shows without /PRINT.
-const NOMREG_DEFAULT_PRINT: [bool; 11] = [
-    true, true, false, false, false, false, false, false, false, false, false,
+const NOMREG_DEFAULT_PRINT: [bool; 12] = [
+    true, true, false, false, false, false, false, false, false, false, false, true,
 ];
 
 /// NOMREG: a nominal dependent variable on factors and covariates.
@@ -367,9 +571,24 @@ pub struct Multinomial {
     /// Index into `NOMREG_MODELS`.
     pub model: usize,
     pub terms: Terms,
+    /// The effects a stepwise method may enter or remove, after the custom terms.
+    pub step_terms: Terms,
+    /// Index into `NOMREG_STEP_METHODS`.
+    pub step_method: usize,
+    /// Index into `NOMREG_STEP_RULES`.
+    pub step_rule: usize,
+    pub min_effects: String,
+    /// Empty: every effect.
+    pub max_effects: String,
+    pub entry: String,
+    pub removal: String,
+    /// The score test for entry instead of the likelihood ratio.
+    pub score_entry: bool,
+    /// The Wald test for removal instead of the likelihood ratio.
+    pub wald_removal: bool,
     pub intercept: bool,
     /// One flag per entry of `NOMREG_PRINT`.
-    pub print: [bool; 11],
+    pub print: [bool; 12],
     /// One flag per entry of `PROBABILITY_SAVE`.
     pub save: [bool; 4],
     pub ci_level: String,
@@ -389,6 +608,15 @@ impl Default for Multinomial {
             covariates: Vec::new(),
             model: 0,
             terms: Terms::default(),
+            step_terms: Terms::default(),
+            step_method: 0,
+            step_rule: 0,
+            min_effects: "0".into(),
+            max_effects: String::new(),
+            entry: "0.05".into(),
+            removal: "0.1".into(),
+            score_entry: false,
+            wald_removal: false,
             intercept: true,
             print: NOMREG_DEFAULT_PRINT,
             save: [false; 4],
@@ -434,16 +662,43 @@ impl Multinomial {
             }
             None => format!("NOMREG {variables} ({})", options.join(" ")),
         };
+        let mut stepwise = None;
         match self.model {
             0 => {}
             1 => text.push_str("\n  /FULLFACTORIAL"),
-            _ => {
+            _ if self.step_terms.terms.is_empty() => {
                 let terms = self.terms.syntax(&self.model_variables(), "model")?;
                 text.push_str(&format!("\n  /MODEL={terms}"));
+            }
+            _ => {
+                let model = self.model_variables();
+                let steps = self.step_terms.syntax(&model, "stepwise terms")?;
+                if let Some(t) = self.step_terms.terms.iter().find(|t| {
+                    self.terms
+                        .terms
+                        .iter()
+                        .any(|m| m.len() == t.len() && m.iter().all(|n| t.contains(n)))
+                }) {
+                    return Err(format!(
+                        "{} is both a model term and a stepwise term",
+                        t.join("*")
+                    ));
+                }
+                // the model may be empty: the stepwise method then starts from the intercept
+                let fixed = match self.terms.terms.is_empty() {
+                    true => String::new(),
+                    false => format!("{} ", self.terms.syntax(&model, "model")?),
+                };
+                let method = NOMREG_STEP_METHODS[self.step_method].0;
+                text.push_str(&format!("\n  /MODEL={fixed}| {method}={steps}"));
+                stepwise = Some(self.stepwise_criteria()?);
             }
         }
         if !self.intercept {
             text.push_str("\n  /INTERCEPT=EXCLUDE");
+        }
+        if let Some(criteria) = stepwise.filter(|c| !c.is_empty()) {
+            text.push_str(&format!("\n  /STEPWISE={}", criteria.join(" ")));
         }
         let criteria = iteration_criteria(&self.ci_level, &self.iterations, &self.halvings, 5, 1)?;
         if !criteria.is_empty() {
@@ -467,6 +722,46 @@ impl Multinomial {
         }
         text.push('.');
         Ok(text)
+    }
+
+    /// The STEPWISE settings that differ from the defaults.
+    fn stepwise_criteria(&self) -> Result<Vec<String>, String> {
+        let mut out = Vec::new();
+        if self.step_rule > 0 {
+            out.push(format!("RULE({})", NOMREG_STEP_RULES[self.step_rule].0));
+        }
+        let least = whole(&self.min_effects, 0, "the least number of effects")?;
+        if let Some(n) = least.filter(|n| *n > 0) {
+            out.push(format!("MINEFFECT({n})"));
+        }
+        let most = whole(&self.max_effects, 0, "the most effects")?;
+        if let Some(n) = most {
+            if least.is_some_and(|l| l > n) {
+                return Err("the least number of effects is above the most".into());
+            }
+            out.push(format!("MAXEFFECT({n})"));
+        }
+        for (text, keyword, default) in [(&self.entry, "PIN", 0.05), (&self.removal, "POUT", 0.1)] {
+            let p = match text.trim() {
+                "" => default,
+                given => parse(given, "the probability for entry and removal")?,
+            };
+            if !(p > 0.0 && p <= 1.0) {
+                return Err(
+                    "the probabilities for entry and removal are above 0 and at most 1".into(),
+                );
+            }
+            if p != default {
+                out.push(format!("{keyword}({})", number(p)));
+            }
+        }
+        if self.score_entry {
+            out.push("ENTRYMETHOD(SCORE)".into());
+        }
+        if self.wald_removal {
+            out.push("REMOVALMETHOD(WALD)".into());
+        }
+        Ok(out)
     }
 }
 
@@ -498,6 +793,23 @@ pub const MIXED_SAVE: [(&str, &str); 5] = [
     ("RESID", "Residuals"),
 ];
 
+/// Keyword and label of every table on /PRINT of MIXED.
+pub const MIXED_PRINT: [(&str, &str); 6] = [
+    ("SOLUTION", "Parameter estimates of the fixed effects"),
+    ("TESTCOV", "Tests of the covariance parameters"),
+    ("G", "Covariance of the random effects (G)"),
+    ("R", "Covariance of the residuals (R)"),
+    ("COVB", "Covariance of the fixed estimates"),
+    ("CORB", "Correlation of the fixed estimates"),
+];
+
+/// How the levels of a factor are compared in MIXED: REFCAT and label; the first is every pair.
+pub const MIXED_COMPARISONS: [(&str, &str); 3] = [
+    ("", "Every pair"),
+    ("FIRST", "Each with the first"),
+    ("LAST", "Each with the last"),
+];
+
 /// MIXED: a linear mixed model of one dependent variable.
 #[derive(Clone, PartialEq, Debug)]
 pub struct LinearMixed {
@@ -523,8 +835,12 @@ pub struct LinearMixed {
     pub random_covariance: usize,
     /// Maximum likelihood instead of restricted maximum likelihood.
     pub ml: bool,
-    pub solution: bool,
-    pub covariance_tests: bool,
+    /// One flag per entry of `MIXED_PRINT`.
+    pub print: [bool; 6],
+    pub means: Vec<MeansTable>,
+    /// The values of covariates for the means, by name; empty is the mean.
+    pub means_at: Vec<(String, String)>,
+    pub tests: Vec<ContrastTest>,
     /// One flag per entry of `MIXED_SAVE`.
     pub save: [bool; 5],
     pub ci_level: String,
@@ -553,8 +869,10 @@ impl Default for LinearMixed {
             random_subjects: Vec::new(),
             random_covariance: 0,
             ml: false,
-            solution: false,
-            covariance_tests: false,
+            print: [false; 6],
+            means: Vec::new(),
+            means_at: Vec::new(),
+            tests: Vec::new(),
             save: [false; 5],
             ci_level: "95".into(),
             iterations: "100".into(),
@@ -683,13 +1001,13 @@ impl LinearMixed {
         if !criteria.is_empty() {
             text.push_str(&format!("\n  /CRITERIA={}", criteria.join(" ")));
         }
-        let print: Vec<&str> = [
-            (self.solution, "SOLUTION"),
-            (self.covariance_tests, "TESTCOV"),
-        ]
-        .into_iter()
-        .filter_map(|(on, keyword)| on.then_some(keyword))
-        .collect();
+        if self.print[2] && !self.random {
+            return Err("the covariance of the random effects needs random effects".into());
+        }
+        if self.print[3] && self.repeated.is_empty() {
+            return Err("the covariance of the residuals needs repeated variables".into());
+        }
+        let print = keywords(&MIXED_PRINT, &self.print);
         if !print.is_empty() {
             text.push_str(&format!("\n  /PRINT={}", print.join(" ")));
         }
@@ -699,6 +1017,40 @@ impl LinearMixed {
         }
         if self.include {
             text.push_str("\n  /MISSING=INCLUDE");
+        }
+        let at = covariate_values(&self.covariates, &self.means_at)?;
+        let with = match at.is_empty() {
+            true => String::new(),
+            false => {
+                let values: Vec<String> = at.iter().map(|(n, v)| format!("{n}={v}")).collect();
+                format!(" WITH({})", values.join(" "))
+            }
+        };
+        for (i, table) in self.means.iter().enumerate() {
+            let (crossed, compare) = table.checked(&self.factors, i + 1)?;
+            let tables = match crossed.is_empty() {
+                true => "OVERALL".to_string(),
+                false => crossed.join("*"),
+            };
+            text.push_str(&format!("\n  /EMMEANS=TABLES({tables}){with}"));
+            if let Some(c) = compare {
+                text.push_str(&format!(" COMPARE({c})"));
+                if table.contrast > 0 {
+                    let refcat = MIXED_COMPARISONS[table.contrast].0;
+                    text.push_str(&format!(" REFCAT({refcat})"));
+                }
+                if table.adjustment > 0 {
+                    let adjustment = GLM_ADJUSTMENTS[table.adjustment].0;
+                    text.push_str(&format!(" ADJ({adjustment})"));
+                }
+            }
+        }
+        let terms = match self.custom_fixed {
+            true => self.fixed.terms.clone(),
+            false => main_effects(&model),
+        };
+        for (i, test) in self.tests.iter().enumerate() {
+            text.push_str(&test.syntax(&terms, i + 1)?);
         }
         text.push('.');
         Ok(text)
@@ -1331,7 +1683,7 @@ mod tests {
         d.base = 1;
         d.descending = true;
         d.model = 1;
-        d.print = [true; 11];
+        d.print = [true; 12];
         d.save = [true; 4];
         d.ci_level = "99".into();
         d.iterations = "50".into();
@@ -1342,7 +1694,7 @@ mod tests {
             syntax,
             "NOMREG region (BASE=FIRST ORDER=DESCENDING) BY gender WITH age\n  \
              /FULLFACTORIAL\n  /CRITERIA=CIN(99) MXITER(50) MXSTEP(10)\n  \
-             /PRINT=CPS MFI IC SUMMARY FIT LRT PARAMETER CLASSTABLE COVB CORB KERNEL\n  \
+             /PRINT=CPS MFI IC SUMMARY FIT LRT PARAMETER CLASSTABLE COVB CORB KERNEL STEP\n  \
              /SAVE=ESTPROB PREDCAT PCPROB ACPROB\n  /MISSING=INCLUDE."
         );
         let mut session = open("survey_basic.sav");
@@ -1361,7 +1713,7 @@ mod tests {
             model: 2,
             terms: terms(&[&["gender"], &["age"]]),
             intercept: false,
-            print: [false; 11],
+            print: [false; 12],
             ..Default::default()
         };
         let syntax = d.syntax(true).unwrap();
@@ -1410,8 +1762,7 @@ mod tests {
         d.random_subjects = v(&["region"]);
         d.random_covariance = 3;
         d.ml = true;
-        d.solution = true;
-        d.covariance_tests = true;
+        d.print = [true, true, true, false, true, true];
         d.save = [true; 5];
         d.ci_level = "90".into();
         d.iterations = "150".into();
@@ -1424,13 +1775,24 @@ mod tests {
             "MIXED monthly_spend BY gender WITH age\n  /FIXED=gender age\n  \
              /RANDOM=INTERCEPT age | SUBJECT(region) COVTYPE(UN)\n  /METHOD=ML\n  \
              /CRITERIA=CIN(90) MXITER(150) MXSTEP(5) DFMETHOD(RESIDUAL)\n  \
-             /PRINT=SOLUTION TESTCOV\n  /SAVE=FIXPRED SEFIXP DFFIXP PRED RESID\n  \
+             /PRINT=SOLUTION TESTCOV G COVB CORB\n  /SAVE=FIXPRED SEFIXP DFFIXP PRED RESID\n  \
              /MISSING=INCLUDE."
         );
         let mut session = open("survey_basic.sav");
         assert!(run_in(&mut session, &syntax) >= 5);
         let data = session.dataset().unwrap();
         assert!(data.variable("FXPRED_1").is_ok());
+        d.print[3] = true;
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "the covariance of the residuals needs repeated variables"
+        );
+        d.random = false;
+        d.subjects.clear();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "the covariance of the random effects needs random effects"
+        );
 
         // repeated measures in long form: the three mentions of each respondent
         let mut session = open("survey_basic.sav");
@@ -1865,6 +2227,185 @@ mod tests {
             ..Default::default()
         };
         assert!(o.syntax().unwrap().contains("MXITER(0)"));
+    }
+
+    #[test]
+    fn mixed_means_and_custom_tests() {
+        let mut d = LinearMixed {
+            dependent: "monthly_spend".into(),
+            factors: v(&["gender", "region"]),
+            covariates: v(&["age"]),
+            means: vec![
+                MeansTable::default(),
+                MeansTable {
+                    factors: v(&["region", "gender"]),
+                    compare: "gender".into(),
+                    contrast: 1,
+                    adjustment: 1,
+                },
+                MeansTable {
+                    factors: v(&["region"]),
+                    compare: "region".into(),
+                    contrast: 2,
+                    adjustment: 2,
+                },
+            ],
+            means_at: vec![("age".into(), "40".into())],
+            tests: vec![ContrastTest {
+                label: "Men and women".into(),
+                rows: "gender 1 -1 0\n\nINTERCEPT 0, age 1".into(),
+            }],
+            ..Default::default()
+        };
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "MIXED monthly_spend BY gender region WITH age\n  /FIXED=gender region age\n  \
+             /EMMEANS=TABLES(OVERALL) WITH(age=40)\n  \
+             /EMMEANS=TABLES(gender*region) WITH(age=40) COMPARE(gender) REFCAT(FIRST) ADJ(BONFERRONI)\n  \
+             /EMMEANS=TABLES(region) WITH(age=40) COMPARE(region) REFCAT(LAST) ADJ(SIDAK)\n  \
+             /TEST='Men and women' gender 1 -1 0; INTERCEPT 0 age 1."
+        );
+        assert!(runs(&syntax) >= 8);
+
+        for (rows, error) in [
+            (
+                "1 -1",
+                "test 1: a row starts with an effect, then its coefficients",
+            ),
+            ("gender", "test 1: gender needs coefficients"),
+            ("gender age 1", "test 1: gender needs coefficients"),
+            ("weight 1", "test 1: weight is not an effect of the model"),
+            (
+                "gender 1 -1/0",
+                "test 1: -1/0 is not an effect of the model",
+            ),
+            (" \n ", "give the coefficients of test 1"),
+        ] {
+            d.tests[0].rows = rows.into();
+            assert_eq!(d.syntax().unwrap_err(), error, "{rows}");
+        }
+        // custom fixed terms are the effects a test may name, in either order
+        d.custom_fixed = true;
+        d.fixed = terms(&[&["gender", "age"]]);
+        d.tests[0].rows = "age*GENDER 1 -1 0".into();
+        assert!(
+            d.syntax()
+                .unwrap()
+                .ends_with("/TEST='Men and women' age*GENDER 1 -1 0.")
+        );
+        d.tests[0].rows = "gender 1 -1 0".into();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "test 1: gender is not an effect of the model"
+        );
+        d.tests.clear();
+        d.means_at[0].1 = "x".into();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "the value of age for the means must be a number"
+        );
+        d.means_at[0].1 = " ".into();
+        d.means[1].factors = v(&["income"]);
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "income in estimated marginal means table 2 is no longer a factor"
+        );
+    }
+
+    #[test]
+    fn ordinal_custom_tests() {
+        let mut d = Ordinal {
+            dependent: "q1_satisfaction".into(),
+            factors: v(&["gender"]),
+            covariates: v(&["age"]),
+            scale: true,
+            scale_terms: terms(&[&["age"]]),
+            tests: vec![
+                ContrastTest {
+                    label: String::new(),
+                    rows: "gender 1/2 -1/2 0".into(),
+                },
+                ContrastTest {
+                    label: "First threshold".into(),
+                    rows: "INTERCEPT 1 0 0 0".into(),
+                },
+            ],
+            ..Default::default()
+        };
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "PLUM q1_satisfaction BY gender WITH age\n  /SCALE=age\n  \
+             /TEST=gender 1/2 -1/2 0\n  /TEST='First threshold' INTERCEPT 1 0 0 0."
+        );
+        assert!(runs(&syntax) >= 6);
+        d.tests[0].rows = "age 1".into();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "test 1: age is in both the location and the scale part, so give its coefficients with ALL"
+        );
+    }
+
+    #[test]
+    fn multinomial_stepwise() {
+        let mut d = Multinomial {
+            dependent: "region".into(),
+            factors: v(&["gender"]),
+            covariates: v(&["age"]),
+            model: 2,
+            step_terms: terms(&[&["gender"], &["age"]]),
+            ..Default::default()
+        };
+        let syntax = d.syntax(false).unwrap();
+        assert_eq!(
+            syntax,
+            "NOMREG region BY gender WITH age\n  /MODEL=| FORWARD=gender age."
+        );
+        assert!(runs(&syntax) >= 3);
+
+        d.terms = terms(&[&["age"]]);
+        d.step_terms = terms(&[&["gender"], &["gender", "age"]]);
+        d.step_method = 3;
+        d.step_rule = 2;
+        d.min_effects = "1".into();
+        d.max_effects = "2".into();
+        d.entry = "0.1".into();
+        d.removal = "0.2".into();
+        d.score_entry = true;
+        d.wald_removal = true;
+        let syntax = d.syntax(false).unwrap();
+        assert_eq!(
+            syntax,
+            "NOMREG region BY gender WITH age\n  /MODEL=age | BSTEP=gender gender*age\n  \
+             /STEPWISE=RULE(CONTAINMENT) MINEFFECT(1) MAXEFFECT(2) PIN(0.1) POUT(0.2) \
+             ENTRYMETHOD(SCORE) REMOVALMETHOD(WALD)."
+        );
+        assert!(runs(&syntax) >= 3);
+
+        d.step_terms = terms(&[&["age"]]);
+        assert_eq!(
+            d.syntax(false).unwrap_err(),
+            "age is both a model term and a stepwise term"
+        );
+        d.step_terms = terms(&[&["gender"]]);
+        d.min_effects = "3".into();
+        assert_eq!(
+            d.syntax(false).unwrap_err(),
+            "the least number of effects is above the most"
+        );
+        d.min_effects = "0".into();
+        d.entry = "0".into();
+        assert_eq!(
+            d.syntax(false).unwrap_err(),
+            "the probabilities for entry and removal are above 0 and at most 1"
+        );
+        // the stepping settings count only with stepwise terms
+        d.step_terms = Terms::default();
+        assert_eq!(
+            d.syntax(false).unwrap(),
+            "NOMREG region BY gender WITH age\n  /MODEL=age."
+        );
     }
 
     #[test]

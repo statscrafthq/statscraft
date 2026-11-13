@@ -145,7 +145,7 @@ pub use genlin::{
     Genlin, GenlinAdjust, GenlinContrast, GenlinCriteria, GenlinDistribution, GenlinEmmeans,
     GenlinLink, GenlinMethod, GenlinOffset, GenlinOrder, GenlinPrint, GenlinReference,
     GenlinResponse, GenlinSave, GenlinSaveKind, GenlinScale, GenlinTolerance, GenlinTrials,
-    default_link, distribution_keyword, link_keyword,
+    default_link, distribution_keyword, link_allowed, link_keyword,
 };
 pub use glm::{
     Adjustment, Contrast, CustomTest, Emmeans, ErrorBar, Glm, GlmPlot, GlmPrint, GlmTemp, LMatrix,

@@ -3,8 +3,8 @@
 
 use super::{CategoryDraft, Dialog, RuleDraft};
 use crate::advanced_dialogs::{
-    Advanced, LinearMixed, Multinomial, Ordinal, SampleDescriptives, SampleOptions, SamplePlan,
-    SampleTables, Stage, Terms,
+    Advanced, ContrastTest, LinearMixed, MeansTable, Multinomial, Ordinal, SampleDescriptives,
+    SampleOptions, SamplePlan, SampleTables, Stage, Terms,
 };
 use crate::analyze_dialogs::{
     Correlations, Explore, ExploreMissing, Means, MrGroup, MultResponse, Oneway, TTest, TTestKind,
@@ -20,6 +20,7 @@ use crate::dialogs::{
     Adjust, Autorecode, Categories, Compute, Count, Crosstabs, CustomTables, Descriptives,
     Frequencies, Letters, NewValue, OldValue, Rank, Recode, RecodeRule, Subtotal,
 };
+use crate::genlin_dialog::GeneralizedLinear;
 use crate::graph_dialogs::{ChartBuilder, ChartKind, ProbabilityPlot, RocCurve};
 use crate::model_dialogs::{
     Categorical, Discriminant, FactorAnalysis, Hierarchical, KMeans, Logistic, RepeatedMeasures,
@@ -218,6 +219,10 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             ..Default::default()
         })),
         Dialog::Advanced(Advanced::Mixed(LinearMixed {
+            dependent: s("monthly_spend"),
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Genlin(GeneralizedLinear {
             dependent: s("monthly_spend"),
             ..Default::default()
         })),
@@ -842,6 +847,11 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             halvings: s("10"),
             delta: s("0.5"),
             include: true,
+            tests: vec![ContrastTest {
+                label: s("Age"),
+                // user-missing values valid: seven categories, six thresholds
+                rows: s("gender*age 1 -1 0\nINTERCEPT 1 0 0 0 0 0"),
+            }],
         })),
         Dialog::Advanced(Advanced::Multinomial(Multinomial {
             dependent: s("plan"),
@@ -851,9 +861,18 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             factors: v(&["gender"]),
             covariates: v(&["age"]),
             model: 2,
-            terms: terms(&[&["gender"], &["age"], &["gender", "age"]]),
+            terms: terms(&[&["age"]]),
+            step_terms: terms(&[&["gender"], &["gender", "age"]]),
+            step_method: 2,
+            step_rule: 1,
+            min_effects: s("1"),
+            max_effects: s("2"),
+            entry: s("0.1"),
+            removal: s("0.2"),
+            score_entry: true,
+            wald_removal: true,
             intercept: true,
-            print: [true; 11],
+            print: [true; 12],
             save: [true; 4],
             ci_level: s("90"),
             iterations: s("150"),
@@ -876,14 +895,68 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             random_subjects: v(&["region"]),
             random_covariance: 2,
             ml: true,
-            solution: true,
-            covariance_tests: true,
+            print: [true; 6],
+            means: vec![
+                MeansTable::default(),
+                MeansTable {
+                    factors: v(&["gender"]),
+                    compare: s("gender"),
+                    contrast: 2,
+                    adjustment: 2,
+                },
+            ],
+            means_at: vec![(s("age"), s("40"))],
+            tests: vec![ContrastTest {
+                label: s("Men and women"),
+                rows: s("gender 1 -1 0"),
+            }],
             save: [true; 5],
             ci_level: s("90"),
             iterations: s("150"),
             halvings: s("5"),
             residual_df: true,
             include: true,
+        })),
+        Dialog::Advanced(Advanced::Genlin(GeneralizedLinear {
+            dependent: s("q5_1"),
+            reference: 2,
+            reference_value: s("1"),
+            factors: v(&["gender", "region"]),
+            covariates: v(&["age"]),
+            distribution: 1,
+            link: 3,
+            model: 2,
+            terms: terms(&[&["gender"], &["region"], &["age"], &["gender", "age"]]),
+            intercept: true,
+            offset: s("q5_2"),
+            scale_weight: s("weight"),
+            method: 0,
+            fisher_iterations: s("3"),
+            scale: 2,
+            robust: true,
+            ci_level: s("90"),
+            iterations: s("150"),
+            halvings: s("10"),
+            convergence: s("0.0001"),
+            kernel: true,
+            analysis: 2,
+            likelihood_ratio: true,
+            print: [true; 8],
+            exponentiated: true,
+            means: vec![
+                MeansTable::default(),
+                MeansTable {
+                    factors: v(&["gender", "region"]),
+                    compare: s("region"),
+                    contrast: 6,
+                    adjustment: 4,
+                },
+            ],
+            means_at: vec![(s("age"), s("40"))],
+            transformed: true,
+            save: [true; 14],
+            include: true,
+            ..Default::default()
         })),
         Dialog::Advanced(Advanced::Plan(SamplePlan {
             path: plan.clone(),
