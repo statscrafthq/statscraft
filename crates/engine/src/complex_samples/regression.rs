@@ -22,7 +22,8 @@
 //!   by less than LCONVERGE (relative: over |l| + 1e-6), only criteria above 0 counting, or
 //!   after MXITER steps. The score is d_i = (y_i - p_i) (x) x_i over the logits, the covariance
 //!   J^- V(sum w d) J^-, J = sum w (diag p - p p') (x) x x'.
-//! - The SRS covariance of the score total is fpc N/(n - 1) sum w d d' over the design cases,
+//! - The SRS covariance of the score total is fpc N/(n - 1) sum w d d' over the design cases
+//!   (d about its weighted mean, which is 0 at a converged fit),
 //!   fpc = 1 - n/N under SRSESTIMATOR WOR (when n/N < 1) and 1 under WR; the design effect of a
 //!   parameter is its variance over its SRS variance.
 //! - df is first-stage units minus first-stage strata, or CRITERIA DF. Intervals b +- t SE.
@@ -205,8 +206,10 @@ fn padjust(method: CsPadjust, ps: &[Option<f64>], rows: &[(Vec<f64>, f64)]) -> V
                     .all(|(x, y)| (x - c * y).abs() <= 1e-10 * x.abs().max(1.0))
         })
     };
-    let r = (0..rows.len())
-        .filter(|&i| !(0..i).any(|j| multiple(&rows[i], &rows[j])))
+    // rows without a test do not count
+    let tested: Vec<usize> = (0..rows.len()).filter(|&i| ps[i].is_some()).collect();
+    let r = (0..tested.len())
+        .filter(|&a| !(0..a).any(|b| multiple(&rows[tested[a]], &rows[tested[b]])))
         .count() as f64;
     let mut out: Vec<Option<f64>> = ps.to_vec();
     match method {
@@ -858,15 +861,21 @@ impl Engine {
         // design cases
         let srs_of = |us: &[Vec<f64>]| -> Option<Matrix> {
             srs_factor.map(|f| {
+                // about the weighted mean score, which is 0 at a converged fit
                 let k = us.len();
+                let means: Vec<f64> = us
+                    .iter()
+                    .map(|u| u.iter().zip(&design.w).map(|(u, w)| u * w).sum::<f64>() / big_n)
+                    .collect();
                 let mut m = vec![vec![0.0; k]; k];
                 for (i, w) in design.w.iter().enumerate() {
+                    let centred: Vec<f64> = (0..k).map(|a| us[a][i] - means[a]).collect();
                     for a in 0..k {
-                        if us[a][i] == 0.0 {
+                        if centred[a] == 0.0 {
                             continue;
                         }
                         for b in 0..k {
-                            m[a][b] += f * w * us[a][i] * us[b][i];
+                            m[a][b] += f * w * centred[a] * centred[b];
                         }
                     }
                 }
