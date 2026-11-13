@@ -147,22 +147,37 @@ pub fn genlin(ui: &mut Ui, d: &mut GeneralizedLinear, picked: &mut Vec<String>) 
         });
     });
     egui::CollapsingHeader::new("EM means").show(ui, |ui| {
-        means_editor(
-            ui,
-            &d.factors,
-            &d.covariates,
-            &mut d.means,
-            &mut d.means_at,
-            &GENLIN_CONTRASTS,
-            &GENLIN_ADJUSTMENTS,
-        );
-        ui.checkbox(
-            &mut d.transformed,
-            "Means on the scale of the linear predictor",
-        );
+        if !d.means_allowed() {
+            ui.weak("Not available for the ordinal multinomial distribution");
+        }
+        // left enabled while tables remain, so they can be removed
+        ui.add_enabled_ui(d.means_allowed() || !d.means.is_empty(), |ui| {
+            means_editor(
+                ui,
+                &d.factors,
+                &d.covariates,
+                &mut d.means,
+                &mut d.means_at,
+                &GENLIN_CONTRASTS,
+                &GENLIN_ADJUSTMENTS,
+            );
+            ui.checkbox(
+                &mut d.transformed,
+                "Means on the scale of the linear predictor",
+            );
+        });
     });
     egui::CollapsingHeader::new("Save").show(ui, |ui| {
-        checkboxes(ui, &GENLIN_SAVE, &mut d.save);
+        let allowed = d.saves_allowed();
+        egui::Grid::new("save").num_columns(2).show(ui, |ui| {
+            for (i, ((_, label), flag)) in GENLIN_SAVE.iter().zip(&mut d.save).enumerate() {
+                // a tick stays removable after the distribution changed
+                ui.add_enabled(allowed[i] || *flag, egui::Checkbox::new(flag, *label));
+                if i % 2 == 1 {
+                    ui.end_row();
+                }
+            }
+        });
     });
     egui::CollapsingHeader::new("Missing values").show(ui, |ui| {
         ui.checkbox(&mut d.include, "User-missing values of factors are valid");

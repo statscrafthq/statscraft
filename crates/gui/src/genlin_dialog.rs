@@ -317,13 +317,30 @@ impl GeneralizedLinear {
     /// Events out of trials or one dependent; events take the binomial distribution.
     pub fn set_events(&mut self, events: bool) {
         self.events = events;
-        if events {
+        // an already binomial model keeps its link and scale
+        if events && self.kind() != D::Binomial {
             let binomial = GENLIN_DISTRIBUTIONS
                 .iter()
                 .position(|(d, _)| *d == D::Binomial)
                 .unwrap_or(1);
             self.set_distribution(binomial);
         }
+    }
+
+    /// Estimated marginal means exist for every distribution but the ordinal multinomial.
+    pub fn means_allowed(&self) -> bool {
+        self.kind() != D::Multinomial
+    }
+
+    /// Which saved variables the response and distribution give, one flag per `GENLIN_SAVE`
+    /// entry: the ordinal multinomial gives the first six only, and the predicted category needs
+    /// a categorical dependent.
+    pub fn saves_allowed(&self) -> [bool; 14] {
+        let multinomial = self.kind() == D::Multinomial;
+        std::array::from_fn(|i| match i {
+            5 => self.categorical(),
+            i => !multinomial || i < MULTINOMIAL_SAVES,
+        })
     }
 
     /// A new distribution with its own link and scale.
@@ -951,6 +968,33 @@ mod tests {
         d.set_events(false);
         assert!(!d.events);
         assert_eq!(GENLIN_DISTRIBUTIONS[d.distribution].0, D::Binomial);
+    }
+
+    #[test]
+    fn events_keep_a_binomial_link_and_scale() {
+        let mut d = GeneralizedLinear::default();
+        d.set_distribution(1);
+        d.link = 3;
+        d.scale = 2;
+        d.set_events(true);
+        assert_eq!(GENLIN_LINKS[d.link].1, "Probit");
+        assert_eq!(d.scale, 2);
+    }
+
+    #[test]
+    fn the_dialog_offers_only_what_the_model_gives() {
+        let mut d = GeneralizedLinear::default();
+        assert!(d.means_allowed());
+        // a normal response has no predicted category
+        assert_eq!(d.saves_allowed().iter().filter(|a| !**a).count(), 1);
+        assert!(!d.saves_allowed()[5]);
+        d.set_distribution(6);
+        assert!(!d.means_allowed());
+        assert_eq!(d.saves_allowed(), std::array::from_fn(|i| i < 6));
+        d.set_distribution(1);
+        assert_eq!(d.saves_allowed(), [true; 14]);
+        d.set_events(true);
+        assert!(!d.saves_allowed()[5]);
     }
 
     #[test]

@@ -259,19 +259,29 @@ fn multinomial(ui: &mut Ui, d: &mut Multinomial, picked: &mut Vec<String>) {
     egui::CollapsingHeader::new("Stepping").show(ui, |ui| {
         ui.add_enabled_ui(d.model == 2 && !d.step_terms.terms.is_empty(), |ui| {
             choice(ui, "Hierarchy rule", &NOMREG_STEP_RULES, &mut d.step_rule);
-            field(ui, "Least effects in the model", &mut d.min_effects, 50.0);
-            field(ui, "Most effects (empty: all)", &mut d.max_effects, 50.0);
-            field(ui, "Probability for entry", &mut d.entry, 50.0);
-            field(ui, "Probability for removal", &mut d.removal, 50.0);
-            ui.horizontal(|ui| {
-                ui.label("Entry test");
-                ui.radio_value(&mut d.score_entry, false, "Likelihood ratio");
-                ui.radio_value(&mut d.score_entry, true, "Score");
+            // only what the chosen method uses
+            let [least, most, entry, removal] = d.stepping_fields();
+            ui.add_enabled_ui(least, |ui| {
+                field(ui, "Least effects in the model", &mut d.min_effects, 50.0);
             });
-            ui.horizontal(|ui| {
-                ui.label("Removal test");
-                ui.radio_value(&mut d.wald_removal, false, "Likelihood ratio");
-                ui.radio_value(&mut d.wald_removal, true, "Wald");
+            ui.add_enabled_ui(most, |ui| {
+                field(ui, "Most effects (empty: all)", &mut d.max_effects, 50.0);
+            });
+            ui.add_enabled_ui(entry, |ui| {
+                field(ui, "Probability for entry", &mut d.entry, 50.0);
+                ui.horizontal(|ui| {
+                    ui.label("Entry test");
+                    ui.radio_value(&mut d.score_entry, false, "Likelihood ratio");
+                    ui.radio_value(&mut d.score_entry, true, "Score");
+                });
+            });
+            ui.add_enabled_ui(removal, |ui| {
+                field(ui, "Probability for removal", &mut d.removal, 50.0);
+                ui.horizontal(|ui| {
+                    ui.label("Removal test");
+                    ui.radio_value(&mut d.wald_removal, false, "Likelihood ratio");
+                    ui.radio_value(&mut d.wald_removal, true, "Wald");
+                });
             });
         });
     });

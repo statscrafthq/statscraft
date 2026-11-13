@@ -759,23 +759,41 @@ impl Multinomial {
     }
 
     /// The STEPWISE settings that differ from the defaults.
+    /// Which stepping settings the chosen method uses: the least effects (the backward
+    /// methods), the most effects (the forward ones), entry (all but backward elimination) and
+    /// removal (all but forward entry).
+    pub fn stepping_fields(&self) -> [bool; 4] {
+        let method = NOMREG_STEP_METHODS[self.step_method].0;
+        let backward = matches!(method, "BACKWARD" | "BSTEP");
+        [
+            backward,
+            !backward,
+            method != "BACKWARD",
+            method != "FORWARD",
+        ]
+    }
+
+    /// The STEPWISE settings the method uses that differ from the defaults.
     fn stepwise_criteria(&self) -> Result<Vec<String>, String> {
+        let [least, most, entry, removal] = self.stepping_fields();
         let mut out = Vec::new();
         if self.step_rule > 0 {
             out.push(format!("RULE({})", NOMREG_STEP_RULES[self.step_rule].0));
         }
-        let least = whole(&self.min_effects, 0, "the least number of effects")?;
-        if let Some(n) = least.filter(|n| *n > 0) {
+        if least
+            && let Some(n) = whole(&self.min_effects, 0, "the least number of effects")?
+            && n > 0
+        {
             out.push(format!("MINEFFECT({n})"));
         }
-        let most = whole(&self.max_effects, 0, "the most effects")?;
-        if let Some(n) = most {
-            if least.is_some_and(|l| l > n) {
-                return Err("the least number of effects is above the most".into());
-            }
+        if most && let Some(n) = whole(&self.max_effects, 0, "the most effects")? {
             out.push(format!("MAXEFFECT({n})"));
         }
-        for (text, keyword, default) in [(&self.entry, "PIN", 0.05), (&self.removal, "POUT", 0.1)] {
+        let probabilities = [
+            (entry, &self.entry, "PIN", 0.05),
+            (removal, &self.removal, "POUT", 0.1),
+        ];
+        for (_, text, keyword, default) in probabilities.into_iter().filter(|p| p.0) {
             let p = match text.trim() {
                 "" => default,
                 given => parse(given, "the probability for entry and removal")?,
@@ -789,10 +807,10 @@ impl Multinomial {
                 out.push(format!("{keyword}({})", number(p)));
             }
         }
-        if self.score_entry {
+        if entry && self.score_entry {
             out.push("ENTRYMETHOD(SCORE)".into());
         }
-        if self.wald_removal {
+        if removal && self.wald_removal {
             out.push("REMOVALMETHOD(WALD)".into());
         }
         Ok(out)
@@ -2416,7 +2434,7 @@ mod tests {
         assert_eq!(
             syntax,
             "NOMREG region BY gender WITH age\n  /MODEL=age | BSTEP=gender gender*age\n  \
-             /STEPWISE=RULE(CONTAINMENT) MINEFFECT(1) MAXEFFECT(2) PIN(0.1) POUT(0.2) \
+             /STEPWISE=RULE(CONTAINMENT) MINEFFECT(1) PIN(0.1) POUT(0.2) \
              ENTRYMETHOD(SCORE) REMOVALMETHOD(WALD)."
         );
         assert!(runs(&syntax) >= 3);
@@ -2427,12 +2445,6 @@ mod tests {
             "age is both a model term and a stepwise term"
         );
         d.step_terms = terms(&[&["gender"]]);
-        d.min_effects = "3".into();
-        assert_eq!(
-            d.syntax(false).unwrap_err(),
-            "the least number of effects is above the most"
-        );
-        d.min_effects = "0".into();
         d.entry = "0".into();
         assert_eq!(
             d.syntax(false).unwrap_err(),
@@ -2444,6 +2456,45 @@ mod tests {
             d.syntax(false).unwrap(),
             "NOMREG region BY gender WITH age\n  /MODEL=age."
         );
+    }
+
+    #[test]
+    fn stepping_writes_only_what_the_method_uses() {
+        let mut d = Multinomial {
+            dependent: "region".into(),
+            covariates: v(&["age"]),
+            model: 2,
+            step_terms: terms(&[&["age"]]),
+            min_effects: "1".into(),
+            max_effects: "1".into(),
+            entry: "0.2".into(),
+            removal: "0.3".into(),
+            score_entry: true,
+            wald_removal: true,
+            ..Default::default()
+        };
+        let stepwise = |d: &Multinomial| {
+            let syntax = d.syntax(false).unwrap();
+            syntax.split("/STEPWISE=").nth(1).unwrap_or("").to_string()
+        };
+        assert_eq!(stepwise(&d), "MAXEFFECT(1) PIN(0.2) ENTRYMETHOD(SCORE).");
+        d.step_method = 1;
+        assert_eq!(stepwise(&d), "MINEFFECT(1) POUT(0.3) REMOVALMETHOD(WALD).");
+        d.step_method = 2;
+        assert_eq!(
+            stepwise(&d),
+            "MAXEFFECT(1) PIN(0.2) POUT(0.3) ENTRYMETHOD(SCORE) REMOVALMETHOD(WALD)."
+        );
+        d.step_method = 3;
+        assert_eq!(
+            stepwise(&d),
+            "MINEFFECT(1) PIN(0.2) POUT(0.3) ENTRYMETHOD(SCORE) REMOVALMETHOD(WALD)."
+        );
+        // a field the method does not use is not checked either
+        d.step_method = 0;
+        d.min_effects = "x".into();
+        d.removal = "2".into();
+        assert!(d.syntax(false).is_ok());
     }
 
     #[test]
