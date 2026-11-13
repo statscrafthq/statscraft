@@ -9,15 +9,21 @@
 //! series, a base font size and the link to the embedded workbook. Nothing sets a color, so a
 //! chart takes the theme of the file it lands in.
 //!
-//! Presentation charts of the kinds bar, pie, line and area are office charts. Statistical
-//! plots (the histogram) and scatter plots are not: those go out as their data table.
+//! Presentation charts of the kinds bar, pie, line and area are office charts, and so are the
+//! error bar, drop-line and high-low charts (line charts of points) and range bars of one pair.
+//! A bar chart's line on a second axis is a line chart combined with it. Statistical
+//! plots (the histogram, the boxplot and the rest) and scatter plots are not: those go out as
+//! a picture, beside their data table on a sheet, and as their data table while their kind is
+//! not drawn.
 
 use crate::chart::{Chart, ChartKind, Grouping, Orientation, Tier};
 use crate::html::{escape, right_aligned};
+use crate::picture::{FILE_WIDTH, Paper};
 use crate::xlsx::{put_table, set_widths, sheet_name};
 use crate::{Error, Table, cell_text, header_rows};
 use rust_xlsxwriter::{
-    Chart as Drawn, ChartAxis, ChartAxisTickType, ChartType, Workbook, Worksheet, XlsxError,
+    Chart as Drawn, ChartAxis, ChartAxisTickType, ChartErrorBars, ChartErrorBarsType, ChartFormat,
+    ChartMarker, ChartRange, ChartType, Image, Workbook, Worksheet, XlsxError,
 };
 use std::fmt::Write as _;
 use std::io::{Cursor, Read, Write};
@@ -33,7 +39,7 @@ const SLIDE_TEXT: u32 = 1400;
 const PAGE_TEXT: u32 = 1000;
 
 /// One item of an exported document: a table, or a chart, which goes out as an office chart
-/// when it is one and as its data table otherwise.
+/// when it is one, as a picture when it is drawn and as its data table otherwise.
 #[derive(Clone, Copy)]
 pub enum Item<'a> {
     Table(&'a Table),
@@ -43,6 +49,42 @@ pub enum Item<'a> {
 /// Whether the chart goes to the office programs as an editable chart.
 pub fn is_office_chart(chart: &Chart) -> bool {
     chart_type(chart).is_some()
+}
+
+/// The picture of a chart that has no office form, on light paper: a PNG and its size in
+/// scene pixels, without the chart's own title unless `titled`. None for an office chart and
+/// for a kind not drawn yet.
+fn picture(chart: &Chart, titled: bool) -> Option<(Vec<u8>, f32, f32)> {
+    if is_office_chart(chart) {
+        return None;
+    }
+    let untitled;
+    let chart = match titled {
+        true => chart,
+        false => {
+            untitled = Chart {
+                title: String::new(),
+                ..chart.clone()
+            };
+            &untitled
+        }
+    };
+    let scene = crate::picture::scene(chart, FILE_WIDTH, Paper::Light)?;
+    // a picture that cannot be rendered leaves the data table in its place
+    let png = crate::picture::png(&scene, 2.0).ok()?;
+    Some((png, scene.width, scene.height))
+}
+
+/// Whether something stands beside the chart's data table on a sheet: the office chart or the
+/// picture.
+pub(crate) fn has_beside(chart: &Chart) -> bool {
+    is_office_chart(chart) || crate::picture::scene(chart, FILE_WIDTH, Paper::Light).is_some()
+}
+
+/// `(width, height)` scaled to fit in `(room_w, room_h)` EMU, keeping its shape.
+fn fit((width, height): (f32, f32), (room_w, room_h): (i64, i64)) -> (i64, i64) {
+    let scale = (room_w as f32 / width).min(room_h as f32 / height);
+    ((width * scale) as i64, (height * scale) as i64)
 }
 
 fn chart_type(chart: &Chart) -> Option<ChartType> {
@@ -64,6 +106,13 @@ fn chart_type(chart: &Chart) -> Option<ChartType> {
         (ChartKind::Area, Some(Grouping::Stacked), _) => ChartType::AreaStacked,
         (ChartKind::Area, Some(Grouping::Percent), _) => ChartType::AreaPercentStacked,
         (ChartKind::Area, ..) => ChartType::Area,
+        // points without lines: with their error bars, with a line from the lowest to the
+        // highest point, or with a bar between the two series
+        (ChartKind::ErrorBar | ChartKind::DropLine | ChartKind::HighLow, ..) => ChartType::Line,
+        (ChartKind::RangeBar, ..) if chart.series.len() == 2 => ChartType::Line,
+        // shortcut: several pairs of range bars and the difference area have no office form
+        // here and go out as pictures; office charts could stack invisible areas for them.
+        (ChartKind::RangeBar | ChartKind::Difference, ..) => return None,
         // shortcut: scatter categories are written as text, which an office scatter cannot
         // plot; write them as numbers when a command makes scatter plots.
         (ChartKind::Scatter | ChartKind::Histogram, ..) => return None,
@@ -74,6 +123,11 @@ fn chart_type(chart: &Chart) -> Option<ChartType> {
             | ChartKind::NormalQq
             | ChartKind::DetrendedNormalQq
             | ChartKind::NormalPp
+            | ChartKind::Qq
+            | ChartKind::DetrendedQq
+            | ChartKind::Pp
+            | ChartKind::DetrendedPp
+            | ChartKind::Roc
             | ChartKind::SpreadLevel
             | ChartKind::Dendrogram
             | ChartKind::Icicle
@@ -82,6 +136,27 @@ fn chart_type(chart: &Chart) -> Option<ChartType> {
             ..,
         ) => return None,
     })
+}
+
+/// For each series with error bars, in order, the column of its lengths below when they differ
+/// from those above; `from` is the first error bar column of the data table.
+fn below_columns(chart: &Chart, from: u16) -> Vec<Option<u16>> {
+    let Some(bars) = &chart.error_bars else {
+        return Vec::new();
+    };
+    let with_bars: Vec<usize> = (0..bars.margins.len())
+        .filter(|&s| !bars.margins[s].is_empty())
+        .collect();
+    let mut next = from + with_bars.len() as u16;
+    with_bars
+        .iter()
+        .map(|&s| {
+            bars.lower.get(s).filter(|l| !l.is_empty()).map(|_| {
+                next += 1;
+                next - 1
+            })
+        })
+        .collect()
 }
 
 /// The office chart of `chart` over its data table `table`, written on the sheet `sheet` from
@@ -94,15 +169,73 @@ fn drawn(
     titled: bool,
 ) -> Option<Drawn> {
     let mut drawn = Drawn::new(chart_type(chart)?);
+    // the line on the second axis, the last series, is a line chart combined with the bars
+    let mut second = Drawn::new(ChartType::Line);
     let first = top + 1 + header_rows(table).len() as u32;
     let last = first + chart.categories.len() as u32 - 1;
+    // the data table holds the half lengths of the error bars after the values, a column for
+    // each series that has bars
+    let mut margin_column = left + 1 + chart.series.len() as u16;
+    let mut below_columns = below_columns(chart, margin_column).into_iter();
+    let points = matches!(
+        chart.kind,
+        ChartKind::ErrorBar | ChartKind::DropLine | ChartKind::HighLow | ChartKind::RangeBar
+    );
     for s in 0..chart.series.len() {
         let column = left + 1 + s as u16;
-        drawn
-            .add_series()
+        let on_second = chart.second_axis.is_some() && s + 1 == chart.series.len();
+        let series = match on_second {
+            true => second.add_series().set_secondary_axis(true),
+            false => drawn.add_series(),
+        };
+        if points {
+            let mut marker = ChartMarker::new();
+            match chart.kind {
+                ChartKind::RangeBar => marker.set_none(),
+                _ => marker.set_automatic(),
+            };
+            series
+                .set_format(ChartFormat::new().set_no_line())
+                .set_marker(&marker);
+        }
+        let series = series
             .set_name((sheet, first - 1, column))
             .set_categories((sheet, first, left, last, left))
             .set_values((sheet, first, column, last, column));
+        let has_bars = chart
+            .error_bars
+            .as_ref()
+            .is_some_and(|e| e.margins.get(s).is_some_and(|m| !m.is_empty()));
+        if has_bars {
+            let range = |c: u16| ChartRange::new_from_range(sheet, first, c, last, c);
+            // a bar shorter below has its length below in a column after all the others
+            let below = below_columns.next().flatten().unwrap_or(margin_column);
+            let mut bars = ChartErrorBars::new();
+            bars.set_type(ChartErrorBarsType::Custom(
+                range(margin_column),
+                range(below),
+            ));
+            // the writer keeps the bars that fit the chart type: x for lying bars, y otherwise
+            series.set_x_error_bars(&bars).set_y_error_bars(&bars);
+            margin_column += 1;
+        }
+    }
+    match chart.kind {
+        ChartKind::DropLine | ChartKind::HighLow => {
+            drawn.set_high_low_lines(true);
+        }
+        ChartKind::RangeBar => {
+            drawn.set_up_down_bars(true);
+        }
+        _ => {}
+    }
+    if let Some(axis) = &chart.second_axis {
+        drawn.combine(&second);
+        let y2 = drawn.y2_axis();
+        y2.set_name(&axis.title);
+        if let Some(maximum) = axis.maximum {
+            y2.set_min(0.0).set_max(maximum);
+        }
     }
     if titled {
         drawn.title().set_name(&chart.title);
@@ -141,9 +274,9 @@ fn drawn(
     Some(drawn)
 }
 
-/// Writes the chart's data table from `(top, left)` like `put_table` and, when it is an
-/// office chart, the chart beside it; returns the row after both. With `titled` false the
-/// chart shows no title of its own.
+/// Writes the chart's data table from `(top, left)` like `put_table` and beside it the office
+/// chart, or the picture of a chart that has no office form; returns the row after both. With
+/// `titled` false the office chart shows no title of its own.
 pub(crate) fn put_chart(
     sheet: &mut Worksheet,
     table: &Table,
@@ -155,11 +288,18 @@ pub(crate) fn put_chart(
 ) -> Result<u32, XlsxError> {
     let end = put_table(sheet, table, (top, left), notes, widths)?;
     let name = sheet.name();
-    let Some(drawn) = drawn(chart, table, &name, (top, left), titled) else {
-        return Ok(end);
-    };
     let column = left + table.columns.len() as u16 + 1;
-    sheet.insert_chart(top + 1, column, &drawn)?;
+    if let Some(drawn) = drawn(chart, table, &name, (top, left), titled) {
+        sheet.insert_chart(top + 1, column, &drawn)?;
+    } else if let Some((png, ..)) = picture(chart, true) {
+        // in the box an office chart takes, CHART_COLUMNS by CHART_ROWS cells
+        let image = Image::new_from_buffer(&png)?
+            .set_scale_to_size(480, 288, true)
+            .set_alt_text(&chart.title);
+        sheet.insert_image(top + 1, column, &image)?;
+    } else {
+        return Ok(end);
+    }
     Ok(end.max(top + 1 + CHART_ROWS))
 }
 
@@ -302,6 +442,7 @@ const TYPE: &str = "application/vnd.openxmlformats-officedocument.";
 const XLSX_TYPE: &str = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
 /// A graphic frame's content: the chart of relationship `id`.
 const CHART_URI: &str = "http://schemas.openxmlformats.org/drawingml/2006/chart";
+const NS_PIC: &str = "http://schemas.openxmlformats.org/drawingml/2006/picture";
 const EMU_PER_INCH: i64 = 914_400;
 
 /// A relationships part: (id, type after `REL`, target).
@@ -325,7 +466,8 @@ fn content_types(overrides: &[(String, &str)]) -> String {
         "{XML}<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">\
          <Default Extension=\"rels\" ContentType=\"application/vnd.openxmlformats-package.relationships+xml\"/>\
          <Default Extension=\"xml\" ContentType=\"application/xml\"/>\
-         <Default Extension=\"xlsx\" ContentType=\"{XLSX_TYPE}\"/>"
+         <Default Extension=\"xlsx\" ContentType=\"{XLSX_TYPE}\"/>\
+         <Default Extension=\"png\" ContentType=\"image/png\"/>"
     );
     for (name, kind) in overrides {
         let _ = write!(
@@ -476,8 +618,8 @@ const MARGIN: i64 = EMU_PER_INCH / 2;
 const TITLE_HEIGHT: i64 = EMU_PER_INCH;
 
 /// A presentation with one slide per item: a table as a table, a chart as an editable chart
-/// with its workbook. With `titles` each slide has the item's title as its title, and a chart
-/// leaves out its own; with `notes` a table's caption shows below it.
+/// with its workbook or as a picture. With `titles` each slide has the item's title as its
+/// title, and a chart leaves out its own; with `notes` a table's caption shows below it.
 pub fn presentation(items: &[Item], notes: bool, titles: bool) -> Result<Vec<u8>, Error> {
     let mut parts: Vec<(String, Vec<u8>)> = Vec::new();
     let mut overrides: Vec<(String, &str)> = vec![
@@ -507,7 +649,7 @@ pub fn presentation(items: &[Item], notes: bool, titles: bool) -> Result<Vec<u8>
         ("rId3".into(), "presProps", "presProps.xml".into()),
     ];
     let mut theme = None;
-    let mut charts = 0;
+    let (mut charts, mut pictures) = (0, 0);
     for (i, item) in items.iter().enumerate() {
         let n = i + 1;
         let title = match item {
@@ -528,11 +670,32 @@ pub fn presentation(items: &[Item], notes: bool, titles: bool) -> Result<Vec<u8>
             "slideLayout",
             "../slideLayouts/slideLayout1.xml".to_string(),
         )];
-        let chart = match item {
-            Item::Chart(chart) if is_office_chart(chart) => Some(*chart),
-            _ => None,
+        let (chart, drawn) = match item {
+            Item::Chart(chart) if is_office_chart(chart) => (Some(*chart), None),
+            Item::Chart(chart) => (None, picture(chart, !titles)),
+            Item::Table(_) => (None, None),
         };
-        if let Some(chart) = chart {
+        if let Some((png, w, h)) = drawn {
+            pictures += 1;
+            let (cx, cy) = fit((w, h), (width, height));
+            let x = MARGIN + (width - cx) / 2;
+            let _ = write!(
+                shapes,
+                "<p:pic><p:nvPicPr><p:cNvPr id=\"3\" name=\"Picture 2\" descr=\"{}\"/>\
+                 <p:cNvPicPr><a:picLocks noChangeAspect=\"1\"/></p:cNvPicPr><p:nvPr/></p:nvPicPr>\
+                 <p:blipFill><a:blip r:embed=\"rId2\"/><a:stretch><a:fillRect/></a:stretch>\
+                 </p:blipFill><p:spPr><a:xfrm><a:off x=\"{x}\" y=\"{top}\"/>\
+                 <a:ext cx=\"{cx}\" cy=\"{cy}\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/>\
+                 </a:prstGeom></p:spPr></p:pic>",
+                escape(title)
+            );
+            slide_rels.push((
+                "rId2".into(),
+                "image",
+                format!("../media/image{pictures}.png"),
+            ));
+            parts.push((format!("ppt/media/image{pictures}.png"), png));
+        } else if let Some(chart) = chart {
             charts += 1;
             let Embedded { workbook, part } = embedded(chart, !titles, SLIDE_TEXT)?;
             if theme.is_none() {
@@ -792,7 +955,8 @@ fn slide_table(table: &Table, notes: bool, (x, y): (i64, i64), width: i64) -> St
 }
 
 /// A document with the items one below the other: a table as a table with its title above it
-/// and, with `notes`, its caption below; a chart as an editable chart with its workbook.
+/// and, with `notes`, its caption below; a chart as an editable chart with its workbook or as
+/// a picture.
 pub fn document(items: &[Item], notes: bool) -> Result<Vec<u8>, Error> {
     let mut body = String::new();
     let mut parts: Vec<(String, Vec<u8>)> = Vec::new();
@@ -809,17 +973,45 @@ pub fn document(items: &[Item], notes: bool) -> Result<Vec<u8>, Error> {
         )
     };
     for item in items {
+        let drawn = match item {
+            Item::Chart(chart) => picture(chart, true).map(|p| (p, chart.title.as_str())),
+            Item::Table(_) => None,
+        };
+        if let Some(((png, w, h), title)) = drawn {
+            let n = document_rels.len() + 1;
+            // six inches wide, or less for a tall picture
+            let (cx, cy) = fit((w, h), (6 * EMU_PER_INCH, 8 * EMU_PER_INCH));
+            let _ = write!(
+                body,
+                "<w:p><w:r><w:drawing><wp:inline distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\">\
+                 <wp:extent cx=\"{cx}\" cy=\"{cy}\"/><wp:effectExtent l=\"0\" t=\"0\" r=\"0\" b=\"0\"/>\
+                 <wp:docPr id=\"{n}\" name=\"Picture {n}\" descr=\"{}\"/><wp:cNvGraphicFramePr>\
+                 <a:graphicFrameLocks noChangeAspect=\"1\"/></wp:cNvGraphicFramePr><a:graphic>\
+                 <a:graphicData uri=\"{NS_PIC}\"><pic:pic xmlns:pic=\"{NS_PIC}\"><pic:nvPicPr>\
+                 <pic:cNvPr id=\"{n}\" name=\"Picture {n}\"/><pic:cNvPicPr/></pic:nvPicPr>\
+                 <pic:blipFill><a:blip r:embed=\"rId{n}\"/><a:stretch><a:fillRect/></a:stretch>\
+                 </pic:blipFill><pic:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/>\
+                 <a:ext cx=\"{cx}\" cy=\"{cy}\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/>\
+                 </a:prstGeom></pic:spPr></pic:pic></a:graphicData></a:graphic></wp:inline>\
+                 </w:drawing></w:r></w:p><w:p/>",
+                escape(title)
+            );
+            document_rels.push((format!("rId{n}"), "image", format!("media/image{n}.png")));
+            parts.push((format!("word/media/image{n}.png"), png));
+            continue;
+        }
         match item {
             Item::Chart(chart) if is_office_chart(chart) => {
                 charts += 1;
                 let Embedded { workbook, part } = embedded(chart, true, PAGE_TEXT)?;
-                let id = format!("rId{charts}");
+                let n = document_rels.len() + 1;
+                let id = format!("rId{n}");
                 let (cx, cy) = (6 * EMU_PER_INCH, 18 * EMU_PER_INCH / 5);
                 let _ = write!(
                     body,
                     "<w:p><w:r><w:drawing><wp:inline distT=\"0\" distB=\"0\" distL=\"0\" distR=\"0\">\
                      <wp:extent cx=\"{cx}\" cy=\"{cy}\"/><wp:effectExtent l=\"0\" t=\"0\" r=\"0\" b=\"0\"/>\
-                     <wp:docPr id=\"{charts}\" name=\"Chart {charts}\"/><wp:cNvGraphicFramePr/>{}\
+                     <wp:docPr id=\"{n}\" name=\"Chart {charts}\"/><wp:cNvGraphicFramePr/>{}\
                      </wp:inline></w:drawing></w:r></w:p>",
                     chart_ref(&id)
                 );

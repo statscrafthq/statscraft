@@ -26,8 +26,19 @@ zip = { version = "9.5.0", default-features = false, features = ["deflate"] }
 rust_xlsxwriter = "0.102.0"
 # MIT OR Apache-2.0; NFC for the NORMALIZE function (already built for stringprep)
 unicode-normalization = "0.1.26"
+# Apache-2.0 OR MIT; turns a chart's SVG into PNG (through tiny-skia, BSD-3-Clause). Only the
+# text feature: the bundled font is loaded by hand, so no system fonts and no raster images.
+resvg = { version = "0.50.0", default-features = false, features = ["text"] }
+# MIT OR Apache-2.0; measures text in the bundled font for the layout (already built for resvg)
+skrifa = "0.49.0"
+# MIT OR Apache-2.0; the JPG, BMP, TIF and gray PNG pictures of OUTPUT EXPORT (already built for the
+# window's clipboard; its codecs are MIT, Apache-2.0, Zlib or BSD-3-Clause)
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "bmp", "tiff"] }
+# MIT OR Apache-2.0; writes the PDF files of OUTPUT EXPORT /PDF
+pdf-writer = "0.15.0"
+# MIT OR Apache-2.0; keeps only the glyphs a PDF file uses of the bundled font it embeds
+subsetter = { version = "0.2.6", default-features = false }
+# MIT OR Apache-2.0; compresses the pages and the font of a PDF file (already built for png)
+flate2 = "1"
 
 [dev-dependencies]
-# MIT OR Apache-2.0; reads the compressed Vega-Lite schema the chart tests check against
-# (already built for zip)
-flate2 = "1"

@@ -4,6 +4,7 @@ mod aggregate;
 mod anova;
 mod autorecode;
 pub mod chart;
+mod chart_input;
 mod cluster;
 mod contrast;
 mod correlations;
@@ -26,6 +27,7 @@ mod frequencies;
 mod get_data;
 mod get_translate;
 mod glm;
+mod graph;
 mod html;
 mod input;
 pub mod live;
@@ -49,11 +51,15 @@ mod oneway;
 mod output;
 mod output_docs;
 pub mod output_file;
+pub mod output_modify;
 mod partial_corr;
 mod pass;
+pub mod pdf;
+pub mod picture;
 pub mod plot;
 mod plum;
 mod portable;
+mod pplot;
 mod print;
 mod quick_cluster;
 mod random;
@@ -63,6 +69,7 @@ mod regression;
 mod reliability;
 mod report;
 mod restructure;
+mod roc;
 mod rows;
 mod save_translate;
 pub mod session;
@@ -125,6 +132,13 @@ pub struct Table {
     pub formats: Vec<Vec<String>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub caption: Option<String>,
+    /// The label in the window's outline when OUTPUT MODIFY gave one; else the title shows.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub outline: Option<String>,
+    /// Hidden by OUTPUT MODIFY: kept in the document and its file, left out of the window's
+    /// pages and of OUTPUT EXPORT with CONTENTS EXPORT=VISIBLE.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hidden: bool,
 }
 
 impl Table {
@@ -330,6 +344,8 @@ pub struct Engine {
     documents: output_docs::Documents,
     /// See `error_position`.
     error_at: Option<(u32, u32)>,
+    /// The specifications of the last PPLOT, for PPLOT APPLY.
+    pplot_model: Option<Box<statscraft_syntax::Pplot>>,
 }
 
 impl Engine {
@@ -645,11 +661,14 @@ impl Engine {
             | Command::Logistic(_)
             | Command::Nomreg(_)
             | Command::Plum(_)
+            | Command::Pplot(_)
+            | Command::Roc(_)
             | Command::Glm(_)
             | Command::Cluster(_)
             | Command::Discriminant(_)
             | Command::Anova(_)
             | Command::Tree(_)
+            | Command::Graph(_)
             | Command::Report(_)
             | Command::Rank(_)
             | Command::Aggregate(_) => return self.procedure(command),
@@ -769,6 +788,10 @@ impl Engine {
                 }
             }
             Command::BeginData(lines) => return self.begin_data(lines),
+            Command::BeginChart(lines) => {
+                let chart = chart_input::read(lines).map_err(Error)?;
+                self.charts.push(chart);
+            }
             Command::Output(output) => return self.output_command(output),
             Command::Finish => {}
             Command::EndCase => self.end_case()?,
@@ -866,11 +889,14 @@ impl Engine {
             Command::Logistic(command) => self.logistic(command),
             Command::Nomreg(command) => self.nomreg(command),
             Command::Plum(command) => self.plum(command),
+            Command::Pplot(command) => self.pplot(command),
+            Command::Roc(command) => self.roc(command),
             Command::Glm(command) => self.glm(command),
             Command::Cluster(command) => self.cluster(command),
             Command::Discriminant(command) => self.discriminant(command),
             Command::Anova(command) => self.anova(command),
             Command::Tree(command) => self.tree(command),
+            Command::Graph(command) => self.graph(command),
             Command::Report(command) => self.report(command),
             Command::Rank(command) => self.rank(command),
             Command::Aggregate(command) => self.aggregate(command).map(|()| Vec::new()),

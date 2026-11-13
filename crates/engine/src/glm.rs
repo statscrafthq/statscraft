@@ -970,14 +970,7 @@ impl Engine {
                 &label_of,
                 &mut warnings,
             )?);
-            let charts = plots(
-                command,
-                &d,
-                &fit,
-                &dependent_texts[0],
-                &label_of,
-                &mut warnings,
-            )?;
+            let charts = plots(command, &d, &fit, &dependent_texts[0], &label_of)?;
             self.charts.extend(charts);
             if !command.save.is_empty() {
                 self.save_glm(command, &d, &fit, &dependents[0], cases)?;
@@ -1904,14 +1897,18 @@ fn plots(
     fit: &Fit,
     dependent: &str,
     label_of: &dyn Fn(usize, usize) -> String,
-    warnings: &mut Vec<String>,
 ) -> Result<Vec<Chart>, Error> {
     let mut charts = Vec::new();
     for plot in &command.plots {
         match plot {
             GlmPlot::Profile(profile) => {
                 charts.extend(profile_plots(
-                    d, fit, profile, dependent, label_of, warnings,
+                    d,
+                    fit,
+                    profile,
+                    dependent,
+                    label_of,
+                    command.alpha,
                 )?);
             }
             GlmPlot::SpreadLevel => charts.extend(spread_level(d, dependent, label_of)),
@@ -1921,23 +1918,41 @@ fn plots(
     Ok(charts)
 }
 
+/// The estimated marginal mean l'b with its standard error from the error mean square and
+/// l'G l; None when l is not estimable.
+fn emmean(fit: &Fit, h: &Matrix, l: &[f64]) -> Option<(f64, f64)> {
+    let mse = fit.s[0][0] / fit.df_error();
+    fit.estimable(l, h).then(|| {
+        let m: f64 = l.iter().zip(&fit.b).map(|(a, b)| a * b[0]).sum();
+        let v: f64 = (0..fit.p)
+            .map(|i| {
+                (0..fit.p)
+                    .map(|j| l[i] * fit.ginv[i][j] * l[j])
+                    .sum::<f64>()
+            })
+            .sum();
+        (m, (mse * v).sqrt())
+    })
+}
+
 /// PROFILE: the estimated marginal means along the levels of the first factor, a line for
 /// each level of the second and a chart for each level of the third; covariates at their
-/// means or the WITH values. A mean that is not estimable has no value.
+/// means or the WITH values. A mean that is not estimable has no value. ERRORBAR puts a bar
+/// around each mean: the confidence interval at 1 - `alpha` (the t quantile on the error
+/// degrees of freedom times the standard error) or a number of standard errors on each side;
+/// the grand mean line has none.
 fn profile_plots(
     d: &Data,
     fit: &Fit,
     profile: &Profile,
     dependent: &str,
     label_of: &dyn Fn(usize, usize) -> String,
-    warnings: &mut Vec<String>,
+    alpha: f64,
 ) -> Result<Vec<Chart>, Error> {
-    use crate::chart::{Axis, Category, ChartKind, Series, Statistic};
+    use crate::chart::{Axis, Category, ChartKind, ErrorBars, Series, Statistic};
+    use statscraft_syntax::ErrorBar;
     let h = fit.h();
-    let mean_of = |l: &[f64]| match fit.estimable(l, &h) {
-        true => l.iter().zip(&fit.b).map(|(a, b)| a * b[0]).sum::<f64>(),
-        false => f64::NAN,
-    };
+    let mean_of = |l: &[f64]| emmean(fit, &h, l).unwrap_or((f64::NAN, f64::NAN));
     let factors: Vec<usize> = profile
         .factors
         .iter()
@@ -1951,11 +1966,14 @@ fn profile_plots(
     if factors.len() > 3 {
         return Err(Error("PLOT PROFILE crosses at most three factors".into()));
     }
-    if profile.error_bars {
-        warnings.push(
-            "PLOT PROFILE: error bars are not drawn yet; the chart has the means only".into(),
-        );
-    }
+    // the bars' label and how many standard errors they reach on each side
+    let bars = profile.error_bar.map(|e| match e {
+        ErrorBar::Ci => (
+            format!("{} CI", percent_title(alpha)),
+            t_quantile(alpha / 2.0, fit.df_error()),
+        ),
+        ErrorBar::Se(times) => (format!("{times} SE"), times),
+    });
     let with = covariate_values(d, &profile.with, "PLOT PROFILE")?;
     let mut notes = vec![format!("Dependent variable: {dependent}")];
     if !d.covariates.is_empty() {
@@ -1970,9 +1988,12 @@ fn profile_plots(
             .collect();
         notes.push(format!("Covariates at {}", at.join(", ")));
     }
+    if let Some((label, _)) = &bars {
+        notes.push(format!("Error bars: {label}"));
+    }
     let grand = profile
         .mean_reference
-        .then(|| mean_of(&emmeans_l(d, fit, &[], &with)));
+        .then(|| mean_of(&emmeans_l(d, fit, &[], &with)).0);
     let levels = |k: usize| factors.get(k).map_or(1, |&f| d.values[f].len());
     let f0 = factors[0];
     let categories: Vec<Category> = (0..levels(0))
@@ -1985,15 +2006,19 @@ fn profile_plots(
         .collect();
     let mut charts = Vec::new();
     for panel in 0..levels(2) {
+        let mut margins = Vec::new();
         let mut series: Vec<Series> = (0..levels(1))
             .map(|line| {
-                let values = (0..levels(0))
+                let (values, se): (Vec<f64>, Vec<f64>) = (0..levels(0))
                     .map(|l| {
                         let fixed: Vec<(usize, usize)> =
                             factors.iter().copied().zip([l, line, panel]).collect();
                         mean_of(&emmeans_l(d, fit, &fixed, &with))
                     })
-                    .collect();
+                    .unzip();
+                if let Some((_, times)) = &bars {
+                    margins.push(se.iter().map(|s| times * s).collect());
+                }
                 match factors.get(1) {
                     Some(&f1) => Series {
                         name: label_of(f1, line),
@@ -2020,6 +2045,8 @@ fn profile_plots(
                 value: Cell::Empty,
                 values: vec![g; levels(0)],
             });
+            // a reference line: no bars
+            margins.push(Vec::new());
         }
         let mut title = format!("Estimated marginal means of {dependent}");
         if let Some(&f2) = factors.get(2) {
@@ -2045,6 +2072,11 @@ fn profile_plots(
         if let Some(&f1) = factors.get(1) {
             chart.legend = Some(d.factor_texts[f1].clone());
         }
+        chart.error_bars = bars.as_ref().map(|(label, _)| ErrorBars {
+            label: label.clone(),
+            margins,
+            lower: Vec::new(),
+        });
         chart.footnote = Some(notes.join(". "));
         charts.push(chart);
     }
@@ -2183,7 +2215,6 @@ fn emmeans_tables(
         .map(|n| find(n))
         .collect::<Result<_, _>>()?;
     let with = covariate_values(d, &e.with, "EMMEANS")?;
-    let mse = fit.s[0][0] / fit.df_error();
     let dfe = fit.df_error();
     let tc = t_quantile(command.alpha / 2.0, dfe);
     let level = percent_title(command.alpha);
@@ -2201,19 +2232,7 @@ fn emmeans_tables(
             emmeans_l(d, fit, &fixed, &with)
         })
         .collect();
-    let mean_of = |l: &[f64]| -> Option<(f64, f64)> {
-        fit.estimable(l, h).then(|| {
-            let m: f64 = l.iter().zip(&fit.b).map(|(a, b)| a * b[0]).sum();
-            let v: f64 = (0..fit.p)
-                .map(|i| {
-                    (0..fit.p)
-                        .map(|j| l[i] * fit.ginv[i][j] * l[j])
-                        .sum::<f64>()
-                })
-                .sum();
-            (m, (mse * v).sqrt())
-        })
-    };
+    let mean_of = |l: &[f64]| emmean(fit, h, l);
     let mut columns: Vec<(String, String)> = factors
         .iter()
         .map(|&f| (String::new(), d.factor_texts[f].clone()))

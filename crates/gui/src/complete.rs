@@ -392,8 +392,10 @@ mod tests {
         // the body of a command and a line end are no name
         assert!(command_at_byte(text, 10).is_none());
         assert!(command_at_byte(text, 17).is_none());
-        // recognised but unsupported commands have no card
-        assert!(command_at_byte("GRAPH x.", 1).is_none());
+        assert_eq!(
+            command_at_byte("OUTPUT MODIFY x.", 1).unwrap().name,
+            "OUTPUT MODIFY"
+        );
     }
 
     #[test]

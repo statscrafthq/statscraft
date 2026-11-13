@@ -93,6 +93,10 @@ pub struct CommandResult {
     /// to show. Agents read the file itself, so it is not in the JSON.
     #[serde(skip)]
     pub opened: Option<(String, Vec<crate::output_file::Item>)>,
+    /// OUTPUT MODIFY: per document the items that changed or went, for the window and for
+    /// agents that follow the document.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub modified: Vec<crate::output_modify::Modified>,
 }
 
 /// Lines `first` to `last` (from 1, inclusive) of a source: the syntax of one command.
@@ -150,6 +154,22 @@ impl RunResult {
                 if vega_lite {
                     let spec = serde_json::to_string_pretty(&chart.vega_lite());
                     let _ = writeln!(out, "```json\n{}\n```\n", spec.expect("plain data"));
+                }
+            }
+            // OUTPUT MODIFY: the items as they are now, by their place in the document
+            for document in &command.modified {
+                for item in &document.items {
+                    let place = format!("{}, item {}", document.document, item.position + 1);
+                    match item.table.as_ref().filter(|_| !item.deleted) {
+                        Some(table) => {
+                            let hidden = if table.hidden { " (hidden)" } else { "" };
+                            let _ = writeln!(out, "changed in {place}{hidden}:\n");
+                            markdown(&mut out, table);
+                        }
+                        None => {
+                            let _ = writeln!(out, "deleted from {place}\n");
+                        }
+                    }
                 }
             }
             for warning in &command.warnings {
@@ -843,6 +863,7 @@ fn run(
             warnings: engine.warnings().to_vec(),
             document,
             opened,
+            modified: engine.take_modified(),
         });
     }
     engine

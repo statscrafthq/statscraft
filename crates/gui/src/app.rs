@@ -949,6 +949,7 @@ impl App {
         match result.map(|r| r.commands) {
             Ok(outputs) => {
                 let mut shown = None;
+                follow_modified(&mut self.windows, &outputs);
                 for (document, label, commands) in output_groups(outputs, &self.source, from_editor)
                 {
                     let label = label.as_deref().unwrap_or(origin);
@@ -1394,6 +1395,13 @@ impl App {
                     && let Some(id) = output
                 {
                     self.export_html(id, false);
+                }
+                if ui
+                    .add_enabled(has_output, egui::Button::new("Export output as PDF..."))
+                    .clicked()
+                    && let Some(id) = output
+                {
+                    self.export_pdf(id);
                 }
                 ui.add_enabled_ui(has_output, |ui| {
                     ui.menu_button("Export output as Excel", |ui| {
@@ -2077,6 +2085,24 @@ impl App {
             let chosen = &view.selected;
             let page = output::html(&view.runs, |id| !selected || chosen.contains(&id));
             self.status = match std::fs::write(&path, page) {
+                Ok(()) => Ok(format!("output exported to {}", path.display())),
+                Err(e) => Err(format!("{}: {e}", path.display())),
+            };
+        }
+    }
+
+    fn export_pdf(&mut self, id: WindowId) {
+        if let Some(path) = self
+            .file_dialog()
+            .add_filter("PDF document", &["pdf"])
+            .save_file()
+        {
+            self.settings.remember_folder(&path);
+            let Some(view) = self.windows.output(id).map(|o| &o.view) else {
+                return;
+            };
+            let bytes = output::pdf(&view.runs, |_| true);
+            self.status = match std::fs::write(&path, bytes) {
                 Ok(()) => Ok(format!("output exported to {}", path.display())),
                 Err(e) => Err(format!("{}: {e}", path.display())),
             };
@@ -3832,6 +3858,17 @@ fn output_groups(outputs: Vec<CommandResult>, source: &str, from_editor: bool) -
         }
     }
     groups
+}
+
+/// The output windows follow what OUTPUT MODIFY changed in their documents.
+fn follow_modified(windows: &mut Registry, outputs: &[CommandResult]) {
+    for modified in outputs.iter().flat_map(|out| &out.modified) {
+        if let Some(id) = windows.with_document(&modified.document)
+            && let Some(window) = windows.output_mut(id)
+        {
+            window.view.apply_modified(&modified.items);
+        }
+    }
 }
 
 fn output_document(session: &Session, name: &str) -> Option<statscraft_engine::OutputDocument> {
@@ -6336,6 +6373,7 @@ mod tests {
         let show = |session: &mut Session, r: &mut Registry, syntax: &str| {
             let out = session.run(syntax, None).unwrap().commands;
             follow(r, session, None);
+            follow_modified(r, &out);
             for (document, label, commands) in output_groups(out, syntax, false) {
                 let id = output_window(r, document.as_deref()).unwrap();
                 let view = &mut r.output_mut(id).unwrap().view;
@@ -6395,6 +6433,19 @@ mod tests {
         assert!(labels[0].ends_with("a.scout"), "{labels:?}");
         assert!(labels[1].ends_with("window"), "{labels:?}");
         assert_eq!(window.view.runs[0].items[0].heading, "FREQUENCIES");
+        // OUTPUT MODIFY changes the window as it changes the document
+        show(
+            &mut session,
+            &mut r,
+            "OUTPUT MODIFY NAME=Document1 /SELECT TABLES /IF COMMANDS=[LAST] \
+             /DELETEOBJECT DELETE=YES\n/SELECT TABLES /TABLE TABLETITLE='T)INDEX'\n\
+             /SELECT HEADINGS /IF COMMANDS=['frequencies'] /OBJECTPROPERTIES OUTLINELABEL='First'.",
+        );
+        let changed = titles(&session, &r, "Document1");
+        assert!(changed.len() < left.len(), "{changed:?}");
+        assert_eq!(changed[0], "T1");
+        let window = r.output(r.with_document("Document1").unwrap()).unwrap();
+        assert_eq!(window.view.runs[0].items[0].heading, "First");
         // Clear output deletes everything from both
         let window = r.output_mut(r.with_document("again").unwrap()).unwrap();
         window.view.selected = output::tables(&window.view.runs).map(|t| t.id).collect();
@@ -6440,6 +6491,7 @@ mod tests {
                 warnings: Vec::new(),
                 document: None,
                 opened: None,
+                modified: Vec::new(),
             };
             names.iter().map(command).collect()
         };

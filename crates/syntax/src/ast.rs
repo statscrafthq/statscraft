@@ -73,11 +73,14 @@ pub enum Command {
     Logistic(Box<crate::logistic::Logistic>),
     Nomreg(Box<crate::nomreg::Nomreg>),
     Plum(Box<crate::plum::Plum>),
+    Pplot(Box<crate::pplot::Pplot>),
+    Roc(Box<crate::pplot::Roc>),
     Glm(Box<crate::glm::Glm>),
     Cluster(Box<crate::cluster::Cluster>),
     Discriminant(Box<crate::discriminant::Discriminant>),
     Anova(Box<crate::anova::Anova>),
     Tree(Box<Tree>),
+    Graph(Box<crate::graph::Graph>),
     Rank(Rank),
     AddFiles(Merge),
     MatchFiles(Merge),
@@ -85,6 +88,9 @@ pub enum Command {
     DataList(DataList),
     /// The lines between BEGIN DATA and END DATA, each with its line number in the source.
     BeginData(Vec<(u32, String)>),
+    /// The JSON lines between BEGIN CHART and END CHART (a Statscraft extension), each with
+    /// its line number.
+    BeginChart(Vec<(u32, String)>),
     InputProgram,
     EndInputProgram,
     EndCase,

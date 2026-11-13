@@ -510,7 +510,7 @@ Where the documentation is silent:
 - With WSFACTOR, the Tests of Between-Subjects Effects analyze the sum of the measures over the root of their number, the averaged tests use orthonormal polynomial contrasts whatever the contrast type, and the contrast type shapes the Tests of Within-Subjects Contrasts.
 - Saved variables are F11.5 scale variables named PRE_1, RES_1 and so on.
 - A nested effect such as a(b) shows as DESIGN writes it, and parameter names such as [a=1] keep names and values.
-- Plots come as chart data. A profile plot is a line chart (TYPE=BAR: a bar chart) of the estimated marginal means as EMMEANS computes them, with WITH fixing covariates for every crossing of that PROFILE list; a mean that is not estimable has no value. MEANREFERENCE draws the grand mean (the estimated marginal mean of the whole model at the same covariate values) as a flat line. Error bars are not drawn yet (a warning says so) and YAXIS is left to the drawing.
+- Plots come as chart data. A profile plot is a line chart (TYPE=BAR: a bar chart) of the estimated marginal means as EMMEANS computes them, with WITH fixing covariates for every crossing of that PROFILE list; a mean that is not estimable has no value. MEANREFERENCE draws the grand mean (the estimated marginal mean of the whole model at the same covariate values) as a flat line. Error bars use the standard error of each estimated marginal mean, the same one the EMMEANS table shows: CI reaches the t quantile at 1 minus ALPHA/2 on the error degrees of freedom times it on each side, SE(n) reaches n times it. A mean that is not estimable has no bar, and neither has the grand mean line. YAXIS is left to the drawing.
 - SPREADLEVEL plots the cells of all factors that hold more than one case (frequency weights, as in the descriptive statistics), the mean against the standard deviation and the mean against the variance, each cell labeled. RESIDUALS gives one point per case: the predicted value across, the observed value up and the standardized residual (the residual over the root of the error mean square divided by the REGWGT weight) as the third coordinate, from which the matrix of the three pairs is drawn.
 - PLOT with WSFACTOR is ignored with a warning.
 
@@ -589,7 +589,7 @@ Where the documentation is silent:
 - The stepwise tables are Variables Entered/Removed (with the criterion after each step), Wilks' Lambda with Rao's F, and the variables in and not in the analysis at every step.
 - PLOT comes as chart data and a table. COMBINED and SEPARATE plot the classified cases (ungrouped ones in a group of their own on the combined plot) on the first two functions, with the group centroids labeled; with one function they are histograms of the scores. Weighted cases are plotted once each.
 - CASES lists the classified cases in file order in Casewise Statistics. The significance of the highest group is that of its squared distance under chi-square with as many df as functions. A misclassified case has ** after its predicted group. There are no cross-validated rows yet.
-- MAP gives each group's territory as a convex polygon: the points of the plane of the first two functions where the group has the highest ln(prior) minus half the squared distance to its centroid. The polygons fill a box around the plotted cases and centroids, widened by 1 on each side. Beyond two functions the map ignores the others, so a case may lie outside the territory of the group it is classified into. With CLASSIFY=SEPARATE, or with one function, there is no map, with a warning.
+- MAP gives each group's territory as a convex polygon: the points of the plane of the first two functions where the group has the highest ln(prior) minus half the squared distance to its centroid. The polygons fill a box around the plotted cases and centroids, widened by 1 on each side. Beyond two functions the map ignores the others, so a case may lie outside the territory of the group it is classified into. With CLASSIFY=SEPARATE, or with one function, there is no map, with a warning. The window and `--charts` draw each territory as a tinted polygon outlined in its color, with each centroid as a dot labeled with its group; the office files hold the map as its data table.
 
 ### TREE
 
@@ -605,6 +605,48 @@ Where the documentation is silent:
 - The case processing summary counts weighted cases.
 - The tree diagram comes as chart data with the statistics of every node; its orientation (DISPLAY) and NODES are not kept.
 - PLOT GAIN, RESPONSE and INDEX come as line charts, one chart per keyword with one line per TARGET category, over the cumulative percentile groups of INCREMENT. The terminal nodes take the order of the gain tables (SORT), and the node that holds a cut counts in proportion to its part below the cut. Without a TARGET category there is no chart, with a warning.
+
+### GRAPH
+
+- BAR, LINE, PIE, ERRORBAR, PARETO, HILO, HISTOGRAM and SCATTERPLOT (BIVARIATE, OVERLAY, MATRIX and XYZ, with a control variable and point labels) make one chart, as data and as a picture like the charts of the procedures. The chart's layout follows the function specification; a SIMPLE or GROUPED keyword that does not fit it changes nothing, as the manual says. Several areas stack.
+- Categories ascend by value. With MISSING=REPORT the categories of missing values come after the valid ones, user-missing values first and system-missing last.
+- PCT is a share of all cases in the chart. CUFREQ, CUSUM and CUPCT add up along the categories within each series, and CUPCT is a share of that series' total, so each series ends at 100.
+- MEDIAN and PTILE use (W + 1) p as FREQUENCIES does. MODE shows the smallest of tied values. GMEDIAN treats the values as group midpoints.
+- Weights count in every function. VALUE and SCATTERPLOT draw each case once, unweighted, and leave out cases whose weight is zero, negative or missing.
+- Without TITLE the chart is named after what it shows (for example "Mean of price by region"), so the output has a name for it; a two-line title or footnote becomes one line. With SPLIT FILE the group goes in the title, as for the other charts. A histogram keeps its line with the mean, standard deviation and N after a FOOTNOTE.
+- The limit of 3000 categories is checked; a chart with a single category is drawn.
+- ERRORBAR accepts SE as another name for STERROR, as INTERVAL spells it, and the number in parentheses as well as after the keyword. A category whose cases weigh 1 or less in total shows its mean without a bar.
+- PARETO: categories with equal totals keep their order by value. NOCUM leaves out the right axis together with the line, although the manual keeps the axis; the axis means nothing without the line.
+- BAR(RANGE), LINE(DROP), LINE(DIFFERENCE) and HILO take their series as the ends of the ranges and check that their number fits: pairs for RANGE, two or more for DROP, two for DIFFERENCE, two or three for HILO.
+- PANEL draws a separate chart for each combination of the panel categories, named in its title, not a grid of panels sharing axes; each chart scales its own axes. A combination without cases gets no chart, so CROSS and NEST give the same charts. A case missing on a panel variable is left out unless MISSING=REPORT. A panel whose chart cannot be made gives a warning and the others are drawn.
+- SCATTERPLOT: the variables decide the kind of plot, as the function specification does for bars, whatever keyword is given. In an overlay the variables before WITH run across and those after it up, as in a single plot; each pair is a group named "y by x", and an axis of several variables is titled by them all and shows the format with the most decimals. LISTWISE leaves out a case missing on any variable of the plot; VARIABLE keeps it in every pair, or every cell of a matrix, where both values are valid.
+- The scatterplot matrix is one chart: a square cell for each pair, the column's variable across and the row's up, the variable names on the diagonal. A case needs valid values on two of the variables.
+- A scatterplot with three axes (XYZ) is not drawn yet: it shows as the table of its points, with a footnote that says so. Vega-Lite draws its first two axes.
+- INTERVAL adds error bars to simple and clustered bar and line charts of MEAN (CI, SE and STDDEV, computed as for ERRORBAR) and of MEDIAN (CI only). The median's interval comes from interpolated order statistics, so its ends need not lie at the same distance; it needs whole case weights. Counts, percentages and the other functions give an error, as do stacked bars and areas: the documented formulas cover means and medians only.
+- In the office files a difference area chart, and range bars with more than one pair, go in as pictures; drop-line and high-low charts are line charts of points with high-low lines, error bar charts line charts of points with custom error bars, side by side only in the picture and in Vega-Lite.
+- Not supported yet, each with an error: TEMPLATE, HILO with more than three series (GROUPED), and INTERVAL around counts, percentages and functions other than MEAN and MEDIAN.
+
+### PPLOT
+
+- The plots come as chart data and pictures, one per variable and kind: Q-Q (observed value against the expected quantile, both in data units) or P-P (observed against expected cumulative proportion), each with the line y = x, and their detrended forms with the line y = 0. The points are listed by observed value.
+- Case weights are not used; the Case Processing Summary says so when a weight is set.
+- The half-normal scale is estimated as the square root of the mean square (maximum likelihood), not of the sum of squares.
+- The exponential parameter and the second gamma parameter are rates (1 / mean and mean / S^2), as the estimates and the CDF functions of transformations take them; the tables call them Rate.
+- Lognormal, Pareto and Weibull estimates take logs, so they need positive values; with parameters given, values of 0 are allowed. Values a distribution cannot take, and a series whose parameters cannot be estimated (one that does not vary), leave the variable out with a warning.
+- SDIFF without PERIOD is left out with a warning: there is no TSET, and DATE keeps no periodicity for it.
+- Not supported yet: APPLY of a named model (APPLY alone uses the previous PPLOT) and TEMPLATE, each with an error.
+
+### ROC
+
+- Weights count cases in every statistic, not only in the Case Processing Summary, and need not be whole numbers.
+- The Case Processing Summary adds a Missing row: the weighted cases left out because the state or any test variable is missing.
+- The confidence interval is two-sided at the CI level. The interval is not cut at 0 or 1.
+- With TESTPOS(SMALL) and DISTRIBUTION(NEGEXPO), the bi-negative exponential error is computed from the area in the larger-is-positive direction and kept for the turned area, as the formulas give it.
+- The curves of all test variables share one chart; the points are joined in order from (0, 0) to (1, 1). PLOT=CURVE draws no diagonal unless REFERENCE is given. PRINT=SE(MODELQUALITY) adds a horizontal bar chart of the lower bounds of the intervals, cut at 0.
+
+Where GNU PSPP differs:
+
+- Its interval uses the one-sided normal quantile (at 90 percent its interval is that of 80 percent) and its coordinates table misses some cutoffs; the area, the standard error and the significance agree.
 
 ## Custom tables and multiple response
 
@@ -669,7 +711,10 @@ Significance tests:
 
 - **Beyond the documentation:** OUTPUT EXPORT takes /CSV DOCUMENTFILE='file' [NOTESCAPTIONS=YES | NO], a Statscraft addition: each table as comma-separated values after its title, a blank line between tables.
 - /DOC and /PPT write the current Word and PowerPoint formats (.docx, .pptx), whatever the file is called, on every system and without the office programs installed. A table becomes a Word table or a slide with a table; a bar, pie, line or area chart becomes an editable chart with its workbook inside, in the document's theme. PAGESIZE, SLIDESIZE, the margins, WIDETABLES and PAGEBREAKS are accepted and not applied.
-- /XLSX puts a chart beside its data table as an editable chart. HTML, TEXT and CSV show a chart as its data table.
+- /XLSX puts a chart beside its data table as an editable chart. A statistical plot (histogram, boxplot, Q-Q plot, dendrogram and the rest) has no editable form: /XLSX puts its picture beside the data table, and /DOC and /PPT hold the picture alone.
+- HTML holds each chart inside the page as a picture (a data URL), so the page stays one file; IMAGEFORMAT picks JPG (the default), BMP or PNG. TEXT writes each chart as a picture file in the text's folder, named after the text file with a number from 0, and puts the chart's title and the file name where the chart stands. CSV shows a chart as its data table.
+- The image subcommands /PNG, /JPG, /BMP and /TIF write one file per chart, IMAGEROOT followed by 0, 1, 2 and so on, when no document subcommand is given; each one given writes its own set. With a document subcommand IMAGEROOT is not used, and the image subcommand of the format in use sets the size and colors of the pictures in that document. Pictures are on white paper; PERCENTSIZE=100 is the 1280 pixel wide PNG that `statscraft run --charts` writes. DEPTH=COLORS16 and COLORS256 keep full color, and COMPRESS=YES writes an uncompressed BMP.
+- /EMF and /EPS, and IMAGEFORMAT=EMF or EPS on TEXT, are accepted, but the pictures are not written yet: a warning, and the charts go out as their data tables. A chart kind that is not drawn yet (a stem-and-leaf display, a plot in three dimensions) also stays a data table and gets no picture file.
 - Documents are named Document1, Document2 and so on.
 - In the JSON of a run, each command names the document its tables went to (`commands[].document`), and `describe` lists the open documents and the designated one, with the file of each and whether it holds unsaved output.
 
@@ -687,6 +732,10 @@ Significance tests:
 - CREATESHEET and MODIFYSHEET add only to a workbook that OUTPUT EXPORT wrote in the same session and that has not changed since, because the whole workbook is written again and what Statscraft did not write (formulas, charts, formatting) would be lost. Other workbooks are refused with an error.
 - ENCODING=LOCALE writes UTF-8.
 - In TEXT, the columns are as wide as their widest cell (COLUMNWIDTH=n wraps at n characters) and numbers align right.
+
+### BEGIN CHART
+
+- **Beyond the documentation:** BEGIN CHART and END CHART are a Statscraft extension, not a command of the language. The JSON lines between them are a chart that joins the designated output document like a procedure's chart. See [BEGIN CHART](commands/begin-chart.md) and [Charts as input](command-line.md#charts-as-input).
 
 ### PRINT and WRITE
 
@@ -767,7 +816,7 @@ Where the documentation is silent:
   - LOGISTIC REGRESSION has no SELECT or OUTFILE.
   - NOMREG has no stepwise methods, TEST, OUTFILE, or PRINT CELLPROB, HISTORY and ASSOCIATION.
   - PLUM has no TEST.
-  - UNIANOVA and GLM have no multivariate model (GLM with several dependents without WSFACTOR), RANDOM, TEST, ROBUST, OUTFILE, MMATRIX, MEASURE, POSTHOC VS, CONTRAST SPECIAL or the heteroskedasticity tests, and draw no error bars on profile plots. With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX, SAVE or PLOT.
+  - UNIANOVA and GLM have no multivariate model (GLM with several dependents without WSFACTOR), RANDOM, TEST, ROBUST, OUTFILE, MMATRIX, MEASURE, POSTHOC VS, CONTRAST SPECIAL or the heteroskedasticity tests. With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX, SAVE or PLOT.
   - FACTOR has no METHOD=COVARIANCE, MATRIX=OUT or MATRIX=IN(FAC=...).
   - CLUSTER has no MATRIX=OUT.
   - DISCRIMINANT has no ROTATE=COEFF or STRUCTURE, MATRIX or OUTFILE, and no cross-validated rows in the casewise listing.
@@ -778,13 +827,15 @@ Where the documentation is silent:
   - FILE HANDLE refuses MODE=BINARY, MULTIPUNCH, IMAGE and 360, since only text and data files are read.
 - **Expression functions.** APPLYMODEL and STRAPPLYMODEL, which need MODEL HANDLE. NUMBER reads the formats DATA LIST reads (F, N, E, COMMA, DOT, DOLLAR, PCT, DATE, ADATE, EDATE and SDATE). STRING writes the number, date and time formats, but not the custom currencies CCA to CCE.
 - **Transformations.** PRINT and WRITE have no binary formats (P, PK, IB, PIB, PIBHEX, RB, RBHEX, Z). DATA LIST reads only F, N, E, COMMA, DOT, DOLLAR, PCT, A, DATE, ADATE, EDATE and SDATE, and only UTF-8 files. Commands such as VALUE LABELS cannot stand inside LOOP. AUTORECODE has no templates.
-- **Charts.** FREQUENCIES, CROSSTABS, EXAMINE, ONEWAY, REGRESSION, LOGISTIC REGRESSION, UNIANOVA, GLM, DISCRIMINANT, FACTOR, CLUSTER and TREE give their charts as data (`--json` gives each chart's description and `--vega-lite` a Vega-Lite specification), and the window and `statscraft run --charts` draw them. The text output shows each chart's numbers as a table. A stem-and-leaf display, a plot in three dimensions and the DISCRIMINANT territorial map are not drawn yet and show as their data table. Workbooks, Word documents and presentations hold the bar, pie and line charts (the means, scree, profile and gain charts among them) as editable charts and the statistical plots as their data tables.
+- **Charts.** GRAPH (see [GRAPH](#graph) for the parts not supported yet), FREQUENCIES, CROSSTABS, EXAMINE, ONEWAY, REGRESSION, LOGISTIC REGRESSION, UNIANOVA, GLM, DISCRIMINANT, FACTOR, CLUSTER and TREE give their charts as data (`--json` gives each chart's description and `--vega-lite` a Vega-Lite specification), and the window and `statscraft run --charts` draw them. The text output shows each chart's numbers as a table. A stem-and-leaf display and a plot in three dimensions are not drawn yet and show as their data table. Error bars (the profile plots of UNIANOVA and GLM) are drawn in the pictures, in Vega-Lite and in the office charts, where they are custom error bars whose lengths come from the chart's data table. Workbooks, Word documents and presentations hold the bar, pie and line charts (the means, scree, profile and gain charts among them) as editable charts and the statistical plots as pictures, a workbook with the data table beside each picture.
 - **TREE.** CHAID and exhaustive CHAID with a nominal or ordinal dependent. Not supported yet: CRT, QUEST, a scale dependent, split-sample and cross-validation, SPLITMERGED=YES, custom costs, profits, percentile gain tables, rules, influence variables, model files and TARGETRESPONSE.
 - **Data files.** Statscraft reads and writes .sav and .zsav files, and portable (.por) files with IMPORT and EXPORT.
   - Text files are read with DATA LIST, GET DATA and GET TRANSLATE /TYPE=TAB; workbooks (.xlsx, .xlsm, .xls) with GET DATA and GET TRANSLATE; dBASE III and IV files with GET TRANSLATE. 1-2-3, Symphony, SYLK and dBASE II files are not read.
   - SAVE TRANSLATE writes CSV, tab-delimited text and .xlsx.
   - An old .sav file that does not state its code page is read as Western European (windows-1252). There is no way to choose another encoding yet.
-- **Output.** Tables come out as Markdown, JSON, HTML (from the window and OUTPUT EXPORT), text and CSV (OUTPUT EXPORT) and Excel workbooks.
-  - OUTPUT SAVE and OUTPUT OPEN write and read Statscraft output files (`.scout`) only. OUTPUT MODIFY is not supported yet.
-  - OUTPUT EXPORT writes no PDF or Excel 97-2004 files, and its image subcommands (/PNG, /JPG and the others) write no files yet. The window saves a chart as PNG or SVG, and `statscraft run --charts` writes every chart of a run.
+- **Output.** Tables come out as Markdown, JSON, HTML and PDF (from the window and OUTPUT EXPORT), text and CSV (OUTPUT EXPORT) and Excel workbooks.
+  - OUTPUT SAVE and OUTPUT OPEN write and read Statscraft output files (`.scout`) only.
+  - OUTPUT MODIFY deletes, hides, renames, numbers, sorts and transposes items and changes cell formats and texts. Statscraft tables have no fonts, colors, styles, column widths, table looks or layers, so those keywords (and SIZE, TABLESUMMARY, PIVOT, UNGROUP, REVERTTODEFAULT and /GRAPHS) change nothing and give a warning. PARENT and CHILD conditions are not supported. Command identifiers are the command names (FREQUENCIES, T-TEST) and subtypes are table titles. Documents hold no logs, notes, models or text items, so selecting those kinds picks nothing.
+  - OUTPUT EXPORT /PDF writes A4 portrait pages with 2 cm margins; there is no page setup to change the size, the margins or the page header, which shows the TITLE text. A table wider than the page shrinks to 70 percent at most and then splits its columns into parts with the row labels repeated; there are no break points or keep-together groups. The bundled font has no bold face, so titles and headings get a thin outline instead. With EMBEDFONTS=NO, characters outside Windows Latin come out as question marks.
+  - OUTPUT EXPORT writes no Excel 97-2004 files. Its image subcommands write PNG, JPG, BMP and TIF pictures; EMF and EPS pictures are not written yet. The window saves a chart as PNG or SVG, and `statscraft run --charts` writes every chart of a run.
 - **Packages.** The Windows installer and the macOS app are not signed yet. There are packages for x86_64 Windows and Linux and for macOS on Apple silicon and Intel, but none for Windows or Linux on ARM processors.

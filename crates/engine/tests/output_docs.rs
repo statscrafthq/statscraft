@@ -255,6 +255,70 @@ fn export_to_workbooks_and_their_sheets() {
     std::fs::remove_dir_all(dir).unwrap();
 }
 
+/// The width of a PNG file, from its header.
+fn png_width(bytes: &[u8]) -> u32 {
+    assert!(bytes.starts_with(b"\x89PNG\r\n\x1a\n"), "a PNG file");
+    u32::from_be_bytes(bytes[16..20].try_into().unwrap())
+}
+
+#[test]
+fn export_writes_pictures_of_charts() {
+    let dir = folder("pictures");
+    let mut s = Session::default();
+    // made up: hours slept by nurses on three shifts
+    let (tables, warnings) = run(
+        &mut s,
+        &format!(
+            "CD '{}'.\nDATA LIST FREE /hours shift.\nBEGIN DATA\n\
+             7 1 6.5 1 8 1 5 2 6 2 4.5 2 7.5 3 6 3 5.5 3 6 1\nEND DATA.\n\
+             FREQUENCIES shift /BARCHART /FORMAT=NOTABLE.\n\
+             EXAMINE VARIABLES=hours /PLOT=BOXPLOT /STATISTICS=NONE.\n\
+             OUTPUT EXPORT /PNG IMAGEROOT='p' /JPG IMAGEROOT='j' GRAYSCALE=YES\n\
+             /BMP IMAGEROOT='b' PERCENTSIZE=50 /TIF IMAGEROOT='t' /EMF IMAGEROOT='e'.\n\
+             OUTPUT EXPORT /HTML DOCUMENTFILE='page.htm' IMAGEFORMAT=PNG /PNG IMAGEROOT='skipped'\n\
+             /TEXT DOCUMENTFILE='out.txt' IMAGEFORMAT=PNG.\n\
+             OUTPUT EXPORT /HTML DOCUMENTFILE='plain.htm'.",
+            dir.display()
+        ),
+    );
+    let read = |name: &str| std::fs::read(dir.join(name)).unwrap();
+    // pictures alone: one file per chart, numbered from 0, at 1280 pixels for 100 percent
+    assert_eq!(png_width(&read("p0.png")), 1280);
+    assert!(read("p1.png").starts_with(b"\x89PNG"));
+    assert!(!dir.join("p2.png").exists());
+    let jpg = image::load_from_memory(&read("j1.jpg")).unwrap();
+    assert_eq!(jpg.color(), image::ColorType::L8, "GRAYSCALE=YES");
+    let bmp = read("b0.bmp");
+    assert!(bmp.starts_with(b"BM"));
+    assert_eq!(i32::from_le_bytes(bmp[18..22].try_into().unwrap()), 640);
+    assert!(read("t1.tif").starts_with(b"II*\0") || read("t1.tif").starts_with(b"MM\0*"));
+    assert!(!dir.join("e0.emf").exists());
+    let emf = warnings
+        .iter()
+        .find(|w| w.contains("EMF pictures are not written yet"));
+    assert!(emf.is_some(), "{warnings:?}");
+    // with a document, IMAGEROOT is ignored
+    assert!(!dir.join("skipped0.png").exists());
+    // the page holds both charts inline, and tables only for the tables
+    let page = String::from_utf8(read("page.htm")).unwrap();
+    assert_eq!(page.matches("<img src=\"data:image/png;base64,").count(), 2);
+    assert_eq!(page.matches("<table>").count(), tables.len(), "{page}");
+    let plain = String::from_utf8(read("plain.htm")).unwrap();
+    assert_eq!(
+        plain.matches("data:image/jpeg;base64,").count(),
+        2,
+        "JPG by default"
+    );
+    // the text names the pictures written beside it
+    let text = String::from_utf8(read("out.txt")).unwrap();
+    assert!(
+        text.contains("\nout0.png\n") && text.contains("\nout1.png\n"),
+        "{text}"
+    );
+    assert_eq!(png_width(&read("out1.png")), 1280);
+    std::fs::remove_dir_all(dir).unwrap();
+}
+
 #[test]
 fn notes_can_be_left_out() {
     let dir = folder("notes");

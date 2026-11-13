@@ -46,6 +46,16 @@ enum Cmd {
         #[command(flatten)]
         charts: ChartArgs,
     },
+    /// Add a chart given as JSON to the output: the chart --json writes, or a Vega-Lite
+    /// specification of a simple view. Runs it as the syntax BEGIN CHART, a Statscraft extension
+    Chart {
+        #[command(flatten)]
+        args: ChartFileArgs,
+        #[command(flatten)]
+        xlsx: XlsxArgs,
+        #[command(flatten)]
+        charts: ChartArgs,
+    },
     /// Validate syntax without saving or writing anything; with --session, against its dataset
     Check(RunArgs),
     /// Show the syntax of a command, or list all commands
@@ -97,6 +107,21 @@ struct RunArgs {
     encoding: Option<String>,
 }
 
+#[derive(Args)]
+struct ChartFileArgs {
+    /// The chart as a JSON file, or - for standard input
+    file: String,
+    /// Session name, as for run; gui adds the chart to the output of the running window
+    #[arg(short, long)]
+    session: Option<String>,
+    /// Print the result as JSON
+    #[arg(long)]
+    json: bool,
+    /// Also give the chart as a Vega-Lite specification, as for run
+    #[arg(long)]
+    vega_lite: bool,
+}
+
 #[derive(Args, Default)]
 struct XlsxArgs {
     /// Also write every table and chart of the run to this Excel workbook, one sheet per table;
@@ -137,6 +162,7 @@ fn main() -> ExitCode {
             describe(file, session, json).map(|text| print!("{text}")),
         ),
         Cmd::Run { args, xlsx, charts } => (args.json, run(args, false, &xlsx, Some(&charts))),
+        Cmd::Chart { args, xlsx, charts } => (args.json, add_chart(args, &xlsx, &charts)),
         Cmd::Check(args) => (args.json, run(args, true, &XlsxArgs::default(), None)),
         Cmd::Help { command } => (
             false,
@@ -494,6 +520,31 @@ fn run(
         result.output_with(args.json, check_only, args.vega_lite)
     );
     Ok(())
+}
+
+/// The syntax that adds the chart `json` to the output: BEGIN CHART, a Statscraft extension.
+fn chart_syntax(json: &str) -> String {
+    format!("BEGIN CHART\n{}\nEND CHART.\n", json.trim())
+}
+
+/// `statscraft chart`: reads the JSON and runs it as BEGIN CHART, as `statscraft run` would.
+fn add_chart(
+    input: ChartFileArgs,
+    xlsx: &XlsxArgs,
+    charts: &ChartArgs,
+) -> Result<(), Vec<Failure>> {
+    let mut args = RunArgs {
+        file: Some(input.file),
+        text: None,
+        session: input.session,
+        lines: None,
+        json: input.json,
+        vega_lite: input.vega_lite,
+        encoding: None,
+    };
+    args.text = Some(chart_syntax(&read_source(&args)?));
+    args.file = None;
+    run(args, false, xlsx, Some(charts))
 }
 
 /// Runs or checks the syntax `args` name in its session, or in a fresh one, and keeps the

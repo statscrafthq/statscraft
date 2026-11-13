@@ -378,20 +378,9 @@ fn unknown_command_gets_a_did_you_mean_hint() {
 }
 
 #[test]
-fn real_but_unsupported_commands_say_so() {
-    for (source, name) in [
-        ("GRAPH /BAR=COUNT BY a.", "GRAPH"),
-        ("graph /scatterplot=x WITH y.", "GRAPH"),
-        ("output modify /select tables.", "OUTPUT MODIFY"),
-    ] {
-        let error = err(source);
-        assert_eq!(
-            error.message,
-            format!("{name} is not supported yet; run `statscraft help` for the commands")
-        );
-        assert_eq!(at(&error), (1, 1));
-        assert_eq!(error.hint, None);
-    }
+fn every_recognised_command_runs() {
+    // the list of commands recognised before they run is empty now; a new entry gets a test here
+    assert!(crate::unsupported_commands().is_empty());
 }
 
 #[test]
@@ -1100,7 +1089,7 @@ fn help_for_one_command() {
     assert!(help_text.contains("VALUE LABELS varlist value 'label'"));
     assert!(help_text.contains("Example:\n  VALUE LABELS gender 1 'Male' 2 'Female'"));
     assert_eq!(help(Some("val lab")), Some(help_text));
-    assert!(help(Some("graph")).unwrap().contains("not supported yet"));
+    assert!(help(Some("gra")).unwrap().starts_with("GRAPH: "));
     assert!(help(Some("disc")).unwrap().starts_with("DISCRIMINANT: "));
     assert!(help(Some("t-test")).unwrap().starts_with("T-TEST: "));
     assert_eq!(help(Some("NOPE")), None);
@@ -1125,7 +1114,7 @@ fn command_names_resolve_from_their_words() {
 #[test]
 fn help_lists_every_command() {
     let overview = help(None).unwrap();
-    assert_eq!(command_names().len(), 150);
+    assert_eq!(command_names().len(), 156);
     for spec in table::COMMANDS {
         assert!(overview.contains(spec.name) && overview.contains(spec.summary));
     }

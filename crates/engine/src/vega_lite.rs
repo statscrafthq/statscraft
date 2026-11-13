@@ -19,14 +19,28 @@ impl Chart {
         spec.insert("$schema".into(), SCHEMA.into());
         spec.insert("description".into(), self.kind_text().into());
         let mut title = json!({ "text": self.title });
-        if let Some(footnote) = &self.footnote {
-            title["subtitle"] = footnote.as_str().into();
+        let lines: Vec<&str> = [&self.subtitle, &self.footnote]
+            .into_iter()
+            .flatten()
+            .map(String::as_str)
+            .collect();
+        match lines[..] {
+            [] => {}
+            [one] => title["subtitle"] = one.into(),
+            _ => title["subtitle"] = lines.into(),
         }
         spec.insert("title".into(), title);
         let body = match (&self.plot, self.kind) {
             (Some(plot), _) => plot.vega_lite(self),
             (_, ChartKind::Histogram) => self.histogram(),
             (_, ChartKind::Pie) => self.pie(),
+            (
+                _,
+                ChartKind::RangeBar
+                | ChartKind::DropLine
+                | ChartKind::HighLow
+                | ChartKind::Difference,
+            ) => self.spans(),
             _ => self.categorical(),
         };
         spec.extend(body);
@@ -47,6 +61,13 @@ impl Chart {
                 });
                 if let Cell::Number(x) = category.value {
                     row["x"] = x.into();
+                }
+                if let Some([lower, upper]) = self.error_bar(j, i) {
+                    row["lower"] = lower.into();
+                    row["upper"] = upper.into();
+                }
+                if self.second_axis.is_some() && j + 1 == self.series.len() {
+                    row["second"] = true.into();
                 }
                 rows.push(row);
             }
@@ -75,7 +96,125 @@ impl Chart {
         if let Some(maximum) = self.value_axis.maximum {
             channel["scale"] = json!({ "domainMax": maximum });
         }
+        // marks that float over a span need not stand on zero
+        if matches!(
+            self.kind,
+            ChartKind::ErrorBar
+                | ChartKind::RangeBar
+                | ChartKind::DropLine
+                | ChartKind::HighLow
+                | ChartKind::Difference
+        ) {
+            channel["scale"]["zero"] = false.into();
+        }
         channel
+    }
+
+    /// The category axis as an ordered channel.
+    fn category_channel(&self) -> Value {
+        json!({
+            "field": "category",
+            "type": if self.kind == ChartKind::Bar { "nominal" } else { "ordinal" },
+            "sort": self.labels(),
+            "title": self.category_axis.title,
+        })
+    }
+
+    /// Range bars from the first to the second series of each pair; or, for drop-line,
+    /// high-low and difference charts, a rule or an area from the lowest to the highest value
+    /// of each category under the points or lines of the series.
+    fn spans(&self) -> Map<String, Value> {
+        let mut out = Map::new();
+        let low = |field: &str| {
+            let mut channel = self.value_channel();
+            channel["field"] = field.into();
+            channel
+        };
+        let n = self.categories.len();
+        if self.kind == ChartKind::RangeBar {
+            let mut rows = Vec::new();
+            let mut names = Vec::new();
+            for pair in self.series.chunks(2) {
+                let name = format!("{} to {}", pair[0].name, pair[1].name);
+                for i in 0..n {
+                    let (a, b) = (pair[0].values[i], pair[1].values[i]);
+                    if a.is_finite() && b.is_finite() {
+                        rows.push(json!({
+                            "category": self.categories[i].label,
+                            "series": name,
+                            "low": a,
+                            "high": b,
+                        }));
+                    }
+                }
+                names.push(name);
+            }
+            let mut encoding = json!({
+                "x": self.category_channel(),
+                "y": low("low"),
+                "y2": { "field": "high" },
+                "color": { "field": "series", "type": "nominal", "sort": names, "title": null },
+            });
+            if names.len() > 1 {
+                encoding["xOffset"] = json!({ "field": "series", "sort": names });
+            }
+            out.insert("data".into(), json!({ "values": rows }));
+            out.insert("mark".into(), json!({ "type": "bar" }));
+            out.insert("encoding".into(), encoding);
+            return out;
+        }
+        let spans: Vec<Value> = (0..n)
+            .filter_map(|i| {
+                let column: Vec<f64> = self.series.iter().map(|s| s.values[i]).collect();
+                let (lo, hi) = match self.kind {
+                    ChartKind::Difference => (column[0], column[1]),
+                    _ => (
+                        column.iter().copied().fold(f64::INFINITY, f64::min),
+                        column.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+                    ),
+                };
+                (lo.is_finite() && hi.is_finite())
+                    .then(|| json!({ "category": self.categories[i].label, "low": lo, "high": hi }))
+            })
+            .collect();
+        let span_mark = match self.kind {
+            ChartKind::Difference => json!({ "type": "area", "opacity": 0.35 }),
+            _ => json!({ "type": "rule" }),
+        };
+        let points = match self.kind {
+            ChartKind::Difference => json!({ "type": "line", "point": true }),
+            _ => json!({ "type": "point", "filled": true }),
+        };
+        let mut color = json!({
+            "field": "series",
+            "type": "nominal",
+            "sort": self.series_names(),
+        });
+        color["title"] = self.legend.clone().map_or(Value::Null, Value::from);
+        out.insert(
+            "layer".into(),
+            json!([
+                {
+                    "data": { "values": spans },
+                    "mark": span_mark,
+                    "encoding": {
+                        "x": self.category_channel(),
+                        "y": low("low"),
+                        "y2": { "field": "high" },
+                    },
+                },
+                {
+                    "data": { "values": self.rows() },
+                    "mark": points,
+                    "encoding": {
+                        "x": self.category_channel(),
+                        "y": self.value_channel(),
+                        "color": color,
+                    },
+                },
+            ]),
+        );
+        out
     }
 
     /// Bars, lines, areas and scatter plots: categories along one axis, values along the other,
@@ -98,12 +237,7 @@ impl Chart {
                 "type": "quantitative",
                 "title": self.category_axis.title,
             }),
-            _ => json!({
-                "field": "category",
-                "type": if self.kind == ChartKind::Bar { "nominal" } else { "ordinal" },
-                "sort": self.labels(),
-                "title": self.category_axis.title,
-            }),
+            _ => self.category_channel(),
         };
         let horizontal = self.orientation == Some(Orientation::Horizontal);
         let (category_channel, value_channel, offset) = match horizontal {
@@ -121,24 +255,70 @@ impl Chart {
             });
             color["title"] = self.legend.clone().map_or(Value::Null, Value::from);
             encoding.insert("color".into(), color);
+            // the series side by side, without the line on a second axis
+            let mut names = self.series_names();
+            names.truncate(self.series.len() - usize::from(self.second_axis.is_some()));
             let clustered = self.grouping.is_none_or(|g| g == Grouping::Clustered);
-            if self.kind == ChartKind::Bar && clustered {
-                encoding.insert(
-                    offset.into(),
-                    json!({ "field": "series", "sort": self.series_names() }),
-                );
+            let beside = matches!(self.kind, ChartKind::Bar | ChartKind::ErrorBar);
+            if beside && clustered && names.len() > 1 {
+                encoding.insert(offset.into(), json!({ "field": "series", "sort": names }));
             }
         }
         let mark = match self.kind {
             ChartKind::Line => json!({ "type": "line", "point": true }),
             ChartKind::Area => json!({ "type": "area" }),
             ChartKind::Scatter => json!({ "type": "point" }),
+            ChartKind::ErrorBar => json!({ "type": "point", "filled": true }),
             _ => json!({ "type": "bar" }),
         };
         let mut out = Map::new();
         out.insert("data".into(), json!({ "values": self.rows() }));
-        out.insert("mark".into(), mark);
-        out.insert("encoding".into(), Value::Object(encoding));
+        let mut layers = vec![json!({ "mark": mark, "encoding": encoding })];
+        if self.error_bars.is_some() {
+            // the bars from each row's lower to its upper end, over the same categories, colors
+            // and offsets as the marks; rows without bars have no ends and draw none
+            let mut ends = encoding.clone();
+            ends.insert(
+                value_channel.into(),
+                json!({ "field": "lower", "type": "quantitative", "title": self.value_axis.title }),
+            );
+            ends.insert(format!("{value_channel}2"), json!({ "field": "upper" }));
+            layers.push(json!({ "mark": { "type": "errorbar", "ticks": true }, "encoding": ends }));
+        }
+        if let Some(second) = &self.second_axis {
+            // the last series as a line on its own scale with its axis on the right
+            for layer in &mut layers {
+                layer["transform"] = json!([{ "filter": "!datum.second" }]);
+            }
+            let mut line = encoding.clone();
+            line.remove(offset);
+            let mut scale =
+                json!({ "field": "value", "type": "quantitative", "title": second.title });
+            scale["axis"] = axis_format(&second.format).unwrap_or(json!({}));
+            scale["axis"]["orient"] = json!(if horizontal { "top" } else { "right" });
+            if let Some(maximum) = second.maximum {
+                scale["scale"] = json!({ "domain": [0.0, maximum] });
+            }
+            line.insert(value_channel.into(), scale);
+            layers.push(json!({
+                "transform": [{ "filter": "datum.second" }],
+                "mark": { "type": "line", "point": true },
+                "encoding": line,
+            }));
+            let mut independent = Map::new();
+            independent.insert(value_channel.into(), "independent".into());
+            out.insert("resolve".into(), json!({ "scale": independent }));
+        }
+        match layers.len() {
+            1 => {
+                let layer = layers.pop().expect("one layer");
+                out.insert("mark".into(), layer["mark"].clone());
+                out.insert("encoding".into(), layer["encoding"].clone());
+            }
+            _ => {
+                out.insert("layer".into(), Value::Array(layers));
+            }
+        }
         out
     }
 

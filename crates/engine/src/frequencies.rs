@@ -484,6 +484,7 @@ fn chart(
         orientation: (!pie).then_some(Orientation::Vertical),
         grouping: (!pie).then_some(chart::Grouping::Clustered),
         title: analysis.title.clone(),
+        subtitle: None,
         footnote: None,
         category_axis: Axis {
             title: analysis.heading.clone(),
@@ -511,7 +512,11 @@ fn chart(
             values,
         }],
         normal: None,
+        error_bars: None,
+        second_axis: None,
         plot: None,
+        outline: None,
+        hidden: false,
     })
 }
 
@@ -607,6 +612,7 @@ impl Histogram<'_> {
             orientation: Some(Orientation::Vertical),
             grouping: None,
             title: self.title.to_string(),
+            subtitle: None,
             footnote: Some(footnote),
             category_axis: Axis {
                 title: self.heading.to_string(),
@@ -630,7 +636,11 @@ impl Histogram<'_> {
                 values: counts,
             }],
             normal,
+            error_bars: None,
+            second_axis: None,
             plot: None,
+            outline: None,
+            hidden: false,
         })
     }
 }
@@ -844,7 +854,7 @@ impl Engine {
                         "Several values share the highest frequency ({}); the mode shown is the smallest.",
                         tied.join(", ")
                     )
-                }),
+                }), outline: None, hidden: false,
             }
         };
         self.charts.extend(charts);

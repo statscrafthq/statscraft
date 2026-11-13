@@ -42,6 +42,14 @@ pub fn paint(painter: &Painter, scene: &Scene, origin: Pos2) {
                 }
                 painter.add(mesh);
             }
+            Shape::Polygon { points, fill } => {
+                let points = points.iter().map(|p| at(*p)).collect();
+                painter.add(PathShape::convex_polygon(
+                    points,
+                    color(*fill),
+                    Stroke::NONE,
+                ));
+            }
             Shape::Wedge {
                 center,
                 radius,

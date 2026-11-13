@@ -10,8 +10,8 @@ Statscraft runs statistics command syntax (GET FILE, COMPUTE, RECODE, FREQUENCIE
 
 ## Which way to call it
 
-- **MCP tools** (preferred): `describe`, `list_commands`, `command_help`, `check_syntax`, `run_syntax`, `window_status`, and for the person's syntax windows `list_syntax_windows`, `read_syntax`, `edit_syntax`, `new_syntax_window`, `open_syntax_file`, `save_syntax`. They appear when the Statscraft MCP server is connected.
-- **Command line**, when you have a shell but no tools: `statscraft describe FILE --json`, `statscraft help [COMMAND]`, `statscraft check -s NAME --json FILE.sps`, `statscraft run -s NAME --json FILE.sps` (add `--lines A-B` for a range, or `-e "SYNTAX"` for inline syntax).
+- **MCP tools** (preferred): `describe`, `list_commands`, `command_help`, `check_syntax`, `run_syntax`, `window_status`, and for the person's syntax windows `list_syntax_windows`, `read_syntax`, `edit_syntax`, `new_syntax_window`, `open_syntax_file`, `save_syntax`, and `add_chart` for a chart of your own. They appear when the Statscraft MCP server is connected.
+- **Command line**, when you have a shell but no tools: `statscraft describe FILE --json`, `statscraft help [COMMAND]`, `statscraft check -s NAME --json FILE.sps`, `statscraft run -s NAME --json FILE.sps` (add `--lines A-B` for a range, or `-e "SYNTAX"` for inline syntax), `statscraft chart -s NAME --json CHART.json`.
 - Neither available: tell the person to install Statscraft and run `statscraft connect` once, then start a new conversation. See https://docs.statscraft.org/connect.html.
 
 Give absolute paths for data files, in tool arguments and in the syntax.
@@ -42,6 +42,10 @@ Every run that works leaves its syntax where the person can read, edit and rerun
 - Run it from the window with `run_syntax` and `window` (and `lines` for part of it), exactly as their Run does. Such a run is not copied to the Agent window; their window is its record.
 - When the person works in a syntax window, prefer putting new syntax there (or in a `new_syntax_window`) and running it from there over sending loose syntax.
 - `save_syntax` writes a file: use it only when asked, and never set `overwrite` without the person's yes.
+
+## Charts
+
+Procedures draw their charts themselves (FREQUENCIES /BARCHART, GRAPH and others); prefer them. When the person wants a chart no procedure makes, call `add_chart` with the chart JSON a run returned (change what is needed) or a simple Vega-Lite specification with the rows in `data.values` (mark bar, line, area, point or arc; no aggregate, bin or transform). Put in only numbers from the result tables. The chart lands in the output like any other; the reply names the document. In a file session, write it out by sending the BEGIN CHART block with OUTPUT EXPORT through `run_syntax`.
 
 ## Files
 

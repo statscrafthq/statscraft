@@ -12,7 +12,12 @@
 //!   addition, the tables as comma-separated values). /DOC and /PPT write the current Word and
 //!   PowerPoint formats (.docx, .pptx) whatever the file is called; their page and slide
 //!   sizes, margins and wide-table settings are accepted and not applied. /PDF, /XLS and /XLSM
-//!   are refused; the image subcommands write no files, as Statscraft draws no pictures yet.
+//!   are refused.
+//! - The image subcommands (/BMP, /EMF, /EPS, /JPG, /PNG, /TIF) set how the pictures of charts
+//!   are written in their format. IMAGEROOT is needed only when no subcommand writes a
+//!   document; PERCENTSIZE is above 0 and at most 200. GRAYSCALE (JPG) and DEPTH (PNG) choose
+//!   color, shades of gray or black and white; COMPRESS, WIDTH, PREVIEW and FONTHANDLING are
+//!   read and change nothing.
 //! - OUTPUT SAVE and OUTPUT OPEN: keywords spelled in full, each at most once, equals signs
 //!   required; OUTFILE and FILE are required. TYPE, LOCK and STOREMODEL are read and change
 //!   nothing. A password on /PASSPROTECT is refused here, so nothing is written unprotected
@@ -24,6 +29,18 @@ use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
 use crate::procedures::at_end;
+
+/// BEGIN CHART, a Statscraft extension: the splitter hands over the JSON lines as one string
+/// token each; the engine reads them.
+pub(crate) fn begin_chart(p: &mut Parser) -> PResult<Command> {
+    let mut lines = Vec::new();
+    while let Some(TokenKind::Str(text)) = p.peek() {
+        lines.push((p.span().line, text.clone()));
+        p.pos += 1;
+    }
+    p.finish(&[])?;
+    Ok(Command::BeginChart(lines))
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum OutputCommand {
@@ -39,6 +56,8 @@ pub enum OutputCommand {
     Save(OutputSave),
     /// Read a Statscraft output file into a new document.
     Open(OutputOpen),
+    /// Change, hide or delete items of a document.
+    Modify(Box<crate::output_modify::OutputModify>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -60,6 +79,41 @@ pub struct OutputExport {
     pub name: Option<String>,
     /// The files to write, in the order of the subcommands.
     pub targets: Vec<ExportTarget>,
+    /// The image subcommands, in their order.
+    pub images: Vec<ImageExport>,
+    /// CONTENTS EXPORT=VISIBLE: hidden items are left out.
+    pub visible_only: bool,
+}
+
+/// The picture formats of the image subcommands and of IMAGEFORMAT.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageFormat {
+    Bmp,
+    Emf,
+    Eps,
+    Jpg,
+    Png,
+    Tif,
+}
+
+/// The colors of a picture: GRAYSCALE=YES and DEPTH=GRAYS256 give gray, DEPTH=BLACKWHITE black
+/// and white.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ImageTone {
+    Color,
+    Gray,
+    BlackWhite,
+}
+
+/// One image subcommand: the settings of the pictures in its format.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ImageExport {
+    pub format: ImageFormat,
+    /// IMAGEROOT: the pictures are root0, root1, ... when no subcommand writes a document.
+    pub root: Option<String>,
+    /// PERCENTSIZE: the size against the picture of a chart as a file.
+    pub percent: f64,
+    pub tone: ImageTone,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -97,6 +151,8 @@ pub enum ExportTarget {
         file: String,
         notes: bool,
         styling: bool,
+        /// IMAGEFORMAT: the format of the pictures in the page.
+        image_format: ImageFormat,
     },
     Text {
         file: String,
@@ -107,6 +163,8 @@ pub enum ExportTarget {
         tab: bool,
         row_border: char,
         column_border: char,
+        /// IMAGEFORMAT: the format of the picture files beside the text.
+        image_format: ImageFormat,
     },
     Csv {
         file: String,
@@ -122,6 +180,12 @@ pub enum ExportTarget {
         file: String,
         notes: bool,
         titles: bool,
+    },
+    /// A PDF file; `bookmarks` is EMBEDBOOKMARKS and `embed_fonts` EMBEDFONTS.
+    Pdf {
+        file: String,
+        bookmarks: bool,
+        embed_fonts: bool,
     },
 }
 
@@ -294,23 +358,112 @@ fn keywords_on(
 }
 
 /// The refused document formats, with what they are.
-const REFUSED: [(&str, &str); 3] = [
-    ("PDF", "PDF"),
-    ("XLS", "Excel 97-2004"),
-    ("XLSM", "macro-enabled Excel"),
-];
+const REFUSED: [(&str, &str); 2] = [("XLS", "Excel 97-2004"), ("XLSM", "macro-enabled Excel")];
 
 /// The image subcommands with their keywords.
-const IMAGES: [(&str, &[&str]); 6] = [
-    ("BMP", &["IMAGEROOT", "PERCENTSIZE", "COMPRESS"]),
-    ("EMF", &["IMAGEROOT", "PERCENTSIZE"]),
-    ("EPS", &["IMAGEROOT", "WIDTH", "PREVIEW", "FONTHANDLING"]),
-    ("JPG", &["IMAGEROOT", "PERCENTSIZE", "GRAYSCALE"]),
-    ("PNG", &["IMAGEROOT", "PERCENTSIZE", "DEPTH"]),
-    ("TIF", &["IMAGEROOT", "PERCENTSIZE"]),
+const IMAGES: [(&str, ImageFormat, &[&str]); 6] = [
+    (
+        "BMP",
+        ImageFormat::Bmp,
+        &["IMAGEROOT", "PERCENTSIZE", "COMPRESS"],
+    ),
+    ("EMF", ImageFormat::Emf, &["IMAGEROOT", "PERCENTSIZE"]),
+    (
+        "EPS",
+        ImageFormat::Eps,
+        &["IMAGEROOT", "WIDTH", "PREVIEW", "FONTHANDLING"],
+    ),
+    (
+        "JPG",
+        ImageFormat::Jpg,
+        &["IMAGEROOT", "PERCENTSIZE", "GRAYSCALE"],
+    ),
+    (
+        "PNG",
+        ImageFormat::Png,
+        &["IMAGEROOT", "PERCENTSIZE", "DEPTH"],
+    ),
+    ("TIF", ImageFormat::Tif, &["IMAGEROOT", "PERCENTSIZE"]),
 ];
 
-const SUPPORTED: &str = "/XLSX, /DOC, /PPT, /HTML, /TEXT or /CSV";
+/// IMAGEFORMAT = one of `formats`, which are names of `IMAGES`.
+fn image_format(p: &mut Parser, formats: &[&str]) -> PResult<ImageFormat> {
+    let name = formats[choice(p, formats)?];
+    Ok(IMAGES
+        .iter()
+        .find(|(n, ..)| *n == name)
+        .expect("a known format")
+        .1)
+}
+
+/// The keywords of an image subcommand.
+fn image_export(
+    p: &mut Parser,
+    word: &str,
+    format: ImageFormat,
+    known: &[&str],
+) -> PResult<ImageExport> {
+    let mut image = ImageExport {
+        format,
+        root: None,
+        percent: 100.0,
+        tone: ImageTone::Color,
+    };
+    keywords(p, word, known, |p, k| {
+        match k {
+            "IMAGEROOT" => {
+                p.expect(Punct::Eq)?;
+                image.root = Some(p.string("a root name in quotes")?);
+            }
+            "PERCENTSIZE" => {
+                p.expect(Punct::Eq)?;
+                let at = p.pos;
+                image.percent = match p.number() {
+                    Some(n) if n > 0.0 && n <= 200.0 => n,
+                    _ => {
+                        return Err(SyntaxError::new(
+                            p.span_from(at),
+                            "PERCENTSIZE is a number above 0 and at most 200",
+                        ));
+                    }
+                };
+            }
+            "GRAYSCALE" => {
+                if yes_no(p)? {
+                    image.tone = ImageTone::Gray;
+                }
+            }
+            "DEPTH" => {
+                let depths = [
+                    "SCREEN",
+                    "BLACKWHITE",
+                    "GRAYS256",
+                    "COLORS16",
+                    "COLORS256",
+                    "TRUE24BIT",
+                    "TRUE32BIT",
+                ];
+                image.tone = match choice(p, &depths)? {
+                    1 => ImageTone::BlackWhite,
+                    2 => ImageTone::Gray,
+                    _ => ImageTone::Color,
+                };
+            }
+            "COMPRESS" | "PREVIEW" => {
+                yes_no(p)?;
+            }
+            "FONTHANDLING" => {
+                choice(p, &["REFERENCES", "CURVES"])?;
+            }
+            // WIDTH=PERCENT(n), INCHES(n), CM(n) or POINTS(n)
+            _ => skip_value(p)?,
+        }
+        Ok(())
+    })?;
+    Ok(image)
+}
+
+const SUPPORTED: &str = "/XLSX, /DOC, /PPT, /PDF, /HTML, /TEXT or /CSV";
 
 /// Passes over the value of an image setting: a word, number or string, or a function such
 /// as PERCENT(50).
@@ -347,6 +500,8 @@ pub(crate) fn output_export(p: &mut Parser) -> PResult<Command> {
     let mut export = OutputExport {
         name: None,
         targets: Vec::new(),
+        images: Vec::new(),
+        visible_only: false,
     };
     let start = p.pos;
     if p.eat_word("NAME") {
@@ -385,13 +540,13 @@ pub(crate) fn output_export(p: &mut Parser) -> PResult<Command> {
         let mut notes = true;
         match word.as_str() {
             "CONTENTS" => {
-                // every table is visible and has one layer, so all choices give the same
+                // every table has one layer, so the LAYERS and MODELVIEWS choices give the same
                 keywords(p, &word, &["EXPORT", "LAYERS", "MODELVIEWS"], |p, k| {
-                    let choices: &[&str] = match k {
-                        "EXPORT" => &["ALL", "VISIBLE"],
-                        _ => &["PRINTSETTING", "ALL", "VISIBLE"],
-                    };
-                    choice(p, choices).map(|_| ())
+                    if k == "EXPORT" {
+                        export.visible_only = choice(p, &["ALL", "VISIBLE"])? == 1;
+                        return Ok(());
+                    }
+                    choice(p, &["PRINTSETTING", "ALL", "VISIBLE"]).map(|_| ())
                 })?;
             }
             "XLSX" => {
@@ -482,6 +637,7 @@ pub(crate) fn output_export(p: &mut Parser) -> PResult<Command> {
             }
             "HTML" => {
                 let mut styling = true;
+                let mut image = ImageFormat::Jpg;
                 keywords(
                     p,
                     &word,
@@ -499,9 +655,7 @@ pub(crate) fn output_export(p: &mut Parser) -> PResult<Command> {
                                 file = Some(p.file("a file name in quotes")?);
                             }
                             "NOTESCAPTIONS" => notes = yes_no(p)?,
-                            "IMAGEFORMAT" => {
-                                choice(p, &["JPG", "BMP", "PNG"])?;
-                            }
+                            "IMAGEFORMAT" => image = image_format(p, &["JPG", "BMP", "PNG"])?,
                             "STYLING" => styling = yes_no(p)?,
                             _ => {
                                 yes_no(p)?;
@@ -516,6 +670,7 @@ pub(crate) fn output_export(p: &mut Parser) -> PResult<Command> {
                         file,
                         notes,
                         styling,
+                        image_format: image,
                     });
                 }
             }
@@ -524,6 +679,7 @@ pub(crate) fn output_export(p: &mut Parser) -> PResult<Command> {
                 let mut column_width = None;
                 let mut tab = false;
                 let (mut row_border, mut column_border) = ('-', '|');
+                let mut image = ImageFormat::Jpg;
                 keywords(
                     p,
                     &word,
@@ -564,7 +720,8 @@ pub(crate) fn output_export(p: &mut Parser) -> PResult<Command> {
                             "ROWBORDER" => row_border = border(p)?,
                             "COLUMNBORDER" => column_border = border(p)?,
                             _ => {
-                                choice(p, &["JPG", "BMP", "EMF", "EPS", "PNG", "TIF"])?;
+                                let all = ["JPG", "BMP", "EMF", "EPS", "PNG", "TIF"];
+                                image = image_format(p, &all)?;
                             }
                         }
                         Ok(())
@@ -580,6 +737,7 @@ pub(crate) fn output_export(p: &mut Parser) -> PResult<Command> {
                         tab,
                         row_border,
                         column_border,
+                        image_format: image,
                     });
                 }
             }
@@ -638,6 +796,24 @@ pub(crate) fn output_export(p: &mut Parser) -> PResult<Command> {
                     },
                 });
             }
+            "PDF" => {
+                let (mut bookmarks, mut embed_fonts) = (true, true);
+                let known = ["DOCUMENTFILE", "EMBEDBOOKMARKS", "EMBEDFONTS"];
+                keywords(p, &word, &known, |p, k| {
+                    match k {
+                        "DOCUMENTFILE" => file = Some(file_value(p)?),
+                        "EMBEDBOOKMARKS" => bookmarks = yes_no(p)?,
+                        _ => embed_fonts = yes_no(p)?,
+                    }
+                    Ok(())
+                })?;
+                let file = needs_file(p, at, &word, file.take())?;
+                export.targets.push(ExportTarget::Pdf {
+                    file,
+                    bookmarks,
+                    embed_fonts,
+                });
+            }
             "CSV" => {
                 keywords(p, &word, &["DOCUMENTFILE", "NOTESCAPTIONS"], |p, k| {
                     if k == "DOCUMENTFILE" {
@@ -651,8 +827,10 @@ pub(crate) fn output_export(p: &mut Parser) -> PResult<Command> {
                 let file = needs_file(p, at, &word, file.take())?;
                 export.targets.push(ExportTarget::Csv { file, notes });
             }
-            other => match IMAGES.iter().find(|(name, _)| *name == other) {
-                Some((_, known)) => keywords(p, other, known, |p, _| skip_value(p))?,
+            other => match IMAGES.iter().find(|(name, ..)| *name == other) {
+                Some((_, format, known)) => {
+                    export.images.push(image_export(p, other, *format, known)?);
+                }
                 None => {
                     p.pos = at;
                     return Err(p.subcommand_error("OUTPUT EXPORT", &["REPORT"]));
@@ -662,13 +840,18 @@ pub(crate) fn output_export(p: &mut Parser) -> PResult<Command> {
     }
     p.finish(&["'/'"])?;
     if export.targets.is_empty() {
-        return Err(SyntaxError::new(
-            p.span_from(start),
-            format!(
-                "OUTPUT EXPORT needs {SUPPORTED} with DOCUMENTFILE; Statscraft draws no \
-                 pictures yet, so the image subcommands write no files"
+        let message = match export.images.is_empty() {
+            true => format!(
+                "OUTPUT EXPORT needs {SUPPORTED} with DOCUMENTFILE, or an image subcommand \
+                 with IMAGEROOT"
             ),
-        ));
+            false => "without a document subcommand, the image subcommands need \
+                      IMAGEROOT='root' for the names of their files"
+                .to_string(),
+        };
+        if export.images.is_empty() || export.images.iter().any(|i| i.root.is_none()) {
+            return Err(SyntaxError::new(p.span_from(start), message));
+        }
     }
     Ok(Command::Output(OutputCommand::Export(Box::new(export))))
 }

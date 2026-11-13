@@ -25,6 +25,12 @@ pub enum Plot {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         z_axis: Option<Axis>,
     },
+    /// A scatterplot matrix: every case's values on the variables, in groups; each ordered pair
+    /// of variables is a cell, the first across and the second up.
+    Matrix {
+        variables: Vec<Axis>,
+        groups: Vec<CaseGroup>,
+    },
     /// A hierarchical clustering: the items, the order to lay them out in, and the merges.
     Merges {
         items: Vec<String>,
@@ -123,6 +129,22 @@ pub struct Point {
     pub label: Option<String>,
 }
 
+/// The cases of a group of a scatterplot matrix.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CaseGroup {
+    pub name: String,
+    pub cases: Vec<CaseValues>,
+}
+
+/// A case's values in the order of the variables, NaN (null) where missing, and its label.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CaseValues {
+    #[serde(deserialize_with = "crate::chart::numbers")]
+    pub values: Vec<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<String>,
+}
+
 /// The line y = intercept + slope x across the plot.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ReferenceLine {
@@ -162,6 +184,7 @@ impl Chart {
             orientation: None,
             grouping: None,
             title,
+            subtitle: None,
             footnote: None,
             category_axis: x,
             value_axis: y,
@@ -169,7 +192,11 @@ impl Chart {
             categories: Vec::new(),
             series: Vec::new(),
             normal: None,
+            error_bars: None,
+            second_axis: None,
             plot: Some(plot),
+            outline: None,
+            hidden: false,
         }
     }
 
@@ -187,6 +214,7 @@ impl Chart {
             orientation: Some(crate::chart::Orientation::Vertical),
             grouping: None,
             title,
+            subtitle: None,
             footnote: None,
             category_axis: x,
             value_axis: y,
@@ -194,7 +222,11 @@ impl Chart {
             categories,
             series,
             normal: None,
+            error_bars: None,
+            second_axis: None,
             plot: None,
+            outline: None,
+            hidden: false,
         }
     }
 }
@@ -348,6 +380,41 @@ impl Plot {
                         if let Some(z) = z_axis {
                             row.push(p.z.map_or(Cell::Empty, Cell::Number));
                             f.push(z.format.clone());
+                        }
+                        rows.push(row);
+                        formats.push(f);
+                    }
+                }
+            }
+            Plot::Matrix { variables, groups } => {
+                let several = groups.len() > 1;
+                let labelled = groups
+                    .iter()
+                    .flat_map(|g| &g.cases)
+                    .any(|c| c.label.is_some());
+                if several {
+                    columns.push(chart.legend.clone().unwrap_or_else(|| "Group".into()));
+                }
+                if labelled {
+                    columns.push(String::new());
+                }
+                columns.extend(variables.iter().map(|v| v.title.clone()));
+                for g in groups {
+                    for case in &g.cases {
+                        let mut row = Vec::new();
+                        if several {
+                            row.push(text(&g.name));
+                        }
+                        if labelled {
+                            row.push(text(case.label.as_deref().unwrap_or("")));
+                        }
+                        let mut f = vec![String::new(); row.len()];
+                        for (v, axis) in case.values.iter().zip(variables) {
+                            row.push(match v.is_nan() {
+                                true => Cell::Empty,
+                                false => Cell::Number(*v),
+                            });
+                            f.push(axis.format.clone());
                         }
                         rows.push(row);
                         formats.push(f);
@@ -548,11 +615,15 @@ impl Plot {
                 );
             }
             Plot::Points { groups, lines, .. } => {
+                let roc = chart.kind == ChartKind::Roc;
                 let rows: Vec<Value> = groups
                     .iter()
                     .flat_map(|g| {
-                        g.points.iter().map(move |p| {
+                        g.points.iter().enumerate().map(move |(k, p)| {
                             let mut row = json!({ "group": g.name, "x": p.x, "y": p.y });
+                            if roc {
+                                row["order"] = k.into();
+                            }
                             if let Some(z) = p.z {
                                 row["z"] = z.into();
                             }
@@ -565,11 +636,20 @@ impl Plot {
                     .collect();
                 let x = json!({ "field": "x", "type": "quantitative", "title": xt, "scale": { "zero": false } });
                 let y = json!({ "field": "y", "type": "quantitative", "title": yt, "scale": { "zero": false } });
+                let mark = match chart.kind {
+                    ChartKind::Roc => json!({ "type": "line", "point": true }),
+                    _ => json!({ "type": "point" }),
+                };
                 let mut points = json!({
                     "data": { "values": rows },
-                    "mark": { "type": "point" },
+                    "mark": mark,
                     "encoding": { "x": x, "y": y },
                 });
+                if roc {
+                    // the curve runs through the points in their order, also up a vertical step
+                    points["encoding"]["order"] =
+                        json!({ "field": "order", "type": "quantitative" });
+                }
                 if groups.len() > 1 {
                     points["encoding"]["color"] = json!({
                         "field": "group", "type": "nominal",
@@ -607,6 +687,56 @@ impl Plot {
                     }
                 }
                 out.insert("layer".into(), Value::Array(layers));
+            }
+            Plot::Matrix { variables, groups } => {
+                // a field per variable named by its title; a dot or bracket in a field name
+                // would read as a path, so those are escaped where the field is referred to
+                let titles: Vec<&str> = variables.iter().map(|v| v.title.as_str()).collect();
+                let rows: Vec<Value> = groups
+                    .iter()
+                    .flat_map(|g| {
+                        let titles = &titles;
+                        g.cases.iter().map(move |c| {
+                            let mut row = Map::new();
+                            row.insert("group".into(), g.name.as_str().into());
+                            if let Some(label) = &c.label {
+                                row.insert("label".into(), label.as_str().into());
+                            }
+                            for (title, v) in titles.iter().zip(&c.values) {
+                                let value = match v.is_finite() {
+                                    true => json!(v),
+                                    false => Value::Null,
+                                };
+                                row.insert(title.to_string(), value);
+                            }
+                            Value::Object(row)
+                        })
+                    })
+                    .collect();
+                let fields: Vec<String> = titles
+                    .iter()
+                    .map(|t| {
+                        t.replace('\\', "\\\\")
+                            .replace('.', "\\.")
+                            .replace('[', "\\[")
+                            .replace(']', "\\]")
+                    })
+                    .collect();
+                let channel = |repeat: &str| json!({ "field": { "repeat": repeat }, "type": "quantitative", "scale": { "zero": false } });
+                let mut encoding = json!({ "x": channel("column"), "y": channel("row") });
+                if groups.len() > 1 {
+                    encoding["color"] = json!({
+                        "field": "group", "type": "nominal",
+                        "sort": groups.iter().map(|g| g.name.as_str()).collect::<Vec<_>>(),
+                        "title": chart.legend,
+                    });
+                }
+                out.insert("data".into(), json!({ "values": rows }));
+                out.insert("repeat".into(), json!({ "row": fields, "column": fields }));
+                out.insert(
+                    "spec".into(),
+                    json!({ "mark": { "type": "point" }, "encoding": encoding }),
+                );
             }
             Plot::Merges {
                 items,
@@ -819,6 +949,8 @@ impl Table {
             rows,
             formats,
             caption: Some(caption),
+            outline: None,
+            hidden: false,
         }
     }
 }

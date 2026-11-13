@@ -216,7 +216,7 @@ The buttons over the tables act on the selected tables. A right click on a table
 
 ### Charts
 
-A chart shows in the output as a picture, as wide as the window up to about 760 pixels: flat bars, lines, areas, dots and slices in the brand's petrol and amber, with muted labels and thin rule lines, on light or dark paper as the output shows its tables. Bar charts (upright or lying, side by side, stacked or stacked to 100%), pie, line, area and scatter charts and the histogram with its normal curve are drawn, and so are the statistical plots: boxplots with their outliers and extremes marked by case, normal Q-Q and P-P plots, detrended Q-Q plots, spread versus level and the other point plots with their reference lines in amber, the dendrogram, the icicle plot and the tree diagram. A stem-and-leaf display, a plot in three dimensions and any kind of chart that has no drawing yet show as their data table.
+A chart shows in the output as a picture, as wide as the window up to about 760 pixels: flat bars, lines, areas, dots and slices in the brand's petrol and amber, with muted labels and thin rule lines, on light or dark paper as the output shows its tables. Bar charts (upright or lying, side by side, stacked or stacked to 100%), pie, line, area and scatter charts and the histogram with its normal curve are drawn, and so are the statistical plots: boxplots with their outliers and extremes marked by case, normal Q-Q and P-P plots, detrended Q-Q plots, the Q-Q and P-P plots of PPLOT against any of its distributions with their detrended forms, ROC curves (one line per test variable, with a quiet diagonal), spread versus level and the other point plots with their reference lines in amber, the dendrogram, the icicle plot, the tree diagram and the territorial map of DISCRIMINANT (each group's territory tinted in its color, with the centroids marked and named). Error bars, such as those of a profile plot with ERRORBAR, are drawn as thin bars with caps: in ink on bars, in the line's color on lines. A stem-and-leaf display, a plot in three dimensions and any kind of chart that has no drawing yet show as their data table.
 
 A right click on a chart offers, besides Copy, Copy as text and Delete:
 
@@ -225,9 +225,9 @@ A right click on a chart offers, besides Copy, Copy as text and Delete:
 
 ### Charts in the office programs
 
-A chart's office form is a real chart of the office programs, with its numbers in a workbook inside it, so Edit Data opens them, and with no colors of its own, so it takes the theme of the presentation or document it goes into. Bar, pie, line and area charts have one; a histogram has none and goes out as its table.
+A chart's office form is a real chart of the office programs, with its numbers in a workbook inside it, so Edit Data opens them, and with no colors of its own, so it takes the theme of the presentation or document it goes into. Bar, pie, line and area charts have one, with their error bars when they have them (the half lengths sit in the workbook beside the values). A statistical plot, such as a histogram, a boxplot or a dendrogram, has none: it goes in as a picture, and in a workbook the picture stands beside its data table.
 
-A right click on such a chart offers:
+A right click on a drawn chart offers:
 
 - **Open in PowerPoint**: a presentation with one slide, the chart's title as the slide title.
 - **Open in Excel**: a workbook with the chart's data table and the chart beside it.
@@ -248,15 +248,16 @@ The output of a window can be kept as a Statscraft output file (.scout) and open
 
 ### Exporting all output
 
-- File > Export output as HTML saves all the tables of the output window as one web page. Chosen in a data or syntax window, it exports the designated output window.
-- File > Export output as Excel saves them as a workbook, with **One sheet per table** or **All tables on one sheet**, laid out as `--xlsx` does: a chart as its data table with the editable chart beside it.
+- File > Export output as HTML saves all the tables of the output window as one web page, each drawn chart as a PNG picture inside the page. Chosen in a data or syntax window, it exports the designated output window.
+- File > Export output as PDF saves all the tables and charts of the output window as one PDF file on A4 pages, as OUTPUT EXPORT /PDF writes it: tables as text, charts as vector drawings, and bookmarks for the commands and their items. Chosen in a data or syntax window, it exports the designated output window.
+- File > Export output as Excel saves them as a workbook, with **One sheet per table** or **All tables on one sheet**, laid out as `--xlsx` does: a chart as its data table with the editable chart, or the picture of a statistical plot, beside it.
 - From syntax, OUTPUT EXPORT writes the tables and charts of an output document to a workbook, a Word document, a presentation, a web page, text or a CSV file.
 
 ## Menus
 
 ### File
 
-Open data, Save data, Save data as, Export data; New (Syntax, Output), Open syntax, Open output, Recent files, Save syntax, Save syntax as; Save output, Save output as, Export output as HTML, Export output as Excel; Close, Exit. Save data saves the dataset of the data window it is chosen in, and the active dataset elsewhere.
+Open data, Save data, Save data as, Export data; New (Syntax, Output), Open syntax, Open output, Recent files, Save syntax, Save syntax as; Save output, Save output as, Export output as HTML, Export output as PDF, Export output as Excel; Close, Exit. Save data saves the dataset of the data window it is chosen in, and the active dataset elsewhere.
 
 ### Window
 

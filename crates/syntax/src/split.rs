@@ -266,21 +266,36 @@ pub(crate) fn is_line_command(line: &str, name: [&str; 2]) -> bool {
         && words.next().is_none()
 }
 
-/// The BEGIN DATA command on line index `first` with its data lines, up to the END DATA line,
-/// and the index of the line after END DATA. Each data line becomes a string token on its own
-/// line, so the lines keep their numbers.
-fn inline_data(lines: &[(u32, &str)], first: usize) -> (Result<RawCommand, SyntaxError>, usize) {
+/// The blocks whose lines are taken as they are: inline data, and a chart as JSON (a Statscraft
+/// extension).
+const BLOCKS: [&str; 2] = ["DATA", "CHART"];
+
+/// The block that starts on `line`, by its second word: BEGIN DATA or BEGIN CHART.
+pub(crate) fn block_start(line: &str) -> Option<&'static str> {
+    BLOCKS
+        .into_iter()
+        .find(|&word| is_line_command(line, ["BEGIN", word]))
+}
+
+/// The BEGIN DATA (or BEGIN CHART) command on line index `first` with its lines, up to the
+/// END DATA (END CHART) line, and the index of the line after that. Each line becomes a string
+/// token on its own line, so the lines keep their numbers.
+fn inline_data(
+    lines: &[(u32, &str)],
+    first: usize,
+    block: &str,
+) -> (Result<RawCommand, SyntaxError>, usize) {
     let line_span = |(number, text): (u32, &str)| Span {
         line: number,
         column: 1,
         end_line: number,
         end_column: text.chars().count() as u32 + 1,
     };
-    let Some(end) =
-        (first + 1..lines.len()).find(|&i| is_line_command(lines[i].1, ["END", "DATA"]))
+    let Some(end) = (first + 1..lines.len()).find(|&i| is_line_command(lines[i].1, ["END", block]))
     else {
-        let error = SyntaxError::new(line_span(lines[first]), "BEGIN DATA without END DATA")
-            .hint("end the data with a line that holds only END DATA");
+        let message = format!("BEGIN {block} without END {block}");
+        let hint = format!("end the block with a line that holds only END {block}");
+        let error = SyntaxError::new(line_span(lines[first]), message).hint(hint);
         return (Err(error), lines.len());
     };
     let (number, begin) = lines[first];
@@ -297,7 +312,7 @@ fn inline_data(lines: &[(u32, &str)], first: usize) -> (Result<RawCommand, Synta
             },
         }
     };
-    let mut tokens = vec![word("BEGIN"), word("DATA")];
+    let mut tokens = vec![word("BEGIN"), word(block)];
     for &(line, text) in &lines[first + 1..end] {
         tokens.push(Token {
             kind: TokenKind::Str(text.to_string()),
@@ -305,7 +320,7 @@ fn inline_data(lines: &[(u32, &str)], first: usize) -> (Result<RawCommand, Synta
         });
     }
     let command = RawCommand {
-        name: "BEGIN DATA".to_string(),
+        name: format!("BEGIN {block}"),
         first_line: number,
         last_line: lines[end].0,
         tokens,
@@ -328,7 +343,7 @@ pub(crate) fn command_end(
     let mut quote = None;
     for (i, &(_, line)) in lines.iter().enumerate().skip(from) {
         // inline data that follows a command without a period ends that command
-        let data = kind != Start::Comment && is_line_command(line, ["BEGIN", "DATA"]);
+        let data = kind != Start::Comment && block_start(line).is_some();
         if i > from && quote.is_none() && data {
             return (i, None, kind);
         }
@@ -447,8 +462,8 @@ fn split_lines(
             continue;
         }
         // inline data: the lines up to END DATA are data, whatever they look like
-        if is_line_command(lines[i].1, ["BEGIN", "DATA"]) {
-            let (command, next) = inline_data(&lines, i);
+        if let Some(block) = block_start(lines[i].1) {
+            let (command, next) = inline_data(&lines, i, block);
             out.push(command);
             i = next;
             continue;

@@ -830,16 +830,69 @@ fn glm_profile_plots_show_the_estimated_marginal_means() {
     }
     let mean = want.iter().sum::<f64>() / 3.0;
     at12[1].values.iter().for_each(|v| close(*v, mean));
-    // a third factor gives a chart per level; error bars are said not to be drawn
+    // a third factor gives a chart per level, each with its error bars
     let data = format!("{SHOP}COMPUTE c = MOD($CASENUM, 2).\n");
     let (_, charts, warnings) = run(
         &data,
         "UNIANOVA y BY a b c /PLOT=PROFILE(a*b*c) TYPE=BAR ERRORBAR=CI /DESIGN=a b c.",
     );
+    assert!(warnings.is_empty(), "{warnings:?}");
     assert_eq!(charts.len(), 2);
     assert!(charts.iter().all(|c| c.kind == ChartKind::Bar));
     assert!(charts[1].title.ends_with("at c = 1"), "{}", charts[1].title);
-    assert!(warnings[0].contains("error bars"), "{warnings:?}");
+    let bars = charts[1].error_bars.as_ref().unwrap();
+    assert_eq!(bars.label, "95% CI");
+    assert_eq!(bars.margins.len(), 2);
+}
+
+#[test]
+fn glm_profile_error_bars_are_standard_errors_or_the_confidence_interval() {
+    // one factor: the means are the cell means, each standard error is the root of the error
+    // mean square over the cell's size (SSE 94.75 on 11 df), and the interval at ALPHA 0.10
+    // reaches t(0.95; 11) = 1.7958848187 standard errors (scipy)
+    let mse = 94.75 / 11.0;
+    let se = [5.0, 4.0, 5.0].map(|n: f64| (mse / n).sqrt());
+    let (_, charts, warnings) = run(
+        SHOP,
+        "UNIANOVA y BY a /PLOT=PROFILE(a) ERRORBAR=SE(1.5) PROFILE(a) ERRORBAR=CI \
+         MEANREFERENCE=YES /CRITERIA=ALPHA(0.10).",
+    );
+    assert!(warnings.is_empty(), "{warnings:?}");
+    for (got, want) in charts[0].series[0].values.iter().zip([12.2, 12.75, 11.4]) {
+        close(*got, want);
+    }
+    let se_bars = charts[0].error_bars.as_ref().unwrap();
+    assert_eq!(se_bars.label, "1.5 SE");
+    for (got, want) in se_bars.margins[0].iter().zip(se) {
+        close(*got, 1.5 * want);
+    }
+    let [lower, upper] = charts[0].error_bar(0, 1).unwrap();
+    close(lower, 12.75 - 2.201_174_789_639_717);
+    close(upper, 12.75 + 2.201_174_789_639_717);
+    let ci = charts[1].error_bars.as_ref().unwrap();
+    assert_eq!(ci.label, "90% CI");
+    for (got, want) in ci.margins[0].iter().zip(se) {
+        close(*got, 1.795_884_818_703_669_1 * want);
+    }
+    // the grand mean line has no bars
+    assert!(ci.margins[1].is_empty() && charts[1].error_bar(1, 0).is_none());
+    assert!(
+        charts[1]
+            .footnote
+            .as_deref()
+            .unwrap()
+            .ends_with("Error bars: 90% CI"),
+        "{:?}",
+        charts[1].footnote
+    );
+    // the data table gives the half lengths after the means, under what they span
+    let table = charts[1].data_table();
+    assert_eq!(table.columns.len(), 4);
+    assert_eq!(table.column_groups[3], ["Error bar \u{b1} 90% CI"]);
+    match &table.rows[2][3] {
+        Cell::Number(m) => close(*m, 2.357_147_414_004_968),
+        other => panic!("{other:?}"),
+    }
 }
 
 #[test]

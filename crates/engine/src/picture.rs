@@ -8,8 +8,11 @@
 
 mod layout;
 
+pub use crate::html::figure;
 pub use layout::scene;
 
+use crate::Chart;
+use statscraft_syntax::{ImageExport, ImageFormat, ImageTone};
 use std::fmt::Write as _;
 use std::sync::{Arc, OnceLock};
 
@@ -95,6 +98,8 @@ pub enum Shape {
         lower: Vec<[f32; 2]>,
         fill: Color,
     },
+    /// A filled convex polygon through its corners in order, such as a territory of a map.
+    Polygon { points: Vec<[f32; 2]>, fill: Color },
     /// A pie slice: angles in radians, clockwise from twelve o'clock, with an edge between it
     /// and its neighbours.
     Wedge {
@@ -193,7 +198,7 @@ impl Palette {
     }
 }
 
-fn font() -> skrifa::FontRef<'static> {
+pub(crate) fn font() -> skrifa::FontRef<'static> {
     skrifa::FontRef::new(FONT).expect("the bundled font parses")
 }
 
@@ -311,6 +316,9 @@ pub fn svg(scene: &Scene) -> String {
                     fill(*f)
                 )
             }
+            Shape::Polygon { points: p, fill: f } => {
+                writeln!(out, "<polygon points=\"{}\" {}/>", points(p), fill(*f))
+            }
             Shape::Wedge {
                 center,
                 radius,
@@ -412,6 +420,13 @@ fn fonts() -> Arc<resvg::usvg::fontdb::Database> {
 /// The scene as a PNG image, `scale` pixels per scene pixel (2 for sharp text on a screen
 /// that scales).
 pub fn png(scene: &Scene, scale: f32) -> Result<Vec<u8>, String> {
+    pixmap(scene, scale)?
+        .encode_png()
+        .map_err(|e| e.to_string())
+}
+
+/// The scene rendered at `scale` pixels per scene pixel.
+fn pixmap(scene: &Scene, scale: f32) -> Result<resvg::tiny_skia::Pixmap, String> {
     let options = resvg::usvg::Options {
         fontdb: fonts(),
         ..Default::default()
@@ -428,19 +443,87 @@ pub fn png(scene: &Scene, scale: f32) -> Result<Vec<u8>, String> {
         resvg::tiny_skia::Transform::from_scale(scale, scale),
         &mut pixmap.as_mut(),
     );
-    pixmap.encode_png().map_err(|e| e.to_string())
+    Ok(pixmap)
+}
+
+/// The extension and the media type of a picture file in `format`.
+pub fn file_kind(format: ImageFormat) -> (&'static str, &'static str) {
+    match format {
+        ImageFormat::Bmp => ("bmp", "image/bmp"),
+        ImageFormat::Emf => ("emf", "image/emf"),
+        ImageFormat::Eps => ("eps", "application/postscript"),
+        ImageFormat::Jpg => ("jpg", "image/jpeg"),
+        ImageFormat::Png => ("png", "image/png"),
+        ImageFormat::Tif => ("tif", "image/tiff"),
+    }
+}
+
+/// The scene as a picture file in a raster format, `scale` pixels per scene pixel, in color,
+/// in shades of gray or in black and white. EMF and EPS are not written yet.
+pub fn raster(
+    scene: &Scene,
+    scale: f32,
+    format: ImageFormat,
+    tone: ImageTone,
+) -> Result<Vec<u8>, String> {
+    use image::{DynamicImage, ImageFormat as Codec};
+    let codec = match format {
+        ImageFormat::Png if tone == ImageTone::Color => return png(scene, scale),
+        ImageFormat::Png => Codec::Png,
+        ImageFormat::Jpg => Codec::Jpeg,
+        ImageFormat::Bmp => Codec::Bmp,
+        ImageFormat::Tif => Codec::Tiff,
+        ImageFormat::Emf | ImageFormat::Eps => {
+            let (extension, _) = file_kind(format);
+            return Err(format!(
+                "{} pictures are not written yet",
+                extension.to_uppercase()
+            ));
+        }
+    };
+    let pixmap = pixmap(scene, scale)?;
+    let (w, h) = (pixmap.width(), pixmap.height());
+    // the paper is opaque, so the premultiplied pixels are the plain ones
+    let rgba = image::RgbaImage::from_raw(w, h, pixmap.take())
+        .ok_or_else(|| format!("no picture of {w}x{h}"))?;
+    let rgba = DynamicImage::ImageRgba8(rgba);
+    let picture = match tone {
+        ImageTone::Color => DynamicImage::ImageRgb8(rgba.to_rgb8()),
+        ImageTone::Gray => DynamicImage::ImageLuma8(rgba.to_luma8()),
+        ImageTone::BlackWhite => {
+            let mut gray = rgba.to_luma8();
+            gray.pixels_mut()
+                .for_each(|p| p.0[0] = if p.0[0] < 128 { 0 } else { 255 });
+            DynamicImage::ImageLuma8(gray)
+        }
+    };
+    let mut out = std::io::Cursor::new(Vec::new());
+    let written = match codec {
+        // sharper text than the encoder's default quality of 75
+        Codec::Jpeg => picture.write_with_encoder(
+            image::codecs::jpeg::JpegEncoder::new_with_quality(&mut out, 90),
+        ),
+        codec => picture.write_to(&mut out, codec),
+    };
+    written.map_err(|e| e.to_string())?;
+    Ok(out.into_inner())
+}
+
+/// A chart as a picture file with the settings of an image subcommand, on light paper:
+/// PERCENTSIZE of the PNG `chart_png` writes. None for a kind not drawn yet.
+pub fn chart_file(chart: &Chart, settings: &ImageExport) -> Option<Result<Vec<u8>, String>> {
+    let scale = 2.0 * settings.percent as f32 / 100.0;
+    scene(chart, FILE_WIDTH, Paper::Light)
+        .map(|s| raster(&s, scale, settings.format, settings.tone))
 }
 
 /// A chart as an SVG file at the width of saved pictures; None for a kind not drawn yet.
-pub fn chart_svg(chart: &statscraft_engine::Chart, paper: Paper) -> Option<String> {
+pub fn chart_svg(chart: &Chart, paper: Paper) -> Option<String> {
     scene(chart, FILE_WIDTH, paper).map(|s| svg(&s))
 }
 
 /// A chart as a PNG file at the width of saved pictures, twice as sharp; None for a kind not
 /// drawn yet.
-pub fn chart_png(
-    chart: &statscraft_engine::Chart,
-    paper: Paper,
-) -> Option<Result<Vec<u8>, String>> {
+pub fn chart_png(chart: &Chart, paper: Paper) -> Option<Result<Vec<u8>, String>> {
     scene(chart, FILE_WIDTH, paper).map(|s| png(&s, 2.0))
 }

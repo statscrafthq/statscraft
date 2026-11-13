@@ -181,7 +181,7 @@ fn unianova_defaults_and_the_pasted_dialog_syntax() {
         panic!("{:?}", g.plots);
     };
     assert_eq!(profile.factors, ["a", "b"]);
-    assert!(!profile.bar && !profile.error_bars && !profile.mean_reference);
+    assert!(!profile.bar && profile.error_bar.is_none() && !profile.mean_reference);
     assert_eq!(g.emmeans[0].factors, ["a"]);
     assert_eq!(g.emmeans[0].compare, Some(None));
     assert_eq!(g.emmeans[0].adjustment, Adjustment::Bonferroni);
@@ -328,7 +328,11 @@ fn glm_plot_keywords() {
         .collect();
     assert_eq!(profiles[2].factors, ["a", "b", "c"]);
     assert_eq!(profiles[1].with, [("x".to_string(), Some(2.5))]);
-    assert!(profiles[0].bar && profiles[0].mean_reference && profiles[0].error_bars);
+    assert!(
+        profiles[0].bar
+            && profiles[0].mean_reference
+            && profiles[0].error_bar == Some(ErrorBar::Se(1.5))
+    );
     assert!(!profiles[3].bar && profiles[3].with.is_empty());
     assert!(
         err("UNIANOVA y BY a /PLOT=PROFILE(a) ERRORBAR=SE(0).")

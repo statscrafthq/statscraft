@@ -9,6 +9,7 @@ use eframe::egui::{
     StrokeKind, TextStyle, Ui, Vec2, pos2, text::LayoutJob, vec2,
 };
 use statscraft_engine::office::is_office_chart;
+use statscraft_engine::output_modify::ModifiedItem;
 use statscraft_engine::{Chart, Table};
 use statscraft_export::picture::{self, Paper, Scene};
 use std::collections::{HashMap, HashSet};
@@ -177,6 +178,40 @@ impl OutputView {
         });
         self.scroll_to = Some((first, 2));
         true
+    }
+
+    /// Follows what OUTPUT MODIFY changed in the document this window shows: tables replaced,
+    /// headings renamed and tables deleted, each found by its place among all the tables.
+    pub fn apply_modified(&mut self, changes: &[ModifiedItem]) {
+        let by_place: HashMap<usize, &ModifiedItem> =
+            changes.iter().map(|m| (m.position, m)).collect();
+        let mut gone = HashSet::new();
+        let mut place = 0;
+        for item in self.runs.iter_mut().flat_map(|run| &mut run.items) {
+            for t in &mut item.tables {
+                if let Some(m) = by_place.get(&place) {
+                    if m.deleted {
+                        gone.insert(t.id);
+                    } else {
+                        if let Some(heading) = &m.heading {
+                            item.heading = heading.clone();
+                        }
+                        if let Some(table) = &m.table {
+                            t.table = table.clone();
+                            t.chart = m.chart.clone();
+                        }
+                        self.layouts.remove(&t.id);
+                        self.scenes.remove(&t.id);
+                    }
+                }
+                place += 1;
+            }
+        }
+        output::retain(&mut self.runs, |id| !gone.contains(&id));
+        self.selected.retain(|id| !gone.contains(id));
+        self.layouts.retain(|id, _| !gone.contains(id));
+        self.scenes.retain(|id, _| !gone.contains(id));
+        self.as_data.retain(|id| !gone.contains(id));
     }
 
     pub fn delete_selected(&mut self) {
@@ -477,7 +512,13 @@ impl OutputView {
                             ui.horizontal(|ui| {
                                 ui.add_space(22.0);
                                 let on = self.selected.contains(&t.id);
-                                if ui.selectable_label(on, &t.table.title).clicked() {
+                                // the outline label OUTPUT MODIFY gave; a hidden item is greyed
+                                let label = t.table.outline.as_deref().unwrap_or(&t.table.title);
+                                let mut label = RichText::new(label);
+                                if t.table.hidden {
+                                    label = label.weak().italics();
+                                }
+                                if ui.selectable_label(on, label).clicked() {
                                     picked = Some(vec![t.id]);
                                 }
                             });
@@ -526,7 +567,9 @@ impl OutputView {
         let mut blocks: Vec<(f32, Option<&str>, &OutputTable, Option<&Scene>)> = Vec::new();
         let (mut bottom, mut width) = (0.0f32, 0.0f32);
         for item in self.runs.iter().flat_map(|run| &run.items) {
-            for (i, t) in item.tables.iter().enumerate() {
+            // hidden tables stay in the navigator only; the heading goes above the first shown
+            let shown = item.tables.iter().filter(|t| !t.table.hidden);
+            for (i, t) in shown.enumerate() {
                 let scene = match self.as_data.contains(&t.id) {
                     true => None,
                     false => self.scenes.get(&t.id).and_then(Option::as_ref),
@@ -655,7 +698,8 @@ impl OutputView {
                                 }
                             }
                         }
-                        if office {
+                        // a chart with no office form goes in as a picture
+                        if office || drawn {
                             ui.separator();
                             for program in Program::ALL {
                                 if ui.button(program.label()).clicked() {

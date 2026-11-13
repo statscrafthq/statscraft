@@ -333,14 +333,16 @@ impl Pre {
                 i = self.define(&plain, i, &origin(i));
                 continue;
             }
-            let data = is_line_command(line, ["BEGIN", "DATA"]);
+            // inline data and charts pass as they are: no macro expands inside them
+            let block = crate::split::block_start(line);
+            let data = block.is_some();
             if data || starts_with(&words, &["BEGIN", "PROGRAM"]) {
-                let close = if data { "END DATA" } else { "END PROGRAM" };
+                let close = "END PROGRAM";
                 let end = (i + 1..plain.len()).find(|&j| {
                     let words = leading_words(plain[j].1);
-                    match data {
-                        true => is_line_command(plain[j].1, ["END", "DATA"]),
-                        false => starts_with(&words, &["END", "PROGRAM"]),
+                    match block {
+                        Some(block) => is_line_command(plain[j].1, ["END", block]),
+                        None => starts_with(&words, &["END", "PROGRAM"]),
                     }
                 });
                 if data {

@@ -4,6 +4,7 @@
 statscraft describe   dictionary and counts of a data file or a session
 statscraft run        run syntax
 statscraft check      validate syntax without saving or writing anything
+statscraft chart      add a chart given as JSON to the output
 statscraft help       syntax of a command, or the list of commands
 statscraft plan       lower syntax to an OpenStatSpec transformation plan
 statscraft db         store datasets in an OpenStatSpec database and read them back
@@ -109,7 +110,7 @@ statscraft help FREQUENCIES         syntax, notes and an example of one command
 statscraft help freq                names may be lowercase and shortened, as in syntax
 ```
 
-A command of the language that Statscraft does not run yet (for example `statscraft help GRAPH`) gets "is a command of the language, but it is not supported yet". An unknown name is an error. The same text, one page per command, is in [commands](commands/README.md).
+An unknown name is an error. The same text, one page per command, is in [commands](commands/README.md).
 
 ## Sessions and line ranges
 
@@ -241,7 +242,7 @@ A custom table with two header levels, from `CTABLES /TABLE region [COUNT, COLPC
 
 ### Charts
 
-FREQUENCIES (BARCHART, PIECHART, HISTOGRAM), CROSSTABS (BARCHART), EXAMINE (PLOT), ONEWAY (PLOT MEANS), REGRESSION (RESIDUALS, SCATTERPLOT, PARTIALPLOT), LOGISTIC REGRESSION (CLASSPLOT), UNIANOVA and GLM (PLOT), DISCRIMINANT (PLOT), FACTOR (PLOT), CLUSTER (PLOT) and TREE (the tree diagram, PLOT) make charts. A chart is data: its kind, its labels and its numbers, with nothing about colors or layout. Labels follow SET TVARS, TNUMBERS and OVARS as tables do. `statscraft run --json -e "..."` with `CROSSTABS /TABLES=region BY gender /BARCHART.` gives (shortened):
+GRAPH, FREQUENCIES (BARCHART, PIECHART, HISTOGRAM), CROSSTABS (BARCHART), EXAMINE (PLOT), ONEWAY (PLOT MEANS), REGRESSION (RESIDUALS, SCATTERPLOT, PARTIALPLOT), LOGISTIC REGRESSION (CLASSPLOT), UNIANOVA and GLM (PLOT), DISCRIMINANT (PLOT), FACTOR (PLOT), CLUSTER (PLOT) and TREE (the tree diagram, PLOT) make charts. A chart is data: its kind, its labels and its numbers, with nothing about colors or layout. Labels follow SET TVARS, TNUMBERS and OVARS as tables do. `statscraft run --json -e "..."` with `CROSSTABS /TABLES=region BY gender /BARCHART.` gives (shortened):
 
 ```json
 {
@@ -266,16 +267,18 @@ FREQUENCIES (BARCHART, PIECHART, HISTOGRAM), CROSSTABS (BARCHART), EXAMINE (PLOT
 
 | Field | Meaning |
 |---|---|
-| `kind` | `bar`, `pie`, `line`, `area`, `scatter`, `histogram`, `boxplot`, `stem_leaf`, `normal_qq`, `detrended_normal_qq`, `normal_pp`, `spread_level`, `dendrogram`, `icicle`, `tree_diagram` or `territorial_map` |
+| `kind` | `bar`, `pie`, `line`, `area`, `error_bar` (a point per value with its error bar), `range_bar` (a floating bar between each pair of series), `drop_line` and `high_low` (points with a line from the lowest to the highest value of each category; for `high_low` the third series is the close), `difference` (two lines with the area between them shaded), `scatter`, `histogram`, `boxplot`, `stem_leaf`, `normal_qq`, `detrended_normal_qq`, `normal_pp`, `spread_level`, `dendrogram`, `icicle`, `tree_diagram` or `territorial_map` |
 | `tier` | `presentation` (a chart the office programs can hold as an editable chart) or `statistical` (a plot drawn exactly, such as the histogram) |
 | `orientation` | `vertical` (categories along the bottom) or `horizontal`; absent for a pie |
 | `grouping` | `clustered`, `stacked` or `percent` (stacked to 100%); bars, lines and areas only |
-| `title`, `footnote` | the title, as a table of the same command would have it, and an optional note such as the mean, standard deviation and N of a histogram |
+| `title`, `subtitle`, `footnote` | the title, as a table of the same command would have it, an optional line under it (GRAPH /SUBTITLE), and an optional note such as the mean, standard deviation and N of a histogram |
 | `category_axis`, `value_axis` | each with its `title`, the display `format` of its numbers, `maximum` when the syntax set the top of the axis, and the `variable` it shows |
 | `legend` | what tells the series apart, such as the column variable; absent with one series |
 | `categories` | in drawing order: the `label`, the `value` it stands for (`null` for a slice of all missing values), `missing` when it holds missing values, and `bin` (`[from, to]`) for a histogram bin, which holds its lower bound but not its upper one |
 | `series` | each with its `name`, the `statistic` its numbers are (`count`, weighted when a weight is set, `percent`, `mean` or `value`), the `variable` and `value` it stands for, and `values`, one number per category |
 | `normal` | a histogram's normal curve: `mean`, `std_dev` and `total`; its height at x is total times the bin width times the normal density |
+| `error_bars` | bars, lines and points with error bars, such as a profile plot with ERRORBAR or a GRAPH ERRORBAR chart: a `label` saying what a bar spans (`95% CI`, `2 SE`) and `margins`, for each series a list with the half length of its bar at each category (the bar runs from the value minus it to the value plus it; an empty list for a series without bars, `null` where a value has none); `lower`, only where bars reach less far below than above (the interval of a median), lists the length below in the same way, and `margins` is then the length above |
+| `second_axis` | a bar chart's second value axis on the right (`title`, `format`, `maximum`) for its last series, which is drawn as a line over the bars, such as the cumulative percentage of a GRAPH PARETO chart |
 | `plot` | the data of a statistical plot other than the histogram, by its `shape`; `categories` and `series` are then empty, the category axis is the horizontal one and the value axis the vertical one |
 
 The shapes of `plot`:
@@ -283,11 +286,45 @@ The shapes of `plot`:
 - `boxes`: `boxes`, each with its `label`, `group` (the cluster, when boxes are grouped), `n`, `lower_whisker`, `lower_hinge`, `median`, `upper_hinge`, `upper_whisker`, and the marked cases in `outliers` and `extremes` (each a `value` and its `case` label).
 - `stem_leaf`: `stem_width`, `each_leaf` (cases per leaf), `lines` (each a `frequency`, the `stem` as shown and the `leaves` as digits) and `low_extremes`, `high_extremes` (a `frequency` and the `bound`).
 - `points`: `groups`, each a `name` and `points` (`x`, `y`, an optional `z` and `label`); `lines`, straight reference lines `y = intercept + slope x`; and `z_axis` when the points have depth. Q-Q, P-P, spread-versus-level, scatter, partial regression and loading plots use it.
+- `matrix`: `variables`, the axes in order (each with its `title` and `format`), and `groups`, each a `name` and `cases`, each case with its `values` in the order of the variables (`null` where missing) and an optional `label`. GRAPH SCATTERPLOT(MATRIX) uses it, with kind `scatter`.
 - `merges`: `items` (the case labels), `order` (the layout of the items, so that no branches cross), `merges` (each joins cluster `right` into cluster `left`, both named by an item index, at `height`, with `rescaled` from 1 to 25) and, for an icicle plot, `solutions`, the numbers of clusters it shows.
 - `tree`: `nodes`, each with its `id`, `parent`, the `split` condition that leads to it, and `statistics` as name and value pairs.
 - `regions`: `regions`, each with its `name`, its `center` (`[x, y]`, such as a group centroid) and `vertices`, the corners of its convex polygon in order around it (empty when the region is empty). The DISCRIMINANT territorial map uses it.
 
 With `--vega-lite` each chart also has a member `vega_lite`: a [Vega-Lite](https://vega.github.io/vega-lite/) v5 specification with the numbers inline, which any Vega-Lite viewer draws as it is. In Markdown output the specification follows the chart's data table as a `json` code block. SPLIT FILE gives a chart per split group, the group named in the title.
+
+### Charts as input
+
+Statscraft reads a chart back in the form it writes it, so an agent or a script can put a chart that no procedure makes into the output. The chart is drawn, saved and exported like any other: in the window's output, OUTPUT SAVE, OUTPUT EXPORT, Copy and Open in the office programs.
+
+```
+statscraft chart sales.json -s work
+statscraft chart sales.json -s gui
+cat sales.json | statscraft chart - --json
+```
+
+`statscraft chart FILE` (or `-` for standard input) takes `-s`, `--json`, `--vega-lite`, `--xlsx` and `--charts` as `run` does. It runs the syntax BEGIN CHART, a Statscraft extension, with the file's JSON between BEGIN CHART and END CHART, each on its own line; the same block works in any syntax file, so OUTPUT EXPORT in the same run writes the chart out. The MCP tool `add_chart` does the same. See [BEGIN CHART](commands/begin-chart.md).
+
+The JSON is one of two forms.
+
+The chart JSON above, as `--json` writes it. A chart from a run reads back as the same chart, so the simplest way to make one is to take a procedure's chart and change it. `"version": 1` may be given; a higher version is refused. The member `vega_lite` that `--vega-lite` adds is ignored. A field the chart does not have is an error, so a misspelt one is not lost silently; a field that is `null`, `false` or empty counts as left out. `kind`, `tier`, `title`, `category_axis` and `value_axis` (each with a `title`), `categories` and `series` (each with `name`, `statistic` and `values`) are required. A number may be `null` where there is none. A statistical plot gives its data in `plot` with the shape `points` (kinds `scatter`, `normal_qq`, `detrended_normal_qq`, `normal_pp`, `qq`, `detrended_qq`, `pp`, `detrended_pp`, `roc`, `spread_level`) or `boxes` (kind `boxplot`); the other shapes are made only by their procedures.
+
+A [Vega-Lite](https://vega.github.io/vega-lite/) specification of one view, the part that maps cleanly to a Statscraft chart:
+
+| Mark | Encodings | Gives |
+|---|---|---|
+| `bar` | `x` and `y`, one of them `quantitative`; optional `color`, and `xOffset` or `yOffset` on the field of `color` | a bar chart: vertical when `y` holds the values, horizontal when `x` does. With `color` the bars stack, as in Vega-Lite; with an offset they stand side by side; `stack: "normalize"` stacks them to 100% |
+| `line` | `x` (the categories) and `y` (`quantitative`), optional `color` | a line chart, a line per color |
+| `area` | the same | an area chart; with `color` stacked, or to 100% with `stack: "normalize"` |
+| `point` | `x` and `y`, both `quantitative`, optional `color` | a scatter plot, a group per color; a row without both numbers is left out |
+| `arc` | `theta` (`quantitative`) and `color` | a pie, a slice per color |
+
+- The rows are inline in `data.values`, each an object. Every row gives one value: a category (and color) given twice is an error, since nothing is aggregated.
+- A channel takes `field`, `type` (`quantitative`, `nominal`, `ordinal` or `temporal`; `color` and the offsets default to `nominal`), `title` and `sort`: `"ascending"` (the default, as in Vega-Lite), `"descending"`, `null` for the order of the data, or a list of values that come first. `axis`, `legend` and `scale` are accepted and change nothing; so are `width`, `height`, `config` and the other members that only set how the chart looks, and the properties of `mark` besides `type`.
+- `title` is a string, or an object with `text` and `subtitle`. Without one the chart is named "values by categories" after the axis titles. An axis title is the channel's `title`, else its field.
+- Refused, with a message that names what is not supported: other marks, encodings such as `size` or `shape`, `aggregate`, `bin`, `timeUnit`, a fixed `value` or `datum`, `transform`, `layer`, `facet`, `repeat` and the concatenations, `params`, data from `url` or by `name`, and a Vega (not Vega-Lite) schema.
+
+Limits, for both forms: at most 100 series, 3000 categories, 100000 values (series times categories, points, or rows), strings of 1000 characters and a JSON text of 16 MB. A chart whose parts do not fit together, such as a series with fewer values than there are categories, is refused before anything draws it.
 
 ### Error
 
@@ -438,9 +475,9 @@ statscraft run -s gui -e "FREQUENCIES VARIABLES=gender." --xlsx gender.xlsx
 
 Every table and chart of the run goes into the workbook, with or without a session, and also from the window session. With one sheet per table, each sheet is named after its table title (`Gender`, `Region of residence`, ...). With `--xlsx-one-sheet` there is one sheet `Tables` with the tables one below the other.
 
-Each table has its title in bold, the column headers with merged cells for every level, the row labels, thin borders and its caption below. Numbers stay numbers, with a number format that shows them as the output does: a percentage cell holds 45.2 and shows 45.2%. Text such as significance letters and hidden small counts (`<5`) stays text. A bar, pie, line or area chart goes in as its data table with an editable chart beside it, drawn from those cells: change a number and the chart follows. The chart sets no colors, so it takes the workbook's theme. A histogram goes in as its data table only. The text output on the terminal is the same as without `--xlsx`.
+Each table has its title in bold, the column headers with merged cells for every level, the row labels, thin borders and its caption below. Numbers stay numbers, with a number format that shows them as the output does: a percentage cell holds 45.2 and shows 45.2%. Text such as significance letters and hidden small counts (`<5`) stays text. A bar, pie, line or area chart goes in as its data table with an editable chart beside it, drawn from those cells: change a number and the chart follows. The chart sets no colors, so it takes the workbook's theme. A statistical plot, such as a histogram or a boxplot, has no editable form: its picture stands beside its data table instead. The text output on the terminal is the same as without `--xlsx`.
 
-OUTPUT EXPORT in the syntax writes the same charts into a workbook (/XLSX), a Word document (/DOC) or a presentation (/PPT); see `statscraft help "OUTPUT EXPORT"`.
+OUTPUT EXPORT in the syntax writes the same charts into a workbook (/XLSX), a Word document (/DOC) or a presentation (/PPT), where a statistical plot is a picture; into a web page (/HTML) as pictures inside the page; and, with /PNG, /JPG, /BMP or /TIF, as one picture file per chart. See `statscraft help "OUTPUT EXPORT"` and [Chart pictures](#chart-pictures).
 
 A workbook that cannot be written fails the run, and the session is then not saved.
 
@@ -457,6 +494,8 @@ OUTPUT EXPORT /XLSX DOCUMENTFILE='region.xlsx' /HTML DOCUMENTFILE='region.html'.
 ```
 
 The second run converts the saved output without the data: OUTPUT OPEN makes the file's document the designated one, and OUTPUT EXPORT writes it. Tables of commands after OUTPUT OPEN join that document, so open, run and save again adds to the file.
+
+A file may come from anyone, so OUTPUT OPEN checks every table and chart before anything shows it. A chart passes the checks of [charts as input](#charts-as-input), with limits wide enough for what procedures make (100000 categories, 2000000 values, strings of 32768 characters), and the indexes of a dendrogram, an icicle plot and a tree diagram must point where they should. A table's rows must have a cell for every column and its formats the shape of its rows, within 1000000 rows, 10000 columns and 10000000 cells. An item that fails is not shown: a warning names it and says why, the rest of the file opens, and OUTPUT SAVE writes the item back as it was read. Fields a newer Statscraft added are dropped.
 
 The file is UTF-8 JSON, so an agent or a script reads it directly, with no Statscraft call (shortened here):
 
@@ -502,9 +541,18 @@ statscraft run job.sps --charts charts
 statscraft run job.sps --charts charts --chart-format png
 ```
 
-Every chart of the run is written to the folder, which is made if it is missing, as `01-<title>.svg`, `02-<title>.svg` and so on: numbered in the order of the output, the title in lower case with hyphens between its words. An existing file of the same name is replaced. The pictures are 640 pixels wide on white paper (a PNG has twice the pixels, for sharp text), drawn as the window draws them: flat bars, lines, areas, dots and slices in petrol and amber, muted labels and thin rule lines, in Schibsted Grotesk with tabular figures. Drawn are bar charts in both orientations, side by side, stacked and stacked to 100%, pie, line, area and scatter charts, the histogram with its normal curve, boxplots, the point plots (normal Q-Q and P-P, detrended Q-Q, spread versus level, residual and loading plots) with their reference lines, the dendrogram, the icicle plot and the tree diagram. A stem-and-leaf display and a plot in three dimensions get no file; their data table is in the output. An SVG names the font and falls back to the system's sans-serif font where Schibsted Grotesk is not installed; a PNG has it built in.
+Every chart of the run is written to the folder, which is made if it is missing, as `01-<title>.svg`, `02-<title>.svg` and so on: numbered in the order of the output, the title in lower case with hyphens between its words. An existing file of the same name is replaced. The pictures are 640 pixels wide on white paper (a PNG has twice the pixels, for sharp text), drawn as the window draws them: flat bars, lines, areas, dots and slices in petrol and amber, muted labels and thin rule lines, in Schibsted Grotesk with tabular figures. Drawn are bar charts in both orientations, side by side, stacked and stacked to 100%, pie, line, area and scatter charts, the scatterplot matrix, the histogram with its normal curve, boxplots, the point plots (normal Q-Q and P-P, detrended Q-Q, spread versus level, residual and loading plots) with their reference lines, the dendrogram, the icicle plot and the tree diagram. A stem-and-leaf display and a plot in three dimensions get no file; their data table is in the output. An SVG names the font and falls back to the system's sans-serif font where Schibsted Grotesk is not installed; a PNG has it built in.
 
 The text output on the terminal is the same as without `--charts`. The charts are written after the run, so a folder that cannot be written fails the command but leaves the session as the run saved it.
+
+The syntax writes pictures too. OUTPUT EXPORT with an image subcommand and no document saves every chart of the output document, numbered from 0 after IMAGEROOT:
+
+```
+OUTPUT EXPORT /PNG IMAGEROOT='charts/june'.
+OUTPUT EXPORT /JPG IMAGEROOT='charts/june' PERCENTSIZE=50 GRAYSCALE=YES.
+```
+
+The first line gives `charts/june0.png`, `charts/june1.png` and so on; the folder must exist. PERCENTSIZE=100 is the PNG of `--charts`, 1280 pixels wide; 50 halves it. PNG, JPG, BMP and TIF are written. EMF and EPS are not written yet and give a warning. A web page from OUTPUT EXPORT /HTML holds its charts as pictures inside the page, and /TEXT saves them beside the text file, named after it.
 
 ## The live window session
 

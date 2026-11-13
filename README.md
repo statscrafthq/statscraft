@@ -60,9 +60,9 @@ The [command pages](docs/commands/README.md) list every supported command. In sh
 - **Custom tables.** CTABLES with multiple response sets and significance tests, and MULT RESPONSE.
 - **The matrix language.** MATRIX ... END MATRIX, and MATRIX DATA.
 - **Macros and settings.** DEFINE, INCLUDE, INSERT, SET, SHOW, PRESERVE and RESTORE.
-- **Output.** Tables as Markdown, JSON, Excel workbooks, and with OUTPUT EXPORT also HTML, text and CSV. OUTPUT SAVE and OUTPUT OPEN keep output in Statscraft output files (.scout). Charts are drawn in the window and saved as PNG or SVG, and open as editable charts in PowerPoint, Word and Excel.
+- **Output.** Tables as Markdown, JSON, Excel workbooks, and with OUTPUT EXPORT also HTML, text and CSV. OUTPUT SAVE and OUTPUT OPEN keep output in Statscraft output files (.scout), and OUTPUT MODIFY deletes, hides, renames, sorts, transposes and reformats the items of the output. Charts are drawn in the window and saved as PNG or SVG, and open as editable charts in PowerPoint, Word and Excel.
 
-Not yet: the GRAPH command and OUTPUT MODIFY. [Differences and limits](docs/differences.md) has the details.
+Not yet: the drawing of three-dimensional scatterplots (they show as a table), grouped high-low charts and chart templates in GRAPH, and the fonts, colors and table looks of OUTPUT MODIFY. [Differences and limits](docs/differences.md) has the details.
 
 ## Documentation
 

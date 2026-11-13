@@ -32,6 +32,7 @@ mod files;
 mod frequencies;
 mod get_data;
 mod glm;
+mod graph;
 mod input_program;
 mod lexer;
 mod logistic;
@@ -45,9 +46,11 @@ mod nomreg;
 mod npar;
 mod output;
 mod output_docs;
+mod output_modify;
 mod parser;
 mod plum;
 mod portable;
+mod pplot;
 mod preprocess;
 mod procedures;
 mod rank;
@@ -74,6 +77,8 @@ mod tests_factor;
 #[cfg(test)]
 mod tests_glm;
 #[cfg(test)]
+mod tests_graph;
+#[cfg(test)]
 mod tests_input_program;
 #[cfg(test)]
 mod tests_loops;
@@ -89,6 +94,8 @@ mod tests_nomreg;
 mod tests_npar;
 #[cfg(test)]
 mod tests_output;
+#[cfg(test)]
+mod tests_pplot;
 #[cfg(test)]
 mod tests_preprocess;
 #[cfg(test)]
@@ -122,8 +129,11 @@ pub use factor::{
     FactorPrint, FactorSave, MatrixKind, QuickCluster, Rotation, ScoreMethod,
 };
 pub use glm::{
-    Adjustment, Contrast, Emmeans, Glm, GlmPlot, GlmPrint, GlmTemp, LMatrix, LRow, Profile, Term,
-    WsFactor,
+    Adjustment, Contrast, Emmeans, ErrorBar, Glm, GlmPlot, GlmPrint, GlmTemp, LMatrix, LRow,
+    Profile, Term, WsFactor,
+};
+pub use graph::{
+    Graph, GraphChart, GraphData, GraphFunction, GraphInterval, GraphPanel, GraphSummary,
 };
 pub use lexer::{Punct, Token, TokenKind};
 pub use logistic::{
@@ -150,10 +160,16 @@ pub use output::{
     DateSpec, DateUnit, FormatItem, Placement, Print, PrintItem, PrintKind, PrintSpace, Xsave,
 };
 pub use output_docs::{
-    ExportTarget, OutputCommand, OutputExport, OutputOpen, OutputSave, SheetLocation,
-    SheetOperation, TextEncoding,
+    ExportTarget, ImageExport, ImageFormat, ImageTone, OutputCommand, OutputExport, OutputOpen,
+    OutputSave, SheetLocation, SheetOperation, TextEncoding,
 };
 pub use plum::{Plum, PlumCriteria, PlumLink, PlumPrint, PlumSave};
+pub use output_modify::{
+    ApplyTo, CellArea, CellCondition, CommandPick, CompareOp, CompareValue, Dimension, IndexStyle,
+    Indexing, Instance, ItemKind, LabelTest, ModifyBlock, ModifyTarget, OutputModify, SortColumn,
+    TableCells, letters, roman,
+};
+pub use pplot::{Pplot, PplotPlot, Roc, TestDistribution};
 pub use preprocess::{FileHandle, MacroState};
 pub use regression::{
     Casewise, Criterion, MethodKind, PlotVariable, Regression, RegressionCriteria,
@@ -350,6 +366,11 @@ fn parse_raw(raw: &RawCommand) -> Result<Command, SyntaxError> {
             "END DATA without BEGIN DATA",
         )
         .hint("inline data starts with a line that holds only BEGIN DATA")),
+        Resolution::Unsupported("END CHART", used) => Err(SyntaxError::new(
+            name_span(used),
+            "END CHART without BEGIN CHART",
+        )
+        .hint("a chart starts with a line that holds only BEGIN CHART")),
         Resolution::Unsupported("END MATRIX", used) => Err(SyntaxError::new(
             name_span(used),
             "END MATRIX without MATRIX",

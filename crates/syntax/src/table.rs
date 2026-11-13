@@ -15,6 +15,7 @@ use crate::files;
 use crate::frequencies;
 use crate::get_data;
 use crate::glm;
+use crate::graph;
 use crate::input_program;
 use crate::lexer::{Punct, Token, TokenKind};
 use crate::logistic;
@@ -27,9 +28,11 @@ use crate::nomreg;
 use crate::npar;
 use crate::output;
 use crate::output_docs;
+use crate::output_modify;
 use crate::parser::{PResult, Parser};
 use crate::plum;
 use crate::portable;
+use crate::pplot;
 use crate::procedures;
 use crate::rank;
 use crate::regression;
@@ -90,8 +93,9 @@ macro_rules! glm_syntax {
                  of Within-Subjects Contrasts and Tests of Between-Subjects Effects on the average.\n\
                  PLOT gives chart data. PROFILE draws the estimated marginal means as a line chart (bars with\n\
                  TYPE=BAR) over the levels of the first factor, one line per level of a second factor and one chart\n\
-                 per level of a third; MEANREFERENCE adds the grand mean as a flat line; error bars are not drawn\n\
-                 yet (a warning says so) and YAXIS is left to the drawing. SPREADLEVEL plots the mean of every\n\
+                 per level of a third; MEANREFERENCE adds the grand mean as a flat line. ERRORBAR=CI spans each\n\
+                 mean's confidence interval at 1 minus CRITERIA ALPHA, ERRORBAR=SE(n) n standard errors on each\n\
+                 side (2 by default); YAXIS is left to the drawing. SPREADLEVEL plots the mean of every\n\
                  cell with two cases or more against its standard deviation, then against its variance. RESIDUALS\n\
                  gives every case's predicted value, observed value and standardized residual. With WSFACTOR, PLOT\n\
                  is ignored with a warning. Not supported yet: GLM with several\n\
@@ -101,6 +105,32 @@ macro_rules! glm_syntax {
                  PARAMETER, HOMOGENEITY and LOF.")
     };
 }
+
+/// The help syntax of PPLOT and its other name NPPLOT.
+const PPLOT_SYNTAX: &str = "PPLOT [VARIABLES=] varlist\n\
+                 \x20  [/DISTRIBUTION=NORMAL[(a,b)] | EXPONENTIAL[(a)] | WEIBULL[(a,b)] | PARETO[(a,b)] |\n\
+                 \x20   LNORMAL[(a,b)] | BETA[(a,b)] | GAMMA[(a,b)] | LOGISTIC[(a,b)] | LAPLACE[(a,b)] |\n\
+                 \x20   UNIFORM[(a,b)] | HNORMAL[(a)] | CHI(df) | STUDENT(df)]\n\
+                 \x20  [/FRACTION=BLOM | RANKIT | TUKEY | VW] [/TIES=MEAN | LOW | HIGH | BREAK]\n\
+                 \x20  [/TYPE=Q-Q | P-P] [/PLOT=BOTH | NORMAL | DETRENDED] [/STANDARDIZE | /NOSTANDARDIZE]\n\
+                 \x20  [/LN | /NOLOG] [/DIFF[=n]] [/SDIFF[=n]] [/PERIOD=n] [/APPLY].\n\
+                 Parameters: NORMAL, LOGISTIC, LAPLACE location and scale; EXPONENTIAL rate; WEIBULL,\n\
+                 LNORMAL scale and shape; PARETO threshold and shape; BETA two shapes; GAMMA shape and rate;\n\
+                 UNIFORM minimum and maximum; HNORMAL scale (location 0). Without them they are estimated\n\
+                 from the plotted values (moments; Weibull by least squares on the ranks; Pareto from the\n\
+                 minimum and the mean log; half-normal by maximum likelihood) and listed in a table. Each\n\
+                 variable is a series in case order: missing values are left out, LN logs it first (0 and\n\
+                 below become missing), DIFF and SDIFF (over PERIOD cases; without PERIOD SDIFF is left\n\
+                 out) difference it, STANDARDIZE makes z-scores of the result. Ranks of tied values follow\n\
+                 TIES (BREAK numbers the distinct values 1, 2, ...); FRACTION turns rank r of n into a\n\
+                 proportion p: BLOM (r-3/8)/(n+1/4), RANKIT (r-1/2)/n, TUKEY (r-1/3)/(n+1/3), VW r/(n+1).\n\
+                 Q-Q (the default) plots each value against the distribution's quantile at p, P-P plots p\n\
+                 against the distribution function at the value, both with the line y = x; the detrended\n\
+                 plot shows observed minus expected, with the line y = 0. BOTH draws both plots. Values the\n\
+                 distribution cannot take leave the variable out with a warning. Weights are not used.\n\
+                 APPLY repeats the previous PPLOT (its distribution without the parameters, and its\n\
+                 variables unless new ones are given); the subcommands given with it override.\n\
+                 Not supported yet: APPLY of a named model, TEMPLATE.";
 
 pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
@@ -1385,7 +1415,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  first n) in a Casewise Statistics table: actual group, the two most likely groups with their\n\
                  posterior probabilities and squared distances to the centroid, the chi-square significance of\n\
                  the first one's distance, and the scores. MAP splits the plane of the first two functions into\n\
-                 the territory of each group, a convex polygon, under the pooled rule with the priors; there is no\n\
+                 the territory of each group, a convex polygon, under the pooled rule with the priors, drawn as\n\
+                 tinted polygons with the centroids named; there is no\n\
                  map with one function or CLASSIFY=SEPARATE. Not supported yet: ROTATE=COEFF and STRUCTURE, MATRIX,\n\
                  OUTFILE, cross-validated rows in the casewise listing.",
         example: "DISCRIMINANT GROUPS=segment(1,3) /VARIABLES=q1 TO q6 /METHOD=WILKS /PRIORS=SIZE /STATISTICS=MEAN STDDEV UNIVF BOXM TABLE /SAVE=CLASS SCORES PROBS.",
@@ -1582,6 +1613,113 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  SPLITMERGED=YES, COSTS CUSTOM, GAIN TYPE PTILE, RULES, PROFITS, INFLUENCE, OUTFILE, TARGETRESPONSE.",
         example: "TREE churn [n] BY region [n] age_group [o] income [s] /GROWTHLIMIT MAXDEPTH=2 /SAVE NODEID PREDVAL.",
         parse: tree::tree,
+    },
+    CommandSpec {
+        name: "GRAPH",
+        summary: "One chart: summaries by category as bars, lines, areas, a pie, points with error bars, a Pareto chart or ranges, a histogram, a scatterplot or a scatterplot matrix.",
+        syntax: "GRAPH [/TITLE='line' ['line']] [/SUBTITLE='line'] [/FOOTNOTE='line' ['line']]\n\
+                 \x20     /BAR[(SIMPLE | GROUPED | STACKED | RANGE)]=spec | /PIE=spec\n\
+                 \x20     | /LINE[(SIMPLE | MULTIPLE | AREA | DROP | DIFFERENCE)]=spec | /HILO[(SIMPLE | GROUPED)]=spec\n\
+                 \x20     | /PARETO[(CUM | NOCUM)][(SIMPLE | STACKED)]=spec\n\
+                 \x20     | /ERRORBAR[(CI [95] | STERROR [2] | STDDEV [2])]=varlist [BY var] | var BY var BY var\n\
+                 \x20     | /HISTOGRAM[(NORMAL)]=var\n\
+                 \x20     | /SCATTERPLOT[(BIVARIATE | OVERLAY | MATRIX | XYZ)]=x WITH y | xlist WITH ylist [(PAIR)]\n\
+                 \x20         | varlist | x WITH y WITH z, then [BY group] [BY id (NAME | IDENTIFY)]\n\
+                 \x20     [/INTERVAL CI[(95)] | SE[(2)] | STDDEV[(2)]]\n\
+                 \x20     [/PANEL [COLVAR=varlist [COLOP=CROSS | NEST]] [ROWVAR=varlist [ROWOP=CROSS | NEST]]]\n\
+                 \x20     [/MISSING=[LISTWISE | VARIABLE] [NOREPORT | REPORT] [EXCLUDE | INCLUDE]].\n\
+                 spec: COUNT | PCT | CUFREQ | CUPCT BY var [BY var]; var alone (COUNT BY var); func(varlist) ...\n\
+                 [BY var [BY var]]; VALUE(varlist) [BY var]. func: MEAN MEDIAN GMEDIAN MODE SUM CUSUM N MINIMUM\n\
+                 MAXIMUM STDDEV VARIANCE, PTILE(varlist, p), PLT PGT NLT NGT(varlist, x), PIN NIN(varlist, low, high).\n\
+                 Keywords may be cut to three letters (MIN, MAX, ERR, STE); the first subcommand needs no slash.\n\
+                 The shape of the spec sets the layout: one function by one variable gives one series; one function\n\
+                 by two variables gives a series per value of the second; several functions by one variable give a\n\
+                 series per function; several functions without BY give one bar or slice each. A list such as\n\
+                 SUM(a b) is SUM(a) SUM(b). SIMPLE, GROUPED and MULTIPLE change nothing; STACKED stacks the series\n\
+                 and AREA fills under the lines and stacks them. A pie takes a single series.\n\
+                 COUNT and N add up the case weights; PCT is a share of all cases in the chart; CUFREQ, CUSUM and\n\
+                 CUPCT add up along the categories of each series, CUPCT ending at 100 per series. PLT, PGT and PIN\n\
+                 give the share of a category's valid values below x, above x or from low to high; NLT, NGT and NIN\n\
+                 the weighted count. MEDIAN and PTILE use (W + 1) p as FREQUENCIES does; MODE is the smallest of\n\
+                 tied values; GMEDIAN takes the values as group midpoints. VALUE draws a bar per case and a series\n\
+                 per variable, unweighted; missing values leave a gap and the BY variable names the cases.\n\
+                 Categories ascend by value. A case missing a category value is left out unless REPORT, which adds\n\
+                 categories for missing values after the valid ones. LISTWISE drops a case missing on any function\n\
+                 variable of the chart, VARIABLE only from that variable's functions; INCLUDE makes user-missing\n\
+                 values valid. A category empty in every series is left out; at most 3000 categories.\n\
+                 ERRORBAR shows each mean as a point with a bar around it, laid out as MEAN(varlist) would be: a\n\
+                 list by one BY variable or one variable by two puts the points side by side. CI is a confidence\n\
+                 interval at the level (50 to 99.9) from Student's t with W - 1 degrees of freedom; STERROR (also\n\
+                 SE) and STDDEV reach n standard errors or deviations each way. The number may sit in parentheses.\n\
+                 A mean whose cases weigh 1 or less in total has no bar.\n\
+                 INTERVAL adds such bars to a simple or clustered bar or line chart of MEAN or MEDIAN: CI, SE\n\
+                 and STDDEV for a mean as on ERRORBAR, CI only for a median. A median's interval runs between\n\
+                 order statistics, interpolated (Hettmansperger and Sheather), so it need not be symmetric; it\n\
+                 needs whole case weights. Counts, percentages and the other functions get no bars yet.\n\
+                 PARETO counts (COUNT or a bare variable) or adds up (SUM, VALUE), puts the largest category first\n\
+                 and stacks several series. CUM, the default, draws the running total as a percentage of the grand\n\
+                 total: a line against a second axis from 0 to 100 on the right. NOCUM drops the line and the axis.\n\
+                 The range charts read their ends from the series: BAR(RANGE) floats a bar between each pair (two\n\
+                 functions, or a second BY variable with two values); LINE(DROP) joins the lowest and the highest\n\
+                 series of a category; LINE(DIFFERENCE) shades between two series; HILO takes high, low and an\n\
+                 optional close as two or three series.\n\
+                 HISTOGRAM bins the valid values as FREQUENCIES does; NORMAL adds the normal curve. SCATTERPLOT\n\
+                 draws each case valid on both variables once, colored by the BY group variable; BY id (NAME)\n\
+                 labels the points with that variable's values, (IDENTIFY) leaves them off. The variables set\n\
+                 the kind, as for bars: lists around WITH lay a colored group of points for each pair into one\n\
+                 frame, the variable before WITH across (every pair of the two lists, or with PAIR the first\n\
+                 with the first and so on; no BY group). A list alone draws a matrix: a cell for each pair, the\n\
+                 column's variable across and the row's up, the names on the diagonal. x WITH y WITH z has a\n\
+                 third axis; it is not drawn yet and shows as the table of its points. LISTWISE leaves out a\n\
+                 case missing on any of the variables; with VARIABLE a pair takes the cases valid on both.\n\
+                 PANEL repeats the chart for each combination of the categories of the ROWVAR and COLVAR variables,\n\
+                 rows first, each a separate chart named in its title. Combinations without cases get no chart, so\n\
+                 COLOP and ROWOP change nothing. A case missing on a panel variable is left out unless REPORT.\n\
+                 TITLE names the chart (otherwise it is named after what it shows); SUBTITLE goes under the title\n\
+                 and FOOTNOTE below the chart. Lines have at most 72 characters. With SPLIT FILE each group gets a\n\
+                 chart. Weighted when a weight variable is set; cases with a zero or missing weight are left out.\n\
+                 Not supported yet: TEMPLATE and HILO with more than three series (GROUPED); each gives an\n\
+                 error.",
+        example: "GRAPH /TITLE='Visits per store' /BAR(STACKED)=COUNT BY store BY daypart.",
+        parse: graph::graph,
+    },
+    CommandSpec {
+        name: "PPLOT",
+        summary: "Probability plots: Q-Q or P-P plots of variables against a test distribution.",
+        syntax: PPLOT_SYNTAX,
+        example: "PPLOT VARIABLES=wait_min /DISTRIBUTION=GAMMA /TYPE=P-P /PLOT=NORMAL.",
+        parse: pplot::pplot,
+    },
+    CommandSpec {
+        name: "NPPLOT",
+        summary: "Another name for PPLOT.",
+        syntax: "NPPLOT [VARIABLES=] varlist [/subcommands of PPLOT].\n\
+                 The same command as PPLOT, with the same subcommands and defaults.",
+        example: "NPPLOT battery_hours /DISTRIBUTION=WEIBULL /FRACTION=VW.",
+        parse: pplot::pplot,
+    },
+    CommandSpec {
+        name: "ROC",
+        summary: "ROC curve of test variables against a state, with the area under the curve.",
+        syntax: "ROC testvars BY state(value)\n\
+                 \x20  [/MISSING=EXCLUDE | INCLUDE]\n\
+                 \x20  [/CRITERIA=[CUTOFF(INCLUDE | EXCLUDE)] [TESTPOS(LARGE | SMALL)] [CI(95)]\n\
+                 \x20             [DISTRIBUTION(FREE | NEGEXPO)]]\n\
+                 \x20  [/PLOT=CURVE[(REFERENCE)] | NONE] [/PRINT=[SE[(MODELQUALITY)]] [COORDINATES]].\n\
+                 The test variables are numeric; the state variable may be a string, and the value in\n\
+                 parentheses is its positive state, every other valid state negative. Cases with a missing\n\
+                 state or test value are left out of every curve (MISSING=INCLUDE keeps user-missing values);\n\
+                 weights count cases. TESTPOS(SMALL) makes low test values point to the positive state. Each\n\
+                 cutoff lies halfway between neighboring test values, plus one below the smallest and one\n\
+                 above the largest; a value equal to a cutoff tests positive unless CUTOFF(EXCLUDE).\n\
+                 Tables: Case Processing Summary; Area Under the Curve, which counts every positive and\n\
+                 negative pair (a tie as half) and with SE adds the nonparametric standard error (or the\n\
+                 bi-negative exponential one under NEGEXPO when both groups are equally large), the\n\
+                 two-sided test of area 0.5 and the CI interval; COORDINATES lists sensitivity and\n\
+                 1 - specificity at every cutoff. CURVE draws the curves in one chart, REFERENCE adds the\n\
+                 diagonal; MODELQUALITY adds a bar chart of the lower bounds of the intervals.",
+        example: "ROC risk_score lab_index BY relapsed (1) /PLOT=CURVE(REFERENCE) /PRINT=SE COORDINATES.",
+        parse: pplot::roc,
     },
     CommandSpec {
         name: "REPORT",
@@ -1982,7 +2120,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "OUTPUT EXPORT",
-        summary: "Write the tables and charts of an output document to a workbook, document, presentation, web page, text or CSV file.",
+        summary: "Write the tables and charts of an output document to a workbook, document, presentation, PDF, web page, text or CSV file.",
         syntax: "OUTPUT EXPORT [NAME=* | name] [/CONTENTS [EXPORT=ALL | VISIBLE] [LAYERS=...] [MODELVIEWS=...]]\n\
                  \x20  [/XLSX DOCUMENTFILE='path' [OPERATION=CREATEFILE | CREATESHEET | MODIFYSHEET] [SHEET='name']\n\
                  \x20         [LOCATION=LASTCOLUMN | LASTROW | STARTCELL('B2')] [NOTESCAPTIONS=YES | NO]]\n\
@@ -1990,14 +2128,21 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20         [TOPMARGIN=...] [BOTTOMMARGIN=...] [LEFTMARGIN=...] [RIGHTMARGIN=...] [PAGEBREAKS=...]]\n\
                  \x20  [/PPT DOCUMENTFILE='path' [NOTESCAPTIONS=YES | NO] [SLIDETITLES=YES | NO] [WIDETABLES=...]\n\
                  \x20         [SLIDESIZE=...] [TOPMARGIN=...] [BOTTOMMARGIN=...] [LEFTMARGIN=...] [RIGHTMARGIN=...]]\n\
-                 \x20  [/HTML DOCUMENTFILE='path' [NOTESCAPTIONS=YES | NO] [STYLING=YES | NO] [IMAGEFORMAT=...]\n\
-                 \x20         [INTERACTIVELAYERS=NO | YES]]\n\
+                 \x20  [/PDF DOCUMENTFILE='path' [EMBEDBOOKMARKS=YES | NO] [EMBEDFONTS=YES | NO]]\n\
+                 \x20  [/HTML DOCUMENTFILE='path' [NOTESCAPTIONS=YES | NO] [STYLING=YES | NO]\n\
+                 \x20         [IMAGEFORMAT=JPG | BMP | PNG] [INTERACTIVELAYERS=NO | YES]]\n\
                  \x20  [/TEXT DOCUMENTFILE='path' [ENCODING=LOCALE | UTF8 | UTF16] [NOTESCAPTIONS=YES | NO]\n\
-                 \x20         [COLUMNWIDTH=AUTOFIT | n] [SEPARATOR=SPACE | TAB] [ROWBORDER='-'] [COLUMNBORDER='|']]\n\
-                 \x20  [/CSV DOCUMENTFILE='path' [NOTESCAPTIONS=YES | NO]] [/BMP | /EMF | /EPS | /JPG | /PNG | /TIF ...].\n\
+                 \x20         [COLUMNWIDTH=AUTOFIT | n] [SEPARATOR=SPACE | TAB] [ROWBORDER='-'] [COLUMNBORDER='|']\n\
+                 \x20         [IMAGEFORMAT=JPG | BMP | EMF | EPS | PNG | TIF]]\n\
+                 \x20  [/CSV DOCUMENTFILE='path' [NOTESCAPTIONS=YES | NO]]\n\
+                 \x20  [/PNG [IMAGEROOT='root'] [PERCENTSIZE=n] [DEPTH=SCREEN | BLACKWHITE | GRAYS256 | ...]]\n\
+                 \x20  [/JPG [IMAGEROOT='root'] [PERCENTSIZE=n] [GRAYSCALE=NO | YES]]\n\
+                 \x20  [/BMP [IMAGEROOT='root'] [PERCENTSIZE=n] [COMPRESS=NO | YES]]\n\
+                 \x20  [/TIF [IMAGEROOT='root'] [PERCENTSIZE=n]] [/EMF ...] [/EPS ...].\n\
                  Writes the tables and charts that the designated document (NAME=*) or the named one holds so\n\
-                 far, in order; an existing file is replaced. Subcommands and keywords are spelled in full. Every\n\
-                 table is visible and has one layer, so CONTENTS changes nothing. NOTESCAPTIONS=NO leaves out\n\
+                 far, in order; an existing file is replaced. Subcommands and keywords are spelled in full.\n\
+                 CONTENTS EXPORT=VISIBLE leaves out what OUTPUT MODIFY hid; every table has one layer, so\n\
+                 LAYERS and MODELVIEWS change nothing. NOTESCAPTIONS=NO leaves out\n\
                  the notes under the tables. XLSX puts the tables one below the other on one sheet, named by\n\
                  SHEET or Tables, laid out as the Excel export of the window. CREATESHEET and MODIFYSHEET add\n\
                  to a workbook that OUTPUT EXPORT wrote earlier in the session and that has not changed since;\n\
@@ -2009,14 +2154,33 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  under its title, each chart as an editable chart whose numbers Edit Data opens. PPT writes a\n\
                  presentation in the .pptx format with one slide per table or chart; SLIDETITLES=NO leaves the\n\
                  slide titles out, and a chart then shows its own. Page and slide sizes, margins, WIDETABLES\n\
-                 and PAGEBREAKS are accepted and not applied. Other charts, such as a histogram, go out as\n\
-                 their data table. HTML writes one web page; STYLING=NO\n\
+                 and PAGEBREAKS are accepted and not applied. PDF lays the output on A4 portrait pages with\n\
+                 2 cm margins: each command's heading, then its tables as text you can select, header rows\n\
+                 repeated when a table goes on over the next page, the caption below. A table too wide for\n\
+                 the page is set smaller, to 70 percent at most; if it still does not fit, its columns come\n\
+                 in parts, one below the other, each with the row labels again. Charts are vector drawings.\n\
+                 The TITLE text heads every page and the page number stands at the foot. EMBEDBOOKMARKS=NO\n\
+                 leaves out the outline of commands and items; EMBEDFONTS=NO names the font instead of\n\
+                 embedding the glyphs used, so a reader without it uses one of its own, and characters\n\
+                 outside Windows Latin show as question marks. In DOC, PPT and XLSX, the other charts, such as a histogram or a\n\
+                 boxplot, go in as a picture; on a sheet the picture stands beside the data table. HTML\n\
+                 writes one web page with every chart in it as a picture, JPG unless IMAGEFORMAT names\n\
+                 another; STYLING=NO\n\
                  leaves out the style sheet. TEXT lines the columns up between the borders, or with\n\
                  SEPARATOR=TAB separates the cells by tabs; COLUMNWIDTH=n wraps longer cells; LOCALE and UTF8\n\
                  write UTF-8, UTF16 writes UTF-16 with a byte order mark. CSV, a Statscraft addition, writes\n\
                  each table as comma-separated values after its title, with a blank line between tables.\n\
-                 HTML, TEXT and CSV show a chart as its data table. The image subcommands write no files yet.\n\
-                 /PDF, /XLS and /XLSM are refused.",
+                 TEXT saves each chart as a picture file in the folder of the text, named after the text\n\
+                 file with a number from 0 (out.txt gives out0.jpg, out1.jpg, ...), and writes the chart's\n\
+                 title and that file name where the chart stands. CSV shows a chart as its data table.\n\
+                 With no document subcommand, each of /PNG, /JPG, /BMP and /TIF saves every chart in its\n\
+                 format: IMAGEROOT='charts/june' gives charts/june0.png, charts/june1.png and so on. With a\n\
+                 document subcommand IMAGEROOT is not used, and the subcommand of the format in use sets\n\
+                 the pictures' size and colors. PERCENTSIZE (above 0, at most 200) scales a picture: 100\n\
+                 is 1280 pixels wide, the PNG of --charts. GRAYSCALE=YES, DEPTH=GRAYS256 and\n\
+                 DEPTH=BLACKWHITE drop the color; the other depths and COMPRESS change nothing. EMF and EPS\n\
+                 are not written yet: a warning, and their charts stay data tables, as does a kind that is\n\
+                 not drawn yet, such as a stem-and-leaf display. /XLS and /XLSM are refused.",
         example: "OUTPUT EXPORT /XLSX DOCUMENTFILE='results.xlsx' SHEET='Region 1'.",
         parse: output_docs::output_export,
     },
@@ -2048,6 +2212,70 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  read. LOCK and PASSWORD change nothing.",
         example: "OUTPUT OPEN FILE='wave2-results.scout' NAME=wave2.",
         parse: output_docs::output_open,
+    },
+    CommandSpec {
+        name: "OUTPUT MODIFY",
+        summary: "Delete, hide, rename, sort, transpose or reformat items of an output document.",
+        syntax: "OUTPUT MODIFY [NAME=* | ALL | name] [/REPORT PRINTREPORT=NO | YES]\n\
+                 \x20  /SELECT kinds | ALL [EXCEPT (kinds)]\n\
+                 \x20  [/IF [COMMANDS=['name' 'name(n)' 'name(LAST)' LAST]] [SUBTYPES=['title' ...]]\n\
+                 \x20       [LABELS=[EXACT('t') BEGINS('t') ENDS('t') CONTAINS('t')]] [INSTANCES=[n ... LAST]]\n\
+                 \x20       [VISIBLEONLY=NO | YES]]\n\
+                 \x20  [/DELETEOBJECT DELETE=NO | YES]\n\
+                 \x20  [/INDEXING [INDEXTYPE=NUMBER | LETTERLOW | LETTERCAP | ROMANLOW | ROMANCAP] [INDEXSTART=n | 'a']]\n\
+                 \x20  [/OBJECTPROPERTIES [VISIBLE=ASIS | YES | NO] [OUTLINELABEL='text'] [SIZE=...]]\n\
+                 \x20  [/TABLE [TABLETITLE='text'] [TRANSPOSE=NO | YES] [SORT=COLLABEL('label') | COLPOSITION(n)]\n\
+                 \x20       [SORTDIRECTION=ASCENDING | DESCENDING] [TLOOK=...] [SELECTEDLAYER=[...]] [TABLESUMMARY='text'] [PIVOT=[...]]]\n\
+                 \x20  [/TABLECELLS SELECT=['label' POSITION(n) BODY HEADERS TITLE CAPTION FOOTNOTES COUNT MEAN ...]\n\
+                 \x20       [SELECTDIMENSION=BOTH | COLUMNS | ROWS] [SELECTCONDITION=[ALL 'x<0.05' TOP(n) BOTTOM(n)]]\n\
+                 \x20       [APPLYTO=CELL | COLUMN | ROW | COLUMNDATA | ROWDATA | COLUMNHEADER | ROWHEADER]\n\
+                 \x20       [FORMAT=F8.2] [REPLACE='text' | number] [HIDE=NO | YES] [style keywords]]\n\
+                 \x20  [/GRAPHS ...] [/TEXTS [TEXT='text'] ...]\n\
+                 \x20  [/SELECT ... another block].\n\
+                 Works on the items the designated document (or NAME, or ALL documents) holds when it runs.\n\
+                 Each block begins with /SELECT and runs on what the blocks before it left. Kinds: TABLES,\n\
+                 CHARTS, HEADINGS and OUTLINEHEADERS (the heading over each command's items), PAGETITLE (the\n\
+                 output of TITLE and SUBTITLE) and UNKNOWN; LOGS, TEXTS, WARNINGS, NOTES, MODELS, TREES and\n\
+                 OTHER pick nothing, as Statscraft documents have no such items. /IF keeps the items that meet\n\
+                 every condition: COMMANDS names commands as written in the outline, such as 'Means', with (n)\n\
+                 for the nth run or (LAST); LAST alone is the document's last command. SUBTYPES match table\n\
+                 titles, any case. LABELS test the outline text, case counts. INSTANCES pick the nth item\n\
+                 within each command. DELETE=YES removes the items; a heading goes with its command's items.\n\
+                 VISIBLE=NO hides items: the window and OUTPUT EXPORT with /CONTENTS EXPORT=VISIBLE leave them\n\
+                 out, the document and its file keep them. OUTLINELABEL, TABLETITLE and TEXT take )LABEL (the\n\
+                 text so far), )INDEX (from INDEXING, else 1, 2, 3), )DATE, )ADATE, )SDATE, )EDATE, )TIME and\n\
+                 )ETIME. SORT orders the rows by a column; empty cells go last, rows labelled Total stay, and a\n\
+                 table with nested row labels stays as it is. TABLECELLS picks rows or columns by label (any\n\
+                 header level) or position, keeps the cells that meet every comparison on x (ABS(x), SYSMIS,\n\
+                 numbers or quoted text) and then TOP or BOTTOM, and changes what APPLYTO names: FORMAT\n\
+                 changes how numbers show, REPLACE puts in a value, HIDE takes the picked rows or columns out.\n\
+                 Keywords may be shortened to three letters. Fonts, colors, styles, sizes, column widths,\n\
+                 table looks, layers, PIVOT, UNGROUP and chart templates change nothing and say so in a\n\
+                 warning. PARENT and CHILD conditions are not supported. PRINTREPORT=YES adds a table of\n\
+                 what changed.",
+        example: "OUTPUT MODIFY /SELECT TABLES /IF COMMANDS=['Means'] /TABLE SORT=COLLABEL('Mean')\n\
+                 \x20 SORTDIRECTION=DESCENDING /TABLECELLS SELECT=['Mean'] SELECTDIMENSION=COLUMNS FORMAT=F8.1.",
+        parse: output_modify::output_modify,
+    },
+    CommandSpec {
+        name: "BEGIN CHART",
+        summary: "A Statscraft extension: a chart given as JSON goes to the output like a procedure's chart.",
+        syntax: "BEGIN CHART\n\
+                 JSON lines\n\
+                 END CHART.\n\
+                 Not a command of the language: Statscraft adds it so that an agent or a script can put a\n\
+                 chart that no procedure makes into the designated output document, where it is drawn,\n\
+                 saved by OUTPUT SAVE and written by OUTPUT EXPORT like any other. BEGIN CHART and\n\
+                 END CHART each stand alone on their line; every line between is JSON, read as it is.\n\
+                 The JSON is either a chart as `statscraft run --json` writes it (a member of charts),\n\
+                 optionally with \"version\": 1, or a Vega-Lite specification of one view with inline\n\
+                 data.values and mark bar, line, area, point or arc, encoded by x, y, color, theta and\n\
+                 xOffset or yOffset, without aggregate, bin, timeUnit or transform. Values are taken as\n\
+                 they are: a category and series given twice is an error. Fields Statscraft does not\n\
+                 know are an error. At most 100 series, 3000 categories, 100000 values and strings of\n\
+                 1000 characters. The MCP tool add_chart and `statscraft chart` write this command.",
+        example: "BEGIN CHART\n{\"mark\": \"bar\", \"data\": {\"values\": [{\"region\": \"North\", \"sales\": 12}, {\"region\": \"South\", \"sales\": 9}]},\n \"encoding\": {\"x\": {\"field\": \"region\", \"type\": \"nominal\"}, \"y\": {\"field\": \"sales\", \"type\": \"quantitative\"}}}\nEND CHART.",
+        parse: output_docs::begin_chart,
     },
     CommandSpec {
         name: "USE",
@@ -2493,11 +2721,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
 
 /// Commands of the language that have no parser yet. They get "not supported yet" instead of
 /// "unknown command", and their bodies are not tokenised.
-static UNSUPPORTED: &[&str] = &["GRAPH", "OUTPUT MODIFY"];
+static UNSUPPORTED: &[&str] = &[];
 
 /// The ends of blocks whose start reads them, such as END DATA after BEGIN DATA. Standing
 /// alone they are an error at their own line.
-static STRAY: &[&str] = &["END DATA", "END MATRIX", "END REPEAT"];
+static STRAY: &[&str] = &["END DATA", "END CHART", "END MATRIX", "END REPEAT"];
 
 fn names() -> impl Iterator<Item = (&'static str, Option<&'static CommandSpec>)> {
     let supported = COMMANDS.iter().map(|spec| (spec.name, Some(spec)));
@@ -2698,6 +2926,7 @@ pub fn help(command: Option<&str>) -> Option<String> {
         }
         Resolution::Unsupported(name, used) if used == words.len() => Some(match name {
             "END DATA" => "END DATA ends the inline data that BEGIN DATA starts.\n".into(),
+            "END CHART" => "END CHART ends the chart that BEGIN CHART starts.\n".into(),
             "END REPEAT" => "END REPEAT ends the commands that DO REPEAT repeats.\n".into(),
             "END MATRIX" => "END MATRIX ends the program that MATRIX starts.\n".into(),
             _ => format!("{name} is a command of the language, but it is not supported yet.\n"),

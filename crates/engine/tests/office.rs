@@ -30,6 +30,9 @@ END DATA.
 VALUE LABELS drink 1 'Espresso' 2 'Green tea' 3 'Cocoa' /cup 1 'Small' 2 'Large'.
 ";
 
+/// The first bytes of every PNG file.
+const PNG: &[u8] = b"\x89PNG\r\n\x1a\n";
+
 fn charts(source: &str) -> Vec<Chart> {
     let result = Session::default()
         .run(&format!("{DATA}{source}"), None)
@@ -128,6 +131,77 @@ fn chart_workbook_holds_the_data_and_the_chart() {
 }
 
 #[test]
+fn error_bars_read_their_half_lengths_from_the_data_table() {
+    let source = "COMPUTE spend = drink * 2 + cup.
+UNIANOVA spend BY cup /PLOT=PROFILE(cup) ERRORBAR=SE.";
+    let chart = &charts(source)[0];
+    let bars = chart.error_bars.as_ref().unwrap();
+    let book = chart_workbook(chart).unwrap();
+    keep("profile-error-bars.xlsx", &book);
+    let cells = cells(&book);
+    // the category, the mean, then the half length under what it spans
+    assert_eq!(cells[1][2], "Error bar \u{b1} 2 SE");
+    let margin: f64 = cells[3][2].parse().unwrap();
+    assert!((margin - bars.margins[0][0]).abs() < 1e-9);
+    let part = text(&book, "xl/charts/chart1.xml");
+    assert!(part.contains("<c:errBars>"), "{part}");
+    assert!(part.contains("<c:errValType val=\"cust\"/>"));
+    assert_eq!(
+        part.matches("!$C$4:$C$5</c:f>").count(),
+        2,
+        "plus and minus: {part}"
+    );
+}
+
+#[test]
+fn uneven_error_bars_take_their_length_below_from_a_column_of_its_own() {
+    let chart = &charts("GRAPH /BAR=MEDIAN(drink) BY cup /INTERVAL CI(90).")[0];
+    let book = chart_workbook(chart).unwrap();
+    let cells = cells(&book);
+    assert_eq!(cells[1][2], "Error bar above, 90% CI");
+    assert_eq!(cells[1][3], "Error bar below, 90% CI");
+    let part = text(&book, "xl/charts/chart1.xml");
+    assert!(part.contains("<c:errValType val=\"cust\"/>"), "{part}");
+    assert_eq!(part.matches("!$C$4:$C$5</c:f>").count(), 1, "plus: {part}");
+    assert_eq!(part.matches("!$D$4:$D$5</c:f>").count(), 1, "minus: {part}");
+}
+
+#[test]
+fn graph_charts_as_office_charts() {
+    let chart = |source: &str| charts(source).remove(0);
+    // a Pareto chart: columns, and the cumulative line on the second axis from 0 to 100
+    let pareto = chart("GRAPH /PARETO=drink.");
+    let book = chart_workbook(&pareto).unwrap();
+    keep("pareto.xlsx", &book);
+    let part = text(&book, "xl/charts/chart1.xml");
+    assert!(
+        part.contains("<c:barChart>") && part.contains("<c:lineChart>"),
+        "{part}"
+    );
+    assert_eq!(part.matches("<c:valAx>").count(), 2, "{part}");
+    assert!(part.contains("<c:max val=\"100\"/>"), "{part}");
+    // error bars: points without a line, with their bars
+    let errors = chart("GRAPH /ERRORBAR(STERROR 1)=cup BY drink.");
+    let part = text(&chart_workbook(&errors).unwrap(), "xl/charts/chart1.xml");
+    assert!(
+        part.contains("<c:lineChart>") && part.contains("<c:errBars>"),
+        "{part}"
+    );
+    assert!(part.contains("<a:ln><a:noFill/></a:ln>"), "{part}");
+    // drop lines and high-low charts: high-low lines; one pair of range bars: up and down bars
+    let drop = chart("GRAPH /LINE(DROP)=MIN(cup) MAX(cup) BY drink.");
+    let part = text(&chart_workbook(&drop).unwrap(), "xl/charts/chart1.xml");
+    assert!(part.contains("<c:hiLowLines"), "{part}");
+    let range = chart("GRAPH /BAR(RANGE)=MIN(cup) MAX(cup) BY drink.");
+    let part = text(&chart_workbook(&range).unwrap(), "xl/charts/chart1.xml");
+    assert!(part.contains("<c:upDownBars"), "{part}");
+    // a difference area goes in as a picture
+    let difference = chart("GRAPH /LINE(DIFFERENCE)=COUNT BY drink BY cup.");
+    assert!(!is_office_chart(&difference));
+    assert!(names(&chart_workbook(&difference).unwrap()).contains("xl/media/image1.png"));
+}
+
+#[test]
 fn presentation_has_a_slide_per_item_and_each_chart_its_workbook() {
     let all = charts(
         "FREQUENCIES drink /BARCHART.\nFREQUENCIES cup /PIECHART.\nFREQUENCIES drink /HISTOGRAM /FORMAT=NOTABLE.",
@@ -173,11 +247,14 @@ fn presentation_has_a_slide_per_item_and_each_chart_its_workbook() {
         "ppt/charts/_rels/chart2.xml.rels",
         "ppt/embeddings/Microsoft_Excel_Worksheet1.xlsx",
         "ppt/embeddings/Microsoft_Excel_Worksheet2.xlsx",
+        "ppt/media/image1.png",
     ]
     .into_iter()
     .map(String::from)
     .collect();
     assert_eq!(parts, want);
+    assert!(bytes(&deck, "ppt/media/image1.png").starts_with(PNG));
+    assert!(text(&deck, "[Content_Types].xml").contains("Extension=\"png\""));
     for n in 1..=2 {
         let part = text(&deck, &format!("ppt/charts/chart{n}.xml"));
         check_part(&part, 1400);
@@ -188,8 +265,16 @@ fn presentation_has_a_slide_per_item_and_each_chart_its_workbook() {
     let slide = text(&deck, "ppt/slides/slide1.xml");
     assert!(slide.contains(&format!("<a:t>{}</a:t>", all[0].title)));
     assert!(slide.contains("r:id=\"rId2\""));
-    // the histogram and the plain table are tables on their slides
-    assert!(text(&deck, "ppt/slides/slide3.xml").contains("<a:tbl>"));
+    // the histogram is a picture, and the plain table a table
+    let slide = text(&deck, "ppt/slides/slide3.xml");
+    assert!(
+        slide.contains("<p:pic>") && !slide.contains("<a:tbl>"),
+        "{slide}"
+    );
+    assert!(
+        text(&deck, "ppt/slides/_rels/slide3.xml.rels")
+            .contains("relationships/image\" Target=\"../media/image1.png\"")
+    );
     assert!(text(&deck, "ppt/slides/slide4.xml").contains("<a:t>Espresso</a:t>"));
     let book = bytes(&deck, "ppt/embeddings/Microsoft_Excel_Worksheet1.xlsx");
     let cells = cells(&book);
@@ -300,6 +385,42 @@ fn clipboard_package_has_seven_parts_and_no_theme() {
     assert!(cells.iter().any(|r| r[..3] == ["Espresso", "2", "3"]));
     let histogram = &charts("FREQUENCIES drink /HISTOGRAM /FORMAT=NOTABLE.")[0];
     assert!(clipboard_package(histogram).unwrap().is_none());
+}
+
+#[test]
+fn a_statistical_plot_goes_in_as_a_picture() {
+    let boxplot = &charts("EXAMINE VARIABLES=drink /PLOT=BOXPLOT /STATISTICS=NONE.")
+        .into_iter()
+        .find(|c| c.kind == statscraft_engine::chart::ChartKind::Boxplot)
+        .expect("a boxplot");
+    assert!(!is_office_chart(boxplot));
+    // the document: the picture and its relationship, no chart part and no table
+    let doc = document(&[Item::Chart(boxplot)], true).unwrap();
+    keep("boxplot.docx", &doc);
+    let parts = names(&doc);
+    assert!(parts.contains("word/media/image1.png"), "{parts:?}");
+    assert!(!parts.iter().any(|p| p.starts_with("word/charts/")));
+    assert!(bytes(&doc, "word/media/image1.png").starts_with(PNG));
+    let body = text(&doc, "word/document.xml");
+    assert!(
+        body.contains("<pic:pic ") && !body.contains("<w:tbl>"),
+        "{body}"
+    );
+    assert!(
+        text(&doc, "word/_rels/document.xml.rels")
+            .contains("relationships/image\" Target=\"media/image1.png\"")
+    );
+    // the workbook: the data table with the picture beside it
+    let book = chart_workbook(boxplot).unwrap();
+    keep("boxplot.xlsx", &book);
+    let parts = names(&book);
+    assert!(parts.contains("xl/media/image1.png"), "{parts:?}");
+    assert!(parts.contains("xl/drawings/drawing1.xml"));
+    assert!(!parts.contains("xl/charts/chart1.xml"));
+    assert_eq!(cells(&book)[0][0], boxplot.title);
+    // a slide without slide titles shows the picture alone
+    let deck = presentation(&[Item::Chart(boxplot)], true, false).unwrap();
+    assert!(names(&deck).contains("ppt/media/image1.png"));
 }
 
 #[test]

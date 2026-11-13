@@ -20,6 +20,7 @@ The easy way to connect an agent is `statscraft connect`, which finds the agent 
 | `new_syntax_window` | optional `name` and `text` | a new syntax window, empty or with the text |
 | `open_syntax_file` | `path` | the .sps file in a syntax window, or the window that has it open already |
 | `save_syntax` | `window`, optional `path` and `overwrite` | the window written to its own file or to `path` |
+| `add_chart` | `chart`, optional `session` and `vega_lite` | the chart checked and added to the designated output document, as the result of a run; the text starts with `chart added to output document NAME` |
 
 - `syntax` is the text of one or more commands; `file` is the absolute path of a .sps file. Give one of them.
 - `lines` limits the run to the commands within a line range, such as `"12-20"`. Line numbers stay those of the whole text.
@@ -42,6 +43,17 @@ Whatever an agent does through `run_syntax` stays readable as syntax, so the per
 - In a file session, each successful run is added to `syntax.sps` in the session's folder, under a comment line with the date and time.
 - A failed run (`ok` false) changed nothing and leaves nothing; neither does a check.
 - `trail` in the result, and a line `syntax kept in:` in the text, say where the syntax went: `syntax window Agent`, or the path of the file.
+
+## Charts of your own
+
+Procedures draw their own charts. When the person wants a chart that no procedure makes, such as last year's figures beside this year's from two runs, `add_chart` puts it in the output, drawn the Statscraft way:
+
+- `chart` is either the chart JSON that `run_syntax` returns under `charts` (so an agent can take a procedure's chart and change its title, labels, kind or numbers), or a simple Vega-Lite specification: one view, the rows inline in `data.values`, mark `bar`, `line`, `area`, `point` or `arc`. Both are described in [Charts as input](command-line.md#charts-as-input).
+- The values are drawn as given: nothing is counted, summed or binned. The numbers should come from the result tables.
+- In the open window the chart goes to the designated output window, where the person sees it, copies it, opens it in Excel, Word or PowerPoint, and saves or exports it with the other output. `commands[0].document` in the result names the document.
+- The tool runs the syntax BEGIN CHART, a Statscraft extension, with the chart's JSON inside. That syntax is kept like any run: in the Agent syntax window, or in `syntax.sps` of a file session, so running it again shows the chart again.
+- A file session keeps no output between calls. To write the chart to a file there, send the BEGIN CHART block and OUTPUT EXPORT or OUTPUT SAVE together through `run_syntax`.
+- A chart that cannot be drawn, a misspelt field, or a Vega-Lite feature that Statscraft does not read is an error to fix, like a syntax error: `ok` is false and the message names what is wrong. Nothing is added then.
 
 ## Syntax windows
 
@@ -66,5 +78,5 @@ A session keeps the data, settings, macros and named datasets between calls, as 
 ## Safety
 
 - The server can do what the command line can do, and nothing more. Syntax can read files, and it can write them with `SAVE`, `AGGREGATE OUTFILE`, `OUTPUT EXPORT` or the `xlsx` argument. `check_syntax` writes nothing; nothing is written without one of those.
-- The tools tell the agent app which of them only read (`describe`, `list_commands`, `command_help`, `check_syntax`, `window_status`, `list_syntax_windows`, `read_syntax`), which change only the window's syntax windows (`edit_syntax`, `new_syntax_window`, `open_syntax_file`), and that `run_syntax` and `save_syntax` can change files. Agent apps ask you before a tool runs, unless you allowed it; allow `run_syntax` only for agents you trust with your files.
+- The tools tell the agent app which of them only read (`describe`, `list_commands`, `command_help`, `check_syntax`, `window_status`, `list_syntax_windows`, `read_syntax`), which change only the window's syntax windows (`edit_syntax`, `new_syntax_window`, `open_syntax_file`) or add to its output (`add_chart`, which writes no file), and that `run_syntax` and `save_syntax` can change files. Agent apps ask you before a tool runs, unless you allowed it; allow `run_syntax` only for agents you trust with your files.
 - The server talks only to the app that started it, over standard input and output. It opens no network port. Calls to the window use the window's local connection, described in [AI agents](ai-agents.md#safety-of-the-live-session).

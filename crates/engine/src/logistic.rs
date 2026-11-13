@@ -1592,6 +1592,7 @@ impl Context<'_> {
                 orientation: Some(Orientation::Vertical),
                 grouping: Some(Grouping::Stacked),
                 title: format!("Classification plot, step {n}"),
+                subtitle: None,
                 footnote: Some(format!(
                     "Predicted probability of {}; the cut value is {cut}",
                     (self.dep_label)(1)
@@ -1605,7 +1606,11 @@ impl Context<'_> {
                 categories: categories.clone(),
                 series,
                 normal: None,
+                error_bars: None,
+                second_axis: None,
                 plot: None,
+                outline: None,
+                hidden: false,
             });
         }
         charts

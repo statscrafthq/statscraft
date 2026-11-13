@@ -129,6 +129,10 @@ One page per supported command, generated from the same table that the parser an
 | [GLM](glm.md) | General linear model: one dependent variable as in UNIANOVA, or repeated measures with WSFACTOR. |
 | [ANOVA](anova.md) | Analysis of variance for factorial designs with covariates, the older form with MCA tables. |
 | [TREE](tree.md) | A classification tree grown by CHAID or exhaustive CHAID. |
+| [GRAPH](graph.md) | One chart: summaries by category as bars, lines, areas, a pie, points with error bars, a Pareto chart or ranges, a histogram, a scatterplot or a scatterplot matrix. |
+| [PPLOT](pplot.md) | Probability plots: Q-Q or P-P plots of variables against a test distribution. |
+| [NPPLOT](npplot.md) | Another name for PPLOT. |
+| [ROC](roc.md) | ROC curve of test variables against a state, with the area under the curve. |
 | [REPORT](report.md) | Case listings and summary statistics by break groups, laid out as a report. |
 | [MATRIX](matrix.md) | Run a program in the matrix language, up to END MATRIX. |
 
@@ -174,9 +178,11 @@ One page per supported command, generated from the same table that the parser an
 | [OUTPUT ACTIVATE](output-activate.md) | Send the tables from now on to an open output document. |
 | [OUTPUT CLOSE](output-close.md) | Close an output document, or all of them. |
 | [OUTPUT DISPLAY](output-display.md) | List the open output documents. |
-| [OUTPUT EXPORT](output-export.md) | Write the tables and charts of an output document to a workbook, document, presentation, web page, text or CSV file. |
+| [OUTPUT EXPORT](output-export.md) | Write the tables and charts of an output document to a workbook, document, presentation, PDF, web page, text or CSV file. |
 | [OUTPUT SAVE](output-save.md) | Save an output document as a Statscraft output file (.scout). |
 | [OUTPUT OPEN](output-open.md) | Open a Statscraft output file (.scout) as a new output document. |
+| [OUTPUT MODIFY](output-modify.md) | Delete, hide, rename, sort, transpose or reformat items of an output document. |
+| [BEGIN CHART](begin-chart.md) | A Statscraft extension: a chart given as JSON goes to the output like a procedure's chart. |
 | [FINISH](finish.md) | End the job: the commands after it are not read. |
 
 ## General rules of the language
@@ -213,9 +219,3 @@ Functions of expressions (COMPUTE, IF, SELECT IF, DO IF, ELSE IF, LOOP IF, END L
   (NCDF and NPDF: BETA CHISQ F T; SIG: CHISQ F). UNIFORM(max), NORMAL(sd) and the RV functions
   draw random numbers. An argument out of range gives system-missing.
 ```
-
-## Not supported yet
-
-These commands of the language are recognized, but Statscraft does not run them yet. A script that uses one stops with the error "... is not supported yet" at its line, and nothing is changed.
-
-GRAPH, OUTPUT MODIFY

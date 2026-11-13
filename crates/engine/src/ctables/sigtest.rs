@@ -711,6 +711,8 @@ fn chi_square_table(
         rows,
         formats: Vec::new(),
         caption: Some(caption),
+        outline: None,
+        hidden: false,
     })
 }
 
@@ -993,6 +995,8 @@ fn comparison_table(
         rows: table_rows,
         formats: Vec::new(),
         caption: Some(comparison_caption(spec, found, None)),
+        outline: None,
+        hidden: false,
     }
 }
 

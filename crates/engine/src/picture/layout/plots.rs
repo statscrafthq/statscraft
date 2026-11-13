@@ -1,11 +1,14 @@
 //! The statistical plots that carry their data in `Chart::plot`: boxes, points with reference
-//! lines, merges (dendrogram and icicle) and node trees. A stem-and-leaf display stays text.
+//! lines, merges (dendrogram and icicle), node trees and the regions of a territorial map. A
+//! stem-and-leaf display stays text.
 
 use super::{Along, Anchor, Axis, Draw, Frame, LINE, PAD, SMALL, Unit, fit};
+use crate::Cell;
+use crate::chart::{Chart, ChartKind, Orientation};
 use crate::picture::{Shape, text_width};
-use statscraft_engine::Cell;
-use statscraft_engine::chart::{Chart, ChartKind, Orientation};
-use statscraft_engine::plot::{BoxSummary, Merge, Plot, PointGroup, ReferenceLine, TreeNode};
+use crate::plot::{
+    BoxSummary, CaseGroup, Merge, Plot, PointGroup, ReferenceLine, Region, TreeNode,
+};
 
 /// The plot below `top`; returns the y below it, or None when it shows as its data table.
 pub(super) fn plot(d: &mut Draw, chart: &Chart, plot: &Plot, top: f32) -> Option<f32> {
@@ -34,12 +37,65 @@ pub(super) fn plot(d: &mut Draw, chart: &Chart, plot: &Plot, top: f32) -> Option
             }
         }
         Plot::Tree { nodes } => tree(d, nodes, top),
+        Plot::Matrix { variables, groups } => matrix(d, chart, variables, groups, top),
         // shortcut: a stem-and-leaf display is text, and points with a third axis have no flat
         // drawing; both show as their data table until a drawing is asked for
         Plot::StemLeaf(_) | Plot::Points { .. } => None,
-        // shortcut: the territorial map shows as its data table, draw its polygons when asked
-        Plot::Regions { .. } => None,
+        Plot::Regions { regions } => territories(d, chart, regions, top),
     }
+}
+
+/// A territorial map: each region filled in a light tint of its color and outlined in it, over
+/// the plane of the two axes; each center as a dot with the region's name beside it.
+fn territories(d: &mut Draw, chart: &Chart, regions: &[Region], top: f32) -> Option<f32> {
+    let corners = || regions.iter().flat_map(|r| &r.vertices);
+    let (x_lo, x_hi) = range(corners().map(|v| v[0]))?;
+    let (y_lo, y_hi) = range(corners().map(|v| v[1]))?;
+    let colors = d.pal.series(regions.len());
+    let names: Vec<&str> = regions.iter().map(|r| r.name.as_str()).collect();
+    let top = d.swatches(chart.legend.as_deref(), &names, &colors, top);
+    let x_axis = Axis::exact(x_lo, x_hi);
+    let (frame, bottom) = Frame::new(
+        d,
+        chart,
+        top,
+        Along::Numbers(x_axis),
+        Axis::exact(y_lo, y_hi),
+        false,
+    );
+    let along = frame.along.as_ref()?;
+    let at = |[x, y]: [f64; 2]| [along.at(x, frame.x0, frame.x1), frame.value(y)];
+    for t in &along.ticks {
+        let x = along.at(*t, frame.x0, frame.x1);
+        d.line(vec![[x, frame.y0], [x, frame.y1]], 1.0, d.pal.rule);
+    }
+    for (region, &color) in regions.iter().zip(&colors) {
+        let points: Vec<[f32; 2]> = region.vertices.iter().map(|v| at(*v)).collect();
+        if points.len() < 3 {
+            continue;
+        }
+        d.shapes.push(Shape::Polygon {
+            points: points.clone(),
+            fill: color.alpha(70),
+        });
+        let closed = points.iter().chain(points.first()).copied().collect();
+        d.line(closed, 1.0, color);
+    }
+    let ink = d.pal.ink;
+    for region in regions
+        .iter()
+        .filter(|r| r.center.iter().all(|v| v.is_finite()))
+    {
+        let center = at(region.center);
+        d.shapes.push(Shape::Circle {
+            center,
+            radius: 3.5,
+            fill: ink,
+        });
+        let name = region.name.clone();
+        d.text(center[0] + 6.0, center[1], name, SMALL, ink, Anchor::Start);
+    }
+    Some(bottom)
 }
 
 /// The lowest and highest finite value.
@@ -165,13 +221,22 @@ fn points(
         let x = along.at(*t, frame.x0, frame.x1);
         d.line(vec![[x, frame.y0], [x, frame.y1]], 1.0, d.pal.rule);
     }
+    // a ROC curve's colors include amber, so its diagonal is quiet
+    let line_color = match chart.kind {
+        ChartKind::Roc => d.pal.neutral,
+        _ => d.pal.amber,
+    };
     for line in lines {
         if let Some([a, b]) = clip(line, along, &frame.value) {
-            d.line(vec![at(a), at(b)], 1.5, d.pal.amber);
+            d.line(vec![at(a), at(b)], 1.5, line_color);
         }
     }
     let labelled = all().filter(|p| p.label.is_some()).count() <= 40;
     for (group, &color) in groups.iter().zip(&colors) {
+        if chart.kind == ChartKind::Roc {
+            let path = group.points.iter().map(|p| at([p.x, p.y])).collect();
+            d.line(path, 2.0, color);
+        }
         for p in group
             .points
             .iter()
@@ -197,6 +262,118 @@ fn points(
         }
     }
     Some(bottom)
+}
+
+/// A scatterplot matrix: a square cell for each pair of variables, the row's variable up and
+/// the column's across, so the cells below the diagonal mirror those above it. The diagonal
+/// names the variables; the ticks of a row are on the left, those of a column at the bottom.
+fn matrix(
+    d: &mut Draw,
+    chart: &Chart,
+    variables: &[crate::chart::Axis],
+    groups: &[CaseGroup],
+    top: f32,
+) -> Option<f32> {
+    let n = variables.len();
+    let all = || groups.iter().flat_map(|g| &g.cases);
+    let axes: Vec<Axis> = (0..n)
+        .map(|v| {
+            let (lo, hi) = range(all().filter_map(|c| c.values.get(v).copied()))?;
+            Some(Axis::new(lo, hi, None, Unit::Plain))
+        })
+        .collect::<Option<_>>()?;
+    let colors = d.pal.series(groups.len());
+    let names: Vec<&str> = groups.iter().map(|g| g.name.as_str()).collect();
+    let top = d.swatches(chart.legend.as_deref(), &names, &colors, top) + 4.0;
+    let labels: Vec<Vec<String>> = axes.iter().map(Axis::labels).collect();
+    let widest = labels
+        .iter()
+        .flatten()
+        .map(|l| text_width(l, SMALL))
+        .fold(0.0f32, f32::max);
+    let (gap, x0) = (6.0, PAD + widest + 6.0);
+    let side = ((d.width - PAD - x0 - gap * (n - 1) as f32) / n as f32).max(20.0);
+    let start = |k: usize| k as f32 * (side + gap);
+    let (rule, muted, ink) = (d.pal.rule, d.pal.muted, d.pal.ink);
+    let labelled = all().filter(|c| c.label.is_some()).count() <= 40;
+    // a tick label that would run into the one before it, at the meeting of two cells, is left
+    // out
+    let mut last_y = f32::MIN;
+    for r in 0..n {
+        let (y0, y1) = (top + start(r), top + start(r) + side);
+        for (t, label) in axes[r].ticks.iter().zip(&labels[r]).rev() {
+            let y = axes[r].at(*t, y1, y0);
+            if y - last_y >= LINE * 0.75 {
+                d.text(x0 - 6.0, y, label.clone(), SMALL, muted, Anchor::End);
+                last_y = y;
+            }
+        }
+        for c in 0..n {
+            let (cx0, cx1) = (x0 + start(c), x0 + start(c) + side);
+            let corners = vec![[cx0, y0], [cx1, y0], [cx1, y1], [cx0, y1], [cx0, y0]];
+            d.line(corners, 1.0, rule);
+            if r == c {
+                let title = fit(&variables[r].title, SMALL, side - 8.0);
+                d.text(
+                    (cx0 + cx1) / 2.0,
+                    (y0 + y1) / 2.0,
+                    title,
+                    SMALL,
+                    ink,
+                    Anchor::Middle,
+                );
+                continue;
+            }
+            for (group, &color) in groups.iter().zip(&colors) {
+                for case in &group.cases {
+                    let (Some(&vx), Some(&vy)) = (case.values.get(c), case.values.get(r)) else {
+                        continue;
+                    };
+                    if !vx.is_finite() || !vy.is_finite() {
+                        continue;
+                    }
+                    let center = [axes[c].at(vx, cx0, cx1), axes[r].at(vy, y1, y0)];
+                    d.shapes.push(Shape::Circle {
+                        center,
+                        radius: 2.5,
+                        fill: color.alpha(220),
+                    });
+                    if let Some(label) = case.label.clone().filter(|_| labelled) {
+                        d.text(
+                            center[0] + 5.0,
+                            center[1],
+                            label,
+                            SMALL,
+                            muted,
+                            Anchor::Start,
+                        );
+                    }
+                }
+            }
+        }
+    }
+    let bottom = top + start(n) - gap;
+    let mut last_x = f32::MIN;
+    for c in 0..n {
+        let (cx0, cx1) = (x0 + start(c), x0 + start(c) + side);
+        for (t, label) in axes[c].ticks.iter().zip(&labels[c]) {
+            let x = axes[c].at(*t, cx0, cx1);
+            d.line(vec![[x, bottom], [x, bottom + 4.0]], 1.0, muted);
+            let half = text_width(label, SMALL) / 2.0;
+            if x - half >= last_x + 4.0 {
+                d.text(
+                    x,
+                    bottom + 12.0,
+                    label.clone(),
+                    SMALL,
+                    muted,
+                    Anchor::Middle,
+                );
+                last_x = x + half;
+            }
+        }
+    }
+    Some(bottom + 12.0 + LINE / 2.0)
 }
 
 /// The labels of the items down the left, in their order, and where that column ends.
@@ -520,9 +697,9 @@ fn tree(d: &mut Draw, nodes: &[TreeNode], top: f32) -> Option<f32> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chart::{Axis as ChartAxis, Tier};
     use crate::picture::{Paper, scene};
-    use statscraft_engine::chart::{Axis as ChartAxis, Tier};
-    use statscraft_engine::plot::{Mark, Point};
+    use crate::plot::{Mark, Point};
 
     fn plot_chart(kind: ChartKind, plot: Plot) -> Chart {
         Chart {
@@ -531,6 +708,7 @@ mod tests {
             orientation: None,
             grouping: None,
             title: "Waiting minutes".into(),
+            subtitle: None,
             footnote: None,
             category_axis: ChartAxis {
                 title: "Depot".into(),
@@ -548,7 +726,11 @@ mod tests {
             categories: Vec::new(),
             series: Vec::new(),
             normal: None,
+            error_bars: None,
+            second_axis: None,
             plot: Some(plot),
+            outline: None,
+            hidden: false,
         }
     }
 
@@ -751,8 +933,90 @@ mod tests {
     }
 
     #[test]
+    fn a_territorial_map_fills_each_region_and_names_its_center() {
+        // the box from (-4, -2) to (4, 2) split at x = 1 between two groups
+        let region = |name: &str, center, vertices: Vec<[f64; 2]>| Region {
+            name: name.into(),
+            center,
+            vertices,
+        };
+        let regions = vec![
+            region(
+                "Walk",
+                [-2.0, 0.5],
+                vec![[-4.0, -2.0], [1.0, -2.0], [1.0, 2.0], [-4.0, 2.0]],
+            ),
+            region(
+                "Cycle",
+                [3.0, -1.0],
+                vec![[1.0, -2.0], [4.0, -2.0], [4.0, 2.0], [1.0, 2.0]],
+            ),
+            // a group that wins nowhere has no polygon, only its center
+            region("Bus", [0.0, 0.0], Vec::new()),
+        ];
+        let chart = plot_chart(ChartKind::TerritorialMap, Plot::Regions { regions });
+        for paper in [Paper::Light, Paper::Dark] {
+            let s = scene(&chart, 500.0, paper).unwrap();
+            let polygons: Vec<&Vec<[f32; 2]>> = s
+                .shapes
+                .iter()
+                .filter_map(|s| match s {
+                    Shape::Polygon { points, fill } if fill.a == 70 => Some(points),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(polygons.len(), 2);
+            // the regions fill the plot from edge to edge, the border five eighths across
+            let (left, right) = (polygons[0][0][0], polygons[1][1][0]);
+            let border = polygons[0][1][0];
+            assert!((border - left - 0.625 * (right - left)).abs() < 0.01);
+            assert_eq!(polygons[1][0][0], border);
+            let ink = crate::picture::Palette::of(paper).ink;
+            let centers = s
+                .shapes
+                .iter()
+                .filter(|s| matches!(s, Shape::Circle { fill, .. } if *fill == ink));
+            assert_eq!(centers.count(), 3);
+            let t = texts(&s);
+            assert!(t.contains(&"Walk") && t.contains(&"Cycle") && t.contains(&"Bus"));
+        }
+    }
+
+    #[test]
+    fn a_scatterplot_matrix_draws_each_case_in_every_cell_off_the_diagonal() {
+        let axis = |title: &str| ChartAxis::titled(title);
+        let case = |values: [f64; 3]| crate::plot::CaseValues {
+            values: values.to_vec(),
+            label: None,
+        };
+        let plot = Plot::Matrix {
+            variables: vec![axis("Speed"), axis("Load"), axis("Heat")],
+            groups: vec![CaseGroup {
+                name: String::new(),
+                // the last case misses Load, so it shows only in the two cells of Speed and Heat
+                cases: vec![
+                    case([1.0, 4.0, 7.0]),
+                    case([2.0, 6.0, 5.0]),
+                    case([3.0, f64::NAN, 9.0]),
+                ],
+            }],
+        };
+        let s = scene(&plot_chart(ChartKind::Scatter, plot), 600.0, Paper::Light).unwrap();
+        let dots = s
+            .shapes
+            .iter()
+            .filter(|s| matches!(s, Shape::Circle { .. }))
+            .count();
+        assert_eq!(dots, 2 * 6 + 2);
+        let texts = texts(&s);
+        for name in ["Speed", "Load", "Heat"] {
+            assert!(texts.contains(&name), "{texts:?}");
+        }
+    }
+
+    #[test]
     fn a_stem_and_leaf_display_stays_a_table() {
-        let plot = Plot::StemLeaf(statscraft_engine::plot::StemLeaf {
+        let plot = Plot::StemLeaf(crate::plot::StemLeaf {
             stem_width: 10.0,
             each_leaf: 1.0,
             low_extremes: None,

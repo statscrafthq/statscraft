@@ -139,6 +139,8 @@ fn every_kind_of_cell_survives_a_write_and_a_read() {
             "F8.0".into(),
         ]],
         caption: None,
+        outline: None,
+        hidden: false,
     };
     let text = output_file::write(&[Item::Table(Arc::new(table))]);
     let items = output_file::read(&text).unwrap();
