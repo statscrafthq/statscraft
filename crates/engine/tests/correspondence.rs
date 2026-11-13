@@ -94,6 +94,13 @@ END DATA.
 WEIGHT BY n.
 ";
 
+/// A row label, its mass, scores, inertia, shares of the dimensions and of the point.
+type RowPoint = (&'static str, f64, [f64; 2], f64, [f64; 2], [f64; 2]);
+
+/// A STANDARDIZE keyword, its singular values, the scores of row 1 and column 3, the standard
+/// deviations of row 5 and its mass.
+type EuclidCase = (&'static str, [f64; 3], [f64; 2], [f64; 2], [f64; 2], f64);
+
 const BASE: &str = "CORRESPONDENCE TABLE=district(1,5) BY way(1,4)";
 
 /// Singular values, inertia, chi-square and proportions; the scores and contributions of the
@@ -167,7 +174,7 @@ fn summary_points_and_confidence() {
     );
 
     let r = "Overview Row Points";
-    let rows: [(&str, f64, [f64; 2], f64, [f64; 2], [f64; 2]); 5] = [
+    let rows: [RowPoint; 5] = [
         (
             "1",
             0.219219219219,
@@ -560,7 +567,7 @@ fn equal_rows_share_their_scores() {
 #[test]
 fn euclidean_measure_with_each_standardization() {
     // (keyword, singular values, row 1 scores, column 3 scores, row 5 sd, row 5 masses)
-    let cases: [(&str, [f64; 3], [f64; 2], [f64; 2], [f64; 2], f64); 4] = [
+    let cases: [EuclidCase; 4] = [
         (
             "RMEAN",
             [0.376860992019, 0.180633590781, 0.134099470925],

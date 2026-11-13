@@ -321,8 +321,8 @@ fn solve(s: &Setup) -> Result<Solution, String> {
     // the sign: the active row with the largest absolute standard score scores positive
     for t in 0..kept {
         let mut best = (0, 0.0_f64);
-        for a in 0..k1 {
-            let x = u.at(a, t) / row_mass[a].sqrt();
+        for (a, m) in row_mass.iter().enumerate() {
+            let x = u.at(a, t) / m.sqrt();
             if x.abs() > best.1.abs() * (1.0 + 1e-9) {
                 best = (a, x);
             }
@@ -370,8 +370,8 @@ fn solve(s: &Setup) -> Result<Solution, String> {
             };
         }
     };
-    for i in 0..t1 {
-        match row_status[i] {
+    for (i, status) in row_status.iter().enumerate() {
+        match status {
             Status::Active => {
                 let a = ar.iter().position(|&x| x == i).expect("active");
                 let cells: Vec<f64> = (0..k2).map(|b| z.at(a, b)).collect();
@@ -395,8 +395,8 @@ fn solve(s: &Setup) -> Result<Solution, String> {
             _ => {}
         }
     }
-    for j in 0..t2 {
-        match column_status[j] {
+    for (j, status) in column_status.iter().enumerate() {
+        match status {
             Status::Active => {
                 let b = ac.iter().position(|&x| x == j).expect("active");
                 let cells: Vec<f64> = (0..k1).map(|a| z.at(a, b)).collect();
@@ -636,9 +636,9 @@ fn correspondence_table(
 fn normalization_text(n: CorrespondenceNormalization) -> String {
     match n {
         CorrespondenceNormalization::Principal => "Principal normalization.".into(),
-        CorrespondenceNormalization::Q(q) if q == 0.0 => "Symmetrical normalization.".into(),
-        CorrespondenceNormalization::Q(q) if q == 1.0 => "Row principal normalization.".into(),
-        CorrespondenceNormalization::Q(q) if q == -1.0 => "Column principal normalization.".into(),
+        CorrespondenceNormalization::Q(0.0) => "Symmetrical normalization.".into(),
+        CorrespondenceNormalization::Q(1.0) => "Row principal normalization.".into(),
+        CorrespondenceNormalization::Q(-1.0) => "Column principal normalization.".into(),
         CorrespondenceNormalization::Q(q) => format!("Normalization {q}."),
     }
 }
@@ -774,7 +774,7 @@ impl Engine {
                             return None;
                         };
                         let x = values.get(case)?.trunc();
-                        (x >= min && x <= max).then(|| (x - min) as usize)
+                        (x >= min && x <= max).then_some((x - min) as usize)
                     };
                 let mut counts = vec![vec![0.0; column_values.len()]; row_values.len()];
                 for case in 0..data.case_count() {
