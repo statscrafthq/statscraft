@@ -41,9 +41,9 @@
 //!   (the same covariates, fewer factors), NONE without conditions; an effect that another
 //!   needs cannot leave. MAXEFFECT caps entry (FORWARD, FSTEP) and MINEFFECT removal (BACKWARD,
 //!   BSTEP), counting effects without the intercept. Entry p values that underflow to 0 are
-//!   ranked by the leading term of log p; a test without a number (NaN) never enters and
-//!   leaves as if p were 1, with a warning; a model whose own fit has no likelihood loses
-//!   nothing. SCALE does not change the stepwise tests.
+//!   ranked by the leading term of log p; a test without a number (NaN) never enters, a Wald
+//!   test without one counts as p = 1, and no step leads into or out of a model without a
+//!   likelihood (a warning says so). SCALE does not change the stepwise tests.
 
 use crate::crosstabs::{Key, categories};
 use crate::descriptives::{case_weights, number};
@@ -600,8 +600,15 @@ fn select(
                 set[e] = true;
                 return false;
             }
+            let next = refit(set);
+            // never step into a model whose fit has no likelihood
+            if !next.ll.is_finite() {
+                set[e] = true;
+                no_number.set(true);
+                return false;
+            }
             visited.push(set.clone());
-            *fit = refit(set);
+            *fit = next;
             steps.push(Step {
                 entered: false,
                 effect: e,
@@ -638,8 +645,14 @@ fn select(
             set[e] = false;
             break;
         }
+        let next = refit(&set);
+        if !next.ll.is_finite() {
+            set[e] = false;
+            no_number.set(true);
+            break;
+        }
         visited.push(set.clone());
-        fit = refit(&set);
+        fit = next;
         steps.push(Step {
             entered: true,
             effect: e,
@@ -663,7 +676,7 @@ fn select(
     }
     if no_number.get() {
         warnings.push(
-            "NOMREG: a stepwise test had no number (a fit broke down); such an effect does not enter and leaves as if its p were 1, and a model without a likelihood loses no effect"
+            "NOMREG: a stepwise test or fit had no number (a fit broke down); such an effect does not enter, a Wald test without a number counts as p = 1, and no step leads into a model without a likelihood"
                 .into(),
         );
     }
