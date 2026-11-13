@@ -7465,6 +7465,22 @@ fn kenward_roger_agrees_with_the_black_box_check() {
     assert!(cell(&t, tests, "Intercept", "Sig.").is_some());
 }
 
+/// Kenward-Roger with ML still runs, with a warning that the method was made for REML.
+#[test]
+fn kenward_roger_with_ml_warns() {
+    for (method, warned) in [("ML", true), ("REML", false)] {
+        let (engine, t) = run(&format!(
+            "{BLOCKS}MIXED y BY treat block /FIXED=treat /RANDOM=block /METHOD={method} /CRITERIA=DFMETHOD(KENWARDROGER)."
+        ));
+        assert!(cell(&t, "Type III Tests of Fixed Effects", "treat", "F").is_some());
+        let warns = engine
+            .warnings()
+            .iter()
+            .any(|w| w.contains("meant for REML"));
+        assert_eq!(warns, warned, "{method}: {:?}", engine.warnings());
+    }
+}
+
 /// SOLUTION on RANDOM, SAVE SEPRED and DFPRED and TEST coefficients after `|`, against a
 /// separate R calculation: the joint covariance of the fixed estimates and the prediction
 /// errors of the random effects from the mixed model equations, and Satterthwaite df with the

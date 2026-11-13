@@ -228,9 +228,10 @@ pub struct ContrastTest {
 
 impl ContrastTest {
     /// `/TEST='label' row; row`, every effect checked against `terms`, the effects of the
-    /// model. ALL is taken too, and INTERCEPT when the model has one (`intercept`). With
-    /// `random` Ok (the random terms and whether the random intercept is in), a row may go on
-    /// after `|` with coefficients of random effects, checked the same way; Err says why not.
+    /// model. ALL is taken too (never next to effect names in one test), and INTERCEPT when the
+    /// model has one (`intercept`). With `random` Ok (the random terms and whether the random
+    /// intercept is in), a row may go on after `|` with coefficients of random effects, checked
+    /// the same way; Err says why not.
     pub(crate) fn syntax(
         &self,
         terms: &[Vec<String>],
@@ -239,6 +240,8 @@ impl ContrastTest {
         n: usize,
     ) -> Result<String, String> {
         let mut rows = Vec::new();
+        // whether the test uses ALL rather than effect names: never both
+        let mut all_form = None;
         for line in self.rows.lines() {
             let mut parts = line.split('|');
             let fixed = parts.next().unwrap_or_default();
@@ -264,6 +267,18 @@ impl ContrastTest {
                     return Err(format!("test {n}: | needs coefficients after it"));
                 }
                 row = format!("{row} | {part}").trim_start().to_string();
+            }
+            // bare values fit either form
+            for token in row
+                .split_whitespace()
+                .filter(|t| *t != "|" && coefficient(t).is_none())
+            {
+                let all = token.eq_ignore_ascii_case("ALL");
+                if *all_form.get_or_insert(all) != all {
+                    return Err(format!(
+                        "test {n}: ALL and effect names cannot be mixed in one test"
+                    ));
+                }
             }
             if !row.is_empty() {
                 rows.push(row);
@@ -572,7 +587,7 @@ impl Ordinal {
                 });
             if let Some(t) = both {
                 return Err(format!(
-                    "test {}: {t} is in both the location and the scale part, so give its coefficients with ALL",
+                    "test {}: {t} is in both the location and the scale part, so give the coefficients of every row with ALL",
                     i + 1
                 ));
             }
@@ -2142,6 +2157,14 @@ mod tests {
             ("ALL", "test 1: ALL needs coefficients"),
             ("ALL | ALL", "test 1: ALL needs coefficients"),
             ("| age INTERCEPT 1", "test 1: age needs coefficients"),
+            (
+                "gender 1 -1 0 | ALL 0 1",
+                "test 1: ALL and effect names cannot be mixed in one test",
+            ),
+            (
+                "ALL | ALL 0 1\n| age 1",
+                "test 1: ALL and effect names cannot be mixed in one test",
+            ),
         ] {
             d.tests[0].rows = rows.into();
             assert_eq!(d.syntax().unwrap_err(), error, "{rows}");
@@ -2628,6 +2651,10 @@ mod tests {
                 "test 1: -1/0 is not an effect of the model",
             ),
             (" \n ", "give the coefficients of test 1"),
+            (
+                "gender 1 -1 0\nALL 0 1 -1 0 0 0",
+                "test 1: ALL and effect names cannot be mixed in one test",
+            ),
         ] {
             d.tests[0].rows = rows.into();
             assert_eq!(d.syntax().unwrap_err(), error, "{rows}");
@@ -2690,7 +2717,12 @@ mod tests {
         d.tests[0].rows = "age 1".into();
         assert_eq!(
             d.syntax().unwrap_err(),
-            "test 1: age is in both the location and the scale part, so give its coefficients with ALL"
+            "test 1: age is in both the location and the scale part, so give the coefficients of every row with ALL"
+        );
+        d.tests[0].rows = "ALL 0 0 0 1 -1 0\ngender 1 -1".into();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "test 1: ALL and effect names cannot be mixed in one test"
         );
         d.tests[0].rows = "gender 1 -1 0 | INTERCEPT 1".into();
         assert_eq!(

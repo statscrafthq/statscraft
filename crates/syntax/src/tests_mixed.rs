@@ -179,8 +179,8 @@ fn solution_print_save_and_random_test_coefficients() {
     let m = mixed(
         "MIXED gain BY crop /FIXED=crop /RANDOM=plot | SUBJECT(farm) SOLUTION\n\
          /PRINT=CPS DESC HIST(3) LMAT /SAVE=SEPRED(se) DFPRED\n\
-         /TEST(0 1)='both' crop 1 -1 | plot 1 -1 DIVISOR=2; ALL | ALL 1 0 0 1\n\
-         /TEST=| plot 1 -1.",
+         /TEST(0 1)='both' crop 1 -1 | plot 1 -1 DIVISOR=2; | plot 1 0\n\
+         /TEST=| plot 1 -1 /TEST=ALL | ALL 1 0 0 1.",
     );
     assert!(m.random[0].solution);
     assert!(m.print.cps && m.print.descriptives && m.print.lmatrix);
@@ -192,16 +192,84 @@ fn solution_print_save_and_random_test_coefficients() {
     assert_eq!(t.rows[0][0].1, [0.5, -0.5]);
     assert_eq!(t.random[0][0].1, [0.5, -0.5]);
     assert!(t.rows[1].is_empty());
-    assert_eq!(t.random[1][0].0, None);
-    assert_eq!(t.random[1][0].1, [1.0, 0.0, 0.0, 1.0]);
+    assert_eq!(t.random[1][0].0.as_ref().unwrap().label, "plot");
+    assert_eq!(t.random[1][0].1, [1.0, 0.0]);
     assert_eq!(m.tests[1].random[0][0].1, [1.0, -1.0]);
     assert!(m.tests[1].rows[0].is_empty());
+    assert!(m.tests[2].rows[0].is_empty());
+    assert_eq!(m.tests[2].random[0][0], (None, vec![1.0, 0.0, 0.0, 1.0]));
     assert_eq!(mixed("MIXED gain /PRINT=HISTORY.").print.history, Some(1));
     // bare values after `|` are for all the random parameters
     let m = mixed("MIXED gain /RANDOM=plot /TEST=ALL 1 | 1 -1; ALL | 0 1.");
     assert_eq!(m.tests[0].rows[0][0], (None, vec![1.0]));
     assert_eq!(m.tests[0].random[0][0], (None, vec![1.0, -1.0]));
     assert_eq!(m.tests[0].random[1][0], (None, vec![0.0, 1.0]));
+}
+
+/// ALL and effect names never mix in one TEST (PLUM too, in tests_glm): the first of them sets the
+/// form of every row. Bare values after `|` fit either form. A mix is refused at the row that
+/// breaks the form.
+#[test]
+fn test_rows_keep_the_form_of_the_first_row() {
+    // ALL form: values after `|` are for every random parameter, ALL there too
+    let m = mixed(
+        "MIXED gain BY crop /FIXED=crop /RANDOM=plot /TEST=ALL 0 1 -1 | 1 0; ALL | 0 1; ALL | ALL 1 1; | 1 1; ALL 1 0 0.",
+    );
+    assert_eq!(m.tests[0].rows.len(), 5);
+    assert_eq!(m.tests[0].random[2][0], (None, vec![1.0, 1.0]));
+    // effect form: bare values may follow `|`, and a row may have only them
+    let m = mixed(
+        "MIXED gain BY crop /FIXED=crop /RANDOM=plot /TEST=| 1 0; crop 1 -1; | plot 1 -1; INTERCEPT 1 crop 0 1 | 0 1.",
+    );
+    assert_eq!(m.tests[0].rows.len(), 4);
+    assert_eq!(m.tests[0].random[3][0], (None, vec![0.0, 1.0]));
+    for (source, says) in [
+        (
+            "MIXED gain BY crop /FIXED=crop /TEST=ALL 0 1 -1; crop 1 -1.",
+            "row 2 has an effect name after ALL in row 1",
+        ),
+        (
+            "MIXED gain BY crop /FIXED=crop /TEST=crop 1 -1; ALL 0 1 -1.",
+            "row 2 has ALL after an effect name in row 1",
+        ),
+        (
+            "MIXED gain BY crop /FIXED=crop /RANDOM=plot /TEST=| 1 0; crop 0 1; | ALL 1 0.",
+            "row 3 has ALL after an effect name in row 2",
+        ),
+        (
+            "MIXED gain BY crop /FIXED=crop /RANDOM=plot /TEST=crop 1 -1 | ALL 1 0.",
+            "row 1 has ALL after an effect name earlier in the same row",
+        ),
+        (
+            "MIXED gain BY crop /FIXED=crop /TEST=crop 1 -1; INTERCEPT 1 ALL 0 1 -1.",
+            "row 2 has ALL",
+        ),
+        (
+            "MIXED gain BY crop /FIXED=crop /TEST=ALL 0 1 -1 crop 1 -1.",
+            "row 1 has an effect name",
+        ),
+        (
+            "MIXED gain BY crop /FIXED=crop /RANDOM=plot /TEST=ALL 0 1 -1 | plot 1 0.",
+            "row 1 has an effect name",
+        ),
+    ] {
+        let message = err(source);
+        assert!(message.contains(says), "{source}: {message}");
+    }
+    // INTERCEPT is named as such, whichever comes first
+    for (source, says) in [
+        (
+            "MIXED gain BY crop /FIXED=crop /RANDOM=INTERCEPT plot /TEST=ALL 0 1 -1 | INTERCEPT 1.",
+            "row 1 has INTERCEPT after ALL earlier in the same row",
+        ),
+        (
+            "MIXED gain BY crop /FIXED=crop /TEST=INTERCEPT 1; ALL 0 1 -1.",
+            "row 2 has ALL after INTERCEPT in row 1",
+        ),
+    ] {
+        let message = err(source);
+        assert!(message.contains(says), "{source}: {message}");
+    }
 }
 
 #[test]

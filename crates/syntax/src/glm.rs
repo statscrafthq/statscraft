@@ -698,7 +698,8 @@ fn lmatrix(p: &mut Parser) -> PResult<LMatrix> {
 }
 
 /// TEST after its name: `[(constants)] = ['label'] row; row ...`. `mixed` allows DIVISOR and
-/// random-effect coefficients after `|` (ALL may then come without values).
+/// random-effect coefficients after `|` (ALL may then come without values). ALL and effect
+/// names never mix in one TEST: the first of them sets the form of every row.
 pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
     let mut constants = Vec::new();
     if p.eat(Punct::LParen) {
@@ -720,6 +721,8 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
     let mut random = Vec::new();
     // the fixed and the random part of the row being read, and whether `|` came
     let mut row: (LRow, LRow, bool) = (Vec::new(), Vec::new(), false);
+    // whether the TEST uses ALL rather than effect names, the row that set it and the word
+    let mut form: Option<(bool, usize, &str)> = None;
     fn close(row: &mut (LRow, LRow, bool), rows: &mut Vec<LRow>, random: &mut Vec<LRow>) {
         let (fixed, rand, _) = std::mem::take(row);
         if !fixed.is_empty() || !rand.is_empty() {
@@ -773,7 +776,9 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
             }
             continue;
         }
-        let effect = if p.eat_word("ALL") {
+        let start = p.pos;
+        let all_word = p.eat_word("ALL");
+        let effect = if all_word {
             None
         } else if row.2 && !matches!(p.peek(), Some(TokenKind::Word(_))) {
             // values straight after `|` are for every random parameter, as after ALL
@@ -786,6 +791,37 @@ pub(crate) fn custom_test(p: &mut Parser, mixed: bool) -> PResult<CustomTest> {
         } else {
             Some(term(p)?)
         };
+        // bare values after `|` take either form: an effect on two RANDOM subcommands can be
+        // given no other way
+        if all_word || effect.is_some() {
+            let n = rows.len() + 1;
+            let found = if all_word {
+                "ALL"
+            } else if effect.as_ref().is_some_and(|t| t.variables.is_empty()) {
+                "INTERCEPT"
+            } else {
+                "an effect name"
+            };
+            let (all, r, set) = *form.get_or_insert((all_word, n, found));
+            if all_word != all {
+                let place = if r == n {
+                    "earlier in the same row".to_string()
+                } else {
+                    format!("in row {r}")
+                };
+                let bare = if mixed {
+                    " (bare values after '|' fit either)"
+                } else {
+                    ""
+                };
+                return Err(SyntaxError::new(
+                    p.span_from(start),
+                    format!(
+                        "TEST row {n} has {found} after {set} {place}; one TEST uses either ALL or effect names, never both{bare}"
+                    ),
+                ));
+            }
+        }
         let mut values = Vec::new();
         while let Some(v) = fraction(p)? {
             values.push(v);
