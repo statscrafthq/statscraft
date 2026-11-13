@@ -28,6 +28,9 @@ use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
 use crate::procedures::at_end;
 
+mod regression;
+pub use regression::*;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum CsEstimator {
     EqualWor,

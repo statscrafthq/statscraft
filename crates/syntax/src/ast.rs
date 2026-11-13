@@ -82,6 +82,8 @@ pub enum Command {
     Csplan(Box<crate::complex_samples::Csplan>),
     Csdescriptives(Box<crate::complex_samples::Csdescriptives>),
     Cstabulate(Box<crate::complex_samples::Cstabulate>),
+    /// CSGLM and CSLOGISTIC.
+    CsModel(Box<crate::complex_samples::CsModel>),
     Cluster(Box<crate::cluster::Cluster>),
     Discriminant(Box<crate::discriminant::Discriminant>),
     Anova(Box<crate::anova::Anova>),

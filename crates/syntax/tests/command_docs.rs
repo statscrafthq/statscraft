@@ -144,7 +144,13 @@ const AREAS: &[(&str, &[&str])] = &[
     ("Custom tables", &["CTABLES", "MRSETS"]),
     (
         "Complex samples",
-        &["CSPLAN", "CSDESCRIPTIVES", "CSTABULATE"],
+        &[
+            "CSPLAN",
+            "CSDESCRIPTIVES",
+            "CSTABULATE",
+            "CSGLM",
+            "CSLOGISTIC",
+        ],
     ),
     (
         "Macros, files and session",

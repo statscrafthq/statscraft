@@ -40,6 +40,8 @@ pub(crate) enum Stage {
 
 pub(crate) fn stage(command: &Command) -> Stage {
     match command {
+        // CSGLM and CSLOGISTIC change the data only with SAVE
+        Command::CsModel(c) if c.save.is_empty() => Stage::Pass,
         Command::Frequencies(_)
         | Command::Descriptives(_)
         | Command::Crosstabs(_)

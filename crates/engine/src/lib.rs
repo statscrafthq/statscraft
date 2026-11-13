@@ -673,6 +673,7 @@ impl Engine {
             | Command::Mixed(_)
             | Command::Csdescriptives(_)
             | Command::Cstabulate(_)
+            | Command::CsModel(_)
             | Command::Cluster(_)
             | Command::Discriminant(_)
             | Command::Anova(_)
@@ -907,6 +908,7 @@ impl Engine {
             Command::Mixed(command) => self.mixed_model(command),
             Command::Csdescriptives(command) => self.csdescriptives(command),
             Command::Cstabulate(command) => self.cstabulate(command),
+            Command::CsModel(command) => self.cs_model(command),
             Command::Cluster(command) => self.cluster(command),
             Command::Discriminant(command) => self.discriminant(command),
             Command::Anova(command) => self.anova(command),
