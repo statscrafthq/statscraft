@@ -901,6 +901,9 @@ fn maximal(out: &Path) -> Vec<Dialog> {
                 Stage {
                     strata: v(&["q5_1"]),
                     clusters: v(&["resp_id"]),
+                    estimator: 1,
+                    rate: 1,
+                    rate_value: s("0.5"),
                     ..Default::default()
                 },
                 Stage::default(),

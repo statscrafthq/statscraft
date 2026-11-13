@@ -2,10 +2,10 @@
 //! complex samples dialogs.
 
 use crate::advanced_dialogs::{
-    Advanced, LinearMixed, MIXED_SAVE, MOST_STAGES, Multinomial, NOMREG_BASES, NOMREG_MODELS,
-    NOMREG_PRINT, Ordinal, PLUM_LINKS, PLUM_PRINT, PROBABILITY_SAVE, RANDOM_COVARIANCES,
-    REPEATED_COVARIANCES, SAMPLE_RESIDUALS, SAMPLE_STATISTICS, SAMPLE_TESTS, STAGE_ESTIMATORS,
-    STAGE_RATES, SampleDescriptives, SampleOptions, SamplePlan, SampleTables, Stage, Terms,
+    Advanced, LinearMixed, MIXED_SAVE, Multinomial, NOMREG_BASES, NOMREG_MODELS, NOMREG_PRINT,
+    Ordinal, PLUM_LINKS, PLUM_PRINT, PROBABILITY_SAVE, RANDOM_COVARIANCES, REPEATED_COVARIANCES,
+    SAMPLE_RESIDUALS, SAMPLE_STATISTICS, SAMPLE_TESTS, STAGE_ESTIMATORS, STAGE_RATES,
+    SampleDescriptives, SampleOptions, SamplePlan, SampleTables, Stage, Terms,
 };
 use crate::app::{checkboxes, choice, field, file_dialog, target_list, target_one};
 use crate::model_dialogs_view::name_checkboxes;
@@ -157,6 +157,7 @@ fn multinomial(ui: &mut Ui, d: &mut Multinomial, picked: &mut Vec<String>) {
 
 fn mixed(ui: &mut Ui, d: &mut LinearMixed, picked: &mut Vec<String>) {
     target_list(ui, "Subjects", &mut d.subjects, picked);
+    d.forget_old_subjects();
     target_list(ui, "Repeated", &mut d.repeated, picked);
     ui.add_enabled_ui(!d.repeated.is_empty(), |ui| {
         choice(
@@ -294,10 +295,8 @@ fn plan(ui: &mut Ui, d: &mut SamplePlan, picked: &mut Vec<String>, folder: &mut 
         d.stages.remove(i);
     }
     if ui
-        .add_enabled(
-            d.stages.len() < MOST_STAGES,
-            egui::Button::new("Add stage").small(),
-        )
+        .add_enabled(d.can_add_stage(), egui::Button::new("Add stage").small())
+        .on_disabled_hover_text("Up to three stages, each after one drawn without replacement")
         .clicked()
     {
         d.stages.push(Stage::default());

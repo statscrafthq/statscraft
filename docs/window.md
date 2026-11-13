@@ -428,7 +428,7 @@ See [The Window menu](#the-window-menu).
 
 **Complex Samples**
 
-- **Analysis Plan** (`CSPLAN ANALYSIS`): writes a plan file, a small JSON file, with the sample weight and one to three stages. Each stage has an optional label, strata and clusters (every stage but the last needs clusters), and is drawn with replacement or with equal probability without replacement. Without replacement needs the population size or the inclusion probability, as one value or read from a variable. Design effects compare with simple random sampling with or without replacement. Matrices of population sizes are in the syntax.
+- **Analysis Plan** (`CSPLAN ANALYSIS`): writes a plan file, a small JSON file, with the sample weight and one to three stages. Each stage has an optional label, strata and clusters (every stage but the last needs clusters), and is drawn with replacement or with equal probability without replacement. A stage drawn with replacement ends the design, so no stage can follow it. Without replacement needs the population size or the inclusion probability, as one value or read from a variable. Design effects compare with simple random sampling with or without replacement. Matrices of population sizes are in the syntax.
 - **Descriptives** (`CSDESCRIPTIVES`), **Frequencies** and **Crosstabs** (`CSTABULATE`, one-way and two-way tables) each pick a plan file.
   - Descriptives: means and sums of the measures, and one ratio of numerators to denominators.
   - Frequencies and Crosstabs: population sizes and table percents; in Crosstabs also row and column percents.

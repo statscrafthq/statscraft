@@ -55,7 +55,7 @@ impl Advanced {
                 .and_then(|()| d.syntax(data.variable(&d.dependent).is_ok_and(|v| v.is_string()))),
             Advanced::Mixed(d) => numeric(data, std::iter::once(&d.dependent).chain(&d.covariates))
                 .and_then(|()| d.syntax()),
-            Advanced::Plan(d) => d.syntax(),
+            Advanced::Plan(d) => numeric(data, d.numeric()).and_then(|()| d.syntax()),
             Advanced::Descriptives(d) => numeric(
                 data,
                 d.summary.iter().chain(&d.numerators).chain(&d.denominators),
@@ -270,7 +270,11 @@ impl Ordinal {
             text.push_str(&format!("\n  /SCALE={terms}"));
         }
         let mut criteria = iteration_criteria(&self.ci_level, &self.iterations, &self.halvings, 5)?;
-        let delta = parse(&self.delta, "delta")?;
+        // empty is the default, as for the iterations
+        let delta = match self.delta.trim() {
+            "" => 0.0,
+            text => parse(text, "delta")?,
+        };
         if !(0.0..1.0).contains(&delta) {
             return Err("delta must be at least 0 and below 1".into());
         }
@@ -389,10 +393,11 @@ impl Multinomial {
             0 => {}
             1 => options.push("BASE=FIRST".to_string()),
             _ => {
-                if self.base_value.trim().is_empty() {
+                let base = self.base_value.trim();
+                if base.is_empty() {
                     return Err("give the value of the reference category".into());
                 }
-                options.push(format!("BASE={}", value(&self.base_value, string)?));
+                options.push(format!("BASE={}", value(base, string)?));
             }
         }
         if self.descending {
@@ -537,6 +542,13 @@ impl Default for LinearMixed {
 }
 
 impl LinearMixed {
+    /// Unchecks the random-effect subjects taken out of Subjects, so the dialog shows what the
+    /// syntax uses.
+    pub fn forget_old_subjects(&mut self) {
+        let subjects = &self.subjects;
+        self.random_subjects.retain(|s| subjects.contains(s));
+    }
+
     pub fn model(&self) -> Vec<String> {
         self.factors
             .iter()
@@ -557,8 +569,11 @@ impl LinearMixed {
         }
         let model = self.model();
         let mut text = format!("MIXED {variables}");
-        let fixed = if self.custom_fixed {
+        // custom with no terms is the intercept alone
+        let fixed = if self.custom_fixed && !self.fixed.terms.is_empty() {
             self.fixed.syntax(&model, "fixed effects")?
+        } else if self.custom_fixed {
+            String::new()
         } else {
             model.join(" ")
         };
@@ -582,6 +597,13 @@ impl LinearMixed {
                 return Err("the random effects need the intercept or a term".into());
             }
             let mut options = Vec::new();
+            if let Some(n) = self
+                .random_subjects
+                .iter()
+                .find(|s| !self.subjects.contains(s))
+            {
+                return Err(format!("{n} in the random effects is no longer a subject"));
+            }
             let subjects: Vec<&str> = self
                 .subjects
                 .iter()
@@ -700,6 +722,21 @@ impl Default for SamplePlan {
 }
 
 impl SamplePlan {
+    /// The weight and the variables that hold population sizes or inclusion probabilities.
+    pub fn numeric(&self) -> impl Iterator<Item = &String> {
+        let rates = self
+            .stages
+            .iter()
+            .filter(|s| s.estimator == 1 && s.rate_by_variable)
+            .map(|s| &s.rate_variable);
+        std::iter::once(&self.weight).chain(rates)
+    }
+
+    /// Another stage can follow the last one only when that one is drawn without replacement.
+    pub fn can_add_stage(&self) -> bool {
+        self.stages.len() < MOST_STAGES && self.stages.last().is_none_or(|s| s.estimator == 1)
+    }
+
     pub fn syntax(&self) -> Result<String, String> {
         let path = self.path.trim();
         if path.is_empty() {
@@ -721,6 +758,12 @@ impl SamplePlan {
         let last = self.stages.len().saturating_sub(1);
         for (i, stage) in self.stages.iter().enumerate() {
             let stage_number = i + 1;
+            // the analysis ignores every stage after one drawn with replacement
+            if i < last && stage.estimator == 0 {
+                return Err(format!(
+                    "stage {stage_number} is drawn with replacement, which ends the design: remove the stages after it"
+                ));
+            }
             if i < last && stage.clusters.is_empty() {
                 return Err(format!(
                     "stage {stage_number} is followed by another stage, so it needs clusters"
@@ -1322,7 +1365,7 @@ mod tests {
         let mut session = open("survey_basic.sav");
         assert!(run_in(&mut session, &syntax) >= 5);
         let data = session.dataset().unwrap();
-        assert!(data.variable("FXPRED_1").is_ok() || data.variable("FIXPRED_1").is_ok());
+        assert!(data.variable("FXPRED_1").is_ok());
 
         // repeated measures in long form: the three mentions of each respondent
         let mut session = open("survey_basic.sav");
@@ -1598,5 +1641,123 @@ mod tests {
             "stage 1 is followed by another stage, so it needs clusters"
         );
         std::fs::remove_dir_all(out).unwrap();
+    }
+
+    #[test]
+    fn random_subjects_taken_out_of_subjects_are_not_lost_silently() {
+        let mut d = LinearMixed {
+            dependent: "monthly_spend".into(),
+            subjects: v(&["region"]),
+            random: true,
+            random_subjects: v(&["region", "gender"]),
+            ..Default::default()
+        };
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "gender in the random effects is no longer a subject"
+        );
+        // the dialog unchecks it when Subjects changes
+        d.forget_old_subjects();
+        assert_eq!(d.random_subjects, v(&["region"]));
+        assert_eq!(
+            d.syntax().unwrap(),
+            "MIXED monthly_spend\n  /RANDOM=INTERCEPT | SUBJECT(region)."
+        );
+    }
+
+    #[test]
+    fn custom_fixed_effects_without_terms_are_the_intercept_alone() {
+        let mut d = LinearMixed {
+            dependent: "monthly_spend".into(),
+            factors: v(&["gender"]),
+            custom_fixed: true,
+            ..Default::default()
+        };
+        let syntax = d.syntax().unwrap();
+        assert_eq!(syntax, "MIXED monthly_spend BY gender.");
+        assert!(runs(&syntax) >= 2);
+        d.intercept = false;
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "the fixed effects need a term or the intercept"
+        );
+    }
+
+    #[test]
+    fn plan_variables_must_be_numeric() {
+        let session = open("survey_basic.sav");
+        let data = session.dataset().unwrap();
+        let mut d = SamplePlan {
+            path: "plan.json".into(),
+            weight: "plan".into(),
+            ..Default::default()
+        };
+        let syntax = |d: &SamplePlan| Advanced::Plan(d.clone()).syntax(data);
+        assert_eq!(
+            syntax(&d).unwrap_err(),
+            "plan is a string; the command needs numbers"
+        );
+        d.weight = "weight".into();
+        d.stages[0].estimator = 1;
+        d.stages[0].rate_by_variable = true;
+        d.stages[0].rate_variable = "q3_comment".into();
+        assert_eq!(
+            syntax(&d).unwrap_err(),
+            "q3_comment is a string; the command needs numbers"
+        );
+        d.stages[0].rate_variable = "age".into();
+        assert!(syntax(&d).unwrap().ends_with("/POPSIZE VARIABLE=age."));
+    }
+
+    #[test]
+    fn a_stage_with_replacement_ends_the_design() {
+        let mut d = SamplePlan {
+            path: "plan.json".into(),
+            weight: "weight".into(),
+            ..Default::default()
+        };
+        // the last stage needs no clusters, and nothing may follow it
+        assert!(
+            d.syntax()
+                .unwrap()
+                .ends_with("/DESIGN\n  /ESTIMATOR TYPE=WR.")
+        );
+        assert!(!d.can_add_stage());
+        d.stages[0].clusters = v(&["region"]);
+        d.stages.push(Stage::default());
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "stage 1 is drawn with replacement, which ends the design: remove the stages after it"
+        );
+        d.stages[0].estimator = 1;
+        d.stages[0].rate_value = "10".into();
+        assert!(d.syntax().is_ok());
+        // the second stage is drawn with replacement, so a third needs it changed
+        assert!(!d.can_add_stage());
+        d.stages[1].estimator = 1;
+        assert!(d.can_add_stage());
+        d.stages.push(Stage::default());
+        assert!(!d.can_add_stage());
+    }
+
+    #[test]
+    fn an_empty_delta_is_the_default() {
+        let d = Ordinal {
+            dependent: "q1_satisfaction".into(),
+            delta: " ".into(),
+            ..Default::default()
+        };
+        assert_eq!(d.syntax().unwrap(), "PLUM q1_satisfaction.");
+    }
+
+    #[test]
+    fn the_reference_value_is_trimmed() {
+        let d = Multinomial {
+            dependent: "plan".into(),
+            base: 2,
+            base_value: " BASIC ".into(),
+            ..Default::default()
+        };
+        assert_eq!(d.syntax(true).unwrap(), "NOMREG plan (BASE='BASIC').");
     }
 }
