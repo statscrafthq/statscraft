@@ -1572,9 +1572,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  most likely category, its probability and the probability of the observed category, for every case\n\
                  with valid factors and covariates. TEST gives Wald tests of combinations of the parameters, in the\n\
                  order of the Parameter Estimates (thresholds, location, scale, redundant ones included): INTERCEPT\n\
-                 takes one value per threshold, ALL one per parameter. Each row is tested against its constant (0\n\
-                 by default) on 1 df and the rows together on the rank of their covariance; a coefficient on a\n\
-                 redundant parameter multiplies its 0.",
+                 takes one value per threshold, ALL one per parameter; one TEST uses either ALL in every row or\n\
+                 effect names, never both. Each row is tested against its constant (0 by default) on 1 df and the\n\
+                 rows together on the rank of their covariance; a coefficient on a redundant parameter multiplies\n\
+                 its 0.",
         example: "PLUM comfort BY seat_row WITH trip_hours /LINK=PROBIT /PRINT=FIT PARAMETER SUMMARY TPARALLEL /SAVE=ESTPROB PREDCAT.",
         parse: plum::plum,
     },
@@ -1775,12 +1776,15 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  number of comparisons, and an F test of the compared factor at each level of the others. TEST\n\
                  takes coefficients for the parameters of named fixed effects (redundant ones included) or ALL\n\
                  of them, one row per combination; the constants in parentheses are the values tested against\n\
-                 (0 by default) and DIVISOR divides a row. After | come coefficients for one subject's random\n\
-                 effects, by effect or as bare values (or ALL) for all of them over the RANDOM subcommands in\n\
-                 order; an effect on two RANDOM subcommands needs the bare values. With SUBJECT they are shared\n\
-                 equally among the subjects, so the row speaks of their average. TEST gives each row's\n\
-                 estimate with a t test and the joint F test; a row whose fixed part is not estimable is dropped\n\
-                 with a warning. SOLUTION on RANDOM lists the predicted random effects of every subject with the\n\
+                 (0 by default) and DIVISOR divides a row. ALL and effect names never mix in one TEST: the\n\
+                 first of them decides whether the rows use ALL or name their effects. After | come\n\
+                 coefficients for one subject's random effects, by effect or as bare values for all of them\n\
+                 over the RANDOM subcommands in order; the bare values fit either form, even as a whole row,\n\
+                 and in a TEST that uses ALL, ALL may come before them. An effect on two RANDOM subcommands\n\
+                 needs the bare values. With SUBJECT they are shared equally among the subjects, so the row\n\
+                 speaks of their average. TEST gives each row's estimate with a t test and the joint F test; a\n\
+                 row whose fixed part is not estimable is dropped with a warning. SOLUTION on RANDOM lists the\n\
+                 predicted random effects of every subject with the\n\
                  standard error of their prediction error, df, a t test and an interval. Rows with random\n\
                  effects, and the other rows of their TEST, keep the unadjusted covariance and Satterthwaite's df\n\
                  (from numerical derivatives) even with KENWARDROGER. PRINT G and R show the covariance of one\n\

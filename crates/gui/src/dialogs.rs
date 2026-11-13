@@ -1061,6 +1061,23 @@ pub(crate) mod testing {
         format!("{}/../../tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"))
     }
 
+    /// Our synthetic panel: 30 people, each measured in up to four waves.
+    pub fn waves() -> Session {
+        let csv = include_str!("../../../tests/fixtures/mixed_waves.csv");
+        let rows: Vec<&str> = csv.lines().skip(1).collect();
+        let mut session = Session::default();
+        session
+            .run(
+                &format!(
+                    "DATA LIST LIST(\",\") /person arm wave dose level.\nBEGIN DATA\n{}\nEND DATA.",
+                    rows.join("\n")
+                ),
+                None,
+            )
+            .unwrap();
+        session
+    }
+
     /// A session with a fixture open.
     pub fn open(name: &str) -> Session {
         let mut session = Session::default();

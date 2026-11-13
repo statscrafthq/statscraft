@@ -2564,6 +2564,9 @@ impl Engine {
             let kr = w.and_then(|w| Kr::new(e, w));
             if kr.is_none() {
                 warnings.push("MIXED: the Kenward-Roger adjustment cannot be made (the expected information of the covariance parameters is singular or the adjusted covariance is not positive definite), so the degrees of freedom are Satterthwaite's".into());
+            } else if command.ml {
+                // the method was derived for REML; with ML it still runs, flagged (docs/differences.md)
+                warnings.push("MIXED: the Kenward-Roger adjustment is meant for REML estimates; with METHOD=ML it is only approximate".into());
             }
             kr
         } else {
@@ -3081,7 +3084,7 @@ impl Engine {
                 with_df,
             )
         });
-        // coefficients after `|` of TEST: per effect of a RANDOM (the first that has it) or ALL
+        // coefficients after `|` of TEST: per effect of a RANDOM (only one may have it) or ALL
         // over every RANDOM in order; each subject gets them divided by the number of subjects
         let random_row = |given: &LRow| -> Result<(RandomRow, Vec<f64>), Error> {
             let mut coef: Vec<Vec<f64>> = random_fits.iter().map(|f| vec![0.0; f.p]).collect();
@@ -3109,7 +3112,7 @@ impl Engine {
                             if let Some(ef) = find_effect(&d, &f.effects, term)? {
                                 if found.is_some() {
                                     return Err(Error(format!(
-                                        "TEST names {} after '|', which is on more than one RANDOM; give its coefficients with ALL",
+                                        "TEST names {} after '|', which is on more than one RANDOM; give the random coefficients as bare values after '|'",
                                         term.label
                                     )));
                                 }
