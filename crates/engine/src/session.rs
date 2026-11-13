@@ -74,11 +74,15 @@ impl Failure {
 }
 
 /// The message after the name of its command, once: many commands name themselves in their
-/// messages already.
+/// messages already, also after the name of a split group ("g = 1: FACTOR: ...").
 fn with_command(command: &str, message: &str) -> String {
-    match message.starts_with(&format!("{command}: ")) {
-        true => message.to_string(),
-        false => format!("{command}: {message}"),
+    let own = format!("{command}: ");
+    if message.starts_with(&own) {
+        return message.to_string();
+    }
+    match message.split_once(&format!(": {own}")) {
+        Some((group, rest)) => format!("{own}{group}: {rest}"),
+        None => format!("{own}{message}"),
     }
 }
 
@@ -1027,6 +1031,23 @@ mod tests {
         assert_eq!(
             session.log[1].warnings,
             [format!("line 2: DESCRIPTIVES: {warning}")]
+        );
+    }
+
+    #[test]
+    fn a_message_names_its_command_once() {
+        assert_eq!(
+            with_command("PPLOT", "PPLOT: z is empty"),
+            "PPLOT: z is empty"
+        );
+        assert_eq!(with_command("PPLOT", "z is empty"), "PPLOT: z is empty");
+        assert_eq!(
+            with_command("PPLOT", "g = 1: PPLOT: z is empty"),
+            "PPLOT: g = 1: z is empty"
+        );
+        assert_eq!(
+            with_command("PPLOT", "g = 1: z is empty"),
+            "PPLOT: g = 1: z is empty"
         );
     }
 

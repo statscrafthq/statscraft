@@ -358,7 +358,7 @@ pub(crate) fn call(
         "RANK" => {
             let (_, q, _) = thin_svd(a);
             let n = a.rows.min(a.cols);
-            let tolerance = svd_tolerance(a, &q);
+            let tolerance = svd_tolerance(a, if n > 0 { q.at(0, 0) } else { 0.0 });
             s((0..n).filter(|&i| q.at(i, i) > tolerance).count() as f64)
         }
         "GINV" => one(pseudo_inverse(a)),
@@ -589,8 +589,7 @@ fn svd_basis(a: &Mat, full: bool) -> (Mat, Mat, Mat) {
     let mut q = Mat::filled(m, n, 0.0);
     let mut vm = Mat::filled(n, n, 0.0);
     let mut columns: Vec<Vec<f64>> = Vec::new();
-    let top = norms.iter().copied().fold(0.0, f64::max);
-    let tolerance = m.max(n) as f64 * top * f64::EPSILON;
+    let tolerance = svd_tolerance(a, norms.iter().copied().fold(0.0, f64::max));
     for (k, &j) in order.iter().enumerate() {
         let mut vector: Vec<f64> = v.iter().map(|row| row[j]).collect();
         orient(&mut vector);
@@ -640,19 +639,15 @@ fn complete_basis(mut columns: Vec<Vec<f64>>, m: usize, size: usize) -> Mat {
     u
 }
 
-fn svd_tolerance(a: &Mat, q: &Mat) -> f64 {
-    let top = if a.rows.min(a.cols) > 0 {
-        q.at(0, 0)
-    } else {
-        0.0
-    };
+/// Singular values at or below this, from the largest one `top`, count as zero.
+fn svd_tolerance(a: &Mat, top: f64) -> f64 {
     a.rows.max(a.cols) as f64 * top * f64::EPSILON
 }
 
 fn pseudo_inverse(a: &Mat) -> Mat {
     let (u, q, v) = thin_svd(a);
     let mut out = Mat::filled(a.cols, a.rows, 0.0);
-    // the thin side has a vector exactly for each singular value above the rounding tolerance
+    // the thin side has a vector exactly for each singular value above svd_tolerance
     for k in 0..u.cols.min(v.cols) {
         let sigma = q.at(k, k);
         for i in 0..a.cols {
@@ -928,7 +923,8 @@ mod tests {
         let n = 5000;
         let signs = |i: usize| if i.is_multiple_of(2) { 1.0 } else { -1.0 };
         let a = Mat::new(n, 3, (0..n).flat_map(|i| [1.0, signs(i), 2.0]).collect());
-        let start = std::time::Instant::now();
+        // the longer side keeps a vector per nonzero singular value, not a square basis
+        assert_eq!(thin_svd(&a).0.cols, 2);
         let random = RefCell::new(Random::default());
         let mut warnings = Vec::new();
         let mut run = |name: &str| call(name, std::slice::from_ref(&a), &random, &mut warnings);
@@ -950,7 +946,12 @@ mod tests {
                 .collect(),
         );
         close(&g, &expected);
-        assert!(start.elapsed().as_secs() < 10, "{:?}", start.elapsed());
+        // a wide matrix: the generalized inverse of the transpose is the transposed one
+        let wide = [a.transpose()];
+        close(
+            &call("GINV", &wide, &random, &mut Vec::new()).unwrap(),
+            &expected.transpose(),
+        );
     }
 
     #[test]
