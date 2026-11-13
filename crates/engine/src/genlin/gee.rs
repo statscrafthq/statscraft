@@ -236,8 +236,12 @@ fn estimate(
     match set.correlation {
         GenlinCorrelation::Independent => return Ok((m, phi, Adjusted::No)),
         GenlinCorrelation::Fixed(list) => {
-            // one position leaves nothing to fix
-            if t > 1 && list.len() != t * t.saturating_sub(1) / 2 {
+            if t < 2 {
+                return Err(
+                    "GENLIN: REPEATED: the working correlation matrix has dimension 1, with no correlation to fix; use CORRTYPE=INDEPENDENT".into(),
+                );
+            }
+            if list.len() != t * (t - 1) / 2 {
                 return Err(format!(
                     "GENLIN: REPEATED: CORRTYPE=FIXED gives {} correlations; the working correlation matrix has dimension {t}, so it needs {}",
                     list.len(),
