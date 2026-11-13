@@ -309,6 +309,10 @@ fn glm_errors() {
             "GLM y1 y2 BY a /PRINT=TEST(LMATRIX).",
             "TEST(LMATRIX) in PRINT is not supported yet",
         ),
+        (
+            "GLM y1 y2 BY a /PRINT=TEST.",
+            "TEST in PRINT names its matrices: TEST(SSCP), TEST(MMATRIX) or TEST(LMATRIX)",
+        ),
     ] {
         assert_eq!(err(source).message, message, "{source}");
     }
@@ -333,7 +337,7 @@ fn glm_multivariate_keywords() {
         ]
     );
     assert_eq!(g.kmatrix, Some(vec![vec![0.0, 1.0], vec![2.0, 3.0]]));
-    let g = glm("GLM y1 y2 y3 /MMATRIX='d' y1 1 y2 -1; ALL 1/3 1/3 1/3; 'e' y3 1.");
+    let g = glm("GLM y1 y2 y3 /MMATRIX='d' y1 1 y2 -1; ALL 1/3 1/3 1/3 'e' y3 1.");
     let m = g.mmatrix.unwrap();
     assert_eq!(m.len(), 3);
     assert_eq!(m[1].label, None);

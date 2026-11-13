@@ -898,8 +898,15 @@ fn mmatrix(p: &mut Parser) -> PResult<Vec<MColumn>> {
             continue;
         }
         if let Some(TokenKind::Str(_)) = p.peek() {
+            // a label opens a column, so it also ends the one before
             if !column.entries.is_empty() {
-                return Err(p.unexpected(&["';' before the next label"]));
+                out.push(std::mem::replace(
+                    &mut column,
+                    MColumn {
+                        label: None,
+                        entries: Vec::new(),
+                    },
+                ));
             }
             column.label = Some(p.string("a label")?);
             continue;
@@ -966,6 +973,12 @@ fn print(p: &mut Parser) -> PResult<GlmPrint> {
         } else if p.eat_keyword("RSSCP") {
             out.rsscp = true;
         } else if p.eat_keyword("TEST") {
+            if !p.at(Punct::LParen) {
+                return Err(SyntaxError::new(
+                    p.span(),
+                    "TEST in PRINT names its matrices: TEST(SSCP), TEST(MMATRIX) or TEST(LMATRIX)",
+                ));
+            }
             p.expect(Punct::LParen)?;
             while !p.at(Punct::RParen) {
                 if p.eat_keyword("SSCP") {

@@ -591,8 +591,26 @@ fn errors_name_the_problem() {
     );
     assert_eq!(
         run_error(&format!(
-            "{DATA}\nGLM y1 y2 BY g /INTERCEPT=EXCLUDE /MMATRIX=y1 1 y2 -1."
+            "{DATA}\nGLM y1 y2 y3 /WSFACTOR=t 3 /MMATRIX=ALL 1 -1 0."
         )),
-        "KMATRIX or MMATRIX without LMATRIX tests the intercept, which the model leaves out"
+        "MMATRIX with WSFACTOR is not supported yet"
     );
+    let mut engine = Engine::default();
+    for (syntax, want) in [
+        (
+            format!("{DATA}\nGLM y1 y2 BY g /INTERCEPT=EXCLUDE /MMATRIX=y1 1 y2 -1."),
+            "KMATRIX or MMATRIX without LMATRIX tests the intercept, which the model leaves out; no custom test is made",
+        ),
+        (
+            "GLM y1 BY g /PRINT=RSSCP.".to_string(),
+            "PRINT RSSCP applies only to several dependent variables and is ignored",
+        ),
+    ] {
+        run(&mut engine, &syntax);
+        assert!(
+            engine.warnings().iter().any(|w| w.ends_with(want)),
+            "{want}: {:?}",
+            engine.warnings()
+        );
+    }
 }

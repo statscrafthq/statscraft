@@ -1245,8 +1245,17 @@ fn univariate(
     if command.print.lof {
         out.push(lack_of_fit(d, fit, dependent, &flags));
     }
-    if command.mmatrix.is_some() {
-        warnings.push("MMATRIX applies only to several dependent variables and is ignored".into());
+    for (what, given) in [
+        ("MMATRIX", command.mmatrix.is_some()),
+        ("PRINT RSSCP", command.print.rsscp),
+        ("PRINT TEST(SSCP)", command.print.sscp),
+        ("PRINT TEST(MMATRIX)", command.print.mmatrix),
+    ] {
+        if given {
+            warnings.push(format!(
+                "{what} applies only to several dependent variables and is ignored"
+            ));
+        }
     }
     out.extend(custom_hypotheses(
         command,
@@ -1419,19 +1428,21 @@ fn custom_hypotheses(
     }
     if command.lmatrix.is_empty() && (command.kmatrix.is_some() || given_m.is_some()) {
         // the L matrix of the intercept's Type III test
-        let Some(e) = fit.effects.iter().position(Effect::is_intercept) else {
-            return Err(Error(
-                "KMATRIX or MMATRIX without LMATRIX tests the intercept, which the model leaves out"
+        match fit.effects.iter().position(Effect::is_intercept) {
+            Some(e) => {
+                let l = fit
+                    .type34(e, false)
+                    .into_iter()
+                    .enumerate()
+                    .map(|(i, row)| (format!("L{}", i + 1), row))
+                    .collect();
+                matrices.push(("Intercept".into(), l));
+            }
+            None => warnings.push(
+                "KMATRIX or MMATRIX without LMATRIX tests the intercept, which the model leaves out; no custom test is made"
                     .into(),
-            ));
-        };
-        let l = fit
-            .type34(e, false)
-            .into_iter()
-            .enumerate()
-            .map(|(i, row)| (format!("L{}", i + 1), row))
-            .collect();
-        matrices.push(("Intercept".into(), l));
+            ),
+        }
     }
     let columns = m[0].len();
     for (title, l) in matrices {
@@ -1441,7 +1452,7 @@ fn custom_hypotheses(
                 let values = rows.concat();
                 if values.len() != l.len() {
                     return Err(Error(format!(
-                        "KMATRIX has {} rows and LMATRIX {}",
+                        "KMATRIX has {} rows and the L matrix {}",
                         values.len(),
                         l.len()
                     )));
@@ -2979,6 +2990,11 @@ impl Engine {
             ("PRINT LOF", command.print.lof),
             ("PRINT PARAMETER", command.print.parameter),
             ("PRINT HOMOGENEITY", command.print.homogeneity),
+            ("MMATRIX", command.mmatrix.is_some()),
+            ("KMATRIX", command.kmatrix.is_some()),
+            ("PRINT RSSCP", command.print.rsscp),
+            ("PRINT TEST(SSCP)", command.print.sscp),
+            ("PRINT TEST(MMATRIX)", command.print.mmatrix),
         ] {
             if given {
                 return Err(Error(format!("{what} with WSFACTOR is not supported yet")));
@@ -3523,7 +3539,7 @@ fn multivariate_rows(sh: &Matrix, se: &Matrix, l: f64, ne: f64, flags: &Flags) -
             let ok = l > 0.0 && df1 > 0.0 && df2 > 0.0 && f.is_finite();
             let mut row = vec![
                 text(stat),
-                number(ok.then_some(value)),
+                number((l > 0.0 && value.is_finite()).then_some(value)),
                 number(ok.then_some(f)),
                 number(ok.then_some(df1)),
                 number(ok.then_some(df2)),
@@ -3553,15 +3569,16 @@ fn multivariate_note(flags: &Flags) -> String {
     )
 }
 
-/// The determinant of a symmetric matrix and its rank, from its eigenvalues.
-fn determinant_and_rank(a: &Matrix) -> (f64, usize) {
+/// The log determinant of a symmetric matrix and its rank, from its eigenvalues (the log is
+/// meaningful only at full rank).
+fn log_determinant_and_rank(a: &Matrix) -> (f64, usize) {
     let values: Vec<f64> = crate::matrix::symmetric_eigen(a)
         .into_iter()
         .map(|(v, _)| v)
         .collect();
     let top = values.iter().fold(0.0_f64, |m, v| m.max(v.abs()));
     let rank = values.iter().filter(|v| **v > 1e-10 * top).count();
-    (values.iter().product(), rank)
+    (values.iter().map(|v| v.ln()).sum(), rank)
 }
 
 /// Box's M test that the covariance matrices of the dependent variables are equal in the cells
@@ -3595,9 +3612,9 @@ fn box_m(d: &Data, design: &str) -> Option<Table> {
                     .collect()
             })
             .collect();
-        let (det, rank) = determinant_and_rank(&s);
+        let (log_det, rank) = log_determinant_and_rank(&s);
         if rank == r {
-            kept.push((n, s, det));
+            kept.push((n, s, log_det));
         }
     }
     let g = kept.len() as f64;
@@ -3612,11 +3629,11 @@ fn box_m(d: &Data, design: &str) -> Option<Table> {
                 .collect()
         })
         .collect();
-    let (det, rank) = determinant_and_rank(&pooled);
-    if rank < r || det <= 0.0 {
+    let (log_det, rank) = log_determinant_and_rank(&pooled);
+    if rank < r {
         return None;
     }
-    let m = (n - g) * det.ln() - kept.iter().map(|k| (k.0 - 1.0) * k.2.ln()).sum::<f64>();
+    let m = (n - g) * log_det - kept.iter().map(|k| (k.0 - 1.0) * k.2).sum::<f64>();
     let r = r as f64;
     let f1 = (g - 1.0) * r * (r + 1.0) / 2.0;
     let inverse_sum: f64 = kept.iter().map(|k| 1.0 / (k.0 - 1.0)).sum::<f64>() - 1.0 / (n - g);
