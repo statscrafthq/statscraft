@@ -591,7 +591,8 @@ struct Eval {
     b: Vec<Matrix>,
     /// V^-1 of every group.
     vi: Vec<Matrix>,
-    /// X'V^-1 V_s V^-1 V_t V^-1 X and X'V^-1 V_st V^-1 X for s <= t (Hessian depth only).
+    /// X'V^-1 V_s V^-1 V_t V^-1 X for s <= t (Hessian depth), and X'V^-1 V_st V^-1 X (the
+    /// observed Hessian only; zero at expected depth).
     q: Vec<Vec<Matrix>>,
     r2: Vec<Vec<Matrix>>,
     /// The expected Hessian, kept beside the one asked for (Hessian depth only).
@@ -895,11 +896,10 @@ impl Model {
         if let Depth::Hessian { expected } = depth {
             let mut hm = vec![vec![0.0; k]; k];
             let mut he = vec![vec![0.0; k]; k];
+            let aib: Vec<Matrix> = b.iter().map(|bs| product(ai, bs)).collect();
             for s in 0..k {
                 for t in s..k {
-                    let aib_s = product(ai, &b[s]);
-                    let aib_t = product(ai, &b[t]);
-                    let bb = trace_product(&aib_s, &aib_t);
+                    let bb = trace_product(&aib[s], &aib[t]);
                     let ex = if self.ml {
                         t1[s][t]
                     } else {
@@ -1212,11 +1212,12 @@ impl Infer<'_> {
 type RandomRow = Vec<(usize, usize, usize, f64)>;
 
 /// PRINT LMATRIX for TEST: the parameter names (fixed, then one subject's random effects) and
-/// the columns and subjects of each RANDOM.
-type LmatrixRows<'a> = (&'a [String], &'a [(usize, usize)]);
+/// the number of random columns.
+type LmatrixRows<'a> = (&'a [String], usize);
 
 /// Turns the coefficients after `|` of a TEST row into a RandomRow.
-type RandomBuilder<'a> = &'a dyn Fn(&LRow) -> Result<RandomRow, Error>;
+/// Also gives the coefficients as written, over every RANDOM's columns in order.
+type RandomBuilder<'a> = &'a dyn Fn(&LRow) -> Result<(RandomRow, Vec<f64>), Error>;
 
 /// A combination l_f b + l_r u of fixed and predicted random effects, worked out at one θ.
 struct Combo {
@@ -1314,8 +1315,9 @@ impl<'a> Predict<'a> {
         th: &'a [f64],
         sigma: Option<&'a Matrix>,
         residual_df: Option<f64>,
+        with_df: bool,
     ) -> Predict<'a> {
-        let shifted = if residual_df.is_some() {
+        let shifted = if residual_df.is_some() || !with_df {
             Vec::new()
         } else {
             (0..th.len())
@@ -1805,21 +1807,16 @@ impl FixedPart<'_> {
                 ));
                 continue;
             };
-            let lr = match (random, t.random.get(r)) {
+            let (lr, written) = match (random, t.random.get(r)) {
                 (Some((_, build)), Some(given)) if !given.is_empty() => build(given)?,
-                _ => Vec::new(),
+                _ => (Vec::new(), Vec::new()),
             };
-            if let Some((_, dims)) = lmatrix {
+            if let Some((_, random_columns)) = lmatrix {
                 let mut column = full.clone();
                 if any_random {
-                    // one subject's share times the subjects: the coefficient as given
-                    for (k, &(dim, subjects)) in dims.iter().enumerate() {
-                        column.extend((0..dim).map(|col| {
-                            lr.iter()
-                                .find(|x| x.0 == k && x.1 == 0 && x.2 == col)
-                                .map_or(0.0, |x| x.3 * subjects as f64)
-                        }));
-                    }
+                    let mut written = written;
+                    written.resize(random_columns, 0.0);
+                    column.extend(written);
                 }
                 coefficients.push((name.clone(), column));
             }
@@ -2003,8 +2000,7 @@ fn fit_model(
         let mut step = solve_pd(&e.hess, &e.grad);
         let mut update = if scoring { "Scoring" } else { "Newton" };
         if step.is_none() && !scoring {
-            let ex = model.evaluate(&th, Depth::Hessian { expected: true });
-            step = ex.and_then(|ex| solve_pd(&ex.hess, &ex.grad));
+            step = solve_pd(&e.hess_expected, &e.grad);
             update = "Scoring";
         }
         let Some(step) = step else {
@@ -3064,11 +3060,18 @@ impl Engine {
                 &fitted.th,
                 sigma,
                 (command.df_method == DfMethod::Residual).then_some(residual_df),
+                // the shifted fits serve df only: not needed for SEPRED alone
+                command.random.iter().any(|r| r.solution)
+                    || command.save.iter().any(|(t, _)| *t == MixedTemp::Dfpred)
+                    || command
+                        .tests
+                        .iter()
+                        .any(|t| t.random.iter().any(|r| !r.is_empty())),
             )
         });
         // coefficients after `|` of TEST: per effect of a RANDOM (the first that has it) or ALL
         // over every RANDOM in order; each subject gets them divided by the number of subjects
-        let random_row = |given: &LRow| -> Result<RandomRow, Error> {
+        let random_row = |given: &LRow| -> Result<(RandomRow, Vec<f64>), Error> {
             let mut coef: Vec<Vec<f64>> = random_fits.iter().map(|f| vec![0.0; f.p]).collect();
             for (effect, values) in given {
                 let (k, range) = match effect {
@@ -3129,7 +3132,7 @@ impl Engine {
                     }
                 }
             }
-            Ok(out)
+            Ok((out, coef.concat()))
         };
         let random_names: Vec<Vec<String>> = random_fits
             .iter()
@@ -3141,11 +3144,7 @@ impl Engine {
             })
             .collect();
         // the rows of the Estimable Function of a TEST: fixed, then one subject's random
-        let random_dims: Vec<(usize, usize)> = random_fits
-            .iter()
-            .zip(&subject_counts)
-            .map(|(f, &subjects)| (f.p, subjects))
-            .collect();
+        let random_columns: usize = random_fits.iter().map(|f| f.p).sum();
         let mut lmatrix_names = names.clone();
         for (k, sfx) in subject_suffix.iter().enumerate() {
             lmatrix_names.extend(random_names[k].iter().map(|n| format!("{n}{sfx}")));
@@ -3155,7 +3154,7 @@ impl Engine {
             let lmatrix = command
                 .print
                 .lmatrix
-                .then_some((lmatrix_names.as_slice(), random_dims.as_slice()));
+                .then_some((lmatrix_names.as_slice(), random_columns));
             tables.extend(part.custom_test(k + 1, t, random, lmatrix, &mut warnings)?);
         }
         if command.print.lmatrix {
