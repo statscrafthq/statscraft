@@ -379,17 +379,16 @@ fn sample_tables(
         let options = d.cell_options();
         checkboxes(ui, options, &mut d.cells[..options.len()]);
     });
-    let (crosstabs, table_percent) = (d.crosstabs, d.cells[1]);
+    let crosstabs = d.crosstabs;
     let (residuals, cumulative) = (&mut d.residuals, &mut d.cumulative);
     sample_options(ui, &mut d.options, picked, |ui| {
         if !crosstabs {
             ui.checkbox(cumulative, "Cumulative values");
             return;
         }
-        ui.add_enabled_ui(table_percent, |ui| {
-            ui.weak("With table percents");
-            checkboxes(ui, &SAMPLE_RESIDUALS, residuals);
-        });
+        // left enabled, so a tick can be taken back when the message asks for table percents
+        ui.weak("With table percents");
+        checkboxes(ui, &SAMPLE_RESIDUALS, residuals);
     });
     egui::CollapsingHeader::new("Tests").show(ui, |ui| {
         if d.crosstabs {

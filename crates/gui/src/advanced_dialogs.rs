@@ -668,8 +668,7 @@ impl LinearMixed {
                     .all(|s| self.random_subjects.contains(s)));
         if !self.subjects.is_empty() && !used {
             return Err(
-                "every subject is used only by repeated measures or ticked under the random effects"
-                    .into(),
+                "tick every subject under the random effects, or add repeated variables".into(),
             );
         }
         if self.ml {
@@ -1843,7 +1842,7 @@ mod tests {
         };
         assert_eq!(
             d.syntax().unwrap_err(),
-            "every subject is used only by repeated measures or ticked under the random effects"
+            "tick every subject under the random effects, or add repeated variables"
         );
         d.random_subjects = v(&["region"]);
         assert!(d.syntax().is_ok());
