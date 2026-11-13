@@ -615,7 +615,11 @@ impl Plot {
                 );
             }
             Plot::Points { groups, lines, .. } => {
-                let roc = chart.kind == ChartKind::Roc;
+                // a ROC curve and a line chart of points (survival curves) join their points in
+                // order; the curves' doubled corners already make the steps, so no step
+                // interpolation is added
+                let roc = matches!(chart.kind, ChartKind::Roc | ChartKind::Line);
+                let curve = chart.kind == ChartKind::Line;
                 let rows: Vec<Value> = groups
                     .iter()
                     .flat_map(|g| {
@@ -638,6 +642,7 @@ impl Plot {
                 let y = json!({ "field": "y", "type": "quantitative", "title": yt, "scale": { "zero": false } });
                 let mark = match chart.kind {
                     ChartKind::Roc => json!({ "type": "line", "point": true }),
+                    ChartKind::Line => json!({ "type": "line" }),
                     _ => json!({ "type": "point" }),
                 };
                 let mut points = json!({
@@ -657,12 +662,26 @@ impl Plot {
                         "title": chart.legend,
                     });
                 }
+                let marks = points["encoding"]["color"].clone();
                 let mut layers = vec![points];
-                if groups
+                let any_label = groups
                     .iter()
                     .flat_map(|g| &g.points)
-                    .any(|p| p.label.is_some())
-                {
+                    .any(|p| p.label.is_some());
+                if curve && any_label {
+                    // censored times as upright ticks on the curve
+                    let marked: Vec<&Value> =
+                        rows.iter().filter(|r| r.get("label").is_some()).collect();
+                    let mut ticks = json!({
+                        "data": { "values": marked },
+                        "mark": { "type": "tick", "orient": "vertical", "thickness": 1.5 },
+                        "encoding": { "x": x, "y": y },
+                    });
+                    if !marks.is_null() {
+                        ticks["encoding"]["color"] = marks;
+                    }
+                    layers.push(ticks);
+                } else if any_label {
                     layers.push(json!({
                         "data": { "values": rows },
                         "mark": { "type": "text", "dx": 6, "align": "left" },

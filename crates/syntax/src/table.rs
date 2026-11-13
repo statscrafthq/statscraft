@@ -47,6 +47,7 @@ use crate::save_translate;
 use crate::selection;
 use crate::session_commands;
 use crate::stats;
+use crate::survival;
 use crate::tree;
 
 /// One supported command: its name, its help text and its parser.
@@ -1970,6 +1971,82 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: pplot::roc,
     },
     CommandSpec {
+        name: "KM",
+        summary: "Kaplan-Meier survival estimates by factor level and stratum, with tests that compare the levels.",
+        syntax: "KM time [BY factor] /STATUS=var [EVENT](values) [LOST(values)]\n\
+                 \x20  [/STRATA=var] [/ID=var] [/PLOT=[SURVIVAL] [LOGSURV] [HAZARD] [OMS]]\n\
+                 \x20  [/PRINT=[TABLE] [MEAN] [NONE]] [/PERCENTILES=[(]values[)]]\n\
+                 \x20  [/TEST=[LOGRANK] [BRESLOW] [TARONE]] [/COMPARE=[OVERALL | PAIRWISE] [POOLED | STRATA]]\n\
+                 \x20  [/TREND[=(weights)]] [/SAVE=[SURVIVAL[(name)]] [HAZARD[(name)]] [SE[(name)]] [CUMEVENT[(name)]]].\n\
+                 K-M is another name. A case whose status is one of the EVENT values (single values or\n\
+                 a THRU b, quoted for a string status) had the event at its time; any other status counts\n\
+                 as censored, and LOST values are counted apart in the tables though they are censored\n\
+                 too. Cases with a missing time, status, factor or stratum, or a negative time, are left\n\
+                 out; weights count cases. Each factor level within each stratum gets its own curve.\n\
+                 Tables: Case Processing Summary; a Survival Table per curve, a row per case with the\n\
+                 estimate and its Greenwood standard error at each event time, the events so far and the\n\
+                 cases still at risk (ID labels the rows); Means and Medians, the mean being the area\n\
+                 under the curve up to the longest time; Percentiles (25, 50 and 75 when no values are\n\
+                 given), where the p% value is the first event time at which the estimate is p/100 or\n\
+                 lower. PRINT names what to show: TABLE, MEAN or NONE.\n\
+                 With a factor, the log rank test (or TEST: Breslow, weighted by the cases at risk, and\n\
+                 Tarone-Ware, by their square root) compares the levels: all at once or each pair\n\
+                 (PAIRWISE), pooled over the strata or within each (STRATA). TREND tests a linear trend\n\
+                 over the levels in ascending order with one degree of freedom, with the given weights or\n\
+                 evenly spaced ones centered on 0. PLOT draws, for each stratum, the step curves of the\n\
+                 levels with censored times marked: SURVIVAL, LOGSURV (its log), HAZARD (minus its log,\n\
+                 the cumulative hazard) and OMS (one minus it). SAVE adds the estimate, the cumulative\n\
+                 hazard, the standard error and the events up to each case's time; the default names are\n\
+                 SUR_n, HAZ_n, SE_n and CUM_n.",
+        example: "KM weeks BY plan /STATUS=outcome EVENT(1) LOST(2) /STRATA=region /TEST=LOGRANK BRESLOW /COMPARE=PAIRWISE /PLOT=SURVIVAL.",
+        parse: survival::km,
+    },
+    CommandSpec {
+        name: "K-M",
+        summary: "Another name for KM.",
+        syntax: "K-M time [BY factor] /STATUS=var [EVENT](values) [/subcommands of KM].\n\
+                 The same command as KM, with the same subcommands and defaults.",
+        example: "K-M days_to_repair /STATUS=fixed(1).",
+        parse: survival::km,
+    },
+    CommandSpec {
+        name: "SURVIVAL",
+        summary: "Actuarial life tables over fixed time intervals, with the Wilcoxon (Gehan) comparison of groups.",
+        syntax: "SURVIVAL [TABLES=] times [BY controls(min, max) ...] [BY controls(min, max) ...]\n\
+                 \x20  /INTERVAL=THRU end BY width [THRU end BY width ...]\n\
+                 \x20  /STATUS=var(min[, max]) [FOR times] [/STATUS=...]\n\
+                 \x20  [/PLOTS[(ALL | SURVIVAL | LOGSURV | HAZARD | DENSITY | OMS ...)][=times BY controls BY controls]]\n\
+                 \x20  [/PRINT=TABLE | NOTABLE] [/COMPARE[=times BY controls BY controls]]\n\
+                 \x20  [/CALCULATE=[EXACT | CONDITIONAL | APPROXIMATE] [PAIRWISE] [COMPARE]]\n\
+                 \x20  [/MISSING=[GROUPWISE | LISTWISE] [INCLUDE]] [/WRITE=NONE].\n\
+                 Intervals start at 0; each THRU ... BY period continues where the last one ended, and a\n\
+                 period that the width does not divide evenly is stretched to the next whole interval.\n\
+                 One more interval, open at the top, holds the longer times. A time falls into the\n\
+                 interval whose start it reaches. A case whose status lies in the range had the event;\n\
+                 other cases are censored and count as half exposed in their interval. STATUS without FOR\n\
+                 serves every time variable that no other STATUS names. Each control's values are\n\
+                 truncated to whole numbers and kept inside its range; first order controls each split\n\
+                 the cases on their own, a second BY splits every one of those again.\n\
+                 The life table shows, per interval with cases entering: those entering, withdrawing,\n\
+                 exposed to risk and having the event, the proportions ending and surviving, the\n\
+                 cumulative survival at the interval's end with its standard error, the density and the\n\
+                 hazard with theirs (none for the open interval). Median Survival Times interpolates\n\
+                 inside the interval where the cumulative survival passes 0.5, or shows the start of the\n\
+                 open interval with a plus sign. Weights count cases, so counts per interval may be\n\
+                 entered as weighted records. Negative times are missing.\n\
+                 COMPARE tests whether the groups of each first order control share one survival curve,\n\
+                 with Gehan's scores (a tie between an event and a censored time ranks the event first);\n\
+                 CALCULATE PAIRWISE adds each pair of values, APPROXIMATE scores the interval of each time\n\
+                 instead of the time, COMPARE gives the comparisons only. MISSING=GROUPWISE leaves a case\n\
+                 out only of the tables whose variables it misses; LISTWISE leaves out a case missing on\n\
+                 any TABLES variable or status; INCLUDE keeps user-missing values. PLOTS draws, per time\n\
+                 variable, first order control and second order value, the survival function, its log,\n\
+                 the hazard, the density or one minus survival, the groups as lines. Not supported yet:\n\
+                 WRITE=TABLES and BOTH, which need PROCEDURE OUTPUT.",
+        example: "SURVIVAL TABLES=weeks BY plan(1,3) /INTERVAL=THRU 30 BY 5 /STATUS=outcome(1) /COMPARE /CALCULATE=PAIRWISE /PLOTS(SURVIVAL,HAZARD).",
+        parse: survival::survival,
+    },
+    CommandSpec {
         name: "CSPLAN",
         summary: "Write or show an analysis plan of a complex sample: strata, clusters, weight and estimator per stage.",
         syntax: "CSPLAN ANALYSIS /PLAN FILE='file' /PLANVARS ANALYSISWEIGHT=var [/SRSESTIMATOR TYPE=WOR | WR]\n\
@@ -3179,7 +3256,7 @@ pub(crate) fn resolve(words: &[&str]) -> Resolution {
 }
 
 /// The leading words of a command, each with the number of tokens up to and including it.
-/// `T-TEST` arrives as three tokens and is joined into one word here.
+/// `T-TEST` and `K-M` arrive as three tokens and are joined into one word here.
 pub(crate) fn name_words(tokens: &[Token]) -> Vec<(String, usize)> {
     let word = |i: usize| match tokens.get(i).map(|t| &t.kind) {
         Some(TokenKind::Word(w)) => Some(w),
@@ -3191,11 +3268,11 @@ pub(crate) fn name_words(tokens: &[Token]) -> Vec<(String, usize)> {
         let minus = tokens.get(i + 1).map(|t| &t.kind) == Some(&TokenKind::Punct(Punct::Minus));
         if let Some(test) = word(i + 2)
             && minus
-            && w.eq_ignore_ascii_case("T")
-            && test.eq_ignore_ascii_case("TEST")
+            && ((w.eq_ignore_ascii_case("T") && test.eq_ignore_ascii_case("TEST"))
+                || (w.eq_ignore_ascii_case("K") && test.eq_ignore_ascii_case("M")))
         {
             i += 3;
-            words.push(("T-TEST".to_string(), i));
+            words.push((format!("{}-{}", w.to_uppercase(), test.to_uppercase()), i));
         } else {
             i += 1;
             words.push((w.clone(), i));

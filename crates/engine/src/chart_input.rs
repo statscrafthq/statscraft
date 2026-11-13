@@ -223,7 +223,8 @@ fn check(chart: &Chart, limits: &Limits) -> Result<(), String> {
             );
         }
     }
-    let points_kind = data_of(chart.kind) == Data::Points;
+    // a line chart may carry points as well: survival curves joined in order
+    let points_kind = data_of(chart.kind) == Data::Points || chart.kind == ChartKind::Line;
     match &chart.plot {
         Some(Plot::Points { groups, lines, .. }) if points_kind => {
             let points: usize = groups.iter().map(|g| g.points.len()).sum();
@@ -254,7 +255,7 @@ fn check(chart: &Chart, limits: &Limits) -> Result<(), String> {
             let shape = shape["shape"].as_str().unwrap_or_default().to_string();
             Err(format!(
                 "plot: a chart of kind {kind} with plot shape {shape} is not read; a chart from \
-                 outside takes plot shape points (kinds scatter, normal_qq, detrended_normal_qq, \
+                 outside takes plot shape points (kinds scatter, line, normal_qq, detrended_normal_qq, \
                  normal_pp, qq, detrended_qq, pp, detrended_pp, roc, spread_level) or boxes \
                  (kind boxplot)"
             ))

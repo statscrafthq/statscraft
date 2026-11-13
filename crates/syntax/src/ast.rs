@@ -77,6 +77,8 @@ pub enum Command {
     Genlin(Box<crate::genlin::Genlin>),
     Pplot(Box<crate::pplot::Pplot>),
     Roc(Box<crate::pplot::Roc>),
+    Km(Box<crate::survival::Km>),
+    Survival(Box<crate::survival::Survival>),
     Glm(Box<crate::glm::Glm>),
     Mixed(Box<crate::mixed::Mixed>),
     Csplan(Box<crate::complex_samples::Csplan>),

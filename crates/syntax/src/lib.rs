@@ -67,6 +67,7 @@ mod selection;
 mod session_commands;
 mod split;
 mod stats;
+mod survival;
 mod table;
 #[cfg(test)]
 mod tests;
@@ -116,6 +117,8 @@ mod tests_report;
 mod tests_restructure;
 #[cfg(test)]
 mod tests_session;
+#[cfg(test)]
+mod tests_survival;
 mod tree;
 
 pub use anova::{Anova, AnovaList, AnovaMethod, CovariateOrder};
@@ -216,6 +219,10 @@ pub use report::{
 };
 pub use session_commands::{SETTINGS, SettingEffect};
 pub use split::{RawCommand, select_lines, split_commands, split_commands_in, split_commands_with};
+pub use survival::{
+    Control, Km, KmCompare, KmPlot, KmSave, KmTest, LifePlot, Survival, SurvivalStatus,
+    TableSelection,
+};
 pub use table::{
     CommandSpec, command_name, command_names, command_specs, help, unsupported_commands,
 };

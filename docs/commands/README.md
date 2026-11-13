@@ -136,6 +136,9 @@ One page per supported command, generated from the same table that the parser an
 | [PPLOT](pplot.md) | Probability plots: Q-Q or P-P plots of variables against a test distribution. |
 | [NPPLOT](npplot.md) | Another name for PPLOT. |
 | [ROC](roc.md) | ROC curve of test variables against a state, with the area under the curve. |
+| [KM](km.md) | Kaplan-Meier survival estimates by factor level and stratum, with tests that compare the levels. |
+| [K-M](k-m.md) | Another name for KM. |
+| [SURVIVAL](survival.md) | Actuarial life tables over fixed time intervals, with the Wilcoxon (Gehan) comparison of groups. |
 | [REPORT](report.md) | Case listings and summary statistics by break groups, laid out as a report. |
 | [MATRIX](matrix.md) | Run a program in the matrix language, up to END MATRIX. |
 

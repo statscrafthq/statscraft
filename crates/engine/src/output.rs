@@ -67,6 +67,8 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Graph(_)
         | Command::Pplot(_)
         | Command::Roc(_)
+        | Command::Km(_)
+        | Command::Survival(_)
         | Command::Rank(_)
         | Command::Aggregate(_)
         | Command::Autorecode(_)

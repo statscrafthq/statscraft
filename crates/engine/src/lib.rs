@@ -33,6 +33,8 @@ mod glm;
 mod graph;
 mod html;
 mod input;
+mod km;
+mod life_table;
 pub mod live;
 mod locale;
 mod logistic;
@@ -672,6 +674,8 @@ impl Engine {
             | Command::Genlin(_)
             | Command::Pplot(_)
             | Command::Roc(_)
+            | Command::Km(_)
+            | Command::Survival(_)
             | Command::Glm(_)
             | Command::Mixed(_)
             | Command::Csdescriptives(_)
@@ -907,6 +911,8 @@ impl Engine {
             Command::Genlin(command) => self.genlin(command),
             Command::Pplot(command) => self.pplot(command),
             Command::Roc(command) => self.roc(command),
+            Command::Km(command) => self.km(command),
+            Command::Survival(command) => self.life_tables(command),
             Command::Glm(command) => self.glm(command),
             Command::Mixed(command) => self.mixed_model(command),
             Command::Csdescriptives(command) => self.csdescriptives(command),
