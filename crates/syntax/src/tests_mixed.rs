@@ -95,6 +95,23 @@ fn emmeans_test_and_the_matrix_tables() {
         "MIXED gain BY crop /EMMEANS=TABLES(crop) COMPARE /EMMEANS=TABLES(CROP) COMPARE(Crop).",
     );
     assert_eq!(once.emmeans.len(), 1, "names compare without case");
+    let with = |a: &str, b: &str| {
+        mixed(&format!("MIXED gain BY crop WITH x z /EMMEANS=TABLES(crop) WITH({a}) /EMMEANS=TABLES(crop) WITH({b})."))
+            .emmeans
+            .len()
+    };
+    assert_eq!(
+        with("x=1 z=2", "z=2 x=1"),
+        1,
+        "the order of WITH does not matter"
+    );
+    assert_eq!(
+        with("x=1", "x=1 X=2"),
+        1,
+        "the first value of a covariate counts"
+    );
+    assert_eq!(with("x=1 x=2", "x=2 x=1"), 2);
+    assert_eq!(with("x=MEAN", "z=MEAN"), 1);
     let e = &m.emmeans[0];
     assert_eq!(e.factors, ["crop", "soil"]);
     assert_eq!(e.with, [("rain".to_string(), Some(2.5))]);

@@ -505,15 +505,21 @@ fn plot(p: &mut Parser) -> PResult<Vec<GlmPlot>> {
 
 /// Adds an EMMEANS; of identical ones only the last counts. Names compare without ASCII case
 /// (as variable names do), a COMPARE without a factor is the one of TABLES, WITH(x=MEAN) is the
-/// same as leaving x out, and REFCAT and ADJ matter only with COMPARE.
+/// same as leaving x out, the order of WITH does not matter, and REFCAT and ADJ matter only with
+/// COMPARE.
 pub(crate) fn push_emmeans(list: &mut Vec<Emmeans>, e: Emmeans) {
     let key = |e: &Emmeans| {
         let up = |s: &String| s.to_ascii_uppercase();
-        let with: Vec<(String, u64)> = e
-            .with
-            .iter()
-            .filter_map(|(n, v)| v.map(|v| (up(n), v.to_bits())))
-            .collect();
+        // the engine takes the first value given for a covariate; their order does not matter
+        let mut with: Vec<(String, u64)> = Vec::new();
+        for (n, v) in &e.with {
+            if let Some(v) = v
+                && !with.iter().any(|(m, _)| *m == up(n))
+            {
+                with.push((up(n), (v + 0.0).to_bits()));
+            }
+        }
+        with.sort();
         let compare = e.compare.as_ref().map(|c| {
             (
                 c.as_ref().or(e.factors.first()).map(up),

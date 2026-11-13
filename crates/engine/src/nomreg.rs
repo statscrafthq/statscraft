@@ -555,9 +555,13 @@ fn select(
                 )
             };
             // a removal test without a number counts as p = 1: nothing shows the effect is needed
+            // (only when the current model has a number: otherwise nothing can be judged)
             let p = p_of(chi, df);
             if p.is_nan() {
                 no_number.set(true);
+                if !fit.ll.is_finite() {
+                    continue;
+                }
             }
             let p = if p.is_nan() { 1.0 } else { p };
             if best.is_none_or(|b| p > b.3) {

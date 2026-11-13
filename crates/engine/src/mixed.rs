@@ -895,7 +895,9 @@ impl FixedPart<'_> {
         let difference = |a: &[f64], b: &[f64]| -> Option<Vec<f64>> {
             self.reduce(&a.iter().zip(b).map(|(x, y)| x - y).collect::<Vec<f64>>())
         };
+        // a shown difference without a value; an F test on fewer than all differences
         let mut missing = false;
+        let mut partial = false;
         let mut columns: Vec<(String, String)> = others
             .iter()
             .map(|&i| (String::new(), d.factor_texts[factors[i]].clone()))
@@ -963,7 +965,7 @@ impl FixedPart<'_> {
             let mut basis: Matrix = Vec::new();
             for (i, j) in pairs {
                 let Some(row) = difference(mean_at(other, i), mean_at(other, j)) else {
-                    missing = true;
+                    partial = true;
                     continue;
                 };
                 // Gram-Schmidt: keep the row when it adds a new direction
@@ -1014,7 +1016,7 @@ impl FixedPart<'_> {
                 "Dependent Variable: {dependent}. Based on estimated marginal means. Adjustment for multiple comparisons: {}.{}",
                 adjustment_name(e.adjustment),
                 if missing {
-                    " A difference without a value is not estimable; the F tests use the estimable ones."
+                    " A difference without a value is not estimable."
                 } else {
                     ""
                 }
@@ -1026,7 +1028,12 @@ impl FixedPart<'_> {
             plain(&["", "Numerator df", "Denominator df", "F", "Sig."]),
             tests,
             Some(format!(
-                "Dependent Variable: {dependent}. The F tests the effect of {name}, based on the linearly independent pairwise comparisons among the estimated marginal means."
+                "Dependent Variable: {dependent}. The F tests the effect of {name}, based on the linearly independent pairwise comparisons among the estimated marginal means.{}",
+                if partial {
+                    " Comparisons that are not estimable are left out."
+                } else {
+                    ""
+                }
             )),
         ));
         Ok(out)
