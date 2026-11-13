@@ -458,7 +458,7 @@ fn select(
     let no_number = std::cell::Cell::new(false);
     let capped = matches!(method, StepMethod::Forward | StepMethod::Fstep);
     let entry = |set: &[bool], fit: &Fit, fit_of: &mut dyn FnMut(&[bool]) -> Fit| {
-        if capped && count(set) >= max_effects {
+        if (capped && count(set) >= max_effects) || !fit.ll.is_finite() {
             return None;
         }
         let mut best: Option<(usize, f64, f64, f64)> = None;
@@ -605,7 +605,8 @@ fn select(
             if !next.ll.is_finite() {
                 set[e] = true;
                 no_number.set(true);
-                return false;
+                // stop removing, but entry may go on
+                return true;
             }
             visited.push(set.clone());
             *fit = next;
