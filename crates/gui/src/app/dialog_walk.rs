@@ -904,13 +904,18 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             custom_fixed: true,
             fixed: terms(&[&["gender"], &["age"]]),
             intercept: true,
+            type_one: true,
             random: true,
             random_intercept: true,
             random_terms: terms(&[&["age"]]),
             random_subjects: v(&["region"]),
-            random_covariance: 2,
-            ml: true,
-            print: [true; 6],
+            // heterogeneous compound symmetry
+            random_covariance: 9,
+            random_solution: true,
+            // Kenward-Roger below needs REML
+            ml: false,
+            print: [true; 10],
+            history: s("3"),
             means: vec![
                 MeansTable::default(),
                 MeansTable {
@@ -923,13 +928,13 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             means_at: vec![(s("age"), s("40"))],
             tests: vec![ContrastTest {
                 label: s("Men and women"),
-                rows: s("gender 1 -1 0"),
+                rows: s("gender 1 -1 0 | INTERCEPT 1 age 40"),
             }],
-            save: [true; 5],
+            save: [true; 7],
             ci_level: s("90"),
             iterations: s("150"),
             halvings: s("5"),
-            residual_df: true,
+            df_method: 2,
             include: true,
         })),
         Dialog::Advanced(Advanced::Genlin(Box::new(GeneralizedLinear {
