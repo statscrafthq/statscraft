@@ -940,3 +940,21 @@ CORRESPONDENCE TABLE=ALL(4,4) /SUPPLEMENTARY COLUMN(4) /PRINT=CPOINTS.
         &Cell::Empty
     );
 }
+
+/// The VARIANCE file leaves out the rows of an EQUAL group, and NDIM beyond the solution
+/// warns only when a plot is asked for.
+#[test]
+fn variance_file_leaves_out_equal_groups() {
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        &format!(
+            "{DATA}DATASET DECLARE va.\n{BASE} /EQUAL district(2,4) /PRINT=NONE /PLOT=NONE NDIM(3,4) /OUTFILE=VARIANCE(va).\n"
+        ),
+    );
+    assert!(engine.warnings().is_empty(), "{:?}", engine.warnings());
+    run(&mut engine, "DATASET ACTIVATE va.\n");
+    let data = engine.dataset().unwrap();
+    // 2 for the singular values, 2 for each of rows 1, 3 and 5 and of the 4 columns
+    assert_eq!(data.case_count(), 16);
+}

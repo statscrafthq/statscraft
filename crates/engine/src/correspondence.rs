@@ -299,8 +299,7 @@ fn solve(s: &Setup) -> Result<Solution, String> {
     let max_dims = k1.min(k2) - 1;
     // every dimension with a singular value above 0 is listed, also one beyond max_dims that
     // a standardization removing only row or only column means leaves
-    let kept = rank;
-    if kept == 0 {
+    if rank == 0 {
         return Err("every singular value is zero: the rows do not differ from each other".into());
     }
     let mut warnings = Vec::new();
@@ -310,20 +309,20 @@ fn solve(s: &Setup) -> Result<Solution, String> {
         warnings.push(format!(
             "CORRESPONDENCE: the table allows at most {max_dims} dimension{}, so {} computed",
             if max_dims == 1 { "" } else { "s" },
-            max_dims.min(kept),
+            max_dims.min(rank),
         ));
     }
-    if kept < max_dims {
+    if rank < max_dims {
         warnings.push(format!(
             "CORRESPONDENCE: {} dimension{} with a singular value near zero left out",
-            max_dims - kept,
-            if max_dims - kept == 1 { "" } else { "s" }
+            max_dims - rank,
+            if max_dims - rank == 1 { "" } else { "s" }
         ));
     }
-    let p = s.dimension.unwrap_or(2).min(max_dims).min(kept);
+    let p = s.dimension.unwrap_or(2).min(max_dims).min(rank);
     let total: f64 = z.data.iter().map(|x| x * x).sum();
     // the sign: the active row with the largest absolute standard score scores positive
-    for t in 0..kept {
+    for t in 0..rank {
         let mut best = (0, 0.0_f64);
         for (a, m) in row_mass.iter().enumerate() {
             let x = u.at(a, t) / m.sqrt();
@@ -374,10 +373,15 @@ fn solve(s: &Setup) -> Result<Solution, String> {
             };
         }
     };
+    // the place of every active row (column) among the active ones
+    let mut position = vec![0; t1.max(t2)];
+    for (a, &i) in ar.iter().enumerate() {
+        position[i] = a;
+    }
     for (i, status) in row_status.iter().enumerate() {
         match status {
             Status::Active => {
-                let a = ar.iter().position(|&x| x == i).expect("active");
+                let a = position[i];
                 let cells: Vec<f64> = (0..k2).map(|b| z.at(a, b)).collect();
                 let element: Vec<f64> = (0..p).map(|t| us[t][a]).collect();
                 place(&mut rows, i, row_mass[a], &cells, &element, true, alpha);
@@ -399,10 +403,13 @@ fn solve(s: &Setup) -> Result<Solution, String> {
             _ => {}
         }
     }
+    for (b, &j) in ac.iter().enumerate() {
+        position[j] = b;
+    }
     for (j, status) in column_status.iter().enumerate() {
         match status {
             Status::Active => {
-                let b = ac.iter().position(|&x| x == j).expect("active");
+                let b = position[j];
                 let cells: Vec<f64> = (0..k1).map(|a| z.at(a, b)).collect();
                 let element: Vec<f64> = (0..p).map(|t| vs[t][b]).collect();
                 place(
@@ -495,7 +502,7 @@ fn solve(s: &Setup) -> Result<Solution, String> {
             .collect()
     };
     // a derivative of a singular value or vector needs that value to be distinct
-    let tied: Vec<bool> = (0..kept)
+    let tied: Vec<bool> = (0..rank)
         .map(|t| {
             (0..rank).any(|o| {
                 o != t && (lambda[t].powi(2) - lambda[o].powi(2)).abs() <= 1e-8 * lambda[t].powi(2)
@@ -556,7 +563,7 @@ fn solve(s: &Setup) -> Result<Solution, String> {
         ),
         false => (Vec::new(), Vec::new()),
     };
-    let dims: Vec<Dim> = (0..kept)
+    let dims: Vec<Dim> = (0..rank)
         .map(|t| {
             let wanted = scores && t < p && !tied[t];
             let nv = rows_by(&zn, &vs[t]);
@@ -615,8 +622,8 @@ fn solve(s: &Setup) -> Result<Solution, String> {
         |m: &[f64]| -> Vec<[f64; 2]> { m.iter().map(|m| [1.0 / m.sqrt(), m.powf(-1.5)]).collect() };
     let (row_root, column_root) = (root(&row_mass), root(&column_mass));
     // weighted sums of the gradients and of their products, for the covariances
-    let mut lambda_means = vec![0.0; kept];
-    let mut lambda_squares = vec![0.0; kept];
+    let mut lambda_means = vec![0.0; rank];
+    let mut lambda_squares = vec![0.0; rank];
     let mut lambda_pairs = (vec![0.0; p], vec![vec![0.0; p]; p]);
     let mut row_sums = vec![(vec![0.0; p], vec![vec![0.0; p]; p]); k1];
     let mut column_sums = vec![(vec![0.0; p], vec![vec![0.0; p]; p]); k2];
@@ -628,7 +635,7 @@ fn solve(s: &Setup) -> Result<Solution, String> {
             }
         }
     };
-    let mut gl = vec![0.0; kept];
+    let mut gl = vec![0.0; rank];
     let mut gx = vec![vec![0.0; p]; k1];
     let mut gy = vec![vec![0.0; p]; k2];
     for kr in 0..k1 {
@@ -703,9 +710,9 @@ fn solve(s: &Setup) -> Result<Solution, String> {
             .collect::<Vec<Vec<f64>>>()
     };
     let pairs = covariances(&lambda_pairs, &|_| 1.0);
-    let singular_cov: Vec<Vec<f64>> = (0..kept)
+    let singular_cov: Vec<Vec<f64>> = (0..rank)
         .map(|t| {
-            (0..kept)
+            (0..rank)
                 .map(|o| {
                     if tied[t] || tied[o] {
                         f64::NAN
@@ -740,7 +747,7 @@ fn solve(s: &Setup) -> Result<Solution, String> {
         columns.cov[j] = score_cov(&column_sums[b], beta);
     }
     Ok(Solution {
-        singular: lambda[..kept].to_vec(),
+        singular: lambda[..rank].to_vec(),
         p,
         total,
         n,
@@ -1501,7 +1508,9 @@ impl Engine {
                 }
                 for (side, points) in [(&rows, &s.rows), (&columns, &s.columns)] {
                     for (i, label) in side.labels.iter().enumerate() {
-                        if points.status[i] == Status::Active {
+                        // the file leaves out the rows and columns of EQUAL groups
+                        let grouped = points.status.iter().any(|s| *s == Status::Merged(i));
+                        if points.status[i] == Status::Active && !grouped {
                             for t in 0..p {
                                 lines.push((
                                     side.name.clone(),
@@ -1564,10 +1573,21 @@ fn plots(
         None => (1, p),
         Some((a, b)) => (a, b.unwrap_or(p).min(p)),
     };
+    let any = [
+        plot.biplot,
+        plot.rpoints,
+        plot.cpoints,
+        plot.trrows,
+        plot.trcolumns,
+    ]
+    .iter()
+    .any(Option::is_some);
     if first > p {
-        warnings.push(format!(
+        if any && plot.given {
+            warnings.push(format!(
             "CORRESPONDENCE: NDIM starts at dimension {first}, but the solution has {p}; no plots"
         ));
+        }
         return charts;
     }
     let axis = |t: usize| {
