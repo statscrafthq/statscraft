@@ -1710,8 +1710,8 @@ mod tests {
                         make(c)
                     };
                     let (up, down) = (shifted(h), shifted(-h));
-                    for t in 0..2 {
-                        grads[t].push((up.singular[t] - down.singular[t]) / (2.0 * h));
+                    for (t, g) in grads.iter_mut().enumerate().take(2) {
+                        g.push((up.singular[t] - down.singular[t]) / (2.0 * h));
                     }
                     for (g, &pick) in grads[2..].iter_mut().zip(&picks) {
                         g.push((standard(&up, pick) - standard(&down, pick)) / (2.0 * h));
