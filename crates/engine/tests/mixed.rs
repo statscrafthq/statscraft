@@ -4537,3 +4537,31 @@ fn print_g_and_r_show_the_blocks_of_one_subject() {
     assert_eq!(nth(&t, r, 0, "[wave = 2]", "[wave = 2]"), s2);
     assert!(engine.warnings().iter().any(|w| w.contains("PRINT G")));
 }
+
+/// Four plots, each with every cell of a by b except a = 3 with b = 1, which has no case. At
+/// b = 1 the mean of a = 3 is not estimable, so its differences are left blank, while the
+/// difference of a = 1 and a = 2 is the difference of their raw means (each plot has both)
+/// and the F test of a at b = 1 rests on that one difference.
+#[test]
+fn emmeans_with_an_empty_cell_tests_what_is_estimable() {
+    let (_, t) = run("DATA LIST FREE /plot a b y.
+BEGIN DATA
+1 1 1 12.3 1 1 2 13.5 1 2 1 13.4 1 2 2 15.5 1 3 2 14.6 2 1 1 13.2 2 1 2 14.7 2 2 1 14.7
+2 2 2 17.2 2 3 2 16.3 3 1 1 14.4 3 1 2 14.8 3 2 1 14.0 3 2 2 17.9 3 3 2 17.3 4 1 1 15.2
+4 1 2 14.3 4 2 1 14.8 4 2 2 17.5 4 3 2 17.4
+END DATA.
+MIXED y BY a b plot /FIXED=a b a*b /RANDOM=plot /EMMEANS=TABLES(a*b) COMPARE(a).");
+    let pc = "Pairwise Comparisons";
+    let diff = nth(&t, pc, 0, "1 / 1 / 2", "Mean Difference (I-J)");
+    assert!((diff + 0.45).abs() < 1e-9, "{diff}");
+    let table = t.iter().find(|x| x.title == pc).unwrap();
+    let at = row_keys(table)
+        .iter()
+        .position(|k| k == "1 / 1 / 3")
+        .unwrap();
+    assert!(matches!(table.rows[at][3], Cell::Empty));
+    assert!(table.caption.as_deref().unwrap().contains("not estimable"));
+    let ut = "Univariate Tests";
+    assert_eq!(nth(&t, ut, 0, "b = 1", "Numerator df"), 1.0);
+    assert_eq!(nth(&t, ut, 0, "b = 2", "Numerator df"), 2.0);
+}

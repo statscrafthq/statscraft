@@ -442,10 +442,14 @@ fn select(
     let mut steps = Vec::new();
     let l_count = model.others.len();
     let p_of = |chi: f64, df: f64| {
-        if df > 0.0 {
-            chi_square_p(chi.max(0.0), df)
-        } else {
+        if chi.is_nan() {
+            f64::NAN
+        } else if df <= 0.0 {
             1.0
+        } else if chi == f64::INFINITY {
+            0.0
+        } else {
+            chi_square_p(chi.max(0.0), df)
         }
     };
     // the best entry: (effect, chi, df, p) with the smallest p, the first on a tie

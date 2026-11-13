@@ -91,6 +91,10 @@ fn emmeans_test_and_the_matrix_tables() {
          /PRINT=G R COVB CORB.",
     );
     assert_eq!(m.emmeans.len(), 3, "the identical EMMEANS counts once");
+    let once = mixed(
+        "MIXED gain BY crop /EMMEANS=TABLES(crop) COMPARE /EMMEANS=TABLES(CROP) COMPARE(Crop).",
+    );
+    assert_eq!(once.emmeans.len(), 1, "names compare without case");
     let e = &m.emmeans[0];
     assert_eq!(e.factors, ["crop", "soil"]);
     assert_eq!(e.with, [("rain".to_string(), Some(2.5))]);

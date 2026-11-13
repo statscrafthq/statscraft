@@ -503,6 +503,33 @@ fn plot(p: &mut Parser) -> PResult<Vec<GlmPlot>> {
     Ok(out)
 }
 
+/// Adds an EMMEANS; of identical ones only the last counts. Names compare without case, a
+/// COMPARE without a factor is the one of TABLES, and the order of WITH does not matter.
+pub(crate) fn push_emmeans(list: &mut Vec<Emmeans>, e: Emmeans) {
+    let key = |e: &Emmeans| {
+        let up = |s: &String| s.to_uppercase();
+        let mut with: Vec<(String, Option<u64>)> = e
+            .with
+            .iter()
+            .map(|(n, v)| (up(n), v.map(f64::to_bits)))
+            .collect();
+        with.sort();
+        let compare = e
+            .compare
+            .as_ref()
+            .map(|c| c.as_ref().or(e.factors.first()).map(up));
+        (
+            e.factors.iter().map(up).collect::<Vec<_>>(),
+            with,
+            compare,
+            format!("{:?} {:?}", e.refcat, e.adjustment),
+        )
+    };
+    let new = key(&e);
+    list.retain(|old| key(old) != new);
+    list.push(e);
+}
+
 /// EMMEANS; `refcat` allows REFCAT after COMPARE.
 pub(crate) fn emmeans(p: &mut Parser, refcat: bool) -> PResult<Emmeans> {
     p.eat(Punct::Eq);
@@ -1052,7 +1079,7 @@ pub(crate) fn glm_command(p: &mut Parser, name: &'static str) -> PResult<Command
             p.eat(Punct::Eq);
             command.regwgt = Some(p.name("a variable name")?);
         } else if p.eat_keyword("EMMEANS") {
-            command.emmeans.push(emmeans(p, false)?);
+            push_emmeans(&mut command.emmeans, emmeans(p, false)?);
         } else if p.eat_keyword("POSTHOC") {
             p.eat(Punct::Eq);
             let mut factors = Vec::new();

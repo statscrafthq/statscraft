@@ -952,12 +952,13 @@ impl FixedPart<'_> {
                 }
                 rows.push(row);
             }
-            // the simple effect of the compared factor at these levels of the others: the
-            // estimable differences against the last level
-            let l: Matrix = (0..k - 1)
-                .filter_map(|i| difference(mean_at(other, i), mean_at(other, k - 1)))
+            // the simple effect of the compared factor at these levels of the others: every
+            // estimable difference; f_test finds their rank
+            let l: Matrix = (0..k)
+                .flat_map(|i| (i + 1..k).map(move |j| (i, j)))
+                .filter_map(|(i, j)| difference(mean_at(other, i), mean_at(other, j)))
                 .collect();
-            missing |= l.len() < k - 1;
+            missing |= l.len() < k * (k - 1) / 2;
             let label: Vec<String> = others
                 .iter()
                 .zip(other)
@@ -1830,9 +1831,7 @@ impl Engine {
                     };
                     let mut l = vec![0.0; p];
                     l[at] = 1.0;
-                    let b = e.beta[at];
-                    let se = e.a_inv[at][at].sqrt();
-                    let (_, _, df) = inf.estimate(&l);
+                    let (b, se, df) = inf.estimate(&l);
                     let t = b / se;
                     let tc = t_crit(alpha, df);
                     out.push(vec![
@@ -2102,13 +2101,8 @@ impl Engine {
                     .collect();
                 for (a, &i) in cases.iter().enumerate() {
                     let fixpred = dot(&model.x[i], &e.beta);
-                    let (var, grad) = model.variance_and_gradient(e, &model.x[i]);
-                    let df = if command.residual_df {
-                        residual_df
-                    } else {
-                        satterthwaite(var, &grad, sigma)
-                    };
-                    values[i] = [fixpred, model.y[i] - resid[a], resid[a], var.sqrt(), df];
+                    let (_, se, df) = part.inf.estimate(&model.x[i]);
+                    values[i] = [fixpred, model.y[i] - resid[a], resid[a], se, df];
                 }
             }
             self.save_mixed(command, &d.case, &values, &dep_text, cases)?;

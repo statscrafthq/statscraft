@@ -26,7 +26,7 @@
 
 use crate::ast::{Command, VarItem};
 use crate::error::SyntaxError;
-use crate::glm::{CustomTest, Emmeans, Term, custom_test, emmeans, list_until, term};
+use crate::glm::{CustomTest, Emmeans, Term, custom_test, emmeans, list_until, push_emmeans, term};
 use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
 use crate::procedures::at_end;
@@ -600,10 +600,7 @@ pub(crate) fn mixed(p: &mut Parser) -> PResult<Command> {
                 m.regwgt = Some(p.name("a variable name")?);
             }
         } else if p.eat_keyword("EMMEANS") {
-            let e = emmeans(p, true)?;
-            // of identical EMMEANS only the last one counts
-            m.emmeans.retain(|old| *old != e);
-            m.emmeans.push(e);
+            push_emmeans(&mut m.emmeans, emmeans(p, true)?);
         } else if p.eat_keyword("TEST") {
             m.tests.push(custom_test(p, true)?);
         } else {
