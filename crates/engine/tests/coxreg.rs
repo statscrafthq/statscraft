@@ -455,13 +455,33 @@ fn forward_stepwise_scores_match_r() {
     near(at("Step 0 / spend"), 1.115641647733, 1e-7);
     near(at("Step 0 / site"), 0.2327510716202, 1e-7);
     // plan enters; spend and site stay out
-    near(value(&t, not_in, "Step 1 / spend", "Score"), 0.5714025873041, 1e-6);
-    near(value(&t, not_in, "Step 1 / site", "Score"), 1.106055238518, 1e-6);
-    near(value(&t, not_in, "Step 1 / Residual Chi Square", "Score"), 1.817669835563, 1e-6);
+    near(
+        value(&t, not_in, "Step 1 / spend", "Score"),
+        0.5714025873041,
+        1e-6,
+    );
+    near(
+        value(&t, not_in, "Step 1 / site", "Score"),
+        1.106055238518,
+        1e-6,
+    );
+    near(
+        value(&t, not_in, "Step 1 / Residual Chi Square", "Score"),
+        1.817669835563,
+        1e-6,
+    );
     let omnibus = "Omnibus Tests of Model Coefficients";
-    near(value(&t, omnibus, "Step 1", "-2 Log Likelihood"), 261.931985375, 1e-9);
+    near(
+        value(&t, omnibus, "Step 1", "-2 Log Likelihood"),
+        261.931985375,
+        1e-9,
+    );
     let eq = "Variables in the Equation";
-    near(value(&t, eq, "Step 1 / plan(1)", "B"), 0.8112524943775, 1e-6);
+    near(
+        value(&t, eq, "Step 1 / plan(1)", "B"),
+        0.8112524943775,
+        1e-6,
+    );
     assert!(
         t.iter()
             .filter(|t| t.title == eq)
@@ -481,11 +501,7 @@ fn backward_removal_statistics_match_r() {
               /METHOD=BSTEP({method}) {TIGHT}"
         ));
         let omnibus = "Omnibus Tests of Model Coefficients";
-        let first = t
-            .iter()
-            .filter(|t| t.title == omnibus)
-            .nth(1)
-            .unwrap();
+        let first = t.iter().filter(|t| t.title == omnibus).nth(1).unwrap();
         near(num(&first.rows[0][1]), 260.1200035605, 1e-9);
         if method == "WALD" {
             // the Wald statistics are the rows of Variables in the Equation
@@ -526,13 +542,181 @@ fn second_block_changes_from_step_and_block() {
         .collect();
     let block2 = omnibus[2];
     let column = |name: &str| {
-        let c = block2.column_titles().iter().position(|t| t == name).unwrap();
+        let c = block2
+            .column_titles()
+            .iter()
+            .position(|t| t == name)
+            .unwrap();
         num(&block2.rows[0][c])
     };
     near(column("-2 Log Likelihood"), 261.3617866911, 1e-9);
     // the overall score test of plan and spend at b = 0
     near(column("Overall (score) / Chi-square"), 15.64687006851, 1e-7);
     near(column("Overall (score) / df"), 3.0, 0.0);
-    near(column("Change From Previous Step / Chi-square"), 261.931985375 - 261.3617866911, 1e-7);
+    near(
+        column("Change From Previous Step / Chi-square"),
+        261.931985375 - 261.3617866911,
+        1e-7,
+    );
     near(column("Change From Previous Block / df"), 1.0, 0.0);
+}
+
+#[test]
+fn time_dependent_covariate_matches_r() {
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!(
+            "{DATA}TIME PROGRAM.
+COMPUTE spend_t = spend * LN(T_ + 1).
+COXREG months WITH plan spend spend_t /STATUS=ended(1) /CATEGORICAL=plan /SAVE=DFBETA {TIGHT}"
+        ),
+    );
+    // R: coxph with tt(spend) = spend * log(t + 1), and dfbeta of the counting-process form
+    // collapsed by case
+    let eq = "Variables in the Equation";
+    near(
+        value(&t, eq, "Step 1 / plan(1)", "B"),
+        0.82229843031116,
+        1e-6,
+    );
+    near(
+        value(&t, eq, "Step 1 / spend", "B"),
+        -0.08181003183942,
+        1e-6,
+    );
+    near(
+        value(&t, eq, "Step 1 / spend_t", "B"),
+        0.04797026618358,
+        1e-6,
+    );
+    near(
+        value(&t, eq, "Step 1 / spend_t", "SE"),
+        0.02818261751005,
+        1e-6,
+    );
+    let omnibus = "Omnibus Tests of Model Coefficients";
+    near(
+        value(&t, omnibus, "Step 1", "-2 Log Likelihood"),
+        258.3866149926,
+        1e-9,
+    );
+    near(
+        value(&t, omnibus, "Step 1", "Overall (score) / Chi-square"),
+        18.67129144839,
+        1e-7,
+    );
+    for (k, d) in [
+        (
+            0,
+            [
+                0.014993823477150,
+                -0.009491832994857,
+                0.004798384021318,
+                -0.001449017980813,
+            ],
+        ),
+        (
+            2,
+            [
+                0.021571324379048,
+                -0.047155556512628,
+                -0.002726249658188,
+                0.002118283694588,
+            ],
+        ),
+    ] {
+        for (j, expected) in d.into_iter().enumerate() {
+            near(
+                values(&engine, &format!("DFB{}_1", j + 1))[k].unwrap(),
+                expected,
+                1e-5,
+            );
+        }
+    }
+    // the time program ran with COXREG and is gone; its variables never reach the data
+    assert!(engine.dataset().unwrap().variable("spend_t").is_err());
+    assert!(run_error("COXREG months WITH spend_t /STATUS=ended(1).").contains("spend_t"));
+}
+
+#[test]
+fn plots_follow_the_patterns() {
+    use statscraft_engine::plot::Plot;
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!(
+            "{DATA}COXREG months WITH plan spend /STATUS=ended(1) /CATEGORICAL=plan
+              /PLOT=SURVIVAL LML /PATTERN=spend(50) BY plan {TIGHT}"
+        ),
+    );
+    let charts = engine.take_charts();
+    let titles: Vec<&str> = charts.iter().map(|c| c.title.as_str()).collect();
+    assert_eq!(
+        titles,
+        [
+            "Survival Function at mean of covariates",
+            "Survival Function for pattern 1",
+            "LML Function at mean of covariates",
+            "LML Function for pattern 1",
+        ]
+    );
+    let groups = |c: usize| match &charts[c].plot {
+        Some(Plot::Points { groups, .. }) => groups.clone(),
+        other => panic!("{other:?}"),
+    };
+    // a step: the level before and after each event time
+    let mean = groups(0);
+    let at4: Vec<f64> = mean[0]
+        .points
+        .iter()
+        .filter(|p| p.x == 4.0)
+        .map(|p| p.y)
+        .collect();
+    near(at4[1], 0.8300671419473, 1e-6);
+    assert_eq!(mean[0].points[0].x, 0.0);
+    // R: survfit at plan 1 (coded 1, 0) and plan 3 (-1, -1) with spend 50
+    let pattern = groups(1);
+    assert_eq!(pattern.len(), 3);
+    assert_eq!(pattern[0].name, "plan = 1");
+    for (g, expected) in [(0, 0.6333875517073), (2, 0.8956001158324)] {
+        let y = pattern[g].points.iter().rfind(|p| p.x == 4.0).unwrap().y;
+        near(y, expected, 1e-6);
+    }
+    near(
+        value(&t, "Covariate Means", "spend", "Pattern 1"),
+        50.0,
+        0.0,
+    );
+}
+
+#[test]
+fn errors_and_unsupported_parts() {
+    assert!(run_error("COXREG months WITH spend /STATUS=plan('a').").contains("numbers"));
+    assert!(run_error("COXREG months WITH months /STATUS=ended(1).").contains("survival time"));
+    assert!(run_error("COXREG months WITH spend /STATUS=ended(9).").contains("at least one event"));
+    assert!(
+        run_error("COXREG months WITH spend /STATUS=ended(1) /PATTERN=plan(1).")
+            .contains("not a covariate")
+    );
+    assert!(
+        run_error(
+            "TIME PROGRAM.\nCOMPUTE z = spend * T_.\nCOXREG months WITH z T_ /STATUS=ended(1)."
+        )
+        .contains("T_")
+    );
+}
+
+#[test]
+fn null_model_gives_the_initial_likelihood_and_the_baseline() {
+    let t = tables("COXREG months /STATUS=ended(1) /PRINT=BASELINE.");
+    let block0 = t
+        .iter()
+        .find(|t| t.title == "Omnibus Tests of Model Coefficients")
+        .unwrap();
+    // the case missing only on spend is in: R's coxph with no covariates on 65 cases
+    near(num(&block0.rows[0][0]), 284.373710197, 1e-9);
+    // without covariates the baseline survival is the Kaplan-Meier estimate (R's survfit)
+    let table = t.iter().find(|t| t.title == "Survival Table").unwrap();
+    near(num(&row_of(table, 5.0)[2]), 0.7076923076923, 1e-12);
 }

@@ -74,6 +74,8 @@ mod tests;
 #[cfg(test)]
 mod tests_complex_samples;
 #[cfg(test)]
+mod tests_coxreg;
+#[cfg(test)]
 mod tests_ctables;
 #[cfg(test)]
 mod tests_data;
