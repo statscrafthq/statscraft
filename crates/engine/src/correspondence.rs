@@ -1092,16 +1092,24 @@ impl Engine {
                     levels: vars.iter().map(|v| plain.variable(v)).collect(),
                 };
                 let positions = |k: usize| (1..=k).map(|x| x as f64).collect::<Vec<f64>>();
-                // ROWCAT_ codes when every row has one, else positions
-                let codes: Option<Vec<f64>> = (0..*r)
+                // the ROWCAT_ code of each row, its case number where it has none, as the labels
+                let codes: Vec<f64> = (0..*r)
                     .map(|case| {
-                        category.as_ref().and_then(|v| match v.values() {
-                            Values::Numeric(values) => values.get(case),
-                            Values::String(_) => None,
-                        })
+                        category
+                            .as_ref()
+                            .and_then(|v| match v.values() {
+                                Values::Numeric(values) => values.get(case),
+                                Values::String(_) => None,
+                            })
+                            .unwrap_or((case + 1) as f64)
                     })
                     .collect();
-                let codes = codes.unwrap_or_else(|| positions(*r));
+                if (1..codes.len()).any(|i| codes[..i].contains(&codes[i])) {
+                    warnings.push(
+                        "CORRESPONDENCE: ROWCAT_ repeats a value, so two rows carry the same name"
+                            .to_string(),
+                    );
+                }
                 (counts, positions(*r), positions(*c), rows, columns, codes)
             }
         };
@@ -1623,8 +1631,8 @@ fn plots(
     };
     let mut biplot = plot.biplot;
     if biplot.is_some() && command.normalization == CorrespondenceNormalization::Principal {
-        // the default biplot is dropped quietly; one asked for gets a warning
-        if plot.given {
+        // the default biplot is dropped quietly; one asked for (or NDIM) gets a warning
+        if plot.given || plot.ndim.is_some() {
             warnings.push(
             "CORRESPONDENCE: no biplot with NORMALIZATION=PRINCIPAL; plot RPOINTS and CPOINTS instead"
                 .into(),
@@ -1723,9 +1731,11 @@ fn plots(
         (plot.trcolumns, columns, &s.columns, column_values),
     ] {
         let Some(length) = labels else { continue };
-        let shown: Vec<usize> = (0..side.labels.len())
+        let mut shown: Vec<usize> = (0..side.labels.len())
             .filter(|&i| points.score[i].first().is_some_and(|x| x.is_finite()))
             .collect();
+        // in the order of the category values, which ROWCAT_ need not follow
+        shown.sort_by(|&a, &b| values[a].total_cmp(&values[b]));
         for t in first..=last {
             let categories = shown
                 .iter()

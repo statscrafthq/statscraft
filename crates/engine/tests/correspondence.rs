@@ -983,15 +983,15 @@ fn variance_file_leaves_out_equal_groups() {
     assert_eq!(charts[0].categories[0].value, Cell::Number(3.0));
 }
 
-/// LEVEL_ holds the value label whatever SET TNUMBERS shows; NDIM alone keeps the quiet
-/// default biplot; RCONF alone leaves the column deviations out.
+/// LEVEL_ holds the value label whatever SET TNUMBERS shows; the default biplot goes quietly
+/// under PRINCIPAL; RCONF alone leaves the column deviations out.
 #[test]
 fn level_names_and_quiet_defaults() {
     let mut engine = Engine::default();
     run(
         &mut engine,
         &format!(
-            "{DATA}VALUE LABELS district 1 'harbor'.\nSET TNUMBERS=BOTH.\nDATASET DECLARE sc.\n{BASE} /NORMALIZATION=PRINCIPAL /PRINT=NONE /PLOT=NDIM(1,2) /OUTFILE=SCORE(sc).\n"
+            "{DATA}VALUE LABELS district 1 'harbor'.\nSET TNUMBERS=BOTH.\nDATASET DECLARE sc.\n{BASE} /NORMALIZATION=PRINCIPAL /PRINT=NONE /OUTFILE=SCORE(sc).\n"
         ),
     );
     assert!(engine.warnings().is_empty(), "{:?}", engine.warnings());
@@ -1018,9 +1018,9 @@ fn level_names_and_quiet_defaults() {
 fn row_codes_in_plots_and_ndim_warnings() {
     let source = "DATA LIST FREE /ROWCAT_ c1 c2 c3.
 BEGIN DATA.
-10 9 3 4
-20 2 8 5
 30 4 4 9
+20 2 8 5
+10 9 3 4
 40 7 2 2
 END DATA.
 CORRESPONDENCE TABLE=ALL(4,3) /PLOT=TRROWS.
@@ -1028,7 +1028,10 @@ CORRESPONDENCE TABLE=ALL(4,3) /PLOT=TRROWS.
     let mut engine = Engine::default();
     run(&mut engine, source);
     let charts = engine.take_charts();
-    assert_eq!(charts[0].categories[1].value, Cell::Number(20.0));
+    let values: Vec<&Cell> = charts[0].categories.iter().map(|c| &c.value).collect();
+    let codes = [10.0, 20.0, 30.0, 40.0].map(Cell::Number);
+    assert_eq!(values, codes.iter().collect::<Vec<_>>());
+    assert_eq!(charts[0].categories[0].label, "10");
     run(
         &mut engine,
         "CORRESPONDENCE TABLE=ALL(4,3) /PLOT=NDIM(2,3).",
