@@ -174,8 +174,7 @@ impl Curve {
         // the last time at which S is still hi or more, time 0 included
         let upper = std::iter::once((0.0, 1.0))
             .chain(self.times.iter().copied().zip(self.surv.iter().copied()))
-            .filter(|&(_, s)| s >= hi - TOL)
-            .last();
+            .rfind(|&(_, s)| s >= hi - TOL);
         let lower = self
             .times
             .iter()
@@ -226,7 +225,7 @@ pub(crate) fn default_trend(g: usize) -> Vec<f64> {
     (1..=g)
         .map(|l| {
             let w = 2.0 * l as f64 - g as f64 - 1.0;
-            if g % 2 == 0 { w } else { w / 2.0 }
+            if g.is_multiple_of(2) { w } else { w / 2.0 }
         })
         .collect()
 }
@@ -337,6 +336,9 @@ fn percent_label(p: f64) -> String {
     }
 }
 
+/// A case with its stratum and factor level.
+type KeyedObs = (Option<Key>, Option<Key>, Obs);
+
 /// The curves of one stratum: its key and, per factor level, the cases.
 struct Stratum {
     key: Option<Key>,
@@ -388,7 +390,7 @@ impl Engine {
         let strata = strata_var.as_ref().map(|v| categories(v, false));
 
         // the valid cases with their stratum and level keys
-        let mut cases: Vec<(Option<Key>, Option<Key>, Obs)> = Vec::new();
+        let mut cases: Vec<KeyedObs> = Vec::new();
         let mut excluded = 0.0;
         for c in (0..data.case_count()).filter(|&c| weight(c) > 0.0) {
             let time = times.get(c).filter(|_| is_valid(&time_var, c, false));
@@ -418,7 +420,7 @@ impl Engine {
         if cases.is_empty() {
             return Err(Error("KM has no valid cases".into()));
         }
-        let sorted_keys = |pick: &dyn Fn(&(Option<Key>, Option<Key>, Obs)) -> Option<Key>| {
+        let sorted_keys = |pick: &dyn Fn(&KeyedObs) -> Option<Key>| {
             let mut keys: Vec<Option<Key>> = Vec::new();
             for case in &cases {
                 let k = pick(case);
@@ -514,6 +516,9 @@ impl Engine {
         let lost_given = !command.lost.is_empty();
 
         let (mut warnings, mut charts): (Vec<String>, Vec<Chart>) = (Vec::new(), Vec::new());
+        if command.status_repeated {
+            warnings.push("STATUS was given more than once; the last one was used".into());
+        }
         let case_count = data.case_count();
 
         // Case Processing Summary

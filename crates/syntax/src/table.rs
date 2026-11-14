@@ -2039,7 +2039,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  CALCULATE PAIRWISE adds each pair of values, APPROXIMATE scores the interval of each time\n\
                  instead of the time, COMPARE gives the comparisons only. MISSING=GROUPWISE leaves a case\n\
                  out only of the tables whose variables it misses; LISTWISE leaves out a case missing on\n\
-                 any TABLES variable or status; INCLUDE keeps user-missing values. PLOTS draws, per time\n\
+                 any TABLES variable (a missing status only affects its own time variable); INCLUDE keeps\n\
+                 user-missing values. PLOTS draws, per time\n\
                  variable, first order control and second order value, the survival function, its log,\n\
                  the hazard, the density or one minus survival, the groups as lines. Not supported yet:\n\
                  WRITE=TABLES and BOTH, which need PROCEDURE OUTPUT.",

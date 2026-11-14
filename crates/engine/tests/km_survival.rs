@@ -494,6 +494,7 @@ fn survival_gehan_comparisons() {
     let (tables, ..) = run("SURVIVAL weeks BY plan(1,3) /INTERVAL=THRU 30 BY 5 \
          /STATUS=outcome(1) /PRINT=NOTABLE /COMPARE /CALCULATE=PAIRWISE.");
     assert!(tables.iter().all(|t| !t.title.starts_with("Life Table")));
+    assert!(tables.iter().all(|t| t.title != "Median Survival Time"));
     let overall = statistics(table(&tables, "Overall Comparisons"));
     close(overall[0].0, 1.80144121005);
     assert_eq!(overall[0].1, 2.0);

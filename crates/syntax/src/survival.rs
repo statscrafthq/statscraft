@@ -72,6 +72,8 @@ pub struct Km {
     pub time: String,
     pub factor: Option<String>,
     pub status: String,
+    /// STATUS was given more than once; the last one counts.
+    pub status_repeated: bool,
     pub event: Vec<MissingValue>,
     pub lost: Vec<MissingValue>,
     pub strata: Option<String>,
@@ -177,6 +179,7 @@ pub(crate) fn km(p: &mut Parser) -> PResult<Command> {
         time,
         factor,
         status: String::new(),
+        status_repeated: false,
         event: Vec::new(),
         lost: Vec::new(),
         strata: None,
@@ -193,6 +196,7 @@ pub(crate) fn km(p: &mut Parser) -> PResult<Command> {
     while p.eat(Punct::Slash) {
         if p.eat_keyword("STATUS") {
             p.eat(Punct::Eq);
+            command.status_repeated = !command.status.is_empty();
             command.status = p.name("the status variable")?;
             p.eat_keyword("EVENT");
             command.event = value_list(p)?;
@@ -405,6 +409,7 @@ fn controls(p: &mut Parser) -> PResult<Vec<Control>> {
                 .into_iter()
                 .map(|variable| Control { variable, min, max }),
         );
+        p.eat(Punct::Comma);
         if !matches!(p.peek(), Some(TokenKind::Word(w)) if !w.eq_ignore_ascii_case("BY")) {
             return Ok(out);
         }
@@ -425,8 +430,11 @@ fn selection(p: &mut Parser) -> PResult<TableSelection> {
 }
 
 pub(crate) fn survival(p: &mut Parser) -> PResult<Command> {
-    p.eat_keyword("TABLES");
-    p.eat(Punct::Eq);
+    // TABLES= may be left out; without '=' a word is the first survival variable
+    if p.peek_at(1) == Some(&TokenKind::Punct(Punct::Eq)) {
+        p.eat_keyword("TABLES");
+        p.eat(Punct::Eq);
+    }
     let variables = list_until(p, &["BY"])?;
     let mut command = Survival {
         variables,

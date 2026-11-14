@@ -618,14 +618,14 @@ impl Plot {
                 // a ROC curve and a line chart of points (survival curves) join their points in
                 // order; the curves' doubled corners already make the steps, so no step
                 // interpolation is added
-                let roc = matches!(chart.kind, ChartKind::Roc | ChartKind::Line);
+                let joined = matches!(chart.kind, ChartKind::Roc | ChartKind::Line);
                 let curve = chart.kind == ChartKind::Line;
                 let rows: Vec<Value> = groups
                     .iter()
                     .flat_map(|g| {
                         g.points.iter().enumerate().map(move |(k, p)| {
                             let mut row = json!({ "group": g.name, "x": p.x, "y": p.y });
-                            if roc {
+                            if joined {
                                 row["order"] = k.into();
                             }
                             if let Some(z) = p.z {
@@ -650,7 +650,7 @@ impl Plot {
                     "mark": mark,
                     "encoding": { "x": x, "y": y },
                 });
-                if roc {
+                if joined {
                     // the curve runs through the points in their order, also up a vertical step
                     points["encoding"]["order"] =
                         json!({ "field": "order", "type": "quantitative" });

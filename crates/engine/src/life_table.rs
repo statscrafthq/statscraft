@@ -31,6 +31,7 @@ use crate::plot::{Plot, Point, PointGroup};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::Variable;
 use statscraft_syntax::{LifePlot, Survival, TableSelection, VarItem};
+use std::collections::BTreeMap;
 
 /// The interval starts; the last one opens the interval without end. Also says whether some
 /// period was stretched.
@@ -47,10 +48,14 @@ pub(crate) fn interval_starts(periods: &[(f64, f64)]) -> Result<(Vec<f64>, bool)
         let ratio = (end - base) / width;
         let count = (ratio - 1e-9).ceil().max(1.0) as usize;
         stretched |= (ratio - ratio.round()).abs() > 1e-9;
-        starts.extend((1..=count).map(|i| base + i as f64 * width));
+        // on a fine grid, so that 3 x 0.1 is the start 0.3 that a time of 0.3 reaches
+        starts.extend((1..=count).map(|i| ((base + i as f64 * width) * 1e10).round() / 1e10));
     }
     Ok((starts, stretched))
 }
+
+/// A case's time, whether the event happened, and its weight.
+type Timed = (f64, bool, f64);
 
 /// One line of a life table.
 #[derive(Debug, Clone, PartialEq)]
@@ -85,9 +90,11 @@ pub(crate) fn life_table(cases: &[(f64, bool, f64)], starts: &[f64]) -> Vec<Line
     }
     let mut out = Vec::new();
     let mut entering: f64 = cases.iter().map(|c| c.2).sum();
+    // what fractional weights leave after the last case is rounding, not a case
+    let nobody = 1e-9 * entering;
     let (mut previous, mut sum) = (1.0, 0.0);
     for i in 0..k {
-        if entering <= 0.0 {
+        if entering <= nobody {
             break;
         }
         let width = (i + 1 < k).then(|| starts[i + 1] - starts[i]);
@@ -258,11 +265,7 @@ fn is_chosen(choice: &Option<Vec<String>>, name: &str) -> bool {
         .is_none_or(|names| names.iter().any(|n| n == name))
 }
 
-/// A number as an interval bound in text: 30, 2.5.
-fn bound_text(v: f64) -> String {
-    let text = format!("{:.2}", v);
-    text.trim_end_matches('0').trim_end_matches('.').to_string()
-}
+use crate::examine::short as bound_text;
 
 impl Engine {
     pub(crate) fn life_tables(&mut self, command: &Survival) -> Result<Vec<Table>, Error> {
@@ -409,28 +412,29 @@ impl Engine {
             let mut table_rows = Vec::new();
             for second in &seconds {
                 for first in &firsts {
-                    let second_values: Vec<Option<i64>> = match second {
-                        Some(cv) => (cv.min..=cv.max).map(Some).collect(),
-                        None => vec![None],
-                    };
-                    for b in second_values {
-                        // the cases of each first order value in this second order group
-                        let first_values: Vec<Option<i64>> = match first {
-                            Some(cv) => (cv.min..=cv.max).map(Some).collect(),
-                            None => vec![None],
+                    // the cases of each (second, first) pair of values that occurs, in one pass
+                    let mut cells: BTreeMap<(Option<i64>, Option<i64>), Vec<Timed>> =
+                        BTreeMap::new();
+                    for c in (0..n).filter(|&c| weight(c) > 0.0 && listwise_ok[c]) {
+                        let value = |cv: &Option<&ControlVar>| match cv {
+                            Some(cv) => cv.value(c, include).map(Some),
+                            None => Some(None),
                         };
-                        let mut groups: Vec<(Option<i64>, Vec<(f64, bool, f64)>)> = Vec::new();
-                        for &a in &first_values {
-                            let cases: Vec<(f64, bool, f64)> = (0..n)
-                                .filter(|&c| weight(c) > 0.0 && listwise_ok[c])
-                                .filter(|&c| second.is_none_or(|cv| cv.value(c, include) == b))
-                                .filter(|&c| first.is_none_or(|cv| cv.value(c, include) == a))
-                                .filter_map(|c| Some((time_of(v, c)?, event_of(v, c)?, weight(c))))
-                                .collect();
-                            if !cases.is_empty() {
-                                groups.push((a, cases));
-                            }
+                        let (Some(b), Some(a)) = (value(second), value(first)) else {
+                            continue;
+                        };
+                        if let (Some(t), Some(e)) = (time_of(v, c), event_of(v, c)) {
+                            cells.entry((b, a)).or_default().push((t, e, weight(c)));
                         }
+                    }
+                    let mut second_values: Vec<Option<i64>> = cells.keys().map(|k| k.0).collect();
+                    second_values.dedup();
+                    for b in second_values {
+                        let groups: Vec<(Option<i64>, Vec<Timed>)> = cells
+                            .iter()
+                            .filter(|((bb, _), _)| *bb == b)
+                            .map(|((_, a), cases)| (*a, cases.clone()))
+                            .collect();
                         let value_text = |cv: &ControlVar, value: i64| {
                             shown.value(&cv.variable, &crate::crosstabs::Key::Number(value as f64))
                         };
@@ -457,7 +461,7 @@ impl Engine {
                         let mut lines_of = Vec::new();
                         for (a, cases) in &groups {
                             let lines = life_table(cases, &starts);
-                            if !command.compare_only {
+                            if command.table && !command.compare_only {
                                 for (k, line) in lines.iter().enumerate() {
                                     let mut row = match k {
                                         0 => group_label(*a),
@@ -811,6 +815,11 @@ mod tests {
         let (starts, stretched) = interval_starts(&[(9.0, 3.0)]).unwrap();
         assert_eq!(starts, [0.0, 3.0, 6.0, 9.0]);
         assert!(!stretched);
+        // decimal widths land on their decimal starts
+        let (starts, _) = interval_starts(&[(1.0, 0.1)]).unwrap();
+        assert_eq!(starts[3], 0.3);
+        let lines = life_table(&[(0.3, true, 1.0), (0.5, false, 1.0)], &starts);
+        assert_eq!((lines[3].start, lines[3].events), (0.3, 1.0));
         // stretching the first period past the end of the second is an error
         assert!(interval_starts(&[(10.0, 7.0), (12.0, 1.0)]).is_err());
     }
