@@ -1496,8 +1496,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  them for every case at each event time of its stratum up to the case's own time, with the\n\
                  variable T_ holding that time, so a covariate they compute can change with time. The data may not\n\
                  have a variable T_, and T_ itself is not a covariate. A missing value from the program where the\n\
-                 case is otherwise valid, or a program that adds or drops cases, is an error. The program ends\n\
-                 with that COXREG or with CLEAR TIME PROGRAM.",
+                 case is otherwise valid, or a program that adds or drops cases, is an error. The next procedure\n\
+                 ends the program, as do CLEAR TIME PROGRAM and CLEAR TRANSFORMATIONS.",
         example: "TIME PROGRAM.\nCOMPUTE spend_t = spend * LN(T_ + 1).",
         parse: coxreg::time_program,
     },

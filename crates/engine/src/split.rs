@@ -220,7 +220,7 @@ impl Engine {
     /// Runs a procedure as the split, the filter and TEMPORARY say.
     pub(crate) fn procedure(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
         let begun = self.begin_pass();
-        if begun.is_err() && matches!(command, Command::Coxreg(_)) {
+        if begun.is_err() {
             self.time_program = None;
         }
         begun?;
@@ -235,10 +235,8 @@ impl Engine {
                 | Command::CsModel(_)
         );
         let result = self.in_view(command, use_split);
-        if matches!(command, Command::Coxreg(_)) {
-            // the procedure that runs a time program ends it
-            self.time_program = None;
-        }
+        // the next procedure that reads the data uses a time program up; only COXREG runs it
+        self.time_program = None;
         if let Command::Aggregate(aggregate) = command
             && aggregate.outfile.is_none()
             && !aggregate.add_variables

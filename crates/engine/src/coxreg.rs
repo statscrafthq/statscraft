@@ -115,14 +115,13 @@ fn event_times(
         let mine: Vec<usize> = (rows.partition_point(|r| r.stratum < s)
             ..rows.partition_point(|r| r.stratum <= s))
             .collect();
-        let mut by_stop = mine.clone();
-        by_stop.sort_by(|&a, &b| rows[b].stop.total_cmp(&rows[a].stop));
+        // within a stratum the rows come from the latest time down
+        let by_stop = &mine;
         let mut times: Vec<f64> = mine
             .iter()
             .filter(|&&r| rows[r].event)
             .map(|&r| rows[r].stop)
             .collect();
-        times.sort_by(|a, b| b.total_cmp(a));
         times.dedup();
         let (mut s0, mut s1, mut s2) = (0.0, vec![0.0; p], vec![vec![0.0; p]; p]);
         let add = |r: usize, s0: &mut f64, s1: &mut [f64], s2: &mut Matrix| {
@@ -872,7 +871,7 @@ impl Engine {
             }
             // shortcut: a fixed bound on the expanded rows; stream the risk sets if larger data
             // with time-dependent covariates is needed
-            const MAX_ROWS: usize = 20_000_000;
+            const MAX_ROWS: usize = 5_000_000;
             if take.len() > MAX_ROWS {
                 return Err(Error(format!(
                     "TIME PROGRAM: the cases at risk at every event time make {} rows, more than the {MAX_ROWS} supported",
@@ -1005,7 +1004,8 @@ impl Engine {
                 }
             })
             .collect();
-        rows.sort_by_key(|r| r.stratum);
+        // by stratum, and within it from the latest time down, as the risk-set sums want them
+        rows.sort_by(|a, b| a.stratum.cmp(&b.stratum).then(b.stop.total_cmp(&a.stop)));
         let total_w: f64 = rows.iter().map(|r| r.w).sum();
         let means: Vec<f64> = (0..names.len())
             .map(|j| rows.iter().map(|r| r.w * r.x[j]).sum::<f64>() / total_w)

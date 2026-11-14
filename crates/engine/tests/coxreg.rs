@@ -797,6 +797,14 @@ fn time_program_edge_cases() {
         )
         .contains("spend_t")
     );
+    // so does any other procedure that reads the data
+    assert!(
+        run_error(
+            "TIME PROGRAM.\nCOMPUTE spend_t = spend * T_.\nDESCRIPTIVES spend.\n\
+             COXREG months WITH spend_t /STATUS=ended(1)."
+        )
+        .contains("spend_t")
+    );
     // a program that never changes the covariate is not used, and the case missing on spend is
     // dropped as usual
     let mut engine = Engine::default();

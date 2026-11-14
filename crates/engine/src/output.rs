@@ -200,7 +200,11 @@ impl Engine {
             }
         }
         if let Some(clean) = self.clean.as_mut()
-            && !matches!(command, Command::Leave(_))
+            // LEAVE runs the list again, where a time program would start afresh and empty
+            && !matches!(
+                command,
+                Command::Leave(_) | Command::TimeProgram | Command::ClearTimeProgram
+            )
         {
             clean.commands.push(command.clone());
         }
