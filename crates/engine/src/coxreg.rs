@@ -55,6 +55,8 @@ use statscraft_syntax::{
 pub(crate) struct TimeProgram {
     pub collecting: bool,
     pub commands: Vec<Command>,
+    /// The vectors when COXREG took the program up, which its data pass then clears.
+    pub vectors: std::collections::HashMap<String, Vec<String>>,
 }
 
 /// One row of the analysis: a case, or with time-dependent covariates a case at one event
@@ -215,9 +217,8 @@ struct Fit {
     b: Vec<f64>,
     cov: Matrix,
     ll: f64,
-    converged: bool,
-    /// The information matrix could not be inverted during the iterations.
-    singular: bool,
+    /// Why the estimation stopped short, as a warning.
+    problem: Option<String>,
 }
 
 impl Fit {
@@ -231,13 +232,16 @@ fn fit(rows: &[Row], strata: usize, cols: &[usize], criteria: &CoxregCriteria) -
     let mut b = vec![0.0; p];
     let (mut ll, mut u, mut info) = derivatives(rows, strata, cols, &b);
     let mut converged = p == 0;
-    let mut singular = false;
-    for _ in 0..criteria.iterate {
+    let mut problem = None;
+    for iteration in 1..=criteria.iterate {
         if p == 0 {
             break;
         }
         let Some((inv, _)) = inverse(&info) else {
-            singular = true;
+            problem = Some(
+                "the information matrix is singular, so a covariate cannot be estimated; the estimates are not reliable"
+                    .to_string(),
+            );
             break;
         };
         let delta: Vec<f64> = (0..p).map(|r| dot(&inv[r], &u)).collect();
@@ -258,6 +262,9 @@ fn fit(rows: &[Row], strata: usize, cols: &[usize], criteria: &CoxregCriteria) -
             step /= 2.0;
         };
         let Some((nb, (nll, nu, ninfo))) = accepted else {
+            problem = Some(format!(
+                "the estimation stopped at iteration {iteration}, where no step raised the likelihood; the estimates are those of the iteration before"
+            ));
             break;
         };
         let relative = b
@@ -284,8 +291,14 @@ fn fit(rows: &[Row], strata: usize, cols: &[usize], criteria: &CoxregCriteria) -
         b,
         cov,
         ll,
-        converged,
-        singular,
+        problem: problem.or_else(|| {
+            (!converged).then(|| {
+                format!(
+                    "the estimation did not converge in {} iterations; the estimates are those of the last iteration",
+                    criteria.iterate
+                )
+            })
+        }),
     }
 }
 
@@ -344,8 +357,7 @@ fn overall_score(rows: &[Row], strata: usize, cols: &[usize]) -> f64 {
         b: Vec::new(),
         cov: Vec::new(),
         ll: 0.0,
-        converged: true,
-        singular: false,
+        problem: None,
     };
     score_test(rows, strata, &empty, cols)
 }
@@ -700,6 +712,29 @@ impl Engine {
                 _ => {}
             }
         }
+        // a program of plain COMPUTE and IF that sets no covariate cannot make one time dependent
+        let plain_program = program.iter().flat_map(|p| &p.commands).all(|c| {
+            matches!(
+                c,
+                Command::Compute { .. }
+                    | Command::If { .. }
+                    | Command::DoIf(_)
+                    | Command::ElseIf(_)
+                    | Command::Else
+                    | Command::EndIf
+            )
+        });
+        if program.is_some()
+            && plain_program
+            && term_vars.iter().flatten().all(|n| {
+                data.variable_index(n).is_some()
+                    && !computed.iter().any(|c| c.eq_ignore_ascii_case(n))
+            })
+        {
+            let tables = self.coxreg_with(command, None)?;
+            self.warn("the TIME PROGRAM changes none of the covariates, so it is not used");
+            return Ok(tables);
+        }
         let present: Vec<Vec<String>> = term_vars
             .iter()
             .map(|t| {
@@ -876,7 +911,7 @@ impl Engine {
             let mut data = data.clone();
             // only the variables the program reads and the covariates go along
             let refs = crate::rows::Refs::of(&program.commands);
-            if !refs.all && refs.ranges.is_empty() {
+            if !refs.all && refs.ranges.is_empty() && program.vectors.is_empty() {
                 let wanted: Vec<&str> = (0..data.variable_count())
                     .map(|i| data.variable_at(i).name())
                     .filter(|n| {
@@ -899,6 +934,7 @@ impl Engine {
             sub.dataset = Some(data);
             sub.time_program = None;
             sub.running_program = None;
+            sub.vectors = program.vectors.clone();
             sub.case_numbers = None;
             sub.temporary = None;
             for c in &program.commands {
@@ -1093,17 +1129,10 @@ impl Engine {
                     }
                 }
                 let fitted = model.fit(&kept);
-                let note = format!(
-                    "the estimation did not converge in {} iterations; the estimates are those of the last iteration",
-                    criteria.iterate
-                );
-                let note = if fitted.singular {
-                    "the information matrix is singular, so a covariate cannot be estimated; the estimates are not reliable".to_string()
-                } else {
-                    note
-                };
-                if !fitted.converged && !warnings.contains(&note) {
-                    warnings.push(note);
+                if let Some(note) = &fitted.problem
+                    && !warnings.contains(note)
+                {
+                    warnings.push(note.clone());
                 }
                 fitted
             };

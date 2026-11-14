@@ -1491,13 +1491,15 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "TIME PROGRAM",
         summary: "Start the transformations that define time-dependent covariates for the next COXREG.",
         syntax: "TIME PROGRAM.\n\
-                 The transformations that follow (COMPUTE, IF, RECODE, DO IF and the like), up to the next\n\
-                 command of another kind, are kept for the next COXREG instead of changing the data. COXREG runs\n\
-                 them for every case at each event time of its stratum up to the case's own time, with the\n\
-                 variable T_ holding that time, so a covariate they compute can change with time. The data may not\n\
-                 have a variable T_, and T_ itself is not a covariate. A missing value from the program where the\n\
-                 case is otherwise valid, or a program that adds or drops cases, is an error. The next procedure\n\
-                 ends the program, as do CLEAR TIME PROGRAM and CLEAR TRANSFORMATIONS.",
+                 The transformations that follow (COMPUTE, IF, RECODE, DO IF, LOOP and the like, with labels,\n\
+                 formats and missing values of their variables), up to the next command of another kind, are\n\
+                 kept for the next COXREG instead of changing the data. COXREG runs them for every case at each\n\
+                 event time of its stratum up to the case's own time, with the variable T_ holding that time, so a\n\
+                 covariate they compute can change with time. The data may not have a variable T_, and T_ itself\n\
+                 is not a covariate. A missing value from the program where the case is otherwise valid, or a\n\
+                 program that adds or drops cases, is an error. Any other command that reads the data drops the\n\
+                 program, as do CLEAR TIME PROGRAM and CLEAR TRANSFORMATIONS; a COXREG that stops with an error\n\
+                 keeps it.",
         example: "TIME PROGRAM.\nCOMPUTE spend_t = spend * LN(T_ + 1).",
         parse: coxreg::time_program,
     },
@@ -1506,7 +1508,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "Drop the time-dependent covariates of the last TIME PROGRAM.",
         syntax: "CLEAR TIME PROGRAM.\n\
                  The transformations of the last TIME PROGRAM are dropped, so a new TIME PROGRAM can define the\n\
-                 time-dependent covariates afresh. COXREG drops them itself after it runs.",
+                 time-dependent covariates afresh. COXREG uses a program up when it runs, and so does any other\n\
+                 command that reads the data.",
         example: "CLEAR TIME PROGRAM.",
         parse: coxreg::clear_time_program,
     },

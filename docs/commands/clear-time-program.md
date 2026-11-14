@@ -10,7 +10,7 @@ Drop the time-dependent covariates of the last TIME PROGRAM.
 CLEAR TIME PROGRAM.
 ```
 
-The transformations of the last TIME PROGRAM are dropped, so a new TIME PROGRAM can define the time-dependent covariates afresh. COXREG drops them itself after it runs.
+The transformations of the last TIME PROGRAM are dropped, so a new TIME PROGRAM can define the time-dependent covariates afresh. COXREG uses a program up when it runs, and so does any other command that reads the data.
 
 ## Example
 

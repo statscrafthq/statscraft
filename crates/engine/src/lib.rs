@@ -499,8 +499,20 @@ impl Engine {
         }
         // the transformations after TIME PROGRAM, loops among them, wait for COXREG
         if let Some(program) = self.time_program.as_mut().filter(|p| p.collecting) {
+            // dictionary commands on the program's variables belong to it too
             if is_transformation(command)
-                || matches!(command, Command::Loop(_) | Command::EndLoop(_))
+                || matches!(
+                    command,
+                    Command::Loop(_)
+                        | Command::EndLoop(_)
+                        | Command::VariableLabels(_)
+                        | Command::ValueLabels(_)
+                        | Command::MissingValues(_)
+                        | Command::VariableLevel(_)
+                        | Command::Formats(_)
+                        | Command::PrintFormats(_)
+                        | Command::WriteFormats(_)
+                )
             {
                 program.commands.push(command.clone());
                 return Ok(Vec::new());
@@ -565,12 +577,19 @@ impl Engine {
             }
         }
         if matches!(command, Command::Coxreg(_)) {
-            self.running_program = self.time_program.take();
+            // the vectors go along: the data pass of COXREG clears them before it runs the program
+            self.running_program = self.time_program.take().map(|mut program| {
+                program.vectors = self.vectors.clone();
+                program
+            });
         }
         let tables = self.execute_command(command);
-        if tables.is_err() && matches!(command, Command::Coxreg(_)) {
-            // a COXREG that fails leaves its time program for the corrected one
-            self.time_program = self.running_program.take();
+        if matches!(command, Command::Coxreg(_)) {
+            let program = self.running_program.take();
+            if tables.is_err() {
+                // a COXREG that fails leaves its time program for the corrected one
+                self.time_program = program;
+            }
         }
         let tables = tables?;
         let mut out = std::mem::take(&mut self.flushed);
@@ -724,7 +743,7 @@ impl Engine {
             Command::TimeProgram => {
                 self.time_program = Some(coxreg::TimeProgram {
                     collecting: true,
-                    commands: Vec::new(),
+                    ..Default::default()
                 });
             }
             Command::ClearTimeProgram => self.time_program = None,
