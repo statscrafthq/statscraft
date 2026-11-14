@@ -140,11 +140,11 @@ fn at_list_end(p: &Parser) -> bool {
     match p.peek() {
         Some(TokenKind::Word(w)) => {
             let eq = matches!(p.peek_at(1), Some(TokenKind::Punct(Punct::Eq)));
+            let number = matches!(p.peek_at(1), Some(TokenKind::Number(_)));
             RESERVED.iter().any(|r| w.eq_ignore_ascii_case(r))
-                || (eq
-                    && ["PERCENT", "SORT", "DESCRIBE"]
-                        .iter()
-                        .any(|k| matches_keyword(w, k)))
+                || matches_keyword(w, "NOSORT")
+                || ((eq || number) && matches_keyword(w, "PERCENT"))
+                || (eq && ["SORT", "DESCRIBE"].iter().any(|k| matches_keyword(w, k)))
         }
         _ => true,
     }

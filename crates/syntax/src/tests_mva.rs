@@ -77,6 +77,10 @@ fn mva_description_subcommands() {
     assert!(m.mpattern.unwrap().nosort && m.mismatch.unwrap().1);
     let d = m.dpattern.unwrap();
     assert_eq!((d.sort.len(), d.describe.len()), (1, 1));
+    // and they end a DESCRIBE list wherever they stand
+    let m = mva("MVA a b /MPATTERN DESCRIBE=a NOS /TPATTERN DESCRIBE=b PERCENT 20.");
+    assert!(m.mpattern.unwrap().nosort);
+    assert_eq!(m.tpattern.unwrap().percent, 20.0);
     // TPATTERN keeps 1 percent by default, TTEST 5
     let m = mva("MVA a b /TPATTERN /TTEST.");
     assert_eq!(m.tpattern.unwrap().percent, 1.0);

@@ -320,25 +320,33 @@ fn pairwise(x: &[Vec<f64>], v: usize) -> Pairwise {
         cov: vec![vec![f64::NAN; v]; v],
     };
     for j in 0..v {
-        for k in 0..v {
-            let pairs: Vec<(f64, f64)> = x
-                .iter()
-                .filter(|r| !r[j].is_nan() && !r[k].is_nan())
-                .map(|r| (r[j], r[k]))
-                .collect();
-            let n = pairs.len();
+        for k in j..v {
+            let (mut n, mut sj, mut sk) = (0usize, 0.0, 0.0);
+            for r in x.iter().filter(|r| !r[j].is_nan() && !r[k].is_nan()) {
+                n += 1;
+                sj += r[j];
+                sk += r[k];
+            }
             p.n[j][k] = n;
+            p.n[k][j] = n;
             if n == 0 {
                 continue;
             }
-            let ks: Vec<f64> = pairs.iter().map(|p| p.1).collect();
-            let (mk, sk) = mean_sd(&ks);
-            let mj = pairs.iter().map(|p| p.0).sum::<f64>() / n as f64;
+            let (mj, mk) = (sj / n as f64, sk / n as f64);
+            let (mut ssj, mut ssk, mut sjk) = (0.0, 0.0, 0.0);
+            for r in x.iter().filter(|r| !r[j].is_nan() && !r[k].is_nan()) {
+                ssj += (r[j] - mj).powi(2);
+                ssk += (r[k] - mk).powi(2);
+                sjk += (r[j] - mj) * (r[k] - mk);
+            }
+            let d = (n - 1) as f64;
             p.mean[j][k] = mk;
-            p.sd[j][k] = sk;
+            p.mean[k][j] = mj;
+            p.sd[j][k] = (ssk / d).sqrt();
+            p.sd[k][j] = (ssj / d).sqrt();
             if n > 1 {
-                p.cov[j][k] =
-                    pairs.iter().map(|(a, b)| (a - mj) * (b - mk)).sum::<f64>() / (n - 1) as f64;
+                p.cov[j][k] = sjk / d;
+                p.cov[k][j] = sjk / d;
             }
         }
     }
@@ -542,6 +550,11 @@ fn stepwise(
                 continue;
             }
             let reduction = m[j][l] * m[j][l] / m[l][l];
+            // pairwise covariances need not be positive definite; a drop that would leave no
+            // residual variance is not a usable predictor
+            if reduction >= m[j][j] {
+                continue;
+            }
             if best.is_none_or(|(_, r)| reduction > r) {
                 best = Some((l, reduction));
             }
@@ -926,24 +939,27 @@ impl Engine {
                     "{what} of MVA needs a quantitative variable"
                 )));
             }
-            let at = |j: usize| {
-                quantitative
-                    .iter()
-                    .position(|&q| q == j)
-                    .expect("quantitative")
-            };
+            // where each model variable stands among the quantitative ones
+            let at: Vec<usize> = model
+                .iter()
+                .map(|j| {
+                    quantitative
+                        .iter()
+                        .position(|q| q == j)
+                        .expect("quantitative")
+                })
+                .collect();
             let mx: Vec<Vec<f64>> = x
                 .iter()
-                .map(|r| model.iter().map(|&j| r[at(j)]).collect())
+                .map(|r| at.iter().map(|&q| r[q]).collect())
                 .collect();
-            let start_mean: Vec<f64> = model.iter().map(|&j| univariate_mean[at(j)]).collect();
-            let start_cov: Matrix = model
+            let start_mean: Vec<f64> = at.iter().map(|&q| univariate_mean[q]).collect();
+            let start_cov: Matrix = at
                 .iter()
                 .map(|&a| {
-                    model
-                        .iter()
+                    at.iter()
                         .map(|&b| {
-                            let c = pair.cov[at(a)][at(b)];
+                            let c = pair.cov[a][b];
                             if c.is_finite() { c } else { 0.0 }
                         })
                         .collect()
@@ -1008,11 +1024,15 @@ impl Engine {
                 let complete: Vec<usize> = (0..n)
                     .filter(|&c| mx[c].iter().all(|v| !v.is_nan()))
                     .collect();
-                let mut addtype = options.addtype.unwrap_or(if 2 * complete.len() < n {
-                    AddType::Normal
-                } else {
-                    AddType::Residual
-                });
+                let mut addtype = match options.npredictors {
+                    // no predictors: each missing value becomes the mean, as documented
+                    Some(0) => AddType::None,
+                    _ => options.addtype.unwrap_or(if 2 * complete.len() < n {
+                        AddType::Normal
+                    } else {
+                        AddType::Residual
+                    }),
+                };
                 if addtype == AddType::Residual && complete.is_empty() {
                     warnings.push(
                         "REGRESSION: no case is complete, so normal errors replace residuals"
@@ -1025,13 +1045,21 @@ impl Engine {
                     .collect();
                 let is_predictor: Vec<bool> =
                     model.iter().map(|j| predictors.contains(j)).collect();
-                let mut fits: BTreeMap<(Vec<bool>, usize), Fit> = BTreeMap::new();
+                // one fit per pattern and variable, the random terms drawn in case order
+                let patterns = groups(&mx);
+                let mut group_of = vec![0; n];
+                for (g, (_, cases)) in patterns.iter().enumerate() {
+                    for &c in cases {
+                        group_of[c] = g;
+                    }
+                }
+                let mut fits: BTreeMap<(usize, usize), Fit> = BTreeMap::new();
                 let mut filled = mx.clone();
                 let mut random = self.random.borrow_mut();
                 for c in 0..n {
-                    let pattern: Vec<bool> = mx[c].iter().map(|v| v.is_nan()).collect();
+                    let pattern = &patterns[group_of[c]].0;
                     for &j in predicted_at.iter().filter(|&&j| pattern[j]) {
-                        let fit = fits.entry((pattern.clone(), j)).or_insert_with(|| {
+                        let fit = fits.entry((group_of[c], j)).or_insert_with(|| {
                             let candidates: Vec<usize> = (0..model.len())
                                 .filter(|&l| l != j && is_predictor[l] && !pattern[l])
                                 .collect();

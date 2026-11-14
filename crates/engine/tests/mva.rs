@@ -983,3 +983,39 @@ fn outfile_drops_the_missing_definitions_of_filled_variables() {
     let n: Vec<f64> = t.rows.iter().take(2).map(|r| num(&r[at])).collect();
     assert_eq!(n, [36.0, 36.0]);
 }
+
+#[test]
+fn regression_skips_predictors_the_pairwise_covariances_overfit_and_npredictors_zero_is_the_mean() {
+    // b is known only where a is far from its mean, so the pairwise covariance of a and b is
+    // larger than the variances allow: a cannot predict b, while c, which follows b, can
+    let data = "DATA LIST LIST /a b c.
+BEGIN DATA
+1 1 1.1
+2 2 1.8
+9 9 9.2
+10 10 9.9
+5.5 . -5
+5.5 . 16
+5.5 . -4
+5.5 . 15
+5.5 . -3
+5.5 . 15
+END DATA.
+";
+    let source = |options: &str| -> Vec<Table> {
+        let (commands, errors) = parse(&format!("{data}MVA a b c /NOUNI /REGRESSION ({options})."));
+        assert!(errors.is_empty(), "{errors:?}");
+        let mut engine = Engine::default();
+        let mut tables = Vec::new();
+        for command in &commands {
+            tables = engine.execute(&command.command).unwrap();
+        }
+        tables
+    };
+    let means = |tables: &[Table]| row(find(tables, "Regression Means"), &["Regression"]);
+    // b's valid values average 5.5; the filled ones follow c, whose deviations there sum to 0.4
+    let b = means(&source("ADDTYPE=NONE FLIMIT=0"))[1];
+    assert!(b > 5.505 && b < 5.6, "{b}");
+    let zero = means(&source("NPREDICTORS=0"));
+    close(&zero, &[5.5, 5.5, 5.6], 1e-12);
+}
