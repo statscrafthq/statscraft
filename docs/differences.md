@@ -58,7 +58,7 @@ This page lists, by topic and command:
 - INSERT and INCLUDE paths are relative to the folder of the file that holds them, or to the folder of the last CD. **Beyond the documentation:** INCLUDE accepts the file name without FILE=.
 - BEGIN PROGRAM blocks are skipped with one warning per block; the run goes on.
 - A warning that every SPLIT FILE group gives (SPREADLEVEL without a factor in EXAMINE, for one) is shown once, without a group name.
-- Under SPLIT FILE, the variables a procedure saves are those any group saved, defined as in the first group that saved them; the cases of a group that could not be fitted or saved nothing get missing values.
+- Under SPLIT FILE, the variables a procedure saves are those any group saved, defined as in the first group that saved them (a string as wide as its widest group); the cases of a group that could not be fitted or saved nothing get missing values.
 - END DATA, END REPEAT and END MATRIX standing alone are errors at their line, saying which command they belong to.
 - FINISH ends the run as the end of the syntax does: nothing after it is read. A window or command-line session stays open, with its dataset. With a line range only a FINISH inside the range counts. Macros that the lines after FINISH define are still defined, since macros are expanded before the commands are read.
 - HOST is read and checked, then refused: a syntax file that runs operating system commands could do anything the user can.

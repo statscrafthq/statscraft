@@ -20,7 +20,6 @@ use crate::crosstabs::Key;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Values};
 use statscraft_syntax::{Command, Sample};
-use std::collections::HashSet;
 
 /// The state TEMPORARY returns to.
 #[derive(Clone)]
@@ -391,22 +390,16 @@ fn write_back(
         .zip(ran)
         .map(|(a, r)| r.then_some(a))
         .collect();
-    // names compare without case, a character at a time, as variable lookups do
-    let lower = |name: &str| {
-        name.chars()
-            .flat_map(char::to_lowercase)
-            .collect::<String>()
-    };
-    let mut seen: HashSet<String> = full.variable_names().map(lower).collect();
-    // (name, first group that added it)
+    let existing = full.variable_count();
+    // (name, first group that added it); the definitions go in at once, so the dataset's own
+    // case-blind lookup finds a name another group added before
     let mut added: Vec<(String, usize)> = Vec::new();
     for (g, after) in afters.iter().enumerate() {
+        let Some(after) = after else { continue };
         // procedures add their variables after the existing ones
-        let tail = after
-            .iter()
-            .flat_map(|a| a.variable_names().skip(full.variable_count()));
-        for name in tail {
-            if seen.insert(lower(name)) {
+        for name in after.variable_names().skip(existing) {
+            if full.variable_index(name).is_none() {
+                full.copy_variable(after, name, &vec![None; full.case_count()])?;
                 added.push((name.to_string(), g));
             }
         }
@@ -423,8 +416,6 @@ fn write_back(
     }
     for (name, owner) in added {
         let source = afters[owner].expect("only groups that ran add variables");
-        // the definition only; the values of every group follow
-        full.copy_variable(source, &name, &vec![None; at.len()])?;
         let columns: Vec<_> = afters
             .iter()
             .map(|a| a.and_then(|a| a.variable(&name).ok()))
@@ -480,24 +471,32 @@ fn saved_variables_are_the_union_of_the_groups_that_ran() {
         }
         data
     };
-    let mut full = Dataset::new(3);
-    full.set_numeric_values("x", vec![Some(1.0); 3]).unwrap();
-    // the first group saves a short string, the second the same name in other case, wider,
-    // and a number; the third failed, so what it left is ignored
+    let mut full = Dataset::new(4);
+    full.set_numeric_values("x", vec![Some(1.0); 4]).unwrap();
+    // the first group failed, so what it left is ignored; the second saves a short string, the
+    // third the same name in other case, wider, and a number
     let afters = [
+        part(&[], &[("z", 9.0), ("n", 7.0)]),
         part(&[("S", 2, "ab")], &[]),
         part(&[("s", 4, "abcd")], &[("n", 5.0)]),
-        part(&[], &[("z", 9.0)]),
+        part(&[], &[]),
     ];
-    let groups = [group(0), group(1), group(2)];
-    let out = write_back(full, &groups, &afters, &[true, true, false]).unwrap();
+    let groups = [group(0), group(1), group(2), group(3)];
+    let ran = [false, true, true, true];
+    let out = write_back(full, &groups, &afters, &ran).unwrap();
     assert_eq!(out.variable_names().collect::<Vec<_>>(), ["x", "S", "n"]);
     let s = out.variable("S").unwrap();
     assert_eq!(s.string_width(), Some(4));
     let s = s.string().unwrap();
-    assert_eq!([s.get(0), s.get(1), s.get(2)], ["ab", "abcd", ""]);
+    assert_eq!(
+        [s.get(0), s.get(1), s.get(2), s.get(3)],
+        ["", "ab", "abcd", ""]
+    );
     let n = out.variable("n").unwrap().numeric().unwrap();
-    assert_eq!([n.get(0), n.get(1), n.get(2)], [None, Some(5.0), None]);
+    assert_eq!(
+        [n.get(0), n.get(1), n.get(2), n.get(3)],
+        [None, None, Some(5.0), None]
+    );
 }
 
 /// SEPARATE: every group's tables, the group named in the title.
