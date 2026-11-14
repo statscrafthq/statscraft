@@ -940,12 +940,10 @@ fn update_z(
             // as above: the unweighted directions keep their old coordinates
             let hinv = pseudo_inverse(&h);
             let zv: Vec<f64> = (0..np).map(|r| z[r % n][r / n]).collect();
+            let dot = |a: &[f64], b: &[f64]| a.iter().zip(b).map(|(x, y)| x * y).sum::<f64>();
+            let hz: Vec<f64> = h.iter().map(|row| dot(row, &zv)).collect();
             for r in 0..np {
-                let fit: f64 = hinv[r].iter().zip(&tv).map(|(x, y)| x * y).sum();
-                let hz: f64 = (0..np)
-                    .map(|c| (0..np).map(|k| hinv[r][k] * h[k][c]).sum::<f64>() * zv[c])
-                    .sum();
-                out[r % n][r / n] = fit + zv[r] - hz;
+                out[r % n][r / n] = dot(&hinv[r], &tv) + zv[r] - dot(&hinv[r], &hz);
             }
         }
     }
