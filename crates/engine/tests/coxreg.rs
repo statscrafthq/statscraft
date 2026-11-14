@@ -805,6 +805,14 @@ fn time_program_edge_cases() {
         )
         .contains("spend_t")
     );
+    // and any other command that reads the data
+    assert!(
+        run_error(
+            "TIME PROGRAM.\nCOMPUTE spend_t = spend * T_.\nEXECUTE.\n\
+             COXREG months WITH spend_t /STATUS=ended(1)."
+        )
+        .contains("spend_t")
+    );
     // a program that never changes the covariate is not used, and the case missing on spend is
     // dropped as usual
     let mut engine = Engine::default();
@@ -854,4 +862,28 @@ fn covariate_lists_take_to() {
         260.1200035605,
         1e-9,
     );
+}
+
+#[test]
+fn an_entered_term_never_pushes_out_one_already_in() {
+    // first is plan 1 as a 0/1 column; INDICATOR(3) codes plan(1) the same way, so when plan
+    // enters after first, plan(1) is the redundant column, not first
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!(
+            "{DATA}COMPUTE first = plan = 1.
+COXREG months WITH first plan /STATUS=ended(1) /CATEGORICAL=plan /CONTRAST(plan)=INDICATOR(3)
+  /METHOD=ENTER first /METHOD=ENTER plan {TIGHT}"
+        ),
+    );
+    assert!(
+        engine
+            .warnings()
+            .iter()
+            .any(|w| w.starts_with("plan(1) is a linear"))
+    );
+    let eq = "Variables in the Equation";
+    let table = t.iter().rfind(|t| t.title == eq).unwrap();
+    assert!(row_keys(table).iter().any(|k| k == "Step 1 / first"));
 }

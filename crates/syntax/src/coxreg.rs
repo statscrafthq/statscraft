@@ -280,7 +280,14 @@ fn save(p: &mut Parser) -> PResult<Vec<(CoxregTemp, Option<String>)>> {
         };
         p.pos += 1;
         let name = if p.eat(Punct::LParen) {
+            let at = p.pos;
             let name = p.name("a variable name")?;
+            if name.starts_with('#') || name.starts_with('$') {
+                return Err(SyntaxError::new(
+                    p.span_from(at),
+                    "a saved variable cannot have a scratch or system name",
+                ));
+            }
             p.expect(Punct::RParen)?;
             Some(name)
         } else {

@@ -108,6 +108,7 @@ fn errors() {
             .contains("not supported yet")
     );
     assert!(err("COXREG months WITH spend /STATUS=ended(1) /SAVE=SE SE.").contains("only once"));
+    assert!(err("COXREG months WITH spend /STATUS=ended(1) /SAVE=SE(#s).").contains("scratch"));
     assert!(
         err("COXREG months WITH spend /STATUS=ended(1) /CRITERIA=PIN(2).").contains("probability")
     );

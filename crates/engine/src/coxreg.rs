@@ -180,7 +180,7 @@ fn event_times(
                 xd,
                 s0,
                 s1: s1.clone(),
-                s2: s2.clone(),
+                s2: if second { s2.clone() } else { Vec::new() },
             });
         }
         here.reverse();
@@ -857,6 +857,21 @@ impl Engine {
         }
         let mut program_warnings = Vec::new();
         let expanded: Option<(Dataset, Vec<Span>)> = if let Some(program) = &program {
+            // shortcut: a fixed bound on the expanded rows; stream the risk sets if larger data
+            // with time-dependent covariates is needed
+            const MAX_ROWS: usize = 5_000_000;
+            let count: usize = used
+                .iter()
+                .map(|&k| {
+                    let times = &event_times_of[stratum_of(k)];
+                    times.partition_point(|&t| t <= time(k).expect("valid"))
+                })
+                .sum();
+            if count > MAX_ROWS {
+                return Err(Error(format!(
+                    "TIME PROGRAM: the cases at risk at every event time make {count} rows, more than the {MAX_ROWS} supported"
+                )));
+            }
             // (analysis case, start, stop) of every expanded row
             let mut origin = Vec::new();
             let mut take = Vec::new();
@@ -868,15 +883,6 @@ impl Engine {
                     take.push(Some(k));
                     start = t;
                 }
-            }
-            // shortcut: a fixed bound on the expanded rows; stream the risk sets if larger data
-            // with time-dependent covariates is needed
-            const MAX_ROWS: usize = 5_000_000;
-            if take.len() > MAX_ROWS {
-                return Err(Error(format!(
-                    "TIME PROGRAM: the cases at risk at every event time make {} rows, more than the {MAX_ROWS} supported",
-                    take.len()
-                )));
             }
             let mut data = data.clone();
             // only the variables the program reads and the covariates go along
@@ -1080,12 +1086,12 @@ impl Engine {
             let fit_model = |current: &[usize],
                              warnings: &mut Vec<String>,
                              seen: &mut Vec<usize>| {
-                let wanted: Vec<usize> = sorted(
-                    &current
-                        .iter()
-                        .flat_map(|&t| terms[t].columns.iter().copied())
-                        .collect::<Vec<_>>(),
-                );
+                // the terms in the order they entered, so a new term cannot push out the
+                // columns of one already in the model
+                let wanted: Vec<usize> = current
+                    .iter()
+                    .flat_map(|&t| terms[t].columns.iter().copied())
+                    .collect();
                 let kept = model.independent(&wanted);
                 for c in wanted.iter().filter(|c| !kept.contains(c)) {
                     if !seen.contains(c) {
@@ -1123,7 +1129,6 @@ impl Engine {
                     .filter(|t| !model_terms.contains(t))
                     .collect();
                 model_terms.extend(&added);
-                model_terms.sort_unstable();
                 let fitted = fit_model(model_terms, warnings, seen);
                 steps.push(Step {
                     model: model_terms.clone(),
@@ -1194,11 +1199,10 @@ impl Engine {
                         }
                         let mut next = model_terms.clone();
                         next.push(t);
-                        next.sort_unstable();
-                        if tried.contains(&next) {
+                        if tried.contains(&sorted(&next)) {
                             break;
                         }
-                        tried.push(next.clone());
+                        tried.push(sorted(&next));
                         model_terms = next;
                         let fitted = fit_model(&model_terms, &mut warnings, &mut seen);
                         steps.push(Step {
@@ -1216,6 +1220,7 @@ impl Engine {
                     "block {}: no covariate entered or left the model",
                     b + 1
                 ));
+                tables.extend(report.not_in_equation(&[(0, &last)], &eligible, &caption));
                 continue;
             }
             let shown_steps: Vec<(usize, &Step)> = if command.print.summary {
@@ -1620,7 +1625,8 @@ impl Report<'_> {
         for &(n, s) in steps {
             let fit = &s.fit;
             let mut first = true;
-            for &t in &s.model {
+            // the terms in the order of the command
+            for &t in &sorted(&s.model) {
                 let term = &self.model.terms[t];
                 let positions: Vec<(usize, usize)> = term
                     .columns

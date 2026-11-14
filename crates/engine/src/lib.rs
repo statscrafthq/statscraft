@@ -505,6 +505,10 @@ impl Engine {
             }
             program.collecting = false;
         }
+        // the next command that reads the data uses a time program up; only COXREG runs it
+        if !matches!(command, Command::Coxreg(_)) && output::stage(command) == output::Stage::Pass {
+            self.time_program = None;
+        }
         self.track_clean(command);
         if let Some(result) = self.collect_loop(command) {
             let tables = result?;
