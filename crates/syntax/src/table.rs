@@ -2032,8 +2032,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  cumulative survival at the interval's end with its standard error, the density and the\n\
                  hazard with theirs (none for the open interval). Median Survival Times interpolates\n\
                  inside the interval where the cumulative survival passes 0.5, or shows the start of the\n\
-                 open interval with a plus sign. Weights count cases, so counts per interval may be\n\
-                 entered as weighted records. Negative times are missing.\n\
+                 last interval cases entered with a plus sign. Weights count cases, so counts per\n\
+                 interval may be entered as weighted records. Negative times are missing.\n\
                  COMPARE tests whether the groups of each first order control share one survival curve,\n\
                  with Gehan's scores (a tie between an event and a censored time ranks the event first);\n\
                  CALCULATE PAIRWISE adds each pair of values, APPROXIMATE scores the interval of each time\n\

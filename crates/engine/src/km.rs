@@ -809,11 +809,11 @@ impl Engine {
             for cmp in compares {
                 let per_stratum = cmp.per_stratum && strata_var.is_some();
                 if !per_stratum && strata_var.is_some() && differ {
-                    warnings.push(
-                        "the factor has different levels in different strata, so the comparison \
-                         pooled over the strata was left out"
-                            .into(),
-                    );
+                    let w = "the factor has different levels in different strata, so the \
+                             comparison pooled over the strata was left out";
+                    if !warnings.iter().any(|x| x == w) {
+                        warnings.push(w.into());
+                    }
                     continue;
                 }
                 // the groups of strata each statistic pools

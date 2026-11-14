@@ -168,9 +168,11 @@ pub(crate) fn life_table(cases: &[(f64, bool, f64)], starts: &[f64]) -> Vec<Line
     out
 }
 
-/// The median survival time; `Err(start)` when it lies at or past the open interval's start.
-pub(crate) fn median(lines: &[Line], starts: &[f64]) -> Result<f64, f64> {
-    let open = *starts.last().expect("never empty");
+/// The median survival time; `Err(start)` when it lies at or past the start of the last
+/// interval that cases entered.
+pub(crate) fn median(lines: &[Line]) -> Result<f64, f64> {
+    // the start of the last interval any case entered: no claim reaches past the data
+    let open = lines.last().map_or(0.0, |l| l.start);
     let mut previous = 1.0;
     for line in lines {
         if line.cumulative < 0.5 && previous >= 0.5 {
@@ -184,8 +186,8 @@ pub(crate) fn median(lines: &[Line], starts: &[f64]) -> Result<f64, f64> {
     Err(open)
 }
 
-/// Gehan's statistic of (time, event, weight, group) cases: D, its degrees of freedom and the
-/// mean score of each group (by group index, None for an empty one).
+/// Gehan's statistic of (time, event, weight, group) cases: D and its degrees of freedom; None
+/// with fewer than two groups with cases or no spread in the scores.
 pub(crate) fn gehan(cases: &[(f64, bool, f64, usize)], groups: usize) -> Option<(f64, usize)> {
     let mut sorted: Vec<f64> = cases.iter().map(|c| c.0).collect();
     sorted.sort_by(f64::total_cmp);
@@ -516,7 +518,7 @@ impl Engine {
                                 let mut labels = group_label(*a);
                                 labels.resize(2, Cell::Text(String::new()));
                                 row.extend(labels);
-                                row.push(match median(&lines, &starts) {
+                                row.push(match median(&lines) {
                                     Ok(m) => Cell::Number(m),
                                     Err(open) => Cell::Text(format!("{}+", bound_text(open))),
                                 });
@@ -724,8 +726,8 @@ impl Engine {
                     })
                     .collect(),
                 caption: Some(
-                    "A plus sign: survival stays at 0.5 or above up to the start of the last, \
-                     open interval."
+                    "A plus sign: survival stays at 0.5 or above up to the start of the last \
+                     interval that cases entered."
                         .into(),
                 ),
                 ..Table::default()

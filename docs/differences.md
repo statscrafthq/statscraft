@@ -746,6 +746,7 @@ Where GNU PSPP differs:
 ### SURVIVAL
 
 - The median lies inside the interval where cumulative survival first drops below 0.5, interpolated over that interval's own width.
+- When survival never drops below 0.5, the median shows the start of the last interval that cases entered, with a plus sign, rather than the start of the open interval, which may lie past every observed time.
 - The open last interval has no width, so its density, hazard and their errors are empty.
 - When the cumulative survival reaches 0, its later standard errors are 0.
 - Control values are truncated toward 0 before the range check, so -1.5 counts as -1.

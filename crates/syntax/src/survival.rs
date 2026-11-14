@@ -269,6 +269,9 @@ pub(crate) fn km(p: &mut Parser) -> PResult<Command> {
         } else if p.eat_keyword("TEST") {
             p.eat(Punct::Eq);
             command.tests.clear();
+            if at_end(p) {
+                command.tests.push(KmTest::Logrank);
+            }
             while !at_end(p) {
                 let test = if p.eat_keyword("LOGRANK") {
                     KmTest::Logrank
@@ -431,10 +434,10 @@ fn selection(p: &mut Parser) -> PResult<TableSelection> {
 }
 
 pub(crate) fn survival(p: &mut Parser) -> PResult<Command> {
-    // TABLES= may be left out: a word before '=', or TABLE in full before another name, is the
-    // keyword; otherwise the word is the first survival variable
+    // TABLES= may be left out: TABLES or its abbreviation before '=' or before another name is
+    // the keyword; otherwise the word is the first survival variable
     let keyword_alone = matches!(p.peek(), Some(TokenKind::Word(w))
-        if w.eq_ignore_ascii_case("TABLE") || w.eq_ignore_ascii_case("TABLES"))
+        if crate::table::matches_keyword(w, "TABLES"))
         && matches!(p.peek_at(1), Some(TokenKind::Word(w)) if !w.eq_ignore_ascii_case("BY"));
     if keyword_alone {
         p.pos += 1;
