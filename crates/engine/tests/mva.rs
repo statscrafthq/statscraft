@@ -1041,3 +1041,32 @@ END DATA.
     let zero = means(&source("NPREDICTORS=0"));
     close(&zero, &[5.5, 5.5, 5.6], 1e-12);
 }
+
+#[test]
+fn tpattern_keeps_a_pattern_at_exactly_the_percent() {
+    // 7 of 100 cases miss y: exactly 7 percent, which the limit keeps
+    let rows: String = (1..=100)
+        .map(|i| {
+            if i <= 7 {
+                format!("{i} .\n")
+            } else {
+                format!("{i} {i}\n")
+            }
+        })
+        .collect();
+    let (commands, errors) = parse(&format!(
+        "DATA LIST LIST /x y.\nBEGIN DATA\n{rows}END DATA.\nMVA x y /NOUNI /TPATTERN PERCENT=7."
+    ));
+    assert!(errors.is_empty(), "{errors:?}");
+    let mut engine = Engine::default();
+    let mut tables = Vec::new();
+    for command in &commands {
+        tables = engine.execute(&command.command).unwrap();
+    }
+    let counts: Vec<f64> = find(&tables, "Tabulated Patterns")
+        .rows
+        .iter()
+        .map(|r| num(&r[0]))
+        .collect();
+    assert_eq!(counts, [93.0, 7.0]);
+}

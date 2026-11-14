@@ -1587,10 +1587,10 @@ fn tabulated(
         }
         describers.push((column, keys));
     }
-    let minimum = options.percent / 100.0 * n as f64;
     let mut rows = Vec::new();
     for (key, cases) in &patterns {
-        if (cases.len() as f64) < minimum {
+        // the same exact test as the other PERCENT limits
+        if percent(cases.len(), n) < options.percent {
             continue;
         }
         let mut row = vec![count(cases.len())];
