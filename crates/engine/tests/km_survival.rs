@@ -526,6 +526,11 @@ fn survival_stretched_intervals_and_the_open_median() {
     let (tables, ..) = run("SURVIVAL weeks /INTERVAL=THRU 10 BY 5 /STATUS=outcome(1).");
     let median = &table(&tables, "Median Survival Time").rows[0][3];
     assert_eq!(text(median), "10+");
+    assert!(table(&tables, "Life Table of weeks").caption.is_some());
+    // every case leaves before the open interval, and every median is a number: no notes
+    let (tables, ..) = run("SURVIVAL weeks /INTERVAL=THRU 60 BY 6 /STATUS=outcome(1).");
+    assert!(table(&tables, "Life Table of weeks").caption.is_none());
+    assert!(table(&tables, "Median Survival Time").caption.is_none());
 }
 
 #[test]

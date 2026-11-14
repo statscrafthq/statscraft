@@ -346,6 +346,9 @@ impl Engine {
             if starts.len() <= 25 {
                 let list: Vec<String> = starts.iter().map(|s| bound_text(*s)).collect();
                 text.push_str(&format!("; the intervals start at {}", list.join(", ")));
+            } else {
+                let last = bound_text(*starts.last().expect("never empty"));
+                text.push_str(&format!("; the open interval now starts at {last}"));
             }
             warnings.push(text);
         }
@@ -427,6 +430,8 @@ impl Engine {
         for (v, time_name) in times.iter().enumerate() {
             let time_label = shown.variable(&time_vars[v]);
             let mut table_rows = Vec::new();
+            // some group reached the open interval, which has no density or hazard
+            let mut open = false;
             for second in &seconds {
                 for first in &firsts {
                     // the cases of each (second, first) pair of values that occurs, in one pass
@@ -496,6 +501,7 @@ impl Engine {
                                         usize::from(first.is_some()) + usize::from(has_second),
                                         Cell::Text(String::new()),
                                     );
+                                    open |= line.width.is_none();
                                     row.extend([
                                         Cell::Number(line.start),
                                         Cell::Number(line.entering),
@@ -690,8 +696,6 @@ impl Engine {
                     ]
                     .map(String::from),
                 );
-                // a row without a density is the open interval
-                let open = table_rows.iter().any(|r| r[lead + 9] == Cell::Empty);
                 tables.push(Table {
                     title: format!("Life Table of {time_label}"),
                     row_headers: lead + 1,
@@ -705,6 +709,9 @@ impl Engine {
             }
         }
         if !median_rows.is_empty() {
+            let plus = median_rows
+                .iter()
+                .any(|r| matches!(r.last(), Some(Cell::Text(_))));
             tables.push(Table {
                 title: "Median Survival Time".into(),
                 row_headers: 3,
@@ -726,11 +733,11 @@ impl Engine {
                         r
                     })
                     .collect(),
-                caption: Some(
+                caption: plus.then(|| {
                     "A plus sign: survival stays at 0.5 or above up to the start of the last \
                      interval that cases entered."
-                        .into(),
-                ),
+                        .into()
+                }),
                 ..Table::default()
             });
         }
