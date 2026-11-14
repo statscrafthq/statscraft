@@ -77,26 +77,37 @@ impl Default for Distances {
     }
 }
 
+/// Where a command writes the data it makes, as the syntax names it: nowhere (0), a data file
+/// (1), a new dataset (2), which the caller declares first, or the active dataset (3).
+pub(crate) fn output_target(
+    choice: usize,
+    file: &str,
+    dataset: &str,
+    what: &str,
+) -> Result<Option<String>, String> {
+    Ok(match choice {
+        0 => None,
+        1 => match file.trim() {
+            "" => return Err(format!("choose the file for {what}")),
+            path => Some(quote(path)),
+        },
+        2 => match dataset.trim() {
+            "" => return Err("name the new dataset".into()),
+            name if !is_valid_name(name) || name.starts_with('#') => {
+                return Err(format!("{name} cannot name a dataset"));
+            }
+            name => Some(name.to_string()),
+        },
+        _ => Some("*".into()),
+    })
+}
+
 impl Distances {
     pub fn syntax(&self, data: &Dataset) -> Result<String, String> {
         let list = names(&self.variables, "Variables")?;
         numeric(data, &self.variables)?;
         let measure = self.measure.syntax()?;
-        let target = match self.matrix {
-            0 => None,
-            1 => match self.file.trim() {
-                "" => return Err("choose the file for the matrix".into()),
-                path => Some(quote(path)),
-            },
-            2 => match self.dataset.trim() {
-                "" => return Err("name the new dataset".into()),
-                name if !is_valid_name(name) || name.starts_with('#') => {
-                    return Err(format!("{name} cannot name a dataset"));
-                }
-                name => Some(name.to_string()),
-            },
-            _ => Some("*".into()),
-        };
+        let target = output_target(self.matrix, &self.file, &self.dataset, "the matrix")?;
         let mut text = String::new();
         // the command writes into a dataset only when one of that name exists
         if self.matrix == 2 {

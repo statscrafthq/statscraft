@@ -29,6 +29,7 @@ use crate::model_dialogs::{
     Categorical, ClusterMeasure, Discriminant, FactorAnalysis, FactorContrast, Hierarchical,
     KMeans, Logistic, MColumn, RepeatedMeasures, Solutions, Univariate, WithinFactor,
 };
+use crate::mva_dialog::{Estimation, MissingValueAnalysis};
 use crate::proximities_dialog::Distances;
 use crate::stats_dialogs::{Block, NparKind, NparTests, PartialCorr, Regression, Reliability};
 use crate::survival_dialog::{KaplanMeier, LifeTables};
@@ -275,6 +276,10 @@ fn minimal(out: &Path) -> Vec<Dialog> {
                 variables: v(&["monthly_spend"]),
                 method: 0,
             }],
+            ..Default::default()
+        }))),
+        Dialog::Advanced(Advanced::Mva(Box::new(MissingValueAnalysis {
+            quantitative: v(&["age", "q2_recommend"]),
             ..Default::default()
         }))),
         // the plan before the analyses that read it
@@ -1878,6 +1883,146 @@ fn the_scaling_dialogs_write_syntax_that_runs() {
         let after = session.dataset().unwrap();
         assert_eq!(after.variable_count(), data.variable_count(), "{syntax}");
     }
+    std::fs::remove_dir_all(out).unwrap();
+}
+
+/// Missing Value Analysis on the survey file, whose ratings have user-missing codes and whose
+/// later mentions are often empty: the syntax is as expected, parses and runs without a warning.
+#[test]
+fn the_missing_value_dialog_writes_syntax_that_runs() {
+    let out = folder("walk-mva");
+    let file = out
+        .join("regression filled.sav")
+        .to_string_lossy()
+        .into_owned();
+    let base = MissingValueAnalysis::default();
+    let cases: Vec<(MissingValueAnalysis, String)> = vec![
+        (
+            MissingValueAnalysis {
+                quantitative: v(&["age", "q2_recommend"]),
+                ..base.clone()
+            },
+            s("MVA VARIABLES=age q2_recommend."),
+        ),
+        // a string category needs no CATEGORICAL
+        (
+            MissingValueAnalysis {
+                quantitative: v(&["age", "monthly_spend", "q2_recommend"]),
+                categorical: v(&["region", "plan"]),
+                maxcat: s("10"),
+                id: s("resp_id"),
+                listwise: true,
+                pairwise: true,
+                ..base.clone()
+            },
+            s(
+                "MVA VARIABLES=age monthly_spend q2_recommend region plan\n  /CATEGORICAL=region\n  \
+                 /MAXCAT=10\n  /ID=resp_id\n  /LISTWISE\n  /PAIRWISE.",
+            ),
+        ),
+        (
+            MissingValueAnalysis {
+                quantitative: v(&["age", "q1_satisfaction", "q2_recommend"]),
+                categorical: v(&["gender"]),
+                univariate: false,
+                tpattern: true,
+                tpattern_percent: s("0"),
+                tpattern_nosort: true,
+                mpattern: true,
+                mpattern_nosort: true,
+                dpattern: true,
+                sort: v(&["region", "age"]),
+                descending: v(&["region"]),
+                describe: v(&["region", "monthly_spend"]),
+                ..base.clone()
+            },
+            s(
+                "MVA VARIABLES=age q1_satisfaction q2_recommend gender\n  /CATEGORICAL=gender\n  \
+                 /NOUNIVARIATE\n  /DPATTERN SORT=region(DESCENDING) age DESCRIBE=region \
+                 monthly_spend\n  /MPATTERN NOSORT DESCRIBE=region monthly_spend\n  \
+                 /TPATTERN NOSORT PERCENT=0 DESCRIBE=region monthly_spend.",
+            ),
+        ),
+        (
+            MissingValueAnalysis {
+                quantitative: v(&["age", "q2_recommend", "q6_mention2"]),
+                categorical: v(&["region"]),
+                ttest: true,
+                ttest_percent: s("0"),
+                prob: true,
+                crosstab: true,
+                crosstab_percent: s("0"),
+                mismatch: true,
+                mismatch_percent: s("2.5"),
+                mismatch_nosort: true,
+                ..base.clone()
+            },
+            s(
+                "MVA VARIABLES=age q2_recommend q6_mention2 region\n  /CATEGORICAL=region\n  \
+                 /TTEST PERCENT=0 PROB\n  /CROSSTAB PERCENT=0\n  /MISMATCH PERCENT=2.5 NOSORT.",
+            ),
+        ),
+        (
+            MissingValueAnalysis {
+                quantitative: v(&["age", "monthly_spend", "q1_satisfaction", "q2_recommend"]),
+                em: Estimation {
+                    on: true,
+                    predicted: v(&["q2_recommend", "q1_satisfaction"]),
+                    predictors: v(&["age", "monthly_spend"]),
+                    distribution: 1,
+                    df: s("4"),
+                    iterations: s("50"),
+                    output: 2,
+                    dataset: s("em_filled"),
+                    ..Default::default()
+                },
+                ..base.clone()
+            },
+            s(
+                "DATASET DECLARE em_filled.\nMVA VARIABLES=age monthly_spend q1_satisfaction \
+                 q2_recommend\n  /EM q2_recommend q1_satisfaction WITH age monthly_spend \
+                 (ITERATIONS=50 TDF=4 OUTFILE=em_filled).",
+            ),
+        ),
+        (
+            MissingValueAnalysis {
+                quantitative: v(&["age", "monthly_spend", "q2_recommend"]),
+                regression: Estimation {
+                    on: true,
+                    predicted: v(&["q2_recommend"]),
+                    addtype: 3,
+                    npredictors: s("1"),
+                    flimit: s("2"),
+                    output: 1,
+                    file: file.clone(),
+                    ..Default::default()
+                },
+                ..base.clone()
+            },
+            format!(
+                "MVA VARIABLES=age monthly_spend q2_recommend\n  /REGRESSION q2_recommend \
+                 (FLIMIT=2 NPREDICTORS=1 ADDTYPE=T(5) OUTFILE='{file}')."
+            ),
+        ),
+    ];
+    for (dialog, expected) in cases {
+        let mut session = open("survey_basic.sav");
+        let data = session.dataset().unwrap().clone();
+        let syntax = Dialog::Advanced(Advanced::Mva(Box::new(dialog)))
+            .syntax(&data)
+            .unwrap();
+        assert_eq!(syntax, expected);
+        let (_, errors) = statscraft_syntax::parse(&syntax);
+        assert!(errors.is_empty(), "{syntax}\n{errors:?}");
+        let result = session.run(&syntax, None).unwrap();
+        assert!(
+            result.commands.iter().any(|c| !c.tables.is_empty()),
+            "{syntax}"
+        );
+        let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
+        assert!(warnings.is_empty(), "{syntax}\n{warnings:?}");
+    }
+    assert!(Path::new(&file).exists());
     std::fs::remove_dir_all(out).unwrap();
 }
 

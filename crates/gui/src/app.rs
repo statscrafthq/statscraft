@@ -1701,6 +1701,9 @@ impl App {
                             }
                         }
                     });
+                    if ui.button("Missing Value Analysis...").clicked() {
+                        self.open_dialog(Dialog::Advanced(Advanced::Mva(Default::default())));
+                    }
                     ui.menu_button("Complex Samples", |ui| {
                         let tables = |crosstabs| {
                             Advanced::Tables(SampleTables {

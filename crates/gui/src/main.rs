@@ -31,6 +31,8 @@ mod mds_dialog;
 mod mds_dialog_view;
 mod model_dialogs;
 mod model_dialogs_view;
+mod mva_dialog;
+mod mva_dialog_view;
 mod office;
 #[cfg(target_os = "macos")]
 mod open_files;

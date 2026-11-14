@@ -54,30 +54,50 @@ pub fn distances(
         ui.checkbox(&mut d.include, "Include user-missing values");
     });
     egui::CollapsingHeader::new("Matrix Output").show(ui, |ui| {
-        for (i, label) in PROXIMITIES_MATRIX.iter().enumerate() {
-            ui.horizontal(|ui| {
-                ui.radio_value(&mut d.matrix, i, *label);
-                match i {
-                    1 if d.matrix == 1 => {
-                        ui.add(TextEdit::singleline(&mut d.file).desired_width(220.0));
-                        if ui.button("Browse...").clicked()
-                            && let Some(mut path) = file_dialog(folder)
-                                .add_filter("Data file", &["sav"])
-                                .save_file()
-                        {
-                            if path.extension().is_none() {
-                                path.set_extension("sav");
-                            }
-                            *folder = path.parent().map(Path::to_path_buf);
-                            d.file = path.to_string_lossy().into_owned();
-                        }
-                    }
-                    2 if d.matrix == 2 => {
-                        ui.add(TextEdit::singleline(&mut d.dataset).desired_width(120.0));
-                    }
-                    _ => {}
-                }
-            });
-        }
+        output_picker(
+            ui,
+            &PROXIMITIES_MATRIX,
+            &mut d.matrix,
+            &mut d.file,
+            &mut d.dataset,
+            folder,
+        );
     });
+}
+
+/// One radio button per place in `labels` to write data to; the second takes a data file with
+/// Browse, the third the name of a new dataset.
+pub(crate) fn output_picker(
+    ui: &mut Ui,
+    labels: &[&str],
+    choice: &mut usize,
+    file: &mut String,
+    dataset: &mut String,
+    folder: &mut Option<PathBuf>,
+) {
+    for (i, label) in labels.iter().enumerate() {
+        ui.horizontal(|ui| {
+            ui.radio_value(choice, i, *label);
+            match i {
+                1 if *choice == 1 => {
+                    ui.add(TextEdit::singleline(file).desired_width(220.0));
+                    if ui.button("Browse...").clicked()
+                        && let Some(mut path) = file_dialog(folder)
+                            .add_filter("Data file", &["sav"])
+                            .save_file()
+                    {
+                        if path.extension().is_none() {
+                            path.set_extension("sav");
+                        }
+                        *folder = path.parent().map(Path::to_path_buf);
+                        *file = path.to_string_lossy().into_owned();
+                    }
+                }
+                2 if *choice == 2 => {
+                    ui.add(TextEdit::singleline(dataset).desired_width(120.0));
+                }
+                _ => {}
+            }
+        });
+    }
 }

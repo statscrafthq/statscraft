@@ -160,7 +160,7 @@ impl Default for Proxscal {
 }
 
 /// A whole number from `least`, the default when the field is empty.
-fn count(text: &str, least: u32, what: &str, default: u32) -> Result<u32, String> {
+pub(crate) fn count(text: &str, least: u32, what: &str, default: u32) -> Result<u32, String> {
     Ok(whole(text, least, what)?.unwrap_or(default))
 }
 

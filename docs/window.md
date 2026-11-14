@@ -494,6 +494,10 @@ See [The Window menu](#the-window-menu).
 - Row, column and total percentages, based on cases or on responses.
 - Leaving out cases missing on any variable of a dichotomy or category group.
 
+**Missing Value Analysis** (`MVA`)
+
+- Quantitative and categorical variables (strings always count as categorical), the most categories and a variable that labels the cases. Univariate statistics, and estimates listwise, pairwise, by EM and by regression. Patterns: tabulated (leaving out rare ones), the cases with missing values, or every case sorted up or down by chosen variables, each with variables described beside them. T tests, crosstabs and mismatches, each above a share of missing values you set. EM assumes a normal, Student's t or mixed normal distribution; regression adds a residual, a normal or t draw or nothing. Both can estimate chosen variables from chosen others and save the filled-in data to a file or a new dataset, but not while the file is split.
+
 **Complex Samples**
 
 - **Analysis Plan** (`CSPLAN ANALYSIS`): writes a plan file, a small JSON file, with the sample weight and one to three stages. Each stage has an optional label, strata and clusters (every stage but the last needs clusters), and is drawn with replacement or with equal probability without replacement. A stage drawn with replacement ends the design, so no stage can follow it. Without replacement needs the population size or the inclusion probability, as one value or read from a variable. Design effects compare with simple random sampling with or without replacement. Matrices of population sizes are in the syntax.

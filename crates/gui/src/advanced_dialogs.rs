@@ -1,6 +1,7 @@
 //! The Ordinal Regression, Multinomial Logistic Regression, Linear Mixed Models, Generalized
 //! Linear Models (in `genlin_dialog`), Correspondence Analysis (in `correspondence_dialog`),
-//! Life Tables and Kaplan-Meier (in `survival_dialog`), Cox Regression (in `cox_dialog`) and
+//! Life Tables and Kaplan-Meier (in `survival_dialog`), Cox Regression (in `cox_dialog`), Missing
+//! Value Analysis (in `mva_dialog`) and
 //! complex samples dialogs (the
 //! analysis plan, Descriptives, Frequencies and Crosstabs; the General Linear Model and Logistic
 //! Regression in `cs_model_dialog`). Options left as they are add nothing to the syntax, so the
@@ -14,6 +15,7 @@ use crate::dialogs::whole;
 use crate::genlin_dialog::{GeneralizedLinear, data_checks};
 use crate::mds_dialog::{Alscal, Proxscal};
 use crate::model_dialogs::GLM_ADJUSTMENTS;
+use crate::mva_dialog::MissingValueAnalysis;
 use crate::proximities_dialog::Distances;
 use crate::stats_dialogs::{numeric, parse, percent};
 use crate::survival_dialog::{KaplanMeier, LifeTables};
@@ -41,6 +43,8 @@ pub enum Advanced {
     Alscal(Alscal),
     // boxed: a large dialog
     Cox(Box<Cox>),
+    // boxed: a large dialog
+    Mva(Box<MissingValueAnalysis>),
 }
 
 impl Advanced {
@@ -63,6 +67,7 @@ impl Advanced {
             Advanced::Proxscal(_) => "Multidimensional Scaling (PROXSCAL)",
             Advanced::Alscal(_) => "Multidimensional Scaling (ALSCAL)",
             Advanced::Cox(_) => "Cox Regression",
+            Advanced::Mva(_) => "Missing Value Analysis",
         }
     }
 
@@ -87,6 +92,7 @@ impl Advanced {
             Advanced::Proxscal(_) => Advanced::Proxscal(Default::default()),
             Advanced::Alscal(_) => Advanced::Alscal(Default::default()),
             Advanced::Cox(_) => Advanced::Cox(Default::default()),
+            Advanced::Mva(_) => Advanced::Mva(Default::default()),
         }
     }
 
@@ -120,6 +126,7 @@ impl Advanced {
             Advanced::Proxscal(d) => d.syntax(data),
             Advanced::Alscal(d) => d.syntax(data),
             Advanced::Cox(d) => d.syntax(data),
+            Advanced::Mva(d) => d.syntax(data),
         }
     }
 }

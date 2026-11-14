@@ -44,6 +44,7 @@ pub fn body(
         Advanced::Proxscal(d) => crate::mds_dialog_view::proxscal(ui, data, d, picked, folder),
         Advanced::Alscal(d) => crate::mds_dialog_view::alscal(ui, d, picked, folder),
         Advanced::Cox(d) => crate::cox_dialog_view::cox(ui, data, d, picked),
+        Advanced::Mva(d) => crate::mva_dialog_view::mva(ui, d, picked, folder),
     }
 }
 
