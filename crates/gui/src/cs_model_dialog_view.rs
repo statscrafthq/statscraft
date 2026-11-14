@@ -4,8 +4,8 @@ use crate::advanced_dialogs::{forget_old_covariates, forget_old_factors};
 use crate::advanced_dialogs_view::{means_editor, plan_path, terms_editor, tests_editor};
 use crate::app::{checkboxes, choice, field, target_list, target_one};
 use crate::cs_model_dialog::{
-    CS_ADJUSTMENTS, CS_CONTRASTS, CS_INTERCEPTS, CS_PRINT, CS_REFERENCES, CS_STATISTICS, CS_TESTS,
-    GLM_SAVE, LOGISTIC_SAVE, OddsRatio, SampleModel,
+    CS_ADJUSTMENTS, CS_CONTRASTS, CS_INTERCEPTS, CS_LEVELS, CS_PRINT, CS_REFERENCES, CS_STATISTICS,
+    CS_TESTS, GLM_SAVE, Held, LOGISTIC_SAVE, OddsRatio, SampleModel,
 };
 use crate::genlin_dialog::GENLIN_MODELS;
 use crate::stats_dialogs_view::small_field;
@@ -171,27 +171,33 @@ fn odds_editor(ui: &mut Ui, d: &mut SampleModel) {
             if o.variable.is_empty() {
                 return;
             }
-            let label = if d.covariates.contains(&o.variable) {
-                "Changes (empty: 1)"
+            if d.covariates.contains(&o.variable) {
+                field(ui, "Changes (empty: 1)", &mut o.reference, 80.0);
             } else {
-                "Reference: LOW, HIGH or a value (empty: the highest)"
-            };
-            field(ui, label, &mut o.reference, 80.0);
-            o.control.retain(|(n, _)| model.contains(n));
+                ui.push_id("reference", |ui| {
+                    level_choice(ui, "Reference", false, &mut o.level, &mut o.reference);
+                });
+            }
+            o.control.retain(|h| model.contains(&h.name));
             let others: Vec<&String> = model.iter().filter(|n| **n != o.variable).collect();
             if !others.is_empty() {
-                ui.label("Others held at (empty: the highest level or the mean)");
+                ui.label("Others held at");
             }
             for n in others {
-                let at = match o.control.iter().position(|(c, _)| c == n) {
+                let at = match o.control.iter().position(|h| &h.name == n) {
                     Some(at) => at,
                     None => {
-                        o.control.push((n.clone(), String::new()));
+                        o.control.push(Held {
+                            name: n.clone(),
+                            ..Default::default()
+                        });
                         o.control.len() - 1
                     }
                 };
+                let covariate = d.covariates.contains(n);
+                let h = &mut o.control[at];
                 ui.push_id(("control", n), |ui| {
-                    field(ui, n, &mut o.control[at].1, 60.0)
+                    level_choice(ui, n, covariate, &mut h.level, &mut h.value);
                 });
             }
         });
@@ -202,4 +208,20 @@ fn odds_editor(ui: &mut Ui, d: &mut SampleModel) {
     if ui.small_button("Add odds ratio").clicked() {
         d.odds.push(OddsRatio::default());
     }
+}
+
+/// The highest or lowest level of a factor or a value typed for it; for a covariate its mean
+/// or a value.
+fn level_choice(ui: &mut Ui, label: &str, covariate: bool, level: &mut usize, value: &mut String) {
+    ui.horizontal(|ui| {
+        ui.label(label);
+        if covariate {
+            ui.radio_value(level, 0, "Mean");
+        } else {
+            ui.radio_value(level, 0, CS_LEVELS[0]);
+            ui.radio_value(level, 1, CS_LEVELS[1]);
+        }
+        ui.radio_value(level, 2, CS_LEVELS[2]);
+        small_field(ui, *level == 2, value);
+    });
 }

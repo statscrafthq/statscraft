@@ -86,16 +86,30 @@ pub const LOGISTIC_SAVE: [(&str, &str); 2] = [
     ("PREDVAL", "Predicted category"),
 ];
 
+/// The level of a factor in an odds ratio; the first is the default. For a covariate held at a
+/// value the first stands for its mean.
+pub const CS_LEVELS: [&str; 3] = ["Highest", "Lowest", "Value"];
+
 /// One ODDSRATIOS subcommand: the odds ratios of one factor or covariate.
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct OddsRatio {
     pub variable: String,
-    /// A factor: LOW, HIGH or a value (empty: the highest level). A covariate: its changes,
+    /// A factor: index into `CS_LEVELS` for its reference level.
+    pub level: usize,
+    /// A factor: the reference value when `level` is Value. A covariate: its changes,
     /// separated by spaces (empty: 1).
     pub reference: String,
-    /// The value other factors (LOW, HIGH or a value) and covariates (MEAN or a number) are
-    /// held at; empty or missing: the highest level or the mean.
-    pub control: Vec<(String, String)>,
+    /// What the other factors and covariates are held at.
+    pub control: Vec<Held>,
+}
+
+/// A factor or covariate held at a level in an odds ratio.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct Held {
+    pub name: String,
+    /// Index into `CS_LEVELS`: 0 is the highest level of a factor or the mean of a covariate.
+    pub level: usize,
+    pub value: String,
 }
 
 /// CSGLM or CSLOGISTIC.
@@ -275,11 +289,13 @@ impl SampleModel {
         for (i, test) in self.tests.iter().enumerate() {
             text.push_str(&custom(test, &terms, intercept, i + 1)?);
         }
+        // a variable the terms leave out has no means or odds ratios
+        let in_model = |name: &str| terms.iter().any(|t| t.iter().any(|v| v == name));
         if !self.logistic {
-            text.push_str(&self.means_syntax()?);
+            text.push_str(&self.means_syntax(&in_model)?);
         } else {
             for (i, o) in self.odds.iter().enumerate() {
-                text.push_str(&self.odds_syntax(o, i + 1, &quoted)?);
+                text.push_str(&self.odds_syntax(o, i + 1, &quoted, &in_model)?);
             }
         }
 
@@ -352,7 +368,7 @@ impl SampleModel {
     }
 
     /// One `/EMMEANS` per table.
-    fn means_syntax(&self) -> Result<String, String> {
+    fn means_syntax(&self, in_model: &dyn Fn(&str) -> bool) -> Result<String, String> {
         let mut text = String::new();
         // the values count only for tables of means
         let other: Vec<String> = match self.means.is_empty() {
@@ -364,6 +380,12 @@ impl SampleModel {
         };
         for (i, table) in self.means.iter().enumerate() {
             let (crossed, compare) = table.checked(&self.factors, i + 1)?;
+            if let Some(f) = crossed.iter().find(|f| !in_model(f)) {
+                return Err(format!(
+                    "{f} in estimated marginal means table {} is not in the model",
+                    i + 1
+                ));
+            }
             let mut parts = Vec::new();
             if !crossed.is_empty() {
                 parts.push(format!("TABLES={}", crossed.join("*")));
@@ -392,21 +414,34 @@ impl SampleModel {
         o: &OddsRatio,
         n: usize,
         quoted: &dyn Fn(&str) -> Result<bool, String>,
+        in_model: &dyn Fn(&str) -> bool,
     ) -> Result<String, String> {
         let variable = o.variable.trim();
-        // LOW and HIGH, or a value of the factor
-        let level = |name: &str, given: &str| -> Result<String, String> {
-            match given.trim() {
-                g if g.eq_ignore_ascii_case("LOW") || g.eq_ignore_ascii_case("HIGH") => {
-                    Ok(g.to_uppercase())
-                }
-                _ => value(given, quoted(name)?),
+        // the level of a factor: nothing for the highest (the default), LOW, or a value typed,
+        // always quoted for strings and formatted values, so a category "Low" stays a value
+        let level = |name: &str, level: usize, given: &str| -> Result<Option<String>, String> {
+            match level {
+                0 => Ok(None),
+                1 => Ok(Some("LOW".into())),
+                _ => match given.trim() {
+                    "" => Err(format!("give the value of {name} in odds ratio {n}")),
+                    given => value(given, quoted(name)?).map(Some),
+                },
             }
         };
+        let listed = |name: &str| {
+            self.factors
+                .iter()
+                .chain(&self.covariates)
+                .any(|m| m == name)
+        };
+        if listed(variable) && !in_model(variable) {
+            return Err(format!("{variable} in odds ratio {n} is not in the model"));
+        }
         let mut text = if self.factors.iter().any(|f| f == variable) {
-            match o.reference.trim() {
-                "" => format!("FACTOR=[{variable}]"),
-                given => format!("FACTOR=[{variable}({})]", level(variable, given)?),
+            match level(variable, o.level, &o.reference)? {
+                None => format!("FACTOR=[{variable}]"),
+                Some(at) => format!("FACTOR=[{variable}({at})]"),
             }
         } else if self.covariates.iter().any(|c| c == variable) {
             let mut changes = Vec::new();
@@ -432,23 +467,27 @@ impl SampleModel {
         };
         let mut control = Vec::new();
         for name in self.model_variables().iter().filter(|m| *m != variable) {
-            let Some((_, given)) = o.control.iter().find(|(c, _)| c == name) else {
+            let Some(held) = o.control.iter().find(|h| &h.name == name) else {
                 continue;
             };
-            let given = given.trim();
-            if given.is_empty() {
-                continue;
-            }
             let written = if self.factors.contains(name) {
-                level(name, given)?
-            } else if given.eq_ignore_ascii_case("MEAN") {
-                "MEAN".into()
-            } else {
-                number(parse(
-                    given,
+                level(name, held.level, &held.value)?
+            } else if held.level == 2 {
+                Some(number(parse(
+                    &held.value,
                     &format!("the value of {name} in odds ratio {n}"),
-                )?)
+                )?))
+            } else {
+                None
             };
+            let Some(written) = written else {
+                continue;
+            };
+            if !in_model(name) {
+                return Err(format!(
+                    "odds ratio {n} holds {name} at a value, but {name} is not in the model"
+                ));
+            }
             control.push(format!("{name}({written})"));
         }
         if !control.is_empty() {
@@ -609,13 +648,19 @@ fn custom(
             .filter(|&i| coefficient(tokens[i]).is_none())
             .collect();
         let is = |i: usize, word: &str| tokens[i].eq_ignore_ascii_case(word);
-        for &i in &names {
+        // a leading INTERCEPT is written as a bare number, so it goes with either form
+        for &i in names.iter().filter(|&&i| i > 0 || !is(i, "INTERCEPT")) {
             let all = is(i, "ALL");
             if *all_form.get_or_insert(all) != all {
                 return Err(format!(
                     "test {n}: ALL and effect names cannot be mixed in one test"
                 ));
             }
+        }
+        if is(0, "INTERCEPT") && names.iter().any(|&i| is(i, "ALL")) {
+            return Err(format!(
+                "test {n}: ALL gives the intercept its coefficient, so INTERCEPT goes in a row of its own"
+            ));
         }
         if names.iter().any(|&i| i > 0 && is(i, "INTERCEPT")) {
             return Err(format!("test {n}: INTERCEPT comes first in a row"));
@@ -672,6 +717,14 @@ mod tests {
             ),
         );
         (session, path, dir)
+    }
+
+    fn held(name: &str, level: usize, value: &str) -> Held {
+        Held {
+            name: name.into(),
+            level,
+            value: value.into(),
+        }
     }
 
     fn data(session: &Session) -> Dataset {
@@ -771,6 +824,10 @@ mod tests {
         };
         d.intercept = 1;
         d.tests.clear();
+        assert_eq!(
+            d.syntax(&data).unwrap_err(),
+            "plan in estimated marginal means table 2 is not in the model"
+        );
         d.means.clear();
         d.domain.clear();
         d.domain_value.clear();
@@ -830,6 +887,23 @@ mod tests {
             "{syntax}"
         );
         runs_in(&mut session, &syntax);
+        // a leading INTERCEPT is a bare number, so it goes with rows of ALL
+        d.tests[0].rows = "INTERCEPT 1\nALL 0 1".into();
+        let syntax = d.syntax(&data).unwrap();
+        assert!(syntax.contains("/CUSTOM LMATRIX=1; ALL 0 1\n"), "{syntax}");
+        runs_in(&mut session, &syntax);
+        // in one row the command refuses them: ALL already covers the intercept
+        let raw = d
+            .syntax(&data)
+            .unwrap()
+            .replace("LMATRIX=1; ALL", "LMATRIX=1 ALL");
+        assert!(session.run(&raw, None).is_err(), "{raw}");
+        d.tests[0].rows = "INTERCEPT 1 ALL 0 1".into();
+        assert_eq!(
+            d.syntax(&data).unwrap_err(),
+            "test 1: ALL gives the intercept its coefficient, so INTERCEPT goes in a row of its own"
+        );
+        d.tests.clear();
         d.save = [true, false];
         d.save_names[0] = "age".into();
         assert_eq!(d.syntax(&data).unwrap_err(), "age is already a variable");
@@ -868,13 +942,15 @@ mod tests {
         d.odds = vec![
             OddsRatio {
                 variable: "gender".into(),
-                reference: "low".into(),
-                control: vec![("age".into(), "40".into())],
+                level: 1,
+                control: vec![held("age", 2, "40")],
+                ..Default::default()
             },
             OddsRatio {
                 variable: "age".into(),
                 reference: "1 10".into(),
-                control: vec![("gender".into(), "2".into())],
+                control: vec![held("gender", 2, "2")],
+                ..Default::default()
             },
         ];
         d.iterations = "50".into();
@@ -921,9 +997,14 @@ mod tests {
         d.reference_value = "BASIC".into();
         d.odds = vec![OddsRatio {
             variable: "gender".into(),
-            reference: "1".into(),
-            control: Vec::new(),
+            level: 2,
+            ..Default::default()
         }];
+        assert_eq!(
+            d.syntax(&data).unwrap_err(),
+            "give the value of gender in odds ratio 1"
+        );
+        d.odds[0].reference = "1".into();
         d.save = [true, false];
         d.probabilities = String::new();
         let syntax = d.syntax(&data).unwrap();
@@ -948,6 +1029,44 @@ mod tests {
         assert_eq!(
             d.syntax(&data).unwrap_err(),
             "odds ratio 1: a change of age cannot be 0"
+        );
+        d.odds[0].reference.clear();
+        d.intercept = 2;
+        assert_eq!(
+            d.syntax(&data).unwrap_err(),
+            "age in odds ratio 1 is not in the model"
+        );
+        // a category typed as a value stays a value, even one named like a keyword
+        d.intercept = 0;
+        d.factors = v(&["gender", "q5_2"]);
+        d.model = 2;
+        d.terms = Terms {
+            terms: vec![v(&["gender"]), v(&["age"])],
+            building: Vec::new(),
+        };
+        d.odds = vec![OddsRatio {
+            variable: "gender".into(),
+            level: 0,
+            reference: "Low".into(),
+            control: vec![held("q5_2", 1, "")],
+        }];
+        assert_eq!(
+            d.syntax(&data).unwrap_err(),
+            "odds ratio 1 holds q5_2 at a value, but q5_2 is not in the model"
+        );
+        d.odds[0].control[0].level = 0;
+        d.odds[0].level = 2;
+        assert_eq!(d.syntax(&data).unwrap_err(), "\"Low\" is not a number");
+        d.dependent = "q5_1".into();
+        d.reference = 0;
+        d.factors = v(&["plan"]);
+        d.terms.terms[0] = v(&["plan"]);
+        d.odds[0].variable = "plan".into();
+        d.odds[0].control.clear();
+        let syntax = d.syntax(&data).unwrap();
+        assert!(
+            syntax.contains("/ODDSRATIOS FACTOR=[plan('Low')]\n"),
+            "{syntax}"
         );
         d.odds.clear();
         d.covariates = v(&["q3_comment"]);

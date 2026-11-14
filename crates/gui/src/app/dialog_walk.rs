@@ -11,7 +11,7 @@ use crate::analyze_dialogs::{
     Tree,
 };
 use crate::correspondence_dialog::{Correspondence, Role, TableVariable};
-use crate::cs_model_dialog::{OddsRatio, SampleModel};
+use crate::cs_model_dialog::{Held, OddsRatio, SampleModel};
 use crate::data_dialogs::{
     Aggregate, AggregateTo, Aggregated, ExportData, ImportData, Make, MergeFiles, Mrsets,
     Restructure, RestructureKind, SelectCases, SelectMode, SortCases, SortVariables, SplitFile,
@@ -1148,13 +1148,23 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             odds: vec![
                 OddsRatio {
                     variable: s("plan"),
+                    level: 2,
                     reference: s("BASIC"),
-                    control: vec![(s("q5_2"), s("LOW")), (s("age"), s("MEAN"))],
+                    control: vec![Held {
+                        name: s("q5_2"),
+                        level: 1,
+                        value: String::new(),
+                    }],
                 },
                 OddsRatio {
                     variable: s("age"),
+                    level: 0,
                     reference: s("1 10"),
-                    control: vec![(s("q5_2"), s("1"))],
+                    control: vec![Held {
+                        name: s("q5_2"),
+                        level: 2,
+                        value: s("1"),
+                    }],
                 },
             ],
             ci_level: s("99"),
