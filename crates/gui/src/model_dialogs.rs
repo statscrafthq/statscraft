@@ -925,6 +925,9 @@ pub const GLM_PRINT: [(&str, &str); 9] = [
 /// The number of entries of `GLM_PRINT` the Univariate dialog offers.
 pub const UNIVARIATE_PRINT: usize = 6;
 
+/// The entry TEST(MMATRIX) of `GLM_PRINT`, offered only with an M matrix.
+pub const PRINT_M_MATRIX: usize = 8;
+
 /// The contrasts of a factor, keyword and label; the first adds no CONTRAST.
 pub const GLM_CONTRASTS: [(&str, &str); 7] = [
     ("", "None"),
@@ -1125,27 +1128,33 @@ impl Univariate {
         }
     }
 
-    /// Adds the drafted profile plot, its factors in order without the empty slots and names
-    /// no longer factors, and clears the draft.
+    /// Adds the drafted profile plot, its filled slots from the horizontal axis on, and clears
+    /// the draft.
     pub fn add_profile(&mut self) {
         self.drop_stale_profile_draft();
-        let mut plot: Vec<String> = Vec::new();
-        for name in self.profile_draft.iter().filter(|n| !n.is_empty()) {
-            if !plot.contains(name) {
-                plot.push(name.clone());
-            }
-        }
+        let plot: Vec<String> = self
+            .profile_draft
+            .iter()
+            .take_while(|n| !n.is_empty())
+            .cloned()
+            .collect();
         if !plot.is_empty() && !self.profiles.contains(&plot) {
             self.profiles.push(plot);
         }
         self.profile_draft = Default::default();
     }
 
-    /// Empties the slots of the profile draft whose factor was taken out of the model.
+    /// Empties each slot of the profile draft whose factor was taken out of the model or is in
+    /// an earlier slot, and each slot after an empty one, so the filled slots keep their roles.
     pub fn drop_stale_profile_draft(&mut self) {
-        for slot in &mut self.profile_draft {
-            if !self.factors.contains(slot) {
-                slot.clear();
+        for i in 0..self.profile_draft.len() {
+            let earlier = &self.profile_draft[..i];
+            let slot = &self.profile_draft[i];
+            let stale = !self.factors.contains(slot)
+                || earlier.contains(slot)
+                || earlier.iter().any(String::is_empty);
+            if stale {
+                self.profile_draft[i].clear();
             }
         }
     }
@@ -1277,14 +1286,14 @@ impl Univariate {
         let mut plots: Vec<String> = Vec::new();
         plots.extend(self.spread_level.then(|| "SPREADLEVEL".into()));
         plots.extend(self.residual_plots.then(|| "RESIDUALS".into()));
-        if !self.profiles.is_empty() {
-            let mut profile = Vec::new();
-            for plot in &self.profiles {
-                if let Some(n) = plot.iter().find(|n| !self.factors.contains(n)) {
-                    return Err(format!("{n} in a profile plot is no longer a factor"));
-                }
-                profile.push(plot.join("*"));
-            }
+        // a plot of a factor taken out of the model is left out
+        let profile: Vec<String> = self
+            .profiles
+            .iter()
+            .filter(|plot| plot.iter().all(|n| self.factors.contains(n)))
+            .map(|plot| plot.join("*"))
+            .collect();
+        if !profile.is_empty() {
             plots.push(format!("PROFILE({})", profile.join(" ")));
             plots.extend(self.profile_bars.then(|| "TYPE=BAR".into()));
             if self.profile_errors > 0 {
@@ -1311,7 +1320,7 @@ impl Univariate {
             print.retain(|k| *k != "TEST(MMATRIX)");
         }
         if print.contains(&"TEST(SSCP)") && print.contains(&"TEST(MMATRIX)") {
-            print.retain(|k| !k.starts_with("TEST"));
+            print.retain(|k| *k != "TEST(SSCP)" && *k != "TEST(MMATRIX)");
             print.push("TEST(SSCP MMATRIX)");
         }
         glm_options(&mut text, self.sstype, print, &self.alpha)?;
@@ -1340,7 +1349,9 @@ impl Univariate {
 
 impl Univariate {
     /// `/MMATRIX` of the columns, checked: each coefficient is a number or a fraction, each
-    /// column has one that is not 0, and the intercept it tests is in the model.
+    /// column has one that is not 0, no column is a combination of the ones before it (so
+    /// there are at most as many columns as dependents), and the intercept it tests is in the
+    /// model.
     fn m_matrix_syntax(&self, text: &mut String) -> Result<(), String> {
         if self.m_matrix.is_empty() {
             return Ok(());
@@ -1349,7 +1360,14 @@ impl Univariate {
         if !self.intercept {
             return Err("the M matrix tests the intercept; include it in the model".into());
         }
+        let (m, r) = (self.m_matrix.len(), self.dependents.len());
+        if m > r {
+            return Err(format!(
+                "the M matrix has {m} columns but there are {r} dependent variables; it can have at most one column per dependent"
+            ));
+        }
         let mut columns = Vec::new();
+        let mut values: Vec<Vec<f64>> = Vec::new();
         for (i, column) in self.m_matrix.iter().enumerate() {
             let label = column.label.trim();
             let name = if label.is_empty() {
@@ -1361,7 +1379,8 @@ impl Univariate {
             if !label.is_empty() {
                 entries.push(quote(label));
             }
-            for dependent in &self.dependents {
+            let mut column_values = vec![0.0; r];
+            for (j, dependent) in self.dependents.iter().enumerate() {
                 let typed = column.coefficients.get(dependent).map_or("", |t| t.trim());
                 if typed.is_empty() {
                     continue;
@@ -1371,8 +1390,15 @@ impl Univariate {
                         "{name} of the M matrix: the coefficient of {dependent} must be a number or a fraction such as 1/3"
                     ));
                 };
-                if value.split('/').next().and_then(|n| n.parse::<f64>().ok()) != Some(0.0) {
+                let v = match value.split_once('/') {
+                    Some((a, b)) => {
+                        a.parse::<f64>().unwrap_or(0.0) / b.parse::<f64>().unwrap_or(1.0)
+                    }
+                    None => value.parse::<f64>().unwrap_or(0.0),
+                };
+                if v != 0.0 {
                     entries.push(format!("{dependent} {value}"));
+                    column_values[j] = v;
                 }
             }
             if entries.len() == usize::from(!label.is_empty()) {
@@ -1380,11 +1406,47 @@ impl Univariate {
                     "{name} of the M matrix needs a coefficient other than 0"
                 ));
             }
+            values.push(column_values);
+            // dependent columns leave the transformed error matrix singular
+            if rank(&values) < values.len() {
+                return Err(format!(
+                    "{name} of the M matrix is a combination of the columns before it; the columns must be linearly independent"
+                ));
+            }
             columns.push(entries.join(" "));
         }
         text.push_str(&format!("\n  /MMATRIX={}", columns.join("; ")));
         Ok(())
     }
+}
+
+/// The rank of the rows, by Gaussian elimination with partial pivoting.
+fn rank(rows: &[Vec<f64>]) -> usize {
+    let mut a = rows.to_vec();
+    let width = a.first().map_or(0, Vec::len);
+    let scale = a.iter().flatten().fold(0.0_f64, |m, v| m.max(v.abs()));
+    let tolerance = scale * 1e-9;
+    let mut rank = 0;
+    for c in 0..width {
+        let Some(p) = (rank..a.len()).max_by(|&i, &j| a[i][c].abs().total_cmp(&a[j][c].abs()))
+        else {
+            break;
+        };
+        if a[p][c].abs() <= tolerance {
+            continue;
+        }
+        a.swap(rank, p);
+        let (done, rest) = a.split_at_mut(rank + 1);
+        let pivot = &done[rank];
+        for row in rest {
+            let f = row[c] / pivot[c];
+            for (x, y) in row[c..].iter_mut().zip(&pivot[c..]) {
+                *x -= f * y;
+            }
+        }
+        rank += 1;
+    }
+    rank
 }
 
 /// A within-subjects factor: its name and number of levels as typed.
@@ -2002,19 +2064,20 @@ mod tests {
         ];
         d.spread_level = true;
         d.residual_plots = true;
-        d.profile_draft = ["region".into(), String::new(), "gender".into()];
+        d.profile_draft = ["region".into(), "gender".into(), String::new()];
         d.add_profile();
-        d.profile_draft = ["gender".into(), String::new(), String::new()];
+        // separate charts need separate lines: the charts factor is dropped, not moved up
+        d.profile_draft = ["gender".into(), String::new(), "region".into()];
         d.add_profile();
-        // the same plot is not added twice
-        d.profile_draft = ["gender".into(), "gender".into(), String::new()];
+        assert_eq!(d.profiles, vec![v(&["region", "gender"]), v(&["gender"])]);
+        // the same plot is not added twice; a factor twice in one plot counts once
+        d.profile_draft = ["gender".into(), "gender".into(), "region".into()];
         d.add_profile();
         assert_eq!(d.profiles.len(), 2);
-        // a name no longer a factor is dropped from the draft
+        // a name no longer a factor leaves the axis empty, and nothing is added
         d.profile_draft = ["plan".into(), "region".into(), String::new()];
         d.add_profile();
-        assert_eq!(d.profiles.len(), 3);
-        d.profiles.pop();
+        assert_eq!(d.profiles.len(), 2);
         d.profile_bars = true;
         d.profile_errors = 1;
         d.profile_mean_line = true;
@@ -2036,10 +2099,21 @@ mod tests {
         let data = session.dataset().unwrap();
         assert!(data.variable("PRE_1").is_ok());
         assert!(data.variable("COO_1").is_ok());
+        // the plots of a factor taken out are left out, with their options
         d.factors.retain(|f| f != "gender");
-        assert_eq!(
-            d.syntax().unwrap_err(),
-            "gender in a profile plot is no longer a factor"
+        let syntax = d.syntax().unwrap();
+        assert!(
+            syntax.contains("\n  /PLOT=SPREADLEVEL RESIDUALS\n"),
+            "{syntax}"
+        );
+        d.profiles.push(v(&["region"]));
+        let syntax = d.syntax().unwrap();
+        assert!(
+            syntax.contains(
+                "\n  /PLOT=SPREADLEVEL RESIDUALS PROFILE(region) TYPE=BAR ERRORBAR=CI \
+                 MEANREFERENCE=YES\n"
+            ),
+            "{syntax}"
         );
 
         // a custom model of main effects and one interaction, no intercept
@@ -2186,9 +2260,10 @@ mod tests {
         assert!(runs(&syntax) >= 4);
 
         // the M matrix is not shown while there is none
-        d.print[8] = true;
+        assert_eq!(GLM_PRINT[PRINT_M_MATRIX].0, "TEST(MMATRIX)");
+        d.print[PRINT_M_MATRIX] = true;
         assert_eq!(d.syntax().unwrap(), syntax);
-        d.print[8] = false;
+        d.print[PRINT_M_MATRIX] = false;
         d.m_matrix = vec![MColumn::default()];
         assert_eq!(
             d.syntax().unwrap_err(),
@@ -2216,6 +2291,43 @@ mod tests {
                 .unwrap()
                 .ends_with("\n  /MMATRIX='first' q2_recommend 2.")
         );
+        // a column that the earlier ones give: 2 * first, then first - second
+        let column = |pairs: &[(&str, &str)]| MColumn {
+            label: String::new(),
+            coefficients: pairs
+                .iter()
+                .map(|(n, c)| (n.to_string(), c.to_string()))
+                .collect(),
+        };
+        d.m_matrix.push(column(&[("q2_recommend", "4")]));
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "column 2 of the M matrix is a combination of the columns before it; the columns must be linearly independent"
+        );
+        d.m_matrix[1] = column(&[("monthly_spend", "1/2"), ("q2_recommend", "1")]);
+        d.m_matrix.push(column(&[("q1_satisfaction", "-0.5")]));
+        assert!(d.syntax().is_ok());
+        d.m_matrix[2] = column(&[("monthly_spend", "1/2"), ("q2_recommend", "-1")]);
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "column 3 of the M matrix is a combination of the columns before it; the columns must be linearly independent"
+        );
+        d.m_matrix[2] = column(&[("q1_satisfaction", "1")]);
+        d.m_matrix.push(column(&[("q1_satisfaction", "2")]));
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "the M matrix has 4 columns but there are 3 dependent variables; it can have at most one column per dependent"
+        );
+        d.m_matrix.pop();
+        let syntax = d.syntax().unwrap();
+        assert!(
+            syntax.ends_with(
+                "\n  /MMATRIX='first' q2_recommend 2; monthly_spend 1/2 q2_recommend 1; \
+                 q1_satisfaction 1."
+            ),
+            "{syntax}"
+        );
+        assert!(runs(&syntax) >= 5);
         d.covariates.push("q1_satisfaction".into());
         assert_eq!(
             d.syntax().unwrap_err(),

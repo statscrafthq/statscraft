@@ -10,8 +10,8 @@ use crate::model_dialogs::{
     FACTOR_MISSING, FACTOR_ROTATIONS, FACTOR_SCORES, FactorAnalysis, FactorContrast,
     GLM_ADJUSTMENTS, GLM_CONTRASTS, GLM_PRINT, GLM_SAVE, GLM_SAVE_GROUPS, Hierarchical, KMeans,
     LOGISTIC_CONTRASTS, LOGISTIC_METHODS, LOGISTIC_SAVE, LOGISTIC_SAVE_GROUPS, Logistic, MColumn,
-    PROFILE_ERROR_BARS, RepeatedMeasures, SUM_OF_SQUARES, Solutions, UNIVARIATE_PRINT, Univariate,
-    WithinFactor, glm_has_reference, has_reference,
+    PRINT_M_MATRIX, PROFILE_ERROR_BARS, RepeatedMeasures, SUM_OF_SQUARES, Solutions,
+    UNIVARIATE_PRINT, Univariate, WithinFactor, glm_has_reference, has_reference,
 };
 use crate::stats_dialogs_view::{blocks, small_field};
 use eframe::egui::{self, ComboBox, TextEdit, Ui};
@@ -458,11 +458,12 @@ pub fn univariate(ui: &mut Ui, d: &mut Univariate, picked: &mut Vec<String>) {
     egui::CollapsingHeader::new("Options").show(ui, |ui| {
         if d.multivariate {
             // the M matrix is shown only when there is one
-            let last = GLM_PRINT.len() - 1;
-            checkboxes(ui, &GLM_PRINT[..last], &mut d.print[..last]);
+            let at = PRINT_M_MATRIX;
+            checkboxes(ui, &GLM_PRINT[..at], &mut d.print[..at]);
             ui.add_enabled_ui(!d.m_matrix.is_empty(), |ui| {
-                ui.checkbox(&mut d.print[last], GLM_PRINT[last].1);
+                ui.checkbox(&mut d.print[at], GLM_PRINT[at].1);
             });
+            checkboxes(ui, &GLM_PRINT[at + 1..], &mut d.print[at + 1..]);
         } else {
             checkboxes(
                 ui,
@@ -527,23 +528,32 @@ fn plots(ui: &mut Ui, d: &mut Univariate) {
     ui.add_space(4.0);
     ui.label("Profile plots of estimated marginal means");
     d.drop_stale_profile_draft();
-    for (slot, title) in
-        d.profile_draft
-            .iter_mut()
-            .zip(["Horizontal axis", "Separate lines", "Separate charts"])
+    // a slot is open once the one before it is filled
+    let open = [
+        true,
+        !d.profile_draft[0].is_empty(),
+        !d.profile_draft[1].is_empty(),
+    ];
+    for ((slot, title), open) in d
+        .profile_draft
+        .iter_mut()
+        .zip(["Horizontal axis", "Separate lines", "Separate charts"])
+        .zip(open)
     {
-        ComboBox::new(title, title)
-            .selected_text(if slot.is_empty() {
-                "None"
-            } else {
-                slot.as_str()
-            })
-            .show_ui(ui, |ui| {
-                ui.selectable_value(slot, String::new(), "None");
-                for f in &d.factors {
-                    ui.selectable_value(slot, f.clone(), f.as_str());
-                }
-            });
+        ui.add_enabled_ui(open, |ui| {
+            ComboBox::new(title, title)
+                .selected_text(if slot.is_empty() {
+                    "None"
+                } else {
+                    slot.as_str()
+                })
+                .show_ui(ui, |ui| {
+                    ui.selectable_value(slot, String::new(), "None");
+                    for f in &d.factors {
+                        ui.selectable_value(slot, f.clone(), f.as_str());
+                    }
+                });
+        });
     }
     if ui
         .add_enabled(
