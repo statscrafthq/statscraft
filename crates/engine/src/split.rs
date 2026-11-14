@@ -414,14 +414,8 @@ fn write_back(
     }
     for (name, owner) in added {
         let source = afters[owner].expect("only groups that ran add variables");
-        let from_owner: Vec<Option<usize>> = at
-            .iter()
-            .map(|place| place.filter(|(g, _)| *g == owner).map(|(_, i)| i))
-            .collect();
-        full.copy_variable(source, &name, &from_owner)?;
-        if afters.len() == 1 {
-            continue;
-        }
+        // the definition only; the values of every group follow
+        full.copy_variable(source, &name, &vec![None; at.len()])?;
         let columns: Vec<_> = afters
             .iter()
             .map(|a| a.and_then(|a| a.variable(&name).ok()))
@@ -439,8 +433,8 @@ fn write_back(
                     .iter()
                     .flatten()
                     .filter_map(|v| v.string_width())
-                    .max();
-                let width = width.unwrap_or(1);
+                    .max()
+                    .expect("the defining group saved a string");
                 if full.variable(&name)?.string_width() != Some(width) {
                     full.set_string_width(&name, width)?;
                 }
