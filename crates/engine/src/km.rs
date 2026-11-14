@@ -75,8 +75,12 @@ pub(crate) fn curve(obs: &[Obs]) -> Curve {
         longest: sorted.last().map_or(0.0, |o| o.time),
         ..Curve::default()
     };
-    let total: f64 = sorted.iter().map(|o| o.weight).sum();
-    let (mut before, mut s, mut greenwood) = (0.0, 1.0, 0.0);
+    // those still at risk from each case on, summed from the end so the last ones are exact
+    let mut from = vec![0.0; sorted.len() + 1];
+    for i in (0..sorted.len()).rev() {
+        from[i] = from[i + 1] + sorted[i].weight;
+    }
+    let (mut s, mut greenwood) = (1.0, 0.0);
     let mut i = 0;
     while i < sorted.len() {
         let t = sorted[i].time;
@@ -87,9 +91,11 @@ pub(crate) fn curve(obs: &[Obs]) -> Curve {
             .map(|o| o.weight)
             .sum();
         if d > 0.0 {
-            let n = total - before;
-            s *= 1.0 - d / n;
-            if n > d {
+            let n = from[i];
+            // fractional weights must not leave a sliver where everyone at risk had the event
+            let all = n - d <= 1e-12 * n;
+            s = if all { 0.0 } else { s * (1.0 - d / n) };
+            if !all {
                 greenwood += d / (n * (n - d));
             }
             c.times.push(t);
@@ -102,7 +108,6 @@ pub(crate) fn curve(obs: &[Obs]) -> Curve {
         if i + same == sorted.len() {
             c.tied_at_end = d > 0.0 && sorted[i..].iter().any(|o| !o.event);
         }
-        before += sorted[i..i + same].iter().map(|o| o.weight).sum::<f64>();
         i += same;
     }
     c
@@ -258,7 +263,8 @@ pub(crate) fn test_statistic(
             }
             let n: f64 = at_risk.iter().sum();
             let dt: f64 = d.iter().sum();
-            if dt > 0.0 {
+            // one case at risk adds nothing to U or V
+            if dt > 0.0 && n > 1.0 {
                 let w = match test {
                     KmTest::Logrank => 1.0,
                     KmTest::Breslow => n,
@@ -267,13 +273,11 @@ pub(crate) fn test_statistic(
                 for l in 0..g {
                     u[l] += w * (d[l] - dt * at_risk[l] / n);
                 }
-                if n > 1.0 {
-                    let c = w * w * dt * (n - dt) / (n - 1.0);
-                    for j in 0..g {
-                        for l in 0..g {
-                            let delta = if j == l { 1.0 } else { 0.0 };
-                            v[j][l] += c * at_risk[j] / n * (delta - at_risk[l] / n);
-                        }
+                let c = w * w * dt * (n - dt) / (n - 1.0);
+                for j in 0..g {
+                    for l in 0..g {
+                        let delta = if j == l { 1.0 } else { 0.0 };
+                        v[j][l] += c * at_risk[j] / n * (delta - at_risk[l] / n);
                     }
                 }
             }
@@ -594,10 +598,7 @@ impl Engine {
 
         // Survival Table
         if command.table {
-            let mut columns = label_columns();
-            if headers.is_empty() {
-                columns.clear();
-            }
+            let mut columns = headers.clone();
             if let Some(v) = &id_var {
                 columns.push(shown.variable(v));
             }
@@ -836,54 +837,59 @@ impl Engine {
                 }
                 let lead = columns.len();
                 columns.extend(["Chi-Square", "df", "Sig."].map(String::from));
+                // the cases of each statistic, by stratum, with the index of their level
+                let mut inputs = Vec::new();
+                for (s, members) in &pools {
+                    for pair in &pairs {
+                        let mut groups = Vec::new();
+                        for &m in members {
+                            let mut cases = Vec::new();
+                            for (l, obs) in strata_list[m].levels.iter().enumerate() {
+                                let index = match pair {
+                                    None => Some(l),
+                                    Some((a, _)) if *a == l => Some(0),
+                                    Some((_, b)) if *b == l => Some(1),
+                                    Some(_) => None,
+                                };
+                                if let Some(index) = index {
+                                    cases.extend(obs.iter().map(|o| (index, *o)));
+                                }
+                            }
+                            groups.push(cases);
+                        }
+                        inputs.push((s, pair, groups));
+                    }
+                }
                 let mut rows = Vec::new();
                 for &test in &tests {
                     let mut first = true;
-                    for (s, members) in &pools {
-                        for pair in &pairs {
-                            let mut groups = Vec::new();
-                            for &m in members {
-                                let mut cases = Vec::new();
-                                for (l, obs) in strata_list[m].levels.iter().enumerate() {
-                                    let index = match pair {
-                                        None => Some(l),
-                                        Some((a, _)) if *a == l => Some(0),
-                                        Some((_, b)) if *b == l => Some(1),
-                                        Some(_) => None,
-                                    };
-                                    if let Some(index) = index {
-                                        cases.extend(obs.iter().map(|o| (index, *o)));
-                                    }
-                                }
-                                groups.push(cases);
-                            }
-                            let (size, weights) = match pair {
-                                None => (g, trend.as_deref()),
-                                Some(_) => (2, None),
-                            };
-                            let result = test_statistic(&groups, size, test, weights);
-                            let mut row = vec![Cell::Text(match first {
-                                true => test_name(test).to_string(),
-                                false => String::new(),
-                            })];
-                            first = false;
-                            if let Some(s) = s {
-                                row.push(Cell::Text(stratum_text(&strata_list[*s].key)));
-                            }
-                            if let Some((a, b)) = pair {
-                                row.push(Cell::Text(level_text(&level_keys[*a])));
-                                row.push(Cell::Text(level_text(&level_keys[*b])));
-                            }
-                            match result {
-                                Some((chi, df)) => row.extend([
-                                    Cell::Number(chi),
-                                    Cell::Number(df as f64),
-                                    Cell::Number(chi_square_p(chi, df as f64)),
-                                ]),
-                                None => row.extend([Cell::Empty, Cell::Empty, Cell::Empty]),
-                            }
-                            rows.push(row);
+                    for (s, pair, groups) in &inputs {
+                        let (size, weights) = match pair {
+                            None => (g, trend.as_deref()),
+                            Some(_) => (2, None),
+                        };
+                        let result = test_statistic(groups, size, test, weights);
+                        let mut row = vec![Cell::Text(match first {
+                            true => test_name(test).to_string(),
+                            false => String::new(),
+                        })];
+                        first = false;
+                        if let Some(s) = s {
+                            row.push(Cell::Text(stratum_text(&strata_list[*s].key)));
                         }
+                        if let Some((a, b)) = pair {
+                            row.push(Cell::Text(level_text(&level_keys[*a])));
+                            row.push(Cell::Text(level_text(&level_keys[*b])));
+                        }
+                        match result {
+                            Some((chi, df)) => row.extend([
+                                Cell::Number(chi),
+                                Cell::Number(df as f64),
+                                Cell::Number(chi_square_p(chi, df as f64)),
+                            ]),
+                            None => row.extend([Cell::Empty, Cell::Empty, Cell::Empty]),
+                        }
+                        rows.push(row);
                     }
                 }
                 let mut notes = Vec::new();
@@ -1087,6 +1093,14 @@ mod tests {
             obs(5.0, true),
         ];
         assert_eq!(curve(&heavy), curve(&repeated));
+        // fractional weights that all have the event end the curve at exactly 0
+        let tenths: Vec<Obs> = (0..3)
+            .map(|k| Obs {
+                weight: 0.1,
+                ..obs(1.0 + k as f64, true)
+            })
+            .collect();
+        assert_eq!(*curve(&tenths).surv.last().unwrap(), 0.0);
         assert_eq!(default_trend(4), [-3.0, -1.0, 1.0, 3.0]);
         assert_eq!(default_trend(3), [-1.0, 0.0, 1.0]);
         assert_eq!(percent_label(25.0), "25.0%");

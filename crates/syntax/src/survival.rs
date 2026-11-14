@@ -436,8 +436,12 @@ pub(crate) fn survival(p: &mut Parser) -> PResult<Command> {
     let keyword_alone = matches!(p.peek(), Some(TokenKind::Word(w))
         if w.eq_ignore_ascii_case("TABLE") || w.eq_ignore_ascii_case("TABLES"))
         && matches!(p.peek_at(1), Some(TokenKind::Word(w)) if !w.eq_ignore_ascii_case("BY"));
-    if keyword_alone || p.peek_at(1) == Some(&TokenKind::Punct(Punct::Eq)) {
-        p.eat_keyword("TABLES");
+    if keyword_alone {
+        p.pos += 1;
+    } else if p.peek_at(1) == Some(&TokenKind::Punct(Punct::Eq)) {
+        if !p.eat_keyword("TABLES") {
+            return Err(p.unexpected(&["TABLES", "a survival variable"]));
+        }
         p.eat(Punct::Eq);
     }
     let variables = list_until(p, &["BY"])?;
@@ -504,8 +508,9 @@ pub(crate) fn survival(p: &mut Parser) -> PResult<Command> {
             p.eat(Punct::Comma);
             let max = p.number().unwrap_or(min);
             p.expect(Punct::RParen)?;
+            // FOR ALL is the same as no FOR
             let applies_to = match p.eat_word("FOR") {
-                true => Some(list_until(p, &[])?),
+                true => Some(list_until(p, &[])?).filter(|l| l != &[VarItem::All]),
                 false => None,
             };
             command.status.push(SurvivalStatus {

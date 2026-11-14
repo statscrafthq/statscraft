@@ -145,6 +145,9 @@ fn survival_commas_and_a_variable_named_table() {
     let k = km("KM t /STATUS=a(1) /PRINT.");
     assert!(k.table && k.mean);
     assert!(survival("SURVIVAL t /INTERVAL=THRU 9 BY 3 /STATUS=s(1) /PRINT.").table);
+    let s = survival("SURVIVAL t /INTERVAL=THRU 9 BY 3 /STATUS=s(1) FOR ALL.");
+    assert!(s.status[0].applies_to.is_none());
+    assert!(err("SURVIVAL TALBES=t /INTERVAL=THRU 9 BY 3 /STATUS=s(1).").contains("unexpected"));
 }
 
 #[test]
