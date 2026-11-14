@@ -97,8 +97,15 @@ fn pick(x: &[f64], cols: &[usize]) -> Vec<f64> {
     cols.iter().map(|&c| x[c]).collect()
 }
 
-/// The event times of every stratum in ascending order with their risk-set sums at `b`.
-fn event_times(rows: &[Row], strata: usize, cols: &[usize], b: &[f64]) -> Vec<EventTime> {
+/// The event times of every stratum in ascending order with their risk-set sums at `b`;
+/// `second`: with the second moments S2 (else left 0).
+fn event_times(
+    rows: &[Row],
+    strata: usize,
+    cols: &[usize],
+    b: &[f64],
+    second: bool,
+) -> Vec<EventTime> {
     let p = cols.len();
     let mut out = Vec::new();
     for s in 0..strata {
@@ -119,8 +126,10 @@ fn event_times(rows: &[Row], strata: usize, cols: &[usize], b: &[f64]) -> Vec<Ev
             *s0 += e;
             for i in 0..p {
                 s1[i] += e * x[i];
-                for j in 0..p {
-                    s2[i][j] += e * x[i] * x[j];
+                if second {
+                    for j in 0..p {
+                        s2[i][j] += e * x[i] * x[j];
+                    }
                 }
             }
         };
@@ -180,7 +189,7 @@ fn event_times(rows: &[Row], strata: usize, cols: &[usize], b: &[f64]) -> Vec<Ev
 fn derivatives(rows: &[Row], strata: usize, cols: &[usize], b: &[f64]) -> (f64, Vec<f64>, Matrix) {
     let p = cols.len();
     let (mut ll, mut u, mut info) = (0.0, vec![0.0; p], vec![vec![0.0; p]; p]);
-    for e in event_times(rows, strata, cols, b) {
+    for e in event_times(rows, strata, cols, b, true) {
         ll += e
             .deaths
             .iter()
@@ -340,7 +349,7 @@ fn wald(fit: &Fit, positions: &[usize]) -> f64 {
 
 /// The log partial likelihood alone at `b`.
 fn log_likelihood(rows: &[Row], strata: usize, cols: &[usize], b: &[f64]) -> f64 {
-    event_times(rows, strata, cols, b)
+    event_times(rows, strata, cols, b, false)
         .iter()
         .map(|e| {
             e.deaths
@@ -508,7 +517,7 @@ fn baselines(rows: &[Row], strata: usize, fit: &Fit) -> Vec<Baseline> {
             a: Vec::new(),
         })
         .collect();
-    for e in event_times(rows, strata, &fit.cols, &fit.b) {
+    for e in event_times(rows, strata, &fit.cols, &fit.b, false) {
         let base = &mut out[e.stratum];
         let deaths: Vec<(f64, f64)> = e
             .deaths
@@ -585,6 +594,16 @@ fn is_event(key: &Key, events: &[MissingValue]) -> bool {
 
 impl Engine {
     pub(crate) fn coxreg(&mut self, command: &Coxreg) -> Result<Vec<Table>, Error> {
+        let program = self.time_program.clone().filter(|p| !p.commands.is_empty());
+        self.coxreg_with(command, program)
+    }
+
+    /// COXREG with the time program, if any, it runs.
+    fn coxreg_with(
+        &mut self,
+        command: &Coxreg,
+        program: Option<TimeProgram>,
+    ) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
         let shown = self.shown();
         let criteria = command.criteria;
@@ -628,7 +647,6 @@ impl Engine {
                 .iter()
                 .chain(command.methods.iter().flat_map(|m| m.terms.iter())),
         );
-        let program = self.time_program.clone().filter(|p| !p.commands.is_empty());
         if program.is_some() && data.variable_index("T_").is_some() {
             return Err(Error(
                 "the data has a variable T_, which a TIME PROGRAM reserves for the time; rename it"
@@ -840,6 +858,24 @@ impl Engine {
                 }
             }
             let mut data = data.clone();
+            // only the variables the program reads and the covariates go along
+            let refs = crate::rows::Refs::of(&program.commands);
+            if !refs.all && refs.ranges.is_empty() {
+                let wanted: Vec<&str> = (0..data.variable_count())
+                    .map(|i| data.variable_at(i).name())
+                    .filter(|n| {
+                        refs.names
+                            .iter()
+                            .chain(term_vars.iter().flatten())
+                            .any(|w| w.eq_ignore_ascii_case(n))
+                    })
+                    .collect();
+                if !wanted.is_empty() {
+                    let wanted: Vec<String> = wanted.iter().map(|n| n.to_string()).collect();
+                    let names: Vec<&str> = wanted.iter().map(String::as_str).collect();
+                    data.keep_variables(&names)?;
+                }
+            }
             data.take_cases(&take)?;
             data.set_numeric_values("T_", origin.iter().map(|&(_, _, t)| Some(t)).collect())?;
             let rows_before = data.case_count();
@@ -851,6 +887,7 @@ impl Engine {
             for c in &program.commands {
                 sub.execute(c)
                     .map_err(|e| Error(format!("TIME PROGRAM: {}", e.0)))?;
+                warnings.append(&mut sub.warnings);
             }
             sub.flush()?;
             warnings.append(&mut sub.warnings);
@@ -875,14 +912,13 @@ impl Engine {
             for name in term_vars.iter().flatten() {
                 any |= changed(name)?;
             }
-            if any {
-                Some((data, origin))
-            } else {
-                warnings.push(
-                    "the TIME PROGRAM changes none of the covariates, so it is not used".into(),
-                );
-                None
+            if !any {
+                // the cases are screened afresh on every covariate without the program
+                let tables = self.coxreg_with(command, None)?;
+                self.warn("the TIME PROGRAM changes none of the covariates, so it is not used");
+                return Ok(tables);
             }
+            Some((data, origin))
         } else {
             None
         };
@@ -1367,15 +1403,20 @@ impl Engine {
                         "Linear predictor with centered covariates".into(),
                         stats.xbeta.clone(),
                     )],
-                    CoxregTemp::Dfbeta => fit
-                        .cols
+                    // one per coded covariate, so split groups with other models share names
+                    CoxregTemp::Dfbeta => names
                         .iter()
                         .enumerate()
-                        .map(|(j, &c)| {
+                        .map(|(c, name)| {
+                            let j = fit.at(c);
                             (
-                                (j + 1).to_string(),
-                                format!("DFBETA for {}", names[c]),
-                                stats.dfbeta.iter().map(|d| d[j]).collect(),
+                                (c + 1).to_string(),
+                                format!("DFBETA for {name}"),
+                                stats
+                                    .dfbeta
+                                    .iter()
+                                    .map(|d| j.map_or(f64::NAN, |j| d[j]))
+                                    .collect(),
                             )
                         })
                         .collect(),
@@ -1471,7 +1512,7 @@ impl CaseStats {
             dfbeta: vec![vec![0.0; p]; cases],
             presid: vec![vec![nan; columns]; cases],
         };
-        for e in event_times(rows, strata, &fit.cols, &fit.b) {
+        for e in event_times(rows, strata, &fit.cols, &fit.b, false) {
             for &r in &e.deaths {
                 for (j, &c) in fit.cols.iter().enumerate() {
                     out.presid[rows[r].case][c] = rows[r].x[c] - e.s1[j] / e.s0;
@@ -1765,7 +1806,7 @@ impl Report<'_> {
                         "PATTERN names {name}, which is not a covariate of the model"
                     )));
                 };
-                fixed.push((v, self.values_of(covariates, v, *value)?));
+                fixed.push((v, self.values_of(covariates, v, value)?));
             }
             let by = match &pattern.by {
                 Some(name) => {
@@ -1848,19 +1889,38 @@ impl Report<'_> {
     }
 
     /// The column values a variable takes at `value`: its coding row, or the value.
-    fn values_of(&self, covariates: &Covariates, v: usize, value: f64) -> Result<Vec<f64>, Error> {
+    fn values_of(
+        &self,
+        covariates: &Covariates,
+        v: usize,
+        value: &Value,
+    ) -> Result<Vec<f64>, Error> {
         match &covariates.codings[v] {
             Some((levels, m)) => levels
                 .iter()
-                .position(|l| matches!(l, Key::Number(n) if *n == value))
+                .position(|l| match (l, value) {
+                    (Key::Number(n), Value::Number(x)) => n == x,
+                    (Key::Text(t), Value::String(x)) => t.trim_end() == x.trim_end(),
+                    _ => false,
+                })
                 .map(|at| m[at].clone())
                 .ok_or_else(|| {
                     Error(format!(
-                        "PATTERN: {value} is not a category of {} among the cases used",
+                        "PATTERN: {} is not a category of {} among the cases used",
+                        match value {
+                            Value::Number(n) => n.to_string(),
+                            Value::String(s) => format!("'{s}'"),
+                        },
                         covariates.variables[v].name()
                     ))
                 }),
-            None => Ok(vec![value]),
+            None => match value {
+                Value::Number(n) => Ok(vec![*n]),
+                Value::String(_) => Err(Error(format!(
+                    "PATTERN: {} is numeric and takes a number",
+                    covariates.variables[v].name()
+                ))),
+            },
         }
     }
 

@@ -1478,9 +1478,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  named covariates at the values given, the others at their means; BY draws one line per category\n\
                  of a categorical covariate. SAVE adds, at each case's own time and covariates, SUR_1, SE_1, HAZ_1,\n\
                  LML_1 and XBE_1 (the linear predictor with centered covariates), DFB1_1, DFB2_1, ... (the change\n\
-                 in each coefficient of the final model when the case is left out, from its score residual) and\n\
-                 PRE1_1, PRE2_1, ... (Schoenfeld residuals of events, one per coded covariate, missing for those\n\
-                 out of the model), or the names given (DFBETA(name) gives name1, name2, ...). Weighted when a\n\
+                 in each coefficient when the case is left out, from its score residual) and PRE1_1, PRE2_1, ...\n\
+                 (Schoenfeld residuals of events), one per coded covariate and missing for those out of the final\n\
+                 model, or the names given (DFBETA(name) gives name1, name2, ...). Weighted when a\n\
                  weight variable is set. After a TIME PROGRAM, covariates it creates change with time; SAVE then\n\
                  gives DFBETA only and the survival table, PATTERN and plots are left out. EXTERNAL changes\n\
                  nothing. Not supported yet: OUTFILE.",

@@ -778,3 +778,49 @@ fn backward_stepping_may_remove_every_term() {
         1e-9,
     );
 }
+
+#[test]
+fn time_program_edge_cases() {
+    // CLEAR TRANSFORMATIONS drops a waiting time program too
+    assert!(
+        run_error(
+            "TIME PROGRAM.\nCOMPUTE spend_t = spend * T_.\nCLEAR TRANSFORMATIONS.\n\
+             COXREG months WITH spend_t /STATUS=ended(1)."
+        )
+        .contains("spend_t")
+    );
+    // a program that never changes the covariate is not used, and the case missing on spend is
+    // dropped as usual
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!(
+            "{DATA}TIME PROGRAM.\nIF (T_ > 1000) spend = 1.\n\
+             COXREG months WITH plan spend /STATUS=ended(1) /CATEGORICAL=plan {TIGHT}"
+        ),
+    );
+    assert!(engine.warnings().iter().any(|w| w.contains("changes none")));
+    near(
+        value(&t, "Variables in the Equation", "Step 1 / spend", "B"),
+        0.01195809997402,
+        1e-6,
+    );
+}
+
+#[test]
+fn string_categories_in_a_pattern_and_dfbeta_out_of_the_model() {
+    let mut engine = Engine::default();
+    run(
+        &mut engine,
+        &format!(
+            "{DATA}STRING tier (A6).
+RECODE plan (1='basic') (2='plus') (ELSE='top') INTO tier.
+COXREG months WITH tier spend site /STATUS=ended(1) /METHOD=FSTEP(LR)
+  /PLOT=SURVIVAL /PATTERN=tier('plus') /SAVE=DFBETA {TIGHT}"
+        ),
+    );
+    // tier is the only term in the final model: spend and site have empty DFBETA columns
+    assert!(values(&engine, "DFB1_1")[0].is_some());
+    assert!(values(&engine, "DFB3_1").iter().all(Option::is_none));
+    assert_eq!(engine.take_charts().len(), 2);
+}

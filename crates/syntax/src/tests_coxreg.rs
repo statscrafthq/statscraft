@@ -68,7 +68,10 @@ fn subcommands_and_abbreviations() {
     assert_eq!(c.criteria.bcon, 0.001);
     assert_eq!(c.criteria.iterate, 30);
     assert!(c.plot.survival && c.plot.oms && !c.plot.hazard);
-    assert_eq!(c.patterns[0].values, [("spend".to_string(), 40.0)]);
+    assert_eq!(
+        c.patterns[0].values,
+        [("spend".to_string(), Value::Number(40.0))]
+    );
     assert_eq!(c.patterns[0].by.as_deref(), Some("plan"));
     assert_eq!(
         c.save,

@@ -516,6 +516,7 @@ impl Engine {
         // neither runs the transformations that wait for the data pass
         if matches!(command, Command::ClearTransformations | Command::NewFile) {
             self.drop_pending();
+            self.time_program = None;
         }
         // LEAVE runs the waiting transformations again itself
         if let Command::Leave(items) = command

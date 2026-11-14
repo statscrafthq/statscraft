@@ -334,7 +334,7 @@ impl<'a> Covariates<'a> {
         &self.recipes[j]
     }
 
-    /// The design row of a valid case.
+    /// The design row of a valid case; NaN where its category is not among the coded ones.
     pub(crate) fn row(&self, k: usize) -> Vec<f64> {
         let numeric = |v: &Variable| match v.values() {
             Values::Numeric(values) => values.get(k).unwrap_or(f64::NAN),
@@ -346,9 +346,8 @@ impl<'a> Covariates<'a> {
                 recipe
                     .iter()
                     .map(|&(v, c)| match (c, &self.codings[v]) {
-                        (Some(c), Some((_, m))) => {
-                            m[self.level(v, k).expect("a category of the analysis")][c]
-                        }
+                        // a category outside the coded ones (a case not in the fit) has no row
+                        (Some(c), Some((_, m))) => self.level(v, k).map_or(f64::NAN, |at| m[at][c]),
                         _ => numeric(&self.variables[v]),
                     })
                     .product()

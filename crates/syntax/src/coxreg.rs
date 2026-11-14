@@ -67,7 +67,8 @@ pub struct CoxregPlot {
 /// each.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CoxregPattern {
-    pub values: Vec<(String, f64)>,
+    /// Numbers, or quoted values of a string categorical covariate.
+    pub values: Vec<(String, Value)>,
     pub by: Option<String>,
 }
 
@@ -235,7 +236,11 @@ fn pattern(p: &mut Parser) -> PResult<CoxregPattern> {
             break;
         }
         let name = p.name("a variable name")?;
-        let v = value(p, "a value")?;
+        p.expect(Punct::LParen)?;
+        let Some(v) = p.value() else {
+            return Err(p.unexpected(&["a value"]));
+        };
+        p.expect(Punct::RParen)?;
         out.values.push((name, v));
         p.eat(Punct::Comma);
     }
