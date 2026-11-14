@@ -84,9 +84,10 @@ pub(crate) fn independent(
         .collect();
     let mut m = vec![vec![0.0; p]; p];
     let mut floor = vec![0.0; p];
+    let share = residue(rows.len());
     for &i in &rows {
         for r in 0..p {
-            floor[r] += RESIDUE * c[i] * x[i][wanted[r]] * x[i][wanted[r]];
+            floor[r] += share * c[i] * x[i][wanted[r]] * x[i][wanted[r]];
             for s in 0..p {
                 m[r][s] += c[i] * (x[i][wanted[r]] - mean[r]) * (x[i][wanted[s]] - mean[s]);
             }
@@ -95,20 +96,30 @@ pub(crate) fn independent(
     kept_columns(m, wanted, eps, &floor)
 }
 
-/// Centering a constant leaves sums of squares of about 1e-32 of its uncentered one; anything
-/// at most this share of it is such residue.
-const RESIDUE: f64 = 1e-24;
+/// The share of a column's uncentered sum of squares that centering a constant over `n` rows can
+/// leave by rounding: the error of a mean grows with n, its square with n squared. Anything at
+/// most this share is such residue.
+pub(crate) fn residue(n: usize) -> f64 {
+    let n = n as f64;
+    (1e-30 * n * n).clamp(1e-24, 1e-14)
+}
 
 /// The columns of `wanted` that are not redundant, from the weighted cross-products `sscp`
 /// of all columns (already centered as the model needs). `raw`: each column's sum of squares
 /// before centering; a column whose share left over is a negligible part of it is only rounding
 /// residue of a constant, whatever its own centered sum.
-pub(crate) fn independent_in(sscp: &Matrix, raw: &[f64], wanted: &[usize], eps: f64) -> Vec<usize> {
+pub(crate) fn independent_in(
+    sscp: &Matrix,
+    raw: &[f64],
+    rows: usize,
+    wanted: &[usize],
+    eps: f64,
+) -> Vec<usize> {
     let m = wanted
         .iter()
         .map(|&r| wanted.iter().map(|&s| sscp[r][s]).collect())
         .collect();
-    let floor: Vec<f64> = wanted.iter().map(|&c| RESIDUE * raw[c]).collect();
+    let floor: Vec<f64> = wanted.iter().map(|&c| residue(rows) * raw[c]).collect();
     kept_columns(m, wanted, eps, &floor)
 }
 

@@ -454,7 +454,7 @@ impl Model<'_> {
     }
 
     fn independent(&self, wanted: &[usize]) -> Vec<usize> {
-        independent_in(&self.sscp, &self.raw, wanted, 1e-8)
+        independent_in(&self.sscp, &self.raw, self.rows.len(), wanted, 1e-8)
     }
 }
 
@@ -614,6 +614,32 @@ fn program_inputs_missing(data: &Dataset, program: &TimeProgram) -> Vec<bool> {
         }
     }
     missing
+}
+
+/// Some expression of the program reads $CASENUM.
+// shortcut: a DO REPEAT body is not searched; walk its commands when that is needed
+fn program_reads_casenum(commands: &[Command]) -> bool {
+    let (mut names, mut ranges) = (Vec::new(), Vec::new());
+    for c in commands {
+        let exprs: Vec<&statscraft_syntax::Expr> = match c {
+            Command::Compute { expr, .. } => vec![expr],
+            Command::If {
+                condition, expr, ..
+            } => vec![condition, expr],
+            Command::DoIf(e) | Command::ElseIf(e) | Command::SelectIf(e) => vec![e],
+            Command::VectorAssign {
+                condition,
+                index,
+                expr,
+                ..
+            } => condition.iter().chain([index, expr]).collect(),
+            _ => Vec::new(),
+        };
+        for e in exprs {
+            crate::rows::expr_names(e, &mut names, &mut ranges);
+        }
+    }
+    names.iter().any(|n| n.eq_ignore_ascii_case("$CASENUM"))
 }
 
 /// The status value of a case is an event.
@@ -998,10 +1024,7 @@ impl Engine {
             // shortcut: the expanded rows of all cases form one stream, so a value carried from
             // row to row, or the row number, would cross from case to case; run each case apart
             // to support them
-            // in the commands' text, as Refs does not list the names of every command
-            let casenum = format!("{:?}", program.commands)
-                .to_ascii_uppercase()
-                .contains("$CASENUM");
+            let casenum = program_reads_casenum(&program.commands);
             if sub.pending.is_some() || casenum {
                 return Err(fault(
                     "a case-by-case pass (LAG, $CASENUM, a scratch variable kept from case to case) is not supported yet in it"
@@ -1033,6 +1056,8 @@ impl Engine {
             }
             if !any {
                 // the cases are screened afresh on every covariate without the program
+                // as if the unused program had not run
+                self.random.swap(&random_before);
                 let tables = self.coxreg_with(command, None, excluded)?;
                 for warning in program_warnings {
                     self.warn(warning);
