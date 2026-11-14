@@ -118,7 +118,6 @@ fn event_times(
             ..rows.partition_point(|r| r.stratum <= s))
             .collect();
         // within a stratum the rows come from the latest time down
-        let by_stop = &mine;
         let mut times: Vec<f64> = mine
             .iter()
             .filter(|&&r| rows[r].event)
@@ -147,8 +146,8 @@ fn event_times(
         let mut here = Vec::new();
         for &t in &times {
             let mut deaths = Vec::new();
-            while a < by_stop.len() && rows[by_stop[a]].stop >= t {
-                let r = by_stop[a];
+            while a < mine.len() && rows[mine[a]].stop >= t {
+                let r = mine[a];
                 if fresh {
                     active.push(r);
                 } else {
@@ -583,13 +582,44 @@ struct Step {
     removed: Vec<usize>,
 }
 
-/// Case `k` is missing on a variable of the data that the time program reads (a vector it
-/// names counts with all its variables).
 /// For every case: missing on a variable of the data that the time program reads (its ranges,
-/// and a vector it names with all its variables).
-fn program_inputs_missing(data: &Dataset, program: &TimeProgram, include: bool) -> Vec<bool> {
+/// and a vector it names with all its variables). A target the program only assigns is no input;
+/// a program whose reads cannot all be listed (a LOOP, DO REPEAT or vector element) may read any
+/// variable. Missing as expressions see it: user-missing values too.
+fn program_inputs_missing(data: &Dataset, program: &TimeProgram) -> Vec<bool> {
     let refs = crate::rows::Refs::of(&program.commands);
-    let mut names = refs.names.clone();
+    let (mut read, mut ranges) = (Vec::new(), Vec::new());
+    let mut assigned = Vec::new();
+    for c in &program.commands {
+        match c {
+            Command::Compute { target, expr } => {
+                assigned.push(target);
+                crate::rows::expr_names(expr, &mut read, &mut ranges);
+            }
+            Command::If {
+                condition,
+                target,
+                expr,
+            } => {
+                assigned.push(target);
+                crate::rows::expr_names(condition, &mut read, &mut ranges);
+                crate::rows::expr_names(expr, &mut read, &mut ranges);
+            }
+            _ => {}
+        }
+    }
+    let mut names: Vec<String> = if refs.all {
+        data.variable_names().map(str::to_string).collect()
+    } else {
+        refs.names
+            .iter()
+            .filter(|n| {
+                !assigned.iter().any(|a| a.eq_ignore_ascii_case(n))
+                    || read.iter().any(|r| r.eq_ignore_ascii_case(n))
+            })
+            .cloned()
+            .collect()
+    };
     for (vector, members) in &program.vectors {
         if names.iter().any(|n| n.eq_ignore_ascii_case(vector)) {
             names.extend(members.iter().cloned());
@@ -601,7 +631,7 @@ fn program_inputs_missing(data: &Dataset, program: &TimeProgram, include: bool) 
     }
     let mut missing = vec![false; data.case_count()];
     for v in names.iter().filter_map(|n| data.variable(n).ok()) {
-        for (m, key) in missing.iter_mut().zip(categories(&v, include)) {
+        for (m, key) in missing.iter_mut().zip(categories(&v, false)) {
             *m |= key.is_none();
         }
     }
@@ -637,13 +667,13 @@ impl Engine {
     }
 
     /// COXREG with the time program, if any, it runs.
-    /// `excluded`: cases a time program gives a missing value where they are missing on a
-    /// variable it reads; they count as missing.
+    /// `excluded`: per case, empty or one flag each: a time program gives it a missing value
+    /// where it is missing on a variable the program reads, so it counts as missing.
     fn coxreg_with(
         &mut self,
         command: &Coxreg,
         program: Option<TimeProgram>,
-        excluded: &[usize],
+        excluded: &[bool],
     ) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
         let shown = self.shown();
@@ -786,7 +816,7 @@ impl Engine {
                 && strata_keys.as_ref().is_none_or(|s| s[k].is_some())
                 && screen.valid(k)
                 && weight(k) > 0.0
-                && !excluded.contains(&k);
+                && !excluded.get(k).copied().unwrap_or(false);
             if !valid {
                 dropped[k] = 1;
             } else if time(k).expect("valid") < 0.0 {
@@ -1058,17 +1088,18 @@ impl Engine {
         // variable the program reads (which may change the event times, so all starts again);
         // otherwise it is an error
         let mut missing_inputs = Vec::new();
+        let mut seen = vec![false; cases];
         let mut inputs_missing: Option<Vec<bool>> = None;
         for &(_, i, _, stop) in layout.iter().filter(|&&(r, ..)| !covariates.valid(r)) {
             let k = used[i];
-            if missing_inputs.contains(&k) {
+            if std::mem::replace(&mut seen[k], true) {
                 continue;
             }
             let program = program
                 .as_ref()
                 .expect("only a program leaves rows invalid");
-            let inputs = inputs_missing
-                .get_or_insert_with(|| program_inputs_missing(data, program, command.include));
+            let inputs =
+                inputs_missing.get_or_insert_with(|| program_inputs_missing(data, program));
             if !inputs[k] {
                 self.program_fault.set(true);
                 return Err(Error(format!(
@@ -1079,10 +1110,14 @@ impl Engine {
             missing_inputs.push(k);
         }
         if !missing_inputs.is_empty() {
-            missing_inputs.extend(excluded);
+            let mut out = excluded.to_vec();
+            out.resize(cases, false);
+            for k in missing_inputs {
+                out[k] = true;
+            }
             // the program runs again: from the same random numbers
             self.random.swap(&random_before);
-            return self.coxreg_with(command, program, &missing_inputs);
+            return self.coxreg_with(command, program, &out);
         }
         let mut in_source = vec![false; source.case_count()];
         for &(r, ..) in &layout {
