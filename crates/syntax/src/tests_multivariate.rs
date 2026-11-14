@@ -450,6 +450,11 @@ fn proximities_defaults_and_keywords() {
         proximities("PROXIMITIES a b /STANDARDIZE=SD.").standardize,
         Some((Standardize::Sd, false))
     );
+    let p = proximities("PROXIMITIES a b /MEASURE=DEFAULT.");
+    assert_eq!(
+        (p.measure, p.measure_or_default()),
+        (None, Proximity::Euclid)
+    );
     let p = proximities("PROXIMITIES /MATRIX=IN(*) /MEASURE=NONE REVERSE.");
     assert!(p.no_measure && p.reverse && p.variables.is_empty());
     assert_eq!(

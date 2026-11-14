@@ -326,6 +326,14 @@ impl Engine {
             return Ok(part);
         }
         let group = self.active()?;
+        if let Some(name) = names
+            .iter()
+            .find(|name| part.variable_index(name).is_some())
+        {
+            return Err(Error(format!(
+                "PROXIMITIES /MATRIX=OUT: the split variable {name} has the name of a variable of the matrix file"
+            )));
+        }
         let n = part.case_count();
         let mut joined = Dataset::new(n);
         for name in names {
@@ -354,6 +362,14 @@ impl Engine {
             return Ok(());
         };
         let mut template = widest.slice(0, 0);
+        // the variables of every group, in case groups have items of different names
+        for part in &parts {
+            for name in part.variable_names() {
+                if template.variable_index(name).is_none() {
+                    template.copy_variable(part, name, &[])?;
+                }
+            }
+        }
         let strings: Vec<String> = template
             .variables()
             .filter(|v| v.is_string())

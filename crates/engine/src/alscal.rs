@@ -635,15 +635,14 @@ impl Engine {
             })
             .collect();
         let mut o = input.delta.clone();
-        if input.similarity && !matches!(level, AlscalLevel::Ordinal { .. }) {
+        if input.similarity && matches!(level, AlscalLevel::Interval(_) | AlscalLevel::Ratio(_)) {
             // the metric levels need dissimilarities: each from the largest similarity
             warnings.push(
                 "ALSCAL: the matrix holds similarities; each is taken from the largest to give dissimilarities"
                     .into(),
             );
             for (ok, pk) in o.iter_mut().zip(&present) {
-                let top = (0..n)
-                    .flat_map(|i| (0..n).map(move |j| (i, j)))
+                let top = pairs(n)
                     .filter(|&(i, j)| pk[i][j])
                     .map(|(i, j)| ok[i][j])
                     .fold(f64::NEG_INFINITY, f64::max);
@@ -907,7 +906,7 @@ impl Engine {
             ));
             if matches!(level, AlscalLevel::Ordinal { .. } | AlscalLevel::Nominal) {
                 let nonlinear = (0..m)
-                    .map(|k| group(k, &|i, j| (data.o[k][i][j], e[k][i][j].sqrt())))
+                    .map(|k| group(k, &|i, j| (input.delta[k][i][j], e[k][i][j].sqrt())))
                     .collect();
                 charts.push(points_chart(
                     "Scatterplot of Nonlinear Fit",
@@ -919,7 +918,11 @@ impl Engine {
             let transformation = |ks: Vec<usize>, title: String| {
                 let groups = ks
                     .iter()
-                    .map(|&k| group(k, &|i, j| (data.o[k][i][j], fit.f[k][i][j].max(0.0).sqrt())))
+                    .map(|&k| {
+                        group(k, &|i, j| {
+                            (input.delta[k][i][j], fit.f[k][i][j].max(0.0).sqrt())
+                        })
+                    })
                     .collect();
                 points_chart(&title, "Observations", "Disparities", groups)
             };

@@ -569,15 +569,27 @@ impl Engine {
             .skip(1)
             .filter(|v| !v.is_string())
             .collect();
+        let prox_rows: Vec<usize> = (0..data.case_count())
+            .filter(|&case| value_text(&rowtype, case).eq_ignore_ascii_case("PROX"))
+            .collect();
+        if prox_rows.is_empty() {
+            return Err(Error(format!(
+                "{who} /MATRIX=IN: the matrix file has no rows of type PROX"
+            )));
+        }
         let chosen: Vec<Variable> = match variables.is_empty() {
-            // the items that have a row: a split group may have fewer than the file
+            // the items with a row or a value: a split group may have fewer than the file
             true => {
-                let rows: Vec<String> = (0..data.case_count())
-                    .filter(|&case| value_text(&rowtype, case).eq_ignore_ascii_case("PROX"))
-                    .map(|case| value_text(&varname, case).to_uppercase())
+                let rows: Vec<String> = prox_rows
+                    .iter()
+                    .map(|&case| value_text(&varname, case).to_uppercase())
                     .collect();
                 all.into_iter()
-                    .filter(|v| rows.contains(&v.name().to_uppercase()))
+                    .filter(|v| {
+                        rows.contains(&v.name().to_uppercase())
+                            || matches!(v.values(), Values::Numeric(values)
+                                if prox_rows.iter().any(|&c| values.get(c).is_some()))
+                    })
                     .collect()
             }
             false => {
@@ -610,7 +622,7 @@ impl Engine {
         };
         let n = chosen.len();
         let mut prox = vec![vec![f64::NAN; n]; n];
-        let mut labels = vec![String::new(); n];
+        let mut labels: Vec<String> = chosen.iter().map(|v| v.name().to_string()).collect();
         for case in 0..data.case_count() {
             if value_text(&rowtype, case).to_uppercase() != "PROX" {
                 continue;

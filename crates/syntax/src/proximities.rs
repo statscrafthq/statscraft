@@ -125,13 +125,12 @@ fn measure(p: &mut Parser, command: &mut Proximities) -> PResult<()> {
         } else if p.eat_keyword("NONE") {
             (command.measure, command.no_measure, named) = (None, true, true);
         } else if p.eat_keyword("DEFAULT") {
-            // CLUSTER's DEFAULT is SEUCLID; here it is this command's default
-            (command.measure, command.no_measure, named) = (Some(Proximity::Euclid), false, true);
+            // CLUSTER's DEFAULT is SEUCLID; here it is this command's default, EUCLID
+            (command.measure, command.no_measure, named) = (None, false, true);
         } else if let Some(m) = one_measure(p)? {
             (command.measure, command.no_measure, named) = (Some(m), false, true);
         } else {
             let mut expected = measure_names();
-            expected.retain(|k| *k != "DEFAULT");
             expected.extend(["NONE", "ABSOLUTE", "REVERSE", "RESCALE"]);
             return Err(p.unexpected(&expected));
         }

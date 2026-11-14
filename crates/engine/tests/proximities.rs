@@ -423,3 +423,41 @@ fn split_matrices_survive_temporary_selection_and_read_back_per_group() {
         .collect();
     assert_eq!(sizes, [2, 4]);
 }
+
+#[test]
+fn an_upper_triangle_without_its_last_row_keeps_every_item() {
+    let tables = run_on(
+        &mut Engine::default(),
+        "DATA LIST FREE /ROWTYPE_ (A8) VARNAME_ (A8) a b c.\nBEGIN DATA.\n\
+         PROX a . 1 2\nPROX b . . 3\nEND DATA.\n\
+         PROXIMITIES /MATRIX=IN(*).",
+    );
+    let table = tables
+        .iter()
+        .find(|t| t.title == "Proximity Matrix")
+        .unwrap();
+    assert_eq!(table.columns, ["Case", "a", "b", "c"]);
+    // c, which has no row, against b; the diagonal the file leaves out is empty
+    assert_eq!(number(&table.rows[2][2]), 3.0);
+    assert_eq!(table.rows[2][3], Cell::Empty);
+}
+
+#[test]
+fn a_split_variable_cannot_also_be_an_item() {
+    let mut engine = Engine::default();
+    let (commands, errors) = parse(&format!(
+        "{DATA}COMPUTE side = sweet > 3.\nSORT CASES BY side.\nSPLIT FILE BY side.\n\
+         PROXIMITIES sweet side /VIEW=VARIABLE /MATRIX=OUT(*).\n"
+    ));
+    assert!(errors.is_empty());
+    let last = commands
+        .iter()
+        .map(|c| engine.execute(&c.command))
+        .last()
+        .unwrap();
+    assert!(
+        last.unwrap_err()
+            .to_string()
+            .contains("split variable side")
+    );
+}

@@ -719,18 +719,20 @@ impl Engine {
         let lists = [
             (
                 &plot.transformations,
+                false,
                 "Transformation Plot",
                 "Proximities",
                 "Transformed Proximities",
             ),
             (
                 &plot.residuals,
+                true,
                 "Residuals Plot",
                 "Transformed Proximities",
                 "Distances",
             ),
         ];
-        for (asked, title, x_title, y_title) in lists {
+        for (asked, residuals, title, x_title, y_title) in lists {
             for list in asked.iter().flatten() {
                 let sources = chosen(&Some(list.clone()), &mut warnings);
                 if sources.is_empty() {
@@ -738,11 +740,9 @@ impl Engine {
                 }
                 let groups = sources
                     .iter()
-                    .map(|&k| match title {
-                        "Residuals Plot" => {
-                            pair_points(k, &|i, j| (done.dhat[k][i][j], d[k][i][j]))
-                        }
-                        _ => pair_points(k, &|i, j| (input.delta[k][i][j], done.dhat[k][i][j])),
+                    .map(|&k| match residuals {
+                        true => pair_points(k, &|i, j| (done.dhat[k][i][j], d[k][i][j])),
+                        false => pair_points(k, &|i, j| (input.delta[k][i][j], done.dhat[k][i][j])),
                     })
                     .collect();
                 charts.push(Chart::plot(
@@ -792,7 +792,7 @@ impl Engine {
             }
         }
         for (target, values) in [
-            (&out.distances, x.iter().map(distances).collect::<Vec<_>>()),
+            (&out.distances, d),
             (&out.transformations, done.dhat.clone()),
         ] {
             let Some(file) = target else { continue };
