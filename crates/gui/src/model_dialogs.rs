@@ -772,6 +772,25 @@ pub struct Categorical {
     pub first: bool,
 }
 
+/// /CATEGORICAL and a /CONTRAST for each variable whose contrast differs from `default` (an
+/// index into `LOGISTIC_CONTRASTS`) or whose reference is the first category.
+pub(crate) fn categorical_syntax(categorical: &[Categorical], default: usize) -> String {
+    let mut text = String::new();
+    if !categorical.is_empty() {
+        let list: Vec<&str> = categorical.iter().map(|c| c.name.as_str()).collect();
+        text.push_str(&format!("\n  /CATEGORICAL={}", list.join(" ")));
+    }
+    for c in categorical {
+        let reference = has_reference(c.contrast) && c.first;
+        if c.contrast != default || reference {
+            let keyword = LOGISTIC_CONTRASTS[c.contrast].0;
+            let first = if reference { "(1)" } else { "" };
+            text.push_str(&format!("\n  /CONTRAST({})={keyword}{first}", c.name));
+        }
+    }
+    text
+}
+
 /// LOGISTIC REGRESSION: one dependent variable and blocks of covariates.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Logistic {
@@ -845,18 +864,7 @@ impl Logistic {
             let method = LOGISTIC_METHODS[b.method].0;
             text.push_str(&format!("\n  /METHOD={method} {}", b.variables.join(" ")));
         }
-        if !self.categorical.is_empty() {
-            let list: Vec<&str> = self.categorical.iter().map(|c| c.name.as_str()).collect();
-            text.push_str(&format!("\n  /CATEGORICAL={}", list.join(" ")));
-        }
-        for c in &self.categorical {
-            let reference = has_reference(c.contrast) && c.first;
-            if c.contrast > 0 || reference {
-                let keyword = LOGISTIC_CONTRASTS[c.contrast].0;
-                let first = if reference { "(1)" } else { "" };
-                text.push_str(&format!("\n  /CONTRAST({})={keyword}{first}", c.name));
-            }
-        }
+        text.push_str(&categorical_syntax(&self.categorical, 0));
         let save = keywords(&LOGISTIC_SAVE, &self.save);
         if !save.is_empty() {
             text.push_str(&format!("\n  /SAVE={}", save.join(" ")));

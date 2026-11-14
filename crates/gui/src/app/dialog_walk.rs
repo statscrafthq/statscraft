@@ -11,6 +11,7 @@ use crate::analyze_dialogs::{
     Tree,
 };
 use crate::correspondence_dialog::{Correspondence, Role, TableVariable};
+use crate::cox_dialog::Cox;
 use crate::cs_model_dialog::{Held, OddsRatio, SampleModel};
 use crate::data_dialogs::{
     Aggregate, AggregateTo, Aggregated, ExportData, ImportData, Make, MergeFiles, Mrsets,
@@ -266,6 +267,16 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             event_values: s("1"),
             ..Default::default()
         })),
+        Dialog::Advanced(Advanced::Cox(Box::new(Cox {
+            time: s("age"),
+            status: s("q5_1"),
+            event_values: s("1"),
+            blocks: vec![Block {
+                variables: v(&["monthly_spend"]),
+                method: 0,
+            }],
+            ..Default::default()
+        }))),
         // the plan before the analyses that read it
         Dialog::Advanced(Advanced::Plan(SamplePlan {
             path: plan.clone(),
@@ -1220,6 +1231,90 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             plots: [true; 4],
             ..Default::default()
         })),
+        // an entered block, then a forward LR block with an interaction, within strata
+        Dialog::Advanced(Advanced::Cox(Box::new(Cox {
+            time: s("age"),
+            status: s("q5_1"),
+            event_values: s("1"),
+            blocks: vec![
+                Block {
+                    variables: v(&["monthly_spend"]),
+                    method: 0,
+                },
+                Block {
+                    variables: v(&["q2_recommend", "monthly_spend BY q2_recommend"]),
+                    method: 2,
+                },
+            ],
+            strata: s("gender"),
+            ..Default::default()
+        }))),
+        // a categorical covariate with simple contrasts against the first category, every plot,
+        // a line per region and spending held at a value
+        Dialog::Advanced(Advanced::Cox(Box::new(Cox {
+            time: s("age"),
+            status: s("q1_satisfaction"),
+            event_range: true,
+            event_from: s("4"),
+            event_to: s("5"),
+            blocks: vec![Block {
+                variables: v(&["monthly_spend", "region"]),
+                method: 0,
+            }],
+            categorical: vec![Categorical {
+                name: s("region"),
+                contrast: 1,
+                first: true,
+            }],
+            plots: [true; 4],
+            pattern_by: s("region"),
+            pattern: vec![(s("monthly_spend"), s("50"))],
+            ..Default::default()
+        }))),
+        // every saved variable, some under names of their own, and every option
+        Dialog::Advanced(Advanced::Cox(Box::new(Cox {
+            time: s("age"),
+            status: s("q5_1"),
+            event_values: s("1"),
+            blocks: vec![Block {
+                variables: v(&["monthly_spend", "q2_recommend"]),
+                method: 0,
+            }],
+            save: [true; 7],
+            save_names: [
+                s("surv"),
+                s("surv_se"),
+                String::new(),
+                String::new(),
+                s("part"),
+                String::new(),
+                s("risk"),
+            ],
+            ci: true,
+            ci_level: s("90"),
+            correlations: true,
+            baseline: true,
+            last_step: true,
+            entry: s("0.1"),
+            removal: s("0.2"),
+            iterations: s("30"),
+            include: true,
+            ..Default::default()
+        }))),
+        // a covariate that grows with time
+        Dialog::Advanced(Advanced::Cox(Box::new(Cox {
+            time: s("age"),
+            status: s("q5_1"),
+            event_values: s("1"),
+            blocks: vec![Block {
+                variables: v(&["q2_recommend"]),
+                method: 0,
+            }],
+            save: [false, false, false, false, false, true, false],
+            save_names: Default::default(),
+            time_expression: s("monthly_spend * LN(T_ + 1)"),
+            ..Default::default()
+        }))),
         Dialog::Advanced(Advanced::Plan(SamplePlan {
             path: plan.clone(),
             weight: s("weight"),

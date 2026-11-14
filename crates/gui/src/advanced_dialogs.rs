@@ -1,12 +1,14 @@
 //! The Ordinal Regression, Multinomial Logistic Regression, Linear Mixed Models, Generalized
 //! Linear Models (in `genlin_dialog`), Correspondence Analysis (in `correspondence_dialog`),
-//! Life Tables and Kaplan-Meier (in `survival_dialog`) and complex samples dialogs (the
+//! Life Tables and Kaplan-Meier (in `survival_dialog`), Cox Regression (in `cox_dialog`) and
+//! complex samples dialogs (the
 //! analysis plan, Descriptives, Frequencies and Crosstabs; the General Linear Model and Logistic
 //! Regression in `cs_model_dialog`). Options left as they are add nothing to the syntax, so the
 //! command runs with its own defaults.
 
 use crate::analyze_dialogs::keywords;
 use crate::correspondence_dialog::Correspondence;
+use crate::cox_dialog::Cox;
 use crate::cs_model_dialog::SampleModel;
 use crate::dialogs::whole;
 use crate::genlin_dialog::{GeneralizedLinear, data_checks};
@@ -37,6 +39,8 @@ pub enum Advanced {
     Distances(Distances),
     Proxscal(Box<Proxscal>),
     Alscal(Alscal),
+    // boxed: a large dialog
+    Cox(Box<Cox>),
 }
 
 impl Advanced {
@@ -58,6 +62,7 @@ impl Advanced {
             Advanced::Distances(_) => "Distances",
             Advanced::Proxscal(_) => "Multidimensional Scaling (PROXSCAL)",
             Advanced::Alscal(_) => "Multidimensional Scaling (ALSCAL)",
+            Advanced::Cox(_) => "Cox Regression",
         }
     }
 
@@ -81,6 +86,7 @@ impl Advanced {
             Advanced::Distances(_) => Advanced::Distances(Default::default()),
             Advanced::Proxscal(_) => Advanced::Proxscal(Default::default()),
             Advanced::Alscal(_) => Advanced::Alscal(Default::default()),
+            Advanced::Cox(_) => Advanced::Cox(Default::default()),
         }
     }
 
@@ -113,6 +119,7 @@ impl Advanced {
             Advanced::Distances(d) => d.syntax(data),
             Advanced::Proxscal(d) => d.syntax(data),
             Advanced::Alscal(d) => d.syntax(data),
+            Advanced::Cox(d) => d.syntax(data),
         }
     }
 }

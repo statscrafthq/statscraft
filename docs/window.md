@@ -478,6 +478,13 @@ See [The Window menu](#the-window-menu).
   - With a factor: the log rank, Breslow and Tarone-Ware tests, a linear trend across the levels with optional weights, and all levels at once or each pair, pooled over the strata or within each.
   - Saving the survival estimate, its standard error, the cumulative hazard and the cumulative events, each under a name of your own or a made-up one.
   - The survival table, the mean and median, quartiles and more percentiles, and plots of survival, one minus survival, the hazard and log survival.
+- **Cox Regression** (`COXREG`): a time variable and a status variable whose event is a list of values or a range, on blocks of covariates, with an optional strata variable.
+  - Each block entered, or stepped forward or backward by the conditional, likelihood-ratio or Wald statistic; picked variables can join a block as one interaction (`a BY b`).
+  - Categorical covariates, each with its contrast (deviation unless you choose another) and the first or last category as reference.
+  - Plots of survival, the hazard, log minus log and one minus survival, with one line per category of a categorical covariate and other covariates held at values you type.
+  - Saving survival, its standard error, the cumulative hazard, log minus log, partial residuals, DfBeta and X*Beta, each under a name of your own or a made-up one.
+  - Confidence intervals for exp(B), the correlation of estimates, the baseline function, every step or only the last of each block, the stepwise entry and removal probabilities, the maximum iterations and user-missing values as valid.
+  - A time-dependent covariate: an expression in T_ that becomes `T_COV_` through `TIME PROGRAM` and joins the first block. With it, DfBeta is the only variable to save, and there are no plots, pattern or baseline table.
 
 **Multiple Response** (`MULT RESPONSE`): **Frequencies** and **Crosstabs**.
 

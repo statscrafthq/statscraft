@@ -1682,6 +1682,7 @@ impl App {
                         for (label, dialog) in [
                             ("Life Tables...", Advanced::LifeTables(Default::default())),
                             ("Kaplan-Meier...", Advanced::Km(Default::default())),
+                            ("Cox Regression...", Advanced::Cox(Default::default())),
                         ] {
                             if ui.button(label).clicked() {
                                 self.open_dialog(Dialog::Advanced(dialog));

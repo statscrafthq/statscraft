@@ -11,6 +11,8 @@ mod complete;
 mod connect_window;
 mod correspondence_dialog;
 mod correspondence_dialog_view;
+mod cox_dialog;
+mod cox_dialog_view;
 mod cs_model_dialog;
 mod cs_model_dialog_view;
 mod data_dialogs;
