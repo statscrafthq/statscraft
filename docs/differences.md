@@ -648,6 +648,7 @@ Where the documentation is silent:
 - The diagonal of the Proximity Matrix and of a matrix file holds each item's proximity with itself. RESCALE on MEASURE maps the smallest and the largest entry of the whole matrix, the diagonal included, to 0 and 1.
 - A pair for which the measure is undefined (such as JACCARD of two cases with no presence) is system-missing, with a warning; the command goes on.
 - With MATRIX=IN no measure is computed: MEASURE and STANDARDIZE are ignored with a warning, and only ABSOLUTE, REVERSE and RESCALE apply.
+- Under SPLIT FILE the Proximity Matrix of cases heads its columns by place in the group (1, 2, ...), so a layered table lines the groups up; the rows keep the case labels. MATRIX=OUT(*) keeps the split on the new matrix dataset, so MATRIX=IN(*) reads it group by group.
 - Cases are labeled with their case number, followed by the ID value after a colon. The ID variable in a matrix file keeps its values whole.
 - MEASURE=DEFAULT is EUCLID. A matrix that MATRIX=IN read and MATRIX=OUT writes again has only SIMILARITY or DISSIMILARITY as the value label of PROX. Reading a matrix file without an item list, the items are those with a row of type PROX or a value in one (a split group may have fewer). Under SPLIT FILE a matrix file in another dataset or on disk is cut to the rows whose split variables have the values of the group that runs. ALL in the item list means every item of the group. A split variable that is numeric in one file and a string in the other is an error. An item with two rows is an error, and so is an item named twice in the list. An ID variable named like another variable of the matrix file is an error.
 - In a matrix file the order is ROWTYPE_, the ID variable, CASENO_, VARNAME_. Under SPLIT FILE a group with fewer items than another has its missing item variables blank, and the item variables carry no labels.
@@ -665,6 +666,7 @@ Where the documentation is silent:
 - The output after several dimensionalities gives every table for each, titled with the number of dimensions; the charts and OUTFILE show the smallest.
 - With MATRIX=IN the matrix is scaled as similarities when the file says SIMILARITY or PROXIMITIES=SIMILARITIES is given. The file is one source: TABLE is ignored with a warning, and under SPLIT FILE every group is scaled on its own.
 - The weight of WEIGHT is not used, also with TABLE.
+- TABLE codes above twice the number of cases are refused as not numbering the objects from 1.
 - With TABLE row BY column BY source the sources are the codes that occur, in order; a gap in the codes makes no empty source.
 - PLOT=TRANSFORMATIONS and RESIDUALS give one plot per parenthesized list of sources. SPLINE accepts INKNOT=0.
 

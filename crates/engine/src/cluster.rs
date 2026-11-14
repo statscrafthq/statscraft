@@ -688,7 +688,7 @@ impl Engine {
             if std::mem::replace(&mut seen[i], true) {
                 return Err(Error(format!(
                     "{who} /MATRIX=IN: item {of} has more than one row; a matrix file written \
-                     under SPLIT FILE is read under the same split"
+                     under SPLIT FILE is read under the same split, each group's cases together"
                 )));
             }
             labels[i] = match &label_var {

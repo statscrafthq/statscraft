@@ -237,14 +237,22 @@ impl Engine {
                 true => "Variable",
                 false => "Case",
             };
-            tables.push(proximity_table(
-                head,
-                &items.labels,
-                &items.prox,
-                items.similarity,
-                &measure,
-                true,
-            ));
+            // split groups share the columns of a layered table by position, not by case
+            let by_place: Vec<String>;
+            let labels = match self.split_group.is_some() && head == "Case" {
+                true => {
+                    by_place = (1..=n).map(|i| i.to_string()).collect();
+                    &by_place
+                }
+                false => &items.labels,
+            };
+            let mut table =
+                proximity_table(head, labels, &items.prox, items.similarity, &measure, true);
+            // the rows keep the case labels
+            for (row, label) in table.rows.iter_mut().zip(&items.labels) {
+                row[0] = crate::npar_tests::text(label.clone());
+            }
+            tables.push(table);
         }
         if command.matrix_out.is_some() {
             let out = self.proximity_dataset(command, &items, &measure, &variables)?;
@@ -395,9 +403,15 @@ impl Engine {
                 .unwrap_or(1);
             template.set_string_width(&name, width)?;
         }
-        let out = Dataset::from_parts(&template, &parts)?;
+        let mut out = Dataset::from_parts(&template, &parts)?;
         match target {
-            None => self.dataset = Some(out),
+            None => {
+                // the matrix keeps the split, so MATRIX=IN(*) reads it group by group
+                if let Some(split) = self.active()?.split_file().cloned() {
+                    out.set_split_file(Some(split))?;
+                }
+                self.dataset = Some(out);
+            }
             Some(file) => self.write_data_file(file, out)?,
         }
         Ok(())

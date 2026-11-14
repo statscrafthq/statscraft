@@ -537,3 +537,29 @@ fn a_split_variable_of_another_type_in_the_matrix_file_is_named() {
             .contains("numeric in one file")
     );
 }
+
+#[test]
+fn a_layered_split_shares_columns_by_place_and_the_matrix_keeps_the_split() {
+    let mut engine = Engine::default();
+    let tables = run_on(
+        &mut engine,
+        &format!(
+            "{DATA}COMPUTE side = shop = 'east' | shop = 'west' | shop = 'lake' | shop = 'coast'.\n\
+             SORT CASES BY side.\nSPLIT FILE BY side.\n\
+             PROXIMITIES sweet bitter /MATRIX=OUT(*).\n"
+        ),
+    );
+    let table = tables
+        .iter()
+        .find(|t| t.title == "Proximity Matrix")
+        .unwrap();
+    // the side and case columns, then places 1 to 4
+    assert_eq!(&table.columns[2..], ["1", "2", "3", "4"]);
+    // the matrix replaces the data with the split kept, so it reads back group by group
+    let tables = run_on(&mut engine, "CLUSTER /MATRIX=IN(*).");
+    assert!(
+        tables
+            .iter()
+            .any(|t| t.title.starts_with("Agglomeration Schedule"))
+    );
+}

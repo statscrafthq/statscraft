@@ -352,3 +352,22 @@ fn table_sources_are_numbered_from_the_codes_present() {
     let summary = &table(&tables, "Case Processing Summary").rows;
     assert_eq!(number(&summary[0][1]), 2.0);
 }
+
+#[test]
+fn table_codes_far_beyond_the_cases_are_an_error() {
+    let mut engine = Engine::default();
+    let (commands, _) = parse(
+        "DATA LIST FREE /r c d.\nBEGIN DATA.\n20240101 20240102 1\n20240101 20240103 2\n20240102 20240103 3\nEND DATA.\n\
+         PROXSCAL d /TABLE=r BY c.\n",
+    );
+    let last = commands
+        .iter()
+        .map(|c| engine.execute(&c.command))
+        .last()
+        .unwrap();
+    assert!(
+        last.unwrap_err()
+            .to_string()
+            .contains("number the objects from 1")
+    );
+}

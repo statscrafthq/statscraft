@@ -94,7 +94,7 @@ fn symmetric(raw: &Matrix, wraw: &Matrix, shape: ProxShape, fallback: bool) -> (
 fn whole_value(v: Option<f64>, what: &str, case: usize) -> Result<Option<usize>, Error> {
     match v {
         None => Ok(None),
-        Some(v) if v >= 1.0 && v.fract() == 0.0 => Ok(Some(v as usize)),
+        Some(v) if (1.0..=1e9).contains(&v) && v.fract() == 0.0 => Ok(Some(v as usize)),
         Some(v) => Err(Error(format!(
             "PROXSCAL: the {what} must be a whole number from 1, but case {case} has {v}"
         ))),
@@ -224,6 +224,13 @@ impl Engine {
                 };
                 n = n.max(r).max(c);
                 cells.push((case, r - 1, c - 1, k));
+            }
+            // the codes number the objects from 1: far more objects than cases is a mistake
+            if n > 2 * cells.len() + 2 {
+                return Err(Error(format!(
+                    "PROXSCAL: TABLE codes go up to {n}, but {} cases hold proximities; row and column codes number the objects from 1",
+                    cells.len()
+                )));
             }
             // the source codes that occur, numbered in order: a gap makes no empty source
             let mut codes: Vec<usize> = cells.iter().filter_map(|c| c.3).collect();
