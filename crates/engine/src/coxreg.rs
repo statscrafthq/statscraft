@@ -273,7 +273,7 @@ fn fit(rows: &[Row], strata: usize, cols: &[usize], criteria: &CoxregCriteria) -
         let relative = b
             .iter()
             .zip(&delta)
-            .map(|(old, d)| d.abs() / old.abs().max(1e-8))
+            .map(|(old, d)| d.abs() / old.abs().max(1e-3))
             .fold(0.0, f64::max);
         let ll_change = ((nll - ll) / ll.abs().max(f64::MIN_POSITIVE)).abs();
         b = nb;
@@ -383,10 +383,11 @@ struct Model<'a> {
     strata: usize,
     criteria: &'a CoxregCriteria,
     terms: &'a [crate::model_terms::TermInfo],
-    /// The weighted cross-products of the design columns centered within each stratum, for
-    /// the redundancy check: a column constant within every stratum cannot be estimated.
+    /// The information matrix of all design columns at b = 0, the variation within the risk
+    /// sets, for the redundancy check: a column constant within every risk set (within every
+    /// stratum, or a time-dependent one) cannot be estimated.
     sscp: Matrix,
-    /// Each column's weighted sum of squares before any centering.
+    /// Each column's weighted sum of squares about its mean, the scale of rounding residue.
     raw: Vec<f64>,
 }
 
@@ -454,29 +455,8 @@ impl Model<'_> {
     }
 
     fn independent(&self, wanted: &[usize]) -> Vec<usize> {
-        independent_in(&self.sscp, &self.raw, self.rows.len(), wanted, 1e-8)
+        independent_in(&self.sscp, &self.raw, 1e-10, wanted, 1e-8)
     }
-}
-
-fn stratum_sscp(rows: &[Row], strata: usize, p: usize) -> Matrix {
-    let mut sums = vec![(0.0, vec![0.0; p]); strata];
-    for r in rows {
-        sums[r.stratum].0 += r.w;
-        for (s, x) in sums[r.stratum].1.iter_mut().zip(&r.x) {
-            *s += r.w * x;
-        }
-    }
-    let mut m = vec![vec![0.0; p]; p];
-    for r in rows {
-        let (w, sum) = &sums[r.stratum];
-        let d: Vec<f64> = r.x.iter().zip(sum).map(|(x, s)| x - s / w).collect();
-        for i in 0..p {
-            for j in 0..p {
-                m[i][j] += r.w * d[i] * d[j];
-            }
-        }
-    }
-    m
 }
 
 /// The baseline of one stratum at its event times, at the covariate means.
@@ -484,6 +464,9 @@ struct Baseline {
     times: Vec<f64>,
     /// Survival at the means (the product of the alphas) after each time.
     survival: Vec<f64>,
+    /// The cumulative hazard at the means: -ln of the survival, but where an alpha is 0 (every
+    /// case at risk fails) the Breslow step d / S0, so the hazard stays finite.
+    hazard: Vec<f64>,
     /// Cumulative sums of d / S0 (Breslow hazard), d / S0^2 and d S1 / S0^2.
     breslow: Vec<f64>,
     var: Vec<f64>,
@@ -531,6 +514,7 @@ fn baselines(rows: &[Row], strata: usize, fit: &Fit) -> Vec<Baseline> {
         .map(|_| Baseline {
             times: Vec::new(),
             survival: Vec::new(),
+            hazard: Vec::new(),
             breslow: Vec::new(),
             var: Vec::new(),
             a: Vec::new(),
@@ -543,8 +527,11 @@ fn baselines(rows: &[Row], strata: usize, fit: &Fit) -> Vec<Baseline> {
             .iter()
             .map(|&r| (rows[r].w, dot(&pick(&rows[r].x, &fit.cols), &fit.b).exp()))
             .collect();
-        let s = base.survival.last().copied().unwrap_or(1.0) * alpha(&deaths, e.s0);
+        let alpha = alpha(&deaths, e.s0);
+        let s = base.survival.last().copied().unwrap_or(1.0) * alpha;
         let last = |v: &[f64]| v.last().copied().unwrap_or(0.0);
+        let step = if alpha > 0.0 { -alpha.ln() } else { e.d / e.s0 };
+        base.hazard.push(last(&base.hazard) + step);
         let breslow = last(&base.breslow) + e.d / e.s0;
         let var = last(&base.var) + e.d / (e.s0 * e.s0);
         let mut a = base.a.last().cloned().unwrap_or_else(|| vec![0.0; p]);
@@ -568,7 +555,7 @@ fn at_time(base: &Baseline, fit: &Fit, t: f64, z: &[f64]) -> (f64, f64, f64) {
     };
     let risk = dot(z, &fit.b).exp();
     let s = base.survival[i].powf(risk);
-    let h = -base.survival[i].ln() * risk;
+    let h = base.hazard[i] * risk;
     let q: Vec<f64> = (0..z.len())
         .map(|j| base.a[i][j] - z[j] * base.breslow[i])
         .collect();
@@ -1024,7 +1011,12 @@ impl Engine {
             // shortcut: the expanded rows of all cases form one stream, so a value carried from
             // row to row, or the row number, would cross from case to case; run each case apart
             // to support them
-            let casenum = program_reads_casenum(&program.commands);
+            // a program whose names cannot all be listed may read it anywhere
+            let casenum = program_reads_casenum(&program.commands)
+                || (refs.all
+                    && format!("{:?}", program.commands)
+                        .to_ascii_uppercase()
+                        .contains("$CASENUM"));
             if sub.pending.is_some() || casenum {
                 return Err(fault(
                     "a case-by-case pass (LAG, $CASENUM, a scratch variable kept from case to case) is not supported yet in it"
@@ -1193,9 +1185,12 @@ impl Engine {
             strata,
             criteria: &criteria,
             terms,
-            sscp: stratum_sscp(&rows, strata, names.len()),
+            sscp: {
+                let all: Vec<usize> = (0..names.len()).collect();
+                derivatives(&rows, strata, &all, &vec![0.0; all.len()]).2
+            },
             raw: (0..names.len())
-                .map(|j| rows.iter().map(|r| r.w * (r.x[j] + means[j]).powi(2)).sum())
+                .map(|j| rows.iter().map(|r| r.w * r.x[j] * r.x[j]).sum())
                 .collect(),
         };
 
@@ -1252,7 +1247,7 @@ impl Engine {
                     if !seen.contains(c) {
                         seen.push(*c);
                         warnings.push(format!(
-                            "{} is a linear combination of the covariates before it in the model and is left out",
+                            "{} is a linear combination of the covariates before it in the model, or constant within every risk set, and is left out",
                             names[*c]
                         ));
                     }
@@ -2179,25 +2174,25 @@ impl Report<'_> {
                     .filter(|(_, b)| !b.times.is_empty())
                 {
                     for (name, z) in lines {
-                        let value = |surv: f64| match kind {
+                        let value = |(surv, hazard): (f64, f64)| match kind {
                             0 => surv,
-                            1 => -surv.ln(),
-                            2 => (-surv.ln()).ln(),
+                            1 => hazard,
+                            2 => hazard.ln(),
                             _ => 1.0 - surv,
                         };
                         let mut points = Vec::new();
-                        let mut previous = 1.0;
+                        let mut previous = (1.0, 0.0);
                         if *kind != 2 {
                             points.push(Point {
                                 x: 0.0,
-                                y: value(1.0),
+                                y: value((1.0, 0.0)),
                                 z: None,
                                 label: None,
                             });
                         }
                         for &t in &base.times {
-                            let (surv, _, _) = at_time(base, fit, t, z);
-                            if *kind != 2 || previous < 1.0 {
+                            let (surv, _, hazard) = at_time(base, fit, t, z);
+                            if *kind != 2 || previous.1 > 0.0 {
                                 points.push(Point {
                                     x: t,
                                     y: value(previous),
@@ -2207,11 +2202,11 @@ impl Report<'_> {
                             }
                             points.push(Point {
                                 x: t,
-                                y: value(surv),
+                                y: value((surv, hazard)),
                                 z: None,
                                 label: None,
                             });
-                            previous = surv;
+                            previous = (surv, hazard);
                         }
                         points.retain(|p| p.y.is_finite());
                         let group = [stratum_name(s), name.clone()]

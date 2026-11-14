@@ -104,14 +104,13 @@ pub(crate) fn residue(n: usize) -> f64 {
     (1e-30 * n * n).clamp(1e-24, 1e-14)
 }
 
-/// The columns of `wanted` that are not redundant, from the weighted cross-products `sscp`
-/// of all columns (already centered as the model needs). `raw`: each column's sum of squares
-/// before centering; a column whose share left over is a negligible part of it is only rounding
-/// residue of a constant, whatever its own centered sum.
+/// The columns of `wanted` that are not redundant, from the cross-products `sscp` of all
+/// columns as the model sees their variation. A column whose part left over is at most `share`
+/// of its `raw` sum of squares is only rounding residue, whatever its own part.
 pub(crate) fn independent_in(
     sscp: &Matrix,
     raw: &[f64],
-    rows: usize,
+    share: f64,
     wanted: &[usize],
     eps: f64,
 ) -> Vec<usize> {
@@ -119,7 +118,7 @@ pub(crate) fn independent_in(
         .iter()
         .map(|&r| wanted.iter().map(|&s| sscp[r][s]).collect())
         .collect();
-    let floor: Vec<f64> = wanted.iter().map(|&c| residue(rows) * raw[c]).collect();
+    let floor: Vec<f64> = wanted.iter().map(|&c| share * raw[c]).collect();
     kept_columns(m, wanted, eps, &floor)
 }
 

@@ -398,6 +398,7 @@ pub(crate) fn coxreg(p: &mut Parser) -> PResult<Command> {
                 } else {
                     return Err(p.unexpected(&["EXCLUDE", "INCLUDE"]));
                 }
+                p.eat(Punct::Comma);
             }
         } else if p.eat_keyword("PRINT") {
             command.print = print(p)?;

@@ -1041,3 +1041,19 @@ COXREG months WITH tier spend site /STATUS=ended(1) /METHOD=BSTEP(LR) /PRINT=SUM
         .unwrap();
     assert!(row_keys(eq).iter().all(|k| !k.starts_with("Step 1 ")));
 }
+
+#[test]
+fn the_last_event_alone_at_risk_keeps_a_finite_hazard() {
+    let t = run(
+        &mut Engine::default(),
+        "DATA LIST FREE /weeks failed load.
+BEGIN DATA.
+1 1 3  2 0 5  2 1 4  3 1 2  4 1 6  5 1 1
+END DATA.
+COXREG weeks WITH load /STATUS=failed(1) /PRINT=BASELINE.",
+    );
+    let table = t.iter().find(|t| t.title == "Survival Table").unwrap();
+    let last = row_of(table, 5.0);
+    assert_eq!(num(&last[2]), 0.0);
+    assert!(num(&last[4]).is_finite() && num(&last[4]) > 0.0);
+}
