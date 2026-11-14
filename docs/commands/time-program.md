@@ -10,7 +10,7 @@ Start the transformations that define time-dependent covariates for the next COX
 TIME PROGRAM.
 ```
 
-The transformations that follow (COMPUTE, IF, RECODE, DO IF, LOOP and the like, with labels, formats and missing values of their variables), up to the next command of another kind, are kept for the next COXREG instead of changing the data. COXREG runs them for every case at each event time of its stratum up to the case's own time, with the variable T\_ holding that time, so a covariate they compute can change with time. The data may not have a variable T\_, and T\_ itself is not a covariate. A missing value from the program where the case is otherwise valid, or a program that adds or drops cases, is an error. Any other command that reads the data drops the program, as do CLEAR TIME PROGRAM and CLEAR TRANSFORMATIONS; a COXREG that stops with an error keeps it.
+The transformations that follow (COMPUTE, IF, RECODE, DO IF, LOOP and the like), up to the next command of another kind, such as a label or format command, are kept for the next COXREG instead of changing the data. COXREG runs them for every case at each event time of its stratum up to the case's own time, with the variable T\_ holding that time, so a covariate they compute can change with time. The data may not have a variable T\_, and T\_ itself is not a covariate. A missing value from the program where the case is otherwise valid, or a program that adds or drops cases, is an error. Any other command that reads the data drops the program, as do CLEAR TIME PROGRAM and CLEAR TRANSFORMATIONS; a COXREG that stops with an error keeps it.
 
 ## Example
 

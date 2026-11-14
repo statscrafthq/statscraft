@@ -499,20 +499,8 @@ impl Engine {
         }
         // the transformations after TIME PROGRAM, loops among them, wait for COXREG
         if let Some(program) = self.time_program.as_mut().filter(|p| p.collecting) {
-            // dictionary commands on the program's variables belong to it too
             if is_transformation(command)
-                || matches!(
-                    command,
-                    Command::Loop(_)
-                        | Command::EndLoop(_)
-                        | Command::VariableLabels(_)
-                        | Command::ValueLabels(_)
-                        | Command::MissingValues(_)
-                        | Command::VariableLevel(_)
-                        | Command::Formats(_)
-                        | Command::PrintFormats(_)
-                        | Command::WriteFormats(_)
-                )
+                || matches!(command, Command::Loop(_) | Command::EndLoop(_))
             {
                 program.commands.push(command.clone());
                 return Ok(Vec::new());
@@ -578,8 +566,11 @@ impl Engine {
         }
         if matches!(command, Command::Coxreg(_)) {
             // the vectors go along: the data pass of COXREG clears them before it runs the program
+            // (a program a failed COXREG kept has its vectors already)
             self.running_program = self.time_program.take().map(|mut program| {
-                program.vectors = self.vectors.clone();
+                if program.vectors.is_empty() {
+                    program.vectors = self.vectors.clone();
+                }
                 program
             });
         }

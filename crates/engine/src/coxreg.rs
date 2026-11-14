@@ -233,7 +233,7 @@ fn fit(rows: &[Row], strata: usize, cols: &[usize], criteria: &CoxregCriteria) -
     let (mut ll, mut u, mut info) = derivatives(rows, strata, cols, &b);
     let mut converged = p == 0;
     let mut problem = None;
-    for iteration in 1..=criteria.iterate {
+    for _ in 0..criteria.iterate {
         if p == 0 {
             break;
         }
@@ -262,9 +262,10 @@ fn fit(rows: &[Row], strata: usize, cols: &[usize], criteria: &CoxregCriteria) -
             step /= 2.0;
         };
         let Some((nb, (nll, nu, ninfo))) = accepted else {
-            problem = Some(format!(
-                "the estimation stopped at iteration {iteration}, where no step raised the likelihood; the estimates are those of the iteration before"
-            ));
+            problem = Some(
+                "the estimation stopped where no step raised the likelihood; the estimates are those of the iteration before"
+                    .to_string(),
+            );
             break;
         };
         let relative = b
@@ -712,29 +713,6 @@ impl Engine {
                 _ => {}
             }
         }
-        // a program of plain COMPUTE and IF that sets no covariate cannot make one time dependent
-        let plain_program = program.iter().flat_map(|p| &p.commands).all(|c| {
-            matches!(
-                c,
-                Command::Compute { .. }
-                    | Command::If { .. }
-                    | Command::DoIf(_)
-                    | Command::ElseIf(_)
-                    | Command::Else
-                    | Command::EndIf
-            )
-        });
-        if program.is_some()
-            && plain_program
-            && term_vars.iter().flatten().all(|n| {
-                data.variable_index(n).is_some()
-                    && !computed.iter().any(|c| c.eq_ignore_ascii_case(n))
-            })
-        {
-            let tables = self.coxreg_with(command, None)?;
-            self.warn("the TIME PROGRAM changes none of the covariates, so it is not used");
-            return Ok(tables);
-        }
         let present: Vec<Vec<String>> = term_vars
             .iter()
             .map(|t| {
@@ -911,15 +889,22 @@ impl Engine {
             let mut data = data.clone();
             // only the variables the program reads and the covariates go along
             let refs = crate::rows::Refs::of(&program.commands);
-            if !refs.all && refs.ranges.is_empty() && program.vectors.is_empty() {
+            if !refs.all && refs.ranges.is_empty() {
+                // a vector the program names brings its variables
+                let members = program
+                    .vectors
+                    .iter()
+                    .filter(|(v, _)| refs.names.iter().any(|n| n.eq_ignore_ascii_case(v)))
+                    .flat_map(|(_, m)| m);
+                let named: Vec<&String> = refs
+                    .names
+                    .iter()
+                    .chain(term_vars.iter().flatten())
+                    .chain(members)
+                    .collect();
                 let wanted: Vec<&str> = (0..data.variable_count())
                     .map(|i| data.variable_at(i).name())
-                    .filter(|n| {
-                        refs.names
-                            .iter()
-                            .chain(term_vars.iter().flatten())
-                            .any(|w| w.eq_ignore_ascii_case(n))
-                    })
+                    .filter(|n| named.iter().any(|w| w.eq_ignore_ascii_case(n)))
                     .collect();
                 if !wanted.is_empty() {
                     let wanted: Vec<String> = wanted.iter().map(|n| n.to_string()).collect();

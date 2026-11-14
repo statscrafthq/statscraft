@@ -1491,13 +1491,13 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         name: "TIME PROGRAM",
         summary: "Start the transformations that define time-dependent covariates for the next COXREG.",
         syntax: "TIME PROGRAM.\n\
-                 The transformations that follow (COMPUTE, IF, RECODE, DO IF, LOOP and the like, with labels,\n\
-                 formats and missing values of their variables), up to the next command of another kind, are\n\
-                 kept for the next COXREG instead of changing the data. COXREG runs them for every case at each\n\
-                 event time of its stratum up to the case's own time, with the variable T_ holding that time, so a\n\
-                 covariate they compute can change with time. The data may not have a variable T_, and T_ itself\n\
-                 is not a covariate. A missing value from the program where the case is otherwise valid, or a\n\
-                 program that adds or drops cases, is an error. Any other command that reads the data drops the\n\
+                 The transformations that follow (COMPUTE, IF, RECODE, DO IF, LOOP and the like), up to the\n\
+                 next command of another kind, such as a label or format command, are kept for the next COXREG\n\
+                 instead of changing the data. COXREG runs them for every case at each event time of its\n\
+                 stratum up to the case's own time, with the variable T_ holding that time, so a covariate they\n\
+                 compute can change with time. The data may not have a variable T_, and T_ itself is not a\n\
+                 covariate. A missing value from the program where the case is otherwise valid, or a program\n\
+                 that adds or drops cases, is an error. Any other command that reads the data drops the\n\
                  program, as do CLEAR TIME PROGRAM and CLEAR TRANSFORMATIONS; a COXREG that stops with an error\n\
                  keeps it.",
         example: "TIME PROGRAM.\nCOMPUTE spend_t = spend * LN(T_ + 1).",

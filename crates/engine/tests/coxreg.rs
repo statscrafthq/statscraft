@@ -916,22 +916,16 @@ COXREG months WITH first plan /STATUS=ended(1) /CATEGORICAL=plan /CONTRAST(plan)
 }
 
 #[test]
-fn a_time_program_may_use_vectors_and_label_its_variables() {
-    // the same model as time_dependent_covariate_matches_r, written with a vector and a label
+fn a_time_program_may_use_vectors() {
+    // the same model as time_dependent_covariate_matches_r, written with a vector
     let t = tables(&format!(
         "VECTOR money = spend TO spend.
 TIME PROGRAM.
 COMPUTE spend_t = money(1) * LN(T_ + 1).
-VARIABLE LABELS spend_t 'spend by log time'.
 COXREG months WITH plan spend spend_t /STATUS=ended(1) /CATEGORICAL=plan {TIGHT}"
     ));
     near(
-        value(
-            &t,
-            "Variables in the Equation",
-            "Step 1 / spend by log time",
-            "B",
-        ),
+        value(&t, "Variables in the Equation", "Step 1 / spend_t", "B"),
         0.04797026618358,
         1e-6,
     );
