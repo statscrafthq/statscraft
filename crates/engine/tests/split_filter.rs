@@ -284,7 +284,7 @@ fn a_cell_from_each_group_lines_up_in_the_merged_table() {
     assert_eq!(table.rows.len(), 6);
 }
 
-/// h has one case, too few for a line; k has four on 1.0 + 1.9 u, two on 2u.
+/// s = 1 has one case, too few for a line; s = 2 has four near 1.0 + 1.9u; s = 3 two on 2u.
 const FITS: &str = "\
 DATA LIST LIST /s u v.
 BEGIN DATA
