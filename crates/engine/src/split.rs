@@ -391,13 +391,22 @@ fn write_back(
         .zip(ran)
         .map(|(a, r)| r.then_some(a))
         .collect();
-    // names compare without case, as variable lookups do
-    let mut seen: HashSet<String> = full.variable_names().map(str::to_lowercase).collect();
+    // names compare without case, a character at a time, as variable lookups do
+    let lower = |name: &str| {
+        name.chars()
+            .flat_map(char::to_lowercase)
+            .collect::<String>()
+    };
+    let mut seen: HashSet<String> = full.variable_names().map(lower).collect();
     // (name, first group that added it)
     let mut added: Vec<(String, usize)> = Vec::new();
     for (g, after) in afters.iter().enumerate() {
-        for name in after.iter().flat_map(|a| a.variable_names()) {
-            if seen.insert(name.to_lowercase()) {
+        // procedures add their variables after the existing ones
+        let tail = after
+            .iter()
+            .flat_map(|a| a.variable_names().skip(full.variable_count()));
+        for name in tail {
+            if seen.insert(lower(name)) {
                 added.push((name.to_string(), g));
             }
         }
