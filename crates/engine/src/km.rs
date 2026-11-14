@@ -583,7 +583,7 @@ impl Engine {
         let caption = (excluded > 0.0).then(|| {
             format!(
                 "{} cases with a missing value or a negative time were left out.",
-                crate::format::format_value(excluded, "F8.0", false).trim()
+                crate::examine::short(excluded)
             )
         });
         tables.push(Table {

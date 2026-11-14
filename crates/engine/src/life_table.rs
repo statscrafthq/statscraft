@@ -340,15 +340,14 @@ impl Engine {
         let (starts, stretched) = interval_starts(&command.intervals)?;
         let mut warnings = Vec::new();
         if stretched {
-            warnings.push(format!(
-                "INTERVAL: a width did not divide its period evenly, so the period was stretched; \
-                 the intervals start at {}",
-                starts
-                    .iter()
-                    .map(|s| bound_text(*s))
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
+            let mut text = "INTERVAL: a width did not divide its period evenly, so the period \
+                            was stretched"
+                .to_string();
+            if starts.len() <= 25 {
+                let list: Vec<String> = starts.iter().map(|s| bound_text(*s)).collect();
+                text.push_str(&format!("; the intervals start at {}", list.join(", ")));
+            }
+            warnings.push(text);
         }
         let weights = case_weights(data)?;
         let weight = |c: usize| weights.as_ref().map_or(1.0, |w| w[c]);
@@ -696,9 +695,13 @@ impl Engine {
                     row_headers: lead + 1,
                     columns,
                     rows: table_rows,
-                    caption: Some(
-                        "The last interval has no end, so it has no density or hazard.".into(),
-                    ),
+                    // a row without a density is the open interval
+                    caption: table_rows
+                        .iter()
+                        .any(|r| r[lead + 9] == Cell::Empty)
+                        .then(|| {
+                            "The last interval has no end, so it has no density or hazard.".into()
+                        }),
                     ..Table::default()
                 });
             }
