@@ -1137,7 +1137,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             strata: s("region"),
             id: s("resp_id"),
             tests: [true; 3],
-            compare: 3,
+            compare: 1,
             trend: true,
             trend_weights: s("1 2 4"),
             save: [true; 4],

@@ -226,7 +226,8 @@ impl KaplanMeier {
             }
             k => text.push_str(&format!("\n  /COMPARE={k}")),
         }
-        if self.trend {
+        // the trend feeds only all-levels-at-once tests; pairwise tests ignore it
+        if self.trend && !self.pairwise() {
             let weights = numbers(&self.trend_weights, "a trend weight")?;
             match weights.is_empty() {
                 true => text.push_str("\n  /TREND"),
@@ -237,6 +238,10 @@ impl KaplanMeier {
             }
         }
         Ok(text)
+    }
+
+    pub(crate) fn pairwise(&self) -> bool {
+        KM_COMPARE[self.compare].0.starts_with("PAIRWISE")
     }
 
     /// /SAVE with the names given, checked: valid, not taken and not given twice.
@@ -526,6 +531,15 @@ mod tests {
         d.tests = [false; 3];
         d.trend = true;
         assert_eq!(d.syntax(&data).unwrap(), "KM age\n  /STATUS=q5_1 EVENT(1).");
+        // pairwise tests ignore a trend, so it is not written
+        let mut d = km();
+        d.factor = "gender".into();
+        d.compare = 2;
+        d.trend = true;
+        assert_eq!(
+            d.syntax(&data).unwrap(),
+            "KM age BY gender\n  /STATUS=q5_1 EVENT(1)\n  /COMPARE=PAIRWISE POOLED."
+        );
     }
 
     #[test]

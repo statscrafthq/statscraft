@@ -35,15 +35,22 @@ pub fn kaplan_meier(ui: &mut Ui, d: &mut KaplanMeier, picked: &mut Vec<String>) 
     egui::CollapsingHeader::new("Compare Factor").show(ui, |ui| {
         ui.add_enabled_ui(!d.factor.trim().is_empty(), |ui| {
             checkboxes(ui, &KM_TESTS, &mut d.tests);
+            choice(ui, "Compare", &KM_COMPARE, &mut d.compare);
+            let overall = !d.pairwise();
             ui.horizontal(|ui| {
-                ui.checkbox(&mut d.trend, "Linear trend across levels, weights");
                 ui.add_enabled(
-                    d.trend,
+                    overall,
+                    egui::Checkbox::new(&mut d.trend, "Linear trend across levels, weights"),
+                )
+                .on_disabled_hover_text(
+                    "A trend applies only when all levels are compared at once",
+                );
+                ui.add_enabled(
+                    overall && d.trend,
                     TextEdit::singleline(&mut d.trend_weights).desired_width(100.0),
                 );
             });
             ui.weak("Empty weights are evenly spaced");
-            choice(ui, "Compare", &KM_COMPARE, &mut d.compare);
         })
         .response
         .on_disabled_hover_text("Choose a factor first");
