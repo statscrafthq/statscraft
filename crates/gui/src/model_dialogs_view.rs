@@ -5,7 +5,7 @@ use crate::analyze_dialogs::{DUNNETT_SIDES, EQUAL_VARIANCE_TESTS, POST_HOC_TESTS
 use crate::app::{checkboxes, choice, field, target_list, target_one};
 use crate::model_dialogs::{
     CLUSTER_BINARY, CLUSTER_COUNTS, CLUSTER_DATA, CLUSTER_INTERVAL, CLUSTER_METHODS, Categorical,
-    DISCRIMINANT_METHODS, DISCRIMINANT_SAVE, DISCRIMINANT_STATISTICS,
+    ClusterMeasure, DISCRIMINANT_METHODS, DISCRIMINANT_SAVE, DISCRIMINANT_STATISTICS,
     DISCRIMINANT_STATISTICS_GROUPS, Discriminant, FACTOR_DESCRIPTIVES, FACTOR_EXTRACTIONS,
     FACTOR_MISSING, FACTOR_ROTATIONS, FACTOR_SCORES, FactorAnalysis, FactorContrast,
     GLM_ADJUSTMENTS, GLM_CONTRASTS, GLM_PRINT, GLM_SAVE, GLM_SAVE_GROUPS, Hierarchical, KMeans,
@@ -191,44 +191,49 @@ pub fn hierarchical(ui: &mut Ui, d: &mut Hierarchical, picked: &mut Vec<String>)
     });
     egui::CollapsingHeader::new("Method").show(ui, |ui| {
         choice(ui, "Cluster method", &CLUSTER_METHODS, &mut d.method);
-        ui.horizontal(|ui| {
-            ui.label("Measure for");
-            for (i, kind) in CLUSTER_DATA.iter().enumerate() {
-                ui.radio_value(&mut d.data, i, *kind);
-            }
-        });
-        match d.data {
-            0 => {
-                choice(ui, "Measure", &CLUSTER_INTERVAL, &mut d.interval);
-                match CLUSTER_INTERVAL[d.interval].0 {
-                    "MINKOWSKI" => field(ui, "Power", &mut d.power, 50.0),
-                    "POWER" => {
-                        ui.horizontal(|ui| {
-                            ui.label("Power");
-                            small_field(ui, true, &mut d.power);
-                            ui.label("Root");
-                            small_field(ui, true, &mut d.root);
-                        })
-                        .inner
-                    }
-                    _ => {}
-                }
-            }
-            1 => choice(ui, "Measure", &CLUSTER_COUNTS, &mut d.counts),
-            _ => {
-                choice(ui, "Measure", &CLUSTER_BINARY, &mut d.binary);
-                ui.horizontal(|ui| {
-                    ui.label("Present");
-                    small_field(ui, true, &mut d.present);
-                    ui.label("Absent");
-                    small_field(ui, true, &mut d.absent);
-                });
-            }
-        }
+        measure(ui, &mut d.measure);
     });
     egui::CollapsingHeader::new("Save").show(ui, |ui| {
         solutions(ui, "Cluster membership", &mut d.save);
     });
+}
+
+/// The kind of data, its measure and the measure's parameters.
+pub(crate) fn measure(ui: &mut Ui, d: &mut ClusterMeasure) {
+    ui.horizontal(|ui| {
+        ui.label("Measure for");
+        for (i, kind) in CLUSTER_DATA.iter().enumerate() {
+            ui.radio_value(&mut d.data, i, *kind);
+        }
+    });
+    match d.data {
+        0 => {
+            choice(ui, "Measure", &CLUSTER_INTERVAL, &mut d.interval);
+            match CLUSTER_INTERVAL[d.interval].0 {
+                "MINKOWSKI" => field(ui, "Power", &mut d.power, 50.0),
+                "POWER" => {
+                    ui.horizontal(|ui| {
+                        ui.label("Power");
+                        small_field(ui, true, &mut d.power);
+                        ui.label("Root");
+                        small_field(ui, true, &mut d.root);
+                    })
+                    .inner
+                }
+                _ => {}
+            }
+        }
+        1 => choice(ui, "Measure", &CLUSTER_COUNTS, &mut d.counts),
+        _ => {
+            choice(ui, "Measure", &CLUSTER_BINARY, &mut d.binary);
+            ui.horizontal(|ui| {
+                ui.label("Present");
+                small_field(ui, true, &mut d.present);
+                ui.label("Absent");
+                small_field(ui, true, &mut d.absent);
+            });
+        }
+    }
 }
 
 pub fn discriminant(ui: &mut Ui, d: &mut Discriminant, picked: &mut Vec<String>) {

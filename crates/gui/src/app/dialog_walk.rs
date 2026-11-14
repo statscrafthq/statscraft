@@ -25,9 +25,10 @@ use crate::dialogs::{
 use crate::genlin_dialog::GeneralizedLinear;
 use crate::graph_dialogs::{ChartBuilder, ChartKind, ProbabilityPlot, RocCurve};
 use crate::model_dialogs::{
-    Categorical, Discriminant, FactorAnalysis, FactorContrast, Hierarchical, KMeans, Logistic,
-    MColumn, RepeatedMeasures, Solutions, Univariate, WithinFactor,
+    Categorical, ClusterMeasure, Discriminant, FactorAnalysis, FactorContrast, Hierarchical,
+    KMeans, Logistic, MColumn, RepeatedMeasures, Solutions, Univariate, WithinFactor,
 };
+use crate::proximities_dialog::Distances;
 use crate::stats_dialogs::{Block, NparKind, NparTests, PartialCorr, Regression, Reliability};
 use crate::survival_dialog::{KaplanMeier, LifeTables};
 use std::path::Path;
@@ -246,6 +247,10 @@ fn minimal(out: &Path) -> Vec<Dialog> {
         Dialog::Advanced(Advanced::Correspondence(Correspondence {
             row: table_variable("region", "1", "5", &[]),
             column: table_variable("q6_mention1", "1", "6", &[]),
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Distances(Distances {
+            variables: v(&["age", "monthly_spend"]),
             ..Default::default()
         })),
         Dialog::Advanced(Advanced::LifeTables(LifeTables {
@@ -763,9 +768,10 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             variables: v(&["age", "monthly_spend"]),
             label: s("plan"),
             method: 6,
-            interval: 7,
-            power: s("2"),
-            root: s("2"),
+            measure: ClusterMeasure {
+                interval: 7,
+                ..Default::default()
+            },
             schedule: true,
             proximity: true,
             membership: Solutions {
@@ -784,17 +790,21 @@ fn maximal(out: &Path) -> Vec<Dialog> {
         }),
         Dialog::Hierarchical(Hierarchical {
             variables: v(&["q5_1", "q5_2", "q5_3"]),
-            data: 2,
-            // Hamann: the ratios after it are undefined for a pair of cases with no 1 at all
-            binary: 7,
-            present: s("1"),
-            absent: s("0"),
+            measure: ClusterMeasure {
+                data: 2,
+                // Hamann: the ratios after it are undefined for a pair of cases with no 1 at all
+                binary: 7,
+                ..Default::default()
+            },
             ..Default::default()
         }),
         Dialog::Hierarchical(Hierarchical {
             variables: v(&["q6_mention1", "q6_mention2"]),
-            data: 1,
-            counts: 1,
+            measure: ClusterMeasure {
+                data: 1,
+                counts: 1,
+                ..Default::default()
+            },
             ..Default::default()
         }),
         Dialog::Discriminant(Discriminant {
@@ -1109,6 +1119,69 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             ndim: true,
             ndim_first: s("1"),
             ndim_last: s("3"),
+        })),
+        // between variables, standardized within each case, every change of the results
+        Dialog::Advanced(Advanced::Distances(Distances {
+            variables: v(&["age", "monthly_spend", "q2_recommend"]),
+            id: s("resp_id"),
+            between_variables: true,
+            measure: ClusterMeasure {
+                interval: 3,
+                ..Default::default()
+            },
+            standardize: 1,
+            by_case: true,
+            transforms: [true; 3],
+            print: false,
+            include: true,
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Distances(Distances {
+            variables: v(&["age", "monthly_spend"]),
+            id: s("resp_id"),
+            measure: ClusterMeasure {
+                interval: 6,
+                power: s("3"),
+                ..Default::default()
+            },
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Distances(Distances {
+            variables: v(&["age", "monthly_spend"]),
+            measure: ClusterMeasure {
+                interval: 7,
+                power: s("3"),
+                root: s("1.5"),
+                ..Default::default()
+            },
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Distances(Distances {
+            variables: v(&["q6_mention1", "q6_mention2"]),
+            between_variables: true,
+            measure: ClusterMeasure {
+                data: 1,
+                counts: 0,
+                ..Default::default()
+            },
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Distances(Distances {
+            variables: v(&["q5_1", "q5_2", "q5_3"]),
+            measure: ClusterMeasure {
+                data: 2,
+                binary: 2,
+                present: s("0"),
+                absent: s("1"),
+                ..Default::default()
+            },
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Distances(Distances {
+            variables: v(&["age", "monthly_spend"]),
+            matrix: 2,
+            dataset: s("gaps"),
+            ..Default::default()
         })),
         // two time variables sharing one status, two factors and two interval periods
         Dialog::Advanced(Advanced::LifeTables(LifeTables {

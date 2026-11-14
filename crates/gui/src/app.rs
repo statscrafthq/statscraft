@@ -1603,6 +1603,11 @@ impl App {
                         if ui.button("Partial...").clicked() {
                             self.open_dialog(Dialog::PartialCorr(Default::default()));
                         }
+                        if ui.button("Distances...").clicked() {
+                            self.open_dialog(Dialog::Advanced(Advanced::Distances(
+                                Default::default(),
+                            )));
+                        }
                     });
                     ui.menu_button("Regression", |ui| {
                         if ui.button("Linear...").clicked() {

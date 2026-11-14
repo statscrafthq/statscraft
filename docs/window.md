@@ -361,6 +361,12 @@ See [The Window menu](#the-window-menu).
 
 - **Bivariate**: Pearson by CORRELATIONS, Spearman and Kendall by NONPAR CORR, and both commands when both kinds are chosen.
 - **Partial** (`PARTIAL CORR`): the variables controlling for others; a one- or two-tailed test; the coefficients alone, marked with stars; means and standard deviations; the zero-order correlations; cases left out of every correlation or only where they are missing.
+- **Distances** (`PROXIMITIES`): distances or similarities between the cases, labeled by a variable, or between the variables.
+  - The same measures as Hierarchical Cluster, Euclidean distance by default, with their parameters.
+  - Standardizing the values first, within each variable or within each case: z scores, a range of 1, from 0 to 1, a largest value of 1, a mean of 1 or a standard deviation of 1. Binary measures take the values as they are.
+  - Changing the results: absolute values, the sign reversed, rescaled to run from 0 to 1.
+  - The proximity matrix table, and user-missing values as valid.
+  - Writing the matrix to a data file, to a new dataset or over the active dataset, which `CLUSTER` and the scaling commands read with `MATRIX=IN`.
 
 **Regression**
 

@@ -11,6 +11,7 @@ use crate::cs_model_dialog::SampleModel;
 use crate::dialogs::whole;
 use crate::genlin_dialog::{GeneralizedLinear, data_checks};
 use crate::model_dialogs::GLM_ADJUSTMENTS;
+use crate::proximities_dialog::Distances;
 use crate::stats_dialogs::{numeric, parse, percent};
 use crate::survival_dialog::{KaplanMeier, LifeTables};
 use crate::syntax_text::{names, number, quote, value};
@@ -32,6 +33,7 @@ pub enum Advanced {
     Correspondence(Correspondence),
     Km(KaplanMeier),
     LifeTables(LifeTables),
+    Distances(Distances),
 }
 
 impl Advanced {
@@ -50,6 +52,7 @@ impl Advanced {
             Advanced::Correspondence(_) => "Correspondence Analysis",
             Advanced::Km(_) => "Kaplan-Meier",
             Advanced::LifeTables(_) => "Life Tables",
+            Advanced::Distances(_) => "Distances",
         }
     }
 
@@ -70,6 +73,7 @@ impl Advanced {
             Advanced::Correspondence(_) => Advanced::Correspondence(Default::default()),
             Advanced::Km(_) => Advanced::Km(Default::default()),
             Advanced::LifeTables(_) => Advanced::LifeTables(Default::default()),
+            Advanced::Distances(_) => Advanced::Distances(Default::default()),
         }
     }
 
@@ -99,6 +103,7 @@ impl Advanced {
             Advanced::Correspondence(d) => d.syntax(data),
             Advanced::Km(d) => d.syntax(data),
             Advanced::LifeTables(d) => d.syntax(data),
+            Advanced::Distances(d) => d.syntax(data),
         }
     }
 }
