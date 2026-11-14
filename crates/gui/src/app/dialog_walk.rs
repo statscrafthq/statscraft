@@ -29,6 +29,7 @@ use crate::model_dialogs::{
     MColumn, RepeatedMeasures, Solutions, Univariate, WithinFactor,
 };
 use crate::stats_dialogs::{Block, NparKind, NparTests, PartialCorr, Regression, Reliability};
+use crate::survival_dialog::{KaplanMeier, LifeTables};
 use std::path::Path;
 
 fn s(text: &str) -> String {
@@ -245,6 +246,19 @@ fn minimal(out: &Path) -> Vec<Dialog> {
         Dialog::Advanced(Advanced::Correspondence(Correspondence {
             row: table_variable("region", "1", "5", &[]),
             column: table_variable("q6_mention1", "1", "6", &[]),
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::LifeTables(LifeTables {
+            times: v(&["age"]),
+            intervals: vec![(s("60"), s("10"))],
+            status: s("q5_1"),
+            event_from: s("1"),
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Km(KaplanMeier {
+            time: s("age"),
+            status: s("q5_1"),
+            event_values: s("1"),
             ..Default::default()
         })),
         // the plan before the analyses that read it
@@ -1095,6 +1109,44 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             ndim: true,
             ndim_first: s("1"),
             ndim_last: s("3"),
+        })),
+        // two time variables sharing one status, two factors and two interval periods
+        Dialog::Advanced(Advanced::LifeTables(LifeTables {
+            times: v(&["age", "monthly_spend"]),
+            intervals: vec![(s("40"), s("10")), (s("100"), s("20"))],
+            status: s("q1_satisfaction"),
+            event_from: s("4"),
+            event_to: s("5"),
+            factor: table_variable("gender", "1", "2", &[]),
+            second: table_variable("region", "1", "5", &[]),
+            table: false,
+            plots: [true; 5],
+            compare: 2,
+            approximate: true,
+            listwise: true,
+            include: true,
+        })),
+        Dialog::Advanced(Advanced::Km(KaplanMeier {
+            time: s("age"),
+            status: s("q1_satisfaction"),
+            event_range: true,
+            event_from: s("4"),
+            event_to: s("5"),
+            lost: s("1, 98"),
+            factor: s("gender"),
+            strata: s("region"),
+            id: s("resp_id"),
+            tests: [true; 3],
+            compare: 1,
+            trend: true,
+            trend_weights: s("1 2 4"),
+            save: [true; 4],
+            save_names: [s("surv"), s("surv_se"), s("cum_haz"), s("events")],
+            table: false,
+            quartiles: true,
+            percentiles: s("10 90"),
+            plots: [true; 4],
+            ..Default::default()
         })),
         Dialog::Advanced(Advanced::Plan(SamplePlan {
             path: plan.clone(),

@@ -449,6 +449,19 @@ See [The Window menu](#the-window-menu).
 - **2 Related Samples**: Wilcoxon, sign, McNemar and marginal homogeneity, on pairs.
 - **K Related Samples**: Friedman, Kendall's W and Cochran's Q.
 
+**Survival**
+
+- **Life Tables** (`SURVIVAL`): one or more time variables sharing one status variable, whose event is a single code or a range of codes.
+  - Intervals from 0, each row continuing where the last one ended: through an end, in steps of a width.
+  - A first factor and an optional second factor, each numeric with its smallest and largest value. A time variable cannot also be a factor.
+  - The life tables, and plots of survival, one minus survival, the hazard, the density and log survival.
+  - Comparing the levels of the first factor overall or pair by pair, exactly or by interval.
+  - Cases left out only of the tables whose variables they miss, or of every table; user-missing values as valid.
+- **Kaplan-Meier** (`KM`): a time variable and a status variable, numeric or string. The event is a list of values or, for a numeric status, a range; cases lost to follow-up may have their own values. A factor, a strata variable and a variable that labels the cases.
+  - With a factor: the log rank, Breslow and Tarone-Ware tests, a linear trend across the levels with optional weights, and all levels at once or each pair, pooled over the strata or within each.
+  - Saving the survival estimate, its standard error, the cumulative hazard and the cumulative events, each under a name of your own or a made-up one.
+  - The survival table, the mean and median, quartiles and more percentiles, and plots of survival, one minus survival, the hazard and log survival.
+
 **Multiple Response** (`MULT RESPONSE`): **Frequencies** and **Crosstabs**.
 
 - Groups defined in the dialog, as dichotomies with a counted value or as categories with a range. They are kept from one of the two dialogs to the other while the window is open.

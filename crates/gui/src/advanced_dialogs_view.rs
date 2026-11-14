@@ -38,6 +38,8 @@ pub fn body(
         Advanced::Correspondence(d) => {
             crate::correspondence_dialog_view::correspondence(ui, data, d, picked)
         }
+        Advanced::Km(d) => crate::survival_dialog_view::kaplan_meier(ui, d, picked),
+        Advanced::LifeTables(d) => crate::survival_dialog_view::life_tables(ui, data, d, picked),
     }
 }
 

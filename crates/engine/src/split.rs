@@ -262,6 +262,8 @@ impl Engine {
             .collect();
         let mut results: Vec<(Vec<String>, Vec<Table>)> = Vec::new();
         let mut afters: Vec<Dataset> = Vec::new();
+        // whether the procedure ran in each group
+        let mut ran: Vec<bool> = Vec::new();
         // the warnings of each group, with the group's name
         let (mut given, mut errors) = (Vec::new(), Vec::new());
         for group in &groups {
@@ -284,7 +286,9 @@ impl Engine {
                 false => format!("{name}: {message}"),
             };
             let charts = self.charts.len();
-            match self.run_procedure(command) {
+            let result = self.run_procedure(command);
+            ran.push(result.is_ok());
+            match result {
                 Ok(tables) => results.push((texts.clone(), tables)),
                 Err(error) => errors.push(prefix(&error.0)),
             }
@@ -312,7 +316,14 @@ impl Engine {
             self.dataset = afters.pop();
             return Ok(Vec::new());
         }
-        self.dataset = Some(write_back(full, &groups, &afters)?);
+        // datasets share their columns, so the clone is cheap and keeps the data on an error
+        match write_back(full.clone(), &groups, &afters, &ran) {
+            Ok(merged) => self.dataset = Some(merged),
+            Err(error) => {
+                self.dataset = Some(full);
+                return Err(error);
+            }
+        }
         Ok(match split {
             None => results.into_iter().flat_map(|(_, tables)| tables).collect(),
             Some(_) if !layered_split => separate(&split_names, results),
@@ -364,17 +375,36 @@ fn group_name(names: Option<&[String]>, values: &[String]) -> String {
     pairs.join(", ")
 }
 
-/// The full dataset with the variables the procedure added to each group, system-missing
-/// (or blank) in the cases outside every group.
-fn write_back(mut full: Dataset, groups: &[Group], afters: &[Dataset]) -> Result<Dataset, Error> {
-    let Some(first) = afters.first() else {
-        return Ok(full);
-    };
-    let added: Vec<String> = first
-        .variable_names()
-        .filter(|name| full.variable_index(name).is_none())
-        .map(str::to_string)
+/// The full dataset with the variables the procedure added to any group where it ran, in order
+/// of first appearance and defined as in the first group that added them (strings as wide as
+/// the widest group's); system-missing (or blank) in the other cases.
+fn write_back(
+    mut full: Dataset,
+    groups: &[Group],
+    afters: &[Dataset],
+    ran: &[bool],
+) -> Result<Dataset, Error> {
+    // a group whose procedure failed adds nothing, whatever it left behind
+    let afters: Vec<Option<&Dataset>> = afters
+        .iter()
+        .zip(ran)
+        .map(|(a, r)| r.then_some(a))
         .collect();
+    let existing = full.variable_count();
+    let blank = vec![None; full.case_count()];
+    // (name, first group that added it); the definitions go in at once, so the dataset's own
+    // case-blind lookup finds a name another group added before
+    let mut added: Vec<(String, usize)> = Vec::new();
+    for (g, after) in afters.iter().enumerate() {
+        let Some(after) = after else { continue };
+        // procedures add their variables after the existing ones
+        for name in after.variable_names().skip(existing) {
+            if full.variable_index(name).is_none() {
+                full.copy_variable(after, name, &blank)?;
+                added.push((name.to_string(), g));
+            }
+        }
+    }
     let mut at = vec![None; full.case_count()];
     for (group, case) in groups.iter().enumerate().flat_map(|(g, group)| {
         group
@@ -385,38 +415,89 @@ fn write_back(mut full: Dataset, groups: &[Group], afters: &[Dataset]) -> Result
     }) {
         at[case.1] = Some((group, case.0));
     }
-    for name in added {
-        let from_first: Vec<Option<usize>> = at
+    for (name, owner) in added {
+        let source = afters[owner].expect("only groups that ran add variables");
+        let columns: Vec<_> = afters
             .iter()
-            .map(|place| place.filter(|(g, _)| *g == 0).map(|(_, i)| i))
+            .map(|a| a.and_then(|a| a.variable(&name).ok()))
             .collect();
-        full.copy_variable(first, &name, &from_first)?;
-        if afters.len() == 1 {
-            continue;
-        }
-        let variable = |g: usize| afters[g].variable(&name);
-        match variable(0)?.values() {
+        match source.variable(&name)?.values() {
             Values::Numeric(_) => {
-                let values = at.iter().map(|place| match place {
-                    Some((g, i)) => variable(*g).ok()?.numeric().ok()?.get(*i),
-                    None => None,
+                let values = at.iter().map(|place| {
+                    let (g, i) = (*place)?;
+                    columns[g]?.numeric().ok()?.get(i)
                 });
                 full.set_numeric_values(&name, values.collect())?;
             }
             Values::String(_) => {
-                let width = variable(0)?.string_width().unwrap_or(1);
-                let values = at.iter().map(|place| match place {
-                    Some((g, i)) => variable(*g)
-                        .ok()
-                        .and_then(|v| v.string().ok().map(|s| s.get(*i).to_string()))
-                        .unwrap_or_default(),
-                    None => String::new(),
+                let width = columns
+                    .iter()
+                    .flatten()
+                    .filter_map(|v| v.string_width())
+                    .max()
+                    .expect("the defining group saved a string");
+                if full.variable(&name)?.string_width() != Some(width) {
+                    full.set_string_width(&name, width)?;
+                }
+                let values = at.iter().map(|place| {
+                    let text = |(g, i): (usize, usize)| {
+                        Some(columns[g]?.string().ok()?.get(i).to_string())
+                    };
+                    place.and_then(text).unwrap_or_default()
                 });
                 full.set_string_values(&name, width, values.collect())?;
             }
         }
     }
     Ok(full)
+}
+
+#[cfg(test)]
+#[test]
+fn saved_variables_are_the_union_of_the_groups_that_ran() {
+    let group = |c: usize| Group {
+        values: Vec::new(),
+        titles: Vec::new(),
+        cases: vec![c],
+    };
+    let part = |strings: &[(&str, usize, &str)], numbers: &[(&str, f64)]| {
+        let mut data = Dataset::new(1);
+        data.set_numeric_values("x", vec![Some(1.0)]).unwrap();
+        for (name, width, text) in strings {
+            data.set_string_values(name, *width, vec![text.to_string()])
+                .unwrap();
+        }
+        for (name, value) in numbers {
+            data.set_numeric_values(name, vec![Some(*value)]).unwrap();
+        }
+        data
+    };
+    let mut full = Dataset::new(4);
+    full.set_numeric_values("x", vec![Some(1.0); 4]).unwrap();
+    // the first group failed, so what it left is ignored; the second saves a short string, the
+    // third the same name in other case, wider, and a number
+    let afters = [
+        part(&[], &[("z", 9.0), ("n", 7.0)]),
+        part(&[("S", 2, "ab")], &[]),
+        part(&[("s", 4, "abcd")], &[("n", 5.0)]),
+        part(&[], &[]),
+    ];
+    let groups = [group(0), group(1), group(2), group(3)];
+    let ran = [false, true, true, true];
+    let out = write_back(full, &groups, &afters, &ran).unwrap();
+    assert_eq!(out.variable_names().collect::<Vec<_>>(), ["x", "S", "n"]);
+    let s = out.variable("S").unwrap();
+    assert_eq!(s.string_width(), Some(4));
+    let s = s.string().unwrap();
+    assert_eq!(
+        [s.get(0), s.get(1), s.get(2), s.get(3)],
+        ["", "ab", "abcd", ""]
+    );
+    let n = out.variable("n").unwrap().numeric().unwrap();
+    assert_eq!(
+        [n.get(0), n.get(1), n.get(2), n.get(3)],
+        [None, None, Some(5.0), None]
+    );
 }
 
 /// SEPARATE: every group's tables, the group named in the title.

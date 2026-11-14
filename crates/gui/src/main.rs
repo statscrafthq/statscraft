@@ -36,6 +36,8 @@ mod settings;
 mod settings_window;
 mod stats_dialogs;
 mod stats_dialogs_view;
+mod survival_dialog;
+mod survival_dialog_view;
 mod syntax_text;
 mod syntax_window;
 mod themes;

@@ -80,7 +80,7 @@ pub fn correspondence(
 /// The variable with its range; a new variable starts from its lowest and highest labelled
 /// value that is not user-missing, and with every category active. Leaving a changed range
 /// field forgets the roles of the categories outside the range.
-fn table_variable(
+pub(crate) fn table_variable(
     ui: &mut Ui,
     data: &Dataset,
     title: &str,
