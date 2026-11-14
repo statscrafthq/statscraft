@@ -780,7 +780,7 @@ Where GNU PSPP differs:
 Choices where the documentation says nothing:
 
 - Case weights are not used; every case counts once.
-- Extremes: the quartiles are taken at (n + 1) p, as in EXAMINE's default, and the switch to 2 standard deviations uses the base-10 logarithm, v n log10(n) > 150000, with v the variables on the list and n the cases.
+- Extremes: the Algorithms manual draws the limits at the quartiles themselves, the syntax documentation 1.5 interquartile ranges beyond them; Statscraft follows the latter. The quartiles are taken at (n + 1) p, as in EXAMINE's default, and the switch to 2 standard deviations uses the base-10 logarithm, v n log10(n) > 150000, with v the variables on the list and n the cases.
 - The pattern tables put the variables in order of their number of missing values, fewest first (ties in list order), and sort the patterns by their missing values read from the variable with the most missing values back to the one with the fewest, the complete pattern first. MPATTERN keeps file order among cases of the same pattern.
 - MISMATCH PERCENT leaves out the variables with less than that percent missing. CROSSTAB columns are the total and the valid categories; the user-missing rows name the defined value.
 - The t test is left blank when a group has fewer than two values. The column of the indicator variable itself shows its counts and present mean.
@@ -791,7 +791,8 @@ Choices where the documentation says nothing:
 - Convergence follows the Algorithms manual: every variance changes by at most CONVERGENCE relative to its new value. When ITERATIONS runs out first, the last estimates are shown with a warning.
 - The mixed normal weight follows the Algorithms manual's formula, with LAMBDA and PROPORTION both required.
 - REGRESSION enters predictors while F to enter = (drop in residual variance) / (residual variance / (n_j - q - 1)) reaches FLIMIT, with n_j the valid values of the estimated variable and q the predictors after entry. A complete case for RESIDUAL is one valid on every variable of the model. NORMAL and T errors are scaled by the residual standard deviation of the regression on the pairwise covariances; T is not rescaled to unit variance.
-- OUTFILE writes the analyzed cases (with FILTER, the selected ones), with the missing values, system- and user-missing, of the estimated variables filled in. Values that could not be estimated keep what they were.
+- OUTFILE writes the analyzed cases (with FILTER, the selected ones), with the missing values, system- and user-missing, of the estimated variables filled in, and drops the user-missing definitions of those variables, so that no filled value reads as missing.
+- A variable named twice on the list is analyzed once. ALL on CATEGORICAL, EM or REGRESSION means every variable on the MVA list. A quantitative variable with fewer than two valid values is left out of EM and REGRESSION with a warning.
 
 ### KM
 

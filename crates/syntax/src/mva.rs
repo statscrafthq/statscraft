@@ -139,9 +139,12 @@ const RESERVED: [&str; 5] = ["VARIABLES", "SORT", "NOSORT", "DESCRIBE", "WITH"];
 fn at_list_end(p: &Parser) -> bool {
     match p.peek() {
         Some(TokenKind::Word(w)) => {
+            let eq = matches!(p.peek_at(1), Some(TokenKind::Punct(Punct::Eq)));
             RESERVED.iter().any(|r| w.eq_ignore_ascii_case(r))
-                || (matches_keyword(w, "PERCENT")
-                    && matches!(p.peek_at(1), Some(TokenKind::Punct(Punct::Eq))))
+                || (eq
+                    && ["PERCENT", "SORT", "DESCRIBE"]
+                        .iter()
+                        .any(|k| matches_keyword(w, k)))
         }
         _ => true,
     }
@@ -207,7 +210,7 @@ fn pattern(p: &mut Parser, dpattern: bool, percent_default: f64) -> PResult<MvaP
         ..MvaPattern::default()
     };
     while !at_end(p) {
-        if dpattern && p.eat_word("SORT") {
+        if dpattern && p.eat_keyword("SORT") {
             p.eat(Punct::Eq);
             pattern.sort.clear();
             while matches!(p.peek(), Some(TokenKind::Word(_))) && !at_list_end(p) {
@@ -227,9 +230,9 @@ fn pattern(p: &mut Parser, dpattern: bool, percent_default: f64) -> PResult<MvaP
             if pattern.sort.is_empty() {
                 return Err(p.unexpected(&["a variable name"]));
             }
-        } else if !dpattern && p.eat_word("NOSORT") {
+        } else if !dpattern && p.eat_keyword("NOSORT") {
             pattern.nosort = true;
-        } else if p.eat_word("DESCRIBE") {
+        } else if p.eat_keyword("DESCRIBE") {
             p.eat(Punct::Eq);
             pattern.describe = list(p)?;
         } else if percent_default > 0.0 && p.eat_keyword("PERCENT") {
@@ -431,7 +434,7 @@ pub(crate) fn mva(p: &mut Parser) -> PResult<Command> {
             while !at_end(p) {
                 if p.eat_keyword("PERCENT") {
                     value = percent(p)?;
-                } else if p.eat_word("NOSORT") {
+                } else if p.eat_keyword("NOSORT") {
                     nosort = true;
                 } else {
                     return Err(p.unexpected(&["PERCENT", "NOSORT"]));

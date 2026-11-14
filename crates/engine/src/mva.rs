@@ -56,7 +56,7 @@ use crate::random::draw;
 use crate::shown::Shown;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, MissingValues, Values, Variable};
-use statscraft_syntax::{AddType, Mva, MvaEstimate, MvaPattern, PercentileMethod};
+use statscraft_syntax::{AddType, Mva, MvaEstimate, MvaPattern, PercentileMethod, VarItem};
 use std::collections::BTreeMap;
 
 /// Whether a value is valid, system-missing or user-missing of the given type (0 is A).
@@ -90,6 +90,10 @@ impl Column {
 
     fn missing_count(&self) -> usize {
         self.states.iter().filter(|s| **s != State::Valid).count()
+    }
+
+    fn n_valid(&self) -> usize {
+        self.values.iter().filter(|v| !v.is_nan()).count()
     }
 
     fn valid(&self) -> Vec<f64> {
@@ -590,31 +594,22 @@ fn symbol(column: &Column, case: usize) -> Cell {
     }
 }
 
-/// A value of a DESCRIBE variable as it stands in the data.
-fn plain_value(variable: &Variable, case: usize) -> Cell {
+/// A value of an ID or DESCRIBE variable in its format, or its label.
+fn shown_value(variable: &Variable, case: usize, shown: &Shown) -> Cell {
     match variable.values() {
-        Values::Numeric(v) => v.get(case).map_or(Cell::Empty, Cell::Number),
+        Values::Numeric(v) => v
+            .get(case)
+            .map_or(Cell::Empty, |x| text(shown.number(variable, x))),
         Values::String(v) => text(v.get(case).trim_end()),
     }
 }
 
-/// Variables of an estimation list that MVA can use: quantitative ones on the variable list.
-fn estimation_list(names: &[String], columns: &[Column], what: &str) -> Result<Vec<usize>, Error> {
-    let mut out = Vec::new();
-    for name in names {
-        let Some(j) = columns
-            .iter()
-            .position(|c| c.name.eq_ignore_ascii_case(name))
-        else {
-            return Err(Error(format!(
-                "{what} names {name}, which is not on the MVA variable list"
-            )));
-        };
-        if !columns[j].categorical && !out.contains(&j) {
-            out.push(j);
-        }
-    }
-    Ok(out)
+/// The distinct categories of a categorical column, in order.
+fn categories(column: &Column) -> Vec<Key> {
+    let mut keys: Vec<Key> = column.keys.iter().flatten().cloned().collect();
+    keys.sort_by(|a, b| a.compare(b));
+    keys.dedup_by(|a, b| a.compare(b).is_eq());
+    keys
 }
 
 /// What an estimation (EM or REGRESSION) produced.
@@ -664,16 +659,26 @@ impl Estimate {
 }
 
 impl Engine {
-    pub(crate) fn mva(&mut self, command: &Mva) -> Result<Vec<Table>, Error> {
-        let names = self.expand(&command.variables)?;
-        let categorical = self.expand(&command.categorical)?;
-        for name in &categorical {
-            if !names.contains(name) {
-                return Err(Error(format!(
-                    "CATEGORICAL names {name}, which is not on the MVA variable list"
-                )));
-            }
+    /// The variables of a list inside MVA; ALL there means every variable on the MVA list.
+    fn within(&self, items: &[VarItem], list: &[String], what: &str) -> Result<Vec<String>, Error> {
+        let names = self.expand(items)?;
+        if items.contains(&VarItem::All) {
+            return Ok(names.into_iter().filter(|n| list.contains(n)).collect());
         }
+        match names.iter().find(|n| !list.contains(n)) {
+            Some(name) => Err(Error(format!(
+                "{what} names {name}, which is not on the MVA variable list"
+            ))),
+            None => Ok(names),
+        }
+    }
+
+    pub(crate) fn mva(&mut self, command: &Mva) -> Result<Vec<Table>, Error> {
+        let mut names = self.expand(&command.variables)?;
+        // a variable named twice is analyzed once
+        let mut seen = std::collections::HashSet::new();
+        names.retain(|name| seen.insert(name.clone()));
+        let categorical = self.within(&command.categorical, &names, "CATEGORICAL")?;
         let outfile = command
             .em
             .iter()
@@ -694,9 +699,7 @@ impl Engine {
         }
         let mut warnings = Vec::new();
         for column in columns.iter().filter(|c| c.categorical) {
-            let mut keys: Vec<&Key> = column.keys.iter().flatten().collect();
-            keys.sort_by(|a, b| a.compare(b));
-            keys.dedup_by(|a, b| a.compare(b).is_eq());
+            let keys = categories(column);
             if keys.len() > command.maxcat {
                 self.warn(format!(
                     "MVA did not run: {} has {} categories, more than MAXCAT={}",
@@ -723,23 +726,17 @@ impl Engine {
             }
         }
         let quantitative: Vec<usize> = (0..v).filter(|&j| !columns[j].categorical).collect();
+        let id = command
+            .id
+            .as_ref()
+            .map(|id| data.variable(id))
+            .transpose()?;
         let case_label = |c: usize| -> Cell {
-            match &command.id {
-                Some(id) => match data.variable(id) {
-                    Ok(var) => match var.values() {
-                        Values::Numeric(values) => values
-                            .get(c)
-                            .map_or(Cell::Empty, |x| text(shown.number(&var, x))),
-                        Values::String(values) => text(values.get(c).trim_end()),
-                    },
-                    Err(_) => Cell::Empty,
-                },
+            match &id {
+                Some(var) => shown_value(var, c, &shown),
                 None => count(self.case_numbers.as_ref().map_or(c, |n| n[c]) + 1),
             }
         };
-        if let Some(id) = &command.id {
-            data.variable(id)?;
-        }
         let mut tables = Vec::new();
 
         if command.univariate {
@@ -818,7 +815,10 @@ impl Engine {
             .iter()
             .map(|&j| mean_sd(&columns[j].valid()))
             .unzip();
-        let pair = pairwise(&x, quantitative.len());
+        // LISTWISE alone needs no pairwise statistics
+        let pair = estimates[1..]
+            .contains(&true)
+            .then(|| pairwise(&x, quantitative.len()));
         let mut summary: Vec<(&str, Vec<f64>, Vec<f64>)> =
             vec![("All Values", univariate_mean.clone(), univariate_sd)];
 
@@ -853,6 +853,7 @@ impl Engine {
             ));
         }
         if command.pairwise {
+            let pair = pair.as_ref().expect("computed for PAIRWISE");
             let counts: Matrix = pair
                 .n
                 .iter()
@@ -888,15 +889,31 @@ impl Engine {
         for (options, is_em) in [(&command.em, true), (&command.regression, false)] {
             let Some(options) = options else { continue };
             let what = if is_em { "EM" } else { "REGRESSION" };
-            let predicted_names = self.expand(&options.predicted)?;
-            let predictor_names = self.expand(&options.predictors)?;
-            let mut predicted = estimation_list(&predicted_names, &columns, what)?;
-            let mut predictors = estimation_list(&predictor_names, &columns, what)?;
-            if options.predicted.is_empty() {
-                predicted.clone_from(&quantitative);
-            }
-            if options.predictors.is_empty() {
-                predictors.clone_from(&quantitative);
+            let pair = pair.as_ref().expect("computed for EM and REGRESSION");
+            let predicted_names = self.within(&options.predicted, &names, what)?;
+            let predictor_names = self.within(&options.predictors, &names, what)?;
+            // categorical variables on the lists are ignored, as are those with fewer than two
+            // values, which give no variance to start from
+            let usable = |list: &[String], given: bool| -> Vec<usize> {
+                quantitative
+                    .iter()
+                    .copied()
+                    .filter(|&j| !given || list.contains(&columns[j].name))
+                    .filter(|&j| columns[j].n_valid() >= 2)
+                    .collect()
+            };
+            let predicted = usable(&predicted_names, !options.predicted.is_empty());
+            let predictors = usable(&predictor_names, !options.predictors.is_empty());
+            for &j in &quantitative {
+                let listed = predicted_names.contains(&columns[j].name)
+                    || predictor_names.contains(&columns[j].name)
+                    || options.predicted.is_empty();
+                if listed && columns[j].n_valid() < 2 {
+                    warnings.push(format!(
+                        "{what}: {} has fewer than two valid values and is left out",
+                        columns[j].name
+                    ));
+                }
             }
             // the model holds both lists in the order of the variable list
             let model: Vec<usize> = quantitative
@@ -1123,14 +1140,12 @@ impl Engine {
                             true => estimate.filled[c][p],
                             false => column.values[c],
                         };
-                        match (column.states[c], value.is_finite()) {
-                            (_, true) => Some(value),
-                            (State::User(_), false) => out_original(data, &column.name, c),
-                            _ => None,
-                        }
+                        Some(value).filter(|v| v.is_finite())
                     })
                     .collect();
                 out.set_numeric_values(&column.name, values)?;
+                // every missing value is filled, and a filled value must not read as missing
+                out.set_missing_values(&column.name, MissingValues::None)?;
             }
             files.push((file, out));
         }
@@ -1151,14 +1166,6 @@ impl Engine {
             self.write_data_file(&file, out)?;
         }
         Ok(tables)
-    }
-}
-
-/// The value as stored, for a user-missing value that could not be estimated.
-fn out_original(data: &Dataset, name: &str, case: usize) -> Option<f64> {
-    match data.variable(name).ok()?.values() {
-        Values::Numeric(v) => v.get(case),
-        Values::String(_) => None,
     }
 }
 
@@ -1315,9 +1322,7 @@ fn crosstab(
     data: &Dataset,
 ) -> Result<Table, Error> {
     let by = &columns[c];
-    let mut keys: Vec<Key> = by.keys.iter().flatten().cloned().collect();
-    keys.sort_by(|a, b| a.compare(b));
-    keys.dedup_by(|a, b| a.compare(b).is_eq());
+    let keys = categories(by);
     let variable = data.variable(&by.name)?;
     let mut header = vec![
         String::new(),
@@ -1485,7 +1490,7 @@ fn case_patterns(
                 num(percent(missing, columns.len())),
             ];
             row.extend(order.iter().map(|&j| symbol(&columns[j], c)));
-            row.extend(described.iter().map(|v| plain_value(v, c)));
+            row.extend(described.iter().map(|v| shown_value(v, c, shown)));
             row
         })
         .collect();
@@ -1535,12 +1540,7 @@ fn tabulated(
         let variable = data.variable(name)?;
         let is_categorical = variable.is_string() || categorical.contains(name);
         let column = read_column(&variable, is_categorical, shown);
-        let keys = is_categorical.then(|| {
-            let mut keys: Vec<Key> = column.keys.iter().flatten().cloned().collect();
-            keys.sort_by(|a, b| a.compare(b));
-            keys.dedup_by(|a, b| a.compare(b).is_eq());
-            keys
-        });
+        let keys = is_categorical.then(|| categories(&column));
         match &keys {
             Some(keys) => header.extend(keys.iter().map(|k| {
                 format!(

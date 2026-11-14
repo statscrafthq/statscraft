@@ -942,3 +942,44 @@ fn summaries_ranges_and_categorical_only() {
         "{warnings:?}"
     );
 }
+
+#[test]
+fn repeated_names_all_in_lists_and_empty_variables() {
+    // a repeated name counts once, and ALL inside EM means the MVA list
+    let (once, _) = run(&format!("{VARS} /NOUNI /EM."));
+    let (twice, _) = run(
+        "MVA VARIABLES=district mode age km minutes rating km /CATEGORICAL=district /ID=resp \
+         /NOUNI /EM ALL WITH ALL.",
+    );
+    assert_eq!(find(&once, "EM Means").rows, find(&twice, "EM Means").rows);
+    // a variable without values is left out of EM with a warning, not a convergence failure
+    let (tables, warnings) = run(
+        "COMPUTE empty = $SYSMIS.\nMVA VARIABLES=age km minutes rating empty /NOUNI /EM (ITERATIONS=500).",
+    );
+    assert_eq!(
+        &find(&tables, "EM Means").columns[1..],
+        ["age", "km", "minutes", "rating"]
+    );
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("empty has fewer than two")),
+        "{warnings:?}"
+    );
+    assert!(
+        !warnings.iter().any(|w| w.contains("converge")),
+        "{warnings:?}"
+    );
+}
+
+#[test]
+fn outfile_drops_the_missing_definitions_of_filled_variables() {
+    let (tables, _) = run(&format!(
+        "DATASET NAME survey.\nDATASET DECLARE filled.\n{VARS} /NOUNI /EM (OUTFILE=filled).\n\
+         DATASET ACTIVATE filled.\nDESCRIPTIVES rating minutes."
+    ));
+    let t = find(&tables, "Descriptive Statistics");
+    let at = t.columns.iter().position(|c| c == "N").unwrap();
+    let n: Vec<f64> = t.rows.iter().take(2).map(|r| num(&r[at])).collect();
+    assert_eq!(n, [36.0, 36.0]);
+}

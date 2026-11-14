@@ -203,7 +203,8 @@ const MVA_SYNTAX: &str = "MVA [VARIABLES=] varlist | ALL\n\
                  half the cases are complete. Random terms follow SET SEED. When two or more ways to estimate are\n\
                  shown (univariate, LISTWISE, PAIRWISE, EM, REGRESSION), summary tables compare their means and\n\
                  standard deviations (pairwise ones are those of all values). OUTFILE saves the active\n\
-                 data with the missing values of the estimated variables filled in.";
+                 data with the missing values of the estimated variables filled in and their user-missing\n\
+                 definitions dropped.";
 
 pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
