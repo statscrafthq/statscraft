@@ -301,6 +301,24 @@ fn km_tests_pairwise_strata_and_trend() {
         2.38252581481,
     );
     assert!(warnings.iter().any(|w| w.contains("extra")));
+
+    // a trend needs an overall comparison: with only pairwise ones it is left out, with a note
+    let (tables, _, warnings, _) =
+        run("KM weeks BY plan /STATUS=outcome(1) /PRINT=NONE /TREND /COMPARE=PAIRWISE.");
+    table(&tables, "Pairwise Comparisons");
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("TREND applies to overall"))
+    );
+    let (_, _, warnings, _) = run(
+        "KM weeks BY plan /STATUS=outcome(1) /PRINT=NONE /TREND /COMPARE=OVERALL /COMPARE=PAIRWISE.",
+    );
+    assert!(
+        !warnings
+            .iter()
+            .any(|w| w.contains("TREND applies to overall"))
+    );
 }
 
 #[test]
