@@ -477,7 +477,7 @@ pub const ALSCAL_PLOTS: [(&str, &str); 3] = [
 ];
 
 /// The dataset that holds the distances made from the data, so the open data stay active.
-const DISTANCES: &str = "alscal_distances";
+pub(crate) const DISTANCES: &str = "alscal_distances";
 
 /// ALSCAL: multidimensional scaling by alternating least squares.
 #[derive(Clone, PartialEq, Debug)]

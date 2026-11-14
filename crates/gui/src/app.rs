@@ -3402,6 +3402,16 @@ impl App {
         let mut open = true;
         let import = matches!(dialog, Dialog::ImportData(_));
         let mut syntax = dialog.syntax(data);
+        // the distances dataset is replaced and closed, so it must not be one the user has open
+        if let Dialog::Advanced(Advanced::Alscal(a)) = dialog
+            && a.from_data
+            && dataset_named(&self.session, Some(crate::mds_dialog::DISTANCES)).is_some()
+        {
+            syntax = Err(format!(
+                "a dataset named {} is open; rename or close it first",
+                crate::mds_dialog::DISTANCES
+            ));
+        }
         let raw = syntax.clone();
         if import {
             // with a dataset name, as a data file opened from the window gets
