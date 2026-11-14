@@ -274,6 +274,11 @@ impl Engine {
             part.set_filter_variable(None)?;
             self.dataset = Some(part);
             self.case_numbers = Some(group.cases.clone());
+            self.split_group = split.as_ref().map(|s| {
+                let first = group.cases.first().copied().unwrap_or(0);
+                let values = keys(&full, &s.variables, first);
+                s.variables.iter().cloned().zip(values).collect()
+            });
             self.warnings.clear();
             let texts = if layered_split {
                 &group.values
@@ -302,6 +307,7 @@ impl Engine {
             afters.push(self.dataset.take().expect("procedures keep a dataset"));
         }
         self.case_numbers = None;
+        self.split_group = None;
         self.warnings = earlier;
         self.warnings.extend(group_warnings(given));
         if results.is_empty() && !errors.is_empty() {

@@ -327,3 +327,28 @@ fn ratio_with_similarities_falls_back_to_interval() {
     );
     assert!(engine.warnings().iter().any(|w| w.contains("INTERVAL")));
 }
+
+#[test]
+fn table_sources_are_numbered_from_the_codes_present() {
+    let mut engine = Engine::default();
+    run_on(
+        &mut engine,
+        &format!(
+            "{PLACES}COMPUTE row = $CASENUM.\n\
+             VARSTOCASES /MAKE prox FROM o1 TO o8 /INDEX=col.\n\
+             SELECT IF col < row.\n\
+             COMPUTE judge = 1.\n"
+        ),
+    );
+    // a second copy of the matrix as source 3: there is no source 2
+    let tables = run_on(
+        &mut engine,
+        &format!(
+            "DATASET NAME first.\nDATASET COPY second.\nDATASET ACTIVATE second.\n\
+             COMPUTE judge = 3.\nADD FILES /FILE=first /FILE=*.\nEXECUTE.\n\
+             PROXSCAL prox /TABLE=row BY col BY judge {TIGHT}."
+        ),
+    );
+    let summary = &table(&tables, "Case Processing Summary").rows;
+    assert_eq!(number(&summary[0][1]), 2.0);
+}

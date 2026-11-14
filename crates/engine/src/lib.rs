@@ -357,6 +357,8 @@ pub struct Engine {
     documents: output_docs::Documents,
     /// See `error_position`.
     error_at: Option<(u32, u32)>,
+    /// While a procedure runs on a split group: each split variable with the group's value.
+    split_group: Option<Vec<(String, Option<crosstabs::Key>)>>,
     /// PROXIMITIES /MATRIX=OUT: the split variables and the matrix of every split group.
     proximity_out: (Vec<String>, Vec<Dataset>),
     /// The specifications of the last PPLOT, for PPLOT APPLY.

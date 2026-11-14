@@ -493,3 +493,17 @@ fn a_split_matrix_file_is_read_group_by_group_from_another_dataset() {
         .unwrap();
     assert!(last.unwrap_err().to_string().contains("named twice"));
 }
+
+#[test]
+fn all_with_matrix_input_means_every_item() {
+    let mut engine = Engine::default();
+    run_on(
+        &mut engine,
+        &format!(
+            "{DATA}PROXIMITIES sweet sour bitter /VIEW=VARIABLE /PRINT=NONE /MATRIX=OUT(*).\n"
+        ),
+    );
+    let tables = run_on(&mut engine, "PROXIMITIES ALL /MATRIX=IN(*).");
+    let (table, _) = matrix(&tables);
+    assert_eq!(table.columns, ["Case", "sweet", "sour", "bitter"]);
+}

@@ -217,10 +217,7 @@ impl Engine {
                 let k = match &source {
                     Some(s) => match whole_value(value(s, case), "source", self.case_number(case))?
                     {
-                        Some(k) => {
-                            m = m.max(k);
-                            Some(k - 1)
-                        }
+                        Some(k) => Some(k),
                         None => continue,
                     },
                     None => None,
@@ -228,6 +225,17 @@ impl Engine {
                 n = n.max(r).max(c);
                 cells.push((case, r - 1, c - 1, k));
             }
+            // the source codes that occur, numbered in order: a gap makes no empty source
+            let mut codes: Vec<usize> = cells.iter().filter_map(|c| c.3).collect();
+            codes.sort_unstable();
+            codes.dedup();
+            if source.is_some() {
+                m = codes.len();
+            }
+            let cells: Vec<(usize, usize, usize, Option<usize>)> = cells
+                .into_iter()
+                .map(|(case, r, c, k)| (case, r, c, k.and_then(|k| codes.binary_search(&k).ok())))
+                .collect();
             let mut raw = vec![vec![vec![f64::NAN; n]; n]; m];
             let mut wraw = vec![zeros(n, n); m];
             for (case, r, c, k) in cells {
@@ -246,8 +254,9 @@ impl Engine {
                 .map(|i| label_of(&row, i as f64).unwrap_or_else(|| i.to_string()))
                 .collect();
             let sources = match &source {
-                Some(s) => (1..=m)
-                    .map(|k| label_of(s, k as f64).unwrap_or_else(|| format!("SRC_{k}")))
+                Some(s) => codes
+                    .iter()
+                    .map(|&k| label_of(s, k as f64).unwrap_or_else(|| format!("SRC_{k}")))
                     .collect(),
                 None => variables.iter().map(|v| v.name().to_string()).collect(),
             };

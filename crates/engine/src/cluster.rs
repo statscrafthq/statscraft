@@ -569,35 +569,28 @@ impl Engine {
             .skip(1)
             .filter(|v| !v.is_string())
             .collect();
-        // a file of several split groups: the rows of the group that runs, told by the
-        // variables before ROWTYPE_ when the active cases share one value of each
-        let group: Vec<(Variable, String)> = match source {
-            None => Vec::new(),
-            Some(_) => {
-                let active = self.active()?;
-                let split: Vec<Variable> = data
-                    .variables()
-                    .take_while(|v| v.name() != rowtype.name())
-                    .collect();
-                let mut group = Vec::new();
-                for v in split {
-                    let Ok(mine) = active.variable(v.name()) else {
-                        group.clear();
-                        break;
-                    };
-                    let first = value_text(&mine, 0);
-                    if active.case_count() == 0
-                        || (1..active.case_count()).any(|c| value_text(&mine, c) != first)
-                    {
-                        group.clear();
-                        break;
+        // a file of several split groups: the rows of the group that runs
+        let group: Vec<(Variable, &Option<crate::crosstabs::Key>)> =
+            match (source, &self.split_group) {
+                (Some(_), Some(split)) => split
+                    .iter()
+                    .filter_map(|(name, key)| Some((data.variable(name).ok()?, key)))
+                    .collect(),
+                _ => Vec::new(),
+            };
+        let in_group = |case: usize| {
+            group.iter().all(|(v, key)| {
+                use crate::crosstabs::Key;
+                match (v.values(), key) {
+                    (Values::Numeric(values), Some(Key::Number(x))) => values.get(case) == Some(*x),
+                    (Values::Numeric(values), None) => values.get(case).is_none(),
+                    (Values::String(values), Some(Key::Text(x))) => {
+                        values.get(case).trim_end() == x.trim_end()
                     }
-                    group.push((v, first));
+                    _ => false,
                 }
-                group
-            }
+            })
         };
-        let in_group = |case: usize| group.iter().all(|(v, value)| value_text(v, case) == *value);
         let prox_rows: Vec<usize> = (0..data.case_count())
             .filter(|&case| {
                 value_text(&rowtype, case).eq_ignore_ascii_case("PROX") && in_group(case)
@@ -624,8 +617,17 @@ impl Engine {
                     .collect()
             }
             false => {
-                // the list over the matrix file, TO and ALL in its order
-                let names = crate::expand_in(data, variables)?;
+                // the list over the matrix file, TO in its order, ALL its items
+                let mut names: Vec<String> = Vec::new();
+                for item in variables {
+                    match item {
+                        VarItem::All => names.extend(all.iter().map(|v| v.name().to_string())),
+                        _ => names.extend(
+                            crate::expand_in(data, std::slice::from_ref(item))
+                                .map_err(|e| Error(format!("{who} /MATRIX=IN: {}", e.0)))?,
+                        ),
+                    }
+                }
                 let mut out: Vec<Variable> = Vec::new();
                 for name in names {
                     let v = all
