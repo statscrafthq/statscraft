@@ -1,8 +1,9 @@
 //! The Ordinal Regression, Multinomial Logistic Regression, Linear Mixed Models, Generalized
-//! Linear Models (in `genlin_dialog`), Correspondence Analysis (in `correspondence_dialog`) and
-//! complex samples dialogs (the analysis plan, Descriptives, Frequencies and Crosstabs; the
-//! General Linear Model and Logistic Regression in `cs_model_dialog`). Options left as they are
-//! add nothing to the syntax, so the command runs with its own defaults.
+//! Linear Models (in `genlin_dialog`), Correspondence Analysis (in `correspondence_dialog`),
+//! Life Tables and Kaplan-Meier (in `survival_dialog`) and complex samples dialogs (the
+//! analysis plan, Descriptives, Frequencies and Crosstabs; the General Linear Model and Logistic
+//! Regression in `cs_model_dialog`). Options left as they are add nothing to the syntax, so the
+//! command runs with its own defaults.
 
 use crate::analyze_dialogs::keywords;
 use crate::correspondence_dialog::Correspondence;
@@ -11,6 +12,7 @@ use crate::dialogs::whole;
 use crate::genlin_dialog::{GeneralizedLinear, data_checks};
 use crate::model_dialogs::GLM_ADJUSTMENTS;
 use crate::stats_dialogs::{numeric, parse, percent};
+use crate::survival_dialog::{KaplanMeier, LifeTables};
 use crate::syntax_text::{names, number, quote, value};
 use statscraft_data::Dataset;
 
@@ -28,6 +30,8 @@ pub enum Advanced {
     // boxed: a large dialog
     Model(Box<SampleModel>),
     Correspondence(Correspondence),
+    Km(KaplanMeier),
+    LifeTables(LifeTables),
 }
 
 impl Advanced {
@@ -44,6 +48,8 @@ impl Advanced {
             Advanced::Model(d) if d.logistic => "Complex Samples Logistic Regression",
             Advanced::Model(_) => "Complex Samples General Linear Model",
             Advanced::Correspondence(_) => "Correspondence Analysis",
+            Advanced::Km(_) => "Kaplan-Meier",
+            Advanced::LifeTables(_) => "Life Tables",
         }
     }
 
@@ -62,6 +68,8 @@ impl Advanced {
             }),
             Advanced::Model(d) => Advanced::Model(Box::new(SampleModel::new(d.logistic))),
             Advanced::Correspondence(_) => Advanced::Correspondence(Default::default()),
+            Advanced::Km(_) => Advanced::Km(Default::default()),
+            Advanced::LifeTables(_) => Advanced::LifeTables(Default::default()),
         }
     }
 
@@ -89,6 +97,8 @@ impl Advanced {
             Advanced::Tables(d) => d.syntax(),
             Advanced::Model(d) => d.syntax(data),
             Advanced::Correspondence(d) => d.syntax(data),
+            Advanced::Km(d) => d.syntax(data),
+            Advanced::LifeTables(d) => d.syntax(data),
         }
     }
 }
