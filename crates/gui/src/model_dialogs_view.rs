@@ -7,11 +7,11 @@ use crate::model_dialogs::{
     CLUSTER_BINARY, CLUSTER_COUNTS, CLUSTER_DATA, CLUSTER_INTERVAL, CLUSTER_METHODS, Categorical,
     DISCRIMINANT_METHODS, DISCRIMINANT_SAVE, DISCRIMINANT_STATISTICS,
     DISCRIMINANT_STATISTICS_GROUPS, Discriminant, FACTOR_DESCRIPTIVES, FACTOR_EXTRACTIONS,
-    FACTOR_MISSING, FACTOR_ROTATIONS, FACTOR_SCORES, FactorAnalysis, GLM_ADJUSTMENTS,
-    GLM_CONTRASTS, GLM_PRINT, GLM_SAVE, GLM_SAVE_GROUPS, Hierarchical, KMeans, LOGISTIC_CONTRASTS,
-    LOGISTIC_METHODS, LOGISTIC_SAVE, LOGISTIC_SAVE_GROUPS, Logistic, MColumn, PROFILE_ERROR_BARS,
-    RepeatedMeasures, SUM_OF_SQUARES, Solutions, UNIVARIATE_PRINT, Univariate, WithinFactor,
-    has_reference,
+    FACTOR_MISSING, FACTOR_ROTATIONS, FACTOR_SCORES, FactorAnalysis, FactorContrast,
+    GLM_ADJUSTMENTS, GLM_CONTRASTS, GLM_PRINT, GLM_SAVE, GLM_SAVE_GROUPS, Hierarchical, KMeans,
+    LOGISTIC_CONTRASTS, LOGISTIC_METHODS, LOGISTIC_SAVE, LOGISTIC_SAVE_GROUPS, Logistic, MColumn,
+    PROFILE_ERROR_BARS, RepeatedMeasures, SUM_OF_SQUARES, Solutions, UNIVARIATE_PRINT, Univariate,
+    WithinFactor, glm_has_reference, has_reference,
 };
 use crate::stats_dialogs_view::{blocks, small_field};
 use eframe::egui::{self, ComboBox, TextEdit, Ui};
@@ -456,12 +456,20 @@ pub fn univariate(ui: &mut Ui, d: &mut Univariate, picked: &mut Vec<String>) {
         save_groups(ui, &GLM_SAVE_GROUPS, &GLM_SAVE, &mut d.save);
     });
     egui::CollapsingHeader::new("Options").show(ui, |ui| {
-        let offered = if d.multivariate {
-            GLM_PRINT.len()
+        if d.multivariate {
+            // the M matrix is shown only when there is one
+            let last = GLM_PRINT.len() - 1;
+            checkboxes(ui, &GLM_PRINT[..last], &mut d.print[..last]);
+            ui.add_enabled_ui(!d.m_matrix.is_empty(), |ui| {
+                ui.checkbox(&mut d.print[last], GLM_PRINT[last].1);
+            });
         } else {
-            UNIVARIATE_PRINT
-        };
-        checkboxes(ui, &GLM_PRINT[..offered], &mut d.print[..offered]);
+            checkboxes(
+                ui,
+                &GLM_PRINT[..UNIVARIATE_PRINT],
+                &mut d.print[..UNIVARIATE_PRINT],
+            );
+        }
         field(ui, "Significance level", &mut d.alpha, 50.0);
     });
     if d.multivariate {
@@ -470,7 +478,7 @@ pub fn univariate(ui: &mut Ui, d: &mut Univariate, picked: &mut Vec<String>) {
 }
 
 /// A contrast for each factor, with the reference category where the contrast has one.
-fn contrasts(ui: &mut Ui, factors: &[String], contrasts: &mut Vec<Categorical>) {
+fn contrasts(ui: &mut Ui, factors: &[String], contrasts: &mut Vec<FactorContrast>) {
     if factors.is_empty() {
         ui.weak("Add a fixed factor first");
     }
@@ -481,7 +489,7 @@ fn contrasts(ui: &mut Ui, factors: &[String], contrasts: &mut Vec<Categorical>) 
                 let i = match contrasts.iter().position(|c| &c.name == name) {
                     Some(i) => i,
                     None => {
-                        contrasts.push(Categorical {
+                        contrasts.push(FactorContrast {
                             name: name.clone(),
                             contrast: 0,
                             first: false,
@@ -497,16 +505,13 @@ fn contrasts(ui: &mut Ui, factors: &[String], contrasts: &mut Vec<Categorical>) 
                     .show_index(ui, &mut c.contrast, GLM_CONTRASTS.len(), |i| {
                         GLM_CONTRASTS[i].1
                     });
-                ui.add_enabled_ui(
-                    matches!(GLM_CONTRASTS[c.contrast].0, "DEVIATION" | "SIMPLE"),
-                    |ui| {
-                        ui.horizontal(|ui| {
-                            ui.label("Reference");
-                            ui.radio_value(&mut c.first, false, "last");
-                            ui.radio_value(&mut c.first, true, "first");
-                        });
-                    },
-                );
+                ui.add_enabled_ui(glm_has_reference(c.contrast), |ui| {
+                    ui.horizontal(|ui| {
+                        ui.label("Reference");
+                        ui.radio_value(&mut c.first, false, "last");
+                        ui.radio_value(&mut c.first, true, "first");
+                    });
+                });
                 ui.end_row();
             }
         });
@@ -521,6 +526,7 @@ fn plots(ui: &mut Ui, d: &mut Univariate) {
     );
     ui.add_space(4.0);
     ui.label("Profile plots of estimated marginal means");
+    d.drop_stale_profile_draft();
     for (slot, title) in
         d.profile_draft
             .iter_mut()

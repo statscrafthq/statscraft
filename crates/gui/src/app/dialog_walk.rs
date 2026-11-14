@@ -25,8 +25,8 @@ use crate::dialogs::{
 use crate::genlin_dialog::GeneralizedLinear;
 use crate::graph_dialogs::{ChartBuilder, ChartKind, ProbabilityPlot, RocCurve};
 use crate::model_dialogs::{
-    Categorical, Discriminant, FactorAnalysis, Hierarchical, KMeans, Logistic, MColumn,
-    RepeatedMeasures, Solutions, Univariate, WithinFactor,
+    Categorical, Discriminant, FactorAnalysis, FactorContrast, Hierarchical, KMeans, Logistic,
+    MColumn, RepeatedMeasures, Solutions, Univariate, WithinFactor,
 };
 use crate::stats_dialogs::{Block, NparKind, NparTests, PartialCorr, Regression, Reliability};
 use std::path::Path;
@@ -846,7 +846,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             means_factors: v(&["region"]),
             compare: true,
             adjustment: 2,
-            contrasts: vec![Categorical {
+            contrasts: vec![FactorContrast {
                 name: s("region"),
                 contrast: 2,
                 first: true,
@@ -878,7 +878,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             means_factors: v(&["region", "gender"]),
             compare: true,
             adjustment: 1,
-            contrasts: vec![Categorical {
+            contrasts: vec![FactorContrast {
                 name: s("gender"),
                 contrast: 6,
                 first: false,

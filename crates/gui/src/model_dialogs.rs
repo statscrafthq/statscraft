@@ -744,8 +744,8 @@ pub const LOGISTIC_SAVE_GROUPS: [(&str, std::ops::Range<usize>); 3] = [
     ("Influence", 7..10),
 ];
 
-/// A categorical covariate (or a factor of GLM): its name, its contrast and whether the
-/// reference is the first category instead of the last.
+/// A categorical covariate: its name, its contrast and whether the reference is the first
+/// category instead of the last.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Categorical {
     pub name: String,
@@ -936,6 +936,20 @@ pub const GLM_CONTRASTS: [(&str, &str); 7] = [
     ("POLYNOMIAL", "Polynomial"),
 ];
 
+/// The entries of `GLM_CONTRASTS` measured against a reference category.
+pub fn glm_has_reference(contrast: usize) -> bool {
+    matches!(GLM_CONTRASTS[contrast].0, "DEVIATION" | "SIMPLE")
+}
+
+/// The contrast of a factor of UNIANOVA or GLM: its name, an index into `GLM_CONTRASTS` and
+/// whether the reference is the first category instead of the last.
+#[derive(Clone, PartialEq, Debug)]
+pub struct FactorContrast {
+    pub name: String,
+    pub contrast: usize,
+    pub first: bool,
+}
+
 /// The error bars of the profile plots, keyword and label; the first adds no ERRORBAR.
 pub const PROFILE_ERROR_BARS: [(&str, &str); 3] = [
     ("", "None"),
@@ -1041,9 +1055,9 @@ pub struct Univariate {
     pub compare: bool,
     /// Index into `GLM_ADJUSTMENTS`.
     pub adjustment: usize,
-    /// The contrast of each factor, an index into `GLM_CONTRASTS`; a factor without an entry
-    /// has none, and an entry of a factor taken out is left out.
-    pub contrasts: Vec<Categorical>,
+    /// The contrast of each factor; a factor without an entry has none, and the entry of a
+    /// factor taken out is left out.
+    pub contrasts: Vec<FactorContrast>,
     pub spread_level: bool,
     pub residual_plots: bool,
     /// Each profile plot: the factor of the horizontal axis, then those of the lines and of the
@@ -1111,9 +1125,10 @@ impl Univariate {
         }
     }
 
-    /// Adds the drafted profile plot, its factors in order without the empty slots, and clears
-    /// the draft.
+    /// Adds the drafted profile plot, its factors in order without the empty slots and names
+    /// no longer factors, and clears the draft.
     pub fn add_profile(&mut self) {
+        self.drop_stale_profile_draft();
         let mut plot: Vec<String> = Vec::new();
         for name in self.profile_draft.iter().filter(|n| !n.is_empty()) {
             if !plot.contains(name) {
@@ -1124,6 +1139,15 @@ impl Univariate {
             self.profiles.push(plot);
         }
         self.profile_draft = Default::default();
+    }
+
+    /// Empties the slots of the profile draft whose factor was taken out of the model.
+    pub fn drop_stale_profile_draft(&mut self) {
+        for slot in &mut self.profile_draft {
+            if !self.factors.contains(slot) {
+                slot.clear();
+            }
+        }
     }
 
     /// The factors and covariates, the variables the terms of a custom model are made of.
@@ -1201,8 +1225,11 @@ impl Univariate {
             };
             let keyword = GLM_CONTRASTS[c.contrast].0;
             // the reference is the last category unless its position is given
-            let first = matches!(keyword, "DEVIATION" | "SIMPLE") && c.first;
-            let first = if first { "(1)" } else { "" };
+            let first = if glm_has_reference(c.contrast) && c.first {
+                "(1)"
+            } else {
+                ""
+            };
             text.push_str(&format!("\n  /CONTRAST({f})={keyword}{first}"));
         }
         let mut tests: Vec<String> = keywords(&POST_HOC_TESTS, &self.post_hoc)
@@ -1279,6 +1306,10 @@ impl Univariate {
             UNIVARIATE_PRINT
         };
         let mut print = keywords(&GLM_PRINT[..offered], &self.print[..offered]);
+        // the M matrix shown only when there is one, as the command skips it otherwise
+        if self.m_matrix.is_empty() {
+            print.retain(|k| *k != "TEST(MMATRIX)");
+        }
         if print.contains(&"TEST(SSCP)") && print.contains(&"TEST(MMATRIX)") {
             print.retain(|k| !k.starts_with("TEST"));
             print.push("TEST(SSCP MMATRIX)");
@@ -1312,10 +1343,6 @@ impl Univariate {
     /// column has one that is not 0, and the intercept it tests is in the model.
     fn m_matrix_syntax(&self, text: &mut String) -> Result<(), String> {
         if self.m_matrix.is_empty() {
-            // TEST(MMATRIX), the last entry of GLM_PRINT
-            if self.print[GLM_PRINT.len() - 1] {
-                return Err("the coefficients of the M matrix need a column of it".into());
-            }
             return Ok(());
         }
         // without LMATRIX the M matrix transforms the test of the intercept
@@ -1956,18 +1983,18 @@ mod tests {
         d.alpha = "0.01".into();
         d.sstype = 0;
         d.contrasts = vec![
-            Categorical {
+            FactorContrast {
                 name: "gender".into(),
                 contrast: 2,
                 first: true,
             },
-            Categorical {
+            FactorContrast {
                 name: "region".into(),
                 contrast: 5,
                 first: true,
             },
             // a factor taken out of the model leaves its contrast behind
-            Categorical {
+            FactorContrast {
                 name: "plan".into(),
                 contrast: 4,
                 first: false,
@@ -1983,6 +2010,11 @@ mod tests {
         d.profile_draft = ["gender".into(), "gender".into(), String::new()];
         d.add_profile();
         assert_eq!(d.profiles.len(), 2);
+        // a name no longer a factor is dropped from the draft
+        d.profile_draft = ["plan".into(), "region".into(), String::new()];
+        d.add_profile();
+        assert_eq!(d.profiles.len(), 3);
+        d.profiles.pop();
         d.profile_bars = true;
         d.profile_errors = 1;
         d.profile_mean_line = true;
@@ -2085,7 +2117,7 @@ mod tests {
         d.factors = v(&["region", "gender"]);
         d.covariates = v(&["age"]);
         d.print = [true; 9];
-        d.contrasts = vec![Categorical {
+        d.contrasts = vec![FactorContrast {
             name: "region".into(),
             contrast: 1,
             first: false,
@@ -2153,11 +2185,9 @@ mod tests {
         );
         assert!(runs(&syntax) >= 4);
 
+        // the M matrix is not shown while there is none
         d.print[8] = true;
-        assert_eq!(
-            d.syntax().unwrap_err(),
-            "the coefficients of the M matrix need a column of it"
-        );
+        assert_eq!(d.syntax().unwrap(), syntax);
         d.print[8] = false;
         d.m_matrix = vec![MColumn::default()];
         assert_eq!(
