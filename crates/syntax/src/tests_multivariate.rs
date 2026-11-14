@@ -1,4 +1,4 @@
-//! Parser tests of CLUSTER, DISCRIMINANT, ANOVA and CORRESPONDENCE.
+//! Parser tests of CLUSTER, PROXIMITIES, DISCRIMINANT, ANOVA and CORRESPONDENCE.
 
 use super::*;
 
@@ -418,4 +418,186 @@ fn correspondence_errors() {
         err("CORRESPONDENCE TABLE=a(1,3) BY b(1,3) /OUTFILE=SCORE(x) VARIANCE(x).")
             .contains("different")
     );
+}
+
+fn proximities(source: &str) -> Proximities {
+    match one(source) {
+        Command::Proximities(p) => *p,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn proximities_defaults_and_keywords() {
+    let p = proximities("PROXIMITIES a b c.");
+    assert_eq!(p.measure_or_default(), Proximity::Euclid);
+    assert!(p.print && !p.view_variables && p.standardize.is_none());
+    let p = proximities(
+        "PROXIMITIES a TO c /VIEW=VARIABLE /STANDARDIZE=CASE MAX /MEASURE=RESCALE POWER(3,2) ABS \
+         /PRINT=NONE /ID=name /MISSING=INCLUDE /MATRIX=OUT(*) IN('m.sav').",
+    );
+    assert!(p.view_variables && !p.print && p.include && p.absolute && p.rescale && !p.reverse);
+    assert_eq!(p.standardize, Some((Standardize::Max, true)));
+    assert_eq!(p.measure, Some(Proximity::Power(3.0, 2.0)));
+    assert_eq!(p.matrix_out, Some(None));
+    assert_eq!(p.matrix_in, Some(Some("m.sav".into())));
+    // STANDARDIZE alone means Z by variable; Z and SD are written in full
+    assert_eq!(
+        proximities("PROXIMITIES a b /STANDARDIZE.").standardize,
+        Some((Standardize::Z, false))
+    );
+    assert_eq!(
+        proximities("PROXIMITIES a b /STANDARDIZE=SD.").standardize,
+        Some((Standardize::Sd, false))
+    );
+    let p = proximities("PROXIMITIES a b /MEASURE=DEFAULT.");
+    assert_eq!(
+        (p.measure, p.measure_or_default()),
+        (None, Proximity::Euclid)
+    );
+    let p = proximities("PROXIMITIES /MATRIX=IN(*) /MEASURE=NONE REVERSE.");
+    assert!(p.no_measure && p.reverse && p.variables.is_empty());
+    assert_eq!(
+        proximities("PROXIMITIES a b /MEASURE=SM(2)").measure,
+        Some(Proximity::Binary(BinaryMeasure::Sm, 2.0, None))
+    );
+}
+
+#[test]
+fn proximities_errors() {
+    assert!(err("PROXIMITIES a b /MEASURE=EUCLID BLOCK.").contains("one measure"));
+    assert!(err("PROXIMITIES a b /MEASURE=NONE.").contains("MATRIX=IN"));
+    assert!(err("PROXIMITIES /MEASURE=EUCLID.").contains("variable list"));
+    assert!(err("PROXIMITIES a b /STANDARDIZE=Z /MEASURE=JACCARD.").contains("binary"));
+    assert!(err("PROXIMITIES a b /STANDARDIZE=Z RANGE.").contains("one method"));
+}
+
+fn proxscal(source: &str) -> Proxscal {
+    match one(source) {
+        Command::Proxscal(p) => *p,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn proxscal_defaults_and_keywords() {
+    let p = proxscal("PROXSCAL VARIABLES=a TO e.");
+    assert_eq!(p.dimensions, (2, 2));
+    assert_eq!(p.transformation, ProxTransformation::Ratio);
+    assert_eq!(p.initial, ScalingStart::Simplex);
+    assert!(p.print.common && p.print.stress && p.plot.common && p.acceleration);
+    let p = proxscal(
+        "PROXSCAL a b c d /TABLE=r BY c BY s /SHAPE=BOTH /INITIAL=RANDOM(5) /WEIGHTS=w1 TO w4 \
+         /CONDITION=UNCONDITIONAL /TRANSFORMATION=SPLINE DEGREE=3 INKNOT=2 /PROXIMITIES=SIMILARITIES \
+         /MODEL=REDUCED(1) /ACCELERATION=NONE /CRITERIA=DIMENSIONS(1,3) MAXITER(50) DIFFSTRESS(.001) \
+         /PRINT=HISTORY DISTANCES /PLOT=TRANSFORMATIONS(src1 src2)(src3) RESIDUALS(ALL) \
+         /OUTFILE=COMMON(space) DISTANCES('d.sav').",
+    );
+    let table = p.table.unwrap();
+    assert_eq!(
+        (table.row.as_deref(), table.source.as_deref()),
+        (Some("r"), Some("s"))
+    );
+    assert_eq!(p.shape, ProxShape::Both);
+    assert_eq!(p.initial, ScalingStart::Random(5));
+    assert!(p.unconditional && p.similarities && !p.acceleration);
+    assert_eq!(
+        p.transformation,
+        ProxTransformation::Spline {
+            degree: 3,
+            inknot: 2
+        }
+    );
+    assert_eq!(p.model, ScalingModel::Reduced(1));
+    assert_eq!((p.dimensions, p.max_iterations), ((1, 3), 50));
+    assert!(p.print.history && p.print.distances && !p.print.common && !p.print.stress);
+    let names = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+    assert_eq!(
+        p.plot.transformations,
+        Some(vec![names(&["src1", "src2"]), names(&["src3"])])
+    );
+    assert_eq!(p.plot.residuals, Some(vec![Vec::new()]));
+    assert!(!p.plot.common);
+    assert_eq!(p.outfile.common.as_deref(), Some("space"));
+    assert_eq!(p.outfile.distances.as_deref(), Some("d.sav"));
+    assert_eq!(
+        proxscal("PROXSCAL a b c /TRANSFORMATION=ORDINAL(UNTIE)").transformation,
+        ProxTransformation::Ordinal { untie: true }
+    );
+    assert_eq!(proxscal("PROXSCAL /MATRIX=IN(*).").matrix_in, Some(None));
+}
+
+#[test]
+fn proxscal_errors() {
+    assert!(err("PROXSCAL a b c /CRITERIA=DIMENSIONS(3,2).").contains("above"));
+    assert!(err("PROXSCAL a b c /CRITERIA=DIFFSTRESS(2).").contains("from 0 to 1"));
+    assert!(err("PROXSCAL a b c /TRANSFORMATION=SPLINE DEGREE=4.").contains("1 to 3"));
+    assert!(err("PROXSCAL a b c /MODEL=REDUCED(2).").contains("rank"));
+    assert!(err("PROXSCAL a b c /RESTRICTIONS=COORDINATES('f.sav').").contains("not supported"));
+    assert!(err("PROXSCAL /SHAPE=UPPER.").contains("variable list"));
+}
+
+fn alscal(source: &str) -> Alscal {
+    match one(source) {
+        Command::Alscal(a) => *a,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn alscal_defaults_and_keywords() {
+    let a = alscal("ALSCAL VARIABLES=a TO f.");
+    assert_eq!(
+        a.level,
+        AlscalLevel::Ordinal {
+            untie: false,
+            similar: false
+        }
+    );
+    assert_eq!(
+        (a.dimensions, a.iterations, a.converge, a.stress_min),
+        ((2, 2), 30, 0.001, 0.005)
+    );
+    assert!(a.plot.is_none() && !a.indscal);
+    let a = alscal(
+        "ALSCAL VAR=a TO f /LEVEL=ORDINAL(UNTIE SIMILAR) /CONDITION=UNCONDITIONAL /METHOD=INDSCAL \
+         /CRITERIA=NEGATIVE CUTOFF(1) CONVERGE(0) ITER(50) STRESSMIN(.01) DIMENS(2,4) NOULB \
+         /PRINT=DATA HEADER /PLOT=ALL /OUTFILE=conf.",
+    );
+    assert_eq!(
+        a.level,
+        AlscalLevel::Ordinal {
+            untie: true,
+            similar: true
+        }
+    );
+    assert!(a.unconditional && a.indscal && a.negative && a.print_data && a.print_header);
+    assert_eq!((a.cutoff, a.iterations, a.dimensions), (1.0, 50, (2, 4)));
+    assert_eq!(a.plot, Some(true));
+    assert_eq!(a.outfile.as_deref(), Some("conf"));
+    assert_eq!(
+        alscal("ALSCAL VARIABLES=a b c d /LEVEL=INTERVAL(2)").level,
+        AlscalLevel::Interval(2)
+    );
+    assert_eq!(
+        alscal("ALSCAL VARIABLES=a b c d /LEVEL=RATIO").level,
+        AlscalLevel::Ratio(1)
+    );
+    assert_eq!(alscal("ALSCAL VARIABLES=a b c d /PLOT").plot, Some(false));
+    assert_eq!(alscal("ALSCAL /MATRIX=IN(*).").matrix_in, Some(None));
+}
+
+#[test]
+fn alscal_errors() {
+    assert!(err("ALSCAL VARIABLES=a b c d /SHAPE=ASYMMETRIC.").contains("not supported"));
+    assert!(err("ALSCAL VARIABLES=a b c d /MODEL=GEMSCAL.").contains("not supported"));
+    assert!(err("ALSCAL VARIABLES=a b c d /CONDITION=ROW.").contains("not supported"));
+    assert!(err("ALSCAL VARIABLES=a b c d /FILE=start.").contains("not supported"));
+    assert!(err("ALSCAL VARIABLES=a b c d /LEVEL=RATIO(5).").contains("1 to 4"));
+    assert!(err("ALSCAL VARIABLES=a b c d /CRITERIA=DIMENS(7).").contains("1 to 6"));
+    assert!(
+        err("ALSCAL VARIABLES=a b c d /MODEL=INDSCAL /CRITERIA=DIMENS(1).")
+            .contains("2 dimensions")
+    );
+    assert!(err("ALSCAL /LEVEL=RATIO.").contains("VARIABLES"));
 }

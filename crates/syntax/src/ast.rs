@@ -88,6 +88,9 @@ pub enum Command {
     /// CSGLM and CSLOGISTIC.
     CsModel(Box<crate::complex_samples::CsModel>),
     Cluster(Box<crate::cluster::Cluster>),
+    Proximities(Box<crate::proximities::Proximities>),
+    Proxscal(Box<crate::proxscal::Proxscal>),
+    Alscal(Box<crate::alscal::Alscal>),
     Discriminant(Box<crate::discriminant::Discriminant>),
     Anova(Box<crate::anova::Anova>),
     Tree(Box<Tree>),

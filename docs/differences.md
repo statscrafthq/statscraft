@@ -657,6 +657,49 @@ Where the documentation is silent:
 - Plots come as chart data. The cases are laid out so that no branches cross: a join puts the second cluster's cases after the first's. The dendrogram rescales the heights to 1 at the first join and 25 at the last, so the first joins stay apart from the cases. Icicle clusters are numbered along that layout.
 - Saved memberships are F8.0 nominal variables labeled with the method and the number of clusters.
 
+### PROXIMITIES
+
+- The standard deviation of Z and SD has n - 1 in its denominator. MAX divides by the largest value, not the largest absolute value.
+- The diagonal of the Proximity Matrix and of a matrix file holds each item's proximity with itself. RESCALE on MEASURE maps the smallest and the largest entry of the whole matrix, the diagonal included, to 0 and 1.
+- A pair for which the measure is undefined (such as JACCARD of two cases with no presence) is system-missing, with a warning; the command goes on.
+- With MATRIX=IN no measure is computed: MEASURE and STANDARDIZE are ignored with a warning, and only ABSOLUTE, REVERSE and RESCALE apply.
+- Under a LAYERED split the Proximity Matrix of cases heads its columns by place in the group (1, 2, ...), so a layered table lines the groups up; the rows keep the case labels. MATRIX=OUT(*) keeps the split on the new matrix dataset, so MATRIX=IN(*) reads it group by group.
+- Cases are labeled with their case number, followed by the ID value after a colon. The ID variable in a matrix file keeps its values whole.
+- MEASURE=DEFAULT is EUCLID. A matrix that MATRIX=IN read and MATRIX=OUT writes again has only SIMILARITY or DISSIMILARITY as the value label of PROX. Reading a matrix file without an item list, the items are those with a row of type PROX or a value in one (a split group may have fewer). Under SPLIT FILE a matrix file in another dataset or on disk is cut to the rows whose split variables have the values of the group that runs. ALL in the item list means every item of the group. A split variable that is numeric in one file and a string in the other is an error. An item with two rows is an error, and so is an item named twice in the list. An ID variable named like another variable of the matrix file is an error.
+- In a matrix file the order is ROWTYPE_, the ID variable, CASENO_, VARNAME_. Under SPLIT FILE a group with fewer items than another has its missing item variables blank, and the item variables carry no labels.
+
+### PROXSCAL
+
+- Normalized raw stress is reported with the configuration optimally dilated, 1 - rho^2 / (eta^2(dhat) eta^2(d)); Stress-I and Stress-II are the square roots of the manual's ratios, S-Stress is divided by the sum of the fourth powers of the transformed proximities. The decomposition gives every object half of the misfit of each of its pairs, so its rows and its columns both add up to the normalized raw stress.
+- The transformed proximities are normalized to n(n-1)/2 weighted squares per source (per all sources with UNCONDITIONAL), also for the first iteration.
+- With SHAPE=BOTH a pair's weight is the sum of the two triangles' weights. With TABLE a pair given only in the other triangle is used too.
+- INTERVAL and SPLINE shift the proximities so the smallest is 0 before fitting (the intercept absorbs it). SPLINE adds a nonnegative intercept to the monotone spline basis, so it fits at least as well as INTERVAL; the inner knots sit at equally spaced quantiles of the proximities.
+- ACCELERATION doubles the step of the identity model; a doubled step that would raise the stress is replaced by the plain one.
+- The individual differences models restart a smaller dimensionality from the common space's principal axes with identity weights (the weighted model keeps its most important dimensions and their weights).
+- Each dimension of the output is signed so that the first object with a coordinate other than 0 is positive; the weighted model's dimension weights are all positive.
+- RANDOM starts draw from the session's random generator (SET SEED); Random Starts lists each start's stress, not its seed.
+- The output after several dimensionalities gives every table for each, titled with the number of dimensions; the charts and OUTFILE show the smallest.
+- With MATRIX=IN the matrix is scaled as similarities when the file says SIMILARITY or PROXIMITIES=SIMILARITIES is given. The file is one source: TABLE is ignored with a warning, and under SPLIT FILE every group is scaled on its own.
+- The weight of WEIGHT is not used, also with TABLE.
+- TABLE row and column codes must number the objects 1, 2, ... without gaps; otherwise the command stops before building the matrices.
+- REDUCED(r) starts from identity weights cut to r dimensions and keeps every update at rank r in the metric of the majorizing function, so stress never rises. The classical scaling start gives a pair missing in every source the mean squared proximity.
+- With TABLE row BY column BY source the sources are the codes that occur, in order; a gap in the codes makes no empty source.
+- PLOT=TRANSFORMATIONS and RESIDUALS give one plot per parenthesized list of sources. SPLINE accepts INKNOT=0.
+
+### ALSCAL
+
+- Only symmetric matrices with the EUCLID and INDSCAL models: SHAPE=ASYMMETRIC and RECTANGULAR, CONDITION=ROW, ASCAL, AINDS, GEMSCAL and FILE are refused with an error.
+- INTERVAL(n) and RATIO(n) fit the squared disparities as a polynomial of degree n of the squared data (with and without an intercept) to the squared distances, so the disparities of RATIO(1) are proportional to the data and exact distances fit with S-stress 0 at every level.
+- The start fills a missing value with the mean of its matrix (NOULB changes nothing) and starts INDSCAL with all weights 1, without a rotation toward diagonal weights; the iterations find the orientation. Without NEGATIVE the weights are nonnegative least squares.
+- CONVERGE(0) runs until S-stress stops falling or ITER is reached.
+- Kruskal's stress compares the distances with the root of the squared disparities and divides by the sum of squared distances; the average over matrices is the root of the mean of the squared values.
+- The Euclidean coordinates are rotated to principal axes with a mean square of 1; the INDSCAL coordinates have a sum of squares equal to the number of stimuli in every dimension, the dimensions ordered by their sum of squared weights. Each dimension is signed so that the first stimulus is positive.
+- With MATRIX=IN the stimuli are named by the matrix variables; an ID variable in the file is not used.
+- The output file has no flattened weights (FLA). MATNUM is 0 for the coordinates.
+- A similarity matrix file is scaled with SIMILAR at the ordinal level; at INTERVAL and RATIO each similarity is taken from the largest one, with a warning; NOMINAL uses the values as read. With MATRIX=IN the VARIABLES list picks the items of the file (TO runs in the file's order).
+- Under SPLIT FILE each group runs on its own rows and writes OUTFILE in turn, so the file keeps the last group (PROXSCAL OUTFILE alike).
+- Several dimensionalities give every table for each, titled with the number of dimensions; the plots show the smallest.
+
 ### DISCRIMINANT
 
 - A group value that is not a whole number counts as out of range.

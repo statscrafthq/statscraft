@@ -1,6 +1,7 @@
 //! Executes parsed commands on a dataset and returns result tables.
 
 mod aggregate;
+mod alscal;
 mod anova;
 mod autorecode;
 pub mod chart;
@@ -44,6 +45,7 @@ mod matrix;
 mod matrix_data;
 mod matrix_functions;
 mod matrix_lang;
+mod mds;
 mod means;
 mod merge;
 mod mixed;
@@ -69,6 +71,8 @@ mod plum;
 mod portable;
 mod pplot;
 mod print;
+mod proximities;
+mod proxscal;
 mod quick_cluster;
 mod random;
 mod rank;
@@ -361,6 +365,10 @@ pub struct Engine {
     documents: output_docs::Documents,
     /// See `error_position`.
     error_at: Option<(u32, u32)>,
+    /// While a procedure runs on a split group: each split variable with the group's value.
+    split_group: Option<Vec<(String, Option<crosstabs::Key>)>>,
+    /// PROXIMITIES /MATRIX=OUT: the split variables and the matrix of every split group.
+    proximity_out: (Option<statscraft_data::SplitFile>, Vec<Dataset>),
     /// The specifications of the last PPLOT, for PPLOT APPLY.
     pplot_model: Option<Box<statscraft_syntax::Pplot>>,
 }
@@ -730,6 +738,8 @@ impl Engine {
             | Command::Cstabulate(_)
             | Command::CsModel(_)
             | Command::Cluster(_)
+            | Command::Proxscal(_)
+            | Command::Alscal(_)
             | Command::Discriminant(_)
             | Command::Anova(_)
             | Command::Tree(_)
@@ -744,6 +754,13 @@ impl Engine {
                 });
             }
             Command::ClearTimeProgram => self.time_program = None,
+            Command::Proximities(proximities) => {
+                let split = self.active()?.split_file().cloned();
+                self.proximity_out = (split, Vec::new());
+                let tables = self.procedure(command)?;
+                self.proximities_out(proximities)?;
+                return Ok(tables);
+            }
             Command::Execute => {
                 self.begin_pass()?;
                 let before = self.dataset.clone();
@@ -975,6 +992,9 @@ impl Engine {
             Command::Cstabulate(command) => self.cstabulate(command),
             Command::CsModel(command) => self.cs_model(command),
             Command::Cluster(command) => self.cluster(command),
+            Command::Proximities(command) => self.proximities(command),
+            Command::Proxscal(command) => self.proxscal(command),
+            Command::Alscal(command) => self.alscal(command),
             Command::Discriminant(command) => self.discriminant(command),
             Command::Anova(command) => self.anova(command),
             Command::Tree(command) => self.tree(command),

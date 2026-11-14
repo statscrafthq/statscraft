@@ -14,6 +14,7 @@
 //!   Reserved words (AND, OR, NOT, EQ, NE, LT, LE, GT, GE, TO, ALL, BY, WITH) may not.
 //! - Names are kept as written; comparing them case-insensitively is the caller's job.
 
+mod alscal;
 mod anova;
 mod ast;
 mod cluster;
@@ -58,6 +59,8 @@ mod portable;
 mod pplot;
 mod preprocess;
 mod procedures;
+mod proximities;
+mod proxscal;
 mod rank;
 mod regression;
 mod reliability;
@@ -124,6 +127,7 @@ mod tests_session;
 mod tests_survival;
 mod tree;
 
+pub use alscal::{Alscal, AlscalLevel};
 pub use anova::{Anova, AnovaList, AnovaMethod, CovariateOrder};
 pub use ast::*;
 pub use cluster::{BinaryMeasure, Cluster, ClusterPlot, Linkage, Proximity};
@@ -208,6 +212,11 @@ pub use output_modify::{
 pub use plum::{Plum, PlumCriteria, PlumLink, PlumPrint, PlumSave};
 pub use pplot::{Pplot, PplotPlot, Roc, TestDistribution};
 pub use preprocess::{FileHandle, MacroState};
+pub use proximities::{Proximities, Standardize};
+pub use proxscal::{
+    ProxShape, ProxTransformation, Proxscal, ProxscalOutfile, ProxscalPlot, ProxscalPrint,
+    ProxscalTable, ScalingModel, ScalingStart,
+};
 pub use regression::{
     Casewise, Criterion, MethodKind, PlotVariable, Regression, RegressionCriteria,
     RegressionDescriptives, RegressionMethod, RegressionMissing, RegressionResiduals,

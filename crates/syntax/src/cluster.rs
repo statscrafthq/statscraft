@@ -189,6 +189,24 @@ fn measure(p: &mut Parser) -> PResult<Proximity> {
     if at_end(p) {
         return Ok(Proximity::SEuclid);
     }
+    let Some(result) = one_measure(p)? else {
+        return Err(p.unexpected(&measure_names()));
+    };
+    if !at_end(p) {
+        return Err(SyntaxError::new(p.span(), "MEASURE takes one measure"));
+    }
+    Ok(result)
+}
+
+/// Every measure keyword, for error messages.
+pub(crate) fn measure_names() -> Vec<&'static str> {
+    let mut names: Vec<&str> = MEASURES.to_vec();
+    names.extend(BINARY.iter().map(|(k, _)| *k));
+    names
+}
+
+/// One measure keyword with its parameters, None when the next word names no measure.
+pub(crate) fn one_measure(p: &mut Parser) -> PResult<Option<Proximity>> {
     // the short binary names must be written in full; the others may be abbreviated
     let binary = BINARY.iter().find(|(k, _)| match k.len() {
         1..=3 => matches!(p.peek(), Some(TokenKind::Word(w)) if w.eq_ignore_ascii_case(k)),
@@ -240,14 +258,9 @@ fn measure(p: &mut Parser) -> PResult<Proximity> {
             _ => Proximity::Chisq,
         }
     } else {
-        let mut names: Vec<&str> = MEASURES.to_vec();
-        names.extend(BINARY.iter().map(|(k, _)| *k));
-        return Err(p.unexpected(&names));
+        return Ok(None);
     };
-    if !at_end(p) {
-        return Err(SyntaxError::new(p.span(), "MEASURE takes one measure"));
-    }
-    Ok(result)
+    Ok(Some(result))
 }
 
 fn methods(p: &mut Parser) -> PResult<Vec<(Linkage, Option<String>)>> {
@@ -319,6 +332,18 @@ fn cluster_keyword(p: &mut Parser) -> bool {
     p.eat_keyword("CLUSTER") || p.eat_keyword("CLUSTERS")
 }
 
+/// `(file | dataset | *)` of MATRIX IN or OUT: None for `*`.
+pub(crate) fn matrix_source(p: &mut Parser) -> PResult<Option<String>> {
+    p.expect(Punct::LParen)?;
+    let source = if p.eat(Punct::Star) {
+        None
+    } else {
+        Some(crate::files::dataset_or_file(p)?)
+    };
+    p.expect(Punct::RParen)?;
+    Ok(source)
+}
+
 fn matrix(p: &mut Parser, command: &mut Cluster) -> PResult<()> {
     p.eat(Punct::Eq);
     let mut any = false;
@@ -332,14 +357,7 @@ fn matrix(p: &mut Parser, command: &mut Cluster) -> PResult<()> {
         if !p.eat_keyword("IN") {
             return Err(p.unexpected(&["IN", "OUT"]));
         }
-        p.expect(Punct::LParen)?;
-        let source = if p.eat(Punct::Star) {
-            None
-        } else {
-            Some(crate::files::dataset_or_file(p)?)
-        };
-        p.expect(Punct::RParen)?;
-        command.matrix_in = Some(source);
+        command.matrix_in = Some(matrix_source(p)?);
         any = true;
     }
     if !any {

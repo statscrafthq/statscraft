@@ -1,5 +1,6 @@
 //! The command table: the single source for command name matching, parsing and help.
 
+use crate::alscal;
 use crate::anova;
 use crate::ast::Command;
 use crate::cluster;
@@ -39,6 +40,8 @@ use crate::plum;
 use crate::portable;
 use crate::pplot;
 use crate::procedures;
+use crate::proximities;
+use crate::proxscal;
 use crate::rank;
 use crate::regression;
 use crate::reliability;
@@ -1403,6 +1406,123 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  the last. Not supported yet: MATRIX=OUT, SAVE with MATRIX=IN.",
         example: "CLUSTER q1 TO q5 /MEASURE=SEUCLID /METHOD=WARD /PRINT=SCHEDULE CLUSTER(2,4) /SAVE=CLUSTER(3).",
         parse: cluster::cluster,
+    },
+    CommandSpec {
+        name: "PROXIMITIES",
+        summary: "Similarities, dissimilarities or distances between cases or variables by one of 37 measures.",
+        syntax: "PROXIMITIES varlist | /MATRIX=IN('file' | dataset | *)\n\
+                 \x20  [/VIEW=CASE | VARIABLE] [/STANDARDIZE=[VARIABLE | CASE] [NONE | Z | SD | RANGE | MAX | MEAN | RESCALE]]\n\
+                 \x20  [/MEASURE=[EUCLID | SEUCLID | COSINE | CORRELATION | BLOCK | CHEBYCHEV | MINKOWSKI(p) | POWER(p,r) |\n\
+                 \x20            CHISQ | PH2 | binary[(p[,np])] | NONE] [ABSOLUTE] [REVERSE] [RESCALE]]\n\
+                 \x20  [/PRINT=PROXIMITIES | NONE] [/ID=var] [/MISSING=EXCLUDE | INCLUDE]\n\
+                 \x20  [/MATRIX=[IN('file' | dataset | *)] [OUT('file' | dataset | *)]].\n\
+                 binary: the 27 binary measures of CLUSTER, from the 2 x 2 table of presence (p, default 1) and absence\n\
+                 (np, default 0; with p alone every other value is absence). The items are the cases (VIEW=CASE, the\n\
+                 default) or the variables. A case missing on any variable is dropped either way; the weight variable\n\
+                 is not used. STANDARDIZE works within each variable (default) or each case before the measure: Z (the\n\
+                 method when none is named) gives mean 0 and standard deviation 1, SD standard deviation 1, RANGE\n\
+                 range 1, MAX largest value 1, MEAN mean 1, RESCALE values from 0 to 1; a constant set of values stays\n\
+                 as it is, except under Z (all 0), RESCALE (all 0.5) and MEAN (plus 1). It cannot go with a binary\n\
+                 measure. The default measure is EUCLID. ABSOLUTE drops the sign of every proximity, REVERSE changes\n\
+                 it (a similarity becomes a dissimilarity and back) and RESCALE maps the smallest proximity to 0 and\n\
+                 the largest to 1; they run in this order whatever the order written, on the whole matrix with its\n\
+                 diagonal. Tables: Case Processing Summary and Proximity Matrix (left out with PRINT=NONE); a pair\n\
+                 for which the measure is undefined is empty. ID labels the cases. MATRIX=OUT writes a matrix file\n\
+                 that PROXIMITIES, CLUSTER, PROXSCAL and ALSCAL read with MATRIX=IN: ROWTYPE_ (PROX, with the measure\n\
+                 and SIMILARITY or DISSIMILARITY as its value label), the ID variable, CASENO_ (the case number),\n\
+                 VARNAME_ and one variable per item, VAR1, VAR2, ... for cases and the variables' own names for\n\
+                 VIEW=VARIABLE; under SPLIT FILE every group adds its own matrix after the split variables. OUT(*)\n\
+                 replaces the active dataset. MATRIX=IN reads such a file: no measure is computed from it (MEASURE\n\
+                 and STANDARDIZE are ignored with a warning), only ABSOLUTE, REVERSE and RESCALE apply.",
+        example: "PROXIMITIES taste aroma price /STANDARDIZE=VARIABLE RESCALE /MEASURE=BLOCK /ID=brand /MATRIX=OUT(dist).",
+        parse: proximities::proximities,
+    },
+    CommandSpec {
+        name: "PROXSCAL",
+        summary: "Multidimensional scaling of one or more proximity matrices by majorization, with optimal transformations.",
+        syntax: "PROXSCAL varlist | /MATRIX=IN('file' | dataset | *)\n\
+                 \x20  [/TABLE=rowvar BY colvar [BY sourcevar] | sourcevar] [/SHAPE=LOWER | UPPER | BOTH]\n\
+                 \x20  [/INITIAL=SIMPLEX | TORGERSON | RANDOM[(n)]] [/WEIGHTS=varlist] [/CONDITION=MATRIX | UNCONDITIONAL]\n\
+                 \x20  [/TRANSFORMATION=RATIO | INTERVAL | ORDINAL[(KEEPTIES | UNTIE)] | SPLINE [DEGREE=2] [INKNOT=1]]\n\
+                 \x20  [/PROXIMITIES=DISSIMILARITIES | SIMILARITIES] [/MODEL=IDENTITY | WEIGHTED | GENERALIZED | REDUCED[(2)]]\n\
+                 \x20  [/ACCELERATION=NONE] [/CRITERIA=[DIMENSIONS(2[,max])] [MAXITER(100)] [DIFFSTRESS(.0001)] [MINSTRESS(.0001)]]\n\
+                 \x20  [/PRINT=[NONE] [INPUT] [RANDOM] [HISTORY] [STRESS] [DECOMPOSITION] [COMMON] [DISTANCES] [WEIGHTS]\n\
+                 \x20          [INDIVIDUAL] [TRANSFORMATIONS]]\n\
+                 \x20  [/PLOT=[NONE] [STRESS] [COMMON] [WEIGHTS] [INDIVIDUAL[(sources | ALL)]] [TRANSFORMATIONS[(sources | ALL)]]\n\
+                 \x20         [RESIDUALS[(sources | ALL)]]]\n\
+                 \x20  [/OUTFILE=[COMMON('file' | dataset)] [WEIGHTS(...)] [DISTANCES(...)] [TRANSFORMATIONS(...)]].\n\
+                 The proximities are dissimilarities unless PROXIMITIES=SIMILARITIES. Without TABLE each case is a row of\n\
+                 a square matrix and each variable a column; more cases than variables hold several matrices, one\n\
+                 after the other, each a source. TABLE row BY column [BY source] takes one proximity per case, each\n\
+                 variable a source or the source in a third variable; TABLE=source names the matrix of each case.\n\
+                 SHAPE picks the triangle below or above the diagonal, or BOTH for the weighted mean of the two; the\n\
+                 diagonal is not used. WEIGHTS gives each proximity its weight; a missing proximity or weight counts as\n\
+                 weight 0. MATRIX=IN reads a matrix file of PROXIMITIES or CLUSTER as one source.\n\
+                 The scaling makes the distances fit the transformed proximities in least squares (normalized raw\n\
+                 stress) by majorization. RATIO keeps the proximities as they are (INTERVAL is used, with a warning,\n\
+                 for similarities or negative values), INTERVAL adds an intercept, ORDINAL keeps only their order\n\
+                 (UNTIE lets tied values part) and SPLINE fits a smooth rising curve of the given degree with INKNOT\n\
+                 inner knots at quantiles, plus an intercept. CONDITION=MATRIX fits one transformation per source,\n\
+                 UNCONDITIONAL one for all. MODEL=WEIGHTED gives every source its own weight per dimension, GENERALIZED\n\
+                 its own linear map of the common space and REDUCED(r) a map of rank r; one source always uses\n\
+                 IDENTITY. The start is SIMPLEX, TORGERSON (classical scaling) or RANDOM(n): n random starts from the\n\
+                 session's generator, the best one kept. DIMENSIONS(min,max) solves from max down to min, each\n\
+                 solution starting from the main axes of the one before. Iterations stop after MAXITER, below\n\
+                 MINSTRESS or when the stress improves by no more than DIFFSTRESS.\n\
+                 Tables: Case Processing Summary; Stress and Fit Measures (normalized raw stress, Stress-I, Stress-II,\n\
+                 S-Stress, dispersion accounted for and Tucker's coefficient; without STRESS among PRINT keywords only\n\
+                 the first and the last two); Final Coordinates (COMMON), Dimension Weights or Space Weights (WEIGHTS),\n\
+                 Individual Space Coordinates, Distances, Transformed Proximities, Iteration History, Decomposition of\n\
+                 Normalized Raw Stress, the proximities read (INPUT) and the Random Starts. The identity model's\n\
+                 common space is turned to principal axes; the weighted one has sum of squares n per dimension, the\n\
+                 generalized one Z'Z = nI; every dimension is signed so that the first object is positive. Charts:\n\
+                 Common Space (a scatterplot matrix from three dimensions), Scree Plot of stress by dimensionality\n\
+                 (STRESS), Dimension Weights, Individual Space, Transformation Plot and Residuals Plot. OUTFILE writes\n\
+                 DIM_1, DIM_2, ... for the common space or the weights and OBJ_1, OBJ_2, ... for the distances and the\n\
+                 transformed proximities, the sources one below the other. Not supported yet: RESTRICTIONS, a start\n\
+                 from a file, and the VARIABLES and CORRELATIONS keywords of PRINT and PLOT.",
+        example: "PROXSCAL brand1 TO brand6 /TRANSFORMATION=ORDINAL /CRITERIA=DIMENSIONS(1,3) /PRINT=COMMON STRESS HISTORY /PLOT=COMMON STRESS.",
+        parse: proxscal::proxscal,
+    },
+    CommandSpec {
+        name: "ALSCAL",
+        summary: "Multidimensional scaling of symmetric proximity matrices by alternating least squares on squared distances.",
+        syntax: "ALSCAL VARIABLES=varlist | /MATRIX=IN('file' | dataset | *)\n\
+                 \x20  [/INPUT=ROWS(ALL | n)] [/SHAPE=SYMMETRIC]\n\
+                 \x20  [/LEVEL=ORDINAL[([UNTIE] [SIMILAR])] | INTERVAL[(1..4)] | RATIO[(1..4)] | NOMINAL]\n\
+                 \x20  [/CONDITION=MATRIX | UNCONDITIONAL] [/MODEL=EUCLID | INDSCAL]\n\
+                 \x20  [/CRITERIA=[NEGATIVE] [CUTOFF(0)] [CONVERGE(.001)] [ITER(30)] [STRESSMIN(.005)] [DIMENS(2[,max])]]\n\
+                 \x20  [/PRINT=[DATA] [HEADER]] [/PLOT[=DEFAULT | ALL]] [/OUTFILE='file' | dataset].\n\
+                 Each case is a row of a square matrix of dissimilarities and each variable a column; only the\n\
+                 triangle below the diagonal is read, and more cases than variables hold one matrix per subject.\n\
+                 MATRIX=IN reads a matrix file of PROXIMITIES or CLUSTER instead, VARIABLES picking its items; a\n\
+                 similarity file is scaled as SIMILAR, or turned into dissimilarities from its largest value for\n\
+                 INTERVAL and RATIO. A missing value or one below CUTOFF is left out; the weight variable is not used. The\n\
+                 model fits squared distances to squared disparities and reports S-stress, the root of the mean over\n\
+                 the matrices of their squared misfit relative to the fourth powers of the disparities. ORDINAL\n\
+                 keeps the order of the data (UNTIE lets ties part, SIMILAR turns the order), NOMINAL only which values\n\
+                 are equal; INTERVAL(n) and RATIO(n) make the squared disparities a polynomial of degree n of the\n\
+                 squared data, with and without an intercept. CONDITION=MATRIX fits each matrix on its own,\n\
+                 UNCONDITIONAL all at once. MODEL=INDSCAL weights the dimensions per matrix (no negative weights\n\
+                 unless NEGATIVE). The start is classical scaling of the mean scalar products of all matrices, after\n\
+                 each got the smallest constant that makes it a metric. Iterations stop when S-stress improves by less\n\
+                 than CONVERGE, falls to STRESSMIN or after ITER; DIMENS(min,max) solves from max down to min (1 only\n\
+                 for EUCLID), each smaller solution from the first dimensions of the one before.\n\
+                 Tables per dimensionality: Iteration History (S-stress and its improvement), Stress and Squared\n\
+                 Correlation (RSQ) in Distances per matrix (Kruskal's stress formula 1 and the squared correlation of\n\
+                 disparities and distances, with their average), Stimulus Coordinates and for INDSCAL Subject Weights;\n\
+                 PRINT=DATA adds the data and the optimally scaled data, HEADER the options. The coordinates are\n\
+                 centered; EUCLID turns them to principal axes with a mean square of 1, INDSCAL scales each dimension\n\
+                 to a sum of squares equal to the number of stimuli (the weights the other way) and orders the\n\
+                 dimensions by their weights; every dimension is signed so that the first stimulus is positive. PLOT\n\
+                 gives the configuration, the subject weights, the linear fit (disparities against distances), the\n\
+                 nonlinear fit (data against distances) for ORDINAL and NOMINAL and the transformation (data against\n\
+                 disparities), with ALL one per matrix. OUTFILE writes TYPE_ (CON for coordinates, SUB for subject\n\
+                 weights), DIMENS, MATNUM (0 for coordinates) and DIM1, DIM2, ... for every dimensionality. Not\n\
+                 supported yet: SHAPE=ASYMMETRIC and RECTANGULAR, CONDITION=ROW, the models ASCAL, AINDS and GEMSCAL,\n\
+                 FILE.",
+        example: "ALSCAL VARIABLES=s1 TO s9 /LEVEL=ORDINAL /CRITERIA=DIMENS(2,3) /PLOT.",
+        parse: alscal::alscal,
     },
     CommandSpec {
         name: "DISCRIMINANT",
