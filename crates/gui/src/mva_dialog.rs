@@ -446,7 +446,12 @@ impl MissingValueAnalysis {
             );
         }
         if let [a, b] = saved.as_slice()
-            && a.0.as_deref().map(str::to_lowercase) == b.0.as_deref().map(str::to_lowercase)
+            && a.1 == b.1
+            // dataset names ignore case, file paths may not
+            && match a.1 {
+                2 => a.0.as_deref().map(str::to_lowercase) == b.0.as_deref().map(str::to_lowercase),
+                _ => a.0 == b.0,
+            }
         {
             return Err("EM and regression must save to different places".into());
         }
@@ -592,6 +597,14 @@ mod tests {
             }),
             "EM and regression must save to different places"
         );
+        // file names that differ only in case are different files
+        let mut d = mva();
+        for (x, name) in [(&mut d.em, "a.sav"), (&mut d.regression, "A.sav")] {
+            x.on = true;
+            x.output = 1;
+            x.file = name.into();
+        }
+        assert!(d.syntax(&data).is_ok());
         // the settings of a way to estimate that is off are not checked
         let mut d = mva();
         d.em.df = "x".into();
