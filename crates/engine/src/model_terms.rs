@@ -60,7 +60,8 @@ pub(crate) fn listed_terms(
 
 /// The columns of `wanted` that are not linear combinations of the ones before them (and of
 /// the constant when `centered`), over the rows with a positive weight: a column whose share
-/// not explained by them, relative to its own sum of squares, is at most `eps` is redundant.
+/// not explained by them, relative to its own sum of squares, is at most `eps` is redundant, and
+/// so is one whose share is only the rounding residue of a constant.
 pub(crate) fn independent(
     x: &[Vec<f64>],
     c: &[f64],
@@ -82,15 +83,21 @@ pub(crate) fn independent(
         })
         .collect();
     let mut m = vec![vec![0.0; p]; p];
+    let mut floor = vec![0.0; p];
     for &i in &rows {
         for r in 0..p {
+            floor[r] += RESIDUE * c[i] * x[i][wanted[r]] * x[i][wanted[r]];
             for s in 0..p {
                 m[r][s] += c[i] * (x[i][wanted[r]] - mean[r]) * (x[i][wanted[s]] - mean[s]);
             }
         }
     }
-    kept_columns(m, wanted, eps, &[])
+    kept_columns(m, wanted, eps, &floor)
 }
+
+/// Centering a constant leaves sums of squares of about 1e-32 of its uncentered one; anything
+/// at most this share of it is such residue.
+const RESIDUE: f64 = 1e-24;
 
 /// The columns of `wanted` that are not redundant, from the weighted cross-products `sscp`
 /// of all columns (already centered as the model needs). `raw`: each column's sum of squares
@@ -101,7 +108,7 @@ pub(crate) fn independent_in(sscp: &Matrix, raw: &[f64], wanted: &[usize], eps: 
         .iter()
         .map(|&r| wanted.iter().map(|&s| sscp[r][s]).collect())
         .collect();
-    let floor: Vec<f64> = wanted.iter().map(|&c| 1e-14 * raw[c]).collect();
+    let floor: Vec<f64> = wanted.iter().map(|&c| RESIDUE * raw[c]).collect();
     kept_columns(m, wanted, eps, &floor)
 }
 

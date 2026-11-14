@@ -30,7 +30,8 @@
 //!   Schoenfeld residuals for the events (PRESID) and the change in b from leaving the case
 //!   out, approximated by its score residual times the covariance (DFBETA).
 //! - TIME PROGRAM: every case is evaluated at each event time of its stratum up to its own time,
-//!   with T_ set to that time; a missing time-dependent value there is an error.
+//!   with T_ set to that time. A missing time-dependent value there leaves the case out when it
+//!   is missing on a variable the program names; otherwise it is an error.
 
 use crate::crosstabs::{Key, categories};
 use crate::descriptives::{case_weights, number};
@@ -584,8 +585,8 @@ struct Step {
     removed: Vec<usize>,
 }
 
-/// For every case: missing on a variable of the data that the time program reads (its ranges,
-/// and a vector it names with all its variables); a program whose reads cannot all be listed (a
+/// For every case: missing on a variable of the data that the time program names, read or
+/// assigned (its ranges, and a vector it names with all its variables); a program whose reads cannot all be listed (a
 /// LOOP, DO REPEAT or vector element) may read any variable. Missing as expressions see it:
 /// user-missing values too.
 fn program_inputs_missing(data: &Dataset, program: &TimeProgram) -> Vec<bool> {
@@ -645,7 +646,7 @@ impl Engine {
 
     /// COXREG with the time program, if any, it runs.
     /// `excluded`: per case, empty or one flag each: a time program gives it a missing value
-    /// where it is missing on a variable the program reads, so it counts as missing.
+    /// where it is missing on a variable the program names, so it counts as missing.
     fn coxreg_with(
         &mut self,
         command: &Coxreg,
@@ -997,10 +998,10 @@ impl Engine {
             // shortcut: the expanded rows of all cases form one stream, so a value carried from
             // row to row, or the row number, would cross from case to case; run each case apart
             // to support them
-            let casenum = crate::rows::Refs::of(&program.commands)
-                .names
-                .iter()
-                .any(|n| n.eq_ignore_ascii_case("$CASENUM"));
+            // in the commands' text, as Refs does not list the names of every command
+            let casenum = format!("{:?}", program.commands)
+                .to_ascii_uppercase()
+                .contains("$CASENUM");
             if sub.pending.is_some() || casenum {
                 return Err(fault(
                     "a case-by-case pass (LAG, $CASENUM, a scratch variable kept from case to case) is not supported yet in it"
