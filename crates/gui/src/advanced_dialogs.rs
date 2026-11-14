@@ -10,6 +10,7 @@ use crate::correspondence_dialog::Correspondence;
 use crate::cs_model_dialog::SampleModel;
 use crate::dialogs::whole;
 use crate::genlin_dialog::{GeneralizedLinear, data_checks};
+use crate::mds_dialog::{Alscal, Proxscal};
 use crate::model_dialogs::GLM_ADJUSTMENTS;
 use crate::proximities_dialog::Distances;
 use crate::stats_dialogs::{numeric, parse, percent};
@@ -34,6 +35,8 @@ pub enum Advanced {
     Km(KaplanMeier),
     LifeTables(LifeTables),
     Distances(Distances),
+    Proxscal(Box<Proxscal>),
+    Alscal(Alscal),
 }
 
 impl Advanced {
@@ -53,6 +56,8 @@ impl Advanced {
             Advanced::Km(_) => "Kaplan-Meier",
             Advanced::LifeTables(_) => "Life Tables",
             Advanced::Distances(_) => "Distances",
+            Advanced::Proxscal(_) => "Multidimensional Scaling (PROXSCAL)",
+            Advanced::Alscal(_) => "Multidimensional Scaling (ALSCAL)",
         }
     }
 
@@ -74,6 +79,8 @@ impl Advanced {
             Advanced::Km(_) => Advanced::Km(Default::default()),
             Advanced::LifeTables(_) => Advanced::LifeTables(Default::default()),
             Advanced::Distances(_) => Advanced::Distances(Default::default()),
+            Advanced::Proxscal(_) => Advanced::Proxscal(Default::default()),
+            Advanced::Alscal(_) => Advanced::Alscal(Default::default()),
         }
     }
 
@@ -104,6 +111,8 @@ impl Advanced {
             Advanced::Km(d) => d.syntax(data),
             Advanced::LifeTables(d) => d.syntax(data),
             Advanced::Distances(d) => d.syntax(data),
+            Advanced::Proxscal(d) => d.syntax(data),
+            Advanced::Alscal(d) => d.syntax(data),
         }
     }
 }

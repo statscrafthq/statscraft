@@ -25,6 +25,8 @@ mod graph_dialogs_view;
 mod grid;
 mod grid_menu;
 mod highlight;
+mod mds_dialog;
+mod mds_dialog_view;
 mod model_dialogs;
 mod model_dialogs_view;
 mod office;

@@ -443,6 +443,17 @@ See [The Window menu](#the-window-menu).
   - Inter-item correlations and covariances, and their summaries.
   - An ANOVA table with the F test, Friedman's or Cochran's chi-square, Hotelling's T-squared and Tukey's test of additivity.
   - The intraclass correlation with its model, type, confidence level and test value.
+- **Multidimensional Scaling (PROXSCAL)** (`PROXSCAL`): proximities in square matrices with one variable per object, stacked case after case and told apart by an optional source variable; or one proximity per case, placed by a row and a column variable, with an optional source; or a matrix file written by `PROXIMITIES` or `CLUSTER`. Optional weight variables, one for each proximity variable.
+  - The lower, upper or both triangles, and similarities instead of dissimilarities.
+  - The identity, weighted, generalized or reduced rank model; a ratio, interval, ordinal (ties kept or untied) or spline transformation, within each source or across all; the range of dimensions.
+  - A simplex, Torgerson or random start, the iteration limit and both stress criteria, and relaxed updates.
+  - The tables, and plots of stress, the common space, the weights, and the individual spaces, transformations and residuals of chosen sources or all. Coordinates, weights, distances and transformed proximities saved to data files.
+  - OK stays off while the choices cannot run: fewer than 3 objects, more dimensions than objects less one, a reduced rank not below the most dimensions, or weights that do not pair with the proximities.
+- **Multidimensional Scaling (ALSCAL)** (`ALSCAL`): square matrices of proximities, or distances made from the data between variables or between cases, with a measure and a standardization. The distances go to a dataset of their own, so the open data stay active.
+  - Ordinal (untied, similarities), interval or ratio with a degree from 1 to 4, or nominal data; conditional on the matrix or unconditional.
+  - The Euclidean or the individual differences model; the latter needs several matrices and 2 dimensions or more. Dimensions from 1 to 6.
+  - The convergence, iteration and S-stress limits, the cutoff for missing proximities, negative subject weights, the data and the option summary, plots, and the coordinates saved to a data file.
+  - Asymmetric and rectangular matrices, row conditionality and the asymmetric and generalized models are shown but not available yet.
 
 **Nonparametric Tests** (`NPAR TESTS`), with the dialogs analysts know. Each has descriptives, quartiles, and cases left out test by test or listwise.
 

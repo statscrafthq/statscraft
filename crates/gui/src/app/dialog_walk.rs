@@ -1576,6 +1576,201 @@ fn walk(dialogs: Vec<Dialog>) {
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
 }
 
+/// Invented ratings of how unlike five fruits taste, one lower triangle per judge.
+const FRUIT_MATRICES: &str = "DATA LIST LIST /judge apple pear plum cherry grape.
+BEGIN DATA
+1 0 . . . .
+1 2 0 . . .
+1 5 4 0 . .
+1 6 6 3 0 .
+1 7 8 4 2 0
+2 0 . . . .
+2 3 0 . . .
+2 4 5 0 . .
+2 7 5 2 0 .
+2 8 7 5 3 0
+3 0 . . . .
+3 1 0 . . .
+3 6 3 0 . .
+3 5 7 4 0 .
+3 9 6 3 1 0
+END DATA.";
+
+/// The ratings of the first two judges, one pair of fruits per case, with a weight.
+const FRUIT_PAIRS: &str = "DATA LIST LIST /first second judge score trust.
+BEGIN DATA
+2 1 1 2 1
+3 1 1 5 2
+3 2 1 4 1
+4 1 1 6 1
+4 2 1 6 2
+4 3 1 3 1
+5 1 1 7 1
+5 2 1 8 1
+5 3 1 4 2
+5 4 1 2 1
+2 1 2 3 2
+3 1 2 4 1
+3 2 2 5 1
+4 1 2 7 1
+4 2 2 5 1
+4 3 2 2 2
+5 1 2 8 1
+5 2 2 7 1
+5 3 2 5 1
+5 4 2 3 2
+END DATA.
+VALUE LABELS judge 1 'ann' 2 'ben'.";
+
+/// Invented scores of six shoppers on five fruits, to make distances of.
+const FRUIT_SCORES: &str = "DATA LIST LIST /apple pear plum cherry grape.
+BEGIN DATA
+4 3 2 5 1
+5 4 1 4 2
+2 2 4 3 5
+3 4 3 2 4
+1 2 5 3 4
+4 5 2 4 2
+END DATA.";
+
+/// The scaling dialogs on invented proximities: the syntax is as expected, parses and runs.
+#[test]
+fn the_scaling_dialogs_write_syntax_that_runs() {
+    use crate::mds_dialog::{Alscal, Proxscal};
+    let out = folder("walk-scaling");
+    let common = out.join("common.sav").to_string_lossy().into_owned();
+    let fruits = v(&["apple", "pear", "plum", "cherry", "grape"]);
+    let cases: Vec<(&str, Advanced, String)> = vec![
+        (
+            FRUIT_MATRICES,
+            Advanced::Proxscal(Box::new(Proxscal {
+                variables: fruits.clone(),
+                source: s("judge"),
+                ..Default::default()
+            })),
+            s("PROXSCAL apple pear plum cherry grape\n  /TABLE=judge."),
+        ),
+        (
+            FRUIT_PAIRS,
+            Advanced::Proxscal(Box::new(Proxscal {
+                format: 1,
+                variables: v(&["score"]),
+                row: s("first"),
+                column: s("second"),
+                source: s("judge"),
+                weights: v(&["trust"]),
+                model: 1,
+                transformation: 3,
+                degree: s("3"),
+                knots: s("2"),
+                plot: [false, true, true, true, false, false],
+                plot_sources: [v(&["ben"]), Vec::new(), Vec::new()],
+                ..Default::default()
+            })),
+            s(
+                "PROXSCAL score\n  /TABLE=first BY second BY judge\n  /WEIGHTS=trust\n  \
+               /TRANSFORMATION=SPLINE DEGREE=3 INKNOT=2\n  /MODEL=WEIGHTED\n  \
+               /PLOT=COMMON WEIGHTS INDIVIDUAL(ben).",
+            ),
+        ),
+        (
+            FRUIT_MATRICES,
+            Advanced::Proxscal(Box::new(Proxscal {
+                variables: fruits.clone(),
+                source: s("judge"),
+                shape: 2,
+                start: 1,
+                unconditional: true,
+                transformation: 2,
+                untie: true,
+                model: 3,
+                rank: s("2"),
+                max_dimensions: s("3"),
+                max_iterations: s("200"),
+                diff_stress: s("0.00001"),
+                acceleration: false,
+                print: [true, false, true, true, true, true, true, false, true, true],
+                plot: [true, true, false, false, true, true],
+                plot_sources: [Vec::new(), Vec::new(), v(&["SRC_2"])],
+                outfiles: [common.clone(), String::new(), String::new(), String::new()],
+                ..Default::default()
+            })),
+            format!(
+                "PROXSCAL apple pear plum cherry grape\n  /TABLE=judge\n  /SHAPE=BOTH\n  \
+                 /INITIAL=TORGERSON\n  /CONDITION=UNCONDITIONAL\n  \
+                 /TRANSFORMATION=ORDINAL(UNTIE)\n  /MODEL=REDUCED(2)\n  /ACCELERATION=NONE\n  \
+                 /CRITERIA=DIMENSIONS(2,3) MAXITER(200) DIFFSTRESS(0.00001)\n  \
+                 /PRINT=INPUT HISTORY STRESS DECOMPOSITION COMMON DISTANCES INDIVIDUAL \
+                 TRANSFORMATIONS\n  /PLOT=STRESS COMMON TRANSFORMATIONS(ALL) RESIDUALS(SRC_2)\n  \
+                 /OUTFILE=COMMON('{common}')."
+            ),
+        ),
+        (
+            FRUIT_MATRICES,
+            Advanced::Alscal(Alscal {
+                variables: fruits.clone(),
+                ..Default::default()
+            }),
+            s("ALSCAL VARIABLES=apple pear plum cherry grape."),
+        ),
+        (
+            FRUIT_SCORES,
+            Advanced::Alscal(Alscal {
+                from_data: true,
+                variables: fruits.clone(),
+                standardize: 1,
+                measure: 1,
+                plot: 1,
+                ..Default::default()
+            }),
+            s(
+                "DATASET DECLARE alscal_distances.\nPROXIMITIES apple pear plum cherry grape\n  \
+               /VIEW=VARIABLE\n  /STANDARDIZE=VARIABLE Z\n  /MEASURE=SEUCLID\n  /PRINT=NONE\n  \
+               /MATRIX=OUT(alscal_distances).\nALSCAL\n  /PLOT=DEFAULT\n  \
+               /MATRIX=IN(alscal_distances).\nDATASET CLOSE alscal_distances.",
+            ),
+        ),
+        (
+            FRUIT_MATRICES,
+            Advanced::Alscal(Alscal {
+                variables: fruits,
+                level: 1,
+                indscal: true,
+                negative: true,
+                max_dimensions: s("3"),
+                print_header: true,
+                plot: 2,
+                ..Default::default()
+            }),
+            s(
+                "ALSCAL VARIABLES=apple pear plum cherry grape\n  /LEVEL=INTERVAL(1)\n  \
+               /MODEL=INDSCAL\n  /CRITERIA=NEGATIVE DIMENS(2,3)\n  /PRINT=HEADER\n  /PLOT=ALL.",
+            ),
+        ),
+    ];
+    for (program, dialog, expected) in cases {
+        let mut session = statscraft_engine::session::Session::default();
+        session.run(program, None).unwrap();
+        let data = session.dataset().unwrap().clone();
+        let syntax = Dialog::Advanced(dialog).syntax(&data).unwrap();
+        assert_eq!(syntax, expected);
+        let (_, errors) = statscraft_syntax::parse(&syntax);
+        assert!(errors.is_empty(), "{syntax}\n{errors:?}");
+        let result = session.run(&syntax, None).unwrap();
+        assert!(
+            result.commands.iter().any(|c| !c.tables.is_empty()),
+            "{syntax}"
+        );
+        // nothing asked for was dropped, such as a source to plot or a model
+        let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
+        assert!(warnings.is_empty(), "{syntax}\n{warnings:?}");
+        // the distances made from the data leave the open data active
+        let after = session.dataset().unwrap();
+        assert_eq!(after.variable_count(), data.variable_count(), "{syntax}");
+    }
+    std::fs::remove_dir_all(out).unwrap();
+}
+
 /// A folder of its own for the files a test writes.
 fn folder(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("statscraft-gui-{name}-{}", std::process::id()));

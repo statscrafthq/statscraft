@@ -1656,6 +1656,20 @@ impl App {
                         if ui.button("Reliability Analysis...").clicked() {
                             self.open_dialog(Dialog::Reliability(Default::default()));
                         }
+                        for (label, dialog) in [
+                            (
+                                "Multidimensional Scaling (PROXSCAL)...",
+                                Advanced::Proxscal(Default::default()),
+                            ),
+                            (
+                                "Multidimensional Scaling (ALSCAL)...",
+                                Advanced::Alscal(Default::default()),
+                            ),
+                        ] {
+                            if ui.button(label).clicked() {
+                                self.open_dialog(Dialog::Advanced(dialog));
+                            }
+                        }
                     });
                     ui.menu_button("Nonparametric Tests", |ui| {
                         for kind in NparKind::ALL {
