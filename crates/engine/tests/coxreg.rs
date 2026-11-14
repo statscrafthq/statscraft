@@ -694,6 +694,21 @@ fn plots_follow_the_patterns() {
 }
 
 #[test]
+fn a_variable_named_t_is_an_ordinary_covariate_without_a_program() {
+    let t = tables("COMPUTE T_ = spend.\nCOXREG months WITH T_ /STATUS=ended(1).");
+    near(
+        value(
+            &t,
+            "Case Processing Summary",
+            "Cases dropped / Cases with missing values",
+            "N",
+        ),
+        1.0,
+        0.0,
+    );
+}
+
+#[test]
 fn errors_and_unsupported_parts() {
     assert!(run_error("COXREG months WITH spend /STATUS=plan('a').").contains("numbers"));
     assert!(run_error("COXREG months WITH months /STATUS=ended(1).").contains("survival time"));

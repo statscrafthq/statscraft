@@ -585,7 +585,9 @@ struct Step {
 
 /// Case `k` is missing on a variable of the data that the time program reads (a vector it
 /// names counts with all its variables).
-fn program_reads_missing(data: &Dataset, program: &TimeProgram, k: usize, include: bool) -> bool {
+/// For every case: missing on a variable of the data that the time program reads (its ranges,
+/// and a vector it names with all its variables).
+fn program_inputs_missing(data: &Dataset, program: &TimeProgram, include: bool) -> Vec<bool> {
     let refs = crate::rows::Refs::of(&program.commands);
     let mut names = refs.names.clone();
     for (vector, members) in &program.vectors {
@@ -593,10 +595,17 @@ fn program_reads_missing(data: &Dataset, program: &TimeProgram, k: usize, includ
             names.extend(members.iter().cloned());
         }
     }
-    names
-        .iter()
-        .filter_map(|n| data.variable(n).ok())
-        .any(|v| categories(&v, include)[k].is_none())
+    for (a, b) in &refs.ranges {
+        let range = statscraft_syntax::VarItem::Range(a.clone(), b.clone());
+        names.extend(crate::expand_in(data, &[range]).unwrap_or_default());
+    }
+    let mut missing = vec![false; data.case_count()];
+    for v in names.iter().filter_map(|n| data.variable(n).ok()) {
+        for (m, key) in missing.iter_mut().zip(categories(&v, include)) {
+            *m |= key.is_none();
+        }
+    }
+    missing
 }
 
 /// The status value of a case is an event.
@@ -738,7 +747,7 @@ impl Engine {
             let kept: Vec<String> = t
                 .iter()
                 .filter(|n| {
-                    !n.eq_ignore_ascii_case("T_")
+                    !(program.is_some() && n.eq_ignore_ascii_case("T_"))
                         && data.variable_index(n).is_some()
                         && !computed.iter().any(|c| c.eq_ignore_ascii_case(n))
                         && !roles.iter().any(|(r, _)| r.eq_ignore_ascii_case(n))
@@ -894,6 +903,8 @@ impl Engine {
             ));
         }
         let mut program_warnings = Vec::new();
+        // the random numbers before the program ran
+        let random_before = self.random.clone();
         let expanded: Option<(Dataset, Vec<Span>)> = if let Some(program) = &program {
             // shortcut: a fixed bound on the expanded rows; stream the risk sets if larger data
             // with time-dependent covariates is needed
@@ -1047,6 +1058,7 @@ impl Engine {
         // variable the program reads (which may change the event times, so all starts again);
         // otherwise it is an error
         let mut missing_inputs = Vec::new();
+        let mut inputs_missing: Option<Vec<bool>> = None;
         for &(_, i, _, stop) in layout.iter().filter(|&&(r, ..)| !covariates.valid(r)) {
             let k = used[i];
             if missing_inputs.contains(&k) {
@@ -1055,7 +1067,9 @@ impl Engine {
             let program = program
                 .as_ref()
                 .expect("only a program leaves rows invalid");
-            if !program_reads_missing(data, program, k, command.include) {
+            let inputs = inputs_missing
+                .get_or_insert_with(|| program_inputs_missing(data, program, command.include));
+            if !inputs[k] {
                 self.program_fault.set(true);
                 return Err(Error(format!(
                     "TIME PROGRAM: a time-dependent covariate is missing for case {} at time {stop}",
@@ -1066,6 +1080,8 @@ impl Engine {
         }
         if !missing_inputs.is_empty() {
             missing_inputs.extend(excluded);
+            // the program runs again: from the same random numbers
+            self.random.swap(&random_before);
             return self.coxreg_with(command, program, &missing_inputs);
         }
         let mut in_source = vec![false; source.case_count()];

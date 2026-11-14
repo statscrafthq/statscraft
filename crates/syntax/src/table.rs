@@ -1502,7 +1502,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  so is a program that adds or drops cases, leaves a LOOP or DO IF open, or holds PRINT, WRITE or\n\
                  XSAVE; a COXREG that stops for a fault in the program drops it, one that stops for another\n\
                  error keeps it. Any other command that reads the data drops the program, as do CLEAR TIME\n\
-                 PROGRAM and CLEAR TRANSFORMATIONS. A case missing on a variable the program reads is left out.\n\
+                 PROGRAM and CLEAR TRANSFORMATIONS. A case the program gives a missing value because it is\n\
+                 missing on a variable the program reads is left out.\n\
                  Not supported yet in a program: LAG, $CASENUM and values carried from case to case.",
         example: "TIME PROGRAM.\nCOMPUTE spend_t = spend * LN(T_ + 1).",
         parse: coxreg::time_program,
