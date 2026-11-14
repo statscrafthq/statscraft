@@ -458,24 +458,14 @@ fn update_weights(
                 cols.iter().zip(beta).for_each(|(&a, b)| out[a] = b);
                 Some(out)
             };
-            let mut cols: Vec<usize> = (0..p).collect();
-            loop {
-                let Some(w) = fit(&cols) else {
-                    return old[k].clone();
-                };
-                if negative || cols.iter().all(|&a| w[a] >= 0.0) {
-                    return w;
-                }
-                // drop the most negative weight and refit the others
-                let worst = *cols
-                    .iter()
-                    .min_by(|&&a, &&b| w[a].total_cmp(&w[b]))
-                    .expect("a column");
-                cols.retain(|&a| a != worst);
-                if cols.is_empty() {
-                    return vec![0.0; p];
-                }
+            if !negative {
+                // nonnegative least squares
+                let design: Matrix = rows.iter().map(|r| r.0.clone()).collect();
+                let target: Vec<f64> = rows.iter().map(|r| r.1).collect();
+                return crate::mds::nnls(&design, &target);
             }
+            let all: Vec<usize> = (0..p).collect();
+            fit(&all).unwrap_or_else(|| old[k].clone())
         })
         .collect()
 }

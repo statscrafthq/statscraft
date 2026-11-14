@@ -239,7 +239,9 @@ impl Engine {
             };
             // split groups share the columns of a layered table by position, not by case
             let by_place: Vec<String>;
-            let labels = match self.split_group.is_some() && head == "Case" {
+            let layered = self.proximity_out.0.as_ref().is_some_and(|s| s.layered);
+            let by_case = !command.view_variables && command.matrix_in.is_none();
+            let labels = match layered && by_case {
                 true => {
                     by_place = (1..=n).map(|i| i.to_string()).collect();
                     &by_place
@@ -248,9 +250,11 @@ impl Engine {
             };
             let mut table =
                 proximity_table(head, labels, &items.prox, items.similarity, &measure, true);
-            // the rows keep the case labels
-            for (row, label) in table.rows.iter_mut().zip(&items.labels) {
-                row[0] = crate::npar_tests::text(label.clone());
+            if layered && by_case {
+                // the rows keep the case labels
+                for (row, label) in table.rows.iter_mut().zip(&items.labels) {
+                    row[0] = crate::npar_tests::text(label.clone());
+                }
             }
             tables.push(table);
         }
@@ -341,10 +345,10 @@ impl Engine {
     /// The matrix of one group after the values of the split variables, taken from the
     /// group's first case; the items then carry no case labels.
     fn after_split(&self, command: &Proximities, part: Dataset) -> Result<Dataset, Error> {
-        let names = &self.proximity_out.0;
-        if names.is_empty() {
+        let Some(split) = &self.proximity_out.0 else {
             return Ok(part);
-        }
+        };
+        let names = &split.variables;
         let group = self.active()?;
         if let Some(name) = names
             .iter()
@@ -374,7 +378,7 @@ impl Engine {
     /// Writes the matrices of MATRIX=OUT that the runs of the split groups left, one after
     /// the other. A group with fewer items has the others blank; strings take the widest.
     pub(crate) fn proximities_out(&mut self, command: &Proximities) -> Result<(), Error> {
-        let (_, parts) = std::mem::take(&mut self.proximity_out);
+        let (split, parts) = std::mem::take(&mut self.proximity_out);
         let Some(target) = &command.matrix_out else {
             return Ok(());
         };
@@ -407,8 +411,9 @@ impl Engine {
         match target {
             None => {
                 // the matrix keeps the split, so MATRIX=IN(*) reads it group by group
-                if let Some(split) = self.active()?.split_file().cloned() {
-                    out.set_split_file(Some(split))?;
+                // the split the groups ran under, whatever TEMPORARY restored
+                if split.is_some() {
+                    out.set_split_file(split)?;
                 }
                 self.dataset = Some(out);
             }

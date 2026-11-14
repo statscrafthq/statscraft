@@ -90,6 +90,16 @@ pub(crate) fn identity(p: usize) -> Matrix {
         .collect()
 }
 
+/// The space weights to start from: the identity, cut to its first r dimensions for the
+/// reduced rank model so the start obeys the model.
+pub(crate) fn start_weights(model: Model, p: usize) -> Matrix {
+    let mut a = identity(p);
+    if let Model::Reduced(r) = model {
+        (r.min(p)..p).for_each(|d| a[d][d] = 0.0);
+    }
+    a
+}
+
 /// Euclidean distances between the rows of `x`.
 pub(crate) fn distances(x: &Matrix) -> Matrix {
     let n = x.len();
@@ -656,9 +666,21 @@ pub(crate) fn torgerson(problem: &Problem, dhat: &[Matrix], p: usize) -> Matrix 
                 s += wk[i][j] * dk[i][j].powi(2);
                 w += wk[i][j];
             }
-            d2[i][j] = if w > 0.0 { s / w } else { 0.0 };
+            d2[i][j] = if w > 0.0 { s / w } else { f64::NAN };
         }
     }
+    // a pair missing in every source takes the mean of the others
+    let known: Vec<f64> = d2
+        .iter()
+        .flatten()
+        .copied()
+        .filter(|v| v.is_finite())
+        .collect();
+    let mean = known.iter().sum::<f64>() / known.len().max(1) as f64;
+    d2.iter_mut()
+        .flatten()
+        .filter(|v| v.is_nan())
+        .for_each(|v| *v = mean);
     let row: Vec<f64> = d2
         .iter()
         .map(|r| r.iter().sum::<f64>() / n as f64)
@@ -939,7 +961,19 @@ fn update_a(
                     };
                     let full = multiply(&inv, &zc);
                     match model {
-                        Model::Reduced(r) if r < p => low_rank(&full, r),
+                        // the best rank r in the metric of Z'V_kZ = L L': L' A of rank r
+                        Model::Reduced(r) if r < p => match cholesky(&zvz) {
+                            Some(l) => {
+                                let lt = transpose(&l);
+                                match inverse(&lt) {
+                                    Some((ltinv, _)) => {
+                                        multiply(&ltinv, &low_rank(&multiply(&lt, &full), r))
+                                    }
+                                    None => low_rank(&full, r),
+                                }
+                            }
+                            None => low_rank(&full, r),
+                        },
                         _ => full,
                     }
                 }
@@ -1129,7 +1163,7 @@ pub(crate) fn reduce(model: Model, s: &Solution) -> (Matrix, Vec<Matrix>) {
                     r
                 })
                 .collect();
-            (z, vec![identity(p - 1); s.a.len()])
+            (z, vec![start_weights(model, p - 1); s.a.len()])
         }
     }
 }

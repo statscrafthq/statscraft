@@ -360,7 +360,7 @@ pub struct Engine {
     /// While a procedure runs on a split group: each split variable with the group's value.
     split_group: Option<Vec<(String, Option<crosstabs::Key>)>>,
     /// PROXIMITIES /MATRIX=OUT: the split variables and the matrix of every split group.
-    proximity_out: (Vec<String>, Vec<Dataset>),
+    proximity_out: (Option<statscraft_data::SplitFile>, Vec<Dataset>),
     /// The specifications of the last PPLOT, for PPLOT APPLY.
     pplot_model: Option<Box<statscraft_syntax::Pplot>>,
 }
@@ -700,8 +700,8 @@ impl Engine {
             | Command::Rank(_)
             | Command::Aggregate(_) => return self.procedure(command),
             Command::Proximities(proximities) => {
-                let split = self.active()?.split_file().map(|s| s.variables.clone());
-                self.proximity_out = (split.unwrap_or_default(), Vec::new());
+                let split = self.active()?.split_file().cloned();
+                self.proximity_out = (split, Vec::new());
                 let tables = self.procedure(command)?;
                 self.proximities_out(proximities)?;
                 return Ok(tables);

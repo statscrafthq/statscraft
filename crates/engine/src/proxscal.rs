@@ -21,7 +21,7 @@
 use crate::chart::{Axis, Category, ChartKind, Series, Statistic};
 use crate::descriptives::number;
 use crate::matrix::{Matrix, multiply};
-use crate::mds::{self, Criteria, Model, Problem, Solution, Transform, distances, identity, zeros};
+use crate::mds::{self, Criteria, Model, Problem, Solution, Transform, distances, zeros};
 use crate::means::is_valid;
 use crate::npar_tests::text;
 use crate::plot::{CaseGroup, CaseValues, Plot, Point, PointGroup};
@@ -225,11 +225,14 @@ impl Engine {
                 n = n.max(r).max(c);
                 cells.push((case, r - 1, c - 1, k));
             }
-            // the codes number the objects from 1: far more objects than cases is a mistake
-            if n > 2 * cells.len() + 2 {
+            // the codes number the objects 1, 2, ... n, every one used
+            let mut used: Vec<usize> = cells.iter().flat_map(|c| [c.1, c.2]).collect();
+            used.sort_unstable();
+            used.dedup();
+            if n != used.len() {
                 return Err(Error(format!(
-                    "PROXSCAL: TABLE codes go up to {n}, but {} cases hold proximities; row and column codes number the objects from 1",
-                    cells.len()
+                    "PROXSCAL: TABLE codes go up to {n}, but only {} objects occur; row and column codes number the objects from 1 without gaps",
+                    used.len()
                 )));
             }
             // the source codes that occur, numbered in order: a gap makes no empty source
@@ -462,7 +465,7 @@ impl Engine {
                             model,
                             &criteria,
                             z,
-                            vec![identity(p); m],
+                            vec![mds::start_weights(model, p); m],
                             start_dhat.clone(),
                         )
                     }
@@ -477,7 +480,7 @@ impl Engine {
                                 model,
                                 &criteria,
                                 z,
-                                vec![identity(p); m],
+                                vec![mds::start_weights(model, p); m],
                                 start_dhat.clone(),
                             );
                             let stress = s.history.last().copied().unwrap_or(1.0);

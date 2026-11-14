@@ -371,3 +371,24 @@ fn table_codes_far_beyond_the_cases_are_an_error() {
             .contains("number the objects from 1")
     );
 }
+
+#[test]
+fn the_reduced_rank_model_never_raises_the_stress() {
+    let tables = run(
+        JUDGES,
+        "PROXSCAL a1 TO a7 /MODEL=REDUCED(1) /INITIAL=TORGERSON \
+         /CRITERIA=MAXITER(500) DIFFSTRESS(0) MINSTRESS(0) /PRINT=HISTORY STRESS.",
+    );
+    let history: Vec<f64> = table(&tables, "Iteration History")
+        .rows
+        .iter()
+        .map(|r| number(&r[1]))
+        .collect();
+    assert!(
+        history.windows(2).all(|w| w[1] <= w[0] + 1e-12),
+        "{history:?}"
+    );
+    // rank 1 spaces fit worse than the generalized model's full rank
+    let got = stress(&tables, "Stress and Fit Measures");
+    assert!(got.is_finite() && got > 0.00372292249071, "{got}");
+}
