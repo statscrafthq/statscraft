@@ -281,7 +281,10 @@ fn fit(rows: &[Row], strata: usize, cols: &[usize], criteria: &CoxregCriteria) -
         ll = nll;
         u = nu;
         info = ninfo;
-        if relative < criteria.bcon || (criteria.lcon > 0.0 && ll_change < criteria.lcon) {
+        // a halved step is small because it was halved, which says nothing of convergence
+        if step == 1.0
+            && (relative < criteria.bcon || (criteria.lcon > 0.0 && ll_change < criteria.lcon))
+        {
             converged = true;
             break;
         }
@@ -857,6 +860,17 @@ impl Engine {
             t.sort_by(f64::total_cmp);
             t.dedup();
         }
+        if program.iter().flat_map(|p| &p.commands).any(|c| {
+            matches!(
+                c,
+                Command::Print(_) | Command::PrintSpace(_) | Command::Xsave(_)
+            )
+        }) {
+            return Err(Error(
+                "TIME PROGRAM: PRINT, PRINT SPACE and XSAVE would act on every case at every event time; they cannot be in it"
+                    .into(),
+            ));
+        }
         let mut program_warnings = Vec::new();
         let expanded: Option<(Dataset, Vec<Span>)> = if let Some(program) = &program {
             // shortcut: a fixed bound on the expanded rows; stream the risk sets if larger data
@@ -928,6 +942,11 @@ impl Engine {
                 program_warnings.append(&mut sub.warnings);
             }
             sub.flush()?;
+            if sub.collecting.is_some() || !sub.blocks.is_empty() {
+                return Err(Error(
+                    "TIME PROGRAM: a LOOP or DO IF in it is not closed".into(),
+                ));
+            }
             program_warnings.append(&mut sub.warnings);
             // the random numbers the program drew count as drawn
             self.random.swap(&sub.random);
@@ -998,6 +1017,7 @@ impl Engine {
         for &(r, ..) in &layout {
             in_source[r] = true;
         }
+        covariates.eight_bytes = true;
         covariates.code(
             &term_vars,
             &in_source,

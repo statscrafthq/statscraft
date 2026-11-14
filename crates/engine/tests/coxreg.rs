@@ -840,6 +840,21 @@ fn time_program_edge_cases() {
         0.04797026618358,
         1e-6,
     );
+    // an open LOOP, and PRINT, are errors in a program
+    assert!(
+        run_error(
+            "TIME PROGRAM.\nCOMPUTE spend_t = spend.\nLOOP #i = 1 TO 2.\nCOMPUTE spend_t = spend_t * T_.\n\
+             COXREG months WITH spend_t /STATUS=ended(1)."
+        )
+        .contains("not closed")
+    );
+    assert!(
+        run_error(
+            "TIME PROGRAM.\nCOMPUTE spend_t = spend * T_.\nPRINT / spend_t.\n\
+             COXREG months WITH spend_t /STATUS=ended(1)."
+        )
+        .contains("PRINT")
+    );
     // a program that never changes the covariate is not used, and the case missing on spend is
     // dropped as usual
     let mut engine = Engine::default();

@@ -182,7 +182,8 @@ pub(crate) fn step_cell(first: bool, n: usize) -> Cell {
     }
 }
 
-/// A string value's first eight bytes (whole characters only), which tell its categories apart.
+/// A string value's first eight bytes (whole characters only), which tell its categories apart
+/// in COXREG.
 pub(crate) fn prefix8(text: &str) -> &str {
     let text = text.trim_end();
     let mut end = text.len().min(8);
@@ -192,13 +193,12 @@ pub(crate) fn prefix8(text: &str) -> &str {
     &text[..end]
 }
 
-/// Two values are one category: equal numbers, or strings with the same first eight bytes. The
-/// category keeps the first value seen (in ascending order), whose label it shows.
-fn same(a: &Key, b: &Key) -> bool {
-    match (a, b) {
-        (Key::Text(a), Key::Text(b)) => prefix8(a) == prefix8(b),
-        _ => a.compare(b).is_eq(),
-    }
+/// A string value's first eight characters, which tell its categories apart in LOGISTIC
+/// REGRESSION.
+fn first8_chars(text: &str) -> &str {
+    let text = text.trim_end();
+    let end = text.char_indices().nth(8).map_or(text.len(), |(i, _)| i);
+    &text[..end]
 }
 
 pub(crate) fn clone_key(key: &Key) -> Key {
@@ -221,6 +221,8 @@ pub(crate) struct Covariates<'a> {
     pub terms: Vec<TermInfo>,
     /// Per column: for each variable of its term, which coding column (None: the value).
     recipes: Vec<Vec<(usize, Option<usize>)>>,
+    /// Strings are told apart by their first eight bytes (COXREG); else by eight characters.
+    pub eight_bytes: bool,
 }
 
 impl<'a> Covariates<'a> {
@@ -283,9 +285,20 @@ impl<'a> Covariates<'a> {
             names: Vec::new(),
             terms: Vec::new(),
             recipes: Vec::new(),
+            eight_bytes: false,
         };
         out.codings = (0..out.variables.len()).map(|_| None).collect();
         Ok(out)
+    }
+
+    /// Two values are one category: equal numbers, or strings with the same first eight bytes or
+    /// characters.
+    fn same(&self, a: &Key, b: &Key) -> bool {
+        match (a, b) {
+            (Key::Text(a), Key::Text(b)) if self.eight_bytes => prefix8(a) == prefix8(b),
+            (Key::Text(a), Key::Text(b)) => first8_chars(a) == first8_chars(b),
+            _ => a.compare(b).is_eq(),
+        }
     }
 
     /// Case `k` is valid on every variable.
@@ -318,11 +331,13 @@ impl<'a> Covariates<'a> {
             let mut levels: Vec<Key> = Vec::new();
             for k in (0..used.len()).filter(|&k| used[k]) {
                 let key = self.keys[at][k].as_ref().expect("valid");
-                if !levels.iter().any(|l| same(l, key)) {
+                if !levels.iter().any(|l| l.compare(key).is_eq()) {
                     levels.push(clone_key(key));
                 }
             }
             levels.sort_by(|a, b| a.compare(b));
+            // values that share their start are one category, named by the lowest of them
+            levels.dedup_by(|b, a| self.same(a, b));
             if levels.len() < 2 {
                 return Err(Error(format!(
                     "the categorical variable {} has fewer than two categories among the cases used",
@@ -388,7 +403,7 @@ impl<'a> Covariates<'a> {
     pub(crate) fn level(&self, v: usize, k: usize) -> Option<usize> {
         let (levels, _) = self.codings[v].as_ref()?;
         let key = self.keys[v][k].as_ref()?;
-        levels.iter().position(|l| same(l, key))
+        levels.iter().position(|l| self.same(l, key))
     }
 
     /// For design column `j`: each variable of its term with its coding column (None: the

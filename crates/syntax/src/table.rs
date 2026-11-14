@@ -1499,9 +1499,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  stratum up to the case's own time, with the variable T_ holding that time, so a covariate they\n\
                  compute can change with time. The data may not have a variable T_, and T_ itself is not a\n\
                  covariate. A missing value from the program where the case is otherwise valid, or a program\n\
-                 that adds or drops cases, is an error. Any other command that reads the data drops the\n\
-                 program, as do CLEAR TIME PROGRAM and CLEAR TRANSFORMATIONS; a COXREG that stops with an error\n\
-                 keeps it.",
+                 that adds or drops cases, leaves a LOOP or DO IF open, or holds PRINT or XSAVE, is an error.\n\
+                 Any other command that reads the data drops the program, as do CLEAR TIME PROGRAM and CLEAR\n\
+                 TRANSFORMATIONS; a COXREG that stops with an error keeps it.",
         example: "TIME PROGRAM.\nCOMPUTE spend_t = spend * LN(T_ + 1).",
         parse: coxreg::time_program,
     },
