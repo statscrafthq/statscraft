@@ -376,6 +376,14 @@ fn km_plots_are_step_curves_with_censored_ticks() {
         .collect();
     assert_eq!(marks.len(), 2);
     assert_eq!(marks[0].0, 9.0);
+    // a plan without cases in a region keeps its place, and so its color
+    let (_, charts, ..) = run("SELECT IF NOT (plan = 1 AND region = 2).
+KM weeks BY plan /STATUS=outcome(1) /STRATA=region /PRINT=NONE /PLOT=SURVIVAL.");
+    let Some(Plot::Points { groups: second, .. }) = &charts[1].plot else {
+        unreachable!()
+    };
+    assert_eq!(second.len(), 3);
+    assert!(second[0].points.is_empty());
     // the log survival curve of plan 3 in region 1 stops before the estimate reaches 0
     let Some(Plot::Points { groups, .. }) = &charts[1].plot else {
         unreachable!()
@@ -390,6 +398,11 @@ fn km_without_a_factor_and_with_a_string_status() {
 RECODE outcome (1='yes') (ELSE='no') INTO done.
 KM weeks /STATUS=done('yes') /TEST=BRESLOW.");
     assert!(warnings.iter().any(|w| w.contains("factor")));
+    let warnings = run("KM weeks BY region /STATUS=outcome(1) /TEST=BRESLOW /PRINT=NONE.
+SELECT IF region = 1.
+KM weeks BY region /STATUS=outcome(1) /TEST=BRESLOW /PRINT=NONE.")
+    .2;
+    assert!(warnings.iter().any(|w| w.contains("only one level")));
     let means = table(&tables, "Means and Medians for Survival Time");
     assert_eq!(means.rows.len(), 1);
     close(num(&means.rows[0][1]), 18.9062568026);

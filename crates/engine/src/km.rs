@@ -420,41 +420,34 @@ impl Engine {
         if cases.is_empty() {
             return Err(Error("KM has no valid cases".into()));
         }
+        let order = |a: &Option<Key>, b: &Option<Key>| match (a, b) {
+            (Some(a), Some(b)) => a.compare(b),
+            _ => std::cmp::Ordering::Equal,
+        };
         let sorted_keys = |pick: &dyn Fn(&KeyedObs) -> Option<Key>| {
-            let mut keys: Vec<Option<Key>> = Vec::new();
-            for case in &cases {
-                let k = pick(case);
-                if !keys.contains(&k) {
-                    keys.push(k);
-                }
-            }
-            keys.sort_by(|a, b| match (a, b) {
-                (Some(a), Some(b)) => a.compare(b),
-                _ => std::cmp::Ordering::Equal,
-            });
+            let mut keys: Vec<Option<Key>> = cases.iter().map(pick).collect();
+            keys.sort_by(order);
+            keys.dedup_by(|a, b| order(a, b).is_eq());
             keys
         };
         let stratum_keys = sorted_keys(&|c| c.0.clone());
         let level_keys = sorted_keys(&|c| c.1.clone());
         let g = level_keys.len();
-        let strata_list: Vec<Stratum> = stratum_keys
+        let mut strata_list: Vec<Stratum> = stratum_keys
             .iter()
             .map(|sk| Stratum {
                 key: sk.clone(),
-                levels: level_keys
-                    .iter()
-                    .map(|lk| {
-                        let mut obs: Vec<Obs> = cases
-                            .iter()
-                            .filter(|c| &c.0 == sk && &c.1 == lk)
-                            .map(|c| c.2)
-                            .collect();
-                        sort_obs(&mut obs);
-                        obs
-                    })
-                    .collect(),
+                levels: vec![Vec::new(); g],
             })
             .collect();
+        for (sk, lk, o) in &cases {
+            let s = stratum_keys.binary_search_by(|k| order(k, sk));
+            let l = level_keys.binary_search_by(|k| order(k, lk));
+            strata_list[s.expect("listed")].levels[l.expect("listed")].push(*o);
+        }
+        for level in strata_list.iter_mut().flat_map(|s| &mut s.levels) {
+            sort_obs(level);
+        }
 
         let stratum_text = |k: &Option<Key>| match (k, &strata_var) {
             (Some(k), Some(v)) => shown.value(v, k),
@@ -748,7 +741,11 @@ impl Engine {
 
         // comparisons of the factor levels
         let asked = !command.tests.is_empty() || !command.compare.is_empty();
-        if factor_var.is_none() && (asked || command.trend.is_some()) {
+        if factor_var.is_some() && g < 2 && (asked || command.trend.is_some()) {
+            warnings.push(
+                "the factor has only one level with valid cases, so nothing was compared".into(),
+            );
+        } else if factor_var.is_none() && (asked || command.trend.is_some()) {
             warnings.push(
                 "KM compares factor levels only when BY names a factor; TEST, COMPARE and \
                  TREND were ignored"
@@ -924,11 +921,16 @@ impl Engine {
                 ),
             };
             for (s, stratum) in strata_list.iter().enumerate() {
-                let groups: Vec<PointGroup> = curves
-                    .iter()
-                    .filter(|c| c.0 == s)
-                    .map(|(_, l, c)| {
-                        let mut censored: Vec<f64> = stratum.levels[*l]
+                // every level, even one without cases here, so that it keeps its color
+                let groups: Vec<PointGroup> = (0..g)
+                    .map(|l| {
+                        let Some((_, _, c)) = curves.iter().find(|c| c.0 == s && c.1 == l) else {
+                            return PointGroup {
+                                name: level_text(&level_keys[l]),
+                                points: Vec::new(),
+                            };
+                        };
+                        let mut censored: Vec<f64> = stratum.levels[l]
                             .iter()
                             .filter(|o| !o.event)
                             .map(|o| o.time)
@@ -936,7 +938,7 @@ impl Engine {
                         censored.dedup();
                         PointGroup {
                             name: match factor_var.is_some() {
-                                true => level_text(&level_keys[*l]),
+                                true => level_text(&level_keys[l]),
                                 false => shown.variable(&time_var),
                             },
                             points: c.steps(&censored, f),
@@ -968,11 +970,6 @@ impl Engine {
             }
         }
 
-        for w in warnings {
-            self.warn(w);
-        }
-        self.charts.extend(charts);
-
         // SAVE
         if !command.save.is_empty() {
             let n = case_count;
@@ -996,6 +993,10 @@ impl Engine {
             }
             self.save_km(command, saved)?;
         }
+        for w in warnings {
+            self.warn(w);
+        }
+        self.charts.extend(charts);
         Ok(tables)
     }
 

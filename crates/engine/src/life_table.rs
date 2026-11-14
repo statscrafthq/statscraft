@@ -26,6 +26,7 @@
 use crate::chart::{Axis, Chart, ChartKind};
 use crate::descriptives::{case_weights, number};
 use crate::dist::chi_square_p;
+use crate::examine::short as bound_text;
 use crate::means::is_valid;
 use crate::plot::{Plot, Point, PointGroup};
 use crate::{Cell, Engine, Error, Table};
@@ -46,12 +47,27 @@ pub(crate) fn interval_starts(periods: &[(f64, f64)]) -> Result<(Vec<f64>, bool)
             )));
         }
         let ratio = (end - base) / width;
-        let count = (ratio - 1e-9).ceil().max(1.0) as usize;
+        let count = (ratio - 1e-9).ceil().max(1.0);
+        if starts.len() as f64 + count > MOST_INTERVALS as f64 {
+            return Err(Error(format!(
+                "INTERVAL asks for more than {MOST_INTERVALS} intervals; give wider ones"
+            )));
+        }
         stretched |= (ratio - ratio.round()).abs() > 1e-9;
-        // on a fine grid, so that 3 x 0.1 is the start 0.3 that a time of 0.3 reaches
-        starts.extend((1..=count).map(|i| ((base + i as f64 * width) * 1e10).round() / 1e10));
+        starts.extend((1..=count as usize).map(|i| snap(base + i as f64 * width)));
     }
     Ok((starts, stretched))
+}
+
+const MOST_INTERVALS: usize = 10_000;
+
+/// A start rounded to 12 significant digits, so that 3 x 0.1 is the 0.3 a time of 0.3 reaches.
+fn snap(x: f64) -> f64 {
+    if x == 0.0 {
+        return 0.0;
+    }
+    let scale = 10f64.powi(11 - x.abs().log10().floor() as i32);
+    (x * scale).round() / scale
 }
 
 /// A case's time, whether the event happened, and its weight.
@@ -88,13 +104,16 @@ pub(crate) fn life_table(cases: &[(f64, bool, f64)], starts: &[f64]) -> Vec<Line
             false => c[i] += w,
         }
     }
+    // those entering each interval: everyone who leaves in it or later, exactly 0 after the last
+    let mut entering_at = vec![0.0; k + 1];
+    for i in (0..k).rev() {
+        entering_at[i] = entering_at[i + 1] + c[i] + d[i];
+    }
     let mut out = Vec::new();
-    let mut entering: f64 = cases.iter().map(|c| c.2).sum();
-    // what fractional weights leave after the last case is rounding, not a case
-    let nobody = 1e-9 * entering;
     let (mut previous, mut sum) = (1.0, 0.0);
     for i in 0..k {
-        if entering <= nobody {
+        let entering = entering_at[i];
+        if entering <= 0.0 {
             break;
         }
         let width = (i + 1 < k).then(|| starts[i + 1] - starts[i]);
@@ -144,7 +163,6 @@ pub(crate) fn life_table(cases: &[(f64, bool, f64)], starts: &[f64]) -> Vec<Line
             hazard,
             se_hazard,
         });
-        entering -= c[i] + d[i];
         previous = cumulative;
     }
     out
@@ -264,8 +282,6 @@ fn is_chosen(choice: &Option<Vec<String>>, name: &str) -> bool {
         .as_ref()
         .is_none_or(|names| names.iter().any(|n| n == name))
 }
-
-use crate::examine::short as bound_text;
 
 impl Engine {
     pub(crate) fn life_tables(&mut self, command: &Survival) -> Result<Vec<Table>, Error> {
@@ -429,11 +445,15 @@ impl Engine {
                     }
                     let mut second_values: Vec<Option<i64>> = cells.keys().map(|k| k.0).collect();
                     second_values.dedup();
+                    // every first order value of this pass, so that each keeps its plot color
+                    let mut first_values: Vec<Option<i64>> = cells.keys().map(|k| k.1).collect();
+                    first_values.sort();
+                    first_values.dedup();
                     for b in second_values {
-                        let groups: Vec<(Option<i64>, Vec<Timed>)> = cells
-                            .iter()
-                            .filter(|((bb, _), _)| *bb == b)
-                            .map(|((_, a), cases)| (*a, cases.clone()))
+                        let groups: Vec<(Option<i64>, &Vec<Timed>)> = cells
+                            .range((b, None)..)
+                            .take_while(|((bb, _), _)| *bb == b)
+                            .map(|((_, a), cases)| (*a, cases))
                             .collect();
                         let value_text = |cv: &ControlVar, value: i64| {
                             shown.value(&cv.variable, &crate::crosstabs::Key::Number(value as f64))
@@ -581,18 +601,22 @@ impl Engine {
                                 .is_none_or(|s| is_chosen(&choice[2], s))
                         {
                             for &kind in kinds {
-                                let groups: Vec<PointGroup> = lines_of
+                                let groups: Vec<PointGroup> = first_values
                                     .iter()
-                                    .map(|(a, lines)| PointGroup {
+                                    .map(|a| PointGroup {
                                         name: match (first, a) {
                                             (Some(cv), Some(a)) => value_text(cv, *a),
                                             _ => time_label.clone(),
                                         },
-                                        points: plot_points(lines, kind),
+                                        points: lines_of
+                                            .iter()
+                                            .find(|(b, _)| b == a)
+                                            .map_or(Vec::new(), |(_, lines)| {
+                                                plot_points(lines, kind)
+                                            }),
                                     })
-                                    .filter(|g| !g.points.is_empty())
                                     .collect();
-                                if groups.is_empty() {
+                                if groups.iter().all(|g| g.points.is_empty()) {
                                     continue;
                                 }
                                 let (title, axis) = match kind {
@@ -820,6 +844,10 @@ mod tests {
         assert_eq!(starts[3], 0.3);
         let lines = life_table(&[(0.3, true, 1.0), (0.5, false, 1.0)], &starts);
         assert_eq!((lines[3].start, lines[3].events), (0.3, 1.0));
+        // whole starts stay whole however large, and too many intervals are refused
+        let (starts, _) = interval_starts(&[(1_000_000_003.0, 1_000_000_001.0)]).unwrap();
+        assert_eq!(starts[1], 1_000_000_001.0);
+        assert!(interval_starts(&[(1e9, 1.0)]).is_err());
         // stretching the first period past the end of the second is an error
         assert!(interval_starts(&[(10.0, 7.0), (12.0, 1.0)]).is_err());
     }
