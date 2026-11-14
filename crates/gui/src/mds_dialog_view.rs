@@ -80,11 +80,11 @@ pub fn proxscal(
                 target_one(ui, "Row object", &mut d.row, picked);
                 target_one(ui, "Column object", &mut d.column, picked);
             }
-            ui.add_enabled_ui(d.source_applies(), |ui| {
-                target_one(ui, "Sources (optional)", &mut d.source, picked);
-            })
-            .response
-            .on_disabled_hover_text("Several proximity variables are the sources themselves");
+            // kept enabled, so a source set before more proximities came can still be removed
+            target_one(ui, "Sources (optional)", &mut d.source, picked);
+            if !d.source_applies() {
+                ui.weak("Several proximity variables are the sources themselves");
+            }
             target_list(ui, "Weights (optional)", &mut d.weights, picked);
             ui.weak("One weight variable for each proximity variable, in the same order");
             choice(ui, "Matrix shape", &PROXSCAL_SHAPES, &mut d.shape);
