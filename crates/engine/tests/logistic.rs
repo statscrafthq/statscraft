@@ -863,9 +863,10 @@ fn a_category_seen_only_where_the_dependent_is_missing_gives_no_prediction() {
 BEGIN DATA.
 0 1 2.1  1 1 3.4  0 2 1.2  1 2 4.4  0 1 2.8  1 2 3.9  0 2 1.7  1 1 3.1  . 3 2.5
 END DATA.
-LOGISTIC REGRESSION y WITH g x /CATEGORICAL=g /SAVE=PRED.",
+LOGISTIC REGRESSION y WITH g x /CATEGORICAL=g /SAVE=PRED PGROUP.",
     );
     let pred = values(&engine, "PRE_1");
     assert!(pred[0].is_some());
     assert_eq!(pred[8], None);
+    assert_eq!(values(&engine, "PGR_1")[8], None);
 }

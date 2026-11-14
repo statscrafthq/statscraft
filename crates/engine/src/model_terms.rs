@@ -115,6 +115,35 @@ fn kept_columns(mut m: Matrix, wanted: &[usize], eps: f64) -> Vec<usize> {
     kept
 }
 
+pub(crate) fn sorted(model: &[usize]) -> Vec<usize> {
+    let mut v = model.to_vec();
+    v.sort_unstable();
+    v
+}
+
+/// The terms with every `a TO b` (a term of three words, the middle one TO, which no variable
+/// can be named) replaced by the single variables it spans.
+pub(crate) fn expand_terms(
+    data: &Dataset,
+    terms: &[Vec<String>],
+) -> Result<Vec<Vec<String>>, Error> {
+    let mut out = Vec::new();
+    for term in terms {
+        match term.as_slice() {
+            [a, to, b] if to == "TO" => {
+                let range = statscraft_syntax::VarItem::Range(a.clone(), b.clone());
+                out.extend(
+                    crate::expand_in(data, &[range])?
+                        .into_iter()
+                        .map(|n| vec![n]),
+                );
+            }
+            _ => out.push(term.clone()),
+        }
+    }
+    Ok(out)
+}
+
 /// The name of a METHOD in the block captions.
 pub(crate) fn method_name(kind: LogisticMethodKind) -> String {
     let removal = |r: Removal| match r {

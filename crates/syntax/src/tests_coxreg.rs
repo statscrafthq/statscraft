@@ -92,6 +92,11 @@ fn subcommands_and_abbreviations() {
     assert_eq!(c.methods[0].kind, LogisticMethodKind::Bstep(Removal::Lr));
     assert_eq!(c.save[0].0, CoxregTemp::Hazard);
     assert_eq!(c.save[1].0, CoxregTemp::Survival);
+    // TO in the covariate lists; a second STATUS replaces the first
+    let c = coxreg("COXREG months WITH a TO c d /STATUS=e(1) /STATUS=e(2) /CATEGORICAL=a TO b.");
+    assert_eq!(c.terms[0], ["a", "TO", "c"]);
+    assert!(c.repeated_status);
+    assert_eq!(c.categorical.len(), 1);
 }
 
 #[test]

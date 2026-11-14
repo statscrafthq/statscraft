@@ -31,7 +31,7 @@ use crate::descriptives::{case_weights, number};
 use crate::dist::{chi_square_p, normal_quantile};
 use crate::matrix::{Matrix, inverse};
 use crate::model_terms::{
-    Covariates, TermInfo, clone_key, distinct_terms, listed_terms, method_name, step_cell,
+    Covariates, TermInfo, clone_key, distinct_terms, listed_terms, method_name, sorted, step_cell,
 };
 use crate::npar_tests::text;
 use crate::regression::{plain, table};
@@ -395,7 +395,12 @@ struct CaseStats {
 
 fn case_stats(design: &Design, fit: &Fit, i: usize, cut: f64) -> CaseStats {
     let pi = fit.pi(design, i);
-    let pgroup = f64::from(u8::from(pi >= cut));
+    // no prediction, no group
+    let pgroup = if pi.is_nan() {
+        f64::NAN
+    } else {
+        f64::from(u8::from(pi >= cut))
+    };
     let nan = f64::NAN;
     if !design.fitted(i) {
         return CaseStats {
@@ -1105,8 +1110,10 @@ impl Engine {
                     {
                         let texts: Vec<String> = (0..cases)
                             .map(|k| match row_of[k] {
-                                Some(i) => key_text(&values[stats[i].pgroup as usize]),
-                                None => String::new(),
+                                Some(i) if stats[i].pgroup.is_finite() => {
+                                    key_text(&values[stats[i].pgroup as usize])
+                                }
+                                _ => String::new(),
                             })
                             .collect();
                         let width = texts.iter().map(String::len).max().unwrap_or(1).max(1);
@@ -1120,6 +1127,7 @@ impl Engine {
                             let s = &stats[i];
                             let v = match temp {
                                 LogisticTemp::Dfbeta => s.dfbeta[*at],
+                                LogisticTemp::Pgroup if s.pgroup.is_nan() => f64::NAN,
                                 LogisticTemp::Pgroup => match &values[s.pgroup as usize] {
                                     Key::Number(n) => *n,
                                     Key::Text(_) => s.pgroup,
@@ -1152,12 +1160,6 @@ impl Engine {
             Ok(())
         })
     }
-}
-
-fn sorted(model: &[usize]) -> Vec<usize> {
-    let mut v = model.to_vec();
-    v.sort_unstable();
-    v
 }
 
 /// The terms of METHOD number `b`: its list, or every term after WITH.

@@ -824,3 +824,18 @@ COXREG months WITH tier spend site /STATUS=ended(1) /METHOD=FSTEP(LR)
     assert!(values(&engine, "DFB3_1").iter().all(Option::is_none));
     assert_eq!(engine.take_charts().len(), 2);
 }
+
+#[test]
+fn covariate_lists_take_to() {
+    // plan TO site spans plan, spend and site in the data
+    let t = tables(&format!(
+        "COXREG months WITH plan TO site /STATUS=ended(9) /STATUS=ended(1)
+          /CATEGORICAL=plan /METHOD=BSTEP(WALD) {TIGHT}"
+    ));
+    let omnibus = "Omnibus Tests of Model Coefficients";
+    near(
+        value(&t, omnibus, "Step 1", "-2 Log Likelihood"),
+        260.1200035605,
+        1e-9,
+    );
+}

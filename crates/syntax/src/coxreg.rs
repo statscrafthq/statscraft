@@ -16,11 +16,12 @@
 //! - SAVE: SURVIVAL, SE, HAZARD (alias RESID), LML, DFBETA, PRESID, XBETA, each once, with an
 //!   optional new name in parentheses.
 
+use crate::ast::VarItem;
 use crate::ast::{Command, MissingValue, Value};
 use crate::error::SyntaxError;
 use crate::glm::{Contrast, contrast};
 use crate::lexer::{Punct, TokenKind};
-use crate::logistic::{LogisticMethod, LogisticMethodKind, checked, method, terms, value};
+use crate::logistic::{LogisticMethod, LogisticMethodKind, checked, method_to, terms_to, value};
 use crate::parser::{PResult, Parser};
 use crate::procedures::at_end;
 
@@ -91,7 +92,7 @@ pub struct Coxreg {
     pub status: String,
     pub events: Vec<MissingValue>,
     pub strata: Option<String>,
-    pub categorical: Vec<String>,
+    pub categorical: Vec<VarItem>,
     pub contrasts: Vec<(String, Contrast)>,
     pub methods: Vec<LogisticMethod>,
     /// `/MISSING=INCLUDE`
@@ -101,6 +102,8 @@ pub struct Coxreg {
     pub plot: CoxregPlot,
     pub patterns: Vec<CoxregPattern>,
     pub save: Vec<(CoxregTemp, Option<String>)>,
+    /// STATUS was given more than once; the last counts.
+    pub repeated_status: bool,
 }
 
 /// Values and ranges in parentheses, separated by blanks or commas.
@@ -313,7 +316,7 @@ pub(crate) fn coxreg(p: &mut Parser) -> PResult<Command> {
         ));
     }
     let terms_after_with = if p.eat_word("WITH") {
-        let list = terms(p)?;
+        let list = terms_to(p, true)?;
         if list.is_empty() {
             return Err(p.unexpected(&["a variable name"]));
         }
@@ -336,15 +339,17 @@ pub(crate) fn coxreg(p: &mut Parser) -> PResult<Command> {
         plot: CoxregPlot::default(),
         patterns: Vec::new(),
         save: Vec::new(),
+        repeated_status: false,
     };
     while p.eat(Punct::Slash) {
         if p.at_keyword("ENTER") || p.at_keyword("FSTEP") || p.at_keyword("BSTEP") {
-            command.methods.push(method(p)?);
+            command.methods.push(method_to(p, true)?);
         } else if p.eat_keyword("METHOD") {
             p.eat(Punct::Eq);
-            command.methods.push(method(p)?);
+            command.methods.push(method_to(p, true)?);
         } else if p.eat_keyword("STATUS") {
             p.eat(Punct::Eq);
+            command.repeated_status = !command.status.is_empty();
             command.status = p.name("the status variable")?;
             p.eat_keyword("EVENT");
             command.events = value_list(p)?;
@@ -357,20 +362,7 @@ pub(crate) fn coxreg(p: &mut Parser) -> PResult<Command> {
             command.strata = Some(p.name("the strata variable")?);
         } else if p.eat_keyword("CATEGORICAL") {
             p.eat(Punct::Eq);
-            while matches!(p.peek(), Some(TokenKind::Word(_))) {
-                let name = p.name("a variable name")?;
-                if !command
-                    .categorical
-                    .iter()
-                    .any(|c| c.eq_ignore_ascii_case(&name))
-                {
-                    command.categorical.push(name);
-                }
-                p.eat(Punct::Comma);
-            }
-            if command.categorical.is_empty() {
-                return Err(p.unexpected(&["a variable name"]));
-            }
+            command.categorical.extend(p.var_list()?);
         } else if p.eat_keyword("CONTRAST") {
             p.expect(Punct::LParen)?;
             let variable = p.name("a variable name")?;

@@ -37,12 +37,14 @@ use crate::descriptives::{case_weights, number};
 use crate::dist::{chi_square_p, normal_quantile};
 use crate::matrix::{Matrix, inverse};
 use crate::model_terms::{
-    Covariates, clone_key, distinct_terms, independent_in, listed_terms, method_name, step_cell,
+    Covariates, clone_key, distinct_terms, expand_terms, independent_in, listed_terms, method_name,
+    sorted, step_cell,
 };
 use crate::npar_tests::text;
 use crate::regression::{plain, table};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Measure, Values};
+use statscraft_syntax::VarItem;
 use statscraft_syntax::{
     Bound, Command, Contrast, Coxreg, CoxregCriteria, CoxregTemp, LogisticMethodKind, MissingValue,
     Removal, Value,
@@ -566,12 +568,6 @@ struct Step {
     removed: Vec<usize>,
 }
 
-fn sorted(model: &[usize]) -> Vec<usize> {
-    let mut v = model.to_vec();
-    v.sort_unstable();
-    v
-}
-
 /// The status value of a case is an event.
 fn is_event(key: &Key, events: &[MissingValue]) -> bool {
     events.iter().any(|v| match (v, key) {
@@ -641,12 +637,24 @@ impl Engine {
                 }
             )));
         }
-        let term_vars = distinct_terms(
-            command
-                .terms
-                .iter()
-                .chain(command.methods.iter().flat_map(|m| m.terms.iter())),
-        );
+        // `a TO b` spans the variables of the data between them
+        let with = expand_terms(data, &command.terms)?;
+        let lists: Vec<Vec<Vec<String>>> = command
+            .methods
+            .iter()
+            .map(|m| expand_terms(data, &m.terms))
+            .collect::<Result<_, _>>()?;
+        let mut categorical = Vec::new();
+        for item in &command.categorical {
+            match item {
+                VarItem::Name(name) => categorical.push(name.clone()),
+                other => categorical.extend(crate::expand_in(data, std::slice::from_ref(other))?),
+            }
+        }
+        if command.repeated_status {
+            warnings.push("STATUS is given more than once; the last one counts".to_string());
+        }
+        let term_vars = distinct_terms(with.iter().chain(lists.iter().flatten()));
         if program.is_some() && data.variable_index("T_").is_some() {
             return Err(Error(
                 "the data has a variable T_, which a TIME PROGRAM reserves for the time; rename it"
@@ -860,7 +868,7 @@ impl Engine {
             let mut data = data.clone();
             // only the variables the program reads and the covariates go along
             let refs = crate::rows::Refs::of(&program.commands);
-            if !refs.all && refs.ranges.is_empty() {
+            if !refs.all && refs.ranges.is_empty() && self.vectors.is_empty() {
                 let wanted: Vec<&str> = (0..data.variable_count())
                     .map(|i| data.variable_at(i).name())
                     .filter(|n| {
@@ -915,6 +923,9 @@ impl Engine {
             if !any {
                 // the cases are screened afresh on every covariate without the program
                 let tables = self.coxreg_with(command, None)?;
+                for warning in warnings {
+                    self.warn(warning);
+                }
                 self.warn("the TIME PROGRAM changes none of the covariates, so it is not used");
                 return Ok(tables);
             }
@@ -928,7 +939,7 @@ impl Engine {
             source,
             &term_vars,
             &roles,
-            &command.categorical,
+            &categorical,
             &command.contrasts,
             command.include,
             &mut warnings,
@@ -1038,7 +1049,7 @@ impl Engine {
             command,
         };
         if first_stepwise {
-            let eligible = listed_terms(&command.methods[0].terms, &command.terms, &term_vars);
+            let eligible = listed_terms(&lists[0], &with, &term_vars);
             tables.extend(report.not_in_equation(
                 &[(0, &last)],
                 &eligible,
@@ -1048,7 +1059,7 @@ impl Engine {
         let mut seen: Vec<usize> = Vec::new();
         let mut model_terms: Vec<usize> = Vec::new();
         for (b, method) in command.methods.iter().enumerate() {
-            let eligible = listed_terms(&method.terms, &command.terms, &term_vars);
+            let eligible = listed_terms(&lists[b], &with, &term_vars);
             let caption = format!("Block {}: Method = {}.", b + 1, method_name(method.kind));
             let fit_model = |current: &[usize],
                              warnings: &mut Vec<String>,
@@ -1070,11 +1081,12 @@ impl Engine {
                     }
                 }
                 let fitted = model.fit(&kept);
-                if !fitted.converged {
-                    warnings.push(format!(
-                        "the estimation did not converge in {} iterations; the estimates are those of the last iteration",
-                        criteria.iterate
-                    ));
+                let note = format!(
+                    "the estimation did not converge in {} iterations; the estimates are those of the last iteration",
+                    criteria.iterate
+                );
+                if !fitted.converged && !warnings.contains(&note) {
+                    warnings.push(note);
                 }
                 fitted
             };
@@ -1898,11 +1910,7 @@ impl Report<'_> {
         match &covariates.codings[v] {
             Some((levels, m)) => levels
                 .iter()
-                .position(|l| match (l, value) {
-                    (Key::Number(n), Value::Number(x)) => n == x,
-                    (Key::Text(t), Value::String(x)) => t.trim_end() == x.trim_end(),
-                    _ => false,
-                })
+                .position(|l| crate::genlin::value_matches(&covariates.variables[v], l, value))
                 .map(|at| m[at].clone())
                 .ok_or_else(|| {
                     Error(format!(
