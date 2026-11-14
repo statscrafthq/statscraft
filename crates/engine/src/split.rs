@@ -219,11 +219,7 @@ impl Engine {
 
     /// Runs a procedure as the split, the filter and TEMPORARY say.
     pub(crate) fn procedure(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
-        let begun = self.begin_pass();
-        if begun.is_err() {
-            self.time_program = None;
-        }
-        begun?;
+        self.begin_pass()?;
         let before = self.dataset.clone();
         // TREE and the complex samples procedures ignore SPLIT FILE, as the manual says
         let use_split = !matches!(
@@ -235,8 +231,6 @@ impl Engine {
                 | Command::CsModel(_)
         );
         let result = self.in_view(command, use_split);
-        // the next procedure that reads the data uses a time program up; only COXREG runs it
-        self.time_program = None;
         if let Command::Aggregate(aggregate) = command
             && aggregate.outfile.is_none()
             && !aggregate.add_variables

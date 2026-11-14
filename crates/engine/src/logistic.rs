@@ -32,6 +32,7 @@ use crate::dist::{chi_square_p, normal_quantile};
 use crate::matrix::{Matrix, inverse};
 use crate::model_terms::{
     Covariates, TermInfo, clone_key, distinct_terms, listed_terms, method_name, sorted, step_cell,
+    wald,
 };
 use crate::npar_tests::text;
 use crate::regression::{plain, table};
@@ -280,25 +281,6 @@ fn score_test(design: &Design, fit: &Fit, extra: &[usize]) -> f64 {
     s.max(0.0)
 }
 
-/// The Wald statistic of the coefficients at `positions`.
-fn wald(fit: &Fit, positions: &[usize]) -> f64 {
-    let sub: Matrix = positions
-        .iter()
-        .map(|&r| positions.iter().map(|&s| fit.cov[r][s]).collect())
-        .collect();
-    let beta: Vec<f64> = positions.iter().map(|&r| fit.b[r]).collect();
-    match inverse(&sub) {
-        Some((inv, _)) => (0..beta.len())
-            .map(|r| {
-                (0..beta.len())
-                    .map(|s| beta[r] * inv[r][s] * beta[s])
-                    .sum::<f64>()
-            })
-            .sum(),
-        None => f64::NAN,
-    }
-}
-
 /// The columns of `wanted` that are not redundant among the cases of the fit.
 fn independent(design: &Design, wanted: &[usize], constant: bool, eps: f64) -> Vec<usize> {
     let c: Vec<f64> = (0..design.x.len())
@@ -334,7 +316,7 @@ fn removal(
         .collect();
     let df = positions.len();
     match kind {
-        Removal::Wald => (wald(fit, &positions), df, f64::NAN),
+        Removal::Wald => (wald(&fit.b, &fit.cov, &positions), df, f64::NAN),
         Removal::Lr => {
             let reduced = self::fit(design, &rest, fit.constant, criteria);
             (2.0 * (fit.ll - reduced.ll), df, reduced.ll)
@@ -1454,7 +1436,7 @@ impl Context<'_> {
                     .collect();
                 if term.categorical && positions.len() > 1 {
                     let at: Vec<usize> = positions.iter().map(|p| p.1).collect();
-                    let w = wald(fit, &at);
+                    let w = wald(&fit.b, &fit.cov, &at);
                     let df = at.len() as f64;
                     let mut row = vec![
                         step_cell(first, n),

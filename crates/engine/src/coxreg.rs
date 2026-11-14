@@ -38,7 +38,7 @@ use crate::dist::{chi_square_p, normal_quantile};
 use crate::matrix::{Matrix, inverse};
 use crate::model_terms::{
     Covariates, clone_key, distinct_terms, expand_terms, independent_in, listed_terms, method_name,
-    sorted, step_cell,
+    sorted, step_cell, wald,
 };
 use crate::npar_tests::text;
 use crate::regression::{plain, table};
@@ -246,7 +246,8 @@ fn fit(rows: &[Row], strata: usize, cols: &[usize], criteria: &CoxregCriteria) -
         let accepted = loop {
             let tried: Vec<f64> = b.iter().zip(&delta).map(|(b, d)| b + step * d).collect();
             let next = derivatives(rows, strata, cols, &tried);
-            if next.0 >= ll {
+            // a loss within rounding of the log likelihood still counts as no loss
+            if next.0 >= ll - 1e-12 * ll.abs().max(1.0) {
                 break Some((tried, next));
             }
             if step < 1e-3 {
@@ -269,7 +270,7 @@ fn fit(rows: &[Row], strata: usize, cols: &[usize], criteria: &CoxregCriteria) -
                 }
             })
             .fold(0.0, f64::max);
-        let ll_change = ((nll - ll) / ll).abs();
+        let ll_change = ((nll - ll) / ll.abs().max(f64::MIN_POSITIVE)).abs();
         b = nb;
         ll = nll;
         u = nu;
@@ -351,18 +352,6 @@ fn overall_score(rows: &[Row], strata: usize, cols: &[usize]) -> f64 {
     score_test(rows, strata, &empty, cols)
 }
 
-fn wald(fit: &Fit, positions: &[usize]) -> f64 {
-    let sub: Matrix = positions
-        .iter()
-        .map(|&r| positions.iter().map(|&s| fit.cov[r][s]).collect())
-        .collect();
-    let beta: Vec<f64> = positions.iter().map(|&r| fit.b[r]).collect();
-    match inverse(&sub) {
-        Some((inv, _)) => (0..beta.len()).map(|r| beta[r] * dot(&inv[r], &beta)).sum(),
-        None => f64::NAN,
-    }
-}
-
 /// The log partial likelihood alone at `b`.
 fn log_likelihood(rows: &[Row], strata: usize, cols: &[usize], b: &[f64]) -> f64 {
     event_times(rows, strata, cols, b, false)
@@ -408,7 +397,7 @@ impl Model<'_> {
             .collect();
         let df = positions.len();
         match kind {
-            Removal::Wald => (wald(fit, &positions), df),
+            Removal::Wald => (wald(&fit.b, &fit.cov, &positions), df),
             Removal::Lr => (2.0 * (fit.ll - self.fit(&rest).ll), df),
             Removal::Cond => {
                 let others: Vec<usize> = (0..fit.cols.len())
@@ -604,7 +593,10 @@ fn is_event(key: &Key, events: &[MissingValue]) -> bool {
 
 impl Engine {
     pub(crate) fn coxreg(&mut self, command: &Coxreg) -> Result<Vec<Table>, Error> {
-        let program = self.time_program.clone().filter(|p| !p.commands.is_empty());
+        let program = self
+            .running_program
+            .clone()
+            .filter(|p| !p.commands.is_empty());
         self.coxreg_with(command, program)
     }
 
@@ -887,7 +879,7 @@ impl Engine {
             let mut data = data.clone();
             // only the variables the program reads and the covariates go along
             let refs = crate::rows::Refs::of(&program.commands);
-            if !refs.all && refs.ranges.is_empty() && self.vectors.is_empty() {
+            if !refs.all && refs.ranges.is_empty() {
                 let wanted: Vec<&str> = (0..data.variable_count())
                     .map(|i| data.variable_at(i).name())
                     .filter(|n| {
@@ -909,6 +901,7 @@ impl Engine {
             let mut sub = self.clone();
             sub.dataset = Some(data);
             sub.time_program = None;
+            sub.running_program = None;
             sub.case_numbers = None;
             sub.temporary = None;
             for c in &program.commands {
@@ -1130,6 +1123,8 @@ impl Engine {
                     .collect();
                 model_terms.extend(&added);
                 let fitted = fit_model(model_terms, warnings, seen);
+                // a term whose columns all repeat others is not in the model
+                model_terms.retain(|&t| terms[t].columns.iter().any(|&c| fitted.at(c).is_some()));
                 steps.push(Step {
                     model: model_terms.clone(),
                     fit: fitted,
@@ -1635,7 +1630,7 @@ impl Report<'_> {
                     .collect();
                 if term.categorical && positions.len() > 1 {
                     let at: Vec<usize> = positions.iter().map(|p| p.1).collect();
-                    let w = wald(fit, &at);
+                    let w = wald(&fit.b, &fit.cov, &at);
                     let df = at.len() as f64;
                     let mut row = vec![
                         step_cell(first, n),

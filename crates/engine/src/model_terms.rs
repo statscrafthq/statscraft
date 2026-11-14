@@ -115,6 +115,21 @@ fn kept_columns(mut m: Matrix, wanted: &[usize], eps: f64) -> Vec<usize> {
     kept
 }
 
+/// The Wald statistic of the coefficients `b` at `positions`, with covariance `cov`.
+pub(crate) fn wald(b: &[f64], cov: &Matrix, positions: &[usize]) -> f64 {
+    let sub: Matrix = positions
+        .iter()
+        .map(|&r| positions.iter().map(|&s| cov[r][s]).collect())
+        .collect();
+    let beta: Vec<f64> = positions.iter().map(|&r| b[r]).collect();
+    match crate::matrix::inverse(&sub) {
+        Some((inv, _)) => (0..beta.len())
+            .map(|r| beta[r] * (0..beta.len()).map(|s| inv[r][s] * beta[s]).sum::<f64>())
+            .sum(),
+        None => f64::NAN,
+    }
+}
+
 pub(crate) fn sorted(model: &[usize]) -> Vec<usize> {
     let mut v = model.to_vec();
     v.sort_unstable();

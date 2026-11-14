@@ -338,6 +338,8 @@ pub struct Engine {
     loop_depth: usize,
     /// TIME PROGRAM: the transformations that define time-dependent covariates for COXREG.
     time_program: Option<coxreg::TimeProgram>,
+    /// The time program the running COXREG took up.
+    running_program: Option<coxreg::TimeProgram>,
     /// The vectors by lower-case name, with their variables.
     vectors: std::collections::HashMap<String, Vec<String>>,
     /// The folder of the syntax file: INSERT and CD start from it. None: the current folder.
@@ -506,7 +508,9 @@ impl Engine {
             program.collecting = false;
         }
         // the next command that reads the data uses a time program up; only COXREG runs it
-        if !matches!(command, Command::Coxreg(_)) && output::stage(command) == output::Stage::Pass {
+        if matches!(command, Command::Coxreg(_)) {
+            self.running_program = self.time_program.take();
+        } else if output::stage(command) == output::Stage::Pass {
             self.time_program = None;
         }
         self.track_clean(command);
