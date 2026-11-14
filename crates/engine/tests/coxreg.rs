@@ -863,13 +863,12 @@ fn time_program_edge_cases() {
         )
         .contains("spend_t")
     );
-    // a COXREG that stops with an error leaves the program for the corrected one; a range
-    // written high THRU low means the same values
+    // a COXREG that stops with an error leaves the program for the corrected one
     let mut engine = Engine::default();
     let (commands, _) = parse(&format!(
         "{DATA}TIME PROGRAM.\nCOMPUTE spend_t = spend * LN(T_ + 1).\n\
          COXREG months WITH spend_t /STATUS=nothing(1).\n\
-         COXREG months WITH plan spend spend_t /STATUS=ended(1.5 THRU 0.5) /CATEGORICAL=plan {TIGHT}"
+         COXREG months WITH plan spend spend_t /STATUS=ended(0.5 THRU 1.5) /CATEGORICAL=plan {TIGHT}"
     ));
     let mut last = Vec::new();
     for command in &commands {

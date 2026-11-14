@@ -47,7 +47,7 @@ use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Measure, Values};
 use statscraft_syntax::VarItem;
 use statscraft_syntax::{
-    Bound, Command, Contrast, Coxreg, CoxregCriteria, CoxregTemp, LogisticMethodKind, MissingValue,
+    Command, Contrast, Coxreg, CoxregCriteria, CoxregTemp, LogisticMethodKind, MissingValue,
     Removal, Value,
 };
 
@@ -633,25 +633,6 @@ fn program_reads_casenum(commands: &[Command]) -> bool {
     names.iter().any(|n| n.eq_ignore_ascii_case("$CASENUM"))
 }
 
-/// The status value of a case is an event.
-fn is_event(key: &Key, events: &[MissingValue]) -> bool {
-    events.iter().any(|v| match (v, key) {
-        (MissingValue::Value(Value::Number(n)), Key::Number(x)) => n == x,
-        (MissingValue::Value(Value::String(s)), Key::Text(t)) => s.trim_end() == t.trim_end(),
-        (MissingValue::Range(lo, hi), Key::Number(x)) => {
-            let bound = |b: &Bound| match b {
-                Bound::Number(n) => *n,
-                Bound::Lowest => f64::NEG_INFINITY,
-                Bound::Highest => f64::INFINITY,
-            };
-            let (low, high) = (bound(lo), bound(hi));
-            // a range written high THRU low means the same values
-            (low.min(high)..=low.max(high)).contains(x)
-        }
-        _ => false,
-    })
-}
-
 impl Engine {
     pub(crate) fn coxreg(&mut self, command: &Coxreg) -> Result<Vec<Table>, Error> {
         let program = self
@@ -766,13 +747,17 @@ impl Engine {
         }
         // the variables of the original data, to screen the cases; one the time program computes
         // is checked after the program runs, where a missing value is an error
-        // shortcut: only top-level COMPUTE and IF count as computing; a covariate a RECODE, COUNT,
+        // shortcut: only top-level COMPUTE, IF, RECODE and COUNT count as computing; a covariate a
         // DO REPEAT or vector element of the program changes is screened on the data's values
         let mut computed = Vec::new();
         for c in program.iter().flat_map(|p| &p.commands) {
             match c {
                 Command::Compute { target, .. } | Command::If { target, .. } => {
-                    computed.push(target)
+                    computed.push(target.clone())
+                }
+                // the variables a RECODE or COUNT names may be the ones it changes
+                Command::Recode(_) | Command::Count(_) => {
+                    computed.extend(crate::rows::Refs::of(std::slice::from_ref(c)).names)
                 }
                 _ => {}
             }
@@ -831,7 +816,7 @@ impl Engine {
             .map(|k| {
                 status[k]
                     .as_ref()
-                    .is_some_and(|s| is_event(s, &command.events))
+                    .is_some_and(|s| crate::km::matches(&command.events, s))
             })
             .collect();
         // the strata among the valid cases, in ascending order
