@@ -12,9 +12,6 @@ use crate::stats_dialogs::{numeric, parse};
 use crate::syntax_text::{number, quote, value};
 use statscraft_data::{Dataset, is_valid_name};
 
-/// The reference category of the logistic dependent; the first is the default.
-pub const CS_REFERENCES: [&str; 3] = ["Highest", "Lowest", "Value"];
-
 /// INCLUDE of INTERCEPT, keyword and label; the first is the default.
 pub const CS_INTERCEPTS: [(&str, &str); 3] = [
     ("YES", "Include"),
@@ -86,8 +83,9 @@ pub const LOGISTIC_SAVE: [(&str, &str); 2] = [
     ("PREDVAL", "Predicted category"),
 ];
 
-/// The level of a factor in an odds ratio; the first is the default. For a covariate held at a
-/// value the first stands for its mean.
+/// A category or level: the reference of the logistic dependent and of a factor in an odds
+/// ratio, and the level a factor is held at; the first is the default. For a covariate held at
+/// a value the first stands for its mean and Lowest is not offered.
 pub const CS_LEVELS: [&str; 3] = ["Highest", "Lowest", "Value"];
 
 /// One ODDSRATIOS subcommand: the odds ratios of one factor or covariate.
@@ -101,6 +99,8 @@ pub struct OddsRatio {
     pub reference: String,
     /// What the other factors and covariates are held at.
     pub control: Vec<Held>,
+    /// The variable was a covariate when its level or changes were given.
+    pub covariate: bool,
 }
 
 /// A factor or covariate held at a level in an odds ratio.
@@ -110,6 +110,8 @@ pub struct Held {
     /// Index into `CS_LEVELS`: 0 is the highest level of a factor or the mean of a covariate.
     pub level: usize,
     pub value: String,
+    /// The variable was a covariate when its level and value were given.
+    pub covariate: bool,
 }
 
 /// CSGLM or CSLOGISTIC.
@@ -118,7 +120,7 @@ pub struct SampleModel {
     pub logistic: bool,
     pub plan: String,
     pub dependent: String,
-    /// CSLOGISTIC: index into `CS_REFERENCES`.
+    /// CSLOGISTIC: index into `CS_LEVELS`.
     pub reference: usize,
     pub reference_value: String,
     pub factors: Vec<String>,
@@ -217,6 +219,41 @@ impl SampleModel {
     /// tables.
     pub fn offered(&self) -> (usize, usize) {
         if self.logistic { (7, 8) } else { (6, 6) }
+    }
+
+    /// Drops the odds ratios and held values of variables taken out of Factors and Covariates,
+    /// and starts over the level and value of one that moved between the two lists, so a
+    /// factor's value is never read as a covariate's change.
+    pub fn forget_old_odds(&mut self) {
+        let (factors, covariates) = (&self.factors, &self.covariates);
+        // Some(true) for a covariate, Some(false) for a factor
+        let role = |n: &str| {
+            if factors.iter().any(|f| f == n) {
+                Some(false)
+            } else {
+                covariates.iter().any(|c| c == n).then_some(true)
+            }
+        };
+        self.odds
+            .retain(|o| o.variable.is_empty() || role(&o.variable).is_some());
+        for o in &mut self.odds {
+            if let Some(covariate) = role(&o.variable)
+                && covariate != o.covariate
+            {
+                o.covariate = covariate;
+                o.level = 0;
+                o.reference.clear();
+            }
+            o.control.retain(|h| role(&h.name).is_some());
+            for h in &mut o.control {
+                let covariate = role(&h.name) == Some(true);
+                if covariate != h.covariate {
+                    h.covariate = covariate;
+                    h.level = 0;
+                    h.value.clear();
+                }
+            }
+        }
     }
 
     pub fn model_variables(&self) -> Vec<String> {
@@ -371,13 +408,17 @@ impl SampleModel {
     fn means_syntax(&self, in_model: &dyn Fn(&str) -> bool) -> Result<String, String> {
         let mut text = String::new();
         // the values count only for tables of means
-        let other: Vec<String> = match self.means.is_empty() {
-            true => Vec::new(),
-            false => covariate_values(&self.covariates, &self.means_at)?
-                .into_iter()
-                .map(|(n, v)| format!("{n}({v})"))
-                .collect(),
-        };
+        let mut other = Vec::new();
+        if !self.means.is_empty() {
+            for (n, v) in covariate_values(&self.covariates, &self.means_at)? {
+                if !in_model(n) {
+                    return Err(format!(
+                        "the means hold {n} at a value, but {n} is not in the model"
+                    ));
+                }
+                other.push(format!("{n}({v})"));
+            }
+        }
         for (i, table) in self.means.iter().enumerate() {
             let (crossed, compare) = table.checked(&self.factors, i + 1)?;
             if let Some(f) = crossed.iter().find(|f| !in_model(f)) {
@@ -472,6 +513,10 @@ impl SampleModel {
             };
             let written = if self.factors.contains(name) {
                 level(name, held.level, &held.value)?
+            } else if held.level == 1 {
+                return Err(format!(
+                    "odds ratio {n}: {name} is a covariate, held at its mean or a value"
+                ));
             } else if held.level == 2 {
                 Some(number(parse(
                     &held.value,
@@ -601,6 +646,32 @@ impl SampleModel {
                 .filter(|n| *n != 25),
                 false => None,
             };
+            if root && !name.is_empty() {
+                // the command names the variables root_1, root_2, ... up to the count
+                let most = count.unwrap_or(25);
+                if !is_valid_name(&format!("{name}_{most}")) {
+                    return Err(format!(
+                        "{name} is too long for a root: {name}_{most} cannot name a variable"
+                    ));
+                }
+                let prefix = format!("{}_", name.to_uppercase());
+                let derived = |n: &str| {
+                    n.to_uppercase()
+                        .strip_prefix(&prefix)
+                        .and_then(|k| k.parse::<u32>().ok().filter(|v| v.to_string() == k))
+                        .is_some_and(|k| (1..=most).contains(&k))
+                };
+                let other = self.save_names[1].trim();
+                let taken = data
+                    .variable_names()
+                    .find(|n| derived(n))
+                    .or((self.save[1] && derived(other)).then_some(other));
+                if let Some(n) = taken {
+                    return Err(format!(
+                        "the root {name} would name a predicted probability {n}, which is taken"
+                    ));
+                }
+            }
             out.push(match (name, count) {
                 ("", None) => keyword.to_string(),
                 (name, None) => format!("{keyword}({name})"),
@@ -648,6 +719,14 @@ fn custom(
             .filter(|&i| coefficient(tokens[i]).is_none())
             .collect();
         let is = |i: usize, word: &str| tokens[i].eq_ignore_ascii_case(word);
+        if names.iter().any(|&i| i > 0 && is(i, "INTERCEPT")) {
+            return Err(format!("test {n}: INTERCEPT comes first in a row"));
+        }
+        if is(0, "INTERCEPT") && names.iter().any(|&i| is(i, "ALL")) {
+            return Err(format!(
+                "test {n}: ALL gives the intercept its coefficient, so INTERCEPT goes in a row of its own"
+            ));
+        }
         // a leading INTERCEPT is written as a bare number, so it goes with either form
         for &i in names.iter().filter(|&&i| i > 0 || !is(i, "INTERCEPT")) {
             let all = is(i, "ALL");
@@ -656,14 +735,6 @@ fn custom(
                     "test {n}: ALL and effect names cannot be mixed in one test"
                 ));
             }
-        }
-        if is(0, "INTERCEPT") && names.iter().any(|&i| is(i, "ALL")) {
-            return Err(format!(
-                "test {n}: ALL gives the intercept its coefficient, so INTERCEPT goes in a row of its own"
-            ));
-        }
-        if names.iter().any(|&i| i > 0 && is(i, "INTERCEPT")) {
-            return Err(format!("test {n}: INTERCEPT comes first in a row"));
         }
         let row = if is(0, "INTERCEPT") {
             if names.get(1).copied().unwrap_or(tokens.len()) != 2 {
@@ -724,6 +795,7 @@ mod tests {
             name: name.into(),
             level,
             value: value.into(),
+            covariate: false,
         }
     }
 
@@ -847,6 +919,12 @@ mod tests {
         assert!(!syntax.contains("/MODEL"), "{syntax}");
         assert!(syntax.contains("/INTERCEPT INCLUDE=ONLY"), "{syntax}");
         runs_in(&mut session, &syntax);
+        d.means = vec![MeansTable::default()];
+        assert_eq!(
+            d.syntax(&data).unwrap_err(),
+            "the means hold age at a value, but age is not in the model"
+        );
+        d.means.clear();
 
         // the checks
         d.intercept = 1;
@@ -982,6 +1060,39 @@ mod tests {
         );
         assert!(runs_in(&mut session, &syntax) >= 8);
 
+        // the root leaves room for its suffixes, and the names it makes are free
+        d.save_names[0] = "r".repeat(63);
+        assert_eq!(
+            d.syntax(&data).unwrap_err(),
+            format!(
+                "{0} is too long for a root: {0}_2 cannot name a variable",
+                "r".repeat(63)
+            )
+        );
+        d.save_names[0] = "q5".into();
+        assert_eq!(
+            d.syntax(&data).unwrap_err(),
+            "the root q5 would name a predicted probability q5_1, which is taken"
+        );
+        d.save_names = ["p".into(), "P_2".into()];
+        assert_eq!(
+            d.syntax(&data).unwrap_err(),
+            "the root p would name a predicted probability P_2, which is taken"
+        );
+        d.save_names[1] = "p_3".into();
+        assert!(
+            d.syntax(&data)
+                .unwrap()
+                .ends_with("PREDPROB(p:2) PREDVAL(p_3).")
+        );
+
+        // a covariate is held at its mean or a value, never its lowest level
+        d.odds[0].control[0].level = 1;
+        assert_eq!(
+            d.syntax(&data).unwrap_err(),
+            "odds ratio 1: age is a covariate, held at its mean or a value"
+        );
+
         // a string dependent with a value as its reference, the factor at a value too
         let mut d = SampleModel {
             plan: path.clone(),
@@ -1049,6 +1160,7 @@ mod tests {
             level: 0,
             reference: "Low".into(),
             control: vec![held("q5_2", 1, "")],
+            covariate: false,
         }];
         assert_eq!(
             d.syntax(&data).unwrap_err(),
@@ -1104,6 +1216,10 @@ mod tests {
             "test 1: INTERCEPT is not an effect of the model"
         );
         assert_eq!(
+            test("ALL 1 0 INTERCEPT 1", true).unwrap_err(),
+            "test 1: INTERCEPT comes first in a row"
+        );
+        assert_eq!(
             test("gender 1 INTERCEPT 1", true).unwrap_err(),
             "test 1: INTERCEPT comes first in a row"
         );
@@ -1123,5 +1239,56 @@ mod tests {
             test("\n", true).unwrap_err(),
             "give the coefficients of test 1"
         );
+    }
+
+    #[test]
+    fn odds_ratios_forget_variables_taken_out_or_moved() {
+        let mut d = SampleModel {
+            factors: v(&["gender", "q5_2"]),
+            covariates: v(&["age"]),
+            odds: vec![
+                OddsRatio {
+                    variable: "gender".into(),
+                    level: 2,
+                    reference: "1".into(),
+                    control: vec![
+                        Held {
+                            covariate: true,
+                            ..held("age", 2, "40")
+                        },
+                        held("q5_2", 1, ""),
+                    ],
+                    covariate: false,
+                },
+                OddsRatio {
+                    variable: "age".into(),
+                    reference: "1 10".into(),
+                    covariate: true,
+                    ..Default::default()
+                },
+            ],
+            ..SampleModel::new(true)
+        };
+        let before = d.clone();
+        d.forget_old_odds();
+        assert_eq!(d, before);
+        // age leaves the model, q5_2 becomes a covariate
+        d.factors = v(&["gender"]);
+        d.covariates = v(&["q5_2"]);
+        d.forget_old_odds();
+        assert_eq!(d.odds.len(), 1);
+        assert_eq!(
+            d.odds[0].control,
+            vec![Held {
+                covariate: true,
+                ..held("q5_2", 0, "")
+            }]
+        );
+        // gender becomes a covariate: its value is no change
+        d.factors.clear();
+        d.covariates = v(&["gender", "q5_2"]);
+        d.forget_old_odds();
+        assert_eq!((d.odds[0].level, d.odds[0].reference.as_str()), (0, ""));
+        assert!(d.odds[0].covariate);
     }
 }

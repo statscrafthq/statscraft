@@ -4,8 +4,8 @@ use crate::advanced_dialogs::{forget_old_covariates, forget_old_factors};
 use crate::advanced_dialogs_view::{means_editor, plan_path, terms_editor, tests_editor};
 use crate::app::{checkboxes, choice, field, target_list, target_one};
 use crate::cs_model_dialog::{
-    CS_ADJUSTMENTS, CS_CONTRASTS, CS_INTERCEPTS, CS_LEVELS, CS_PRINT, CS_REFERENCES, CS_STATISTICS,
-    CS_TESTS, GLM_SAVE, Held, LOGISTIC_SAVE, OddsRatio, SampleModel,
+    CS_ADJUSTMENTS, CS_CONTRASTS, CS_INTERCEPTS, CS_LEVELS, CS_PRINT, CS_STATISTICS, CS_TESTS,
+    GLM_SAVE, Held, LOGISTIC_SAVE, OddsRatio, SampleModel,
 };
 use crate::genlin_dialog::GENLIN_MODELS;
 use crate::stats_dialogs_view::small_field;
@@ -23,7 +23,7 @@ pub fn sample_model(
     if d.logistic {
         ui.horizontal(|ui| {
             ui.label("Reference category");
-            for (i, label) in CS_REFERENCES.iter().enumerate() {
+            for (i, label) in CS_LEVELS.iter().enumerate() {
                 ui.radio_value(&mut d.reference, i, *label);
             }
             small_field(ui, d.reference == 2, &mut d.reference_value);
@@ -33,6 +33,7 @@ pub fn sample_model(
     forget_old_factors(&d.factors, &mut d.means);
     target_list(ui, "Covariates", &mut d.covariates, picked);
     forget_old_covariates(&d.covariates, &mut d.means_at);
+    d.forget_old_odds();
     ui.add_space(6.0);
     let model = d.model_variables();
     egui::CollapsingHeader::new("Model").show(ui, |ui| {
@@ -161,7 +162,14 @@ fn odds_editor(ui: &mut Ui, d: &mut SampleModel) {
                     .selected_text(shown)
                     .show_ui(ui, |ui| {
                         for n in &model {
-                            ui.selectable_value(&mut o.variable, n.clone(), n.as_str());
+                            let chosen =
+                                ui.selectable_value(&mut o.variable, n.clone(), n.as_str());
+                            // a new variable starts from its default level and no changes
+                            if chosen.changed() {
+                                o.level = 0;
+                                o.reference.clear();
+                                o.covariate = d.covariates.contains(n);
+                            }
                         }
                     });
                 if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
@@ -189,6 +197,7 @@ fn odds_editor(ui: &mut Ui, d: &mut SampleModel) {
                     None => {
                         o.control.push(Held {
                             name: n.clone(),
+                            covariate: d.covariates.contains(n),
                             ..Default::default()
                         });
                         o.control.len() - 1
