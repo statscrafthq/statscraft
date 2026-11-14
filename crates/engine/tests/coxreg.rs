@@ -731,7 +731,8 @@ fn a_time_program_may_change_a_covariate_of_the_data() {
     let t = run(
         &mut engine,
         &format!(
-            "{DATA}TIME PROGRAM.
+            "{DATA}SELECT IF NOT MISSING(spend).
+TIME PROGRAM.
 IF (T_ > 12) spend = spend + 10.
 COXREG months WITH spend /STATUS=ended(1) {TIGHT}"
         ),
@@ -740,6 +741,13 @@ COXREG months WITH spend /STATUS=ended(1) {TIGHT}"
     near(value(&t, eq, "Step 1 / spend", "B"), 0.01687282043637, 1e-6);
     // the data keeps its own values
     assert_eq!(values(&engine, "spend")[0], Some(51.7));
+    // a missing value from the program where the case is otherwise valid is an error
+    assert!(
+        run_error(
+            "TIME PROGRAM.\nCOMPUTE spend = spend + T_.\nCOXREG months WITH spend /STATUS=ended(1)."
+        )
+        .contains("missing")
+    );
 }
 
 #[test]

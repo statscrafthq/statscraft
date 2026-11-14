@@ -111,7 +111,10 @@ fn event_times(
     let p = cols.len();
     let mut out = Vec::new();
     for s in 0..strata {
-        let mine: Vec<usize> = (0..rows.len()).filter(|&r| rows[r].stratum == s).collect();
+        // the rows come sorted by stratum
+        let mine: Vec<usize> = (rows.partition_point(|r| r.stratum < s)
+            ..rows.partition_point(|r| r.stratum <= s))
+            .collect();
         let mut by_stop = mine.clone();
         by_stop.sort_by(|&a, &b| rows[b].stop.total_cmp(&rows[a].stop));
         let mut times: Vec<f64> = mine
@@ -214,6 +217,8 @@ struct Fit {
     cov: Matrix,
     ll: f64,
     converged: bool,
+    /// The information matrix could not be inverted during the iterations.
+    singular: bool,
 }
 
 impl Fit {
@@ -227,23 +232,31 @@ fn fit(rows: &[Row], strata: usize, cols: &[usize], criteria: &CoxregCriteria) -
     let mut b = vec![0.0; p];
     let (mut ll, mut u, mut info) = derivatives(rows, strata, cols, &b);
     let mut converged = p == 0;
+    let mut singular = false;
     for _ in 0..criteria.iterate {
         if p == 0 {
             break;
         }
         let Some((inv, _)) = inverse(&info) else {
+            singular = true;
             break;
         };
         let delta: Vec<f64> = (0..p).map(|r| dot(&inv[r], &u)).collect();
         let mut step = 1.0;
-        let (nb, (nll, nu, ninfo)) = loop {
+        // halve a step that lowers the likelihood; when halving does not help, stop unconverged
+        let accepted = loop {
             let tried: Vec<f64> = b.iter().zip(&delta).map(|(b, d)| b + step * d).collect();
             let next = derivatives(rows, strata, cols, &tried);
-            // halve a step that lowers the likelihood
-            if next.0 >= ll || step < 1e-3 {
-                break (tried, next);
+            if next.0 >= ll {
+                break Some((tried, next));
+            }
+            if step < 1e-3 {
+                break None;
             }
             step /= 2.0;
+        };
+        let Some((nb, (nll, nu, ninfo))) = accepted else {
+            break;
         };
         let relative = b
             .iter()
@@ -274,6 +287,7 @@ fn fit(rows: &[Row], strata: usize, cols: &[usize], criteria: &CoxregCriteria) -
         cov,
         ll,
         converged,
+        singular,
     }
 }
 
@@ -333,6 +347,7 @@ fn overall_score(rows: &[Row], strata: usize, cols: &[usize]) -> f64 {
         cov: Vec::new(),
         ll: 0.0,
         converged: true,
+        singular: false,
     };
     score_test(rows, strata, &empty, cols)
 }
@@ -685,32 +700,18 @@ impl Engine {
             roles.push((s.name(), "is the strata variable and cannot be a covariate"));
         }
         // the variables of the original data, to screen the cases; one the time program computes
-        // without reading it is checked after the program runs
+        // is checked after the program runs, where a missing value is an error
         // shortcut: only COMPUTE and IF count as computing; a RECODE INTO in the program is
         // screened on the data's values
-        let (mut computed, mut reads, mut ranges) = (Vec::new(), Vec::new(), Vec::new());
+        let mut computed = Vec::new();
         for c in program.iter().flat_map(|p| &p.commands) {
             match c {
-                Command::Compute { target, expr } => {
-                    computed.push(target);
-                    crate::rows::expr_names(expr, &mut reads, &mut ranges);
-                }
-                Command::If {
-                    condition,
-                    target,
-                    expr,
-                } => {
-                    computed.push(target);
-                    crate::rows::expr_names(condition, &mut reads, &mut ranges);
-                    crate::rows::expr_names(expr, &mut reads, &mut ranges);
+                Command::Compute { target, .. } | Command::If { target, .. } => {
+                    computed.push(target)
                 }
                 _ => {}
             }
         }
-        let computed: Vec<&String> = computed
-            .into_iter()
-            .filter(|c| !reads.iter().any(|r| r.eq_ignore_ascii_case(c)))
-            .collect();
         let present: Vec<Vec<String>> = term_vars
             .iter()
             .map(|t| {
@@ -776,15 +777,18 @@ impl Engine {
             }
             levels.sort_by(|a, b| a.compare(b));
         }
-        let stratum_of = |k: usize| -> usize {
-            strata_keys.as_ref().map_or(0, |keys| {
-                let key = keys[k].as_ref().expect("valid");
-                levels
-                    .iter()
-                    .position(|l| l.compare(key).is_eq())
-                    .expect("a stratum")
+        let stratum_index: Vec<usize> = (0..cases)
+            .map(|k| match (&strata_keys, dropped[k]) {
+                (Some(keys), 0) => {
+                    let key = keys[k].as_ref().expect("valid");
+                    levels
+                        .binary_search_by(|l| l.compare(key))
+                        .expect("a stratum")
+                }
+                _ => 0,
             })
-        };
+            .collect();
+        let stratum_of = |k: usize| stratum_index[k];
         let strata = levels.len().max(1);
         let mut first_event = vec![f64::INFINITY; strata];
         for k in (0..cases).filter(|&k| dropped[k] == 0 && event[k]) {
@@ -852,6 +856,7 @@ impl Engine {
             t.sort_by(f64::total_cmp);
             t.dedup();
         }
+        let mut program_warnings = Vec::new();
         let expanded: Option<(Dataset, Vec<Span>)> = if let Some(program) = &program {
             // (analysis case, start, stop) of every expanded row
             let mut origin = Vec::new();
@@ -864,6 +869,15 @@ impl Engine {
                     take.push(Some(k));
                     start = t;
                 }
+            }
+            // shortcut: a fixed bound on the expanded rows; stream the risk sets if larger data
+            // with time-dependent covariates is needed
+            const MAX_ROWS: usize = 20_000_000;
+            if take.len() > MAX_ROWS {
+                return Err(Error(format!(
+                    "TIME PROGRAM: the cases at risk at every event time make {} rows, more than the {MAX_ROWS} supported",
+                    take.len()
+                )));
             }
             let mut data = data.clone();
             // only the variables the program reads and the covariates go along
@@ -895,10 +909,10 @@ impl Engine {
             for c in &program.commands {
                 sub.execute(c)
                     .map_err(|e| Error(format!("TIME PROGRAM: {}", e.0)))?;
-                warnings.append(&mut sub.warnings);
+                program_warnings.append(&mut sub.warnings);
             }
             sub.flush()?;
-            warnings.append(&mut sub.warnings);
+            program_warnings.append(&mut sub.warnings);
             // the random numbers the program drew count as drawn
             self.random.swap(&sub.random);
             let data = sub.dataset.take().expect("the expanded data");
@@ -923,12 +937,13 @@ impl Engine {
             if !any {
                 // the cases are screened afresh on every covariate without the program
                 let tables = self.coxreg_with(command, None)?;
-                for warning in warnings {
+                for warning in program_warnings {
                     self.warn(warning);
                 }
                 self.warn("the TIME PROGRAM changes none of the covariates, so it is not used");
                 return Ok(tables);
             }
+            warnings.append(&mut program_warnings);
             Some((data, origin))
         } else {
             None
@@ -990,6 +1005,7 @@ impl Engine {
                 }
             })
             .collect();
+        rows.sort_by_key(|r| r.stratum);
         let total_w: f64 = rows.iter().map(|r| r.w).sum();
         let means: Vec<f64> = (0..names.len())
             .map(|j| rows.iter().map(|r| r.w * r.x[j]).sum::<f64>() / total_w)
@@ -1085,6 +1101,11 @@ impl Engine {
                     "the estimation did not converge in {} iterations; the estimates are those of the last iteration",
                     criteria.iterate
                 );
+                let note = if fitted.singular {
+                    "the information matrix is singular, so a covariate cannot be estimated; the estimates are not reliable".to_string()
+                } else {
+                    note
+                };
                 if !fitted.converged && !warnings.contains(&note) {
                     warnings.push(note);
                 }

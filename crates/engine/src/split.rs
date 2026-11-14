@@ -219,7 +219,11 @@ impl Engine {
 
     /// Runs a procedure as the split, the filter and TEMPORARY say.
     pub(crate) fn procedure(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
-        self.begin_pass()?;
+        let begun = self.begin_pass();
+        if begun.is_err() && matches!(command, Command::Coxreg(_)) {
+            self.time_program = None;
+        }
+        begun?;
         let before = self.dataset.clone();
         // TREE and the complex samples procedures ignore SPLIT FILE, as the manual says
         let use_split = !matches!(
