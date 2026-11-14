@@ -283,3 +283,44 @@ fn a_cell_from_each_group_lines_up_in_the_merged_table() {
     assert!(matches!(&table.rows[0][0], Cell::Text(t) if t == "1"));
     assert_eq!(table.rows.len(), 6);
 }
+
+/// s = 1 has one case, too few for a line; s = 2 has four near 1.0 + 1.9u; s = 3 two on 2u.
+const FITS: &str = "\
+DATA LIST LIST /s u v.
+BEGIN DATA
+1 1 2
+2 1 3
+2 2 5
+2 3 6
+2 4 9
+3 1 2
+3 2 4
+END DATA.
+";
+
+#[test]
+fn a_group_that_saves_nothing_keeps_the_saved_values_of_the_others() {
+    let mut session = Session::default();
+    session.run(FITS, None).unwrap();
+    let result = run(
+        &mut session,
+        "SPLIT FILE BY s.\nREGRESSION /DEPENDENT v /METHOD=ENTER u /SAVE PRED.",
+    );
+    assert!(!result.commands[1].warnings.is_empty());
+    let data = session.dataset().unwrap();
+    assert_eq!(show(data, "PRE_1"), ". 2.9 4.8 6.7 8.6 2 4");
+}
+
+#[test]
+fn groups_that_save_the_same_variables_fill_one_column() {
+    let mut session = Session::default();
+    session.run(FITS, None).unwrap();
+    run(
+        &mut session,
+        "SELECT IF s > 1.\nSPLIT FILE BY s.\nREGRESSION /DEPENDENT v /METHOD=ENTER u /SAVE PRED.",
+    );
+    let data = session.dataset().unwrap();
+    assert_eq!(show(data, "PRE_1"), "2.9 4.8 6.7 8.6 2 4");
+    let saved: Vec<&str> = data.variable_names().skip(3).collect();
+    assert_eq!(saved, ["PRE_1"]);
+}

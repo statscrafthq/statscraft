@@ -58,6 +58,7 @@ This page lists, by topic and command:
 - INSERT and INCLUDE paths are relative to the folder of the file that holds them, or to the folder of the last CD. **Beyond the documentation:** INCLUDE accepts the file name without FILE=.
 - BEGIN PROGRAM blocks are skipped with one warning per block; the run goes on.
 - A warning that every SPLIT FILE group gives (SPREADLEVEL without a factor in EXAMINE, for one) is shown once, without a group name.
+- Under SPLIT FILE, the variables a procedure saves are those any group saved, defined as in the first group that saved them (a string as wide as its widest group); the cases of a group that could not be fitted or saved nothing get missing values.
 - END DATA, END REPEAT and END MATRIX standing alone are errors at their line, saying which command they belong to.
 - FINISH ends the run as the end of the syntax does: nothing after it is read. A window or command-line session stays open, with its dataset. With a line range only a FINISH inside the range counts. Macros that the lines after FINISH define are still defined, since macros are expanded before the commands are read.
 - HOST is read and checked, then refused: a syntax file that runs operating system commands could do anything the user can.
@@ -745,6 +746,32 @@ Where the documentation is silent:
 Where GNU PSPP differs:
 
 - Its interval uses the one-sided normal quantile (at 90 percent its interval is that of 80 percent) and its coordinates table misses some cutoffs; the area, the standard error and the significance agree.
+
+### KM
+
+- A case takes part when its time, status, factor and stratum are valid (user-missing values count as missing) and its time is 0 or more; a missing status is left out rather than counted as censored. Weights count cases and need not be whole numbers.
+- With LOST, the Censored columns count only the censored cases that are not lost, and the Lost columns the rest.
+- The survival table has a row per case, events before censored cases at a tied time; the estimate and its error stand on the last event row of each time. SAVE CUMEVENT gives every case the events at or before its time, so tied events get the same number whatever the case order.
+- Percentile standard errors need survival to reach p - 0.05; otherwise the error is left empty. Time 0, where survival is 1, counts as the last time at which survival is still p + 0.05 or more.
+- The mean and the median get 95% intervals from the normal distribution, estimate plus and minus 1.96 standard errors.
+- With TREND, the overall comparisons test the trend (one degree of freedom); pairwise comparisons stay the ordinary tests, which a trend over two levels equals. TREND with fewer weights than levels is an error.
+- A comparison gives the degrees of freedom of the rank of its covariance matrix, so a level without any case at risk at an event time does not break the test. An event time with at most one case at risk adds nothing to a test; with fractional weights that is a weight of 1 or less.
+- **Beyond the documentation**: KM takes PLOTS as another name for PLOT.
+- The plots are step curves, corners doubled so the line runs flat then upright, with an upright tick at each censored time. LOGSURV and HAZARD end where survival reaches 0. Each stratum gets its own chart.
+- Compared with R's survival package: the restricted mean with a per-curve upper limit and its error agree, except where the longest time holds both an event and a censored case: there the documented error multiplies by d / (d - 1), the package does not. The package's quantile q means survival 1 - q, so its 0.75 quantile is the 25% percentile here; on a flat stretch exactly at the level the package takes the middle of the stretch, the documented rule its start.
+
+### SURVIVAL
+
+- The median lies inside the interval where cumulative survival first drops below 0.5, interpolated over that interval's own width.
+- When survival never drops below 0.5, the median shows the start of the last interval that cases entered, with a plus sign, rather than the start of the open interval, which may lie past every observed time.
+- The open last interval has no width, so its density, hazard and their errors are empty.
+- When the cumulative survival reaches 0, its later standard errors are 0.
+- Control values are truncated toward 0 before the range check, so -1.5 counts as -1.
+- With weights, every score and sum in Gehan's statistic is weighted, so a weight of n gives the same result as n identical cases.
+- CALCULATE=CONDITIONAL is the same as EXACT: exact comparisons always fit in memory. APPROXIMATE scores each case by the start of its interval; ties between an event and a censored case in one interval put the event first, as for exact times.
+- MISSING=LISTWISE leaves out a case missing on any survival or control variable named on TABLES; a missing status leaves the case out of that survival variable's tables only, in both modes.
+- The plots draw survival, its log and one minus survival through the ends of the closed intervals, joined by straight lines from (0, 1); hazard and density as a level across each closed interval.
+- Not supported yet: WRITE=TABLES and WRITE=BOTH, which need PROCEDURE OUTPUT; each gives an error.
 
 ### Complex samples: CSPLAN, CSDESCRIPTIVES and CSTABULATE
 

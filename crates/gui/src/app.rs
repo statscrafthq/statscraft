@@ -1659,6 +1659,16 @@ impl App {
                             }
                         }
                     });
+                    ui.menu_button("Survival", |ui| {
+                        for (label, dialog) in [
+                            ("Life Tables...", Advanced::LifeTables(Default::default())),
+                            ("Kaplan-Meier...", Advanced::Km(Default::default())),
+                        ] {
+                            if ui.button(label).clicked() {
+                                self.open_dialog(Dialog::Advanced(dialog));
+                            }
+                        }
+                    });
                     ui.menu_button("Multiple Response", |ui| {
                         for (label, crosstabs) in
                             [("Frequencies...", false), ("Crosstabs...", true)]

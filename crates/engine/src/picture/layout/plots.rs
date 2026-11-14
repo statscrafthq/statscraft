@@ -232,8 +232,11 @@ fn points(
         }
     }
     let labelled = all().filter(|p| p.label.is_some()).count() <= 40;
+    // a line chart of points (survival curves): each group is a path through its points in
+    // order, and only a labelled point, such as a censored time, gets a mark, an upright tick
+    let curve = chart.kind == ChartKind::Line;
     for (group, &color) in groups.iter().zip(&colors) {
-        if chart.kind == ChartKind::Roc {
+        if matches!(chart.kind, ChartKind::Roc | ChartKind::Line) {
             let path = group.points.iter().map(|p| at([p.x, p.y])).collect();
             d.line(path, 2.0, color);
         }
@@ -243,6 +246,13 @@ fn points(
             .filter(|p| p.x.is_finite() && p.y.is_finite())
         {
             let center = at([p.x, p.y]);
+            if curve {
+                if p.label.is_some() {
+                    let [x, y] = center;
+                    d.line(vec![[x, y - 5.0], [x, y + 5.0]], 1.5, color);
+                }
+                continue;
+            }
             d.shapes.push(Shape::Circle {
                 center,
                 radius: 3.0,
@@ -1012,6 +1022,54 @@ mod tests {
         for name in ["Speed", "Load", "Heat"] {
             assert!(texts.contains(&name), "{texts:?}");
         }
+    }
+
+    #[test]
+    fn a_survival_curve_is_drawn_in_flat_and_upright_strokes_with_censored_ticks() {
+        // two events, at 2 and 5, and a censored time at 3, corners doubled as KM gives them
+        let p = |x: f64, y: f64, censored: bool| Point {
+            x,
+            y,
+            z: None,
+            label: censored.then(|| "Censored".to_string()),
+        };
+        let points = vec![
+            p(0.0, 1.0, false),
+            p(2.0, 1.0, false),
+            p(2.0, 0.75, false),
+            p(3.0, 0.75, true),
+            p(5.0, 0.75, false),
+            p(5.0, 0.25, false),
+            p(6.0, 0.25, false),
+        ];
+        let plot = Plot::Points {
+            groups: vec![PointGroup {
+                name: "Plan".into(),
+                points,
+            }],
+            lines: Vec::new(),
+            z_axis: None,
+        };
+        let s = scene(&plot_chart(ChartKind::Line, plot), 600.0, Paper::Light).unwrap();
+        let strokes: Vec<&Vec<[f32; 2]>> = s
+            .shapes
+            .iter()
+            .filter_map(|s| match s {
+                Shape::Line { points, width, .. } if *width >= 1.5 => Some(points),
+                _ => None,
+            })
+            .collect();
+        // the curve and one tick
+        assert_eq!(strokes.len(), 2);
+        for stroke in &strokes {
+            for w in stroke.windows(2) {
+                let flat = (w[0][1] - w[1][1]).abs() < 1e-3;
+                let upright = (w[0][0] - w[1][0]).abs() < 1e-3;
+                assert!(flat || upright, "{w:?}");
+            }
+        }
+        assert_eq!(strokes[1].len(), 2);
+        assert!(!s.shapes.iter().any(|s| matches!(s, Shape::Circle { .. })));
     }
 
     #[test]
