@@ -507,10 +507,9 @@ impl Engine {
             }
             program.collecting = false;
         }
-        // the next command that reads the data uses a time program up; only COXREG runs it
-        if matches!(command, Command::Coxreg(_)) {
-            self.running_program = self.time_program.take();
-        } else if output::stage(command) == output::Stage::Pass {
+        // the next command that reads the data uses a time program up (begin_pass drops it);
+        // only COXREG runs it
+        if !matches!(command, Command::Coxreg(_)) && output::stage(command) == output::Stage::Pass {
             self.time_program = None;
         }
         self.track_clean(command);
@@ -564,6 +563,9 @@ impl Engine {
                 }
                 self.flush()?;
             }
+        }
+        if matches!(command, Command::Coxreg(_)) {
+            self.running_program = self.time_program.take();
         }
         let tables = self.execute_command(command);
         if tables.is_err() && matches!(command, Command::Coxreg(_)) {

@@ -45,6 +45,12 @@ fn defaults_and_status_values() {
     );
     let c = coxreg("COXREG months WITH spend /STATUS=outcome('quit' 'lost').");
     assert_eq!(c.events.len(), 2);
+    // a time variable that abbreviates VARIABLES
+    assert_eq!(
+        coxreg("COXREG var WITH spend /STATUS=ended(1).").time,
+        "var"
+    );
+    assert_eq!(coxreg("COXREG VAR months /STATUS=ended(1).").time, "months");
     // no covariates: the null model
     let c = coxreg("COXREG months /STATUS=ended(1).");
     assert!(c.methods.is_empty());

@@ -264,12 +264,8 @@ fn fit(rows: &[Row], strata: usize, cols: &[usize], criteria: &CoxregCriteria) -
             .iter()
             .zip(&nb)
             .map(|(old, new)| {
-                let change = (new - old).abs();
-                if *old == 0.0 {
-                    change
-                } else {
-                    change / old.abs()
-                }
+                // relative to the previous value, absolute for a coefficient near 0
+                (new - old).abs() / old.abs().max(1e-8)
             })
             .fold(0.0, f64::max);
         let ll_change = ((nll - ll) / ll.abs().max(f64::MIN_POSITIVE)).abs();
@@ -579,14 +575,12 @@ fn is_event(key: &Key, events: &[MissingValue]) -> bool {
         (MissingValue::Value(Value::Number(n)), Key::Number(x)) => n == x,
         (MissingValue::Value(Value::String(s)), Key::Text(t)) => s.trim_end() == t.trim_end(),
         (MissingValue::Range(lo, hi), Key::Number(x)) => {
-            let low = match lo {
+            let bound = |b: &Bound| match b {
                 Bound::Number(n) => *n,
-                _ => f64::NEG_INFINITY,
+                Bound::Lowest => f64::NEG_INFINITY,
+                Bound::Highest => f64::INFINITY,
             };
-            let high = match hi {
-                Bound::Number(n) => *n,
-                _ => f64::INFINITY,
-            };
+            let (low, high) = (bound(lo), bound(hi));
             // a range written high THRU low means the same values
             (low.min(high)..=low.max(high)).contains(x)
         }

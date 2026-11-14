@@ -310,7 +310,15 @@ fn save(p: &mut Parser) -> PResult<Vec<(CoxregTemp, Option<String>)>> {
 
 pub(crate) fn coxreg(p: &mut Parser) -> PResult<Command> {
     p.eat(Punct::Slash);
-    if p.eat_keyword("VARIABLES") {
+    // VARIABLES only when '=' or the time variable follows, so a variable named VAR is a time
+    let keyword = p.at_keyword("VARIABLES")
+        && match p.peek_at(1) {
+            Some(TokenKind::Punct(Punct::Eq)) => true,
+            Some(TokenKind::Word(w)) => !w.eq_ignore_ascii_case("WITH"),
+            _ => false,
+        };
+    if keyword {
+        p.pos += 1;
         p.eat(Punct::Eq);
     }
     let time = p.name("the survival time variable")?;
