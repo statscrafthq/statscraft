@@ -340,6 +340,8 @@ pub struct Engine {
     time_program: Option<coxreg::TimeProgram>,
     /// The time program the running COXREG took up.
     running_program: Option<coxreg::TimeProgram>,
+    /// The running COXREG failed for a fault in its time program.
+    program_fault: std::cell::Cell<bool>,
     /// The vectors by lower-case name, with their variables.
     vectors: std::collections::HashMap<String, Vec<String>>,
     /// The folder of the syntax file: INSERT and CD start from it. None: the current folder.
@@ -572,14 +574,13 @@ impl Engine {
                 program
             });
         }
+        self.program_fault.set(false);
         let tables = self.execute_command(command);
         if matches!(command, Command::Coxreg(_)) {
             let program = self.running_program.take();
             // a COXREG that fails leaves its time program for the corrected one, unless the fault
             // is in the program itself
-            if let Err(e) = &tables
-                && !e.0.contains("TIME PROGRAM:")
-            {
+            if tables.is_err() && !self.program_fault.get() {
                 self.time_program = program;
             }
         }

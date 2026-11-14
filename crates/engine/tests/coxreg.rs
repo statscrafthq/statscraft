@@ -855,6 +855,12 @@ fn time_program_edge_cases() {
         )
         .contains("PRINT")
     );
+    // a closed DO IF around a case-by-case transformation is fine
+    let t = tables(
+        "SELECT IF NOT MISSING(spend).\nTIME PROGRAM.\nDO IF (spend > 0).\nCOMPUTE before = LAG(spend).\nEND IF.\n\
+         COMPUTE spend_t = spend * T_.\nCOXREG months WITH spend_t /STATUS=ended(1).",
+    );
+    assert!(t.iter().any(|t| t.title == "Variables in the Equation"));
     // a program that never changes the covariate is not used, and the case missing on spend is
     // dropped as usual
     let mut engine = Engine::default();

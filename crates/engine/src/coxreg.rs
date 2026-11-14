@@ -12,8 +12,8 @@
 //! - The partial likelihood treats tied event times as Breslow does: at each event time the
 //!   weighted sum of the dying cases' linear predictors less their weight times the log of the
 //!   weighted risk-set sum of exp(x'b). The covariates are centered at their weighted means.
-//! - Newton-Raphson from b = 0 stops when the largest change of a coefficient relative to its
-//!   previous value is below BCON, the log likelihood changes by less than LCON relative to its
+//! - Newton-Raphson from b = 0 stops when the largest full Newton step of a coefficient relative
+//!   to its previous value is below BCON, the log likelihood changes by less than LCON relative to its
 //!   previous value, or after ITERATE iterations.
 //! - Overall (score) test: the score statistic at b = 0 of the model's columns. Change from the
 //!   previous step and block: differences of -2 log likelihood.
@@ -864,6 +864,7 @@ impl Engine {
                 Command::Print(_) | Command::PrintSpace(_) | Command::Xsave(_)
             )
         }) {
+            self.program_fault.set(true);
             return Err(Error(
                 "TIME PROGRAM: PRINT, WRITE, PRINT SPACE and XSAVE would act on every case at every event time; they cannot be in it"
                     .into(),
@@ -934,25 +935,30 @@ impl Engine {
             sub.vectors = program.vectors.clone();
             sub.case_numbers = None;
             sub.temporary = None;
+            // a fault in the program itself: a failed COXREG then drops the program
+            let fault = |message: String| {
+                self.program_fault.set(true);
+                Error(format!("TIME PROGRAM: {message}"))
+            };
             for c in &program.commands {
-                sub.execute(c)
-                    .map_err(|e| Error(format!("TIME PROGRAM: {}", e.0)))?;
+                sub.execute(c).map_err(|e| fault(e.0))?;
                 program_warnings.append(&mut sub.warnings);
             }
-            if sub.collecting.is_some() || !sub.blocks.is_empty() || sub.pending_depth > 0 {
-                return Err(Error(
-                    "TIME PROGRAM: a LOOP or DO IF in it is not closed".into(),
-                ));
+            // as at the end of a run: an open LOOP, or a DO IF still open
+            let open = match sub.pending {
+                Some(_) => sub.pending_depth > 0,
+                None => !sub.blocks.is_empty(),
+            };
+            if sub.collecting.is_some() || open {
+                return Err(fault("a LOOP or DO IF in it is not closed".into()));
             }
-            sub.flush()?;
+            sub.flush().map_err(|e| fault(e.0))?;
             program_warnings.append(&mut sub.warnings);
             // the random numbers the program drew count as drawn
             self.random.swap(&sub.random);
             let data = sub.dataset.take().expect("the expanded data");
             if data.case_count() != rows_before {
-                return Err(Error(
-                    "TIME PROGRAM: the transformations cannot add or drop cases".into(),
-                ));
+                return Err(fault("the transformations cannot add or drop cases".into()));
             }
             // a covariate depends on time when the program creates it or changes its values
             let changed = |name: &String| -> Result<bool, Error> {
@@ -1006,6 +1012,7 @@ impl Engine {
                 .collect(),
         };
         if let Some(&(_, i, _, stop)) = layout.iter().find(|&&(r, ..)| !covariates.valid(r)) {
+            self.program_fault.set(true);
             return Err(Error(format!(
                 "TIME PROGRAM: a time-dependent covariate is missing for case {} at time {stop}",
                 self.case_numbers.as_ref().map_or(used[i], |n| n[used[i]]) + 1
