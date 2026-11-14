@@ -128,7 +128,11 @@ impl Engine {
                 .map(|r| r.into_iter().map(|v| v / 2.0).collect())
                 .collect();
             return Ok(Input {
-                objects: items.labels,
+                // ALSCAL has no case labels: the items keep their names
+                objects: match command.matrix_items {
+                    true => items.names,
+                    false => items.labels,
+                },
                 sources: vec!["SRC_1".into()],
                 delta: vec![delta],
                 w: vec![w],
@@ -210,7 +214,6 @@ impl Engine {
                 ) else {
                     continue;
                 };
-                n = n.max(r).max(c);
                 let k = match &source {
                     Some(s) => match whole_value(value(s, case), "source", self.case_number(case))?
                     {
@@ -222,6 +225,7 @@ impl Engine {
                     },
                     None => None,
                 };
+                n = n.max(r).max(c);
                 cells.push((case, r - 1, c - 1, k));
             }
             let mut raw = vec![vec![vec![f64::NAN; n]; n]; m];
@@ -803,16 +807,23 @@ impl Engine {
                 self.write_data_file(file, data)?;
             }
         }
-        for (target, values) in [
-            (&out.distances, d),
-            (&out.transformations, done.dhat.clone()),
+        for (target, values, masked) in [
+            (&out.distances, d, false),
+            (&out.transformations, done.dhat.clone(), true),
         ] {
             let Some(file) = target else { continue };
             let mut data = Dataset::new(n * m);
             for j in 0..n {
+                // a missing proximity has no transformed value
                 let column = values
                     .iter()
-                    .flat_map(|v| v.iter().map(move |r| Some(r[j])))
+                    .enumerate()
+                    .flat_map(|(k, v)| {
+                        let w = &problem.w[k];
+                        v.iter()
+                            .enumerate()
+                            .map(move |(i, r)| (!masked || i == j || w[i][j] > 0.0).then_some(r[j]))
+                    })
                     .collect();
                 data.set_numeric_values(&format!("OBJ_{}", j + 1), column)?;
             }

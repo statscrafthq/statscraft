@@ -1093,8 +1093,12 @@ pub(crate) fn reduce(model: Model, s: &Solution) -> (Matrix, Vec<Matrix>) {
     let p = s.z.first().map_or(0, Vec::len);
     match model {
         Model::Weighted => {
+            // the spread of each dimension in the sources' spaces, whatever the scale of Z
             let importance: Vec<f64> = (0..p)
-                .map(|d| s.a.iter().map(|a| a[d][d] * a[d][d]).sum())
+                .map(|d| {
+                    let zz: f64 = s.z.iter().map(|r| r[d] * r[d]).sum();
+                    s.a.iter().map(|a| a[d][d] * a[d][d]).sum::<f64>() * zz
+                })
                 .collect();
             let mut order: Vec<usize> = (0..p).collect();
             order.sort_by(|&x, &y| importance[y].total_cmp(&importance[x]));

@@ -461,3 +461,35 @@ fn a_split_variable_cannot_also_be_an_item() {
             .contains("split variable side")
     );
 }
+
+#[test]
+fn a_split_matrix_file_is_read_group_by_group_from_another_dataset() {
+    let mut engine = Engine::default();
+    let tables = run_on(
+        &mut engine,
+        &format!(
+            "{DATA}DATASET NAME shops.\nDATASET DECLARE m.\n\
+             COMPUTE side = shop = 'east' | shop = 'west' | shop = 'lake' | shop = 'coast'.\n\
+             SORT CASES BY side.\n\
+             SPLIT FILE SEPARATE BY side.\n\
+             PROXIMITIES sweet bitter /PRINT=NONE /MATRIX=OUT(m).\n\
+             CLUSTER /MATRIX=IN(m) /PRINT=DISTANCE.\n"
+        ),
+    );
+    let sizes: Vec<usize> = tables
+        .iter()
+        .filter(|t| t.title.starts_with("Proximity Matrix"))
+        .map(|t| t.rows.len())
+        .collect();
+    assert_eq!(sizes, [3, 4]);
+    // naming an item twice is refused
+    let (commands, _) = parse(
+        "SPLIT FILE OFF.\nDATASET ACTIVATE m.\nSELECT IF side = 1.\nCLUSTER VAR1 VAR2 VAR1 /MATRIX=IN(*).",
+    );
+    let last = commands
+        .iter()
+        .map(|c| engine.execute(&c.command))
+        .last()
+        .unwrap();
+    assert!(last.unwrap_err().to_string().contains("named twice"));
+}

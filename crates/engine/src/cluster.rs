@@ -569,8 +569,39 @@ impl Engine {
             .skip(1)
             .filter(|v| !v.is_string())
             .collect();
+        // a file of several split groups: the rows of the group that runs, told by the
+        // variables before ROWTYPE_ when the active cases share one value of each
+        let group: Vec<(Variable, String)> = match source {
+            None => Vec::new(),
+            Some(_) => {
+                let active = self.active()?;
+                let split: Vec<Variable> = data
+                    .variables()
+                    .take_while(|v| v.name() != rowtype.name())
+                    .collect();
+                let mut group = Vec::new();
+                for v in split {
+                    let Ok(mine) = active.variable(v.name()) else {
+                        group.clear();
+                        break;
+                    };
+                    let first = value_text(&mine, 0);
+                    if active.case_count() == 0
+                        || (1..active.case_count()).any(|c| value_text(&mine, c) != first)
+                    {
+                        group.clear();
+                        break;
+                    }
+                    group.push((v, first));
+                }
+                group
+            }
+        };
+        let in_group = |case: usize| group.iter().all(|(v, value)| value_text(v, case) == *value);
         let prox_rows: Vec<usize> = (0..data.case_count())
-            .filter(|&case| value_text(&rowtype, case).eq_ignore_ascii_case("PROX"))
+            .filter(|&case| {
+                value_text(&rowtype, case).eq_ignore_ascii_case("PROX") && in_group(case)
+            })
             .collect();
         if prox_rows.is_empty() {
             return Err(Error(format!(
@@ -593,26 +624,18 @@ impl Engine {
                     .collect()
             }
             false => {
-                let at = |name: &str| {
-                    all.iter()
-                        .position(|v| v.name().eq_ignore_ascii_case(name))
-                        .ok_or_else(|| Error(format!("{who}: the matrix has no item {name}")))
-                };
-                let mut out = Vec::new();
-                for item in variables {
-                    match item {
-                        VarItem::Name(name) => out.push(all[at(name)?]),
-                        VarItem::Range(from, to) => {
-                            let (a, b) = (at(from)?, at(to)?);
-                            if a > b {
-                                return Err(Error(format!(
-                                    "{who}: {from} comes after {to} in the matrix file"
-                                )));
-                            }
-                            out.extend(all[a..=b].iter().copied());
-                        }
-                        VarItem::All => out.extend(all.iter().copied()),
+                // the list over the matrix file, TO and ALL in its order
+                let names = crate::expand_in(data, variables)?;
+                let mut out: Vec<Variable> = Vec::new();
+                for name in names {
+                    let v = all
+                        .iter()
+                        .find(|v| v.name().eq_ignore_ascii_case(&name))
+                        .ok_or_else(|| Error(format!("{who}: the matrix has no item {name}")))?;
+                    if out.iter().any(|o| o.name() == v.name()) {
+                        return Err(Error(format!("{who}: the item {name} is named twice")));
                     }
+                    out.push(*v);
                 }
                 out
             }
@@ -632,10 +655,7 @@ impl Engine {
         let mut prox = vec![vec![f64::NAN; n]; n];
         let mut labels: Vec<String> = chosen.iter().map(|v| v.name().to_string()).collect();
         let mut seen = vec![false; n];
-        for case in 0..data.case_count() {
-            if value_text(&rowtype, case).to_uppercase() != "PROX" {
-                continue;
-            }
+        for &case in &prox_rows {
             let of = value_text(&varname, case);
             let Some(i) = chosen
                 .iter()

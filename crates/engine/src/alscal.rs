@@ -358,13 +358,14 @@ fn update_coordinates(data: &Data, x: &mut Matrix, w: &[Vec<f64>], f: &[Matrix])
             if s > 0.0 { 1.0 / s } else { 0.0 }
         })
         .collect();
+    let mut terms: Vec<(f64, f64, f64, f64)> = Vec::new();
     for l in 0..n {
         for _ in 0..20 {
             let mut change: f64 = 0.0;
             for a in 0..p {
                 // g(t) = sum_k c_k sum_j (w_ka (t - x_ja)^2 + q_jk)^2, its derivative a cubic
                 // (c_k, w_ka, x_ja, q_jk) of every pair of point l
-                let mut terms: Vec<(f64, f64, f64, f64)> = Vec::new();
+                terms.clear();
                 for k in (0..m).filter(|&k| w[k][a] != 0.0 && c[k] != 0.0) {
                     for j in (0..n).filter(|&j| j != l && data.present[k][l][j]) {
                         let rest: f64 = (0..p)
