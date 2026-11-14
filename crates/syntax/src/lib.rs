@@ -21,6 +21,7 @@ mod cluster;
 mod commands;
 mod complex_samples;
 mod correspondence;
+mod coxreg;
 mod ctables;
 mod data_commands;
 mod data_list;
@@ -77,6 +78,8 @@ mod table;
 mod tests;
 #[cfg(test)]
 mod tests_complex_samples;
+#[cfg(test)]
+mod tests_coxreg;
 #[cfg(test)]
 mod tests_ctables;
 #[cfg(test)]
@@ -141,6 +144,7 @@ pub use correspondence::{
     Correspondence, CorrespondenceMeasure, CorrespondenceNormalization, CorrespondencePlot,
     CorrespondencePrint, CorrespondenceStandardize, CorrespondenceTable, PlotLabels,
 };
+pub use coxreg::{Coxreg, CoxregCriteria, CoxregPattern, CoxregPlot, CoxregPrint, CoxregTemp};
 pub use ctables::{
     Adjust, AxisExpr, AxisVariable, Categories, CategoryItem, CategoryOrder, CompareKind,
     CompareStyle, Comparetest, Ctables, CtablesTable, EmptyCells, Estimate, LabelsMoved,

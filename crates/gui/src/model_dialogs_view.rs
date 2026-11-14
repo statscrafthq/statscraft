@@ -5,7 +5,7 @@ use crate::analyze_dialogs::{DUNNETT_SIDES, EQUAL_VARIANCE_TESTS, POST_HOC_TESTS
 use crate::app::{checkboxes, choice, field, target_list, target_one};
 use crate::model_dialogs::{
     CLUSTER_BINARY, CLUSTER_COUNTS, CLUSTER_DATA, CLUSTER_INTERVAL, CLUSTER_METHODS, Categorical,
-    DISCRIMINANT_METHODS, DISCRIMINANT_SAVE, DISCRIMINANT_STATISTICS,
+    ClusterMeasure, DISCRIMINANT_METHODS, DISCRIMINANT_SAVE, DISCRIMINANT_STATISTICS,
     DISCRIMINANT_STATISTICS_GROUPS, Discriminant, FACTOR_DESCRIPTIVES, FACTOR_EXTRACTIONS,
     FACTOR_MISSING, FACTOR_ROTATIONS, FACTOR_SCORES, FactorAnalysis, FactorContrast,
     GLM_ADJUSTMENTS, GLM_CONTRASTS, GLM_PRINT, GLM_SAVE, GLM_SAVE_GROUPS, Hierarchical, KMeans,
@@ -191,44 +191,49 @@ pub fn hierarchical(ui: &mut Ui, d: &mut Hierarchical, picked: &mut Vec<String>)
     });
     egui::CollapsingHeader::new("Method").show(ui, |ui| {
         choice(ui, "Cluster method", &CLUSTER_METHODS, &mut d.method);
-        ui.horizontal(|ui| {
-            ui.label("Measure for");
-            for (i, kind) in CLUSTER_DATA.iter().enumerate() {
-                ui.radio_value(&mut d.data, i, *kind);
-            }
-        });
-        match d.data {
-            0 => {
-                choice(ui, "Measure", &CLUSTER_INTERVAL, &mut d.interval);
-                match CLUSTER_INTERVAL[d.interval].0 {
-                    "MINKOWSKI" => field(ui, "Power", &mut d.power, 50.0),
-                    "POWER" => {
-                        ui.horizontal(|ui| {
-                            ui.label("Power");
-                            small_field(ui, true, &mut d.power);
-                            ui.label("Root");
-                            small_field(ui, true, &mut d.root);
-                        })
-                        .inner
-                    }
-                    _ => {}
-                }
-            }
-            1 => choice(ui, "Measure", &CLUSTER_COUNTS, &mut d.counts),
-            _ => {
-                choice(ui, "Measure", &CLUSTER_BINARY, &mut d.binary);
-                ui.horizontal(|ui| {
-                    ui.label("Present");
-                    small_field(ui, true, &mut d.present);
-                    ui.label("Absent");
-                    small_field(ui, true, &mut d.absent);
-                });
-            }
-        }
+        measure(ui, &mut d.measure);
     });
     egui::CollapsingHeader::new("Save").show(ui, |ui| {
         solutions(ui, "Cluster membership", &mut d.save);
     });
+}
+
+/// The kind of data, its measure and the measure's parameters.
+pub(crate) fn measure(ui: &mut Ui, d: &mut ClusterMeasure) {
+    ui.horizontal(|ui| {
+        ui.label("Measure for");
+        for (i, kind) in CLUSTER_DATA.iter().enumerate() {
+            ui.radio_value(&mut d.data, i, *kind);
+        }
+    });
+    match d.data {
+        0 => {
+            choice(ui, "Measure", &CLUSTER_INTERVAL, &mut d.interval);
+            match CLUSTER_INTERVAL[d.interval].0 {
+                "MINKOWSKI" => field(ui, "Power", &mut d.power, 50.0),
+                "POWER" => {
+                    ui.horizontal(|ui| {
+                        ui.label("Power");
+                        small_field(ui, true, &mut d.power);
+                        ui.label("Root");
+                        small_field(ui, true, &mut d.root);
+                    })
+                    .inner
+                }
+                _ => {}
+            }
+        }
+        1 => choice(ui, "Measure", &CLUSTER_COUNTS, &mut d.counts),
+        _ => {
+            choice(ui, "Measure", &CLUSTER_BINARY, &mut d.binary);
+            ui.horizontal(|ui| {
+                ui.label("Present");
+                small_field(ui, true, &mut d.present);
+                ui.label("Absent");
+                small_field(ui, true, &mut d.absent);
+            });
+        }
+    }
 }
 
 pub fn discriminant(ui: &mut Ui, d: &mut Discriminant, picked: &mut Vec<String>) {
@@ -298,6 +303,53 @@ pub fn discriminant(ui: &mut Ui, d: &mut Discriminant, picked: &mut Vec<String>)
     });
 }
 
+/// A checkbox for each covariate that makes it categorical, with its contrast (a new one starts
+/// at `default`, an index into `LOGISTIC_CONTRASTS`) and its reference category.
+pub(crate) fn categorical_grid(
+    ui: &mut Ui,
+    covariates: &[String],
+    categorical: &mut Vec<Categorical>,
+    default: usize,
+) {
+    egui::Grid::new("categorical")
+        .num_columns(3)
+        .show(ui, |ui| {
+            for name in covariates {
+                let at = categorical.iter().position(|c| &c.name == name);
+                let mut on = at.is_some();
+                if ui.checkbox(&mut on, name.as_str()).changed() {
+                    match at {
+                        Some(i) => {
+                            categorical.remove(i);
+                        }
+                        None => categorical.push(Categorical {
+                            name: name.clone(),
+                            contrast: default,
+                            first: false,
+                        }),
+                    }
+                }
+                if let Some(c) = categorical.iter_mut().find(|c| &c.name == name) {
+                    ComboBox::from_id_salt(("contrast", name))
+                        .width(90.0)
+                        .selected_text(LOGISTIC_CONTRASTS[c.contrast].1)
+                        .show_index(ui, &mut c.contrast, LOGISTIC_CONTRASTS.len(), |i| {
+                            LOGISTIC_CONTRASTS[i].1
+                        });
+                    ui.add_enabled_ui(has_reference(c.contrast), |ui| {
+                        ui.horizontal(|ui| {
+                            ui.label("Reference");
+                            ui.spacing_mut().item_spacing.x = 4.0;
+                            ui.radio_value(&mut c.first, false, "last");
+                            ui.radio_value(&mut c.first, true, "first");
+                        });
+                    });
+                }
+                ui.end_row();
+            }
+        });
+}
+
 pub fn logistic(ui: &mut Ui, d: &mut Logistic, picked: &mut Vec<String>) {
     target_one(ui, "Dependent variable", &mut d.dependent, picked);
     ui.add_space(6.0);
@@ -312,43 +364,7 @@ pub fn logistic(ui: &mut Ui, d: &mut Logistic, picked: &mut Vec<String>) {
         }
     }
     egui::CollapsingHeader::new("Categorical").show(ui, |ui| {
-        egui::Grid::new("categorical")
-            .num_columns(3)
-            .show(ui, |ui| {
-                for name in &covariates {
-                    let at = d.categorical.iter().position(|c| &c.name == name);
-                    let mut on = at.is_some();
-                    if ui.checkbox(&mut on, name.as_str()).changed() {
-                        match at {
-                            Some(i) => {
-                                d.categorical.remove(i);
-                            }
-                            None => d.categorical.push(Categorical {
-                                name: name.clone(),
-                                contrast: 0,
-                                first: false,
-                            }),
-                        }
-                    }
-                    if let Some(c) = d.categorical.iter_mut().find(|c| &c.name == name) {
-                        ComboBox::from_id_salt(("contrast", name))
-                            .width(90.0)
-                            .selected_text(LOGISTIC_CONTRASTS[c.contrast].1)
-                            .show_index(ui, &mut c.contrast, LOGISTIC_CONTRASTS.len(), |i| {
-                                LOGISTIC_CONTRASTS[i].1
-                            });
-                        ui.add_enabled_ui(has_reference(c.contrast), |ui| {
-                            ui.horizontal(|ui| {
-                                ui.label("Reference");
-                                ui.spacing_mut().item_spacing.x = 4.0;
-                                ui.radio_value(&mut c.first, false, "last");
-                                ui.radio_value(&mut c.first, true, "first");
-                            });
-                        });
-                    }
-                    ui.end_row();
-                }
-            });
+        categorical_grid(ui, &covariates, &mut d.categorical, 0);
     });
     egui::CollapsingHeader::new("Save").show(ui, |ui| {
         save_groups(ui, &LOGISTIC_SAVE_GROUPS, &LOGISTIC_SAVE, &mut d.save);

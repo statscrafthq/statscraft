@@ -1603,6 +1603,11 @@ impl App {
                         if ui.button("Partial...").clicked() {
                             self.open_dialog(Dialog::PartialCorr(Default::default()));
                         }
+                        if ui.button("Distances...").clicked() {
+                            self.open_dialog(Dialog::Advanced(Advanced::Distances(
+                                Default::default(),
+                            )));
+                        }
                     });
                     ui.menu_button("Regression", |ui| {
                         if ui.button("Linear...").clicked() {
@@ -1651,6 +1656,20 @@ impl App {
                         if ui.button("Reliability Analysis...").clicked() {
                             self.open_dialog(Dialog::Reliability(Default::default()));
                         }
+                        for (label, dialog) in [
+                            (
+                                "Multidimensional Scaling (PROXSCAL)...",
+                                Advanced::Proxscal(Default::default()),
+                            ),
+                            (
+                                "Multidimensional Scaling (ALSCAL)...",
+                                Advanced::Alscal(Default::default()),
+                            ),
+                        ] {
+                            if ui.button(label).clicked() {
+                                self.open_dialog(Dialog::Advanced(dialog));
+                            }
+                        }
                     });
                     ui.menu_button("Nonparametric Tests", |ui| {
                         for kind in NparKind::ALL {
@@ -1663,6 +1682,7 @@ impl App {
                         for (label, dialog) in [
                             ("Life Tables...", Advanced::LifeTables(Default::default())),
                             ("Kaplan-Meier...", Advanced::Km(Default::default())),
+                            ("Cox Regression...", Advanced::Cox(Default::default())),
                         ] {
                             if ui.button(label).clicked() {
                                 self.open_dialog(Dialog::Advanced(dialog));
@@ -3383,6 +3403,16 @@ impl App {
         let mut open = true;
         let import = matches!(dialog, Dialog::ImportData(_));
         let mut syntax = dialog.syntax(data);
+        // the distances dataset is replaced and closed, so it must not be one the user has open
+        if let Dialog::Advanced(Advanced::Alscal(a)) = dialog
+            && a.from_data
+            && dataset_named(&self.session, Some(crate::mds_dialog::DISTANCES)).is_some()
+        {
+            syntax = Err(format!(
+                "a dataset named {} is open; rename or close it first",
+                crate::mds_dialog::DISTANCES
+            ));
+        }
         let raw = syntax.clone();
         if import {
             // with a dataset name, as a data file opened from the window gets

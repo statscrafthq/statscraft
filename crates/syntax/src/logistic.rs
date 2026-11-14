@@ -136,10 +136,23 @@ pub struct Logistic {
 }
 
 /// Terms separated by commas or blanks, each `a` or `a BY b ...`, up to a slash or the end.
-fn terms(p: &mut Parser) -> PResult<Vec<Vec<String>>> {
+pub(crate) fn terms(p: &mut Parser) -> PResult<Vec<Vec<String>>> {
+    terms_to(p, false)
+}
+
+/// Terms as `terms` reads them; with `to`, also `a TO b`, kept as the term `[a, "TO", b]` for
+/// the engine to expand (no variable can be named TO).
+pub(crate) fn terms_to(p: &mut Parser, to: bool) -> PResult<Vec<Vec<String>>> {
     let mut out = Vec::new();
     while matches!(p.peek(), Some(TokenKind::Word(_))) {
         let mut term = vec![p.name("a variable name")?];
+        if to && p.eat_word("TO") {
+            term.push("TO".into());
+            term.push(p.name("a variable name")?);
+            out.push(term);
+            p.eat(Punct::Comma);
+            continue;
+        }
         while p.eat_word("BY") {
             term.push(p.name("a variable name")?);
         }
@@ -149,7 +162,7 @@ fn terms(p: &mut Parser) -> PResult<Vec<Vec<String>>> {
     Ok(out)
 }
 
-fn value(p: &mut Parser, what: &str) -> PResult<f64> {
+pub(crate) fn value(p: &mut Parser, what: &str) -> PResult<f64> {
     p.expect(Punct::LParen)?;
     let Some(n) = p.number() else {
         return Err(p.unexpected(&[what]));
@@ -158,7 +171,7 @@ fn value(p: &mut Parser, what: &str) -> PResult<f64> {
     Ok(n)
 }
 
-fn checked(p: &Parser, start: usize, value: f64, ok: bool, what: &str) -> PResult<f64> {
+pub(crate) fn checked(p: &Parser, start: usize, value: f64, ok: bool, what: &str) -> PResult<f64> {
     if ok {
         Ok(value)
     } else {
@@ -169,7 +182,12 @@ fn checked(p: &Parser, start: usize, value: f64, ok: bool, what: &str) -> PResul
     }
 }
 
-fn method(p: &mut Parser) -> PResult<LogisticMethod> {
+pub(crate) fn method(p: &mut Parser) -> PResult<LogisticMethod> {
+    method_to(p, false)
+}
+
+/// A METHOD whose terms may hold `a TO b` (see `terms_to`).
+pub(crate) fn method_to(p: &mut Parser, to: bool) -> PResult<LogisticMethod> {
     let kind = if p.eat_keyword("ENTER") {
         LogisticMethodKind::Enter
     } else {
@@ -204,7 +222,7 @@ fn method(p: &mut Parser) -> PResult<LogisticMethod> {
     let terms = if p.eat_word("ALL") {
         Vec::new()
     } else {
-        terms(p)?
+        terms_to(p, to)?
     };
     Ok(LogisticMethod { kind, terms })
 }

@@ -378,13 +378,10 @@ impl Solutions {
     }
 }
 
-/// CLUSTER of the cases by the variables.
+/// The measure of CLUSTER and PROXIMITIES: the kind of data, the measure of each kind and
+/// the parameters.
 #[derive(Clone, PartialEq, Debug)]
-pub struct Hierarchical {
-    pub variables: Vec<String>,
-    pub label: String,
-    /// Index into `CLUSTER_METHODS`.
-    pub method: usize,
+pub struct ClusterMeasure {
     /// Index into `CLUSTER_DATA`.
     pub data: usize,
     /// Indexes into `CLUSTER_INTERVAL`, `CLUSTER_COUNTS` and `CLUSTER_BINARY`.
@@ -395,6 +392,31 @@ pub struct Hierarchical {
     pub root: String,
     pub present: String,
     pub absent: String,
+}
+
+impl Default for ClusterMeasure {
+    fn default() -> Self {
+        Self {
+            data: 0,
+            interval: 0,
+            counts: 0,
+            binary: 0,
+            power: "2".into(),
+            root: "2".into(),
+            present: "1".into(),
+            absent: "0".into(),
+        }
+    }
+}
+
+/// CLUSTER of the cases by the variables.
+#[derive(Clone, PartialEq, Debug)]
+pub struct Hierarchical {
+    pub variables: Vec<String>,
+    pub label: String,
+    /// Index into `CLUSTER_METHODS`.
+    pub method: usize,
+    pub measure: ClusterMeasure,
     pub schedule: bool,
     pub proximity: bool,
     pub membership: Solutions,
@@ -407,14 +429,7 @@ impl Default for Hierarchical {
             variables: Vec::new(),
             label: String::new(),
             method: 0,
-            data: 0,
-            interval: 0,
-            counts: 0,
-            binary: 0,
-            power: "2".into(),
-            root: "2".into(),
-            present: "1".into(),
-            absent: "0".into(),
+            measure: ClusterMeasure::default(),
             schedule: true,
             proximity: false,
             membership: Solutions::default(),
@@ -423,8 +438,9 @@ impl Default for Hierarchical {
     }
 }
 
-impl Hierarchical {
-    fn measure(&self) -> Result<String, String> {
+impl ClusterMeasure {
+    /// The keyword with its parameters; the values of presence and absence only when not 1 and 0.
+    pub fn syntax(&self) -> Result<String, String> {
         let positive = |text: &str, what: &str| -> Result<f64, String> {
             let n = parse(text, what)?;
             if n <= 0.0 {
@@ -463,10 +479,12 @@ impl Hierarchical {
             }
         })
     }
+}
 
+impl Hierarchical {
     pub fn syntax(&self) -> Result<String, String> {
         let mut text = format!("CLUSTER {}", names(&self.variables, "Variables")?);
-        let measure = self.measure()?;
+        let measure = self.measure.syntax()?;
         if measure != "SEUCLID" {
             text.push_str(&format!("\n  /MEASURE={measure}"));
         }
@@ -754,6 +772,25 @@ pub struct Categorical {
     pub first: bool,
 }
 
+/// /CATEGORICAL and a /CONTRAST for each variable whose contrast differs from `default` (an
+/// index into `LOGISTIC_CONTRASTS`) or whose reference is the first category.
+pub(crate) fn categorical_syntax(categorical: &[Categorical], default: usize) -> String {
+    let mut text = String::new();
+    if !categorical.is_empty() {
+        let list: Vec<&str> = categorical.iter().map(|c| c.name.as_str()).collect();
+        text.push_str(&format!("\n  /CATEGORICAL={}", list.join(" ")));
+    }
+    for c in categorical {
+        let reference = has_reference(c.contrast) && c.first;
+        if c.contrast != default || reference {
+            let keyword = LOGISTIC_CONTRASTS[c.contrast].0;
+            let first = if reference { "(1)" } else { "" };
+            text.push_str(&format!("\n  /CONTRAST({})={keyword}{first}", c.name));
+        }
+    }
+    text
+}
+
 /// LOGISTIC REGRESSION: one dependent variable and blocks of covariates.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Logistic {
@@ -827,18 +864,7 @@ impl Logistic {
             let method = LOGISTIC_METHODS[b.method].0;
             text.push_str(&format!("\n  /METHOD={method} {}", b.variables.join(" ")));
         }
-        if !self.categorical.is_empty() {
-            let list: Vec<&str> = self.categorical.iter().map(|c| c.name.as_str()).collect();
-            text.push_str(&format!("\n  /CATEGORICAL={}", list.join(" ")));
-        }
-        for c in &self.categorical {
-            let reference = has_reference(c.contrast) && c.first;
-            if c.contrast > 0 || reference {
-                let keyword = LOGISTIC_CONTRASTS[c.contrast].0;
-                let first = if reference { "(1)" } else { "" };
-                text.push_str(&format!("\n  /CONTRAST({})={keyword}{first}", c.name));
-            }
-        }
+        text.push_str(&categorical_syntax(&self.categorical, 0));
         let save = keywords(&LOGISTIC_SAVE, &self.save);
         if !save.is_empty() {
             text.push_str(&format!("\n  /SAVE={}", save.join(" ")));
@@ -1707,8 +1733,8 @@ mod tests {
         // Ward with a customized measure, a label, every table, a range saved
         d.label = "resp_id".into();
         d.method = 6;
-        d.interval = 7;
-        d.power = "3".into();
+        d.measure.interval = 7;
+        d.measure.power = "3".into();
         d.proximity = true;
         d.membership = Solutions {
             kind: 1,
@@ -1735,7 +1761,7 @@ mod tests {
         }
 
         // Minkowski, then counts, then a binary measure with its own values; no table at all
-        d.interval = 6;
+        d.measure.interval = 6;
         d.membership.kind = 0;
         d.save.kind = 0;
         d.schedule = false;
@@ -1746,14 +1772,14 @@ mod tests {
             d.syntax().unwrap(),
             "CLUSTER age monthly_spend\n  /MEASURE=MINKOWSKI(3)\n  /METHOD=SINGLE\n  /PRINT=NONE."
         );
-        d.data = 1;
-        d.counts = 1;
+        d.measure.data = 1;
+        d.measure.counts = 1;
         let syntax = d.syntax().unwrap();
         assert!(syntax.contains("/MEASURE=PH2\n"));
         assert!(runs(&syntax) >= 1);
         d.variables = v(&["q5_1", "q5_2", "q5_3", "q5_4", "q5_5"]);
-        d.data = 2;
-        d.binary = 2;
+        d.measure.data = 2;
+        d.measure.binary = 2;
         d.method = 3;
         d.schedule = true;
         let syntax = d.syntax().unwrap();
@@ -1762,22 +1788,22 @@ mod tests {
             "CLUSTER q5_1 q5_2 q5_3 q5_4 q5_5\n  /MEASURE=SM\n  /METHOD=COMPLETE."
         );
         assert!(runs(&syntax) >= 2);
-        d.present = "0".into();
-        d.absent = "1".into();
+        d.measure.present = "0".into();
+        d.measure.absent = "1".into();
         let syntax = d.syntax().unwrap();
         assert!(syntax.contains("/MEASURE=SM(0,1)\n"));
         assert!(runs(&syntax) >= 2);
 
-        d.absent = "0".into();
+        d.measure.absent = "0".into();
         assert_eq!(
             d.syntax().unwrap_err(),
             "the values of presence and absence must differ"
         );
-        d.data = 0;
-        d.interval = 6;
-        d.power = "0".into();
+        d.measure.data = 0;
+        d.measure.interval = 6;
+        d.measure.power = "0".into();
         assert_eq!(d.syntax().unwrap_err(), "the power must be above 0");
-        d.interval = 0;
+        d.measure.interval = 0;
         d.save = Solutions {
             kind: 2,
             min: "4".into(),

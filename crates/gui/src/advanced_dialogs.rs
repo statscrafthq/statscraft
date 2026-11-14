@@ -1,16 +1,20 @@
 //! The Ordinal Regression, Multinomial Logistic Regression, Linear Mixed Models, Generalized
 //! Linear Models (in `genlin_dialog`), Correspondence Analysis (in `correspondence_dialog`),
-//! Life Tables and Kaplan-Meier (in `survival_dialog`) and complex samples dialogs (the
+//! Life Tables and Kaplan-Meier (in `survival_dialog`), Cox Regression (in `cox_dialog`) and
+//! complex samples dialogs (the
 //! analysis plan, Descriptives, Frequencies and Crosstabs; the General Linear Model and Logistic
 //! Regression in `cs_model_dialog`). Options left as they are add nothing to the syntax, so the
 //! command runs with its own defaults.
 
 use crate::analyze_dialogs::keywords;
 use crate::correspondence_dialog::Correspondence;
+use crate::cox_dialog::Cox;
 use crate::cs_model_dialog::SampleModel;
 use crate::dialogs::whole;
 use crate::genlin_dialog::{GeneralizedLinear, data_checks};
+use crate::mds_dialog::{Alscal, Proxscal};
 use crate::model_dialogs::GLM_ADJUSTMENTS;
+use crate::proximities_dialog::Distances;
 use crate::stats_dialogs::{numeric, parse, percent};
 use crate::survival_dialog::{KaplanMeier, LifeTables};
 use crate::syntax_text::{names, number, quote, value};
@@ -32,6 +36,11 @@ pub enum Advanced {
     Correspondence(Correspondence),
     Km(KaplanMeier),
     LifeTables(LifeTables),
+    Distances(Distances),
+    Proxscal(Box<Proxscal>),
+    Alscal(Alscal),
+    // boxed: a large dialog
+    Cox(Box<Cox>),
 }
 
 impl Advanced {
@@ -50,6 +59,10 @@ impl Advanced {
             Advanced::Correspondence(_) => "Correspondence Analysis",
             Advanced::Km(_) => "Kaplan-Meier",
             Advanced::LifeTables(_) => "Life Tables",
+            Advanced::Distances(_) => "Distances",
+            Advanced::Proxscal(_) => "Multidimensional Scaling (PROXSCAL)",
+            Advanced::Alscal(_) => "Multidimensional Scaling (ALSCAL)",
+            Advanced::Cox(_) => "Cox Regression",
         }
     }
 
@@ -70,6 +83,10 @@ impl Advanced {
             Advanced::Correspondence(_) => Advanced::Correspondence(Default::default()),
             Advanced::Km(_) => Advanced::Km(Default::default()),
             Advanced::LifeTables(_) => Advanced::LifeTables(Default::default()),
+            Advanced::Distances(_) => Advanced::Distances(Default::default()),
+            Advanced::Proxscal(_) => Advanced::Proxscal(Default::default()),
+            Advanced::Alscal(_) => Advanced::Alscal(Default::default()),
+            Advanced::Cox(_) => Advanced::Cox(Default::default()),
         }
     }
 
@@ -99,6 +116,10 @@ impl Advanced {
             Advanced::Correspondence(d) => d.syntax(data),
             Advanced::Km(d) => d.syntax(data),
             Advanced::LifeTables(d) => d.syntax(data),
+            Advanced::Distances(d) => d.syntax(data),
+            Advanced::Proxscal(d) => d.syntax(data),
+            Advanced::Alscal(d) => d.syntax(data),
+            Advanced::Cox(d) => d.syntax(data),
         }
     }
 }

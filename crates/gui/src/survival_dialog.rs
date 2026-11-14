@@ -124,6 +124,76 @@ fn numbers(text: &str, what: &str) -> Result<Vec<f64>, String> {
     items(text, false).map(|t| parse(t, what)).collect()
 }
 
+/// The event values of a status variable as the command takes them, `1 2` or `3 THRU 5`, and
+/// whether the status is a string.
+pub(crate) fn event(
+    data: &Dataset,
+    status: &str,
+    range: bool,
+    list: &str,
+    from: &str,
+    to: &str,
+) -> Result<(String, bool), String> {
+    let string = match data.variable(status) {
+        Ok(v) => v.is_string(),
+        Err(_) => return Err(format!("{status} is no longer a variable")),
+    };
+    let event = if range {
+        if string {
+            return Err(format!(
+                "{status} is a string: give its event values, not a range"
+            ));
+        }
+        let from = parse(from, "the start of the event range")?;
+        let to = parse(to, "the end of the event range")?;
+        if from > to {
+            return Err("the event range starts above its end".into());
+        }
+        format!("{} THRU {}", number(from), number(to))
+    } else {
+        match values(list, string)? {
+            v if v.is_empty() => return Err("give the values that mark the event".into()),
+            v => v,
+        }
+    };
+    Ok((event, string))
+}
+
+/// The keywords of the checked saved variables, each with its new name when one is given,
+/// checked: valid, not taken and not given twice.
+pub(crate) fn saved(
+    data: &Dataset,
+    options: &[(&str, &str)],
+    flags: &[bool],
+    names: &[String],
+) -> Result<Vec<String>, String> {
+    let mut out = Vec::new();
+    let mut given: Vec<&str> = Vec::new();
+    for (i, (keyword, _)) in options.iter().enumerate() {
+        if !flags[i] {
+            continue;
+        }
+        let name = names[i].trim();
+        if name.is_empty() {
+            out.push(keyword.to_string());
+            continue;
+        }
+        // a scratch name is valid elsewhere, but the command cannot save one
+        if !is_valid_name(name) || name.starts_with('#') {
+            return Err(format!("{name} cannot name a variable"));
+        }
+        if data.variable(name).is_ok() {
+            return Err(format!("{name} is already a variable"));
+        }
+        if given.iter().any(|g| g.eq_ignore_ascii_case(name)) {
+            return Err(format!("{name} names two saved variables"));
+        }
+        given.push(name);
+        out.push(format!("{keyword}({name})"));
+    }
+    Ok(out)
+}
+
 impl KaplanMeier {
     pub fn syntax(&self, data: &Dataset) -> Result<String, String> {
         let time = self.time.trim();
@@ -135,28 +205,14 @@ impl KaplanMeier {
             return Err("choose the status variable".into());
         }
         numeric(data, [&self.time])?;
-        let string = match data.variable(status) {
-            Ok(v) => v.is_string(),
-            Err(_) => return Err(format!("{status} is no longer a variable")),
-        };
-        let event = if self.event_range {
-            if string {
-                return Err(format!(
-                    "{status} is a string: give its event values, not a range"
-                ));
-            }
-            let from = parse(&self.event_from, "the start of the event range")?;
-            let to = parse(&self.event_to, "the end of the event range")?;
-            if from > to {
-                return Err("the event range starts above its end".into());
-            }
-            format!("{} THRU {}", number(from), number(to))
-        } else {
-            match values(&self.event_values, string)? {
-                v if v.is_empty() => return Err("give the values that mark the event".into()),
-                v => v,
-            }
-        };
+        let (event, string) = event(
+            data,
+            status,
+            self.event_range,
+            &self.event_values,
+            &self.event_from,
+            &self.event_to,
+        )?;
         let mut text = format!("KM {time}");
         let factor = self.factor.trim();
         if !factor.is_empty() {
@@ -244,32 +300,8 @@ impl KaplanMeier {
         KM_COMPARE[self.compare].0.starts_with("PAIRWISE")
     }
 
-    /// /SAVE with the names given, checked: valid, not taken and not given twice.
     fn save_syntax(&self, data: &Dataset) -> Result<String, String> {
-        let mut out = Vec::new();
-        let mut given: Vec<&str> = Vec::new();
-        for (i, (keyword, _)) in KM_SAVE.iter().enumerate() {
-            if !self.save[i] {
-                continue;
-            }
-            let name = self.save_names[i].trim();
-            if name.is_empty() {
-                out.push(keyword.to_string());
-                continue;
-            }
-            // a scratch name is valid elsewhere, but the command cannot save one
-            if !is_valid_name(name) || name.starts_with('#') {
-                return Err(format!("{name} cannot name a variable"));
-            }
-            if data.variable(name).is_ok() {
-                return Err(format!("{name} is already a variable"));
-            }
-            if given.iter().any(|g| g.eq_ignore_ascii_case(name)) {
-                return Err(format!("{name} names two saved variables"));
-            }
-            given.push(name);
-            out.push(format!("{keyword}({name})"));
-        }
+        let out = saved(data, &KM_SAVE, &self.save, &self.save_names)?;
         Ok(match out.is_empty() {
             true => String::new(),
             false => format!("\n  /SAVE={}", out.join(" ")),

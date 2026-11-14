@@ -61,6 +61,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Proxscal(_)
         | Command::Alscal(_)
         | Command::Discriminant(_)
+        | Command::Coxreg(_)
         | Command::Anova(_)
         | Command::QuickCluster(_)
         | Command::Tree(_)
@@ -121,7 +122,9 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Csplan(_)
         | Command::Output(_)
         | Command::Finish
-        | Command::ClearTransformations => Stage::Neutral,
+        | Command::ClearTransformations
+        | Command::TimeProgram
+        | Command::ClearTimeProgram => Stage::Neutral,
         _ => Stage::Change,
     }
 }
@@ -204,7 +207,11 @@ impl Engine {
             }
         }
         if let Some(clean) = self.clean.as_mut()
-            && !matches!(command, Command::Leave(_))
+            // LEAVE runs the list again, where a time program would start afresh and empty
+            && !matches!(
+                command,
+                Command::Leave(_) | Command::TimeProgram | Command::ClearTimeProgram
+            )
         {
             clean.commands.push(command.clone());
         }

@@ -11,6 +11,7 @@ use crate::analyze_dialogs::{
     Tree,
 };
 use crate::correspondence_dialog::{Correspondence, Role, TableVariable};
+use crate::cox_dialog::Cox;
 use crate::cs_model_dialog::{Held, OddsRatio, SampleModel};
 use crate::data_dialogs::{
     Aggregate, AggregateTo, Aggregated, ExportData, ImportData, Make, MergeFiles, Mrsets,
@@ -25,9 +26,10 @@ use crate::dialogs::{
 use crate::genlin_dialog::GeneralizedLinear;
 use crate::graph_dialogs::{ChartBuilder, ChartKind, ProbabilityPlot, RocCurve};
 use crate::model_dialogs::{
-    Categorical, Discriminant, FactorAnalysis, FactorContrast, Hierarchical, KMeans, Logistic,
-    MColumn, RepeatedMeasures, Solutions, Univariate, WithinFactor,
+    Categorical, ClusterMeasure, Discriminant, FactorAnalysis, FactorContrast, Hierarchical,
+    KMeans, Logistic, MColumn, RepeatedMeasures, Solutions, Univariate, WithinFactor,
 };
+use crate::proximities_dialog::Distances;
 use crate::stats_dialogs::{Block, NparKind, NparTests, PartialCorr, Regression, Reliability};
 use crate::survival_dialog::{KaplanMeier, LifeTables};
 use std::path::Path;
@@ -248,6 +250,10 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             column: table_variable("q6_mention1", "1", "6", &[]),
             ..Default::default()
         })),
+        Dialog::Advanced(Advanced::Distances(Distances {
+            variables: v(&["age", "monthly_spend"]),
+            ..Default::default()
+        })),
         Dialog::Advanced(Advanced::LifeTables(LifeTables {
             times: v(&["age"]),
             intervals: vec![(s("60"), s("10"))],
@@ -261,6 +267,16 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             event_values: s("1"),
             ..Default::default()
         })),
+        Dialog::Advanced(Advanced::Cox(Box::new(Cox {
+            time: s("age"),
+            status: s("q5_1"),
+            event_values: s("1"),
+            blocks: vec![Block {
+                variables: v(&["monthly_spend"]),
+                method: 0,
+            }],
+            ..Default::default()
+        }))),
         // the plan before the analyses that read it
         Dialog::Advanced(Advanced::Plan(SamplePlan {
             path: plan.clone(),
@@ -763,9 +779,10 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             variables: v(&["age", "monthly_spend"]),
             label: s("plan"),
             method: 6,
-            interval: 7,
-            power: s("2"),
-            root: s("2"),
+            measure: ClusterMeasure {
+                interval: 7,
+                ..Default::default()
+            },
             schedule: true,
             proximity: true,
             membership: Solutions {
@@ -780,21 +797,24 @@ fn maximal(out: &Path) -> Vec<Dialog> {
                 min: String::new(),
                 max: String::new(),
             },
-            ..Default::default()
         }),
         Dialog::Hierarchical(Hierarchical {
             variables: v(&["q5_1", "q5_2", "q5_3"]),
-            data: 2,
-            // Hamann: the ratios after it are undefined for a pair of cases with no 1 at all
-            binary: 7,
-            present: s("1"),
-            absent: s("0"),
+            measure: ClusterMeasure {
+                data: 2,
+                // Hamann: the ratios after it are undefined for a pair of cases with no 1 at all
+                binary: 7,
+                ..Default::default()
+            },
             ..Default::default()
         }),
         Dialog::Hierarchical(Hierarchical {
             variables: v(&["q6_mention1", "q6_mention2"]),
-            data: 1,
-            counts: 1,
+            measure: ClusterMeasure {
+                data: 1,
+                counts: 1,
+                ..Default::default()
+            },
             ..Default::default()
         }),
         Dialog::Discriminant(Discriminant {
@@ -1110,6 +1130,69 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             ndim_first: s("1"),
             ndim_last: s("3"),
         })),
+        // between variables, standardized within each case, every change of the results
+        Dialog::Advanced(Advanced::Distances(Distances {
+            variables: v(&["age", "monthly_spend", "q2_recommend"]),
+            id: s("resp_id"),
+            between_variables: true,
+            measure: ClusterMeasure {
+                interval: 3,
+                ..Default::default()
+            },
+            standardize: 1,
+            by_case: true,
+            transforms: [true; 3],
+            print: false,
+            include: true,
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Distances(Distances {
+            variables: v(&["age", "monthly_spend"]),
+            id: s("resp_id"),
+            measure: ClusterMeasure {
+                interval: 6,
+                power: s("3"),
+                ..Default::default()
+            },
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Distances(Distances {
+            variables: v(&["age", "monthly_spend"]),
+            measure: ClusterMeasure {
+                interval: 7,
+                power: s("3"),
+                root: s("1.5"),
+                ..Default::default()
+            },
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Distances(Distances {
+            variables: v(&["q6_mention1", "q6_mention2"]),
+            between_variables: true,
+            measure: ClusterMeasure {
+                data: 1,
+                counts: 0,
+                ..Default::default()
+            },
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Distances(Distances {
+            variables: v(&["q5_1", "q5_2", "q5_3"]),
+            measure: ClusterMeasure {
+                data: 2,
+                binary: 2,
+                present: s("0"),
+                absent: s("1"),
+                ..Default::default()
+            },
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Distances(Distances {
+            variables: v(&["age", "monthly_spend"]),
+            matrix: 2,
+            dataset: s("gaps"),
+            ..Default::default()
+        })),
         // two time variables sharing one status, two factors and two interval periods
         Dialog::Advanced(Advanced::LifeTables(LifeTables {
             times: v(&["age", "monthly_spend"]),
@@ -1148,6 +1231,90 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             plots: [true; 4],
             ..Default::default()
         })),
+        // an entered block, then a forward LR block with an interaction, within strata
+        Dialog::Advanced(Advanced::Cox(Box::new(Cox {
+            time: s("age"),
+            status: s("q5_1"),
+            event_values: s("1"),
+            blocks: vec![
+                Block {
+                    variables: v(&["monthly_spend"]),
+                    method: 0,
+                },
+                Block {
+                    variables: v(&["q2_recommend", "monthly_spend BY q2_recommend"]),
+                    method: 2,
+                },
+            ],
+            strata: s("gender"),
+            ..Default::default()
+        }))),
+        // a categorical covariate with simple contrasts against the first category, every plot,
+        // a line per region and spending held at a value
+        Dialog::Advanced(Advanced::Cox(Box::new(Cox {
+            time: s("age"),
+            status: s("q1_satisfaction"),
+            event_range: true,
+            event_from: s("4"),
+            event_to: s("5"),
+            blocks: vec![Block {
+                variables: v(&["monthly_spend", "region"]),
+                method: 0,
+            }],
+            categorical: vec![Categorical {
+                name: s("region"),
+                contrast: 1,
+                first: true,
+            }],
+            plots: [true; 4],
+            pattern_by: s("region"),
+            pattern: vec![(s("monthly_spend"), s("50"))],
+            ..Default::default()
+        }))),
+        // every saved variable, some under names of their own, and every option
+        Dialog::Advanced(Advanced::Cox(Box::new(Cox {
+            time: s("age"),
+            status: s("q5_1"),
+            event_values: s("1"),
+            blocks: vec![Block {
+                variables: v(&["monthly_spend", "q2_recommend"]),
+                method: 0,
+            }],
+            save: [true; 7],
+            save_names: [
+                s("surv"),
+                s("surv_se"),
+                String::new(),
+                String::new(),
+                s("part"),
+                String::new(),
+                s("risk"),
+            ],
+            ci: true,
+            ci_level: s("90"),
+            correlations: true,
+            baseline: true,
+            last_step: true,
+            entry: s("0.1"),
+            removal: s("0.2"),
+            iterations: s("30"),
+            include: true,
+            ..Default::default()
+        }))),
+        // a covariate that grows with time
+        Dialog::Advanced(Advanced::Cox(Box::new(Cox {
+            time: s("age"),
+            status: s("q5_1"),
+            event_values: s("1"),
+            blocks: vec![Block {
+                variables: v(&["q2_recommend"]),
+                method: 0,
+            }],
+            save: [false, false, false, false, false, true, false],
+            save_names: Default::default(),
+            time_expression: s("monthly_spend * LN(T_ + 1)"),
+            ..Default::default()
+        }))),
         Dialog::Advanced(Advanced::Plan(SamplePlan {
             path: plan.clone(),
             weight: s("weight"),
@@ -1502,6 +1669,216 @@ fn walk(dialogs: Vec<Dialog>) {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n\n"));
+}
+
+/// Invented ratings of how unlike five fruits taste, one lower triangle per judge.
+const FRUIT_MATRICES: &str = "DATA LIST LIST /judge apple pear plum cherry grape.
+BEGIN DATA
+1 0 . . . .
+1 2 0 . . .
+1 5 4 0 . .
+1 6 6 3 0 .
+1 7 8 4 2 0
+2 0 . . . .
+2 3 0 . . .
+2 4 5 0 . .
+2 7 5 2 0 .
+2 8 7 5 3 0
+3 0 . . . .
+3 1 0 . . .
+3 6 3 0 . .
+3 5 7 4 0 .
+3 9 6 3 1 0
+END DATA.";
+
+/// The ratings of the first two judges, one pair of fruits per case, with a weight.
+const FRUIT_PAIRS: &str = "DATA LIST LIST /first second judge score trust.
+BEGIN DATA
+2 1 1 2 1
+3 1 1 5 2
+3 2 1 4 1
+4 1 1 6 1
+4 2 1 6 2
+4 3 1 3 1
+5 1 1 7 1
+5 2 1 8 1
+5 3 1 4 2
+5 4 1 2 1
+2 1 2 3 2
+3 1 2 4 1
+3 2 2 5 1
+4 1 2 7 1
+4 2 2 5 1
+4 3 2 2 2
+5 1 2 8 1
+5 2 2 7 1
+5 3 2 5 1
+5 4 2 3 2
+END DATA.
+VALUE LABELS judge 1 'ann' 2 'ben'.";
+
+/// Invented scores of six shoppers on five fruits, to make distances of.
+const FRUIT_SCORES: &str = "DATA LIST LIST /apple pear plum cherry grape.
+BEGIN DATA
+4 3 2 5 1
+5 4 1 4 2
+2 2 4 3 5
+3 4 3 2 4
+1 2 5 3 4
+4 5 2 4 2
+END DATA.";
+
+/// The scaling dialogs on invented proximities: the syntax is as expected, parses and runs.
+#[test]
+fn the_scaling_dialogs_write_syntax_that_runs() {
+    use crate::mds_dialog::{Alscal, Proxscal};
+    let out = folder("walk-scaling");
+    let common = out.join("common.sav").to_string_lossy().into_owned();
+    let fruits = v(&["apple", "pear", "plum", "cherry", "grape"]);
+    let cases: Vec<(&str, Advanced, String)> = vec![
+        (
+            FRUIT_MATRICES,
+            Advanced::Proxscal(Box::new(Proxscal {
+                variables: fruits.clone(),
+                source: s("judge"),
+                ..Default::default()
+            })),
+            s("PROXSCAL apple pear plum cherry grape\n  /TABLE=judge."),
+        ),
+        (
+            FRUIT_PAIRS,
+            Advanced::Proxscal(Box::new(Proxscal {
+                format: 1,
+                variables: v(&["score"]),
+                row: s("first"),
+                column: s("second"),
+                source: s("judge"),
+                weights: v(&["trust"]),
+                model: 1,
+                transformation: 3,
+                degree: s("3"),
+                knots: s("2"),
+                plot: [false, true, true, true, false, false],
+                plot_sources: [v(&["ben"]), Vec::new(), Vec::new()],
+                ..Default::default()
+            })),
+            s(
+                "PROXSCAL score\n  /TABLE=first BY second BY judge\n  /WEIGHTS=trust\n  \
+               /TRANSFORMATION=SPLINE DEGREE=3 INKNOT=2\n  /MODEL=WEIGHTED\n  \
+               /PLOT=COMMON WEIGHTS INDIVIDUAL(ben).",
+            ),
+        ),
+        (
+            FRUIT_MATRICES,
+            Advanced::Proxscal(Box::new(Proxscal {
+                variables: fruits.clone(),
+                source: s("judge"),
+                shape: 2,
+                start: 1,
+                unconditional: true,
+                transformation: 2,
+                untie: true,
+                model: 3,
+                rank: s("2"),
+                max_dimensions: s("3"),
+                max_iterations: s("200"),
+                diff_stress: s("0.00001"),
+                acceleration: false,
+                print: [true, false, true, true, true, true, true, false, true, true],
+                plot: [true, true, false, false, true, true],
+                plot_sources: [Vec::new(), Vec::new(), v(&["SRC_2"])],
+                outfiles: [common.clone(), String::new(), String::new(), String::new()],
+                ..Default::default()
+            })),
+            format!(
+                "PROXSCAL apple pear plum cherry grape\n  /TABLE=judge\n  /SHAPE=BOTH\n  \
+                 /INITIAL=TORGERSON\n  /CONDITION=UNCONDITIONAL\n  \
+                 /TRANSFORMATION=ORDINAL(UNTIE)\n  /MODEL=REDUCED(2)\n  /ACCELERATION=NONE\n  \
+                 /CRITERIA=DIMENSIONS(2,3) MAXITER(200) DIFFSTRESS(0.00001)\n  \
+                 /PRINT=INPUT HISTORY STRESS DECOMPOSITION COMMON DISTANCES INDIVIDUAL \
+                 TRANSFORMATIONS\n  /PLOT=STRESS COMMON TRANSFORMATIONS(ALL) RESIDUALS(SRC_2)\n  \
+                 /OUTFILE=COMMON('{common}')."
+            ),
+        ),
+        (
+            FRUIT_MATRICES,
+            Advanced::Alscal(Alscal {
+                variables: fruits.clone(),
+                ..Default::default()
+            }),
+            s("ALSCAL VARIABLES=apple pear plum cherry grape."),
+        ),
+        (
+            FRUIT_SCORES,
+            Advanced::Alscal(Alscal {
+                from_data: true,
+                variables: fruits.clone(),
+                standardize: 1,
+                measure: 1,
+                plot: 1,
+                ..Default::default()
+            }),
+            s(
+                "DATASET DECLARE alscal_distances.\nPROXIMITIES apple pear plum cherry grape\n  \
+               /VIEW=VARIABLE\n  /STANDARDIZE=VARIABLE Z\n  /MEASURE=SEUCLID\n  /PRINT=NONE\n  \
+               /MATRIX=OUT(alscal_distances).\nALSCAL\n  /PLOT=DEFAULT\n  \
+               /MATRIX=IN(alscal_distances).\nDATASET CLOSE alscal_distances.",
+            ),
+        ),
+        // the matrix names the shoppers, and ALSCAL without VARIABLES takes them all
+        (
+            FRUIT_SCORES,
+            Advanced::Alscal(Alscal {
+                from_data: true,
+                between_cases: true,
+                variables: fruits.clone(),
+                ..Default::default()
+            }),
+            s(
+                "DATASET DECLARE alscal_distances.\nPROXIMITIES apple pear plum cherry grape\n  \
+               /PRINT=NONE\n  /MATRIX=OUT(alscal_distances).\nALSCAL\n  \
+               /MATRIX=IN(alscal_distances).\nDATASET CLOSE alscal_distances.",
+            ),
+        ),
+        (
+            FRUIT_MATRICES,
+            Advanced::Alscal(Alscal {
+                variables: fruits,
+                level: 1,
+                indscal: true,
+                negative: true,
+                max_dimensions: s("3"),
+                print_header: true,
+                plot: 2,
+                ..Default::default()
+            }),
+            s(
+                "ALSCAL VARIABLES=apple pear plum cherry grape\n  /LEVEL=INTERVAL(1)\n  \
+               /MODEL=INDSCAL\n  /CRITERIA=NEGATIVE DIMENS(2,3)\n  /PRINT=HEADER\n  /PLOT=ALL.",
+            ),
+        ),
+    ];
+    for (program, dialog, expected) in cases {
+        let mut session = statscraft_engine::session::Session::default();
+        session.run(program, None).unwrap();
+        let data = session.dataset().unwrap().clone();
+        let syntax = Dialog::Advanced(dialog).syntax(&data).unwrap();
+        assert_eq!(syntax, expected);
+        let (_, errors) = statscraft_syntax::parse(&syntax);
+        assert!(errors.is_empty(), "{syntax}\n{errors:?}");
+        let result = session.run(&syntax, None).unwrap();
+        assert!(
+            result.commands.iter().any(|c| !c.tables.is_empty()),
+            "{syntax}"
+        );
+        // nothing asked for was dropped, such as a source to plot or a model
+        let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
+        assert!(warnings.is_empty(), "{syntax}\n{warnings:?}");
+        // the distances made from the data leave the open data active
+        let after = session.dataset().unwrap();
+        assert_eq!(after.variable_count(), data.variable_count(), "{syntax}");
+    }
+    std::fs::remove_dir_all(out).unwrap();
 }
 
 /// A folder of its own for the files a test writes.

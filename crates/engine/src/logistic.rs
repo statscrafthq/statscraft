@@ -26,25 +26,21 @@
 //! - Leverage h = v x'(X'CVX)^-1 x with v = pi (1 - pi); deviance, studentized, logit and
 //!   normalized residuals, Cook's analog z^2 h / (1 - h) and DFBETA as the manual gives them.
 
-use crate::contrast::coding;
 use crate::crosstabs::{Key, categories};
 use crate::descriptives::{case_weights, number};
 use crate::dist::{chi_square_p, normal_quantile};
 use crate::matrix::{Matrix, inverse};
+use crate::model_terms::{
+    Covariates, TermInfo, clone_key, distinct_terms, listed_terms, method_name, sorted, step_cell,
+    wald,
+};
 use crate::npar_tests::text;
 use crate::regression::{plain, table};
 use crate::{Cell, Engine, Error, Table};
-use statscraft_data::{Measure, Values, Variable};
+use statscraft_data::{Measure, Values};
 use statscraft_syntax::{
     Contrast, Logistic, LogisticCriteria, LogisticMethodKind, LogisticTemp, Removal,
 };
-
-/// One term of the model: a variable or an interaction, with its design columns.
-struct TermInfo {
-    label: String,
-    columns: Vec<usize>,
-    categorical: bool,
-}
 
 /// The cases with valid independent variables: their design rows, dependent (NaN where missing)
 /// and case weight.
@@ -285,65 +281,12 @@ fn score_test(design: &Design, fit: &Fit, extra: &[usize]) -> f64 {
     s.max(0.0)
 }
 
-/// The Wald statistic of the coefficients at `positions`.
-fn wald(fit: &Fit, positions: &[usize]) -> f64 {
-    let sub: Matrix = positions
-        .iter()
-        .map(|&r| positions.iter().map(|&s| fit.cov[r][s]).collect())
-        .collect();
-    let beta: Vec<f64> = positions.iter().map(|&r| fit.b[r]).collect();
-    match inverse(&sub) {
-        Some((inv, _)) => (0..beta.len())
-            .map(|r| {
-                (0..beta.len())
-                    .map(|s| beta[r] * inv[r][s] * beta[s])
-                    .sum::<f64>()
-            })
-            .sum(),
-        None => f64::NAN,
-    }
-}
-
-/// The columns of `wanted` that are not linear combinations of the ones before them (and of
-/// the constant): a column whose share not explained by them, relative to its own sum of
-/// squares, is below `eps` is redundant.
+/// The columns of `wanted` that are not redundant among the cases of the fit.
 fn independent(design: &Design, wanted: &[usize], constant: bool, eps: f64) -> Vec<usize> {
-    let p = wanted.len();
-    let rows: Vec<usize> = (0..design.x.len()).filter(|&i| design.fitted(i)).collect();
-    let w: f64 = rows.iter().map(|&i| design.c[i]).sum();
-    let mean: Vec<f64> = wanted
-        .iter()
-        .map(|&j| {
-            if constant {
-                rows.iter()
-                    .map(|&i| design.c[i] * design.x[i][j])
-                    .sum::<f64>()
-                    / w
-            } else {
-                0.0
-            }
-        })
+    let c: Vec<f64> = (0..design.x.len())
+        .map(|i| if design.fitted(i) { design.c[i] } else { 0.0 })
         .collect();
-    let mut m = vec![vec![0.0; p]; p];
-    for &i in &rows {
-        for r in 0..p {
-            for s in 0..p {
-                m[r][s] += design.c[i]
-                    * (design.x[i][wanted[r]] - mean[r])
-                    * (design.x[i][wanted[s]] - mean[s]);
-            }
-        }
-    }
-    let diag: Vec<f64> = (0..p).map(|r| m[r][r]).collect();
-    let mut kept = Vec::new();
-    for k in 0..p {
-        if m[k][k] <= eps * diag[k] || m[k][k] <= 0.0 {
-            continue;
-        }
-        crate::matrix::sweep(&mut m, k);
-        kept.push(wanted[k]);
-    }
-    kept
+    crate::model_terms::independent(&design.x, &c, wanted, constant, eps)
 }
 
 /// One step of a block: the model after it and what it changed.
@@ -373,7 +316,7 @@ fn removal(
         .collect();
     let df = positions.len();
     match kind {
-        Removal::Wald => (wald(fit, &positions), df, f64::NAN),
+        Removal::Wald => (wald(&fit.b, &fit.cov, &positions), df, f64::NAN),
         Removal::Lr => {
             let reduced = self::fit(design, &rest, fit.constant, criteria);
             (2.0 * (fit.ll - reduced.ll), df, reduced.ll)
@@ -410,28 +353,6 @@ fn removal(
     }
 }
 
-fn method_name(kind: LogisticMethodKind) -> String {
-    let removal = |r: Removal| match r {
-        Removal::Cond => "Conditional",
-        Removal::Lr => "Likelihood Ratio",
-        Removal::Wald => "Wald",
-    };
-    match kind {
-        LogisticMethodKind::Enter => "Enter".into(),
-        LogisticMethodKind::Fstep(r) => format!("Forward Stepwise ({})", removal(r)),
-        LogisticMethodKind::Bstep(r) => format!("Backward Stepwise ({})", removal(r)),
-    }
-}
-
-fn same_term(a: &[String], b: &[String]) -> bool {
-    let norm = |t: &[String]| {
-        let mut v: Vec<String> = t.iter().map(|s| s.to_lowercase()).collect();
-        v.sort();
-        v
-    };
-    norm(a) == norm(b)
-}
-
 /// The value of a numeric or string variable at a case, as a category key.
 fn key_text(key: &Key) -> String {
     match key {
@@ -456,7 +377,12 @@ struct CaseStats {
 
 fn case_stats(design: &Design, fit: &Fit, i: usize, cut: f64) -> CaseStats {
     let pi = fit.pi(design, i);
-    let pgroup = f64::from(u8::from(pi >= cut));
+    // no prediction, no group
+    let pgroup = if pi.is_nan() {
+        f64::NAN
+    } else {
+        f64::from(u8::from(pi >= cut))
+    };
     let nan = f64::NAN;
     if !design.fitted(i) {
         return CaseStats {
@@ -542,64 +468,28 @@ impl Engine {
         let mut charts = Vec::new();
         let dependent = data.variable(&command.dependent)?;
         // the terms: WITH first, then those named only on a METHOD
-        let mut term_vars: Vec<Vec<String>> = Vec::new();
-        for term in command
-            .terms
-            .iter()
-            .chain(command.methods.iter().flat_map(|m| m.terms.iter()))
-        {
-            if !term_vars.iter().any(|t| same_term(t, term)) {
-                term_vars.push(term.clone());
-            }
-        }
-        let mut variables: Vec<Variable> = Vec::new();
-        for name in term_vars.iter().flatten() {
-            let v = data.variable(name)?;
-            if v.name().eq_ignore_ascii_case(dependent.name()) {
-                return Err(Error(format!(
-                    "{} is the dependent variable and cannot be an independent one",
-                    v.name()
-                )));
-            }
-            if !variables.iter().any(|w| w.name() == v.name()) {
-                variables.push(v);
-            }
-        }
-        let is_categorical = |v: &Variable| {
-            v.is_string()
-                || command
-                    .categorical
-                    .iter()
-                    .any(|c| c.eq_ignore_ascii_case(v.name()))
-        };
-        for name in &command.categorical {
-            if !variables
+        let term_vars = distinct_terms(
+            command
+                .terms
                 .iter()
-                .any(|v| v.name().eq_ignore_ascii_case(name))
-            {
-                warnings.push(format!(
-                    "{name} is on CATEGORICAL but in no term of the model; it is ignored"
-                ));
-            }
-        }
-        for (name, _) in &command.contrasts {
-            if !variables
-                .iter()
-                .any(|v| v.name().eq_ignore_ascii_case(name) && is_categorical(v))
-            {
-                return Err(Error(format!(
-                    "CONTRAST names {name}, which is not a categorical variable of the model"
-                )));
-            }
-        }
+                .chain(command.methods.iter().flat_map(|m| m.terms.iter())),
+        );
+        let mut covariates = Covariates::resolve(
+            data,
+            &term_vars,
+            &[(
+                dependent.name(),
+                "is the dependent variable and cannot be an independent one",
+            )],
+            &command.categorical,
+            &command.contrasts,
+            command.include,
+            &mut warnings,
+        )?;
         // the cases: valid on every independent variable, with a positive weight
         let cases = data.case_count();
         let weights = case_weights(data)?;
         let weight = |k: usize| weights.as_ref().map_or(1.0, |w| w[k]);
-        let keys: Vec<Vec<Option<Key>>> = variables
-            .iter()
-            .map(|v| categories(v, command.include))
-            .collect();
         let dep_keys = categories(&dependent, command.include);
         let dep_key = |k: usize| -> Option<Key> {
             dep_keys[k].as_ref().map(|key| match key {
@@ -607,9 +497,7 @@ impl Engine {
                 other => clone_key(other),
             })
         };
-        let predictors_valid: Vec<bool> = (0..cases)
-            .map(|k| keys.iter().all(|col| col[k].is_some()))
-            .collect();
+        let predictors_valid: Vec<bool> = (0..cases).map(|k| covariates.valid(k)).collect();
         let in_fit: Vec<bool> = (0..cases)
             .map(|k| predictors_valid[k] && dep_keys[k].is_some() && weight(k) > 0.0)
             .collect();
@@ -629,95 +517,15 @@ impl Engine {
                 values.len()
             )));
         }
-        // the categories of each categorical variable and their codings
-        let mut codings: Vec<Option<(Vec<Key>, Matrix)>> = Vec::new();
-        for (v, col) in variables.iter().zip(&keys) {
-            if !is_categorical(v) {
-                codings.push(None);
-                continue;
-            }
-            let mut levels: Vec<Key> = Vec::new();
-            for k in (0..cases).filter(|&k| in_fit[k]) {
-                let key = col[k].as_ref().expect("valid");
-                if !levels.iter().any(|l| l.compare(key).is_eq()) {
-                    levels.push(clone_key(key));
-                }
-            }
-            levels.sort_by(|a, b| a.compare(b));
-            if levels.len() < 2 {
-                return Err(Error(format!(
-                    "the categorical variable {} has fewer than two categories among the cases used",
-                    v.name()
-                )));
-            }
-            let kind = command
-                .contrasts
-                .iter()
-                .find(|(n, _)| n.eq_ignore_ascii_case(v.name()))
-                .map_or(Contrast::Indicator(None), |(_, c)| c.clone());
-            let matrix = coding(&kind, levels.len())
-                .map_err(|e| Error(format!("CONTRAST({}): {e}", v.name())))?;
-            codings.push(Some((levels, matrix)));
-        }
-        let var_index = |name: &str| {
-            variables
-                .iter()
-                .position(|v| v.name().eq_ignore_ascii_case(name))
-                .expect("collected")
-        };
-        // the design columns of every term
-        let mut names: Vec<String> = Vec::new();
-        let mut terms: Vec<TermInfo> = Vec::new();
-        // per column: for each variable of its term, which coding column (None: the value)
-        let mut recipes: Vec<Vec<(usize, Option<usize>)>> = Vec::new();
-        for term in &term_vars {
-            let parts: Vec<usize> = term.iter().map(|n| var_index(n)).collect();
-            let mut combos: Vec<Vec<(usize, Option<usize>)>> = vec![Vec::new()];
-            for &v in &parts {
-                let choices: Vec<Option<usize>> = match &codings[v] {
-                    Some((_, m)) => (0..m[0].len()).map(Some).collect(),
-                    None => vec![None],
-                };
-                combos = combos
-                    .into_iter()
-                    .flat_map(|prefix| {
-                        choices.iter().map(move |&c| {
-                            let mut next = prefix.clone();
-                            next.push((v, c));
-                            next
-                        })
-                    })
-                    .collect();
-            }
-            let mut columns = Vec::new();
-            for combo in combos {
-                let name = combo
-                    .iter()
-                    .map(|&(v, c)| match c {
-                        Some(c) => format!("{}({})", shown.variable(&variables[v]), c + 1),
-                        None => shown.variable(&variables[v]),
-                    })
-                    .collect::<Vec<_>>()
-                    .join(" by ");
-                columns.push(names.len());
-                names.push(name);
-                recipes.push(combo);
-            }
-            let categorical = parts.iter().any(|&v| codings[v].is_some());
-            terms.push(TermInfo {
-                label: parts
-                    .iter()
-                    .map(|&v| shown.variable(&variables[v]))
-                    .collect::<Vec<_>>()
-                    .join(" by "),
-                columns,
-                categorical,
-            });
-        }
-        let numeric = |v: &Variable, k: usize| match v.values() {
-            Values::Numeric(values) => values.get(k).unwrap_or(f64::NAN),
-            Values::String(_) => f64::NAN,
-        };
+        covariates.code(
+            &term_vars,
+            &in_fit,
+            &command.contrasts,
+            &Contrast::Indicator(None),
+            &shown,
+        )?;
+        let names = covariates.names.clone();
+        let terms = &covariates.terms;
         let mut design = Design {
             case: Vec::new(),
             x: Vec::new(),
@@ -726,25 +534,7 @@ impl Engine {
             names: names.clone(),
         };
         for k in (0..cases).filter(|&k| predictors_valid[k] && weight(k) > 0.0) {
-            let row: Vec<f64> = recipes
-                .iter()
-                .map(|recipe| {
-                    recipe
-                        .iter()
-                        .map(|&(v, c)| match (c, &codings[v]) {
-                            (Some(c), Some((levels, m))) => {
-                                let key = keys[v][k].as_ref().expect("valid");
-                                let at = levels
-                                    .iter()
-                                    .position(|l| l.compare(key).is_eq())
-                                    .expect("a category of the analysis");
-                                m[at][c]
-                            }
-                            _ => numeric(&variables[v], k),
-                        })
-                        .product()
-                })
-                .collect();
+            let row = covariates.row(k);
             design.case.push(k);
             design.x.push(row);
             design.y.push(if in_fit[k] {
@@ -815,49 +605,18 @@ impl Engine {
                 .collect(),
             None,
         ));
-        if codings.iter().any(Option::is_some) {
-            let width = codings
-                .iter()
-                .flatten()
-                .map(|(_, m)| m[0].len())
-                .max()
-                .unwrap_or(0);
-            let mut columns = plain(&["", "", "Frequency"]);
-            columns.extend((1..=width).map(|j| ("Parameter coding".to_string(), format!("({j})"))));
-            let mut rows = Vec::new();
-            for (v, coded) in variables.iter().zip(&codings) {
-                let Some((levels, m)) = coded else { continue };
-                for (at, level) in levels.iter().enumerate() {
-                    let frequency: f64 = (0..design.x.len())
-                        .filter(|&i| design.fitted(i))
-                        .filter(|&i| {
-                            keys[var_index(v.name())][design.case[i]]
-                                .as_ref()
-                                .is_some_and(|k| k.compare(level).is_eq())
-                        })
-                        .map(|i| design.c[i])
-                        .sum();
-                    let mut row = vec![
-                        if at == 0 {
-                            text(shown.variable(v))
-                        } else {
-                            Cell::Empty
-                        },
-                        text(shown.value(v, level)),
-                        Cell::Number(frequency),
-                    ];
-                    row.extend((0..width).map(|j| number(m[at].get(j).copied())));
-                    rows.push(row);
-                }
-            }
-            tables.push(table(
-                "Categorical Variables Codings",
-                2,
-                columns,
-                rows,
-                None,
-            ));
-        }
+        tables.extend(covariates.codings_table(
+            "Categorical Variables Codings",
+            &shown,
+            |v, level| {
+                (0..design.x.len())
+                    .filter(|&i| {
+                        design.fitted(i) && covariates.level(v, design.case[i]) == Some(level)
+                    })
+                    .map(|i| design.c[i])
+                    .sum()
+            },
+        ));
 
         // Block 0
         let initial = fit(&design, &[], constant, &criteria);
@@ -871,7 +630,7 @@ impl Engine {
         };
         let context = Context {
             design: &design,
-            terms: &terms,
+            terms,
             command,
             dep_label: &dep_label,
             initial_ll: step0.fit.ll,
@@ -947,7 +706,8 @@ impl Engine {
                             .collect();
                         model.extend(&added);
                         model.sort_unstable();
-                        tried.push(sorted(&model));
+                        // removing back to the block's starting model is no cycle
+                        tried = vec![sorted(&model)];
                         let fitted = fit_model(&model, &mut warnings, &mut seen_columns);
                         steps.push(Step {
                             model: model.clone(),
@@ -969,7 +729,7 @@ impl Engine {
                                 .iter()
                                 .map(|&t| {
                                     let (s, df, _) =
-                                        removal(&design, current, &terms, t, kind, &criteria);
+                                        removal(&design, current, terms, t, kind, &criteria);
                                     (t, chi_square_p(s, df as f64))
                                 })
                                 .filter(|(_, p)| p.is_finite())
@@ -1138,7 +898,7 @@ impl Engine {
                 for &(n, s) in &shown {
                     let mut first = true;
                     for &t in eligible.iter().filter(|t| s.model.contains(t)) {
-                        let (chi, df, ll) = removal(&design, &s.fit, &terms, t, kind, &criteria);
+                        let (chi, df, ll) = removal(&design, &s.fit, terms, t, kind, &criteria);
                         rows.push(vec![
                             if first {
                                 text(format!("Step {n}"))
@@ -1332,8 +1092,10 @@ impl Engine {
                     {
                         let texts: Vec<String> = (0..cases)
                             .map(|k| match row_of[k] {
-                                Some(i) => key_text(&values[stats[i].pgroup as usize]),
-                                None => String::new(),
+                                Some(i) if stats[i].pgroup.is_finite() => {
+                                    key_text(&values[stats[i].pgroup as usize])
+                                }
+                                _ => String::new(),
                             })
                             .collect();
                         let width = texts.iter().map(String::len).max().unwrap_or(1).max(1);
@@ -1347,6 +1109,7 @@ impl Engine {
                             let s = &stats[i];
                             let v = match temp {
                                 LogisticTemp::Dfbeta => s.dfbeta[*at],
+                                LogisticTemp::Pgroup if s.pgroup.is_nan() => f64::NAN,
                                 LogisticTemp::Pgroup => match &values[s.pgroup as usize] {
                                     Key::Number(n) => *n,
                                     Key::Text(_) => s.pgroup,
@@ -1381,36 +1144,11 @@ impl Engine {
     }
 }
 
-fn clone_key(key: &Key) -> Key {
-    match key {
-        Key::Number(n) => Key::Number(*n),
-        Key::Text(t) => Key::Text(t.clone()),
-    }
-}
-
-fn sorted(model: &[usize]) -> Vec<usize> {
-    let mut v = model.to_vec();
-    v.sort_unstable();
-    v
-}
-
 /// The terms of METHOD number `b`: its list, or every term after WITH.
 fn method_terms(command: &Logistic, b: usize, term_vars: &[Vec<String>]) -> Vec<usize> {
-    let Some(method) = command.methods.get(b) else {
-        return Vec::new();
-    };
-    let list = if method.terms.is_empty() {
-        &command.terms
-    } else {
-        &method.terms
-    };
-    let mut out: Vec<usize> = list
-        .iter()
-        .filter_map(|t| term_vars.iter().position(|u| same_term(u, t)))
-        .collect();
-    out.sort_unstable();
-    out.dedup();
-    out
+    command.methods.get(b).map_or_else(Vec::new, |m| {
+        listed_terms(&m.terms, &command.terms, term_vars)
+    })
 }
 
 /// The columns of a term that would not be redundant next to the model of `fit`.
@@ -1495,14 +1233,6 @@ struct Context<'a> {
 }
 
 impl Context<'_> {
-    fn step_cell(first: bool, n: usize) -> Cell {
-        if first {
-            text(format!("Step {n}"))
-        } else {
-            Cell::Empty
-        }
-    }
-
     fn iteration_history(&self, steps: &[&Step], every: u32, block0: bool, caption: &str) -> Table {
         let width = steps.iter().map(|s| s.fit.parameters()).max().unwrap_or(0);
         let mut columns = plain(&["", "Iteration", "-2 Log likelihood"]);
@@ -1634,7 +1364,7 @@ impl Context<'_> {
             for (observed, count) in counts.iter().enumerate() {
                 let row_total = count[0] + count[1];
                 rows.push(vec![
-                    Self::step_cell(observed == 0, n),
+                    step_cell(observed == 0, n),
                     text((self.dep_label)(observed)),
                     Cell::Number(count[0]),
                     Cell::Number(count[1]),
@@ -1680,7 +1410,7 @@ impl Context<'_> {
                     let se = fit.cov[at][at].sqrt();
                     let w = (b / se).powi(2);
                     let mut row = vec![
-                        Self::step_cell(*first, n),
+                        step_cell(*first, n),
                         text(name),
                         number(Some(b)),
                         number(Some(se)),
@@ -1706,10 +1436,10 @@ impl Context<'_> {
                     .collect();
                 if term.categorical && positions.len() > 1 {
                     let at: Vec<usize> = positions.iter().map(|p| p.1).collect();
-                    let w = wald(fit, &at);
+                    let w = wald(&fit.b, &fit.cov, &at);
                     let df = at.len() as f64;
                     let mut row = vec![
-                        Self::step_cell(first, n),
+                        step_cell(first, n),
                         text(term.label.clone()),
                         Cell::Empty,
                         Cell::Empty,
@@ -1780,7 +1510,7 @@ impl Context<'_> {
             let names = coefficient_names(self.design, &s.fit);
             let cov = &s.fit.cov;
             for (r, name) in names.iter().enumerate() {
-                let mut row = vec![Self::step_cell(r == 0, n), text(name.clone())];
+                let mut row = vec![step_cell(r == 0, n), text(name.clone())];
                 row.extend((0..width).map(|c| {
                     number((c < names.len()).then(|| cov[r][c] / (cov[r][r] * cov[c][c]).sqrt()))
                 }));
@@ -1822,7 +1552,7 @@ impl Context<'_> {
                     let score = score_test(self.design, &s.fit, cols);
                     let df = cols.len() as f64;
                     rows.push(vec![
-                        Self::step_cell(first, n),
+                        step_cell(first, n),
                         text(name),
                         number(Some(score)),
                         Cell::Number(df),
@@ -1887,7 +1617,7 @@ impl Context<'_> {
             ]);
             for (g, &(total, observed, expected)) in groups.iter().enumerate() {
                 contingency.push(vec![
-                    Self::step_cell(g == 0, n),
+                    step_cell(g == 0, n),
                     Cell::Number((g + 1) as f64),
                     number(Some(total - observed)),
                     number(Some(total - expected)),

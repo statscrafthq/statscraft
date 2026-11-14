@@ -303,8 +303,8 @@ pub(crate) fn test_statistic(
     (rank > 0).then_some((chi.max(0.0), rank))
 }
 
-/// The value matches one of the values or ranges of STATUS.
-fn matches(list: &[MissingValue], value: &Key) -> bool {
+/// The value matches one of the values or ranges of STATUS (KM, SURVIVAL and COXREG).
+pub(crate) fn matches(list: &[MissingValue], value: &Key) -> bool {
     list.iter().any(|item| match (item, value) {
         (MissingValue::Value(Value::Number(n)), Key::Number(x)) => n == x,
         (MissingValue::Value(Value::String(s)), Key::Text(x)) => s.trim_end() == x.trim_end(),

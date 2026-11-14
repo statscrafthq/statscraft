@@ -9,22 +9,53 @@ use crate::survival_dialog::{
 use eframe::egui::{self, TextEdit, Ui};
 use statscraft_data::Dataset;
 
+/// The event of a status variable: a list of values or a range.
+pub(crate) fn event_fields(
+    ui: &mut Ui,
+    range: &mut bool,
+    values: &mut String,
+    from: &mut String,
+    to: &mut String,
+) {
+    ui.horizontal(|ui| {
+        ui.radio_value(range, false, "Event values");
+        ui.add_enabled(!*range, TextEdit::singleline(values).desired_width(140.0));
+    });
+    ui.horizontal(|ui| {
+        ui.radio_value(range, true, "Event range from");
+        small_field(ui, *range, from);
+        ui.label("to");
+        small_field(ui, *range, to);
+    });
+}
+
+/// A checkbox and an optional new name for each saved variable.
+pub(crate) fn save_fields(
+    ui: &mut Ui,
+    options: &[(&str, &str)],
+    flags: &mut [bool],
+    names: &mut [String],
+) {
+    for (i, (_, label)) in options.iter().enumerate() {
+        ui.horizontal(|ui| {
+            ui.checkbox(&mut flags[i], *label);
+            ui.label("name");
+            small_field(ui, flags[i], &mut names[i]);
+        });
+    }
+    ui.weak("An empty name gets one made up");
+}
+
 pub fn kaplan_meier(ui: &mut Ui, d: &mut KaplanMeier, picked: &mut Vec<String>) {
     target_one(ui, "Time", &mut d.time, picked);
     target_one(ui, "Status", &mut d.status, picked);
-    ui.horizontal(|ui| {
-        ui.radio_value(&mut d.event_range, false, "Event values");
-        ui.add_enabled(
-            !d.event_range,
-            TextEdit::singleline(&mut d.event_values).desired_width(140.0),
-        );
-    });
-    ui.horizontal(|ui| {
-        ui.radio_value(&mut d.event_range, true, "Event range from");
-        small_field(ui, d.event_range, &mut d.event_from);
-        ui.label("to");
-        small_field(ui, d.event_range, &mut d.event_to);
-    });
+    event_fields(
+        ui,
+        &mut d.event_range,
+        &mut d.event_values,
+        &mut d.event_from,
+        &mut d.event_to,
+    );
     field(ui, "Lost to follow-up (optional)", &mut d.lost, 140.0);
     ui.weak("List values with spaces or commas; a string status takes commas and no range");
     ui.add_space(6.0);
@@ -56,14 +87,7 @@ pub fn kaplan_meier(ui: &mut Ui, d: &mut KaplanMeier, picked: &mut Vec<String>) 
         .on_disabled_hover_text("Choose a factor first");
     });
     egui::CollapsingHeader::new("Save").show(ui, |ui| {
-        for (i, (_, label)) in KM_SAVE.iter().enumerate() {
-            ui.horizontal(|ui| {
-                ui.checkbox(&mut d.save[i], *label);
-                ui.label("name");
-                small_field(ui, d.save[i], &mut d.save_names[i]);
-            });
-        }
-        ui.weak("An empty name gets one made up");
+        save_fields(ui, &KM_SAVE, &mut d.save, &mut d.save_names);
     });
     egui::CollapsingHeader::new("Options").show(ui, |ui| {
         ui.checkbox(&mut d.table, "Survival table");

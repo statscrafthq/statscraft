@@ -40,6 +40,10 @@ pub fn body(
         }
         Advanced::Km(d) => crate::survival_dialog_view::kaplan_meier(ui, d, picked),
         Advanced::LifeTables(d) => crate::survival_dialog_view::life_tables(ui, data, d, picked),
+        Advanced::Distances(d) => crate::proximities_dialog_view::distances(ui, d, picked, folder),
+        Advanced::Proxscal(d) => crate::mds_dialog_view::proxscal(ui, data, d, picked, folder),
+        Advanced::Alscal(d) => crate::mds_dialog_view::alscal(ui, d, picked, folder),
+        Advanced::Cox(d) => crate::cox_dialog_view::cox(ui, data, d, picked),
     }
 }
 

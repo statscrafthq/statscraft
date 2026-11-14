@@ -11,6 +11,7 @@ mod complex_samples;
 mod contrast;
 mod correlations;
 mod correspondence;
+mod coxreg;
 mod crosstabs;
 mod ctables;
 mod data_list;
@@ -48,6 +49,7 @@ mod mds;
 mod means;
 mod merge;
 mod mixed;
+mod model_terms;
 mod mrsets;
 mod mult_response;
 mod mva;
@@ -341,6 +343,12 @@ pub struct Engine {
     collecting: Option<loops::Collecting>,
     /// How many loops are running.
     loop_depth: usize,
+    /// TIME PROGRAM: the transformations that define time-dependent covariates for COXREG.
+    time_program: Option<coxreg::TimeProgram>,
+    /// The time program the running COXREG took up.
+    running_program: Option<coxreg::TimeProgram>,
+    /// The running COXREG failed for a fault in its time program.
+    program_fault: std::cell::Cell<bool>,
     /// The vectors by lower-case name, with their variables.
     vectors: std::collections::HashMap<String, Vec<String>>,
     /// The folder of the syntax file: INSERT and CD start from it. None: the current folder.
@@ -458,6 +466,31 @@ pub(crate) fn expand_in(data: &Dataset, items: &[VarItem]) -> Result<Vec<String>
     Ok(names)
 }
 
+/// The commands that run case by case on the data as they come.
+fn is_transformation(command: &Command) -> bool {
+    matches!(
+        command,
+        Command::Compute { .. }
+            | Command::If { .. }
+            | Command::SelectIf(_)
+            | Command::Recode(_)
+            | Command::Count(_)
+            | Command::String(_)
+            | Command::Numeric(_)
+            | Command::DoIf(_)
+            | Command::ElseIf(_)
+            | Command::Else
+            | Command::EndIf
+            | Command::Break
+            | Command::Vector(_)
+            | Command::VectorAssign { .. }
+            | Command::DoRepeat(_)
+            | Command::Print(_)
+            | Command::PrintSpace(_)
+            | Command::Xsave(_)
+    )
+}
+
 impl Engine {
     pub fn execute(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
         self.warnings.clear();
@@ -477,6 +510,21 @@ impl Engine {
             self.queued.push(command.clone());
             return Ok(Vec::new());
         }
+        // the transformations after TIME PROGRAM, loops among them, wait for COXREG
+        if let Some(program) = self.time_program.as_mut().filter(|p| p.collecting) {
+            if is_transformation(command)
+                || matches!(command, Command::Loop(_) | Command::EndLoop(_))
+            {
+                program.commands.push(command.clone());
+                return Ok(Vec::new());
+            }
+            program.collecting = false;
+        }
+        // the next command that reads the data uses a time program up (begin_pass drops it);
+        // only COXREG runs it
+        if !matches!(command, Command::Coxreg(_)) && output::stage(command) == output::Stage::Pass {
+            self.time_program = None;
+        }
         self.track_clean(command);
         if let Some(result) = self.collect_loop(command) {
             let tables = result?;
@@ -488,6 +536,7 @@ impl Engine {
         // neither runs the transformations that wait for the data pass
         if matches!(command, Command::ClearTransformations | Command::NewFile) {
             self.drop_pending();
+            self.time_program = None;
         }
         // LEAVE runs the waiting transformations again itself
         if let Command::Leave(items) = command
@@ -497,27 +546,7 @@ impl Engine {
             return Ok(std::mem::take(&mut self.flushed));
         }
         if self.row.is_none() && self.loop_depth == 0 {
-            let transformation = matches!(
-                command,
-                Command::Compute { .. }
-                    | Command::If { .. }
-                    | Command::SelectIf(_)
-                    | Command::Recode(_)
-                    | Command::Count(_)
-                    | Command::String(_)
-                    | Command::Numeric(_)
-                    | Command::DoIf(_)
-                    | Command::ElseIf(_)
-                    | Command::Else
-                    | Command::EndIf
-                    | Command::Break
-                    | Command::Vector(_)
-                    | Command::VectorAssign { .. }
-                    | Command::DoRepeat(_)
-                    | Command::Print(_)
-                    | Command::PrintSpace(_)
-                    | Command::Xsave(_)
-            );
+            let transformation = is_transformation(command);
             if self.pending.is_none() && transformation && self.needs_rows(command)? {
                 self.pending = Some(Vec::new());
                 self.pending_depth = self.blocks.len();
@@ -548,7 +577,25 @@ impl Engine {
                 self.flush()?;
             }
         }
-        let tables = self.execute_command(command)?;
+        if matches!(command, Command::Coxreg(_)) {
+            // the vectors go along: the data pass of COXREG clears them before it runs the program
+            // the vectors in force now, over those a program a failed COXREG kept had then
+            self.running_program = self.time_program.take().map(|mut program| {
+                program.vectors.extend(self.vectors.clone());
+                program
+            });
+        }
+        self.program_fault.set(false);
+        let tables = self.execute_command(command);
+        if matches!(command, Command::Coxreg(_)) {
+            let program = self.running_program.take();
+            // a COXREG that fails leaves its time program for the corrected one, unless the fault
+            // is in the program itself
+            if tables.is_err() && !self.program_fault.get() {
+                self.time_program = program;
+            }
+        }
+        let tables = tables?;
         let mut out = std::mem::take(&mut self.flushed);
         out.extend(tables);
         Ok(out)
@@ -677,6 +724,7 @@ impl Engine {
             | Command::Factor(_)
             | Command::QuickCluster(_)
             | Command::Logistic(_)
+            | Command::Coxreg(_)
             | Command::Nomreg(_)
             | Command::Mva(_)
             | Command::Plum(_)
@@ -701,6 +749,13 @@ impl Engine {
             | Command::Report(_)
             | Command::Rank(_)
             | Command::Aggregate(_) => return self.procedure(command),
+            Command::TimeProgram => {
+                self.time_program = Some(coxreg::TimeProgram {
+                    collecting: true,
+                    ..Default::default()
+                });
+            }
+            Command::ClearTimeProgram => self.time_program = None,
             Command::Proximities(proximities) => {
                 let split = self.active()?.split_file().cloned();
                 self.proximity_out = (split, Vec::new());
@@ -924,6 +979,7 @@ impl Engine {
             Command::Factor(command) => self.factor(command),
             Command::QuickCluster(command) => self.quick_cluster(command),
             Command::Logistic(command) => self.logistic(command),
+            Command::Coxreg(command) => self.coxreg(command),
             Command::Nomreg(command) => self.nomreg(command),
             Command::Mva(command) => self.mva(command),
             Command::Plum(command) => self.plum(command),

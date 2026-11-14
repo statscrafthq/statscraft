@@ -82,6 +82,8 @@ impl Engine {
     /// case-by-case pass run, scratch variables are gone and the pending N OF CASES takes
     /// effect.
     pub(crate) fn begin_pass(&mut self) -> Result<(), Error> {
+        // reading the data uses a waiting time program up; a COXREG took its own already
+        self.time_program = None;
         self.flush()?;
         self.leave.clear();
         self.drop_scratch()?;

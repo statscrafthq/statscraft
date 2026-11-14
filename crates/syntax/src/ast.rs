@@ -71,6 +71,7 @@ pub enum Command {
     Factor(Box<crate::factor::Factor>),
     QuickCluster(Box<crate::factor::QuickCluster>),
     Logistic(Box<crate::logistic::Logistic>),
+    Coxreg(Box<crate::coxreg::Coxreg>),
     Nomreg(Box<crate::nomreg::Nomreg>),
     Mva(Box<crate::mva::Mva>),
     Plum(Box<crate::plum::Plum>),
@@ -226,6 +227,9 @@ pub enum Command {
     Echo(String),
     NewFile,
     ClearTransformations,
+    /// TIME PROGRAM: the transformations after it define time-dependent covariates.
+    TimeProgram,
+    ClearTimeProgram,
     /// `ERASE FILE='path'`
     Erase(String),
     /// `SYSFILE INFO FILE='path'`
