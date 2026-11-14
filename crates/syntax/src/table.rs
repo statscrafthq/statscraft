@@ -1,5 +1,6 @@
 //! The command table: the single source for command name matching, parsing and help.
 
+use crate::alscal;
 use crate::anova;
 use crate::ast::Command;
 use crate::cluster;
@@ -1481,6 +1482,45 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  from a file, and the VARIABLES and CORRELATIONS keywords of PRINT and PLOT.",
         example: "PROXSCAL brand1 TO brand6 /TRANSFORMATION=ORDINAL /CRITERIA=DIMENSIONS(1,3) /PRINT=COMMON STRESS HISTORY /PLOT=COMMON STRESS.",
         parse: proxscal::proxscal,
+    },
+    CommandSpec {
+        name: "ALSCAL",
+        summary: "Multidimensional scaling of symmetric proximity matrices by alternating least squares on squared distances.",
+        syntax: "ALSCAL VARIABLES=varlist | /MATRIX=IN('file' | dataset | *)\n\
+                 \x20  [/INPUT=ROWS(ALL | n)] [/SHAPE=SYMMETRIC]\n\
+                 \x20  [/LEVEL=ORDINAL[([UNTIE] [SIMILAR])] | INTERVAL[(1..4)] | RATIO[(1..4)] | NOMINAL]\n\
+                 \x20  [/CONDITION=MATRIX | UNCONDITIONAL] [/MODEL=EUCLID | INDSCAL]\n\
+                 \x20  [/CRITERIA=[NEGATIVE] [CUTOFF(0)] [CONVERGE(.001)] [ITER(30)] [STRESSMIN(.005)] [DIMENS(2[,max])]]\n\
+                 \x20  [/PRINT=[DATA] [HEADER]] [/PLOT[=DEFAULT | ALL]] [/OUTFILE='file' | dataset].\n\
+                 Each case is a row of a square matrix of dissimilarities and each variable a column; only the\n\
+                 triangle below the diagonal is read, and more cases than variables hold one matrix per subject.\n\
+                 MATRIX=IN reads a matrix file of PROXIMITIES or CLUSTER instead (a similarity file is scaled as\n\
+                 SIMILAR). A missing value or one below CUTOFF is left out; the weight variable is not used. The\n\
+                 model fits squared distances to squared disparities and reports S-stress, the root of the mean over\n\
+                 the matrices of their squared misfit relative to the fourth powers of the disparities. ORDINAL\n\
+                 keeps the order of the data (UNTIE lets ties part, SIMILAR turns the order), NOMINAL only which values\n\
+                 are equal; INTERVAL(n) and RATIO(n) make the squared disparities a polynomial of degree n of the\n\
+                 squared data, with and without an intercept. CONDITION=MATRIX fits each matrix on its own,\n\
+                 UNCONDITIONAL all at once. MODEL=INDSCAL weights the dimensions per matrix (no negative weights\n\
+                 unless NEGATIVE). The start is classical scaling of the mean scalar products of all matrices, after\n\
+                 each got the smallest constant that makes it a metric. Iterations stop when S-stress improves by less\n\
+                 than CONVERGE, falls to STRESSMIN or after ITER; DIMENS(min,max) solves from max down to min (1 only\n\
+                 for EUCLID), each smaller solution from the first dimensions of the one before.\n\
+                 Tables per dimensionality: Iteration History (S-stress and its improvement), Stress and Squared\n\
+                 Correlation (RSQ) in Distances per matrix (Kruskal's stress formula 1 and the squared correlation of\n\
+                 disparities and distances, with their average), Stimulus Coordinates and for INDSCAL Subject Weights;\n\
+                 PRINT=DATA adds the data and the optimally scaled data, HEADER the options. The coordinates are\n\
+                 centered; EUCLID turns them to principal axes with a mean square of 1, INDSCAL scales each dimension\n\
+                 to a sum of squares equal to the number of stimuli (the weights the other way) and orders the\n\
+                 dimensions by their weights; every dimension is signed so that the first stimulus is positive. PLOT\n\
+                 gives the configuration, the subject weights, the linear fit (disparities against distances), the\n\
+                 nonlinear fit (data against distances) for ORDINAL and NOMINAL and the transformation (data against\n\
+                 disparities), with ALL one per matrix. OUTFILE writes TYPE_ (CON for coordinates, SUB for subject\n\
+                 weights), DIMENS, MATNUM (0 for coordinates) and DIM1, DIM2, ... for every dimensionality. Not\n\
+                 supported yet: SHAPE=ASYMMETRIC and RECTANGULAR, CONDITION=ROW, the models ASCAL, AINDS and GEMSCAL,\n\
+                 FILE.",
+        example: "ALSCAL VARIABLES=s1 TO s9 /LEVEL=ORDINAL /CRITERIA=DIMENS(2,3) /PLOT.",
+        parse: alscal::alscal,
     },
     CommandSpec {
         name: "DISCRIMINANT",

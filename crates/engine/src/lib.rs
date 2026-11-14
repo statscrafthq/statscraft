@@ -1,6 +1,7 @@
 //! Executes parsed commands on a dataset and returns result tables.
 
 mod aggregate;
+mod alscal;
 mod anova;
 mod autorecode;
 pub mod chart;
@@ -688,6 +689,7 @@ impl Engine {
             | Command::CsModel(_)
             | Command::Cluster(_)
             | Command::Proxscal(_)
+            | Command::Alscal(_)
             | Command::Discriminant(_)
             | Command::Anova(_)
             | Command::Tree(_)
@@ -934,6 +936,7 @@ impl Engine {
             Command::Cluster(command) => self.cluster(command),
             Command::Proximities(command) => self.proximities(command),
             Command::Proxscal(command) => self.proxscal(command),
+            Command::Alscal(command) => self.alscal(command),
             Command::Discriminant(command) => self.discriminant(command),
             Command::Anova(command) => self.anova(command),
             Command::Tree(command) => self.tree(command),

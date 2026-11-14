@@ -977,7 +977,7 @@ pub(crate) fn principal_axes(z: &Matrix) -> Matrix {
 
 /// Turns each dimension so the first object with a coordinate other than 0 is positive;
 /// returns the signs.
-fn first_positive(z: &mut Matrix) -> Vec<f64> {
+pub(crate) fn first_positive(z: &mut Matrix) -> Vec<f64> {
     let p = z.first().map_or(0, Vec::len);
     let scale = z.iter().flatten().fold(0.0_f64, |s, v| s.max(v.abs()));
     (0..p)

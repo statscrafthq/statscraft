@@ -124,6 +124,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "CLUSTER",
             "PROXIMITIES",
             "PROXSCAL",
+            "ALSCAL",
             "DISCRIMINANT",
             "CORRESPONDENCE",
             "LOGISTIC REGRESSION",

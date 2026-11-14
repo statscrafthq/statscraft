@@ -14,6 +14,7 @@
 //!   Reserved words (AND, OR, NOT, EQ, NE, LT, LE, GT, GE, TO, ALL, BY, WITH) may not.
 //! - Names are kept as written; comparing them case-insensitively is the caller's job.
 
+mod alscal;
 mod anova;
 mod ast;
 mod cluster;
@@ -123,6 +124,7 @@ mod tests_session;
 mod tests_survival;
 mod tree;
 
+pub use alscal::{Alscal, AlscalLevel};
 pub use anova::{Anova, AnovaList, AnovaMethod, CovariateOrder};
 pub use ast::*;
 pub use cluster::{BinaryMeasure, Cluster, ClusterPlot, Linkage, Proximity};

@@ -530,3 +530,68 @@ fn proxscal_errors() {
     assert!(err("PROXSCAL a b c /RESTRICTIONS=COORDINATES('f.sav').").contains("not supported"));
     assert!(err("PROXSCAL /SHAPE=UPPER.").contains("variable list"));
 }
+
+fn alscal(source: &str) -> Alscal {
+    match one(source) {
+        Command::Alscal(a) => *a,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn alscal_defaults_and_keywords() {
+    let a = alscal("ALSCAL VARIABLES=a TO f.");
+    assert_eq!(
+        a.level,
+        AlscalLevel::Ordinal {
+            untie: false,
+            similar: false
+        }
+    );
+    assert_eq!(
+        (a.dimensions, a.iterations, a.converge, a.stress_min),
+        ((2, 2), 30, 0.001, 0.005)
+    );
+    assert!(a.plot.is_none() && !a.indscal);
+    let a = alscal(
+        "ALSCAL VAR=a TO f /LEVEL=ORDINAL(UNTIE SIMILAR) /CONDITION=UNCONDITIONAL /METHOD=INDSCAL \
+         /CRITERIA=NEGATIVE CUTOFF(1) CONVERGE(0) ITER(50) STRESSMIN(.01) DIMENS(2,4) NOULB \
+         /PRINT=DATA HEADER /PLOT=ALL /OUTFILE=conf.",
+    );
+    assert_eq!(
+        a.level,
+        AlscalLevel::Ordinal {
+            untie: true,
+            similar: true
+        }
+    );
+    assert!(a.unconditional && a.indscal && a.negative && a.print_data && a.print_header);
+    assert_eq!((a.cutoff, a.iterations, a.dimensions), (1.0, 50, (2, 4)));
+    assert_eq!(a.plot, Some(true));
+    assert_eq!(a.outfile.as_deref(), Some("conf"));
+    assert_eq!(
+        alscal("ALSCAL VARIABLES=a b c d /LEVEL=INTERVAL(2)").level,
+        AlscalLevel::Interval(2)
+    );
+    assert_eq!(
+        alscal("ALSCAL VARIABLES=a b c d /LEVEL=RATIO").level,
+        AlscalLevel::Ratio(1)
+    );
+    assert_eq!(alscal("ALSCAL VARIABLES=a b c d /PLOT").plot, Some(false));
+    assert_eq!(alscal("ALSCAL /MATRIX=IN(*).").matrix_in, Some(None));
+}
+
+#[test]
+fn alscal_errors() {
+    assert!(err("ALSCAL VARIABLES=a b c d /SHAPE=ASYMMETRIC.").contains("not supported"));
+    assert!(err("ALSCAL VARIABLES=a b c d /MODEL=GEMSCAL.").contains("not supported"));
+    assert!(err("ALSCAL VARIABLES=a b c d /CONDITION=ROW.").contains("not supported"));
+    assert!(err("ALSCAL VARIABLES=a b c d /FILE=start.").contains("not supported"));
+    assert!(err("ALSCAL VARIABLES=a b c d /LEVEL=RATIO(5).").contains("1 to 4"));
+    assert!(err("ALSCAL VARIABLES=a b c d /CRITERIA=DIMENS(7).").contains("1 to 6"));
+    assert!(
+        err("ALSCAL VARIABLES=a b c d /MODEL=INDSCAL /CRITERIA=DIMENS(1).")
+            .contains("2 dimensions")
+    );
+    assert!(err("ALSCAL /LEVEL=RATIO.").contains("VARIABLES"));
+}

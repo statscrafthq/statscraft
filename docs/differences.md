@@ -664,6 +664,17 @@ Where the documentation is silent:
 - With MATRIX=IN the matrix is scaled as similarities when the file says SIMILARITY or PROXIMITIES=SIMILARITIES is given.
 - The weight of WEIGHT is not used, also with TABLE.
 
+### ALSCAL
+
+- Only symmetric matrices with the EUCLID and INDSCAL models: SHAPE=ASYMMETRIC and RECTANGULAR, CONDITION=ROW, ASCAL, AINDS, GEMSCAL and FILE are refused with an error.
+- INTERVAL(n) and RATIO(n) fit the squared disparities as a polynomial of degree n of the squared data (with and without an intercept) to the squared distances, so the disparities of RATIO(1) are proportional to the data and exact distances fit with S-stress 0 at every level.
+- The start fills a missing value with the mean of its matrix (NOULB changes nothing) and starts INDSCAL with all weights 1, without a rotation toward diagonal weights; the iterations find the orientation.
+- CONVERGE(0) runs until S-stress stops falling or ITER is reached.
+- Kruskal's stress compares the distances with the root of the squared disparities and divides by the sum of squared distances; the average over matrices is the root of the mean of the squared values.
+- The Euclidean coordinates are rotated to principal axes with a mean square of 1; the INDSCAL coordinates have a sum of squares equal to the number of stimuli in every dimension, the dimensions ordered by their sum of squared weights. Each dimension is signed so that the first stimulus is positive.
+- The output file has no flattened weights (FLA). MATNUM is 0 for the coordinates.
+- Several dimensionalities give every table for each, titled with the number of dimensions; the plots show the smallest.
+
 ### DISCRIMINANT
 
 - A group value that is not a whole number counts as out of range.

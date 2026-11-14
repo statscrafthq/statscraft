@@ -27,7 +27,19 @@ use crate::npar_tests::text;
 use crate::plot::{CaseGroup, CaseValues, Plot, Point, PointGroup};
 use crate::{Cell, Chart, Engine, Error, Table};
 use statscraft_data::{Dataset, Value, Values, Variable};
-use statscraft_syntax::{ProxShape, ProxTransformation, Proxscal, ScalingModel, ScalingStart};
+use statscraft_syntax::{
+    ProxShape, ProxTransformation, Proxscal, ProxscalTable, ScalingModel, ScalingStart, VarItem,
+};
+
+/// What to read the proximities from.
+pub(crate) struct Reading<'a> {
+    pub who: &'a str,
+    pub variables: &'a [VarItem],
+    pub weights: &'a [VarItem],
+    pub table: Option<&'a ProxscalTable>,
+    pub shape: ProxShape,
+    pub matrix_in: &'a Option<Option<String>>,
+}
 
 /// The proximities as read, before the scaling turns them.
 pub(crate) struct Input {
@@ -88,10 +100,11 @@ fn whole_value(v: Option<f64>, what: &str, case: usize) -> Result<Option<usize>,
 }
 
 impl Engine {
-    fn proxscal_input(&self, command: &Proxscal) -> Result<Input, Error> {
+    pub(crate) fn proximity_input(&self, command: &Reading) -> Result<Input, Error> {
+        let who = command.who;
         let mut warnings = Vec::new();
         if let Some(source) = &command.matrix_in {
-            let items = self.proximity_matrix("PROXSCAL", &[], None, source.as_ref())?;
+            let items = self.proximity_matrix(who, &[], None, source.as_ref())?;
             let n = items.labels.len();
             let w: Matrix = (0..n)
                 .map(|i| (0..n).map(|j| f64::from(u8::from(i != j))).collect())
@@ -114,20 +127,20 @@ impl Engine {
         }
         let data = self.active()?;
         let variables: Vec<Variable> = self
-            .expand(&command.variables)?
+            .expand(command.variables)?
             .iter()
             .map(|n| data.variable(n))
             .collect::<Result<_, _>>()?;
         if let Some(v) = variables.iter().find(|v| v.is_string()) {
             return Err(Error(format!(
-                "PROXSCAL needs numeric variables, but {} is a string variable",
+                "{who} needs numeric variables, but {} is a string variable",
                 v.name()
             )));
         }
         let weights: Vec<Variable> = match command.weights.is_empty() {
             true => Vec::new(),
             false => self
-                .expand(&command.weights)?
+                .expand(command.weights)?
                 .iter()
                 .map(|n| data.variable(n))
                 .collect::<Result<_, _>>()?,
@@ -140,7 +153,7 @@ impl Engine {
             )));
         }
         if data.weight_variable().is_some() {
-            warnings.push("PROXSCAL does not use the weight variable".to_string());
+            warnings.push(format!("{who} does not use the weight variable"));
         }
         let value = |v: &Variable, case: usize| match (is_valid(v, case, false), v.values()) {
             (true, Values::Numeric(values)) => values.get(case),
@@ -161,7 +174,7 @@ impl Engine {
             }
         };
         let cases = data.case_count();
-        let table = command.table.as_ref();
+        let table = command.table;
         if let Some(t) = table
             && let (Some(row), Some(column)) = (&t.row, &t.column)
         {
@@ -258,7 +271,7 @@ impl Engine {
             None => {
                 if cases % n.max(1) != 0 {
                     return Err(Error(format!(
-                        "PROXSCAL: the number of cases, {cases}, is not a multiple of the number of variables, {n}"
+                        "{who}: the number of cases, {cases}, is not a multiple of the number of variables, {n}"
                     )));
                 }
                 (0..cases / n.max(1))
@@ -271,7 +284,7 @@ impl Engine {
         for (name, rows) in &groups {
             if rows.len() != n {
                 return Err(Error(format!(
-                    "PROXSCAL: source {name} has {} rows, but a square matrix of {n} variables needs {n}",
+                    "{who}: source {name} has {} rows, but a square matrix of {n} variables needs {n}",
                     rows.len()
                 )));
             }
@@ -298,7 +311,14 @@ impl Engine {
     }
 
     pub(crate) fn proxscal(&mut self, command: &Proxscal) -> Result<Vec<Table>, Error> {
-        let input = self.proxscal_input(command)?;
+        let input = self.proximity_input(&Reading {
+            who: "PROXSCAL",
+            variables: &command.variables,
+            weights: &command.weights,
+            table: command.table.as_ref(),
+            shape: command.shape,
+            matrix_in: &command.matrix_in,
+        })?;
         let n = input.objects.len();
         let m = input.sources.len();
         if n < 3 {
@@ -830,7 +850,12 @@ fn summary(problem: &Problem, m: usize) -> Table {
 }
 
 /// An object by object matrix; with `w` the pairs of weight 0 and the diagonal are empty.
-fn square(title: String, objects: &[String], values: &Matrix, w: Option<&Matrix>) -> Table {
+pub(crate) fn square(
+    title: String,
+    objects: &[String],
+    values: &Matrix,
+    w: Option<&Matrix>,
+) -> Table {
     let n = objects.len();
     let mut columns = vec![String::new()];
     columns.extend(objects.iter().cloned());
@@ -852,7 +877,7 @@ fn square(title: String, objects: &[String], values: &Matrix, w: Option<&Matrix>
     }
 }
 
-fn coordinates(title: String, objects: &[String], z: &Matrix, dims: &[String]) -> Table {
+pub(crate) fn coordinates(title: String, objects: &[String], z: &Matrix, dims: &[String]) -> Table {
     let mut columns = vec![String::new()];
     columns.extend(dims.iter().cloned());
     Table {
@@ -979,7 +1004,7 @@ fn decomposition(
 
 /// The objects in a space: a scatter in two dimensions, a scatterplot matrix in more, the
 /// points on a line in one.
-fn space_chart(title: String, objects: &[String], z: &Matrix, p: usize) -> Chart {
+pub(crate) fn space_chart(title: String, objects: &[String], z: &Matrix, p: usize) -> Chart {
     let axis = |d: usize| Axis::titled(format!("Dimension {d}"));
     if p >= 3 {
         return Chart::plot(
