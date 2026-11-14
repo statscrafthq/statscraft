@@ -234,7 +234,8 @@ pub(crate) fn km(p: &mut Parser) -> PResult<Command> {
             }
         } else if p.eat_keyword("PRINT") {
             p.eat(Punct::Eq);
-            (command.table, command.mean) = (false, false);
+            // PRINT alone keeps the defaults
+            (command.table, command.mean) = (at_end(p), at_end(p));
             while !at_end(p) {
                 if p.eat_keyword("TABLE") {
                     command.table = true;
@@ -544,7 +545,7 @@ pub(crate) fn survival(p: &mut Parser) -> PResult<Command> {
             command.plots = Some((kinds, selection(p)?));
         } else if p.eat_keyword("PRINT") {
             p.eat(Punct::Eq);
-            if p.eat_keyword("TABLE") {
+            if at_end(p) || p.eat_keyword("TABLE") {
                 command.table = true;
             } else if p.eat_keyword("NOTABLE") {
                 command.table = false;

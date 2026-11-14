@@ -398,11 +398,26 @@ fn km_without_a_factor_and_with_a_string_status() {
 RECODE outcome (1='yes') (ELSE='no') INTO done.
 KM weeks /STATUS=done('yes') /TEST=BRESLOW.");
     assert!(warnings.iter().any(|w| w.contains("factor")));
-    let warnings = run("KM weeks BY region /STATUS=outcome(1) /TEST=BRESLOW /PRINT=NONE.
+    let warnings = run(
+        "KM weeks BY region /STATUS=outcome(1) /TEST=BRESLOW /PRINT=NONE.
 SELECT IF region = 1.
-KM weeks BY region /STATUS=outcome(1) /TEST=BRESLOW /PRINT=NONE.")
+KM weeks BY region /STATUS=outcome(1) /TEST=BRESLOW /PRINT=NONE.",
+    )
     .2;
     assert!(warnings.iter().any(|w| w.contains("only one level")));
+    // a string status takes quoted values only
+    let (commands, _) = parse(&format!(
+        "{STUDY}STRING done (A3).\nKM weeks /STATUS=done EVENT('yes') LOST(2 THRU 5)."
+    ));
+    let mut engine = Engine::default();
+    let errors: Vec<String> = commands
+        .iter()
+        .filter_map(|c| engine.execute(&c.command).err().map(|e| e.0))
+        .collect();
+    assert!(
+        errors.iter().any(|e| e.contains("quoted values")),
+        "{errors:?}"
+    );
     let means = table(&tables, "Means and Medians for Survival Time");
     assert_eq!(means.rows.len(), 1);
     close(num(&means.rows[0][1]), 18.9062568026);

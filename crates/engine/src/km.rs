@@ -60,6 +60,8 @@ pub(crate) struct Curve {
     pub events: Vec<f64>,
     pub surv: Vec<f64>,
     pub se: Vec<f64>,
+    /// The events at or before each event time.
+    pub cumulative: Vec<f64>,
     /// The longest time, event or censored.
     pub longest: f64,
     /// The longest time holds both an event and a censored case.
@@ -95,6 +97,7 @@ pub(crate) fn curve(obs: &[Obs]) -> Curve {
             c.events.push(d);
             c.surv.push(s);
             c.se.push(if s > 0.0 { s * greenwood.sqrt() } else { 0.0 });
+            c.cumulative.push(c.cumulative.last().unwrap_or(&0.0) + d);
         }
         if i + same == sorted.len() {
             c.tied_at_end = d > 0.0 && sorted[i..].iter().any(|o| !o.event);
@@ -108,20 +111,18 @@ pub(crate) fn curve(obs: &[Obs]) -> Curve {
 impl Curve {
     /// The estimate and its error just after time `t`.
     pub(crate) fn at(&self, t: f64) -> (f64, f64) {
-        match self.times.iter().rposition(|&x| x <= t) {
-            Some(i) => (self.surv[i], self.se[i]),
-            None => (1.0, 0.0),
+        match self.times.partition_point(|&x| x <= t) {
+            0 => (1.0, 0.0),
+            i => (self.surv[i - 1], self.se[i - 1]),
         }
     }
 
     /// Events at or before `t`.
     fn events_by(&self, t: f64) -> f64 {
-        self.times
-            .iter()
-            .zip(&self.events)
-            .filter(|(x, _)| **x <= t)
-            .map(|(_, d)| d)
-            .sum()
+        match self.times.partition_point(|&x| x <= t) {
+            0 => 0.0,
+            i => self.cumulative[i - 1],
+        }
     }
 
     /// The mean survival time and its standard error.
@@ -305,12 +306,14 @@ fn matches(list: &[MissingValue], value: &Key) -> bool {
         (MissingValue::Value(Value::String(s)), Key::Text(x)) => s.trim_end() == x.trim_end(),
         (MissingValue::Range(lo, hi), Key::Number(x)) => {
             let above = match lo {
+                Bound::Lowest => true,
+                Bound::Highest => false,
                 Bound::Number(n) => x >= n,
-                _ => true,
             };
             let below = match hi {
+                Bound::Highest => true,
+                Bound::Lowest => false,
                 Bound::Number(n) => x <= n,
-                _ => true,
             };
             above && below
         }
@@ -357,14 +360,14 @@ impl Engine {
             )));
         }
         let status_var = data.variable(&command.status)?;
-        let string_values = command
-            .event
-            .iter()
-            .chain(&command.lost)
-            .any(|v| matches!(v, MissingValue::Value(Value::String(_))));
-        if string_values != status_var.is_string() {
+        // a string status takes quoted values only, a numeric one numbers and ranges
+        let fits = |v: &MissingValue| {
+            matches!(v, MissingValue::Value(Value::String(_))) == status_var.is_string()
+        };
+        if !command.event.iter().chain(&command.lost).all(fits) {
             return Err(Error(format!(
-                "the EVENT and LOST values must have the type of {}",
+                "the EVENT and LOST values must have the type of {}: quoted values for a string \
+                 status, numbers or THRU ranges for a numeric one",
                 command.status
             )));
         }
@@ -386,8 +389,18 @@ impl Engine {
             Values::String(_) => unreachable!("checked above"),
         };
         let status = categories(&status_var, false);
-        let factor = factor_var.as_ref().map(|v| categories(v, false));
-        let strata = strata_var.as_ref().map(|v| categories(v, false));
+        // -0 and 0 are one level
+        let keys = |v: &Variable| -> Vec<Option<Key>> {
+            let mut out = categories(v, false);
+            for k in out.iter_mut().flatten() {
+                if let Key::Number(x) = k {
+                    *x += 0.0;
+                }
+            }
+            out
+        };
+        let factor = factor_var.as_ref().map(keys);
+        let strata = strata_var.as_ref().map(keys);
 
         // the valid cases with their stratum and level keys
         let mut cases: Vec<KeyedObs> = Vec::new();
@@ -459,9 +472,11 @@ impl Engine {
         };
         // the curves in output order: per stratum, per level, those with cases
         let mut curves: Vec<(usize, usize, Curve)> = Vec::new();
+        let mut curve_at = vec![vec![None; g]; strata_list.len()];
         for (s, stratum) in strata_list.iter().enumerate() {
             for (l, obs) in stratum.levels.iter().enumerate() {
                 if !obs.is_empty() {
+                    curve_at[s][l] = Some(curves.len());
                     curves.push((s, l, curve(obs)));
                 }
             }
@@ -924,7 +939,7 @@ impl Engine {
                 // every level, even one without cases here, so that it keeps its color
                 let groups: Vec<PointGroup> = (0..g)
                     .map(|l| {
-                        let Some((_, _, c)) = curves.iter().find(|c| c.0 == s && c.1 == l) else {
+                        let Some((_, _, c)) = curve_at[s][l].map(|i| &curves[i]) else {
                             return PointGroup {
                                 name: level_text(&level_keys[l]),
                                 points: Vec::new(),

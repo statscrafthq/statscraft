@@ -142,6 +142,9 @@ fn survival_commas_and_a_variable_named_table() {
     let s = survival("SURVIVAL TABLE weeks BY a(1,2) /INTERVAL=THRU 9 BY 3 /STATUS=s(1).");
     assert_eq!(s.variables, vec![VarItem::Name("weeks".into())]);
     assert!(km("KM t /STATUS=a(1) /STATUS=b(1).").status_repeated);
+    let k = km("KM t /STATUS=a(1) /PRINT.");
+    assert!(k.table && k.mean);
+    assert!(survival("SURVIVAL t /INTERVAL=THRU 9 BY 3 /STATUS=s(1) /PRINT.").table);
 }
 
 #[test]
