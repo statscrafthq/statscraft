@@ -268,22 +268,20 @@ fn fit(rows: &[Row], strata: usize, cols: &[usize], criteria: &CoxregCriteria) -
             );
             break;
         };
+        // the full Newton step against the previous values (absolute for a coefficient near 0),
+        // so a halved step does not look converged for being halved
         let relative = b
             .iter()
-            .zip(&nb)
-            .map(|(old, new)| {
-                // relative to the previous value, absolute for a coefficient near 0
-                (new - old).abs() / old.abs().max(1e-8)
-            })
+            .zip(&delta)
+            .map(|(old, d)| d.abs() / old.abs().max(1e-8))
             .fold(0.0, f64::max);
         let ll_change = ((nll - ll) / ll.abs().max(f64::MIN_POSITIVE)).abs();
         b = nb;
         ll = nll;
         u = nu;
         info = ninfo;
-        // a halved step is small because it was halved, which says nothing of convergence
-        if step == 1.0
-            && (relative < criteria.bcon || (criteria.lcon > 0.0 && ll_change < criteria.lcon))
+        if relative < criteria.bcon
+            || (step == 1.0 && criteria.lcon > 0.0 && ll_change < criteria.lcon)
         {
             converged = true;
             break;
@@ -867,7 +865,7 @@ impl Engine {
             )
         }) {
             return Err(Error(
-                "TIME PROGRAM: PRINT, PRINT SPACE and XSAVE would act on every case at every event time; they cannot be in it"
+                "TIME PROGRAM: PRINT, WRITE, PRINT SPACE and XSAVE would act on every case at every event time; they cannot be in it"
                     .into(),
             ));
         }
@@ -941,12 +939,12 @@ impl Engine {
                     .map_err(|e| Error(format!("TIME PROGRAM: {}", e.0)))?;
                 program_warnings.append(&mut sub.warnings);
             }
-            sub.flush()?;
-            if sub.collecting.is_some() || !sub.blocks.is_empty() {
+            if sub.collecting.is_some() || !sub.blocks.is_empty() || sub.pending_depth > 0 {
                 return Err(Error(
                     "TIME PROGRAM: a LOOP or DO IF in it is not closed".into(),
                 ));
             }
+            sub.flush()?;
             program_warnings.append(&mut sub.warnings);
             // the random numbers the program drew count as drawn
             self.random.swap(&sub.random);
@@ -1052,19 +1050,24 @@ impl Engine {
                 *x -= m;
             }
         }
+        // the weighted count of every category, each case once: its first row starts at minus
+        // infinity
+        let mut counts: Vec<Vec<f64>> = covariates
+            .codings
+            .iter()
+            .map(|c| vec![0.0; c.as_ref().map_or(0, |(levels, _)| levels.len())])
+            .collect();
+        for &(r, i, ..) in layout.iter().filter(|l| l.2 == f64::NEG_INFINITY) {
+            for (v, count) in counts.iter_mut().enumerate() {
+                if let Some(level) = covariates.level(v, r) {
+                    count[level] += weight(used[i]);
+                }
+            }
+        }
         tables.extend(covariates.codings_table(
             "Categorical Variable Codings",
             &shown,
-            |v, level| {
-                // each case once: its first row starts at minus infinity
-                layout
-                    .iter()
-                    .filter(|&&(r, _, start, _)| {
-                        start == f64::NEG_INFINITY && covariates.level(v, r) == Some(level)
-                    })
-                    .map(|&(_, i, ..)| weight(used[i]))
-                    .sum()
-            },
+            |v, level| counts[v][level],
         ));
         let terms = &covariates.terms;
         let model = Model {

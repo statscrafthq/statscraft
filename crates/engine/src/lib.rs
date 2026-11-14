@@ -575,8 +575,11 @@ impl Engine {
         let tables = self.execute_command(command);
         if matches!(command, Command::Coxreg(_)) {
             let program = self.running_program.take();
-            if tables.is_err() {
-                // a COXREG that fails leaves its time program for the corrected one
+            // a COXREG that fails leaves its time program for the corrected one, unless the fault
+            // is in the program itself
+            if let Err(e) = &tables
+                && !e.0.contains("TIME PROGRAM:")
+            {
                 self.time_program = program;
             }
         }

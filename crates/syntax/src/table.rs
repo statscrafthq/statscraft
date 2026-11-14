@@ -1498,10 +1498,11 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  instead of changing the data. COXREG runs them for every case at each event time of its\n\
                  stratum up to the case's own time, with the variable T_ holding that time, so a covariate they\n\
                  compute can change with time. The data may not have a variable T_, and T_ itself is not a\n\
-                 covariate. A missing value from the program where the case is otherwise valid, or a program\n\
-                 that adds or drops cases, leaves a LOOP or DO IF open, or holds PRINT or XSAVE, is an error.\n\
-                 Any other command that reads the data drops the program, as do CLEAR TIME PROGRAM and CLEAR\n\
-                 TRANSFORMATIONS; a COXREG that stops with an error keeps it.",
+                 covariate. A missing value from the program where the case is otherwise valid is an error, and\n\
+                 so is a program that adds or drops cases, leaves a LOOP or DO IF open, or holds PRINT, WRITE or\n\
+                 XSAVE; a COXREG that stops for a fault in the program drops it, one that stops for another\n\
+                 error keeps it. Any other command that reads the data drops the program, as do CLEAR TIME\n\
+                 PROGRAM and CLEAR TRANSFORMATIONS.",
         example: "TIME PROGRAM.\nCOMPUTE spend_t = spend * LN(T_ + 1).",
         parse: coxreg::time_program,
     },

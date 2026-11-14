@@ -337,7 +337,13 @@ impl<'a> Covariates<'a> {
             }
             levels.sort_by(|a, b| a.compare(b));
             // values that share their start are one category, named by the lowest of them
-            levels.dedup_by(|b, a| self.same(a, b));
+            let mut merged: Vec<Key> = Vec::new();
+            for level in levels {
+                if !merged.iter().any(|m| self.same(m, &level)) {
+                    merged.push(level);
+                }
+            }
+            let levels = merged;
             if levels.len() < 2 {
                 return Err(Error(format!(
                     "the categorical variable {} has fewer than two categories among the cases used",
