@@ -89,24 +89,27 @@ pub(crate) fn independent(
             }
         }
     }
-    kept_columns(m, wanted, eps)
+    kept_columns(m, wanted, eps, &[])
 }
 
 /// The columns of `wanted` that are not redundant, from the weighted cross-products `sscp`
-/// of all columns (already centered as the model needs).
-pub(crate) fn independent_in(sscp: &Matrix, wanted: &[usize], eps: f64) -> Vec<usize> {
+/// of all columns (already centered as the model needs). `raw`: each column's sum of squares
+/// before centering; a column whose share left over is a negligible part of it is only rounding
+/// residue of a constant, whatever its own centered sum.
+pub(crate) fn independent_in(sscp: &Matrix, raw: &[f64], wanted: &[usize], eps: f64) -> Vec<usize> {
     let m = wanted
         .iter()
         .map(|&r| wanted.iter().map(|&s| sscp[r][s]).collect())
         .collect();
-    kept_columns(m, wanted, eps)
+    let floor: Vec<f64> = wanted.iter().map(|&c| 1e-14 * raw[c]).collect();
+    kept_columns(m, wanted, eps, &floor)
 }
 
-fn kept_columns(mut m: Matrix, wanted: &[usize], eps: f64) -> Vec<usize> {
+fn kept_columns(mut m: Matrix, wanted: &[usize], eps: f64, floor: &[f64]) -> Vec<usize> {
     let diag: Vec<f64> = (0..wanted.len()).map(|r| m[r][r]).collect();
     let mut kept = Vec::new();
     for k in 0..wanted.len() {
-        if m[k][k] <= eps * diag[k] || m[k][k] <= 0.0 {
+        if m[k][k] <= eps * diag[k] || m[k][k] <= floor.get(k).copied().unwrap_or(0.0) {
             continue;
         }
         crate::matrix::sweep(&mut m, k);

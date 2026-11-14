@@ -385,6 +385,8 @@ struct Model<'a> {
     /// The weighted cross-products of the design columns centered within each stratum, for
     /// the redundancy check: a column constant within every stratum cannot be estimated.
     sscp: Matrix,
+    /// Each column's weighted sum of squares before any centering.
+    raw: Vec<f64>,
 }
 
 impl Model<'_> {
@@ -451,7 +453,7 @@ impl Model<'_> {
     }
 
     fn independent(&self, wanted: &[usize]) -> Vec<usize> {
-        independent_in(&self.sscp, wanted, 1e-8)
+        independent_in(&self.sscp, &self.raw, wanted, 1e-8)
     }
 }
 
@@ -583,40 +585,17 @@ struct Step {
 }
 
 /// For every case: missing on a variable of the data that the time program reads (its ranges,
-/// and a vector it names with all its variables). A target the program always replaces is no input;
-/// a program whose reads cannot all be listed (a LOOP, DO REPEAT or vector element) may read any
-/// variable. Missing as expressions see it: user-missing values too.
+/// and a vector it names with all its variables); a program whose reads cannot all be listed (a
+/// LOOP, DO REPEAT or vector element) may read any variable. Missing as expressions see it:
+/// user-missing values too.
 fn program_inputs_missing(data: &Dataset, program: &TimeProgram) -> Vec<bool> {
     let refs = crate::rows::Refs::of(&program.commands);
-    // a COMPUTE outside DO IF always replaces its target; IF and a COMPUTE inside DO IF may keep
-    // the data's value, which then counts as read
-    let (mut read, mut ranges) = (Vec::new(), Vec::new());
-    let mut assigned = Vec::new();
-    let mut depth = 0usize;
-    for c in &program.commands {
-        match c {
-            Command::DoIf(_) => depth += 1,
-            Command::EndIf => depth = depth.saturating_sub(1),
-            Command::Compute { target, expr } => {
-                if depth == 0 {
-                    assigned.push(target);
-                }
-                crate::rows::expr_names(expr, &mut read, &mut ranges);
-            }
-            _ => {}
-        }
-    }
+    // every variable the program names counts, also a target it replaces: a case missing there
+    // is left out rather than stopping the command
     let mut names: Vec<String> = if refs.all {
         data.variable_names().map(str::to_string).collect()
     } else {
-        refs.names
-            .iter()
-            .filter(|n| {
-                !assigned.iter().any(|a| a.eq_ignore_ascii_case(n))
-                    || read.iter().any(|r| r.eq_ignore_ascii_case(n))
-            })
-            .cloned()
-            .collect()
+        refs.names.clone()
     };
     for (vector, members) in &program.vectors {
         if names.iter().any(|n| n.eq_ignore_ascii_case(vector)) {
@@ -785,8 +764,7 @@ impl Engine {
             let kept: Vec<String> = t
                 .iter()
                 .filter(|n| {
-                    !(program.is_some() && n.eq_ignore_ascii_case("T_"))
-                        && data.variable_index(n).is_some()
+                    data.variable_index(n).is_some()
                         && !computed.iter().any(|c| c.eq_ignore_ascii_case(n))
                         && !roles.iter().any(|(r, _)| r.eq_ignore_ascii_case(n))
                 })
@@ -1190,6 +1168,9 @@ impl Engine {
             criteria: &criteria,
             terms,
             sscp: stratum_sscp(&rows, strata, names.len()),
+            raw: (0..names.len())
+                .map(|j| rows.iter().map(|r| r.w * (r.x[j] + means[j]).powi(2)).sum())
+                .collect(),
         };
 
         // Block 0

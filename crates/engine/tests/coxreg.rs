@@ -798,7 +798,7 @@ fn a_covariate_constant_within_strata_is_left_out() {
     let t = run(
         &mut engine,
         &format!(
-            "{DATA}COMPUTE size = site * 10.\nCOXREG months WITH spend size /STATUS=ended(1) /STRATA=site."
+            "{DATA}COMPUTE size = site * 0.1.\nCOXREG months WITH spend size /STATUS=ended(1) /STRATA=site."
         ),
     );
     assert!(
