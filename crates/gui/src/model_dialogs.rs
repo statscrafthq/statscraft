@@ -1,11 +1,12 @@
 //! The Factor Analysis, K-Means Cluster, Hierarchical Cluster, Discriminant, Binary Logistic
-//! Regression, Univariate and Repeated Measures dialogs. Options left as they are add nothing to
-//! the syntax, so the command runs with its own defaults.
+//! Regression, Univariate, Multivariate and Repeated Measures dialogs. Options left as they are
+//! add nothing to the syntax, so the command runs with its own defaults.
 
+use crate::advanced_dialogs::coefficient;
 use crate::analyze_dialogs::{DUNNETT_SIDES, POST_HOC_TESTS, keywords};
 use crate::dialogs::whole;
 use crate::stats_dialogs::{Block, parse, percent};
-use crate::syntax_text::{names, number, probability};
+use crate::syntax_text::{names, number, probability, quote};
 
 /// Keyword and label of every table of the descriptives on /PRINT.
 pub const FACTOR_DESCRIPTIVES: [(&str, &str); 9] = [
@@ -907,15 +908,65 @@ pub const SUM_OF_SQUARES: [(&str, &str); 4] = [
 /// Type III, the sums of squares without /METHOD.
 const DEFAULT_SUM_OF_SQUARES: usize = 2;
 
-/// Keyword and label of every table of the options on /PRINT: the first three are offered
-/// with within-subjects factors too.
-pub const GLM_PRINT: [(&str, &str); 5] = [
+/// Keyword and label of every table of the options on /PRINT: Repeated Measures offers the
+/// first three, Univariate the first six, Multivariate all.
+pub const GLM_PRINT: [(&str, &str); 9] = [
     ("DESCRIPTIVE", "Descriptive statistics"),
     ("ETASQ", "Estimates of effect size"),
     ("OPOWER", "Observed power"),
     ("PARAMETER", "Parameter estimates"),
     ("HOMOGENEITY", "Homogeneity tests"),
+    ("LOF", "Lack of fit test"),
+    ("RSSCP", "Residual SSCP, covariance and correlation"),
+    ("TEST(SSCP)", "Hypothesis and error SSCP of each effect"),
+    ("TEST(MMATRIX)", "Coefficients of the M matrix"),
 ];
+
+/// The number of entries of `GLM_PRINT` the Univariate dialog offers.
+pub const UNIVARIATE_PRINT: usize = 6;
+
+/// The entry TEST(MMATRIX) of `GLM_PRINT`, offered only with an M matrix.
+pub const PRINT_M_MATRIX: usize = 8;
+
+/// The contrasts of a factor, keyword and label; the first adds no CONTRAST.
+pub const GLM_CONTRASTS: [(&str, &str); 7] = [
+    ("", "None"),
+    ("DEVIATION", "Deviation"),
+    ("SIMPLE", "Simple"),
+    ("DIFFERENCE", "Difference"),
+    ("HELMERT", "Helmert"),
+    ("REPEATED", "Repeated"),
+    ("POLYNOMIAL", "Polynomial"),
+];
+
+/// The entries of `GLM_CONTRASTS` measured against a reference category.
+pub fn glm_has_reference(contrast: usize) -> bool {
+    matches!(GLM_CONTRASTS[contrast].0, "DEVIATION" | "SIMPLE")
+}
+
+/// The contrast of a factor of UNIANOVA or GLM: its name, an index into `GLM_CONTRASTS` and
+/// whether the reference is the first category instead of the last.
+#[derive(Clone, PartialEq, Debug)]
+pub struct FactorContrast {
+    pub name: String,
+    pub contrast: usize,
+    pub first: bool,
+}
+
+/// The error bars of the profile plots, keyword and label; the first adds no ERRORBAR.
+pub const PROFILE_ERROR_BARS: [(&str, &str); 3] = [
+    ("", "None"),
+    ("CI", "Confidence interval"),
+    ("SE", "Two standard errors"),
+];
+
+/// One column of the M matrix: its label and the coefficient typed for each dependent
+/// variable, by name; a missing or empty coefficient is 0.
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct MColumn {
+    pub label: String,
+    pub coefficients: std::collections::BTreeMap<String, String>,
+}
 
 pub const GLM_ADJUSTMENTS: [(&str, &str); 3] = [
     ("LSD", "LSD (none)"),
@@ -975,10 +1026,13 @@ fn model_variables(dependents: &str, factors: &[String], covariates: &[String]) 
     text
 }
 
-/// UNIANOVA of one dependent variable.
+/// UNIANOVA of one dependent variable, or GLM of several (the Multivariate dialog).
 #[derive(Clone, PartialEq, Debug)]
 pub struct Univariate {
+    /// The Multivariate dialog: `dependents` instead of `dependent`, more tables and an M matrix.
+    pub multivariate: bool,
     pub dependent: String,
+    pub dependents: Vec<String>,
     pub factors: Vec<String>,
     pub covariates: Vec<String>,
     /// The terms of `terms` instead of the full factorial model.
@@ -1004,17 +1058,35 @@ pub struct Univariate {
     pub compare: bool,
     /// Index into `GLM_ADJUSTMENTS`.
     pub adjustment: usize,
+    /// The contrast of each factor; a factor without an entry has none, and the entry of a
+    /// factor taken out is left out.
+    pub contrasts: Vec<FactorContrast>,
+    pub spread_level: bool,
+    pub residual_plots: bool,
+    /// Each profile plot: the factor of the horizontal axis, then those of the lines and of the
+    /// separate charts.
+    pub profiles: Vec<Vec<String>>,
+    /// The factors of the next profile plot, in the order of `profiles`; empty for none.
+    pub profile_draft: [String; 3],
+    pub profile_bars: bool,
+    pub profile_mean_line: bool,
+    /// Index into `PROFILE_ERROR_BARS`.
+    pub profile_errors: usize,
     /// One flag per entry of `GLM_SAVE`.
     pub save: [bool; 8],
-    /// One flag per entry of `GLM_PRINT`.
-    pub print: [bool; 5],
+    /// One flag per entry of `GLM_PRINT`; Univariate uses the first `UNIVARIATE_PRINT`.
+    pub print: [bool; 9],
     pub alpha: String,
+    /// The columns of MMATRIX (Multivariate only).
+    pub m_matrix: Vec<MColumn>,
 }
 
 impl Default for Univariate {
     fn default() -> Self {
         Self {
+            multivariate: false,
             dependent: String::new(),
+            dependents: Vec::new(),
             factors: Vec::new(),
             covariates: Vec::new(),
             custom: false,
@@ -1031,14 +1103,62 @@ impl Default for Univariate {
             means_factors: Vec::new(),
             compare: false,
             adjustment: 0,
+            contrasts: Vec::new(),
+            spread_level: false,
+            residual_plots: false,
+            profiles: Vec::new(),
+            profile_draft: Default::default(),
+            profile_bars: false,
+            profile_mean_line: false,
+            profile_errors: 0,
             save: [false; 8],
-            print: [false; 5],
+            print: [false; 9],
             alpha: "0.05".into(),
+            m_matrix: Vec::new(),
         }
     }
 }
 
 impl Univariate {
+    /// The Multivariate dialog.
+    pub fn multivariate() -> Self {
+        Self {
+            multivariate: true,
+            ..Default::default()
+        }
+    }
+
+    /// Adds the drafted profile plot, its filled slots from the horizontal axis on, and clears
+    /// the draft.
+    pub fn add_profile(&mut self) {
+        self.drop_stale_profile_draft();
+        let plot: Vec<String> = self
+            .profile_draft
+            .iter()
+            .take_while(|n| !n.is_empty())
+            .cloned()
+            .collect();
+        if !plot.is_empty() && !self.profiles.contains(&plot) {
+            self.profiles.push(plot);
+        }
+        self.profile_draft = Default::default();
+    }
+
+    /// Empties each slot of the profile draft whose factor was taken out of the model or is in
+    /// an earlier slot, and each slot after an empty one, so the filled slots keep their roles.
+    pub fn drop_stale_profile_draft(&mut self) {
+        for i in 0..self.profile_draft.len() {
+            let earlier = &self.profile_draft[..i];
+            let slot = &self.profile_draft[i];
+            let stale = !self.factors.contains(slot)
+                || earlier.contains(slot)
+                || earlier.iter().any(String::is_empty);
+            if stale {
+                self.profile_draft[i].clear();
+            }
+        }
+    }
+
     /// The factors and covariates, the variables the terms of a custom model are made of.
     pub fn model(&self) -> Vec<String> {
         self.factors
@@ -1073,26 +1193,53 @@ impl Univariate {
     }
 
     pub fn syntax(&self) -> Result<String, String> {
-        let dependent = self.dependent.trim();
-        if dependent.is_empty() {
-            return Err("choose the dependent variable".into());
-        }
+        let (command, dependents) = if self.multivariate {
+            // one dependent would make GLM univariate and drop the multivariate tables
+            if self.dependents.len() < 2 {
+                return Err("add at least two dependent variables".into());
+            }
+            ("GLM", self.dependents.clone())
+        } else {
+            let dependent = self.dependent.trim();
+            if dependent.is_empty() {
+                return Err("choose the dependent variable".into());
+            }
+            ("UNIANOVA", vec![dependent.to_string()])
+        };
         if self.factors.is_empty() && self.covariates.is_empty() {
             return Err("add a fixed factor or a covariate".into());
         }
         let model = self.model();
-        if model.iter().any(|n| n == dependent) {
-            return Err(format!("{dependent} is the dependent variable"));
+        if let Some(n) = model.iter().find(|n| dependents.contains(n)) {
+            let which = if self.multivariate { "a" } else { "the" };
+            return Err(format!("{n} is {which} dependent variable"));
         }
         if let Some(n) = self.factors.iter().find(|n| self.covariates.contains(n)) {
             return Err(format!("{n} is both a factor and a covariate"));
         }
         let mut text = format!(
-            "UNIANOVA {}",
-            model_variables(dependent, &self.factors, &self.covariates)
+            "{command} {}",
+            model_variables(&dependents.join(" "), &self.factors, &self.covariates)
         );
         if !self.intercept {
             text.push_str("\n  /INTERCEPT=EXCLUDE");
+        }
+        for f in &self.factors {
+            let Some(c) = self
+                .contrasts
+                .iter()
+                .find(|c| &c.name == f && c.contrast > 0)
+            else {
+                continue;
+            };
+            let keyword = GLM_CONTRASTS[c.contrast].0;
+            // the reference is the last category unless its position is given
+            let first = if glm_has_reference(c.contrast) && c.first {
+                "(1)"
+            } else {
+                ""
+            };
+            text.push_str(&format!("\n  /CONTRAST({f})={keyword}{first}"));
         }
         let mut tests: Vec<String> = keywords(&POST_HOC_TESTS, &self.post_hoc)
             .into_iter()
@@ -1136,16 +1283,50 @@ impl Univariate {
                 }
             }
         }
+        let mut plots: Vec<String> = Vec::new();
+        plots.extend(self.spread_level.then(|| "SPREADLEVEL".into()));
+        plots.extend(self.residual_plots.then(|| "RESIDUALS".into()));
+        // a plot of a factor taken out of the model is left out
+        let profile: Vec<String> = self
+            .profiles
+            .iter()
+            .filter(|plot| plot.iter().all(|n| self.factors.contains(n)))
+            .map(|plot| plot.join("*"))
+            .collect();
+        if !profile.is_empty() {
+            plots.push(format!("PROFILE({})", profile.join(" ")));
+            plots.extend(self.profile_bars.then(|| "TYPE=BAR".into()));
+            if self.profile_errors > 0 {
+                let keyword = PROFILE_ERROR_BARS[self.profile_errors].0;
+                plots.push(format!("ERRORBAR={keyword}"));
+            }
+            plots.extend(self.profile_mean_line.then(|| "MEANREFERENCE=YES".into()));
+        }
+        if !plots.is_empty() {
+            text.push_str(&format!("\n  /PLOT={}", plots.join(" ")));
+        }
         let save = keywords(&GLM_SAVE, &self.save);
         if !save.is_empty() {
             text.push_str(&format!("\n  /SAVE={}", save.join(" ")));
         }
-        glm_options(
-            &mut text,
-            self.sstype,
-            keywords(&GLM_PRINT, &self.print),
-            &self.alpha,
-        )?;
+        let offered = if self.multivariate {
+            GLM_PRINT.len()
+        } else {
+            UNIVARIATE_PRINT
+        };
+        let mut print = keywords(&GLM_PRINT[..offered], &self.print[..offered]);
+        // the M matrix shown only when there is one, as the command skips it otherwise
+        if self.m_matrix.is_empty() {
+            print.retain(|k| *k != "TEST(MMATRIX)");
+        }
+        if print.contains(&"TEST(SSCP)") && print.contains(&"TEST(MMATRIX)") {
+            print.retain(|k| *k != "TEST(SSCP)" && *k != "TEST(MMATRIX)");
+            print.push("TEST(SSCP MMATRIX)");
+        }
+        glm_options(&mut text, self.sstype, print, &self.alpha)?;
+        if self.multivariate {
+            self.m_matrix_syntax(&mut text)?;
+        }
         if self.custom {
             if self.terms.is_empty() {
                 return Err("add at least one term to the model".into());
@@ -1164,6 +1345,108 @@ impl Univariate {
         text.push('.');
         Ok(text)
     }
+}
+
+impl Univariate {
+    /// `/MMATRIX` of the columns, checked: each coefficient is a number or a fraction, each
+    /// column has one that is not 0, no column is a combination of the ones before it (so
+    /// there are at most as many columns as dependents), and the intercept it tests is in the
+    /// model.
+    fn m_matrix_syntax(&self, text: &mut String) -> Result<(), String> {
+        if self.m_matrix.is_empty() {
+            return Ok(());
+        }
+        // without LMATRIX the M matrix transforms the test of the intercept
+        if !self.intercept {
+            return Err("the M matrix tests the intercept; include it in the model".into());
+        }
+        let (m, r) = (self.m_matrix.len(), self.dependents.len());
+        if m > r {
+            return Err(format!(
+                "the M matrix has {m} columns but there are {r} dependent variables; it can have at most one column per dependent"
+            ));
+        }
+        let mut columns = Vec::new();
+        let mut values: Vec<Vec<f64>> = Vec::new();
+        for (i, column) in self.m_matrix.iter().enumerate() {
+            let label = column.label.trim();
+            let name = if label.is_empty() {
+                format!("column {}", i + 1)
+            } else {
+                format!("column {label}")
+            };
+            let mut entries = Vec::new();
+            if !label.is_empty() {
+                entries.push(quote(label));
+            }
+            let mut column_values = vec![0.0; r];
+            for (j, dependent) in self.dependents.iter().enumerate() {
+                let typed = column.coefficients.get(dependent).map_or("", |t| t.trim());
+                if typed.is_empty() {
+                    continue;
+                }
+                let Some(value) = coefficient(typed) else {
+                    return Err(format!(
+                        "{name} of the M matrix: the coefficient of {dependent} must be a number or a fraction such as 1/3"
+                    ));
+                };
+                let v = match value.split_once('/') {
+                    Some((a, b)) => {
+                        a.parse::<f64>().unwrap_or(0.0) / b.parse::<f64>().unwrap_or(1.0)
+                    }
+                    None => value.parse::<f64>().unwrap_or(0.0),
+                };
+                if v != 0.0 {
+                    entries.push(format!("{dependent} {value}"));
+                    column_values[j] = v;
+                }
+            }
+            if entries.len() == usize::from(!label.is_empty()) {
+                return Err(format!(
+                    "{name} of the M matrix needs a coefficient other than 0"
+                ));
+            }
+            values.push(column_values);
+            // dependent columns leave the transformed error matrix singular
+            if rank(&values) < values.len() {
+                return Err(format!(
+                    "{name} of the M matrix is a combination of the columns before it; the columns must be linearly independent"
+                ));
+            }
+            columns.push(entries.join(" "));
+        }
+        text.push_str(&format!("\n  /MMATRIX={}", columns.join("; ")));
+        Ok(())
+    }
+}
+
+/// The rank of the rows, by Gaussian elimination with partial pivoting.
+fn rank(rows: &[Vec<f64>]) -> usize {
+    let mut a = rows.to_vec();
+    let width = a.first().map_or(0, Vec::len);
+    let scale = a.iter().flatten().fold(0.0_f64, |m, v| m.max(v.abs()));
+    let tolerance = scale * 1e-9;
+    let mut rank = 0;
+    for c in 0..width {
+        let Some(p) = (rank..a.len()).max_by(|&i, &j| a[i][c].abs().total_cmp(&a[j][c].abs()))
+        else {
+            break;
+        };
+        if a[p][c].abs() <= tolerance {
+            continue;
+        }
+        a.swap(rank, p);
+        let (done, rest) = a.split_at_mut(rank + 1);
+        let pivot = &done[rank];
+        for row in rest {
+            let f = row[c] / pivot[c];
+            for (x, y) in row[c..].iter_mut().zip(&pivot[c..]) {
+                *x -= f * y;
+            }
+        }
+        rank += 1;
+    }
+    rank
 }
 
 /// A within-subjects factor: its name and number of levels as typed.
@@ -1757,24 +2040,81 @@ mod tests {
         d.compare = true;
         d.adjustment = 1;
         d.save = [true; 8];
-        d.print = [true; 5];
+        // the multivariate tables are not offered and not written
+        d.print = [true; 9];
         d.alpha = "0.01".into();
         d.sstype = 0;
+        d.contrasts = vec![
+            FactorContrast {
+                name: "gender".into(),
+                contrast: 2,
+                first: true,
+            },
+            FactorContrast {
+                name: "region".into(),
+                contrast: 5,
+                first: true,
+            },
+            // a factor taken out of the model leaves its contrast behind
+            FactorContrast {
+                name: "plan".into(),
+                contrast: 4,
+                first: false,
+            },
+        ];
+        d.spread_level = true;
+        d.residual_plots = true;
+        d.profile_draft = ["region".into(), "gender".into(), String::new()];
+        d.add_profile();
+        // separate charts need separate lines: the charts factor is dropped, not moved up
+        d.profile_draft = ["gender".into(), String::new(), "region".into()];
+        d.add_profile();
+        assert_eq!(d.profiles, vec![v(&["region", "gender"]), v(&["gender"])]);
+        // the same plot is not added twice; a factor twice in one plot counts once
+        d.profile_draft = ["gender".into(), "gender".into(), "region".into()];
+        d.add_profile();
+        assert_eq!(d.profiles.len(), 2);
+        // a name no longer a factor leaves the axis empty, and nothing is added
+        d.profile_draft = ["plan".into(), "region".into(), String::new()];
+        d.add_profile();
+        assert_eq!(d.profiles.len(), 2);
+        d.profile_bars = true;
+        d.profile_errors = 1;
+        d.profile_mean_line = true;
         let syntax = d.syntax().unwrap();
         assert_eq!(
             syntax,
             "UNIANOVA monthly_spend BY region gender WITH age\n  \
+             /CONTRAST(region)=REPEATED\n  /CONTRAST(gender)=SIMPLE(1)\n  \
              /POSTHOC=region(BONFERRONI TUKEY DUNNETT(1))\n  /EMMEANS=TABLES(OVERALL)\n  \
              /EMMEANS=TABLES(region) COMPARE ADJ(BONFERRONI)\n  \
              /EMMEANS=TABLES(gender) COMPARE ADJ(BONFERRONI)\n  \
+             /PLOT=SPREADLEVEL RESIDUALS PROFILE(region*gender gender) TYPE=BAR ERRORBAR=CI \
+             MEANREFERENCE=YES\n  \
              /SAVE=PRED SEPRED RESID ZRESID SRESID DRESID COOK LEVER\n  /METHOD=SSTYPE(1)\n  \
-             /PRINT=DESCRIPTIVE ETASQ OPOWER PARAMETER HOMOGENEITY\n  /CRITERIA=ALPHA(0.01)."
+             /PRINT=DESCRIPTIVE ETASQ OPOWER PARAMETER HOMOGENEITY LOF\n  /CRITERIA=ALPHA(0.01)."
         );
         let mut session = open("survey_basic.sav");
-        assert!(run_in(&mut session, &syntax) >= 10);
+        assert!(run_in(&mut session, &syntax) >= 12);
         let data = session.dataset().unwrap();
         assert!(data.variable("PRE_1").is_ok());
         assert!(data.variable("COO_1").is_ok());
+        // the plots of a factor taken out are left out, with their options
+        d.factors.retain(|f| f != "gender");
+        let syntax = d.syntax().unwrap();
+        assert!(
+            syntax.contains("\n  /PLOT=SPREADLEVEL RESIDUALS\n"),
+            "{syntax}"
+        );
+        d.profiles.push(v(&["region"]));
+        let syntax = d.syntax().unwrap();
+        assert!(
+            syntax.contains(
+                "\n  /PLOT=SPREADLEVEL RESIDUALS PROFILE(region) TYPE=BAR ERRORBAR=CI \
+                 MEANREFERENCE=YES\n"
+            ),
+            "{syntax}"
+        );
 
         // a custom model of main effects and one interaction, no intercept
         let mut d = Univariate {
@@ -1822,6 +2162,176 @@ mod tests {
         assert_eq!(
             d.syntax().unwrap_err(),
             "monthly_spend is the dependent variable"
+        );
+    }
+
+    #[test]
+    fn multivariate() {
+        let mut d = Univariate::multivariate();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "add at least two dependent variables"
+        );
+        d.dependents = v(&["monthly_spend"]);
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "add at least two dependent variables"
+        );
+        d.dependents = v(&["monthly_spend", "q1_satisfaction", "q2_recommend"]);
+        assert_eq!(d.syntax().unwrap_err(), "add a fixed factor or a covariate");
+        d.factors = v(&["region"]);
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "GLM monthly_spend q1_satisfaction q2_recommend BY region."
+        );
+        assert!(runs(&syntax) >= 3);
+
+        // every table, a contrast, a plot, saved variables and an M matrix
+        d.factors = v(&["region", "gender"]);
+        d.covariates = v(&["age"]);
+        d.print = [true; 9];
+        d.contrasts = vec![FactorContrast {
+            name: "region".into(),
+            contrast: 1,
+            first: false,
+        }];
+        d.profile_draft = ["region".into(), "gender".into(), String::new()];
+        d.add_profile();
+        d.post_hoc_factors = v(&["region"]);
+        d.post_hoc[1] = true;
+        d.means_factors = v(&["region"]);
+        d.save = [true, false, true, false, false, false, false, false];
+        d.m_matrix = vec![
+            MColumn {
+                label: "spend vs satisfaction".into(),
+                coefficients: [
+                    ("monthly_spend".to_string(), "1".to_string()),
+                    ("q1_satisfaction".into(), "-1".into()),
+                    ("q2_recommend".into(), " ".into()),
+                ]
+                .into(),
+            },
+            MColumn {
+                label: String::new(),
+                coefficients: [
+                    ("q1_satisfaction".to_string(), "1/2".to_string()),
+                    ("q2_recommend".into(), "1/2".into()),
+                    ("monthly_spend".into(), "0".into()),
+                    // a dependent taken out leaves its coefficient behind
+                    ("age".into(), "3".into()),
+                ]
+                .into(),
+            },
+        ];
+        let syntax = d.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            "GLM monthly_spend q1_satisfaction q2_recommend BY region gender WITH age\n  \
+             /CONTRAST(region)=DEVIATION\n  /POSTHOC=region(BONFERRONI)\n  \
+             /EMMEANS=TABLES(region)\n  /PLOT=PROFILE(region*gender)\n  /SAVE=PRED RESID\n  \
+             /PRINT=DESCRIPTIVE ETASQ OPOWER PARAMETER HOMOGENEITY LOF RSSCP TEST(SSCP MMATRIX)\n  \
+             /MMATRIX='spend vs satisfaction' monthly_spend 1 q1_satisfaction -1; \
+             q1_satisfaction 1/2 q2_recommend 1/2."
+        );
+        let mut session = open("survey_basic.sav");
+        assert!(run_in(&mut session, &syntax) >= 15);
+        let data = session.dataset().unwrap();
+        // one saved variable of each kind for each dependent
+        for name in ["PRE_1", "PRE_2", "PRE_3", "RES_1", "RES_2", "RES_3"] {
+            assert!(data.variable(name).is_ok(), "{name}");
+        }
+
+        // one table of the SSCP alone
+        d.print = [false; 9];
+        d.print[7] = true;
+        d.m_matrix.clear();
+        d.contrasts.clear();
+        d.profiles.clear();
+        d.post_hoc_factors.clear();
+        d.post_hoc = [false; 16];
+        d.means_factors.clear();
+        d.save = [false; 8];
+        let syntax = d.syntax().unwrap();
+        assert!(
+            syntax.ends_with("WITH age\n  /PRINT=TEST(SSCP)."),
+            "{syntax}"
+        );
+        assert!(runs(&syntax) >= 4);
+
+        // the M matrix is not shown while there is none
+        assert_eq!(GLM_PRINT[PRINT_M_MATRIX].0, "TEST(MMATRIX)");
+        d.print[PRINT_M_MATRIX] = true;
+        assert_eq!(d.syntax().unwrap(), syntax);
+        d.print[PRINT_M_MATRIX] = false;
+        d.m_matrix = vec![MColumn::default()];
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "column 1 of the M matrix needs a coefficient other than 0"
+        );
+        d.m_matrix[0].label = "first".into();
+        d.m_matrix[0]
+            .coefficients
+            .insert("q2_recommend".into(), "a half".into());
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "column first of the M matrix: the coefficient of q2_recommend must be a number or a fraction such as 1/3"
+        );
+        d.m_matrix[0]
+            .coefficients
+            .insert("q2_recommend".into(), "2".into());
+        d.intercept = false;
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "the M matrix tests the intercept; include it in the model"
+        );
+        d.intercept = true;
+        assert!(
+            d.syntax()
+                .unwrap()
+                .ends_with("\n  /MMATRIX='first' q2_recommend 2.")
+        );
+        // a column that the earlier ones give: 2 * first, then first - second
+        let column = |pairs: &[(&str, &str)]| MColumn {
+            label: String::new(),
+            coefficients: pairs
+                .iter()
+                .map(|(n, c)| (n.to_string(), c.to_string()))
+                .collect(),
+        };
+        d.m_matrix.push(column(&[("q2_recommend", "4")]));
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "column 2 of the M matrix is a combination of the columns before it; the columns must be linearly independent"
+        );
+        d.m_matrix[1] = column(&[("monthly_spend", "1/2"), ("q2_recommend", "1")]);
+        d.m_matrix.push(column(&[("q1_satisfaction", "-0.5")]));
+        assert!(d.syntax().is_ok());
+        d.m_matrix[2] = column(&[("monthly_spend", "1/2"), ("q2_recommend", "-1")]);
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "column 3 of the M matrix is a combination of the columns before it; the columns must be linearly independent"
+        );
+        d.m_matrix[2] = column(&[("q1_satisfaction", "1")]);
+        d.m_matrix.push(column(&[("q1_satisfaction", "2")]));
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "the M matrix has 4 columns but there are 3 dependent variables; it can have at most one column per dependent"
+        );
+        d.m_matrix.pop();
+        let syntax = d.syntax().unwrap();
+        assert!(
+            syntax.ends_with(
+                "\n  /MMATRIX='first' q2_recommend 2; monthly_spend 1/2 q2_recommend 1; \
+                 q1_satisfaction 1."
+            ),
+            "{syntax}"
+        );
+        assert!(runs(&syntax) >= 5);
+        d.covariates.push("q1_satisfaction".into());
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "q1_satisfaction is a dependent variable"
         );
     }
 

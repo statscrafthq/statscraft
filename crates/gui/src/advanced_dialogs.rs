@@ -1,10 +1,12 @@
 //! The Ordinal Regression, Multinomial Logistic Regression, Linear Mixed Models, Generalized
 //! Linear Models (in `genlin_dialog`), Correspondence Analysis (in `correspondence_dialog`) and
-//! complex samples dialogs (the analysis plan, Descriptives, Frequencies and Crosstabs). Options
-//! left as they are add nothing to the syntax, so the command runs with its own defaults.
+//! complex samples dialogs (the analysis plan, Descriptives, Frequencies and Crosstabs; the
+//! General Linear Model and Logistic Regression in `cs_model_dialog`). Options left as they are
+//! add nothing to the syntax, so the command runs with its own defaults.
 
 use crate::analyze_dialogs::keywords;
 use crate::correspondence_dialog::Correspondence;
+use crate::cs_model_dialog::SampleModel;
 use crate::dialogs::whole;
 use crate::genlin_dialog::{GeneralizedLinear, data_checks};
 use crate::model_dialogs::GLM_ADJUSTMENTS;
@@ -23,6 +25,8 @@ pub enum Advanced {
     Plan(SamplePlan),
     Descriptives(SampleDescriptives),
     Tables(SampleTables),
+    // boxed: a large dialog
+    Model(Box<SampleModel>),
     Correspondence(Correspondence),
 }
 
@@ -37,6 +41,8 @@ impl Advanced {
             Advanced::Descriptives(_) => "Complex Samples Descriptives",
             Advanced::Tables(d) if d.crosstabs => "Complex Samples Crosstabs",
             Advanced::Tables(_) => "Complex Samples Frequencies",
+            Advanced::Model(d) if d.logistic => "Complex Samples Logistic Regression",
+            Advanced::Model(_) => "Complex Samples General Linear Model",
             Advanced::Correspondence(_) => "Correspondence Analysis",
         }
     }
@@ -54,6 +60,7 @@ impl Advanced {
                 crosstabs: d.crosstabs,
                 ..Default::default()
             }),
+            Advanced::Model(d) => Advanced::Model(Box::new(SampleModel::new(d.logistic))),
             Advanced::Correspondence(_) => Advanced::Correspondence(Default::default()),
         }
     }
@@ -80,6 +87,7 @@ impl Advanced {
             )
             .and_then(|()| d.syntax()),
             Advanced::Tables(d) => d.syntax(),
+            Advanced::Model(d) => d.syntax(data),
             Advanced::Correspondence(d) => d.syntax(data),
         }
     }
@@ -299,7 +307,7 @@ impl ContrastTest {
 /// empty when there is nothing. `leading` lets coefficients come before the first effect,
 /// `bare_all` lets a last ALL go without them. ALL is an effect, the others are those `known`
 /// takes, `what` names them in the error.
-fn row_part(
+pub(crate) fn row_part(
     text: &str,
     n: usize,
     leading: bool,
@@ -343,7 +351,7 @@ fn row_part(
 
 /// A number of an L matrix, `1`, `-0.5` or a fraction such as `1/3`, as the syntax writes it;
 /// None for anything else.
-fn coefficient(token: &str) -> Option<String> {
+pub(crate) fn coefficient(token: &str) -> Option<String> {
     let finite = |t: &str| t.parse::<f64>().ok().filter(|v| v.is_finite());
     match token.split_once('/') {
         Some((a, b)) => {
@@ -355,7 +363,7 @@ fn coefficient(token: &str) -> Option<String> {
 }
 
 /// `a*b` written as `b*a` or in other case is the same term.
-fn same_term(term: &[String], written: &str) -> bool {
+pub(crate) fn same_term(term: &[String], written: &str) -> bool {
     let parts: Vec<&str> = written.split('*').collect();
     parts.len() == term.len()
         && term
@@ -364,13 +372,38 @@ fn same_term(term: &[String], written: &str) -> bool {
 }
 
 /// Each name of `model` as a term of its own.
-fn main_effects(model: &[String]) -> Vec<Vec<String>> {
+pub(crate) fn main_effects(model: &[String]) -> Vec<Vec<String>> {
     model.iter().map(|n| vec![n.clone()]).collect()
+}
+
+/// Every crossing of the factors, smallest first, then the covariates each on its own.
+pub(crate) fn full_factorial(
+    factors: &[String],
+    covariates: &[String],
+) -> Result<Vec<Vec<String>>, String> {
+    let n = factors.len();
+    if n > 10 {
+        return Err(
+            "the full factorial of more than 10 factors is too large: choose custom terms".into(),
+        );
+    }
+    let mut masks: Vec<u32> = (1..1u32 << n).collect();
+    masks.sort_by_key(|m| m.count_ones());
+    Ok(masks
+        .iter()
+        .map(|m| {
+            (0..n)
+                .filter(|i| m & (1 << i) != 0)
+                .map(|i| factors[i].clone())
+                .collect()
+        })
+        .chain(covariates.iter().map(|c| vec![c.clone()]))
+        .collect())
 }
 
 /// `dependent BY factors WITH covariates`, checked: the dependent is chosen and is neither a
 /// factor nor a covariate, and no variable is both.
-fn model_variables(
+pub(crate) fn model_variables(
     dependent: &str,
     factors: &[String],
     covariates: &[String],
@@ -395,20 +428,25 @@ fn model_variables(
     Ok(text)
 }
 
+/// A confidence level in percent; an empty field means the default of 95, as for the other
+/// fields of these dialogs.
+pub(crate) fn ci_level(text: &str) -> Result<f64, String> {
+    match text.trim() {
+        "" => Ok(95.0),
+        given => percent(given),
+    }
+}
+
 /// `CIN(n) MXITER(n) MXSTEP(n)` where they differ from the defaults (95, 100 and `steps`).
 fn iteration_criteria(
-    ci_level: &str,
+    level_text: &str,
     iterations: &str,
     halvings: &str,
     steps: u32,
     least_iterations: u32,
 ) -> Result<Vec<String>, String> {
     let mut out = Vec::new();
-    // an empty field means the default, as for the other fields here
-    let level = match ci_level.trim() {
-        "" => 95.0,
-        given => percent(given)?,
-    };
+    let level = ci_level(level_text)?;
     if level != 95.0 {
         out.push(format!("CIN({})", number(level)));
     }
@@ -1454,7 +1492,7 @@ impl SamplePlan {
 }
 
 /// The plan file a complex samples analysis reads, as `/PLAN FILE='...'`.
-fn plan_file(path: &str) -> Result<String, String> {
+pub(crate) fn plan_file(path: &str) -> Result<String, String> {
     let path = path.trim();
     if path.is_empty() {
         return Err("choose the plan file".into());
@@ -1516,11 +1554,7 @@ impl SampleOptions {
             .map(str::to_string)
             .collect();
         if self.ci {
-            // an empty field means the default, as in the other dialogs here
-            let level = match self.ci_level.trim() {
-                "" => 95.0,
-                given => percent(given)?,
-            };
+            let level = ci_level(&self.ci_level)?;
             statistics.push(if level == 95.0 {
                 "CIN".into()
             } else {
