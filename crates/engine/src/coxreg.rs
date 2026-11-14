@@ -583,26 +583,24 @@ struct Step {
 }
 
 /// For every case: missing on a variable of the data that the time program reads (its ranges,
-/// and a vector it names with all its variables). A target the program only assigns is no input;
+/// and a vector it names with all its variables). A target the program always replaces is no input;
 /// a program whose reads cannot all be listed (a LOOP, DO REPEAT or vector element) may read any
 /// variable. Missing as expressions see it: user-missing values too.
 fn program_inputs_missing(data: &Dataset, program: &TimeProgram) -> Vec<bool> {
     let refs = crate::rows::Refs::of(&program.commands);
+    // a COMPUTE outside DO IF always replaces its target; IF and a COMPUTE inside DO IF may keep
+    // the data's value, which then counts as read
     let (mut read, mut ranges) = (Vec::new(), Vec::new());
     let mut assigned = Vec::new();
+    let mut depth = 0usize;
     for c in &program.commands {
         match c {
+            Command::DoIf(_) => depth += 1,
+            Command::EndIf => depth = depth.saturating_sub(1),
             Command::Compute { target, expr } => {
-                assigned.push(target);
-                crate::rows::expr_names(expr, &mut read, &mut ranges);
-            }
-            Command::If {
-                condition,
-                target,
-                expr,
-            } => {
-                assigned.push(target);
-                crate::rows::expr_names(condition, &mut read, &mut ranges);
+                if depth == 0 {
+                    assigned.push(target);
+                }
                 crate::rows::expr_names(expr, &mut read, &mut ranges);
             }
             _ => {}
@@ -723,7 +721,17 @@ impl Engine {
         for item in &command.categorical {
             match item {
                 VarItem::Name(name) => categorical.push(name.clone()),
-                other => categorical.extend(crate::expand_in(data, std::slice::from_ref(other))?),
+                // ALL and ranges name only the model's variables among those they span
+                other => categorical.extend(
+                    crate::expand_in(data, std::slice::from_ref(other))?
+                        .into_iter()
+                        .filter(|n| {
+                            with.iter()
+                                .chain(lists.iter().flatten())
+                                .flatten()
+                                .any(|t| t.eq_ignore_ascii_case(n))
+                        }),
+                ),
             }
         }
         if command.repeated_status {
@@ -1025,8 +1033,6 @@ impl Engine {
             if sub.collecting.is_some() || !sub.blocks.is_empty() {
                 return Err(fault("a LOOP or DO IF in it is not closed".into()));
             }
-            sub.flush().map_err(|e| fault(e.0))?;
-            program_warnings.append(&mut sub.warnings);
             // the random numbers the program drew count as drawn
             self.random.swap(&sub.random);
             let data = sub.dataset.take().expect("the expanded data");

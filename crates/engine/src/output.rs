@@ -117,6 +117,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Output(_)
         | Command::Finish
         | Command::ClearTransformations
+        | Command::TimeProgram
         | Command::ClearTimeProgram => Stage::Neutral,
         _ => Stage::Change,
     }

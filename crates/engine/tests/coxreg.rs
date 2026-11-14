@@ -771,6 +771,20 @@ COXREG months WITH spend /STATUS=ended(1) {TIGHT}"
         1.0,
         0.0,
     );
+    // also when the program only sometimes replaces the value
+    let t = tables(
+        "TIME PROGRAM.\nIF (T_ > 12) spend = 10.\nCOXREG months WITH spend /STATUS=ended(1).",
+    );
+    near(
+        value(
+            &t,
+            "Case Processing Summary",
+            "Cases dropped / Cases with missing values",
+            "N",
+        ),
+        1.0,
+        0.0,
+    );
     // otherwise it is an error
     assert!(
         run_error("TIME PROGRAM.\nCOMPUTE spend_t = $SYSMIS * T_.\nCOXREG months WITH spend_t /STATUS=ended(1).")
