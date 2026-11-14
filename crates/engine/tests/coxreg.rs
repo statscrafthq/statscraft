@@ -741,12 +741,25 @@ COXREG months WITH spend /STATUS=ended(1) {TIGHT}"
     near(value(&t, eq, "Step 1 / spend", "B"), 0.01687282043637, 1e-6);
     // the data keeps its own values
     assert_eq!(values(&engine, "spend")[0], Some(51.7));
-    // a missing value from the program where the case is otherwise valid is an error
+    // a missing value from the program for a case missing on what the program reads: the case
+    // is left out
+    let t = tables(
+        "TIME PROGRAM.\nCOMPUTE spend = spend + T_.\nCOXREG months WITH spend /STATUS=ended(1).",
+    );
+    near(
+        value(
+            &t,
+            "Case Processing Summary",
+            "Cases dropped / Cases with missing values",
+            "N",
+        ),
+        1.0,
+        0.0,
+    );
+    // otherwise it is an error
     assert!(
-        run_error(
-            "TIME PROGRAM.\nCOMPUTE spend = spend + T_.\nCOXREG months WITH spend /STATUS=ended(1)."
-        )
-        .contains("missing")
+        run_error("TIME PROGRAM.\nCOMPUTE spend_t = $SYSMIS * T_.\nCOXREG months WITH spend_t /STATUS=ended(1).")
+            .contains("missing")
     );
 }
 

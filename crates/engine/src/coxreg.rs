@@ -583,6 +583,22 @@ struct Step {
     removed: Vec<usize>,
 }
 
+/// Case `k` is missing on a variable of the data that the time program reads (a vector it
+/// names counts with all its variables).
+fn program_reads_missing(data: &Dataset, program: &TimeProgram, k: usize, include: bool) -> bool {
+    let refs = crate::rows::Refs::of(&program.commands);
+    let mut names = refs.names.clone();
+    for (vector, members) in &program.vectors {
+        if names.iter().any(|n| n.eq_ignore_ascii_case(vector)) {
+            names.extend(members.iter().cloned());
+        }
+    }
+    names
+        .iter()
+        .filter_map(|n| data.variable(n).ok())
+        .any(|v| categories(&v, include)[k].is_none())
+}
+
 /// The status value of a case is an event.
 fn is_event(key: &Key, events: &[MissingValue]) -> bool {
     events.iter().any(|v| match (v, key) {
@@ -608,14 +624,17 @@ impl Engine {
             .running_program
             .clone()
             .filter(|p| !p.commands.is_empty());
-        self.coxreg_with(command, program)
+        self.coxreg_with(command, program, &[])
     }
 
     /// COXREG with the time program, if any, it runs.
+    /// `excluded`: cases a time program gives a missing value where they are missing on a
+    /// variable it reads; they count as missing.
     fn coxreg_with(
         &mut self,
         command: &Coxreg,
         program: Option<TimeProgram>,
+        excluded: &[usize],
     ) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
         let shown = self.shown();
@@ -714,14 +733,8 @@ impl Engine {
                 _ => {}
             }
         }
-        // the variables the program reads count as used, so a case missing on one is dropped
-        let reads: Vec<Vec<String>> = program
-            .iter()
-            .flat_map(|p| crate::rows::Refs::of(&p.commands).names)
-            .map(|n| vec![n])
-            .collect();
         let mut present: Vec<Vec<String>> = Vec::new();
-        for t in term_vars.iter().chain(&reads) {
+        for t in &term_vars {
             let kept: Vec<String> = t
                 .iter()
                 .filter(|n| {
@@ -763,7 +776,8 @@ impl Engine {
                 && status[k].is_some()
                 && strata_keys.as_ref().is_none_or(|s| s[k].is_some())
                 && screen.valid(k)
-                && weight(k) > 0.0;
+                && weight(k) > 0.0
+                && !excluded.contains(&k);
             if !valid {
                 dropped[k] = 1;
             } else if time(k).expect("valid") < 0.0 {
@@ -954,19 +968,20 @@ impl Engine {
                 program_warnings.append(&mut sub.warnings);
             }
             // shortcut: the expanded rows of all cases form one stream, so a value carried from
-            // row to row would cross from case to case; run each case apart to support it
-            if sub.pending.is_some() {
+            // row to row, or the row number, would cross from case to case; run each case apart
+            // to support them
+            let casenum = crate::rows::Refs::of(&program.commands)
+                .names
+                .iter()
+                .any(|n| n.eq_ignore_ascii_case("$CASENUM"));
+            if sub.pending.is_some() || casenum {
                 return Err(fault(
-                    "LAG, $CASENUM and values carried from case to case are not supported yet in it"
+                    "a case-by-case pass (LAG, $CASENUM, a scratch variable kept from case to case) is not supported yet in it"
                         .into(),
                 ));
             }
-            // as at the end of a run: an open LOOP, or a DO IF still open
-            let open = match sub.pending {
-                Some(_) => sub.pending_depth > 0,
-                None => !sub.blocks.is_empty(),
-            };
-            if sub.collecting.is_some() || open {
+            // as at the end of a run: an open LOOP or DO IF
+            if sub.collecting.is_some() || !sub.blocks.is_empty() {
                 return Err(fault("a LOOP or DO IF in it is not closed".into()));
             }
             sub.flush().map_err(|e| fault(e.0))?;
@@ -992,7 +1007,7 @@ impl Engine {
             }
             if !any {
                 // the cases are screened afresh on every covariate without the program
-                let tables = self.coxreg_with(command, None)?;
+                let tables = self.coxreg_with(command, None, excluded)?;
                 for warning in program_warnings {
                     self.warn(warning);
                 }
@@ -1028,12 +1043,30 @@ impl Engine {
                 .map(|(i, &k)| (k, i, f64::NEG_INFINITY, time(k).expect("valid")))
                 .collect(),
         };
-        if let Some(&(_, i, _, stop)) = layout.iter().find(|&&(r, ..)| !covariates.valid(r)) {
-            self.program_fault.set(true);
-            return Err(Error(format!(
-                "TIME PROGRAM: a time-dependent covariate is missing for case {} at time {stop}",
-                self.case_numbers.as_ref().map_or(used[i], |n| n[used[i]]) + 1
-            )));
+        // a missing value from the program: the case counts as missing when it is missing on a
+        // variable the program reads (which may change the event times, so all starts again);
+        // otherwise it is an error
+        let mut missing_inputs = Vec::new();
+        for &(_, i, _, stop) in layout.iter().filter(|&&(r, ..)| !covariates.valid(r)) {
+            let k = used[i];
+            if missing_inputs.contains(&k) {
+                continue;
+            }
+            let program = program
+                .as_ref()
+                .expect("only a program leaves rows invalid");
+            if !program_reads_missing(data, program, k, command.include) {
+                self.program_fault.set(true);
+                return Err(Error(format!(
+                    "TIME PROGRAM: a time-dependent covariate is missing for case {} at time {stop}",
+                    self.case_numbers.as_ref().map_or(k, |n| n[k]) + 1
+                )));
+            }
+            missing_inputs.push(k);
+        }
+        if !missing_inputs.is_empty() {
+            missing_inputs.extend(excluded);
+            return self.coxreg_with(command, program, &missing_inputs);
         }
         let mut in_source = vec![false; source.case_count()];
         for &(r, ..) in &layout {
