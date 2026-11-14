@@ -714,19 +714,28 @@ impl Engine {
                 _ => {}
             }
         }
-        let present: Vec<Vec<String>> = term_vars
+        // the variables the program reads count as used, so a case missing on one is dropped
+        let reads: Vec<Vec<String>> = program
             .iter()
-            .map(|t| {
-                t.iter()
-                    .filter(|n| {
-                        data.variable_index(n).is_some()
-                            && !computed.iter().any(|c| c.eq_ignore_ascii_case(n))
-                    })
-                    .cloned()
-                    .collect::<Vec<_>>()
-            })
-            .filter(|t: &Vec<String>| !t.is_empty())
+            .flat_map(|p| crate::rows::Refs::of(&p.commands).names)
+            .map(|n| vec![n])
             .collect();
+        let mut present: Vec<Vec<String>> = Vec::new();
+        for t in term_vars.iter().chain(&reads) {
+            let kept: Vec<String> = t
+                .iter()
+                .filter(|n| {
+                    !n.eq_ignore_ascii_case("T_")
+                        && data.variable_index(n).is_some()
+                        && !computed.iter().any(|c| c.eq_ignore_ascii_case(n))
+                        && !roles.iter().any(|(r, _)| r.eq_ignore_ascii_case(n))
+                })
+                .cloned()
+                .collect();
+            if !kept.is_empty() && !present.contains(&kept) {
+                present.push(kept);
+            }
+        }
         let screen = Covariates::resolve(
             data,
             &present,
@@ -943,6 +952,14 @@ impl Engine {
             for c in &program.commands {
                 sub.execute(c).map_err(|e| fault(e.0))?;
                 program_warnings.append(&mut sub.warnings);
+            }
+            // shortcut: the expanded rows of all cases form one stream, so a value carried from
+            // row to row would cross from case to case; run each case apart to support it
+            if sub.pending.is_some() {
+                return Err(fault(
+                    "LAG, $CASENUM and values carried from case to case are not supported yet in it"
+                        .into(),
+                ));
             }
             // as at the end of a run: an open LOOP, or a DO IF still open
             let open = match sub.pending {
