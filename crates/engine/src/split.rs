@@ -391,6 +391,7 @@ fn write_back(
         .map(|(a, r)| r.then_some(a))
         .collect();
     let existing = full.variable_count();
+    let blank = vec![None; full.case_count()];
     // (name, first group that added it); the definitions go in at once, so the dataset's own
     // case-blind lookup finds a name another group added before
     let mut added: Vec<(String, usize)> = Vec::new();
@@ -399,7 +400,7 @@ fn write_back(
         // procedures add their variables after the existing ones
         for name in after.variable_names().skip(existing) {
             if full.variable_index(name).is_none() {
-                full.copy_variable(after, name, &vec![None; full.case_count()])?;
+                full.copy_variable(after, name, &blank)?;
                 added.push((name.to_string(), g));
             }
         }
