@@ -804,6 +804,13 @@ impl Engine {
                     Some(w[..g].to_vec())
                 }
             };
+            if trend.is_some() && compares.iter().all(|c| c.pairwise) {
+                warnings.push(
+                    "TREND applies to overall comparisons; with only pairwise comparisons it \
+                     was ignored"
+                        .into(),
+                );
+            }
             let level_sets: Vec<Vec<bool>> = strata_list
                 .iter()
                 .map(|s| s.levels.iter().map(|o| !o.is_empty()).collect())
