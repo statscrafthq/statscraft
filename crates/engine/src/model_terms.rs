@@ -12,7 +12,7 @@ use crate::regression::{plain, table};
 use crate::shown::Shown;
 use crate::{Cell, Error, Table};
 use statscraft_data::{Dataset, Values, Variable};
-use statscraft_syntax::Contrast;
+use statscraft_syntax::{Contrast, LogisticMethodKind, Removal};
 
 /// One term of the model: a variable or an interaction, with its design columns.
 pub(crate) struct TermInfo {
@@ -89,9 +89,23 @@ pub(crate) fn independent(
             }
         }
     }
-    let diag: Vec<f64> = (0..p).map(|r| m[r][r]).collect();
+    kept_columns(m, wanted, eps)
+}
+
+/// The columns of `wanted` that are not redundant, from the weighted cross-products `sscp`
+/// of all columns (already centered as the model needs).
+pub(crate) fn independent_in(sscp: &Matrix, wanted: &[usize], eps: f64) -> Vec<usize> {
+    let m = wanted
+        .iter()
+        .map(|&r| wanted.iter().map(|&s| sscp[r][s]).collect())
+        .collect();
+    kept_columns(m, wanted, eps)
+}
+
+fn kept_columns(mut m: Matrix, wanted: &[usize], eps: f64) -> Vec<usize> {
+    let diag: Vec<f64> = (0..wanted.len()).map(|r| m[r][r]).collect();
     let mut kept = Vec::new();
-    for k in 0..p {
+    for k in 0..wanted.len() {
         if m[k][k] <= eps * diag[k] || m[k][k] <= 0.0 {
             continue;
         }
@@ -99,6 +113,29 @@ pub(crate) fn independent(
         kept.push(wanted[k]);
     }
     kept
+}
+
+/// The name of a METHOD in the block captions.
+pub(crate) fn method_name(kind: LogisticMethodKind) -> String {
+    let removal = |r: Removal| match r {
+        Removal::Cond => "Conditional",
+        Removal::Lr => "Likelihood Ratio",
+        Removal::Wald => "Wald",
+    };
+    match kind {
+        LogisticMethodKind::Enter => "Enter".into(),
+        LogisticMethodKind::Fstep(r) => format!("Forward Stepwise ({})", removal(r)),
+        LogisticMethodKind::Bstep(r) => format!("Backward Stepwise ({})", removal(r)),
+    }
+}
+
+/// "Step n" on the first row of a step, empty below it.
+pub(crate) fn step_cell(first: bool, n: usize) -> Cell {
+    if first {
+        text(format!("Step {n}"))
+    } else {
+        Cell::Empty
+    }
 }
 
 pub(crate) fn clone_key(key: &Key) -> Key {

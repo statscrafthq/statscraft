@@ -634,6 +634,9 @@ COXREG months WITH plan spend spend_t /STATUS=ended(1) /CATEGORICAL=plan /SAVE=D
             );
         }
     }
+    // the codings count each case once, not once per event time
+    let codings = "Categorical Variable Codings";
+    near(value(&t, codings, "plan / 3", "Frequency"), 22.0, 0.0);
     // the time program ran with COXREG and is gone; its variables never reach the data
     assert!(engine.dataset().unwrap().variable("spend_t").is_err());
     assert!(run_error("COXREG months WITH spend_t /STATUS=ended(1).").contains("spend_t"));
@@ -719,4 +722,44 @@ fn null_model_gives_the_initial_likelihood_and_the_baseline() {
     // without covariates the baseline survival is the Kaplan-Meier estimate (R's survfit)
     let table = t.iter().find(|t| t.title == "Survival Table").unwrap();
     near(num(&row_of(table, 5.0)[2]), 0.7076923076923, 1e-12);
+}
+
+#[test]
+fn a_time_program_may_change_a_covariate_of_the_data() {
+    // R: the counting-process form with spend + 10 after month 12
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!(
+            "{DATA}TIME PROGRAM.
+IF (T_ > 12) spend = spend + 10.
+COXREG months WITH spend /STATUS=ended(1) {TIGHT}"
+        ),
+    );
+    let eq = "Variables in the Equation";
+    near(value(&t, eq, "Step 1 / spend", "B"), 0.01687282043637, 1e-6);
+    // the data keeps its own values
+    assert_eq!(values(&engine, "spend")[0], Some(51.7));
+}
+
+#[test]
+fn a_covariate_constant_within_strata_is_left_out() {
+    let mut engine = Engine::default();
+    let t = run(
+        &mut engine,
+        &format!(
+            "{DATA}COMPUTE size = site * 10.\nCOXREG months WITH spend size /STATUS=ended(1) /STRATA=site."
+        ),
+    );
+    assert!(
+        engine
+            .warnings()
+            .iter()
+            .any(|w| w.contains("size is a linear combination"))
+    );
+    let eq = t
+        .iter()
+        .find(|t| t.title == "Variables in the Equation")
+        .unwrap();
+    assert!(row_keys(eq).iter().all(|k| !k.contains("size")));
 }

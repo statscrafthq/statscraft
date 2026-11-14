@@ -30,7 +30,9 @@ use crate::crosstabs::{Key, categories};
 use crate::descriptives::{case_weights, number};
 use crate::dist::{chi_square_p, normal_quantile};
 use crate::matrix::{Matrix, inverse};
-use crate::model_terms::{Covariates, TermInfo, clone_key, distinct_terms, listed_terms};
+use crate::model_terms::{
+    Covariates, TermInfo, clone_key, distinct_terms, listed_terms, method_name, step_cell,
+};
 use crate::npar_tests::text;
 use crate::regression::{plain, table};
 use crate::{Cell, Engine, Error, Table};
@@ -366,19 +368,6 @@ fn removal(
             let ll = design.log_likelihood(&rest, fit.constant, &b);
             (2.0 * (fit.ll - ll), df, ll)
         }
-    }
-}
-
-fn method_name(kind: LogisticMethodKind) -> String {
-    let removal = |r: Removal| match r {
-        Removal::Cond => "Conditional",
-        Removal::Lr => "Likelihood Ratio",
-        Removal::Wald => "Wald",
-    };
-    match kind {
-        LogisticMethodKind::Enter => "Enter".into(),
-        LogisticMethodKind::Fstep(r) => format!("Forward Stepwise ({})", removal(r)),
-        LogisticMethodKind::Bstep(r) => format!("Backward Stepwise ({})", removal(r)),
     }
 }
 
@@ -1259,14 +1248,6 @@ struct Context<'a> {
 }
 
 impl Context<'_> {
-    fn step_cell(first: bool, n: usize) -> Cell {
-        if first {
-            text(format!("Step {n}"))
-        } else {
-            Cell::Empty
-        }
-    }
-
     fn iteration_history(&self, steps: &[&Step], every: u32, block0: bool, caption: &str) -> Table {
         let width = steps.iter().map(|s| s.fit.parameters()).max().unwrap_or(0);
         let mut columns = plain(&["", "Iteration", "-2 Log likelihood"]);
@@ -1398,7 +1379,7 @@ impl Context<'_> {
             for (observed, count) in counts.iter().enumerate() {
                 let row_total = count[0] + count[1];
                 rows.push(vec![
-                    Self::step_cell(observed == 0, n),
+                    step_cell(observed == 0, n),
                     text((self.dep_label)(observed)),
                     Cell::Number(count[0]),
                     Cell::Number(count[1]),
@@ -1444,7 +1425,7 @@ impl Context<'_> {
                     let se = fit.cov[at][at].sqrt();
                     let w = (b / se).powi(2);
                     let mut row = vec![
-                        Self::step_cell(*first, n),
+                        step_cell(*first, n),
                         text(name),
                         number(Some(b)),
                         number(Some(se)),
@@ -1473,7 +1454,7 @@ impl Context<'_> {
                     let w = wald(fit, &at);
                     let df = at.len() as f64;
                     let mut row = vec![
-                        Self::step_cell(first, n),
+                        step_cell(first, n),
                         text(term.label.clone()),
                         Cell::Empty,
                         Cell::Empty,
@@ -1544,7 +1525,7 @@ impl Context<'_> {
             let names = coefficient_names(self.design, &s.fit);
             let cov = &s.fit.cov;
             for (r, name) in names.iter().enumerate() {
-                let mut row = vec![Self::step_cell(r == 0, n), text(name.clone())];
+                let mut row = vec![step_cell(r == 0, n), text(name.clone())];
                 row.extend((0..width).map(|c| {
                     number((c < names.len()).then(|| cov[r][c] / (cov[r][r] * cov[c][c]).sqrt()))
                 }));
@@ -1586,7 +1567,7 @@ impl Context<'_> {
                     let score = score_test(self.design, &s.fit, cols);
                     let df = cols.len() as f64;
                     rows.push(vec![
-                        Self::step_cell(first, n),
+                        step_cell(first, n),
                         text(name),
                         number(Some(score)),
                         Cell::Number(df),
@@ -1651,7 +1632,7 @@ impl Context<'_> {
             ]);
             for (g, &(total, observed, expected)) in groups.iter().enumerate() {
                 contingency.push(vec![
-                    Self::step_cell(g == 0, n),
+                    step_cell(g == 0, n),
                     Cell::Number((g + 1) as f64),
                     number(Some(total - observed)),
                     number(Some(total - expected)),

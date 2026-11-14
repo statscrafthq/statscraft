@@ -36,7 +36,9 @@ use crate::crosstabs::{Key, categories};
 use crate::descriptives::{case_weights, number};
 use crate::dist::{chi_square_p, normal_quantile};
 use crate::matrix::{Matrix, inverse};
-use crate::model_terms::{Covariates, clone_key, distinct_terms, independent, listed_terms};
+use crate::model_terms::{
+    Covariates, clone_key, distinct_terms, independent_in, listed_terms, method_name, step_cell,
+};
 use crate::npar_tests::text;
 use crate::regression::{plain, table};
 use crate::{Cell, Engine, Error, Table};
@@ -346,9 +348,9 @@ struct Model<'a> {
     strata: usize,
     criteria: &'a CoxregCriteria,
     terms: &'a [crate::model_terms::TermInfo],
-    /// The rows' design columns and weights, for the redundancy check.
-    x: Vec<Vec<f64>>,
-    w: Vec<f64>,
+    /// The weighted cross-products of the design columns centered within each stratum, for
+    /// the redundancy check: a column constant within every stratum cannot be estimated.
+    sscp: Matrix,
 }
 
 impl Model<'_> {
@@ -415,8 +417,29 @@ impl Model<'_> {
     }
 
     fn independent(&self, wanted: &[usize]) -> Vec<usize> {
-        independent(&self.x, &self.w, wanted, true, 1e-8)
+        independent_in(&self.sscp, wanted, 1e-8)
     }
+}
+
+fn stratum_sscp(rows: &[Row], strata: usize, p: usize) -> Matrix {
+    let mut sums = vec![(0.0, vec![0.0; p]); strata];
+    for r in rows {
+        sums[r.stratum].0 += r.w;
+        for (s, x) in sums[r.stratum].1.iter_mut().zip(&r.x) {
+            *s += r.w * x;
+        }
+    }
+    let mut m = vec![vec![0.0; p]; p];
+    for r in rows {
+        let (w, sum) = &sums[r.stratum];
+        let d: Vec<f64> = r.x.iter().zip(sum).map(|(x, s)| x - s / w).collect();
+        for i in 0..p {
+            for j in 0..p {
+                m[i][j] += r.w * d[i] * d[j];
+            }
+        }
+    }
+    m
 }
 
 /// The baseline of one stratum at its event times, at the covariate means.
@@ -525,19 +548,6 @@ struct Step {
     removed: Vec<usize>,
 }
 
-fn method_name(kind: LogisticMethodKind) -> String {
-    let removal = |r: Removal| match r {
-        Removal::Cond => "Conditional",
-        Removal::Lr => "Likelihood Ratio",
-        Removal::Wald => "Wald",
-    };
-    match kind {
-        LogisticMethodKind::Enter => "Enter".into(),
-        LogisticMethodKind::Fstep(r) => format!("Forward Stepwise ({})", removal(r)),
-        LogisticMethodKind::Bstep(r) => format!("Backward Stepwise ({})", removal(r)),
-    }
-}
-
 fn sorted(model: &[usize]) -> Vec<usize> {
     let mut v = model.to_vec();
     v.sort_unstable();
@@ -562,14 +572,6 @@ fn is_event(key: &Key, events: &[MissingValue]) -> bool {
         }
         _ => false,
     })
-}
-
-fn step_cell(first: bool, n: usize) -> Cell {
-    if first {
-        text(format!("Step {n}"))
-    } else {
-        Cell::Empty
-    }
 }
 
 impl Engine {
@@ -618,16 +620,6 @@ impl Engine {
                 .chain(command.methods.iter().flat_map(|m| m.terms.iter())),
         );
         let program = self.time_program.clone().filter(|p| !p.commands.is_empty());
-        // with a time program, covariates it creates exist only in the expanded data
-        let time_dependent = program.is_some()
-            && term_vars
-                .iter()
-                .flatten()
-                .any(|n| data.variable_index(n).is_none());
-        if program.is_some() && !time_dependent {
-            warnings
-                .push("the TIME PROGRAM creates none of the covariates, so it is not used".into());
-        }
         if program.is_some() && data.variable_index("T_").is_some() {
             return Err(Error(
                 "the data has a variable T_, which a TIME PROGRAM reserves for the time; rename it"
@@ -795,8 +787,7 @@ impl Engine {
             t.sort_by(f64::total_cmp);
             t.dedup();
         }
-        let expanded: Option<(Dataset, Vec<Span>)> = if time_dependent {
-            let program = program.as_ref().expect("checked");
+        let expanded: Option<(Dataset, Vec<Span>)> = if let Some(program) = &program {
             // (analysis case, start, stop) of every expanded row
             let mut origin = Vec::new();
             let mut take = Vec::new();
@@ -829,10 +820,31 @@ impl Engine {
                     "TIME PROGRAM: the transformations cannot add or drop cases".into(),
                 ));
             }
-            Some((data, origin))
+            // a covariate depends on time when the program creates it or changes its values
+            let changed = |name: &String| -> Result<bool, Error> {
+                let Some(_) = self.active()?.variable_index(name) else {
+                    return Ok(true);
+                };
+                let before = categories(&self.active()?.variable(name)?, true);
+                let after = categories(&data.variable(name)?, true);
+                Ok((0..after.len()).any(|r| take[r].is_some_and(|k| after[r] != before[k])))
+            };
+            let mut any = false;
+            for name in term_vars.iter().flatten() {
+                any |= changed(name)?;
+            }
+            if any {
+                Some((data, origin))
+            } else {
+                warnings.push(
+                    "the TIME PROGRAM changes none of the covariates, so it is not used".into(),
+                );
+                None
+            }
         } else {
             None
         };
+        let time_dependent = expanded.is_some();
         let source = expanded.as_ref().map_or(data, |(d, _)| d);
         let mut covariates = Covariates::resolve(
             source,
@@ -902,9 +914,12 @@ impl Engine {
             "Categorical Variable Codings",
             &shown,
             |v, level| {
+                // each case once: its first row starts at minus infinity
                 layout
                     .iter()
-                    .filter(|&&(r, ..)| covariates.level(v, r) == Some(level))
+                    .filter(|&&(r, _, start, _)| {
+                        start == f64::NEG_INFINITY && covariates.level(v, r) == Some(level)
+                    })
                     .map(|&(_, i, ..)| weight(used[i]))
                     .sum()
             },
@@ -915,8 +930,7 @@ impl Engine {
             strata,
             criteria: &criteria,
             terms,
-            x: rows.iter().map(|r| r.x.clone()).collect(),
-            w: rows.iter().map(|r| r.w).collect(),
+            sscp: stratum_sscp(&rows, strata, names.len()),
         };
 
         // Block 0
@@ -1167,7 +1181,11 @@ impl Engine {
             .sum();
         let wants_plots =
             command.plot.survival || command.plot.hazard || command.plot.lml || command.plot.oms;
-        let patterns = report.patterns(&covariates, &means)?;
+        let patterns = if time_dependent {
+            Vec::new()
+        } else {
+            report.patterns(&covariates, &means)?
+        };
         if time_dependent && (command.print.baseline || wants_plots || !command.patterns.is_empty())
         {
             warnings.push(
@@ -1563,33 +1581,24 @@ impl Report<'_> {
     }
 
     fn correlations(&self, steps: &[(usize, &Step)], caption: &str) -> Table {
-        let width = steps
-            .iter()
-            .map(|(_, s)| s.fit.cols.len())
-            .max()
-            .unwrap_or(0);
-        let last_names: Vec<String> = steps
-            .last()
-            .map(|(_, s)| s.fit.cols.iter().map(|&c| self.names[c].clone()).collect())
-            .unwrap_or_default();
+        // the columns of every step shown, each estimate under its own name
+        let mut all: Vec<usize> = steps.iter().flat_map(|(_, s)| s.fit.cols.clone()).collect();
+        all.sort_unstable();
+        all.dedup();
         let mut columns = plain(&["", ""]);
-        columns.extend((0..width).map(|j| {
-            (
-                String::new(),
-                last_names.get(j).cloned().unwrap_or_default(),
-            )
-        }));
+        columns.extend(all.iter().map(|&c| (String::new(), self.names[c].clone())));
         let mut rows = Vec::new();
         for &(n, s) in steps {
             let cov = &s.fit.cov;
-            let p = s.fit.cols.len();
             for (r, &c) in s.fit.cols.iter().enumerate() {
                 let mut row = vec![step_cell(r == 0, n), text(self.names[c].clone())];
-                row.extend(
-                    (0..width).map(|k| {
-                        number((k < p).then(|| cov[r][k] / (cov[r][r] * cov[k][k]).sqrt()))
-                    }),
-                );
+                row.extend(all.iter().map(|&col| {
+                    number(
+                        s.fit
+                            .at(col)
+                            .map(|k| cov[r][k] / (cov[r][r] * cov[k][k]).sqrt()),
+                    )
+                }));
                 rows.push(row);
             }
         }
@@ -1849,7 +1858,11 @@ impl Report<'_> {
         for (title, ylabel, kind) in &kinds {
             for (part, lines) in &sets {
                 let mut groups = Vec::new();
-                for (s, base) in bases.iter().enumerate() {
+                for (s, base) in bases
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, b)| !b.times.is_empty())
+                {
                     for (name, z) in lines {
                         let value = |surv: f64| match kind {
                             0 => surv,

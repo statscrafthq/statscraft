@@ -495,6 +495,16 @@ impl Engine {
             self.queued.push(command.clone());
             return Ok(Vec::new());
         }
+        // the transformations after TIME PROGRAM, loops among them, wait for COXREG
+        if let Some(program) = self.time_program.as_mut().filter(|p| p.collecting) {
+            if is_transformation(command)
+                || matches!(command, Command::Loop(_) | Command::EndLoop(_))
+            {
+                program.commands.push(command.clone());
+                return Ok(Vec::new());
+            }
+            program.collecting = false;
+        }
         self.track_clean(command);
         if let Some(result) = self.collect_loop(command) {
             let tables = result?;
@@ -513,14 +523,6 @@ impl Engine {
         {
             self.leave(items)?;
             return Ok(std::mem::take(&mut self.flushed));
-        }
-        // the transformations after TIME PROGRAM wait for COXREG
-        if let Some(program) = self.time_program.as_mut().filter(|p| p.collecting) {
-            if is_transformation(command) {
-                program.commands.push(command.clone());
-                return Ok(Vec::new());
-            }
-            program.collecting = false;
         }
         if self.row.is_none() && self.loop_depth == 0 {
             let transformation = is_transformation(command);
