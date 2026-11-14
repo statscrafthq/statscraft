@@ -104,6 +104,7 @@ fn errors() {
         err("COXREG months WITH spend /STATUS=ended(1) /CRITERIA=PIN(2).").contains("probability")
     );
     assert!(err("COXREG months /STATUS=ended(1) /METHOD=ENTER.").contains("WITH"));
+    assert!(err("COXREG months WITH spend /STATUS=ended('a' 1).").contains("not both"));
 }
 
 #[test]

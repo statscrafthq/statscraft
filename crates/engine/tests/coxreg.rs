@@ -763,3 +763,18 @@ fn a_covariate_constant_within_strata_is_left_out() {
         .unwrap();
     assert!(row_keys(eq).iter().all(|k| !k.contains("size")));
 }
+
+#[test]
+fn backward_stepping_may_remove_every_term() {
+    // site alone has a score p of 0.63, above POUT, so BSTEP takes it out again
+    let t = tables(&format!(
+        "COXREG months WITH site /STATUS=ended(1) /METHOD=BSTEP(LR) {TIGHT}"
+    ));
+    let omnibus = "Omnibus Tests of Model Coefficients";
+    // back at the null model of the 65 cases valid on site
+    near(
+        value(&t, omnibus, "Step 2", "-2 Log Likelihood"),
+        284.373710197,
+        1e-9,
+    );
+}

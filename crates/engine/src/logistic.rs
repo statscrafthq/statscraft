@@ -719,7 +719,8 @@ impl Engine {
                             .collect();
                         model.extend(&added);
                         model.sort_unstable();
-                        tried.push(sorted(&model));
+                        // removing back to the block's starting model is no cycle
+                        tried = vec![sorted(&model)];
                         let fitted = fit_model(&model, &mut warnings, &mut seen_columns);
                         steps.push(Step {
                             model: model.clone(),

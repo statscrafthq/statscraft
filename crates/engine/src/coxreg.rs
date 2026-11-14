@@ -105,8 +105,6 @@ fn event_times(rows: &[Row], strata: usize, cols: &[usize], b: &[f64]) -> Vec<Ev
         let mine: Vec<usize> = (0..rows.len()).filter(|&r| rows[r].stratum == s).collect();
         let mut by_stop = mine.clone();
         by_stop.sort_by(|&a, &b| rows[b].stop.total_cmp(&rows[a].stop));
-        let mut by_start = mine.clone();
-        by_start.sort_by(|&a, &b| rows[b].start.total_cmp(&rows[a].start));
         let mut times: Vec<f64> = mine
             .iter()
             .filter(|&&r| rows[r].event)
@@ -115,9 +113,9 @@ fn event_times(rows: &[Row], strata: usize, cols: &[usize], b: &[f64]) -> Vec<Ev
         times.sort_by(|a, b| b.total_cmp(a));
         times.dedup();
         let (mut s0, mut s1, mut s2) = (0.0, vec![0.0; p], vec![vec![0.0; p]; p]);
-        let add = |r: usize, sign: f64, s0: &mut f64, s1: &mut [f64], s2: &mut Matrix| {
+        let add = |r: usize, s0: &mut f64, s1: &mut [f64], s2: &mut Matrix| {
             let x = pick(&rows[r].x, cols);
-            let e = sign * rows[r].w * dot(&x, b).exp();
+            let e = rows[r].w * dot(&x, b).exp();
             *s0 += e;
             for i in 0..p {
                 s1[i] += e * x[i];
@@ -126,21 +124,32 @@ fn event_times(rows: &[Row], strata: usize, cols: &[usize], b: &[f64]) -> Vec<Ev
                 }
             }
         };
-        let (mut a, mut z) = (0, 0);
+        // with time-dependent rows each risk set is summed afresh, so no sum is a difference
+        // of large numbers; otherwise the sums grow as the time goes down
+        let fresh = mine.iter().any(|&r| rows[r].start > f64::NEG_INFINITY);
+        let mut active: Vec<usize> = Vec::new();
+        let mut a = 0;
         let mut here = Vec::new();
         for &t in &times {
             let mut deaths = Vec::new();
             while a < by_stop.len() && rows[by_stop[a]].stop >= t {
                 let r = by_stop[a];
-                add(r, 1.0, &mut s0, &mut s1, &mut s2);
+                if fresh {
+                    active.push(r);
+                } else {
+                    add(r, &mut s0, &mut s1, &mut s2);
+                }
                 if rows[r].event && rows[r].stop == t {
                     deaths.push(r);
                 }
                 a += 1;
             }
-            while z < by_start.len() && rows[by_start[z]].start >= t {
-                add(by_start[z], -1.0, &mut s0, &mut s1, &mut s2);
-                z += 1;
+            if fresh {
+                active.retain(|&r| rows[r].start < t);
+                (s0, s1, s2) = (0.0, vec![0.0; p], vec![vec![0.0; p]; p]);
+                for &r in &active {
+                    add(r, &mut s0, &mut s1, &mut s2);
+                }
             }
             let mut xd = vec![0.0; p];
             let mut d = 0.0;
@@ -626,10 +635,11 @@ impl Engine {
                     .into(),
             ));
         }
-        if term_vars
-            .iter()
-            .flatten()
-            .any(|n| n.eq_ignore_ascii_case("T_"))
+        if program.is_some()
+            && term_vars
+                .iter()
+                .flatten()
+                .any(|n| n.eq_ignore_ascii_case("T_"))
         {
             return Err(Error(
                 "T_ is the time of a TIME PROGRAM and cannot be a covariate".into(),
@@ -648,12 +658,41 @@ impl Engine {
         if let Some(s) = &strata_var {
             roles.push((s.name(), "is the strata variable and cannot be a covariate"));
         }
-        // the variables of the original data, to screen the cases
+        // the variables of the original data, to screen the cases; one the time program computes
+        // without reading it is checked after the program runs
+        // shortcut: only COMPUTE and IF count as computing; a RECODE INTO in the program is
+        // screened on the data's values
+        let (mut computed, mut reads, mut ranges) = (Vec::new(), Vec::new(), Vec::new());
+        for c in program.iter().flat_map(|p| &p.commands) {
+            match c {
+                Command::Compute { target, expr } => {
+                    computed.push(target);
+                    crate::rows::expr_names(expr, &mut reads, &mut ranges);
+                }
+                Command::If {
+                    condition,
+                    target,
+                    expr,
+                } => {
+                    computed.push(target);
+                    crate::rows::expr_names(condition, &mut reads, &mut ranges);
+                    crate::rows::expr_names(expr, &mut reads, &mut ranges);
+                }
+                _ => {}
+            }
+        }
+        let computed: Vec<&String> = computed
+            .into_iter()
+            .filter(|c| !reads.iter().any(|r| r.eq_ignore_ascii_case(c)))
+            .collect();
         let present: Vec<Vec<String>> = term_vars
             .iter()
             .map(|t| {
                 t.iter()
-                    .filter(|n| data.variable_index(n).is_some())
+                    .filter(|n| {
+                        data.variable_index(n).is_some()
+                            && !computed.iter().any(|c| c.eq_ignore_ascii_case(n))
+                    })
                     .cloned()
                     .collect::<Vec<_>>()
             })
@@ -814,6 +853,9 @@ impl Engine {
                     .map_err(|e| Error(format!("TIME PROGRAM: {}", e.0)))?;
             }
             sub.flush()?;
+            warnings.append(&mut sub.warnings);
+            // the random numbers the program drew count as drawn
+            self.random.swap(&sub.random);
             let data = sub.dataset.take().expect("the expanded data");
             if data.case_count() != rows_before {
                 return Err(Error(
@@ -1029,7 +1071,8 @@ impl Engine {
                     let mut forward = matches!(method.kind, LogisticMethodKind::Fstep(_));
                     if !forward {
                         enter_all(&mut model_terms, &mut steps, &mut warnings, &mut seen);
-                        tried.push(sorted(&model_terms));
+                        // removing back to the block's starting model is no cycle
+                        tried = vec![sorted(&model_terms)];
                     }
                     for _ in 0..200 {
                         if !forward {
@@ -1203,11 +1246,7 @@ impl Engine {
                     .enumerate()
                     .map(|(j, name)| {
                         let mut row = vec![text(name.clone()), number(Some(means[j]))];
-                        row.extend(
-                            patterns
-                                .iter()
-                                .map(|p| number(p.lines[0].1.get(j).copied())),
-                        );
+                        row.extend(patterns.iter().map(|p| number(p.shown[j])));
                         row
                     })
                     .collect();
@@ -1479,6 +1518,9 @@ impl CaseStats {
 struct Pattern {
     title: String,
     lines: Vec<(String, Vec<f64>)>,
+    /// The column values for the Covariate Means table; empty for the columns of a BY
+    /// variable, which change from line to line.
+    shown: Vec<Option<f64>>,
 }
 
 /// What the tables of every block share.
@@ -1787,9 +1829,19 @@ impl Report<'_> {
                 }
                 None => vec![(format!("Pattern {}", n + 1), row_for(None))],
             };
+            let shown = row_for(None)
+                .into_iter()
+                .enumerate()
+                .map(|(j, v)| {
+                    let varies =
+                        by.is_some_and(|b| covariates.column_parts(j).iter().any(|&(v, _)| v == b));
+                    (!varies).then_some(v)
+                })
+                .collect();
             out.push(Pattern {
                 title: format!("pattern {}", n + 1),
                 lines,
+                shown,
             });
         }
         Ok(out)

@@ -413,18 +413,16 @@ pub(crate) fn coxreg(p: &mut Parser) -> PResult<Command> {
             "COXREG needs STATUS: the status variable and its event values",
         ));
     }
-    for v in &command.events {
-        if matches!(v, MissingValue::Range(..))
-            && matches!(
-                command.events.first(),
-                Some(MissingValue::Value(Value::String(_)))
-            )
-        {
-            return Err(SyntaxError::new(
-                p.span(),
-                "STATUS takes either string values or numbers and ranges, not both",
-            ));
-        }
+    let strings = command
+        .events
+        .iter()
+        .filter(|v| matches!(v, MissingValue::Value(Value::String(_))))
+        .count();
+    if strings > 0 && strings < command.events.len() {
+        return Err(SyntaxError::new(
+            p.span(),
+            "STATUS takes either quoted strings or numbers and ranges, not both",
+        ));
     }
     if command.methods.is_empty() && !command.terms.is_empty() {
         command.methods.push(LogisticMethod {
