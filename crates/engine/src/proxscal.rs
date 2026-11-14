@@ -714,42 +714,49 @@ impl Engine {
                     .collect(),
             }
         };
-        let sources = chosen(&plot.transformations, &mut warnings);
-        if !sources.is_empty() {
-            let groups = sources
-                .iter()
-                .map(|&k| pair_points(k, &|i, j| (input.delta[k][i][j], done.dhat[k][i][j])))
-                .collect();
-            charts.push(Chart::plot(
-                ChartKind::Scatter,
-                "Transformation Plot".into(),
-                Axis::titled("Proximities"),
-                Axis::titled("Transformed Proximities"),
-                Plot::Points {
-                    groups,
-                    lines: Vec::new(),
-                    z_axis: None,
-                },
-            ));
-        }
-        let sources = chosen(&plot.residuals, &mut warnings);
-        if !sources.is_empty() {
-            let d: Vec<Matrix> = x.iter().map(distances).collect();
-            let groups = sources
-                .iter()
-                .map(|&k| pair_points(k, &|i, j| (done.dhat[k][i][j], d[k][i][j])))
-                .collect();
-            charts.push(Chart::plot(
-                ChartKind::Scatter,
-                "Residuals Plot".into(),
-                Axis::titled("Transformed Proximities"),
-                Axis::titled("Distances"),
-                Plot::Points {
-                    groups,
-                    lines: Vec::new(),
-                    z_axis: None,
-                },
-            ));
+        let d: Vec<Matrix> = x.iter().map(distances).collect();
+        // one plot per list of sources
+        let lists = [
+            (
+                &plot.transformations,
+                "Transformation Plot",
+                "Proximities",
+                "Transformed Proximities",
+            ),
+            (
+                &plot.residuals,
+                "Residuals Plot",
+                "Transformed Proximities",
+                "Distances",
+            ),
+        ];
+        for (asked, title, x_title, y_title) in lists {
+            for list in asked.iter().flatten() {
+                let sources = chosen(&Some(list.clone()), &mut warnings);
+                if sources.is_empty() {
+                    continue;
+                }
+                let groups = sources
+                    .iter()
+                    .map(|&k| match title {
+                        "Residuals Plot" => {
+                            pair_points(k, &|i, j| (done.dhat[k][i][j], d[k][i][j]))
+                        }
+                        _ => pair_points(k, &|i, j| (input.delta[k][i][j], done.dhat[k][i][j])),
+                    })
+                    .collect();
+                charts.push(Chart::plot(
+                    ChartKind::Scatter,
+                    title.into(),
+                    Axis::titled(x_title),
+                    Axis::titled(y_title),
+                    Plot::Points {
+                        groups,
+                        lines: Vec::new(),
+                        z_axis: None,
+                    },
+                ));
+            }
         }
         let out = &command.outfile;
         if let Some(file) = &out.common {

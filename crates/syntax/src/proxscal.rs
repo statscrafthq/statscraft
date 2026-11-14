@@ -10,7 +10,7 @@
 //!   RANDOM[(n)]. WEIGHTS=varlist, one weight variable per proximity variable.
 //! - CONDITION=MATRIX (default) or UNCONDITIONAL. TRANSFORMATION=RATIO (default), INTERVAL,
 //!   ORDINAL[(KEEPTIES | UNTIE)] or SPLINE [DEGREE=2] [INKNOT=1]; DEGREE from 1 to 3, INKNOT
-//!   from 1. PROXIMITIES=DISSIMILARITIES (default) or SIMILARITIES.
+//!   from 0. PROXIMITIES=DISSIMILARITIES (default) or SIMILARITIES.
 //! - MODEL=IDENTITY (default), WEIGHTED, GENERALIZED or REDUCED[(2)]. ACCELERATION=NONE.
 //! - CRITERIA=DIMENSIONS(min[,max]) (2), MAXITER(n) (100), DIFFSTRESS(v) and MINSTRESS(v)
 //!   (0.0001, from 0 to 1).
@@ -88,14 +88,15 @@ pub struct ProxscalPrint {
 }
 
 /// Plots of PROXSCAL; the source lists are None when not asked for and empty for ALL.
+/// TRANSFORMATIONS and RESIDUALS give a plot per list.
 #[derive(Debug, Clone, PartialEq, Default)]
 pub struct ProxscalPlot {
     pub stress: bool,
     pub common: bool,
     pub weights: bool,
     pub individual: Option<Vec<String>>,
-    pub transformations: Option<Vec<String>>,
-    pub residuals: Option<Vec<String>>,
+    pub transformations: Option<Vec<Vec<String>>>,
+    pub residuals: Option<Vec<Vec<String>>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -165,11 +166,12 @@ fn fraction(p: &mut Parser, what: &str) -> PResult<f64> {
     Ok(v)
 }
 
-/// `(name name ...)` or `(ALL)` after a plot keyword: empty for ALL; several lists add up.
-fn sources(p: &mut Parser) -> PResult<Vec<String>> {
-    let mut names = Vec::new();
-    let mut all = false;
+/// The lists `(name name ...)` or `(ALL)` after a plot keyword, each empty for ALL; one
+/// list of ALL without parentheses.
+fn source_lists(p: &mut Parser) -> PResult<Vec<Vec<String>>> {
+    let mut lists = Vec::new();
     while p.eat(Punct::LParen) {
+        let (mut names, mut all) = (Vec::new(), false);
         while !p.eat(Punct::RParen) {
             if p.eat_word("ALL") {
                 all = true;
@@ -178,8 +180,21 @@ fn sources(p: &mut Parser) -> PResult<Vec<String>> {
             }
             p.eat(Punct::Comma);
         }
+        lists.push(if all { Vec::new() } else { names });
     }
-    Ok(if all { Vec::new() } else { names })
+    if lists.is_empty() {
+        lists.push(Vec::new());
+    }
+    Ok(lists)
+}
+
+/// The sources of all lists together: empty when one of them is ALL.
+fn sources(p: &mut Parser) -> PResult<Vec<String>> {
+    let lists = source_lists(p)?;
+    Ok(match lists.iter().any(Vec::is_empty) {
+        true => Vec::new(),
+        false => lists.concat(),
+    })
 }
 
 /// TRANSFORMATION=... after the equals sign.
@@ -214,7 +229,7 @@ pub(crate) fn transformation(p: &mut Parser) -> PResult<ProxTransformation> {
                 }
             } else if p.eat_keyword("INKNOT") {
                 p.eat(Punct::Eq);
-                inknot = whole(p, "the number of interior knots", 1)?;
+                inknot = whole(p, "the number of interior knots", 0)?;
             } else {
                 break;
             }
@@ -305,9 +320,9 @@ fn plot(p: &mut Parser) -> PResult<ProxscalPlot> {
         } else if p.eat_keyword("INDIVIDUAL") {
             plot.individual = Some(sources(p)?);
         } else if p.eat_keyword("TRANSFORMATIONS") || p.eat_keyword("TRANSFORMATION") {
-            plot.transformations = Some(sources(p)?);
+            plot.transformations = Some(source_lists(p)?);
         } else if p.eat_keyword("RESIDUALS") {
-            plot.residuals = Some(sources(p)?);
+            plot.residuals = Some(source_lists(p)?);
         } else if p.eat_keyword("CORRELATIONS") || p.eat_keyword("VARIABLES") {
             // they need RESTRICTIONS, which is not supported: nothing to plot
             sources(p)?;

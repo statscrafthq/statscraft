@@ -367,3 +367,59 @@ fn matrix_out_under_a_split_writes_one_matrix_per_group() {
     );
     assert_eq!(data.variable("VAR1").unwrap().label(), None);
 }
+
+#[test]
+fn a_reversed_matrix_is_labeled_a_similarity_and_read_back_so() {
+    let mut engine = Engine::default();
+    run_on(
+        &mut engine,
+        &format!(
+            "{DATA}PROXIMITIES sweet sour bitter /PRINT=NONE /MATRIX=OUT(*).\n\
+             PROXIMITIES /MATRIX=IN(*) /MEASURE=NONE REVERSE /PRINT=NONE /MATRIX=OUT(*).\n"
+        ),
+    );
+    let data = engine.dataset().unwrap();
+    let labels = data.variable("ROWTYPE_").unwrap().value_labels().to_vec();
+    assert_eq!(labels[0].1, "SIMILARITY");
+    let tables = run_on(&mut engine, "PROXIMITIES /MATRIX=IN(*).");
+    let (table, _) = matrix(&tables);
+    assert!(
+        table
+            .caption
+            .as_deref()
+            .unwrap()
+            .contains("a similarity matrix")
+    );
+}
+
+#[test]
+fn split_matrices_survive_temporary_selection_and_read_back_per_group() {
+    let mut engine = Engine::default();
+    run_on(
+        &mut engine,
+        &format!(
+            "{DATA}COMPUTE side = shop = 'east' | shop = 'west' | shop = 'lake' | shop = 'coast'.\n\
+             SORT CASES BY side.\n\
+             SPLIT FILE BY side.\n\
+             TEMPORARY.\n\
+             SELECT IF shop <> 'north'.\n\
+             PROXIMITIES sweet bitter /PRINT=NONE /MATRIX=OUT(*).\n"
+        ),
+    );
+    let data = engine.dataset().unwrap();
+    // south and hill on side 0, the four others on side 1
+    assert_eq!(data.case_count(), 6);
+    let sides: Vec<f64> = (0..6).map(|c| value(data, "side", c)).collect();
+    assert_eq!(sides, [0.0, 0.0, 1.0, 1.0, 1.0, 1.0]);
+    // each group reads back its own items
+    let tables = run_on(
+        &mut engine,
+        "SPLIT FILE SEPARATE BY side.\nCLUSTER /MATRIX=IN(*) /PRINT=DISTANCE.",
+    );
+    let sizes: Vec<usize> = tables
+        .iter()
+        .filter(|t| t.title.starts_with("Proximity Matrix"))
+        .map(|t| t.rows.len())
+        .collect();
+    assert_eq!(sizes, [2, 4]);
+}

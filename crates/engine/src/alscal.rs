@@ -634,9 +634,25 @@ impl Engine {
                     .collect()
             })
             .collect();
+        let mut o = input.delta.clone();
+        if input.similarity && !matches!(level, AlscalLevel::Ordinal { .. }) {
+            // the metric levels need dissimilarities: each from the largest similarity
+            warnings.push(
+                "ALSCAL: the matrix holds similarities; each is taken from the largest to give dissimilarities"
+                    .into(),
+            );
+            for (ok, pk) in o.iter_mut().zip(&present) {
+                let top = (0..n)
+                    .flat_map(|i| (0..n).map(move |j| (i, j)))
+                    .filter(|&(i, j)| pk[i][j])
+                    .map(|(i, j)| ok[i][j])
+                    .fold(f64::NEG_INFINITY, f64::max);
+                ok.iter_mut().flatten().for_each(|v| *v = top - *v);
+            }
+        }
         let data = Data {
             n,
-            o: input.delta.clone(),
+            o,
             present,
             level,
             groups: match command.unconditional {

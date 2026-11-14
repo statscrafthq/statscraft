@@ -570,7 +570,16 @@ impl Engine {
             .filter(|v| !v.is_string())
             .collect();
         let chosen: Vec<Variable> = match variables.is_empty() {
-            true => all,
+            // the items that have a row: a split group may have fewer than the file
+            true => {
+                let rows: Vec<String> = (0..data.case_count())
+                    .filter(|&case| value_text(&rowtype, case).eq_ignore_ascii_case("PROX"))
+                    .map(|case| value_text(&varname, case).to_uppercase())
+                    .collect();
+                all.into_iter()
+                    .filter(|v| rows.contains(&v.name().to_uppercase()))
+                    .collect()
+            }
             false => {
                 let mut out = Vec::new();
                 for item in variables {

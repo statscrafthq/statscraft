@@ -357,8 +357,8 @@ pub struct Engine {
     documents: output_docs::Documents,
     /// See `error_position`.
     error_at: Option<(u32, u32)>,
-    /// The matrices of PROXIMITIES /MATRIX=OUT per split group, with the first case of the group.
-    proximity_out: Vec<(usize, Dataset)>,
+    /// PROXIMITIES /MATRIX=OUT: the split variables and the matrix of every split group.
+    proximity_out: (Vec<String>, Vec<Dataset>),
     /// The specifications of the last PPLOT, for PPLOT APPLY.
     pplot_model: Option<Box<statscraft_syntax::Pplot>>,
 }
@@ -699,9 +699,9 @@ impl Engine {
             | Command::Aggregate(_) => return self.procedure(command),
             Command::Proximities(proximities) => {
                 let split = self.active()?.split_file().map(|s| s.variables.clone());
-                self.proximity_out.clear();
+                self.proximity_out = (split.unwrap_or_default(), Vec::new());
                 let tables = self.procedure(command)?;
-                self.proximities_out(proximities, split)?;
+                self.proximities_out(proximities)?;
                 return Ok(tables);
             }
             Command::Execute => {

@@ -485,7 +485,7 @@ fn proxscal_defaults_and_keywords() {
         "PROXSCAL a b c d /TABLE=r BY c BY s /SHAPE=BOTH /INITIAL=RANDOM(5) /WEIGHTS=w1 TO w4 \
          /CONDITION=UNCONDITIONAL /TRANSFORMATION=SPLINE DEGREE=3 INKNOT=2 /PROXIMITIES=SIMILARITIES \
          /MODEL=REDUCED(1) /ACCELERATION=NONE /CRITERIA=DIMENSIONS(1,3) MAXITER(50) DIFFSTRESS(.001) \
-         /PRINT=HISTORY DISTANCES /PLOT=TRANSFORMATIONS(src1 src2) RESIDUALS(ALL) \
+         /PRINT=HISTORY DISTANCES /PLOT=TRANSFORMATIONS(src1 src2)(src3) RESIDUALS(ALL) \
          /OUTFILE=COMMON(space) DISTANCES('d.sav').",
     );
     let table = p.table.unwrap();
@@ -506,11 +506,12 @@ fn proxscal_defaults_and_keywords() {
     assert_eq!(p.model, ScalingModel::Reduced(1));
     assert_eq!((p.dimensions, p.max_iterations), ((1, 3), 50));
     assert!(p.print.history && p.print.distances && !p.print.common && !p.print.stress);
+    let names = |list: &[&str]| list.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     assert_eq!(
         p.plot.transformations,
-        Some(vec!["src1".to_string(), "src2".to_string()])
+        Some(vec![names(&["src1", "src2"]), names(&["src3"])])
     );
-    assert_eq!(p.plot.residuals, Some(Vec::new()));
+    assert_eq!(p.plot.residuals, Some(vec![Vec::new()]));
     assert!(!p.plot.common);
     assert_eq!(p.outfile.common.as_deref(), Some("space"));
     assert_eq!(p.outfile.distances.as_deref(), Some("d.sav"));

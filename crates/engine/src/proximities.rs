@@ -244,12 +244,8 @@ impl Engine {
         }
         if command.matrix_out.is_some() {
             let out = self.proximity_dataset(command, &items, &measure, &variables)?;
-            let first = self
-                .case_numbers
-                .as_ref()
-                .and_then(|c| c.first().copied())
-                .unwrap_or(0);
-            self.proximity_out.push((first, out));
+            let out = self.after_split(command, out)?;
+            self.proximity_out.1.push(out);
         }
         Ok(tables)
     }
@@ -279,7 +275,14 @@ impl Engine {
         };
         out.set_value_labels(
             "ROWTYPE_",
-            vec![(Value::String("PROX".into()), format!("{measure} {kind}"))],
+            vec![(
+                Value::String("PROX".into()),
+                // a matrix read has no measure name, and its description says the old kind
+                match command.matrix_in {
+                    Some(_) => kind.to_string(),
+                    None => format!("{measure} {kind}"),
+                },
+            )],
         )?;
         let by_case = !command.view_variables && command.matrix_in.is_none();
         let names: Vec<String> = match (command.matrix_in.is_some(), by_case) {
@@ -315,47 +318,56 @@ impl Engine {
         Ok(out)
     }
 
-    /// Writes the matrices of MATRIX=OUT that the run of every split group left, after the
-    /// values of `split`, the split variables.
-    pub(crate) fn proximities_out(
-        &mut self,
-        command: &Proximities,
-        split: Option<Vec<String>>,
-    ) -> Result<(), Error> {
-        let parts = std::mem::take(&mut self.proximity_out);
+    /// The matrix of one group after the values of the split variables, taken from the
+    /// group's first case; the items then carry no case labels.
+    fn after_split(&self, command: &Proximities, part: Dataset) -> Result<Dataset, Error> {
+        let names = &self.proximity_out.0;
+        if names.is_empty() {
+            return Ok(part);
+        }
+        let group = self.active()?;
+        let n = part.case_count();
+        let mut joined = Dataset::new(n);
+        for name in names {
+            joined.copy_variable(group, name, &vec![Some(0); n])?;
+        }
+        let cases: Vec<Option<usize>> = (0..n).map(Some).collect();
+        let mut items = false;
+        for name in part.variable_names() {
+            joined.copy_variable(&part, name, &cases)?;
+            if items && !command.view_variables {
+                joined.set_variable_label(name, None)?;
+            }
+            items |= name == "VARNAME_";
+        }
+        Ok(joined)
+    }
+
+    /// Writes the matrices of MATRIX=OUT that the runs of the split groups left, one after
+    /// the other. A group with fewer items has the others blank; strings take the widest.
+    pub(crate) fn proximities_out(&mut self, command: &Proximities) -> Result<(), Error> {
+        let (_, parts) = std::mem::take(&mut self.proximity_out);
         let Some(target) = &command.matrix_out else {
             return Ok(());
-        };
-        let parts: Vec<Dataset> = match &split {
-            None => parts.into_iter().map(|(_, part)| part).collect(),
-            Some(names) => {
-                let full = self.active()?;
-                let mut out = Vec::new();
-                for (first, part) in parts {
-                    let n = part.case_count();
-                    let mut joined = Dataset::new(n);
-                    for name in names {
-                        joined.copy_variable(full, name, &vec![Some(first); n])?;
-                    }
-                    let cases: Vec<Option<usize>> = (0..n).map(Some).collect();
-                    let mut items = false;
-                    for name in part.variable_names() {
-                        joined.copy_variable(&part, name, &cases)?;
-                        // with a split the items carry no case labels
-                        if items && !command.view_variables {
-                            joined.set_variable_label(name, None)?;
-                        }
-                        items |= name == "VARNAME_";
-                    }
-                    out.push(joined);
-                }
-                out
-            }
         };
         let Some(widest) = parts.iter().max_by_key(|d| d.variable_count()) else {
             return Ok(());
         };
-        let out = Dataset::from_parts(&widest.slice(0, 0), &parts)?;
+        let mut template = widest.slice(0, 0);
+        let strings: Vec<String> = template
+            .variables()
+            .filter(|v| v.is_string())
+            .map(|v| v.name().to_string())
+            .collect();
+        for name in strings {
+            let width = parts
+                .iter()
+                .filter_map(|p| p.variable(&name).ok()?.string_width())
+                .max()
+                .unwrap_or(1);
+            template.set_string_width(&name, width)?;
+        }
+        let out = Dataset::from_parts(&template, &parts)?;
         match target {
             None => self.dataset = Some(out),
             Some(file) => self.write_data_file(file, out)?,

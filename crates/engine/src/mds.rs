@@ -775,7 +775,8 @@ pub(crate) fn iterate(
     let basis = spline_bases(problem);
     let (_, vinv) = mean_laplacian(problem).expect("checked before");
     let laplacians: Vec<Matrix> = problem.w.iter().map(laplacian).collect();
-    let same_weights = problem.w.windows(2).all(|w| w[0] == w[1]);
+    // with one Laplacian for all sources, or identity weights, Z = V^- T S^-1 is exact
+    let same_weights = model == Model::Identity || problem.w.windows(2).all(|w| w[0] == w[1]);
     dilate(problem, &dhat, &mut z, &a);
     let mut x = spaces(&z, &a);
     let mut stress = raw_stress(&sums(problem, &dhat, &x));

@@ -124,6 +124,9 @@ fn measure(p: &mut Parser, command: &mut Proximities) -> PResult<()> {
             return Err(SyntaxError::new(p.span(), "MEASURE takes one measure"));
         } else if p.eat_keyword("NONE") {
             (command.measure, command.no_measure, named) = (None, true, true);
+        } else if p.eat_keyword("DEFAULT") {
+            // CLUSTER's DEFAULT is SEUCLID; here it is this command's default
+            (command.measure, command.no_measure, named) = (Some(Proximity::Euclid), false, true);
         } else if let Some(m) = one_measure(p)? {
             (command.measure, command.no_measure, named) = (Some(m), false, true);
         } else {
