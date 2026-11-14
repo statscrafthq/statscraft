@@ -572,12 +572,31 @@ impl Engine {
         // a file of several split groups: the rows of the group that runs
         let group: Vec<(Variable, &Option<crate::crosstabs::Key>)> =
             match (source, &self.split_group) {
+                // only the variables before ROWTYPE_ are split variables of the file
                 (Some(_), Some(split)) => split
                     .iter()
-                    .filter_map(|(name, key)| Some((data.variable(name).ok()?, key)))
+                    .filter_map(|(name, key)| {
+                        let v = data
+                            .variables()
+                            .take_while(|v| v.name() != rowtype.name())
+                            .find(|v| v.name().eq_ignore_ascii_case(name))?;
+                        Some((v, key))
+                    })
                     .collect(),
                 _ => Vec::new(),
             };
+        for (v, key) in &group {
+            let numeric = !v.is_string();
+            if key
+                .as_ref()
+                .is_some_and(|k| matches!(k, crate::crosstabs::Key::Number(_)) != numeric)
+            {
+                return Err(Error(format!(
+                    "{who} /MATRIX=IN: the split variable {} is numeric in one file and a string in the other",
+                    v.name()
+                )));
+            }
+        }
         let in_group = |case: usize| {
             group.iter().all(|(v, key)| {
                 use crate::crosstabs::Key;
@@ -601,27 +620,28 @@ impl Engine {
                 "{who} /MATRIX=IN: the matrix file has no rows of type PROX"
             )));
         }
+        // the items with a row or a value: a split group may have fewer than the file
+        let rows: Vec<String> = prox_rows
+            .iter()
+            .map(|&case| value_text(&varname, case).to_uppercase())
+            .collect();
+        let present: Vec<Variable> = all
+            .iter()
+            .filter(|v| {
+                rows.contains(&v.name().to_uppercase())
+                    || matches!(v.values(), Values::Numeric(values)
+                        if prox_rows.iter().any(|&c| values.get(c).is_some()))
+            })
+            .copied()
+            .collect();
         let chosen: Vec<Variable> = match variables.is_empty() {
-            // the items with a row or a value: a split group may have fewer than the file
-            true => {
-                let rows: Vec<String> = prox_rows
-                    .iter()
-                    .map(|&case| value_text(&varname, case).to_uppercase())
-                    .collect();
-                all.into_iter()
-                    .filter(|v| {
-                        rows.contains(&v.name().to_uppercase())
-                            || matches!(v.values(), Values::Numeric(values)
-                                if prox_rows.iter().any(|&c| values.get(c).is_some()))
-                    })
-                    .collect()
-            }
+            true => present,
             false => {
                 // the list over the matrix file, TO in its order, ALL its items
                 let mut names: Vec<String> = Vec::new();
                 for item in variables {
                     match item {
-                        VarItem::All => names.extend(all.iter().map(|v| v.name().to_string())),
+                        VarItem::All => names.extend(present.iter().map(|v| v.name().to_string())),
                         _ => names.extend(
                             crate::expand_in(data, std::slice::from_ref(item))
                                 .map_err(|e| Error(format!("{who} /MATRIX=IN: {}", e.0)))?,

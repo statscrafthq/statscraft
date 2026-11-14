@@ -231,6 +231,8 @@ impl Engine {
                 | Command::CsModel(_)
         );
         let result = self.in_view(command, use_split);
+        // also after an early error inside a group
+        self.split_group = None;
         if let Command::Aggregate(aggregate) = command
             && aggregate.outfile.is_none()
             && !aggregate.add_variables

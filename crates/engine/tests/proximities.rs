@@ -482,6 +482,14 @@ fn a_split_matrix_file_is_read_group_by_group_from_another_dataset() {
         .map(|t| t.rows.len())
         .collect();
     assert_eq!(sizes, [3, 4]);
+    // ALL is the items of each group, three on side 0
+    let tables = run_on(&mut engine, "CLUSTER ALL /MATRIX=IN(m) /PRINT=DISTANCE.");
+    let sizes: Vec<usize> = tables
+        .iter()
+        .filter(|t| t.title.starts_with("Proximity Matrix"))
+        .map(|t| t.rows.len())
+        .collect();
+    assert_eq!(sizes, [3, 4]);
     // naming an item twice is refused
     let (commands, _) = parse(
         "SPLIT FILE OFF.\nDATASET ACTIVATE m.\nSELECT IF side = 1.\nCLUSTER VAR1 VAR2 VAR1 /MATRIX=IN(*).",
