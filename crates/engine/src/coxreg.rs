@@ -91,7 +91,6 @@ struct EventTime {
     xd: Vec<f64>,
     s0: f64,
     s1: Vec<f64>,
-    s2: Matrix,
 }
 
 fn dot(a: &[f64], b: &[f64]) -> f64 {
@@ -102,15 +101,17 @@ fn pick(x: &[f64], cols: &[usize]) -> Vec<f64> {
     cols.iter().map(|&c| x[c]).collect()
 }
 
-/// The event times of every stratum in ascending order with their risk-set sums at `b`;
-/// `second`: with the second moments S2 (else left 0).
+/// The event times of every stratum in ascending order with their risk-set sums at `b`. With
+/// `info`, each event time also adds its part of the information matrix there, so the second
+/// moments need not be kept per event time.
 fn event_times(
     rows: &[Row],
     strata: usize,
     cols: &[usize],
     b: &[f64],
-    second: bool,
+    mut info: Option<&mut Matrix>,
 ) -> Vec<EventTime> {
+    let second = info.is_some();
     let p = cols.len();
     let mut out = Vec::new();
     for s in 0..strata {
@@ -174,6 +175,13 @@ fn event_times(
                     xd[i] += rows[r].w * rows[r].x[c];
                 }
             }
+            if let Some(info) = info.as_deref_mut() {
+                for (i, row) in info.iter_mut().enumerate() {
+                    for (j, cell) in row.iter_mut().enumerate() {
+                        *cell += d * (s2[i][j] / s0 - s1[i] * s1[j] / (s0 * s0));
+                    }
+                }
+            }
             here.push(EventTime {
                 stratum: s,
                 time: t,
@@ -182,7 +190,6 @@ fn event_times(
                 xd,
                 s0,
                 s1: s1.clone(),
-                s2: if second { s2.clone() } else { Vec::new() },
             });
         }
         here.reverse();
@@ -195,18 +202,15 @@ fn event_times(
 fn derivatives(rows: &[Row], strata: usize, cols: &[usize], b: &[f64]) -> (f64, Vec<f64>, Matrix) {
     let p = cols.len();
     let (mut ll, mut u, mut info) = (0.0, vec![0.0; p], vec![vec![0.0; p]; p]);
-    for e in event_times(rows, strata, cols, b, true) {
+    for e in event_times(rows, strata, cols, b, Some(&mut info)) {
         ll += e
             .deaths
             .iter()
             .map(|&r| rows[r].w * dot(&pick(&rows[r].x, cols), b))
             .sum::<f64>()
             - e.d * e.s0.ln();
-        for (i, (u, row)) in u.iter_mut().zip(&mut info).enumerate() {
+        for (i, u) in u.iter_mut().enumerate() {
             *u += e.xd[i] - e.d * e.s1[i] / e.s0;
-            for (j, cell) in row.iter_mut().enumerate() {
-                *cell += e.d * (e.s2[i][j] / e.s0 - e.s1[i] * e.s1[j] / (e.s0 * e.s0));
-            }
         }
     }
     (ll, u, info)
@@ -366,7 +370,7 @@ fn overall_score(rows: &[Row], strata: usize, cols: &[usize]) -> f64 {
 
 /// The log partial likelihood alone at `b`.
 fn log_likelihood(rows: &[Row], strata: usize, cols: &[usize], b: &[f64]) -> f64 {
-    event_times(rows, strata, cols, b, false)
+    event_times(rows, strata, cols, b, None)
         .iter()
         .map(|e| {
             e.deaths
@@ -520,7 +524,7 @@ fn baselines(rows: &[Row], strata: usize, fit: &Fit) -> Vec<Baseline> {
             a: Vec::new(),
         })
         .collect();
-    for e in event_times(rows, strata, &fit.cols, &fit.b, false) {
+    for e in event_times(rows, strata, &fit.cols, &fit.b, None) {
         let base = &mut out[e.stratum];
         let deaths: Vec<(f64, f64)> = e
             .deaths
@@ -1341,7 +1345,8 @@ impl Engine {
                             .filter(|(_, p)| p.is_finite())
                             .min_by(|a, b| a.1.total_cmp(&b.1));
                         let Some((t, p)) = best else { break };
-                        if p >= criteria.pin {
+                        // above PIN a term cannot enter
+                        if p > criteria.pin {
                             break;
                         }
                         let mut next = model_terms.clone();
@@ -1701,7 +1706,7 @@ impl CaseStats {
             dfbeta: vec![vec![0.0; p]; cases],
             presid: vec![vec![nan; columns]; cases],
         };
-        for e in event_times(rows, strata, &fit.cols, &fit.b, false) {
+        for e in event_times(rows, strata, &fit.cols, &fit.b, None) {
             for &r in &e.deaths {
                 for (j, &c) in fit.cols.iter().enumerate() {
                     out.presid[rows[r].case][c] = rows[r].x[c] - e.s1[j] / e.s0;
