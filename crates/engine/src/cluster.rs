@@ -21,15 +21,17 @@ use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Measure, Value, Values, Variable};
 use statscraft_syntax::{BinaryMeasure, Cluster, Linkage, Proximity, VarItem};
 
-/// The items to cluster with their proximities.
-struct Items {
-    labels: Vec<String>,
+/// The items with their proximities.
+pub(crate) struct Items {
+    pub labels: Vec<String>,
     /// The case of every item in the active dataset; empty with matrix input.
-    cases: Vec<usize>,
-    prox: Matrix,
-    similarity: bool,
+    pub cases: Vec<usize>,
+    pub prox: Matrix,
+    pub similarity: bool,
     /// Cases left out for missing values.
-    missing: usize,
+    pub missing: usize,
+    /// With matrix input: the name of every item.
+    pub names: Vec<String>,
 }
 
 /// One step of the agglomeration: clusters q < p joined (0-based) at `coefficient`.
@@ -218,6 +220,69 @@ pub(crate) fn proximity(m: &Proximity, x: &[f64], y: &[f64]) -> f64 {
     }
 }
 
+/// The Case Processing Summary: `n` valid cases and `missing` left out.
+pub(crate) fn summary_table(n: usize, missing: usize, caption: &str) -> Table {
+    let total = n + missing;
+    let percent = |k: usize| Cell::Number(100.0 * k as f64 / total as f64);
+    Table {
+        title: "Case Processing Summary".into(),
+        columns: ["N", "Percent", "N", "Percent", "N", "Percent"]
+            .map(String::from)
+            .to_vec(),
+        column_groups: ["Valid", "Valid", "Missing", "Missing", "Total", "Total"]
+            .map(|g| vec!["Cases".to_string(), g.to_string()])
+            .to_vec(),
+        rows: vec![vec![
+            Cell::Number(n as f64),
+            percent(n),
+            Cell::Number(missing as f64),
+            percent(missing),
+            Cell::Number(total as f64),
+            percent(total),
+        ]],
+        caption: Some(caption.to_string()),
+        ..Table::default()
+    }
+}
+
+/// The Proximity Matrix of the items. `head` names the item column; `diagonal` shows the
+/// proximity of each item with itself.
+pub(crate) fn proximity_table(
+    head: &str,
+    labels: &[String],
+    prox: &Matrix,
+    similarity: bool,
+    measure: &str,
+    diagonal: bool,
+) -> Table {
+    let n = labels.len();
+    let rows = (0..n)
+        .map(|i| {
+            let mut row = vec![text(labels[i].clone())];
+            row.extend((0..n).map(|j| match i == j && !diagonal {
+                true => Cell::Empty,
+                false => number(Some(prox[i][j])),
+            }));
+            row
+        })
+        .collect();
+    let mut columns = vec![head.to_string()];
+    columns.extend(labels.iter().cloned());
+    let kind = match similarity {
+        true => "similarity",
+        false => "dissimilarity",
+    };
+    Table {
+        title: "Proximity Matrix".into(),
+        row_headers: 1,
+        column_groups: vec![Vec::new(); n + 1],
+        columns,
+        rows,
+        caption: Some(format!("{measure}. This is a {kind} matrix.")),
+        ..Table::default()
+    }
+}
+
 /// The agglomeration schedule of the method on the proximities `s`.
 pub(crate) fn agglomerate(s: &Matrix, similarity: bool, method: Linkage) -> Vec<Stage> {
     let n = s.len();
@@ -381,7 +446,7 @@ fn solutions(n: usize, (min, max): (usize, usize)) -> Vec<usize> {
     (min..=max).rev().collect()
 }
 
-fn value_text(var: &Variable, case: usize) -> String {
+pub(crate) fn value_text(var: &Variable, case: usize) -> String {
     match var.values() {
         Values::Numeric(values) => values.get(case).map_or(String::new(), |v| {
             crate::format::category_text(v, var.format())
@@ -461,16 +526,25 @@ impl Engine {
             prox,
             similarity: is_similarity(&command.measure),
             missing,
+            names: Vec::new(),
         })
     }
 
     /// The case number in the file, counting from 1.
-    fn case_number(&self, case: usize) -> usize {
+    pub(crate) fn case_number(&self, case: usize) -> usize {
         self.case_numbers.as_ref().map_or(case, |n| n[case]) + 1
     }
 
-    /// The items of a proximity matrix file: the rows of type PROX.
-    fn cluster_matrix(&self, command: &Cluster, source: Option<&String>) -> Result<Items, Error> {
+    /// The items of a proximity matrix file: the rows of type PROX. `who` names the command
+    /// in messages; `variables` chooses items by name (all when empty); `id` names the
+    /// labeling variable (ID when there is one).
+    pub(crate) fn proximity_matrix(
+        &self,
+        who: &str,
+        variables: &[VarItem],
+        id: Option<&String>,
+        source: Option<&String>,
+    ) -> Result<Items, Error> {
         let file;
         let data: &Dataset = match source {
             None => self.active()?,
@@ -484,7 +558,7 @@ impl Engine {
                 .find(|v| v.name().eq_ignore_ascii_case(name) && v.is_string())
                 .ok_or_else(|| {
                     Error(format!(
-                        "CLUSTER /MATRIX=IN needs the string variable {name} in the matrix file"
+                        "{who} /MATRIX=IN needs the string variable {name} in the matrix file"
                     ))
                 })
         };
@@ -495,20 +569,20 @@ impl Engine {
             .skip(1)
             .filter(|v| !v.is_string())
             .collect();
-        let chosen: Vec<Variable> = match command.variables.is_empty() {
+        let chosen: Vec<Variable> = match variables.is_empty() {
             true => all,
             false => {
                 let mut out = Vec::new();
-                for item in &command.variables {
+                for item in variables {
                     let VarItem::Name(name) = item else {
-                        return Err(Error(
-                            "CLUSTER /MATRIX=IN takes item names, without TO or ALL".into(),
-                        ));
+                        return Err(Error(format!(
+                            "{who} /MATRIX=IN takes item names, without TO or ALL"
+                        )));
                     };
                     let v = all
                         .iter()
                         .find(|v| v.name().eq_ignore_ascii_case(name))
-                        .ok_or_else(|| Error(format!("CLUSTER: the matrix has no item {name}")))?;
+                        .ok_or_else(|| Error(format!("{who}: the matrix has no item {name}")))?;
                     out.push(*v);
                 }
                 out
@@ -519,7 +593,7 @@ impl Engine {
                 && label.to_uppercase().contains("SIMILARITY")
                 && !label.to_uppercase().contains("DISSIMILARITY")
         });
-        let label_var = match &command.id {
+        let label_var = match id {
             Some(name) => Some(data.variable(name)?),
             None => data
                 .variables()
@@ -562,7 +636,7 @@ impl Engine {
             .find(|&(i, j)| i != j && prox[i][j].is_nan())
         {
             return Err(Error(format!(
-                "CLUSTER /MATRIX=IN: the matrix has no proximity of {} and {}",
+                "{who} /MATRIX=IN: the matrix has no proximity of {} and {}",
                 chosen[i].name(),
                 chosen[j].name()
             )));
@@ -573,6 +647,7 @@ impl Engine {
             prox,
             similarity,
             missing: 0,
+            names: chosen.iter().map(|v| v.name().to_string()).collect(),
         })
     }
 
@@ -584,7 +659,12 @@ impl Engine {
                         "CLUSTER: SAVE with MATRIX=IN is not supported yet".into(),
                     ));
                 }
-                self.cluster_matrix(command, source.as_ref())?
+                self.proximity_matrix(
+                    "CLUSTER",
+                    &command.variables,
+                    command.id.as_ref(),
+                    source.as_ref(),
+                )?
             }
             None => {
                 if self.active()?.weight_variable().is_some() {
@@ -608,53 +688,16 @@ impl Engine {
             },
             None => measure_name(&command.measure),
         };
-        let total = n + items.missing;
-        let percent = |k: usize| Cell::Number(100.0 * k as f64 / total as f64);
-        tables.push(Table {
-            title: "Case Processing Summary".into(),
-            columns: ["N", "Percent", "N", "Percent", "N", "Percent"]
-                .map(String::from)
-                .to_vec(),
-            column_groups: ["Valid", "Valid", "Missing", "Missing", "Total", "Total"]
-                .map(|g| vec!["Cases".to_string(), g.to_string()])
-                .to_vec(),
-            rows: vec![vec![
-                Cell::Number(n as f64),
-                percent(n),
-                Cell::Number(items.missing as f64),
-                percent(items.missing),
-                Cell::Number(total as f64),
-                percent(total),
-            ]],
-            caption: Some(format!("{measure} used")),
-            ..Table::default()
-        });
+        tables.push(summary_table(n, items.missing, &format!("{measure} used")));
         if command.distance {
-            let rows = (0..n)
-                .map(|i| {
-                    let mut row = vec![text(items.labels[i].clone())];
-                    row.extend((0..n).map(|j| match i == j {
-                        true => Cell::Empty,
-                        false => number(Some(items.prox[i][j])),
-                    }));
-                    row
-                })
-                .collect();
-            let mut columns = vec!["Case".to_string()];
-            columns.extend(items.labels.iter().cloned());
-            let kind = match items.similarity {
-                true => "similarity",
-                false => "dissimilarity",
-            };
-            tables.push(Table {
-                title: "Proximity Matrix".into(),
-                row_headers: 1,
-                column_groups: vec![Vec::new(); n + 1],
-                columns,
-                rows,
-                caption: Some(format!("{measure}. This is a {kind} matrix.")),
-                ..Table::default()
-            });
+            tables.push(proximity_table(
+                "Case",
+                &items.labels,
+                &items.prox,
+                items.similarity,
+                &measure,
+                false,
+            ));
         }
         // the saved variables of every method, solutions from the largest down
         let mut saved: Vec<(String, String, Vec<Option<f64>>)> = Vec::new();

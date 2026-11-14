@@ -641,6 +641,15 @@ Where the documentation is silent:
 - Plots come as chart data. The cases are laid out so that no branches cross: a join puts the second cluster's cases after the first's. The dendrogram rescales the heights to 1 at the first join and 25 at the last, so the first joins stay apart from the cases. Icicle clusters are numbered along that layout.
 - Saved memberships are F8.0 nominal variables labeled with the method and the number of clusters.
 
+### PROXIMITIES
+
+- The standard deviation of Z and SD has n - 1 in its denominator. MAX divides by the largest value, not the largest absolute value.
+- The diagonal of the Proximity Matrix and of a matrix file holds each item's proximity with itself. RESCALE on MEASURE maps the smallest and the largest entry of the whole matrix, the diagonal included, to 0 and 1.
+- A pair for which the measure is undefined (such as JACCARD of two cases with no presence) is system-missing, with a warning; the command goes on.
+- With MATRIX=IN no measure is computed: MEASURE and STANDARDIZE are ignored with a warning, and only ABSOLUTE, REVERSE and RESCALE apply.
+- Cases are labeled with their case number, followed by the ID value after a colon. The ID variable in a matrix file keeps its values whole.
+- In a matrix file the order is ROWTYPE_, the ID variable, CASENO_, VARNAME_. Under SPLIT FILE a group with fewer items than another has its missing item variables blank, and the item variables carry no labels.
+
 ### DISCRIMINANT
 
 - A group value that is not a whole number counts as out of range.

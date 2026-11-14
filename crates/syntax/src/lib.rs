@@ -57,6 +57,7 @@ mod portable;
 mod pplot;
 mod preprocess;
 mod procedures;
+mod proximities;
 mod rank;
 mod regression;
 mod reliability;
@@ -204,6 +205,7 @@ pub use output_modify::{
 pub use plum::{Plum, PlumCriteria, PlumLink, PlumPrint, PlumSave};
 pub use pplot::{Pplot, PplotPlot, Roc, TestDistribution};
 pub use preprocess::{FileHandle, MacroState};
+pub use proximities::{Proximities, Standardize};
 pub use regression::{
     Casewise, Criterion, MethodKind, PlotVariable, Regression, RegressionCriteria,
     RegressionDescriptives, RegressionMethod, RegressionMissing, RegressionResiduals,

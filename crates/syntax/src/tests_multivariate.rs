@@ -1,4 +1,4 @@
-//! Parser tests of CLUSTER, DISCRIMINANT, ANOVA and CORRESPONDENCE.
+//! Parser tests of CLUSTER, PROXIMITIES, DISCRIMINANT, ANOVA and CORRESPONDENCE.
 
 use super::*;
 
@@ -418,4 +418,51 @@ fn correspondence_errors() {
         err("CORRESPONDENCE TABLE=a(1,3) BY b(1,3) /OUTFILE=SCORE(x) VARIANCE(x).")
             .contains("different")
     );
+}
+
+fn proximities(source: &str) -> Proximities {
+    match one(source) {
+        Command::Proximities(p) => *p,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn proximities_defaults_and_keywords() {
+    let p = proximities("PROXIMITIES a b c.");
+    assert_eq!(p.measure_or_default(), Proximity::Euclid);
+    assert!(p.print && !p.view_variables && p.standardize.is_none());
+    let p = proximities(
+        "PROXIMITIES a TO c /VIEW=VARIABLE /STANDARDIZE=CASE MAX /MEASURE=RESCALE POWER(3,2) ABS \
+         /PRINT=NONE /ID=name /MISSING=INCLUDE /MATRIX=OUT(*) IN('m.sav').",
+    );
+    assert!(p.view_variables && !p.print && p.include && p.absolute && p.rescale && !p.reverse);
+    assert_eq!(p.standardize, Some((Standardize::Max, true)));
+    assert_eq!(p.measure, Some(Proximity::Power(3.0, 2.0)));
+    assert_eq!(p.matrix_out, Some(None));
+    assert_eq!(p.matrix_in, Some(Some("m.sav".into())));
+    // STANDARDIZE alone means Z by variable; Z and SD are written in full
+    assert_eq!(
+        proximities("PROXIMITIES a b /STANDARDIZE.").standardize,
+        Some((Standardize::Z, false))
+    );
+    assert_eq!(
+        proximities("PROXIMITIES a b /STANDARDIZE=SD.").standardize,
+        Some((Standardize::Sd, false))
+    );
+    let p = proximities("PROXIMITIES /MATRIX=IN(*) /MEASURE=NONE REVERSE.");
+    assert!(p.no_measure && p.reverse && p.variables.is_empty());
+    assert_eq!(
+        proximities("PROXIMITIES a b /MEASURE=SM(2)").measure,
+        Some(Proximity::Binary(BinaryMeasure::Sm, 2.0, None))
+    );
+}
+
+#[test]
+fn proximities_errors() {
+    assert!(err("PROXIMITIES a b /MEASURE=EUCLID BLOCK.").contains("one measure"));
+    assert!(err("PROXIMITIES a b /MEASURE=NONE.").contains("MATRIX=IN"));
+    assert!(err("PROXIMITIES /MEASURE=EUCLID.").contains("variable list"));
+    assert!(err("PROXIMITIES a b /STANDARDIZE=Z /MEASURE=JACCARD.").contains("binary"));
+    assert!(err("PROXIMITIES a b /STANDARDIZE=Z RANGE.").contains("one method"));
 }

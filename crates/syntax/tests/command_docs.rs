@@ -122,6 +122,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "FACTOR",
             "QUICK CLUSTER",
             "CLUSTER",
+            "PROXIMITIES",
             "DISCRIMINANT",
             "CORRESPONDENCE",
             "LOGISTIC REGRESSION",

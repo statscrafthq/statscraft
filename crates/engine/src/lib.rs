@@ -67,6 +67,7 @@ mod plum;
 mod portable;
 mod pplot;
 mod print;
+mod proximities;
 mod quick_cluster;
 mod random;
 mod rank;
@@ -353,6 +354,8 @@ pub struct Engine {
     documents: output_docs::Documents,
     /// See `error_position`.
     error_at: Option<(u32, u32)>,
+    /// The matrices of PROXIMITIES /MATRIX=OUT per split group, with the first case of the group.
+    proximity_out: Vec<(usize, Dataset)>,
     /// The specifications of the last PPLOT, for PPLOT APPLY.
     pplot_model: Option<Box<statscraft_syntax::Pplot>>,
 }
@@ -689,6 +692,13 @@ impl Engine {
             | Command::Report(_)
             | Command::Rank(_)
             | Command::Aggregate(_) => return self.procedure(command),
+            Command::Proximities(proximities) => {
+                let split = self.active()?.split_file().map(|s| s.variables.clone());
+                self.proximity_out.clear();
+                let tables = self.procedure(command)?;
+                self.proximities_out(proximities, split)?;
+                return Ok(tables);
+            }
             Command::Execute => {
                 self.begin_pass()?;
                 let before = self.dataset.clone();
@@ -919,6 +929,7 @@ impl Engine {
             Command::Cstabulate(command) => self.cstabulate(command),
             Command::CsModel(command) => self.cs_model(command),
             Command::Cluster(command) => self.cluster(command),
+            Command::Proximities(command) => self.proximities(command),
             Command::Discriminant(command) => self.discriminant(command),
             Command::Anova(command) => self.anova(command),
             Command::Tree(command) => self.tree(command),
