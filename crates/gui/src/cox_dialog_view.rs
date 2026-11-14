@@ -44,7 +44,11 @@ pub fn cox(ui: &mut Ui, data: &Dataset, d: &mut Cox, picked: &mut Vec<String>) {
     });
     let timed = !d.time_expression.trim().is_empty();
     egui::CollapsingHeader::new("Plots").show(ui, |ui| {
-        ui.add_enabled_ui(!timed, |ui| {
+        // left enabled so choices made before the expression can still be cleared
+        if timed {
+            ui.weak("Plots and patterns are not available with a time-dependent covariate");
+        }
+        {
             checkboxes(ui, &COX_PLOTS, &mut d.plots);
             ui.horizontal(|ui| {
                 ui.label("Separate lines for");
@@ -82,9 +86,7 @@ pub fn cox(ui: &mut Ui, data: &Dataset, d: &mut Cox, picked: &mut Vec<String>) {
                     ui.end_row();
                 }
             });
-        })
-        .response
-        .on_disabled_hover_text("Not available with a time-dependent covariate");
+        }
     });
     egui::CollapsingHeader::new("Save").show(ui, |ui| {
         save_fields(ui, &COX_SAVE, &mut d.save, &mut d.save_names);

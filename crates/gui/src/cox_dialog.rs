@@ -168,8 +168,11 @@ impl Cox {
         }
         let covariates = self.covariates();
         let has = |name: &str| covariates.iter().any(|c| c.eq_ignore_ascii_case(name));
-        if has(time) {
-            return Err(format!("{time} is the time variable"));
+        let strata = self.strata.trim();
+        for (name, role) in [(time, "time"), (status, "status"), (strata, "strata")] {
+            if !name.is_empty() && has(name) {
+                return Err(format!("{name} is the {role} variable"));
+            }
         }
         if let Some(c) = self.categorical.iter().find(|c| !has(&c.name)) {
             return Err(format!("{} is categorical but in no block", c.name));
@@ -188,7 +191,6 @@ impl Cox {
             text.push_str(&format!(" WITH {}", b.variables.join(" ")));
         }
         text.push_str(&format!("\n  /STATUS={status} EVENT({event})"));
-        let strata = self.strata.trim();
         if !strata.is_empty() {
             text.push_str(&format!("\n  /STRATA={strata}"));
         }
@@ -355,6 +357,17 @@ mod tests {
         assert_eq!(
             err(&|d| d.blocks[0].variables.push("gender BY age".into())),
             "age is the time variable"
+        );
+        assert_eq!(
+            err(&|d| d.blocks[0].variables.push("q5_1".into())),
+            "q5_1 is the status variable"
+        );
+        assert_eq!(
+            err(&|d| {
+                d.strata = "gender".into();
+                d.blocks[0].variables.push("gender BY monthly_spend".into());
+            }),
+            "gender is the strata variable"
         );
         assert_eq!(
             err(&|d| d.categorical.push(Categorical {
