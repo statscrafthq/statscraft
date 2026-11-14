@@ -649,7 +649,7 @@ Where the documentation is silent:
 - A pair for which the measure is undefined (such as JACCARD of two cases with no presence) is system-missing, with a warning; the command goes on.
 - With MATRIX=IN no measure is computed: MEASURE and STANDARDIZE are ignored with a warning, and only ABSOLUTE, REVERSE and RESCALE apply.
 - Cases are labeled with their case number, followed by the ID value after a colon. The ID variable in a matrix file keeps its values whole.
-- MEASURE=DEFAULT is EUCLID. A matrix that MATRIX=IN read and MATRIX=OUT writes again has only SIMILARITY or DISSIMILARITY as the value label of PROX. Reading a matrix file without an item list, the items are those with a row of type PROX (a split group may have fewer).
+- MEASURE=DEFAULT is EUCLID. A matrix that MATRIX=IN read and MATRIX=OUT writes again has only SIMILARITY or DISSIMILARITY as the value label of PROX. Reading a matrix file without an item list, the items are those with a row of type PROX or a value in one (a split group may have fewer). An item with two rows is an error: a matrix written under SPLIT FILE is read under the same split. An ID variable named like another variable of the matrix file is an error.
 - In a matrix file the order is ROWTYPE_, the ID variable, CASENO_, VARNAME_. Under SPLIT FILE a group with fewer items than another has its missing item variables blank, and the item variables carry no labels.
 
 ### PROXSCAL
@@ -663,7 +663,7 @@ Where the documentation is silent:
 - Each dimension of the output is signed so that the first object with a coordinate other than 0 is positive; the weighted model's dimension weights are all positive.
 - RANDOM starts draw from the session's random generator (SET SEED); Random Starts lists each start's stress, not its seed.
 - The output after several dimensionalities gives every table for each, titled with the number of dimensions; the charts and OUTFILE show the smallest.
-- With MATRIX=IN the matrix is scaled as similarities when the file says SIMILARITY or PROXIMITIES=SIMILARITIES is given.
+- With MATRIX=IN the matrix is scaled as similarities when the file says SIMILARITY or PROXIMITIES=SIMILARITIES is given. The file is one source: TABLE is ignored with a warning, and under SPLIT FILE every group is scaled on its own.
 - The weight of WEIGHT is not used, also with TABLE.
 - PLOT=TRANSFORMATIONS and RESIDUALS give one plot per parenthesized list of sources. SPLINE accepts INKNOT=0.
 
@@ -676,7 +676,7 @@ Where the documentation is silent:
 - Kruskal's stress compares the distances with the root of the squared disparities and divides by the sum of squared distances; the average over matrices is the root of the mean of the squared values.
 - The Euclidean coordinates are rotated to principal axes with a mean square of 1; the INDSCAL coordinates have a sum of squares equal to the number of stimuli in every dimension, the dimensions ordered by their sum of squared weights. Each dimension is signed so that the first stimulus is positive.
 - The output file has no flattened weights (FLA). MATNUM is 0 for the coordinates.
-- A similarity matrix file is scaled with SIMILAR at the ordinal level; at the other levels each similarity is taken from the largest one, with a warning.
+- A similarity matrix file is scaled with SIMILAR at the ordinal level; at INTERVAL and RATIO each similarity is taken from the largest one, with a warning; NOMINAL uses the values as read. With MATRIX=IN the VARIABLES list picks the items of the file (TO runs in the file's order).
 - Under SPLIT FILE each group runs on its own rows and writes OUTFILE in turn, so the file keeps the last group (PROXSCAL OUTFILE alike).
 - Several dimensionalities give every table for each, titled with the number of dimensions; the plots show the smallest.
 

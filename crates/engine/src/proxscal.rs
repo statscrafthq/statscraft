@@ -39,6 +39,8 @@ pub(crate) struct Reading<'a> {
     pub table: Option<&'a ProxscalTable>,
     pub shape: ProxShape,
     pub matrix_in: &'a Option<Option<String>>,
+    /// With MATRIX=IN the variable list picks the items (ALSCAL); otherwise all are used.
+    pub matrix_items: bool,
 }
 
 /// The proximities as read, before the scaling turns them.
@@ -88,13 +90,13 @@ fn symmetric(raw: &Matrix, wraw: &Matrix, shape: ProxShape, fallback: bool) -> (
     (d, w)
 }
 
+/// A row, column or source number; `case` is the case number shown in the message.
 fn whole_value(v: Option<f64>, what: &str, case: usize) -> Result<Option<usize>, Error> {
     match v {
         None => Ok(None),
         Some(v) if v >= 1.0 && v.fract() == 0.0 => Ok(Some(v as usize)),
         Some(v) => Err(Error(format!(
-            "PROXSCAL: the {what} must be a whole number from 1, but case {} has {v}",
-            case + 1
+            "PROXSCAL: the {what} must be a whole number from 1, but case {case} has {v}"
         ))),
     }
 }
@@ -104,7 +106,16 @@ impl Engine {
         let who = command.who;
         let mut warnings = Vec::new();
         if let Some(source) = &command.matrix_in {
-            let items = self.proximity_matrix(who, &[], None, source.as_ref())?;
+            let chosen = match command.matrix_items {
+                true => command.variables,
+                false => &[],
+            };
+            if command.table.is_some() {
+                warnings.push(format!(
+                    "{who}: TABLE is ignored with MATRIX=IN; under SPLIT FILE each group is scaled on its own"
+                ));
+            }
+            let items = self.proximity_matrix(who, chosen, None, source.as_ref())?;
             let n = items.labels.len();
             let w: Matrix = (0..n)
                 .map(|i| (0..n).map(|j| f64::from(u8::from(i != j))).collect())
@@ -166,7 +177,7 @@ impl Engine {
                     Some(w) if w < 0.0 => Err(Error(format!(
                         "PROXSCAL: weights cannot be negative, but {} is {w} in case {}",
                         v.name(),
-                        case + 1
+                        self.case_number(case)
                     ))),
                     Some(w) => Ok(w),
                     None => Ok(0.0),
@@ -194,14 +205,15 @@ impl Engine {
             let (mut n, mut m) = (0, if source.is_some() { 0 } else { variables.len() });
             for case in 0..cases {
                 let (Some(r), Some(c)) = (
-                    whole_value(value(&row, case), "row", case)?,
-                    whole_value(value(&column, case), "column", case)?,
+                    whole_value(value(&row, case), "row", self.case_number(case))?,
+                    whole_value(value(&column, case), "column", self.case_number(case))?,
                 ) else {
                     continue;
                 };
                 n = n.max(r).max(c);
                 let k = match &source {
-                    Some(s) => match whole_value(value(s, case), "source", case)? {
+                    Some(s) => match whole_value(value(s, case), "source", self.case_number(case))?
+                    {
                         Some(k) => {
                             m = m.max(k);
                             Some(k - 1)
@@ -219,9 +231,6 @@ impl Engine {
                     let k = k.unwrap_or(j);
                     raw[k][r][c] = value(v, case).unwrap_or(f64::NAN);
                     wraw[k][r][c] = weight(j, case)?;
-                    if k == j && source.is_some() {
-                        break;
-                    }
                 }
             }
             let (delta, w): (Vec<Matrix>, Vec<Matrix>) = raw
@@ -318,6 +327,7 @@ impl Engine {
             table: command.table.as_ref(),
             shape: command.shape,
             matrix_in: &command.matrix_in,
+            matrix_items: false,
         })?;
         let n = input.objects.len();
         let m = input.sources.len();
@@ -547,7 +557,9 @@ impl Engine {
                 ..Table::default()
             });
             if print.decomposition {
-                tables.push(decomposition(&problem, &done.dhat, &x, &sums, &input));
+                let mut table = decomposition(&problem, &done.dhat, &x, &sums, &input);
+                table.title = suffix(&table.title);
+                tables.push(table);
             }
             let dims_cols: Vec<String> = (1..=*p).map(|d| format!("Dimension {d}")).collect();
             if print.common {

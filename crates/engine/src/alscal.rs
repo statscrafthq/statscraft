@@ -217,21 +217,13 @@ fn scale_data(data: &Data, e: &[Matrix]) -> Vec<Matrix> {
                 out
             }
             AlscalLevel::Nominal => {
+                // equal values side by side after sorting, each run gets its mean
+                let mut order: Vec<usize> = (0..all.len()).collect();
+                order.sort_by(|&a, &b| o(&all[a]).total_cmp(&o(&all[b])));
                 let mut out = vec![0.0; all.len()];
-                let mut done = vec![false; all.len()];
-                for i in 0..all.len() {
-                    if done[i] {
-                        continue;
-                    }
-                    let same: Vec<usize> = (i..all.len())
-                        .filter(|&j| o(&all[j]) == o(&all[i]))
-                        .collect();
-                    let mean =
-                        same.iter().map(|&j| target(&all[j])).sum::<f64>() / same.len() as f64;
-                    for j in same {
-                        out[j] = mean;
-                        done[j] = true;
-                    }
+                for run in order.chunk_by(|&a, &b| o(&all[a]) == o(&all[b])) {
+                    let mean = run.iter().map(|&j| target(&all[j])).sum::<f64>() / run.len() as f64;
+                    run.iter().for_each(|&j| out[j] = mean);
                 }
                 out
             }
@@ -371,46 +363,34 @@ fn update_coordinates(data: &Data, x: &mut Matrix, w: &[Vec<f64>], f: &[Matrix])
             let mut change: f64 = 0.0;
             for a in 0..p {
                 // g(t) = sum_k c_k sum_j (w_ka (t - x_ja)^2 + q_jk)^2, its derivative a cubic
-                let (mut c3, mut c2, mut c1, mut c0) = (0.0, 0.0, 0.0, 0.0);
-                for k in 0..m {
-                    let wa = w[k][a];
-                    if wa == 0.0 || c[k] == 0.0 {
-                        continue;
-                    }
+                // (c_k, w_ka, x_ja, q_jk) of every pair of point l
+                let mut terms: Vec<(f64, f64, f64, f64)> = Vec::new();
+                for k in (0..m).filter(|&k| w[k][a] != 0.0 && c[k] != 0.0) {
                     for j in (0..n).filter(|&j| j != l && data.present[k][l][j]) {
                         let rest: f64 = (0..p)
                             .filter(|&b| b != a)
                             .map(|b| w[k][b] * (x[l][b] - x[j][b]).powi(2))
                             .sum();
-                        let q = rest - f[k][l][j];
-                        let xj = x[j][a];
-                        // c_k 4 w (w (t - xj)^3 + q (t - xj))
-                        let s = c[k] * 4.0 * wa;
-                        c3 += s * wa;
-                        c2 += s * wa * (-3.0 * xj);
-                        c1 += s * (wa * 3.0 * xj * xj + q);
-                        c0 += s * (-wa * xj.powi(3) - q * xj);
+                        terms.push((c[k], w[k][a], x[j][a], rest - f[k][l][j]));
                     }
+                }
+                let (mut c3, mut c2, mut c1, mut c0) = (0.0, 0.0, 0.0, 0.0);
+                for &(ck, wa, xj, q) in &terms {
+                    // c_k 4 w (w (t - xj)^3 + q (t - xj))
+                    let s = ck * 4.0 * wa;
+                    c3 += s * wa;
+                    c2 += s * wa * (-3.0 * xj);
+                    c1 += s * (wa * 3.0 * xj * xj + q);
+                    c0 += s * (-wa * xj.powi(3) - q * xj);
                 }
                 if c3 == 0.0 {
                     continue;
                 }
                 let g = |t: f64| -> f64 {
-                    let mut s = 0.0;
-                    for k in 0..m {
-                        let wa = w[k][a];
-                        if wa == 0.0 || c[k] == 0.0 {
-                            continue;
-                        }
-                        for j in (0..n).filter(|&j| j != l && data.present[k][l][j]) {
-                            let rest: f64 = (0..p)
-                                .filter(|&b| b != a)
-                                .map(|b| w[k][b] * (x[l][b] - x[j][b]).powi(2))
-                                .sum();
-                            s += c[k] * (wa * (t - x[j][a]).powi(2) + rest - f[k][l][j]).powi(2);
-                        }
-                    }
-                    s
+                    terms
+                        .iter()
+                        .map(|&(ck, wa, xj, q)| ck * (wa * (t - xj).powi(2) + q).powi(2))
+                        .sum()
                 };
                 let old = x[l][a];
                 let best = cubic_roots(c3, c2, c1, c0)
@@ -581,6 +561,7 @@ impl Engine {
             table: None,
             shape: ProxShape::Lower,
             matrix_in: &command.matrix_in,
+            matrix_items: true,
         })?;
         let mut warnings = input.warnings.clone();
         let n = input.objects.len();

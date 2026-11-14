@@ -219,7 +219,11 @@ impl Engine {
         let n = items.labels.len();
         if n == 0 {
             return Err(Error(
-                "PROXIMITIES has no items: every case misses a value".into(),
+                match command.matrix_in {
+                    Some(_) => "PROXIMITIES: the matrix file has no items to read",
+                    None => "PROXIMITIES has no items: every case misses a value",
+                }
+                .into(),
             ));
         }
         if (0..n).any(|i| (0..n).any(|j| i != j && !items.prox[i][j].is_finite())) {
@@ -294,6 +298,14 @@ impl Engine {
             let data = self.active()?;
             if let Some(id) = &command.id {
                 let var = data.variable(id)?;
+                let upper = var.name().to_uppercase();
+                let item = (1..=n).any(|k| upper == format!("VAR{k}"));
+                if item || ["ROWTYPE_", "CASENO_", "VARNAME_"].contains(&upper.as_str()) {
+                    return Err(Error(format!(
+                        "PROXIMITIES /MATRIX=OUT: the ID variable {} has the name of another variable of the matrix file",
+                        var.name()
+                    )));
+                }
                 let values: Vec<String> =
                     items.cases.iter().map(|&c| value_text(&var, c)).collect();
                 out.set_string_values(var.name(), width(&values), values)?;

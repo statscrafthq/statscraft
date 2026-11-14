@@ -1494,8 +1494,9 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20  [/PRINT=[DATA] [HEADER]] [/PLOT[=DEFAULT | ALL]] [/OUTFILE='file' | dataset].\n\
                  Each case is a row of a square matrix of dissimilarities and each variable a column; only the\n\
                  triangle below the diagonal is read, and more cases than variables hold one matrix per subject.\n\
-                 MATRIX=IN reads a matrix file of PROXIMITIES or CLUSTER instead (a similarity file is scaled as\n\
-                 SIMILAR). A missing value or one below CUTOFF is left out; the weight variable is not used. The\n\
+                 MATRIX=IN reads a matrix file of PROXIMITIES or CLUSTER instead, VARIABLES picking its items; a\n\
+                 similarity file is scaled as SIMILAR, or turned into dissimilarities from its largest value for\n\
+                 INTERVAL and RATIO. A missing value or one below CUTOFF is left out; the weight variable is not used. The\n\
                  model fits squared distances to squared disparities and reports S-stress, the root of the mean over\n\
                  the matrices of their squared misfit relative to the fourth powers of the disparities. ORDINAL\n\
                  keeps the order of the data (UNTIE lets ties part, SIMILAR turns the order), NOMINAL only which values\n\

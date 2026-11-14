@@ -226,3 +226,14 @@ fn a_proximities_matrix_and_the_outfile() {
     assert_eq!(names, ["TYPE_", "DIMENS", "MATNUM", "DIM1", "DIM2"]);
     assert_eq!(data.case_count(), 6);
 }
+
+#[test]
+fn matrix_input_takes_the_items_that_variables_names() {
+    let tables = run_on(
+        &mut Engine::default(),
+        "DATA LIST FREE /x y.\nBEGIN DATA.\n0 0\n4 1\n1 5\n6 4\n2 2.5\n5 7\nEND DATA.\n\
+         PROXIMITIES x y /PRINT=NONE /MATRIX=OUT(*).\n\
+         ALSCAL VARIABLES=VAR1 TO VAR4 VAR6 /MATRIX=IN(*) /LEVEL=RATIO.\n",
+    );
+    assert_eq!(coordinates(&tables, "Stimulus Coordinates").len(), 5);
+}

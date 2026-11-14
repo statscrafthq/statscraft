@@ -593,18 +593,26 @@ impl Engine {
                     .collect()
             }
             false => {
+                let at = |name: &str| {
+                    all.iter()
+                        .position(|v| v.name().eq_ignore_ascii_case(name))
+                        .ok_or_else(|| Error(format!("{who}: the matrix has no item {name}")))
+                };
                 let mut out = Vec::new();
                 for item in variables {
-                    let VarItem::Name(name) = item else {
-                        return Err(Error(format!(
-                            "{who} /MATRIX=IN takes item names, without TO or ALL"
-                        )));
-                    };
-                    let v = all
-                        .iter()
-                        .find(|v| v.name().eq_ignore_ascii_case(name))
-                        .ok_or_else(|| Error(format!("{who}: the matrix has no item {name}")))?;
-                    out.push(*v);
+                    match item {
+                        VarItem::Name(name) => out.push(all[at(name)?]),
+                        VarItem::Range(from, to) => {
+                            let (a, b) = (at(from)?, at(to)?);
+                            if a > b {
+                                return Err(Error(format!(
+                                    "{who}: {from} comes after {to} in the matrix file"
+                                )));
+                            }
+                            out.extend(all[a..=b].iter().copied());
+                        }
+                        VarItem::All => out.extend(all.iter().copied()),
+                    }
                 }
                 out
             }
@@ -623,6 +631,7 @@ impl Engine {
         let n = chosen.len();
         let mut prox = vec![vec![f64::NAN; n]; n];
         let mut labels: Vec<String> = chosen.iter().map(|v| v.name().to_string()).collect();
+        let mut seen = vec![false; n];
         for case in 0..data.case_count() {
             if value_text(&rowtype, case).to_uppercase() != "PROX" {
                 continue;
@@ -634,6 +643,12 @@ impl Engine {
             else {
                 continue;
             };
+            if std::mem::replace(&mut seen[i], true) {
+                return Err(Error(format!(
+                    "{who} /MATRIX=IN: item {of} has more than one row; a matrix file written \
+                     under SPLIT FILE is read under the same split"
+                )));
+            }
             labels[i] = match &label_var {
                 Some(v) => value_text(v, case),
                 None => chosen[i].name().to_string(),
