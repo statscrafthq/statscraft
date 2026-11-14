@@ -186,8 +186,9 @@ const MVA_SYNTAX: &str = "MVA [VARIABLES=] varlist | ALL\n\
                  DPATTERN lists every case (in file order or by SORT), MPATTERN the cases with a missing value,\n\
                  each with S, A, B, C for missing and + or - for extremes, the number and percent missing and the\n\
                  DESCRIBE values. TPATTERN counts each pattern of missing values (X), leaving out those under\n\
-                 PERCENT% of the cases; DESCRIBE adds category counts or means. ID labels the cases. Unless\n\
-                 NOSORT, variables go from fewest to most missing and alike patterns stand together.\n\
+                 PERCENT% of the cases; DESCRIBE adds category counts or means. ID labels the cases. In\n\
+                 MPATTERN, TPATTERN and MISMATCH, unless NOSORT, variables go from fewest to most missing and\n\
+                 alike patterns stand together; DPATTERN keeps the list order.\n\
                  LISTWISE: means, covariances and correlations over the cases complete on every variable.\n\
                  PAIRWISE: counts, means and standard deviations of the column variable, covariances and\n\
                  correlations over the cases valid on both variables.\n\

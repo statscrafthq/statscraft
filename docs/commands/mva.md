@@ -27,7 +27,7 @@ Univariate Statistics (unless NOUNIVARIATE): valid N, missing count and percent,
 
 TTEST: for each variable with at least PERCENT% missing, every quantitative variable is compared between the cases where it is present and missing (Welch t, its df, two-sided p with PROB, the counts and the means). CROSSTAB: per categorical variable and category, the count and percent present and the percent of each missing kind of every other variable with at least PERCENT% missing. MISMATCH: the percent of cases where one variable of a pair is missing and the other not, the percent missing on the diagonal.
 
-DPATTERN lists every case (in file order or by SORT), MPATTERN the cases with a missing value, each with S, A, B, C for missing and + or - for extremes, the number and percent missing and the DESCRIBE values. TPATTERN counts each pattern of missing values (X), leaving out those under PERCENT% of the cases; DESCRIBE adds category counts or means. ID labels the cases. Unless NOSORT, variables go from fewest to most missing and alike patterns stand together.
+DPATTERN lists every case (in file order or by SORT), MPATTERN the cases with a missing value, each with S, A, B, C for missing and + or - for extremes, the number and percent missing and the DESCRIBE values. TPATTERN counts each pattern of missing values (X), leaving out those under PERCENT% of the cases; DESCRIBE adds category counts or means. ID labels the cases. In MPATTERN, TPATTERN and MISMATCH, unless NOSORT, variables go from fewest to most missing and alike patterns stand together; DPATTERN keeps the list order.
 
 LISTWISE: means, covariances and correlations over the cases complete on every variable.
 

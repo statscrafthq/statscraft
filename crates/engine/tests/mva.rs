@@ -807,7 +807,7 @@ fn outfile_holds_the_filled_data() {
 #[test]
 fn predicted_and_predictor_lists() {
     let (tables, _) = run(&format!(
-        "{VARS} /NOUNI /EM minutes WITH km /REGRESSION rating WITH age minutes (ADDTYPE=NONE)."
+        "{VARS} /EM minutes WITH km /REGRESSION rating WITH age minutes (ADDTYPE=NONE)."
     ));
     let means = find(&tables, "EM Means");
     assert_eq!(&means.columns[1..], ["minutes"]);
@@ -926,7 +926,29 @@ fn summaries_ranges_and_categorical_only() {
     // univariate and pairwise are two ways to estimate, so the summaries appear
     let (tables, _) = run(&format!("{VARS} /PAIRWISE."));
     let s = find(&tables, "Summary of Estimated Means");
-    assert_eq!(s.rows.len(), 1);
+    assert_eq!(s.rows.len(), 2);
+    assert_eq!(row(s, &["Pairwise"]), row(s, &["All Values"]));
+    // without univariate statistics only the requested estimates are compared
+    let (tables, _) = run(&format!("{VARS} /NOUNI /LISTWISE /EM."));
+    let labels: Vec<&Cell> = find(&tables, "Summary of Estimated Means")
+        .rows
+        .iter()
+        .map(|r| &r[0])
+        .collect();
+    assert_eq!(
+        labels,
+        [&Cell::Text("Listwise".into()), &Cell::Text("EM".into())]
+    );
+    // an estimate with nothing to estimate is skipped, the other tables stay
+    let (tables, warnings) = run("SELECT IF resp = 103.\nMVA age km /TTEST PERCENT=0 /EM.");
+    assert!(tables.iter().any(|t| t.title == "Univariate Statistics"));
+    assert!(tables.iter().all(|t| t.title != "EM Means"));
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("EM: no quantitative variable")),
+        "{warnings:?}"
+    );
     // a user-missing range from LOWEST is named by its keyword
     let (tables, _) = run(&format!(
         "MISSING VALUES km (LO THRU 4).\n{VARS} /NOUNI /CROSSTAB PERCENT=0."

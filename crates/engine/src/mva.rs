@@ -832,8 +832,15 @@ impl Engine {
         let pair = estimates[1..]
             .contains(&true)
             .then(|| pairwise(&x, quantitative.len()));
-        let mut summary: Vec<(&str, Vec<f64>, Vec<f64>)> =
-            vec![("All Values", univariate_mean.clone(), univariate_sd)];
+        // one row per way to estimate that is shown; pairwise means and deviations are those of
+        // all values
+        let mut summary: Vec<(&str, Vec<f64>, Vec<f64>)> = Vec::new();
+        if command.univariate {
+            summary.push(("All Values", univariate_mean.clone(), univariate_sd.clone()));
+        }
+        if command.pairwise {
+            summary.push(("Pairwise", univariate_mean.clone(), univariate_sd));
+        }
 
         if command.listwise {
             let complete: Vec<Vec<f64>> = (0..n)
@@ -920,7 +927,8 @@ impl Engine {
             for &j in &quantitative {
                 let listed = predicted_names.contains(&columns[j].name)
                     || predictor_names.contains(&columns[j].name)
-                    || options.predicted.is_empty();
+                    || options.predicted.is_empty()
+                    || options.predictors.is_empty();
                 if listed && columns[j].n_valid() < 2 {
                     warnings.push(format!(
                         "{what}: {} has fewer than two valid values and is left out",
@@ -935,9 +943,10 @@ impl Engine {
                 .filter(|j| predicted.contains(j) || predictors.contains(j))
                 .collect();
             if predicted.is_empty() {
-                return Err(Error(format!(
-                    "{what} of MVA needs a quantitative variable"
-                )));
+                warnings.push(format!(
+                    "{what}: no quantitative variable with two or more valid values to estimate"
+                ));
+                continue;
             }
             // where each model variable stands among the quantitative ones
             let at: Vec<usize> = model
@@ -1127,10 +1136,7 @@ impl Engine {
                 saved.push((file.clone(), estimate));
             }
         }
-        // univariate, listwise, pairwise, EM and regression are the ways to estimate; pairwise
-        // means and deviations are those of all values
-        let ways = estimates.iter().filter(|&&e| e).count() + usize::from(command.univariate);
-        if ways > 1 {
+        if summary.len() > 1 {
             let rows = |sd: bool| -> Vec<Vec<Cell>> {
                 summary
                     .iter()

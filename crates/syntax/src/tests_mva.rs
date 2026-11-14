@@ -38,6 +38,8 @@ fn mva_defaults() {
     // a variable named var is not the shortened keyword; VAR= is
     assert_eq!(mva("MVA var age.").variables, names(&["var", "age"]));
     assert_eq!(mva("MVA VAR=age.").variables, names(&["age"]));
+    // only the full NOSORT is reserved
+    assert_eq!(mva("MVA a nos b.").variables, names(&["a", "nos", "b"]));
 }
 
 #[test]
@@ -78,7 +80,7 @@ fn mva_description_subcommands() {
     let d = m.dpattern.unwrap();
     assert_eq!((d.sort.len(), d.describe.len()), (1, 1));
     // and they end a DESCRIBE list wherever they stand
-    let m = mva("MVA a b /MPATTERN DESCRIBE=a NOS /TPATTERN DESCRIBE=b PERCENT 20.");
+    let m = mva("MVA a b /MPATTERN DESCRIBE=a NOSORT /TPATTERN DESCRIBE=b PERCENT 20.");
     assert!(m.mpattern.unwrap().nosort);
     assert_eq!(m.tpattern.unwrap().percent, 20.0);
     // TPATTERN keeps 1 percent by default, TTEST 5
