@@ -576,21 +576,16 @@ impl Engine {
                 (Some(_), Some(split)) => split
                     .iter()
                     .filter_map(|(name, key)| {
-                        let v = data
-                            .variables()
-                            .take_while(|v| v.name() != rowtype.name())
-                            .find(|v| v.name().eq_ignore_ascii_case(name))?;
-                        Some((v, key))
+                        let at = data.variable_index(name)?;
+                        let before = data.variable_index(rowtype.name()).is_some_and(|r| at < r);
+                        before.then(|| (data.variable_at(at), key))
                     })
                     .collect(),
                 _ => Vec::new(),
             };
-        for (v, key) in &group {
-            let numeric = !v.is_string();
-            if key
-                .as_ref()
-                .is_some_and(|k| matches!(k, crate::crosstabs::Key::Number(_)) != numeric)
-            {
+        for (v, _) in &group {
+            let mine = self.active()?.variable(v.name())?;
+            if mine.is_string() != v.is_string() {
                 return Err(Error(format!(
                     "{who} /MATRIX=IN: the split variable {} is numeric in one file and a string in the other",
                     v.name()
@@ -657,6 +652,11 @@ impl Engine {
                     if out.iter().any(|o| o.name() == v.name()) {
                         return Err(Error(format!("{who}: the item {name} is named twice")));
                     }
+                    if !present.iter().any(|o| o.name() == v.name()) {
+                        return Err(Error(format!(
+                            "{who}: the item {name} has no proximities in this matrix (or split group)"
+                        )));
+                    }
                     out.push(*v);
                 }
                 out
@@ -681,7 +681,7 @@ impl Engine {
             let of = value_text(&varname, case);
             let Some(i) = chosen
                 .iter()
-                .position(|v| v.name().eq_ignore_ascii_case(&of))
+                .position(|v| v.name().to_uppercase() == of.to_uppercase())
             else {
                 continue;
             };

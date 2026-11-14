@@ -515,3 +515,25 @@ fn all_with_matrix_input_means_every_item() {
     let (table, _) = matrix(&tables);
     assert_eq!(table.columns, ["Case", "sweet", "sour", "bitter"]);
 }
+
+#[test]
+fn a_split_variable_of_another_type_in_the_matrix_file_is_named() {
+    let mut engine = Engine::default();
+    let (commands, errors) = parse(
+        "DATA LIST FREE /side (A1) ROWTYPE_ (A8) VARNAME_ (A8) a b c.\nBEGIN DATA.\n\
+         1 PROX a 0 1 2\n1 PROX b 1 0 3\n1 PROX c 2 3 0\nEND DATA.\nDATASET NAME m.\n\
+         DATA LIST FREE /side x.\nBEGIN DATA.\n1 4\n1 5\nEND DATA.\n\
+         SPLIT FILE BY side.\nCLUSTER /MATRIX=IN(m).\n",
+    );
+    assert!(errors.is_empty(), "{errors:?}");
+    let last = commands
+        .iter()
+        .map(|c| engine.execute(&c.command))
+        .last()
+        .unwrap();
+    assert!(
+        last.unwrap_err()
+            .to_string()
+            .contains("numeric in one file")
+    );
+}
