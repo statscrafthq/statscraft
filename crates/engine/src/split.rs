@@ -364,17 +364,19 @@ fn group_name(names: Option<&[String]>, values: &[String]) -> String {
     pairs.join(", ")
 }
 
-/// The full dataset with the variables the procedure added to each group, system-missing
-/// (or blank) in the cases outside every group.
+/// The full dataset with the variables the procedure added to any group, in order of first
+/// appearance and defined as the first group that added them; system-missing (or blank) in the
+/// cases of the groups that did not add them and outside every group.
 fn write_back(mut full: Dataset, groups: &[Group], afters: &[Dataset]) -> Result<Dataset, Error> {
-    let Some(first) = afters.first() else {
-        return Ok(full);
-    };
-    let added: Vec<String> = first
-        .variable_names()
-        .filter(|name| full.variable_index(name).is_none())
-        .map(str::to_string)
-        .collect();
+    // (name, first group that added it)
+    let mut added: Vec<(String, usize)> = Vec::new();
+    for (g, after) in afters.iter().enumerate() {
+        for name in after.variable_names() {
+            if full.variable_index(name).is_none() && !added.iter().any(|(n, _)| n == name) {
+                added.push((name.to_string(), g));
+            }
+        }
+    }
     let mut at = vec![None; full.case_count()];
     for (group, case) in groups.iter().enumerate().flat_map(|(g, group)| {
         group
@@ -385,17 +387,17 @@ fn write_back(mut full: Dataset, groups: &[Group], afters: &[Dataset]) -> Result
     }) {
         at[case.1] = Some((group, case.0));
     }
-    for name in added {
-        let from_first: Vec<Option<usize>> = at
+    for (name, owner) in added {
+        let from_owner: Vec<Option<usize>> = at
             .iter()
-            .map(|place| place.filter(|(g, _)| *g == 0).map(|(_, i)| i))
+            .map(|place| place.filter(|(g, _)| *g == owner).map(|(_, i)| i))
             .collect();
-        full.copy_variable(first, &name, &from_first)?;
+        full.copy_variable(&afters[owner], &name, &from_owner)?;
         if afters.len() == 1 {
             continue;
         }
         let variable = |g: usize| afters[g].variable(&name);
-        match variable(0)?.values() {
+        match variable(owner)?.values() {
             Values::Numeric(_) => {
                 let values = at.iter().map(|place| match place {
                     Some((g, i)) => variable(*g).ok()?.numeric().ok()?.get(*i),
@@ -404,7 +406,7 @@ fn write_back(mut full: Dataset, groups: &[Group], afters: &[Dataset]) -> Result
                 full.set_numeric_values(&name, values.collect())?;
             }
             Values::String(_) => {
-                let width = variable(0)?.string_width().unwrap_or(1);
+                let width = variable(owner)?.string_width().unwrap_or(1);
                 let values = at.iter().map(|place| match place {
                     Some((g, i)) => variable(*g)
                         .ok()

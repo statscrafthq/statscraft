@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- SPLIT FILE: a procedure's saved variables now keep the values of every group when the first group saves nothing, for example because it has too few cases to fit; before, they were lost. See [differences](docs/differences.md).
 - KM and SURVIVAL: survival analysis. KM (also K-M) gives product-limit estimates with Greenwood standard errors for each factor level within each stratum: the survival table, the mean and median with standard errors and 95% intervals, PERCENTILES, and the log rank, Breslow and Tarone-Ware tests over all levels or each pair, pooled over the strata or within each, with TREND for a linear trend; LOST cases are counted apart; SAVE adds the survival function, cumulative hazard, its standard error and the cumulative events; PLOT draws survival, log survival, cumulative hazard and one minus survival as step curves with censored times marked. SURVIVAL builds actuarial life tables over THRU/BY intervals for several survival variables and first and second order controls, with the median survival time, Wilcoxon (Gehan) comparisons (exact or approximate, overall and pairwise), GROUPWISE or LISTWISE missing values and plots of survival, log survival, hazard, density and one minus survival. Checked against R's survival package and our own R code of the documented formulas. Not supported yet: SURVIVAL WRITE=TABLES and BOTH. See [KM](docs/commands/km.md) and [SURVIVAL](docs/commands/survival.md).
 
 ## 0.12.0 (2026-11-14)
