@@ -399,7 +399,7 @@ fn the_reduced_rank_model_moves_the_common_space_with_few_sources() {
     let tables = run(
         &data,
         "PROXSCAL p1 TO p7 /MODEL=REDUCED(1) /INITIAL=TORGERSON \
-         /CRITERIA=DIMENSIONS(3) MAXITER(300) DIFFSTRESS(0) MINSTRESS(0) /PRINT=HISTORY STRESS.",
+         /CRITERIA=DIMENSIONS(3) MAXITER(300) DIFFSTRESS(0) MINSTRESS(0) /PRINT=HISTORY STRESS WEIGHTS.",
     );
     let history: Vec<f64> = table(&tables, "Iteration History")
         .rows
@@ -414,4 +414,12 @@ fn the_reduced_rank_model_moves_the_common_space_with_few_sources() {
         history.last().unwrap() < &(history[0] - 1e-3),
         "{history:?}"
     );
+    // the rank 1 weights draw on more than the first dimension of the common space
+    let rows = &table(&tables, "Space Weights").rows;
+    let beyond: f64 = rows
+        .iter()
+        .filter(|r| number(&r[1]) > 1.0)
+        .map(|r| number(&r[2]).abs())
+        .sum();
+    assert!(beyond > 1e-3, "{rows:?}");
 }

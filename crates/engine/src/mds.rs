@@ -882,9 +882,25 @@ fn update_z(
     }
     if same_weights {
         // V Z S = T, so Z = V^- T S^-1
-        // a dimension no source weighs (the reduced rank model) gets coordinates 0
-        let sinv = inverse(&s).map_or_else(|| pseudo_inverse(&s), |(inv, _)| inv);
-        return multiply(&multiply(vinv, &t), &sinv);
+        if let Some((sinv, _)) = inverse(&s) {
+            return multiply(&multiply(vinv, &t), &sinv);
+        }
+        // directions no source weighs (the reduced rank model) keep their old coordinates,
+        // which leaves every space as it is and lets the weights grow into them later
+        let sinv = pseudo_inverse(&s);
+        let mut keep = identity(p);
+        let ssp = multiply(&s, &sinv);
+        for d in 0..p {
+            for e in 0..p {
+                keep[d][e] -= ssp[d][e];
+            }
+        }
+        let mut out = multiply(&multiply(vinv, &t), &sinv);
+        let old = multiply(z, &keep);
+        for (row, o) in out.iter_mut().zip(old) {
+            row.iter_mut().zip(o).for_each(|(v, w)| *v += w);
+        }
+        return out;
     }
     // the whole system (sum A_k A_k' (x) V_k) vec Z = vec T, with the null space added
     let np = n * p;
@@ -912,11 +928,26 @@ fn update_z(
             }
         }
     }
-    let hinv = inverse(&h).map_or_else(|| pseudo_inverse(&h), |(inv, _)| inv);
     let tv: Vec<f64> = (0..np).map(|r| t[r % n][r / n]).collect();
     let mut out = zeros(n, p);
-    for r in 0..np {
-        out[r % n][r / n] = hinv[r].iter().zip(&tv).map(|(x, y)| x * y).sum();
+    match inverse(&h) {
+        Some((hinv, _)) => {
+            for r in 0..np {
+                out[r % n][r / n] = hinv[r].iter().zip(&tv).map(|(x, y)| x * y).sum();
+            }
+        }
+        None => {
+            // as above: the unweighted directions keep their old coordinates
+            let hinv = pseudo_inverse(&h);
+            let zv: Vec<f64> = (0..np).map(|r| z[r % n][r / n]).collect();
+            for r in 0..np {
+                let fit: f64 = hinv[r].iter().zip(&tv).map(|(x, y)| x * y).sum();
+                let hz: f64 = (0..np)
+                    .map(|c| (0..np).map(|k| hinv[r][k] * h[k][c]).sum::<f64>() * zv[c])
+                    .sum();
+                out[r % n][r / n] = fit + zv[r] - hz;
+            }
+        }
     }
     center(&mut out);
     out
@@ -968,9 +999,8 @@ fn update_a(
                     out
                 }
                 Model::Generalized | Model::Reduced(_) => {
-                    let Some((inv, _)) = inverse(&zvz) else {
-                        return old.clone();
-                    };
+                    // a dimension of Z that is all 0 gets no weight
+                    let inv = inverse(&zvz).map_or_else(|| pseudo_inverse(&zvz), |(inv, _)| inv);
                     let full = multiply(&inv, &zc);
                     match model {
                         // the best rank r in the metric of Z'V_kZ = L L': L' A of rank r

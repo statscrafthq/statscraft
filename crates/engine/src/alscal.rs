@@ -467,7 +467,16 @@ fn update_weights(
                 let design: Matrix = rows.iter().map(|r| r.0.clone()).collect();
                 let target: Vec<f64> = rows.iter().map(|r| r.1).collect();
                 let w = crate::mds::nnls(&design, &target);
-                return match w.iter().any(|v| *v > 0.0) {
+                // all 0 is the answer only when no dimension points the data's way
+                let pointing = (0..p).any(|a| {
+                    design
+                        .iter()
+                        .zip(&target)
+                        .map(|(r, y)| r[a] * y)
+                        .sum::<f64>()
+                        > 0.0
+                });
+                return match w.iter().any(|v| *v > 0.0) || !pointing {
                     true => w,
                     false => old[k].clone(),
                 };
