@@ -786,7 +786,6 @@ fn maximal(out: &Path) -> Vec<Dialog> {
                 min: String::new(),
                 max: String::new(),
             },
-            ..Default::default()
         }),
         Dialog::Hierarchical(Hierarchical {
             variables: v(&["q5_1", "q5_2", "q5_3"]),
