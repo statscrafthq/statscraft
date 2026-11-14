@@ -193,7 +193,12 @@ fn mean_sd(values: &[f64]) -> (f64, f64) {
     let n = values.len() as f64;
     let mean = values.iter().sum::<f64>() / n;
     let ss: f64 = values.iter().map(|v| (v - mean).powi(2)).sum();
-    (mean, (ss / (n - 1.0)).sqrt())
+    let sd = if n < 2.0 {
+        f64::NAN
+    } else {
+        (ss / (n - 1.0)).sqrt()
+    };
+    (mean, sd)
 }
 
 /// The limits below and above which a value is extreme.
@@ -761,6 +766,14 @@ impl Engine {
                 None if quantitative.is_empty() => {
                     warnings.push("TTEST: there is no quantitative variable to test".into())
                 }
+                None if !(options.t
+                    || options.df
+                    || options.prob
+                    || options.counts
+                    || options.means) =>
+                {
+                    warnings.push("TTEST: every statistic is turned off".into())
+                }
                 None => warnings.push(format!(
                     "TTEST: no variable has {}% or more missing values",
                     options.percent
@@ -815,6 +828,10 @@ impl Engine {
             command.regression.is_some(),
         ];
         if !estimates.contains(&true) {
+            return self.finish_mva(tables, warnings, Vec::new());
+        }
+        if quantitative.is_empty() {
+            warnings.push("MVA estimates need a quantitative variable; there is none".into());
             return self.finish_mva(tables, warnings, Vec::new());
         }
         let titles: Vec<String> = quantitative

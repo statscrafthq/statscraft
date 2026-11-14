@@ -1070,3 +1070,26 @@ fn tpattern_keeps_a_pattern_at_exactly_the_percent() {
         .collect();
     assert_eq!(counts, [93.0, 7.0]);
 }
+
+#[test]
+fn empty_and_switched_off_cases_say_why() {
+    // a variable with no values has no standard deviation
+    let (tables, _) = run("COMPUTE none = $SYSMIS.\nMVA age none.");
+    assert!(row(find(&tables, "Univariate Statistics"), &["none"])[2].is_nan());
+    let (tables, warnings) =
+        run("MVA district mode /CATEGORICAL=district /NOUNI /LISTWISE /PAIRWISE.");
+    assert!(tables.is_empty());
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("need a quantitative variable")),
+        "{warnings:?}"
+    );
+    let (_, warnings) = run("MVA age minutes /NOUNI /TTEST NOT NODF NOCOUNTS NOMEANS.");
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("every statistic is turned off")),
+        "{warnings:?}"
+    );
+}
