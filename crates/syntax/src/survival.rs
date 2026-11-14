@@ -210,7 +210,7 @@ pub(crate) fn km(p: &mut Parser) -> PResult<Command> {
         } else if p.eat_word("ID") {
             p.eat(Punct::Eq);
             command.id = Some(p.name("the ID variable")?);
-        } else if p.eat_keyword("PLOT") {
+        } else if p.eat_keyword("PLOTS") {
             p.eat(Punct::Eq);
             const KINDS: [(&str, KmPlot); 4] = [
                 ("SURVIVAL", KmPlot::Survival),
@@ -434,10 +434,10 @@ fn selection(p: &mut Parser) -> PResult<TableSelection> {
 }
 
 pub(crate) fn survival(p: &mut Parser) -> PResult<Command> {
-    // TABLES= may be left out: TABLES or its abbreviation before '=' or before another name is
-    // the keyword; otherwise the word is the first survival variable
+    // TABLES= may be left out: TABLES or its abbreviation before '=', or TABLE or TABLES in full
+    // before another name, is the keyword; otherwise the word is the first survival variable
     let keyword_alone = matches!(p.peek(), Some(TokenKind::Word(w))
-        if crate::table::matches_keyword(w, "TABLES"))
+        if w.eq_ignore_ascii_case("TABLE") || w.eq_ignore_ascii_case("TABLES"))
         && matches!(p.peek_at(1), Some(TokenKind::Word(w)) if !w.eq_ignore_ascii_case("BY"));
     if keyword_alone {
         p.pos += 1;

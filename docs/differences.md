@@ -739,7 +739,8 @@ Where GNU PSPP differs:
 - Percentile standard errors need survival to reach p - 0.05; otherwise the error is left empty. Time 0, where survival is 1, counts as the last time at which survival is still p + 0.05 or more.
 - The mean and the median get 95% intervals from the normal distribution, estimate plus and minus 1.96 standard errors.
 - With TREND, the overall comparisons test the trend (one degree of freedom); pairwise comparisons stay the ordinary tests, which a trend over two levels equals. TREND with fewer weights than levels is an error.
-- A comparison gives the degrees of freedom of the rank of its covariance matrix, so a level without any case at risk at an event time does not break the test.
+- A comparison gives the degrees of freedom of the rank of its covariance matrix, so a level without any case at risk at an event time does not break the test. An event time with at most one case at risk adds nothing to a test; with fractional weights that is a weight of 1 or less.
+- **Beyond the documentation**: KM takes PLOTS as another name for PLOT.
 - The plots are step curves, corners doubled so the line runs flat then upright, with an upright tick at each censored time. LOGSURV and HAZARD end where survival reaches 0. Each stratum gets its own chart.
 - Compared with R's survival package: the restricted mean with a per-curve upper limit and its error agree, except where the longest time holds both an event and a censored case: there the documented error multiplies by d / (d - 1), the package does not. The package's quantile q means survival 1 - q, so its 0.75 quantile is the 25% percentile here; on a flat stretch exactly at the level the package takes the middle of the stretch, the documented rule its start.
 

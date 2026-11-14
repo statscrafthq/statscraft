@@ -234,6 +234,17 @@ fn km_tests_pairwise_strata_and_trend() {
         assert_eq!(got.1, 1.0);
     }
 
+    // without STRATA, a comparison within strata is the pooled one and shows once
+    let (tables, ..) = run("KM weeks BY plan /STATUS=outcome(1) /PRINT=NONE \
+         /COMPARE=OVERALL POOLED /COMPARE=OVERALL STRATA.");
+    assert_eq!(
+        tables
+            .iter()
+            .filter(|t| t.title == "Overall Comparisons")
+            .count(),
+        1
+    );
+
     // pooled over the regions, and within each region
     let (tables, ..) = run(
         "KM weeks BY plan /STATUS=outcome(1) /STRATA=region /PRINT=NONE \

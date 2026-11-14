@@ -620,7 +620,11 @@ impl Engine {
             let mut rows = Vec::new();
             for (i, (s, l, c)) in curves.iter().enumerate() {
                 let obs = &strata_list[*s].levels[*l];
-                let mut left: f64 = obs.iter().map(|o| o.weight).sum();
+                // the cases after each row, summed from the end so the last row is exactly 0
+                let mut after = vec![0.0; obs.len() + 1];
+                for k in (0..obs.len()).rev() {
+                    after[k] = after[k + 1] + obs[k].weight;
+                }
                 let mut cumulative = 0.0;
                 for (k, o) in obs.iter().enumerate() {
                     let mut row = match headers.is_empty() {
@@ -631,7 +635,6 @@ impl Engine {
                     if let Some(v) = &id_var {
                         row.push(Cell::Text(id_text(&shown, v, o.case)));
                     }
-                    left -= o.weight;
                     if o.event {
                         cumulative += o.weight;
                     }
@@ -655,7 +658,7 @@ impl Engine {
                         estimate,
                         se,
                         Cell::Number(cumulative),
-                        Cell::Number(left),
+                        Cell::Number(after[k + 1]),
                     ]);
                     rows.push(row);
                 }
@@ -806,8 +809,14 @@ impl Engine {
                 .map(|s| s.levels.iter().map(|o| !o.is_empty()).collect())
                 .collect();
             let differ = level_sets.windows(2).any(|w| w[0] != w[1]);
+            let mut done = Vec::new();
             for cmp in compares {
+                // STRATA without a STRATA variable is the pooled comparison
                 let per_stratum = cmp.per_stratum && strata_var.is_some();
+                if done.contains(&(cmp.pairwise, per_stratum)) {
+                    continue;
+                }
+                done.push((cmp.pairwise, per_stratum));
                 if !per_stratum && strata_var.is_some() && differ {
                     let w = "the factor has different levels in different strata, so the \
                              comparison pooled over the strata was left out";
@@ -934,7 +943,7 @@ impl Engine {
                 KmPlot::LogSurvival => ("Log Survival Functions", "Log Cumulative Survival", |s| {
                     s.ln()
                 }),
-                KmPlot::Hazard => ("Hazard Functions", "Cumulative Hazard", |s| -s.ln()),
+                KmPlot::Hazard => ("Hazard Functions", "Cumulative Hazard", |s| 0.0 - s.ln()),
                 KmPlot::OneMinusSurvival => (
                     "One Minus Survival Functions",
                     "One Minus Cumulative Survival",
@@ -1005,7 +1014,7 @@ impl Engine {
                     for (kind, values) in &mut saved {
                         values[o.case] = match kind {
                             KmSave::Survival => Some(est),
-                            KmSave::Hazard => (est > 0.0).then(|| -est.ln()),
+                            KmSave::Hazard => (est > 0.0).then(|| 0.0 - est.ln()),
                             KmSave::Se => Some(se),
                             KmSave::CumEvent => Some(c.events_by(o.time)),
                         };
