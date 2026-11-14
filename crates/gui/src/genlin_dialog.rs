@@ -3,7 +3,7 @@
 //! Options left as they are add nothing to the syntax, except the distribution and the link,
 //! which are always written so the model reads plainly.
 
-use crate::advanced_dialogs::{MeansTable, Terms, covariate_values};
+use crate::advanced_dialogs::{MeansTable, Terms, covariate_values, full_factorial};
 use crate::analyze_dialogs::keywords;
 use crate::dialogs::whole;
 use crate::stats_dialogs::{parse, percent};
@@ -442,30 +442,11 @@ impl GeneralizedLinear {
     fn effects(&self) -> Result<String, String> {
         Ok(match self.model {
             0 => self.model_variables().join(" "),
-            1 => {
-                // every crossing of the factors, smallest first, then the covariates
-                let n = self.factors.len();
-                if n > 10 {
-                    return Err(
-                        "the full factorial of more than 10 factors is too large: choose custom terms"
-                            .into(),
-                    );
-                }
-                let mut masks: Vec<u32> = (1..1u32 << n).collect();
-                masks.sort_by_key(|m| m.count_ones());
-                masks
-                    .iter()
-                    .map(|m| {
-                        let crossed: Vec<&str> = (0..n)
-                            .filter(|i| m & (1 << i) != 0)
-                            .map(|i| self.factors[i].as_str())
-                            .collect();
-                        crossed.join("*")
-                    })
-                    .chain(self.covariates.iter().cloned())
-                    .collect::<Vec<_>>()
-                    .join(" ")
-            }
+            1 => full_factorial(&self.factors, &self.covariates)?
+                .iter()
+                .map(|term| term.join("*"))
+                .collect::<Vec<_>>()
+                .join(" "),
             _ if self.terms.terms.is_empty() => String::new(),
             _ => self.terms.syntax(&self.model_variables(), "model")?,
         })

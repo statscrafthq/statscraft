@@ -11,6 +11,7 @@ use crate::analyze_dialogs::{
     Tree,
 };
 use crate::correspondence_dialog::{Correspondence, Role, TableVariable};
+use crate::cs_model_dialog::{Held, OddsRatio, SampleModel};
 use crate::data_dialogs::{
     Aggregate, AggregateTo, Aggregated, ExportData, ImportData, Make, MergeFiles, Mrsets,
     Restructure, RestructureKind, SelectCases, SelectMode, SortCases, SortVariables, SplitFile,
@@ -24,8 +25,8 @@ use crate::dialogs::{
 use crate::genlin_dialog::GeneralizedLinear;
 use crate::graph_dialogs::{ChartBuilder, ChartKind, ProbabilityPlot, RocCurve};
 use crate::model_dialogs::{
-    Categorical, Discriminant, FactorAnalysis, Hierarchical, KMeans, Logistic, RepeatedMeasures,
-    Solutions, Univariate, WithinFactor,
+    Categorical, Discriminant, FactorAnalysis, FactorContrast, Hierarchical, KMeans, Logistic,
+    MColumn, RepeatedMeasures, Solutions, Univariate, WithinFactor,
 };
 use crate::stats_dialogs::{Block, NparKind, NparTests, PartialCorr, Regression, Reliability};
 use std::path::Path;
@@ -212,6 +213,11 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             factors: v(&["region"]),
             ..Default::default()
         }),
+        Dialog::Univariate(Univariate {
+            dependents: v(&["monthly_spend", "q1_satisfaction"]),
+            factors: v(&["region"]),
+            ..Univariate::multivariate()
+        }),
         Dialog::RepeatedMeasures(RepeatedMeasures {
             within: vec![WithinFactor {
                 name: s("mention"),
@@ -257,6 +263,16 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             variables: v(&["gender"]),
             ..Default::default()
         })),
+        Dialog::Advanced(Advanced::Model(Box::new(SampleModel {
+            plan: plan.clone(),
+            dependent: s("monthly_spend"),
+            ..SampleModel::new(false)
+        }))),
+        Dialog::Advanced(Advanced::Model(Box::new(SampleModel {
+            plan: plan.clone(),
+            dependent: s("q5_1"),
+            ..SampleModel::new(true)
+        }))),
         Dialog::Advanced(Advanced::Tables(SampleTables {
             crosstabs: true,
             plan,
@@ -830,9 +846,59 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             means_factors: v(&["region"]),
             compare: true,
             adjustment: 2,
+            contrasts: vec![FactorContrast {
+                name: s("region"),
+                contrast: 2,
+                first: true,
+            }],
+            spread_level: true,
+            residual_plots: true,
+            profiles: vec![v(&["region", "gender"]), v(&["gender"])],
+            profile_draft: Default::default(),
+            profile_bars: true,
+            profile_mean_line: true,
+            profile_errors: 2,
             save: [true; 8],
-            print: [true; 5],
+            print: [true; 9],
             alpha: s("0.01"),
+            ..Default::default()
+        }),
+        Dialog::Univariate(Univariate {
+            multivariate: true,
+            dependents: v(&["monthly_spend", "q1_satisfaction", "q2_recommend"]),
+            factors: v(&["region", "gender"]),
+            covariates: v(&["age"]),
+            custom: true,
+            terms: vec![v(&["region"]), v(&["gender"]), v(&["age"])],
+            sstype: 0,
+            post_hoc_factors: v(&["region"]),
+            post_hoc: [true; 16],
+            dunnett: true,
+            means_overall: true,
+            means_factors: v(&["region", "gender"]),
+            compare: true,
+            adjustment: 1,
+            contrasts: vec![FactorContrast {
+                name: s("gender"),
+                contrast: 6,
+                first: false,
+            }],
+            spread_level: true,
+            residual_plots: true,
+            profiles: vec![v(&["gender", "region"])],
+            profile_errors: 1,
+            save: [true; 8],
+            print: [true; 9],
+            alpha: s("0.1"),
+            m_matrix: vec![MColumn {
+                label: s("Spend minus satisfaction"),
+                coefficients: [
+                    (s("monthly_spend"), s("1")),
+                    (s("q1_satisfaction"), s("-1")),
+                ]
+                .into(),
+            }],
+            ..Default::default()
         }),
         Dialog::RepeatedMeasures(RepeatedMeasures {
             within: vec![WithinFactor {
@@ -1074,6 +1140,109 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             options: sample_options(),
             ..Default::default()
         })),
+        // region, gender, q5_1 and resp_id are in the plan, so out of the model
+        Dialog::Advanced(Advanced::Model(Box::new(SampleModel {
+            plan: plan.clone(),
+            dependent: s("monthly_spend"),
+            factors: v(&["plan", "q5_2"]),
+            covariates: v(&["age"]),
+            model: 1,
+            show_intercept: false,
+            statistics: [true; 7],
+            test_type: 3,
+            adjustment: 4,
+            tests: vec![ContrastTest {
+                label: s("Second channel"),
+                rows: s("age 1 = 2"),
+            }],
+            means: vec![
+                MeansTable::default(),
+                MeansTable {
+                    factors: v(&["plan", "q5_2"]),
+                    compare: s("plan"),
+                    contrast: 1,
+                    adjustment: 0,
+                },
+            ],
+            means_at: vec![(s("age"), s("40"))],
+            ci_level: s("90"),
+            df: s("100"),
+            domain: s("region"),
+            domain_value: s("1"),
+            include: true,
+            print: [true; 8],
+            save: [true; 2],
+            save_names: [s("fitted"), s("residual")],
+            ..SampleModel::new(false)
+        }))),
+        Dialog::Advanced(Advanced::Model(Box::new(SampleModel {
+            plan: plan.clone(),
+            dependent: s("q5_3"),
+            reference: 2,
+            reference_value: s("0"),
+            factors: v(&["plan", "q5_2"]),
+            covariates: v(&["age"]),
+            model: 2,
+            terms: Terms {
+                terms: vec![
+                    v(&["plan"]),
+                    v(&["q5_2"]),
+                    v(&["age"]),
+                    v(&["plan", "q5_2"]),
+                ],
+                building: Vec::new(),
+            },
+            show_intercept: false,
+            statistics: [true; 7],
+            test_type: 2,
+            adjustment: 1,
+            tests: vec![ContrastTest {
+                label: s("Age"),
+                rows: s("age 1 = 0.1"),
+            }],
+            odds: vec![
+                OddsRatio {
+                    variable: s("plan"),
+                    level: 2,
+                    reference: s("BASIC"),
+                    control: vec![Held {
+                        name: s("q5_2"),
+                        level: 1,
+                        value: String::new(),
+                        covariate: false,
+                    }],
+                    covariate: false,
+                },
+                OddsRatio {
+                    variable: s("age"),
+                    level: 0,
+                    reference: s("1 10"),
+                    control: vec![Held {
+                        name: s("q5_2"),
+                        level: 2,
+                        value: s("1"),
+                        covariate: false,
+                    }],
+                    covariate: true,
+                },
+            ],
+            ci_level: s("99"),
+            df: s("100"),
+            iterations: s("50"),
+            halvings: s("10"),
+            pconverge: s("0.0000001"),
+            lconverge: s("0.00001"),
+            separation: s("5"),
+            domain: s("region"),
+            domain_value: s("1"),
+            include: true,
+            print: [true; 8],
+            history: s("2"),
+            save: [true; 2],
+            save_names: [s("prob"), s("guess")],
+            probabilities: s("2"),
+            ..SampleModel::new(true)
+        }))),
         Dialog::Advanced(Advanced::Tables(SampleTables {
             crosstabs: true,
             plan,

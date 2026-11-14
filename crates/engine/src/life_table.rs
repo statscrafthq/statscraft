@@ -690,18 +690,16 @@ impl Engine {
                     ]
                     .map(String::from),
                 );
+                // a row without a density is the open interval
+                let open = table_rows.iter().any(|r| r[lead + 9] == Cell::Empty);
                 tables.push(Table {
                     title: format!("Life Table of {time_label}"),
                     row_headers: lead + 1,
                     columns,
                     rows: table_rows,
-                    // a row without a density is the open interval
-                    caption: table_rows
-                        .iter()
-                        .any(|r| r[lead + 9] == Cell::Empty)
-                        .then(|| {
-                            "The last interval has no end, so it has no density or hazard.".into()
-                        }),
+                    caption: open.then(|| {
+                        "The last interval has no end, so it has no density or hazard.".into()
+                    }),
                     ..Table::default()
                 });
             }

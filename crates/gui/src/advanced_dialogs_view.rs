@@ -34,6 +34,7 @@ pub fn body(
         Advanced::Plan(d) => plan(ui, d, picked, folder),
         Advanced::Descriptives(d) => sample_descriptives(ui, d, picked, folder),
         Advanced::Tables(d) => sample_tables(ui, d, picked, folder),
+        Advanced::Model(d) => crate::cs_model_dialog_view::sample_model(ui, d, picked, folder),
         Advanced::Correspondence(d) => {
             crate::correspondence_dialog_view::correspondence(ui, data, d, picked)
         }
@@ -127,7 +128,10 @@ pub(crate) fn means_editor(
             });
             ui.add_enabled_ui(!t.compare.is_empty(), |ui| {
                 choice(ui, "Comparison", comparisons, &mut t.contrast);
-                choice(ui, "Adjustment", adjustments, &mut t.adjustment);
+                // none where the command adjusts every test alike
+                if !adjustments.is_empty() {
+                    choice(ui, "Adjustment", adjustments, &mut t.adjustment);
+                }
             });
         });
     }
@@ -153,7 +157,7 @@ pub(crate) fn means_editor(
 }
 
 /// Custom tests, each a label and rows of coefficients typed one row per line.
-fn tests_editor(ui: &mut Ui, tests: &mut Vec<ContrastTest>) {
+pub(crate) fn tests_editor(ui: &mut Ui, tests: &mut Vec<ContrastTest>) {
     ui.weak("One row per line: an effect, then a coefficient for each of its parameters");
     let mut remove = None;
     for (i, t) in tests.iter_mut().enumerate() {
@@ -417,7 +421,7 @@ fn mixed(ui: &mut Ui, d: &mut LinearMixed, picked: &mut Vec<String>) {
 }
 
 /// The plan file: a field and Browse, to write a new plan (`save`) or pick one.
-fn plan_path(ui: &mut Ui, path: &mut String, save: bool, folder: &mut Option<PathBuf>) {
+pub(crate) fn plan_path(ui: &mut Ui, path: &mut String, save: bool, folder: &mut Option<PathBuf>) {
     ui.horizontal(|ui| {
         ui.strong("Plan file");
         if ui.button("Browse...").clicked() {

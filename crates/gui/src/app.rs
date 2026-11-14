@@ -9,6 +9,7 @@ use crate::analyze_dialogs::{
     TTestKind, Tree,
 };
 use crate::connect_window::Connect;
+use crate::cs_model_dialog::SampleModel;
 use crate::data_dialogs::{
     AGGREGATE_FUNCTIONS, Aggregate, AggregateTo, Aggregated, EXPORT_NAMES, ExportData,
     FILTER_VARIABLE, ImportData, MergeFiles, Mrsets, Restructure, RestructureKind,
@@ -277,6 +278,7 @@ impl Dialog {
             Dialog::Hierarchical(_) => "Hierarchical Cluster Analysis",
             Dialog::Discriminant(_) => "Discriminant Analysis",
             Dialog::Logistic(_) => "Logistic Regression",
+            Dialog::Univariate(d) if d.multivariate => "Multivariate",
             Dialog::Univariate(_) => "Univariate",
             Dialog::RepeatedMeasures(_) => "Repeated Measures",
             Dialog::Advanced(d) => d.title(),
@@ -334,6 +336,9 @@ impl Dialog {
             Dialog::Hierarchical(_) => Dialog::Hierarchical(Default::default()),
             Dialog::Discriminant(_) => Dialog::Discriminant(Default::default()),
             Dialog::Logistic(_) => Dialog::Logistic(Default::default()),
+            Dialog::Univariate(d) if d.multivariate => {
+                Dialog::Univariate(Univariate::multivariate())
+            }
             Dialog::Univariate(_) => Dialog::Univariate(Default::default()),
             Dialog::RepeatedMeasures(_) => Dialog::RepeatedMeasures(Default::default()),
             Dialog::Advanced(d) => Dialog::Advanced(d.reset()),
@@ -455,10 +460,13 @@ impl Dialog {
             // a string covariate is categorical, a string dependent has its two values
             Dialog::Logistic(d) => d.syntax(),
             // factors may be strings
-            Dialog::Univariate(d) => {
-                numeric(data, std::iter::once(&d.dependent).chain(&d.covariates))
-                    .and_then(|()| d.syntax())
-            }
+            Dialog::Univariate(d) => numeric(
+                data,
+                std::iter::once(&d.dependent)
+                    .chain(&d.dependents)
+                    .chain(&d.covariates),
+            )
+            .and_then(|()| d.syntax()),
             Dialog::RepeatedMeasures(d) => {
                 numeric(data, d.dependents.iter().chain(&d.covariates)).and_then(|()| d.syntax())
             }
@@ -1569,6 +1577,9 @@ impl App {
                         if ui.button("Univariate...").clicked() {
                             self.open_dialog(Dialog::Univariate(Default::default()));
                         }
+                        if ui.button("Multivariate...").clicked() {
+                            self.open_dialog(Dialog::Univariate(Univariate::multivariate()));
+                        }
                         if ui.button("Repeated Measures...").clicked() {
                             self.open_dialog(Dialog::RepeatedMeasures(Default::default()));
                         }
@@ -1675,6 +1686,14 @@ impl App {
                             ),
                             ("Frequencies...", tables(false)),
                             ("Crosstabs...", tables(true)),
+                            (
+                                "General Linear Model...",
+                                Advanced::Model(Box::new(SampleModel::new(false))),
+                            ),
+                            (
+                                "Logistic Regression...",
+                                Advanced::Model(Box::new(SampleModel::new(true))),
+                            ),
                         ] {
                             if ui.button(label).clicked() {
                                 self.open_dialog(Dialog::Advanced(dialog));
