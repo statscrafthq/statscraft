@@ -50,6 +50,7 @@ mod merge;
 mod mixed;
 mod mrsets;
 mod mult_response;
+mod mva;
 mod nomreg;
 mod nonpar_corr;
 mod npar_groups;
@@ -677,6 +678,7 @@ impl Engine {
             | Command::QuickCluster(_)
             | Command::Logistic(_)
             | Command::Nomreg(_)
+            | Command::Mva(_)
             | Command::Plum(_)
             | Command::Correspondence(_)
             | Command::Genlin(_)
@@ -923,6 +925,7 @@ impl Engine {
             Command::QuickCluster(command) => self.quick_cluster(command),
             Command::Logistic(command) => self.logistic(command),
             Command::Nomreg(command) => self.nomreg(command),
+            Command::Mva(command) => self.mva(command),
             Command::Plum(command) => self.plum(command),
             Command::Correspondence(command) => self.correspondence(command),
             Command::Genlin(command) => self.genlin(command),

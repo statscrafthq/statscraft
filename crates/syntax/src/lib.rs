@@ -47,6 +47,7 @@ mod matrix_data;
 mod mixed;
 mod mrsets;
 mod mult_response;
+mod mva;
 mod nomreg;
 mod npar;
 mod output;
@@ -102,6 +103,8 @@ mod tests_mixed;
 mod tests_models;
 #[cfg(test)]
 mod tests_multivariate;
+#[cfg(test)]
+mod tests_mva;
 #[cfg(test)]
 mod tests_nomreg;
 #[cfg(test)]
@@ -185,6 +188,7 @@ pub use mixed::{
     Convergence, CovType, DfMethod, Mixed, MixedPrint, MixedTemp, RandomEffects, Repeated,
 };
 pub use mrsets::{Mrsets, MrsetsGroup};
+pub use mva::{AddType, Mva, MvaEstimate, MvaPattern, MvaTtest};
 pub use nomreg::{
     Nomreg, NomregBase, NomregCriteria, NomregOrder, NomregPrint, NomregSave, NomregScale,
     NomregStepwise, StepMethod, StepRule,

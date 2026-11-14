@@ -29,6 +29,7 @@ use crate::matrix_data;
 use crate::mixed;
 use crate::mrsets;
 use crate::mult_response;
+use crate::mva;
 use crate::nomreg;
 use crate::npar;
 use crate::output;
@@ -153,6 +154,55 @@ const PPLOT_SYNTAX: &str = "PPLOT [VARIABLES=] varlist\n\
                  APPLY repeats the previous PPLOT (its distribution without the parameters, and its\n\
                  variables unless new ones are given); the subcommands given with it override.\n\
                  Not supported yet: APPLY of a named model, TEMPLATE.";
+
+const MVA_SYNTAX: &str = "MVA [VARIABLES=] varlist | ALL\n\
+                 \x20  [/CATEGORICAL=varlist] [/MAXCAT=25] [/ID=var]\n\
+                 \x20  [/NOUNIVARIATE] [/TTEST [PERCENT=5] [T | NOT] [DF | NODF] [PROB | NOPROB] [COUNTS | NOCOUNTS]\n\
+                 \x20                         [MEANS | NOMEANS]]\n\
+                 \x20  [/CROSSTAB [PERCENT=5]] [/MISMATCH [PERCENT=5] [NOSORT]]\n\
+                 \x20  [/DPATTERN [SORT=var[(ASCENDING | DESCENDING)] ...] [DESCRIBE=varlist]]\n\
+                 \x20  [/MPATTERN [NOSORT] [DESCRIBE=varlist]] [/TPATTERN [NOSORT] [DESCRIBE=varlist] [PERCENT=1]]\n\
+                 \x20  [/LISTWISE] [/PAIRWISE]\n\
+                 \x20  [/EM [varlist] [WITH varlist] [(TOLERANCE=0.001 CONVERGENCE=0.0001 ITERATIONS=25\n\
+                 \x20       TDF=n | LAMBDA=a PROPORTION=b, OUTFILE='file' | dataset)]]\n\
+                 \x20  [/REGRESSION [varlist] [WITH varlist] [(TOLERANCE=0.001 FLIMIT=4 NPREDICTORS=n\n\
+                 \x20       ADDTYPE=RESIDUAL | NORMAL | T[(5)] | NONE, OUTFILE='file' | dataset)]].\n\
+                 String variables and those on CATEGORICAL are categorical (a long string by its first 8\n\
+                 bytes); MVA stops with a warning when one has more than MAXCAT values. All others are\n\
+                 quantitative. System-missing and user-missing values count as missing; user-missing ones are\n\
+                 coded A, B, C in the order of their definition (a range is A, its extra value B). CATEGORICAL,\n\
+                 MAXCAT and ID come before the other subcommands; VARIABLES, SORT, NOSORT, DESCRIBE and WITH\n\
+                 cannot name variables here. Weights are not used.\n\
+                 Univariate Statistics (unless NOUNIVARIATE): valid N, missing count and percent, and for\n\
+                 quantitative variables the mean, standard deviation and the count of extremes: values beyond\n\
+                 1.5 interquartile ranges outside the quartiles (at (n+1)p), or, when variables times n times\n\
+                 log10(n) passes 150000, beyond 2 standard deviations from the mean.\n\
+                 TTEST: for each variable with at least PERCENT% missing, every quantitative variable is\n\
+                 compared between the cases where it is present and missing (Welch t, its df, two-sided p with\n\
+                 PROB, the counts and the means). CROSSTAB: per categorical variable and category, the count and\n\
+                 percent present and the percent of each missing kind of every other variable with at least\n\
+                 PERCENT% missing. MISMATCH: the percent of cases where one variable of a pair is missing and\n\
+                 the other not, the percent missing on the diagonal.\n\
+                 DPATTERN lists every case (in file order or by SORT), MPATTERN the cases with a missing value,\n\
+                 each with S, A, B, C for missing and + or - for extremes, the number and percent missing and the\n\
+                 DESCRIBE values. TPATTERN counts each pattern of missing values (X), leaving out those under\n\
+                 PERCENT% of the cases; DESCRIBE adds category counts or means. ID labels the cases. Unless\n\
+                 NOSORT, variables go from fewest to most missing and alike patterns stand together.\n\
+                 LISTWISE: means, covariances and correlations over the cases complete on every variable.\n\
+                 PAIRWISE: counts, means and standard deviations of the column variable, covariances and\n\
+                 correlations over the cases valid on both variables.\n\
+                 EM estimates the means, covariances and correlations of the quantitative variables (or the\n\
+                 ones listed, from those after WITH) under a normal, a t (TDF) or a mixed normal (LAMBDA, the ratio\n\
+                 of the standard deviations, PROPORTION, the share of the second part) distribution, starting from\n\
+                 the univariate means and pairwise covariances; covariances divide by n - 1. It stops when no\n\
+                 variance changes by more than CONVERGENCE relative to its value, or after ITERATIONS, and gives\n\
+                 Little's MCAR test. REGRESSION fills each missing value by forward stepwise regression on the\n\
+                 predictors the case has (F to enter FLIMIT, at most NPREDICTORS), from the univariate means\n\
+                 and pairwise covariances, plus the residual of a random complete case, a normal or t error\n\
+                 scaled by the residual standard deviation, or nothing; NORMAL is the default when fewer than\n\
+                 half the cases are complete. Random terms follow SET SEED. With two or more of LISTWISE, EM and\n\
+                 REGRESSION, summary tables compare their means and standard deviations. OUTFILE saves the active\n\
+                 data with the missing values of the estimated variables filled in.";
 
 pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
@@ -1655,6 +1705,13 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  CELLPROB, HISTORY and ASSOCIATION.",
         example: "NOMREG commute (BASE=FIRST) BY district WITH distance /PRINT=PARAMETER LRT FIT SUMMARY CLASSTABLE /SAVE=ESTPROB PREDCAT.",
         parse: nomreg::nomreg,
+    },
+    CommandSpec {
+        name: "MVA",
+        summary: "Missing value analysis: where values are missing, how that relates to the other variables, and estimates that allow for it.",
+        syntax: MVA_SYNTAX,
+        example: "MVA VARIABLES=district mode age km minutes /CATEGORICAL=district /ID=resp /TTEST PROB /TPATTERN /EM (OUTFILE='filled.sav').",
+        parse: mva::mva,
     },
     CommandSpec {
         name: "PLUM",

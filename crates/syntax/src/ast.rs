@@ -72,6 +72,7 @@ pub enum Command {
     QuickCluster(Box<crate::factor::QuickCluster>),
     Logistic(Box<crate::logistic::Logistic>),
     Nomreg(Box<crate::nomreg::Nomreg>),
+    Mva(Box<crate::mva::Mva>),
     Plum(Box<crate::plum::Plum>),
     Correspondence(Box<crate::correspondence::Correspondence>),
     Genlin(Box<crate::genlin::Genlin>),

@@ -775,6 +775,23 @@ Where GNU PSPP differs:
 
 - Its interval uses the one-sided normal quantile (at 90 percent its interval is that of 80 percent) and its coordinates table misses some cutoffs; the area, the standard error and the significance agree.
 
+### MVA
+
+Choices where the documentation says nothing:
+
+- Case weights are not used; every case counts once.
+- Extremes: the quartiles are taken at (n + 1) p, as in EXAMINE's default, and the switch to 2 standard deviations uses the base-10 logarithm, v n log10(n) > 150000, with v the variables on the list and n the cases.
+- The pattern tables put the variables in order of their number of missing values, fewest first (ties in list order), and sort the patterns by their missing values read from the variable with the most missing values back to the one with the fewest, the complete pattern first. MPATTERN keeps file order among cases of the same pattern.
+- MISMATCH PERCENT leaves out the variables with less than that percent missing. CROSSTAB columns are the total and the valid categories; the user-missing rows name the defined value.
+- The t test is left blank when a group has fewer than two values. The column of the indicator variable itself shows its counts and present mean.
+- LISTWISE uses the cases complete on every variable of the list, categorical ones included.
+- EM and REGRESSION run on the variables of both lists (predicted and after WITH) and show the predicted ones; a predictor that is missing is estimated inside EM but not saved. Little's test covers the same variables. A pair with fewer than two cases starts EM with covariance 0.
+- EM's covariance is divided by (n - 1) sum(w) / n, as the Algorithms manual gives it, so EM with no missing data gives the sample covariances (n - 1), not the maximum likelihood ones. Because the conditional covariances enter the iteration, the result is close to, but not exactly, n / (n - 1) times the maximum likelihood estimate that EM programs with an n divisor give. With the n divisor the same program agrees with a published EM implementation, and Little's test computed from those estimates agrees with a published implementation of the test.
+- Convergence follows the Algorithms manual: every variance changes by at most CONVERGENCE relative to its new value. When ITERATIONS runs out first, the last estimates are shown with a warning.
+- The mixed normal weight follows the Algorithms manual's formula, with LAMBDA and PROPORTION both required.
+- REGRESSION enters predictors while F to enter = (drop in residual variance) / (residual variance / (n_j - q - 1)) reaches FLIMIT, with n_j the valid values of the estimated variable and q the predictors after entry. A complete case for RESIDUAL is one valid on every variable of the model. NORMAL and T errors are scaled by the residual standard deviation of the regression on the pairwise covariances; T is not rescaled to unit variance.
+- OUTFILE writes the analyzed cases (with FILTER, the selected ones), with the missing values, system- and user-missing, of the estimated variables filled in. Values that could not be estimated keep what they were.
+
 ### KM
 
 - A case takes part when its time, status, factor and stratum are valid (user-missing values count as missing) and its time is 0 or more; a missing status is left out rather than counted as censored. Weights count cases and need not be whole numbers.
@@ -1002,6 +1019,7 @@ Where the documentation is silent:
   - MIXED has no spatial (SP_*) or Kronecker (UN_AR1, UN_CS, UN_UN) structures on REPEATED, and no KRONECKER or SPCOORDS.
   - FACTOR has no METHOD=COVARIANCE, MATRIX=OUT or MATRIX=IN(FAC=...).
   - CLUSTER has no MATRIX=OUT.
+  - MVA has no OUTFILE under SPLIT FILE.
   - DISCRIMINANT has no ROTATE=COEFF or STRUCTURE, MATRIX or OUTFILE, and no cross-validated rows in the casewise listing.
   - USE takes case numbers only with /PERMANENT.
   - ADD FILES, MATCH FILES and UPDATE take no PASSWORD.
