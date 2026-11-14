@@ -813,6 +813,33 @@ fn time_program_edge_cases() {
         )
         .contains("spend_t")
     );
+    // as does a procedure such as LOGISTIC REGRESSION
+    assert!(
+        run_error(
+            "TIME PROGRAM.\nCOMPUTE spend_t = spend * T_.\n\
+             LOGISTIC REGRESSION site WITH months.\nCOXREG months WITH spend_t /STATUS=ended(1)."
+        )
+        .contains("spend_t")
+    );
+    // a COXREG that stops with an error leaves the program for the corrected one; a range
+    // written high THRU low means the same values
+    let mut engine = Engine::default();
+    let (commands, _) = parse(&format!(
+        "{DATA}TIME PROGRAM.\nCOMPUTE spend_t = spend * LN(T_ + 1).\n\
+         COXREG months WITH spend_t /STATUS=nothing(1).\n\
+         COXREG months WITH plan spend spend_t /STATUS=ended(1.5 THRU 0.5) /CATEGORICAL=plan {TIGHT}"
+    ));
+    let mut last = Vec::new();
+    for command in &commands {
+        if let Ok(tables) = engine.execute(&command.command) {
+            last = tables;
+        }
+    }
+    near(
+        value(&last, "Variables in the Equation", "Step 1 / spend_t", "B"),
+        0.04797026618358,
+        1e-6,
+    );
     // a program that never changes the covariate is not used, and the case missing on spend is
     // dropped as usual
     let mut engine = Engine::default();

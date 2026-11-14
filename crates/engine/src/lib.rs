@@ -565,7 +565,12 @@ impl Engine {
                 self.flush()?;
             }
         }
-        let tables = self.execute_command(command)?;
+        let tables = self.execute_command(command);
+        if tables.is_err() && matches!(command, Command::Coxreg(_)) {
+            // a COXREG that fails leaves its time program for the corrected one
+            self.time_program = self.running_program.take();
+        }
+        let tables = tables?;
         let mut out = std::mem::take(&mut self.flushed);
         out.extend(tables);
         Ok(out)

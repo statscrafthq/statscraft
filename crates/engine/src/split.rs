@@ -219,6 +219,9 @@ impl Engine {
 
     /// Runs a procedure as the split, the filter and TEMPORARY say.
     pub(crate) fn procedure(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
+        // every procedure reads the data and so uses a waiting time program up; only COXREG,
+        // which took it already, runs it
+        self.time_program = None;
         self.begin_pass()?;
         let before = self.dataset.clone();
         // TREE and the complex samples procedures ignore SPLIT FILE, as the manual says

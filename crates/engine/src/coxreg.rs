@@ -245,9 +245,11 @@ fn fit(rows: &[Row], strata: usize, cols: &[usize], criteria: &CoxregCriteria) -
         // halve a step that lowers the likelihood; when halving does not help, stop unconverged
         let accepted = loop {
             let tried: Vec<f64> = b.iter().zip(&delta).map(|(b, d)| b + step * d).collect();
-            let next = derivatives(rows, strata, cols, &tried);
+            // only the likelihood decides; the derivatives wait for the accepted step
+            let trial = log_likelihood(rows, strata, cols, &tried);
             // a loss within rounding of the log likelihood still counts as no loss
-            if next.0 >= ll - 1e-12 * ll.abs().max(1.0) {
+            if trial >= ll - 1e-12 * ll.abs().max(1.0) {
+                let next = derivatives(rows, strata, cols, &tried);
                 break Some((tried, next));
             }
             if step < 1e-3 {
@@ -577,15 +579,16 @@ fn is_event(key: &Key, events: &[MissingValue]) -> bool {
         (MissingValue::Value(Value::Number(n)), Key::Number(x)) => n == x,
         (MissingValue::Value(Value::String(s)), Key::Text(t)) => s.trim_end() == t.trim_end(),
         (MissingValue::Range(lo, hi), Key::Number(x)) => {
-            let above = match lo {
-                Bound::Number(lo) => x >= lo,
-                _ => true,
+            let low = match lo {
+                Bound::Number(n) => *n,
+                _ => f64::NEG_INFINITY,
             };
-            let below = match hi {
-                Bound::Number(hi) => x <= hi,
-                _ => true,
+            let high = match hi {
+                Bound::Number(n) => *n,
+                _ => f64::INFINITY,
             };
-            above && below
+            // a range written high THRU low means the same values
+            (low.min(high)..=low.max(high)).contains(x)
         }
         _ => false,
     })
@@ -692,8 +695,8 @@ impl Engine {
         }
         // the variables of the original data, to screen the cases; one the time program computes
         // is checked after the program runs, where a missing value is an error
-        // shortcut: only COMPUTE and IF count as computing; a RECODE INTO in the program is
-        // screened on the data's values
+        // shortcut: only top-level COMPUTE and IF count as computing; a covariate a RECODE, COUNT,
+        // DO REPEAT or vector element of the program changes is screened on the data's values
         let mut computed = Vec::new();
         for c in program.iter().flat_map(|p| &p.commands) {
             match c {
@@ -1124,7 +1127,9 @@ impl Engine {
                 model_terms.extend(&added);
                 let fitted = fit_model(model_terms, warnings, seen);
                 // a term whose columns all repeat others is not in the model
-                model_terms.retain(|&t| terms[t].columns.iter().any(|&c| fitted.at(c).is_some()));
+                let kept = |t: &usize| terms[*t].columns.iter().any(|&c| fitted.at(c).is_some());
+                model_terms.retain(kept);
+                let added: Vec<usize> = added.into_iter().filter(kept).collect();
                 steps.push(Step {
                     model: model_terms.clone(),
                     fit: fitted,
