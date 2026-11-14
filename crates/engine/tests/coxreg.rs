@@ -930,3 +930,28 @@ COXREG months WITH plan spend spend_t /STATUS=ended(1) /CATEGORICAL=plan {TIGHT}
         1e-6,
     );
 }
+
+#[test]
+fn summary_keeps_a_line_per_step_and_strings_use_eight_characters() {
+    let t = tables(&format!(
+        "STRING tier (A12).
+RECODE plan (1='standard-one') (2='standard-two') (ELSE='premium') INTO tier.
+COXREG months WITH tier spend site /STATUS=ended(1) /METHOD=BSTEP(LR) /PRINT=SUMMARY {TIGHT}"
+    ));
+    // standard-one and standard-two share their first eight characters: two categories
+    let codings = t
+        .iter()
+        .find(|t| t.title == "Categorical Variable Codings")
+        .unwrap();
+    assert_eq!(codings.rows.len(), 2);
+    let omnibus = t
+        .iter()
+        .rfind(|t| t.title == "Omnibus Tests of Model Coefficients")
+        .unwrap();
+    assert!(omnibus.rows.len() > 1);
+    let eq = t
+        .iter()
+        .rfind(|t| t.title == "Variables in the Equation")
+        .unwrap();
+    assert!(row_keys(eq).iter().all(|k| !k.starts_with("Step 1 ")));
+}

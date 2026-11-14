@@ -1251,20 +1251,22 @@ impl Engine {
                 }
             }
             let mut omnibus = Vec::new();
-            for &(n, s) in &shown_steps {
+            // SUMMARY still gives a line here for every step
+            for (n, s) in steps.iter().enumerate().map(|(i, s)| (i + 1, s)) {
                 let p = s.fit.cols.len() as f64;
                 let score = overall_score(&rows, strata, &s.fit.cols);
                 let mut row = vec![
                     text(format!("Step {n}")),
                     number(Some(-2.0 * s.fit.ll)),
-                    number(Some(score)),
+                    number((p > 0.0).then_some(score)),
                     Cell::Number(p),
                     number((p > 0.0).then(|| chi_square_p(score, p))),
                 ];
                 for base in [previous[n - 1], &last.fit] {
                     let chi = 2.0 * (s.fit.ll - base.ll);
                     let df = (p - base.cols.len() as f64).abs();
-                    row.push(number(Some(chi)));
+                    // no chi-square without degrees of freedom
+                    row.push(number((df > 0.0).then_some(chi)));
                     row.push(Cell::Number(df));
                     row.push(number((df > 0.0).then(|| chi_square_p(chi.abs(), df))));
                 }

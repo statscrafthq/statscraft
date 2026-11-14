@@ -255,7 +255,19 @@ impl<'a> Covariates<'a> {
                 )));
             }
         }
-        let keys = variables.iter().map(|v| categories(v, include)).collect();
+        // the first eight characters of a string tell its categories apart
+        let keys = variables
+            .iter()
+            .map(|v| {
+                let mut keys = categories(v, include);
+                for key in keys.iter_mut().flatten() {
+                    if let Key::Text(t) = key {
+                        *t = t.trim_end().chars().take(8).collect();
+                    }
+                }
+                keys
+            })
+            .collect();
         let mut out = Covariates {
             variables,
             keys,
