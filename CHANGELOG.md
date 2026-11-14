@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.12.0 (2026-11-14)
 
 - Window: Analyze > Complex Samples > General Linear Model and Logistic Regression write CSGLM and CSLOGISTIC with the plan file, the model (main effects, full factorial or custom terms, the intercept), the statistics and test settings, custom tests with their hypothesized values, estimated marginal means (CSGLM), the reference category and odds ratios (CSLOGISTIC), the criteria, a subpopulation, the tables and the saved variables. The dialogs check roles, string variables and saved names before the command runs. See [the window](docs/window.md#analyze).
 - Window: Analyze > General Linear Model > Multivariate writes GLM with several dependent variables, with the model, post hoc tests, estimated marginal means and saved variables of Univariate, Box's M, the residual and effect SSCP tables and an M matrix (a label and a coefficient for each dependent per column). Univariate and Multivariate gain contrasts of the factors, spread-versus-level, residual and profile plots, and the lack of fit test. The dialog checks the number of dependents, roles and the M matrix before the command runs. See [the window](docs/window.md#analyze).
