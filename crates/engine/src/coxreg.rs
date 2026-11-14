@@ -38,7 +38,7 @@ use crate::dist::{chi_square_p, normal_quantile};
 use crate::matrix::{Matrix, inverse};
 use crate::model_terms::{
     Covariates, clone_key, distinct_terms, expand_terms, independent_in, listed_terms, method_name,
-    sorted, step_cell, wald,
+    prefix8, sorted, step_cell, wald,
 };
 use crate::npar_tests::text;
 use crate::regression::{plain, table};
@@ -1279,7 +1279,9 @@ impl Engine {
                 omnibus,
                 Some(caption.clone()),
             ));
-            tables.push(report.in_equation(&shown_steps, &caption));
+            let history: Vec<(usize, &Step)> =
+                steps.iter().enumerate().map(|(i, s)| (i + 1, s)).collect();
+            tables.push(report.in_equation(&shown_steps, &history, &caption));
             if command.print.corr {
                 tables.push(report.correlations(&shown_steps, &caption));
             }
@@ -1621,7 +1623,12 @@ struct Report<'a> {
 }
 
 impl Report<'_> {
-    fn in_equation(&self, steps: &[(usize, &Step)], caption: &str) -> Table {
+    fn in_equation(
+        &self,
+        steps: &[(usize, &Step)],
+        history: &[(usize, &Step)],
+        caption: &str,
+    ) -> Table {
         let ci = self.command.print.ci;
         let mut columns = plain(&["", "", "B", "SE", "Wald", "df", "Sig.", "Exp(B)"]);
         if let Some(level) = ci {
@@ -1685,6 +1692,9 @@ impl Report<'_> {
                     first = false;
                 }
             }
+        }
+        // every step of the block says what it changed, also under SUMMARY
+        for (n, s) in history {
             let list = |ts: &[usize]| {
                 ts.iter()
                     .map(|&t| self.model.terms[t].label.clone())
@@ -1947,7 +1957,11 @@ impl Report<'_> {
         match &covariates.codings[v] {
             Some((levels, m)) => levels
                 .iter()
-                .position(|l| crate::genlin::value_matches(&covariates.variables[v], l, value))
+                .position(|l| match (l, value) {
+                    // strings by their first eight bytes, as the categories are told apart
+                    (Key::Text(t), Value::String(x)) => prefix8(t) == prefix8(x),
+                    _ => crate::genlin::value_matches(&covariates.variables[v], l, value),
+                })
                 .map(|at| m[at].clone())
                 .ok_or_else(|| {
                     Error(format!(

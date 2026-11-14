@@ -566,12 +566,9 @@ impl Engine {
         }
         if matches!(command, Command::Coxreg(_)) {
             // the vectors go along: the data pass of COXREG clears them before it runs the program
-            // the vectors in force now; a program a failed COXREG kept has those of then, unless
-            // VECTOR has defined some since
+            // the vectors in force now, over those a program a failed COXREG kept had then
             self.running_program = self.time_program.take().map(|mut program| {
-                if program.vectors.is_empty() || !self.vectors.is_empty() {
-                    program.vectors = self.vectors.clone();
-                }
+                program.vectors.extend(self.vectors.clone());
                 program
             });
         }

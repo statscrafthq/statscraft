@@ -182,6 +182,25 @@ pub(crate) fn step_cell(first: bool, n: usize) -> Cell {
     }
 }
 
+/// A string value's first eight bytes (whole characters only), which tell its categories apart.
+pub(crate) fn prefix8(text: &str) -> &str {
+    let text = text.trim_end();
+    let mut end = text.len().min(8);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
+}
+
+/// Two values are one category: equal numbers, or strings with the same first eight bytes. The
+/// category keeps the first value seen (in ascending order), whose label it shows.
+fn same(a: &Key, b: &Key) -> bool {
+    match (a, b) {
+        (Key::Text(a), Key::Text(b)) => prefix8(a) == prefix8(b),
+        _ => a.compare(b).is_eq(),
+    }
+}
+
 pub(crate) fn clone_key(key: &Key) -> Key {
     match key {
         Key::Number(n) => Key::Number(*n),
@@ -255,19 +274,7 @@ impl<'a> Covariates<'a> {
                 )));
             }
         }
-        // the first eight characters of a string tell its categories apart
-        let keys = variables
-            .iter()
-            .map(|v| {
-                let mut keys = categories(v, include);
-                for key in keys.iter_mut().flatten() {
-                    if let Key::Text(t) = key {
-                        *t = t.trim_end().chars().take(8).collect();
-                    }
-                }
-                keys
-            })
-            .collect();
+        let keys = variables.iter().map(|v| categories(v, include)).collect();
         let mut out = Covariates {
             variables,
             keys,
@@ -311,7 +318,7 @@ impl<'a> Covariates<'a> {
             let mut levels: Vec<Key> = Vec::new();
             for k in (0..used.len()).filter(|&k| used[k]) {
                 let key = self.keys[at][k].as_ref().expect("valid");
-                if !levels.iter().any(|l| l.compare(key).is_eq()) {
+                if !levels.iter().any(|l| same(l, key)) {
                     levels.push(clone_key(key));
                 }
             }
@@ -381,7 +388,7 @@ impl<'a> Covariates<'a> {
     pub(crate) fn level(&self, v: usize, k: usize) -> Option<usize> {
         let (levels, _) = self.codings[v].as_ref()?;
         let key = self.keys[v][k].as_ref()?;
-        levels.iter().position(|l| l.compare(key).is_eq())
+        levels.iter().position(|l| same(l, key))
     }
 
     /// For design column `j`: each variable of its term with its coding column (None: the

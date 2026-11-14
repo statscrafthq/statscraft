@@ -936,7 +936,9 @@ fn summary_keeps_a_line_per_step_and_strings_use_eight_characters() {
     let t = tables(&format!(
         "STRING tier (A12).
 RECODE plan (1='standard-one') (2='standard-two') (ELSE='premium') INTO tier.
-COXREG months WITH tier spend site /STATUS=ended(1) /METHOD=BSTEP(LR) /PRINT=SUMMARY {TIGHT}"
+VALUE LABELS tier 'standard-one' 'Standard plan'.
+COXREG months WITH tier spend site /STATUS=ended(1) /METHOD=BSTEP(LR) /PRINT=SUMMARY
+  /PLOT=SURVIVAL /PATTERN=tier('standard-two') {TIGHT}"
     ));
     // standard-one and standard-two share their first eight characters: two categories
     let codings = t
@@ -944,6 +946,11 @@ COXREG months WITH tier spend site /STATUS=ended(1) /METHOD=BSTEP(LR) /PRINT=SUM
         .find(|t| t.title == "Categorical Variable Codings")
         .unwrap();
     assert_eq!(codings.rows.len(), 2);
+    assert!(
+        row_keys(codings)
+            .iter()
+            .any(|k| k == "tier / Standard plan")
+    );
     let omnibus = t
         .iter()
         .rfind(|t| t.title == "Omnibus Tests of Model Coefficients")

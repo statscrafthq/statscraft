@@ -1475,7 +1475,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  baseline survival is the maximum likelihood estimate given the coefficients, so with no\n\
                  covariate it is the Kaplan-Meier curve. SUMMARY keeps a line per step in the Omnibus Tests and\n\
                  shows the other tables for the last step of each block only. String covariates tell their\n\
-                 categories apart by the first eight characters.\n\
+                 categories apart by their first eight bytes.\n\
                  PLOT gives chart data of the step curves of each stratum at the means and at each PATTERN:\n\
                  named covariates at the values given, the others at their means; BY draws one line per category\n\
                  of a categorical covariate. SAVE adds, at each case's own time and covariates, SUR_1, SE_1, HAZ_1,\n\
