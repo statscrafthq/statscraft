@@ -200,8 +200,9 @@ const MVA_SYNTAX: &str = "MVA [VARIABLES=] varlist | ALL\n\
                  predictors the case has (F to enter FLIMIT, at most NPREDICTORS), from the univariate means\n\
                  and pairwise covariances, plus the residual of a random complete case, a normal or t error\n\
                  scaled by the residual standard deviation, or nothing; NORMAL is the default when fewer than\n\
-                 half the cases are complete. Random terms follow SET SEED. With two or more of LISTWISE, EM and\n\
-                 REGRESSION, summary tables compare their means and standard deviations. OUTFILE saves the active\n\
+                 half the cases are complete. Random terms follow SET SEED. When two or more ways to estimate are\n\
+                 shown (univariate, LISTWISE, PAIRWISE, EM, REGRESSION), summary tables compare their means and\n\
+                 standard deviations (pairwise ones are those of all values). OUTFILE saves the active\n\
                  data with the missing values of the estimated variables filled in.";
 
 pub(crate) static COMMANDS: &[CommandSpec] = &[

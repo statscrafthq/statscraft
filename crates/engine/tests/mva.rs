@@ -920,3 +920,25 @@ fn split_files_give_a_table_per_group() {
         4
     );
 }
+
+#[test]
+fn summaries_ranges_and_categorical_only() {
+    // univariate and pairwise are two ways to estimate, so the summaries appear
+    let (tables, _) = run(&format!("{VARS} /PAIRWISE."));
+    let s = find(&tables, "Summary of Estimated Means");
+    assert_eq!(s.rows.len(), 1);
+    // a user-missing range from LOWEST is named by its keyword
+    let (tables, _) = run(&format!(
+        "MISSING VALUES km (LO THRU 4).\n{VARS} /NOUNI /CROSSTAB PERCENT=0."
+    ));
+    let t = find(&tables, "Crosstabulation of district");
+    row(t, &["km", "Missing", "% A (LOWEST THRU 4)"]);
+    let (tables, warnings) = run("MVA district mode /CATEGORICAL=district /TTEST.");
+    assert_eq!(tables.len(), 1);
+    assert!(
+        warnings
+            .iter()
+            .any(|w| w.contains("no quantitative variable")),
+        "{warnings:?}"
+    );
+}

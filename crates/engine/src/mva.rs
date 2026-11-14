@@ -114,7 +114,13 @@ fn type_names(missing: &MissingValues) -> Vec<String> {
         MissingValues::None => Vec::new(),
         MissingValues::Numbers(list) => list.iter().map(|v| format!("{v}")).collect(),
         MissingValues::Range { low, high, extra } => {
-            let mut names = vec![format!("{low} thru {high}")];
+            // LO and HI are kept as the extreme numbers
+            let bound = |v: f64| match v {
+                v if v == f64::MIN => "LOWEST".to_string(),
+                v if v == f64::MAX => "HIGHEST".to_string(),
+                v => format!("{v}"),
+            };
+            let mut names = vec![format!("{} THRU {}", bound(*low), bound(*high))];
             names.extend(extra.map(|v| format!("{v}")));
             names
         }
@@ -501,7 +507,8 @@ fn little(x: &[Vec<f64>], mean: &[f64], cov: &Matrix, tolerance: f64) -> (f64, f
             })
             .sum();
         chi += cases.len() as f64 * md;
-        df += observed.len() as f64;
+        // a variable left out by the tolerance check adds nothing to chi, so no df either
+        df += swept.len() as f64;
     }
     (chi, df)
 }
@@ -741,6 +748,9 @@ impl Engine {
         if let Some(options) = &command.ttest {
             match ttests(&columns, &quantitative, n, options) {
                 Some(t) => tables.push(t),
+                None if quantitative.is_empty() => {
+                    warnings.push("TTEST: there is no quantitative variable to test".into())
+                }
                 None => warnings.push(format!(
                     "TTEST: no variable has {}% or more missing values",
                     options.percent
@@ -788,6 +798,15 @@ impl Engine {
             }
         }
 
+        let estimates = [
+            command.listwise,
+            command.pairwise,
+            command.em.is_some(),
+            command.regression.is_some(),
+        ];
+        if !estimates.contains(&true) {
+            return self.finish_mva(tables, warnings, Vec::new());
+        }
         let titles: Vec<String> = quantitative
             .iter()
             .map(|&j| columns[j].title.clone())
@@ -795,14 +814,10 @@ impl Engine {
         let x: Vec<Vec<f64>> = (0..n)
             .map(|c| quantitative.iter().map(|&j| columns[j].values[c]).collect())
             .collect();
-        let univariate_mean: Vec<f64> = quantitative
+        let (univariate_mean, univariate_sd): (Vec<f64>, Vec<f64>) = quantitative
             .iter()
-            .map(|&j| mean_sd(&columns[j].valid()).0)
-            .collect();
-        let univariate_sd: Vec<f64> = quantitative
-            .iter()
-            .map(|&j| mean_sd(&columns[j].valid()).1)
-            .collect();
+            .map(|&j| mean_sd(&columns[j].valid()))
+            .unzip();
         let pair = pairwise(&x, quantitative.len());
         let mut summary: Vec<(&str, Vec<f64>, Vec<f64>)> =
             vec![("All Values", univariate_mean.clone(), univariate_sd)];
@@ -1067,7 +1082,10 @@ impl Engine {
                 saved.push((file.clone(), estimate));
             }
         }
-        if summary.len() > 2 {
+        // univariate, listwise, pairwise, EM and regression are the ways to estimate; pairwise
+        // means and deviations are those of all values
+        let ways = estimates.iter().filter(|&&e| e).count() + usize::from(command.univariate);
+        if ways > 1 {
             let rows = |sd: bool| -> Vec<Vec<Cell>> {
                 summary
                     .iter()
@@ -1116,6 +1134,16 @@ impl Engine {
             }
             files.push((file, out));
         }
+        self.finish_mva(tables, warnings, files)
+    }
+
+    /// Gives the warnings and writes the OUTFILE data once the active data are no longer read.
+    fn finish_mva(
+        &mut self,
+        tables: Vec<Table>,
+        warnings: Vec<String>,
+        files: Vec<(String, Dataset)>,
+    ) -> Result<Vec<Table>, Error> {
         for warning in warnings {
             self.warn(warning);
         }
@@ -1417,7 +1445,7 @@ fn case_patterns(
         .filter(|&c| !only_missing || missing_of(c) > 0)
         .collect();
     if only_missing {
-        cases.sort_by_key(|&c| pattern_key(columns, &order, c));
+        cases.sort_by_cached_key(|&c| pattern_key(columns, &order, c));
     } else if !sort.is_empty() {
         cases.sort_by(|&a, &b| {
             for (variable, descending) in sort {
@@ -1502,16 +1530,13 @@ fn tabulated(
     let mut header = vec!["Number of Cases".to_string()];
     header.extend(order.iter().map(|&j| columns[j].title.clone()));
     // DESCRIBE: a count per category of a categorical variable, the mean of a quantitative one
-    let mut describers: Vec<(Variable, Option<Vec<Key>>)> = Vec::new();
+    let mut describers: Vec<(Column, Option<Vec<Key>>)> = Vec::new();
     for name in describe {
         let variable = data.variable(name)?;
         let is_categorical = variable.is_string() || categorical.contains(name);
+        let column = read_column(&variable, is_categorical, shown);
         let keys = is_categorical.then(|| {
-            let mut keys: Vec<Key> = read_column(&variable, true, shown)
-                .keys
-                .into_iter()
-                .flatten()
-                .collect();
+            let mut keys: Vec<Key> = column.keys.iter().flatten().cloned().collect();
             keys.sort_by(|a, b| a.compare(b));
             keys.dedup_by(|a, b| a.compare(b).is_eq());
             keys
@@ -1526,12 +1551,8 @@ fn tabulated(
             })),
             None => header.push(format!("{} (Mean)", shown.variable(&variable))),
         }
-        describers.push((variable, keys));
+        describers.push((column, keys));
     }
-    let read: Vec<Column> = describers
-        .iter()
-        .map(|(v, keys)| read_column(v, keys.is_some(), shown))
-        .collect();
     let minimum = options.percent / 100.0 * n as f64;
     let mut rows = Vec::new();
     for (key, cases) in &patterns {
@@ -1544,7 +1565,7 @@ fn tabulated(
             true => text("X"),
             false => Cell::Empty,
         }));
-        for ((_, keys), column) in describers.iter().zip(&read) {
+        for (column, keys) in &describers {
             match keys {
                 Some(keys) => row.extend(keys.iter().map(|k| {
                     count(

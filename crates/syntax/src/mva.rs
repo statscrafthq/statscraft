@@ -339,7 +339,9 @@ fn estimate(p: &mut Parser, em: bool) -> PResult<MvaEstimate> {
 }
 
 pub(crate) fn mva(p: &mut Parser) -> PResult<Command> {
-    if p.eat_keyword("VARIABLES") {
+    // a shortened VARIABLES only before '=', so a variable named VAR stays a variable
+    let keyword = matches!(p.peek_at(1), Some(TokenKind::Punct(Punct::Eq)));
+    if p.eat_word("VARIABLES") || (keyword && p.eat_keyword("VARIABLES")) {
         p.eat(Punct::Eq);
     }
     let variables = list(p)?;

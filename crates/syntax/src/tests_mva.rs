@@ -35,6 +35,9 @@ fn mva_defaults() {
     // VARIABLES= may be left out; ALL takes the whole file
     assert_eq!(mva("MVA age income.").variables, m.variables);
     assert_eq!(mva("MVA ALL.").variables, vec![VarItem::All]);
+    // a variable named var is not the shortened keyword; VAR= is
+    assert_eq!(mva("MVA var age.").variables, names(&["var", "age"]));
+    assert_eq!(mva("MVA VAR=age.").variables, names(&["age"]));
 }
 
 #[test]
