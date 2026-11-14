@@ -1730,6 +1730,21 @@ fn the_scaling_dialogs_write_syntax_that_runs() {
                /MATRIX=IN(alscal_distances).\nDATASET CLOSE alscal_distances.",
             ),
         ),
+        // the matrix names the shoppers, and ALSCAL without VARIABLES takes them all
+        (
+            FRUIT_SCORES,
+            Advanced::Alscal(Alscal {
+                from_data: true,
+                between_cases: true,
+                variables: fruits.clone(),
+                ..Default::default()
+            }),
+            s(
+                "DATASET DECLARE alscal_distances.\nPROXIMITIES apple pear plum cherry grape\n  \
+               /PRINT=NONE\n  /MATRIX=OUT(alscal_distances).\nALSCAL\n  \
+               /MATRIX=IN(alscal_distances).\nDATASET CLOSE alscal_distances.",
+            ),
+        ),
         (
             FRUIT_MATRICES,
             Advanced::Alscal(Alscal {
