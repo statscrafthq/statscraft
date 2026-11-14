@@ -58,6 +58,7 @@ mod pplot;
 mod preprocess;
 mod procedures;
 mod proximities;
+mod proxscal;
 mod rank;
 mod regression;
 mod reliability;
@@ -206,6 +207,10 @@ pub use plum::{Plum, PlumCriteria, PlumLink, PlumPrint, PlumSave};
 pub use pplot::{Pplot, PplotPlot, Roc, TestDistribution};
 pub use preprocess::{FileHandle, MacroState};
 pub use proximities::{Proximities, Standardize};
+pub use proxscal::{
+    ProxShape, ProxTransformation, Proxscal, ProxscalOutfile, ProxscalPlot, ProxscalPrint,
+    ProxscalTable, ScalingModel, ScalingStart,
+};
 pub use regression::{
     Casewise, Criterion, MethodKind, PlotVariable, Regression, RegressionCriteria,
     RegressionDescriptives, RegressionMethod, RegressionMissing, RegressionResiduals,

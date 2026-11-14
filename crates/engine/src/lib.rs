@@ -43,6 +43,7 @@ mod matrix;
 mod matrix_data;
 mod matrix_functions;
 mod matrix_lang;
+mod mds;
 mod means;
 mod merge;
 mod mixed;
@@ -68,6 +69,7 @@ mod portable;
 mod pplot;
 mod print;
 mod proximities;
+mod proxscal;
 mod quick_cluster;
 mod random;
 mod rank;
@@ -685,6 +687,7 @@ impl Engine {
             | Command::Cstabulate(_)
             | Command::CsModel(_)
             | Command::Cluster(_)
+            | Command::Proxscal(_)
             | Command::Discriminant(_)
             | Command::Anova(_)
             | Command::Tree(_)
@@ -930,6 +933,7 @@ impl Engine {
             Command::CsModel(command) => self.cs_model(command),
             Command::Cluster(command) => self.cluster(command),
             Command::Proximities(command) => self.proximities(command),
+            Command::Proxscal(command) => self.proxscal(command),
             Command::Discriminant(command) => self.discriminant(command),
             Command::Anova(command) => self.anova(command),
             Command::Tree(command) => self.tree(command),

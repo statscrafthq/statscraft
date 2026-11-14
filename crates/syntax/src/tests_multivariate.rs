@@ -466,3 +466,67 @@ fn proximities_errors() {
     assert!(err("PROXIMITIES a b /STANDARDIZE=Z /MEASURE=JACCARD.").contains("binary"));
     assert!(err("PROXIMITIES a b /STANDARDIZE=Z RANGE.").contains("one method"));
 }
+
+fn proxscal(source: &str) -> Proxscal {
+    match one(source) {
+        Command::Proxscal(p) => *p,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn proxscal_defaults_and_keywords() {
+    let p = proxscal("PROXSCAL VARIABLES=a TO e.");
+    assert_eq!(p.dimensions, (2, 2));
+    assert_eq!(p.transformation, ProxTransformation::Ratio);
+    assert_eq!(p.initial, ScalingStart::Simplex);
+    assert!(p.print.common && p.print.stress && p.plot.common && p.acceleration);
+    let p = proxscal(
+        "PROXSCAL a b c d /TABLE=r BY c BY s /SHAPE=BOTH /INITIAL=RANDOM(5) /WEIGHTS=w1 TO w4 \
+         /CONDITION=UNCONDITIONAL /TRANSFORMATION=SPLINE DEGREE=3 INKNOT=2 /PROXIMITIES=SIMILARITIES \
+         /MODEL=REDUCED(1) /ACCELERATION=NONE /CRITERIA=DIMENSIONS(1,3) MAXITER(50) DIFFSTRESS(.001) \
+         /PRINT=HISTORY DISTANCES /PLOT=TRANSFORMATIONS(src1 src2) RESIDUALS(ALL) \
+         /OUTFILE=COMMON(space) DISTANCES('d.sav').",
+    );
+    let table = p.table.unwrap();
+    assert_eq!(
+        (table.row.as_deref(), table.source.as_deref()),
+        (Some("r"), Some("s"))
+    );
+    assert_eq!(p.shape, ProxShape::Both);
+    assert_eq!(p.initial, ScalingStart::Random(5));
+    assert!(p.unconditional && p.similarities && !p.acceleration);
+    assert_eq!(
+        p.transformation,
+        ProxTransformation::Spline {
+            degree: 3,
+            inknot: 2
+        }
+    );
+    assert_eq!(p.model, ScalingModel::Reduced(1));
+    assert_eq!((p.dimensions, p.max_iterations), ((1, 3), 50));
+    assert!(p.print.history && p.print.distances && !p.print.common && !p.print.stress);
+    assert_eq!(
+        p.plot.transformations,
+        Some(vec!["src1".to_string(), "src2".to_string()])
+    );
+    assert_eq!(p.plot.residuals, Some(Vec::new()));
+    assert!(!p.plot.common);
+    assert_eq!(p.outfile.common.as_deref(), Some("space"));
+    assert_eq!(p.outfile.distances.as_deref(), Some("d.sav"));
+    assert_eq!(
+        proxscal("PROXSCAL a b c /TRANSFORMATION=ORDINAL(UNTIE)").transformation,
+        ProxTransformation::Ordinal { untie: true }
+    );
+    assert_eq!(proxscal("PROXSCAL /MATRIX=IN(*).").matrix_in, Some(None));
+}
+
+#[test]
+fn proxscal_errors() {
+    assert!(err("PROXSCAL a b c /CRITERIA=DIMENSIONS(3,2).").contains("above"));
+    assert!(err("PROXSCAL a b c /CRITERIA=DIFFSTRESS(2).").contains("from 0 to 1"));
+    assert!(err("PROXSCAL a b c /TRANSFORMATION=SPLINE DEGREE=4.").contains("1 to 3"));
+    assert!(err("PROXSCAL a b c /MODEL=REDUCED(2).").contains("rank"));
+    assert!(err("PROXSCAL a b c /RESTRICTIONS=COORDINATES('f.sav').").contains("not supported"));
+    assert!(err("PROXSCAL /SHAPE=UPPER.").contains("variable list"));
+}

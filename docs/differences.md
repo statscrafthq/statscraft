@@ -650,6 +650,20 @@ Where the documentation is silent:
 - Cases are labeled with their case number, followed by the ID value after a colon. The ID variable in a matrix file keeps its values whole.
 - In a matrix file the order is ROWTYPE_, the ID variable, CASENO_, VARNAME_. Under SPLIT FILE a group with fewer items than another has its missing item variables blank, and the item variables carry no labels.
 
+### PROXSCAL
+
+- Normalized raw stress is reported with the configuration optimally dilated, 1 - rho^2 / (eta^2(dhat) eta^2(d)); Stress-I and Stress-II are the square roots of the manual's ratios, S-Stress is divided by the sum of the fourth powers of the transformed proximities. The decomposition gives every object half of the misfit of each of its pairs, so its rows and its columns both add up to the normalized raw stress.
+- The transformed proximities are normalized to n(n-1)/2 weighted squares per source (per all sources with UNCONDITIONAL), also for the first iteration.
+- With SHAPE=BOTH a pair's weight is the sum of the two triangles' weights. With TABLE a pair given only in the other triangle is used too.
+- INTERVAL and SPLINE shift the proximities so the smallest is 0 before fitting (the intercept absorbs it). SPLINE adds a nonnegative intercept to the monotone spline basis, so it fits at least as well as INTERVAL; the inner knots sit at equally spaced quantiles of the proximities.
+- ACCELERATION doubles the step of the identity model; a doubled step that would raise the stress is replaced by the plain one.
+- The individual differences models restart a smaller dimensionality from the common space's principal axes with identity weights (the weighted model keeps its most important dimensions and their weights).
+- Each dimension of the output is signed so that the first object with a coordinate other than 0 is positive; the weighted model's dimension weights are all positive.
+- RANDOM starts draw from the session's random generator (SET SEED); Random Starts lists each start's stress, not its seed.
+- The output after several dimensionalities gives every table for each, titled with the number of dimensions; the charts and OUTFILE show the smallest.
+- With MATRIX=IN the matrix is scaled as similarities when the file says SIMILARITY or PROXIMITIES=SIMILARITIES is given.
+- The weight of WEIGHT is not used, also with TABLE.
+
 ### DISCRIMINANT
 
 - A group value that is not a whole number counts as out of range.
