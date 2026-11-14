@@ -392,3 +392,26 @@ fn the_reduced_rank_model_never_raises_the_stress() {
     let got = stress(&tables, "Stress and Fit Measures");
     assert!(got.is_finite() && got > 0.00372292249071, "{got}");
 }
+
+#[test]
+fn the_reduced_rank_model_moves_the_common_space_with_few_sources() {
+    let data = stretched(&[(2.0, 1.0), (1.0, 2.0)]);
+    let tables = run(
+        &data,
+        "PROXSCAL p1 TO p7 /MODEL=REDUCED(1) /INITIAL=TORGERSON \
+         /CRITERIA=DIMENSIONS(3) MAXITER(300) DIFFSTRESS(0) MINSTRESS(0) /PRINT=HISTORY STRESS.",
+    );
+    let history: Vec<f64> = table(&tables, "Iteration History")
+        .rows
+        .iter()
+        .map(|r| number(&r[1]))
+        .collect();
+    assert!(
+        history.windows(2).all(|w| w[1] <= w[0] + 1e-12),
+        "{history:?}"
+    );
+    assert!(
+        history.last().unwrap() < &(history[0] - 1e-3),
+        "{history:?}"
+    );
+}

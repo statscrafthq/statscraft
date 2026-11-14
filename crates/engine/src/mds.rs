@@ -670,10 +670,9 @@ pub(crate) fn torgerson(problem: &Problem, dhat: &[Matrix], p: usize) -> Matrix 
         }
     }
     // a pair missing in every source takes the mean of the others
-    let known: Vec<f64> = d2
-        .iter()
-        .flatten()
-        .copied()
+    let known: Vec<f64> = (0..n)
+        .flat_map(|i| (0..n).filter(move |&j| j != i).map(move |j| (i, j)))
+        .map(|(i, j)| d2[i][j])
         .filter(|v| v.is_finite())
         .collect();
     let mean = known.iter().sum::<f64>() / known.len().max(1) as f64;
@@ -883,9 +882,8 @@ fn update_z(
     }
     if same_weights {
         // V Z S = T, so Z = V^- T S^-1
-        let Some((sinv, _)) = inverse(&s) else {
-            return z.clone();
-        };
+        // a dimension no source weighs (the reduced rank model) gets coordinates 0
+        let sinv = inverse(&s).map_or_else(|| pseudo_inverse(&s), |(inv, _)| inv);
         return multiply(&multiply(vinv, &t), &sinv);
     }
     // the whole system (sum A_k A_k' (x) V_k) vec Z = vec T, with the null space added
@@ -914,15 +912,29 @@ fn update_z(
             }
         }
     }
-    let Some((hinv, _)) = inverse(&h) else {
-        return z.clone();
-    };
+    let hinv = inverse(&h).map_or_else(|| pseudo_inverse(&h), |(inv, _)| inv);
     let tv: Vec<f64> = (0..np).map(|r| t[r % n][r / n]).collect();
     let mut out = zeros(n, p);
     for r in 0..np {
         out[r % n][r / n] = hinv[r].iter().zip(&tv).map(|(x, y)| x * y).sum();
     }
     center(&mut out);
+    out
+}
+
+/// The Moore-Penrose inverse of a symmetric matrix that is not of full rank.
+fn pseudo_inverse(a: &Matrix) -> Matrix {
+    let p = a.len();
+    let eigen = symmetric_eigen(a);
+    let top = eigen.first().map_or(0.0, |e| e.0.abs());
+    let mut out = zeros(p, p);
+    for (value, vector) in eigen.iter().filter(|e| e.0.abs() > 1e-12 * top) {
+        for i in 0..p {
+            for j in 0..p {
+                out[i][j] += vector[i] * vector[j] / value;
+            }
+        }
+    }
     out
 }
 

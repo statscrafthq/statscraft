@@ -458,11 +458,19 @@ fn update_weights(
                 cols.iter().zip(beta).for_each(|(&a, b)| out[a] = b);
                 Some(out)
             };
+            if rows.len() < p {
+                // too few pairs to weigh every dimension
+                return old[k].clone();
+            }
             if !negative {
-                // nonnegative least squares
+                // nonnegative least squares; all weights 0 means it could not solve
                 let design: Matrix = rows.iter().map(|r| r.0.clone()).collect();
                 let target: Vec<f64> = rows.iter().map(|r| r.1).collect();
-                return crate::mds::nnls(&design, &target);
+                let w = crate::mds::nnls(&design, &target);
+                return match w.iter().any(|v| *v > 0.0) {
+                    true => w,
+                    false => old[k].clone(),
+                };
             }
             let all: Vec<usize> = (0..p).collect();
             fit(&all).unwrap_or_else(|| old[k].clone())
