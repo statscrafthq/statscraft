@@ -28,6 +28,7 @@ use crate::genlin_dialog::GeneralizedLinear;
 use crate::graph_dialogs::{ChartBuilder, ChartKind, ProbabilityPlot, RocCurve};
 use crate::imputation_dialog::{Imputation, Limits};
 use crate::loglinear_dialog::{GeneralLoglinear, ModelSelection};
+use crate::mca_dialog::{Mca, McaVariable};
 use crate::model_dialogs::{
     Categorical, ClusterMeasure, Discriminant, FactorAnalysis, FactorContrast, Hierarchical,
     KMeans, Logistic, MColumn, RepeatedMeasures, Solutions, Univariate, WithinFactor,
@@ -255,6 +256,10 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             column: table_variable("q6_mention1", "1", "6", &[]),
             ..Default::default()
         })),
+        Dialog::Advanced(Advanced::Mca(Box::new(Mca {
+            variables: v(&["gender", "region"]),
+            ..Default::default()
+        }))),
         Dialog::Advanced(Advanced::Distances(Distances {
             variables: v(&["age", "monthly_spend"]),
             ..Default::default()
@@ -3051,6 +3056,214 @@ fn the_power_dialogs_write_syntax_that_runs() {
         let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
         assert!(warnings.is_empty(), "{syntax}\n{warnings:?}");
     }
+}
+
+/// Invented records of forty members of a community garden: their site, main crop, watering
+/// habit, weekly hours, shift and member number, with a few answers missing.
+fn garden_members() -> String {
+    let mut program = String::from(
+        "DATA LIST LIST /member site crop water hours (5F4.1) shift (A5).\nBEGIN DATA\n",
+    );
+    for i in 1..=40u32 {
+        let site = i % 3 + 1;
+        let crop = match i % 11 {
+            0 => ".".to_string(),
+            k => ((k + site) % 4 + 1).to_string(),
+        };
+        let water = match i % 13 {
+            5 => ".".to_string(),
+            k => ((k * 2 + site) % 3 + 1).to_string(),
+        };
+        let hours = f64::from((i * 7) % 23) / 2.0 + 1.0;
+        let shift = ["dawn", "noon", "dusk"][((i / 2 + site) % 3) as usize];
+        program.push_str(&format!("{i} {site} {crop} {water} {hours} {shift}\n"));
+    }
+    program.push_str("END DATA.\n");
+    program
+}
+
+/// The Multiple Correspondence dialog on invented garden members: the syntax is as expected,
+/// parses and runs without a warning.
+#[test]
+fn the_multiple_correspondence_dialog_writes_syntax_that_runs() {
+    let out = folder("walk-mca");
+    let recoded = out.join("recoded.sav").to_string_lossy().into_owned();
+    let base = Mca {
+        variables: v(&["site", "crop", "water", "hours", "shift"]),
+        ..Default::default()
+    };
+    let setting = |name: &str, change: &dyn Fn(&mut McaVariable)| {
+        let mut s = McaVariable::new(name);
+        change(&mut s);
+        s
+    };
+    let cases: Vec<(Mca, String)> = vec![
+        (
+            base.clone(),
+            "MULTIPLE CORRESPONDENCE VARIABLES=site crop water hours shift\n  \
+             /ANALYSIS=site crop water hours shift."
+                .into(),
+        ),
+        // weights, recoding and missing values per variable
+        (
+            Mca {
+                settings: vec![
+                    setting("site", &|x| x.missing = 1),
+                    setting("crop", &|x| {
+                        x.weight = s("2");
+                        x.missing = 2;
+                    }),
+                    setting("water", &|x| {
+                        x.weight = s("2");
+                        x.missing = 3;
+                    }),
+                    setting("hours", &|x| {
+                        x.discretize = 1;
+                        x.groups = s("4");
+                        x.uniform = true;
+                    }),
+                    setting("shift", &|x| x.discretize = 3),
+                ],
+                ..base.clone()
+            },
+            "MULTIPLE CORRESPONDENCE VARIABLES=site crop water hours shift\n  \
+             /ANALYSIS=site(WEIGHT=1) crop water(WEIGHT=2) hours shift\n  \
+             /DISCRETIZATION=hours(GROUPING NCAT=4 DISTR=UNIFORM) shift(RANKING)\n  \
+             /MISSING=site(PASSIVE EXTRACAT) crop(ACTIVE MODEIMPU) water(ACTIVE EXTRACAT)."
+                .into(),
+        ),
+        (
+            Mca {
+                settings: vec![
+                    setting("crop", &|x| x.missing = 4),
+                    setting("water", &|x| x.missing = 5),
+                    setting("hours", &|x| {
+                        x.discretize = 2;
+                        x.width = s("2.5");
+                    }),
+                    setting("shift", &|x| x.discretize = 4),
+                ],
+                ..base.clone()
+            },
+            "MULTIPLE CORRESPONDENCE VARIABLES=site crop water hours shift\n  \
+             /ANALYSIS=site crop water hours shift\n  \
+             /DISCRETIZATION=hours(GROUPING EQINTV=2.5) shift(MULTIPLYING)\n  \
+             /MISSING=crop(ACTIVE RANDIMPU) water(LISTWISE)."
+                .into(),
+        ),
+        // supplementary cases and a variable, the model and its criteria
+        (
+            Mca {
+                settings: vec![setting("water", &|x| x.supplementary = true)],
+                objects: s("2, 5-7"),
+                dimensions: s("3"),
+                normalization: 2,
+                max_iterations: s("50"),
+                convergence: s("0.0001"),
+                ..base.clone()
+            },
+            "MULTIPLE CORRESPONDENCE VARIABLES=site crop water hours shift\n  \
+             /ANALYSIS=site crop water hours shift\n  \
+             /SUPPLEMENTARY=OBJECT(2 5 TO 7) VARIABLE(water)\n  /DIMENSION=3\n  \
+             /NORMALIZATION=SYMMETRICAL\n  /MAXITER=50\n  /CRITITER=0.0001."
+                .into(),
+        ),
+        (
+            Mca {
+                normalization: 4,
+                q: s("0.5"),
+                ..base.clone()
+            },
+            "MULTIPLE CORRESPONDENCE VARIABLES=site crop water hours shift\n  \
+             /ANALYSIS=site crop water hours shift\n  /NORMALIZATION=0.5."
+                .into(),
+        ),
+        // every table and plot, with lists
+        (
+            Mca {
+                labels: v(&["member"]),
+                dimensions: s("3"),
+                print: [true; 7],
+                descrip: v(&["member", "site"]),
+                quant: v(&["crop", "shift"]),
+                object_label: s("member"),
+                object_shown: v(&["site"]),
+                plots: [true; 7],
+                plot_variables: [
+                    v(&["site"]),
+                    v(&["crop"]),
+                    v(&["site", "water"]),
+                    v(&["hours"]),
+                    v(&["shift"]),
+                    v(&["site", "crop"]),
+                    v(&["water"]),
+                ],
+                biplot_labels: v(&["member"]),
+                plot_dimensions: s("2"),
+                label_length: s("10"),
+                ndim: true,
+                ndim_first: s("1"),
+                ndim_last: s("3"),
+                ..base.clone()
+            },
+            "MULTIPLE CORRESPONDENCE VARIABLES=site crop water hours shift member\n  \
+             /ANALYSIS=site crop water hours shift\n  /DIMENSION=3\n  \
+             /PRINT=CORR DESCRIP(site member) DISCRIM HISTORY OBJECT((member) site) OCORR \
+             QUANT(crop shift)\n  \
+             /PLOT=OBJECT(site)(10) CATEGORY(crop)(10) JOINTCAT(site water)(10) \
+             DISCRIM(hours)(10) BIPLOT((shift))(member)(10) TRANS(site(2) crop(2)) \
+             RESID(water(2))(10) NDIM(1,3)."
+                .into(),
+        ),
+        (
+            Mca {
+                print: [false; 7],
+                plots: [false; 7],
+                ..base.clone()
+            },
+            "MULTIPLE CORRESPONDENCE VARIABLES=site crop water hours shift\n  \
+             /ANALYSIS=site crop water hours shift\n  /PRINT=NONE\n  /PLOT=NONE."
+                .into(),
+        ),
+        // saved variables with roots, and the three outputs to a file and new datasets
+        (
+            Mca {
+                save: [true; 2],
+                save_roots: [s("gq"), s("")],
+                outfile: [1, 2, 2],
+                outfile_files: [recoded.clone(), s(""), s("")],
+                outfile_datasets: [s(""), s("quantified"), s("scores")],
+                ..base.clone()
+            },
+            format!(
+                "DATASET DECLARE quantified.\nDATASET DECLARE scores.\n\
+                 MULTIPLE CORRESPONDENCE VARIABLES=site crop water hours shift\n  \
+                 /ANALYSIS=site crop water hours shift\n  /SAVE=TRDATA(gq) OBJECT\n  \
+                 /OUTFILE=DISCRDATA('{recoded}') TRDATA(quantified) OBJECT(scores)."
+            ),
+        ),
+    ];
+    let program = garden_members();
+    for (dialog, expected) in cases {
+        let mut session = statscraft_engine::session::Session::default();
+        session.run(&program, None).unwrap();
+        let data = session.dataset().unwrap().clone();
+        let syntax = Dialog::Advanced(Advanced::Mca(Box::new(dialog)))
+            .syntax(&data)
+            .unwrap();
+        assert_eq!(syntax, expected);
+        let (_, errors) = statscraft_syntax::parse(&syntax);
+        assert!(errors.is_empty(), "{syntax}\n{errors:?}");
+        let result = session.run(&syntax, None).unwrap();
+        assert!(
+            result.commands.iter().any(|c| !c.tables.is_empty()),
+            "{syntax}"
+        );
+        let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
+        assert!(warnings.is_empty(), "{syntax}\n{warnings:?}");
+    }
+    assert!(Path::new(&recoded).exists());
+    std::fs::remove_dir_all(out).unwrap();
 }
 
 /// A folder of its own for the files a test writes.
