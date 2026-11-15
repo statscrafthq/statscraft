@@ -32,6 +32,7 @@ use crate::model_dialogs::{
 };
 use crate::mva_dialog::{Estimation, MissingValueAnalysis};
 use crate::proximities_dialog::Distances;
+use crate::reports_dialog::{Codebook, Summarize};
 use crate::stats_dialogs::{Block, NparKind, NparTests, PartialCorr, Regression, Reliability};
 use crate::survival_dialog::{KaplanMeier, LifeTables};
 use std::path::Path;
@@ -288,6 +289,14 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             dataset: s("imputed"),
             ..Default::default()
         }))),
+        Dialog::Advanced(Advanced::Summarize(Box::new(Summarize {
+            means: Means {
+                dependents: v(&["age"]),
+                ..Default::default()
+            },
+            ..Default::default()
+        }))),
+        Dialog::Advanced(Advanced::Codebook(Codebook::default())),
         // the plan before the analyses that read it
         Dialog::Advanced(Advanced::Plan(SamplePlan {
             path: plan.clone(),
@@ -2201,6 +2210,123 @@ fn the_imputation_dialogs_write_syntax_that_runs() {
     assert!(Path::new(&imputed).exists());
     assert!(Path::new(&history).exists());
     std::fs::remove_dir_all(out).unwrap();
+}
+
+/// Case Summaries and Codebook on the survey file with a set of mentions: the syntax is as
+/// expected, parses and runs without a warning.
+#[test]
+fn the_report_dialogs_write_syntax_that_runs() {
+    let spend = Means {
+        dependents: v(&["monthly_spend", "q2_recommend"]),
+        ..Default::default()
+    };
+    let mut cells = [false; 21];
+    // count, mean, median and maximum
+    for i in [0, 1, 3, 8] {
+        cells[i] = true;
+    }
+    let mut varinfo = [true; 10];
+    varinfo[0] = false;
+    varinfo[5] = false;
+    let mut fileinfo = [false; 8];
+    fileinfo[2] = true;
+    fileinfo[6] = true;
+    let cases: Vec<(Advanced, &str)> = vec![
+        (
+            Advanced::Summarize(Box::new(Summarize {
+                means: spend.clone(),
+                ..Default::default()
+            })),
+            "SUMMARIZE TABLES=monthly_spend q2_recommend.",
+        ),
+        // grouped, the cases listed, and every option changed
+        (
+            Advanced::Summarize(Box::new(Summarize {
+                means: Means {
+                    layers: vec![v(&["region"]), v(&["gender"])],
+                    cells,
+                    anova: true,
+                    linearity: true,
+                    ..spend.clone()
+                },
+                list: true,
+                limit: s("60"),
+                case_numbers: false,
+                total_label: false,
+                missing_text: s("n/a"),
+                title: s("Spend by region"),
+                footnote: s("Invented survey\\nsecond line"),
+                ..Default::default()
+            })),
+            "SUMMARIZE TABLES=monthly_spend q2_recommend BY region BY gender\n  \
+             /CELLS=MEAN COUNT MEDIAN MAX\n  /STATISTICS=LINEARITY\n  \
+             /FORMAT=LIST LIMIT=60 NOCASENUM MISSING='n/a' NOTOTAL\n  \
+             /TITLE='Spend by region'\n  /FOOTNOTE='Invented survey\\nsecond line'.",
+        ),
+        // listed with case numbers, only valid cases, ANOVA alone
+        (
+            Advanced::Summarize(Box::new(Summarize {
+                means: Means {
+                    layers: vec![v(&["plan"])],
+                    anova: true,
+                    ..spend.clone()
+                },
+                list: true,
+                valid_only: true,
+                tablewise: true,
+                ..Default::default()
+            })),
+            "SUMMARIZE TABLES=monthly_spend q2_recommend BY plan\n  /STATISTICS=ANOVA\n  \
+             /FORMAT=VALIDLIST\n  /MISSING=TABLE.",
+        ),
+        (Advanced::Codebook(Codebook::default()), "CODEBOOK."),
+        (
+            Advanced::Codebook(Codebook {
+                variables: v(&["region", "$mentions", "age", "plan"]),
+                varinfo,
+                fileinfo,
+                statistics: [true, false, true, false, true],
+                maxcats: s("4"),
+                order: 3,
+                descending: true,
+                ..Default::default()
+            }),
+            "CODEBOOK region $mentions age plan\n  \
+             /VARINFO=LABEL TYPE FORMAT MEASURE ATTRIBUTES VALUELABELS MISSING RESERVEDATTRIBUTES\n  \
+             /FILEINFO=CASECOUNT WEIGHT\n  /STATISTICS=COUNT MEAN QUARTILES\n  \
+             /OPTIONS MAXCATS=4 VARORDER=MEASURE SORT=DESCENDING.",
+        ),
+        (
+            Advanced::Codebook(Codebook {
+                variables: v(&["$mentions", "gender"]),
+                statistics: [false; 5],
+                order: 2,
+                ..Default::default()
+            }),
+            "CODEBOOK $mentions gender\n  /STATISTICS=NONE\n  /OPTIONS VARORDER=ALPHA.",
+        ),
+    ];
+    for (dialog, expected) in cases {
+        let mut session = open("survey_basic.sav");
+        session
+            .run(
+                "MRSETS /MCGROUP NAME=$mentions VARIABLES=q6_mention1 q6_mention2 q6_mention3.",
+                None,
+            )
+            .unwrap();
+        let data = session.dataset().unwrap().clone();
+        let syntax = Dialog::Advanced(dialog).syntax(&data).unwrap();
+        assert_eq!(syntax, expected);
+        let (_, errors) = statscraft_syntax::parse(&syntax);
+        assert!(errors.is_empty(), "{syntax}\n{errors:?}");
+        let result = session.run(&syntax, None).unwrap();
+        assert!(
+            result.commands.iter().any(|c| !c.tables.is_empty()),
+            "{syntax}"
+        );
+        let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
+        assert!(warnings.is_empty(), "{syntax}\n{warnings:?}");
+    }
 }
 
 /// A folder of its own for the files a test writes.

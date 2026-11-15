@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Window: Analyze > Reports > Codebook and Case Summaries write CODEBOOK and SUMMARIZE: variables and multiple response sets with the parts of their entries, a file table, the statistics, the most values and the order; and the Means variables, layers, cells and analysis of variance with a case listing, totals, a title and a footnote. See [the window](docs/window.md#analyze).
 - SUMMARIZE: the MEANS cell statistics of several dependents side by side within nested groups of control variables, with totals, optional case listings (LIST, VALIDLIST, LIMIT, case numbers, a text for system-missing values), MISSING=VARIABLE or TABLE with EXCLUDE, INCLUDE or DEPENDENT, TITLE and FOOTNOTE, and ANOVA and LINEARITY as in MEANS. See [SUMMARIZE](docs/commands/summarize.md).
 - CODEBOOK: one table per variable and multiple response set with its dictionary entry (position, label, type, format, level, role, missing values, custom and reserved attributes) and its counts and percents (scale variables: the mean, the standard deviation and the 25th, 50th and 75th percentiles); levels in brackets, FILEINFO about the data file, MAXCATS, and VARORDER by file, name, list, level or a custom attribute. See [CODEBOOK](docs/commands/codebook.md).
 - Window: Edit > Settings > Grids and output chooses the output for multiply imputed data (original data, each imputation, pooled, diagnostics), runs SET MIOUTPUT and keeps the choice for the next start. See [the window](docs/window.md).
