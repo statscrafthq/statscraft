@@ -132,6 +132,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "ALSCAL",
             "DISCRIMINANT",
             "CORRESPONDENCE",
+            "MULTIPLE CORRESPONDENCE",
             "LOGISTIC REGRESSION",
             "NOMREG",
             "MVA",

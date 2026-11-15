@@ -57,6 +57,7 @@ mod mixed;
 mod model_terms;
 mod mrsets;
 mod mult_response;
+mod multiple_correspondence;
 mod multiple_imputation;
 mod mva;
 mod nomreg;
@@ -758,6 +759,7 @@ impl Engine {
             | Command::Wls(_)
             | Command::Plum(_)
             | Command::Correspondence(_)
+            | Command::MultipleCorrespondence(_)
             | Command::Genlin(_)
             | Command::Pplot(_)
             | Command::Roc(_)
@@ -1031,6 +1033,7 @@ impl Engine {
             Command::MultipleImputation(command) => self.multiple_imputation(command),
             Command::Plum(command) => self.plum(command),
             Command::Correspondence(command) => self.correspondence(command),
+            Command::MultipleCorrespondence(command) => self.multiple_correspondence(command),
             Command::Genlin(command) => self.genlin(command),
             Command::Pplot(command) => self.pplot(command),
             Command::Roc(command) => self.roc(command),

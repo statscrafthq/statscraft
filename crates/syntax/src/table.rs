@@ -33,6 +33,7 @@ use crate::matrix_data;
 use crate::mixed;
 use crate::mrsets;
 use crate::mult_response;
+use crate::multiple_correspondence;
 use crate::multiple_imputation;
 use crate::mva;
 use crate::nomreg;
@@ -2200,6 +2201,75 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  dimension (DIMNMBR_).",
         example: "CORRESPONDENCE TABLE=district(1,5) BY transport(1,4) /SUPPLEMENTARY=district(5) /PRINT=DEFAULT RPROFILES RCONF /PLOT=BIPLOT.",
         parse: correspondence::correspondence,
+    },
+    CommandSpec {
+        name: "MULTIPLE CORRESPONDENCE",
+        summary: "Multiple correspondence (homogeneity) analysis: cases and categories of several nominal variables as points in a few dimensions.",
+        syntax: "MULTIPLE CORRESPONDENCE [/VARIABLES=] varlist\n\
+                 \x20  /ANALYSIS=varlist [(WEIGHT=n)] [varlist [(WEIGHT=n)] ...]\n\
+                 \x20  [/DISCRETIZATION=[varlist [([GROUPING] [NCAT=7 | n] [DISTR=NORMAL | UNIFORM] | [EQINTV=width]\n\
+                 \x20                              | RANKING | MULTIPLYING)] ...]]\n\
+                 \x20  [/MISSING=[varlist | ALL [([PASSIVE] [MODEIMPU | EXTRACAT] | ACTIVE [MODEIMPU | EXTRACAT | RANDIMPU]\n\
+                 \x20                              | LISTWISE)] ...]]\n\
+                 \x20  [/SUPPLEMENTARY=[OBJECT(case numbers)] [VARIABLE(varlist)]]\n\
+                 \x20  [/CONFIGURATION=[INITIAL | FIXED]('file' | dataset)] [/DIMENSION=2 | n]\n\
+                 \x20  [/NORMALIZATION=VPRINCIPAL | OPRINCIPAL | SYMMETRICAL | INDEPENDENT | q]\n\
+                 \x20  [/MAXITER=100 | n] [/CRITITER=.00001 | value]\n\
+                 \x20  [/PRINT=[CORR] [DESCRIP[(varlist)]] [DISCRIM] [HISTORY] [OBJECT[([(labelvar)] varlist)]] [OCORR]\n\
+                 \x20         [QUANT[(varlist)]] [NONE]]\n\
+                 \x20  [/PLOT=[OBJECT[(varlist)][(len)]] [CATEGORY(varlist)[(len)]] [JOINTCAT[(varlist)][(len)]]\n\
+                 \x20        [DISCRIM[(varlist)][(len)]] [BIPLOT[((varlist))][(varlist)][(len)]] [TRANS(var[(n)] ...)]\n\
+                 \x20        [RESID(var[(n)] ...)[(len)]] [NDIM(first, last)] [NONE]]\n\
+                 \x20  [/SAVE=[TRDATA[(root[(n)])]] [OBJECT[(root[(n)])]]]\n\
+                 \x20  [/OUTFILE=[DISCRDATA('file' | dataset)] [TRDATA('file' | dataset)] [OBJECT('file' | dataset)]].\n\
+                 Each analysis variable holds categories coded 1, 2, 3 and so on; a code below 1, a system-missing\n\
+                 and a user-missing value are missing. String values are coded in sorted order, and a numeric\n\
+                 variable with fractions is cut into 7 groups (fewer if it has fewer values) shaped like a normal\n\
+                 curve. DISCRETIZATION recodes on purpose, without case weights and with codes below 1 still\n\
+                 valid: GROUPING into NCAT groups, NORMAL by the optimal cut points of a normal curve applied to\n\
+                 z-scores, UNIFORM with counts near n/NCAT, or EQINTV bands of a given width from the smallest\n\
+                 value; RANKING numbers the distinct values; MULTIPLYING rounds 10 times the z-score and shifts\n\
+                 the lowest to 1. The analysis places each case (object) and each category in a few dimensions\n\
+                 so that a category is the weighted mean of its objects and objects lie close to their own\n\
+                 categories; the WEIGHT on ANALYSIS gives a variable more say, and WEIGHT cases count by their\n\
+                 weight. MISSING PASSIVE (the default) leaves the variable out for that object; its MODEIMPU or\n\
+                 EXTRACAT only fills the correlation tables. ACTIVE fills the value before the fit with the\n\
+                 weighted mode (smallest code on ties), an extra category or a random category drawn by\n\
+                 frequency from the session's generator. LISTWISE drops the case. A case without any active\n\
+                 value becomes supplementary. Supplementary objects and variables are placed after the fit.\n\
+                 CONFIGURATION INITIAL starts the iterations from the coordinates in a file (one variable per\n\
+                 dimension, one case per case of the data); FIXED keeps those coordinates, standardized and made\n\
+                 uncorrelated, and fits every analysis variable as supplementary. Without a file the start is the\n\
+                 exact solution of the eigenproblem, so the iterations only confirm it (with more than 600\n\
+                 categories in all, a fixed pseudo-random start instead). DIMENSION is lowered with a warning to\n\
+                 what the data allow. The fit stops after MAXITER iterations or when it gains less than CRITITER.\n\
+                 NORMALIZATION q gives the object scores the power (1 + q)/2 of each singular value (the root of\n\
+                 the inertia) and the categories the power (1 - q)/2, both measured from the variable principal\n\
+                 solution: VPRINCIPAL -1 (objects standard, categories at their centroids), OPRINCIPAL 1,\n\
+                 SYMMETRICAL 0, INDEPENDENT both principal. In every dimension the object with the largest\n\
+                 absolute score is positive. SPLIT FILE does not apply.\n\
+                 Tables: Case Processing Summary, Iteration History (the last step, or every step with HISTORY:\n\
+                 variance accounted for, its increase and the loss) and Model Summary (Cronbach's alpha,\n\
+                 eigenvalue, inertia and percent of variance per dimension, the total and the mean) always;\n\
+                 DESCRIP the frequencies, missing count and mode of each variable; DISCRIM the discrimination\n\
+                 measures with the active total; CORR the correlations of the quantified variables in each\n\
+                 dimension and OCORR of the codes, each with the eigenvalues of the active part; QUANT per\n\
+                 variable the centroids, mass, inertia and both kinds of contributions; OBJECT the object scores\n\
+                 (optionally labelled by a variable and with codes of others beside them) and the object\n\
+                 contributions. Without PRINT, or with PRINT alone: DESCRIP DISCRIM CORR.\n\
+                 Charts (OBJECT and DISCRIM by default): objects, colored by the categories of each named\n\
+                 variable; category points of each variable; all categories together (JOINTCAT); the\n\
+                 discrimination measures; objects with centroids (BIPLOT, not with INDEPENDENT); quantification\n\
+                 by code (TRANS) and quantified value against object score (RESID) for the first n dimensions.\n\
+                 Two dimensions give one scatter, more a scatterplot matrix, NDIM(a, b) one scatter of a against\n\
+                 each of a+1 to b. A label length of 0 shows values and names instead of labels.\n\
+                 SAVE adds the quantified variables rootK_D_S (TRA by default, K the place on ANALYSIS, D the\n\
+                 dimension, S the first free set number) and the object scores rootD_S (OBSCO), both as the\n\
+                 normalization says; excluded cases and passive missing values are system-missing. OUTFILE\n\
+                 writes the discretized codes (DISCRDATA, under the variables' names), the quantified variables\n\
+                 TRAK_D and the object scores OBSCOD.",
+        example: "MULTIPLE CORRESPONDENCE pet garden commute /ANALYSIS=pet garden(WEIGHT=2) commute /DISCRETIZATION=commute(GROUPING NCAT=4) /MISSING=garden(ACTIVE EXTRACAT) /PRINT=DISCRIM QUANT OBJECT((household)) /PLOT=JOINTCAT /SAVE=OBJECT.",
+        parse: multiple_correspondence::multiple_correspondence,
     },
     CommandSpec {
         name: "GENLIN",

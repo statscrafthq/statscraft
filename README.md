@@ -56,6 +56,7 @@ The [command pages](docs/commands/README.md) list every supported command. In sh
   - factor analysis (FACTOR) and k-means clustering (QUICK CLUSTER);
   - discriminant analysis (DISCRIMINANT, direct and stepwise, with classification);
   - hierarchical clustering (CLUSTER, 37 proximity measures and seven methods);
+  - multiple correspondence analysis of categorical variables (MULTIPLE CORRESPONDENCE);
   - classification trees (TREE), below.
 - **Classification trees.** TREE grows a classification tree for a nominal or ordinal dependent by CHAID or exhaustive CHAID. Predictor categories are merged by significance, splits are Bonferroni-adjusted, scale predictors are cut into groups of equal size, and missing values form a floating category, with the usual growth limits. It shows the tree as a table, the model summary, risk, classification and gain tables, and saves the node, the predicted category and the predicted probabilities. CRT and QUEST are not supported yet.
 - **Custom tables.** CTABLES with multiple response sets and significance tests, and MULT RESPONSE.
