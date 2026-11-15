@@ -149,6 +149,9 @@ mod tests_restructure;
 mod tests_session;
 #[cfg(test)]
 mod tests_survival;
+#[cfg(test)]
+mod tests_timeseries;
+mod timeseries;
 mod tree;
 
 pub use agreement::{FleissKappa, KappaTabulation, WeightedKappa};
@@ -281,6 +284,10 @@ pub use survival::{
 };
 pub use table::{
     CommandSpec, command_name, command_names, command_specs, help, unsupported_commands,
+};
+pub use timeseries::{
+    Correlogram, CorrelogramKind, CreateEquation, NewVar, Season, SeriesFunction, TimeSettings,
+    TsetItem, TsetPrint,
 };
 
 use parser::Parser;

@@ -106,6 +106,7 @@ mod split;
 mod star_join;
 mod stata;
 mod summarize;
+mod timeseries;
 mod transform;
 mod tree;
 mod ttest;
@@ -394,6 +395,10 @@ pub struct Engine {
     pool_items: Option<Vec<pooling::PoolItem>>,
     /// The specifications of the last PPLOT, for PPLOT APPLY.
     pplot_model: Option<Box<statscraft_syntax::Pplot>>,
+    /// TSET: the settings of the time series procedures.
+    tset: statscraft_syntax::TimeSettings,
+    /// The last ACF, PACF, CCF and SEASON, for APPLY.
+    ts_models: timeseries::Models,
 }
 
 impl Engine {
@@ -734,6 +739,18 @@ impl Engine {
                     }
                 }
             }
+            Command::Tset(items) => self.tset_command(items),
+            Command::Tshow => return Ok(self.tshow()),
+            Command::Create(equations) => return self.create(equations),
+            Command::Correlogram(spec) => {
+                let spec = self.correlogram_spec(spec)?;
+                return self.procedure(&Command::Correlogram(Box::new(spec)));
+            }
+            Command::Season(spec) => {
+                let spec = Command::Season(Box::new(self.season_spec(spec)?));
+                return self.with_current_names(&spec);
+            }
+            Command::Curvefit(_) | Command::Wls(_) => return self.with_current_names(command),
             Command::Frequencies(_)
             | Command::Descriptives(_)
             | Command::Crosstabs(_)
@@ -761,8 +778,6 @@ impl Engine {
             | Command::Hiloglinear(_)
             | Command::Genlog(_)
             | Command::Probit(_)
-            | Command::Curvefit(_)
-            | Command::Wls(_)
             | Command::Plum(_)
             | Command::Correspondence(_)
             | Command::MultipleCorrespondence(_)
@@ -1038,6 +1053,8 @@ impl Engine {
             Command::Probit(command) => self.probit(command),
             Command::Curvefit(command) => self.curvefit(command),
             Command::Wls(command) => self.wls(command),
+            Command::Correlogram(command) => self.correlogram(command),
+            Command::Season(command) => self.season(command),
             Command::MultipleImputation(command) => self.multiple_imputation(command),
             Command::Plum(command) => self.plum(command),
             Command::Correspondence(command) => self.correspondence(command),
@@ -1072,6 +1089,22 @@ impl Engine {
             *format = self.currency_format(format);
         }
         Ok(tables)
+    }
+
+    /// A procedure that saves variables under TSET NEWVAR: under CURRENT the variables of the
+    /// names it will use are dropped first; all comes back when it fails.
+    fn with_current_names(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
+        self.begin_pass()?;
+        let names = self.current_names(command)?;
+        let before = self.dataset.clone();
+        let temporary = self.in_temporary();
+        self.replace_current(&names)?;
+        let result = self.procedure(command);
+        // after TEMPORARY the procedure already went back to the dataset before it
+        if result.is_err() && !temporary {
+            self.dataset = before;
+        }
+        result
     }
 
     fn not_temporary(&self, command: &str) -> Result<(), Error> {

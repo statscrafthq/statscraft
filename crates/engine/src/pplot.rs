@@ -207,7 +207,7 @@ fn series(engine: &Engine, name: &str, spec: &Spec) -> Result<(Vec<Option<f64>>,
     let mut out: Vec<Option<f64>> = (0..data.case_count())
         .map(|c| {
             let v = values.get(c)?;
-            if variable.is_user_missing(v) {
+            if !engine.tset.include && variable.is_user_missing(v) {
                 user += 1.0;
                 return None;
             }
@@ -314,8 +314,10 @@ impl Engine {
 
     pub(crate) fn pplot(&mut self, command: &Pplot) -> Result<Vec<Table>, Error> {
         let mut spec = self.pplot_spec(command)?;
+        // without PERIOD: TSET PERIOD, then the period of the DATE variables
+        spec.period = self.ts_period(spec.period).map(|p| p as u32);
         if spec.sdiff > 0 && spec.period.is_none() {
-            self.warn("PPLOT: SDIFF needs PERIOD, as no periodicity is set; seasonal differencing is left out");
+            self.warn("PPLOT: SDIFF needs a period (PERIOD, TSET PERIOD or DATE), and none is set; seasonal differencing is left out");
             spec.sdiff = 0;
         }
         let shown = self.shown();

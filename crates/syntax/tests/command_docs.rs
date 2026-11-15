@@ -176,6 +176,10 @@ const AREAS: &[(&str, &[&str])] = &[
             "MATRIX",
         ],
     ),
+    (
+        "Time series",
+        &["TSET", "TSHOW", "CREATE", "ACF", "PACF", "CCF", "SEASON"],
+    ),
     ("Custom tables", &["CTABLES", "MRSETS"]),
     (
         "Complex samples",

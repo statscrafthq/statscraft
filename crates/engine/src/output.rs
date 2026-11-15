@@ -79,6 +79,9 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Probit(_)
         | Command::Curvefit(_)
         | Command::Wls(_)
+        | Command::Correlogram(_)
+        | Command::Season(_)
+        | Command::Create(_)
         | Command::MultipleImputation(_)
         | Command::Km(_)
         | Command::Survival(_)
@@ -136,7 +139,9 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Finish
         | Command::ClearTransformations
         | Command::TimeProgram
-        | Command::ClearTimeProgram => Stage::Neutral,
+        | Command::ClearTimeProgram
+        | Command::Tset(_)
+        | Command::Tshow => Stage::Neutral,
         _ => Stage::Change,
     }
 }

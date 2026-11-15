@@ -97,8 +97,8 @@ fn curvefit_models_and_options() {
     let c = curvefit("CURVEFIT VARIABLES=visits.");
     assert_eq!(c.models, vec![CurveModel::Linear]);
     assert_eq!(c.independent, None);
-    assert!(c.constant && c.plot && !c.anova);
-    assert_eq!(c.cin, 95.0);
+    assert!(c.constant.is_none() && c.plot && !c.anova);
+    assert_eq!(c.cin, None);
     let c = curvefit(
         "CURVEFIT visits sales WITH week /MODEL=LGS QUA S EXPONENTIAL /MODEL=CUB lin S LGSTIC \
          /UPPER=500 /NOCONSTANT /CIN=90 /PLOT=NONE /ID=shop /PRINT=ANOVA /SAVE=PRED CIN \
@@ -116,8 +116,8 @@ fn curvefit_models_and_options() {
             CurveModel::Logistic
         ]
     );
-    assert_eq!((c.upper_bound, c.cin), (Some(500.0), 90.0));
-    assert!(!c.constant && !c.plot && c.anova && c.template);
+    assert_eq!((c.upper_bound, c.cin), (Some(500.0), Some(90.0)));
+    assert!(c.constant == Some(false) && !c.plot && c.anova && c.template);
     assert_eq!(c.id.as_deref(), Some("shop"));
     assert!(c.save_pred && !c.save_resid && c.save_cin);
     let c = curvefit("CURVEFIT /MODEL=ALL /VARIABLES=y /UPPERBOUND=NO.");
@@ -142,14 +142,16 @@ fn wls_powers_and_options() {
     let c = wls("WLS rent WITH area rooms.");
     assert_eq!(c.dependent, "rent");
     assert_eq!(c.independents.len(), 2);
-    assert!(c.deltas.is_empty() && c.source.is_none() && c.constant && !c.print_all);
+    assert!(
+        c.deltas.is_empty() && c.source.is_none() && c.constant.is_none() && c.print_all.is_none()
+    );
     let c = wls(
         "WLS VARIABLES=rent WITH area /SOURCE=rooms /POWER=0 TO 1 BY 0.5 /DELTA=2 BY 1 TO 4, -1 \
          /NOCONSTANT /PRINT=ALL /SAVE=WEIGHT.",
     );
     assert_eq!(c.source.as_deref(), Some("rooms"));
     assert_eq!(c.deltas, vec![0.0, 0.5, 1.0, 2.0, 3.0, 4.0, -1.0]);
-    assert!(!c.constant && c.print_all && c.save_weight);
+    assert!(c.constant == Some(false) && c.print_all == Some(true) && c.save_weight);
     let c = wls("WLS rent WITH area /WEIGHT=w.");
     assert_eq!(c.weight.as_deref(), Some("w"));
 }

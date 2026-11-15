@@ -171,6 +171,15 @@ impl Engine {
         Ok(self.active_mut()?.select_cases(keep)?)
     }
 
+    /// The cases of every split group the filter keeps, in order; one group of all cases when
+    /// nothing splits or filters.
+    pub(crate) fn case_groups(&self) -> Result<Vec<Vec<usize>>, Error> {
+        Ok(match self.groups(true)? {
+            Some(groups) => groups.into_iter().map(|g| g.cases).collect(),
+            None => vec![(0..self.active()?.case_count()).collect()],
+        })
+    }
+
     /// The split groups of the cases the filter keeps; None when every case is used as it is.
     fn groups(&self, use_split: bool) -> Result<Option<Vec<Group>>, Error> {
         let data = self.active()?;

@@ -295,6 +295,18 @@ impl Engine {
         let data = self.active()?;
         let shown = self.shown();
         let independents = self.expand(&command.independents)?;
+        let constant = command.constant.unwrap_or(self.tset.constant);
+        let print_all = command
+            .print_all
+            .unwrap_or(self.tset.print == statscraft_syntax::TsetPrint::Detailed);
+        // TSET PRINT=BRIEF: only the statistics of the best power
+        let brief =
+            command.print_all.is_none() && self.tset.print == statscraft_syntax::TsetPrint::Brief;
+        // without SAVE, TSET NEWVAR decides: WGT_1 (CURRENT), the next free WGT_n (ALL) or none
+        let newvar = self.tset.newvar;
+        let save_weight = command.save_weight || newvar != statscraft_syntax::NewVar::None;
+        let numbered_from_one =
+            !command.save_weight && newvar == statscraft_syntax::NewVar::Current;
         let mut warnings = Vec::new();
         let source = match (&command.weight, &command.source) {
             (Some(_), _) => None,
@@ -364,7 +376,7 @@ impl Engine {
             .map(|&k| case_w.as_ref().map_or(1.0, |w| w[k]))
             .collect();
         let base: Vec<f64> = cases.iter().map(|&k| weight_values[k]).collect();
-        let parameters = xs.len() + usize::from(command.constant);
+        let parameters = xs.len() + usize::from(constant);
         if c.iter().sum::<f64>() <= parameters as f64 {
             return Err(Error(format!(
                 "WLS needs more cases than its {parameters} coefficients"
@@ -377,7 +389,7 @@ impl Engine {
             }
         };
         let fit = |power: f64| -> Result<LeastSquares, Error> {
-            least_squares(&x, &yv, &c, &weights_for(power), command.constant).ok_or_else(|| {
+            least_squares(&x, &yv, &c, &weights_for(power), constant).ok_or_else(|| {
                 Error(
                     "WLS cannot fit the model: a variable is constant or the independents are linearly dependent"
                         .into(),
@@ -403,17 +415,19 @@ impl Engine {
                 .map(|(power, _, ll)| vec![Cell::Number(*power), number(Some(*ll))])
                 .collect();
             let source_text = shown.named(data, weight_name);
-            tables.push(table(
-                "Log-Likelihood Values",
-                1,
-                plain(&["Power", "Log-likelihood"]),
-                rows,
-                Some(format!(
-                    "Source variable: {source_text}. The power {} gives the largest log-likelihood; the tables below use it.",
-                    values[best].0
-                )),
-            ));
-            if command.print_all {
+            if !brief {
+                tables.push(table(
+                    "Log-Likelihood Values",
+                    1,
+                    plain(&["Power", "Log-likelihood"]),
+                    rows,
+                    Some(format!(
+                        "Source variable: {source_text}. The power {} gives the largest log-likelihood; the tables below use it.",
+                        values[best].0
+                    )),
+                ));
+            }
+            if print_all {
                 for (power, ls, _) in &values {
                     tables.push(coefficients_table(
                         ls,
@@ -444,9 +458,12 @@ impl Engine {
         for warning in warnings {
             self.warn(warning);
         }
-        if command.save_weight {
+        if save_weight {
             match best {
-                None => self.warn("WLS: SAVE=WEIGHT saves nothing when WEIGHT gives the weights"),
+                None if command.save_weight => {
+                    self.warn("WLS: SAVE=WEIGHT saves nothing when WEIGHT gives the weights")
+                }
+                None => {}
                 Some(power) => {
                     let source = weight_name.clone();
                     let dependent = command.dependent.clone();
@@ -456,10 +473,13 @@ impl Engine {
                             .iter()
                             .map(|s| (*s > 0.0).then(|| s.powf(-power)))
                             .collect();
-                        let name = (1..)
-                            .map(|n| format!("WGT_{n}"))
-                            .find(|name| data.variable_index(name).is_none())
-                            .expect("a free name");
+                        let name = match numbered_from_one {
+                            true => "WGT_1".to_string(),
+                            false => (1..)
+                                .map(|n| format!("WGT_{n}"))
+                                .find(|name| data.variable_index(name).is_none())
+                                .expect("a free name"),
+                        };
                         data.set_numeric_values(&name, values)?;
                         data.set_variable_label(
                             &name,

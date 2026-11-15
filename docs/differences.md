@@ -629,7 +629,7 @@ Choices where the documentation says nothing, and where it is not followed:
 
 Choices where the documentation says nothing, and where it is not followed:
 
-- TSET is not supported, so nothing is saved without SAVE (as under TSET NEWVAR=NONE); the CIN subcommand gives the interval level and CONSTANT is the default.
+- Without SAVE, TSET NEWVAR decides: under CURRENT (the default) the four variables of every fitted model are saved as FIT_n, ERR_n, LCL_n and UCL_n with n counting dependents and models from 1 in order, and variables of those names are replaced first. A procedure that would make more than TSET MXNEWVARS variables saves none, with a warning. TSET ID labels the chart points only when the variable exists.
 - A saved number counts up per dependent and model: FIT_1, ERR_1, LCL_1 and UCL_1 for the first model, the next free number for the next. Fits and intervals go to every case with a valid independent (with the case sequence, every case); residuals need the dependent too.
 - The prediction interval is back(v -/+ t s sqrt(1 + h)) with h the leverage including the constant, which is the manual's 1 + h + 1/n with a constant and its 1 + h without. The log models without a constant use 1 + h too (the manual prints 1/n for them in every case).
 - A model whose linear form is undefined for a case of the analysis (a logarithm of a value not above 0, 1/0) is not fitted, with a warning; the other models still are. QUADRATIC and CUBIC are not fitted when a term's tolerance is below 0.0001.
@@ -641,11 +641,26 @@ Choices where the documentation says nothing, and where it is not followed:
 
 Choices where the documentation says nothing, and where it is not followed:
 
-- TSET is not supported, so WGT_n is saved only with SAVE=WEIGHT, under the first free number. Its values cover every case with a source value above 0.
+- Without SAVE, TSET NEWVAR decides: CURRENT (the default) saves WGT_1, replacing a variable of that name, ALL the first free WGT_n. Its values cover every case with a source value above 0. TSET PRINT=BRIEF leaves out the Log-Likelihood Values table, DETAILED adds the coefficients of every power.
 - A case whose source (or WEIGHT variable) is not above 0 is left out of every fit, with a warning, so that all powers fit the same cases.
 - The Standardized Coefficients use the weighted sums of squares about the weighted means (about 0 without a constant), and show their own standard error.
 - The power with the largest log-likelihood is used; the first one on a tie. PRINT=ALL adds a Coefficients table for every power, in the order given.
 - APPLY is not supported yet.
+
+### Time series: TSET, CREATE, ACF, PACF, CCF and SEASON
+
+Choices where the documentation says nothing, and where it is not followed:
+
+- The period of the DATE variables is read from the label of the lowest date variable ("MONTH, period 12"); with BY n it is the period divided by n. TSHOW shows no USE or PREDICT range: USE keeps no range and PREDICT is not supported.
+- TSET MXPREDICT and CNVERGE are kept and shown, but no supported procedure reads them yet. A procedure that would make more than MXNEWVARS variables saves none, with a warning; CREATE names its series itself and is not limited.
+- ACF, PACF, CCF: the highest lag is at most the series length less one. SEASONAL shows the multiples of the period up to the highest lag (MXAUTO is a lag, not a count of seasonal lags). The chart draws the coefficients as a line with limits at two standard errors. A series with fewer than two valid values after the transformation is left out with a warning.
+- The missing-value form of Bartlett's standard error keeps the factor 2 of its complete form; the manual prints it without.
+- CCF with missing values: only the cases where both series are valid count, for the means, the sums of squares and the products; the standard error is 1 / sqrt(m) with m the valid pairs at the lag (n - |k| without missing values).
+- Case weights are not used by ACF, PACF, CCF or SEASON; the Case Processing Summary of the first three says so when a weight is on.
+- APPLY with a model name is not supported; APPLY without one repeats the previous command of the same kind.
+- CREATE: LAG and LEAD with several sources and a range make the series of the first source for every order, then of the next. Near the ends MA and RMED use the largest symmetric span down to the minimum span (an even span shrinks by twos, an odd one keeps odd). FFT gives n/2 cases from where the series starts, the first imaginary value holding minus the cosine term of the highest frequency; an odd series gets a 0 at the end first. IFFT reads such a pair and writes twice as many cases from the same start; there must be room. T4253H needs at least four values. With FILTER on, the cases left out keep their value (system-missing in a new series). New series get an F10 format: the source's decimals for CSUM, DIFF and SDIFF, two more for the smoothers, 4 for FFT and IFFT; LAG and LEAD keep the source's format.
+- SEASON: the seasonal factor of a position is the mean of its seasonal-irregular values without the single largest and smallest one. The multiplicative factors are percentages in the tables and ratios in SAF_n, so that SAS = series / SAF. The multiplicative model needs every value above 0. Under TSET NEWVAR=CURRENT the variables are numbered from 1 per series and replace variables of those names; MA=EQUAL with an even period averages from period/2 cases before a case to period/2 - 1 after it.
+- SPECTRA is not supported yet.
 
 ### UNIANOVA and GLM
 
@@ -955,7 +970,7 @@ All eleven POWER commands are supported: MEANS ONESAMPLE, INDEPENDENT and RELATE
 - The half-normal scale is estimated as the square root of the mean square (maximum likelihood), not of the sum of squares.
 - The exponential parameter and the second gamma parameter are rates (1 / mean and mean / S^2), as the estimates and the CDF functions of transformations take them; the tables call them Rate.
 - Lognormal, Pareto and Weibull estimates take logs, so they need positive values; with parameters given, values of 0 are allowed. Values a distribution cannot take, and a series whose parameters cannot be estimated (one that does not vary), leave the variable out with a warning.
-- SDIFF without PERIOD is left out with a warning: there is no TSET, and DATE keeps no periodicity for it.
+- SDIFF without a period from PERIOD, TSET PERIOD or the DATE variables is left out with a warning.
 - Not supported yet: APPLY of a named model (APPLY alone uses the previous PPLOT) and TEMPLATE, each with an error.
 
 ### ROC

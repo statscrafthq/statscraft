@@ -63,6 +63,7 @@ use crate::session_commands;
 use crate::stats;
 use crate::summarize;
 use crate::survival;
+use crate::timeseries;
 use crate::tree;
 
 /// One supported command: its name, its help text and its parser.
@@ -153,9 +154,10 @@ const PPLOT_SYNTAX: &str = "PPLOT [VARIABLES=] varlist\n\
                  UNIFORM minimum and maximum; HNORMAL scale (location 0). Without them they are estimated\n\
                  from the plotted values (moments; Weibull by least squares on the ranks; Pareto from the\n\
                  minimum and the mean log; half-normal by maximum likelihood) and listed in a table. Each\n\
-                 variable is a series in case order: missing values are left out, LN logs it first (0 and\n\
-                 below become missing), DIFF and SDIFF (over PERIOD cases; without PERIOD SDIFF is left\n\
-                 out) difference it, STANDARDIZE makes z-scores of the result. Ranks of tied values follow\n\
+                 variable is a series in case order: missing values are left out (user-missing ones kept\n\
+                 under TSET MISSING=INCLUDE), LN logs it first (0 and below become missing), DIFF and SDIFF\n\
+                 (over PERIOD cases, else TSET PERIOD, else the DATE period; with none SDIFF is left out)\n\
+                 difference it, STANDARDIZE makes z-scores of the result. Ranks of tied values follow\n\
                  TIES (BREAK numbers the distinct values 1, 2, ...); FRACTION turns rank r of n into a\n\
                  proportion p: BLOM (r-3/8)/(n+1/4), RANKIT (r-1/2)/n, TUKEY (r-1/3)/(n+1/3), VW r/(n+1).\n\
                  Q-Q (the default) plots each value against the distribution's quantile at p, P-P plots p\n\
@@ -2311,13 +2313,18 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  every dependent value above 0 (and below u); their b0 and multiplicative b1 come back from\n\
                  the logarithm, with standard errors scaled the same way. NOCONSTANT drops b0. LINEAR is\n\
                  the default. A case missing on any named variable is left out of every fit; user-missing\n\
-                 values count as missing. Case weights apply only when there is an independent variable.\n\
+                 values count as missing unless TSET MISSING=INCLUDE. Case weights apply only when there is\n\
+                 an independent variable. CIN, CONSTANT or NOCONSTANT and ID default to their TSET settings,\n\
+                 and TSET TOLER is the tolerance QUADRATIC and CUBIC need.\n\
                  Each dependent gets a Model Summary and Parameter Estimates table: R square, F, df and its\n\
                  significance and the estimates of every model. PRINT=ANOVA adds per model the summary, the\n\
                  analysis of variance and the coefficients with t tests. SAVE adds per dependent and model\n\
                  FIT_n (PRED), ERR_n (RESID, in the original units) and LCL_n and UCL_n (CIN: a prediction\n\
                  interval at the CIN level), n the first number free for all of them; fits and intervals\n\
-                 are also given for cases with only the dependent missing. PLOT=FIT (the default) gives a\n\
+                 are also given for cases with only the dependent missing. Without SAVE, TSET NEWVAR\n\
+                 decides: CURRENT (the default) saves all four, numbered from 1 in the order of dependents\n\
+                 and models and replacing variables of those names; ALL saves them under free numbers;\n\
+                 NONE saves none. PLOT=FIT (the default) gives a\n\
                  chart of the observed values with every fitted curve; ID labels its points. Another\n\
                  subcommand given twice keeps the last. APPLY is not supported yet; TEMPLATE is ignored.",
         example: "CURVEFIT VARIABLES=visitors WITH week /MODEL=LINEAR QUADRATIC GROWTH /PRINT=ANOVA /SAVE=PRED CIN.",
@@ -2342,10 +2349,86 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Values table lists it and the power with the largest one is used. For that power (or for\n\
                  the WEIGHT variable) come the Model Summary (R, R square, adjusted R square, standard error\n\
                  and log-likelihood), ANOVA and Coefficients (B, standard error, standardized Beta with its\n\
-                 standard error, t and significance). PRINT=ALL adds the coefficients of every power.\n\
-                 SAVE=WEIGHT keeps the chosen weights as WGT_n. APPLY is not supported yet.",
+                 standard error, t and significance). PRINT=ALL adds the coefficients of every power;\n\
+                 without PRINT, TSET PRINT=DETAILED does the same and BRIEF leaves out the log-likelihoods.\n\
+                 SAVE=WEIGHT keeps the chosen weights as WGT_n, the first free n. Without SAVE, TSET NEWVAR\n\
+                 decides: CURRENT (the default) saves WGT_1, replacing it, ALL the next free WGT_n, NONE\n\
+                 nothing. CONSTANT or NOCONSTANT defaults to TSET. APPLY is not supported yet.",
         example: "WLS rent WITH floor_area rooms /SOURCE=floor_area /POWER=-1 TO 3 BY 0.25 /PRINT=ALL.",
         parse: regression_more::wls,
+    },
+    CommandSpec {
+        name: "ACF",
+        summary: "Autocorrelations of time series, with standard errors, Box-Ljung tests and charts.",
+        syntax: "ACF [VARIABLES=] series [/DIFF=n] [/SDIFF=n] [/PERIOD=n] [/LN | /NOLOG] [/SEASONAL]\n\
+                 \x20   [/MXAUTO=n] [/SERROR=IND | MA] [/PACF] [/APPLY].\n\
+                 Before the correlations each series may be logged (LN; a series with a value not above 0\n\
+                 is skipped), differenced DIFF times (DIFF alone: once) and then differenced over the period\n\
+                 SDIFF times. The period comes from PERIOD (at least 2), else TSET PERIOD, else the DATE\n\
+                 variables; without one SDIFF and SEASONAL are left out with a warning. MXAUTO (else TSET\n\
+                 MXAUTO, else 16) is the highest lag, at most the number of values less one; SEASONAL shows\n\
+                 only the lags that are multiples of the period. A missing value (user-missing too, unless\n\
+                 TSET MISSING=INCLUDE) drops the products it is part of; the mean and the counts use the\n\
+                 valid values. Each series gets a table: autocorrelation r_k, its standard error, and the\n\
+                 Box-Ljung statistic of lags 1 to k with k df and its significance. IND (the default, or\n\
+                 TSET ACFSE) takes the standard error of white noise, sqrt((n - k) / (n (n + 2))); MA takes\n\
+                 Bartlett's sqrt((1 + 2 (r_1^2 + ... + r_(k-1)^2)) / n). PACF adds the partial\n\
+                 autocorrelations, with standard error 1 / sqrt(n). A chart per series shows the\n\
+                 coefficients with limits at two standard errors. APPLY without a name repeats the previous\n\
+                 ACF, with the subcommands given now replacing its own; named models are not supported.\n\
+                 DIFFERENCE is another name for DIFF. Case weights are not used.",
+        example: "ACF VARIABLES=daily_orders /DIFF /MXAUTO=21 /PACF.",
+        parse: timeseries::acf,
+    },
+    CommandSpec {
+        name: "PACF",
+        summary: "Partial autocorrelations of time series, with standard errors and charts.",
+        syntax: "PACF [VARIABLES=] series [/DIFF=n] [/SDIFF=n] [/PERIOD=n] [/LN | /NOLOG] [/SEASONAL]\n\
+                 \x20    [/MXAUTO=n] [/APPLY].\n\
+                 The series are prepared and the lags chosen as for ACF. The partial autocorrelations come\n\
+                 from the autocorrelations by the Durbin-Levinson recursion; each has the standard error\n\
+                 1 / sqrt(n), n the number of valid values. A table and a chart (limits at two standard\n\
+                 errors) per series. APPLY without a name repeats the previous PACF.",
+        example: "PACF river_level /SDIFF /PERIOD=7 /MXAUTO=28.",
+        parse: timeseries::pacf,
+    },
+    CommandSpec {
+        name: "CCF",
+        summary: "Cross-correlations of pairs of time series, with standard errors and charts.",
+        syntax: "CCF [VARIABLES=] series [WITH series] [/DIFF=n] [/SDIFF=n] [/PERIOD=n] [/LN | /NOLOG]\n\
+                 \x20   [/SEASONAL] [/MXCROSS=n] [/APPLY].\n\
+                 Without WITH every series is paired with each one after it; with WITH each series before\n\
+                 it is paired with each one after it. Both series of a pair are prepared as in ACF. At lag\n\
+                 k the correlation is of x at time t with y at time t + k, so a positive lag means the first\n\
+                 series leads; the sums use the cases where both are valid, divided by the root of the\n\
+                 two sums of squares about their means. Lags run from -MXCROSS to MXCROSS (else TSET\n\
+                 MXCROSS, else 7), at most the series length less one. The standard error is\n\
+                 1 / sqrt(m), m the number of valid pairs at that lag. A table and a chart (limits at two\n\
+                 standard errors) per pair. APPLY without a name repeats the previous CCF.",
+        example: "CCF ad_spend WITH weekly_sales /DIFF /MXCROSS=10.",
+        parse: timeseries::ccf,
+    },
+    CommandSpec {
+        name: "SEASON",
+        summary: "Seasonal decomposition by ratios (or differences) to a moving average.",
+        syntax: "SEASON [VARIABLES=] series [/MODEL=MULTIPLICATIVE | ADDITIVE] [/MA=EQUAL | CENTERED]\n\
+                 \x20      [/PERIOD=n] [/APPLY].\n\
+                 The period comes from PERIOD, else TSET PERIOD, else the DATE variables; the series needs\n\
+                 at least four full periods and no missing value. A moving average over one period gives the\n\
+                 trend: for an even period CENTERED (the default) spans period + 1 cases with half weight at\n\
+                 both ends; EQUAL weighs the period cases equally, from period/2 cases before a case to\n\
+                 period/2 - 1 after it. An odd period always uses EQUAL. The multiplicative model divides the series by it (times 100), the\n\
+                 additive one subtracts it. For each position in the period the mean of these values without\n\
+                 the largest and the smallest is the raw factor; the factors are scaled to average 100\n\
+                 (multiplicative) or centered on 0 (additive). The adjusted series SAS is the series divided\n\
+                 by (or less) the factor, the trend-cycle STC a 1-2-3-2-1 weighted average of SAS (3-term\n\
+                 at the second and next-to-last case, extrapolated at the ends) and the irregular part ERR\n\
+                 SAS over (or less) STC. Tables: the model, the cases with every component (left out under\n\
+                 TSET PRINT=BRIEF) and the seasonal factors. TSET NEWVAR saves ERR_n, SAS_n, SAF_n and STC_n\n\
+                 per series; saved multiplicative factors are ratios, so SAS = series / SAF.\n\
+                 APPLY without a name repeats the previous SEASON.",
+        example: "SEASON VARIABLES=heating_kwh /MODEL=ADDITIVE /PERIOD=12.",
+        parse: timeseries::season,
     },
     CommandSpec {
         name: "PLUM",
@@ -4136,6 +4219,65 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  DATE variables are replaced. A table lists the new variables and their labels.",
         example: "DATE Y 1990 M 7.",
         parse: output::date,
+    },
+    CommandSpec {
+        name: "TSET",
+        summary: "Settings shared by the time series procedures.",
+        syntax: "TSET [PRINT=BRIEF | DEFAULT | DETAILED] [NEWVAR=CURRENT | NONE | ALL] [MXAUTO=16]\n\
+                 \x20    [MXCROSS=7] [MXNEWVARS=60] [MXPREDICT=60] [MISSING=EXCLUDE | INCLUDE] [CIN=95]\n\
+                 \x20    [TOLER=0.0001] [CNVERGE=0.001] [ACFSE=IND | MA] [PERIOD=n] [ID=variable]\n\
+                 \x20    [CONSTANT | NOCONSTANT] [DEFAULT].\n\
+                 The values shown are the starting ones. Slashes and equals signs are optional, and DEFAULT\n\
+                 as a value puts that one setting back; DEFAULT alone puts back all of them. A setting holds\n\
+                 for the rest of the session, until TSET changes it; a subcommand of a procedure that does\n\
+                 the same job wins for that procedure. Who reads what: ACF, PACF and CCF take MXAUTO,\n\
+                 MXCROSS, ACFSE, PERIOD and MISSING; SEASON takes PERIOD, PRINT, NEWVAR, MXNEWVARS and\n\
+                 MISSING; PPLOT takes PERIOD and MISSING; CREATE takes PERIOD (for SDIFF) and MISSING;\n\
+                 CURVEFIT takes NEWVAR, MXNEWVARS, CIN, TOLER, CONSTANT, ID and MISSING; WLS takes NEWVAR,\n\
+                 MXNEWVARS, PRINT and CONSTANT. NEWVAR: CURRENT saves the new variables of a procedure\n\
+                 under names numbered from 1, replacing variables of those names; ALL saves them under the\n\
+                 next free numbers; NONE saves nothing unless the procedure's SAVE asks. A procedure that\n\
+                 would make more than MXNEWVARS variables saves none, with a warning. PERIOD wins over the\n\
+                 period that DATE variables give. MXPREDICT and CNVERGE are kept and shown by TSHOW; no\n\
+                 procedure that reads them is supported yet. NEWVARS is taken as NEWVAR.",
+        example: "TSET PERIOD=4 MXAUTO=12 NEWVAR=ALL.",
+        parse: timeseries::tset,
+    },
+    CommandSpec {
+        name: "TSHOW",
+        summary: "List the time series settings.",
+        syntax: "TSHOW.\n\
+                 A table with every TSET setting, the period the DATE variables of the active dataset give\n\
+                 (if any), and the period the procedures use when they are not told one.",
+        example: "TSHOW.",
+        parse: timeseries::tshow,
+    },
+    CommandSpec {
+        name: "CREATE",
+        summary: "New series from functions of existing series: lags, differences, smoothers, FFT.",
+        syntax: "CREATE new names = function(series [, numbers]) [/new names = function(...) ...].\n\
+                 function: CSUM(series) running total; DIFF(series, order) differences; SDIFF(series, order\n\
+                 [, period]) differences over a period; LAG(series, order [, order]) and LEAD(series, order\n\
+                 [, order]) shifted copies, one per order of the range; MA(series, span [, minimum]) centered\n\
+                 moving average; RMED(series, span [, minimum]) centered running median; PMA(series, span)\n\
+                 mean of the span cases before; T4253H(series) compound smoother; FFT(series) real and\n\
+                 imaginary parts; IFFT(real, imaginary) the series back.\n\
+                 Commas or blanks separate the items in parentheses; v1 TO v4 names numbered new series. A\n\
+                 function makes one series per source (LAG and LEAD: per source and order, sources outer;\n\
+                 FFT two per source; IFFT one per pair), and the names on the left must match that count.\n\
+                 An existing variable of the same name is replaced; a later equation may use a series an\n\
+                 earlier one made. A value missing (user-missing too, unless TSET MISSING=INCLUDE) gives a\n\
+                 missing result where it is used; MA, RMED and PMA restart after it. An even span is\n\
+                 centered by averaging two neighbouring spans. Near the ends MA and RMED shrink the span\n\
+                 symmetrically down to the minimum (of the same parity, raised by 1 otherwise; 1 is always\n\
+                 allowed). SDIFF without a period uses TSET PERIOD, then the DATE period. T4253H, FFT and\n\
+                 IFFT need a series without gaps inside it; FFT pads an odd length with a 0 and gives n/2\n\
+                 cases (the first case's imaginary part holds the highest frequency's cosine term), IFFT\n\
+                 twice as many as it reads. With SPLIT FILE each group is a series of its own; cases a\n\
+                 filter leaves out keep their value (system-missing in a new series). A table lists every\n\
+                 new series with its first and last valid case, its number of valid values and its function.",
+        example: "CREATE sales_lag1 TO sales_lag3 = LAG(sales, 1, 3) /trend = MA(sales, 6, 2).",
+        parse: timeseries::create,
     },
     CommandSpec {
         name: "PRINT",

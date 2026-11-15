@@ -257,6 +257,12 @@ pub enum Command {
     /// HOST: the operating system commands, which are never run.
     Host(Vec<String>),
     Date(crate::output::DateSpec),
+    Tset(Vec<crate::timeseries::TsetItem>),
+    Tshow,
+    Create(Vec<crate::timeseries::CreateEquation>),
+    /// ACF, PACF and CCF.
+    Correlogram(Box<crate::timeseries::Correlogram>),
+    Season(Box<crate::timeseries::Season>),
     /// PRINT, PRINT EJECT or WRITE.
     Print(Box<crate::output::Print>),
     PrintSpace(crate::output::PrintSpace),
