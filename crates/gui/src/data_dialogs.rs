@@ -597,12 +597,12 @@ impl ExportData {
             Some("csv") => "/TYPE=CSV".into(),
             Some("txt" | "tab" | "tsv" | "dat") => "/TYPE=TAB".into(),
             Some("dta") => {
-                let version = self.stata_version.trim();
-                if !matches!(version.parse::<u8>(), Ok(8..=14)) {
-                    return Err("the Stata release must be a whole number from 8 to 14".into());
-                }
+                let version = match self.stata_version.trim().parse::<u8>() {
+                    Ok(v @ 8..=14) => v,
+                    _ => return Err("the Stata release must be a whole number from 8 to 14".into()),
+                };
                 let mut kind = "/TYPE=STATA".to_string();
-                if version != "14" {
+                if version != 14 {
                     kind.push_str(&format!(" /VERSION={version}"));
                 }
                 if self.stata_se {
@@ -1292,6 +1292,8 @@ mod tests {
                 quote(&e.path)
             )
         );
+        e.stata_version = "014".into();
+        assert!(!e.syntax().unwrap().contains("VERSION"));
         e.stata_version = "15".into();
         assert_eq!(
             e.syntax().unwrap_err(),
