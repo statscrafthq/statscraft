@@ -1558,6 +1558,10 @@ impl App {
                             ("Descriptives...", Dialog::Descriptives(Default::default())),
                             ("Explore...", Dialog::Explore(Default::default())),
                             ("Crosstabs...", Dialog::Crosstabs(Default::default())),
+                            (
+                                "Ratio...",
+                                Dialog::Advanced(Advanced::Ratio(Default::default())),
+                            ),
                         ] {
                             if ui.button(label).clicked() {
                                 self.open_dialog(dialog);
@@ -1705,6 +1709,14 @@ impl App {
                             (
                                 "Multidimensional Scaling (ALSCAL)...",
                                 Advanced::Alscal(Default::default()),
+                            ),
+                            (
+                                "Weighted Kappa...",
+                                Advanced::WeightedKappa(Default::default()),
+                            ),
+                            (
+                                "Fleiss Multirater Kappa...",
+                                Advanced::Fleiss(Default::default()),
                             ),
                         ] {
                             if ui.button(label).clicked() {

@@ -6,6 +6,7 @@ use crate::advanced_dialogs::{
     Advanced, ContrastTest, LinearMixed, MeansTable, Multinomial, Ordinal, SampleDescriptives,
     SampleOptions, SamplePlan, SampleTables, Stage, Terms,
 };
+use crate::agreement_dialog::{FleissKappa, Ratio, WeightedKappa};
 use crate::analyze_dialogs::{
     Correlations, Explore, ExploreMissing, Means, MrGroup, MultResponse, Oneway, TTest, TTestKind,
     Tree,
@@ -298,6 +299,20 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             ..Default::default()
         }))),
         Dialog::Advanced(Advanced::Codebook(Codebook::default())),
+        Dialog::Advanced(Advanced::WeightedKappa(WeightedKappa {
+            raters: v(&["q5_1", "q5_2"]),
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Fleiss(FleissKappa {
+            raters: v(&["q5_1", "q5_2", "q5_3"]),
+            ..Default::default()
+        })),
+        Dialog::Advanced(Advanced::Ratio(Box::new(Ratio {
+            numerator: s("monthly_spend"),
+            denominator: s("age"),
+            statistics: [true; 12],
+            ..Default::default()
+        }))),
         Dialog::Advanced(Advanced::Hiloglinear(Box::new(ModelSelection {
             factors: v(&["gender", "region"]),
             ranges: vec![
@@ -2507,6 +2522,137 @@ fn the_loglinear_dialogs_write_syntax_that_runs() {
                 warnings.iter().all(|x| x.contains(w)) && !warnings.is_empty(),
                 "{syntax}\n{warnings:?}"
             ),
+        }
+    }
+}
+
+/// Invented grades of thirty essays by three tutors on a scale of 1 to 4, mostly agreeing, and
+/// the fuel and distance of the vans of three depots.
+fn essays_and_vans() -> String {
+    let mut program =
+        String::from("DATA LIST LIST /tutor_a tutor_b tutor_c depot km litres.\nBEGIN DATA\n");
+    for i in 1..=30u32 {
+        let grade = i % 4 + 1;
+        let b = if i % 5 == 0 {
+            (grade + 1).min(4)
+        } else {
+            grade
+        };
+        let c = if i % 7 == 0 { grade.max(2) - 1 } else { grade };
+        let km = 100 + (i * 37) % 200;
+        let litres = f64::from(km) * (0.07 + f64::from((i * 13) % 10) / 200.0);
+        program.push_str(&format!("{grade} {b} {c} {} {km} {litres:.1}\n", i % 3 + 1));
+    }
+    program.push_str("END DATA.\n");
+    program
+}
+
+/// The kappa and Ratio Statistics dialogs on invented essays and vans: the syntax is as
+/// expected, parses and runs without a warning.
+#[test]
+fn the_agreement_dialogs_write_syntax_that_runs() {
+    let tutors = v(&["tutor_a", "tutor_b", "tutor_c"]);
+    let cases: Vec<(Advanced, &str)> = vec![
+        (
+            Advanced::WeightedKappa(WeightedKappa {
+                raters: v(&["tutor_a", "tutor_b"]),
+                ..Default::default()
+            }),
+            "WEIGHTED KAPPA tutor_a tutor_b.",
+        ),
+        (
+            Advanced::WeightedKappa(WeightedKappa {
+                raters: v(&["tutor_a"]),
+                by: true,
+                columns: v(&["tutor_b", "tutor_c"]),
+                quadratic: true,
+                include: true,
+                tabulate: true,
+                descending: true,
+                ci_level: s("90"),
+            }),
+            "WEIGHTED KAPPA tutor_a BY tutor_b tutor_c\n  /MISSING CLASSMISSING=INCLUDE\n  \
+             /CRITERIA ASYMPTOTICCILEVEL=90 WEIGHTING=QUADRATIC\n  \
+             /PRINT TABULATION(ALL) ORDER(DESCENDING).",
+        ),
+        (
+            Advanced::Fleiss(FleissKappa {
+                raters: tutors.clone(),
+                ..Default::default()
+            }),
+            "FLEISS MULTIRATER KAPPA tutor_a tutor_b tutor_c.",
+        ),
+        (
+            Advanced::Fleiss(FleissKappa {
+                raters: tutors.clone(),
+                include: true,
+                category: true,
+                ci_level: s("99"),
+            }),
+            "FLEISS MULTIRATER KAPPA tutor_a tutor_b tutor_c\n  /MISSING CLASSMISSING=INCLUDE\n  \
+             /CRITERIA ASYMPTOTICCILEVEL=99\n  /PRINT CATEGORY.",
+        ),
+        (
+            Advanced::Ratio(Box::new(Ratio {
+                numerator: s("litres"),
+                denominator: s("km"),
+                statistics: [
+                    true, false, false, false, false, false, false, false, false, false, false,
+                    false,
+                ],
+                ..Default::default()
+            })),
+            "RATIO STATISTICS litres WITH km\n  /PRINT=MEDIAN.",
+        ),
+        (
+            Advanced::Ratio(Box::new(Ratio {
+                numerator: s("litres"),
+                denominator: s("km"),
+                group: s("depot"),
+                order: 1,
+                statistics: [true; 12],
+                cin: true,
+                cin_level: s("90"),
+                bcoc: true,
+                intervals: s("0.05 0.08; 0.08, 0.12"),
+                wcoc: true,
+                percents: s("10, 25"),
+                include: true,
+                save: 2,
+                dataset: s("van_ratios"),
+                ..Default::default()
+            })),
+            "DATASET DECLARE van_ratios.\n\
+             RATIO STATISTICS litres WITH km BY depot (DESCENDING)\n  /MISSING=INCLUDE\n  \
+             /PRINT=MEDIAN MEAN WGTMEAN MIN MAX RANGE STDDEV AAD COD PRD MNCOV MDCOV CIN(90) \
+             BCOC((0.05,0.08) (0.08,0.12)) WCOC(10 25)\n  \
+             /OUTFILE('van_ratios')=MEDIAN MEAN WGTMEAN MIN MAX RANGE STDDEV AAD COD PRD MNCOV \
+             MDCOV CIN(90) BCOC((0.05,0.08) (0.08,0.12)) WCOC(10 25).",
+        ),
+    ];
+    let program = essays_and_vans();
+    for (dialog, expected) in cases {
+        let mut session = statscraft_engine::session::Session::default();
+        session.run(&program, None).unwrap();
+        let data = session.dataset().unwrap().clone();
+        let syntax = Dialog::Advanced(dialog).syntax(&data).unwrap();
+        assert_eq!(syntax, expected);
+        let (_, errors) = statscraft_syntax::parse(&syntax);
+        assert!(errors.is_empty(), "{syntax}\n{errors:?}");
+        let result = session.run(&syntax, None).unwrap();
+        assert!(
+            result.commands.iter().any(|c| !c.tables.is_empty()),
+            "{syntax}"
+        );
+        let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
+        assert!(warnings.is_empty(), "{syntax}\n{warnings:?}");
+        // the saved statistics fill the declared dataset: the overall record and one per depot
+        if syntax.starts_with("DATASET DECLARE") {
+            let result = session
+                .run("DATASET ACTIVATE van_ratios.\nLIST.", None)
+                .unwrap();
+            assert!(result.commands.iter().any(|c| !c.tables.is_empty()));
+            assert_eq!(session.dataset().unwrap().case_count(), 4);
         }
     }
 }

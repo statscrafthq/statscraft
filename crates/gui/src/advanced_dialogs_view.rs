@@ -52,6 +52,9 @@ pub fn body(
             crate::loglinear_dialog_view::model_selection(ui, data, d, picked)
         }
         Advanced::Genlog(d) => crate::loglinear_dialog_view::general_loglinear(ui, d, picked),
+        Advanced::WeightedKappa(d) => crate::agreement_dialog_view::weighted_kappa(ui, d, picked),
+        Advanced::Fleiss(d) => crate::agreement_dialog_view::fleiss_kappa(ui, d, picked),
+        Advanced::Ratio(d) => crate::agreement_dialog_view::ratio(ui, d, picked, folder),
     }
 }
 
