@@ -1440,9 +1440,14 @@ impl Engine {
                     title: "Pooled Parameter Estimates".into(),
                     heads: vec![dep_text.clone(), String::new()],
                     label: vec![text(cat_label(j)), text(col_name(col))],
-                    kind: crate::pooling::Kind::Test {
-                        name: "B",
-                        exp: true,
+                    // like the main table, the intercept has no Exp(B)
+                    kind: if effects[0].is_intercept() && col == 0 {
+                        crate::pooling::Kind::TestExpHidden { name: "B" }
+                    } else {
+                        crate::pooling::Kind::Test {
+                            name: "B",
+                            exp: true,
+                        }
                     },
                     q: fit.b[at],
                     u: cov.as_ref().map_or(f64::NAN, |v| v[at][at]),

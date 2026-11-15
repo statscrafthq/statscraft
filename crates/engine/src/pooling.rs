@@ -33,6 +33,8 @@ pub(crate) enum Kind {
     /// A parameter tested against 0, the estimate column named `name`; `exp` adds Exp(B) and
     /// puts the interval on that scale.
     Test { name: &'static str, exp: bool },
+    /// A row of an Exp(B) table whose Exp(B) cells stay empty, as for an intercept.
+    TestExpHidden { name: &'static str },
     /// A correlation, pooled as Fisher's z = atanh(r) and shown back on the scale of r.
     Correlation,
 }
@@ -239,7 +241,7 @@ fn heads(kind: Option<Kind>, diagnostics: bool) -> Vec<&'static str> {
             "95% CI Lower",
             "95% CI Upper",
         ],
-        Some(Kind::Test { name, exp: true }) => vec![
+        Some(Kind::Test { name, exp: true } | Kind::TestExpHidden { name }) => vec![
             name,
             "Std. Error",
             "t",
@@ -323,6 +325,16 @@ fn estimate_cells(kind: Kind, p: &Pooled, diagnostics: bool) -> Vec<Cell> {
             num(p.estimate.exp()),
             num(low.exp()),
             num(high.exp()),
+        ],
+        Kind::TestExpHidden { .. } => vec![
+            num(p.estimate),
+            num(se),
+            num(t),
+            df,
+            sig,
+            Cell::Empty,
+            Cell::Empty,
+            Cell::Empty,
         ],
         Kind::Correlation => vec![
             num(p.estimate.tanh()),

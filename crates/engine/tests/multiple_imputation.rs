@@ -1109,6 +1109,13 @@ fn pooled_ordinal_and_multinomial_parameters() {
         assert_eq!(words(&pooled.rows[row][1]), *name);
         pooled_row(pooled, row, 2, want);
     }
+    // as in the main table, the intercept shows no Exp(B); the other rows do
+    assert!(
+        pooled.rows[0][7..10]
+            .iter()
+            .all(|c| matches!(c, Cell::Empty))
+    );
+    pooled_row(pooled, 1, 7, &[(-0.988335485826f64).exp()]);
 }
 
 #[test]
