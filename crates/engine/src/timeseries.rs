@@ -27,7 +27,7 @@
 //!   error is 1 / sqrt(m), m the valid pairs at the lag.
 //! - Charts show the coefficients as a line with limits at two standard errors.
 //! - CREATE: LAG and LEAD with two sources and a range run over the orders within each source.
-//!   FFT gives n/2 cases from where the series starts, the highest frequency's cosine term in
+//!   An odd series gets a 0 at its end before FFT, with a warning. FFT gives n/2 cases from where the series starts, the highest frequency's cosine term in
 //!   the first imaginary value; IFFT reads such a pair. MA and RMED shrink the span near the
 //!   ends to the largest symmetric one, down to the minimum.
 //! - SEASON's saved multiplicative factors are ratios (the tables show percentages).
@@ -500,6 +500,7 @@ impl Engine {
         let groups = self.case_groups()?;
         let include = self.tset.include;
         let mut rows = Vec::new();
+        let mut warnings = Vec::new();
         for equation in equations {
             let f = equation.function;
             let sources = self.expand(&equation.sources)?;
@@ -566,6 +567,7 @@ impl Engine {
             let d = |format: &str| decimals(format);
             match f {
                 SeriesFunction::Fft => {
+                    let mut padded: Vec<String> = Vec::new();
                     for (i, (x, _)) in columns.iter().enumerate() {
                         let (mut re_all, mut im_all) = (vec![None; cases], vec![None; cases]);
                         for group in &groups {
@@ -574,8 +576,10 @@ impl Engine {
                                 continue;
                             }
                             let (start, mut v) = without_gaps(&part, "FFT")?;
+                            // an odd length gets a 0 at the end, as documented
                             if v.len() % 2 == 1 {
                                 v.push(0.0);
+                                padded.push(sources[i].clone());
                             }
                             let (re, im) = fft(&v);
                             for (k, (a, b)) in re.iter().zip(&im).enumerate() {
@@ -587,6 +591,12 @@ impl Engine {
                         let s = &sources[i];
                         outputs.push((format!("FFT({s}), real part"), "F10.4".into(), re_all));
                         outputs.push((format!("FFT({s}), imaginary part"), "F10.4".into(), im_all));
+                    }
+                    padded.dedup();
+                    for name in padded {
+                        warnings.push(format!(
+                            "FFT: {name} has an odd number of values, so a 0 was added at its end"
+                        ));
                     }
                 }
                 SeriesFunction::Ifft => {
@@ -758,6 +768,9 @@ impl Engine {
                     text(label),
                 ]);
             }
+        }
+        for w in warnings {
+            self.warn(w);
         }
         Ok(vec![table(
             "Created Series",
@@ -1061,6 +1074,16 @@ impl Engine {
                     continue;
                 }
                 let (xs, ys) = (&x[first..=last], &y[first..=last]);
+                let varies = |s: &[Option<f64>]| {
+                    let v: Vec<f64> = s.iter().flatten().copied().collect();
+                    v.iter().any(|a| *a != v[0])
+                };
+                if !varies(xs) || !varies(ys) {
+                    warnings.push(format!(
+                        "{name}: {a} or {b} does not vary, so the pair is left out"
+                    ));
+                    continue;
+                }
                 let k = max_lag.min(xs.len() - 1);
                 let (r, m) = cross_correlations(xs, ys, k);
                 let mut rows = Vec::new();
@@ -1101,6 +1124,12 @@ impl Engine {
                 if m0 < 2 {
                     warnings.push(format!(
                         "{name}: {n} has fewer than two valid values after the transformation"
+                    ));
+                    continue;
+                }
+                if x.iter().flatten().all(|v| Some(*v) == x[0]) {
+                    warnings.push(format!(
+                        "{name}: {n} does not vary and has no autocorrelations"
                     ));
                     continue;
                 }

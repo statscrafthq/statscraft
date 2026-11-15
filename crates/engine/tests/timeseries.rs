@@ -425,6 +425,12 @@ fn create_fourier_round_trip_and_replacement() {
     }
     // the last equation replaced the series it read
     assert_eq!(values(&r, "visitors")[1], Some(-14.0));
+    // an odd length is padded with a warning; a constant series has no autocorrelations
+    let r =
+        run("SELECT IF $CASENUM < 20.\nCREATE a b = FFT(visitors).\nCOMPUTE flat = 3.\nACF flat.");
+    assert!(r.warnings.iter().any(|w| w.contains("does not vary")));
+    let r = run("SELECT IF $CASENUM < 20.\nCREATE a b = FFT(visitors).");
+    assert!(r.warnings.iter().any(|w| w.contains("odd number")));
 }
 
 #[test]
