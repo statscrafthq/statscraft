@@ -3037,6 +3037,183 @@ fn the_power_dialogs_write_syntax_that_runs() {
             "TEST=DIRECTIONAL NPAIRS=80 VALUES=PROPORTIONS(0.5 0.35) MARGINAL=TRUE \
              CORRELATION=0.25\n  /PLOT NPAIRS(20 200) CORRELATION DISCORDANT",
         ),
+        (
+            PowerAnalysis {
+                n1: s("14 18 14"),
+                mean1: s("31 34.5 38"),
+                sd1: s("7.5"),
+                ..new(OnewayAnova)
+            },
+            "GROUP_SIZES=14 18 14 POOLED_SD=7.5 GROUP_MEANS=31 34.5 38",
+        ),
+        // weighted groups, a one-sided contrast and pairs compared with another adjustment
+        (
+            PowerAnalysis {
+                find_size: true,
+                powers: s("0.8"),
+                mean1: s("12 15 19 21"),
+                sd1: s("6"),
+                weights: s("1 1 2 2"),
+                coefficients: s("-1 -1 1 1"),
+                directional: true,
+                pairwise: true,
+                adjust: 1,
+                ..new(OnewayAnova)
+            },
+            "POWER=0.8 POOLED_SD=6 GROUP_MEANS=12 15 19 21 GROUP_WEIGHTS=1 1 2 2\n  \
+             /CONTRAST COEFFICIENTS=-1 -1 1 1 TEST=DIRECTIONAL PAIRWISE=TRUE ADJUST=SIDAK",
+        ),
+        (
+            PowerAnalysis {
+                n1: s("10 10 10"),
+                mean1: s("5 6.2 7"),
+                sd1: s("1.6"),
+                significance: s("0.1"),
+                charts: [true, true, true, false, false, false, false],
+                from: [s("9"), s("0.8"), s(""), s(""), s(""), s(""), s("")],
+                to: [s("90"), s("3"), s(""), s(""), s(""), s(""), s("")],
+                ..new(OnewayAnova)
+            },
+            "SIGNIFICANCE=0.1 GROUP_SIZES=10 10 10 POOLED_SD=1.6 GROUP_MEANS=5 6.2 7\n  \
+             /PLOT TOTAL_N(9 90) POOLED_SD(0.8 3) TOTAL_N_XAXIS POOLED_SD_YAXIS",
+        ),
+        (
+            PowerAnalysis {
+                n1: s("55"),
+                alternative: s("0.32"),
+                ..new(PearsonOneSample)
+            },
+            "N=55 ALTERNATIVE=0.32",
+        ),
+        (
+            PowerAnalysis {
+                find_size: true,
+                powers: s("0.8 0.9"),
+                null: s("0.1"),
+                alternative: s("0.45"),
+                adjust_bias: false,
+                ..new(PearsonOneSample)
+            },
+            "POWER=0.8 0.9 NULL=0.1 ALTERNATIVE=0.45 ADJUST_BIAS=FALSE",
+        ),
+        (
+            PowerAnalysis {
+                n1: s("70"),
+                directional: true,
+                significance: s("0.025"),
+                null: s("0.2"),
+                alternative: s("0.42"),
+                charts: [true, true, false, true, true, true, false],
+                from: [s("20"), s(""), s(""), s(""), s(""), s(""), s("")],
+                to: [s("150"), s(""), s(""), s(""), s(""), s(""), s("")],
+                ..new(PearsonOneSample)
+            },
+            "TEST=DIRECTIONAL SIGNIFICANCE=0.025 N=70 NULL=0.2 ALTERNATIVE=0.42\n  \
+             /PLOT N(20 150) NULL DIFF N_XAXIS DIFF_YAXIS NULL_XAXIS ALTERNATIVE_YAXIS",
+        ),
+        (
+            PowerAnalysis {
+                n1: s("40"),
+                alternative: s("-0.3"),
+                ..new(SpearmanOneSample)
+            },
+            "N=40 ALTERNATIVE=-0.3",
+        ),
+        (
+            PowerAnalysis {
+                find_size: true,
+                powers: s("0.85"),
+                alternative: s("0.5"),
+                variance: 1,
+                ..new(SpearmanOneSample)
+            },
+            "POWER=0.85 ALTERNATIVE=0.5 VARIANCE=FHP",
+        ),
+        (
+            PowerAnalysis {
+                n1: s("35"),
+                null: s("0.1"),
+                alternative: s("0.55"),
+                variance: 2,
+                charts: [true, false, true, false, false, false, false],
+                from: [s("10"), s(""), s(""), s(""), s(""), s(""), s("")],
+                to: [s("80"), s(""), s(""), s(""), s(""), s(""), s("")],
+                ..new(SpearmanOneSample)
+            },
+            "N=35 NULL=0.1 ALTERNATIVE=0.55 VARIANCE=CC\n  /PLOT N(10 80) ALTERNATIVE",
+        ),
+        (
+            PowerAnalysis {
+                n1: s("90"),
+                partialout: s("3"),
+                alternative: s("0.27"),
+                ..new(PartialCorr)
+            },
+            "N=90 PARTIALOUT=3 ALTERNATIVE=0.27",
+        ),
+        (
+            PowerAnalysis {
+                find_size: true,
+                powers: s("0.8"),
+                partialout: s("2"),
+                null: s("-0.1"),
+                alternative: s("0.2"),
+                ..new(PartialCorr)
+            },
+            "POWER=0.8 PARTIALOUT=2 NULL=-0.1 ALTERNATIVE=0.2",
+        ),
+        (
+            PowerAnalysis {
+                n1: s("60"),
+                directional: true,
+                partialout: s("5"),
+                alternative: s("0.3"),
+                charts: [true, true, false, false, true, false, false],
+                ..new(PartialCorr)
+            },
+            "TEST=DIRECTIONAL N=60 PARTIALOUT=5 ALTERNATIVE=0.3\n  /PLOT N PARTIALOUT DIFF",
+        ),
+        (
+            PowerAnalysis {
+                n1: s("80"),
+                total_predictors: s("5"),
+                test_predictors: s("2"),
+                partial: s("0.3"),
+                ..new(UnivariateLinear)
+            },
+            "N=80 TOTAL_PREDICTORS=5 TEST_PREDICTORS=2 PARTIAL_CORR=0.3",
+        ),
+        (
+            PowerAnalysis {
+                find_size: true,
+                powers: s("0.9"),
+                random: true,
+                total_predictors: s("6"),
+                test_predictors: s("2"),
+                models: true,
+                p1: s("0.4"),
+                p2: s("0.3"),
+                ..new(UnivariateLinear)
+            },
+            "POWER=0.9 MODEL=RANDOM TOTAL_PREDICTORS=6 TEST_PREDICTORS=2 FULL_MODEL=0.4 \
+             NESTED_MODEL=0.3",
+        ),
+        (
+            PowerAnalysis {
+                n1: s("60"),
+                significance: s("0.01"),
+                total_predictors: s("4"),
+                test_predictors: s("1"),
+                partial: s("0.35"),
+                intercept: false,
+                charts: [true, true, true, false, false, false, false],
+                from: [s("10"), s(""), s(""), s(""), s(""), s(""), s("")],
+                to: [s("120"), s(""), s(""), s(""), s(""), s(""), s("")],
+                ..new(UnivariateLinear)
+            },
+            "SIGNIFICANCE=0.01 N=60 TOTAL_PREDICTORS=4 TEST_PREDICTORS=1 PARTIAL_CORR=0.35 \
+             INTERCEPT=FALSE\n  /PLOT N(10 120) PARTIAL_CORR N_XAXIS PARTIAL_CORR_YAXIS",
+        ),
     ];
     let data = statscraft_data::Dataset::new(0);
     for (dialog, expected) in cases {

@@ -1,6 +1,7 @@
 //! The Power Analysis dialogs: the power of a planned test for given sample sizes, or the
 //! sample sizes that reach given powers (POWER MEANS and POWER PROPORTIONS, each ONESAMPLE,
-//! INDEPENDENT and RELATED). They take typed numbers and no variables, so they need no data.
+//! INDEPENDENT and RELATED, POWER ONEWAY ANOVA, the tests of one correlation and POWER UNIVARIATE
+//! LINEAR). They take typed numbers and no variables, so they need no data.
 //! One struct serves every kind; a new POWER command is a new kind with its fields and charts.
 //! Options left as they are add nothing to the syntax, so the command runs with its own
 //! defaults.
@@ -12,18 +13,19 @@ use crate::syntax_text::number;
 pub use statscraft_syntax::PowerKind;
 
 /// The submenus of Analyze > Power Analysis and their items.
-pub const POWER_MENU: [(&str, [(&str, PowerKind); 3]); 2] = [
+pub const POWER_MENU: [(&str, &[(&str, PowerKind)]); 4] = [
     (
         "Means",
-        [
+        &[
             ("One-Sample T Test...", PowerKind::MeansOneSample),
             ("Independent-Samples T Test...", PowerKind::MeansIndependent),
             ("Paired-Samples T Test...", PowerKind::MeansRelated),
+            ("One-Way ANOVA...", PowerKind::OnewayAnova),
         ],
     ),
     (
         "Proportions",
-        [
+        &[
             (
                 "One-Sample Binomial Test...",
                 PowerKind::ProportionsOneSample,
@@ -38,6 +40,18 @@ pub const POWER_MENU: [(&str, [(&str, PowerKind); 3]); 2] = [
             ),
         ],
     ),
+    (
+        "Correlations",
+        &[
+            ("Pearson Product-Moment...", PowerKind::PearsonOneSample),
+            ("Spearman Rank-Order...", PowerKind::SpearmanOneSample),
+            ("Partial Correlation...", PowerKind::PartialCorr),
+        ],
+    ),
+    (
+        "Regression",
+        &[("Univariate Linear...", PowerKind::UnivariateLinear)],
+    ),
 ];
 
 /// The tests of two independent proportions (METHOD), the default first.
@@ -46,6 +60,21 @@ pub const POWER_METHODS: [(&str, &str); 4] = [
     ("T", "t-test"),
     ("LRT", "Likelihood ratio test"),
     ("FISHER", "Fisher's exact test"),
+];
+
+/// How the pairwise comparisons of the group means share the significance level (ADJUST), the
+/// default first.
+pub const POWER_ADJUSTS: [(&str, &str); 3] = [
+    ("BONFERRONI", "Bonferroni"),
+    ("SIDAK", "Sidak"),
+    ("LSD", "None (LSD)"),
+];
+
+/// The variances of Fisher's z of a rank correlation (VARIANCE), the default first.
+pub const POWER_VARIANCES: [(&str, &str); 3] = [
+    ("BW", "Bonett and Wright"),
+    ("FHP", "Fieller, Hartley and Pearson"),
+    ("CC", "Caruso and Cliff"),
 ];
 
 /// A chart of PLOT: its keywords, its label, and whether it takes a range (the line charts that
@@ -122,8 +151,61 @@ pub fn power_charts(kind: PowerKind) -> &'static [PowerChart] {
             ("DISCORDANT", "Power by the two discordant shares", false),
             ("MARGINAL", "Power by the two success rates", false),
         ],
-        // the menu does not offer the other POWER commands yet
-        _ => &[],
+        PowerKind::OnewayAnova => &[
+            ("TOTAL_N", "Power by total sample size", true),
+            ("POOLED_SD", "Power by pooled standard deviation", true),
+            (
+                "TOTAL_N_XAXIS POOLED_SD_YAXIS",
+                "Power by total size and standard deviation",
+                false,
+            ),
+        ],
+        PowerKind::PearsonOneSample | PowerKind::SpearmanOneSample => &[
+            ("N", "Power by sample size", true),
+            ("NULL", "Power by null correlation", false),
+            ("ALTERNATIVE", "Power by alternative correlation", false),
+            ("DIFF", "Power by alternative minus null", false),
+            (
+                "N_XAXIS DIFF_YAXIS",
+                "Power by sample size and difference",
+                false,
+            ),
+            (
+                "NULL_XAXIS ALTERNATIVE_YAXIS",
+                "Power by null and alternative correlations",
+                false,
+            ),
+        ],
+        PowerKind::PartialCorr => &[
+            ("N", "Power by sample size", true),
+            (
+                "PARTIALOUT",
+                "Power by number of variables held fixed",
+                false,
+            ),
+            ("NULL", "Power by null correlation", false),
+            ("ALTERNATIVE", "Power by alternative correlation", false),
+            ("DIFF", "Power by alternative minus null", false),
+            (
+                "N_XAXIS DIFF_YAXIS",
+                "Power by sample size and difference",
+                false,
+            ),
+            (
+                "NULL_XAXIS ALTERNATIVE_YAXIS",
+                "Power by null and alternative correlations",
+                false,
+            ),
+        ],
+        PowerKind::UnivariateLinear => &[
+            ("N", "Power by sample size", true),
+            ("PARTIAL_CORR", "Power by partial correlation", false),
+            (
+                "N_XAXIS PARTIAL_CORR_YAXIS",
+                "Power by sample size and partial correlation",
+                false,
+            ),
+        ],
     }
 }
 
@@ -132,7 +214,7 @@ pub fn needs_marginal(kind: PowerKind, keywords: &str) -> bool {
     kind == PowerKind::ProportionsRelated && matches!(keywords, "CORRELATION" | "MARGINAL")
 }
 
-/// POWER MEANS and POWER PROPORTIONS: the fields of every kind; each kind uses its own.
+/// Every POWER command: the fields of every kind; each kind uses its own.
 #[derive(Clone, PartialEq, Debug)]
 pub struct PowerAnalysis {
     pub kind: PowerKind,
@@ -141,7 +223,8 @@ pub struct PowerAnalysis {
     /// TEST=DIRECTIONAL: a one-sided test.
     pub directional: bool,
     pub significance: String,
-    /// N or NPAIRS; with two groups the size of the first.
+    /// N or NPAIRS; with two groups the size of the first; GROUP_SIZES of ONEWAY ANOVA, a typed
+    /// list.
     pub n1: String,
     pub n2: String,
     /// The powers to reach, a typed list.
@@ -150,18 +233,20 @@ pub struct PowerAnalysis {
     pub ratio: String,
     /// Two standard deviations (one per group or measure) instead of one.
     pub two_sds: bool,
+    /// SD, or POOLED_SD of ONEWAY ANOVA.
     pub sd1: String,
     pub sd2: String,
     /// Two means (one per group or measure) instead of their difference.
     pub two_means: bool,
+    /// MEAN, or GROUP_MEANS of ONEWAY ANOVA, a typed list.
     pub mean1: String,
     pub mean2: String,
-    /// NULL: the mean or proportion under the null hypothesis.
+    /// NULL: the mean, proportion or correlation under the null hypothesis.
     pub null: String,
     pub alternative: String,
     /// RHO: the correlation of the two measures of a pair, with two SDs.
     pub rho: String,
-    /// PROPORTIONS of the two groups, or the two values of VALUES.
+    /// PROPORTIONS of the two groups, the two values of VALUES, or FULL_MODEL and NESTED_MODEL.
     pub p1: String,
     pub p2: String,
     /// VALUES=COUNTS, only with a given number of pairs.
@@ -177,6 +262,27 @@ pub struct PowerAnalysis {
     pub pooled: bool,
     /// TIMER in minutes, for the exact sample size search.
     pub timer: String,
+    /// GROUP_WEIGHTS of the group sizes to find, a typed list; empty for equal groups.
+    pub weights: String,
+    /// CONTRAST COEFFICIENTS, a typed list; empty for no contrast test.
+    pub coefficients: String,
+    pub pairwise: bool,
+    /// Index into `POWER_ADJUSTS`.
+    pub adjust: usize,
+    /// PARTIALOUT: the number of variables held fixed.
+    pub partialout: String,
+    pub adjust_bias: bool,
+    /// Index into `POWER_VARIANCES`.
+    pub variance: usize,
+    /// MODEL=RANDOM.
+    pub random: bool,
+    pub total_predictors: String,
+    pub test_predictors: String,
+    /// FULL_MODEL and NESTED_MODEL (in `p1` and `p2`) instead of PARTIAL_CORR.
+    pub models: bool,
+    /// PARTIAL_CORR.
+    pub partial: String,
+    pub intercept: bool,
     /// One flag and one range per entry of `power_charts`.
     pub charts: [bool; MOST_CHARTS],
     pub from: [String; MOST_CHARTS],
@@ -254,6 +360,19 @@ impl PowerAnalysis {
             continuity: false,
             pooled: true,
             timer: String::new(),
+            weights: String::new(),
+            coefficients: String::new(),
+            pairwise: false,
+            adjust: 0,
+            partialout: String::new(),
+            adjust_bias: true,
+            variance: 0,
+            random: false,
+            total_predictors: String::new(),
+            test_predictors: String::new(),
+            models: false,
+            partial: String::new(),
+            intercept: true,
             charts: [false; MOST_CHARTS],
             from: Default::default(),
             to: Default::default(),
@@ -270,8 +389,32 @@ impl PowerAnalysis {
                 "Power Analysis: Independent-Samples Binomial Test"
             }
             PowerKind::ProportionsRelated => "Power Analysis: Related-Samples Binomial Test",
-            // the menu does not offer the other POWER commands yet
-            _ => "Power Analysis",
+            PowerKind::OnewayAnova => "Power Analysis: One-Way ANOVA",
+            PowerKind::PearsonOneSample => "Power Analysis: Pearson Correlation",
+            PowerKind::SpearmanOneSample => "Power Analysis: Spearman Correlation",
+            PowerKind::PartialCorr => "Power Analysis: Partial Correlation",
+            PowerKind::UnivariateLinear => "Power Analysis: Univariate Linear Regression",
+        }
+    }
+
+    /// The smallest sample size the test allows, from the typed counts it depends on (a count
+    /// not yet typed as a whole number counts as its least).
+    pub fn least_size(&self) -> u32 {
+        let count = |text: &str| text.trim().parse::<u32>().unwrap_or(0);
+        match self.kind {
+            PowerKind::ProportionsOneSample | PowerKind::ProportionsIndependent => 1,
+            PowerKind::MeansOneSample
+            | PowerKind::MeansIndependent
+            | PowerKind::MeansRelated
+            | PowerKind::ProportionsRelated
+            | PowerKind::OnewayAnova => 2,
+            PowerKind::PartialCorr => count(&self.partialout).saturating_add(4),
+            PowerKind::PearsonOneSample => 4,
+            PowerKind::SpearmanOneSample if self.variance == 2 => 3,
+            PowerKind::SpearmanOneSample => 4,
+            PowerKind::UnivariateLinear => count(&self.total_predictors)
+                .max(1)
+                .saturating_add(if self.intercept { 2 } else { 1 }),
         }
     }
 
@@ -318,7 +461,13 @@ impl PowerAnalysis {
 
     pub fn syntax(&self) -> Result<String, String> {
         let mut words: Vec<String> = Vec::new();
-        if self.directional {
+        // ONEWAY ANOVA gives the side of its contrast test on CONTRAST; the F test of the
+        // regression has none
+        let sided = !matches!(
+            self.kind,
+            PowerKind::OnewayAnova | PowerKind::UnivariateLinear
+        );
+        if sided && self.directional {
             words.push("TEST=DIRECTIONAL".into());
         }
         if let Some(alpha) = optional(&self.significance, "the significance level")? {
@@ -352,11 +501,17 @@ impl PowerAnalysis {
                     words.push(format!("NRATIO={}", number(r)));
                 }
             }
+        } else if self.kind == PowerKind::OnewayAnova {
+            sizes = numbers(&self.n1, "each group size")?;
+            if sizes.is_empty() {
+                return Err("give the group sizes".into());
+            }
+            if sizes.iter().any(|n| n.fract() != 0.0 || *n < 2.0) {
+                return Err("each group size must be a whole number of at least 2".into());
+            }
+            words.push(format!("GROUP_SIZES={}", join(&sizes)));
         } else {
-            let least = match self.kind {
-                PowerKind::ProportionsOneSample | PowerKind::ProportionsIndependent => 1,
-                _ => 2,
-            };
+            let least = self.least_size();
             let size = |text: &str, what: &str| {
                 whole(text, least, what)?
                     .map(f64::from)
@@ -373,14 +528,34 @@ impl PowerAnalysis {
             let keyword = if self.pairs() { "NPAIRS" } else { "N" };
             words.push(format!("{keyword}={}", join(&sizes)));
         }
-        let unequal = match self.proportions() {
-            true => {
+        let mut contrast = None;
+        let unequal = match self.kind {
+            PowerKind::MeansOneSample | PowerKind::MeansIndependent | PowerKind::MeansRelated => {
+                self.mean_parameters(&mut words)?
+            }
+            PowerKind::ProportionsOneSample
+            | PowerKind::ProportionsIndependent
+            | PowerKind::ProportionsRelated => {
                 self.proportion_parameters(&sizes, &mut words)?;
                 false
             }
-            false => self.mean_parameters(&mut words)?,
+            PowerKind::OnewayAnova => {
+                contrast = self.anova_parameters(sizes.len(), &mut words)?;
+                false
+            }
+            PowerKind::PartialCorr | PowerKind::PearsonOneSample | PowerKind::SpearmanOneSample => {
+                self.correlation_parameters(&mut words)?;
+                false
+            }
+            PowerKind::UnivariateLinear => {
+                self.regression_parameters(&mut words)?;
+                false
+            }
         };
         let mut text = format!("{}\n  /PARAMETERS {}", self.kind.name(), words.join(" "));
+        if let Some(contrast) = contrast {
+            text.push_str(&format!("\n  /CONTRAST {contrast}"));
+        }
         let plots = self.plots(unequal)?;
         if !plots.is_empty() {
             text.push_str(&format!("\n  /PLOT {}", plots.join(" ")));
@@ -448,6 +623,155 @@ impl PowerAnalysis {
             });
         }
         Ok(self.kind == PowerKind::MeansIndependent && sds.len() == 2 && sds[0] != sds[1])
+    }
+
+    /// POOLED_SD and GROUP_MEANS, checked against the number of `sizes` given (0 when they are
+    /// searched), and the words of CONTRAST, if any.
+    fn anova_parameters(
+        &self,
+        sizes: usize,
+        words: &mut Vec<String>,
+    ) -> Result<Option<String>, String> {
+        let sd = positive(&self.sd1, "the pooled standard deviation")?;
+        words.push(format!("POOLED_SD={}", number(sd)));
+        let means = numbers(&self.mean1, "each group mean")?;
+        if means.len() < 2 {
+            return Err("give the means of at least two groups".into());
+        }
+        let groups = means.len();
+        if sizes != 0 && sizes != groups {
+            return Err(format!("give {groups} group sizes, one per mean"));
+        }
+        if self.find_size && means.iter().all(|m| *m == means[0]) {
+            return Err("to find the group sizes, the group means must not all be equal".into());
+        }
+        words.push(format!("GROUP_MEANS={}", join(&means)));
+        // the weights only shape the sizes searched for
+        if self.find_size {
+            let weights = numbers(&self.weights, "each group weight")?;
+            if weights.iter().any(|w| !(1.0..=100.0).contains(w)) {
+                return Err("each group weight must lie from 1 to 100".into());
+            }
+            if !weights.is_empty() && weights.len() != groups {
+                return Err(format!(
+                    "give {groups} group weights, one per mean, or none"
+                ));
+            }
+            if !weights.is_empty() {
+                words.push(format!("GROUP_WEIGHTS={}", join(&weights)));
+            }
+        }
+        let coefficients = numbers(&self.coefficients, "each contrast coefficient")?;
+        let mut contrast = Vec::new();
+        if !coefficients.is_empty() {
+            if coefficients.len() != groups {
+                return Err(format!("give {groups} contrast coefficients, one per mean"));
+            }
+            if coefficients.iter().all(|c| *c == 0.0) {
+                return Err("the contrast coefficients cannot all be 0".into());
+            }
+            contrast.push(format!("COEFFICIENTS={}", join(&coefficients)));
+            if self.directional {
+                contrast.push("TEST=DIRECTIONAL".into());
+            }
+        }
+        if self.pairwise {
+            contrast.push("PAIRWISE=TRUE".into());
+            if self.adjust != 0 {
+                contrast.push(format!("ADJUST={}", POWER_ADJUSTS[self.adjust].0));
+            }
+        }
+        Ok((!contrast.is_empty()).then(|| contrast.join(" ")))
+    }
+
+    /// PARTIALOUT, NULL, ALTERNATIVE and the options of the tests of one correlation.
+    fn correlation_parameters(&self, words: &mut Vec<String>) -> Result<(), String> {
+        if self.kind == PowerKind::PartialCorr {
+            let what = "the number of variables held fixed";
+            let k = whole(&self.partialout, 0, what)?.ok_or_else(|| format!("give {what}"))?;
+            words.push(format!("PARTIALOUT={k}"));
+        }
+        let null = optional(&self.null, "the null correlation")?.unwrap_or(0.0);
+        let alternative = required(&self.alternative, "the alternative correlation")?;
+        for (v, what) in [
+            (null, "the null correlation"),
+            (alternative, "the alternative correlation"),
+        ] {
+            if !(-1.0..=1.0).contains(&v) {
+                return Err(format!("{what} must lie from -1 to 1"));
+            }
+        }
+        if self.find_size && (null.abs() == 1.0 || alternative.abs() == 1.0) {
+            return Err(
+                "to find a sample size, the correlations must lie above -1 and below 1".into(),
+            );
+        }
+        if self.find_size && null == alternative {
+            return Err(
+                "to find a sample size, the alternative correlation must differ from the null one"
+                    .into(),
+            );
+        }
+        if null != 0.0 {
+            words.push(format!("NULL={}", number(null)));
+        }
+        words.push(format!("ALTERNATIVE={}", number(alternative)));
+        if self.kind == PowerKind::PearsonOneSample && !self.adjust_bias {
+            words.push("ADJUST_BIAS=FALSE".into());
+        }
+        if self.kind == PowerKind::SpearmanOneSample && self.variance != 0 {
+            words.push(format!("VARIANCE={}", POWER_VARIANCES[self.variance].0));
+        }
+        Ok(())
+    }
+
+    /// MODEL, the predictors, the effect and INTERCEPT of a linear regression.
+    fn regression_parameters(&self, words: &mut Vec<String>) -> Result<(), String> {
+        if self.random {
+            words.push("MODEL=RANDOM".into());
+        }
+        let count =
+            |text: &str, what: &str| whole(text, 1, what)?.ok_or_else(|| format!("give {what}"));
+        let total = count(&self.total_predictors, "the number of predictors")?;
+        let tested = count(&self.test_predictors, "the number of tested predictors")?;
+        words.push(format!("TOTAL_PREDICTORS={total} TEST_PREDICTORS={tested}"));
+        let finding = "to find a sample size";
+        if self.models {
+            let full = proportion(&self.p1, "the R squared of the full model")?;
+            let nested = proportion(&self.p2, "the R squared of the nested model")?;
+            if tested >= total {
+                return Err(
+                    "with two models, fewer predictors must be tested than the model has".into(),
+                );
+            }
+            if full < nested || (self.find_size && full == nested) {
+                return Err(match self.find_size {
+                    true => format!("{finding}, the full model must have the larger R squared"),
+                    false => "the full model cannot have the smaller R squared".into(),
+                });
+            }
+            words.push(format!(
+                "FULL_MODEL={} NESTED_MODEL={}",
+                number(full),
+                number(nested)
+            ));
+        } else {
+            let r = required(&self.partial, "the partial correlation")?;
+            if !(r > -1.0 && r < 1.0) {
+                return Err("the partial correlation must lie above -1 and below 1".into());
+            }
+            if tested > total {
+                return Err("more predictors cannot be tested than the model has".into());
+            }
+            if self.find_size && r == 0.0 {
+                return Err(format!("{finding}, the partial correlation must not be 0"));
+            }
+            words.push(format!("PARTIAL_CORR={}", number(r)));
+        }
+        if !self.intercept {
+            words.push("INTERCEPT=FALSE".into());
+        }
+        Ok(())
     }
 
     /// The values and options of the proportions; `sizes` are those given, if any.
@@ -617,15 +941,18 @@ impl PowerAnalysis {
         let independent_means = self.kind == PowerKind::MeansIndependent;
         // the lowest start, the highest end, and whether the ends are whole numbers
         let (least, most, whole) = match keyword {
-            "N" if self.kind == PowerKind::ProportionsOneSample => (1.0, f64::INFINITY, true),
-            "N" => (2.0, f64::INFINITY, true),
+            "N" => (f64::from(self.least_size()), f64::INFINITY, true),
+            "TOTAL_N" => {
+                let (least, most) = self.total_range();
+                (least, most, true)
+            }
             "NPAIRS" if self.kind == PowerKind::MeansRelated => (2.0, 5000.0, true),
             "NPAIRS" => (2.0, 2500.0, true),
             "ES" if unequal => (0.0, 5000.0, false),
             "ES" if self.directional => (-5.0, 5.0, false),
             "ES" => (0.0, 5.0, false),
             "NRATIO" if independent_means => (0.2, 5.0, false),
-            // the ratios of proportions: only above 0
+            // the ratios of proportions and the pooled standard deviation: only above 0
             _ => {
                 return match low > 0.0 {
                     true => Ok(()),
@@ -647,6 +974,26 @@ impl PowerAnalysis {
             });
         }
         Ok(())
+    }
+
+    /// The totals a chart over the total size of ONEWAY ANOVA may span: every group at least 2
+    /// and at most 5000, the groups kept in proportion.
+    fn total_range(&self) -> (f64, f64) {
+        let list = |text: &str| numbers(text, "").unwrap_or_default();
+        // shortcut: a search takes the proportions of the weights, while the engine takes those
+        // of the sizes it finds (each rounded up); exact for equal groups, close otherwise
+        let groups = match (self.find_size, list(&self.weights)) {
+            (false, _) => list(&self.n1),
+            (true, weights) if !weights.is_empty() => weights,
+            (true, _) => vec![1.0; list(&self.mean1).len()],
+        };
+        let total: f64 = groups.iter().sum();
+        let smallest = groups.iter().copied().fold(f64::INFINITY, f64::min);
+        let largest = groups.iter().copied().fold(0.0, f64::max);
+        (
+            (2.0 * total / smallest).ceil(),
+            (5000.0 / largest * total).floor().min(2_147_483_647.0),
+        )
     }
 }
 
@@ -766,6 +1113,74 @@ mod tests {
                 d.from[1] = s("0.5");
             }),
             "Power by effect size: give both ends of the range or neither"
+        );
+        assert_eq!(
+            err(OnewayAnova, &|d| {
+                d.n1 = s("8 8");
+                d.sd1 = s("2");
+                d.mean1 = s("3 4 5");
+            }),
+            "give 3 group sizes, one per mean"
+        );
+        assert_eq!(
+            err(OnewayAnova, &|d| {
+                d.find_size = true;
+                d.powers = s("0.8");
+                d.sd1 = s("2");
+                d.mean1 = s("4 4");
+            }),
+            "to find the group sizes, the group means must not all be equal"
+        );
+        assert_eq!(
+            err(OnewayAnova, &|d| {
+                d.n1 = s("6 6 6");
+                d.sd1 = s("2");
+                d.mean1 = s("3 4 5");
+                d.charts[0] = true;
+                d.from[0] = s("4");
+                d.to[0] = s("30");
+            }),
+            "Power by total sample size: the range must lie from 6 to 15000"
+        );
+        // PARTIALOUT raises the least sample size
+        assert_eq!(
+            err(PartialCorr, &|d| {
+                d.n1 = s("8");
+                d.partialout = s("6");
+            }),
+            "the sample size must be a whole number of at least 10"
+        );
+        assert_eq!(
+            err(PearsonOneSample, &|d| {
+                d.find_size = true;
+                d.powers = s("0.8");
+                d.alternative = s("1");
+            }),
+            "to find a sample size, the correlations must lie above -1 and below 1"
+        );
+        assert_eq!(
+            err(UnivariateLinear, &|d| {
+                d.n1 = s("50");
+                d.total_predictors = s("3");
+                d.test_predictors = s("3");
+                d.models = true;
+                d.p1 = s("0.3");
+                d.p2 = s("0.2");
+            }),
+            "with two models, fewer predictors must be tested than the model has"
+        );
+        // settings that do not apply are not written: a side without coefficients, an
+        // adjustment without pairs, weights of given sizes
+        let mut d = PowerAnalysis::new(OnewayAnova);
+        d.n1 = s("5 5");
+        d.sd1 = s("1");
+        d.mean1 = s("2 3");
+        d.directional = true;
+        d.adjust = 2;
+        d.weights = s("0");
+        assert_eq!(
+            d.syntax().unwrap(),
+            "POWER ONEWAY ANOVA\n  /PARAMETERS GROUP_SIZES=5 5 POOLED_SD=1 GROUP_MEANS=2 3."
         );
         // a range of a chart left unchecked, and a timer of the normal approximation, are not
         // checked

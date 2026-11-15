@@ -1,14 +1,19 @@
 //! Drawing of the Power Analysis dialogs.
 
 use crate::app::{choice, field};
-use crate::power_dialog::{POWER_METHODS, PowerAnalysis, PowerKind, needs_marginal, power_charts};
+use crate::power_dialog::{
+    POWER_ADJUSTS, POWER_METHODS, POWER_VARIANCES, PowerAnalysis, PowerKind, needs_marginal,
+    power_charts,
+};
 use crate::stats_dialogs_view::small_field;
 use eframe::egui::{self, Checkbox, Ui};
 
 pub fn power(ui: &mut Ui, d: &mut PowerAnalysis) {
-    let size = match d.pairs() {
-        true => "Find the number of pairs",
-        false => "Find the sample size",
+    let anova = d.kind == PowerKind::OnewayAnova;
+    let size = match (d.pairs(), anova) {
+        (true, _) => "Find the number of pairs",
+        (_, true) => "Find the group sizes",
+        _ => "Find the sample size",
     };
     ui.horizontal(|ui| {
         ui.radio_value(&mut d.find_size, false, "Find the power");
@@ -20,6 +25,13 @@ pub fn power(ui: &mut Ui, d: &mut PowerAnalysis) {
         if d.two_groups() {
             field(ui, "Size of group 2 / size of group 1", &mut d.ratio, 50.0);
         }
+        if anova {
+            field(ui, "Relative group sizes", &mut d.weights, 160.0);
+            ui.weak("One weight from 1 to 100 per group; empty for groups of equal size");
+        }
+    } else if anova {
+        field(ui, "Group sizes", &mut d.n1, 160.0);
+        ui.weak("One whole number of at least 2 per group, in the order of the means");
     } else if d.two_groups() {
         ui.horizontal(|ui| {
             ui.label("Group sizes");
@@ -94,18 +106,62 @@ pub fn power(ui: &mut Ui, d: &mut PowerAnalysis) {
             });
         }
         PowerKind::ProportionsRelated => related(ui, d),
-        // the menu does not offer the other POWER commands yet
-        _ => {}
+        PowerKind::OnewayAnova => {
+            field(ui, "Group means", &mut d.mean1, 160.0);
+            field(ui, "Pooled standard deviation", &mut d.sd1, 60.0);
+        }
+        PowerKind::PartialCorr | PowerKind::PearsonOneSample | PowerKind::SpearmanOneSample => {
+            if d.kind == PowerKind::PartialCorr {
+                field(ui, "Variables held fixed", &mut d.partialout, 50.0);
+            }
+            field(ui, "Null hypothesis correlation", &mut d.null, 60.0);
+            field(ui, "Alternative correlation", &mut d.alternative, 60.0);
+        }
+        PowerKind::UnivariateLinear => regression(ui, d),
+    }
+    // the correlations and the regression need more cases than the other tests
+    let least = d.least_size();
+    if !d.find_size && least > 2 {
+        ui.weak(format!("The sample size must be at least {least}"));
     }
     ui.add_space(6.0);
     egui::CollapsingHeader::new("Test").show(ui, |ui| {
-        ui.horizontal(|ui| {
-            ui.radio_value(&mut d.directional, false, "Two-sided");
-            ui.radio_value(&mut d.directional, true, "One-sided");
-        });
+        if !matches!(d.kind, PowerKind::OnewayAnova | PowerKind::UnivariateLinear) {
+            ui.horizontal(|ui| {
+                ui.radio_value(&mut d.directional, false, "Two-sided");
+                ui.radio_value(&mut d.directional, true, "One-sided");
+            });
+        }
         field(ui, "Significance level", &mut d.significance, 50.0);
-        if d.kind == PowerKind::ProportionsIndependent {
-            choice(ui, "Test", &POWER_METHODS, &mut d.method);
+        match d.kind {
+            PowerKind::ProportionsIndependent => {
+                choice(ui, "Test", &POWER_METHODS, &mut d.method);
+            }
+            PowerKind::PearsonOneSample => {
+                ui.checkbox(&mut d.adjust_bias, "Small-sample bias adjustment");
+            }
+            PowerKind::SpearmanOneSample => {
+                choice(
+                    ui,
+                    "Variance of Fisher's z",
+                    &POWER_VARIANCES,
+                    &mut d.variance,
+                );
+            }
+            PowerKind::UnivariateLinear => {
+                ui.horizontal(|ui| {
+                    ui.label("Predictor values");
+                    ui.radio_value(&mut d.random, false, "Fixed");
+                    ui.radio_value(&mut d.random, true, "Random (normal with the outcome)");
+                });
+            }
+            PowerKind::MeansOneSample
+            | PowerKind::MeansIndependent
+            | PowerKind::MeansRelated
+            | PowerKind::ProportionsOneSample
+            | PowerKind::ProportionsRelated
+            | PowerKind::OnewayAnova
+            | PowerKind::PartialCorr => {}
         }
         if d.proportions() {
             ui.horizontal(|ui| {
@@ -128,6 +184,22 @@ pub fn power(ui: &mut Ui, d: &mut PowerAnalysis) {
             });
         }
     });
+    if anova {
+        egui::CollapsingHeader::new("Contrasts").show(ui, |ui| {
+            field(ui, "Contrast coefficients", &mut d.coefficients, 160.0);
+            ui.weak("One per group, empty for none; the last is changed if they do not sum to 0");
+            ui.add_enabled_ui(!d.coefficients.trim().is_empty(), |ui| {
+                ui.horizontal(|ui| {
+                    ui.radio_value(&mut d.directional, false, "Two-sided");
+                    ui.radio_value(&mut d.directional, true, "One-sided");
+                });
+            });
+            ui.checkbox(&mut d.pairwise, "Compare every pair of groups");
+            ui.add_enabled_ui(d.pairwise, |ui| {
+                choice(ui, "Adjustment", &POWER_ADJUSTS, &mut d.adjust);
+            });
+        });
+    }
     egui::CollapsingHeader::new("Charts").show(ui, |ui| {
         for (i, &(keywords, label, ranged)) in power_charts(d.kind).iter().enumerate() {
             let offered = !needs_marginal(d.kind, keywords) || d.marginal;
@@ -168,6 +240,28 @@ fn one_or_two(
             small_field(ui, true, second);
         }
     });
+}
+
+/// The predictors of a linear regression and the effect of those tested: a partial correlation,
+/// or the R squared of the model with and without them.
+fn regression(ui: &mut Ui, d: &mut PowerAnalysis) {
+    field(ui, "Predictors in the model", &mut d.total_predictors, 50.0);
+    field(ui, "Predictors tested", &mut d.test_predictors, 50.0);
+    ui.horizontal(|ui| {
+        ui.label("Effect");
+        ui.radio_value(&mut d.models, false, "Partial correlation");
+        ui.radio_value(&mut d.models, true, "R squared of two models");
+    });
+    if d.models {
+        ui.horizontal(|ui| {
+            ui.label("R squared with and without the tested predictors");
+            small_field(ui, true, &mut d.p1);
+            small_field(ui, true, &mut d.p2);
+        });
+    } else {
+        field(ui, "Partial correlation", &mut d.partial, 60.0);
+    }
+    ui.checkbox(&mut d.intercept, "The model has an intercept");
 }
 
 /// The values of related proportions: shares of discordant pairs, or success rates with their
