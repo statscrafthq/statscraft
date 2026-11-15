@@ -1851,7 +1851,11 @@ impl<'d> Np<'d> {
         }
         let mut both: Vec<Variable<'d>> = Vec::new();
         for name in names {
-            if let Some(v) = ordinal.iter().chain(&scale).find(|v| v.name() == name) {
+            if let Some(v) = ordinal
+                .iter()
+                .chain(&scale)
+                .find(|v| v.name().eq_ignore_ascii_case(name))
+            {
                 both.push(*v);
             }
         }

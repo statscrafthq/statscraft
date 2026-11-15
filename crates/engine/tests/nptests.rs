@@ -239,7 +239,7 @@ fn two_independent_samples() {
 #[test]
 fn related_samples() {
     let (tables, _) = run("NPTESTS /RELATED TEST(t1 t2 t3 c1 c2 c3).
-         NPTESTS /RELATED TEST(t1 t2) WILCOXON SIGN HODGES_LEHMAN.");
+         NPTESTS /RELATED TEST(T1 t2) WILCOXON SIGN HODGES_LEHMAN.");
     let friedman = table(
         &tables,
         "Related-Samples Friedman's Two-Way Analysis of Variance by Ranks",
