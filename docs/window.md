@@ -29,12 +29,13 @@ With no data given, the program starts with one empty data window, a place to op
 
 ## Exporting data
 
-File > Export data writes `SAVE TRANSLATE`. The file name chosen sets the type: an Excel workbook (.xlsx), a CSV file (.csv) or tab-delimited text (.txt). The dialog offers:
+File > Export data writes `SAVE TRANSLATE`. The file name chosen sets the type: an Excel workbook (.xlsx), a CSV file (.csv), tab-delimited text (.txt) or a Stata file (.dta). The dialog offers:
 
 - a first row of variable names, variable labels or none;
 - value labels instead of values;
 - user-missing values as empty;
-- the variables to export (none chosen: all, in the order of the dataset).
+- the variables to export (none chosen: all, in the order of the dataset);
+- for a Stata file, instead of the first row and value labels: the Stata release that reads it (8 to 14, default 14) and whole strings (`EDITION=SE`, on by default; off, strings are cut at 80 bytes). Value labels go into the file as Stata value labels.
 
 An existing file is replaced once the file dialog has asked.
 
