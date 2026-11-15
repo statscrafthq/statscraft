@@ -18,6 +18,7 @@ mod agreement;
 mod alscal;
 mod anova;
 mod ast;
+mod bayes;
 mod catpca;
 mod cluster;
 mod codebook;
@@ -90,6 +91,8 @@ mod tests;
 #[cfg(test)]
 mod tests_agreement;
 #[cfg(test)]
+mod tests_bayes;
+#[cfg(test)]
 mod tests_complex_samples;
 #[cfg(test)]
 mod tests_coxreg;
@@ -155,6 +158,11 @@ pub use agreement::{FleissKappa, KappaTabulation, WeightedKappa};
 pub use alscal::{Alscal, AlscalLevel};
 pub use anova::{Anova, AnovaList, AnovaMethod, CovariateOrder};
 pub use ast::*;
+pub use bayes::{
+    Bayes, BayesAnalysis, BayesCorrelation, BayesCriteria, BayesData, BayesDistribution,
+    BayesIndependent, BayesOneSample, BayesPair, BayesRelated, GroupSelect, GroupVariancePrior,
+    IndependentFactor, MeanTest, NormalPrior, Success, VariancePrior,
+};
 pub use catpca::{
     Catpca, CatpcaBootstrap, CatpcaPlot, CatpcaPlots, CatpcaPrint, CatpcaVariable, ScalingLevel,
 };

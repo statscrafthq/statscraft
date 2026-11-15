@@ -739,6 +739,24 @@ Choices where the documentation says nothing, and where it is not followed:
 - Percents in the Case Processing Summary are of all cases with a positive weight.
 - OUTFILE writes the overall record first, with the group variable empty, then one record per group, in the order of the table. Variable names: Mean, Median, WgtMean, Minimum, Maximum, Range, StdDev, AAD, PRD, COD, MnCOV, MdCOV, BCOC_1 and on, WCOC_1 and on, and _Lower, _Upper and Median_Coverage for the intervals, each with a label. OUTFILE under SPLIT FILE is an error.
 
+### BAYES
+
+BAYES ONESAMPLE (normal, binomial and Poisson), BAYES RELATED, BAYES INDEPENDENT and BAYES CORRELATION are supported. BAYES ANOVA, BAYES LOGLINEAR, BAYES REGRESSION and BAYES REPEATED are not yet.
+
+Choices where the documentation says nothing, and where it is not followed:
+
+- Tables: a Bayes factor table and a posterior table per command, as ANALYSIS asks; BAYES INDEPENDENT adds group statistics. Every Bayes factor is BF01 (null over alternative) except COMPUTATION=HYPER, which gives BF10 as the formula does; a caption says which. BAYES CORRELATION shows one row per pair of variables instead of a matrix.
+- No charts are drawn yet; MAXPLOTS is checked and has no effect.
+- PRIOR may be left out on BAYES ONESAMPLE and BAYES RELATED: the defaults (flat priors) apply to normal variables. For binomial and Poisson variables a posterior needs TYPE=CONJUGATE and a Bayes factor needs ALTERPRIORPARAM; without them the command stops with an error.
+- A normal variable without a DATA subcommand gets NULLVALUE=0 and no known variance. A variable on two DATA subcommands, or on DATA but not on INFERENCE, is an error.
+- With a known variance, the prior of the mean is the normal one of MEANDIST with its own variance; KAPPA is not used there. MEANDIST=NORMAL with one value is then an error.
+- BAYES RELATED: the difference is the first variable minus the second, and NULLVALUE is subtracted before the t is formed (the paired formula of the algorithms chapter leaves it out).
+- BAYES INDEPENDENT: the difference is group 2 minus group 1, as in the algorithms chapter; the prior mean of GONEN refers to the same direction. LEVEL values that do not occur leave the variable out with a warning. MEANDIST=NORMAL without DATAVAR is ignored with a warning. ROUDER(r) is the scale of the Cauchy prior on the effect size (the formula shows scale 1). GONEN with one value takes it as the variance, with a prior mean of 0.
+- SUCCESS=LAST and FIRST take the highest and lowest value present (strings in byte order). A Poisson variable with values that are not whole numbers 0 or above is left out with a warning. The binomial mode is empty when both posterior shapes are below 1 (two modes at 0 and 1) or both are 1 (a flat posterior).
+- Integrals use adaptive Gauss-Kronrod quadrature (the manual names Gauss-Lobatto) with TOL as the relative error and MAXITER as the largest number of subintervals. METHOD=MCA averages the t likelihood over MCSAMPLES draws of g from its prior, with the congruential generator started at SEED (the time of day for RANDOM).
+- BAYES CORRELATION: the mean, variance and highest-density interval of rho come from quadrature of its posterior density instead of from POSTSAMPLES simulated draws, so they need no seed and hold for every CVALUE. The fractional Bayes factor needs the fraction times N above 1. A pair with fewer than two cases or no spread gets empty cells with a warning.
+- **Beyond the documentation**: DISTRIBUTION=NORMAL is accepted on BAYES RELATED and BAYES INDEPENDENT; LEVEL values may be written as bare words.
+
 ### POWER
 
 All eleven POWER commands are supported: MEANS ONESAMPLE, INDEPENDENT and RELATED, PROPORTIONS ONESAMPLE, INDEPENDENT and RELATED, ONEWAY ANOVA, PEARSON ONESAMPLE, SPEARMAN ONESAMPLE, PARTIALCORR and UNIVARIATE LINEAR.

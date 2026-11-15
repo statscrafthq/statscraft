@@ -196,6 +196,7 @@ pub enum Command {
     MultipleCorrespondence(Box<crate::multiple_correspondence::MultipleCorrespondence>),
     Catpca(Box<crate::catpca::Catpca>),
     Power(Box<crate::power::Power>),
+    Bayes(Box<crate::bayes::Bayes>),
     /// FINISH: the commands after it are not read.
     Finish,
     /// `USE ALL` is None; else the first and last case number, and /PERMANENT.

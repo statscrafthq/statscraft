@@ -4,6 +4,7 @@ use crate::agreement;
 use crate::alscal;
 use crate::anova;
 use crate::ast::Command;
+use crate::bayes;
 use crate::catpca;
 use crate::cluster;
 use crate::codebook;
@@ -1514,6 +1515,101 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         example: "RATIO STATISTICS rent WITH income BY district (DESCENDING)\n\
                   \x20 /PRINT=MEDIAN COD PRD WCOC(10 25) CIN(90).",
         parse: ratio_statistics::ratio_statistics,
+    },
+    CommandSpec {
+        name: "BAYES ONESAMPLE",
+        summary: "Bayesian inference on one mean, proportion or Poisson rate: Bayes factors and posteriors.",
+        syntax: "BAYES ONESAMPLE /INFERENCE DISTRIBUTION=NORMAL | BINOMIAL | POISSON VARIABLES=varlist\n\
+                 \x20                          [ANALYSIS=POSTERIOR | BAYESFACTOR | BOTH]\n\
+                 \x20  [/DATA VARIABLES=sublist [VARIANCE=v] [NULLVALUE=0] [ALTERGVALUE=g]          (NORMAL)\n\
+                 \x20        [SUCCESS=LAST | FIRST | MIDPOINT | CUTPOINT(v) | LEVEL(values)]    (BINOMIAL)\n\
+                 \x20        [NULLPRIORPARAM=2 2] [ALTERPRIORPARAM=a b]] ...         (BINOMIAL, POISSON)\n\
+                 \x20  [/PRIOR [VARDIST=DIFFUSE | INVCHISQ(df scale) | INVGAMMA(shape scale) | JEFFREYS2 | JEFFREYS4]\n\
+                 \x20          [PRECDIST=GAMMA(shape rate) | CHISQ(df)] [MEANDIST=DIFFUSE | NORMAL(mean [variance])]\n\
+                 \x20          [KAPPA=1] [TYPE=CONJUGATE(a b)]]\n\
+                 \x20  [/CRITERIA [CILEVEL=95] [METHOD=AGL | MCA] [SEED=RANDOM | n] [TOL=0.000001] [MAXITER=2000]\n\
+                 \x20             [MCSAMPLES=10000]] [/MISSING SCOPE=ANALYSIS | LISTWISE].\n\
+                 Each variable is analysed alone. A DATA subcommand sets its keywords for the variables of\n\
+                 its sublist; the others keep the defaults. NORMAL: the Bayes factor BF01 weighs a mean of\n\
+                 NULLVALUE against a normal spread of means around it. With a known VARIANCE the spread\n\
+                 is g times that variance (g = ALTERGVALUE, default 1). Without it, a given g fixes the\n\
+                 spread relative to the unknown variance, and no g puts a Cauchy prior on the effect size\n\
+                 (the JZS factor), integrated by adaptive quadrature or, with METHOD=MCA, by MCSAMPLES\n\
+                 draws. The posterior of the mean: from the variance prior with a flat mean prior\n\
+                 (DIFFUSE, JEFFREYS2, JEFFREYS4), or a conjugate normal mean prior centered on the first\n\
+                 value of MEANDIST=NORMAL with KAPPA prior observations (INVCHISQ, INVGAMMA, PRECDIST);\n\
+                 a conjugate prior with MEANDIST=DIFFUSE falls back to VARDIST=DIFFUSE. With a known\n\
+                 variance the mean prior is flat or NORMAL(mean variance). BINOMIAL: SUCCESS picks the\n\
+                 values that count as a success (LAST and FIRST: the highest and lowest value present;\n\
+                 MIDPOINT: from halfway between the smallest and largest value up; CUTPOINT: from the\n\
+                 value up). BF01 compares a beta prior NULLPRIORPARAM with ALTERPRIORPARAM, and the\n\
+                 posterior comes from the beta prior TYPE=CONJUGATE(a b) (both above 0, or 0 0). POISSON:\n\
+                 the same with gamma priors of shape and rate; the values must be counts.\n\
+                 ALTERPRIORPARAM is needed for a Bayes factor and TYPE for a posterior of these two.\n\
+                 Credible intervals have equal tails. Case weights are rounded to whole numbers; a weight\n\
+                 below 0.5 drops the case.",
+        example: "BAYES ONESAMPLE /INFERENCE DISTRIBUTION=NORMAL VARIABLES=commute ANALYSIS=BOTH\n\
+                  \x20 /DATA VARIABLES=commute NULLVALUE=30\n\
+                  \x20 /PRIOR VARDIST=INVGAMMA(3 200) MEANDIST=NORMAL(28) KAPPA=4.",
+        parse: bayes::onesample,
+    },
+    CommandSpec {
+        name: "BAYES RELATED",
+        summary: "Bayesian inference on the mean difference of paired measurements.",
+        syntax: "BAYES RELATED /PAIR VARIABLES=first second [VARIANCE=v] [NULLVALUE=0] [ALTERGVALUE=g]\n\
+                 \x20             [/PAIR ...] [/INFERENCE [ANALYSIS=POSTERIOR | BAYESFACTOR | BOTH]]\n\
+                 \x20             [/PRIOR ...] [/CRITERIA ...] [/MISSING SCOPE=ANALYSIS | LISTWISE].\n\
+                 Each pair is analysed as one sample of differences, first minus second, with the rules of\n\
+                 BAYES ONESAMPLE DISTRIBUTION=NORMAL: NULLVALUE is the difference tested, VARIANCE a known\n\
+                 variance of the differences. PRIOR and CRITERIA take the keywords of BAYES ONESAMPLE except\n\
+                 TYPE. LISTWISE drops a case missing on any variable of any pair.",
+        example: "BAYES RELATED /PAIR VARIABLES=pulse_before pulse_after NULLVALUE=0\n\
+                  \x20 /PAIR VARIABLES=grip_left grip_right /INFERENCE ANALYSIS=BAYESFACTOR.",
+        parse: bayes::related,
+    },
+    CommandSpec {
+        name: "BAYES INDEPENDENT",
+        summary: "Bayesian comparison of the means of two independent groups.",
+        syntax: "BAYES INDEPENDENT /INFERENCE VARIABLES=varlist GROUP=var\n\
+                 \x20                            SELECT=LEVEL(a b) | MIDPOINT | CUTPOINT(v)\n\
+                 \x20                            [ANALYSIS=POSTERIOR | BAYESFACTOR | BOTH] [DATAVAR=v1 v2]\n\
+                 \x20  [/ESTBF COMPUTATION=ROUDER[(1)] | GONEN([0] variance) | HYPER[(-0.75)]]\n\
+                 \x20  [/PRIOR [EQUALDATAVAR=FALSE | TRUE] [VARDIST=DIFFUSE | JEFFREYS | INVCHISQ(df scale)]\n\
+                 \x20          [MEANDIST=DIFFUSE | NORMAL(mean1 mean2 variance1 variance2)]]\n\
+                 \x20  [/CRITERIA [CILEVEL=95] [TOL=0.000001] [MAXITER=2000]] [/MISSING SCOPE=ANALYSIS | LISTWISE].\n\
+                 LEVEL takes the two values of GROUP that form group 1 and group 2; MIDPOINT (the middle of\n\
+                 the range of GROUP) and CUTPOINT put values below the point in group 1 and the rest in\n\
+                 group 2. The difference is group 2 minus group 1. Bayes factors use the pooled t: ROUDER\n\
+                 gives BF01 for a Cauchy prior of that scale on the effect size, GONEN BF01 for a normal\n\
+                 prior with that mean and variance, HYPER BF10 for a hyper-prior with parameter a (above -1,\n\
+                 at most -0.5). The posterior of the difference: with DATAVAR (known variances) normal, from\n\
+                 flat or NORMAL mean priors; else with EQUALDATAVAR=TRUE a t from VARDIST=JEFFREYS or\n\
+                 INVCHISQ, and in all other cases the unequal-variances posterior of flat priors (each\n\
+                 group needs more than five cases). Weights as on BAYES ONESAMPLE.",
+        example: "BAYES INDEPENDENT /INFERENCE VARIABLES=yield GROUP=fertilizer SELECT=LEVEL(1 2)\n\
+                  \x20 ANALYSIS=BOTH /ESTBF COMPUTATION=GONEN(0.5)\n\
+                  \x20 /PRIOR EQUALDATAVAR=TRUE VARDIST=JEFFREYS.",
+        parse: bayes::independent,
+    },
+    CommandSpec {
+        name: "BAYES CORRELATION",
+        summary: "Bayesian inference on the Pearson correlation of every pair of variables.",
+        syntax: "BAYES CORRELATION /INFERENCE VARIABLES=varlist [ANALYSIS=POSTERIOR | BAYESFACTOR | BOTH]\n\
+                 \x20                            [CVALUE=0] [MAXPLOTS=10]\n\
+                 \x20  [/ESTBF [TYPE=JZS | FRACTION[(0.5)]] [NULLVALUE=0]]\n\
+                 \x20  [/CRITERIA [CILEVEL=95] [SEED=RANDOM | n] [TOL=0.0001] [MAXITER=2000] [MCSAMPLES=10000]\n\
+                 \x20             [POSTSAMPLES=10000]] [/MISSING SCOPE=PAIRWISE | LISTWISE].\n\
+                 Every variable is paired with every later one. JZS gives BF01 of a zero correlation\n\
+                 against the default prior of the linear model; FRACTION(b) the fractional Bayes factor\n\
+                 BF01 of NULLVALUE, with the fraction b of the data training the prior (b times N must\n\
+                 exceed 1). A correlation of 1 or -1 gets no Bayes factor. The posterior of rho is\n\
+                 proportional to (1 - rho^2)^CVALUE times the approximate likelihood; its mode, mean,\n\
+                 variance and highest-density interval are computed by quadrature, so SEED and\n\
+                 POSTSAMPLES do not change them. MAXPLOTS, MCSAMPLES and SEED are accepted; no charts are\n\
+                 drawn yet. Weights as on BAYES ONESAMPLE.",
+        example: "BAYES CORRELATION /INFERENCE VARIABLES=sleep_hours focus_score mood ANALYSIS=BOTH\n\
+                  \x20 /ESTBF TYPE=FRACTION(0.4).",
+        parse: bayes::correlation,
     },
     CommandSpec {
         name: "POWER MEANS ONESAMPLE",
