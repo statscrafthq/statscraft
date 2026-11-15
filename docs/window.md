@@ -381,6 +381,10 @@ See [The Window menu](#the-window-menu).
   - Estimates, confidence intervals at any level, model fit, R squared change, descriptives, part and partial correlations, and collinearity diagnostics.
   - Saving predicted values, residuals, distances and influence statistics.
   - The stepping criteria as probabilities or values of F, the constant, and listwise, pairwise or mean substitution of missing values.
+- **Curve Estimation** (`CURVEFIT`): one or more dependent variables on one independent variable or on the case sequence.
+  - Any of the eleven curves, with an upper bound for the logistic one that must lie above every dependent value, and the constant.
+  - An analysis of variance table for each curve, the chart of the curves (on by default) and a variable that labels its points.
+  - Saving predicted values, residuals and prediction intervals at a level of your choice.
 - **Binary Logistic** (`LOGISTIC REGRESSION`): one dependent variable with two values on blocks of covariates.
   - Each block entered, or stepped forward or backward by the conditional, likelihood-ratio or Wald statistic.
   - Categorical covariates, each with its contrast and the first or last category as reference.
@@ -399,6 +403,14 @@ See [The Window menu](#the-window-menu).
   - The tables: goodness of fit, the summary, parameter estimates, the test of parallel lines, cell information, the covariance and correlation of the estimates, the iteration history and the kernel of the log-likelihood.
   - The same saved variables as Multinomial Logistic; the confidence level, the maximum iterations and step-halving, the value added to empty cells, and user-missing values as valid.
   - Custom tests typed as in Linear Mixed Models, where `INTERCEPT` stands for the thresholds. An effect that is in both the location and the scale part needs `ALL`, and then every row of that test uses `ALL`.
+- **Probit** (`PROBIT`): a variable of response counts out of a variable of totals, on covariates and an optional factor with its range of levels.
+  - The probit model, the logit model or both; the covariates as base 10 logarithms (the default), natural logarithms, logarithms of a base you type, or as they are.
+  - The natural response rate: none, estimated from the data, or fixed at a value.
+  - The tables: observed and expected frequencies, effective levels with fiducial limits, relative median potency and the parallelism test.
+  - The convergence criterion, the maximum iterations, the significance below which the limits use the heterogeneity factor, and user-missing values as valid.
+- **Weight Estimation** (`WLS`): one dependent variable on independent variables, each case weighted by the source variable (by default the first independent) to the minus power.
+  - The power as a range (from, to and a step) or a list of values; the one with the largest log-likelihood is used. Left empty, the power is 1.
+  - The constant, the coefficients of the best power or of every power, and saving the best weights.
 
 **Loglinear**
 

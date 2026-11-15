@@ -1629,6 +1629,9 @@ impl App {
                         if ui.button("Linear...").clicked() {
                             self.open_dialog(Dialog::Regression(Default::default()));
                         }
+                        if ui.button("Curve Estimation...").clicked() {
+                            self.open_dialog(Dialog::Advanced(Advanced::Curve(Default::default())));
+                        }
                         if ui.button("Binary Logistic...").clicked() {
                             self.open_dialog(Dialog::Logistic(Default::default()));
                         }
@@ -1638,6 +1641,8 @@ impl App {
                                 Advanced::Multinomial(Default::default()),
                             ),
                             ("Ordinal...", Advanced::Ordinal(Default::default())),
+                            ("Probit...", Advanced::Probit(Default::default())),
+                            ("Weight Estimation...", Advanced::Wls(Default::default())),
                         ] {
                             if ui.button(label).clicked() {
                                 self.open_dialog(Dialog::Advanced(dialog));

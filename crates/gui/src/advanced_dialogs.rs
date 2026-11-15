@@ -3,7 +3,8 @@
 //! Life Tables and Kaplan-Meier (in `survival_dialog`), Cox Regression (in `cox_dialog`), Missing
 //! Value Analysis (in `mva_dialog`), Multiple Imputation (in `imputation_dialog`), Case
 //! Summaries and Codebook (in `reports_dialog`), the Loglinear dialogs (in `loglinear_dialog`), the
-//! kappa and Ratio Statistics dialogs (in `agreement_dialog`) and complex samples dialogs (the
+//! kappa and Ratio Statistics dialogs (in `agreement_dialog`), Curve Estimation, Probit and Weight
+//! Estimation (in `regression_more_dialog`) and complex samples dialogs (the
 //! analysis plan, Descriptives, Frequencies and Crosstabs; the General Linear Model and Logistic
 //! Regression in `cs_model_dialog`). Options left as they are add nothing to the syntax, so the
 //! command runs with its own defaults.
@@ -21,6 +22,7 @@ use crate::mds_dialog::{Alscal, Proxscal};
 use crate::model_dialogs::GLM_ADJUSTMENTS;
 use crate::mva_dialog::MissingValueAnalysis;
 use crate::proximities_dialog::Distances;
+use crate::regression_more_dialog::{CurveEstimation, Probit, WeightEstimation};
 use crate::reports_dialog::{Codebook, Summarize};
 use crate::stats_dialogs::{numeric, parse, percent};
 use crate::survival_dialog::{KaplanMeier, LifeTables};
@@ -63,6 +65,10 @@ pub enum Advanced {
     Fleiss(FleissKappa),
     // boxed: a large dialog
     Ratio(Box<Ratio>),
+    Curve(CurveEstimation),
+    // boxed: a large dialog
+    Probit(Box<Probit>),
+    Wls(WeightEstimation),
 }
 
 impl Advanced {
@@ -96,6 +102,9 @@ impl Advanced {
             Advanced::WeightedKappa(_) => "Weighted Kappa",
             Advanced::Fleiss(_) => "Fleiss Multirater Kappa",
             Advanced::Ratio(_) => "Ratio Statistics",
+            Advanced::Curve(_) => "Curve Estimation",
+            Advanced::Probit(_) => "Probit Analysis",
+            Advanced::Wls(_) => "Weight Estimation",
         }
     }
 
@@ -131,6 +140,9 @@ impl Advanced {
             Advanced::WeightedKappa(_) => Advanced::WeightedKappa(Default::default()),
             Advanced::Fleiss(_) => Advanced::Fleiss(Default::default()),
             Advanced::Ratio(_) => Advanced::Ratio(Default::default()),
+            Advanced::Curve(_) => Advanced::Curve(Default::default()),
+            Advanced::Probit(_) => Advanced::Probit(Default::default()),
+            Advanced::Wls(_) => Advanced::Wls(Default::default()),
         }
     }
 
@@ -173,6 +185,9 @@ impl Advanced {
             Advanced::WeightedKappa(d) => d.syntax(),
             Advanced::Fleiss(d) => d.syntax(data),
             Advanced::Ratio(d) => d.syntax(data),
+            Advanced::Curve(d) => d.syntax(data),
+            Advanced::Probit(d) => d.syntax(data),
+            Advanced::Wls(d) => d.syntax(data),
         }
     }
 }
