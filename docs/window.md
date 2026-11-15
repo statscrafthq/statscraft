@@ -593,6 +593,7 @@ Edit > Settings holds every setting of the window in one dialog, with its sectio
   - **Paper of the grids and the output**: the Data and Variables grids and the output tables. **Always light** (the default) keeps them dark text on a light sheet, as a spreadsheet or a document page does, while menus, panels and dialogs follow the system's dark or light theme. **Follow the system theme** draws them in the system theme too.
   - **Log under Syntax and Output** (on by default).
   - **Variables in tables** (Labels, Names, or Names and labels) and **Values in tables** (Labels, Values, or Values and labels). These belong to the session, not the window. A choice runs `SET TVARS` or `SET TNUMBERS` like any other command, shows in the log and stays for the later runs. A SET in syntax changes the dialog too. The window also keeps the choice (lines such as `tvars names` and `tnumbers both` in `window.txt`) and runs the same SET when it starts, so you set it once.
+  - **Output for multiply imputed data**: Original data, Each imputation, Pooled and Diagnostics, for procedures run on data split by `Imputation_`. A change runs `SET MIOUTPUT=[...]`; at least one part stays checked. Like the table labels it belongs to the session, is kept in `window.txt` (a line such as `mioutput observed pooled`) and is set again when the window starts.
 - **Updates**
   - **Check for updates automatically**: see [Updates](#updates).
 - **AI agents**

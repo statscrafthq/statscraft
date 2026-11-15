@@ -5,7 +5,7 @@
 //! to the AI apps on this computer (connect_window.rs).
 
 use crate::connect_window::Connect;
-use crate::settings::Settings;
+use crate::settings::{MIOUTPUT, Settings};
 use crate::themes;
 use eframe::egui::{self, Align2, ComboBox, Key, Ui, vec2};
 
@@ -36,10 +36,11 @@ impl Section {
     }
 }
 
-/// The session's SET TVARS and TNUMBERS, as SHOW gives them.
+/// The session's SET TVARS, TNUMBERS and MIOUTPUT, as SHOW gives them.
 pub struct TableLabels {
     pub variables: String,
     pub values: String,
+    pub mioutput: String,
 }
 
 /// Each choice: the SET subcommand, its keywords and their names in the dialog.
@@ -108,6 +109,11 @@ pub fn show(
                             changed = true;
                             run = Some(set_syntax(subcommand, keyword));
                         }
+                        if let Some(parts) = imputation_output(ui, &labels.mioutput) {
+                            settings.keep_mioutput(&parts);
+                            changed = true;
+                            run = Some(format!("SET MIOUTPUT=[{parts}]."));
+                        }
                     }
                 });
             });
@@ -151,6 +157,39 @@ fn table_labels(ui: &mut Ui, labels: &TableLabels) -> Option<(&'static str, &'st
     }
     run
 }
+
+/// The parts of output for multiply imputed data; a new choice gives the new keyword list. The
+/// last part checked stays, since the command needs at least one.
+fn imputation_output(ui: &mut Ui, current: &str) -> Option<String> {
+    let upper = current.to_uppercase();
+    let mut on = MIOUTPUT.map(|k| {
+        upper
+            .split(|c: char| !c.is_ascii_alphabetic())
+            .any(|w| w == k)
+    });
+    let before = on;
+    ui.label("Output for multiply imputed data");
+    ui.horizontal_wrapped(|ui| {
+        let checked = on.iter().filter(|o| **o).count();
+        for ((keyword, name), part) in MIOUTPUT.iter().zip(MI_NAMES).zip(on.iter_mut()) {
+            let last = *part && checked == 1;
+            ui.add_enabled(!last, egui::Checkbox::new(part, name))
+                .on_hover_text(format!("SET MIOUTPUT {keyword}"))
+                .on_disabled_hover_text("At least one part is shown");
+        }
+    });
+    (on != before).then(|| {
+        let parts: Vec<&str> = MIOUTPUT
+            .iter()
+            .zip(on)
+            .filter(|(_, o)| *o)
+            .map(|(k, _)| *k)
+            .collect();
+        parts.join(" ")
+    })
+}
+
+const MI_NAMES: [&str; 4] = ["Original data", "Each imputation", "Pooled", "Diagnostics"];
 
 fn set_syntax(subcommand: &str, keyword: &str) -> String {
     format!("SET {subcommand}={keyword}.")
