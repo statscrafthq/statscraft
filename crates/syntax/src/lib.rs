@@ -241,7 +241,7 @@ pub use output_modify::{
     TableCells, letters, roman,
 };
 pub use plum::{Plum, PlumCriteria, PlumLink, PlumPrint, PlumSave};
-pub use power::{Power, PowerKind, PowerPlot, ProportionTest};
+pub use power::{PairwiseAdjust, Power, PowerKind, PowerPlot, ProportionTest, RankVariance};
 pub use pplot::{Pplot, PplotPlot, Roc, TestDistribution};
 pub use preprocess::{FileHandle, MacroState};
 pub use proximities::{Proximities, Standardize};

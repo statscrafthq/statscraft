@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- POWER ONEWAY ANOVA, POWER PEARSON ONESAMPLE, POWER SPEARMAN ONESAMPLE, POWER PARTIALCORR and POWER UNIVARIATE LINEAR: the power, or the sample sizes for one or more powers, of the one-way overall F test with a contrast and pairwise comparisons (Bonferroni, Sidak or unadjusted), of tests of a Pearson, Spearman or partial correlation by Fisher's z, and of the F test of a set of regression predictors, fixed or random. Group sizes follow GROUP_WEIGHTS. Charts as for the other POWER commands. Every POWER command now runs. Checked against a general statistics package. See [POWER ONEWAY ANOVA](docs/commands/power-oneway-anova.md) and the other POWER pages.
 - POWER MEANS ONESAMPLE, INDEPENDENT and RELATED and POWER PROPORTIONS ONESAMPLE, INDEPENDENT and RELATED: the power of a planned t-test, z, chi-square, t, likelihood ratio, Fisher or McNemar test for given sample sizes, or the smallest sample sizes that reach one or more powers, by the normal approximation or exact binomial enumeration, with power curves and surfaces as chart data. No data needed. Checked against a general statistics package. See [POWER MEANS ONESAMPLE](docs/commands/power-means-onesample.md) and the other POWER pages.
 
 ## 0.14.0 (2026-11-15)
