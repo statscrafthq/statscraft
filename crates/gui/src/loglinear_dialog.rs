@@ -80,7 +80,7 @@ impl Default for ModelSelection {
 }
 
 /// A number typed in a field that may be left empty for the default.
-fn optional(text: &str, what: &str) -> Result<Option<f64>, String> {
+pub(crate) fn optional(text: &str, what: &str) -> Result<Option<f64>, String> {
     match text.trim() {
         "" => Ok(None),
         t => parse(t, what).map(Some),
@@ -88,20 +88,20 @@ fn optional(text: &str, what: &str) -> Result<Option<f64>, String> {
 }
 
 /// A check of a criterion's value, and the end of the sentence that says what is valid.
-type Rule = (fn(f64) -> bool, &'static str);
+pub(crate) type Rule = (fn(f64) -> bool, &'static str);
 
-const POSITIVE: Rule = (|v| v > 0.0, "must be above 0");
-const ITERATIONS: Rule = (
+pub(crate) const POSITIVE: Rule = (|v| v > 0.0, "must be above 0");
+pub(crate) const ITERATIONS: Rule = (
     |v| v >= 1.0 && v.fract() == 0.0,
     "must be a whole number of at least 1",
 );
 
 /// A criterion field: keyword, text, default, what it is called and its rule.
-type Criterion<'a> = (&'a str, &'a str, f64, &'a str, Rule);
+pub(crate) type Criterion<'a> = (&'a str, &'a str, f64, &'a str, Rule);
 
 /// Each criterion checked, and added as `KEYWORD(value)` when it holds a value other than the
 /// default; an empty field is the default.
-fn criteria(fields: &[Criterion]) -> Result<String, String> {
+pub(crate) fn criteria(fields: &[Criterion]) -> Result<String, String> {
     let mut out = Vec::new();
     for &(keyword, text, default, what, (valid, rule)) in fields {
         let Some(v) = optional(text, what)? else {

@@ -120,7 +120,7 @@ fn values(text: &str, string: bool) -> Result<String, String> {
 }
 
 /// A typed list of numbers.
-fn numbers(text: &str, what: &str) -> Result<Vec<f64>, String> {
+pub(crate) fn numbers(text: &str, what: &str) -> Result<Vec<f64>, String> {
     items(text, false).map(|t| parse(t, what)).collect()
 }
 

@@ -55,6 +55,9 @@ pub fn body(
         Advanced::WeightedKappa(d) => crate::agreement_dialog_view::weighted_kappa(ui, d, picked),
         Advanced::Fleiss(d) => crate::agreement_dialog_view::fleiss_kappa(ui, d, picked),
         Advanced::Ratio(d) => crate::agreement_dialog_view::ratio(ui, d, picked, folder),
+        Advanced::Curve(d) => crate::regression_more_dialog_view::curve_estimation(ui, d, picked),
+        Advanced::Probit(d) => crate::regression_more_dialog_view::probit(ui, data, d, picked),
+        Advanced::Wls(d) => crate::regression_more_dialog_view::weight_estimation(ui, d, picked),
     }
 }
 
