@@ -1013,6 +1013,7 @@ fn parse(raw: &[u8]) -> Result<Dataset, String> {
             attributes: Vec::new(),
             warnings,
             documents,
+            file: None,
         }),
     })
 }

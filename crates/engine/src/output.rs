@@ -90,6 +90,8 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::DataList(_)
         | Command::MatrixData(_)
         | Command::Report(_)
+        | Command::Summarize(_)
+        | Command::Codebook(_)
         | Command::BeginData(_)
         | Command::AddFiles(_)
         | Command::MatchFiles(_)

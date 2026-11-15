@@ -183,6 +183,8 @@ pub enum Command {
     /// MATRIX with its statements up to END MATRIX.
     Matrix(Box<crate::matrix::MatrixProgram>),
     Report(Box<crate::report::Report>),
+    Summarize(Box<crate::summarize::Summarize>),
+    Codebook(Box<crate::codebook::Codebook>),
     /// FINISH: the commands after it are not read.
     Finish,
     /// `USE ALL` is None; else the first and last case number, and /PERMANENT.

@@ -46,6 +46,8 @@ struct Dictionary {
     warnings: Vec<String>,
     /// Document lines of the file, carried through to the next write.
     documents: Vec<String>,
+    /// The data file the dataset was last read from or saved to, if the engine said so.
+    file: Option<std::path::PathBuf>,
 }
 
 #[derive(Clone, PartialEq)]
@@ -392,6 +394,7 @@ impl Dataset {
                 attributes: Vec::new(),
                 warnings: Vec::new(),
                 documents: Vec::new(),
+                file: None,
             }),
         }
     }
@@ -478,6 +481,11 @@ impl Dataset {
     }
 
     /// Document lines, in file order.
+    /// The data file the dataset was last read from or saved to; see `set_file`.
+    pub fn file(&self) -> Option<&std::path::Path> {
+        self.dict.file.as_deref()
+    }
+
     pub fn documents(&self) -> &[String] {
         &self.dict.documents
     }

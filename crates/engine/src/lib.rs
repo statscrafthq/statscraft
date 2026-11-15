@@ -7,6 +7,7 @@ mod autorecode;
 pub mod chart;
 mod chart_input;
 mod cluster;
+mod codebook;
 mod complex_samples;
 mod contrast;
 mod correlations;
@@ -93,6 +94,7 @@ mod shown;
 mod sort;
 mod split;
 mod star_join;
+mod summarize;
 mod transform;
 mod tree;
 mod ttest;
@@ -619,8 +621,9 @@ impl Engine {
         }
         match command {
             Command::Get { file, options } => {
-                let data =
-                    self.file_options(Dataset::read_sav(self.path(file))?, options, false)?;
+                let path = self.path(file);
+                let mut data = self.file_options(Dataset::read_sav(&path)?, options, false)?;
+                data.set_file(Some(std::path::absolute(&path).unwrap_or(path)));
                 self.park_active();
                 self.dataset = Some(data);
                 self.scratch_assigned.clear();
@@ -638,7 +641,10 @@ impl Engine {
                 self.begin_pass()?;
                 let data = self.file_options(self.active()?.clone(), options, false)?;
                 if !self.dry_run {
-                    data.write_sav(self.path(outfile))?;
+                    let path = self.path(outfile);
+                    data.write_sav(&path)?;
+                    let path = std::path::absolute(&path).unwrap_or(path);
+                    self.active_mut()?.set_file(Some(path));
                 }
                 let before = self.dataset.clone();
                 self.end_pass(before.as_ref());
@@ -755,8 +761,10 @@ impl Engine {
             | Command::Tree(_)
             | Command::Graph(_)
             | Command::Report(_)
+            | Command::Summarize(_)
             | Command::Rank(_)
             | Command::Aggregate(_) => return self.procedure(command),
+            Command::Codebook(command) => return self.codebook(command),
             Command::TimeProgram => {
                 self.time_program = Some(coxreg::TimeProgram {
                     collecting: true,
@@ -1019,6 +1027,7 @@ impl Engine {
             Command::Tree(command) => self.tree(command),
             Command::Graph(command) => self.graph(command),
             Command::Report(command) => self.report(command),
+            Command::Summarize(command) => self.summarize(command),
             Command::Rank(command) => self.rank(command),
             Command::Aggregate(command) => self.aggregate(command).map(|()| Vec::new()),
             Command::List(list) => self.list(list),

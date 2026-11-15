@@ -61,6 +61,9 @@ fn level(p: &mut Parser, what: &str) -> PResult<f64> {
     Ok(value)
 }
 
+/// DEFAULT, and the cells when /CELLS is left out.
+pub(crate) const MEANS_DEFAULT: [M; 3] = [M::Mean, M::Count, M::StdDev];
+
 const MEANS_SUBCOMMANDS: [&str; 4] = ["TABLES", "CELLS", "STATISTICS", "MISSING"];
 
 const MEANS_CELLS: [(&str, &[M]); 23] = [
@@ -85,7 +88,7 @@ const MEANS_CELLS: [(&str, &[M]); 23] = [
     ("SPCT", &[M::Spct]),
     ("HARMONIC", &[M::Harmonic]),
     ("GEOMETRIC", &[M::Geometric]),
-    ("DEFAULT", &[M::Mean, M::Count, M::StdDev]),
+    ("DEFAULT", &MEANS_DEFAULT),
     (
         "ALL",
         &[
@@ -115,7 +118,7 @@ const MEANS_CELLS: [(&str, &[M]); 23] = [
 ];
 
 /// The keywords of MEANS /CELLS; `NPCT(var)` and `SPCT(var)` add the variable to `within`.
-fn means_cells(p: &mut Parser, within: &mut Vec<String>) -> PResult<Vec<M>> {
+pub(crate) fn means_cells(p: &mut Parser, within: &mut Vec<String>) -> PResult<Vec<M>> {
     let mut out = Vec::new();
     while !at_end(p) {
         let found = MEANS_CELLS.iter().find(|(name, _)| p.at_keyword(name));
@@ -180,7 +183,7 @@ pub(crate) fn means(p: &mut Parser) -> PResult<Command> {
             command.tables.push(means_table(p)?);
         } else if p.eat_keyword("CELLS") {
             let chosen = if !p.eat(Punct::Eq) && at_end(p) {
-                vec![M::Mean, M::Count, M::StdDev]
+                MEANS_DEFAULT.to_vec()
             } else {
                 means_cells(p, &mut command.within)?
             };
@@ -224,7 +227,7 @@ pub(crate) fn means(p: &mut Parser) -> PResult<Command> {
     if command.tables.is_empty() {
         return Err(p.unexpected(&["TABLES=dependents BY controls"]));
     }
-    let mut chosen = cells.unwrap_or_else(|| vec![M::Mean, M::Count, M::StdDev]);
+    let mut chosen = cells.unwrap_or_else(|| MEANS_DEFAULT.to_vec());
     let mut seen = Vec::new();
     chosen.retain(|c| {
         let new = !seen.contains(c);

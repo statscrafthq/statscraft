@@ -215,6 +215,7 @@ impl Dataset {
                 attributes: meta.file_attributes.into_iter().collect(),
                 warnings: meta.warnings,
                 documents: meta.notes,
+                file: None,
             }),
         })
     }

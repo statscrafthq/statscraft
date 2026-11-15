@@ -110,6 +110,8 @@ const AREAS: &[(&str, &[&str])] = &[
             "CROSSTABS",
             "MULT RESPONSE",
             "MEANS",
+            "SUMMARIZE",
+            "CODEBOOK",
             "T-TEST",
             "ONEWAY",
             "CORRELATIONS",
