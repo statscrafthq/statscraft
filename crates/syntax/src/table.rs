@@ -1646,6 +1646,109 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: power::proportions_related,
     },
     CommandSpec {
+        name: "POWER ONEWAY ANOVA",
+        summary: "Power or group sizes of a one-way analysis of variance, its contrasts and pairwise comparisons.",
+        syntax: "POWER ONEWAY ANOVA /PARAMETERS [SIGNIFICANCE=0.05]  GROUP_SIZES=n1 n2 ... | POWER=powers\n\
+                 \x20                  POOLED_SD=sd  GROUP_MEANS=m1 m2 ...  [GROUP_WEIGHTS=EQUAL | w1 w2 ...]\n\
+                 \x20                  [/CONTRAST [COEFFICIENTS=c1 c2 ...] [TEST=NONDIRECTIONAL | DIRECTIONAL]\n\
+                 \x20                             [PAIRWISE=FALSE | TRUE] [ADJUST=BONFERRONI | SIDAK | LSD]]\n\
+                 \x20                  [/PLOT [TOTAL_N[(low high)]] [POOLED_SD[(low high)]]\n\
+                 \x20                         [TOTAL_N_XAXIS[(low high)] POOLED_SD_YAXIS[(low high)]]\n\
+                 \x20                         [TOTAL_N_YAXIS[(low high)] POOLED_SD_XAXIS[(low high)]] [VROTATE(10)] [HROTATE(325)]].\n\
+                 Needs no data. Each group has a size (a whole number of at least 2) and a mean; all share\n\
+                 POOLED_SD. The overall F test of equal means gets its power from the noncentral F with J - 1\n\
+                 and N - J df, its effect size being the root mean square standardized effect. COEFFICIENTS\n\
+                 add a test of one contrast (noncentral t, one- or two-sided by TEST); coefficients that do not\n\
+                 add up to 0 are corrected in the last group (the one before it when only the last is not 0),\n\
+                 with a warning. PAIRWISE=TRUE adds a two-sided test of every pair of groups at the significance\n\
+                 level split by Bonferroni, Sidak or not at all (LSD). With POWER each test gets its own sizes:\n\
+                 the total is searched with the groups in the proportions of GROUP_WEIGHTS (each 1 to 100,\n\
+                 equal by default), then every group is rounded up (at least 2); a Group Sizes table lists them.\n\
+                 PLOT charts the overall test: TOTAL_N over the total size with the groups kept in proportion\n\
+                 (default from the smallest total that keeps every group at 2 or more to twice the table's\n\
+                 total), POOLED_SD over the standard deviation (default half to twice the value given), and the\n\
+                 pair of _XAXIS and _YAXIS keywords a surface over both.",
+        example: "POWER ONEWAY ANOVA /PARAMETERS GROUP_MEANS=48 52 57 POOLED_SD=9 POWER=0.85\n\
+                  \x20 GROUP_WEIGHTS=2 1 1 /CONTRAST COEFFICIENTS=-2 1 1 PAIRWISE=TRUE ADJUST=SIDAK.",
+        parse: power::oneway_anova,
+    },
+    CommandSpec {
+        name: "POWER PEARSON ONESAMPLE",
+        summary: "Power or sample size of a test of one Pearson correlation against a hypothesized value.",
+        syntax: "POWER PEARSON ONESAMPLE /PARAMETERS [TEST=NONDIRECTIONAL | DIRECTIONAL] [SIGNIFICANCE=0.05]\n\
+                 \x20                       N=n | POWER=powers  [NULL=0]  ALTERNATIVE=r  [ADJUST_BIAS=TRUE | FALSE]\n\
+                 \x20                       [/PLOT [N[(low high)]] [NULL] [ALTERNATIVE] [DIFF] [N_XAXIS[(low high)] DIFF_YAXIS]\n\
+                 \x20                              [N_YAXIS[(low high)] DIFF_XAXIS] [NULL_XAXIS ALTERNATIVE_YAXIS]\n\
+                 \x20                              [NULL_YAXIS ALTERNATIVE_XAXIS] [VROTATE(10)] [HROTATE(325)]].\n\
+                 Needs no data. The test compares Fisher's z of the sample correlation with that of NULL; its\n\
+                 standard error is 1 / sqrt(N - 3) and the power comes from the normal approximation. N is a\n\
+                 whole number above 3. NULL and ALTERNATIVE lie from -1 to 1; with POWER they lie strictly\n\
+                 inside and differ. ADJUST_BIAS=TRUE (the default) adds the small-sample corrections to the\n\
+                 mean and spread of z; FALSE leaves them out. A one-sided test looks in the direction of\n\
+                 ALTERNATIVE - NULL. PLOT charts power over N, NULL, ALTERNATIVE or DIFF = ALTERNATIVE - NULL\n\
+                 (NULL kept), and surfaces over N and DIFF or NULL and ALTERNATIVE; correlation axes run from\n\
+                 -0.99 to 0.99.",
+        example: "POWER PEARSON ONESAMPLE /PARAMETERS NULL=0.15 ALTERNATIVE=0.4 POWER=0.8 0.9\n\
+                  \x20 /PLOT N.",
+        parse: power::pearson_onesample,
+    },
+    CommandSpec {
+        name: "POWER SPEARMAN ONESAMPLE",
+        summary: "Power or sample size of a test of one Spearman rank correlation against a hypothesized value.",
+        syntax: "POWER SPEARMAN ONESAMPLE /PARAMETERS [TEST=NONDIRECTIONAL | DIRECTIONAL] [SIGNIFICANCE=0.05]\n\
+                 \x20                        N=n | POWER=powers  [NULL=0]  ALTERNATIVE=r  [VARIANCE=BW | FHP | CC]\n\
+                 \x20                        [/PLOT [N[(low high)]] [NULL] [ALTERNATIVE] [DIFF] [N_XAXIS[(low high)] DIFF_YAXIS]\n\
+                 \x20                               [N_YAXIS[(low high)] DIFF_XAXIS] [NULL_XAXIS ALTERNATIVE_YAXIS]\n\
+                 \x20                               [NULL_YAXIS ALTERNATIVE_XAXIS] [VROTATE(10)] [HROTATE(325)]].\n\
+                 Needs no data. As POWER PEARSON ONESAMPLE, with Fisher's z of the rank correlation, whose\n\
+                 variance VARIANCE chooses: BW (Bonett and Wright, the default) (1 + ALTERNATIVE^2 / 2) /\n\
+                 (N - 3); FHP (Fieller, Hartley and Pearson) 1.06 / (N - 3); CC (Caruso and Cliff) 1 / (N - 2)\n\
+                 + |z of ALTERNATIVE| / (6 N + 4 sqrt(N)). N is above 3, above 2 with CC. There is no bias\n\
+                 adjustment.",
+        example: "POWER SPEARMAN ONESAMPLE /PARAMETERS ALTERNATIVE=-0.35 N=45 VARIANCE=CC\n\
+                  \x20 TEST=DIRECTIONAL /PLOT DIFF.",
+        parse: power::spearman_onesample,
+    },
+    CommandSpec {
+        name: "POWER PARTIALCORR",
+        summary: "Power or sample size of a test of one partial correlation against a hypothesized value.",
+        syntax: "POWER PARTIALCORR /PARAMETERS [TEST=NONDIRECTIONAL | DIRECTIONAL] [SIGNIFICANCE=0.05]\n\
+                 \x20                 PARTIALOUT=k  N=n | POWER=powers  [NULL=0]  ALTERNATIVE=r\n\
+                 \x20                 [/PLOT [N[(low high)]] [PARTIALOUT] [NULL] [ALTERNATIVE] [DIFF]\n\
+                 \x20                        [N_XAXIS[(low high)] DIFF_YAXIS] [N_YAXIS[(low high)] DIFF_XAXIS]\n\
+                 \x20                        [NULL_XAXIS ALTERNATIVE_YAXIS] [NULL_YAXIS ALTERNATIVE_XAXIS] [VROTATE(10)] [HROTATE(325)]].\n\
+                 Needs no data. As POWER PEARSON ONESAMPLE with the bias adjustment, for the correlation of two\n\
+                 variables with PARTIALOUT others (a whole number, 0 or more) held fixed: each of them costs one\n\
+                 degree of freedom, so the standard error of z is 1 / sqrt(N - 3 - k) and N must exceed k + 3.\n\
+                 PLOT adds PARTIALOUT, power over the number held fixed (from 0 to N - 4).",
+        example: "POWER PARTIALCORR /PARAMETERS PARTIALOUT=4 ALTERNATIVE=0.3 NULL=0.05 N=120\n\
+                  \x20 /PLOT PARTIALOUT N_XAXIS DIFF_YAXIS.",
+        parse: power::partialcorr,
+    },
+    CommandSpec {
+        name: "POWER UNIVARIATE LINEAR",
+        summary: "Power or sample size of the F test of a set of predictors in a linear regression.",
+        syntax: "POWER UNIVARIATE LINEAR /PARAMETERS [SIGNIFICANCE=0.05] [MODEL=FIXED | RANDOM]  N=n | POWER=powers\n\
+                 \x20                       TOTAL_PREDICTORS=p  TEST_PREDICTORS=q\n\
+                 \x20                       PARTIAL_CORR=r | FULL_MODEL=r2 NESTED_MODEL=r2  [INTERCEPT=TRUE | FALSE]\n\
+                 \x20                       [/PLOT [N[(low high)]] [PARTIAL_CORR] [N_XAXIS[(low high)] PARTIAL_CORR_YAXIS]\n\
+                 \x20                              [N_YAXIS[(low high)] PARTIAL_CORR_XAXIS] [VROTATE(10)] [HROTATE(325)]].\n\
+                 Needs no data. A regression with p predictors (besides the intercept) tests whether q of them\n\
+                 add nothing to the other p - q. The effect is the multiple partial correlation of the outcome\n\
+                 with the q, or comes from the squared multiple correlations of the full and the nested model\n\
+                 as (full - nested) / (1 - nested). The F test has q and N - p - 1 df (N - p without the\n\
+                 intercept). MODEL=FIXED takes the predictor values as fixed: noncentral F with noncentrality\n\
+                 N r^2 / (1 - r^2). RANDOM takes outcome and predictors as jointly normal and uses the exact\n\
+                 distribution of the sample squared multiple partial correlation. q is from 1 to p (below p with\n\
+                 FULL_MODEL); PARTIAL_CORR lies strictly between -1 and 1 and is not 0 with POWER; the squared\n\
+                 correlations lie strictly between 0 and 1, full not below nested (above it with POWER). N is at\n\
+                 least p + 2 (p + 1 without the intercept). PLOT charts power over N and over the partial\n\
+                 correlation (default 0 to 0.99), and a surface over both.",
+        example: "POWER UNIVARIATE LINEAR /PARAMETERS TOTAL_PREDICTORS=7 TEST_PREDICTORS=3 FULL_MODEL=0.31\n\
+                  \x20 NESTED_MODEL=0.24 MODEL=RANDOM POWER=0.8 /PLOT N.",
+        parse: power::univariate_linear,
+    },
+    CommandSpec {
         name: "FACTOR",
         summary: "Factor analysis: principal components and six factoring methods, rotations, factor scores.",
         syntax: "FACTOR VARIABLES=varlist | MATRIX=IN(COR=* | 'file' | COV=* | 'file')\n\
@@ -4115,13 +4218,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
 
 /// Commands of the language that have no parser yet. They get "not supported yet" instead of
 /// "unknown command", and their bodies are not tokenised.
-static UNSUPPORTED: &[&str] = &[
-    "POWER ONEWAY ANOVA",
-    "POWER PARTIALCORR",
-    "POWER PEARSON ONESAMPLE",
-    "POWER SPEARMAN ONESAMPLE",
-    "POWER UNIVARIATE LINEAR",
-];
+static UNSUPPORTED: &[&str] = &[];
 
 /// The ends of blocks whose start reads them, such as END DATA after BEGIN DATA. Standing
 /// alone they are an error at their own line.

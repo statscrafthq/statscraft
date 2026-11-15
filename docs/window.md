@@ -474,6 +474,14 @@ These take typed numbers and no variables, so they open with no data too. Each f
   - Statistics: the table, the row and column profiles, the overviews and the confidence of the row and column points, and permuted tables up to a dimension.
   - Plots: the biplot (not with principal normalization), the row and column points, the transformation plots of the rows and the columns, a longest label and a range of dimensions instead of every pair.
   - Writing the scores or variances to a file (`OUTFILE`) and table data (`TABLE=ALL`) are in the syntax.
+- **Multiple Correspondence** (`MULTIPLE CORRESPONDENCE`): two or more nominal analysis variables, numeric or string, and optional labeling variables that are not analyzed.
+  - Each analysis variable has a weight above 0, a recoding (as coded, a number of groups shaped like a normal curve or with even counts, equal intervals of a width, ranks, or scaled z-scores), a way to handle its missing values (passive, filled with the mode, an extra category or a random category, or leaving the case out) and a supplementary role. A supplementary variable keeps weight 1 and cannot leave cases out, and at least one variable stays active.
+  - Supplementary cases by number, with ranges such as 4-9; at least three cases stay active.
+  - The model: the number of dimensions, variable principal, object principal, symmetrical, independent or a custom normalization from -1 to 1, the most iterations and the convergence criterion. When the data allow fewer dimensions than you ask for, the command computes fewer.
+  - Statistics: correlations of the quantified and of the original variables, descriptives, discrimination measures, the iteration history, category quantifications and object scores, labeled by a variable or by case number and with variables listed beside them.
+  - Plots: object points (labeled by any variable), category points, joint category points, discrimination measures, a biplot of objects and centroids (not with independent normalization), transformation and residual plots for a number of dimensions, a longest label and a range of dimensions. A plot with no variable checked takes every analysis variable.
+  - Saving the quantified variables and the object scores with an optional root, and writing the recoded data, quantified variables or object scores into a data file or a new dataset of their own.
+  - A starting or fixed configuration from a file (`CONFIGURATION`) is in the syntax.
 
 **Scale**
 

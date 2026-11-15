@@ -18,6 +18,19 @@
 //! - Pairs (McNemar): the normal approximation in the difference and sum of the discordant
 //!   shares; exact: the conditional binomial test of the discordant pairs averaged over their
 //!   number.
+//! - One-way analysis of variance: the overall F test has the noncentral F with J - 1 and N - J
+//!   df and noncentrality sum n_j (mean_j - weighted mean)^2 / sd^2; a contrast c has the
+//!   noncentral t with N - J df and noncentrality sum c_j mean_j / (sd sqrt(sum c_j^2 / n_j)); the
+//!   pairwise comparisons are such contrasts, two-sided, at the adjusted significance level.
+//! - Correlations: Fisher's z with the normal approximation. The test statistic has mean delta
+//!   and variance nu under the alternative, the critical values +-z at the null. Without the bias
+//!   adjustment delta is the z difference times sqrt(n - 3 - k) and nu is 1; with it the
+//!   second-order terms in 1 / (n - 1 - k) of the mean and variance of z are added. A rank
+//!   correlation has delta = z difference / sqrt(V) for the chosen variance V and nu = 1.
+//! - Linear regression, q of p predictors tested: F with q and N - p - 1 df (N - p without the
+//!   intercept). Fixed predictors: noncentrality N r^2 / (1 - r^2). Random predictors: the sample
+//!   squared multiple partial correlation is a negative binomial mixture of beta variables, so
+//!   the power is a sum of incomplete beta functions weighted by negative binomial terms.
 //! - Sample size: bisection in the size from 2 (or 1) and 400, doubling the upper end until
 //!   the power is passed, to 1e-9, then rounded up; the second group gets the ratio times the
 //!   unrounded first size, rounded up. One-sided normal approximations of proportions use
@@ -28,11 +41,16 @@
 //! Choices where the manual is silent are listed in docs/differences.md under POWER.
 
 use crate::chart::{Axis, ChartKind};
-use crate::dist::{noncentral_t_cdf, normal_cdf, normal_quantile, t_quantile};
+use crate::dist::{
+    beta_i, f_quantile, ln_gamma, noncentral_f_cdf, noncentral_t_cdf, normal_cdf, normal_quantile,
+    t_quantile,
+};
 use crate::npar_tests::{binomial_cdf, ln_choose};
 use crate::plot::{Plot, Point, PointGroup};
 use crate::{Cell, Chart, Engine, Error, Table};
-use statscraft_syntax::{Power, PowerKind, PowerPlot, ProportionTest};
+use statscraft_syntax::{
+    PairwiseAdjust, Power, PowerKind, PowerPlot, ProportionTest, RankVariance,
+};
 use std::cell::Cell as Flag;
 use std::time::{Duration, Instant};
 
@@ -67,6 +85,24 @@ struct Model {
     pooled: bool,
     continuity: bool,
     binomial: bool,
+    /// ONEWAY ANOVA: the group sizes and means, and the contrast tested (empty for the overall
+    /// F test). `sd1` is the pooled standard deviation.
+    groups: Vec<f64>,
+    means: Vec<f64>,
+    contrast: Vec<f64>,
+    /// Correlations (`p` holds the null and the alternative): the variables partialled out, the
+    /// bias adjustment and the variance of a rank correlation.
+    partialout: f64,
+    bias: bool,
+    variance: RankVariance,
+    /// UNIVARIATE LINEAR: predictors in all and tested, the multiple partial correlation and,
+    /// when given that way, the squared multiple correlations of the full and nested model.
+    predictors: f64,
+    tested: f64,
+    intercept: bool,
+    random: bool,
+    partial: f64,
+    squares: Option<[f64; 2]>,
 }
 
 /// The value of t with `df` exceeded with probability `upper`.
@@ -93,6 +129,53 @@ fn t_power(df: f64, ncp: f64, alpha: f64, two_sided: bool) -> f64 {
     } else {
         1.0 - noncentral_t_cdf(t_upper(alpha, df), df, ncp.abs())
     }
+}
+
+/// P(R^2 > x) for the squared multiple partial correlation R^2 of a test of `u` predictors with
+/// `v` error df, when predictors and outcome are jointly normal with population value `rho2`:
+/// a negative binomial (u + v) / 2, 1 - rho2 mixture of beta (u / 2 + k, v / 2) variables, summed
+/// from the largest weight outwards.
+fn random_r2_upper(x: f64, u: f64, v: f64, rho2: f64) -> f64 {
+    // P(beta(u/2 + k, v/2) > x), which rises to 1 with k
+    let upper = |k: f64| beta_i(v / 2.0, u / 2.0 + k, 1.0 - x);
+    if rho2 <= 0.0 {
+        return upper(0.0);
+    }
+    let h = (u + v) / 2.0;
+    let weight = |k: f64| {
+        (ln_gamma(h + k) - ln_gamma(h) - ln_gamma(k + 1.0) + k * rho2.ln() + h * (1.0 - rho2).ln())
+            .exp()
+    };
+    let top = ((h - 1.0) * rho2 / (1.0 - rho2)).floor().max(0.0);
+    if top + 1.0 == top {
+        return 1.0;
+    }
+    let (mut sum, mut weights) = (0.0, 0.0);
+    for i in 0..=100_000 {
+        let k = top - f64::from(i);
+        let w = weight(k);
+        sum += w * upper(k);
+        weights += w;
+        if k == 0.0 || (i > 5 && w < 1e-17 * weights) {
+            break;
+        }
+    }
+    for i in 1..=100_000 {
+        let k = top + f64::from(i);
+        let w = weight(k);
+        let p = upper(k);
+        if p > 1.0 - 1e-15 {
+            // every later term is its weight alone: they make up the rest of the weight
+            sum += (1.0 - weights).max(0.0);
+            break;
+        }
+        sum += w * p;
+        weights += w;
+        if i > 5 && w < 1e-17 * weights {
+            break;
+        }
+    }
+    sum.clamp(0.0, 1.0)
 }
 
 /// The binomial probabilities of 0 to n successes.
@@ -193,6 +276,105 @@ impl Model {
                     self.pairs_normal()
                 }
             }
+            PowerKind::OnewayAnova => self.anova_power(),
+            PowerKind::PartialCorr | PowerKind::PearsonOneSample | PowerKind::SpearmanOneSample => {
+                self.correlation_power()
+            }
+            PowerKind::UnivariateLinear => self.regression_power(),
+        }
+    }
+
+    fn anova_power(&self) -> f64 {
+        let n: f64 = self.groups.iter().sum();
+        let df = n - self.groups.len() as f64;
+        if self.contrast.is_empty() {
+            let mean = dot(&self.groups, &self.means) / n;
+            let lambda = self
+                .groups
+                .iter()
+                .zip(&self.means)
+                .map(|(g, m)| g * (m - mean).powi(2))
+                .sum::<f64>()
+                / self.sd1.powi(2);
+            let df1 = self.groups.len() as f64 - 1.0;
+            if df <= 0.0 {
+                return f64::NAN;
+            }
+            1.0 - noncentral_f_cdf(f_quantile(self.alpha, df1, df), df1, df, lambda)
+        } else {
+            let spread: f64 = self
+                .contrast
+                .iter()
+                .zip(&self.groups)
+                .map(|(c, g)| c * c / g)
+                .sum();
+            let ncp = dot(&self.contrast, &self.means) / (self.sd1 * spread.sqrt());
+            t_power(df, ncp, self.alpha, self.two_sided)
+        }
+    }
+
+    /// Fisher's z test of a correlation, partial correlation or rank correlation.
+    fn correlation_power(&self) -> f64 {
+        let [r0, r1] = self.p;
+        let n = self.n1;
+        let k = self.partialout;
+        let d = if r0 == r1 {
+            0.0
+        } else {
+            r1.atanh() - r0.atanh()
+        };
+        if d.is_infinite() {
+            // a correlation of 1 or -1 on one side only is told apart for certain
+            return 1.0;
+        }
+        let r2 = r1 * r1;
+        let (delta, nu) = if self.kind == PowerKind::SpearmanOneSample {
+            let v = match self.variance {
+                RankVariance::Bw => (1.0 + r2 / 2.0) / (n - 3.0),
+                RankVariance::Fhp => 1.06 / (n - 3.0),
+                RankVariance::Cc => 1.0 / (n - 2.0) + r1.atanh().abs() / (6.0 * n + 4.0 * n.sqrt()),
+            };
+            (d / v.sqrt(), 1.0)
+        } else if self.bias {
+            let v = 1.0 / (n - 3.0 - k);
+            let l = n - 1.0 - k;
+            let shift = r1 / (2.0 * l)
+                * (1.0
+                    + (5.0 + r2) / (4.0 * l)
+                    + (11.0 + 2.0 * r2 + 3.0 * r2 * r2) / (8.0 * l * l))
+                - r0 / (2.0 * l);
+            let spread =
+                1.0 + (4.0 - r2) / (2.0 * l) + (22.0 - 6.0 * r2 - 3.0 * r2 * r2) / (6.0 * l * l);
+            ((d + shift) / v.sqrt(), spread / (l * v))
+        } else {
+            (d * (n - 3.0 - k).sqrt(), 1.0)
+        };
+        let sd = nu.sqrt();
+        if self.two_sided {
+            let z = z_upper(self.alpha / 2.0);
+            1.0 - normal_cdf((delta + z) / sd) + normal_cdf((delta - z) / sd)
+        } else {
+            let z = z_upper(self.alpha);
+            if r1 >= r0 {
+                normal_cdf((delta - z) / sd)
+            } else {
+                1.0 - normal_cdf((delta + z) / sd)
+            }
+        }
+    }
+
+    fn regression_power(&self) -> f64 {
+        let u = self.tested;
+        let v = self.n1 - self.predictors - if self.intercept { 1.0 } else { 0.0 };
+        if v <= 0.0 {
+            return f64::NAN;
+        }
+        let rho2 = self.partial * self.partial;
+        let f = f_quantile(self.alpha, u, v);
+        if self.random {
+            random_r2_upper(u * f / (u * f + v), u, v, rho2)
+        } else {
+            1.0 - noncentral_f_cdf(f, u, v, self.n1 * rho2 / (1.0 - rho2))
         }
     }
 
@@ -485,8 +667,30 @@ impl Model {
         let mut m = self.clone();
         m.n1 = n1;
         m.n2 = n1 * ratio;
+        if !m.groups.is_empty() {
+            // the groups keep their proportions
+            let total: f64 = self.groups.iter().sum();
+            m.groups = self.groups.iter().map(|g| g * n1 / total).collect();
+        }
         m
     }
+
+    /// The smallest sample size the test allows.
+    fn least_size(&self) -> f64 {
+        match self.kind {
+            PowerKind::ProportionsOneSample => 1.0,
+            PowerKind::PartialCorr => self.partialout + 4.0,
+            PowerKind::PearsonOneSample => 4.0,
+            PowerKind::SpearmanOneSample if self.variance == RankVariance::Cc => 3.0,
+            PowerKind::SpearmanOneSample => 4.0,
+            PowerKind::UnivariateLinear => self.predictors + if self.intercept { 2.0 } else { 1.0 },
+            _ => 2.0,
+        }
+    }
+}
+
+fn dot(a: &[f64], b: &[f64]) -> f64 {
+    a.iter().zip(b).map(|(x, y)| x * y).sum()
 }
 
 /// Bisection for the size where `f` (power minus the target, rising with the size) crosses 0,
@@ -743,8 +947,37 @@ impl Search<'_> {
                 let n = ((z_beta * (pt - pd * pd).sqrt() + z * pt.sqrt()) / pd).powi(2);
                 Some((n.ceil().max(1.0), 0.0))
             }
+            PowerKind::PartialCorr
+            | PowerKind::PearsonOneSample
+            | PowerKind::SpearmanOneSample
+            | PowerKind::UnivariateLinear => {
+                // the starting points of the search as the Algorithms manual gives them
+                let (x1, x2) = match m.kind {
+                    PowerKind::PartialCorr => (m.partialout + 3.0, m.partialout + 400.0),
+                    PowerKind::UnivariateLinear => (m.least_size(), m.predictors + 400.0),
+                    _ => (3.0, 400.0),
+                };
+                bisect(&|n| self.gap(n, target), x1, x2)
+                    .map(|n| (n.ceil().max(m.least_size()), 0.0))
+            }
+            // the groups are searched by anova_sizes
+            PowerKind::OnewayAnova => None,
         }
     }
+}
+
+/// The group sizes of a one-way design with the groups in the proportions `shares` that reach
+/// `target`: the total is searched as a continuous value, then each group is rounded up, to at
+/// least 2. None when no size reaches it.
+fn anova_sizes(m: &Model, shares: &[f64], target: f64) -> Option<Vec<f64>> {
+    let at = |n: f64| {
+        let mut s = m.clone();
+        s.groups = shares.iter().map(|r| r * n).collect();
+        s.power() - target
+    };
+    let j = shares.len() as f64;
+    let root = bisect(&at, 2.0 * j, 2.0 * j + 400.0)?;
+    Some(shares.iter().map(|r| (root * r).ceil().max(2.0)).collect())
 }
 
 fn fail(message: String) -> Error {
@@ -804,15 +1037,36 @@ fn axis_spec(m: &Model, key: &str) -> AxisSpec {
         let v = if v.is_finite() && v > 0.0 { v } else { 1.0 };
         (v.min(1.0) / 2.0, v.max(1.0) * 2.0)
     };
+    let correlation = m.kind.correlation();
     match key {
-        "N" => {
-            let least = if m.kind == PowerKind::ProportionsOneSample {
-                1.0
-            } else {
-                2.0
-            };
-            spec("Sample size", true, size(m.n1, least))
+        "N" => spec("Sample size", true, size(m.n1, m.least_size())),
+        "TOTAL_N" => {
+            let total: f64 = m.groups.iter().sum();
+            let least = anova_total_range(m).0;
+            spec(
+                "Total sample size",
+                true,
+                (least, (2.0 * total).max(least + 10.0).round()),
+            )
         }
+        "POOLED_SD" => spec(
+            "Pooled standard deviation",
+            false,
+            (m.sd1 / 2.0, 2.0 * m.sd1),
+        ),
+        "PARTIALOUT" => spec(
+            "Variables partialled out",
+            true,
+            (0.0, (m.n1 - 4.0).max(0.0)),
+        ),
+        "PARTIAL_CORR" => spec("Multiple partial correlation", false, (0.0, 0.99)),
+        "NULL" if correlation => spec("Null correlation", false, (-0.99, 0.99)),
+        "ALTERNATIVE" if correlation => spec("Alternative correlation", false, (-0.99, 0.99)),
+        "DIFF" if correlation => spec(
+            "Alternative minus null",
+            false,
+            (-0.99 - m.p[0], 0.99 - m.p[0]),
+        ),
         "NPAIRS" => spec("Number of pairs", true, size(m.n1, 2.0)),
         "N1" => spec("Group 1 size", true, size(m.n1, 1.0)),
         "N2" => spec("Group 2 size", true, size(m.n2, 1.0)),
@@ -880,6 +1134,10 @@ fn set(m: &Model, key: &str, v: f64) -> Option<Model> {
     let (moving, base) = if related { (1, 0) } else { (0, 1) };
     match key {
         "N" | "NPAIRS" | "N1" => s.n1 = v,
+        "TOTAL_N" => s = m.sized(v, 0.0),
+        "POOLED_SD" => s.sd1 = v,
+        "PARTIALOUT" => s.partialout = v,
+        "PARTIAL_CORR" => s.partial = v,
         "N2" => s.n2 = v,
         "ES" => {
             s.diff = if m.kind == PowerKind::MeansIndependent && !m.equal {
@@ -921,6 +1179,11 @@ fn set(m: &Model, key: &str, v: f64) -> Option<Model> {
             s.p.iter().all(|p| *p > 0.0 && *p < 1.0)
         }
         PowerKind::ProportionsRelated => feasible_pairs(s.p),
+        PowerKind::OnewayAnova => s.groups.iter().all(|g| *g >= 2.0) && s.sd1 > 0.0,
+        PowerKind::PartialCorr | PowerKind::PearsonOneSample | PowerKind::SpearmanOneSample => {
+            s.p.iter().all(|r| r.abs() <= 1.0) && s.n1 >= s.least_size()
+        }
+        PowerKind::UnivariateLinear => s.partial.abs() < 1.0 && s.n1 >= s.least_size(),
         _ => true,
     };
     ok.then_some(s)
@@ -985,9 +1248,27 @@ fn check_range(m: &Model, key: &str, (low, high): (f64, f64)) -> Result<(), Erro
             return bad(&format!("start at {} or more", axis_spec(m, "N").range.0));
         }
         "N1" | "N2" if low < 1.0 => return bad("start at 1 or more"),
+        "TOTAL_N" => {
+            let (least, most) = anova_total_range(m);
+            if low < least || high > most {
+                return bad(&format!("lie from {least} to {most}"));
+            }
+        }
+        "POOLED_SD" if low <= 0.0 => return bad("be above 0"),
         _ => {}
     }
     Ok(())
+}
+
+/// The totals a TOTAL_N chart may span: every group at least 2 and at most 5000.
+fn anova_total_range(m: &Model) -> (f64, f64) {
+    let total: f64 = m.groups.iter().sum();
+    let smallest = m.groups.iter().copied().fold(f64::INFINITY, f64::min);
+    let largest = m.groups.iter().copied().fold(0.0, f64::max);
+    (
+        (2.0 * total / smallest).ceil(),
+        (5000.0 / largest * total).floor().min(MAX_SIZE),
+    )
 }
 
 fn line_chart(m: &Model, request: &PowerPlot, range: Option<(f64, f64)>) -> Chart {
@@ -1133,6 +1414,18 @@ impl Engine {
             pooled: c.pooled,
             continuity: c.continuity,
             binomial: c.binomial,
+            groups: Vec::new(),
+            means: Vec::new(),
+            contrast: Vec::new(),
+            partialout: c.partialout,
+            bias: c.adjust_bias || c.kind == PowerKind::PartialCorr,
+            variance: c.variance,
+            predictors: c.total_predictors,
+            tested: c.test_predictors,
+            intercept: c.intercept,
+            random: c.random,
+            partial: 0.0,
+            squares: None,
         };
         let mean_difference = match c.mean.as_slice() {
             [d] => *d,
@@ -1185,11 +1478,37 @@ impl Engine {
                     }
                 }
             }
+            PowerKind::OnewayAnova => {
+                model.means = c.mean.clone();
+                model.groups = c.n.clone();
+                if finding {
+                    // the design proportions: GROUP_WEIGHTS, or equal groups
+                    model.groups = if c.weights.is_empty() {
+                        vec![1.0; c.mean.len()]
+                    } else {
+                        c.weights.clone()
+                    };
+                }
+                model.n1 = model.groups.iter().sum();
+                model.sd1 = c.sd[0];
+            }
+            PowerKind::PartialCorr | PowerKind::PearsonOneSample | PowerKind::SpearmanOneSample => {
+                model.p = [c.null.unwrap_or(0.0), c.alternative.unwrap_or(f64::NAN)];
+            }
+            PowerKind::UnivariateLinear => {
+                model.squares = c.full_nested.map(|(full, nested)| [full, nested]);
+                model.partial = match model.squares {
+                    Some([full, nested]) => ((full - nested) / (1.0 - nested)).sqrt(),
+                    None => c.partial_corr.unwrap_or(f64::NAN),
+                };
+            }
         }
         let no_effect = match c.kind {
             PowerKind::MeansOneSample | PowerKind::MeansIndependent | PowerKind::MeansRelated => {
                 model.diff == 0.0
             }
+            PowerKind::OnewayAnova => model.means.iter().all(|m| *m == model.means[0]),
+            PowerKind::UnivariateLinear => model.partial == 0.0,
             _ => model.p[0] == model.p[1],
         };
         if finding && no_effect {
@@ -1197,6 +1516,9 @@ impl Engine {
                 "{name}: with no difference to detect no sample size raises the power above the \
                  significance level"
             )));
+        }
+        if c.kind == PowerKind::OnewayAnova {
+            return self.power_anova(c, model);
         }
         let mut warnings = Vec::new();
         let exact_note = |n: f64, warnings: &mut Vec<String>| {
@@ -1280,12 +1602,19 @@ impl Engine {
         if let Some((Some((n1, n2)), _, _)) = rows.first() {
             (base.n1, base.n2) = (*n1, *n2);
         }
-        let mut charts = Vec::new();
         let sizes: Vec<f64> = rows.iter().filter_map(|r| r.0.map(|s| s.0)).collect();
+        self.power_charts(c, &base, &sizes)?;
+        Ok(vec![table])
+    }
+
+    /// The charts PLOT asks for, around `base`; `sizes` are the sizes found for several powers.
+    fn power_charts(&mut self, c: &Power, base: &Model, sizes: &[f64]) -> Result<(), Error> {
+        let name = c.kind.name();
+        let mut charts = Vec::new();
         for request in &c.plots {
             if c.power.len() > 1 {
                 let size_chart =
-                    request.y.is_none() && matches!(request.x.as_str(), "N" | "NPAIRS");
+                    request.y.is_none() && matches!(request.x.as_str(), "N" | "NPAIRS" | "TOTAL_N");
                 if !size_chart {
                     self.warn(format!(
                         "{name}: with several powers only the sample size chart is drawn; {} is \
@@ -1304,7 +1633,7 @@ impl Engine {
                 let low = sizes.iter().copied().fold(f64::INFINITY, f64::min);
                 let high = sizes.iter().copied().fold(f64::NEG_INFINITY, f64::max);
                 if low.is_finite() {
-                    charts.push(line_chart(&base, request, Some((low, high.max(low + 1.0)))));
+                    charts.push(line_chart(base, request, Some((low, high.max(low + 1.0)))));
                 }
                 continue;
             }
@@ -1312,10 +1641,10 @@ impl Engine {
                 continue;
             }
             if let Some(range) = request.x_range {
-                check_range(&base, &request.x, range)?;
+                check_range(base, &request.x, range)?;
             }
             if let (Some(y), Some(range)) = (&request.y, request.y_range) {
-                check_range(&base, y, range)?;
+                check_range(base, y, range)?;
             }
             let marginal_only = matches!(request.x.as_str(), "CORRELATION" | "MARGINAL");
             if marginal_only && base.marginal.is_none() {
@@ -1328,13 +1657,268 @@ impl Engine {
             let surface =
                 request.y.is_some() || matches!(request.x.as_str(), "DISCORDANT" | "MARGINAL");
             charts.push(if surface {
-                surface_chart(&base, request)
+                surface_chart(base, request)
             } else {
-                line_chart(&base, request, request.x_range)
+                line_chart(base, request, request.x_range)
             });
         }
         self.charts.extend(charts);
-        Ok(vec![table])
+        Ok(())
+    }
+
+    /// POWER ONEWAY ANOVA: the overall test, the contrast and the pairwise comparisons, each
+    /// with its own sizes when they are searched.
+    fn power_anova(&mut self, c: &Power, model: Model) -> Result<Vec<Table>, Error> {
+        let name = c.kind.name();
+        let finding = !c.power.is_empty();
+        let groups = c.mean.len();
+        if c.empty_contrast {
+            self.warn(format!(
+                "{name}: CONTRAST has neither COEFFICIENTS nor PAIRWISE=TRUE and is ignored"
+            ));
+        }
+        let mut overall = model.clone();
+        overall.two_sided = true;
+        let mut tests = vec![("Overall test".to_string(), overall)];
+        if !c.contrast.is_empty() {
+            let mut coefficients = c.contrast.clone();
+            let sum: f64 = coefficients.iter().sum();
+            let scale = coefficients.iter().fold(0.0, |a: f64, v| a.max(v.abs()));
+            if sum.abs() > 1e-10 * scale {
+                // the last coefficient takes up the difference, or the one before it when only
+                // the last is not 0
+                let last = groups - 1;
+                let fix = if coefficients[..last].iter().all(|v| *v == 0.0) {
+                    last - 1
+                } else {
+                    last
+                };
+                coefficients[fix] -= sum;
+                self.warn(format!(
+                    "{name}: the contrast coefficients add up to {sum}, not 0; coefficient {} is \
+                     set to {} so that they do",
+                    fix + 1,
+                    coefficients[fix]
+                ));
+            }
+            let mut m = model.clone();
+            m.contrast = coefficients;
+            tests.push(("Contrast test".to_string(), m));
+        }
+        let mut pairs = Vec::new();
+        if c.pairwise {
+            let comparisons = (groups * (groups - 1)) as f64;
+            let alpha = match c.adjust {
+                PairwiseAdjust::Bonferroni => 2.0 * c.significance / comparisons,
+                PairwiseAdjust::Sidak => 1.0 - (1.0 - c.significance).powf(2.0 / comparisons),
+                PairwiseAdjust::Lsd => c.significance,
+            };
+            for i in 0..groups {
+                for j in i + 1..groups {
+                    let mut m = model.clone();
+                    m.alpha = alpha;
+                    m.two_sided = true;
+                    m.contrast = vec![0.0; groups];
+                    (m.contrast[i], m.contrast[j]) = (1.0, -1.0);
+                    pairs.push((format!("Group {} - Group {}", i + 1, j + 1), m));
+                }
+            }
+        }
+        let total: f64 = model.groups.iter().sum();
+        let shares: Vec<f64> = model.groups.iter().map(|g| g / total).collect();
+        let mut warnings = Vec::new();
+        // per test and power: the group sizes, the power they give, the power asked for
+        let mut solve = |(label, m): &(String, Model)| -> Vec<AnovaRow> {
+            let effect = anova_effect(m);
+            if !finding {
+                return vec![AnovaRow {
+                    label: label.clone(),
+                    groups: Some(m.groups.clone()),
+                    actual: m.power(),
+                    asked: None,
+                    effect,
+                    alpha: m.alpha,
+                }];
+            }
+            c.power
+                .iter()
+                .map(|&target| {
+                    let sizes = anova_sizes(m, &shares, target);
+                    let actual = match &sizes {
+                        Some(sizes) => {
+                            let mut s = m.clone();
+                            s.groups = sizes.clone();
+                            s.power()
+                        }
+                        None => {
+                            warnings.push(format!(
+                                "{name}: no sample size reaches the power {target} ({label})"
+                            ));
+                            f64::NAN
+                        }
+                    };
+                    AnovaRow {
+                        label: label.clone(),
+                        groups: sizes,
+                        actual,
+                        asked: Some(target),
+                        effect,
+                        alpha: m.alpha,
+                    }
+                })
+                .collect()
+        };
+        let main: Vec<AnovaRow> = tests.iter().flat_map(&mut solve).collect();
+        let pairwise: Vec<AnovaRow> = pairs.iter().flat_map(&mut solve).collect();
+        for w in warnings {
+            self.warn(w);
+        }
+        let side = if c.directional {
+            "one-sided, in the direction of the contrast"
+        } else {
+            "two-sided"
+        };
+        let mut caption = "Overall test: power from the noncentral F distribution.".to_string();
+        if !c.contrast.is_empty() {
+            caption.push_str(&format!(
+                " Contrast test: power from the noncentral t distribution, {side}."
+            ));
+        }
+        caption.push_str(" N is the total over the groups.");
+        let mut tables = vec![anova_table(
+            "Power Analysis",
+            &main,
+            model.sd1,
+            finding,
+            caption,
+        )];
+        if !pairwise.is_empty() {
+            let how = match c.adjust {
+                PairwiseAdjust::Bonferroni => "with the Bonferroni adjustment",
+                PairwiseAdjust::Sidak => "with the Sidak adjustment",
+                PairwiseAdjust::Lsd => "without adjustment (LSD)",
+            };
+            tables.push(anova_table(
+                "Pairwise Differences",
+                &pairwise,
+                model.sd1,
+                finding,
+                format!(
+                    "Two-sided tests of each pair of group means, {how}; Sig. is the level each \
+                     test uses. Power from the noncentral t distribution."
+                ),
+            ));
+        }
+        if finding {
+            tables.push(group_sizes_table(main.iter().chain(&pairwise), groups));
+        }
+        // the charts are those of the overall test, from the sizes in the table
+        let mut base = tests[0].1.clone();
+        if let Some(sizes) = &main[0].groups {
+            base.groups = sizes.clone();
+        }
+        base.n1 = base.groups.iter().sum();
+        let totals: Vec<f64> = main
+            .iter()
+            .filter(|r| r.label == "Overall test")
+            .filter_map(|r| r.groups.as_ref().map(|g| g.iter().sum()))
+            .collect();
+        self.power_charts(c, &base, &totals)?;
+        Ok(tables)
+    }
+}
+
+/// One row of a one-way analysis of variance table.
+struct AnovaRow {
+    label: String,
+    groups: Option<Vec<f64>>,
+    actual: f64,
+    asked: Option<f64>,
+    effect: f64,
+    alpha: f64,
+}
+
+/// The effect size of a one-way test: the root mean square standardized effect of the overall
+/// test, the contrast over the standard deviation (unsigned for a two-sided test).
+fn anova_effect(m: &Model) -> f64 {
+    if m.contrast.is_empty() {
+        let total: f64 = m.groups.iter().sum();
+        let mean = dot(&m.groups, &m.means) / total;
+        let squares: f64 = m.means.iter().map(|x| (x - mean).powi(2)).sum();
+        (squares / (m.means.len() as f64 - 1.0)).sqrt() / m.sd1
+    } else {
+        let effect = dot(&m.contrast, &m.means) / m.sd1;
+        if m.two_sided { effect.abs() } else { effect }
+    }
+}
+
+fn anova_table(title: &str, rows: &[AnovaRow], sd: f64, finding: bool, caption: String) -> Table {
+    let mut columns: Vec<String> = if finding {
+        vec!["".into(), "N".into(), "Actual Power".into(), "Power".into()]
+    } else {
+        vec!["".into(), "Power".into(), "N".into()]
+    };
+    columns.extend(["Std. Deviation", "Effect Size", "Sig."].map(String::from));
+    let mut groups = vec![Vec::new(); 3];
+    groups.resize(columns.len(), vec!["Test Assumptions".to_string()]);
+    let rows = rows
+        .iter()
+        .map(|r| {
+            let n = r.groups.as_ref().map_or(f64::NAN, |g| g.iter().sum());
+            let mut row = vec![Cell::Text(r.label.clone())];
+            match r.asked {
+                Some(target) => row.extend([number(n), number(r.actual), number(target)]),
+                None => row.extend([number(r.actual), number(n)]),
+            }
+            row.extend([number(sd), number(r.effect), number(r.alpha)]);
+            row
+        })
+        .collect();
+    let mut caption = caption;
+    if finding {
+        caption.push_str(
+            " The sizes are the smallest that reach the power asked for, with the groups in the \
+             proportions of GROUP_WEIGHTS; Actual Power is the power they give.",
+        );
+    }
+    Table {
+        title: title.into(),
+        row_headers: 1,
+        columns,
+        column_groups: groups,
+        rows,
+        caption: Some(caption),
+        ..Table::default()
+    }
+}
+
+fn group_sizes_table<'a>(rows: impl Iterator<Item = &'a AnovaRow>, groups: usize) -> Table {
+    let mut columns = vec!["".to_string(), "Power".to_string()];
+    columns.extend((1..=groups).map(|g| format!("Group {g}")));
+    columns.push("Total".into());
+    let rows = rows
+        .map(|r| {
+            let mut row = vec![
+                Cell::Text(r.label.clone()),
+                number(r.asked.unwrap_or(f64::NAN)),
+            ];
+            match &r.groups {
+                Some(sizes) => {
+                    row.extend(sizes.iter().map(|g| number(*g)));
+                    row.push(number(sizes.iter().sum()));
+                }
+                None => row.extend(vec![Cell::Empty; groups + 1]),
+            }
+            row
+        })
+        .collect();
+    Table {
+        title: "Group Sizes".into(),
+        row_headers: 1,
+        columns,
+        rows,
+        caption: Some("The group sizes behind each N of the tables above.".into()),
+        ..Table::default()
     }
 }
 
@@ -1369,7 +1953,28 @@ fn power_table(m: &Model, rows: &[(Sizes, f64, Option<f64>)], c: &Power) -> Tabl
             vec!["Std. Deviation 1", "Std. Deviation 2", "Mean Difference"],
             vec![m.sd1, m.sd2, shown_diff],
         ),
-        PowerKind::ProportionsOneSample => (vec!["Null", "Alternative"], m.p.to_vec()),
+        PowerKind::ProportionsOneSample
+        | PowerKind::PearsonOneSample
+        | PowerKind::SpearmanOneSample => (vec!["Null", "Alternative"], m.p.to_vec()),
+        PowerKind::PartialCorr => (
+            vec!["Partialled Out", "Null", "Alternative"],
+            vec![m.partialout, m.p[0], m.p[1]],
+        ),
+        PowerKind::UnivariateLinear => match m.squares {
+            Some([full, nested]) => (
+                vec![
+                    "Total Predictors",
+                    "Test Predictors",
+                    "Full Model R Square",
+                    "Nested Model R Square",
+                ],
+                vec![m.predictors, m.tested, full, nested],
+            ),
+            None => (
+                vec!["Total Predictors", "Test Predictors", "Partial Correlation"],
+                vec![m.predictors, m.tested, m.partial],
+            ),
+        },
         _ => (
             vec!["Risk Difference", "Risk Ratio", "Odds Ratio"],
             comparisons_of(m).to_vec(),
@@ -1393,6 +1998,10 @@ fn power_table(m: &Model, rows: &[(Sizes, f64, Option<f64>)], c: &Power) -> Tabl
         PowerKind::MeansOneSample => "Test of the mean",
         PowerKind::MeansIndependent | PowerKind::MeansRelated => "Test of the mean difference",
         PowerKind::ProportionsOneSample => "Test of the proportion",
+        PowerKind::PearsonOneSample => "Test of the correlation",
+        PowerKind::SpearmanOneSample => "Test of the rank correlation",
+        PowerKind::PartialCorr => "Test of the partial correlation",
+        PowerKind::UnivariateLinear => "F test of the tested predictors",
         _ => "Test of the proportion difference",
     };
     let table_rows = rows
@@ -1420,7 +2029,10 @@ fn power_table(m: &Model, rows: &[(Sizes, f64, Option<f64>)], c: &Power) -> Tabl
             row
         })
         .collect();
-    let mut notes = vec![if m.two_sided {
+    let mut notes = vec![if m.kind == PowerKind::UnivariateLinear {
+        // an F test has no direction
+        String::new()
+    } else if m.two_sided {
         "Two-sided test.".to_string()
     } else {
         "One-sided test.".to_string()
@@ -1490,7 +2102,35 @@ fn power_table(m: &Model, rows: &[(Sizes, f64, Option<f64>)], c: &Power) -> Tabl
             };
             test + how
         }
+        PowerKind::PearsonOneSample | PowerKind::PartialCorr => format!(
+            "Fisher's z with the normal approximation, {} the bias adjustment.",
+            if m.bias { "with" } else { "without" }
+        ),
+        PowerKind::SpearmanOneSample => format!(
+            "Fisher's z with the normal approximation; the variance of z after {}.",
+            match m.variance {
+                RankVariance::Bw => "Bonett and Wright",
+                RankVariance::Fhp => "Fieller, Hartley and Pearson",
+                RankVariance::Cc => "Caruso and Cliff",
+            }
+        ),
+        PowerKind::UnivariateLinear => format!(
+            "{} The model has {}.",
+            if m.random {
+                "Random predictors, jointly normal with the outcome: power from the distribution \
+                 of the squared multiple partial correlation."
+            } else {
+                "Fixed predictors: power from the noncentral F distribution."
+            },
+            if m.intercept {
+                "an intercept"
+            } else {
+                "no intercept"
+            }
+        ),
+        PowerKind::OnewayAnova => String::new(),
     });
+    notes.retain(|n| !n.is_empty());
     if finding {
         notes.push(
             "The sizes are the smallest that reach the power asked for; Actual Power is the \

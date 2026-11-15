@@ -130,6 +130,11 @@ One page per supported command, generated from the same table that the parser an
 | [POWER PROPORTIONS ONESAMPLE](power-proportions-onesample.md) | Power or sample size of a test of one proportion against a hypothesized value. |
 | [POWER PROPORTIONS INDEPENDENT](power-proportions-independent.md) | Power or group sizes of a test comparing two independent proportions. |
 | [POWER PROPORTIONS RELATED](power-proportions-related.md) | Power or number of pairs of McNemar's test of two paired proportions. |
+| [POWER ONEWAY ANOVA](power-oneway-anova.md) | Power or group sizes of a one-way analysis of variance, its contrasts and pairwise comparisons. |
+| [POWER PEARSON ONESAMPLE](power-pearson-onesample.md) | Power or sample size of a test of one Pearson correlation against a hypothesized value. |
+| [POWER SPEARMAN ONESAMPLE](power-spearman-onesample.md) | Power or sample size of a test of one Spearman rank correlation against a hypothesized value. |
+| [POWER PARTIALCORR](power-partialcorr.md) | Power or sample size of a test of one partial correlation against a hypothesized value. |
+| [POWER UNIVARIATE LINEAR](power-univariate-linear.md) | Power or sample size of the F test of a set of predictors in a linear regression. |
 | [FACTOR](factor.md) | Factor analysis: principal components and six factoring methods, rotations, factor scores. |
 | [QUICK CLUSTER](quick-cluster.md) | K-means clustering of cases into a given number of clusters. |
 | [CLUSTER](cluster.md) | Hierarchical clustering of cases by one of 37 proximity measures and seven methods. |
@@ -262,9 +267,3 @@ Functions of expressions (COMPUTE, IF, SELECT IF, DO IF, ELSE IF, LOOP IF, END L
   (NCDF and NPDF: BETA CHISQ F T; SIG: CHISQ F). UNIFORM(max), NORMAL(sd) and the RV functions
   draw random numbers. An argument out of range gives system-missing.
 ```
-
-## Not supported yet
-
-These commands of the language are recognized, but Statscraft does not run them yet. A script that uses one stops with the error "... is not supported yet" at its line, and nothing is changed.
-
-POWER ONEWAY ANOVA, POWER PARTIALCORR, POWER PEARSON ONESAMPLE, POWER SPEARMAN ONESAMPLE, POWER UNIVARIATE LINEAR
