@@ -194,6 +194,7 @@ pub enum Command {
     FleissKappa(Box<crate::agreement::FleissKappa>),
     RatioStatistics(Box<crate::ratio_statistics::RatioStatistics>),
     MultipleCorrespondence(Box<crate::multiple_correspondence::MultipleCorrespondence>),
+    Catpca(Box<crate::catpca::Catpca>),
     Power(Box<crate::power::Power>),
     /// FINISH: the commands after it are not read.
     Finish,

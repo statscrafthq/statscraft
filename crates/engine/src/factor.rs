@@ -904,14 +904,14 @@ fn least_squares(
     (loadings, iterations, test)
 }
 
-struct Rotated {
+pub(crate) struct Rotated {
     /// The pattern matrix.
-    pattern: Matrix,
+    pub(crate) pattern: Matrix,
     /// The factor correlations of an oblique rotation.
-    phi: Option<Matrix>,
+    pub(crate) phi: Option<Matrix>,
     /// The transformation matrix of an orthogonal rotation.
-    transform: Option<Matrix>,
-    iterations: usize,
+    pub(crate) transform: Option<Matrix>,
+    pub(crate) iterations: usize,
 }
 
 /// Kaiser normalization: each row divided by the square root of its communality.
@@ -928,7 +928,7 @@ fn normalized(a: &Matrix, kaiser: bool) -> (Matrix, Vec<f64>) {
     (l, h)
 }
 
-fn orthogonal(
+pub(crate) fn orthogonal(
     a: &Matrix,
     kind: Rotation,
     c: &FactorCriteria,
@@ -1069,7 +1069,12 @@ fn cubic_roots(c3: f64, c2: f64, c1: f64, c0: f64) -> Vec<f64> {
 
 /// Direct oblimin (Jennrich and Sampson): each factor pair (p, q) in turn takes the step that
 /// minimizes the criterion, which is a quartic in the step, as in the manual's cubic for it.
-fn oblimin(a: &Matrix, delta: f64, c: &FactorCriteria, warnings: &mut Vec<String>) -> Rotated {
+pub(crate) fn oblimin(
+    a: &Matrix,
+    delta: f64,
+    c: &FactorCriteria,
+    warnings: &mut Vec<String>,
+) -> Rotated {
     let m = a[0].len();
     let n = a.len() as f64;
     let (mut l, h) = normalized(a, c.kaiser);
@@ -1181,7 +1186,12 @@ fn oblimin(a: &Matrix, delta: f64, c: &FactorCriteria, warnings: &mut Vec<String
 }
 
 /// Promax (Hendrickson and White) from the varimax solution.
-fn promax(a: &Matrix, kappa: f64, c: &FactorCriteria, warnings: &mut Vec<String>) -> Rotated {
+pub(crate) fn promax(
+    a: &Matrix,
+    kappa: f64,
+    c: &FactorCriteria,
+    warnings: &mut Vec<String>,
+) -> Rotated {
     let varimax = orthogonal(a, Rotation::Varimax, c, warnings);
     let lr = &varimax.pattern;
     let m = lr[0].len();
@@ -1239,7 +1249,7 @@ fn promax(a: &Matrix, kappa: f64, c: &FactorCriteria, warnings: &mut Vec<String>
 
 /// The rows of a loading matrix grouped by the factor of their largest absolute loading, each
 /// group in descending order of that loading.
-fn sorted_rows(l: &Matrix) -> Vec<usize> {
+pub(crate) fn sorted_rows(l: &Matrix) -> Vec<usize> {
     let key = |i: usize| -> (usize, f64) {
         let row = &l[i];
         let j = (0..row.len())

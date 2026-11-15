@@ -140,6 +140,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "DISCRIMINANT",
             "CORRESPONDENCE",
             "MULTIPLE CORRESPONDENCE",
+            "CATPCA",
             "LOGISTIC REGRESSION",
             "NOMREG",
             "MVA",

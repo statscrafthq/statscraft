@@ -4,6 +4,7 @@ use crate::agreement;
 use crate::alscal;
 use crate::anova;
 use crate::ast::Command;
+use crate::catpca;
 use crate::cluster;
 use crate::codebook;
 use crate::commands;
@@ -2401,6 +2402,84 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  TRAK_D and the object scores OBSCOD.",
         example: "MULTIPLE CORRESPONDENCE pet garden commute /ANALYSIS=pet garden(WEIGHT=2) commute /DISCRETIZATION=commute(GROUPING NCAT=4) /MISSING=garden(ACTIVE EXTRACAT) /PRINT=DISCRIM QUANT OBJECT((household)) /PLOT=JOINTCAT /SAVE=OBJECT.",
         parse: multiple_correspondence::multiple_correspondence,
+    },
+    CommandSpec {
+        name: "CATPCA",
+        summary: "Categorical principal components: quantify each variable by optimal scaling (spline, ordinal, nominal, multiple nominal or numeric) and reduce them to a few components.",
+        syntax: "CATPCA [/VARIABLES=] varlist\n\
+                 \x20  /ANALYSIS=varlist [([WEIGHT=n] [LEVEL=SPORD | SPNOM | ORDI | NOMI | MNOM | NUME]\n\
+                 \x20                     [DEGREE=2 | n] [INKNOT=2 | n])] [varlist [(...)] ...]\n\
+                 \x20  [/DISCRETIZATION=[varlist [([GROUPING] [NCAT=7 | n] [DISTR=NORMAL | UNIFORM] | [EQINTV=width]\n\
+                 \x20                              | RANKING | MULTIPLYING)] ...]]\n\
+                 \x20  [/MISSING=[varlist | ALL [([PASSIVE] [MODEIMPU | EXTRACAT | RANDIMPU]\n\
+                 \x20                              | ACTIVE [MODEIMPU | EXTRACAT | RANDIMPU] | LISTWISE)] ...]]\n\
+                 \x20  [/SUPPLEMENTARY=[OBJECT(case numbers)] [VARIABLE(varlist)]]\n\
+                 \x20  [/CONFIGURATION=[INITIAL | FIXED]('file' | dataset)] [/DIMENSION=2 | n]\n\
+                 \x20  [/NORMALIZATION=VPRINCIPAL | OPRINCIPAL | SYMMETRICAL | INDEPENDENT | q]\n\
+                 \x20  [/MAXITER=100 | n] [/CRITITER=.00001 | value]\n\
+                 \x20  [/ROTATION=[NOROTATE | VARIMAX | EQUAMAX | QUARTIMAX | PROMAX[(4 | kappa)] | OBLIMIN[(0 | delta)]]\n\
+                 \x20             [KAISER | NOKAISER]]\n\
+                 \x20  [/RESAMPLE=NONE | BOOTSTRAP[(samples, percent, BALANCED | UNBALANCED, PROCRU | REFLEC)]]\n\
+                 \x20  [/PRINT=[DESCRIP[(varlist)]] [LOADING[(SORT | NOSORT)]] [CORR] [VAF] [OCORR] [QUANT[(varlist)]]\n\
+                 \x20         [HISTORY] [OBJECT[([(labelvar)] varlist)]] [NONE]]\n\
+                 \x20  [/PLOT=[OBJECT[(varlist)][(len)]] [LOADING[(varlist [(CENTR[(varlist)])])][(len)]]\n\
+                 \x20        [CATEGORY(varlist)[(len)]] [JOINTCAT[(varlist)][(len)]] [TRANS(var[(n)] ...)[(len)]]\n\
+                 \x20        [RESID(var[(n)] ...)[(len)]] [BIPLOT[(LOADING | CENTR[(varlist)])][(varlist)][(len)]]\n\
+                 \x20        [TRIPLOT[(varlist[(varlist)])][(len)]] [PROJCENTR(var, varlist)[(len)]] [VAF]\n\
+                 \x20        [NDIM(first, last)] [NONE]]\n\
+                 \x20  [/SAVE=[TRDATA[(root[(n)])]] [OBJECT[(root[(n)])]] [APPROX[(root)]]]\n\
+                 \x20  [/OUTFILE=[DISCRDATA('file' | dataset)] [TRDATA('file' | dataset)] [OBJECT('file' | dataset)]\n\
+                 \x20           [APPROX('file' | dataset)]].\n\
+                 Variables are coded as for MULTIPLE CORRESPONDENCE: whole codes from 1, lower codes and\n\
+                 missing values missing, strings coded in sorted order, fractions cut into 7 groups unless\n\
+                 DISCRETIZATION says otherwise; DISCRETIZATION, MISSING, SUPPLEMENTARY, CONFIGURATION, DIMENSION,\n\
+                 MAXITER and CRITITER work as there. Each variable gets a value for each category, chosen so\n\
+                 that the components explain the quantified variables as well as they can. LEVEL says what the\n\
+                 values must respect: NUME equal steps between codes (plain principal components when every\n\
+                 variable is numeric), ORDI the order of the codes, NOMI nothing but the grouping, SPORD (the\n\
+                 default) and SPNOM a smooth curve through the codes, a spline of DEGREE pieces joined at INKNOT\n\
+                 interior knots placed at quantiles of the cases' codes (SPORD keeps it rising), and MNOM a\n\
+                 separate value per component, the centroid of the category's cases. WEIGHT gives a variable\n\
+                 more say. The fit starts from the exact numeric solution (iteration 0), then alternates\n\
+                 quantifications and component scores until the variance accounted for gains less than\n\
+                 CRITITER. An extra category from ACTIVE EXTRACAT is left out of the level's restriction after\n\
+                 iteration 0. The components are then turned to principal axes, and a component is reflected\n\
+                 when its negative loadings have the larger mean square. Supplementary variables are fitted to\n\
+                 the final scores. NORMALIZATION q gives the scores the power (1 + q)/2 of the root of each\n\
+                 eigenvalue and the loadings and multiple nominal centroids the power (1 - q)/2 less one, so\n\
+                 that scores times loadings stay the same: VPRINCIPAL -1 (standard scores, loadings are\n\
+                 correlations), OPRINCIPAL 1, SYMMETRICAL 0; INDEPENDENT scales the scores only. ROTATION turns\n\
+                 the loadings of the variables that have loadings, with Kaiser normalization unless NOKAISER,\n\
+                 and the scores and centroids with them. RESAMPLE=BOOTSTRAP is not supported yet (an error);\n\
+                 ROTATION and RESAMPLE may not both appear. SPLIT FILE does not apply.\n\
+                 Tables: Case Processing Summary, Iteration History (iteration 0 and the last, or all with\n\
+                 HISTORY: variance accounted for, its increase, and the loss split into the centroid part and\n\
+                 the part from holding single variables to a line) and Model Summary (Cronbach's alpha,\n\
+                 eigenvalue and percent of variance per dimension and in total) always; DESCRIP frequencies,\n\
+                 missing count and mode; QUANT per variable the quantification, centroid and vector\n\
+                 coordinates; VAF the variance each variable accounts for, by centroids and by vectors; OCORR\n\
+                 and CORR the correlations of the original and of the quantified variables (one matrix per\n\
+                 dimension when a variable is MNOM), with eigenvalues; OBJECT the component scores; LOADING the\n\
+                 component loadings (SORT groups them by their largest loading), with the rotated loadings and\n\
+                 transformation matrix, or pattern, structure and component correlations after an oblique\n\
+                 rotation. Without PRINT, or with PRINT alone: DESCRIP LOADING CORR.\n\
+                 Charts (OBJECT and LOADING by default): component scores, colored by the categories of each\n\
+                 named variable; loadings, with MNOM centroids after CENTR; category centroids and vectors of\n\
+                 each variable; all centroids together (JOINTCAT); quantification by code (TRANS); quantified\n\
+                 value against its approximation (RESID); scores with loadings or centroids (BIPLOT) or with\n\
+                 both (TRIPLOT), scores and centroids shrunk to the loadings, neither with INDEPENDENT; the\n\
+                 centroids of one variable projected on the loading direction of others (PROJCENTR, also as a\n\
+                 table); bars of each variable's variance accounted for per dimension and in total (VAF). Two\n\
+                 dimensions give one scatter, more a scatterplot matrix, NDIM(a, b) one scatter of a against\n\
+                 each of a+1 to b. A label length of 0 shows values and names instead of labels.\n\
+                 SAVE adds the quantified variables rootK_S (TRA, K the place on ANALYSIS, S the first free set\n\
+                 number; an MNOM variable gives rootK_D_S per dimension D with the root cut to 3 characters),\n\
+                 the scores rootD_S (OBSCO) and the approximations rootK_S (APP: scores times loadings, the\n\
+                 first score for an MNOM variable). Excluded cases and passive missing values are\n\
+                 system-missing. OUTFILE writes the codes (DISCRDATA), TRAK or TRAK_D, OBSCOD and APPK; a file\n\
+                 with no keyword means TRDATA.",
+        example: "CATPCA pace crowd parking shade /ANALYSIS=pace crowd(LEVEL=ORDI) parking(LEVEL=NOMI) shade(LEVEL=SPNOM INKNOT=1) /MISSING=shade(ACTIVE EXTRACAT) /ROTATION=VARIMAX /PRINT=LOADING(SORT) VAF QUANT(parking) /PLOT=BIPLOT TRANS(shade) /SAVE=OBJECT.",
+        parse: catpca::catpca,
     },
     CommandSpec {
         name: "GENLIN",

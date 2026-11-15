@@ -404,6 +404,12 @@ fn bsplines(x: f64, knots: &[f64], degree: usize) -> Vec<f64> {
 /// spaced quantiles of the values. With nonnegative coefficients it holds every increasing
 /// straight line, so it fits at least as well as INTERVAL.
 pub(crate) fn spline_basis(values: &[f64], degree: usize, inknot: usize) -> Matrix {
+    spline_rows(values, &spline_knots(values, degree, inknot), degree)
+}
+
+/// The knots of `spline_basis`: the smallest and largest value repeated `degree` + 1 times,
+/// and `inknot` interior knots at equally spaced quantiles of the values.
+pub(crate) fn spline_knots(values: &[f64], degree: usize, inknot: usize) -> Vec<f64> {
     let mut sorted: Vec<f64> = values.to_vec();
     sorted.sort_by(f64::total_cmp);
     let (lo, hi) = (sorted[0], sorted[sorted.len() - 1]);
@@ -415,10 +421,15 @@ pub(crate) fn spline_basis(values: &[f64], degree: usize, inknot: usize) -> Matr
         knots.push(v.clamp(lo, hi));
     }
     knots.extend(std::iter::repeat_n(hi, degree + 1));
-    values
+    knots
+}
+
+/// The rows of the monotone spline basis on `knots` at each of `points`.
+pub(crate) fn spline_rows(points: &[f64], knots: &[f64], degree: usize) -> Matrix {
+    points
         .iter()
         .map(|&x| {
-            let b = bsplines(x, &knots, degree);
+            let b = bsplines(x, knots, degree);
             std::iter::once(1.0)
                 .chain((1..b.len()).map(|j| b[j..].iter().sum()))
                 .collect()
