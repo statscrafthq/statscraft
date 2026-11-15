@@ -187,6 +187,9 @@ pub enum Command {
     Report(Box<crate::report::Report>),
     Summarize(Box<crate::summarize::Summarize>),
     Codebook(Box<crate::codebook::Codebook>),
+    WeightedKappa(Box<crate::agreement::WeightedKappa>),
+    FleissKappa(Box<crate::agreement::FleissKappa>),
+    RatioStatistics(Box<crate::ratio_statistics::RatioStatistics>),
     /// FINISH: the commands after it are not read.
     Finish,
     /// `USE ALL` is None; else the first and last case number, and /PERMANENT.

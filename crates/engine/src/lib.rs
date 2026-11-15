@@ -1,6 +1,7 @@
 //! Executes parsed commands on a dataset and returns result tables.
 
 mod aggregate;
+mod agreement;
 mod alscal;
 mod anova;
 mod autorecode;
@@ -82,6 +83,7 @@ mod proxscal;
 mod quick_cluster;
 mod random;
 mod rank;
+mod ratio_statistics;
 mod recode;
 mod regression;
 mod reliability;
@@ -737,6 +739,9 @@ impl Engine {
             | Command::Examine(_)
             | Command::Regression(_)
             | Command::Reliability(_)
+            | Command::WeightedKappa(_)
+            | Command::FleissKappa(_)
+            | Command::RatioStatistics(_)
             | Command::Factor(_)
             | Command::QuickCluster(_)
             | Command::Logistic(_)
@@ -1003,6 +1008,9 @@ impl Engine {
             Command::Examine(command) => self.examine(command),
             Command::Regression(command) => self.regression(command),
             Command::Reliability(command) => self.reliability(command),
+            Command::WeightedKappa(command) => self.weighted_kappa(command),
+            Command::FleissKappa(command) => self.fleiss_kappa(command),
+            Command::RatioStatistics(command) => self.ratio_statistics(command),
             Command::Factor(command) => self.factor(command),
             Command::QuickCluster(command) => self.quick_cluster(command),
             Command::Logistic(command) => self.logistic(command),

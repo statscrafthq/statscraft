@@ -665,6 +665,26 @@ Choices where the documentation says nothing:
 - With ICC MODEL(MIXED), the average measures are computed as if there were no interaction, with a caption saying so.
 - Cases with a zero or missing weight are not counted in the Case Processing Summary.
 
+### WEIGHTED KAPPA and FLEISS MULTIRATER KAPPA
+
+- Case weights are rounded to whole numbers, and a weight of 0.5 or less drops the case. The manual says so for FLEISS MULTIRATER KAPPA; WEIGHTED KAPPA does the same, as its counts are whole numbers.
+- The confidence interval is kappa plus and minus the normal quantile at 1/2 + level/200 times the asymptotic standard error. The FLEISS MULTIRATER KAPPA formula prints 1 - level/200, which would not give a two-sided interval; its example table agrees with 1/2 + level/200.
+- MISSING CLASSMISSING=INCLUDE makes user-missing values valid; system-missing values always drop the case or pair.
+- WEIGHTED KAPPA: values are used as they are (FLEISS MULTIRATER KAPPA cuts fractions, as documented). String values lose trailing blanks. The kappa table adds the number of cases of each pair. A pair of a numeric and a string variable, or with fewer than two cases or one category, is skipped with a warning. With two lists, a variable on both lists gives two pairs, one for each order.
+- FLEISS MULTIRATER KAPPA: the raters must all be numeric or all string, and a variable may be named once; anything else is an error. A category shows with the value label that the first rater's variable gives it.
+- **Beyond the documentation**: WEIGHTED KAPPA also accepts a leading VARIABLES=, as FLEISS MULTIRATER KAPPA does.
+
+### RATIO STATISTICS
+
+- Case weights are rounded to the nearest whole number, halves up, as the syntax chapter says (the algorithms chapter speaks of truncation). A case needs a numerator and a denominator above 0, as the algorithms chapter requires.
+- Groups include missing values of the group variable, system-missing sorting first in ascending order. Groups are formed from the cases used.
+- MDCOV divides the squared distances from the median by N - 1, like the standard deviation.
+- The weighted mean's interval uses t with N - 1 df like the mean's. The variances of the means of numerators and denominators divide by N, counting a frequency weight as repeated cases; the manual's sum of squared weights over N squared gives the same with unit weights.
+- The median's interval is the distribution-free one, with its actual coverage. When even the smallest and largest ratios do not reach the level (five or fewer ratios at 95%), the interval is empty.
+- BCOC intervals include both ends; WCOC counts the ratios from (1 - g) times to (1 + g) times the median.
+- Percents in the Case Processing Summary are of all cases with a positive weight.
+- OUTFILE writes the overall record first, with the group variable empty, then one record per group, in the order of the table. Variable names: Mean, Median, WgtMean, Minimum, Maximum, Range, StdDev, AAD, PRD, COD, MnCOV, MdCOV, BCOC_1 and on, WCOC_1 and on, and _Lower, _Upper and Median_Coverage for the intervals, each with a label. OUTFILE under SPLIT FILE is an error.
+
 ### FACTOR
 
 - Standard deviations and covariances divide by W - 1. LISTWISE leaves out a case missing on any variable of VARIABLES, also one that is not on ANALYSIS. EXTRACTION without ROTATION leaves the factors unrotated. The default power of PROMAX is 4. Rotated factors are ordered by their sums of squared loadings (GNU PSPP differs).

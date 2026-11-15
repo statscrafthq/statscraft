@@ -14,6 +14,7 @@
 //!   Reserved words (AND, OR, NOT, EQ, NE, LT, LE, GT, GE, TO, ALL, BY, WITH) may not.
 //! - Names are kept as written; comparing them case-insensitively is the caller's job.
 
+mod agreement;
 mod alscal;
 mod anova;
 mod ast;
@@ -66,6 +67,7 @@ mod procedures;
 mod proximities;
 mod proxscal;
 mod rank;
+mod ratio_statistics;
 mod regression;
 mod reliability;
 mod report;
@@ -80,6 +82,8 @@ mod survival;
 mod table;
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_agreement;
 #[cfg(test)]
 mod tests_complex_samples;
 #[cfg(test)]
@@ -138,6 +142,7 @@ mod tests_session;
 mod tests_survival;
 mod tree;
 
+pub use agreement::{FleissKappa, KappaTabulation, WeightedKappa};
 pub use alscal::{Alscal, AlscalLevel};
 pub use anova::{Anova, AnovaList, AnovaMethod, CovariateOrder};
 pub use ast::*;
@@ -237,6 +242,7 @@ pub use proxscal::{
     ProxShape, ProxTransformation, Proxscal, ProxscalOutfile, ProxscalPlot, ProxscalPrint,
     ProxscalTable, ScalingModel, ScalingStart,
 };
+pub use ratio_statistics::{RatioOrder, RatioRequest, RatioStatistics};
 pub use regression::{
     Casewise, Criterion, MethodKind, PlotVariable, Regression, RegressionCriteria,
     RegressionDescriptives, RegressionMethod, RegressionMissing, RegressionResiduals,
