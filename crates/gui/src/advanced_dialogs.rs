@@ -1,7 +1,8 @@
 //! The Ordinal Regression, Multinomial Logistic Regression, Linear Mixed Models, Generalized
 //! Linear Models (in `genlin_dialog`), Correspondence Analysis (in `correspondence_dialog`),
 //! Life Tables and Kaplan-Meier (in `survival_dialog`), Cox Regression (in `cox_dialog`), Missing
-//! Value Analysis (in `mva_dialog`), Multiple Imputation (in `imputation_dialog`) and
+//! Value Analysis (in `mva_dialog`), Multiple Imputation (in `imputation_dialog`), Case
+//! Summaries and Codebook (in `reports_dialog`) and
 //! complex samples dialogs (the
 //! analysis plan, Descriptives, Frequencies and Crosstabs; the General Linear Model and Logistic
 //! Regression in `cs_model_dialog`). Options left as they are add nothing to the syntax, so the
@@ -18,6 +19,7 @@ use crate::mds_dialog::{Alscal, Proxscal};
 use crate::model_dialogs::GLM_ADJUSTMENTS;
 use crate::mva_dialog::MissingValueAnalysis;
 use crate::proximities_dialog::Distances;
+use crate::reports_dialog::{Codebook, Summarize};
 use crate::stats_dialogs::{numeric, parse, percent};
 use crate::survival_dialog::{KaplanMeier, LifeTables};
 use crate::syntax_text::{names, number, quote, value};
@@ -48,6 +50,9 @@ pub enum Advanced {
     Mva(Box<MissingValueAnalysis>),
     // boxed: a large dialog
     Imputation(Box<Imputation>),
+    // boxed: a large dialog
+    Summarize(Box<Summarize>),
+    Codebook(Codebook),
 }
 
 impl Advanced {
@@ -73,6 +78,8 @@ impl Advanced {
             Advanced::Mva(_) => "Missing Value Analysis",
             Advanced::Imputation(d) if d.patterns_only => "Analyze Patterns",
             Advanced::Imputation(_) => "Impute Missing Data Values",
+            Advanced::Summarize(_) => "Case Summaries",
+            Advanced::Codebook(_) => "Codebook",
         }
     }
 
@@ -101,6 +108,8 @@ impl Advanced {
             Advanced::Imputation(d) => {
                 Advanced::Imputation(Box::new(Imputation::new(d.patterns_only)))
             }
+            Advanced::Summarize(_) => Advanced::Summarize(Default::default()),
+            Advanced::Codebook(_) => Advanced::Codebook(Default::default()),
         }
     }
 
@@ -136,6 +145,8 @@ impl Advanced {
             Advanced::Cox(d) => d.syntax(data),
             Advanced::Mva(d) => d.syntax(data),
             Advanced::Imputation(d) => d.syntax(data),
+            Advanced::Summarize(d) => d.syntax(),
+            Advanced::Codebook(d) => d.syntax(),
         }
     }
 }

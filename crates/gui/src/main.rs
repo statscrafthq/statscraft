@@ -42,6 +42,8 @@ mod output;
 mod output_view;
 mod proximities_dialog;
 mod proximities_dialog_view;
+mod reports_dialog;
+mod reports_dialog_view;
 mod settings;
 mod settings_window;
 mod stats_dialogs;

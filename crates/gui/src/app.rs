@@ -1532,6 +1532,16 @@ impl App {
             });
             ui.menu_button("Analyze", |ui| {
                 ui.add_enabled_ui(has_data, |ui| {
+                    ui.menu_button("Reports", |ui| {
+                        for (label, dialog) in [
+                            ("Codebook...", Advanced::Codebook(Default::default())),
+                            ("Case Summaries...", Advanced::Summarize(Default::default())),
+                        ] {
+                            if ui.button(label).clicked() {
+                                self.open_dialog(Dialog::Advanced(dialog));
+                            }
+                        }
+                    });
                     ui.menu_button("Descriptive Statistics", |ui| {
                         for (label, dialog) in [
                             ("Frequencies...", Dialog::Frequencies(Default::default())),
@@ -3444,7 +3454,10 @@ impl App {
                     if !matches!(dialog, Dialog::SortVariables(_) | Dialog::ImportData(_)) {
                         ui.vertical(|ui| {
                             ui.set_width(230.0);
-                            let sets = matches!(dialog, Dialog::CustomTables(..));
+                            let sets = matches!(
+                                dialog,
+                                Dialog::CustomTables(..) | Dialog::Advanced(Advanced::Codebook(_))
+                            );
                             let list = (height - 90.0).clamp(80.0, 320.0);
                             let (filter, picked) = (&mut self.filter, &mut self.picked);
                             variable_picker(ui, data, sets, filter, picked, list);
@@ -5004,6 +5017,62 @@ pub(crate) fn field(ui: &mut Ui, label: &str, text: &mut String, width: f32) {
     });
 }
 
+/// The Means dialog: dependents, layers of control variables, cell statistics and the
+/// analysis of variance; Case Summaries shows the same.
+pub(crate) fn means_body(ui: &mut Ui, d: &mut Means, picked: &mut Vec<String>) {
+    target_list(ui, "Dependent variables", &mut d.dependents, picked);
+    ui.horizontal(|ui| {
+        let count = d.layers.len();
+        ui.label(format!("Layer {} of {count}", d.layer + 1));
+        if ui
+            .add_enabled(d.layer > 0, egui::Button::new("Previous").small())
+            .clicked()
+        {
+            d.layer -= 1;
+        }
+        let can_add = !d.layers[d.layer].is_empty();
+        if ui
+            .add_enabled(
+                d.layer + 1 < count || can_add,
+                egui::Button::new("Next").small(),
+            )
+            .clicked()
+        {
+            d.layer += 1;
+            if d.layer == count {
+                d.layers.push(Vec::new());
+            }
+        }
+    });
+    target_list(
+        ui,
+        "Group by (control variables)",
+        &mut d.layers[d.layer],
+        picked,
+    );
+    ui.add_space(6.0);
+    ui.strong("Statistics");
+    checkboxes(ui, &MEANS_CELLS, &mut d.cells);
+    let controls: Vec<String> = d.layers.iter().flatten().cloned().collect();
+    ui.horizontal(|ui| {
+        ui.checkbox(&mut d.npct_within, "Percent of cases");
+        ui.checkbox(&mut d.spct_within, "Percent of sum, within");
+        ComboBox::new("within", "")
+            .selected_text(if d.within.is_empty() {
+                "a control variable"
+            } else {
+                &d.within
+            })
+            .show_ui(ui, |ui| {
+                for name in &controls {
+                    ui.selectable_value(&mut d.within, name.clone(), name);
+                }
+            });
+    });
+    ui.checkbox(&mut d.anova, "Analysis of variance and eta (Layer 1)");
+    ui.checkbox(&mut d.linearity, "Test for linearity");
+}
+
 /// A list to choose one of `options` by its label, with a label in front, on one line.
 pub(crate) fn choice(ui: &mut Ui, label: &str, options: &[(&str, &str)], index: &mut usize) {
     ui.horizontal(|ui| {
@@ -5248,59 +5317,7 @@ fn dialog_body(
                 }
             });
         }
-        Dialog::Means(d) => {
-            target_list(ui, "Dependent variables", &mut d.dependents, picked);
-            ui.horizontal(|ui| {
-                let count = d.layers.len();
-                ui.label(format!("Layer {} of {count}", d.layer + 1));
-                if ui
-                    .add_enabled(d.layer > 0, egui::Button::new("Previous").small())
-                    .clicked()
-                {
-                    d.layer -= 1;
-                }
-                let can_add = !d.layers[d.layer].is_empty();
-                if ui
-                    .add_enabled(
-                        d.layer + 1 < count || can_add,
-                        egui::Button::new("Next").small(),
-                    )
-                    .clicked()
-                {
-                    d.layer += 1;
-                    if d.layer == count {
-                        d.layers.push(Vec::new());
-                    }
-                }
-            });
-            target_list(
-                ui,
-                "Group by (control variables)",
-                &mut d.layers[d.layer],
-                picked,
-            );
-            ui.add_space(6.0);
-            ui.strong("Statistics");
-            checkboxes(ui, &MEANS_CELLS, &mut d.cells);
-            let controls: Vec<String> = d.layers.iter().flatten().cloned().collect();
-            ui.horizontal(|ui| {
-                ui.checkbox(&mut d.npct_within, "Percent of cases");
-                ui.checkbox(&mut d.spct_within, "Percent of sum, within");
-                ComboBox::new("within", "")
-                    .selected_text(if d.within.is_empty() {
-                        "a control variable"
-                    } else {
-                        &d.within
-                    })
-                    .show_ui(ui, |ui| {
-                        for name in &controls {
-                            ui.selectable_value(&mut d.within, name.clone(), name);
-                        }
-                    });
-            });
-            ui.checkbox(&mut d.anova, "Analysis of variance and eta (Layer 1)");
-            ui.checkbox(&mut d.linearity, "Test for linearity");
-        }
+        Dialog::Means(d) => means_body(ui, d, picked),
         Dialog::TTest(d) => match d.kind {
             TTestKind::OneSample => {
                 target_list(ui, "Test variables", &mut d.variables, picked);

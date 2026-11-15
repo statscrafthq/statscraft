@@ -46,6 +46,8 @@ pub fn body(
         Advanced::Cox(d) => crate::cox_dialog_view::cox(ui, data, d, picked),
         Advanced::Mva(d) => crate::mva_dialog_view::mva(ui, d, picked, folder),
         Advanced::Imputation(d) => crate::imputation_dialog_view::imputation(ui, d, picked, folder),
+        Advanced::Summarize(d) => crate::reports_dialog_view::summarize(ui, d, picked),
+        Advanced::Codebook(d) => crate::reports_dialog_view::codebook(ui, d, picked),
     }
 }
 

@@ -288,6 +288,11 @@ See [The Window menu](#the-window-menu).
 
 ### Analyze
 
+**Reports**
+
+- **Codebook** (`CODEBOOK`): chosen variables and multiple response sets, or all of them when the list is empty. Which parts of each variable's entry to show, a table about the data file, the statistics (none checked writes `STATISTICS=NONE`), the most values a table lists, and the order of the tables (as listed, file order, by name, by measurement level or by a custom attribute), ascending or descending.
+- **Case Summaries** (`SUMMARIZE`): the variables, layers of grouping variables, cell statistics and analysis of variance as in Means. Listing the cases (only the valid ones if you like), using only the first cases, numbering them and a text for system-missing values; unlabeled total rows, leaving out a case missing on any variable, a title and a footnote. The cases are not listed unless you ask, as with the bare command.
+
 **Descriptive Statistics**
 
 - **Frequencies**: statistics, the order of the rows, a limit on the values of a table, quartiles, cut points for equal groups and any percentiles.
