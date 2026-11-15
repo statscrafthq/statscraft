@@ -147,7 +147,7 @@ fn weighted_kappa_linear_and_quadratic() {
 fn weighted_kappa_pairs_and_tabulation() {
     // one list: every pair once; BY: row by column, never a variable with itself
     let (tables, warnings) = run(&format!(
-        "{PAIN}WEIGHTED KAPPA nurse_a nurse_b doctor /PRINT TABULATION(nurse_a BY nurse_b) ORDER(DESCENDING)."
+        "{PAIN}WEIGHTED KAPPA nurse_a nurse_b doctor /PRINT TABULATION(nurse_b BY nurse_a) ORDER(DESCENDING)."
     ));
     let t = titled(&tables, "Weighted Kappa");
     assert_eq!(texts(t, 0), ["nurse_a - nurse_b"]);

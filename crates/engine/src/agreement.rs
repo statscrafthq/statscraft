@@ -274,7 +274,11 @@ impl Engine {
                 let c = self.tabulation_subset(c, column_list.1, column_list.0)?;
                 pairs
                     .iter()
-                    .map(|(a, b)| r.contains(a) && c.contains(b))
+                    // with one list a pair runs one way only, so either order names it
+                    .map(|(a, b)| {
+                        (r.contains(a) && c.contains(b))
+                            || (columns.is_none() && r.contains(b) && c.contains(a))
+                    })
                     .collect()
             }
         };
