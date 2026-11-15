@@ -613,13 +613,6 @@ pub(crate) fn wls(p: &mut Parser) -> PResult<Command> {
         } else if p.eat_keyword("DELTA") || p.eat_keyword("POWER") {
             p.eat(Punct::Eq);
             deltas(p, &mut command.deltas)?;
-            if command.deltas.len() > MAX_DELTAS {
-                return Err(error(
-                    p,
-                    start,
-                    format!("WLS takes at most {MAX_DELTAS} powers"),
-                ));
-            }
         } else if p.eat_keyword("WEIGHT") {
             p.eat(Punct::Eq);
             command.weight = Some(p.name("the weight variable")?);

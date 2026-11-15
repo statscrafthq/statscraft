@@ -628,34 +628,43 @@ impl Engine {
             ]];
             if command.parall && factor.is_some() && q > 1 {
                 if single {
-                    let mut separate = 0.0;
-                    for g in 0..q {
-                        let own: Vec<Unit> = units
-                            .iter()
-                            .filter(|u| u.group == g)
-                            .map(|u| Unit {
-                                case: u.case,
-                                r: u.r,
-                                n: u.n,
-                                x: u.x.clone(),
-                                group: 0,
-                            })
-                            .collect();
-                        let alone = Settings {
-                            groups: 1,
-                            estimate: None,
-                            c: fit.c,
-                            ..settings
-                        };
-                        separate += fit_alone(&alone, &own)?;
+                    let alone = Settings {
+                        groups: 1,
+                        estimate: None,
+                        c: fit.c,
+                        ..settings
+                    };
+                    // a level that cannot be fitted on its own drops the test, not the command
+                    let separate: Option<f64> = (0..q)
+                        .map(|g| {
+                            let own: Vec<Unit> = units
+                                .iter()
+                                .filter(|u| u.group == g)
+                                .map(|u| Unit {
+                                    case: u.case,
+                                    r: u.r,
+                                    n: u.n,
+                                    x: u.x.clone(),
+                                    group: 0,
+                                })
+                                .collect();
+                            fit_alone(&alone, &own)
+                        })
+                        .sum();
+                    match separate {
+                        Some(separate) => {
+                            let par = chi - separate;
+                            rows.push(vec![
+                                text("Parallelism Test"),
+                                Cell::Number(par),
+                                Cell::Number((q - 1) as f64),
+                                number(Some(chi_square_p(par, (q - 1) as f64))),
+                            ]);
+                        }
+                        None => warnings.push(format!(
+                            "PROBIT ({model}): a factor level cannot be fitted on its own, so there is no parallelism test"
+                        )),
                     }
-                    let par = chi - separate;
-                    rows.push(vec![
-                        text("Parallelism Test"),
-                        Cell::Number(par),
-                        Cell::Number((q - 1) as f64),
-                        number(Some(chi_square_p(par, (q - 1) as f64))),
-                    ]);
                 } else {
                     warnings.push("PROBIT: the parallelism test needs a single covariate".into());
                 }
@@ -855,9 +864,12 @@ impl Engine {
 }
 
 /// The Pearson chi-square of one factor level fitted on its own.
-fn fit_alone(s: &Settings, units: &[Unit]) -> Result<f64, Error> {
+fn fit_alone(s: &Settings, units: &[Unit]) -> Option<f64> {
     if units.len() <= s.slopes + 1 {
-        return Ok(0.0);
+        return Some(0.0);
     }
-    Ok(fit(s, units)?.pearson(units))
+    fit(s, units)
+        .ok()
+        .map(|f| f.pearson(units))
+        .filter(|c| c.is_finite())
 }

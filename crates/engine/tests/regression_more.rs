@@ -403,6 +403,23 @@ fn probit_errors_and_weights() {
     for k in 0..3 {
         close(num(&ta.rows[k][1]), num(&tb.rows[k][1]), 1e-9);
     }
+    // a level whose doses are all equal cannot be fitted alone: no parallelism test, a warning
+    let flat = SPRAY
+        .replace("2 2 44 2", "2 8 44 9")
+        .replace("2 4 40 5", "2 8 40 11")
+        .replace("2 16 39 20", "2 8 39 10")
+        .replace("2 32 42 33", "2 8 42 12");
+    let r = run(
+        &flat,
+        "PROBIT down OF exposed BY strain(1,2) WITH dose /PRINT=PARALL.",
+    );
+    let tests = find(&r.tables, "Chi-Square Tests", 0);
+    assert_eq!(tests.rows.len(), 1);
+    assert!(
+        r.warnings.iter().any(|w| w.contains("parallelism")),
+        "{:?}",
+        r.warnings
+    );
     // a range below 0 keeps its levels apart
     let shifted = format!("{SPRAY}COMPUTE strain = strain - 2.\n");
     let r = run(
