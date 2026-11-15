@@ -117,9 +117,10 @@ fn one_proportion_normal_and_exact() {
     assert_eq!(at(&r.table, 0, "N"), 95.0);
     // exact power rises in steps; the smallest size that reaches 0.8 is 127
     let r = run(&format!("{base} POWER=0.8 ESTIMATE=BINOMIAL."));
-    let n = at(&r.table, 0, "N");
-    assert!(n >= 127.0, "{n}");
+    assert_eq!(at(&r.table, 0, "N"), 127.0);
     assert!(at(&r.table, 0, "Actual Power") >= 0.8);
+    let r = run(&format!("{base} N=126 ESTIMATE=BINOMIAL."));
+    assert!(at(&r.table, 0, "Power") < 0.8);
 
     let r = run(&format!("{base} N=700 ESTIMATE=BINOMIAL."));
     assert!(
@@ -149,25 +150,34 @@ fn two_proportions_by_method() {
     close(at(&r.table, 0, "Power"), 0.7646134945, 1e-8);
     let r = run(&format!("{exact} METHOD=FISHER."));
     close(at(&r.table, 0, "Power"), 0.6625424009, 1e-8);
-    // every method gives a power between the significance level and 1
-    for method in ["T", "LRT", "FISHER"] {
-        for estimate in ["NORMAL", "BINOMIAL"] {
-            let r = run(&format!(
-                "POWER PROPORTIONS INDEPENDENT /PARAMETERS PROPORTIONS=0.2 0.5 N=30 40 \
-                 METHOD={method} ESTIMATE={estimate} POOLED=FALSE."
-            ));
-            let power = at(&r.table, 0, "Power");
-            assert!(power > 0.4 && power < 0.95, "{method} {estimate}: {power}");
-        }
+    // the other methods, separate variances for the t-test
+    for (method, estimate, expected) in [
+        ("T", "NORMAL", 0.7846248969),
+        ("T", "BINOMIAL", 0.7709128201),
+        ("LRT", "NORMAL", 0.7465668222),
+        ("LRT", "BINOMIAL", 0.7646136521),
+        ("FISHER", "NORMAL", 0.6667415318),
+    ] {
+        let r = run(&format!(
+            "POWER PROPORTIONS INDEPENDENT /PARAMETERS PROPORTIONS=0.2 0.5 N=30 40 \
+             METHOD={method} ESTIMATE={estimate} POOLED=FALSE."
+        ));
+        close(at(&r.table, 0, "Power"), expected, 1e-8);
     }
     let r = run(&format!(
         "{base} POWER=0.8 TEST=DIRECTIONAL CONTINUITY=TRUE NRATIO=1.5."
     ));
-    assert!(at(&r.table, 0, "Actual Power") >= 0.8);
+    // closed formula with continuity correction: 137 and 206
+    assert_eq!(
+        (at(&r.table, 0, "N1"), at(&r.table, 0, "N2")),
+        (137.0, 206.0)
+    );
+    // exact chi-square: 38 per group gives 0.7997, 39 gives 0.8128
     let r = run(
         "POWER PROPORTIONS INDEPENDENT /PARAMETERS PROPORTIONS=0.2 0.5 POWER=0.8 ESTIMATE=BINOMIAL.",
     );
-    assert!(at(&r.table, 0, "Actual Power") >= 0.8);
+    assert_eq!((at(&r.table, 0, "N1"), at(&r.table, 0, "N2")), (39.0, 39.0));
+    close(at(&r.table, 0, "Actual Power"), 0.8128375881, 1e-8);
 }
 
 #[test]
@@ -186,7 +196,9 @@ fn paired_proportions_normal_and_exact() {
         "POWER PROPORTIONS RELATED /PARAMETERS POWER=0.9 VALUES=PROPORTIONS(0.4 0.55) \
          MARGINAL=TRUE CORRELATION=0.5 /PLOT CORRELATION MARGINAL.",
     );
-    assert!(at(&r.table, 0, "Actual Power") >= 0.9);
+    // the continuous root is 120.14
+    assert_eq!(at(&r.table, 0, "N Pairs"), 121.0);
+    close(at(&r.table, 0, "Actual Power"), 0.9020679734, 1e-8);
     assert_eq!(r.charts.len(), 2);
     assert!(
         fails(
