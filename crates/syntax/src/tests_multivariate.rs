@@ -617,12 +617,18 @@ fn name(n: &str) -> VarItem {
 #[test]
 fn multiple_correspondence_defaults() {
     let c = mca("MULTIPLE CORRESPONDENCE hue size shape /ANALYSIS=hue size shape.");
-    assert_eq!(c.variables, vec![name("hue"), name("size"), name("shape")]);
+    assert_eq!(
+        c.common.variables,
+        vec![name("hue"), name("size"), name("shape")]
+    );
     assert_eq!(c.analysis.len(), 1);
     assert_eq!(c.analysis[0].1, 1.0);
-    assert_eq!(c.dimension, 2);
-    assert_eq!(c.normalization, McaNormalization::Q(-1.0));
-    assert_eq!((c.max_iterations, c.criterion), (100, 0.00001));
+    assert_eq!(c.common.dimension, 2);
+    assert_eq!(c.common.normalization, McaNormalization::Q(-1.0));
+    assert_eq!(
+        (c.common.max_iterations, c.common.criterion),
+        (100, 0.00001)
+    );
     assert_eq!(c.print, McaPrint::defaults());
     assert_eq!(c.plot, McaPlots::default());
     assert!(c.save_trdata.is_none() && c.outfile_object.is_none());
@@ -641,7 +647,7 @@ fn multiple_correspondence_subcommands_and_abbreviations() {
     assert_eq!(c.analysis[0], (vec![name("a"), name("b")], 3.0));
     assert_eq!(c.analysis[1].1, 1.0);
     assert_eq!(
-        c.discretization,
+        c.common.discretization,
         vec![
             (
                 vec![name("b")],
@@ -661,18 +667,24 @@ fn multiple_correspondence_subcommands_and_abbreviations() {
             ),
         ]
     );
-    assert_eq!(c.missing[0].1, McaMissing::Active(Impute::ExtraCategory));
     assert_eq!(
-        c.missing[1],
+        c.common.missing[0].1,
+        McaMissing::Active(Impute::ExtraCategory)
+    );
+    assert_eq!(
+        c.common.missing[1],
         (vec![name("b"), name("c")], McaMissing::Listwise)
     );
-    assert_eq!(c.missing[2].1, McaMissing::Passive(Impute::ExtraCategory));
-    assert_eq!(c.missing[3].1, McaMissing::Active(Impute::Random));
-    assert_eq!(c.supplementary_objects, vec![(2, 2), (5, 7)]);
-    assert_eq!(c.supplementary_variables, vec![name("e")]);
-    assert_eq!(c.configuration, Some((true, "start.sav".into())));
-    assert_eq!((c.dimension, c.max_iterations), (3, 40));
-    assert_eq!(c.normalization, McaNormalization::Q(0.4));
+    assert_eq!(
+        c.common.missing[2].1,
+        McaMissing::Passive(Impute::ExtraCategory)
+    );
+    assert_eq!(c.common.missing[3].1, McaMissing::Active(Impute::Random));
+    assert_eq!(c.common.supplementary_objects, vec![(2, 2), (5, 7)]);
+    assert_eq!(c.common.supplementary_variables, vec![name("e")]);
+    assert_eq!(c.common.configuration, Some((true, "start.sav".into())));
+    assert_eq!((c.common.dimension, c.common.max_iterations), (3, 40));
+    assert_eq!(c.common.normalization, McaNormalization::Q(0.4));
     // NONE drops QUANT, OBJECT and HISTORY
     assert_eq!(
         c.print,
@@ -759,4 +771,158 @@ fn multiple_correspondence_errors() {
     assert!(
         err("MULTIPLE CORRESPONDENCE x y /ANALYSIS=x y /DISC=x(EQINTV=0).").contains("positive")
     );
+}
+
+fn catpca(source: &str) -> Catpca {
+    match one(source) {
+        Command::Catpca(c) => *c,
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn catpca_defaults() {
+    let c = catpca("CATPCA VARIABLES=pace crowd /ANALYSIS=pace crowd.");
+    assert_eq!(c.common.variables, vec![name("pace"), name("crowd")]);
+    assert_eq!(c.analysis[0].1, CatpcaVariable::default());
+    assert_eq!(
+        c.analysis[0].1.level,
+        ScalingLevel::SplineOrdinal {
+            degree: 2,
+            inknot: 2
+        }
+    );
+    assert_eq!(c.common.dimension, 2);
+    assert_eq!(c.print, CatpcaPrint::defaults());
+    assert_eq!(c.plot, CatpcaPlots::default());
+    assert!(c.rotation.is_none() && c.resample.is_none() && c.ellipses.is_empty());
+}
+
+#[test]
+fn catpca_subcommands_and_abbreviations() {
+    let c = catpca(
+        "CATPCA pace TO shade /ANAL=pace crowd (WEIGHT=2 LEVEL=ORDI) parking (LEV=SPNOM DEGREE=3)
+           shade (INKNOT=0) light (LEVEL=MNOM) noise (LEVEL=NUME) view (LEVEL=NOMI)
+         /DISC=pace (RANKING) /MISS=shade (ACTIVE EXTRACAT) /SUPP=OBJECT(3) VARIABLE(view)
+         /DIM=3 /NORM=SYMMETRICAL /ROT=PROMAX(2) NOKAISER
+         /PRINT=LOADING(SORT) VAF QUANT(pace) OBJECT((light) pace) HIST
+         /PLOT=LOADING(pace crowd (CENTR(light)))(10) BIPLOT(CENTR(light))(pace) TRIPLOT(pace crowd (shade))
+           PROJCENTR(light, pace crowd) TRANS(light(2)) VAF NDIM(1,3) OBELLAREA(> STDEV 2) OBJECT OBJECT(pace)
+         /SAVE=TRDATA(QUANTITIES(2)) APPROX(FIT) LDELLAREA
+         /OUTFILE='trans.sav' OBJECT(scores).",
+    );
+    assert_eq!(c.analysis.len(), 6);
+    assert_eq!(c.analysis[0].0, vec![name("pace"), name("crowd")]);
+    assert_eq!(c.analysis[0].1.weight, 2.0);
+    assert_eq!(c.analysis[0].1.level, ScalingLevel::Ordinal);
+    assert_eq!(
+        c.analysis[1].1.level,
+        ScalingLevel::SplineNominal {
+            degree: 3,
+            inknot: 2
+        }
+    );
+    assert_eq!(
+        c.analysis[2].1.level,
+        ScalingLevel::SplineOrdinal {
+            degree: 2,
+            inknot: 0
+        }
+    );
+    assert_eq!(c.analysis[3].1.level, ScalingLevel::MultipleNominal);
+    assert_eq!(c.analysis[4].1.level, ScalingLevel::Numeric);
+    assert_eq!(c.analysis[5].1.level, ScalingLevel::Nominal);
+    assert_eq!(c.common.discretization[0].1, Discretize::Ranking);
+    assert_eq!(c.common.normalization, McaNormalization::Q(0.0));
+    assert_eq!(c.rotation, Some((Rotation::Promax(2.0), false)));
+    assert_eq!(c.print.loading, Some(true));
+    assert!(c.print.vaf && c.print.history && !c.print.corr);
+    assert_eq!(
+        c.print.object,
+        Some((Some("light".into()), vec![name("pace")]))
+    );
+    // a repeated keyword replaces the earlier one
+    assert_eq!(
+        c.plot.charts[0],
+        (
+            CatpcaPlot::Loading(vec![name("pace"), name("crowd")], Some(vec![name("light")])),
+            Some(10)
+        )
+    );
+    assert_eq!(
+        c.plot.charts[1].0,
+        CatpcaPlot::Biplot {
+            centroids: true,
+            variables: vec![name("light")],
+            labels: vec![name("pace")]
+        }
+    );
+    assert_eq!(
+        c.plot.charts[2].0,
+        CatpcaPlot::Triplot(vec![name("pace"), name("crowd")], vec![name("shade")])
+    );
+    assert_eq!(
+        c.plot.charts[3].0,
+        CatpcaPlot::Projcentr("light".into(), vec![name("pace"), name("crowd")])
+    );
+    assert_eq!(
+        c.plot.charts[4].0,
+        CatpcaPlot::Trans(vec![(name("light"), 2)])
+    );
+    assert_eq!(c.plot.charts[5].0, CatpcaPlot::Vaf);
+    assert_eq!(c.plot.charts[6].0, CatpcaPlot::Object(vec![name("pace")]));
+    assert_eq!(c.plot.charts.len(), 7);
+    assert_eq!(c.plot.ndim, Some((1, 3)));
+    assert_eq!(c.save_trdata, Some(("QUANT".into(), Some(2))));
+    assert_eq!(c.save_approx.as_deref(), Some("FIT"));
+    assert_eq!(c.ellipses, vec!["PLOT OBELLAREA", "SAVE LDELLAREA"]);
+    assert_eq!(c.outfile_trdata.as_deref(), Some("trans.sav"));
+    assert_eq!(c.outfile_object.as_deref(), Some("scores"));
+}
+
+#[test]
+fn catpca_print_plot_and_resample_rules() {
+    let c = catpca(
+        "CATPCA a b /ANALYSIS a b /PRINT=VAF VAF NONE CORR /PLOT=RESID(a) NONE LOADING((CENTR)).",
+    );
+    assert_eq!(
+        c.print,
+        CatpcaPrint {
+            corr: true,
+            ..CatpcaPrint::default()
+        }
+    );
+    assert_eq!(
+        c.plot.charts,
+        vec![(CatpcaPlot::Loading(Vec::new(), Some(Vec::new())), None)]
+    );
+    let c = catpca("CATPCA a b /ANALYSIS a b /RESAMPLE=BOOTSTRAP(5000, REFLEC).");
+    let b = c.resample.unwrap();
+    assert_eq!(
+        (b.samples, b.percent, b.balanced, b.procrustes),
+        (5000, 95.0, true, false)
+    );
+    let c = catpca("CATPCA a b /ANALYSIS a b /RESAMPLE=BOOT(200 90 UNBALANCED).");
+    let b = c.resample.unwrap();
+    assert_eq!((b.samples, b.percent, b.balanced), (200, 90.0, false));
+}
+
+#[test]
+fn catpca_errors() {
+    assert!(err("CATPCA a b.").contains("ANALYSIS"));
+    assert!(err("CATPCA a b /ANALYSIS=a b (LEVEL=ORDI DEGREE=2).").contains("SPORD"));
+    assert!(err("CATPCA a b /ANALYSIS=a b (LEVEL=CURVED).").contains("unexpected"));
+    assert!(
+        err("CATPCA a b /ANALYSIS=a b /ROTATION=VARIMAX /RESAMPLE=BOOTSTRAP.").contains("rotate")
+    );
+    assert!(err("CATPCA a b /ANALYSIS=a b /SAVE=APPROX(fit(2)).").contains("root name only"));
+    let c = catpca("CATPCA a b /ANALYSIS=a b /ROTATION=VARIMAX /RESAMPLE=NONE.");
+    assert!(c.rotation.is_some() && c.resample.is_none());
+    assert!(err("CATPCA a b /ANALYSIS=a b /ROTATION=PROMAX(0.5).").contains("kappa"));
+    assert!(err("CATPCA a b /ANALYSIS=a b /ROTATION=OBLIMIN(0.9).").contains("delta"));
+    assert!(err("CATPCA a b /ANALYSIS=a b /RESAMPLE=BOOTSTRAP(10 100).").contains("confidence"));
+    assert!(err("CATPCA a b /ANALYSIS=a b /PRINT=QUANT QUANT.").contains("twice"));
+    assert!(err("CATPCA a b /ANALYSIS=a b /PLOT=CATEGORY.").contains("unexpected"));
+    assert!(err("CATPCA a b /ANALYSIS=a b /OUTFILE=OBJECT('x') APPROX('X').").contains("its own"));
+    assert!(err("CATPCA a b /ANALYSIS=a b /DIM=2 /DIMENSION=3.").contains("twice"));
 }

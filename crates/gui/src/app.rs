@@ -1558,7 +1558,7 @@ impl App {
                 ui.menu_button("Power Analysis", |ui| {
                     for (menu, items) in POWER_MENU {
                         ui.menu_button(menu, |ui| {
-                            for (label, kind) in items {
+                            for &(label, kind) in items {
                                 if ui.button(label).clicked() {
                                     let d = PowerAnalysis::new(kind);
                                     self.open_dialog(Dialog::Advanced(Advanced::Power(Box::new(

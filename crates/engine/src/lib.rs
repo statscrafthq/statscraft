@@ -5,6 +5,7 @@ mod agreement;
 mod alscal;
 mod anova;
 mod autorecode;
+mod catpca;
 pub mod chart;
 mod chart_input;
 mod cluster;
@@ -67,6 +68,7 @@ mod npar_tests;
 mod nptests;
 pub mod office;
 mod oneway;
+mod optimal_scaling;
 mod output;
 mod output_docs;
 pub mod output_file;
@@ -766,6 +768,7 @@ impl Engine {
             | Command::Plum(_)
             | Command::Correspondence(_)
             | Command::MultipleCorrespondence(_)
+            | Command::Catpca(_)
             | Command::Genlin(_)
             | Command::Pplot(_)
             | Command::Roc(_)
@@ -1042,6 +1045,7 @@ impl Engine {
             Command::Plum(command) => self.plum(command),
             Command::Correspondence(command) => self.correspondence(command),
             Command::MultipleCorrespondence(command) => self.multiple_correspondence(command),
+            Command::Catpca(command) => self.catpca(command),
             Command::Genlin(command) => self.genlin(command),
             Command::Pplot(command) => self.pplot(command),
             Command::Roc(command) => self.roc(command),

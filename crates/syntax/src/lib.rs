@@ -18,6 +18,7 @@ mod agreement;
 mod alscal;
 mod anova;
 mod ast;
+mod catpca;
 mod cluster;
 mod codebook;
 mod commands;
@@ -57,6 +58,7 @@ mod mva;
 mod nomreg;
 mod npar;
 mod nptests;
+mod optimal_scaling;
 mod output;
 mod output_docs;
 mod output_modify;
@@ -156,6 +158,9 @@ pub use agreement::{FleissKappa, KappaTabulation, WeightedKappa};
 pub use alscal::{Alscal, AlscalLevel};
 pub use anova::{Anova, AnovaList, AnovaMethod, CovariateOrder};
 pub use ast::*;
+pub use catpca::{
+    Catpca, CatpcaBootstrap, CatpcaPlot, CatpcaPlots, CatpcaPrint, CatpcaVariable, ScalingLevel,
+};
 pub use cluster::{BinaryMeasure, Cluster, ClusterPlot, Linkage, Proximity};
 pub use codebook::{
     Codebook, CodebookFile, CodebookInfo, CodebookItem, CodebookOrder, CodebookStatistic,
@@ -222,10 +227,7 @@ pub use mixed::{
     Convergence, CovType, DfMethod, Mixed, MixedPrint, MixedTemp, RandomEffects, Repeated,
 };
 pub use mrsets::{Mrsets, MrsetsGroup};
-pub use multiple_correspondence::{
-    Discretize, Impute, McaMissing, McaNormalization, McaPlot, McaPlots, McaPrint,
-    MultipleCorrespondence,
-};
+pub use multiple_correspondence::{McaPlot, McaPlots, McaPrint, MultipleCorrespondence};
 pub use multiple_imputation::{ImputeConstraint, ImputeMethod, ImputeRole, MultipleImputation};
 pub use mva::{AddType, Mva, MvaEstimate, MvaPattern, MvaTtest};
 pub use nomreg::{
@@ -240,6 +242,7 @@ pub use nptests::{
     NpBinomial, NpCompare, NpCut, NpIndependent, NpKs, NpOneSample, NpParameters, NpRelated,
     NpRuns, Nptests,
 };
+pub use optimal_scaling::{Discretize, Impute, McaMissing, McaNormalization, ScalingCommon};
 pub use output::{
     DateSpec, DateUnit, FormatItem, Placement, Print, PrintItem, PrintKind, PrintSpace, Xsave,
 };
