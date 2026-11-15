@@ -193,6 +193,7 @@ pub enum Command {
     WeightedKappa(Box<crate::agreement::WeightedKappa>),
     FleissKappa(Box<crate::agreement::FleissKappa>),
     RatioStatistics(Box<crate::ratio_statistics::RatioStatistics>),
+    Power(Box<crate::power::Power>),
     /// FINISH: the commands after it are not read.
     Finish,
     /// `USE ALL` is None; else the first and last case number, and /PERMANENT.

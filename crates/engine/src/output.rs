@@ -131,6 +131,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Cache
         | Command::Display(_)
         | Command::Csplan(_)
+        | Command::Power(_)
         | Command::Output(_)
         | Command::Finish
         | Command::ClearTransformations
