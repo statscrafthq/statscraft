@@ -48,6 +48,7 @@ use crate::proximities;
 use crate::proxscal;
 use crate::rank;
 use crate::regression;
+use crate::regression_more;
 use crate::reliability;
 use crate::report;
 use crate::restructure;
@@ -1954,6 +1955,92 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  expected count (PRE_n), or the name given.",
         example: "GENLOG outcome BY clinic shift /MODEL=MULTINOMIAL /PRINT=FREQ ADJRESID ESTIM /DESIGN=outcome outcome*clinic outcome*shift.",
         parse: loglinear::genlog,
+    },
+    CommandSpec {
+        name: "PROBIT",
+        summary: "Probit and logit models of response counts out of subject counts, with effective levels.",
+        syntax: "PROBIT responses OF subjects WITH covariates [BY factor(min,max)]\n\
+                 \x20  [/MODEL=PROBIT | LOGIT | BOTH] [/LOG=[base | NONE]]\n\
+                 \x20  [/CRITERIA=[OPTOL(n) | CONVERGE(n)] [ITERATE(n)] [P(0.15)] [STEPLIMIT(0.1)]]\n\
+                 \x20  [/NATRES[=rate]] [/PRINT=[FREQ] [CI] [RMP] [PARALL] [DEFAULT] [ALL] [NONE]]\n\
+                 \x20  [/MISSING=EXCLUDE | INCLUDE].\n\
+                 Each case is a group of subjects: how many there were and how many responded. The\n\
+                 chance to respond is F(a + b'x), where F is the standard normal distribution (PROBIT, the\n\
+                 default) or the logistic one (LOGIT); BOTH fits the logit model first, then the probit\n\
+                 one. With a factor (BY, whole-number range; cases outside it are left out) each level has\n\
+                 its own intercept and all share the slopes. Covariates are replaced by their base 10\n\
+                 logarithm unless LOG says otherwise: a bare LOG means base e, NONE no transformation. A\n\
+                 case with a covariate of 0 is a control group; under a logarithm it stays out of the fit.\n\
+                 NATRES adds a natural response rate c, so the chance becomes c + (1 - c) F(...): alone it\n\
+                 is estimated (starting from the control groups' rate, or the lowest observed rate), with\n\
+                 a value it is fixed. Estimates are maximum likelihood by Newton steps from zero slopes,\n\
+                 with standard errors from the observed information. More responses than subjects is an\n\
+                 error; a case weight multiplies both counts.\n\
+                 Tables: Data Information, Convergence Information, Parameter Estimates (with z tests and\n\
+                 95% intervals), Natural Response Rate, Covariances and Correlations of Parameter\n\
+                 Estimates and the Pearson goodness-of-fit test. PRINT left out or bare shows FREQ (observed\n\
+                 and expected responses per case), CI (the covariate level at which each share from 0.01\n\
+                 to 0.99 respond, with 95% fiducial limits, on both scales under a logarithm) and RMP (the\n\
+                 relative median potency of every pair of factor levels); PARALL tests whether the levels\n\
+                 share the slope. CI, RMP and PARALL need a single covariate. When the goodness-of-fit\n\
+                 test's significance is below P the limits widen by the heterogeneity factor chi-square/df\n\
+                 and use t instead of the normal; P(0) never does that, P(1) always. With one covariate a\n\
+                 scatter plot shows the transformed observed rates. MISSING=INCLUDE keeps user-missing\n\
+                 values.",
+        example: "PROBIT hatched OF eggs BY strain(1,3) WITH dose /MODEL=BOTH /PRINT=ALL.",
+        parse: regression_more::probit,
+    },
+    CommandSpec {
+        name: "CURVEFIT",
+        summary: "Fit up to eleven curves of one independent variable, or of time, by least squares.",
+        syntax: "CURVEFIT [VARIABLES=] dependents [WITH independent]\n\
+                 \x20  [/MODEL=[LINEAR] [LOGARITHMIC] [INVERSE] [QUADRATIC] [CUBIC] [COMPOUND] [POWER] [S]\n\
+                 \x20         [GROWTH] [EXPONENTIAL] [LGSTIC] [ALL]]\n\
+                 \x20  [/CONSTANT | /NOCONSTANT] [/UPPERBOUND=NO | n] [/CIN=95] [/PRINT=ANOVA]\n\
+                 \x20  [/SAVE=[PRED] [RESID] [CIN]] [/PLOT=FIT | NONE] [/ID=variable] [/TEMPLATE='file'].\n\
+                 Model names may be cut to three letters. With x the independent (or 1, 2, 3, ... in case\n\
+                 order when there is no WITH): LINEAR b0 + b1 x, LOGARITHMIC b0 + b1 ln x, INVERSE b0 + b1/x,\n\
+                 QUADRATIC and CUBIC add x^2 and x^3, COMPOUND b0 b1^x, POWER b0 x^b1, S exp(b0 + b1/x),\n\
+                 GROWTH exp(b0 + b1 x), EXPONENTIAL b0 exp(b1 x), LGSTIC 1 / (1/u + b0 b1^x) with u from\n\
+                 UPPERBOUND (no bound: 1/u is 0). The last six are fitted on the log scale, so they need\n\
+                 every dependent value above 0 (and below u); their b0 and multiplicative b1 come back from\n\
+                 the logarithm, with standard errors scaled the same way. NOCONSTANT drops b0. LINEAR is\n\
+                 the default. A case missing on any named variable is left out of every fit; user-missing\n\
+                 values count as missing. Case weights apply only when there is an independent variable.\n\
+                 Each dependent gets a Model Summary and Parameter Estimates table: R square, F, df and its\n\
+                 significance and the estimates of every model. PRINT=ANOVA adds per model the summary, the\n\
+                 analysis of variance and the coefficients with t tests. SAVE adds per dependent and model\n\
+                 FIT_n (PRED), ERR_n (RESID, in the original units) and LCL_n and UCL_n (CIN: a prediction\n\
+                 interval at the CIN level), n the first number free for all of them; fits and intervals\n\
+                 are also given for cases with only the dependent missing. PLOT=FIT (the default) gives a\n\
+                 chart of the observed values with every fitted curve; ID labels its points. Another\n\
+                 subcommand given twice keeps the last. APPLY is not supported yet; TEMPLATE is ignored.",
+        example: "CURVEFIT VARIABLES=visitors WITH week /MODEL=LINEAR QUADRATIC GROWTH /PRINT=ANOVA /SAVE=PRED CIN.",
+        parse: regression_more::curvefit,
+    },
+    CommandSpec {
+        name: "WLS",
+        summary: "Weighted least squares: weights from a power of a source variable, or a given weight.",
+        syntax: "WLS [VARIABLES=] dependent WITH independents\n\
+                 \x20  [/SOURCE=variable] [/DELTA=powers] [/WEIGHT=variable] [/CONSTANT | /NOCONSTANT]\n\
+                 \x20  [/PRINT=BEST | ALL] [/SAVE=WEIGHT].\n\
+                 Powers: numbers and grids first TO last BY step (or first BY step TO last), at most 150\n\
+                 in all; POWER is another name for DELTA and every DELTA counts. A case's weight is its\n\
+                 SOURCE value raised to minus the power. SOURCE defaults to the first independent and the\n\
+                 power to 1; with neither SOURCE, DELTA nor WEIGHT a warning says so. Powers are kept\n\
+                 within -6.5 and 7.5, and cases whose source is not above 0 are left out. WEIGHT names a\n\
+                 variable that holds the weights instead (cases with a weight not above 0 are left out); it\n\
+                 cannot go with SOURCE or DELTA. A case missing on any named variable is left out; case\n\
+                 weights (WEIGHT command) multiply the regression weights and count as cases.\n\
+                 For every power the log-likelihood is 0.5 (-n ln 2 pi - n ln s^2 + sum ln w - (n - p)),\n\
+                 with s^2 the weighted mean square error and p the number of coefficients; the Log-Likelihood\n\
+                 Values table lists it and the power with the largest one is used. For that power (or for\n\
+                 the WEIGHT variable) come the Model Summary (R, R square, adjusted R square, standard error\n\
+                 and log-likelihood), ANOVA and Coefficients (B, standard error, standardized Beta with its\n\
+                 standard error, t and significance). PRINT=ALL adds the coefficients of every power.\n\
+                 SAVE=WEIGHT keeps the chosen weights as WGT_n. APPLY is not supported yet.",
+        example: "WLS rent WITH floor_area rooms /SOURCE=floor_area /POWER=-1 TO 3 BY 0.25 /PRINT=ALL.",
+        parse: regression_more::wls,
     },
     CommandSpec {
         name: "PLUM",

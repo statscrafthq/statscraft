@@ -133,6 +133,9 @@ One page per supported command, generated from the same table that the parser an
 | [MVA](mva.md) | Missing value analysis: where values are missing, how that relates to the other variables, and estimates that allow for it. |
 | [HILOGLINEAR](hiloglinear.md) | Hierarchical loglinear models of a multiway table of counts, with backward elimination. |
 | [GENLOG](genlog.md) | General loglinear and logit models of a table of counts, with cell weights, covariates and contrasts. |
+| [PROBIT](probit.md) | Probit and logit models of response counts out of subject counts, with effective levels. |
+| [CURVEFIT](curvefit.md) | Fit up to eleven curves of one independent variable, or of time, by least squares. |
+| [WLS](wls.md) | Weighted least squares: weights from a power of a source variable, or a given weight. |
 | [MULTIPLE IMPUTATION](multiple-imputation.md) | Multiple imputation: several completed copies of the data with plausible values in place of the missing ones. |
 | [PLUM](plum.md) | Ordinal regression: a cumulative link model of an ordered dependent variable. |
 | [GENLIN](genlin.md) | Generalized linear models: normal, binomial, Poisson, gamma, inverse Gaussian, negative binomial and ordinal responses. |

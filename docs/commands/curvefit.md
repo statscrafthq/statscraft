@@ -1,0 +1,27 @@
+<!-- Generated from the command table by crates/syntax/tests/command_docs.rs. Do not edit. -->
+
+# CURVEFIT
+
+Fit up to eleven curves of one independent variable, or of time, by least squares.
+
+## Syntax
+
+```text
+CURVEFIT [VARIABLES=] dependents [WITH independent]
+   [/MODEL=[LINEAR] [LOGARITHMIC] [INVERSE] [QUADRATIC] [CUBIC] [COMPOUND] [POWER] [S]
+          [GROWTH] [EXPONENTIAL] [LGSTIC] [ALL]]
+   [/CONSTANT | /NOCONSTANT] [/UPPERBOUND=NO | n] [/CIN=95] [/PRINT=ANOVA]
+   [/SAVE=[PRED] [RESID] [CIN]] [/PLOT=FIT | NONE] [/ID=variable] [/TEMPLATE='file'].
+```
+
+Model names may be cut to three letters. With x the independent (or 1, 2, 3, ... in case order when there is no WITH): LINEAR b0 + b1 x, LOGARITHMIC b0 + b1 ln x, INVERSE b0 + b1/x, QUADRATIC and CUBIC add x^2 and x^3, COMPOUND b0 b1^x, POWER b0 x^b1, S exp(b0 + b1/x), GROWTH exp(b0 + b1 x), EXPONENTIAL b0 exp(b1 x), LGSTIC 1 / (1/u + b0 b1^x) with u from UPPERBOUND (no bound: 1/u is 0). The last six are fitted on the log scale, so they need every dependent value above 0 (and below u); their b0 and multiplicative b1 come back from the logarithm, with standard errors scaled the same way. NOCONSTANT drops b0. LINEAR is the default. A case missing on any named variable is left out of every fit; user-missing values count as missing. Case weights apply only when there is an independent variable.
+
+Each dependent gets a Model Summary and Parameter Estimates table: R square, F, df and its significance and the estimates of every model. PRINT=ANOVA adds per model the summary, the analysis of variance and the coefficients with t tests. SAVE adds per dependent and model FIT\_n (PRED), ERR\_n (RESID, in the original units) and LCL\_n and UCL\_n (CIN: a prediction interval at the CIN level), n the first number free for all of them; fits and intervals are also given for cases with only the dependent missing. PLOT=FIT (the default) gives a chart of the observed values with every fitted curve; ID labels its points. Another subcommand given twice keeps the last. APPLY is not supported yet; TEMPLATE is ignored.
+
+## Example
+
+```text
+CURVEFIT VARIABLES=visitors WITH week /MODEL=LINEAR QUADRATIC GROWTH /PRINT=ANOVA /SAVE=PRED CIN.
+```
+
+`statscraft help CURVEFIT` prints the same text in the terminal. [All commands](README.md)

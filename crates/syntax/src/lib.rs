@@ -67,6 +67,7 @@ mod proximities;
 mod proxscal;
 mod rank;
 mod regression;
+mod regression_more;
 mod reliability;
 mod report;
 mod restructure;
@@ -128,6 +129,8 @@ mod tests_pplot;
 mod tests_preprocess;
 #[cfg(test)]
 mod tests_procedures;
+#[cfg(test)]
+mod tests_regression_more;
 #[cfg(test)]
 mod tests_report;
 #[cfg(test)]
@@ -242,6 +245,7 @@ pub use regression::{
     RegressionDescriptives, RegressionMethod, RegressionMissing, RegressionResiduals,
     RegressionStatistics, TempVar,
 };
+pub use regression_more::{CURVE_MODELS, CurveModel, Curvefit, NaturalResponse, Probit, Wls};
 pub use reliability::{
     AnovaTest, Icc, IccModel, Reliability, ReliabilityModel, ReliabilitySummary,
 };
