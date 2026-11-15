@@ -2,7 +2,7 @@
 //! Linear Models (in `genlin_dialog`), Correspondence Analysis (in `correspondence_dialog`),
 //! Life Tables and Kaplan-Meier (in `survival_dialog`), Cox Regression (in `cox_dialog`), Missing
 //! Value Analysis (in `mva_dialog`), Multiple Imputation (in `imputation_dialog`), Case
-//! Summaries and Codebook (in `reports_dialog`) and
+//! Summaries and Codebook (in `reports_dialog`), the Loglinear dialogs (in `loglinear_dialog`) and
 //! complex samples dialogs (the
 //! analysis plan, Descriptives, Frequencies and Crosstabs; the General Linear Model and Logistic
 //! Regression in `cs_model_dialog`). Options left as they are add nothing to the syntax, so the
@@ -15,6 +15,7 @@ use crate::cs_model_dialog::SampleModel;
 use crate::dialogs::whole;
 use crate::genlin_dialog::{GeneralizedLinear, data_checks};
 use crate::imputation_dialog::Imputation;
+use crate::loglinear_dialog::{GeneralLoglinear, ModelSelection};
 use crate::mds_dialog::{Alscal, Proxscal};
 use crate::model_dialogs::GLM_ADJUSTMENTS;
 use crate::mva_dialog::MissingValueAnalysis;
@@ -53,6 +54,10 @@ pub enum Advanced {
     // boxed: a large dialog
     Summarize(Box<Summarize>),
     Codebook(Codebook),
+    // boxed: a large dialog
+    Hiloglinear(Box<ModelSelection>),
+    // boxed: a large dialog
+    Genlog(Box<GeneralLoglinear>),
 }
 
 impl Advanced {
@@ -80,6 +85,9 @@ impl Advanced {
             Advanced::Imputation(_) => "Impute Missing Data Values",
             Advanced::Summarize(_) => "Case Summaries",
             Advanced::Codebook(_) => "Codebook",
+            Advanced::Hiloglinear(_) => "Model Selection Loglinear Analysis",
+            Advanced::Genlog(d) if d.logit => "Logit Loglinear Analysis",
+            Advanced::Genlog(_) => "General Loglinear Analysis",
         }
     }
 
@@ -110,6 +118,8 @@ impl Advanced {
             }
             Advanced::Summarize(_) => Advanced::Summarize(Default::default()),
             Advanced::Codebook(_) => Advanced::Codebook(Default::default()),
+            Advanced::Hiloglinear(_) => Advanced::Hiloglinear(Default::default()),
+            Advanced::Genlog(d) => Advanced::Genlog(Box::new(GeneralLoglinear::new(d.logit))),
         }
     }
 
@@ -147,6 +157,8 @@ impl Advanced {
             Advanced::Imputation(d) => d.syntax(data),
             Advanced::Summarize(d) => d.syntax(),
             Advanced::Codebook(d) => d.syntax(),
+            Advanced::Hiloglinear(d) => d.syntax(data),
+            Advanced::Genlog(d) => d.syntax(data),
         }
     }
 }

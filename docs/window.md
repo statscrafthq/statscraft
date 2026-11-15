@@ -399,6 +399,20 @@ See [The Window menu](#the-window-menu).
   - The same saved variables as Multinomial Logistic; the confidence level, the maximum iterations and step-halving, the value added to empty cells, and user-missing values as valid.
   - Custom tests typed as in Linear Mixed Models, where `INTERCEPT` stands for the thresholds. An effect that is in both the location and the scale part needs `ALL`, and then every row of that test uses `ALL`.
 
+**Loglinear**
+
+- **General** (`GENLOG`): a table of counts made by numeric factors, with cell covariates (the mean of each cell's cases), a cell structure variable whose 0 cells are left out, and variables of coefficients for generalized residuals and log-odds ratios.
+  - The Poisson or the multinomial model; the saturated model or custom terms built as in Univariate. Covariates enter only through custom terms.
+  - The tables: counts, simple, standardized, adjusted and deviance residuals, the design matrix, the estimates with their covariances and correlations, and the iteration history.
+  - Plots of the residuals against the counts and normal plots, of adjusted residuals, deviance residuals or both.
+  - Saving the expected counts and each kind of residual, under a name of your own or a made-up one.
+  - The iteration limit, the convergence criterion, the value added to the cells, the confidence level, the redundancy tolerance, and user-missing values as valid.
+- **Logit** (`GENLOG` with `BY`): one or more dependent factors by the other factors, always multinomial; the rest as in General.
+- **Model Selection** (`HILOGLINEAR`): two to ten numeric factors, each with the smallest and largest category value to count. A newly added factor starts from its lowest and highest labeled whole value that is not user-missing; factors in a row with the same range share it in the syntax.
+  - The saturated model or a custom generating class, the highest order of terms, and backward elimination with the most steps and the probability to remove.
+  - A cell weight variable, the default tables or a choice of counts, residuals, estimates and partial associations (the last two for a saturated model), and plots of the residuals.
+  - The iteration limit, the convergence criterion (by default from the largest count), the value added to the cells of a saturated model, and user-missing values as valid.
+
 **Classify**
 
 - **K-Means Cluster** (`QUICK CLUSTER`): a number of clusters, by iterating and classifying or by classifying only.

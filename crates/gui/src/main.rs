@@ -29,6 +29,8 @@ mod grid_menu;
 mod highlight;
 mod imputation_dialog;
 mod imputation_dialog_view;
+mod loglinear_dialog;
+mod loglinear_dialog_view;
 mod mds_dialog;
 mod mds_dialog_view;
 mod model_dialogs;

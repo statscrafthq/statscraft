@@ -26,6 +26,7 @@ use crate::edits::{self, Field};
 use crate::graph_dialogs::{ChartBuilder, ProbabilityPlot, RocCurve};
 use crate::graph_dialogs_view;
 use crate::imputation_dialog::Imputation;
+use crate::loglinear_dialog::GeneralLoglinear;
 use crate::model_dialogs::{
     Discriminant, FactorAnalysis, Hierarchical, KMeans, Logistic, RepeatedMeasures, Univariate,
 };
@@ -1633,6 +1634,26 @@ impl App {
                                 Advanced::Multinomial(Default::default()),
                             ),
                             ("Ordinal...", Advanced::Ordinal(Default::default())),
+                        ] {
+                            if ui.button(label).clicked() {
+                                self.open_dialog(Dialog::Advanced(dialog));
+                            }
+                        }
+                    });
+                    ui.menu_button("Loglinear", |ui| {
+                        for (label, dialog) in [
+                            (
+                                "General...",
+                                Advanced::Genlog(Box::new(GeneralLoglinear::new(false))),
+                            ),
+                            (
+                                "Logit...",
+                                Advanced::Genlog(Box::new(GeneralLoglinear::new(true))),
+                            ),
+                            (
+                                "Model Selection...",
+                                Advanced::Hiloglinear(Default::default()),
+                            ),
                         ] {
                             if ui.button(label).clicked() {
                                 self.open_dialog(Dialog::Advanced(dialog));
