@@ -78,6 +78,7 @@ pub mod plot;
 mod plum;
 mod pooling;
 mod portable;
+mod power;
 mod pplot;
 mod print;
 mod probit;
@@ -785,6 +786,7 @@ impl Engine {
             | Command::Rank(_)
             | Command::Aggregate(_) => return self.procedure(command),
             Command::Codebook(command) => return self.codebook(command),
+            Command::Power(command) => return self.power(command),
             Command::TimeProgram => {
                 self.time_program = Some(coxreg::TimeProgram {
                     collecting: true,

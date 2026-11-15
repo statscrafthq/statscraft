@@ -62,6 +62,7 @@ mod output_modify;
 mod parser;
 mod plum;
 mod portable;
+mod power;
 mod pplot;
 mod preprocess;
 mod procedures;
@@ -128,6 +129,8 @@ mod tests_nomreg;
 mod tests_npar;
 #[cfg(test)]
 mod tests_output;
+#[cfg(test)]
+mod tests_power;
 #[cfg(test)]
 mod tests_pplot;
 #[cfg(test)]
@@ -243,6 +246,7 @@ pub use output_modify::{
     TableCells, letters, roman,
 };
 pub use plum::{Plum, PlumCriteria, PlumLink, PlumPrint, PlumSave};
+pub use power::{Power, PowerKind, PowerPlot, ProportionTest};
 pub use pplot::{Pplot, PplotPlot, Roc, TestDistribution};
 pub use preprocess::{FileHandle, MacroState};
 pub use proximities::{Proximities, Standardize};

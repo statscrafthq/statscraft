@@ -124,6 +124,12 @@ One page per supported command, generated from the same table that the parser an
 | [WEIGHTED KAPPA](weighted-kappa.md) | Cohen's weighted kappa: how well two raters agree on an ordered scale. |
 | [FLEISS MULTIRATER KAPPA](fleiss-multirater-kappa.md) | Fleiss' kappa: how well several raters agree when they sort subjects into categories. |
 | [RATIO STATISTICS](ratio-statistics.md) | Statistics of the ratio of two positive variables, overall and within groups. |
+| [POWER MEANS ONESAMPLE](power-means-onesample.md) | Power or sample size of a one-sample t-test of a mean. |
+| [POWER MEANS INDEPENDENT](power-means-independent.md) | Power or group sizes of a t-test comparing the means of two independent groups. |
+| [POWER MEANS RELATED](power-means-related.md) | Power or number of pairs of a paired t-test. |
+| [POWER PROPORTIONS ONESAMPLE](power-proportions-onesample.md) | Power or sample size of a test of one proportion against a hypothesized value. |
+| [POWER PROPORTIONS INDEPENDENT](power-proportions-independent.md) | Power or group sizes of a test comparing two independent proportions. |
+| [POWER PROPORTIONS RELATED](power-proportions-related.md) | Power or number of pairs of McNemar's test of two paired proportions. |
 | [FACTOR](factor.md) | Factor analysis: principal components and six factoring methods, rotations, factor scores. |
 | [QUICK CLUSTER](quick-cluster.md) | K-means clustering of cases into a given number of clusters. |
 | [CLUSTER](cluster.md) | Hierarchical clustering of cases by one of 37 proximity measures and seven methods. |
@@ -255,3 +261,9 @@ Functions of expressions (COMPUTE, IF, SELECT IF, DO IF, ELSE IF, LOOP IF, END L
   (NCDF and NPDF: BETA CHISQ F T; SIG: CHISQ F). UNIFORM(max), NORMAL(sd) and the RV functions
   draw random numbers. An argument out of range gives system-missing.
 ```
+
+## Not supported yet
+
+These commands of the language are recognized, but Statscraft does not run them yet. A script that uses one stops with the error "... is not supported yet" at its line, and nothing is changed.
+
+POWER ONEWAY ANOVA, POWER PARTIALCORR, POWER PEARSON ONESAMPLE, POWER SPEARMAN ONESAMPLE, POWER UNIVARIATE LINEAR

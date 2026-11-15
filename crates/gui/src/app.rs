@@ -5713,6 +5713,7 @@ fn dialog_body(
                         .add_filter("Excel workbook", &["xlsx"])
                         .add_filter("CSV", &["csv"])
                         .add_filter("Tab-delimited text", &["txt"])
+                        .add_filter("Stata", &["dta"])
                         .save_file()
                 {
                     *folder = path.parent().map(Path::to_path_buf);
@@ -5721,13 +5722,24 @@ fn dialog_body(
             });
             ui.add(TextEdit::singleline(&mut d.path).desired_width(360.0));
             ui.add_space(6.0);
-            ui.strong("First row");
-            ui.horizontal(|ui| {
-                for (i, label) in EXPORT_NAMES.iter().enumerate() {
-                    ui.radio_value(&mut d.names, i, *label);
-                }
-            });
-            ui.checkbox(&mut d.labels, "Value labels instead of values");
+            if d.stata() {
+                ui.horizontal(|ui| {
+                    ui.label("For Stata release (8 to 14)");
+                    ui.add(TextEdit::singleline(&mut d.stata_version).desired_width(40.0));
+                });
+                ui.checkbox(
+                    &mut d.stata_se,
+                    "Keep whole strings (SE edition; off cuts them at 80 bytes)",
+                );
+            } else {
+                ui.strong("First row");
+                ui.horizontal(|ui| {
+                    for (i, label) in EXPORT_NAMES.iter().enumerate() {
+                        ui.radio_value(&mut d.names, i, *label);
+                    }
+                });
+                ui.checkbox(&mut d.labels, "Value labels instead of values");
+            }
             ui.checkbox(&mut d.recode_missing, "User-missing values as empty");
             ui.add_space(6.0);
             target_list(ui, "Variables (none: all)", &mut d.variables, picked);

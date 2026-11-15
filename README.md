@@ -51,6 +51,7 @@ The [command pages](docs/commands/README.md) list every supported command. In sh
   - linear regression (REGRESSION, with stepwise selection, residuals and diagnostics);
   - scale reliability (RELIABILITY: alpha, split-half and other models, intraclass correlations);
   - agreement between raters (WEIGHTED KAPPA, FLEISS MULTIRATER KAPPA) and statistics of a ratio (RATIO STATISTICS);
+  - power and sample size of t-tests and tests of proportions (POWER MEANS, POWER PROPORTIONS);
   - logistic regression (LOGISTIC REGRESSION, with categorical covariates, stepwise selection and case diagnostics);
   - the general linear model (UNIANOVA and GLM: factorial ANOVA and ANCOVA with Type I to IV sums of squares, estimated marginal means, post hoc tests, contrasts and repeated measures), and the older ANOVA with MCA tables;
   - factor analysis (FACTOR) and k-means clustering (QUICK CLUSTER);

@@ -739,6 +739,24 @@ Choices where the documentation says nothing, and where it is not followed:
 - Percents in the Case Processing Summary are of all cases with a positive weight.
 - OUTFILE writes the overall record first, with the group variable empty, then one record per group, in the order of the table. Variable names: Mean, Median, WgtMean, Minimum, Maximum, Range, StdDev, AAD, PRD, COD, MnCOV, MdCOV, BCOC_1 and on, WCOC_1 and on, and _Lower, _Upper and Median_Coverage for the intervals, each with a label. OUTFILE under SPLIT FILE is an error.
 
+### POWER
+
+POWER MEANS ONESAMPLE, INDEPENDENT and RELATED and POWER PROPORTIONS ONESAMPLE, INDEPENDENT and RELATED are supported. POWER ONEWAY ANOVA, PARTIALCORR, PEARSON ONESAMPLE, SPEARMAN ONESAMPLE and UNIVARIATE LINEAR are not supported yet.
+
+- The commands need no data and change nothing.
+- A one-sided test looks in the direction of the effect given (the sign of MEAN minus NULL, ALTERNATIVE minus NULL, p1 - p2 or the difference of the discordant shares).
+- With POWER, a mean difference of 0 is an error, as equal proportions are.
+- A power that no sample size reaches leaves the size empty, with a warning.
+- The table shows the effect size and the mean difference without their sign for a two-sided test.
+- PROPORTIONS RELATED: of VALUES=PROPORTIONS(a b), a is the share of pairs with a success first and a failure second and b the reverse; with MARGINAL=TRUE, a and b are the success rates of the first and the second occasion. The risk difference is b - a, the risk ratio b / a. Marginal rates and a correlation that would make a discordant share negative, or the two add up past 1, are an error. CORRELATION may be left out and is then 0.5.
+- PROPORTIONS INDEPENDENT with ESTIMATE=BINOMIAL: the one-sided chi-square test with a continuity correction subtracts the correction from the difference, as the two-sided test does (the algorithms chapter adds it, which would make the correction raise the power). POOLED=FALSE uses the separate standard errors of the observed proportions.
+- ESTIMATE=BINOMIAL while searching for a sample size: sizes above 500 trials in all use the normal approximation, and a found size above 500 gives a warning. For two groups the search rounds a fractional first size up and the second size (ratio times the first) to the nearest whole number. With METHOD=FISHER the search runs on the exact chi-square test (pooled, no continuity correction), with a warning, and the table gives the power of Fisher's test at the size found.
+- When TIMER runs out, there is a warning and no table.
+- **Beyond the documentation**: N, PROPORTIONS and the values of VALUES may be written with or without parentheses.
+- Charts come as data: a line chart of power for a keyword alone, and power at a grid of points of both quantities (a plot in three dimensions) for a pair of _XAXIS and _YAXIS keywords. VROTATE and HROTATE are checked and have no effect. A lone _XAXIS or _YAXIS keyword is an error.
+- Default chart ranges: sample sizes from the smallest allowed to twice the size in the table (at least 10 more); effect sizes from 0 to twice the effect (from minus to plus that for a one-sided test, within -5 and 5); the group size ratio from 0.2 to 5; proportions and correlations from 0.01 to 0.99 (-0.99 for correlations); risk and odds ratios from half the smaller to twice the larger of 1 and the ratio in the table. Points where the test is not possible (a proportion outside 0 to 1) are left out.
+- The NRATIO chart keeps n1 + n2 and moves the split (rounded for proportions); MEANS INDEPENDENT NRATIO_XAXIS and NRATIO_YAXIS take ratios, not whole numbers. RISK_DIFF, RISK_RATIO and ODDS_RATIO move p1 (INDEPENDENT) or b (RELATED) and keep the other; DIFF moves ALTERNATIVE; NULL and ALTERNATIVE each move one value.
+
 ### FACTOR
 
 - Standard deviations and covariances divide by W - 1. LISTWISE leaves out a case missing on any variable of VARIABLES, also one that is not on ANALYSIS. EXTRACTION without ROTATION leaves the factors unrotated. The default power of PROMAX is 4. Rotated factors are ordered by their sums of squared loadings (GNU PSPP differs).

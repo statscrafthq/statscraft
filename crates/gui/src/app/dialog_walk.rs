@@ -1566,6 +1566,14 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             labels: true,
             recode_missing: true,
             variables: v(&["gender", "age"]),
+            ..Default::default()
+        }),
+        Dialog::ExportData(ExportData {
+            path: out.join("max.dta").to_string_lossy().into_owned(),
+            recode_missing: true,
+            variables: v(&["gender", "age"]),
+            stata_version: "13".into(),
+            ..Default::default()
         }),
     ];
     for kind in [

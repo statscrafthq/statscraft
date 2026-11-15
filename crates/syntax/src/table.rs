@@ -44,6 +44,7 @@ use crate::output_modify;
 use crate::parser::{PResult, Parser};
 use crate::plum;
 use crate::portable;
+use crate::power;
 use crate::pplot;
 use crate::procedures;
 use crate::proximities;
@@ -1512,6 +1513,136 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         example: "RATIO STATISTICS rent WITH income BY district (DESCENDING)\n\
                   \x20 /PRINT=MEDIAN COD PRD WCOC(10 25) CIN(90).",
         parse: ratio_statistics::ratio_statistics,
+    },
+    CommandSpec {
+        name: "POWER MEANS ONESAMPLE",
+        summary: "Power or sample size of a one-sample t-test of a mean.",
+        syntax: "POWER MEANS ONESAMPLE /PARAMETERS [TEST=NONDIRECTIONAL | DIRECTIONAL] [SIGNIFICANCE=0.05]\n\
+                 \x20                     N=n | POWER=powers  SD=sd  MEAN=mean  [NULL=0]\n\
+                 \x20                     [/PLOT [N[(low high)]] [ES[(low high)]] [N_XAXIS[(low high)] ES_YAXIS[(low high)]]\n\
+                 \x20                            [N_YAXIS[(low high)] ES_XAXIS[(low high)]] [VROTATE(10)] [HROTATE(325)]].\n\
+                 powers: one or more values between 0 and 1, and at most one grid low TO high BY step.\n\
+                 Needs no data. With N (a whole number above 1) the table gives the power of the test of\n\
+                 MEAN against NULL when the population standard deviation is SD; with POWER it gives, for\n\
+                 each power, the smallest N that reaches it and the power that N actually has. The power\n\
+                 comes from the noncentral t with N - 1 df and noncentrality (MEAN - NULL) / SD * sqrt(N);\n\
+                 the effect size (MEAN - NULL) / SD shows unsigned for a two-sided test. A one-sided test\n\
+                 looks in the direction of the effect. PLOT gives power curves as chart data: N over sample\n\
+                 sizes (default from 2 to twice the table's N), ES over effect sizes (default 0 to twice the\n\
+                 effect, or from minus to plus that for a one-sided test; within -5 and 5), and a pair of\n\
+                 _XAXIS and _YAXIS keywords a surface over both. With several powers only the N chart is\n\
+                 drawn, over the sizes the table found. VROTATE and HROTATE are accepted; the chart data has\n\
+                 no viewing angle.",
+        example: "POWER MEANS ONESAMPLE /PARAMETERS SD=12 MEAN=104 NULL=100 POWER=0.8 0.9\n\
+                  \x20 /PLOT N.",
+        parse: power::means_onesample,
+    },
+    CommandSpec {
+        name: "POWER MEANS INDEPENDENT",
+        summary: "Power or group sizes of a t-test comparing the means of two independent groups.",
+        syntax: "POWER MEANS INDEPENDENT /PARAMETERS [TEST=NONDIRECTIONAL | DIRECTIONAL] [SIGNIFICANCE=0.05]\n\
+                 \x20                       N=n1 n2 | POWER=powers [NRATIO=1]  SD=sd | sd1 sd2  MEAN=difference | mean1 mean2\n\
+                 \x20                       [/PLOT [NRATIO[(low high)]] [ES[(low high)]] [NRATIO_XAXIS[(low high)] ES_YAXIS[(low high)]]\n\
+                 \x20                              [NRATIO_YAXIS[(low high)] ES_XAXIS[(low high)]] [VROTATE(10)] [HROTATE(325)]].\n\
+                 Needs no data. One SD assumes equal variances: df n1 + n2 - 2 and effect size difference /\n\
+                 SD. Two different SDs give the separate-variances test with Welch's df, and the table shows\n\
+                 the mean difference instead of an effect size. Two MEAN values are the group means, one is\n\
+                 their difference. With POWER the table gives n1 (the smallest that reaches the power) and\n\
+                 n2 = NRATIO * n1 rounded up (at least 2), with the power they actually have. NRATIO takes\n\
+                 0.01 to 100. PLOT: NRATIO over n2 / n1 with n1 + n2 kept (default 0.2 to 5), ES over the\n\
+                 effect size, or the mean difference with two SDs (default 0 to twice the table's value). The\n\
+                 other rules are those of POWER MEANS ONESAMPLE.",
+        example: "POWER MEANS INDEPENDENT /PARAMETERS SD=8 11 MEAN=31 25 POWER=0.85 NRATIO=2\n\
+                  \x20 /PLOT ES(0 10).",
+        parse: power::means_independent,
+    },
+    CommandSpec {
+        name: "POWER MEANS RELATED",
+        summary: "Power or number of pairs of a paired t-test.",
+        syntax: "POWER MEANS RELATED /PARAMETERS [TEST=NONDIRECTIONAL | DIRECTIONAL] [SIGNIFICANCE=0.05]\n\
+                 \x20                   NPAIRS=n | POWER=powers  SD=sd | sd1 sd2  [RHO=0.5]  MEAN=difference | mean1 mean2\n\
+                 \x20                   [/PLOT [NPAIRS[(low high)]] [ES[(low high)]] [NPAIRS_XAXIS[(low high)] ES_YAXIS[(low high)]]\n\
+                 \x20                          [NPAIRS_YAXIS[(low high)] ES_XAXIS[(low high)]] [VROTATE(10)] [HROTATE(325)]].\n\
+                 Needs no data. The test is the one-sample t-test of the differences within pairs. One SD is\n\
+                 the standard deviation of those differences; two are those of the two measures, combined\n\
+                 with their correlation RHO (-1 to 1, not 0) as sqrt(sd1^2 + sd2^2 - 2 RHO sd1 sd2). RHO is\n\
+                 ignored with one SD. NPAIRS is a whole number above 1; the NPAIRS chart range lies within 2\n\
+                 and 5000. The other rules are those of POWER MEANS ONESAMPLE.",
+        example: "POWER MEANS RELATED /PARAMETERS SD=6.5 7 RHO=0.7 MEAN=3 NPAIRS=40 TEST=DIRECTIONAL\n\
+                  \x20 /PLOT NPAIRS(10 80).",
+        parse: power::means_related,
+    },
+    CommandSpec {
+        name: "POWER PROPORTIONS ONESAMPLE",
+        summary: "Power or sample size of a test of one proportion against a hypothesized value.",
+        syntax: "POWER PROPORTIONS ONESAMPLE /PARAMETERS [TEST=NONDIRECTIONAL | DIRECTIONAL] [SIGNIFICANCE=0.05]\n\
+                 \x20                           N=n | POWER=powers  [NULL=0.5]  ALTERNATIVE=p\n\
+                 \x20                           [ESTIMATE=NORMAL | BINOMIAL] [CONTINUITY=FALSE | TRUE] [TIMER=minutes]\n\
+                 \x20                           [/PLOT [N[(low high)]] [NULL] [ALTERNATIVE] [DIFF] [N_XAXIS[(low high)] DIFF_YAXIS]\n\
+                 \x20                                  [N_YAXIS[(low high)] DIFF_XAXIS] [NULL_XAXIS ALTERNATIVE_YAXIS]\n\
+                 \x20                                  [NULL_YAXIS ALTERNATIVE_XAXIS] [VROTATE(10)] [HROTATE(325)]].\n\
+                 Needs no data. NULL and ALTERNATIVE lie between 0 and 1, and differ when POWER is given.\n\
+                 NORMAL uses the normal approximation, with a continuity correction of 1 / (2 sqrt(n)) when\n\
+                 CONTINUITY=TRUE. BINOMIAL counts the exact binomial rejection region at NULL and its\n\
+                 probability at ALTERNATIVE, up to 500 trials; above that the normal approximation is used\n\
+                 with a warning. Because exact power rises in steps, the sample size search checks smaller\n\
+                 sizes and then counts upwards until the power is reached. TIMER stops that search after so\n\
+                 many minutes, with no result. A one-sided test looks in the direction of ALTERNATIVE. PLOT\n\
+                 charts power over N, over NULL or ALTERNATIVE (the other kept), over DIFF = ALTERNATIVE -\n\
+                 NULL with NULL kept, and surfaces over N and DIFF or NULL and ALTERNATIVE; proportion axes\n\
+                 run from 0.01 to 0.99.",
+        example: "POWER PROPORTIONS ONESAMPLE /PARAMETERS NULL=0.3 ALTERNATIVE=0.42 POWER=0.8 0.9\n\
+                  \x20 ESTIMATE=BINOMIAL.",
+        parse: power::proportions_onesample,
+    },
+    CommandSpec {
+        name: "POWER PROPORTIONS INDEPENDENT",
+        summary: "Power or group sizes of a test comparing two independent proportions.",
+        syntax: "POWER PROPORTIONS INDEPENDENT /PARAMETERS [TEST=NONDIRECTIONAL | DIRECTIONAL] [SIGNIFICANCE=0.05]\n\
+                 \x20                             N=n1 n2 | POWER=powers [NRATIO=1]  PROPORTIONS=p1 p2\n\
+                 \x20                             [METHOD=CHISQ | T | LRT | FISHER] [ESTIMATE=NORMAL | BINOMIAL]\n\
+                 \x20                             [CONTINUITY=FALSE | TRUE] [POOLED=TRUE | FALSE] [TIMER=minutes]\n\
+                 \x20                             [/PLOT [NRATIO[(low high)]] [RISK_DIFF] [RISK_RATIO[(low high)]] [ODDS_RATIO[(low high)]]\n\
+                 \x20                                    [N1_XAXIS[(low high)] N2_YAXIS[(low high)]] [N1_YAXIS[(low high)] N2_XAXIS[(low high)]]\n\
+                 \x20                                    [P1_XAXIS P2_YAXIS] [P1_YAXIS P2_XAXIS] [VROTATE(10)] [HROTATE(325)]].\n\
+                 Needs no data. The table shows the risk difference p1 - p2, the risk ratio p1 / p2 and the\n\
+                 odds ratio. METHOD picks the test: CHISQ the z (chi-square) test, with a pooled or separate\n\
+                 standard error (POOLED) and optionally a continuity correction; T a t-test of the 0/1\n\
+                 values (pooled or not); LRT the likelihood ratio test; FISHER Fisher's exact test, by the\n\
+                 arcsine approximation (it needs at least 0.5 / p successes and failures in the right\n\
+                 groups, else the power is missing). With ESTIMATE=BINOMIAL and at most 500 trials in all,\n\
+                 the power sums the binomial probabilities of every pair of outcomes the test rejects (for\n\
+                 FISHER, the exact conditional test); with POWER and FISHER the size search uses the chi-square\n\
+                 test instead, with a warning. With POWER the table gives n1 and n2 = NRATIO * n1 rounded up\n\
+                 (at least 1); the directional chi-square sizes come from a closed formula. A one-sided test\n\
+                 looks in the direction of p1 - p2. PLOT: NRATIO with n1 + n2 kept (default 0.2 to 5),\n\
+                 RISK_DIFF, RISK_RATIO and ODDS_RATIO by moving p1 with p2 kept, and surfaces over the two\n\
+                 group sizes (default 1 to twice each size) or the two proportions.",
+        example: "POWER PROPORTIONS INDEPENDENT /PARAMETERS PROPORTIONS=0.22 0.35 N=90 110\n\
+                  \x20 METHOD=T POOLED=FALSE /PLOT RISK_RATIO.",
+        parse: power::proportions_independent,
+    },
+    CommandSpec {
+        name: "POWER PROPORTIONS RELATED",
+        summary: "Power or number of pairs of McNemar's test of two paired proportions.",
+        syntax: "POWER PROPORTIONS RELATED /PARAMETERS [TEST=NONDIRECTIONAL | DIRECTIONAL] [SIGNIFICANCE=0.05]\n\
+                 \x20                         NPAIRS=n | POWER=powers  VALUES=PROPORTIONS(a b) | COUNTS(a b)\n\
+                 \x20                         [MARGINAL=FALSE | TRUE] [CORRELATION=0.5] [ESTIMATE=NORMAL | BINOMIAL] [TIMER=minutes]\n\
+                 \x20                         [/PLOT [NPAIRS[(low high)]] [RISK_DIFF] [RISK_RATIO[(low high)]] [ODDS_RATIO[(low high)]]\n\
+                 \x20                                [CORRELATION] [DISCORDANT] [MARGINAL] [VROTATE(10)] [HROTATE(325)]].\n\
+                 Needs no data. A pair is a success or failure on a first and a second occasion. With\n\
+                 MARGINAL=FALSE, a is the share of pairs with success first and failure second and b the\n\
+                 reverse; with TRUE, a and b are the success rates of the first and second occasion, turned\n\
+                 into those two shares through their CORRELATION (between -1 and 1). COUNTS give the numbers\n\
+                 of such pairs and need NPAIRS. The risk difference is b - a in both readings, the risk and\n\
+                 odds ratios compare the second discordant share with the first. NORMAL uses the normal\n\
+                 approximation; BINOMIAL averages the exact conditional binomial test over the number of\n\
+                 discordant pairs, up to 500 pairs. PLOT: NPAIRS (within 2 and 2500), RISK_DIFF, RISK_RATIO\n\
+                 and ODDS_RATIO by moving b with a kept, CORRELATION (MARGINAL=TRUE only), and surfaces over\n\
+                 the two discordant shares (DISCORDANT) or the two success rates (MARGINAL, with TRUE).",
+        example: "POWER PROPORTIONS RELATED /PARAMETERS VALUES=PROPORTIONS(0.6 0.45) MARGINAL=TRUE\n\
+                  \x20 CORRELATION=0.3 POWER=0.9 /PLOT CORRELATION.",
+        parse: power::proportions_related,
     },
     CommandSpec {
         name: "FACTOR",
@@ -3905,7 +4036,13 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
 
 /// Commands of the language that have no parser yet. They get "not supported yet" instead of
 /// "unknown command", and their bodies are not tokenised.
-static UNSUPPORTED: &[&str] = &[];
+static UNSUPPORTED: &[&str] = &[
+    "POWER ONEWAY ANOVA",
+    "POWER PARTIALCORR",
+    "POWER PEARSON ONESAMPLE",
+    "POWER SPEARMAN ONESAMPLE",
+    "POWER UNIVARIATE LINEAR",
+];
 
 /// The ends of blocks whose start reads them, such as END DATA after BEGIN DATA. Standing
 /// alone they are an error at their own line.
