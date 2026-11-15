@@ -3,6 +3,8 @@
 
 mod advanced_dialogs;
 mod advanced_dialogs_view;
+mod agreement_dialog;
+mod agreement_dialog_view;
 mod analyze_dialogs;
 mod app;
 mod brand;

@@ -299,6 +299,7 @@ See [The Window menu](#the-window-menu).
 - **Descriptives**.
 - **Explore**: descriptives, M-estimators, extreme values, percentiles and tests of normality, by factor.
 - **Crosstabs**.
+- **Ratio** (`RATIO STATISTICS`): a numerator and a denominator, both numeric and different, and an optional group variable with its order (ascending, descending or as the groups first appear). The statistics of the ratio, confidence intervals at any level, the percent of ratios inside intervals you type (`0.9 1.1; 0.8 1.2`) and the percent within given percents of the median (`10 20`). The statistics show in a table, go to a data file or a new dataset, or both. OK stays off until at least one statistic is chosen.
 
 **Custom Tables**
 
@@ -473,6 +474,8 @@ See [The Window menu](#the-window-menu).
   - The Euclidean or the individual differences model; the latter needs several matrices and 2 dimensions or more. Dimensions from 1 to 6.
   - The convergence, iteration and S-stress limits, the cutoff for missing proximities, negative subject weights, the data and the option summary, plots, and the coordinates saved to a data file.
   - Asymmetric and rectangular matrices, row conditionality and the asymmetric and generalized models are shown but not available yet.
+- **Weighted Kappa** (`WEIGHTED KAPPA`): every pair of the raters, or each row rater with each column rater. Linear or quadratic agreement weights, the confidence level, user-missing values as categories, and a table of counts for each pair with its categories ascending or descending.
+- **Fleiss Multirater Kappa** (`FLEISS MULTIRATER KAPPA`): two or more raters, all numeric or all string. The agreement on each category, the confidence level and user-missing values as categories.
 
 **Nonparametric Tests** (`NPAR TESTS`), with the dialogs analysts know. Each has descriptives, quartiles, and cases left out test by test or listwise.
 
