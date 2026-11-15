@@ -912,7 +912,12 @@ fn catpca_errors() {
     assert!(err("CATPCA a b.").contains("ANALYSIS"));
     assert!(err("CATPCA a b /ANALYSIS=a b (LEVEL=ORDI DEGREE=2).").contains("SPORD"));
     assert!(err("CATPCA a b /ANALYSIS=a b (LEVEL=CURVED).").contains("unexpected"));
-    assert!(err("CATPCA a b /ANALYSIS=a b /ROTATION=VARIMAX /RESAMPLE=NONE.").contains("both"));
+    assert!(
+        err("CATPCA a b /ANALYSIS=a b /ROTATION=VARIMAX /RESAMPLE=BOOTSTRAP.").contains("rotate")
+    );
+    assert!(err("CATPCA a b /ANALYSIS=a b /SAVE=APPROX(fit(2)).").contains("root name only"));
+    let c = catpca("CATPCA a b /ANALYSIS=a b /ROTATION=VARIMAX /RESAMPLE=NONE.");
+    assert!(c.rotation.is_some() && c.resample.is_none());
     assert!(err("CATPCA a b /ANALYSIS=a b /ROTATION=PROMAX(0.5).").contains("kappa"));
     assert!(err("CATPCA a b /ANALYSIS=a b /ROTATION=OBLIMIN(0.9).").contains("delta"));
     assert!(err("CATPCA a b /ANALYSIS=a b /RESAMPLE=BOOTSTRAP(10 100).").contains("confidence"));

@@ -2451,7 +2451,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  correlations), OPRINCIPAL 1, SYMMETRICAL 0; INDEPENDENT scales the scores only. ROTATION turns\n\
                  the loadings of the variables that have loadings, with Kaiser normalization unless NOKAISER,\n\
                  and the scores and centroids with them. RESAMPLE=BOOTSTRAP is not supported yet (an error);\n\
-                 ROTATION and RESAMPLE may not both appear. SPLIT FILE does not apply.\n\
+                 a rotation with BOOTSTRAP is an error too. SPLIT FILE does not apply.\n\
                  Tables: Case Processing Summary, Iteration History (iteration 0 and the last, or all with\n\
                  HISTORY: variance accounted for, its increase, and the loss split into the centroid part and\n\
                  the part from holding single variables to a line) and Model Summary (Cronbach's alpha,\n\

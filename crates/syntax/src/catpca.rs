@@ -10,11 +10,11 @@
 //!   from 1 below 10000 (4), OBLIMIN[(delta)] with delta at most 0.8 (0); KAISER (the
 //!   default) or NOKAISER. RESAMPLE: NONE or BOOTSTRAP[(samples, percent, BALANCED or
 //!   UNBALANCED, PROCRU or REFLEC)], with 1000, 95, BALANCED and PROCRU by default; a single
-//!   number is the samples. ROTATION and RESAMPLE may not both appear.
+//!   number is the samples. A rotation and BOOTSTRAP may not go together.
 //! - PRINT: DESCRIP[(varlist)], LOADING[(SORT | NOSORT)], CORR, VAF, OCORR, QUANT[(varlist)],
 //!   HISTORY, OBJECT[([(label)] varlist)] and NONE. Without the subcommand or without
 //!   keywords: DESCRIP LOADING CORR. A keyword written twice counts once (the last one), NONE
-//!   drops the ones before it, and a keyword with a list written twice is an error.
+//!   drops the ones before it, and a keyword that can take a list written twice is an error.
 //! - PLOT: OBJECT[(varlist)], LOADING[(varlist[(CENTR[(varlist)])])], CATEGORY(varlist),
 //!   JOINTCAT[(varlist)], TRANS(varlist[(n)]), RESID(varlist[(n)]),
 //!   BIPLOT[(LOADING | CENTR[(varlist)])][(varlist)], TRIPLOT[(varlist[(varlist)])],
@@ -23,7 +23,7 @@
 //!   Without the subcommand or without keywords: OBJECT and LOADING. A keyword written twice
 //!   counts once (the last one); NONE drops the ones before it.
 //! - SAVE: TRDATA[(root[(n)])], OBJECT[(root[(n)])], APPROX[(root)] and the ellipse areas
-//!   LDELLAREA, OBELLAREA, CTELLAREA. Roots are cut to 5 characters.
+//!   LDELLAREA, OBELLAREA, CTELLAREA and ELLAREAOBJ. Roots are cut to 5 characters.
 //! - OUTFILE: DISCRDATA, TRDATA, OBJECT, APPROX and ELLCOORD, each with a file or dataset in
 //!   parentheses; a file alone means TRDATA.
 
@@ -607,7 +607,6 @@ pub(crate) fn catpca(p: &mut Parser) -> PResult<Command> {
     let mut analysis = Vec::new();
     let mut rotation_spec = None;
     let mut resample_spec = None;
-    let (mut seen_rotation, mut seen_resample) = (false, false);
     let mut print_spec = CatpcaPrint::defaults();
     let mut plot_spec = CatpcaPlots::default();
     let (mut save_trdata, mut save_object, mut save_approx) = (None, None, None);
@@ -630,11 +629,9 @@ pub(crate) fn catpca(p: &mut Parser) -> PResult<Command> {
                     }
                 }
                 "ROTATION" => {
-                    seen_rotation = true;
                     rotation_spec = Some(rotation(p)?);
                 }
                 "RESAMPLE" => {
-                    seen_resample = true;
                     resample_spec = resample(p)?;
                 }
                 "PRINT" => print_spec = print(p)?,
@@ -646,7 +643,15 @@ pub(crate) fn catpca(p: &mut Parser) -> PResult<Command> {
                         } else if p.eat_keyword("OBJECT") {
                             save_object = Some(save_target(p, "OBSCO", 5)?);
                         } else if p.eat_keyword("APPROX") {
-                            save_approx = Some(save_target(p, "APP", 5)?.0);
+                            let start = p.pos;
+                            let (root, dims) = save_target(p, "APP", 5)?;
+                            if dims.is_some() {
+                                return Err(SyntaxError::new(
+                                    p.span_from(start),
+                                    "APPROX takes a root name only, without a number of dimensions",
+                                ));
+                            }
+                            save_approx = Some(root);
                         } else if let Some(k) =
                             ["LDELLAREA", "OBELLAREA", "CTELLAREA", "ELLAREAOBJ"]
                                 .into_iter()
@@ -662,6 +667,7 @@ pub(crate) fn catpca(p: &mut Parser) -> PResult<Command> {
                                 "LDELLAREA",
                                 "OBELLAREA",
                                 "CTELLAREA",
+                                "ELLAREAOBJ",
                             ]));
                         }
                         p.eat(Punct::Comma);
@@ -713,10 +719,10 @@ pub(crate) fn catpca(p: &mut Parser) -> PResult<Command> {
             "CATPCA needs the ANALYSIS subcommand",
         ));
     }
-    if seen_rotation && seen_resample {
+    if resample_spec.is_some() && rotation_spec.is_some_and(|(r, _)| r != Rotation::None) {
         return Err(SyntaxError::new(
             p.span(),
-            "CATPCA cannot have both ROTATION and RESAMPLE",
+            "CATPCA cannot rotate and bootstrap in one run; drop ROTATION or RESAMPLE",
         ));
     }
     Ok(Command::Catpca(Box::new(Catpca {
