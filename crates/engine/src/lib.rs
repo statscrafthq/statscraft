@@ -64,6 +64,7 @@ mod nomreg;
 mod nonpar_corr;
 mod npar_groups;
 mod npar_tests;
+mod nptests;
 pub mod office;
 mod oneway;
 mod output;
@@ -743,6 +744,7 @@ impl Engine {
             | Command::Correlations(_)
             | Command::NonparCorr(_)
             | Command::NparTests(_)
+            | Command::Nptests(_)
             | Command::PartialCorr(_)
             | Command::Examine(_)
             | Command::Regression(_)
@@ -1017,6 +1019,7 @@ impl Engine {
             Command::Correlations(command) => self.correlations(command),
             Command::NonparCorr(command) => self.nonpar_corr(command),
             Command::NparTests(command) => self.npar_tests(command),
+            Command::Nptests(command) => self.nptests(command),
             Command::PartialCorr(command) => self.partial_corr(command),
             Command::Examine(command) => self.examine(command),
             Command::Regression(command) => self.regression(command),

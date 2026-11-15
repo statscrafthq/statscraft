@@ -64,6 +64,7 @@ pub enum Command {
     Correlations(Correlations),
     NonparCorr(NonparCorr),
     NparTests(Box<crate::npar::NparTests>),
+    Nptests(Box<crate::nptests::Nptests>),
     PartialCorr(crate::npar::PartialCorr),
     Examine(Examine),
     Regression(Box<crate::regression::Regression>),

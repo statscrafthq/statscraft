@@ -35,15 +35,15 @@ use statscraft_data::Variable;
 use statscraft_syntax::GroupTest;
 
 /// The cases of one tested variable split into groups, in group order.
-struct Grouped {
+pub(crate) struct Grouped {
     /// The value of the grouping variable of each group.
-    keys: Vec<f64>,
+    pub keys: Vec<f64>,
     /// (value, weight) of the cases of each group.
-    groups: Vec<Vec<(f64, f64)>>,
+    pub groups: Vec<Vec<(f64, f64)>>,
 }
 
 impl Grouped {
-    fn sizes(&self) -> Vec<f64> {
+    pub fn sizes(&self) -> Vec<f64> {
         self.groups
             .iter()
             .map(|g| g.iter().map(|p| p.1).sum())
@@ -51,7 +51,7 @@ impl Grouped {
     }
 
     /// Every case with its group index.
-    fn pooled(&self) -> Vec<(f64, f64, usize)> {
+    pub fn pooled(&self) -> Vec<(f64, f64, usize)> {
         self.groups
             .iter()
             .enumerate()
@@ -60,7 +60,7 @@ impl Grouped {
     }
 
     /// Joint average ranks of every case of the pooled list, and the sum of t^3 - t.
-    fn ranked(&self) -> (Vec<(f64, f64, usize, f64)>, f64) {
+    pub fn ranked(&self) -> (Vec<(f64, f64, usize, f64)>, f64) {
         let pooled = self.pooled();
         let pairs: Vec<(f64, f64)> = pooled.iter().map(|p| (p.0, p.1)).collect();
         let (ranks, ties) = tied_ranks(&pairs);
@@ -71,6 +71,236 @@ impl Grouped {
             .collect();
         (ranked, ties)
     }
+
+    /// Two-sample Kolmogorov-Smirnov: the most extreme differences (absolute, positive,
+    /// negative) of the larger group's cdf (the first on equal sizes) less the other's, Z and
+    /// Smirnov's significance.
+    pub fn smirnov(&self) -> [f64; 5] {
+        let n = self.sizes();
+        let larger = usize::from(n[1] > n[0]);
+        let pooled = tally(&self.pooled().iter().map(|p| (p.0, 1.0)).collect::<Vec<_>>());
+        let (mut positive, mut negative) = (0.0f64, 0.0f64);
+        for &(x, _) in &pooled {
+            let cdf = |g: usize| {
+                self.groups[g]
+                    .iter()
+                    .filter(|p| p.0 <= x)
+                    .map(|p| p.1)
+                    .sum::<f64>()
+                    / n[g]
+            };
+            let diff = cdf(larger) - cdf(1 - larger);
+            positive = positive.max(diff);
+            negative = negative.min(diff);
+        }
+        let absolute = positive.max(-negative);
+        let z = absolute * (n[0] * n[1] / (n[0] + n[1])).sqrt();
+        [absolute, positive, negative, z, smirnov_p(z)]
+    }
+
+    /// The sorted distinct values of two groups as blocks of (first group's, second group's)
+    /// weight, for counting runs.
+    pub fn blocks(&self) -> Vec<(f64, f64)> {
+        let mut pooled = self.pooled();
+        pooled.sort_by(|a, b| a.0.total_cmp(&b.0));
+        let mut blocks: Vec<(f64, f64, f64)> = Vec::new();
+        for (x, w, g) in pooled {
+            match blocks.last_mut() {
+                Some(last) if last.0 == x => {
+                    if g == 0 {
+                        last.1 += w
+                    } else {
+                        last.2 += w
+                    }
+                }
+                _ => blocks.push(if g == 0 { (x, w, 0.0) } else { (x, 0.0, w) }),
+            }
+        }
+        blocks.iter().map(|b| (b.1, b.2)).collect()
+    }
+
+    /// The joint average ranks of the first (control) group's cases, one per unit of weight,
+    /// sorted.
+    pub fn control_ranks(&self) -> Vec<f64> {
+        let (ranked, _) = self.ranked();
+        let mut control: Vec<f64> = ranked
+            .iter()
+            .filter(|r| r.2 == 0)
+            .flat_map(|r| std::iter::repeat_n(r.3, r.1 as usize))
+            .collect();
+        control.sort_by(f64::total_cmp);
+        control
+    }
+
+    /// Kruskal-Wallis: the weighted rank sum of every group and H corrected for ties, None
+    /// with fewer than two groups or no spread.
+    pub fn kruskal_wallis(&self) -> (Vec<f64>, Option<f64>) {
+        let (ranked, ties) = self.ranked();
+        let n = self.sizes();
+        let total: f64 = n.iter().sum();
+        let mut sum = vec![0.0; self.keys.len()];
+        for r in &ranked {
+            sum[r.2] += r.1 * r.3;
+        }
+        let h: f64 = (0..sum.len()).map(|i| sum[i] * sum[i] / n[i]).sum();
+        let h = 12.0 / (total * (total + 1.0)) * h - 3.0 * (total + 1.0);
+        let correction = 1.0 - ties / (total.powi(3) - total);
+        let usable = self.keys.len() >= 2 && correction > 1e-12;
+        (sum, usable.then(|| h / correction))
+    }
+
+    /// Jonckheere-Terpstra: the statistic (the Mann-Whitney counts of every earlier group
+    /// below every later one), its mean and its standard deviation corrected for ties.
+    pub fn jonckheere(&self) -> [f64; 3] {
+        let n = self.sizes();
+        let total: f64 = n.iter().sum();
+        let mut t = 0.0;
+        for (a, first) in self.groups.iter().enumerate() {
+            for (later, size) in self.groups[a + 1..].iter().zip(&n[a + 1..]) {
+                // U of the pair: the rank sum of the later group in the joint ranking, less
+                // its smallest possible value
+                let pair = Grouped {
+                    keys: vec![0.0, 1.0],
+                    groups: vec![first.clone(), later.clone()],
+                };
+                let (ranked, _) = pair.ranked();
+                let sum: f64 = ranked.iter().filter(|r| r.2 == 1).map(|r| r.1 * r.3).sum();
+                t += sum - size * (size + 1.0) / 2.0;
+            }
+        }
+        let ties = tally(&self.pooled().iter().map(|p| (p.0, p.1)).collect::<Vec<_>>());
+        let a1: f64 = ties.iter().map(|(_, t)| t * (t - 1.0)).sum();
+        let a2: f64 = ties.iter().map(|(_, t)| t * t * (t - 1.0)).sum();
+        let s1: f64 = n.iter().map(|k| k * (k - 1.0)).sum();
+        let s2: f64 = n.iter().map(|k| k * (k - 1.0) * (k - 2.0)).sum();
+        let s3: f64 = n.iter().map(|k| k * (k - 1.0) * (2.0 * k + 5.0)).sum();
+        let mean = (total * total - n.iter().map(|k| k * k).sum::<f64>()) / 4.0;
+        let variance = (total * (total - 1.0) * (2.0 * total + 5.0) - s3 - 2.0 * a2 - 5.0 * a1)
+            / 72.0
+            + s2 * (a2 - 2.0 * a1) / (36.0 * total * (total - 1.0) * (total - 2.0))
+            + s1 * a1 / (8.0 * total * (total - 1.0));
+        [t, mean, variance.sqrt()]
+    }
+
+    /// The median test with `md` as the median; `two` treats the two groups as a fourfold
+    /// table (Fisher up to 30 cases, else the corrected chi-square).
+    pub fn median_test(&self, md: Option<f64>, two: bool) -> MedianTest {
+        let n = self.sizes();
+        let total: f64 = n.iter().sum();
+        let above: Vec<f64> = self
+            .groups
+            .iter()
+            .map(|g| {
+                g.iter()
+                    .filter(|p| md.is_some_and(|m| p.0 > m))
+                    .map(|p| p.1)
+                    .sum()
+            })
+            .collect();
+        // nonempty groups only
+        let filled: Vec<usize> = (0..n.len()).filter(|&g| n[g] > 0.0).collect();
+        let k = filled.len() as f64;
+        let r1: f64 = filled.iter().map(|&g| above[g]).sum();
+        let r2 = total - r1;
+        let (mut chi, mut exact, mut sparse) = (None, None, None);
+        if k >= 2.0 && r1 > 0.0 && r2 > 0.0 {
+            if two {
+                let (g1, g2, n1, n2) = (above[0], above[1], n[0], n[1]);
+                if total <= 30.0 {
+                    let (p, _) = fisher(g1 as u64, (n1 - g1) as u64, g2 as u64, (n2 - g2) as u64);
+                    exact = Some(p);
+                } else {
+                    chi = Some(
+                        ((g1 * (n2 - g2) - g2 * (n1 - g1)).abs() - total / 2.0).powi(2) * total
+                            / ((g1 + g2) * (n1 + n2 - g1 - g2) * n1 * n2),
+                    );
+                }
+            } else {
+                let mut sum = 0.0;
+                let (mut low, mut below_one) = (0, false);
+                for &g in &filled {
+                    for (observed, row) in [(above[g], r1), (n[g] - above[g], r2)] {
+                        let e = row * n[g] / total;
+                        sum += (observed - e).powi(2) / e;
+                        low += usize::from(e < 5.0);
+                        below_one |= e < 1.0;
+                    }
+                }
+                chi = Some(sum);
+                if below_one || low as f64 > 0.2 * 2.0 * k {
+                    sparse = Some((low, 2 * filled.len()));
+                }
+            }
+        }
+        MedianTest {
+            above,
+            groups: k,
+            chi,
+            exact,
+            sparse,
+        }
+    }
+
+    /// Mann-Whitney of two groups: the rank sums, U of the first group (pairs with the first
+    /// group's case below, ties half), the variance of U corrected for ties, and the exact
+    /// two-sided significance without ties when the groups are small enough.
+    pub fn mann_whitney(&self) -> MannWhitney {
+        let n = self.sizes();
+        let (ranked, ties) = self.ranked();
+        let mut s = [0.0; 2];
+        for r in &ranked {
+            s[r.2] += r.1 * r.3;
+        }
+        let total = n[0] + n[1];
+        let product = n[0] * n[1];
+        let u1 = product + n[0] * (n[0] + 1.0) / 2.0 - s[0];
+        let variance =
+            product / (total * (total - 1.0)) * ((total.powi(3) - total) / 12.0 - ties / 12.0);
+        let usable = n[0] > 0.0 && n[1] > 0.0;
+        let small = usable && product <= 400.0 && product / 2.0 + n[0].min(n[1]) <= 220.0;
+        let u = u1.min(product - u1);
+        let exact = small
+            .then(|| {
+                let ranks: Vec<u64> = (1..=total as u64).collect();
+                rank_sum_distribution(&ranks, Some(n[0] as usize)).map(|p| {
+                    // U of n1 drawn ranks is their sum less n1 (n1 + 1) / 2
+                    let offset = (n[0] * (n[0] + 1.0) / 2.0) as usize;
+                    let lower: f64 = p.iter().skip(offset).take(u.floor() as usize + 1).sum();
+                    (2.0 * lower).min(1.0)
+                })
+            })
+            .flatten();
+        MannWhitney {
+            n: [n[0], n[1]],
+            s,
+            u1,
+            variance,
+            exact,
+        }
+    }
+}
+
+/// The median test of some groups.
+pub(crate) struct MedianTest {
+    /// Weight above the median in each group.
+    pub above: Vec<f64>,
+    /// The number of nonempty groups.
+    pub groups: f64,
+    /// Chi-square over the nonempty groups (with the continuity correction for two groups
+    /// above 30 cases).
+    pub chi: Option<f64>,
+    /// Fisher's exact two-sided significance (two groups up to 30 cases).
+    pub exact: Option<f64>,
+    /// (cells below an expected 5, cells) when that makes the chi-square questionable.
+    pub sparse: Option<(usize, usize)>,
+}
+
+pub(crate) struct MannWhitney {
+    pub n: [f64; 2],
+    pub s: [f64; 2],
+    pub u1: f64,
+    pub variance: f64,
+    pub exact: Option<f64>,
 }
 
 /// n choose k, 0 outside 0 <= k <= n.
@@ -84,7 +314,7 @@ fn choose(n: f64, k: f64) -> f64 {
 
 /// The exact one-tailed probability of a Moses span at most `span` with `h` trimmed from each
 /// end of `nc` control and `ne` experimental cases.
-fn moses_p(span: f64, nc: f64, ne: f64, h: f64) -> f64 {
+pub(crate) fn moses_p(span: f64, nc: f64, ne: f64, h: f64) -> f64 {
     let g = span - (nc - 2.0 * h);
     if g < 0.0 {
         return 0.0;
@@ -99,7 +329,7 @@ fn moses_p(span: f64, nc: f64, ne: f64, h: f64) -> f64 {
 
 /// The fewest and the most runs of two groups over sorted blocks of tied values, each block
 /// with the weight of the first and of the second group.
-fn run_bounds(blocks: &[(f64, f64)]) -> (f64, f64) {
+pub(crate) fn run_bounds(blocks: &[(f64, f64)]) -> (f64, f64) {
     // for a block: the possible (first label, last label, runs) arrangements
     let options = |a: f64, b: f64, most: bool| -> Vec<(usize, usize, f64)> {
         if b == 0.0 {
@@ -270,26 +500,8 @@ pub(crate) fn groups(
                 let n = d.sizes();
                 labels.push([label(run, d.keys[0]), label(run, d.keys[1])]);
                 sizes.push([n[0], n[1]]);
-                let larger = usize::from(n[1] > n[0]);
-                let pooled = tally(&d.pooled().iter().map(|p| (p.0, 1.0)).collect::<Vec<_>>());
-                let (mut positive, mut negative) = (0.0f64, 0.0f64);
-                for &(x, _) in &pooled {
-                    let cdf = |g: usize| {
-                        d.groups[g]
-                            .iter()
-                            .filter(|p| p.0 <= x)
-                            .map(|p| p.1)
-                            .sum::<f64>()
-                            / n[g]
-                    };
-                    let diff = cdf(larger) - cdf(1 - larger);
-                    positive = positive.max(diff);
-                    negative = negative.min(diff);
-                }
                 let usable = n[0] > 0.0 && n[1] > 0.0;
-                let absolute = positive.max(-negative);
-                let z = absolute * (n[0] * n[1] / (n[0] + n[1])).sqrt();
-                let values = [absolute, positive, negative, z, smirnov_p(z)];
+                let values = d.smirnov();
                 for (s, value) in stats.iter_mut().zip(values) {
                     s.push(usable.then_some(value));
                 }
@@ -325,22 +537,7 @@ pub(crate) fn groups(
                 let n = d.sizes();
                 labels.push([label(run, d.keys[0]), label(run, d.keys[1])]);
                 sizes.push([n[0], n[1]]);
-                let mut pooled = d.pooled();
-                pooled.sort_by(|a, b| a.0.total_cmp(&b.0));
-                let mut blocks: Vec<(f64, f64, f64)> = Vec::new();
-                for (x, w, g) in pooled {
-                    match blocks.last_mut() {
-                        Some(last) if last.0 == x => {
-                            if g == 0 {
-                                last.1 += w
-                            } else {
-                                last.2 += w
-                            }
-                        }
-                        _ => blocks.push(if g == 0 { (x, w, 0.0) } else { (x, 0.0, w) }),
-                    }
-                }
-                let blocks: Vec<(f64, f64)> = blocks.iter().map(|b| (b.1, b.2)).collect();
+                let blocks = d.blocks();
                 let total = n[0] + n[1];
                 let usable = n[0] > 0.0 && n[1] > 0.0;
                 let (fewest, most) = if usable {
@@ -398,13 +595,7 @@ pub(crate) fn groups(
                     format!("{} (Experimental)", label(run, d.keys[1])),
                 ]);
                 sizes.push([n[0], n[1]]);
-                let (ranked, _) = d.ranked();
-                let mut control: Vec<f64> = ranked
-                    .iter()
-                    .filter(|r| r.2 == 0)
-                    .flat_map(|r| std::iter::repeat_n(r.3, r.1 as usize))
-                    .collect();
-                control.sort_by(f64::total_cmp);
+                let control = d.control_ranks();
                 let (nc, ne) = (n[0], n[1]);
                 let h = match trim {
                     Some(h) if h.trunc() >= 1.0 => h.trunc(),
@@ -459,16 +650,10 @@ pub(crate) fn groups(
             let mut rank_rows = Vec::new();
             let mut stats: Vec<Vec<Option<f64>>> = vec![Vec::new(); 3];
             for (d, name) in data.iter().zip(&names) {
-                let (ranked, ties) = d.ranked();
                 let n = d.sizes();
                 let total: f64 = n.iter().sum();
-                let mut sum = vec![0.0; d.keys.len()];
-                for r in &ranked {
-                    sum[r.2] += r.1 * r.3;
-                }
-                let mut h = 0.0;
+                let (sum, h) = d.kruskal_wallis();
                 for (i, key) in d.keys.iter().enumerate() {
-                    h += sum[i] * sum[i] / n[i];
                     rank_rows.push(vec![
                         if i == 0 {
                             text(name.clone())
@@ -491,17 +676,13 @@ pub(crate) fn groups(
                     Cell::Empty,
                 ]);
                 let k = d.keys.len() as f64;
-                h = 12.0 / (total * (total + 1.0)) * h - 3.0 * (total + 1.0);
-                let correction = 1.0 - ties / (total.powi(3) - total);
-                let usable = k >= 2.0 && correction > 1e-12;
-                if !usable {
+                if h.is_none() {
                     run.warnings.push(format!(
                         "K-W: {name} has fewer than two groups or no spread; no test"
                     ));
                 }
-                let h = usable.then(|| h / correction);
                 stats[0].push(h);
-                stats[1].push(usable.then_some(k - 1.0));
+                stats[1].push(h.map(|_| k - 1.0));
                 stats[2].push(h.map(|h| chi_square_p(h, k - 1.0)));
             }
             let rows = ["Chi-Square", "df", "Asymp. Sig."]
@@ -526,32 +707,7 @@ pub(crate) fn groups(
             for (d, name) in data.iter().zip(&names) {
                 let n = d.sizes();
                 let total: f64 = n.iter().sum();
-                let mut t = 0.0;
-                for (a, first) in d.groups.iter().enumerate() {
-                    for (later, size) in d.groups[a + 1..].iter().zip(&n[a + 1..]) {
-                        // U of the pair: the rank sum of the later group in the joint ranking,
-                        // less its smallest possible value
-                        let pair = Grouped {
-                            keys: vec![0.0, 1.0],
-                            groups: vec![first.clone(), later.clone()],
-                        };
-                        let (ranked, _) = pair.ranked();
-                        let sum: f64 = ranked.iter().filter(|r| r.2 == 1).map(|r| r.1 * r.3).sum();
-                        t += sum - size * (size + 1.0) / 2.0;
-                    }
-                }
-                let ties = tally(&d.pooled().iter().map(|p| (p.0, p.1)).collect::<Vec<_>>());
-                let a1: f64 = ties.iter().map(|(_, t)| t * (t - 1.0)).sum();
-                let a2: f64 = ties.iter().map(|(_, t)| t * t * (t - 1.0)).sum();
-                let s1: f64 = n.iter().map(|k| k * (k - 1.0)).sum();
-                let s2: f64 = n.iter().map(|k| k * (k - 1.0) * (k - 2.0)).sum();
-                let s3: f64 = n.iter().map(|k| k * (k - 1.0) * (2.0 * k + 5.0)).sum();
-                let mean = (total * total - n.iter().map(|k| k * k).sum::<f64>()) / 4.0;
-                let variance =
-                    (total * (total - 1.0) * (2.0 * total + 5.0) - s3 - 2.0 * a2 - 5.0 * a1) / 72.0
-                        + s2 * (a2 - 2.0 * a1) / (36.0 * total * (total - 1.0) * (total - 2.0))
-                        + s1 * a1 / (8.0 * total * (total - 1.0));
-                let sd = variance.sqrt();
+                let [t, mean, sd] = d.jonckheere();
                 let usable = d.keys.len() >= 2 && sd > 0.0;
                 let z = usable.then(|| (t - mean) / sd);
                 let mut row = vec![text(name.clone())];
@@ -600,12 +756,8 @@ fn mann_whitney(run: &mut Run, names: &[String], data: &[Grouped], group: &Varia
     .map(|r| (r.to_string(), Vec::new()))
     .collect();
     for (d, name) in data.iter().zip(names) {
-        let n = d.sizes();
-        let (ranked, ties) = d.ranked();
-        let mut s = [0.0; 2];
-        for r in &ranked {
-            s[r.2] += r.1 * r.3;
-        }
+        let mw = d.mann_whitney();
+        let (n, s) = (mw.n, mw.s);
         for i in 0..2 {
             rank_rows.push(vec![
                 if i == 0 {
@@ -629,28 +781,17 @@ fn mann_whitney(run: &mut Run, names: &[String], data: &[Grouped], group: &Varia
         ]);
         let usable = n[0] > 0.0 && n[1] > 0.0;
         let product = n[0] * n[1];
-        let u1 = product + n[0] * (n[0] + 1.0) / 2.0 - s[0];
+        let u1 = mw.u1;
         let (u, w) = if u1 > product / 2.0 {
             (product - u1, s[0])
         } else {
             (u1, s[1])
         };
-        let variance =
-            product / (total * (total - 1.0)) * ((total.powi(3) - total) / 12.0 - ties / 12.0);
+        let variance = mw.variance;
         let z = (usable && variance > 0.0).then(|| (u - product / 2.0) / variance.sqrt());
-        let small = usable && product <= 400.0 && product / 2.0 + n[0].min(n[1]) <= 220.0;
-        let exact_default = small
-            .then(|| {
-                let ranks: Vec<u64> = (1..=total as u64).collect();
-                rank_sum_distribution(&ranks, Some(n[0] as usize)).map(|p| {
-                    // U of n1 drawn ranks is their sum less n1 (n1 + 1) / 2
-                    let offset = (n[0] * (n[0] + 1.0) / 2.0) as usize;
-                    let lower: f64 = p.iter().skip(offset).take(u.floor() as usize + 1).sum();
-                    (2.0 * lower).min(1.0)
-                })
-            })
-            .flatten();
+        let exact_default = mw.exact;
         let exact = if run.exact && usable {
+            let (ranked, _) = d.ranked();
             let doubled: Vec<(u64, usize)> = ranked
                 .iter()
                 .flat_map(|r| std::iter::repeat_n(((2.0 * r.3).round() as u64, r.2), r.1 as usize))
@@ -735,16 +876,8 @@ fn median(
         let total: f64 = pooled.iter().map(|p| p.1).sum();
         let md = given.or_else(|| middle(&pooled));
         let n = d.sizes();
-        let above: Vec<f64> = d
-            .groups
-            .iter()
-            .map(|g| {
-                g.iter()
-                    .filter(|p| md.is_some_and(|m| p.0 > m))
-                    .map(|p| p.1)
-                    .sum()
-            })
-            .collect();
+        let test = d.median_test(md, !ranged);
+        let above = &test.above;
         for (i, label) in ["> Median", "<= Median"].iter().enumerate() {
             let mut row = vec![
                 if i == 0 {
@@ -762,44 +895,14 @@ fn median(
             }
             frequency_rows.push(row);
         }
-        // nonempty groups only
-        let filled: Vec<usize> = (0..n.len()).filter(|&g| n[g] > 0.0).collect();
-        let k = filled.len() as f64;
-        let r1: f64 = filled.iter().map(|&g| above[g]).sum();
-        let r2 = total - r1;
-        let (mut chi, mut exact) = (None, None);
-        if k >= 2.0 && r1 > 0.0 && r2 > 0.0 {
-            if !ranged {
-                let (g1, g2, n1, n2) = (above[0], above[1], n[0], n[1]);
-                if total <= 30.0 {
-                    let (two, _) = fisher(g1 as u64, (n1 - g1) as u64, g2 as u64, (n2 - g2) as u64);
-                    exact = Some(two);
-                } else {
-                    chi = Some(
-                        ((g1 * (n2 - g2) - g2 * (n1 - g1)).abs() - total / 2.0).powi(2) * total
-                            / ((g1 + g2) * (n1 + n2 - g1 - g2) * n1 * n2),
-                    );
-                }
-            } else {
-                let mut sum = 0.0;
-                let (mut low, mut below_one) = (0, false);
-                for &g in &filled {
-                    for (observed, row) in [(above[g], r1), (n[g] - above[g], r2)] {
-                        let e = row * n[g] / total;
-                        sum += (observed - e).powi(2) / e;
-                        low += usize::from(e < 5.0);
-                        below_one |= e < 1.0;
-                    }
-                }
-                chi = Some(sum);
-                if below_one || low as f64 > 0.2 * 2.0 * k {
-                    notes.push(format!(
-                        "{name}: {low} of {} cells have expected frequencies less than 5.",
-                        2 * filled.len()
-                    ));
-                }
-            }
-        } else {
+        let k = test.groups;
+        let (chi, exact) = (test.chi, test.exact);
+        if let Some((low, cells)) = test.sparse {
+            notes.push(format!(
+                "{name}: {low} of {cells} cells have expected frequencies less than 5."
+            ));
+        }
+        if chi.is_none() && exact.is_none() {
             run.warnings.push(format!(
                 "MEDIAN: {name} needs two groups with cases on both sides of the median; no test"
             ));

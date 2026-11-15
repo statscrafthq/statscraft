@@ -38,6 +38,7 @@ use crate::multiple_imputation;
 use crate::mva;
 use crate::nomreg;
 use crate::npar;
+use crate::nptests;
 use crate::output;
 use crate::output_docs;
 use crate::output_modify;
@@ -1345,6 +1346,55 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  nothing.",
         example: "NPAR TESTS /M-W=income BY gender(1,2) /WILCOXON=before WITH after /STATISTICS=QUARTILES.",
         parse: npar::npar_tests,
+    },
+    CommandSpec {
+        name: "NPTESTS",
+        summary: "Nonparametric tests picked by measurement level: one sample, independent samples, related samples.",
+        syntax: "NPTESTS [/ONESAMPLE TEST(fields) [CHISQUARE[(EXPECTED=EQUAL | CUSTOM(FREQUENCIES=list CATEGORIES=list))]]\n\
+                 \x20         [BINOMIAL[(TESTVALUE=p SUCCESSCATEGORICAL=FIRST | LIST(values)\n\
+                 \x20                   SUCCESSCONTINUOUS=CUTPOINT(MIDPOINT | value) CLOPPERPEARSON JEFFREYS LIKELIHOOD)]]\n\
+                 \x20         [KOLMOGOROV_SMIRNOV[(NSAMPLES=n MC_CILEVEL=level NORMAL=SAMPLE[(SIMULATION=TRUE | FALSE)] |\n\
+                 \x20                   CUSTOM(MEAN=m SD=s) UNIFORM=SAMPLE | CUSTOM(MIN=a MAX=b)\n\
+                 \x20                   EXPONENTIAL=SAMPLE | CUSTOM(MEAN=m) POISSON=CUSTOM(MEAN=m))]]\n\
+                 \x20         [RUNS[(GROUPCATEGORICAL=SAMPLE | LIST(values)\n\
+                 \x20                   GROUPCONTINUOUS=CUTPOINT(SAMPLEMEDIAN | SAMPLEMEAN | value))]]\n\
+                 \x20         [WILCOXON(TESTVALUE=value)]]\n\
+                 \x20       [/INDEPENDENT TEST(fields) GROUP(field) [MANN_WHITNEY] [WALD_WOLFOWITZ] [KOLMOGOROV_SMIRNOV]\n\
+                 \x20         [HODGES_LEHMAN] [MOSES[(TRIMOUTLIERS=SAMPLE | n)]] [KRUSKAL_WALLIS[(COMPARE=c)]]\n\
+                 \x20         [MEDIAN[(TESTVALUE=SAMPLE | value COMPARE=c)]] [JONCKHEERE_TERPSTRA[(ORDER=ASCENDING | DESCENDING\n\
+                 \x20         COMPARE=c)]]]\n\
+                 \x20       [/RELATED TEST(fields) [MCNEMAR[(SUCCESS=FIRST | LIST(values))]] [WILCOXON] [SIGN]\n\
+                 \x20         [MARGINAL_HOMOGENEITY] [HODGES_LEHMAN] [COCHRAN[(SUCCESS=FIRST | LIST(values) COMPARE=c)]]\n\
+                 \x20         [FRIEDMAN[(COMPARE=c)]] [KENDALL[(COMPARE=c)]]]\n\
+                 \x20       [/MISSING [SCOPE=ANALYSIS | LISTWISE] [USERMISSING=EXCLUDE | INCLUDE]]\n\
+                 \x20       [/CRITERIA [ALPHA=0.05] [CILEVEL=95] [SEED=2000000 | RANDOM]].\n\
+                 c is PAIRWISE (the default), STEPWISE or NONE. Keywords are written out in full and each appears once.\n\
+                 Nominal and ordinal fields count as categorical, scale fields as continuous; a field of unknown level\n\
+                 gets one from its values. A test subcommand with only TEST (and GROUP) picks the tests itself: one\n\
+                 sample, a binomial test for a categorical field with two values, chi-square for one with more, and a\n\
+                 normal Kolmogorov-Smirnov test for a continuous field; independent samples, Mann-Whitney for two\n\
+                 groups and Kruskal-Wallis for more; related samples, the fields split by level, then Wilcoxon (two)\n\
+                 or Friedman (more) on continuous fields and McNemar (two) or Cochran (more) on categorical fields\n\
+                 with two values between them. Named tests run only on fields that suit them, with a warning for\n\
+                 the others: chi-square on categorical fields, K-S and Wilcoxon on continuous and ordinal ones;\n\
+                 independent tests on continuous and ordinal fields, the two-group tests only when GROUP has two\n\
+                 values (the lower value is the first group, the Moses control group); McNemar and Cochran on the\n\
+                 nominal fields and on the ordinal fields separately; Wilcoxon, SIGN, HODGES_LEHMAN, FRIEDMAN and\n\
+                 KENDALL on the continuous and ordinal fields together; MARGINAL_HOMOGENEITY on two ordinal fields.\n\
+                 FIRST makes the first value met in the data the success and needs exactly two values. A continuous\n\
+                 field is cut at a point: values up to it are the success (binomial) or the first group (runs).\n\
+                 Binomial, sign and McNemar are exact up to 25 cases, Mann-Whitney for small groups, Wald-Wolfowitz\n\
+                 up to 30 cases, the median test of two groups up to 30 cases (Fisher), Moses always. K-S with\n\
+                 parameters from the data draws NSAMPLES samples (default 1000) from SEED for a Monte Carlo\n\
+                 significance with a MC_CILEVEL interval; NORMAL=SAMPLE(SIMULATION=FALSE) uses the Lilliefors table.\n\
+                 Jonckheere-Terpstra decides one-sided in the ORDER direction. After a rejected test of three or more\n\
+                 samples, COMPARE gives pairwise comparisons (Bonferroni-adjusted) or homogeneous subsets found by\n\
+                 stepwise step-down tests. Output: the hypothesis test summary (ALPHA), a confidence interval summary\n\
+                 (binomial intervals and Hodges-Lehmann estimates at CILEVEL), a detail table per test and the\n\
+                 comparisons. USERMISSING applies to categorical fields; SCOPE=LISTWISE drops a case missing on any\n\
+                 field named. Weights are rounded to whole numbers; the weight variable cannot be tested.",
+        example: "NPTESTS /ONESAMPLE TEST(score rating) /INDEPENDENT TEST(score) GROUP(site) KRUSKAL_WALLIS(COMPARE=STEPWISE) /CRITERIA ALPHA=0.01.",
+        parse: nptests::nptests,
     },
     CommandSpec {
         name: "EXAMINE",
