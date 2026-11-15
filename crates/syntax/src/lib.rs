@@ -51,6 +51,7 @@ mod matrix_data;
 mod mixed;
 mod mrsets;
 mod mult_response;
+mod multiple_correspondence;
 mod multiple_imputation;
 mod mva;
 mod nomreg;
@@ -218,6 +219,10 @@ pub use mixed::{
     Convergence, CovType, DfMethod, Mixed, MixedPrint, MixedTemp, RandomEffects, Repeated,
 };
 pub use mrsets::{Mrsets, MrsetsGroup};
+pub use multiple_correspondence::{
+    Discretize, Impute, McaMissing, McaNormalization, McaPlot, McaPlots, McaPrint,
+    MultipleCorrespondence,
+};
 pub use multiple_imputation::{ImputeConstraint, ImputeMethod, ImputeRole, MultipleImputation};
 pub use mva::{AddType, Mva, MvaEstimate, MvaPattern, MvaTtest};
 pub use nomreg::{

@@ -1,4 +1,5 @@
-//! Parser tests of CLUSTER, PROXIMITIES, DISCRIMINANT, ANOVA and CORRESPONDENCE.
+//! Parser tests of CLUSTER, PROXIMITIES, DISCRIMINANT, ANOVA, CORRESPONDENCE and MULTIPLE
+//! CORRESPONDENCE.
 
 use super::*;
 
@@ -600,4 +601,162 @@ fn alscal_errors() {
             .contains("2 dimensions")
     );
     assert!(err("ALSCAL /LEVEL=RATIO.").contains("VARIABLES"));
+}
+
+fn mca(source: &str) -> MultipleCorrespondence {
+    match one(source) {
+        Command::MultipleCorrespondence(c) => *c,
+        other => panic!("{other:?}"),
+    }
+}
+
+fn name(n: &str) -> VarItem {
+    VarItem::Name(n.into())
+}
+
+#[test]
+fn multiple_correspondence_defaults() {
+    let c = mca("MULTIPLE CORRESPONDENCE hue size shape /ANALYSIS=hue size shape.");
+    assert_eq!(c.variables, vec![name("hue"), name("size"), name("shape")]);
+    assert_eq!(c.analysis.len(), 1);
+    assert_eq!(c.analysis[0].1, 1.0);
+    assert_eq!(c.dimension, 2);
+    assert_eq!(c.normalization, McaNormalization::Q(-1.0));
+    assert_eq!((c.max_iterations, c.criterion), (100, 0.00001));
+    assert_eq!(c.print, McaPrint::defaults());
+    assert_eq!(c.plot, McaPlots::default());
+    assert!(c.save_trdata.is_none() && c.outfile_object.is_none());
+}
+
+#[test]
+fn multiple_correspondence_subcommands_and_abbreviations() {
+    let c = mca("MULT CORR /VARIABLES=a TO f /ANAL=a b (WEIGHT=3) c d e
+         /DISC=b (GROUPING NCAT=4 DISTR=UNIFORM) c (EQINTV=2.5) d (MULT) e
+         /MISS=a (ACTIVE EXTRACAT) b c (LISTWISE) d (PASSIVE EXTRACAT) e (ACT RANDIMPU)
+         /SUPP=OBJECT(2 5 TO 7) VARIABLE(e)
+         /CONFIG=FIXED('start.sav') /DIM=3 /NORM=0.4 /MAXITER=40 /CRITITER=.001
+         /PRINT=QUANT(a b) OBJECT((f) a TO c) HIST NONE DESCRIP OCORR
+         /PLOT=CATEGORIES(a) TRANS(a b(2) c) RESID(d(3))(10) BIPLOT((a b))(f)(0) NDIM(1,3)
+         /SAVE=TRDATA(QUANTITY(2)) OBJECT /OUTFILE=TRDATA('t.sav') OBJECT(scores).");
+    assert_eq!(c.analysis[0], (vec![name("a"), name("b")], 3.0));
+    assert_eq!(c.analysis[1].1, 1.0);
+    assert_eq!(
+        c.discretization,
+        vec![
+            (
+                vec![name("b")],
+                Discretize::Grouping {
+                    ncat: Some(4),
+                    normal: false
+                }
+            ),
+            (vec![name("c")], Discretize::Intervals(2.5)),
+            (vec![name("d")], Discretize::Multiplying),
+            (
+                vec![name("e")],
+                Discretize::Grouping {
+                    ncat: None,
+                    normal: true
+                }
+            ),
+        ]
+    );
+    assert_eq!(c.missing[0].1, McaMissing::Active(Impute::ExtraCategory));
+    assert_eq!(
+        c.missing[1],
+        (vec![name("b"), name("c")], McaMissing::Listwise)
+    );
+    assert_eq!(c.missing[2].1, McaMissing::Passive(Impute::ExtraCategory));
+    assert_eq!(c.missing[3].1, McaMissing::Active(Impute::Random));
+    assert_eq!(c.supplementary_objects, vec![(2, 2), (5, 7)]);
+    assert_eq!(c.supplementary_variables, vec![name("e")]);
+    assert_eq!(c.configuration, Some((true, "start.sav".into())));
+    assert_eq!((c.dimension, c.max_iterations), (3, 40));
+    assert_eq!(c.normalization, McaNormalization::Q(0.4));
+    // NONE drops QUANT, OBJECT and HISTORY
+    assert_eq!(
+        c.print,
+        McaPrint {
+            descrip: Some(Vec::new()),
+            ocorr: true,
+            ..McaPrint::default()
+        }
+    );
+    assert_eq!(c.plot.ndim, Some((1, 3)));
+    assert_eq!(c.plot.charts[0], (McaPlot::Category(vec![name("a")]), None));
+    assert_eq!(
+        c.plot.charts[1],
+        (
+            McaPlot::Trans(vec![(name("a"), 1), (name("b"), 2), (name("c"), 1)]),
+            None
+        )
+    );
+    assert_eq!(
+        c.plot.charts[2],
+        (McaPlot::Resid(vec![(name("d"), 3)]), Some(10))
+    );
+    assert_eq!(
+        c.plot.charts[3],
+        (
+            McaPlot::Biplot(vec![name("a"), name("b")], vec![name("f")]),
+            Some(0)
+        )
+    );
+    // roots are cut to three and five characters
+    assert_eq!(c.save_trdata, Some(("QUA".into(), Some(2))));
+    assert_eq!(c.save_object, Some(("OBSCO".into(), None)));
+    assert_eq!(c.outfile_trdata.as_deref(), Some("t.sav"));
+    assert_eq!(c.outfile_object.as_deref(), Some("scores"));
+}
+
+#[test]
+fn multiple_correspondence_print_and_plot_keyword_rules() {
+    let c = mca("MULTIPLE CORRESPONDENCE x y /ANALYSIS x y /PRINT /PLOT.");
+    assert_eq!(c.print, McaPrint::defaults());
+    assert_eq!(c.plot, McaPlots::default());
+    let c = mca(
+        "MULTIPLE CORRESPONDENCE x y /ANALYSIS x y /PRINT=DISCRIM DISCRIM NONE CORR /PLOT=NONE.",
+    );
+    assert_eq!(
+        c.print,
+        McaPrint {
+            corr: true,
+            ..McaPrint::default()
+        }
+    );
+    assert!(c.plot.charts.is_empty());
+    let c = mca(
+        "MULTIPLE CORRESPONDENCE x y /ANALYSIS x y /PLOT=OBJECT(x)(20) JOINTCAT NONE DISCRIM(5).",
+    );
+    assert_eq!(c.plot.charts, vec![(McaPlot::Discrim(Vec::new()), Some(5))]);
+}
+
+#[test]
+fn multiple_correspondence_errors() {
+    assert!(err("MULTIPLE CORRESPONDENCE x y.").contains("ANALYSIS"));
+    assert!(err("MULTIPLE CORRESPONDENCE x y /ANALYSIS=x y /DIM=2 /DIM=3.").contains("twice"));
+    assert!(err("MULTIPLE CORRESPONDENCE x y /ANALYSIS=x y /PRINT=QUANT QUANT.").contains("twice"));
+    assert!(
+        err("MULTIPLE CORRESPONDENCE x y /ANALYSIS=x y /PLOT=RESID(x) RESID(y).").contains("twice")
+    );
+    assert!(err("MULTIPLE CORRESPONDENCE x y /ANALYSIS=x y /PLOT=TRANS.").contains("unexpected"));
+    assert!(
+        err("MULTIPLE CORRESPONDENCE x y /ANALYSIS=x y /NORMALIZATION=1.5.").contains("-1 to 1")
+    );
+    assert!(err("MULTIPLE CORRESPONDENCE x y /ANALYSIS=x y (WEIGHT=0).").contains("positive"));
+    assert!(
+        err("MULTIPLE CORRESPONDENCE x y /ANALYSIS=x y /MISSING=ALL x (ACTIVE).").contains("ALL")
+    );
+    assert!(err("MULTIPLE CORRESPONDENCE x y /ANALYSIS=x y /CRITITER=0.").contains("positive"));
+    assert!(
+        err("MULTIPLE CORRESPONDENCE x y /ANALYSIS=x y /OUTFILE=OBJECT(*).")
+            .contains("active dataset")
+    );
+    assert!(
+        err("MULTIPLE CORRESPONDENCE x y /ANALYSIS=x y /OUTFILE=OBJECT('a') TRDATA('A').")
+            .contains("its own file")
+    );
+    assert!(
+        err("MULTIPLE CORRESPONDENCE x y /ANALYSIS=x y /DISC=x(EQINTV=0).").contains("positive")
+    );
 }
