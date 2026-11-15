@@ -379,13 +379,8 @@ fn unknown_command_gets_a_did_you_mean_hint() {
 
 #[test]
 fn every_recognised_command_runs() {
-    // the commands recognised before they run: only the POWER commands not built yet
-    let left = crate::unsupported_commands();
-    assert_eq!(left.len(), 5, "{left:?}");
-    assert!(
-        left.iter().all(|name| name.starts_with("POWER ")),
-        "{left:?}"
-    );
+    // every command the language has runs: none is recognised without running
+    assert!(crate::unsupported_commands().is_empty());
 }
 
 #[test]
@@ -1119,7 +1114,7 @@ fn command_names_resolve_from_their_words() {
 #[test]
 fn help_lists_every_command() {
     let overview = help(None).unwrap();
-    assert_eq!(command_names().len(), 194);
+    assert_eq!(command_names().len(), 199);
     for spec in table::COMMANDS {
         assert!(overview.contains(spec.name) && overview.contains(spec.summary));
     }

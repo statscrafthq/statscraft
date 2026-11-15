@@ -1,4 +1,4 @@
-//! Parser tests of the POWER commands for means and proportions.
+//! Parser tests of the POWER commands.
 
 use super::*;
 
@@ -136,9 +136,103 @@ fn errors_name_the_rule() {
 }
 
 #[test]
-fn the_other_power_commands_are_recognised() {
+fn oneway_anova_keywords() {
+    let c = power(
+        "POWER ONEWAY ANOVA /PLOT TOTAL_N(40 90) POOLED_SD_XAXIS TOTAL_N_YAXIS \
+         /CONTRAST COEF=-2 1 1 TEST=DIRECTIONAL PAIR=TRUE ADJ=SIDAK \
+         /PAR GROUP_MEANS=48 52 57 POOL=9 POWER=0.85 GROUP_W=2 1 1.",
+    );
+    assert_eq!(c.kind, PowerKind::OnewayAnova);
+    assert_eq!(c.mean, vec![48.0, 52.0, 57.0]);
+    assert_eq!(
+        (c.sd.clone(), c.weights.clone()),
+        (vec![9.0], vec![2.0, 1.0, 1.0])
+    );
+    assert_eq!(c.contrast, vec![-2.0, 1.0, 1.0]);
+    assert!(c.directional && c.pairwise && !c.empty_contrast);
+    assert_eq!(c.adjust, PairwiseAdjust::Sidak);
+    assert_eq!(c.plots[0].x_range, Some((40.0, 90.0)));
+    assert_eq!(c.plots[1].x, "POOLED_SD");
+    let c = power(
+        "POWER ONEWAY ANOVA /PARAMETERS GROUP_SIZES=8 8 9 GROUP_MEANS=1 2 4 POOLED_SD=2 \
+         GROUP_WEIGHTS=EQUAL /CONTRAST ADJUST=LSD.",
+    );
+    assert!(c.empty_contrast && c.weights.is_empty());
+}
+
+#[test]
+fn correlation_and_regression_keywords() {
+    let c = power(
+        "POWER PEARSON ONESAMPLE /PARAMETERS ADJUST BIAS=FALSE ALT=-0.3 NUL=0.1 N=40 \
+         /PLOT NULL N_YAXIS(10 80) DIFF_XAXIS.",
+    );
+    assert!(!c.adjust_bias);
+    assert_eq!((c.null, c.alternative), (Some(0.1), Some(-0.3)));
+    assert_eq!(c.plots[1].x, "DIFF");
+    assert_eq!(c.plots[1].y_range, Some((10.0, 80.0)));
+    let c = power("POWER SPEARMAN ONESAMPLE /PARAMETERS VARIANCE=CC N=3 ALTERNATIVE=1.");
+    assert_eq!(c.variance, RankVariance::Cc);
+    let c = power(
+        "POWER PARTIALCORR /PARAMETERS PARTIALOUT=2 POWER=0.9 ALTERNATIVE=0.25 /PLOT PARTIALOUT.",
+    );
+    assert_eq!(c.partialout, 2.0);
+    let c = power(
+        "POWER UNIVARIATE LINEAR /PARAMETERS MODEL=RANDOM TOTAL_PREDICTORS=7 TEST_PREDICTORS=3 \
+         FULL_MODEL=0.31 NESTED_MODEL=0.24 INTERCEPT=FALSE N=8 /PLOT PARTIAL_CORR.",
+    );
+    assert!(c.random && !c.intercept);
+    assert_eq!(c.full_nested, Some((0.31, 0.24)));
+    assert_eq!(c.plots[0].x, "PARTIAL_CORR");
+}
+
+#[test]
+fn errors_of_the_later_commands() {
+    let anova = "POWER ONEWAY ANOVA /PARAMETERS GROUP_MEANS=1 2 3 POOLED_SD=1";
+    assert!(err(&format!("{anova} GROUP_SIZES=5 5.")).contains("2 values for 3 GROUP_MEANS"));
+    assert!(err(&format!("{anova} GROUP_SIZES=5 5 1.")).contains("at least 2"));
+    assert!(err(&format!("{anova} POWER=.8 GROUP_WEIGHTS=1 2 200.")).contains("1 to 100"));
     assert!(
-        err("POWER ONEWAY ANOVA /PARAMETERS GROUP_SIZES=5 5 POOLED_SD=1 GROUP_MEANS=1 2.")
-            .contains("not supported yet")
+        err(&format!("{anova} POWER=.8 /CONTRAST COEFFICIENTS=0 0 0.")).contains("cannot all be 0")
+    );
+    assert!(err(&format!("{anova} POWER=.8 TEST=DIRECTIONAL.")).contains("unexpected"));
+    // GRO fits GROUP_SIZES, GROUP_MEANS and GROUP_WEIGHTS
+    assert!(
+        err("POWER ONEWAY ANOVA /PARAMETERS GRO=1 2 POOLED_SD=1 POWER=.8.").contains("unexpected")
+    );
+    assert!(err("POWER PEARSON ONESAMPLE /PARAMETERS N=3 ALTERNATIVE=.3.").contains("at least 4"));
+    assert!(
+        err("POWER PEARSON ONESAMPLE /PARAMETERS N=9 ALTERNATIVE=1.2.").contains("from -1 to 1")
+    );
+    assert!(
+        err("POWER PEARSON ONESAMPLE /PARAMETERS POWER=.8 ALTERNATIVE=1.").contains("strictly")
+    );
+    assert!(
+        err("POWER SPEARMAN ONESAMPLE /PARAMETERS POWER=.8 ALTERNATIVE=0.").contains("must differ")
+    );
+    assert!(
+        err("POWER PARTIALCORR /PARAMETERS PARTIALOUT=3 N=6 ALTERNATIVE=.3.")
+            .contains("at least 7")
+    );
+    assert!(err("POWER PARTIALCORR /PARAMETERS N=9 ALTERNATIVE=.3.").contains("needs PARTIALOUT"));
+    let linear = "POWER UNIVARIATE LINEAR /PARAMETERS TOTAL_PREDICTORS=4 TEST_PREDICTORS=2";
+    assert!(err(&format!("{linear} N=5 PARTIAL_CORR=.3.")).contains("at least 6"));
+    assert!(err(&format!("{linear} POWER=.8 PARTIAL_CORR=0.")).contains("cannot be 0"));
+    assert!(err(&format!("{linear} N=20.")).contains("needs PARTIAL_CORR"));
+    assert!(err(&format!("{linear} N=20 FULL_MODEL=.3.")).contains("go together"));
+    assert!(
+        err(&format!("{linear} N=20 FULL_MODEL=.3 NESTED_MODEL=.4.")).contains("at least NESTED")
+    );
+    assert!(
+        err(
+            "POWER UNIVARIATE LINEAR /PARAMETERS TOTAL_PREDICTORS=2 TEST_PREDICTORS=2 N=20 \
+             FULL_MODEL=.3 NESTED_MODEL=.2."
+        )
+        .contains("below TOTAL_PREDICTORS")
+    );
+    assert!(
+        err(&format!(
+            "{linear} N=20 PARTIAL_CORR=.3 FULL_MODEL=.3 NESTED_MODEL=.2."
+        ))
+        .contains("not both")
     );
 }

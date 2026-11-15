@@ -94,6 +94,8 @@ pub fn power(ui: &mut Ui, d: &mut PowerAnalysis) {
             });
         }
         PowerKind::ProportionsRelated => related(ui, d),
+        // the menu does not offer the other POWER commands yet
+        _ => {}
     }
     ui.add_space(6.0);
     egui::CollapsingHeader::new("Test").show(ui, |ui| {

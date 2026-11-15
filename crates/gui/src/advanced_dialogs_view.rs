@@ -38,6 +38,7 @@ pub fn body(
         Advanced::Correspondence(d) => {
             crate::correspondence_dialog_view::correspondence(ui, data, d, picked)
         }
+        Advanced::Mca(d) => crate::mca_dialog_view::mca(ui, d, picked, folder),
         Advanced::Km(d) => crate::survival_dialog_view::kaplan_meier(ui, d, picked),
         Advanced::LifeTables(d) => crate::survival_dialog_view::life_tables(ui, data, d, picked),
         Advanced::Distances(d) => crate::proximities_dialog_view::distances(ui, d, picked, folder),

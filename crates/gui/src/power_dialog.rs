@@ -122,6 +122,8 @@ pub fn power_charts(kind: PowerKind) -> &'static [PowerChart] {
             ("DISCORDANT", "Power by the two discordant shares", false),
             ("MARGINAL", "Power by the two success rates", false),
         ],
+        // the menu does not offer the other POWER commands yet
+        _ => &[],
     }
 }
 
@@ -268,6 +270,8 @@ impl PowerAnalysis {
                 "Power Analysis: Independent-Samples Binomial Test"
             }
             PowerKind::ProportionsRelated => "Power Analysis: Related-Samples Binomial Test",
+            // the menu does not offer the other POWER commands yet
+            _ => "Power Analysis",
         }
     }
 
