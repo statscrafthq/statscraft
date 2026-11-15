@@ -294,6 +294,13 @@ See [The Window menu](#the-window-menu).
 - **Codebook** (`CODEBOOK`): chosen variables and multiple response sets, or all of them when the list is empty. Which parts of each variable's entry to show, a table about the data file, the statistics (none checked writes `STATISTICS=NONE`), the most values a table lists, and the order of the tables (as listed, file order, by name, by measurement level or by a custom attribute), ascending or descending.
 - **Case Summaries** (`SUMMARIZE`): the variables, layers of grouping variables, cell statistics and analysis of variance as in Means. Listing the cases (only the valid ones if you like), using only the first cases, numbering them and a text for system-missing values; unlabeled total rows, leaving out a case missing on any variable, a title and a footnote. The cases are not listed unless you ask, as with the bare command.
 
+**Power Analysis**
+
+These take typed numbers and no variables, so they open with no data too. Each finds the power of the test for the sample sizes you type, or the sizes that reach one or more powers. Common to all: a one-sided or two-sided test, the significance level, and charts of the power, line charts with an optional range and surfaces over two quantities. OK stays off, with the reason, until every value the command needs is typed and valid.
+
+- **Means** > **One-Sample T Test**, **Independent-Samples T Test** and **Paired-Samples T Test** (`POWER MEANS ONESAMPLE`, `INDEPENDENT`, `RELATED`): the mean and the null mean, or the mean difference or one mean per group or measure; one standard deviation, or one per group (two different ones give the separate-variances test) or per measure with their correlation; the ratio of the group sizes to find.
+- **Proportions** > **One-Sample Binomial Test**, **Independent-Samples Binomial Test** and **Related-Samples Binomial Test** (`POWER PROPORTIONS ONESAMPLE`, `INDEPENDENT`, `RELATED`): the null and alternative proportions; the proportions of two groups with the test (chi-square, t, likelihood ratio or Fisher's exact), a pooled standard error and the continuity correction; for pairs the two shares of discordant pairs, as proportions or as counts out of the pairs, or the success rates of two occasions with their correlation. The power by the normal approximation or exact binomial counts, with a time limit on the exact search for a sample size.
+
 **Descriptive Statistics**
 
 - **Frequencies**: statistics, the order of the rows, a limit on the values of a table, quartiles, cut points for equal groups and any percentiles.
