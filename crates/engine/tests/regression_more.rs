@@ -834,4 +834,8 @@ fn wls_weight_variable_and_defaults() {
         num(&find(&r.tables, "Log-Likelihood Values", 0).rows[0][0]),
         7.5
     );
+    // a negative power reads as a positive exponent
+    let r = run(SHOPS, "WLS cost WITH area staff /DELTA=-0.5.");
+    let caption = find(&r.tables, "ANOVA", 0).caption.clone().unwrap();
+    assert!(caption.contains("area to the power 0.5"), "{caption}");
 }
