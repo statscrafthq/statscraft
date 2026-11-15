@@ -480,12 +480,12 @@ impl Dataset {
         self.dict.compression
     }
 
-    /// Document lines, in file order.
     /// The data file the dataset was last read from or saved to; see `set_file`.
     pub fn file(&self) -> Option<&std::path::Path> {
         self.dict.file.as_deref()
     }
 
+    /// Document lines, in file order.
     pub fn documents(&self) -> &[String] {
         &self.dict.documents
     }
