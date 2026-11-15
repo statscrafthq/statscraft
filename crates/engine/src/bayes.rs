@@ -1113,10 +1113,12 @@ impl Engine {
                 number(Some(df)),
                 number(Some(t_p(t, df))),
             ]);
-            let p = independent_posterior(&mut run, c, variable, x, y);
-            let mut row = vec![label];
-            row.extend(posterior_cells(&p));
-            posteriors.push(row);
+            if c.analysis.posterior() {
+                let p = independent_posterior(&mut run, c, variable, x, y);
+                let mut row = vec![label];
+                row.extend(posterior_cells(&p));
+                posteriors.push(row);
+            }
         }
         let mut out = vec![table(
             "Group Statistics",
@@ -1228,7 +1230,7 @@ impl Engine {
                 let mut row = labels.to_vec();
                 row.extend([Cell::Number(w), number(Some(r)), number(Some(bf))]);
                 factors.push(row);
-                let p = if usable {
+                let p = if usable && c.analysis.posterior() {
                     correlation_posterior(r, w, c.c, run.alpha, q)
                 } else {
                     NONE

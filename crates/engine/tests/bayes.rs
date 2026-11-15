@@ -436,6 +436,12 @@ fn errors_and_warnings() {
         fails("BAYES RELATED /PAIR VARIABLES=before after VARIANCE=1 /PRIOR MEANDIST=NORMAL(0).")
             .contains("both the mean and the variance")
     );
+    // a factor-only run says nothing about the posterior it does not compute
+    let (_, warnings) = run(
+        "BAYES INDEPENDENT /INFERENCE VARIABLES=growth GROUP=light\n\
+         SELECT=MIDPOINT ANALYSIS=BAYESFACTOR /PRIOR MEANDIST=NORMAL(1 2 3 4).",
+    );
+    assert!(warnings.is_empty(), "{warnings:?}");
     let (_, warnings) =
         run("BAYES INDEPENDENT /INFERENCE VARIABLES=growth GROUP=light SELECT=LEVEL(1 3).");
     assert!(warnings[0].contains("no valid cases"), "{warnings:?}");
