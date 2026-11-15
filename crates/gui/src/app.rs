@@ -25,6 +25,7 @@ use crate::dialogs::{
 use crate::edits::{self, Field};
 use crate::graph_dialogs::{ChartBuilder, ProbabilityPlot, RocCurve};
 use crate::graph_dialogs_view;
+use crate::imputation_dialog::Imputation;
 use crate::model_dialogs::{
     Discriminant, FactorAnalysis, Hierarchical, KMeans, Logistic, RepeatedMeasures, Univariate,
 };
@@ -1704,6 +1705,21 @@ impl App {
                     if ui.button("Missing Value Analysis...").clicked() {
                         self.open_dialog(Dialog::Advanced(Advanced::Mva(Default::default())));
                     }
+                    ui.menu_button("Multiple Imputation", |ui| {
+                        for (label, patterns_only) in [
+                            ("Analyze Patterns...", true),
+                            ("Impute Missing Data Values...", false),
+                        ] {
+                            if ui.button(label).clicked() {
+                                self.open_dialog(Dialog::Advanced(Advanced::Imputation(Box::new(
+                                    Imputation {
+                                        patterns_only,
+                                        ..Default::default()
+                                    },
+                                ))));
+                            }
+                        }
+                    });
                     ui.menu_button("Complex Samples", |ui| {
                         let tables = |crosstabs| {
                             Advanced::Tables(SampleTables {

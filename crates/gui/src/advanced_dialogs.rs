@@ -1,7 +1,7 @@
 //! The Ordinal Regression, Multinomial Logistic Regression, Linear Mixed Models, Generalized
 //! Linear Models (in `genlin_dialog`), Correspondence Analysis (in `correspondence_dialog`),
 //! Life Tables and Kaplan-Meier (in `survival_dialog`), Cox Regression (in `cox_dialog`), Missing
-//! Value Analysis (in `mva_dialog`) and
+//! Value Analysis (in `mva_dialog`), Multiple Imputation (in `imputation_dialog`) and
 //! complex samples dialogs (the
 //! analysis plan, Descriptives, Frequencies and Crosstabs; the General Linear Model and Logistic
 //! Regression in `cs_model_dialog`). Options left as they are add nothing to the syntax, so the
@@ -13,6 +13,7 @@ use crate::cox_dialog::Cox;
 use crate::cs_model_dialog::SampleModel;
 use crate::dialogs::whole;
 use crate::genlin_dialog::{GeneralizedLinear, data_checks};
+use crate::imputation_dialog::Imputation;
 use crate::mds_dialog::{Alscal, Proxscal};
 use crate::model_dialogs::GLM_ADJUSTMENTS;
 use crate::mva_dialog::MissingValueAnalysis;
@@ -45,6 +46,8 @@ pub enum Advanced {
     Cox(Box<Cox>),
     // boxed: a large dialog
     Mva(Box<MissingValueAnalysis>),
+    // boxed: a large dialog
+    Imputation(Box<Imputation>),
 }
 
 impl Advanced {
@@ -68,6 +71,8 @@ impl Advanced {
             Advanced::Alscal(_) => "Multidimensional Scaling (ALSCAL)",
             Advanced::Cox(_) => "Cox Regression",
             Advanced::Mva(_) => "Missing Value Analysis",
+            Advanced::Imputation(d) if d.patterns_only => "Analyze Patterns",
+            Advanced::Imputation(_) => "Impute Missing Data Values",
         }
     }
 
@@ -93,6 +98,10 @@ impl Advanced {
             Advanced::Alscal(_) => Advanced::Alscal(Default::default()),
             Advanced::Cox(_) => Advanced::Cox(Default::default()),
             Advanced::Mva(_) => Advanced::Mva(Default::default()),
+            Advanced::Imputation(d) => Advanced::Imputation(Box::new(Imputation {
+                patterns_only: d.patterns_only,
+                ..Default::default()
+            })),
         }
     }
 
@@ -127,6 +136,7 @@ impl Advanced {
             Advanced::Alscal(d) => d.syntax(data),
             Advanced::Cox(d) => d.syntax(data),
             Advanced::Mva(d) => d.syntax(data),
+            Advanced::Imputation(d) => d.syntax(data),
         }
     }
 }

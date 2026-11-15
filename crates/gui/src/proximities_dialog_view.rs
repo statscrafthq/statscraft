@@ -66,7 +66,7 @@ pub fn distances(
 }
 
 /// One radio button per place in `labels` to write data to; the second takes a data file with
-/// Browse, the third the name of a new dataset.
+/// Browse, the third the name of a new dataset. A blank label offers no button.
 pub(crate) fn output_picker(
     ui: &mut Ui,
     labels: &[&str],
@@ -75,7 +75,7 @@ pub(crate) fn output_picker(
     dataset: &mut String,
     folder: &mut Option<PathBuf>,
 ) {
-    for (i, label) in labels.iter().enumerate() {
+    for (i, label) in labels.iter().enumerate().filter(|(_, l)| !l.is_empty()) {
         ui.horizontal(|ui| {
             ui.radio_value(choice, i, *label);
             match i {

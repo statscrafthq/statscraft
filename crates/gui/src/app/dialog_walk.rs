@@ -25,6 +25,7 @@ use crate::dialogs::{
 };
 use crate::genlin_dialog::GeneralizedLinear;
 use crate::graph_dialogs::{ChartBuilder, ChartKind, ProbabilityPlot, RocCurve};
+use crate::imputation_dialog::{Imputation, Limits};
 use crate::model_dialogs::{
     Categorical, ClusterMeasure, Discriminant, FactorAnalysis, FactorContrast, Hierarchical,
     KMeans, Logistic, MColumn, RepeatedMeasures, Solutions, Univariate, WithinFactor,
@@ -280,6 +281,11 @@ fn minimal(out: &Path) -> Vec<Dialog> {
         }))),
         Dialog::Advanced(Advanced::Mva(Box::new(MissingValueAnalysis {
             quantitative: v(&["age", "q2_recommend"]),
+            ..Default::default()
+        }))),
+        Dialog::Advanced(Advanced::Imputation(Box::new(Imputation {
+            variables: v(&["age", "monthly_spend", "q2_recommend"]),
+            dataset: s("imputed"),
             ..Default::default()
         }))),
         // the plan before the analyses that read it
@@ -2023,6 +2029,177 @@ fn the_missing_value_dialog_writes_syntax_that_runs() {
         assert!(warnings.is_empty(), "{syntax}\n{warnings:?}");
     }
     assert!(Path::new(&file).exists());
+    std::fs::remove_dir_all(out).unwrap();
+}
+
+/// Invented bakery shifts: hours worked, loaves baked, kilograms thrown away, the oven used and
+/// a weight. Loaves are missing in every sixth shift, waste also in every tenth, so hours,
+/// loaves and waste form a monotone pattern; the oven is missing in every eighth shift.
+fn bakery_shifts() -> String {
+    let mut program =
+        String::from("DATA LIST LIST /shift hours loaves waste_kg oven share.\nBEGIN DATA\n");
+    for i in 1..=60u32 {
+        let hours = 4 + (i * 7) % 9;
+        let loaves = 10 * hours + (i * 13) % 17;
+        let waste = f64::from(loaves) / 10.0 + f64::from((i * 5) % 7) * 0.3;
+        let oven = i % 3 + 1;
+        let share = 0.5 + f64::from(i % 4) * 0.25;
+        let gap = |missing: bool, text: String| if missing { ".".to_string() } else { text };
+        program.push_str(&format!(
+            "{i} {hours} {} {} {} {share}\n",
+            gap(i % 6 == 0, loaves.to_string()),
+            gap(i % 6 == 0 || i % 10 == 0, format!("{waste:.1}")),
+            gap(i % 8 == 0, oven.to_string()),
+        ));
+    }
+    program.push_str(
+        "END DATA.\nVARIABLE LEVEL oven (NOMINAL) /hours loaves waste_kg share (SCALE).\n",
+    );
+    program
+}
+
+/// Multiple Imputation on invented bakery shifts: the syntax is as expected, parses and runs
+/// without a warning, and the files asked for are written.
+#[test]
+fn the_imputation_dialogs_write_syntax_that_runs() {
+    let out = folder("walk-imputation");
+    let path = |name: &str| out.join(name).to_string_lossy().into_owned();
+    let (imputed, history) = (path("shifts imputed.sav"), path("history.sav"));
+    let base = Imputation {
+        variables: v(&["hours", "loaves", "waste_kg"]),
+        ..Default::default()
+    };
+    let cases: Vec<(Imputation, String)> = vec![
+        (
+            Imputation {
+                dataset: s("filled"),
+                ..base.clone()
+            },
+            s(
+                "DATASET DECLARE filled.\nMULTIPLE IMPUTATION hours loaves waste_kg\n  \
+               /OUTFILE IMPUTATIONS=filled.",
+            ),
+        ),
+        // iterative, with limits and rounding, and the oven only predicting
+        (
+            Imputation {
+                variables: v(&["hours", "loaves", "waste_kg", "oven"]),
+                nimputations: s("3"),
+                dataset: s("filled"),
+                method: 1,
+                maxiter: s("4"),
+                maxcasedraws: s("80"),
+                limits: vec![
+                    Limits {
+                        name: s("loaves"),
+                        min: s("30"),
+                        max: s("140"),
+                        rnd: s("1"),
+                        ..Default::default()
+                    },
+                    Limits {
+                        name: s("oven"),
+                        role: 2,
+                        ..Default::default()
+                    },
+                ],
+                ..base.clone()
+            },
+            s(
+                "DATASET DECLARE filled.\nMULTIPLE IMPUTATION hours loaves waste_kg oven\n  \
+               /IMPUTE METHOD=FCS NIMPUTATIONS=3 MAXITER=4 MAXCASEDRAWS=80\n  \
+               /CONSTRAINTS loaves (MIN=30 MAX=140 RND=1)\n  /CONSTRAINTS oven (ROLE=IND)\n  \
+               /OUTFILE IMPUTATIONS=filled.",
+            ),
+        ),
+        // monotone in list order, matching on the three nearest predictions
+        (
+            Imputation {
+                dataset: s("filled"),
+                method: 2,
+                pmm: true,
+                pmm_k: s("3"),
+                singular: s("1E-10"),
+                limits: vec![Limits {
+                    name: s("waste_kg"),
+                    rnd: s("0.5"),
+                    role: 1,
+                    ..Default::default()
+                }],
+                ..base.clone()
+            },
+            s(
+                "DATASET DECLARE filled.\nMULTIPLE IMPUTATION hours loaves waste_kg\n  \
+               /IMPUTE METHOD=MONOTONE SCALEMODEL=PMM(3) SINGULAR=0.0000000001\n  \
+               /CONSTRAINTS waste_kg (RND=0.5 ROLE=DEP)\n  /OUTFILE IMPUTATIONS=filled.",
+            ),
+        ),
+        // tables of their own, a weight, and both outputs to files
+        (
+            Imputation {
+                variables: v(&["hours", "loaves", "waste_kg", "oven"]),
+                method: 1,
+                twoway: true,
+                maxpctmissing: s("40"),
+                overall: false,
+                variable_summary: true,
+                minpct: s("5"),
+                maxvars: s("3"),
+                patterns: true,
+                models: false,
+                descriptives: true,
+                described: v(&["loaves", "oven"]),
+                weight: s("share"),
+                output: 1,
+                file: imputed.clone(),
+                history: 1,
+                history_file: history.clone(),
+                ..base.clone()
+            },
+            format!(
+                "MULTIPLE IMPUTATION hours loaves waste_kg oven\n  /IMPUTE METHOD=FCS \
+                 INTERACTIONS=TWOWAY MAXPCTMISSING=40\n  /MISSINGSUMMARIES \
+                 VARIABLES(MAXVARS=3 MINPCTMISSING=5) PATTERNS\n  /IMPUTATIONSUMMARIES \
+                 DESCRIPTIVES(loaves oven)\n  /ANALYSISWEIGHT share\n  \
+                 /OUTFILE IMPUTATIONS='{imputed}' FCSITERATIONS='{history}'."
+            ),
+        ),
+        (
+            Imputation {
+                patterns_only: true,
+                variables: v(&["hours", "loaves", "waste_kg", "oven"]),
+                variable_summary: true,
+                minpct: s("0"),
+                patterns: true,
+                ..base.clone()
+            },
+            s(
+                "MULTIPLE IMPUTATION hours loaves waste_kg oven\n  /IMPUTE METHOD=NONE\n  \
+               /MISSINGSUMMARIES OVERALL VARIABLES(MINPCTMISSING=0) PATTERNS.",
+            ),
+        ),
+    ];
+    let program = bakery_shifts();
+    for (dialog, expected) in cases {
+        let mut session = statscraft_engine::session::Session::default();
+        session.run(&program, None).unwrap();
+        let data = session.dataset().unwrap().clone();
+        let syntax = Dialog::Advanced(Advanced::Imputation(Box::new(dialog)))
+            .syntax(&data)
+            .unwrap();
+        assert_eq!(syntax, expected);
+        let (_, errors) = statscraft_syntax::parse(&syntax);
+        assert!(errors.is_empty(), "{syntax}\n{errors:?}");
+        let result = session.run(&syntax, None).unwrap();
+        assert!(
+            result.commands.iter().any(|c| !c.tables.is_empty()),
+            "{syntax}"
+        );
+        let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
+        assert!(warnings.is_empty(), "{syntax}\n{warnings:?}");
+    }
+    assert!(Path::new(&imputed).exists());
+    assert!(Path::new(&history).exists());
     std::fs::remove_dir_all(out).unwrap();
 }
 
