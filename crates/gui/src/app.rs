@@ -1712,10 +1712,7 @@ impl App {
                         ] {
                             if ui.button(label).clicked() {
                                 self.open_dialog(Dialog::Advanced(Advanced::Imputation(Box::new(
-                                    Imputation {
-                                        patterns_only,
-                                        ..Default::default()
-                                    },
+                                    Imputation::new(patterns_only),
                                 ))));
                             }
                         }

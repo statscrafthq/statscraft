@@ -122,6 +122,16 @@ impl Default for Imputation {
 }
 
 impl Imputation {
+    /// A fresh dialog of either kind; Analyze Patterns starts with every summary on, its purpose.
+    pub fn new(patterns_only: bool) -> Self {
+        Self {
+            patterns_only,
+            variable_summary: patterns_only,
+            patterns: patterns_only,
+            ..Default::default()
+        }
+    }
+
     /// The custom methods take the settings of the models; automatic keeps its own.
     pub fn custom(&self) -> bool {
         self.method != 0
@@ -588,6 +598,14 @@ mod tests {
             d.syntax(&renamed).unwrap(),
             "MULTIPLE IMPUTATION age monthly_spend q2_recommend\n  /IMPUTE METHOD=NONE\n  \
              /MISSINGSUMMARIES OVERALL PATTERNS."
+        );
+        // a fresh Analyze Patterns asks for every summary
+        let mut d = Imputation::new(true);
+        d.variables = dialog().variables;
+        assert_eq!(
+            d.syntax(&renamed).unwrap(),
+            "MULTIPLE IMPUTATION age monthly_spend q2_recommend\n  /IMPUTE METHOD=NONE\n  \
+             /MISSINGSUMMARIES OVERALL VARIABLES PATTERNS."
         );
     }
 }

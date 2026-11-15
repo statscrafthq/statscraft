@@ -98,10 +98,9 @@ impl Advanced {
             Advanced::Alscal(_) => Advanced::Alscal(Default::default()),
             Advanced::Cox(_) => Advanced::Cox(Default::default()),
             Advanced::Mva(_) => Advanced::Mva(Default::default()),
-            Advanced::Imputation(d) => Advanced::Imputation(Box::new(Imputation {
-                patterns_only: d.patterns_only,
-                ..Default::default()
-            })),
+            Advanced::Imputation(d) => {
+                Advanced::Imputation(Box::new(Imputation::new(d.patterns_only)))
+            }
         }
     }
 
