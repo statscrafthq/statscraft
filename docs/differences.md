@@ -609,6 +609,44 @@ Choices where the documentation says nothing:
 - SAVE gives cases in a structural zero, and cases missing on a variable of the command, the system-missing value. Saved variables have format F8.2.
 - A design of more than 3000 columns is refused, since the fit works with dense matrices of that size.
 
+### PROBIT
+
+Choices where the documentation says nothing, and where it is not followed:
+
+- A case weight multiplies both counts. A case with no subjects (0) adds nothing and is left out; more responses than subjects, or fewer than 0, stops the command.
+- A factor value is cut to a whole number before the range check. Levels without cases get no intercept.
+- Without a factor the model has one intercept, so the Pearson df is the number of cases less the slopes, the intercept and an estimated natural response rate. The manual's df formula for a factor ((levels - 1) times cases less parameters) is not used: every case is one covariate pattern.
+- Estimates are maximum likelihood by Newton steps with step halving, from zero slopes and intercepts, using the observed information where it is positive definite and the expected one otherwise. STEPLIMIT is accepted but not needed by this method. Iteration stops when neither the parameters nor the log-likelihood change by more than the root of OPTOL, relative to their size (at least 1).
+- A control case (some covariate 0) is left out of the fit under a logarithm and kept with LOG=NONE; either way it starts the estimated natural response rate. The start is kept between 0.000001 and 0.99. An estimate that ends at the bound 0 is reported as known, with a warning, and leaves the covariance matrix.
+- A negative covariate under a logarithm leaves the case out, counted in Data Information.
+- The heterogeneity factor is used when the goodness-of-fit significance is below P (always with P=1, never with P=0) and the test has df above 0. It widens the fiducial limits and the relative median potency limits; the parameter table keeps its plain standard errors and z-based 95% intervals.
+- Relative median potency: the limits solve Fieller's equation for (a_k - a_j)/b exactly. The manual's printed v12 has the opposite sign of the covariance that equation needs; ours agree with the effective-level limits, whose printed formula is consistent. Each pair of levels is listed once, the lower level first; the estimate is the first level's median dose over the second's under a logarithm.
+- The parallelism test fits each level on its own with the natural response rate held at the common model's value, and needs a single covariate (a warning otherwise).
+- The plot shows the probit or logit of each case's observed rate (cases with none or all responding are left out) against the transformed covariate, one group per factor level.
+- Cell Counts and Residuals shows the covariates as given, not transformed.
+
+### CURVEFIT
+
+Choices where the documentation says nothing, and where it is not followed:
+
+- TSET is not supported, so nothing is saved without SAVE (as under TSET NEWVAR=NONE); the CIN subcommand gives the interval level and CONSTANT is the default.
+- A saved number counts up per dependent and model: FIT_1, ERR_1, LCL_1 and UCL_1 for the first model, the next free number for the next. Fits and intervals go to every case with a valid independent (with the case sequence, every case); residuals need the dependent too.
+- The prediction interval is back(v -/+ t s sqrt(1 + h)) with h the leverage including the constant, which is the manual's 1 + h + 1/n with a constant and its 1 + h without. The log models without a constant use 1 + h too (the manual prints 1/n for them in every case).
+- A model whose linear form is undefined for a case of the analysis (a logarithm of a value not above 0, 1/0) is not fitted, with a warning; the other models still are. QUADRATIC and CUBIC are not fitted when a term's tolerance is below 0.0001.
+- The Coefficients table of PRINT=ANOVA gives b0 and the multiplicative b1 as exp of the linear form's coefficient, with exp times its standard error; Beta, t and the significance are those of the linear form.
+- PLOT gives one chart per dependent: the observed values and every fitted curve at the observed x, sorted by x; a line chart against the case sequence, a scatter plot against an independent. ID labels the observed points. TEMPLATE is ignored with a warning.
+- APPLY is not supported yet.
+
+### WLS
+
+Choices where the documentation says nothing, and where it is not followed:
+
+- TSET is not supported, so WGT_n is saved only with SAVE=WEIGHT, under the first free number. Its values cover every case with a source value above 0.
+- A case whose source (or WEIGHT variable) is not above 0 is left out of every fit, with a warning, so that all powers fit the same cases.
+- The Standardized Coefficients use the weighted sums of squares about the weighted means (about 0 without a constant), and show their own standard error.
+- The power with the largest log-likelihood is used; the first one on a tie. PRINT=ALL adds a Coefficients table for every power, in the order given.
+- APPLY is not supported yet.
+
 ### UNIANOVA and GLM
 
 - A frequency weight is rounded to a whole number, as documented (GNU PSPP uses fractional weights as they are).

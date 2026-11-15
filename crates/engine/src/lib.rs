@@ -16,6 +16,7 @@ mod correspondence;
 mod coxreg;
 mod crosstabs;
 mod ctables;
+mod curvefit;
 mod data_list;
 mod date;
 mod descriptives;
@@ -78,6 +79,7 @@ mod pooling;
 mod portable;
 mod pplot;
 mod print;
+mod probit;
 mod proximities;
 mod proxscal;
 mod quick_cluster;
@@ -105,6 +107,7 @@ mod tree;
 mod ttest;
 mod variables;
 pub mod vega_lite;
+mod wls;
 pub mod workbook;
 pub mod xlsx;
 
@@ -753,6 +756,9 @@ impl Engine {
             | Command::Mva(_)
             | Command::Hiloglinear(_)
             | Command::Genlog(_)
+            | Command::Probit(_)
+            | Command::Curvefit(_)
+            | Command::Wls(_)
             | Command::Plum(_)
             | Command::Correspondence(_)
             | Command::Genlin(_)
@@ -1022,6 +1028,9 @@ impl Engine {
             Command::Mva(command) => self.mva(command),
             Command::Hiloglinear(command) => self.hiloglinear(command),
             Command::Genlog(command) => self.genlog(command),
+            Command::Probit(command) => self.probit(command),
+            Command::Curvefit(command) => self.curvefit(command),
+            Command::Wls(command) => self.wls(command),
             Command::MultipleImputation(command) => self.multiple_imputation(command),
             Command::Plum(command) => self.plum(command),
             Command::Correspondence(command) => self.correspondence(command),
