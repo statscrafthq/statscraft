@@ -20,6 +20,7 @@ use crate::descriptives::{case_weights, number};
 use crate::dist::{hedges_j, noncentral_t_parameter, t_p, t_quantile};
 use crate::format::{Currencies, category_text};
 use crate::means::is_valid;
+use crate::pooling::{Kind, PoolItem};
 use crate::shown::Shown;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Values, Variable};
@@ -170,9 +171,25 @@ struct Run<'d> {
     currencies: Currencies,
     shown: Shown,
     warnings: Vec<String>,
+    /// What pooling over imputations needs: each mean difference and its squared standard error.
+    pool: Vec<PoolItem>,
 }
 
 impl Run<'_> {
+    fn pool(&mut self, title: String, label: Vec<Cell>, q: f64, se: f64) {
+        self.pool.push(PoolItem::Estimate {
+            title,
+            heads: vec![String::new(); label.len()],
+            label,
+            kind: Kind::Test {
+                name: "Mean Difference",
+                exp: false,
+            },
+            q,
+            u: se * se,
+        });
+    }
+
     fn weight(&self, case: usize) -> f64 {
         self.weights.as_ref().map_or(1.0, |w| w[case])
     }
@@ -219,6 +236,7 @@ impl Engine {
             currencies: self.currencies(),
             shown: self.shown(),
             warnings: Vec::new(),
+            pool: Vec::new(),
         };
         let mut out = Vec::new();
         let variables: Vec<Variable> = self
@@ -292,9 +310,12 @@ impl Engine {
             }
             out.extend(paired(&mut run, command, &pairs));
         }
-        let warnings = std::mem::take(&mut run.warnings);
+        let (warnings, pool) = (run.warnings, run.pool);
         for warning in warnings {
             self.warn(warning);
+        }
+        if let Some(items) = self.pool_items.as_mut() {
+            items.extend(pool);
         }
         Ok(out)
     }
@@ -329,6 +350,8 @@ fn one_sample(run: &mut Run, command: &TTest, variables: &[Variable], value: f64
             ));
         }
         let (d, df) = (m.mean - value, m.w - 1.0);
+        let title = format!("Pooled One-Sample Test (Test Value = {value})");
+        run.pool(title, vec![name.clone()], d, se);
         let t = d / se;
         let half = t_quantile(run.alpha / 2.0, df) * se;
         tests.push(vec![
@@ -531,18 +554,18 @@ fn independent(
             .into_iter()
             .enumerate()
         {
+            let label = if row == 0 {
+                "Equal variances assumed"
+            } else {
+                "Equal variances not assumed"
+            };
+            let title = "Pooled Independent Samples Test".to_string();
+            run.pool(title, vec![name.clone(), Cell::Text(label.into())], d, se);
             let t = d / se;
             let half = t_quantile(run.alpha / 2.0, df) * se;
             let mut cells = vec![
                 if row == 0 { name.clone() } else { Cell::Empty },
-                Cell::Text(
-                    if row == 0 {
-                        "Equal variances assumed"
-                    } else {
-                        "Equal variances not assumed"
-                    }
-                    .into(),
-                ),
+                Cell::Text(label.into()),
             ];
             cells.extend([
                 number((row == 0).then_some(levene)),
@@ -636,7 +659,7 @@ fn paired(run: &mut Run, command: &TTest, pairs: &[(Variable, Variable)]) -> Vec
         .collect();
     let (mut statistics, mut correlations, mut tests, mut effects) =
         (Vec::new(), Vec::new(), Vec::new(), Vec::new());
-    let mut warnings = Vec::new();
+    let (mut warnings, mut pooled) = (Vec::new(), Vec::new());
     for (index, (a, b)) in pairs.iter().enumerate() {
         let pair = Cell::Text(format!("Pair {}", index + 1));
         let cases: Vec<usize> = run
@@ -697,6 +720,7 @@ fn paired(run: &mut Run, command: &TTest, pairs: &[(Variable, Variable)]) -> Vec
             run.shown.variable(a),
             run.shown.variable(b)
         ));
+        pooled.push((vec![pair.clone(), label.clone()], d, se));
         let mut row = vec![pair.clone(), label.clone()];
         row.extend([d, sd, se, d - half, d + half, t, df, t_p(t, df)].map(|v| number(Some(v))));
         tests.push(row);
@@ -744,6 +768,9 @@ fn paired(run: &mut Run, command: &TTest, pairs: &[(Variable, Variable)]) -> Vec
         }
     }
     run.warnings.extend(warnings);
+    for (label, d, se) in pooled {
+        run.pool("Pooled Paired Samples Test".into(), label, d, se);
+    }
     let mut out = vec![
         table(
             "Paired Samples Statistics",

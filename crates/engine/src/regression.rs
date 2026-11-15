@@ -26,6 +26,7 @@ use crate::dist::{f_p, t_p, t_quantile};
 use crate::matrix::{Matrix, inverse, sweep, symmetric_eigen};
 use crate::means::is_valid;
 use crate::npar_tests::text;
+use crate::pooling::{Kind, PoolItem};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Measure, Values, Variable};
 
@@ -886,6 +887,7 @@ impl Engine {
         };
         let mut per_case: Vec<PerCase> = Vec::new();
         let mut charts = Vec::new();
+        let mut pool = Vec::new();
         let charted = !command.histograms.is_empty()
             || !command.normprobs.is_empty()
             || !command.scatterplots.is_empty()
@@ -976,6 +978,7 @@ impl Engine {
                 .as_ref()
                 .and_then(|rows| durbin_watson(rows, &c, &g, &in_fit));
             tables.extend(equation_tables(command, &eq, &models, &fits, &criteria, dw));
+            pool.extend(pool_items(&eq, &fits));
             if let Some(rows) = rows {
                 if charted {
                     let x = |j: usize, k: usize| source[order[j]][k];
@@ -1020,11 +1023,52 @@ impl Engine {
             self.warn(warning);
         }
         self.charts.extend(charts);
+        if let Some(items) = self.pool_items.as_mut() {
+            items.extend(pool);
+        }
         if !command.save.is_empty() {
             self.save_regression(command, &per_case)?;
         }
         Ok(tables)
     }
+}
+
+/// What pooling over imputations needs from each model: every coefficient with its squared
+/// standard error, and the slopes with their covariance matrix for the test that all are 0.
+fn pool_items(eq: &Equation, fits: &[Fit]) -> Vec<PoolItem> {
+    let dependent = &eq.texts[eq.y()];
+    let mut out = Vec::new();
+    for (i, f) in fits.iter().enumerate() {
+        let model = Cell::Number((i + 1) as f64);
+        let coefficients = f.constant.iter().map(|&(b, se)| ("(Constant)", b, se));
+        let slopes = f.b.iter().map(|&(j, b, se)| (eq.texts[j].as_str(), b, se));
+        for (name, b, se) in coefficients.chain(slopes) {
+            out.push(PoolItem::Estimate {
+                title: format!("Pooled Coefficients: {dependent}"),
+                heads: vec!["Model".into(), String::new()],
+                label: vec![model.clone(), Cell::Text(name.into())],
+                kind: Kind::Test {
+                    name: "B",
+                    exp: false,
+                },
+                q: b,
+                u: se * se,
+            });
+        }
+        if !f.b.is_empty() {
+            out.push(PoolItem::Joint {
+                title: format!("Pooled Model Test: {dependent}"),
+                heads: vec!["Model".into()],
+                label: vec![model],
+                q: f.b.iter().map(|b| b.1).collect(),
+                u: f.b
+                    .iter()
+                    .map(|a| f.b.iter().map(|c| f.cov(eq, a.0, c.0)).collect())
+                    .collect(),
+            });
+        }
+    }
+    out
 }
 
 fn equation_tables(

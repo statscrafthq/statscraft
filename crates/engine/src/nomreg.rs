@@ -1431,6 +1431,24 @@ impl Engine {
                 )),
             ));
         }
+        // what pooling over imputations needs: each estimated parameter and its variance
+        let mut pool = Vec::new();
+        for (l, &j) in others.iter().enumerate() {
+            for (s, &col) in fit.cols.iter().enumerate() {
+                let at = l * fit.cols.len() + s;
+                pool.push(crate::pooling::PoolItem::Estimate {
+                    title: "Pooled Parameter Estimates".into(),
+                    heads: vec![dep_text.clone(), String::new()],
+                    label: vec![text(cat_label(j)), text(col_name(col))],
+                    kind: crate::pooling::Kind::Test {
+                        name: "B",
+                        exp: true,
+                    },
+                    q: fit.b[at],
+                    u: cov.as_ref().map_or(f64::NAN, |v| v[at][at]),
+                });
+            }
+        }
         if print.parameter {
             let z = normal_quantile(0.5 + c.cin / 200.0);
             let interval = format!("{}% Confidence Interval for Exp(B)", trim_number(c.cin));
@@ -1580,6 +1598,9 @@ impl Engine {
         };
         for w in warnings {
             self.warn(w);
+        }
+        if let Some(items) = self.pool_items.as_mut() {
+            items.extend(pool);
         }
         if let Some(columns) = save {
             self.save_nomreg(columns)?;

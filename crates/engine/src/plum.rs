@@ -1025,6 +1025,24 @@ impl Engine {
         if has_scale {
             add_effects("Scale", &scale, &z_redundant, &mut parameters);
         }
+        // what pooling over imputations needs: each estimated parameter and its variance
+        let pool: Vec<crate::pooling::PoolItem> = parameters
+            .iter()
+            .filter_map(|(group, name, at)| {
+                let i = (*at)?;
+                Some(crate::pooling::PoolItem::Estimate {
+                    title: "Pooled Parameter Estimates".into(),
+                    heads: vec![String::new(); 2],
+                    label: vec![text(*group), text(name.clone())],
+                    kind: crate::pooling::Kind::Test {
+                        name: "Estimate",
+                        exp: false,
+                    },
+                    q: fit.b[i],
+                    u: covariance[i][i],
+                })
+            })
+            .collect();
         if print.parameter {
             let level = criteria.cin;
             let z = normal_quantile(0.5 + level / 200.0);
@@ -1324,6 +1342,9 @@ impl Engine {
         }
         for w in warnings {
             self.warn(w);
+        }
+        if let Some(items) = self.pool_items.as_mut() {
+            items.extend(pool);
         }
         Ok(tables)
     }

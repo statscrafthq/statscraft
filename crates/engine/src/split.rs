@@ -272,7 +272,18 @@ impl Engine {
                 .is_some_and(|v| v.eq_ignore_ascii_case(crate::multiple_imputation::IMPUTATION))
         });
         let pools = imputation_split
-            && matches!(command, Command::Descriptives(_) | Command::Frequencies(_));
+            && matches!(
+                command,
+                Command::Descriptives(_)
+                    | Command::Frequencies(_)
+                    | Command::Means(_)
+                    | Command::TTest(_)
+                    | Command::Correlations(_)
+                    | Command::Regression(_)
+                    | Command::Logistic(_)
+                    | Command::Nomreg(_)
+                    | Command::Plum(_)
+            );
         let mut result_imputation: Vec<Option<f64>> = Vec::new();
         let mut pooled: Vec<crate::pooling::Imputed> = Vec::new();
         let mut afters: Vec<Dataset> = Vec::new();
@@ -368,7 +379,10 @@ impl Engine {
             });
             results.retain(|_| shown.next().unwrap_or(true));
             if pool {
-                pooled_tables = crate::pooling::tables(&pooled, &split_names[1..], diagnostics);
+                let warnings;
+                (pooled_tables, warnings) =
+                    crate::pooling::tables(&pooled, &split_names[1..], diagnostics);
+                self.warnings.extend(warnings);
             }
         }
         // datasets share their columns, so the clone is cheap and keeps the data on an error

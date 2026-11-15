@@ -246,8 +246,12 @@ const MULTIPLE_IMPUTATION_SYNTAX: &str = "MULTIPLE IMPUTATION varlist\n\
                  Pooling: with the data split by Imputation_, DESCRIPTIVES adds a table of pooled means by Rubin's\n\
                  rules (standard error, df, 95% interval, fraction of missing information, relative increase in\n\
                  variance, relative efficiency) and FREQUENCIES a table of the frequencies and percents averaged\n\
-                 over the imputations. SET MIOUTPUT chooses which of the original, imputed and pooled results\n\
-                 appear and whether the pooling diagnostics do.";
+                 over the imputations. MEANS pools the mean of every row of its reports, T-TEST the mean\n\
+                 differences, CORRELATIONS each correlation (on Fisher's z scale), REGRESSION, LOGISTIC\n\
+                 REGRESSION, PLUM and NOMREG the coefficients; REGRESSION and LOGISTIC REGRESSION also get an F\n\
+                 test that all their slopes are 0, pooled from the covariance matrices of the coefficients (Li,\n\
+                 Raghunathan and Rubin 1991). SET MIOUTPUT chooses which of the original, imputed and pooled\n\
+                 results appear and whether the pooling diagnostics do.";
 
 pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {

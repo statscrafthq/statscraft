@@ -365,6 +365,7 @@ impl Engine {
         let tablewise = command.missing != MeansMissing::Separate;
         let mut out = Vec::new();
         let mut warnings = Vec::new();
+        let mut pool = Vec::new();
         for list in &command.tables {
             let dimensions: Vec<Vec<String>> = list
                 .iter()
@@ -446,6 +447,7 @@ impl Engine {
                         include_control,
                         (&shown, &outline),
                         &mut warnings,
+                        &mut pool,
                     ));
                 }
             }
@@ -470,6 +472,9 @@ impl Engine {
         for warning in warnings {
             self.warn(warning);
         }
+        if let Some(items) = self.pool_items.as_mut() {
+            items.extend(pool);
+        }
         Ok(out)
     }
 }
@@ -485,6 +490,7 @@ fn report(
     include_control: bool,
     (shown, outline): (&Shown, &Shown),
     warnings: &mut Vec<String>,
+    pool: &mut Vec<crate::pooling::PoolItem>,
 ) -> Vec<Table> {
     let keys: Vec<Vec<Option<Key>>> = controls
         .iter()
@@ -518,6 +524,8 @@ fn report(
                 .position(|v| v.name().eq_ignore_ascii_case(name))
         })
         .collect();
+    let mut names = vec![outline.variable(dependent)];
+    names.extend(controls.iter().map(|v| outline.variable(v)));
     let mut rows = Vec::new();
     let groups = groups(&keys, included);
     let mut members = members(&groups, &keys, included);
@@ -557,6 +565,17 @@ fn report(
                 )
             })
             .collect();
+        // what pooling over imputations needs: the mean of each row, its squared standard error
+        if let Some(s) = &summary {
+            pool.push(crate::pooling::PoolItem::Estimate {
+                title: format!("Pooled Report: {}", names.join(" by ")),
+                heads: controls.iter().map(|v| shown.variable(v)).collect(),
+                label: row.clone(),
+                kind: crate::pooling::Kind::Mean,
+                q: s.mean.unwrap_or(f64::NAN),
+                u: s.sd.map_or(f64::NAN, |sd| sd * sd / s.n),
+            });
+        }
         for &cell in &command.cells {
             row.push(if dependent.is_string() {
                 string_statistic(cell, dependent, &cases, totals.0, &within)
@@ -567,8 +586,6 @@ fn report(
         }
         rows.push(row);
     }
-    let mut names = vec![outline.variable(dependent)];
-    names.extend(controls.iter().map(|v| outline.variable(v)));
     let mut columns: Vec<String> = controls.iter().map(|v| shown.variable(v)).collect();
     columns.extend(command.cells.iter().map(|c| cell_name(*c, &command.within)));
     let formats = formats_of(&rows, |_, c| {

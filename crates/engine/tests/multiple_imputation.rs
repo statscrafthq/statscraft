@@ -697,6 +697,449 @@ fn pooled_frequencies_average_the_imputations() {
     assert_eq!(pooled.rows.len(), 2);
 }
 
+/// An invented beekeeping survey of 14 hives, stacked as the original data and three
+/// imputations: the apiary site (1, 2), the mean temperature, the honey yield, the mite count
+/// and whether the colony swarmed. Temperature is missing for two hives, honey for three.
+const HIVES: &str = "DATA LIST LIST /Imputation_ site temp honey mites swarm.
+BEGIN DATA
+0 1 7.1 10.0 8.0 1
+0 2 6.2 9.5 5.3 0
+0 1 2.8 . 9.1 1
+0 2 6.5 9.9 6.2 1
+0 1 . 6.2 10.0 0
+0 2 7.2 11.7 5.9 1
+0 1 2.0 3.0 9.0 0
+0 2 6.5 . 7.6 1
+0 1 5.8 9.4 6.9 1
+0 2 . 9.5 7.9 1
+0 1 5.6 10.5 5.8 0
+0 2 7.7 . 6.6 1
+0 1 2.5 5.4 8.4 0
+0 2 4.8 7.2 8.0 1
+1 1 7.1 10.0 8.0 1
+1 2 6.2 9.5 5.3 0
+1 1 2.8 4.3 9.1 1
+1 2 6.5 9.9 6.2 1
+1 1 8.8 6.2 10.0 0
+1 2 7.2 11.7 5.9 1
+1 1 2.0 3.0 9.0 0
+1 2 6.5 7.7 7.6 1
+1 1 5.8 9.4 6.9 1
+1 2 8.5 9.5 7.9 1
+1 1 5.6 10.5 5.8 0
+1 2 7.7 6.8 6.6 1
+1 1 2.5 5.4 8.4 0
+1 2 4.8 7.2 8.0 1
+2 1 7.1 10.0 8.0 1
+2 2 6.2 9.5 5.3 0
+2 1 2.8 6.6 9.1 1
+2 2 6.5 9.9 6.2 1
+2 1 3.2 6.2 10.0 0
+2 2 7.2 11.7 5.9 1
+2 1 2.0 3.0 9.0 0
+2 2 6.5 10.0 7.6 1
+2 1 5.8 9.4 6.9 1
+2 2 7.0 9.5 7.9 1
+2 1 5.6 10.5 5.8 0
+2 2 7.7 7.9 6.6 1
+2 1 2.5 5.4 8.4 0
+2 2 4.8 7.2 8.0 1
+3 1 7.1 10.0 8.0 1
+3 2 6.2 9.5 5.3 0
+3 1 2.8 7.0 9.1 1
+3 2 6.5 9.9 6.2 1
+3 1 7.0 6.2 10.0 0
+3 2 7.2 11.7 5.9 1
+3 1 2.0 3.0 9.0 0
+3 2 6.5 8.0 7.6 1
+3 1 5.8 9.4 6.9 1
+3 2 7.1 9.5 7.9 1
+3 1 5.6 10.5 5.8 0
+3 2 7.7 9.3 6.6 1
+3 1 2.5 5.4 8.4 0
+3 2 4.8 7.2 8.0 1
+END DATA.
+SPLIT FILE LAYERED BY Imputation_.
+";
+
+/// Checks the numbers of a pooled row from column `from` against a black-box run of a general
+/// statistics package (lab/oracles/mi/pool_procedures.R), NaN where the cell is empty.
+fn pooled_row(table: &Table, row: usize, from: usize, want: &[f64]) {
+    for (column, want) in want.iter().enumerate() {
+        let got = num(&table.rows[row][from + column]);
+        assert!(
+            got.is_nan() && want.is_nan() || (got - want).abs() <= 1e-8 * want.abs().max(1.0),
+            "{}, row {row}, column {}: {got} against {want}",
+            table.title,
+            from + column
+        );
+    }
+}
+
+#[test]
+fn pooled_means_and_t_tests() {
+    // site 1, site 2, total: estimate, standard error, df, interval, FMI, RIV
+    let (tables, _, _) = run_on(HIVES, "MEANS honey BY site.");
+    let report = find(&tables, "Pooled Report: honey by site");
+    assert_eq!(words(&report.rows[2][0]), "Total");
+    let want = [
+        [
+            7.20952380952,
+            1.09773008425,
+            869.942590797,
+            5.05501484995,
+            9.3640327691,
+            0.0501291600384,
+            0.050362698397,
+        ],
+        [
+            9.19523809524,
+            0.660086574408,
+            47.2799383339,
+            7.86752270713,
+            10.5229534833,
+            0.237268845792,
+            0.258926816484,
+        ],
+        [
+            8.20238095238,
+            0.701227089724,
+            95.4463411237,
+            6.81035313006,
+            9.5944087747,
+            0.162130427675,
+            0.169256405391,
+        ],
+    ];
+    for (row, want) in want.iter().enumerate() {
+        pooled_row(report, row, 1, want);
+    }
+    // mean difference, standard error, t, df, significance, interval, FMI, RIV
+    let (tables, _, _) = run_on(HIVES, "T-TEST PAIRS=honey WITH mites (PAIRED).");
+    let paired = find(&tables, "Pooled Paired Samples Test");
+    assert_eq!(words(&paired.rows[0][1]), "honey - mites");
+    pooled_row(
+        paired,
+        0,
+        2,
+        &[
+            0.72380952381,
+            0.998043175249,
+            0.725228669219,
+            391.671399792,
+            0.46874481861,
+            -1.23838249748,
+            2.6860015451,
+            0.076163918546,
+            0.0769578209585,
+        ],
+    );
+    let (tables, _, _) = run_on(HIVES, "T-TEST TESTVAL=8 /VARIABLES=honey.");
+    pooled_row(
+        find(&tables, "Pooled One-Sample Test (Test Value = 8)"),
+        0,
+        1,
+        &[
+            0.202380952381,
+            0.701227089724,
+            0.28860971766,
+            95.4463411237,
+            0.773505919077,
+            -1.18964686994,
+            1.5944087747,
+            0.162130427675,
+            0.169256405391,
+        ],
+    );
+    // equal group sizes: the pooled and the separate standard errors agree
+    let (tables, _, _) = run_on(HIVES, "T-TEST GROUPS=site(1 2) /VARIABLES=honey.");
+    let groups = find(&tables, "Pooled Independent Samples Test");
+    for row in 0..2 {
+        pooled_row(
+            groups,
+            row,
+            2,
+            &[
+                -1.98571428571,
+                1.22613268472,
+                -1.61949380394,
+                44595.5076698,
+                0.105348129576,
+                -4.38895541427,
+                0.41752684284,
+                0.00674137681258,
+                0.00674198250729,
+            ],
+        );
+    }
+}
+
+#[test]
+fn pooled_correlations_use_fishers_z() {
+    let (tables, _, _) = run_on(HIVES, "CORRELATIONS temp honey mites.");
+    let pooled = find(&tables, "Pooled Correlations");
+    // each pair once: correlation, significance, df, interval
+    let want = [
+        (
+            "temp",
+            "honey",
+            [
+                0.764098152092,
+                0.0511022695584,
+                7.48883426007,
+                -0.00623245381911,
+                0.965291907135,
+            ],
+        ),
+        (
+            "temp",
+            "mites",
+            [
+                -0.487214210069,
+                0.2951294719,
+                5.98618745083,
+                -0.931388017422,
+                0.539862630854,
+            ],
+        ),
+        (
+            "honey",
+            "mites",
+            [
+                -0.746607787177,
+                0.00156589770788,
+                3809.35891061,
+                -0.9159496732,
+                -0.351553978399,
+            ],
+        ),
+    ];
+    assert_eq!(pooled.rows.len(), 3);
+    for (row, (a, b, want)) in want.iter().enumerate() {
+        assert_eq!(
+            (words(&pooled.rows[row][0]), words(&pooled.rows[row][1])),
+            (*a, *b)
+        );
+        pooled_row(pooled, row, 2, want);
+    }
+}
+
+#[test]
+fn pooled_regressions_and_their_model_tests() {
+    let (tables, _, _) = run_on(
+        HIVES,
+        "REGRESSION /DEPENDENT=honey /METHOD=ENTER temp mites.",
+    );
+    let coefficients = find(&tables, "Pooled Coefficients: honey");
+    // B, standard error, t, df, significance, interval, FMI, RIV
+    let want = [
+        (
+            "(Constant)",
+            [
+                10.5295584429,
+                4.63392279385,
+                2.27227748741,
+                5.66383128262,
+                0.0660587320285,
+                -0.974394316637,
+                22.0335112024,
+                0.687905422321,
+                1.46449410256,
+            ],
+        ),
+        (
+            "temp",
+            [
+                0.679956962916,
+                0.26218015295,
+                2.59347229477,
+                13.9030413771,
+                0.021338629024,
+                0.117268330437,
+                1.2426455954,
+                0.452724884682,
+                0.611032684727,
+            ],
+        ),
+        (
+            "mites",
+            [
+                -0.818279148583,
+                0.504787902529,
+                -1.62103557649,
+                4.50934636744,
+                0.172245841573,
+                -2.15951647463,
+                0.522958177462,
+                0.754937777825,
+                1.99379165218,
+            ],
+        ),
+    ];
+    for (row, (name, want)) in want.iter().enumerate() {
+        assert_eq!(words(&coefficients.rows[row][1]), *name);
+        pooled_row(coefficients, row, 2, want);
+    }
+    // F, df1, df2, significance of the joint test of the slopes
+    let test = find(&tables, "Pooled Model Test: honey");
+    pooled_row(
+        test,
+        0,
+        1,
+        &[9.52936813403, 2.0, 12.0052376128, 0.0033235423561],
+    );
+
+    // BCON is tight so that the estimates match the package's converged ones
+    let (tables, _, _) = run_on(
+        HIVES,
+        "LOGISTIC REGRESSION swarm WITH temp mites /CRITERIA=BCON(1E-10).",
+    );
+    let equation = find(&tables, "Pooled Variables in the Equation");
+    // B, standard error, t, df, significance, then Exp(B) and its interval
+    let want = [
+        (
+            "temp",
+            [
+                0.988335485826,
+                1.37132862152,
+                0.720713817475,
+                3.81547674785,
+                0.512763264706,
+            ],
+            (-2.89281286809_f64, 4.86948383974_f64),
+        ),
+        (
+            "mites",
+            [
+                0.626208416579,
+                1.38463209617,
+                0.452256175711,
+                3.9648496718,
+                0.67472256628,
+            ],
+            (-3.23162526162, 4.48404209478),
+        ),
+        (
+            "Constant",
+            [
+                -9.16633809088,
+                16.7435106271,
+                -0.547456163468,
+                3.69475455744,
+                0.615440515955,
+            ],
+            (-57.208321592, 38.8756454103),
+        ),
+    ];
+    for (row, (name, want, (low, high))) in want.iter().enumerate() {
+        assert_eq!(words(&equation.rows[row][1]), *name);
+        pooled_row(equation, row, 2, want);
+        pooled_row(equation, row, 7, &[want[0].exp(), low.exp(), high.exp()]);
+    }
+    pooled_row(
+        find(&tables, "Pooled Model Test"),
+        0,
+        1,
+        &[0.410627729501, 2.0, 8.63724994727, 0.675527566118],
+    );
+}
+
+#[test]
+fn pooled_ordinal_and_multinomial_parameters() {
+    // PLUM: Rubin's rules by hand on the estimates and standard errors of each imputation
+    let (tables, _, _) = run_on(
+        HIVES,
+        "RECODE honey (LO THRU 7=1) (LO THRU 10=2) (ELSE=3) INTO grade.\n\
+         PLUM grade WITH temp mites /PRINT=PARAMETER.",
+    );
+    let each = find(&tables, "Parameter Estimates");
+    let pooled = find(&tables, "Pooled Parameter Estimates");
+    assert_eq!(pooled.rows.len(), 4);
+    for j in 0..4 {
+        let pairs: Vec<(f64, f64)> = (1..=3)
+            .map(|i| {
+                let row = &each.rows[4 * i + j];
+                (num(&row[3]), num(&row[4]))
+            })
+            .collect();
+        let q = pairs.iter().map(|p| p.0).sum::<f64>() / 3.0;
+        let u = pairs.iter().map(|p| p.1 * p.1).sum::<f64>() / 3.0;
+        let b = pairs.iter().map(|p| (p.0 - q).powi(2)).sum::<f64>() / 2.0;
+        let r = 4.0 / 3.0 * b / u;
+        let df = 2.0 * (1.0 + 1.0 / r).powi(2);
+        let se = (u + 4.0 / 3.0 * b).sqrt();
+        pooled_row(pooled, j, 2, &[q, se, q / se, df]);
+    }
+    // NOMREG with two categories is the logistic model of the first one: signs turn over
+    let (tables, _, _) = run_on(HIVES, "NOMREG swarm WITH temp mites.");
+    let pooled = find(&tables, "Pooled Parameter Estimates");
+    let want = [
+        (
+            "Intercept",
+            [
+                9.16633809088,
+                16.7435106271,
+                0.547456163468,
+                3.69475455744,
+                0.615440515955,
+            ],
+        ),
+        (
+            "temp",
+            [
+                -0.988335485826,
+                1.37132862152,
+                -0.720713817475,
+                3.81547674785,
+                0.512763264706,
+            ],
+        ),
+        (
+            "mites",
+            [
+                -0.626208416579,
+                1.38463209617,
+                -0.452256175711,
+                3.9648496718,
+                0.67472256628,
+            ],
+        ),
+    ];
+    for (row, (name, want)) in want.iter().enumerate() {
+        assert_eq!(words(&pooled.rows[row][1]), *name);
+        pooled_row(pooled, row, 2, want);
+    }
+}
+
+#[test]
+fn rows_missing_from_an_imputation_and_mioutput() {
+    // one hive of the first imputation alone sits at a third site
+    let (tables, warnings, _) = run_on(
+        HIVES,
+        "COMPUTE place = site.\nIF (Imputation_ = 1 AND mites = 10) place = 3.\n\
+         MEANS honey BY place.",
+    );
+    let report = find(&tables, "Pooled Report: honey by place");
+    let places: Vec<&str> = report.rows.iter().map(|r| words(&r[0])).collect();
+    assert_eq!(places, ["1", "2", "Total"]);
+    assert_eq!(
+        warnings,
+        [
+            "Pooled Report: honey by place: 3 is not pooled because the imputations do not all give it"
+        ]
+    );
+    // without DIAGNOSTICS the last three columns go; without POOLED the pooled tables
+    let (tables, _, _) = run_on(
+        HIVES,
+        "SET MIOUTPUT=[POOLED].\nREGRESSION /DEPENDENT=honey /METHOD=ENTER temp.",
+    );
+    assert_eq!(find(&tables, "Pooled Coefficients: honey").columns.len(), 9);
+    assert_eq!(find(&tables, "Pooled Model Test: honey").columns.len(), 5);
+    assert!(tables.iter().all(|t| t.title != "Coefficients"));
+    let (tables, _, _) = run_on(HIVES, "SET MIOUTPUT=[IMPUTED].\nCORRELATIONS temp honey.");
+    assert!(tables.iter().all(|t| !t.title.starts_with("Pooled")));
+}
+
 #[test]
 fn strings_interactions_and_analysis_weights() {
     // a string variable is categorical: its user-missing value is filled with an observed one

@@ -35,6 +35,7 @@ use crate::model_terms::{
     wald,
 };
 use crate::npar_tests::text;
+use crate::pooling::{Kind, PoolItem};
 use crate::regression::{plain, table};
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Measure, Values};
@@ -466,6 +467,7 @@ impl Engine {
         let criteria = command.criteria;
         let mut warnings = Vec::new();
         let mut charts = Vec::new();
+        let mut pool = Vec::new();
         let dependent = data.variable(&command.dependent)?;
         // the terms: WITH first, then those named only on a METHOD
         let term_vars = distinct_terms(
@@ -935,6 +937,7 @@ impl Engine {
                 tables.push(t);
             }
             last = steps.pop().expect("nonempty");
+            pool.extend(pool_items(&design, terms, &last, b));
             last_fit_ll = last.fit.ll;
             model = last.model.clone();
         }
@@ -950,6 +953,9 @@ impl Engine {
             self.warn(warning);
         }
         self.charts.extend(charts);
+        if let Some(items) = self.pool_items.as_mut() {
+            items.extend(pool);
+        }
         if !command.save.is_empty() {
             let original: Vec<Key> = values.iter().map(clone_key).collect();
             self.save_logistic(command, &design, final_fit, &stats, &original, cases)?;
@@ -1164,6 +1170,55 @@ fn new_columns(
         .into_iter()
         .filter(|c| columns.contains(c))
         .collect()
+}
+
+/// What pooling over imputations needs from the last step of block `block`: every coefficient
+/// with its squared standard error, in the order of Variables in the Equation, and the
+/// coefficients but the constant with their covariance matrix for the test that all are 0.
+fn pool_items(design: &Design, terms: &[TermInfo], step: &Step, block: usize) -> Vec<PoolItem> {
+    let fit = &step.fit;
+    let mut at: Vec<(String, usize)> = step
+        .model
+        .iter()
+        .flat_map(|&t| &terms[t].columns)
+        .filter_map(|&c| Some((design.names[c].clone(), fit.at(c)?)))
+        .collect();
+    let slopes: Vec<usize> = at.iter().map(|a| a.1).collect();
+    if fit.constant {
+        at.push(("Constant".into(), 0));
+    }
+    let label = |name: Option<String>| {
+        let mut label = vec![Cell::Number((block + 1) as f64)];
+        label.extend(name.map(Cell::Text));
+        label
+    };
+    let mut out: Vec<PoolItem> = at
+        .into_iter()
+        .map(|(name, p)| PoolItem::Estimate {
+            title: "Pooled Variables in the Equation".into(),
+            heads: vec!["Block".into(), String::new()],
+            label: label(Some(name)),
+            kind: Kind::Test {
+                name: "B",
+                exp: true,
+            },
+            q: fit.b[p],
+            u: fit.cov[p][p],
+        })
+        .collect();
+    if !slopes.is_empty() {
+        out.push(PoolItem::Joint {
+            title: "Pooled Model Test".into(),
+            heads: vec!["Block".into()],
+            label: label(None),
+            q: slopes.iter().map(|&p| fit.b[p]).collect(),
+            u: slopes
+                .iter()
+                .map(|&a| slopes.iter().map(|&c| fit.cov[a][c]).collect())
+                .collect(),
+        });
+    }
+    out
 }
 
 fn coefficient_names(design: &Design, fit: &Fit) -> Vec<String> {

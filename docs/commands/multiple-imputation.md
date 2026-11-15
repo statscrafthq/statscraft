@@ -27,7 +27,7 @@ Each variable is imputed from the others by its own model: linear regression for
 
 Tables: the overall missing summary, VARIABLES (the most missing first, at least MINPCTMISSING percent), PATTERNS, the specifications, constraints and results, MODELS and DESCRIPTIVES of the original, imputed and completed values. A summary subcommand shows only the keywords on it.
 
-Pooling: with the data split by Imputation\_, DESCRIPTIVES adds a table of pooled means by Rubin's rules (standard error, df, 95% interval, fraction of missing information, relative increase in variance, relative efficiency) and FREQUENCIES a table of the frequencies and percents averaged over the imputations. SET MIOUTPUT chooses which of the original, imputed and pooled results appear and whether the pooling diagnostics do.
+Pooling: with the data split by Imputation\_, DESCRIPTIVES adds a table of pooled means by Rubin's rules (standard error, df, 95% interval, fraction of missing information, relative increase in variance, relative efficiency) and FREQUENCIES a table of the frequencies and percents averaged over the imputations. MEANS pools the mean of every row of its reports, T-TEST the mean differences, CORRELATIONS each correlation (on Fisher's z scale), REGRESSION, LOGISTIC REGRESSION, PLUM and NOMREG the coefficients; REGRESSION and LOGISTIC REGRESSION also get an F test that all their slopes are 0, pooled from the covariance matrices of the coefficients (Li, Raghunathan and Rubin 1991). SET MIOUTPUT chooses which of the original, imputed and pooled results appear and whether the pooling diagnostics do.
 
 ## Example
 

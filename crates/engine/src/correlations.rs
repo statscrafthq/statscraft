@@ -139,6 +139,9 @@ impl Engine {
         } else {
             "Sig. (2-tailed)"
         };
+        // what pooling over imputations needs: Fisher's z of each pair once, its variance
+        let mut pool = Vec::new();
+        let mut pooled: Vec<(usize, usize)> = Vec::new();
         for (rows, columns) in &lists {
             let square = columns.is_none();
             let columns = columns.as_ref().unwrap_or(rows);
@@ -165,6 +168,24 @@ impl Engine {
                         };
                     let p = compute(a, b);
                     let same = a == b;
+                    if !same && !pooled.contains(&(a.min(b), a.max(b))) {
+                        pooled.push((a.min(b), a.max(b)));
+                        pool.push(crate::pooling::PoolItem::Estimate {
+                            title: "Pooled Correlations".into(),
+                            heads: vec![String::new(); 2],
+                            label: vec![
+                                Cell::Text(shown.named(data, row_name)),
+                                Cell::Text(shown.named(data, column_name)),
+                            ],
+                            kind: crate::pooling::Kind::Correlation,
+                            q: p.r.atanh(),
+                            u: if p.w > 3.0 {
+                                1.0 / (p.w - 3.0)
+                            } else {
+                                f64::NAN
+                            },
+                        });
+                    }
                     let r = if same && p.w > 0.0 { 1.0 } else { p.r };
                     let t = r * ((p.w - 2.0) / (1.0 - r * r)).sqrt();
                     let mut sig = t_p(t, p.w - 2.0);
@@ -230,6 +251,9 @@ impl Engine {
                 caption: (!captions.is_empty()).then(|| captions.join(" ")),
                 ..Table::default()
             });
+        }
+        if let Some(items) = self.pool_items.as_mut() {
+            items.extend(pool);
         }
         Ok(out)
     }

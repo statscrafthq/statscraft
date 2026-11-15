@@ -178,10 +178,14 @@ impl Engine {
         let pool: Vec<crate::pooling::PoolItem> = variables
             .iter()
             .zip(&summaries)
-            .filter_map(|((name, _), s)| {
-                let (q, sd) = (s.mean?, s.sd?);
-                let (variable, u) = (name.clone(), sd * sd / s.n);
-                Some(crate::pooling::PoolItem::Mean { variable, q, u })
+            .map(|((name, _), s)| crate::pooling::PoolItem::Estimate {
+                title: "Pooled Descriptive Statistics".into(),
+                heads: vec!["Variable".into()],
+                label: vec![Cell::Text(name.clone())],
+                kind: crate::pooling::Kind::Mean,
+                // a variable without a mean in one imputation is pooled from the others
+                q: s.mean.unwrap_or(f64::NAN),
+                u: s.sd.map_or(f64::NAN, |sd| sd * sd / s.n),
             })
             .collect();
         let mut headers = vec!["Variable", "Label", "N"];
