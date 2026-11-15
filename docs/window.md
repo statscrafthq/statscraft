@@ -537,7 +537,6 @@ See [The Window menu](#the-window-menu).
 ### Help
 
 - **Documentation** opens the documentation online.
-- **Connect an AI agent...** opens Edit > Settings > AI agents.
 - **About Statscraft** shows the version, the license (MIT), links to the source code and the documentation, where the color themes come from with their licenses, and the licenses of the fonts.
 - **Check for updates**: see [Updates](#updates).
 
