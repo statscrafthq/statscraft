@@ -4,10 +4,10 @@
 //! Value Analysis (in `mva_dialog`), Multiple Imputation (in `imputation_dialog`), Case
 //! Summaries and Codebook (in `reports_dialog`), the Loglinear dialogs (in `loglinear_dialog`), the
 //! kappa and Ratio Statistics dialogs (in `agreement_dialog`), Curve Estimation, Probit and Weight
-//! Estimation (in `regression_more_dialog`) and complex samples dialogs (the
-//! analysis plan, Descriptives, Frequencies and Crosstabs; the General Linear Model and Logistic
-//! Regression in `cs_model_dialog`). Options left as they are add nothing to the syntax, so the
-//! command runs with its own defaults.
+//! Estimation (in `regression_more_dialog`), the Power Analysis dialogs (in `power_dialog`) and
+//! complex samples dialogs (the analysis plan, Descriptives, Frequencies and Crosstabs; the
+//! General Linear Model and Logistic Regression in `cs_model_dialog`). Options left as they are
+//! add nothing to the syntax, so the command runs with its own defaults.
 
 use crate::agreement_dialog::{FleissKappa, Ratio, WeightedKappa};
 use crate::analyze_dialogs::keywords;
@@ -21,6 +21,7 @@ use crate::loglinear_dialog::{GeneralLoglinear, ModelSelection};
 use crate::mds_dialog::{Alscal, Proxscal};
 use crate::model_dialogs::GLM_ADJUSTMENTS;
 use crate::mva_dialog::MissingValueAnalysis;
+use crate::power_dialog::PowerAnalysis;
 use crate::proximities_dialog::Distances;
 use crate::regression_more_dialog::{CurveEstimation, Probit, WeightEstimation};
 use crate::reports_dialog::{Codebook, Summarize};
@@ -69,6 +70,8 @@ pub enum Advanced {
     // boxed: a large dialog
     Probit(Box<Probit>),
     Wls(WeightEstimation),
+    // boxed: a large dialog
+    Power(Box<PowerAnalysis>),
 }
 
 impl Advanced {
@@ -105,6 +108,7 @@ impl Advanced {
             Advanced::Curve(_) => "Curve Estimation",
             Advanced::Probit(_) => "Probit Analysis",
             Advanced::Wls(_) => "Weight Estimation",
+            Advanced::Power(d) => d.title(),
         }
     }
 
@@ -143,6 +147,7 @@ impl Advanced {
             Advanced::Curve(_) => Advanced::Curve(Default::default()),
             Advanced::Probit(_) => Advanced::Probit(Default::default()),
             Advanced::Wls(_) => Advanced::Wls(Default::default()),
+            Advanced::Power(d) => Advanced::Power(Box::new(PowerAnalysis::new(d.kind))),
         }
     }
 
@@ -188,6 +193,7 @@ impl Advanced {
             Advanced::Curve(d) => d.syntax(data),
             Advanced::Probit(d) => d.syntax(data),
             Advanced::Wls(d) => d.syntax(data),
+            Advanced::Power(d) => d.syntax(),
         }
     }
 }

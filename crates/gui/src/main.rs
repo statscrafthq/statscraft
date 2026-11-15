@@ -44,6 +44,8 @@ mod office;
 mod open_files;
 mod output;
 mod output_view;
+mod power_dialog;
+mod power_dialog_view;
 mod proximities_dialog;
 mod proximities_dialog_view;
 mod regression_more_dialog;

@@ -33,6 +33,7 @@ use crate::model_dialogs::{
 use crate::model_dialogs_view;
 use crate::output;
 use crate::output_view;
+use crate::power_dialog::{POWER_MENU, PowerAnalysis};
 use crate::settings::Settings;
 use crate::settings_window::{self, Section};
 use crate::stats_dialogs::{NparKind, NparTests, PartialCorr, Regression, Reliability, numeric};
@@ -1552,6 +1553,23 @@ impl App {
                             }
                         }
                     });
+                });
+                // these take typed numbers, so they need no data
+                ui.menu_button("Power Analysis", |ui| {
+                    for (menu, items) in POWER_MENU {
+                        ui.menu_button(menu, |ui| {
+                            for (label, kind) in items {
+                                if ui.button(label).clicked() {
+                                    let d = PowerAnalysis::new(kind);
+                                    self.open_dialog(Dialog::Advanced(Advanced::Power(Box::new(
+                                        d,
+                                    ))));
+                                }
+                            }
+                        });
+                    }
+                });
+                ui.add_enabled_ui(has_data, |ui| {
                     ui.menu_button("Descriptive Statistics", |ui| {
                         for (label, dialog) in [
                             ("Frequencies...", Dialog::Frequencies(Default::default())),
@@ -3457,7 +3475,11 @@ impl App {
         let empty;
         let data = match window_data(&self.session, &self.windows, self.popups) {
             Some(data) => data,
-            None if matches!(dialog, Dialog::ImportData(_)) => {
+            None if matches!(
+                dialog,
+                Dialog::ImportData(_) | Dialog::Advanced(Advanced::Power(_))
+            ) =>
+            {
                 empty = Dataset::new(0);
                 &empty
             }
@@ -3497,8 +3519,13 @@ impl App {
                 let row = ui.text_style_height(&TextStyle::Monospace);
                 let height = (ctx.content_rect().height() - 150.0 - lines * row).max(160.0);
                 ui.horizontal_top(|ui| {
-                    // Sort Variables and Open Data take no variables
-                    if !matches!(dialog, Dialog::SortVariables(_) | Dialog::ImportData(_)) {
+                    // Sort Variables, Open Data and Power Analysis take no variables
+                    if !matches!(
+                        dialog,
+                        Dialog::SortVariables(_)
+                            | Dialog::ImportData(_)
+                            | Dialog::Advanced(Advanced::Power(_))
+                    ) {
                         ui.vertical(|ui| {
                             ui.set_width(230.0);
                             let sets = matches!(
