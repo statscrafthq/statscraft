@@ -98,6 +98,7 @@ mod shown;
 mod sort;
 mod split;
 mod star_join;
+mod stata;
 mod summarize;
 mod transform;
 mod tree;
@@ -656,11 +657,13 @@ impl Engine {
             Command::Export(command) => return self.export_portable(command),
             Command::Import(command) => return self.import_portable(command),
             Command::GetTranslate(command) => return self.get_translate(command),
+            Command::GetStata(command) => return self.get_stata(command),
             Command::SaveTranslate(command) => {
                 self.begin_pass()?;
-                self.save_translate(command)?;
+                let tables = self.save_translate(command)?;
                 let before = self.dataset.clone();
                 self.end_pass(before.as_ref());
+                return Ok(tables);
             }
             Command::VariableLabels(pairs) => {
                 no_scratch(pairs.iter().map(|(n, _)| n), "VARIABLE LABELS")?;

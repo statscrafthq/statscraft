@@ -184,6 +184,22 @@ This page lists, by topic and command:
 - FORMAT=PLAIN writes a date with a time of day as mm/dd/yyyy hh:mm:ss, and a time with its fraction of a second when it has one. FORMAT=VARIABLE widens a number that does not fit its format instead of writing asterisks.
 - A workbook keeps the display format of each number (dates and times as Excel dates, as in the table export). With MISSING=RECODE a numeric user-missing value is #NULL! like system-missing, a string one empty.
 - Without EXCELOPTIONS the sheet is Sheet1; further sheets for more cases add (2), (3).
+- MAP works for every type. For CSV, TAB and workbooks it lists the names as RENAME, KEEP and DROP leave them.
+- **TYPE=STATA, beyond the documentation:** VERSION may be left out and then means 14 (format 118), and a file name ending in .dta needs no TYPE. VERSION above 14 also writes format 118, which Stata 14 to 19 read. Stata 4 to 7 files are not written.
+- A date with a time of day (DATETIME, YMDHMS) becomes a %tc value in milliseconds since 1960, so the time is kept; the manual's table gives it the date format. Format 113 (VERSION 8 and 9) has no %tc, so there it is written as days with their fraction under a date format.
+- Numbers are stored as byte, int or long when every value is whole and fits, else as double, so no value changes. Missing values become Stata's `.`.
+- A name that is not ASCII becomes v and its position before Stata 14. A Stata reserved word (byte, int, if and the like, str with digits) gets _ at the end; names made equal by cutting get _2, _3.
+- The default encoding before Stata 14 is the system's code page; text it cannot hold is an error that suggests VERSION=14, which is always UTF-8.
+
+### GET STATA
+
+- Formats 113 to 119 are read (Stata 8 to 19); older files are refused.
+- A %tc or %tC value (a date with a time of day) becomes DATETIME20 (DATETIME23.3 when some value has a fraction of a second), not DATE, so the time survives. Leap seconds of %tC are not counted.
+- A %g display format becomes F of the same width, with 0 decimals when every value is whole, else 2; %f keeps its decimals and %fc becomes COMMA.
+- Names keep their case. A name that starts with _ (such as _merge) gets V in front and one of our reserved words gets $ at the end; a name equal to an earlier one but for case gets _A, _B and so on, and the first keeps its name.
+- Without ENCODING, text in files older than Stata 14 is read as UTF-8 when it is valid UTF-8, else in the system's code page.
+- Value labels keep 255 bytes (the manual cuts them at 120). The file label is cut to 64 bytes, the most a .sav file holds, with a warning.
+- A long string marked binary is read as text when it holds no zero byte; one with a zero byte is blank.
 
 ### EXPORT and IMPORT
 
@@ -1138,15 +1154,15 @@ Where the documentation is silent:
   - USE takes case numbers only with /PERMANENT.
   - ADD FILES, MATCH FILES and UPDATE take no PASSWORD.
   - GET DATA reads no ODBC or OLEDB sources.
-  - SAVE TRANSLATE writes CSV, TAB and Excel 2007 workbooks only (no SAS, Stata, dBASE, 1-2-3, SYLK, ODBC or the older binary Excel files), has no APPEND or MAP, and RENAME takes valid variable names only.
+  - SAVE TRANSLATE writes CSV, TAB, Excel 2007 workbooks and Stata files only (no SAS, dBASE, 1-2-3, SYLK, ODBC, the older binary Excel files or Stata 4 to 7 files), has no APPEND, and RENAME takes valid variable names only.
   - FILE HANDLE refuses MODE=BINARY, MULTIPUNCH, IMAGE and 360, since only text and data files are read.
 - **Expression functions.** APPLYMODEL and STRAPPLYMODEL, which need MODEL HANDLE. NUMBER reads the formats DATA LIST reads (F, N, E, COMMA, DOT, DOLLAR, PCT, DATE, ADATE, EDATE and SDATE). STRING writes the number, date and time formats, but not the custom currencies CCA to CCE.
 - **Transformations.** PRINT and WRITE have no binary formats (P, PK, IB, PIB, PIBHEX, RB, RBHEX, Z). DATA LIST reads only F, N, E, COMMA, DOT, DOLLAR, PCT, A, DATE, ADATE, EDATE and SDATE, and only UTF-8 files. Commands such as VALUE LABELS cannot stand inside LOOP. AUTORECODE has no templates.
 - **Charts.** GRAPH (see [GRAPH](#graph) for the parts not supported yet), FREQUENCIES, CROSSTABS, EXAMINE, ONEWAY, REGRESSION, LOGISTIC REGRESSION, COXREG, UNIANOVA, GLM, DISCRIMINANT, FACTOR, CLUSTER and TREE give their charts as data (`--json` gives each chart's description and `--vega-lite` a Vega-Lite specification), and the window and `statscraft run --charts` draw them. The text output shows each chart's numbers as a table. A stem-and-leaf display and a plot in three dimensions are not drawn yet and show as their data table. Error bars (the profile plots of UNIANOVA and GLM) are drawn in the pictures, in Vega-Lite and in the office charts, where they are custom error bars whose lengths come from the chart's data table. Workbooks, Word documents and presentations hold the bar, pie and line charts (the means, scree, profile and gain charts among them) as editable charts and the statistical plots as pictures, a workbook with the data table beside each picture.
 - **TREE.** CHAID and exhaustive CHAID with a nominal or ordinal dependent. Not supported yet: CRT, QUEST, a scale dependent, split-sample and cross-validation, SPLITMERGED=YES, custom costs, profits, percentile gain tables, rules, influence variables, model files and TARGETRESPONSE.
-- **Data files.** Statscraft reads and writes .sav and .zsav files, and portable (.por) files with IMPORT and EXPORT.
+- **Data files.** Statscraft reads and writes .sav and .zsav files, portable (.por) files with IMPORT and EXPORT, and Stata (.dta) files with GET STATA and SAVE TRANSLATE /TYPE=STATA.
   - Text files are read with DATA LIST, GET DATA and GET TRANSLATE /TYPE=TAB; workbooks (.xlsx, .xlsm, .xls) with GET DATA and GET TRANSLATE; dBASE III and IV files with GET TRANSLATE. 1-2-3, Symphony, SYLK and dBASE II files are not read.
-  - SAVE TRANSLATE writes CSV, tab-delimited text and .xlsx.
+  - SAVE TRANSLATE writes CSV, tab-delimited text, .xlsx and Stata .dta files.
   - An old .sav file that does not state its code page is read as Western European (windows-1252). There is no way to choose another encoding yet.
 - **Output.** Tables come out as Markdown, JSON, HTML and PDF (from the window and OUTPUT EXPORT), text and CSV (OUTPUT EXPORT) and Excel workbooks.
   - OUTPUT SAVE and OUTPUT OPEN write and read Statscraft output files (`.scout`) only.

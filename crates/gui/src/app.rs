@@ -1329,10 +1329,19 @@ impl App {
                         .add_filter("Data files", &["sav", "zsav"])
                         .add_filter("Excel workbooks", &["xlsx", "xlsm", "xls"])
                         .add_filter("Text files", &["csv", "txt", "tab", "dat"])
+                        .add_filter("Stata files", &["dta"])
                         .pick_file()
                 {
+                    let stata = path
+                        .extension()
+                        .is_some_and(|e| e.eq_ignore_ascii_case("dta"));
                     if is_data_file(&path) {
                         self.open_data(path);
+                    } else if stata {
+                        // not the dataset's file: Save data must not write a .sav file there
+                        self.settings.remember_folder(&path);
+                        let get = format!("GET STATA FILE={}.", quote(&path.to_string_lossy()));
+                        self.open_named(get, After::Show);
                     } else {
                         // the folder is kept even when the dialog is cancelled
                         self.settings.remember_folder(&path);

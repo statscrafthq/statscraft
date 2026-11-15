@@ -72,7 +72,7 @@ fn field_names<'a>(names: impl IntoIterator<Item = &'a str>) -> Vec<Option<Strin
 }
 
 /// Column letters: 0 is A, 26 is AA.
-fn column_letters(mut column: u32) -> String {
+pub(crate) fn column_letters(mut column: u32) -> String {
     let mut letters = Vec::new();
     loop {
         letters.push(b'A' + (column % 26) as u8);
@@ -357,7 +357,7 @@ impl Engine {
         };
         self.warn_some(warnings);
         let names: Vec<String> = data.variable_names().map(str::to_string).collect();
-        let tables = self.map_tables(&data, &names, &command.options, true, false)?;
+        let tables = self.map_tables(&data, &names, &command.options, true, None)?;
         let data = self.file_options(data, &command.options, true)?;
         self.make_active(data);
         Ok(tables)

@@ -1,4 +1,5 @@
-//! SAVE TRANSLATE to CSV, tab-delimited text and workbooks, read back where it can be.
+//! SAVE TRANSLATE to CSV, tab-delimited text, workbooks and Stata files, read back where it
+//! can be.
 
 use calamine::{Data, Reader};
 use statscraft_data::{Dataset, Values};
@@ -234,7 +235,7 @@ fn types_and_options_that_are_refused() {
     let cases = [
         (
             "SAVE TRANSLATE OUTFILE='a.sas7bdat' /TYPE=SAS /VERSION=7.",
-            "SAVE TRANSLATE /TYPE=SAS is not supported yet; write CSV, TAB or XLS /VERSION=12",
+            "SAVE TRANSLATE /TYPE=SAS is not supported yet; write CSV, TAB, STATA or XLS /VERSION=12",
         ),
         (
             "SAVE TRANSLATE OUTFILE='a.xls' /TYPE=XLS /VERSION=8.",
@@ -246,7 +247,23 @@ fn types_and_options_that_are_refused() {
         ),
         (
             "SAVE TRANSLATE OUTFILE='a.txt'.",
-            "SAVE TRANSLATE needs /TYPE=CSV, TAB or XLS /VERSION=12",
+            "SAVE TRANSLATE needs /TYPE=CSV, TAB, STATA or XLS /VERSION=12",
+        ),
+        (
+            "SAVE TRANSLATE OUTFILE='a.dta' /VERSION=6.",
+            "files for Stata 4 to 7 are not supported; use /VERSION=8 or later",
+        ),
+        (
+            "SAVE TRANSLATE OUTFILE='a.dta' /TYPE=STATA /VERSION=X.",
+            "TYPE=STATA takes /VERSION=8 to 14 (default 14)",
+        ),
+        (
+            "SAVE TRANSLATE OUTFILE='a.dta' /ENCODING='klingon'.",
+            "SAVE TRANSLATE: a.dta: unknown encoding klingon",
+        ),
+        (
+            "GET STATA FILE='missing.dta' /PASSWORD='x'.",
+            "unknown subcommand PASSWORD of GET STATA",
         ),
         (
             "SAVE TRANSLATE OUTFILE='a.xlsx' /APPEND.",
@@ -260,5 +277,54 @@ fn types_and_options_that_are_refused() {
     for (syntax, expected) in cases {
         assert_eq!(error(&mut s, syntax), expected, "{syntax}");
     }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn a_stata_round_trip_keeps_values_labels_and_dates() {
+    let dir = temp_dir("stata");
+    let mut s = session(&dir);
+    let tables = s
+        .run(
+            "SAVE TRANSLATE OUTFILE='wave.dta' /RENAME=(name=who) /MAP /DROP=t /EDITION=SE.",
+            None,
+        )
+        .unwrap();
+    let map = &tables.commands[0].tables[0];
+    assert_eq!(map.title, "Variables in the file");
+    assert_eq!(map.rows.len(), 6);
+    run(&mut s, "GET STATA FILE='wave.dta'.");
+    let data = s.dataset().unwrap();
+    let names: Vec<&str> = data.variable_names().collect();
+    assert_eq!(names, ["id", "who", "score", "born", "grp"]);
+    assert_eq!(strings(data, "who"), ["Ann Lee", "Bob, Jr", "Cy \"C\""]);
+    assert_eq!(numbers(data, "score"), [Some(1.5), None, Some(2.25)]);
+    // dates come back as the same days, with the date format
+    let day = |n: f64| Some(n * 86_400.0);
+    assert_eq!(
+        numbers(data, "born"),
+        [day(159_691.0), day(152_384.0), day(161_210.0)]
+    );
+    assert_eq!(data.variable("born").unwrap().format(), "DATE11");
+    // user-missing 9 stays a value; a Stata file has no user-missing values
+    assert_eq!(numbers(data, "grp"), [Some(1.0), Some(2.0), Some(9.0)]);
+    let grp = data.variable("grp").unwrap();
+    assert_eq!(grp.value_labels().len(), 3);
+    assert_eq!(data.variable("score").unwrap().label(), Some("Test score"));
+    // MISSING=RECODE makes it system-missing; REPLACE is needed for an existing file
+    let mut s = session(&dir);
+    assert_eq!(
+        error(&mut s, "SAVE TRANSLATE OUTFILE='wave.dta' /MISSING=RECODE."),
+        "SAVE TRANSLATE: wave.dta exists; add /REPLACE to overwrite it"
+    );
+    run(
+        &mut s,
+        "SAVE TRANSLATE OUTFILE='wave.dta' /TYPE=STATA /VERSION=10 /MISSING=RECODE /REPLACE.\n\
+         GET STATA FILE='wave.dta' /ENCODING='windows-1252'.",
+    );
+    assert_eq!(
+        numbers(s.dataset().unwrap(), "grp"),
+        [Some(1.0), Some(2.0), None]
+    );
     std::fs::remove_dir_all(&dir).unwrap();
 }
