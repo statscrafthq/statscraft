@@ -26,6 +26,7 @@ use crate::dialogs::{
 use crate::genlin_dialog::GeneralizedLinear;
 use crate::graph_dialogs::{ChartBuilder, ChartKind, ProbabilityPlot, RocCurve};
 use crate::imputation_dialog::{Imputation, Limits};
+use crate::loglinear_dialog::{GeneralLoglinear, ModelSelection};
 use crate::model_dialogs::{
     Categorical, ClusterMeasure, Discriminant, FactorAnalysis, FactorContrast, Hierarchical,
     KMeans, Logistic, MColumn, RepeatedMeasures, Solutions, Univariate, WithinFactor,
@@ -297,6 +298,23 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             ..Default::default()
         }))),
         Dialog::Advanced(Advanced::Codebook(Codebook::default())),
+        Dialog::Advanced(Advanced::Hiloglinear(Box::new(ModelSelection {
+            factors: v(&["gender", "region"]),
+            ranges: vec![
+                table_variable("gender", "1", "2", &[]),
+                table_variable("region", "1", "4", &[]),
+            ],
+            ..Default::default()
+        }))),
+        Dialog::Advanced(Advanced::Genlog(Box::new(GeneralLoglinear {
+            factors: v(&["gender", "region"]),
+            ..GeneralLoglinear::new(false)
+        }))),
+        Dialog::Advanced(Advanced::Genlog(Box::new(GeneralLoglinear {
+            dependents: v(&["gender"]),
+            factors: v(&["region"]),
+            ..GeneralLoglinear::new(true)
+        }))),
         // the plan before the analyses that read it
         Dialog::Advanced(Advanced::Plan(SamplePlan {
             path: plan.clone(),
@@ -2326,6 +2344,170 @@ fn the_report_dialogs_write_syntax_that_runs() {
         );
         let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
         assert!(warnings.is_empty(), "{syntax}\n{warnings:?}");
+    }
+}
+
+/// Invented bike rentals: the station, the kind of bike, whether it came back late, the minutes
+/// ridden, whether the dock was open (a cell weight), a coefficient for the downtown station and
+/// a contrast of late against on time.
+fn bike_rentals() -> String {
+    let mut program = String::from(
+        "DATA LIST LIST /station bike late minutes dock_open downtown contrast.\nBEGIN DATA\n",
+    );
+    for i in 1..=120u32 {
+        let station = i % 3 + 1;
+        let bike = (i / 3) % 2 + 1;
+        let late = u32::from((i * 7 + station * 3) % 5 < 2);
+        let minutes = 10 + (i * 11) % 37;
+        let downtown = u32::from(station == 1);
+        let contrast = if late == 1 { 1 } else { -1 };
+        program.push_str(&format!(
+            "{station} {bike} {late} {minutes} 1 {downtown} {contrast}\n"
+        ));
+    }
+    program.push_str("END DATA.\n");
+    program
+}
+
+/// The Loglinear dialogs on invented bike rentals: the syntax is as expected, parses and runs,
+/// with no warning but the one a case expects.
+#[test]
+fn the_loglinear_dialogs_write_syntax_that_runs() {
+    let factors = v(&["station", "bike", "late"]);
+    let ranges = vec![
+        table_variable("station", "1", "3", &[]),
+        table_variable("bike", "1", "2", &[]),
+        table_variable("late", "0", "1", &[]),
+    ];
+    let selection = ModelSelection {
+        factors: factors.clone(),
+        ranges,
+        ..Default::default()
+    };
+    let terms = |list: &[&[&str]]| Terms {
+        terms: list.iter().map(|t| v(t)).collect(),
+        building: Vec::new(),
+    };
+    let cases: Vec<(Advanced, &str, Option<&str>)> = vec![
+        (
+            Advanced::Hiloglinear(Box::new(selection.clone())),
+            "HILOGLINEAR station(1,3) bike(1,2) late(0,1)\n  /DESIGN.",
+            None,
+        ),
+        // backward from the two-way terms, with every table and plot; estimates and
+        // associations exist only for a saturated model, so the command says so
+        (
+            Advanced::Hiloglinear(Box::new(ModelSelection {
+                backward: true,
+                maxorder: s("2"),
+                maxsteps: s("5"),
+                probability: s("0.1"),
+                iterations: s("30"),
+                converge: s("0.01"),
+                delta: s("0.25"),
+                cweight: s("dock_open"),
+                print_chosen: true,
+                print: [true; 4],
+                plots: [true; 2],
+                include: true,
+                custom: true,
+                terms: terms(&[
+                    &["station", "bike"],
+                    &["bike", "late"],
+                    &["station", "late"],
+                ]),
+                ..selection.clone()
+            })),
+            "HILOGLINEAR station(1,3) bike(1,2) late(0,1)\n  /METHOD=BACKWARD\n  /MAXORDER=2\n  \
+             /CRITERIA=MAXSTEPS(5) P(0.1) ITERATE(30) CONVERGE(0.01) DELTA(0.25)\n  \
+             /CWEIGHT=dock_open\n  /PRINT=FREQ RESID ESTIM ASSOCIATION\n  /PLOT=RESID NORMPROB\n  \
+             /MISSING=INCLUDE\n  /DESIGN=station*bike bike*late station*late.",
+            Some("need the saturated model"),
+        ),
+        (
+            Advanced::Genlog(Box::new(GeneralLoglinear {
+                factors: factors.clone(),
+                ..GeneralLoglinear::new(false)
+            })),
+            "GENLOG station bike late.",
+            None,
+        ),
+        (
+            Advanced::Genlog(Box::new(GeneralLoglinear {
+                factors: factors.clone(),
+                covariates: v(&["minutes"]),
+                cstructure: s("dock_open"),
+                gresid: v(&["downtown"]),
+                multinomial: true,
+                iterations: s("50"),
+                ci_level: s("90"),
+                print: [true; 10],
+                normal_plots: false,
+                plotted: 1,
+                save: [true, false, false, true, false],
+                save_names: [s(""), s(""), s(""), s("adj_fit"), s("")],
+                custom: true,
+                terms: terms(&[
+                    &["station"],
+                    &["bike"],
+                    &["late"],
+                    &["station", "bike"],
+                    &["minutes"],
+                ]),
+                ..GeneralLoglinear::new(false)
+            })),
+            "GENLOG station bike late WITH minutes\n  /CSTRUCTURE=dock_open\n  /GRESID=downtown\n  \
+             /MODEL=MULTINOMIAL\n  /CRITERIA=ITERATE(50) CIN(90)\n  \
+             /PRINT=FREQ RESID ZRESID ADJRESID DEV ITERATION COV DESIGN ESTIM CORR\n  \
+             /PLOT=RESID(DEV)\n  /SAVE=PRED ADJRESID(adj_fit)\n  \
+             /DESIGN=station bike late station*bike minutes.",
+            None,
+        ),
+        (
+            Advanced::Genlog(Box::new(GeneralLoglinear {
+                dependents: v(&["late"]),
+                factors: v(&["station"]),
+                ..GeneralLoglinear::new(true)
+            })),
+            "GENLOG late BY station\n  /MODEL=MULTINOMIAL.",
+            None,
+        ),
+        (
+            Advanced::Genlog(Box::new(GeneralLoglinear {
+                dependents: v(&["late"]),
+                factors: v(&["station", "bike"]),
+                glor: v(&["contrast"]),
+                custom: true,
+                terms: terms(&[&["late"], &["late", "station"], &["late", "bike"]]),
+                ..GeneralLoglinear::new(true)
+            })),
+            "GENLOG late BY station bike\n  /GLOR=contrast\n  /MODEL=MULTINOMIAL\n  \
+             /DESIGN=late late*station late*bike.",
+            None,
+        ),
+    ];
+    let program = bike_rentals();
+    for (dialog, expected, warning) in cases {
+        let mut session = statscraft_engine::session::Session::default();
+        session.run(&program, None).unwrap();
+        let data = session.dataset().unwrap().clone();
+        let syntax = Dialog::Advanced(dialog).syntax(&data).unwrap();
+        assert_eq!(syntax, expected);
+        let (_, errors) = statscraft_syntax::parse(&syntax);
+        assert!(errors.is_empty(), "{syntax}\n{errors:?}");
+        let result = session.run(&syntax, None).unwrap();
+        assert!(
+            result.commands.iter().any(|c| !c.tables.is_empty()),
+            "{syntax}"
+        );
+        let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
+        match warning {
+            None => assert!(warnings.is_empty(), "{syntax}\n{warnings:?}"),
+            Some(w) => assert!(
+                warnings.iter().all(|x| x.contains(w)) && !warnings.is_empty(),
+                "{syntax}\n{warnings:?}"
+            ),
+        }
     }
 }
 
