@@ -4,7 +4,7 @@ Statscraft has an MCP server built in: `statscraft mcp`. An AI agent that speaks
 
 ## From the window: Edit > Settings > AI agents
 
-The easiest way needs no terminal. In the Statscraft window, open **Edit > Settings...** and choose **AI agents** (**Help > Connect an AI agent...** opens the same place). It lists every supported agent app with its state: not installed, not connected, connected, or connected to another Statscraft copy (an older install in another folder, for example).
+The easiest way needs no terminal. In the Statscraft window, open **Edit > Settings...** and choose **AI agents**. It lists every supported agent app with its state: not installed, not connected, connected, or connected to another Statscraft copy (an older install in another folder, for example).
 
 - **Claude Desktop**: **Install extension** downloads the Statscraft extension (`.mcpb`) of this version for your system from the release, checks it against the release's `SHA256SUMS`, saves it in your Downloads folder and opens it. Claude Desktop then shows the extension; click **Install**. This is the way that lasts: the extension does not depend on Claude Desktop's settings file, which some versions rewrite or empty when they start or update. If nothing opens, drag the saved file onto Claude Desktop's **Settings**, **Extensions**. **Connect via config file** writes the entry into the settings file instead, as `statscraft connect` does.
 - **Connect** adds Statscraft to one of the other apps, **Remove** takes it out again, and **Connect all** connects every installed app that does not have it yet, except Claude Desktop.

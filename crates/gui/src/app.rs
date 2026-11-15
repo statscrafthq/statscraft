@@ -1798,12 +1798,6 @@ impl App {
                     self.about = true;
                     self.popups = self.here;
                 }
-                // the same as Edit > Settings > AI agents, where people also look for it
-                if ui.button("Connect an AI agent...").clicked() {
-                    self.settings_section = Some(Section::AiAgents);
-                    self.connect.refresh();
-                    self.popups = self.here;
-                }
                 ui.separator();
                 self.updates.menu_items(ui);
             });
