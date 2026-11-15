@@ -2,12 +2,13 @@
 //! Linear Models (in `genlin_dialog`), Correspondence Analysis (in `correspondence_dialog`),
 //! Life Tables and Kaplan-Meier (in `survival_dialog`), Cox Regression (in `cox_dialog`), Missing
 //! Value Analysis (in `mva_dialog`), Multiple Imputation (in `imputation_dialog`), Case
-//! Summaries and Codebook (in `reports_dialog`), the Loglinear dialogs (in `loglinear_dialog`) and
-//! complex samples dialogs (the
+//! Summaries and Codebook (in `reports_dialog`), the Loglinear dialogs (in `loglinear_dialog`), the
+//! kappa and Ratio Statistics dialogs (in `agreement_dialog`) and complex samples dialogs (the
 //! analysis plan, Descriptives, Frequencies and Crosstabs; the General Linear Model and Logistic
 //! Regression in `cs_model_dialog`). Options left as they are add nothing to the syntax, so the
 //! command runs with its own defaults.
 
+use crate::agreement_dialog::{FleissKappa, Ratio, WeightedKappa};
 use crate::analyze_dialogs::keywords;
 use crate::correspondence_dialog::Correspondence;
 use crate::cox_dialog::Cox;
@@ -58,6 +59,10 @@ pub enum Advanced {
     Hiloglinear(Box<ModelSelection>),
     // boxed: a large dialog
     Genlog(Box<GeneralLoglinear>),
+    WeightedKappa(WeightedKappa),
+    Fleiss(FleissKappa),
+    // boxed: a large dialog
+    Ratio(Box<Ratio>),
 }
 
 impl Advanced {
@@ -88,6 +93,9 @@ impl Advanced {
             Advanced::Hiloglinear(_) => "Model Selection Loglinear Analysis",
             Advanced::Genlog(d) if d.logit => "Logit Loglinear Analysis",
             Advanced::Genlog(_) => "General Loglinear Analysis",
+            Advanced::WeightedKappa(_) => "Weighted Kappa",
+            Advanced::Fleiss(_) => "Fleiss Multirater Kappa",
+            Advanced::Ratio(_) => "Ratio Statistics",
         }
     }
 
@@ -120,6 +128,9 @@ impl Advanced {
             Advanced::Codebook(_) => Advanced::Codebook(Default::default()),
             Advanced::Hiloglinear(_) => Advanced::Hiloglinear(Default::default()),
             Advanced::Genlog(d) => Advanced::Genlog(Box::new(GeneralLoglinear::new(d.logit))),
+            Advanced::WeightedKappa(_) => Advanced::WeightedKappa(Default::default()),
+            Advanced::Fleiss(_) => Advanced::Fleiss(Default::default()),
+            Advanced::Ratio(_) => Advanced::Ratio(Default::default()),
         }
     }
 
@@ -159,6 +170,9 @@ impl Advanced {
             Advanced::Codebook(d) => d.syntax(),
             Advanced::Hiloglinear(d) => d.syntax(data),
             Advanced::Genlog(d) => d.syntax(data),
+            Advanced::WeightedKappa(d) => d.syntax(),
+            Advanced::Fleiss(d) => d.syntax(data),
+            Advanced::Ratio(d) => d.syntax(data),
         }
     }
 }
