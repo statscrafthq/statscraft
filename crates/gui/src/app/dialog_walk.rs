@@ -2657,6 +2657,180 @@ fn the_agreement_dialogs_write_syntax_that_runs() {
     }
 }
 
+/// Invented records: trainees of three schools passing a test after hours of practice (with
+/// untrained groups at 0 hours), weekly sales and visits of a shop, and the repair cost of
+/// machines by their running hours and age.
+fn practice_shop_machines() -> String {
+    let mut program = String::from(
+        "DATA LIST LIST /school hours trainees passed week store sales visits machine_hours \
+         age cost.\nBEGIN DATA\n",
+    );
+    let mut i = 0u32;
+    for school in 1..=3u32 {
+        for (k, hours) in [0u32, 1, 2, 4, 8, 16].into_iter().enumerate() {
+            i += 1;
+            let k = k as u32;
+            let passed = 3 + school * 2 + k * 5 + (k * school) % 3;
+            let week = i;
+            let sales = 20 + 3 * week + (week * 7) % 5;
+            let visits = (50.0 * 1.08f64.powi(week as i32)).round() + f64::from((week * 3) % 4);
+            let machine_hours = 10 + (i * 17) % 90;
+            let age = 1 + i % 8;
+            let noise = f64::from((i * 13) % 7) - 3.0;
+            let cost = 5.0
+                + 0.8 * f64::from(machine_hours)
+                + 2.0 * f64::from(age)
+                + noise * f64::from(machine_hours) / 30.0;
+            program.push_str(&format!(
+                "{school} {hours} 40 {passed} {week} {} {sales} {visits} {machine_hours} {age} \
+                 {cost:.2}\n",
+                i % 4 + 1
+            ));
+        }
+    }
+    program.push_str("END DATA.\n");
+    program
+}
+
+/// The Curve Estimation, Probit and Weight Estimation dialogs on invented records: the syntax is
+/// as expected, parses and runs, with no warning but the one a case expects.
+#[test]
+fn the_regression_more_dialogs_write_syntax_that_runs() {
+    use crate::regression_more_dialog::{
+        CURVE_LOGISTIC, CurveEstimation, PROBIT_LOGS, Probit, WeightEstimation,
+    };
+    let probit = Probit {
+        response: s("passed"),
+        total: s("trainees"),
+        covariates: v(&["hours"]),
+        ..Default::default()
+    };
+    let curve = CurveEstimation {
+        dependents: v(&["sales"]),
+        independent: s("week"),
+        ..Default::default()
+    };
+    let wls = WeightEstimation {
+        dependent: s("cost"),
+        independents: v(&["machine_hours", "age"]),
+        ..Default::default()
+    };
+    let mut models = [false; 11];
+    for i in [0, 3, 8, CURVE_LOGISTIC] {
+        models[i] = true;
+    }
+    let cases: Vec<(Advanced, &str, Option<&str>)> = vec![
+        (
+            Advanced::Probit(Box::new(probit.clone())),
+            "PROBIT passed OF trainees WITH hours.",
+            None,
+        ),
+        (
+            Advanced::Probit(Box::new(Probit {
+                factor: table_variable("school", "1", "3", &[]),
+                model: 2,
+                log: PROBIT_LOGS.len() - 1,
+                natres: 2,
+                natres_value: s("0.05"),
+                converge: s("0.000001"),
+                iterations: s("100"),
+                heterogeneity: s("0.05"),
+                print: [true; 4],
+                include: true,
+                ..probit.clone()
+            })),
+            "PROBIT passed OF trainees WITH hours BY school(1,3)\n  /MODEL=BOTH\n  /LOG=NONE\n  \
+             /CRITERIA=CONVERGE(0.000001) ITERATE(100) P(0.05)\n  /NATRES=0.05\n  \
+             /PRINT=FREQ CI RMP PARALL\n  /MISSING=INCLUDE.",
+            None,
+        ),
+        (
+            Advanced::Curve(curve.clone()),
+            "CURVEFIT VARIABLES=sales WITH week.",
+            None,
+        ),
+        (
+            Advanced::Curve(CurveEstimation {
+                dependents: v(&["sales", "visits"]),
+                id: s("store"),
+                models,
+                upper_bound: s("500"),
+                constant: false,
+                anova: true,
+                plot: false,
+                save: [true; 3],
+                ci_level: s("90"),
+                ..curve.clone()
+            }),
+            "CURVEFIT VARIABLES=sales visits WITH week\n  /MODEL=LINEAR QUADRATIC GROWTH LGSTIC\n  \
+             /UPPERBOUND=500\n  /NOCONSTANT\n  /PRINT=ANOVA\n  /PLOT=NONE\n  /CIN=90\n  \
+             /ID=store\n  /SAVE=PRED RESID CIN.",
+            None,
+        ),
+        (
+            Advanced::Curve(CurveEstimation {
+                dependents: v(&["visits"]),
+                sequence: true,
+                ..curve.clone()
+            }),
+            "CURVEFIT VARIABLES=visits.",
+            None,
+        ),
+        (
+            Advanced::Wls(wls.clone()),
+            "WLS VARIABLES=cost WITH machine_hours age.",
+            Some("neither SOURCE"),
+        ),
+        (
+            Advanced::Wls(WeightEstimation {
+                source: s("machine_hours"),
+                power_list: true,
+                powers: s("0, 0.5 1 1.5 2"),
+                constant: false,
+                print_all: true,
+                save_weight: true,
+                ..wls.clone()
+            }),
+            "WLS VARIABLES=cost WITH machine_hours age\n  /SOURCE=machine_hours\n  \
+             /POWER=0 0.5 1 1.5 2\n  /NOCONSTANT\n  /PRINT=ALL\n  /SAVE=WEIGHT.",
+            None,
+        ),
+        (
+            Advanced::Wls(WeightEstimation {
+                from: s("-1"),
+                to: s("2"),
+                by: s("0.5"),
+                ..wls.clone()
+            }),
+            "WLS VARIABLES=cost WITH machine_hours age\n  /POWER=-1 TO 2 BY 0.5.",
+            None,
+        ),
+    ];
+    let program = practice_shop_machines();
+    for (dialog, expected, warning) in cases {
+        let mut session = statscraft_engine::session::Session::default();
+        session.run(&program, None).unwrap();
+        let data = session.dataset().unwrap().clone();
+        let syntax = Dialog::Advanced(dialog).syntax(&data).unwrap();
+        assert_eq!(syntax, expected);
+        let (_, errors) = statscraft_syntax::parse(&syntax);
+        assert!(errors.is_empty(), "{syntax}\n{errors:?}");
+        let result = session.run(&syntax, None).unwrap();
+        assert!(
+            result.commands.iter().any(|c| !c.tables.is_empty()),
+            "{syntax}"
+        );
+        let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
+        match warning {
+            None => assert!(warnings.is_empty(), "{syntax}\n{warnings:?}"),
+            Some(w) => assert!(
+                warnings.iter().all(|x| x.contains(w)) && !warnings.is_empty(),
+                "{syntax}\n{warnings:?}"
+            ),
+        }
+    }
+}
+
 /// A folder of its own for the files a test writes.
 fn folder(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("statscraft-gui-{name}-{}", std::process::id()));
