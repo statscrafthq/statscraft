@@ -59,6 +59,11 @@ impl Dataset {
         Arc::make_mut(&mut self.dict).file_label = label.and_then(non_empty);
     }
 
+    /// Notes the data file the dataset was read from or saved to (or forgets it).
+    pub fn set_file(&mut self, file: Option<std::path::PathBuf>) {
+        Arc::make_mut(&mut self.dict).file = file;
+    }
+
     pub fn set_documents(&mut self, lines: Vec<String>) {
         Arc::make_mut(&mut self.dict).documents = lines;
     }

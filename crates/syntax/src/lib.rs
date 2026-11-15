@@ -18,6 +18,7 @@ mod alscal;
 mod anova;
 mod ast;
 mod cluster;
+mod codebook;
 mod commands;
 mod complex_samples;
 mod correspondence;
@@ -74,6 +75,7 @@ mod selection;
 mod session_commands;
 mod split;
 mod stats;
+mod summarize;
 mod survival;
 mod table;
 #[cfg(test)]
@@ -140,6 +142,9 @@ pub use alscal::{Alscal, AlscalLevel};
 pub use anova::{Anova, AnovaList, AnovaMethod, CovariateOrder};
 pub use ast::*;
 pub use cluster::{BinaryMeasure, Cluster, ClusterPlot, Linkage, Proximity};
+pub use codebook::{
+    Codebook, CodebookFile, CodebookInfo, CodebookItem, CodebookOrder, CodebookStatistic,
+};
 pub use complex_samples::{
     CsCells, CsContrast, CsControl, CsCriteria, CsCustom, CsEmmeans, CsEstimator, CsIntercept,
     CsModel, CsModelPrint, CsModelSave, CsModelStatistics, CsOddsRatios, CsPadjust, CsRate,
@@ -247,6 +252,7 @@ pub use report::{
 };
 pub use session_commands::{SETTINGS, SettingEffect};
 pub use split::{RawCommand, select_lines, split_commands, split_commands_in, split_commands_with};
+pub use summarize::{Summarize, SummarizeList, SummarizeMissing};
 pub use survival::{
     Control, Km, KmCompare, KmPlot, KmSave, KmTest, LifePlot, Survival, SurvivalStatus,
     TableSelection,

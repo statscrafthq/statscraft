@@ -109,6 +109,8 @@ One page per supported command, generated from the same table that the parser an
 | [CROSSTABS](crosstabs.md) | Contingency tables with percentages, residuals and chi-square tests. |
 | [MULT RESPONSE](mult-response.md) | Frequency tables and crosstabulations of multiple response groups and variables. |
 | [MEANS](means.md) | Statistics of dependent variables within groups of control variables. |
+| [SUMMARIZE](summarize.md) | Statistics of dependents within groups of control variables, optionally listing the cases. |
+| [CODEBOOK](codebook.md) | Dictionary entries and summary statistics of variables and multiple response sets. |
 | [T-TEST](t-test.md) | One-sample, independent-samples and paired-samples t tests with effect sizes. |
 | [ONEWAY](oneway.md) | One-way analysis of variance with contrasts and post hoc comparisons. |
 | [CORRELATIONS](correlations.md) | Pearson correlations with significance and case counts. |

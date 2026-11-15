@@ -1,5 +1,5 @@
 //! Parser tests of DESCRIPTIVES, CROSSTABS, MEANS, T-TEST, ONEWAY, CORRELATIONS, EXAMINE, ADD FILES,
-//! MATCH FILES and STAR JOIN.
+//! MATCH FILES, STAR JOIN, SUMMARIZE and CODEBOOK.
 
 use super::*;
 
@@ -1077,4 +1077,146 @@ fn mult_response() {
             CrosstabsCell::Total
         ]
     );
+}
+
+#[test]
+fn summarize() {
+    use MeansCell as M;
+    let Command::Summarize(s) = one(
+        "SUMM TAB=spend fee BY branch BY tier /TIT 'Fees' 'by branch' /FOOT='Line one\\nline two'\n\
+         /CEL=COUNT MAX /MIS=DEPENDENT TABLE /FORM=LIST LIMIT=25 NOCASENUM NOTOTAL MIS='-' /STAT.",
+    ) else {
+        panic!()
+    };
+    assert_eq!(
+        s.tables,
+        [vec![
+            vec![var("spend"), var("fee")],
+            vec![var("branch")],
+            vec![var("tier")]
+        ]]
+    );
+    assert_eq!(s.title.as_deref(), Some("Feesby branch"));
+    assert_eq!(s.footnote.as_deref(), Some("Line one\nline two"));
+    assert_eq!(s.cells, [M::Count, M::Max]);
+    assert_eq!(s.missing, SummarizeMissing::Dependent);
+    assert!(s.tablewise && s.anova && !s.linearity);
+    assert_eq!(
+        s.list,
+        Some(SummarizeList {
+            valid_only: false,
+            limit: Some(25)
+        })
+    );
+    assert!(!s.case_numbers && !s.total_label);
+    assert_eq!(s.missing_text.as_deref(), Some("-"));
+    let Command::Summarize(s) = one("SUMMARIZE a /b BY c /CELLS=NONE /CELLS /STATISTICS=ALL.")
+    else {
+        panic!()
+    };
+    assert_eq!(s.tables.len(), 2);
+    assert_eq!(s.cells, [M::Mean, M::Count, M::StdDev]);
+    assert_eq!(s.repeated, ["CELLS"]);
+    assert!(s.linearity);
+    let Command::Summarize(s) = one("SUMMARIZE a /CELLS=NONE /FORMAT=VALIDLIST.") else {
+        panic!()
+    };
+    assert!(s.cells.is_empty() && s.list.is_some_and(|l| l.valid_only));
+    assert!(
+        err("SUMMARIZE a /b /FORMAT=LIST.")
+            .message
+            .contains("one table list")
+    );
+    assert!(
+        err("SUMMARIZE a /FORMAT=LIST LIMIT=0.")
+            .message
+            .contains("LIMIT")
+    );
+    let eleven = format!("SUMMARIZE a{}.", " BY b".repeat(11));
+    assert!(err(&eleven).message.contains("10 BY"));
+    one(&format!("SUMMARIZE a{}.", " BY b".repeat(10)));
+}
+
+#[test]
+fn codebook() {
+    let Command::Codebook(c) = one("CODEBOOK.") else {
+        panic!()
+    };
+    assert!(c.items.is_empty() && c.fileinfo.is_empty() && c.order.is_none());
+    assert_eq!(c.varinfo.len(), 9);
+    assert_eq!(c.statistics.len(), 5);
+    assert_eq!(c.maxcats, 200);
+    let Command::Codebook(c) = one(
+        "CODE a [N] b TO d [S] $set $ALL ALL /VARI=LABEL MEASURE RESERVED\n\
+         /FILE=NAME CASECOUNT /STAT=COUNT MEAN /OPT MAXCATS=12 VARORDER=ATTRIBUTE(unit) SORT=DESC.",
+    ) else {
+        panic!()
+    };
+    assert_eq!(
+        c.items,
+        [
+            CodebookItem {
+                item: var("a"),
+                level: Some(Level::Nominal)
+            },
+            CodebookItem {
+                item: VarItem::Range("b".into(), "d".into()),
+                level: Some(Level::Scale)
+            },
+            CodebookItem {
+                item: var("$set"),
+                level: None
+            },
+            CodebookItem {
+                item: var("$ALL"),
+                level: None
+            },
+            CodebookItem {
+                item: VarItem::All,
+                level: None
+            },
+        ]
+    );
+    assert_eq!(
+        c.varinfo,
+        [
+            CodebookInfo::Label,
+            CodebookInfo::Measure,
+            CodebookInfo::ReservedAttributes
+        ]
+    );
+    assert_eq!(c.fileinfo, [CodebookFile::Name, CodebookFile::CaseCount]);
+    assert_eq!(
+        c.statistics,
+        [CodebookStatistic::Count, CodebookStatistic::Mean]
+    );
+    assert_eq!(c.maxcats, 12);
+    assert_eq!(c.order, Some(CodebookOrder::Attribute("unit".into())));
+    assert!(c.descending);
+    let Command::Codebook(c) = one("CODEBOOK x /STATISTICS=NONE.") else {
+        panic!()
+    };
+    assert!(c.statistics.is_empty());
+    assert!(
+        err("CODEBOOK /STATISTICS=NONE MEAN.")
+            .message
+            .contains("alone")
+    );
+    assert!(
+        err("CODEBOOK /OPTIONS SORT=UP /OPTIONS MAXCATS=2.")
+            .expected
+            .contains(&"DESCENDING".to_string())
+    );
+    assert!(
+        err("CODEBOOK /VARINFO=LABEL /VARINFO=TYPE.")
+            .message
+            .contains("once")
+    );
+    assert!(
+        err("CODEBOOK ALL [N].")
+            .message
+            .contains("no measurement level")
+    );
+    assert!(err("CODEBOOK $a TO $b.").message.contains("TO"));
+    assert!(err("CODEBOOK x [Q].").expected.contains(&"N".to_string()));
 }

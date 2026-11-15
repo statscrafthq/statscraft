@@ -30,7 +30,7 @@ use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Values, Variable};
 use statscraft_syntax::{Means, MeansCell as M, MeansMissing};
 
-fn cell_name(cell: M, within: &[String]) -> String {
+pub(crate) fn cell_name(cell: M, within: &[String]) -> String {
     match cell {
         M::NpctIn(i) => return format!("% of Total N in {}", within[i]),
         M::SpctIn(i) => return format!("% of Total Sum in {}", within[i]),
@@ -65,7 +65,7 @@ fn cell_name(cell: M, within: &[String]) -> String {
 
 /// How a cell relates to the values of the dependent, for its format; None for one without
 /// their unit.
-fn kind(cell: M) -> Option<Stat> {
+pub(crate) fn kind(cell: M) -> Option<Stat> {
     match cell {
         M::Mean
         | M::Median
@@ -152,7 +152,7 @@ pub(crate) fn combinations(lists: &[Vec<String>]) -> Vec<Vec<String>> {
 /// The statistics of one group of a numeric dependent: (value, weight, case) of its cases.
 /// `within` holds the count and sum of the group of each `NPCT(var)` and `SPCT(var)` variable,
 /// None where the report does not have that control.
-fn statistic(
+pub(crate) fn statistic(
     cell: M,
     cases: &[(f64, f64, usize)],
     (pairs, s): (&[(f64, f64)], &Summary),
@@ -192,7 +192,7 @@ fn statistic(
 }
 
 /// A string dependent: counts, first and last values only.
-fn string_statistic(
+pub(crate) fn string_statistic(
     cell: M,
     variable: &Variable,
     cases: &[(f64, f64, usize)],
@@ -218,11 +218,11 @@ fn string_statistic(
 }
 
 /// One row of a report: for each control its category, None for Total.
-type Group = Vec<Option<Key>>;
+pub(crate) type Group = Vec<Option<Key>>;
 
 /// The groups of a report in display order: categories ascending, Total last, nested. Every
 /// combination is there, also those without cases.
-fn groups(keys: &[Vec<Option<Key>>], included: &[usize]) -> Vec<Group> {
+pub(crate) fn groups(keys: &[Vec<Option<Key>>], included: &[usize]) -> Vec<Group> {
     let mut rows: Vec<Group> = vec![Vec::new()];
     for level in keys {
         let found = distinct(level, included);
@@ -272,7 +272,11 @@ fn distinct<'k>(level: &'k [Option<Key>], included: &[usize]) -> Vec<&'k Key> {
 
 /// The cases of every group, in case order, from one pass over the cases: each case goes to
 /// the groups of its own categories and of every Total above them.
-fn members(groups: &[Group], keys: &[Vec<Option<Key>>], included: &[usize]) -> Vec<Vec<usize>> {
+pub(crate) fn members(
+    groups: &[Group],
+    keys: &[Vec<Option<Key>>],
+    included: &[usize],
+) -> Vec<Vec<usize>> {
     // the categories of each control as numbers 1, 2, ...; 0 is Total
     let found: Vec<Vec<&Key>> = keys.iter().map(|level| distinct(level, included)).collect();
     // the same equality as in_group: a binary search, then == for the values it cannot place
@@ -332,7 +336,7 @@ fn members(groups: &[Group], keys: &[Vec<Option<Key>>], included: &[usize]) -> V
     members
 }
 
-fn in_group(row: &Group, keys: &[Vec<Option<Key>>], case: usize) -> bool {
+pub(crate) fn in_group(row: &Group, keys: &[Vec<Option<Key>>], case: usize) -> bool {
     row.iter()
         .zip(keys)
         .all(|(choice, level)| choice.is_none() || *choice == level[case])
@@ -604,47 +608,79 @@ fn report(
         ..Table::default()
     }];
     if command.anova {
-        let title = format!(
-            "{} by {}",
-            names[0],
-            names.get(1).map_or("", String::as_str)
-        );
-        // warnings name the variables
-        let name = dependent.name();
-        let named = format!("{name} by {}", controls.first().map_or("", |c| c.name()));
-        match controls.first() {
-            None => warnings.push(format!(
-                "no analysis of variance for {name}: the table has no control variable"
-            )),
-            Some(_) if dependent.is_string() => warnings.push(format!(
-                "no analysis of variance for {named}: {name} is a string variable"
-            )),
-            Some(control) => {
-                let cell = format!(
-                    "{} * {}",
-                    shown.variable(dependent),
-                    shown.variable(control)
-                );
-                out.extend(anova(
-                    command,
-                    control,
-                    &keys[0],
-                    included,
-                    &values,
-                    weight,
-                    [&title, &cell, &named],
-                    warnings,
-                ))
-            }
-        }
+        let control = controls.first().zip(keys.first().map(Vec::as_slice));
+        out.extend(anova_tables(
+            command.linearity,
+            dependent,
+            control,
+            included,
+            &values,
+            weight,
+            (shown, outline),
+            warnings,
+        ));
     }
     out
+}
+
+/// The ANOVA tables of a dependent by `control` (with the category of every case), or a
+/// warning saying why there are none.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn anova_tables(
+    linearity: bool,
+    dependent: &Variable,
+    control: Option<(&Variable, &[Option<Key>])>,
+    included: &[usize],
+    values: &[f64],
+    weight: &dyn Fn(usize) -> f64,
+    (shown, outline): (&Shown, &Shown),
+    warnings: &mut Vec<String>,
+) -> Vec<Table> {
+    let title = format!(
+        "{} by {}",
+        outline.variable(dependent),
+        control.map_or_else(String::new, |(c, _)| outline.variable(c))
+    );
+    // warnings name the variables
+    let name = dependent.name();
+    let named = format!("{name} by {}", control.map_or("", |(c, _)| c.name()));
+    match control {
+        None => {
+            warnings.push(format!(
+                "no analysis of variance for {name}: the table has no control variable"
+            ));
+            Vec::new()
+        }
+        Some(_) if dependent.is_string() => {
+            warnings.push(format!(
+                "no analysis of variance for {named}: {name} is a string variable"
+            ));
+            Vec::new()
+        }
+        Some((control, keys)) => {
+            let cell = format!(
+                "{} * {}",
+                shown.variable(dependent),
+                shown.variable(control)
+            );
+            anova(
+                linearity,
+                control,
+                keys,
+                included,
+                values,
+                weight,
+                [&title, &cell, &named],
+                warnings,
+            )
+        }
+    }
 }
 
 /// The ANOVA table and the Measures of Association of one dependent by its first control.
 #[allow(clippy::too_many_arguments)]
 fn anova(
-    command: &Means,
+    linearity: bool,
     control: &Variable,
     keys: &[Option<Key>],
     included: &[usize],
@@ -707,8 +743,9 @@ fn anova(
         ]
     };
     let numeric = !control.is_string();
-    let linearity = command.linearity && numeric && sums.len() >= 3;
-    if command.linearity && !linearity {
+    let asked = linearity;
+    let linearity = asked && numeric && sums.len() >= 3;
+    if asked && !linearity {
         warnings.push(format!(
             "no test of linearity for {named}: it needs three or more groups of a numeric control variable"
         ));

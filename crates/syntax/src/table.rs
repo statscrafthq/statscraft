@@ -4,6 +4,7 @@ use crate::alscal;
 use crate::anova;
 use crate::ast::Command;
 use crate::cluster;
+use crate::codebook;
 use crate::commands;
 use crate::complex_samples;
 use crate::correspondence;
@@ -54,6 +55,7 @@ use crate::save_translate;
 use crate::selection;
 use crate::session_commands;
 use crate::stats;
+use crate::summarize;
 use crate::survival;
 use crate::tree;
 
@@ -1199,6 +1201,32 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  DEPENDENT: they count for the controls only). Weighted when a weight variable is set.",
         example: "MEANS TABLES=income BY region BY gender /CELLS=MEAN COUNT STDDEV MEDIAN /STATISTICS=ANOVA.",
         parse: stats::means,
+    },
+    CommandSpec {
+        name: "SUMMARIZE",
+        summary: "Statistics of dependents within groups of control variables, optionally listing the cases.",
+        syntax: "SUMMARIZE [TABLES=]deps [BY controls [BY ...]] [/[TABLES=]deps BY ...] [/TITLE='text']\n\
+                 \x20         [/FOOTNOTE='text'] [/CELLS=cell ... | NONE]\n\
+                 \x20         [/MISSING=[EXCLUDE | INCLUDE | DEPENDENT] [VARIABLE | TABLE]]\n\
+                 \x20         [/FORMAT=[NOLIST | LIST [LIMIT=n] | VALIDLIST [LIMIT=n]] [CASENUM | NOCASENUM]\n\
+                 \x20                  [TOTAL | NOTOTAL] [MISSING='text']]\n\
+                 \x20         [/STATISTICS=ANOVA | LINEARITY | ALL | NONE].\n\
+                 cell: as on MEANS; DEFAULT (MEAN COUNT STDDEV) when CELLS is left out, ALL for every cell.\n\
+                 Each table list gives a Case Processing Summary and one Case Summaries table per combination of\n\
+                 controls (one from each BY): the groups of the first control with the next nested inside, each\n\
+                 level ending in a Total, one row per cell statistic and one column per dependent. LIST adds the\n\
+                 cases of each innermost group, numbered unless NOCASENUM; VALIDLIST lists only cases valid on\n\
+                 every dependent; LIMIT=n works on the first n cases only. LIST and VALIDLIST allow one table\n\
+                 list. NOTOTAL keeps the total rows without their label. MISSING='text' replaces the period of a\n\
+                 system-missing value in the listing. VARIABLE (default) drops a case from the dependents it is\n\
+                 missing on, TABLE from all of them when it is missing on any. A case missing on a control is\n\
+                 always dropped; INCLUDE counts user-missing values as valid, DEPENDENT only for controls. A\n\
+                 string dependent gets COUNT, FIRST, LAST and NPCT only. ANOVA and LINEARITY work as on MEANS,\n\
+                 by each control of the first BY. TITLE and FOOTNOTE (\\n breaks a line) name the summary\n\
+                 tables. A subcommand given twice: the last one counts. Weighted when a weight variable is set.",
+        example: "SUMMARIZE TABLES=income spend BY region /FORMAT=LIST LIMIT=20 NOCASENUM\n\
+                  \x20 /CELLS=COUNT MEAN MAX /TITLE='Spending by region'.",
+        parse: summarize::summarize,
     },
     CommandSpec {
         name: "T-TEST",
@@ -3167,6 +3195,35 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  sorted. SORTED sorts by name; /VARIABLES limits the list.",
         example: "DISPLAY SORTED DICTIONARY /VARIABLES=age TO q5.",
         parse: session_commands::display,
+    },
+    CommandSpec {
+        name: "CODEBOOK",
+        summary: "Dictionary entries and summary statistics of variables and multiple response sets.",
+        syntax: "CODEBOOK [varlist] [$set ...] [$ALL]\n\
+                 \x20        [/VARINFO=POSITION LABEL TYPE FORMAT MEASURE ROLE ATTRIBUTES VALUELABELS MISSING\n\
+                 \x20                  RESERVEDATTRIBUTES]\n\
+                 \x20        [/FILEINFO=NAME LOCATION CASECOUNT LABEL ATTRIBUTES DOCUMENTS WEIGHT RESERVEDATTRIBUTES]\n\
+                 \x20        [/STATISTICS=COUNT PERCENT MEAN STDDEV QUARTILES | NONE]\n\
+                 \x20        [/OPTIONS [MAXCATS=200] [VARORDER=FILE | ALPHA | VARLIST | MEASURE | ATTRIBUTE(name)]\n\
+                 \x20                  [SORT=ASCENDING | DESCENDING]].\n\
+                 One table per variable and set; without a list every variable in file order, then every set.\n\
+                 [N], [O] or [S] right after a name (after a TO list: its last variable) sets the level that\n\
+                 decides its statistics, not the level shown; strings and sets cannot be [S]. Nominal and\n\
+                 ordinal variables and sets get the count and percent of every value (each labeled value and\n\
+                 each value found), scale variables the mean, standard deviation and quartiles plus counts of\n\
+                 their labeled values. An unknown level is guessed from the values. Percents are of every case\n\
+                 the filter keeps, missing ones included; a set's can add up to more than 100. Above MAXCATS\n\
+                 values (scale: labeled values) the values, labels and counts are left out. VARINFO left out\n\
+                 means all but RESERVEDATTRIBUTES; ATTRIBUTES shows custom attributes, RESERVEDATTRIBUTES those\n\
+                 starting with $ (both skip names starting with @ or $@). FILEINFO adds a table about the file;\n\
+                 NAME and LOCATION come from the GET FILE or SAVE that last read or wrote it in this run.\n\
+                 VARORDER: ALPHA by name; MEASURE nominal, ordinal, scale, unknown; ATTRIBUTE(name) by the\n\
+                 attribute's value, those without it first, then those with an empty one. VARLIST is the default\n\
+                 with a list. Every variable or set may be named once. SPLIT FILE is ignored; FILTER and the\n\
+                 weight apply.",
+        example: "CODEBOOK region income [O] $media /VARINFO=LABEL MEASURE VALUELABELS\n\
+                  \x20 /STATISTICS=COUNT MEAN /OPTIONS MAXCATS=12 VARORDER=ALPHA.",
+        parse: codebook::codebook,
     },
     CommandSpec {
         name: "LIST",

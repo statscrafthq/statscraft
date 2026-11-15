@@ -378,6 +378,25 @@ This page lists, by topic and command:
 
 - MEANS shows one report per dependent variable. Its ANOVA uses the first control variable only.
 
+### SUMMARIZE
+
+- With CELLS left out the cells are MEAN, COUNT and STDDEV, as the description of CELLS says; the syntax chart marks only COUNT as the default.
+- LIMIT=n restricts the whole command, statistics included, to the first n cases (of each split group, after the filter); a caption says so. **Beyond the documentation:** LIMIT also follows VALIDLIST.
+- VALIDLIST changes only which cases are listed; the statistics follow /MISSING.
+- MISSING=TABLE drops a case missing on any dependent or on a control of that table, also from the analysis of variance.
+- Strings given one after another in TITLE or FOOTNOTE are joined without a space.
+- A variable named twice among the dependents or among the controls of one BY counts once.
+
+### CODEBOOK
+
+- Counts, percents and statistics are weighted; a case with a missing, zero or negative weight is left out of them.
+- A numeric variable of unknown level gets the level its values suggest (as data read from text do) for its statistics; its table still says Unknown.
+- Quartiles use (W + 1) p, as FREQUENCIES does.
+- A nominal or ordinal variable lists its labeled values and the values found; its missing values are its discrete missing values, labeled or found values in a missing range, and System when cases are system-missing. Without COUNT or PERCENT only labeled values are listed.
+- Within a VARORDER group file order holds; ALPHA sorts a set's name without its "$" and ATTRIBUTE compares values without regard to case.
+- NAME and LOCATION come from the GET FILE or SAVE that last read or wrote the active dataset; a session continued in a later `statscraft run` no longer knows them.
+- CODEBOOK always reads the data, also with STATISTICS NONE, so it ends TEMPORARY.
+
 ### CORRELATIONS
 
 - A coefficient marked by NOSIG shows 3 decimals and stars, explained in a caption.
