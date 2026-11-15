@@ -1128,6 +1128,17 @@ fn rows_missing_from_an_imputation_and_mioutput() {
             "Pooled Report: honey by place: 3 is not pooled because the imputations do not all give it"
         ]
     );
+    // a mean that only one imputation can give is not pooled
+    let (_, warnings, _) = run_on(
+        HIVES,
+        "COMPUTE late = honey.\nIF (Imputation_ > 1) late = $SYSMIS.\nDESCRIPTIVES late.",
+    );
+    assert_eq!(
+        warnings,
+        [
+            "Pooled Descriptive Statistics: late is not pooled because fewer than two imputations give usable values"
+        ]
+    );
     // without DIAGNOSTICS the last three columns go; without POOLED the pooled tables
     let (tables, _, _) = run_on(
         HIVES,

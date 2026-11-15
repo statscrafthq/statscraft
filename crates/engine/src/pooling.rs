@@ -404,6 +404,12 @@ pub(crate) fn tables(
                 ));
                 continue;
             }
+            let unusable = || {
+                format!(
+                    "{title}: {}{within} is not pooled because fewer than two imputations give usable values",
+                    label_text(label)
+                )
+            };
             let kind = match found[0] {
                 PoolItem::Estimate { kind, .. } => {
                     let pairs: Vec<(f64, f64)> = found
@@ -413,7 +419,10 @@ pub(crate) fn tables(
                             _ => None,
                         })
                         .collect();
-                    let Some(p) = rubin(&pairs) else { continue };
+                    let Some(p) = rubin(&pairs) else {
+                        warnings.push(unusable());
+                        continue;
+                    };
                     row.extend(estimate_cells(*kind, &p, diagnostics));
                     Some(*kind)
                 }
@@ -425,7 +434,10 @@ pub(crate) fn tables(
                             _ => None,
                         })
                         .collect();
-                    let Some(test) = joint(&sets) else { continue };
+                    let Some(test) = joint(&sets) else {
+                        warnings.push(unusable());
+                        continue;
+                    };
                     row.extend([
                         num(test.f),
                         num(test.df1),
