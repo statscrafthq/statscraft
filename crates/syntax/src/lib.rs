@@ -48,6 +48,7 @@ mod matrix_data;
 mod mixed;
 mod mrsets;
 mod mult_response;
+mod multiple_imputation;
 mod mva;
 mod nomreg;
 mod npar;
@@ -104,6 +105,8 @@ mod tests_matrix;
 mod tests_mixed;
 #[cfg(test)]
 mod tests_models;
+#[cfg(test)]
+mod tests_multiple_imputation;
 #[cfg(test)]
 mod tests_multivariate;
 #[cfg(test)]
@@ -192,6 +195,7 @@ pub use mixed::{
     Convergence, CovType, DfMethod, Mixed, MixedPrint, MixedTemp, RandomEffects, Repeated,
 };
 pub use mrsets::{Mrsets, MrsetsGroup};
+pub use multiple_imputation::{ImputeConstraint, ImputeMethod, ImputeRole, MultipleImputation};
 pub use mva::{AddType, Mva, MvaEstimate, MvaPattern, MvaTtest};
 pub use nomreg::{
     Nomreg, NomregBase, NomregCriteria, NomregOrder, NomregPrint, NomregSave, NomregScale,

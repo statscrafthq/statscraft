@@ -809,6 +809,26 @@ Choices where the documentation says nothing:
 - OUTFILE writes the analyzed cases (with FILTER, the selected ones), with the missing values, system- and user-missing, of the estimated variables filled in, and drops the user-missing definitions of those variables, so that no filled value reads as missing.
 - A variable named twice on the list is analyzed once. ALL on CATEGORICAL, EM or REGRESSION means every variable on the MVA list. A quantitative variable with fewer than two valid values is left out of EM and REGRESSION with a warning; when none is left to estimate, that estimate is skipped with a warning and the other tables stay.
 
+### MULTIPLE IMPUTATION
+
+Choices where the documentation says nothing:
+
+- Once MISSINGSUMMARIES or IMPUTATIONSUMMARIES is written, only the keywords on it are shown: `/MISSINGSUMMARIES PATTERNS` drops the overall summary, `/IMPUTATIONSUMMARIES DESCRIPTIVES` the models.
+- The overall summary and the patterns are tables. A pattern row marks missing values with X; the columns run from the fewest to the most missing values (ties in list order) and the rows are sorted from the last column back to the first, valid before missing.
+- The summaries count replicated cases (WEIGHT rounded to whole numbers). A case whose rounded weight or analysis weight is 0 or less, or whose analysis weight is missing, is left out of everything, summaries included. Means and standard deviations use the weight times the analysis weight.
+- A variable without any valid value is left out of the model with a warning.
+- AUTO orders the variables from the fewest to the most missing values (ties in list order) for both methods; the Imputation Sequence row shows that order. With an explicit MONOTONE, a variable is predicted only by the variables before it on the list, and the monotone check covers every variable of the model, so a complete variable listed after an incomplete one breaks the pattern.
+- Categorical predictors enter as indicators of every category but the last; TWOWAY adds the products of the indicators of each pair of categorical predictors. The multinomial logistic model takes the last category as its base and is fitted by Newton's method (at most 50 steps, halved while the likelihood falls); when the categories are separated, a ridge of 1e-8 on the information keeps the draw defined.
+- A linear model needs more replicated cases than parameters; otherwise the command stops with an error.
+- RND rounds a drawn value before MIN and MAX are checked, so the saved value meets both. RND also rounds the values that PMM takes, while MIN and MAX do not apply to PMM. PMM predicts the observed and the missing cases with the same drawn coefficients and picks a donor with equal chances among the k nearest, ignoring weights.
+- FCS starts a scale variable from normal draws with its observed mean and standard deviation, cut to its observed range, and a categorical one from its observed shares (replicated cases).
+- IMPUTATIONS: the new first variable Imputation_ (F8.0, labeled, 0 labeled "Original data") is followed by every variable of the data. The cases are the analyzed ones (with FILTER, the selected ones), first the original data, then each imputation; under SPLIT FILE each imputation holds the groups in order, and the new data are split LAYERED by Imputation_ and then the split variables. The dictionary, missing value definitions included, is copied unchanged. Values that are not imputed (cases left out, ROLE=IND variables, variables left out of the model) keep their original values.
+- FCSITERATIONS holds Imputation_, Iteration_ (1 to MAXITER), SummaryStatistic_ (1 mean, 2 standard deviation, labeled), the split variables when SPLIT FILE is on, and one column per imputed scale variable: the mean and standard deviation (n - 1, replicated and weighted) of its imputed values after each iteration.
+- Pooling: when Imputation_ is the first split variable, DESCRIPTIVES adds a table of pooled means, with the squared standard error of each mean (variance over the weighted N) as its within-imputation variance, and FREQUENCIES a table of frequencies and percents averaged over the imputations (a value absent from an imputation counts 0 there). Further split variables after Imputation_ give a pooled row per group. When the imputations agree exactly, the df are infinite (left empty) and the interval uses the normal distribution; when every within variance is 0 but the estimates differ, the df are m - 1.
+- SET MIOUTPUT acts on every procedure run on data split by Imputation_: OBSERVED and IMPUTED choose which groups are shown, POOLED the pooled table and DIAGNOSTICS its last three columns.
+
+Not supported yet: pooled results of other procedures (MEANS, T-TEST, CORRELATIONS, REGRESSION and the other models), pooled statistics in the FREQUENCIES Statistics table, and the multivariate pooled test.
+
 ### KM
 
 - A case takes part when its time, status, factor and stratum are valid (user-missing values count as missing) and its time is 0 or more; a missing status is left out rather than counted as censored. Weights count cases and need not be whole numbers.

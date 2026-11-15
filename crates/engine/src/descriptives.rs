@@ -174,6 +174,16 @@ impl Engine {
             })
             .collect();
 
+        // what pooling over imputations needs: each mean and its squared standard error
+        let pool: Vec<crate::pooling::PoolItem> = variables
+            .iter()
+            .zip(&summaries)
+            .filter_map(|((name, _), s)| {
+                let (q, sd) = (s.mean?, s.sd?);
+                let (variable, u) = (name.clone(), sd * sd / s.n);
+                Some(crate::pooling::PoolItem::Mean { variable, q, u })
+            })
+            .collect();
         let mut headers = vec!["Variable", "Label", "N"];
         let mut rows = Vec::new();
         // the format of every column after N, the same for all variables but its own
@@ -280,6 +290,9 @@ impl Engine {
                 "no statistics for string variables: {}",
                 strings.join(" ")
             ));
+        }
+        if let Some(items) = self.pool_items.as_mut() {
+            items.extend(pool);
         }
         Ok(vec![table])
     }

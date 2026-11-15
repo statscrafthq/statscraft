@@ -265,6 +265,16 @@ impl Engine {
             .map(|name| shown.named(&full, name))
             .collect();
         let mut results: Vec<(Vec<String>, Vec<Table>)> = Vec::new();
+        // data split by Imputation_ first: the imputation of every result and the items to pool
+        let imputation_split = split.as_ref().is_some_and(|s| {
+            s.variables
+                .first()
+                .is_some_and(|v| v.eq_ignore_ascii_case(crate::multiple_imputation::IMPUTATION))
+        });
+        let pools = imputation_split
+            && matches!(command, Command::Descriptives(_) | Command::Frequencies(_));
+        let mut result_imputation: Vec<Option<f64>> = Vec::new();
+        let mut pooled: Vec<crate::pooling::Imputed> = Vec::new();
         let mut afters: Vec<Dataset> = Vec::new();
         // whether the procedure ran in each group
         let mut ran: Vec<bool> = Vec::new();
@@ -295,10 +305,30 @@ impl Engine {
                 false => format!("{name}: {message}"),
             };
             let charts = self.charts.len();
+            let imputation = imputation_split
+                .then(|| {
+                    let first = *group.cases.first()?;
+                    full.variable(&split.as_ref()?.variables[0])
+                        .ok()?
+                        .numeric()
+                        .ok()?
+                        .get(first)
+                })
+                .flatten();
+            self.pool_items = (pools && imputation.is_some_and(|i| i >= 1.0)).then(Vec::new);
             let result = self.run_procedure(command);
             ran.push(result.is_ok());
+            if let Some(items) = self.pool_items.take()
+                && result.is_ok()
+            {
+                let others = texts[1..].to_vec();
+                pooled.push(crate::pooling::Imputed { others, items });
+            }
             match result {
-                Ok(tables) => results.push((texts.clone(), tables)),
+                Ok(tables) => {
+                    results.push((texts.clone(), tables));
+                    result_imputation.push(imputation);
+                }
                 Err(error) => errors.push(prefix(&error.0)),
             }
             // a chart per group, the group named in the title as SEPARATE names it in tables
@@ -326,6 +356,21 @@ impl Engine {
             self.dataset = afters.pop();
             return Ok(Vec::new());
         }
+        // SET MIOUTPUT: the original data, the imputations and the pooled results
+        let mut pooled_tables = Vec::new();
+        if imputation_split {
+            let [observed, imputed, pool, diagnostics] =
+                crate::pooling::mioutput(&self.setting("MIOUTPUT"));
+            let mut shown = result_imputation.iter().map(|i| match i {
+                Some(i) if *i == 0.0 => observed,
+                Some(_) => imputed,
+                None => true,
+            });
+            results.retain(|_| shown.next().unwrap_or(true));
+            if pool {
+                pooled_tables = crate::pooling::tables(&pooled, &split_names[1..], diagnostics);
+            }
+        }
         // datasets share their columns, so the clone is cheap and keeps the data on an error
         match write_back(full.clone(), &groups, &afters, &ran) {
             Ok(merged) => self.dataset = Some(merged),
@@ -334,11 +379,13 @@ impl Engine {
                 return Err(error);
             }
         }
-        Ok(match split {
+        let mut out = match split {
             None => results.into_iter().flat_map(|(_, tables)| tables).collect(),
             Some(_) if !layered_split => separate(&split_names, results),
             Some(_) => layered(&split_names, results),
-        })
+        };
+        out.extend(pooled_tables);
+        Ok(out)
     }
 }
 

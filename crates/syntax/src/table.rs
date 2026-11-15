@@ -30,6 +30,7 @@ use crate::matrix_data;
 use crate::mixed;
 use crate::mrsets;
 use crate::mult_response;
+use crate::multiple_imputation;
 use crate::mva;
 use crate::nomreg;
 use crate::npar;
@@ -207,6 +208,46 @@ const MVA_SYNTAX: &str = "MVA [VARIABLES=] varlist | ALL\n\
                  standard deviations (pairwise ones are those of all values). OUTFILE saves the active\n\
                  data with the missing values of the estimated variables filled in and their user-missing\n\
                  definitions dropped.";
+
+const MULTIPLE_IMPUTATION_SYNTAX: &str = "MULTIPLE IMPUTATION varlist\n\
+                 \x20  [/IMPUTE [METHOD=AUTO | FCS | MONOTONE | NONE] [NIMPUTATIONS=5] [SCALEMODEL=LINEAR | PMM[(5)]]\n\
+                 \x20          [INTERACTIONS=NONE | TWOWAY] [MAXPCTMISSING=NONE | pct] [MAXCASEDRAWS=50]\n\
+                 \x20          [MAXPARAMDRAWS=2] [MAXITER=10] [SINGULAR=1E-12] [MAXMODELPARAM=100]]\n\
+                 \x20  [/CONSTRAINTS varlist ([MIN=NONE | value] [MAX=NONE | value] [RND=NO | step]\n\
+                 \x20                         [ROLE=BOTH | DEP | IND])] ...\n\
+                 \x20  [/MISSINGSUMMARIES [OVERALL] [VARIABLES[(MAXVARS=25 MINPCTMISSING=10)]] [PATTERNS] | NONE]\n\
+                 \x20  [/IMPUTATIONSUMMARIES [MODELS] [DESCRIPTIVES[(varlist)]] | NONE]\n\
+                 \x20  [/ANALYSISWEIGHT var]\n\
+                 \x20  [/OUTFILE [IMPUTATIONS='file' | dataset] [FCSITERATIONS='file' | dataset]].\n\
+                 Fills in the missing values of the listed variables several times over and writes every\n\
+                 completed copy, stacked under the original cases, to IMPUTATIONS (needed unless METHOD=NONE).\n\
+                 The new first variable Imputation_ is 0 for the original cases and 1 to n for the copies, and\n\
+                 the new data are split by it. Keywords are written in full and their equals signs are needed.\n\
+                 Each variable is imputed from the others by its own model: linear regression for a scale\n\
+                 variable (PMM instead takes the observed value of one of the k cases whose predictions lie\n\
+                 nearest), multinomial logistic regression for a nominal, ordinal or string one; model\n\
+                 parameters are drawn from their posterior first, so the copies differ. Categorical predictors\n\
+                 enter as indicators, with TWOWAY also their pairwise products. MONOTONE imputes once in list\n\
+                 order, each variable from the ones before it, and needs a monotone pattern of missing values;\n\
+                 FCS starts from random values and cycles through the variables MAXITER times, each one from\n\
+                 all the others; AUTO orders the variables from fewest to most missing, takes MONOTONE when the\n\
+                 pattern allows it and FCS (10 rounds, linear, main effects) otherwise. A variable with more than\n\
+                 MAXPCTMISSING percent missing is left out. CONSTRAINTS: MIN and MAX bound linear imputations\n\
+                 (a value outside is drawn again, up to MAXCASEDRAWS times, then the parameters, up to\n\
+                 MAXPARAMDRAWS times), RND rounds them to a multiple, ROLE=DEP imputes without predicting and\n\
+                 ROLE=IND predicts and is imputed only for that. User-missing and system-missing values are\n\
+                 both filled; cases with nothing valid, a weight under 0.5 or an ANALYSISWEIGHT of 0 or less\n\
+                 keep theirs. WEIGHT counts cases (rounded); ANALYSISWEIGHT weights the models. Random draws\n\
+                 follow SET SEED and SET RNG. FCSITERATIONS saves the mean and standard deviation of the imputed\n\
+                 values of each scale variable after every round.\n\
+                 Tables: the overall missing summary, VARIABLES (the most missing first, at least MINPCTMISSING\n\
+                 percent), PATTERNS, the specifications, constraints and results, MODELS and DESCRIPTIVES of the\n\
+                 original, imputed and completed values. A summary subcommand shows only the keywords on it.\n\
+                 Pooling: with the data split by Imputation_, DESCRIPTIVES adds a table of pooled means by Rubin's\n\
+                 rules (standard error, df, 95% interval, fraction of missing information, relative increase in\n\
+                 variance, relative efficiency) and FREQUENCIES a table of the frequencies and percents averaged\n\
+                 over the imputations. SET MIOUTPUT chooses which of the original, imputed and pooled results\n\
+                 appear and whether the pooling diagnostics do.";
 
 pub(crate) static COMMANDS: &[CommandSpec] = &[
     CommandSpec {
@@ -1793,6 +1834,13 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: MVA_SYNTAX,
         example: "MVA VARIABLES=district mode age km minutes /CATEGORICAL=district /ID=resp /TTEST PROB /TPATTERN /EM (OUTFILE='filled.sav').",
         parse: mva::mva,
+    },
+    CommandSpec {
+        name: "MULTIPLE IMPUTATION",
+        summary: "Multiple imputation: several completed copies of the data with plausible values in place of the missing ones.",
+        syntax: MULTIPLE_IMPUTATION_SYNTAX,
+        example: "MULTIPLE IMPUTATION rent hhsize tenure commute /IMPUTE METHOD=FCS NIMPUTATIONS=10 /CONSTRAINTS hhsize (MIN=1 RND=1) /OUTFILE IMPUTATIONS='filled.sav'.",
+        parse: multiple_imputation::multiple_imputation,
     },
     CommandSpec {
         name: "PLUM",

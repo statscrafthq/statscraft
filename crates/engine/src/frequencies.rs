@@ -754,6 +754,22 @@ impl Engine {
             statistics.retain(|s| *s != S::Median);
         }
 
+        if let Some(items) = self.pool_items.as_mut() {
+            for a in &analyses {
+                for row in &a.rows {
+                    items.push(crate::pooling::PoolItem::Count {
+                        variable: a.name.clone(),
+                        value: row.value.clone(),
+                        label: row.label.clone(),
+                        missing: row.missing,
+                        count: row.count,
+                        total: a.total,
+                        valid: a.valid,
+                    });
+                }
+            }
+        }
+        let data = self.active()?;
         let mut tables_of: Vec<Option<Table>> = Vec::new();
         let mut charts = Vec::new();
         for analysis in &mut analyses {

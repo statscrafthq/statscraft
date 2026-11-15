@@ -72,6 +72,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Pplot(_)
         | Command::Roc(_)
         | Command::Mva(_)
+        | Command::MultipleImputation(_)
         | Command::Km(_)
         | Command::Survival(_)
         | Command::Rank(_)

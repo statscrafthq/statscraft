@@ -52,6 +52,7 @@ mod mixed;
 mod model_terms;
 mod mrsets;
 mod mult_response;
+mod multiple_imputation;
 mod mva;
 mod nomreg;
 mod nonpar_corr;
@@ -69,6 +70,7 @@ pub mod pdf;
 pub mod picture;
 pub mod plot;
 mod plum;
+mod pooling;
 mod portable;
 mod pplot;
 mod print;
@@ -370,6 +372,12 @@ pub struct Engine {
     split_group: Option<Vec<(String, Option<crosstabs::Key>)>>,
     /// PROXIMITIES /MATRIX=OUT: the split variables and the matrix of every split group.
     proximity_out: (Option<statscraft_data::SplitFile>, Vec<Dataset>),
+    /// MULTIPLE IMPUTATION: per split group, the stacked imputations (original data first)
+    /// and the FCS iteration history.
+    imputed: Vec<(Vec<Dataset>, Option<Dataset>)>,
+    /// While a procedure runs on one imputation of data split by Imputation_: what it gives
+    /// for the pooled results.
+    pool_items: Option<Vec<pooling::PoolItem>>,
     /// The specifications of the last PPLOT, for PPLOT APPLY.
     pplot_model: Option<Box<statscraft_syntax::Pplot>>,
 }
@@ -756,6 +764,13 @@ impl Engine {
                 });
             }
             Command::ClearTimeProgram => self.time_program = None,
+            Command::MultipleImputation(imputation) => {
+                self.imputed.clear();
+                let split = self.active()?.split_file().cloned();
+                let tables = self.procedure(command)?;
+                self.write_imputations(imputation, split)?;
+                return Ok(tables);
+            }
             Command::Proximities(proximities) => {
                 let split = self.active()?.split_file().cloned();
                 self.proximity_out = (split, Vec::new());
@@ -982,6 +997,7 @@ impl Engine {
             Command::Coxreg(command) => self.coxreg(command),
             Command::Nomreg(command) => self.nomreg(command),
             Command::Mva(command) => self.mva(command),
+            Command::MultipleImputation(command) => self.multiple_imputation(command),
             Command::Plum(command) => self.plum(command),
             Command::Correspondence(command) => self.correspondence(command),
             Command::Genlin(command) => self.genlin(command),

@@ -74,6 +74,7 @@ pub enum Command {
     Coxreg(Box<crate::coxreg::Coxreg>),
     Nomreg(Box<crate::nomreg::Nomreg>),
     Mva(Box<crate::mva::Mva>),
+    MultipleImputation(Box<crate::multiple_imputation::MultipleImputation>),
     Plum(Box<crate::plum::Plum>),
     Correspondence(Box<crate::correspondence::Correspondence>),
     Genlin(Box<crate::genlin::Genlin>),

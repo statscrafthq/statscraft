@@ -23,6 +23,26 @@ pub(crate) fn sweep(m: &mut Matrix, k: usize) {
     m[k][k] = 1.0 / pivot;
 }
 
+/// The lower Cholesky factor; None when not positive definite.
+pub(crate) fn cholesky(a: &Matrix) -> Option<Matrix> {
+    let n = a.len();
+    let mut l = vec![vec![0.0; n]; n];
+    for i in 0..n {
+        for j in 0..=i {
+            let s: f64 = a[i][j] - (0..j).map(|k| l[i][k] * l[j][k]).sum::<f64>();
+            if i == j {
+                if s <= 1e-12 * a[i][i].abs().max(f64::MIN_POSITIVE) {
+                    return None;
+                }
+                l[i][i] = s.sqrt();
+            } else {
+                l[i][j] = s / l[j][j];
+            }
+        }
+    }
+    Some(l)
+}
+
 /// The transpose of a matrix.
 pub(crate) fn transpose(a: &Matrix) -> Matrix {
     let cols = a.first().map_or(0, Vec::len);

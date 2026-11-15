@@ -23,7 +23,7 @@
 
 use crate::descriptives::{case_weights, number};
 use crate::dist::{chi_square_p, f_p};
-use crate::matrix::{Matrix, inverse, symmetric_eigen};
+use crate::matrix::{Matrix, cholesky, inverse, symmetric_eigen};
 use crate::means::is_valid;
 use crate::npar_tests::text;
 use crate::regression::{plain, table};
@@ -108,26 +108,6 @@ fn sub(m: &Matrix, set: &[usize]) -> Matrix {
     set.iter()
         .map(|&a| set.iter().map(|&b| m[a][b]).collect())
         .collect()
-}
-
-/// The lower Cholesky factor; None when not positive definite.
-fn cholesky(a: &Matrix) -> Option<Matrix> {
-    let n = a.len();
-    let mut l = vec![vec![0.0; n]; n];
-    for i in 0..n {
-        for j in 0..=i {
-            let s: f64 = a[i][j] - (0..j).map(|k| l[i][k] * l[j][k]).sum::<f64>();
-            if i == j {
-                if s <= 1e-12 * a[i][i].abs().max(f64::MIN_POSITIVE) {
-                    return None;
-                }
-                l[i][i] = s.sqrt();
-            } else {
-                l[i][j] = s / l[j][j];
-            }
-        }
-    }
-    Some(l)
 }
 
 /// The log determinant and rank of a symmetric matrix by Cholesky, None when singular.

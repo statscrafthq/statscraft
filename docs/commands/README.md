@@ -129,6 +129,7 @@ One page per supported command, generated from the same table that the parser an
 | [LOGISTIC REGRESSION](logistic-regression.md) | Binary logistic regression with categorical covariates, stepwise selection and case diagnostics. |
 | [NOMREG](nomreg.md) | Multinomial logistic regression: a nominal dependent variable on factors and covariates. |
 | [MVA](mva.md) | Missing value analysis: where values are missing, how that relates to the other variables, and estimates that allow for it. |
+| [MULTIPLE IMPUTATION](multiple-imputation.md) | Multiple imputation: several completed copies of the data with plausible values in place of the missing ones. |
 | [PLUM](plum.md) | Ordinal regression: a cumulative link model of an ordered dependent variable. |
 | [GENLIN](genlin.md) | Generalized linear models: normal, binomial, Poisson, gamma, inverse Gaussian, negative binomial and ordinal responses. |
 | [UNIANOVA](unianova.md) | General linear model of one dependent variable: factorial ANOVA, ANCOVA and regression. |
