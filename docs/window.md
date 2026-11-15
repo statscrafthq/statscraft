@@ -402,6 +402,7 @@ See [The Window menu](#the-window-menu).
   - The location part: the main effects, or custom terms. The scale part: none, or custom terms.
   - The tables: goodness of fit, the summary, parameter estimates, the test of parallel lines, cell information, the covariance and correlation of the estimates, the iteration history and the kernel of the log-likelihood.
   - The same saved variables as Multinomial Logistic; the confidence level, the maximum iterations and step-halving, the value added to empty cells, and user-missing values as valid.
+  - Custom tests typed as in Linear Mixed Models, where `INTERCEPT` stands for the thresholds. An effect that is in both the location and the scale part needs `ALL`, and then every row of that test uses `ALL`.
 - **Probit** (`PROBIT`): a variable of response counts out of a variable of totals, on covariates and an optional factor with its range of levels.
   - The probit model, the logit model or both; the covariates as base 10 logarithms (the default), natural logarithms, logarithms of a base you type, or as they are.
   - The natural response rate: none, estimated from the data, or fixed at a value.
@@ -410,7 +411,6 @@ See [The Window menu](#the-window-menu).
 - **Weight Estimation** (`WLS`): one dependent variable on independent variables, each case weighted by the source variable (by default the first independent) to the minus power.
   - The power as a range (from, to and a step) or a list of values; the one with the largest log-likelihood is used. Left empty, the power is 1.
   - The constant, the coefficients of the best power or of every power, and saving the best weights.
-  - Custom tests typed as in Linear Mixed Models, where `INTERCEPT` stands for the thresholds. An effect that is in both the location and the scale part needs `ALL`, and then every row of that test uses `ALL`.
 
 **Loglinear**
 
