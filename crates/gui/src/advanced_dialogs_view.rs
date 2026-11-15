@@ -58,6 +58,7 @@ pub fn body(
         Advanced::Curve(d) => crate::regression_more_dialog_view::curve_estimation(ui, d, picked),
         Advanced::Probit(d) => crate::regression_more_dialog_view::probit(ui, data, d, picked),
         Advanced::Wls(d) => crate::regression_more_dialog_view::weight_estimation(ui, d, picked),
+        Advanced::Power(d) => crate::power_dialog_view::power(ui, d),
     }
 }
 

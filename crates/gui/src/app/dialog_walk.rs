@@ -2839,6 +2839,220 @@ fn the_regression_more_dialogs_write_syntax_that_runs() {
     }
 }
 
+/// The Power Analysis dialogs on invented planning values, with no data open: for each command
+/// the power of given sizes and the sizes for given powers, then charts and changed options. The
+/// syntax is as expected, parses and runs without a warning.
+#[test]
+fn the_power_dialogs_write_syntax_that_runs() {
+    use crate::power_dialog::{PowerAnalysis, PowerKind::*};
+    let new = PowerAnalysis::new;
+    let cases: Vec<(PowerAnalysis, &str)> = vec![
+        (
+            PowerAnalysis {
+                n1: s("25"),
+                mean1: s("3.5"),
+                null: s("2"),
+                sd1: s("4"),
+                ..new(MeansOneSample)
+            },
+            "N=25 SD=4 MEAN=3.5 NULL=2",
+        ),
+        (
+            PowerAnalysis {
+                find_size: true,
+                powers: s("0.75, 0.85"),
+                mean1: s("3.5"),
+                null: s("2"),
+                sd1: s("4"),
+                ..new(MeansOneSample)
+            },
+            "POWER=0.75 0.85 SD=4 MEAN=3.5 NULL=2",
+        ),
+        (
+            PowerAnalysis {
+                n1: s("30"),
+                n2: s("45"),
+                sd1: s("6"),
+                mean1: s("2.5"),
+                ..new(MeansIndependent)
+            },
+            "N=30 45 SD=6 MEAN=2.5",
+        ),
+        (
+            PowerAnalysis {
+                find_size: true,
+                powers: s("0.9"),
+                ratio: s("1.5"),
+                two_sds: true,
+                sd1: s("5"),
+                sd2: s("7"),
+                two_means: true,
+                mean1: s("18"),
+                mean2: s("14.5"),
+                ..new(MeansIndependent)
+            },
+            "POWER=0.9 NRATIO=1.5 SD=5 7 MEAN=18 14.5",
+        ),
+        (
+            PowerAnalysis {
+                n1: s("22"),
+                sd1: s("3.2"),
+                mean1: s("1.1"),
+                ..new(MeansRelated)
+            },
+            "NPAIRS=22 SD=3.2 MEAN=1.1",
+        ),
+        (
+            PowerAnalysis {
+                find_size: true,
+                powers: s("0.8"),
+                two_sds: true,
+                sd1: s("4"),
+                sd2: s("4.5"),
+                rho: s("0.6"),
+                two_means: true,
+                mean1: s("12"),
+                mean2: s("10.8"),
+                ..new(MeansRelated)
+            },
+            "POWER=0.8 SD=4 4.5 RHO=0.6 MEAN=12 10.8",
+        ),
+        (
+            PowerAnalysis {
+                n1: s("60"),
+                alternative: s("0.65"),
+                ..new(ProportionsOneSample)
+            },
+            "N=60 ALTERNATIVE=0.65",
+        ),
+        (
+            PowerAnalysis {
+                find_size: true,
+                powers: s("0.85"),
+                null: s("0.2"),
+                alternative: s("0.32"),
+                binomial: true,
+                timer: s("2"),
+                ..new(ProportionsOneSample)
+            },
+            "POWER=0.85 NULL=0.2 ALTERNATIVE=0.32 ESTIMATE=BINOMIAL TIMER=2",
+        ),
+        (
+            PowerAnalysis {
+                n1: s("75"),
+                n2: s("80"),
+                p1: s("0.15"),
+                p2: s("0.3"),
+                ..new(ProportionsIndependent)
+            },
+            "N=75 80 PROPORTIONS=0.15 0.3",
+        ),
+        (
+            PowerAnalysis {
+                find_size: true,
+                powers: s("0.8 0.9"),
+                ratio: s("2"),
+                p1: s("0.4"),
+                p2: s("0.25"),
+                method: 2,
+                ..new(ProportionsIndependent)
+            },
+            "POWER=0.8 0.9 NRATIO=2 PROPORTIONS=0.4 0.25 METHOD=LRT",
+        ),
+        (
+            PowerAnalysis {
+                n1: s("120"),
+                counts: true,
+                p1: s("14"),
+                p2: s("6"),
+                ..new(ProportionsRelated)
+            },
+            "NPAIRS=120 VALUES=COUNTS(14 6)",
+        ),
+        (
+            PowerAnalysis {
+                find_size: true,
+                powers: s("0.8"),
+                marginal: true,
+                p1: s("0.55"),
+                p2: s("0.4"),
+                correlation: s("0.2"),
+                ..new(ProportionsRelated)
+            },
+            "POWER=0.8 VALUES=PROPORTIONS(0.55 0.4) MARGINAL=TRUE CORRELATION=0.2",
+        ),
+        // charts with ranges and a surface, a one-sided test at another level
+        (
+            PowerAnalysis {
+                n1: s("40"),
+                n2: s("40"),
+                directional: true,
+                significance: s("0.01"),
+                sd1: s("2"),
+                mean1: s("1"),
+                charts: [true, true, true, false, false, false, false],
+                from: [s("0.5"), s("-1"), s(""), s(""), s(""), s(""), s("")],
+                to: [s("3"), s("2"), s(""), s(""), s(""), s(""), s("")],
+                ..new(MeansIndependent)
+            },
+            "TEST=DIRECTIONAL SIGNIFICANCE=0.01 N=40 40 SD=2 MEAN=1\n  \
+             /PLOT NRATIO(0.5 3) ES(-1 2) NRATIO_XAXIS ES_YAXIS",
+        ),
+        // the other test options, and charts of risk ratio and the two group sizes
+        (
+            PowerAnalysis {
+                n1: s("50"),
+                n2: s("60"),
+                p1: s("0.3"),
+                p2: s("0.45"),
+                continuity: true,
+                pooled: false,
+                charts: [false, false, true, false, true, false, false],
+                from: [s(""), s(""), s("0.3"), s(""), s(""), s(""), s("")],
+                to: [s(""), s(""), s("1.2"), s(""), s(""), s(""), s("")],
+                ..new(ProportionsIndependent)
+            },
+            "N=50 60 PROPORTIONS=0.3 0.45 CONTINUITY=TRUE POOLED=FALSE\n  \
+             /PLOT RISK_RATIO(0.3 1.2) N1_XAXIS N2_YAXIS",
+        ),
+        // success rates with the charts that need them
+        (
+            PowerAnalysis {
+                n1: s("80"),
+                directional: true,
+                marginal: true,
+                p1: s("0.5"),
+                p2: s("0.35"),
+                correlation: s("0.25"),
+                charts: [true, false, false, false, true, true, false],
+                from: [s("20"), s(""), s(""), s(""), s(""), s(""), s("")],
+                to: [s("200"), s(""), s(""), s(""), s(""), s(""), s("")],
+                ..new(ProportionsRelated)
+            },
+            "TEST=DIRECTIONAL NPAIRS=80 VALUES=PROPORTIONS(0.5 0.35) MARGINAL=TRUE \
+             CORRELATION=0.25\n  /PLOT NPAIRS(20 200) CORRELATION DISCORDANT",
+        ),
+    ];
+    let data = statscraft_data::Dataset::new(0);
+    for (dialog, expected) in cases {
+        let name = dialog.kind.name();
+        let syntax = Dialog::Advanced(Advanced::Power(Box::new(dialog)))
+            .syntax(&data)
+            .unwrap();
+        assert_eq!(syntax, format!("{name}\n  /PARAMETERS {expected}."));
+        let (_, errors) = statscraft_syntax::parse(&syntax);
+        assert!(errors.is_empty(), "{syntax}\n{errors:?}");
+        let mut session = statscraft_engine::session::Session::default();
+        let result = session.run(&syntax, None).unwrap();
+        assert!(
+            result.commands.iter().any(|c| !c.tables.is_empty()),
+            "{syntax}"
+        );
+        let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
+        assert!(warnings.is_empty(), "{syntax}\n{warnings:?}");
+    }
+}
+
 /// A folder of its own for the files a test writes.
 fn folder(name: &str) -> std::path::PathBuf {
     let dir = std::env::temp_dir().join(format!("statscraft-gui-{name}-{}", std::process::id()));
