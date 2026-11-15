@@ -3608,18 +3608,20 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "SAVE TRANSLATE",
-        summary: "Write the active dataset to a CSV or tab-delimited text file or an Excel workbook.",
-        syntax: "SAVE TRANSLATE OUTFILE='path' | handle /TYPE=CSV | TAB | XLS /VERSION=12 [/REPLACE]\n\
+        summary: "Write the active dataset to a CSV or tab-delimited text file, an Excel workbook or a Stata file.",
+        syntax: "SAVE TRANSLATE OUTFILE='path' | handle /TYPE=CSV | TAB | XLS /VERSION=12 | STATA [/REPLACE]\n\
                  \x20   [/FIELDNAMES [VALUE=NAMES | LABELS]] [/CELLS=VALUES | LABELS] [/MISSING=IGNORE | RECODE]\n\
                  \x20   [/TEXTOPTIONS [DELIMITER='c'] [QUALIFIER='c'] [DECIMAL=DOT | COMMA] [FORMAT=PLAIN | VARIABLE]]\n\
                  \x20   [/EXCELOPTIONS SHEET='name'] [/ENCODING='name' [BOM=YES | NO]] [/UNSELECTED=RETAIN | DELETE]\n\
-                 \x20   [/KEEP=varlist] [/DROP=varlist] [/RENAME=(old = new) ...].\n\
-                 TYPE may be left out for a .csv or .xlsx file; TYPE=XLSX is short for XLS /VERSION=12. An\n\
+                 \x20   [/KEEP=varlist] [/DROP=varlist] [/RENAME=(old = new) ...] [/MAP]\n\
+                 \x20   [/VERSION=8 to 14] [/EDITION=INTERCOOLED | SE].\n\
+                 TYPE may be left out for a .csv, .xlsx or .dta file; TYPE=XLSX is short for XLS /VERSION=12. An\n\
                  existing file is overwritten only with REPLACE. FIELDNAMES writes a first row of names\n\
                  (VALUE=LABELS: the variable labels, else the names). CELLS=LABELS writes the value label where\n\
                  a value has one. MISSING=RECODE writes user-missing values as empty. UNSELECTED=DELETE leaves\n\
                  out the cases FILTER leaves out. KEEP, DROP and RENAME shape the file only, in the order\n\
-                 written; KEEP does not change the order of the variables.\n\
+                 written; KEEP does not change the order of the variables. Each MAP lists the names in the\n\
+                 file next to the names in the dataset, as the subcommands before it leave them.\n\
                  Text: system-missing is empty. FORMAT=PLAIN (default) writes numbers with the decimals they\n\
                  need, dates as mm/dd/yyyy and times as hh:mm:ss; VARIABLE writes the display formats. The\n\
                  decimal mark is DECIMAL's, else SET DECIMAL's. CSV separates values with a comma, or with a\n\
@@ -3629,9 +3631,21 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Workbook: numbers keep their display format and dates and times are Excel dates;\n\
                  system-missing is #NULL!. EXCELOPTIONS names the sheet (default Sheet1); more cases than a\n\
                  sheet holds continue on further sheets.\n\
-                 Other types (SAS, STATA, dBASE, ODBC, 1-2-3, SYLK) and APPEND are not supported yet.",
+                 Stata: VERSION is the Stata release that reads the file (default 14; 8 and 9 give format\n\
+                 113, 10 and 11 format 114, 12 format 115, 13 format 117, 14 and later format 118).\n\
+                 INTERCOOLED (the default) keeps up to 2047 variables and 80 bytes of each string; SE keeps\n\
+                 32767 variables and 244 bytes before Stata 13, whole strings from 13 on (over 2045 bytes as\n\
+                 strL). Names keep their case: characters other than letters, digits and _ become _, and\n\
+                 names are cut to 32 bytes and made unique; before Stata 14 a name that is not ASCII becomes\n\
+                 v and its position. Variable labels and the file label keep 80 bytes. Value labels go with\n\
+                 numeric variables, for whole values up to 2147483620 (80 bytes each for Stata 8). Dates\n\
+                 become %td days since 1960, dates with a time %tc milliseconds; times and other numbers\n\
+                 are plain. User-missing values stay valid values unless MISSING=RECODE. Text is UTF-8 from\n\
+                 Stata 14 on, else in ENCODING (default: the system's code page).\n\
+                 Other types (SAS, dBASE, ODBC, 1-2-3, SYLK) and APPEND are not supported yet.",
         example: "SAVE TRANSLATE OUTFILE='wave2.xlsx' /TYPE=XLS /VERSION=12 /FIELDNAMES /CELLS=LABELS /REPLACE.\n\
-                  SAVE TRANSLATE OUTFILE='wave2.csv' /TYPE=CSV /FIELDNAMES /TEXTOPTIONS DECIMAL=COMMA /REPLACE.",
+                  SAVE TRANSLATE OUTFILE='wave2.csv' /TYPE=CSV /FIELDNAMES /TEXTOPTIONS DECIMAL=COMMA /REPLACE.\n\
+                  SAVE TRANSLATE OUTFILE='clinic.dta' /TYPE=STATA /EDITION=SE /DROP=nurse_note /MAP /REPLACE.",
         parse: save_translate::save_translate,
     },
     CommandSpec {
@@ -3685,6 +3699,25 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         example: "GET TRANSLATE FILE='address.dbf' /DROP=phoneno entry /MAP.\n\
                   GET TRANSLATE FILE='wave3.txt' /TYPE=TAB /FIELDNAMES.",
         parse: portable::get_translate,
+    },
+    CommandSpec {
+        name: "GET STATA",
+        summary: "Read a Stata data file (.dta) and make it the active dataset.",
+        syntax: "GET STATA FILE='path' | handle [/ENCODING='name'].\n\
+                 Reads formats 113 to 119 (Stata 8 to 19), in either byte order. ENCODING names the code\n\
+                 page of text in files older than Stata 14 (LOCALE and SYSTEM: the system's); without it\n\
+                 such text is UTF-8 when it reads as UTF-8, else in the system's code page. Newer files\n\
+                 are always UTF-8.\n\
+                 Names keep their case; one that differs from an earlier one only in case gets _A, _B, ...,\n\
+                 one that starts with _ gets V in front and a reserved word gets $. Variable labels, value\n\
+                 labels and the file label (cut to 64 bytes) come along. Every Stata missing value, . and\n\
+                 .a to .z, is system-missing, and labels of .a to .z are dropped. %td dates become DATE11\n\
+                 and %tc and %tC datetimes DATETIME20; weekly, monthly, quarterly, half-yearly and yearly\n\
+                 values stay counts since 1960 in F format. Long strings (strL) become strings of up to\n\
+                 32767 bytes; one holding binary data is blank.",
+        example: "GET STATA FILE='clinic.dta'.\n\
+                  GET STATA FILE='panel2009.dta' /ENCODING='windows-1257'.",
+        parse: portable::get_stata,
     },
     CommandSpec {
         name: "TITLE",

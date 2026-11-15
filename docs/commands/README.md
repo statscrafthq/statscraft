@@ -11,10 +11,11 @@ One page per supported command, generated from the same table that the parser an
 | [GET](get.md) | Read a data file and make it the active dataset. |
 | [GET DATA](get-data.md) | Read a text data file or a sheet of a workbook as the active dataset. |
 | [GET TRANSLATE](get-translate.md) | Read a tab-delimited text file, a dBASE file or an old Excel workbook. |
+| [GET STATA](get-stata.md) | Read a Stata data file (.dta) and make it the active dataset. |
 | [IMPORT](import.md) | Read a portable (.por) file and make it the active dataset. |
 | [SYSFILE INFO](sysfile-info.md) | Show the dictionary of a data file without opening it as the active dataset. |
 | [SAVE](save.md) | Write the active dataset to a data file. |
-| [SAVE TRANSLATE](save-translate.md) | Write the active dataset to a CSV or tab-delimited text file or an Excel workbook. |
+| [SAVE TRANSLATE](save-translate.md) | Write the active dataset to a CSV or tab-delimited text file, an Excel workbook or a Stata file. |
 | [EXPORT](export.md) | Write the active dataset to a portable (.por) file. |
 | [XSAVE](xsave.md) | Write the cases to a data file as the next data pass reads them. |
 | [NEW FILE](new-file.md) | Start a new, empty active dataset. |

@@ -221,6 +221,8 @@ pub enum Command {
     /// IMPORT: a portable file as the active dataset.
     Import(Import),
     GetTranslate(GetTranslate),
+    /// GET STATA: a Stata data file as the active dataset.
+    GetStata(GetStata),
     /// `SORT VARIABLES BY key (A | D)`
     SortVariables {
         key: VariableKey,
@@ -414,6 +416,10 @@ pub struct SaveTranslate {
     pub encoding: Option<String>,
     /// BOM=NO turns off the byte order mark of a UTF encoding.
     pub bom: bool,
+    /// TYPE=STATA: the Stata release of VERSION, 8 or later (default 14).
+    pub stata_version: u32,
+    /// EDITION=SE; else Intercooled.
+    pub stata_se: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -422,6 +428,8 @@ pub enum TranslateType {
     Tab,
     /// An Excel 2007 workbook (TYPE=XLS /VERSION=12).
     Xlsx,
+    /// A Stata data file.
+    Stata,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -1426,6 +1434,14 @@ pub struct GetTranslate {
     pub range: Option<(u32, u32, u32, u32)>,
     /// `/KEEP`, `/DROP`, `/RENAME` and `/MAP` in the order written.
     pub options: Vec<FileOption>,
+}
+
+/// GET STATA: a Stata data file as the active dataset.
+#[derive(Debug, Clone, PartialEq)]
+pub struct GetStata {
+    pub file: String,
+    /// ENCODING of text in files older than Stata 14; None is the locale's.
+    pub encoding: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

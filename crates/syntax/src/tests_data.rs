@@ -412,6 +412,31 @@ fn export_import_and_get_translate() {
     };
     assert_eq!(dbf.source, TranslateSource::Dbf);
 
+    assert_eq!(
+        one("GET STATA FILE='panel.dta' /ENCODING='windows-1257'."),
+        Command::GetStata(GetStata {
+            file: "panel.dta".into(),
+            encoding: Some("windows-1257".into()),
+        })
+    );
+    assert_eq!(
+        err("GET STATA /ENCODING='x'.").message,
+        "GET STATA needs FILE='name'"
+    );
+    let Command::SaveTranslate(dta) =
+        one("SAVE TRANSLATE OUTFILE='out.dta' /VERSION=12 /EDITION=SE /MAP.")
+    else {
+        panic!()
+    };
+    assert_eq!(
+        (dta.kind, dta.stata_version, dta.stata_se, dta.options),
+        (TranslateType::Stata, 12, true, vec![FileOption::Map])
+    );
+    let Command::SaveTranslate(dta) = one("SAVE TRANSLATE OUTFILE='out' /TYPE=STATA.") else {
+        panic!()
+    };
+    assert_eq!((dta.stata_version, dta.stata_se), (14, false));
+
     assert_eq!(err("EXPORT /MAP.").message, "EXPORT needs OUTFILE='name'");
     assert_eq!(
         err("EXPORT OUTFILE='a.por' /DIGITS=0.").expected,

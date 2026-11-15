@@ -1,4 +1,5 @@
-//! SAVE TRANSLATE: the active dataset as CSV, tab-delimited text or an Excel 2007 workbook.
+//! SAVE TRANSLATE: the active dataset as CSV, tab-delimited text, an Excel 2007 workbook or a
+//! Stata data file (see `stata.rs`).
 //!
 //! Choices where the manual is silent:
 //! - Lines end with CR LF, as RFC 4180 has it for CSV.
@@ -16,8 +17,9 @@
 
 use crate::excel::excel_number;
 use crate::expr::{DAYS_TO_1970, civil_from_days};
+use crate::stata::{DtaOptions, stata_encoding, stata_names, write_dta};
 use crate::workbook::clock;
-use crate::{Engine, Error, format_value, is_date_time_or_currency};
+use crate::{Engine, Error, Table, format_value, is_date_time_or_currency};
 use rust_xlsxwriter::{Format, Formula, Workbook};
 use statscraft_data::{Dataset, Value, Values, Variable};
 use statscraft_syntax::{SaveTranslate, TranslateType};
@@ -66,7 +68,7 @@ fn out(variable: &Variable, case: usize, command: &SaveTranslate) -> Out {
 }
 
 /// The letters of a format: "DATE" of "DATE11".
-fn kind(format: &str) -> String {
+pub(crate) fn kind(format: &str) -> String {
     let letters = format.find(|c: char| !c.is_ascii_alphabetic());
     format[..letters.unwrap_or(format.len())].to_ascii_uppercase()
 }
@@ -118,7 +120,8 @@ fn encode(text: &str, name: Option<&str>, bom: bool) -> Result<Vec<u8>, String> 
 }
 
 impl Engine {
-    pub(crate) fn save_translate(&mut self, command: &SaveTranslate) -> Result<(), Error> {
+    pub(crate) fn save_translate(&mut self, command: &SaveTranslate) -> Result<Vec<Table>, Error> {
+        let fail = |e: String| Error(format!("SAVE TRANSLATE: {}: {e}", command.outfile));
         let mut data = self.active()?.clone();
         if command.delete_unselected
             && let Some(filter) = data.filter_variable()
@@ -127,6 +130,14 @@ impl Engine {
             let keep: Vec<bool> = (0..data.case_count()).map(|c| variable.keeps(c)).collect();
             data.select_cases(&keep)?;
         }
+        let names: Vec<String> = data.variable_names().map(str::to_string).collect();
+        let stata = command.kind == TranslateType::Stata;
+        let unicode = command.stata_version >= 14;
+        let file_names = |names: Vec<&str>| match stata {
+            true => stata_names(names, unicode),
+            false => names.into_iter().map(str::to_string).collect(),
+        };
+        let tables = self.map_tables(&data, &names, &command.options, true, Some(&file_names))?;
         let data = self.file_options(data, &command.options, true)?;
         let path = self.path(&command.outfile);
         if path.exists() && !command.replace {
@@ -135,14 +146,34 @@ impl Engine {
                 command.outfile
             )));
         }
+        let encoding = match (stata, command.encoding.as_deref()) {
+            (true, Some(name)) => {
+                Some(stata_encoding(name).ok_or_else(|| fail(format!("unknown encoding {name}")))?)
+            }
+            _ => None,
+        };
         if self.dry_run {
-            return Ok(());
+            return Ok(tables);
         }
         let written = match command.kind {
             TranslateType::Xlsx => self.write_workbook(&data, command, &path),
+            TranslateType::Stata => {
+                let options = DtaOptions {
+                    version: command.stata_version,
+                    se: command.stata_se,
+                    encoding,
+                    recode_missing: command.recode_missing,
+                    big: false,
+                };
+                write_dta(&data, &options).and_then(|(bytes, warnings)| {
+                    self.warn_some(warnings);
+                    std::fs::write(&path, bytes).map_err(|e| e.to_string())
+                })
+            }
             _ => self.write_text(&data, command, &path),
         };
-        written.map_err(|e| Error(format!("SAVE TRANSLATE: {}: {e}", command.outfile)))
+        written.map_err(fail)?;
+        Ok(tables)
     }
 
     fn write_text(

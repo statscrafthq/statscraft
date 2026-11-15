@@ -1,13 +1,13 @@
-//! SAVE TRANSLATE: the active dataset as a CSV or tab-delimited text file, or an Excel 2007
-//! workbook.
+//! SAVE TRANSLATE: the active dataset as a CSV or tab-delimited text file, an Excel 2007
+//! workbook or a Stata data file.
 
-use crate::ast::{Command, SaveTranslate, TranslateType};
+use crate::ast::{Command, FileOption, SaveTranslate, TranslateType};
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
 
 /// Subcommands of the manual that are refused as not supported yet.
-const NOT_YET: [&str; 14] = [
+const NOT_YET: [&str; 12] = [
     "APPEND",
     "CONNECT",
     "ENCRYPTED",
@@ -16,12 +16,10 @@ const NOT_YET: [&str; 14] = [
     "SQL",
     "BULKLOADING",
     "ODBCOPTIONS",
-    "EDITION",
     "PLATFORM",
     "VALFILE",
     "COMPRESSED",
     "UNCOMPRESSED",
-    "MAP",
 ];
 
 /// One of `choices` as its index, or an error that lists them.
@@ -68,6 +66,8 @@ pub(crate) fn save_translate(p: &mut Parser) -> PResult<Command> {
         delete_unselected: false,
         encoding: None,
         bom: true,
+        stata_version: 14,
+        stata_se: false,
     };
     let mut kind = None;
     let mut version = None;
@@ -137,6 +137,10 @@ pub(crate) fn save_translate(p: &mut Parser) -> PResult<Command> {
             command.sheet = Some(name);
         } else if p.eat_keyword("REPLACE") {
             command.replace = true;
+        } else if p.eat_keyword("MAP") {
+            command.options.push(FileOption::Map);
+        } else if p.eat_keyword("EDITION") {
+            command.stata_se = choice(p, &["INTERCOOLED", "SE"])? == 1;
         } else if p.eat_keyword("UNSELECTED") {
             p.eat(Punct::Eq);
             if p.eat_keyword("DELETE") {
@@ -170,10 +174,11 @@ pub(crate) fn save_translate(p: &mut Parser) -> PResult<Command> {
         Some(kind) => kind,
         None => match extension.as_deref() {
             Some(e @ ("CSV" | "XLSX" | "XLS")) => (e.to_string(), span),
+            Some("DTA") => ("STATA".to_string(), span),
             _ => {
                 return Err(SyntaxError::new(
                     span,
-                    "SAVE TRANSLATE needs /TYPE=CSV, TAB or XLS /VERSION=12",
+                    "SAVE TRANSLATE needs /TYPE=CSV, TAB, STATA or XLS /VERSION=12",
                 ));
             }
         },
@@ -191,12 +196,31 @@ pub(crate) fn save_translate(p: &mut Parser) -> PResult<Command> {
                 "Statscraft writes Excel 2007 and later workbooks: use /VERSION=12 and a .xlsx file",
             ));
         }
-        "DB2" | "DB3" | "DB4" | "ODBC" | "PC" | "SAS" | "STATA" | "SYM" | "SLK" | "WKS" | "WK1"
-        | "WK3" => {
+        "STATA" => {
+            command.stata_version = match version.as_deref().map(str::parse::<u32>) {
+                None => 14,
+                Some(Ok(v @ 8..)) => v,
+                Some(Ok(4..=7)) => {
+                    return Err(SyntaxError::new(
+                        span,
+                        "files for Stata 4 to 7 are not supported; use /VERSION=8 or later",
+                    ));
+                }
+                _ => {
+                    return Err(SyntaxError::new(
+                        span,
+                        "TYPE=STATA takes /VERSION=8 to 14 (default 14)",
+                    ));
+                }
+            };
+            TranslateType::Stata
+        }
+        "DB2" | "DB3" | "DB4" | "ODBC" | "PC" | "SAS" | "SYM" | "SLK" | "WKS" | "WK1" | "WK3" => {
             return Err(SyntaxError::new(
                 span,
                 format!(
-                    "SAVE TRANSLATE /TYPE={name} is not supported yet; write CSV, TAB or XLS /VERSION=12"
+                    "SAVE TRANSLATE /TYPE={name} is not supported yet; write CSV, TAB, STATA or XLS \
+                     /VERSION=12"
                 ),
             ));
         }

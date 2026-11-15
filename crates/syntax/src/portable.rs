@@ -1,7 +1,7 @@
-//! EXPORT and IMPORT (portable files) and GET TRANSLATE (tab-delimited text, dBASE files and
-//! old Excel workbooks).
+//! EXPORT and IMPORT (portable files), GET TRANSLATE (tab-delimited text, dBASE files and
+//! old Excel workbooks) and GET STATA.
 
-use crate::ast::{Command, Export, FileOption, GetTranslate, Import, TranslateSource};
+use crate::ast::{Command, Export, FileOption, GetStata, GetTranslate, Import, TranslateSource};
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
@@ -205,4 +205,29 @@ pub(crate) fn get_translate(p: &mut Parser) -> PResult<Command> {
         ));
     }
     Ok(Command::GetTranslate(command))
+}
+
+pub(crate) fn get_stata(p: &mut Parser) -> PResult<Command> {
+    let start = p.pos;
+    let mut command = GetStata {
+        file: String::new(),
+        encoding: None,
+    };
+    loop {
+        p.eat(Punct::Slash);
+        if p.peek().is_none() {
+            break;
+        }
+        if p.eat_keyword("FILE") {
+            p.eat(Punct::Eq);
+            command.file = p.file("a quoted file name or a file handle")?;
+        } else if p.eat_keyword("ENCODING") {
+            p.eat(Punct::Eq);
+            command.encoding = Some(p.string("a quoted encoding")?);
+        } else {
+            return Err(p.subcommand_error("GET STATA", &[]));
+        }
+    }
+    required(p, start, &command.file, "GET STATA needs FILE='name'")?;
+    Ok(Command::GetStata(command))
 }

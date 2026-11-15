@@ -231,6 +231,7 @@ impl Engine {
                 | Command::GetData(_)
                 | Command::Import(_)
                 | Command::GetTranslate(_)
+                | Command::GetStata(_)
         );
         let Some(format) = self.new_variable_format().filter(|_| !reads_file) else {
             return Ok(());

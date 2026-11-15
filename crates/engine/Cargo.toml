@@ -40,5 +40,6 @@ pdf-writer = "0.15.0"
 subsetter = { version = "0.2.6", default-features = false }
 # MIT OR Apache-2.0; compresses the pages and the font of a PDF file (already built for png)
 flate2 = "1"
+encoding_rs = "0.8"
 
 [dev-dependencies]

@@ -4,6 +4,9 @@ use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, portable_names};
 use statscraft_syntax::{Export, FileOption, Import};
 
+/// The names a file gives the variables, from their names in the dataset.
+pub(crate) type FileNames<'a> = &'a dyn Fn(Vec<&str>) -> Vec<String>;
+
 impl Engine {
     pub(crate) fn export_portable(&mut self, command: &Export) -> Result<Vec<Table>, Error> {
         self.begin_pass()?;
@@ -16,7 +19,13 @@ impl Engine {
             data.select_cases(&keep)?;
         }
         let names: Vec<String> = data.variable_names().map(str::to_string).collect();
-        let tables = self.map_tables(&data, &names, &command.options, false, true)?;
+        let tables = self.map_tables(
+            &data,
+            &names,
+            &command.options,
+            false,
+            Some(&|names: Vec<&str>| portable_names(names)),
+        )?;
         let data = self.file_options(data, &command.options, false)?;
         if !self.dry_run {
             let warnings = data.write_por(self.path(&command.outfile), command.digits)?;
@@ -31,7 +40,7 @@ impl Engine {
         let data = Dataset::read_por(self.path(&command.file))?;
         data.warnings().iter().for_each(|w| self.warn(w.clone()));
         let names: Vec<String> = data.variable_names().map(str::to_string).collect();
-        let tables = self.map_tables(&data, &names, &command.options, false, false)?;
+        let tables = self.map_tables(&data, &names, &command.options, false, None)?;
         let data = self.file_options(data, &command.options, false)?;
         self.make_active(data);
         Ok(tables)
@@ -39,14 +48,15 @@ impl Engine {
 
     /// One table for every `/MAP` among `options`: the variables as the options before it
     /// leave them, each with its name on the other side (`file_names`, one per variable of
-    /// `data`; for EXPORT the names of the active dataset, and the file gets the portable ones).
+    /// `data`; when writing, the names of the active dataset, and `export` gives the names in
+    /// the file).
     pub(crate) fn map_tables(
         &self,
         data: &Dataset,
         file_names: &[String],
         options: &[FileOption],
         keep_order: bool,
-        export: bool,
+        export: Option<FileNames>,
     ) -> Result<Vec<Table>, Error> {
         let maps = options
             .iter()
@@ -64,8 +74,8 @@ impl Engine {
         for (at, _) in maps {
             let shaped = self.file_options(labelled.clone(), &options[..at], keep_order)?;
             let names: Vec<String> = match export {
-                true => portable_names(shaped.variable_names()),
-                false => shaped.variable_names().map(str::to_string).collect(),
+                Some(rename) => rename(shaped.variable_names().collect()),
+                None => shaped.variable_names().map(str::to_string).collect(),
             };
             let rows = shaped
                 .variables()
@@ -77,7 +87,7 @@ impl Engine {
                     ]
                 })
                 .collect();
-            let (title, columns) = match export {
+            let (title, columns) = match export.is_some() {
                 true => ("Variables in the file", ["Name in the file", "Variable"]),
                 false => (
                     "Variables in the active dataset",
