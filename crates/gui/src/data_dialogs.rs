@@ -542,8 +542,8 @@ impl ImportData {
 /// What the first row of an exported file holds.
 pub const EXPORT_NAMES: [&str; 3] = ["No names", "Variable names", "Variable labels"];
 
-/// File > Export data: SAVE TRANSLATE to a workbook, CSV or tab-delimited text, by the
-/// extension of the file.
+/// File > Export data: SAVE TRANSLATE to a workbook, CSV, tab-delimited text or a Stata file,
+/// by the extension of the file.
 #[derive(Clone, PartialEq, Debug)]
 pub struct ExportData {
     pub path: String,
@@ -555,6 +555,10 @@ pub struct ExportData {
     pub recode_missing: bool,
     /// KEEP; empty exports every variable.
     pub variables: Vec<String>,
+    /// Stata: the release that reads the file (8 to 14), and EDITION=SE, which keeps whole
+    /// strings where the default edition cuts them at 80 bytes.
+    pub stata_version: String,
+    pub stata_se: bool,
 }
 
 impl Default for ExportData {
@@ -565,11 +569,20 @@ impl Default for ExportData {
             labels: false,
             recode_missing: false,
             variables: Vec::new(),
+            stata_version: "14".into(),
+            stata_se: true,
         }
     }
 }
 
 impl ExportData {
+    /// The file is a Stata file (.dta).
+    pub fn stata(&self) -> bool {
+        Path::new(self.path.trim())
+            .extension()
+            .is_some_and(|e| e.eq_ignore_ascii_case("dta"))
+    }
+
     pub fn syntax(&self) -> Result<String, String> {
         let path = self.path.trim();
         if path.is_empty() {
@@ -578,22 +591,41 @@ impl ExportData {
         let extension = Path::new(path)
             .extension()
             .map(|e| e.to_string_lossy().to_lowercase());
+        let stata = self.stata();
         let kind = match extension.as_deref() {
-            Some("xlsx") => "/TYPE=XLS /VERSION=12",
-            Some("csv") => "/TYPE=CSV",
-            Some("txt" | "tab" | "tsv" | "dat") => "/TYPE=TAB",
-            _ => return Err("the file name must end in .xlsx, .csv or .txt".into()),
+            Some("xlsx") => "/TYPE=XLS /VERSION=12".to_string(),
+            Some("csv") => "/TYPE=CSV".into(),
+            Some("txt" | "tab" | "tsv" | "dat") => "/TYPE=TAB".into(),
+            Some("dta") => {
+                let version = self.stata_version.trim();
+                if !matches!(version.parse::<u8>(), Ok(8..=14)) {
+                    return Err("the Stata release must be a whole number from 8 to 14".into());
+                }
+                let mut kind = "/TYPE=STATA".to_string();
+                if version != "14" {
+                    kind.push_str(&format!(" /VERSION={version}"));
+                }
+                if self.stata_se {
+                    kind.push_str(" /EDITION=SE");
+                }
+                kind
+            }
+            _ => return Err("the file name must end in .xlsx, .csv, .txt or .dta".into()),
         };
         let mut text = format!("SAVE TRANSLATE OUTFILE={} {kind}", quote(path));
-        text.push_str(match self.names {
-            1 => " /FIELDNAMES",
-            2 => " /FIELDNAMES VALUE=LABELS",
-            _ => "",
-        });
-        if self.labels || self.recode_missing {
+        // a Stata file has no header row and keeps value labels as labels
+        let labels = self.labels && !stata;
+        if !stata {
+            text.push_str(match self.names {
+                1 => " /FIELDNAMES",
+                2 => " /FIELDNAMES VALUE=LABELS",
+                _ => "",
+            });
+        }
+        if labels || self.recode_missing {
             text.push_str("\n ");
         }
-        if self.labels {
+        if labels {
             text.push_str(" /CELLS=LABELS");
         }
         if self.recode_missing {
@@ -1234,6 +1266,41 @@ mod tests {
             )
         );
         run_in(&mut session, &syntax);
+
+        // a Stata file: no header row or value-label cells, whole strings by default
+        let dta = dir.join("wave.dta");
+        e.path = dta.to_string_lossy().into_owned();
+        e.names = 2;
+        e.labels = true;
+        let syntax = e.syntax().unwrap();
+        assert_eq!(
+            syntax,
+            format!(
+                "SAVE TRANSLATE OUTFILE={} /TYPE=STATA /EDITION=SE\n  /KEEP=score id /REPLACE.",
+                quote(&e.path)
+            )
+        );
+        run_in(&mut session, &syntax);
+        assert!(dta.exists());
+        e.stata_version = "12".into();
+        e.stata_se = false;
+        e.recode_missing = true;
+        assert_eq!(
+            e.syntax().unwrap(),
+            format!(
+                "SAVE TRANSLATE OUTFILE={} /TYPE=STATA /VERSION=12\n  /MISSING=RECODE\n  /KEEP=score id /REPLACE.",
+                quote(&e.path)
+            )
+        );
+        e.stata_version = "15".into();
+        assert_eq!(
+            e.syntax().unwrap_err(),
+            "the Stata release must be a whole number from 8 to 14"
+        );
+        e.path = xlsx.to_string_lossy().into_owned();
+        e.names = 1;
+        e.labels = false;
+        e.recode_missing = false;
 
         let mut d = ImportData::new(&xlsx);
         assert_eq!(d.sheets, ["Sheet1"]);
