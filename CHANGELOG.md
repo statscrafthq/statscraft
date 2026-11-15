@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.14.0 (2026-11-15)
 
 - Window: File > Export data writes a Stata file (.dta) with `SAVE TRANSLATE /TYPE=STATA`, choosing the Stata release and keeping whole strings (SE edition) by default. See [the window](docs/window.md).
 - GET STATA and SAVE TRANSLATE /TYPE=STATA: Stata data files. GET STATA reads formats 113 to 119 (Stata 8 to 19) in either byte order, with variable and value labels, the file label, long strings (strL), every numeric type and Stata's missing values (all system-missing); %td dates become DATE11 and %tc datetimes DATETIME20. SAVE TRANSLATE writes VERSION 8 to 14 (default 14, format 118) with EDITION=INTERCOOLED or SE, ENCODING for files before Stata 14, MISSING, KEEP, DROP, RENAME and MAP, which now works for every type. Checked against files written and read by R's haven. See [GET STATA](docs/commands/get-stata.md) and [SAVE TRANSLATE](docs/commands/save-translate.md).
