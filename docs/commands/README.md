@@ -120,6 +120,9 @@ One page per supported command, generated from the same table that the parser an
 | [EXAMINE](examine.md) | Descriptives, percentiles, M-estimators, extreme values and normality tests, by factor cells. |
 | [REGRESSION](regression.md) | Linear regression with forced entry or removal and stepwise selection, residuals and diagnostics. |
 | [RELIABILITY](reliability.md) | Reliability of a scale: Cronbach's alpha, split-half and other models, item statistics and ICC. |
+| [WEIGHTED KAPPA](weighted-kappa.md) | Cohen's weighted kappa: how well two raters agree on an ordered scale. |
+| [FLEISS MULTIRATER KAPPA](fleiss-multirater-kappa.md) | Fleiss' kappa: how well several raters agree when they sort subjects into categories. |
+| [RATIO STATISTICS](ratio-statistics.md) | Statistics of the ratio of two positive variables, overall and within groups. |
 | [FACTOR](factor.md) | Factor analysis: principal components and six factoring methods, rotations, factor scores. |
 | [QUICK CLUSTER](quick-cluster.md) | K-means clustering of cases into a given number of clusters. |
 | [CLUSTER](cluster.md) | Hierarchical clustering of cases by one of 37 proximity measures and seven methods. |

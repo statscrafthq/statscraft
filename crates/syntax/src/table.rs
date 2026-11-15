@@ -1,5 +1,6 @@
 //! The command table: the single source for command name matching, parsing and help.
 
+use crate::agreement;
 use crate::alscal;
 use crate::anova;
 use crate::ast::Command;
@@ -47,6 +48,7 @@ use crate::procedures;
 use crate::proximities;
 use crate::proxscal;
 use crate::rank;
+use crate::ratio_statistics;
 use crate::regression;
 use crate::regression_more;
 use crate::reliability;
@@ -1442,6 +1444,73 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Weighted when a weight variable is set. Not supported yet: MODEL=OMEGA, MATRIX.",
         example: "RELIABILITY /VARIABLES=q1 TO q10 /SCALE('Satisfaction') ALL /MODEL=ALPHA /STATISTICS=DESCRIPTIVE SCALE /SUMMARY=TOTAL.",
         parse: reliability::reliability,
+    },
+    CommandSpec {
+        name: "WEIGHTED KAPPA",
+        summary: "Cohen's weighted kappa: how well two raters agree on an ordered scale.",
+        syntax: "WEIGHTED KAPPA varlist | rowlist BY columnlist\n\
+                 \x20              [/MISSING CLASSMISSING=TABLE | INCLUDE]\n\
+                 \x20              [/CRITERIA [ASYMPTOTICCILEVEL=95] [WEIGHTING=LINEAR | QUADRATIC] [IGNORECASE=FALSE | TRUE]]\n\
+                 \x20              [/PRINT [TABULATION(ALL | rowlist BY columnlist)] [CASE(UPPER | LOWER)]\n\
+                 \x20                      [ORDER(ASCENDING | DESCENDING)]].\n\
+                 One list pairs each variable with every later one, the earlier as the row; two lists pair every\n\
+                 row variable with every column variable, never a variable with itself. Both variables of a pair\n\
+                 must be numeric, or both string. The k categories of a pair are the values either rater used,\n\
+                 numbers by size and strings alphabetically, and two categories d places apart get the agreement\n\
+                 weight 1 - d/(k - 1) (LINEAR) or 1 - d^2/(k - 1)^2 (QUADRATIC). Each pair drops the cases missing\n\
+                 on either of its variables; INCLUDE keeps user-missing values, each as a category of its own.\n\
+                 The kappa table has a row per pair: N, the kappa, its asymptotic standard error, z with its\n\
+                 two-sided significance (from the standard error under chance agreement) and the confidence\n\
+                 interval at ASYMPTOTICCILEVEL percent. IGNORECASE=TRUE compares strings regardless of case and\n\
+                 shows them in the case CASE names. TABULATION adds the table of counts of every pair, or of the\n\
+                 pairs the two subsets make, its categories in ORDER. Case weights are rounded to whole numbers\n\
+                 (0.5 or less drops the case). A pair with fewer than two cases or only one category is skipped\n\
+                 with a warning. KEYWORD(value) works as KEYWORD=value; ASYMPTOTIC_CILEVEL and IGNORE_CASE are\n\
+                 other spellings.",
+        example: "WEIGHTED KAPPA nurse_a nurse_b BY doctor /CRITERIA WEIGHTING=QUADRATIC ASYMPTOTICCILEVEL=90\n\
+                  \x20 /PRINT TABULATION(ALL).",
+        parse: agreement::weighted_kappa,
+    },
+    CommandSpec {
+        name: "FLEISS MULTIRATER KAPPA",
+        summary: "Fleiss' kappa: how well several raters agree when they sort subjects into categories.",
+        syntax: "FLEISS MULTIRATER KAPPA [VARIABLES=]varlist\n\
+                 \x20                       [/MISSING CLASSMISSING=EXCLUDE | INCLUDE]\n\
+                 \x20                       [/CRITERIA [ASYMPTOTICCILEVEL=95] [IGNORECASE=FALSE | TRUE]]\n\
+                 \x20                       [/PRINT [CATEGORY] [CASE(UPPER | LOWER)]].\n\
+                 Every variable is a rater and every case a subject; at least two raters, all numeric or all\n\
+                 string, each named once. A case missing on any rater is dropped; INCLUDE keeps user-missing\n\
+                 values as categories. Numeric ratings lose their fractions. The overall table gives the kappa,\n\
+                 its asymptotic standard error under chance agreement, z with its two-sided significance and the\n\
+                 confidence interval at ASYMPTOTICCILEVEL percent. CATEGORY adds a row per category: the\n\
+                 conditional probability that a second rating of a subject falls in it when one did, its kappa\n\
+                 and the same test. Case weights are rounded to whole numbers (0.5 or less drops the case). At\n\
+                 least two subjects and two categories are needed. IGNORECASE and CASE work as on WEIGHTED KAPPA.",
+        example: "FLEISS MULTIRATER KAPPA judge1 TO judge4 /PRINT CATEGORY /CRITERIA ASYMPTOTICCILEVEL=99.",
+        parse: agreement::fleiss_kappa,
+    },
+    CommandSpec {
+        name: "RATIO STATISTICS",
+        summary: "Statistics of the ratio of two positive variables, overall and within groups.",
+        syntax: "RATIO STATISTICS numerator WITH denominator [BY group [(ASCENDING | DESCENDING | NOSORT)]]\n\
+                 \x20                [/MISSING=EXCLUDE | INCLUDE] [/PRINT=statistic ...]\n\
+                 \x20                [/OUTFILE('file or dataset')=statistic ...].\n\
+                 statistic: MEAN MEDIAN WGTMEAN MIN MAX RANGE STDDEV AAD COD PRD MNCOV MDCOV CIN[(95)]\n\
+                 \x20          BCOC((low, high) ...) WCOC(percent ...)\n\
+                 A case counts when both variables are valid and above 0 and its weight, rounded to a whole\n\
+                 number, is above 0. WGTMEAN is the sum of numerators over the sum of denominators, PRD the\n\
+                 mean over WGTMEAN. AAD is the mean distance from the median and COD that in percent of the\n\
+                 median; MNCOV is the standard deviation in percent of the mean, MDCOV the root mean square\n\
+                 distance from the median (over N - 1) in percent of the median. BCOC is the percent of ratios\n\
+                 from low to high, ends included; WCOC the percent within that many percent of the median. CIN\n\
+                 adds intervals to MEAN and WGTMEAN (t with N - 1 df, a delta method variance for WGTMEAN) and\n\
+                 to MEDIAN (from order statistics, with the actual coverage, at least the level asked). Without\n\
+                 PRINT only the case processing summary shows. The groups may include a missing value. OUTFILE\n\
+                 writes the overall record first, the group variable empty, then one record per group; it is\n\
+                 not available under SPLIT FILE. A subcommand without content is ignored.",
+        example: "RATIO STATISTICS rent WITH income BY district (DESCENDING)\n\
+                  \x20 /PRINT=MEDIAN COD PRD WCOC(10 25) CIN(90).",
+        parse: ratio_statistics::ratio_statistics,
     },
     CommandSpec {
         name: "FACTOR",
