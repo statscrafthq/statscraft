@@ -241,6 +241,10 @@ fn fit(s: &Settings, units: &[Unit]) -> Result<Fit, Error> {
             }
             t /= 2.0;
         }
+        // no step along this direction helps: keep the last point, not converged
+        if !(next_ll.is_finite() && next_ll >= ll - 1e-12 * ll.abs()) {
+            break;
+        }
         let change = (0..params)
             .map(|j| (next_theta[j] - theta[j]).abs() / theta[j].abs().max(1.0))
             .fold((next_c - c).abs(), f64::max);

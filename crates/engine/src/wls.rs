@@ -428,7 +428,7 @@ impl Engine {
         let g = weights_for(best.unwrap_or(1.0));
         let ll = log_likelihood(&ls, &c, &g);
         let weighting = match best {
-            Some(power) => format!("{} to the power -{power}", shown.named(data, weight_name)),
+            Some(power) => format!("{} to the power {}", shown.named(data, weight_name), -power),
             None => shown.named(data, weight_name),
         };
         let caption = Some(format!(
@@ -464,7 +464,8 @@ impl Engine {
                         data.set_variable_label(
                             &name,
                             Some(&format!(
-                                "WLS weight for {dependent}: {source} to the power -{power}"
+                                "WLS weight for {dependent}: {source} to the power {}",
+                                -power
                             )),
                         )?;
                         data.set_format(&name, "F11.5")?;
