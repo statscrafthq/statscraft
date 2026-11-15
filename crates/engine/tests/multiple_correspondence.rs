@@ -579,6 +579,26 @@ fn active_imputation_and_its_extra_category() {
         0.0,
         0.0,
     );
+    // a supplementary object's own code 3 stays apart from the extra category, which is 4
+    let with_three = source.replace("3 0 1\nEND", "3 0 1\n1 3 1\nEND");
+    let three = run(
+        &mut Engine::default(),
+        &format!(
+            "{with_three}MULTIPLE CORRESPONDENCE pet garden commute /ANALYSIS=pet garden commute
+               /MISSING=garden(ACTIVE EXTRACAT) /SUPPLEMENTARY=OBJECT(16) /PRINT=QUANT(garden)
+               /PLOT=NONE."
+        ),
+    );
+    let q = "Quantifications: garden";
+    check(&three, q, "Missing", "Frequency", 1.0, 0.0);
+    check(
+        &three,
+        q,
+        "3 (supplementary objects)",
+        "Frequency",
+        1.0,
+        0.0,
+    );
     let t = run(
         &mut Engine::default(),
         &format!(

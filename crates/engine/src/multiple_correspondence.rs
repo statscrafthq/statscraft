@@ -899,7 +899,8 @@ impl Engine {
                         _ => Some((k, f)),
                     })
                     .map(|(k, _)| k as f64);
-                let extra = freq.keys().last().map_or(1.0, |k| (*k + 1) as f64);
+                // above every code any case has, supplementary ones included
+                let extra = codes.iter().flatten().fold(0.0, |a: f64, b| a.max(*b)) + 1.0;
                 let total: f64 = freq.values().sum();
                 for code in codes.iter_mut() {
                     if code.is_none() {
@@ -1114,7 +1115,11 @@ impl Engine {
                                 })
                                 .collect();
                             let mw: Vec<f64> = w.iter().zip(&mstar).map(|(a, b)| a * b).collect();
-                            orthonormalize(&mut x, &mw, n_w * m_w);
+                            if orthonormalize(&mut x, &mw, n_w * m_w).is_none() {
+                                return Err(Error(format!(
+                                    "{WHO}: the data support fewer than {p} dimensions; lower DIMENSION"
+                                )));
+                            }
                             x
                         }
                     }
