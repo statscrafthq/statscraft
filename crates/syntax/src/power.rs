@@ -7,7 +7,7 @@
 //!   strictly between 0 and 1, 0.05 by default; the sample size (N or NPAIRS) or POWER, never
 //!   both and never neither.
 //! - POWER takes one or more values strictly between 0 and 1 and at most one grid
-//!   `low TO high BY step` (low <= high, step from 0.01 up to 1, equal ends give one value),
+//!   `low TO high BY step` (low <= high, step at least 0.01 and below 1, equal ends give one value),
 //!   in any place in the list. Repeated values are used once, with a warning.
 //! - MEANS ONESAMPLE: N (whole, above 1), SD (above 0), MEAN, NULL (0). MEANS INDEPENDENT:
 //!   N (two whole numbers above 1), NRATIO (n2 / n1, from 0.01 to 100, default 1, used only
@@ -309,7 +309,9 @@ fn powers(p: &mut Parser, command: &mut Power) -> PResult<()> {
                 return fail(
                     p,
                     at,
-                    format!("the step of a POWER grid must lie from 0.01 up to 1, got {step}"),
+                    format!(
+                        "the step of a POWER grid must be at least 0.01 and below 1, got {step}"
+                    ),
                 );
             }
             let mut k = 0.0;
