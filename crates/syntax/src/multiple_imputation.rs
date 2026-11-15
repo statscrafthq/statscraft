@@ -12,9 +12,9 @@
 //!   is written as a quoted date.
 //! - MISSINGSUMMARIES OVERALL, VARIABLES[(MAXVARS=25 MINPCTMISSING=10)], PATTERNS or NONE.
 //!   IMPUTATIONSUMMARIES MODELS, DESCRIPTIVES[(varlist)] or NONE. NONE stands alone.
-//! - ANALYSISWEIGHT=var. OUTFILE IMPUTATIONS=file | dataset, FCSITERATIONS=file | dataset;
+//! - ANALYSISWEIGHT var (an equals sign is accepted but not needed). OUTFILE IMPUTATIONS=file | dataset, FCSITERATIONS=file | dataset;
 //!   IMPUTATIONS is needed unless METHOD=NONE.
-//! - Every subcommand and keyword is written in full, every equals sign is required, a
+//! - Every subcommand and keyword is written in full, every other equals sign is required, a
 //!   subcommand other than CONSTRAINTS comes at most once, a keyword at most once within its
 //!   subcommand, and no subcommand is empty.
 
