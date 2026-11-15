@@ -66,6 +66,8 @@ pub struct HiloPrint {
     pub resid: bool,
     pub estim: bool,
     pub association: bool,
+    /// DEFAULT was named with other keywords: the default display is added to them.
+    pub default: bool,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -214,6 +216,7 @@ fn hilo_print(p: &mut Parser) -> PResult<Option<HiloPrint>> {
                 resid: true,
                 estim: true,
                 association: true,
+                default: false,
             };
         } else if p.eat_keyword("NONE") {
             none = true;
@@ -235,7 +238,7 @@ fn hilo_print(p: &mut Parser) -> PResult<Option<HiloPrint>> {
     } else if default && out == HiloPrint::default() {
         None
     } else {
-        Some(out)
+        Some(HiloPrint { default, ..out })
     })
 }
 

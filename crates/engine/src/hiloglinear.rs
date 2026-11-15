@@ -424,7 +424,8 @@ impl Engine {
         }
         let levels: Vec<usize> = bounds
             .iter()
-            .map(|(lo, hi)| (hi - lo) as usize + 1)
+            // the cast saturates for a huge range, so the + 1 must not overflow either
+            .map(|(lo, hi)| ((hi - lo) as usize).saturating_add(1))
             .collect();
         let cells = levels
             .iter()
@@ -744,12 +745,23 @@ impl Context<'_> {
             ],
             caption_of(None),
         ));
-        let print = design.print.unwrap_or(HiloPrint {
-            freq: true,
-            resid: true,
-            estim: saturated,
-            association: saturated,
-        });
+        let print = match design.print {
+            None => HiloPrint {
+                freq: true,
+                resid: true,
+                estim: saturated,
+                association: saturated,
+                default: true,
+            },
+            Some(p) if p.default => HiloPrint {
+                freq: true,
+                resid: true,
+                estim: p.estim || saturated,
+                association: p.association || saturated,
+                default: true,
+            },
+            Some(p) => p,
+        };
         let standardized: Vec<Option<f64>> = observed
             .iter()
             .zip(&fit.m)
