@@ -749,6 +749,7 @@ Choices where the documentation says nothing, and where it is not followed:
 - No charts are drawn yet; MAXPLOTS is checked and has no effect.
 - PRIOR may be left out on BAYES ONESAMPLE and BAYES RELATED: the defaults (flat priors) apply to normal variables. For binomial and Poisson variables a posterior needs TYPE=CONJUGATE and a Bayes factor needs ALTERPRIORPARAM; without them the command stops with an error.
 - A normal variable without a DATA subcommand gets NULLVALUE=0 and no known variance. A variable on two DATA subcommands, or on DATA but not on INFERENCE, is an error.
+- MEANDIST=NORMAL with an unknown variance and VARDIST=DIFFUSE, JEFFREYS2 or JEFFREYS4 is not used, as the manual says, but a warning tells so.
 - With a known variance, the prior of the mean is the normal one of MEANDIST with its own variance; KAPPA is not used there. MEANDIST=NORMAL with one value is then an error.
 - BAYES RELATED: the difference is the first variable minus the second, and NULLVALUE is subtracted before the t is formed (the paired formula of the algorithms chapter leaves it out).
 - BAYES INDEPENDENT: the difference is group 2 minus group 1, as in the algorithms chapter; the prior mean of GONEN refers to the same direction. LEVEL values that do not occur leave the variable out with a warning. MEANDIST=NORMAL without DATAVAR is ignored with a warning. ROUDER(r) is the scale of the Cauchy prior on the effect size (the formula shows scale 1). GONEN with one value takes it as the variance, with a prior mean of 0.

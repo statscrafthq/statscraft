@@ -681,12 +681,28 @@ impl Engine {
     }
 
     /// A known variance needs both values of MEANDIST=NORMAL.
-    fn known_variance_prior(prior: &NormalPrior, tests: &[&MeanTest]) -> Result<(), Error> {
+    /// A known variance needs both values of MEANDIST=NORMAL. With an unknown variance and a
+    /// flat or Jeffreys variance prior the normal mean prior is not used: a warning says so.
+    fn check_mean_prior(
+        run: &mut Run,
+        prior: &NormalPrior,
+        tests: &[&MeanTest],
+        unknown: bool,
+    ) -> Result<(), Error> {
         if matches!(prior.mean, Some((_, None))) && tests.iter().any(|t| t.variance.is_some()) {
             return Err(Error(
                 "with a known VARIANCE, MEANDIST=NORMAL needs both the mean and the variance"
                     .into(),
             ));
+        }
+        let flat = matches!(
+            prior.variance,
+            VariancePrior::Diffuse | VariancePrior::Jeffreys2 | VariancePrior::Jeffreys4
+        );
+        if unknown && flat && prior.mean.is_some() {
+            run.warnings.push(
+                "MEANDIST=NORMAL is used only with a known variance or a conjugate VARDIST or PRECDIST; the flat mean prior is used".into(),
+            );
         }
         Ok(())
     }
@@ -755,7 +771,14 @@ impl Engine {
             }
         }
         let tests: Vec<&MeanTest> = c.data.iter().map(|d| &d.test).collect();
-        Self::known_variance_prior(&c.prior, &tests)?;
+        if c.distribution == BayesDistribution::Normal && c.analysis.posterior() {
+            let unknown = names.iter().any(|n| {
+                settings
+                    .get(n)
+                    .is_none_or(|&i| c.data[i].test.variance.is_none())
+            });
+            Self::check_mean_prior(&mut run, &c.prior, &tests, unknown)?;
+        }
         let all: Vec<&Variable> = variables.iter().collect();
         let complete = run.cases(&all);
         let seed = c.criteria.seed.unwrap_or_else(time_seed);
@@ -921,7 +944,10 @@ impl Engine {
             pairs.push((a, b, &pair.test));
         }
         let tests: Vec<&MeanTest> = c.pairs.iter().map(|p| &p.test).collect();
-        Self::known_variance_prior(&c.prior, &tests)?;
+        if c.analysis.posterior() {
+            let unknown = tests.iter().any(|t| t.variance.is_none());
+            Self::check_mean_prior(&mut run, &c.prior, &tests, unknown)?;
+        }
         let all: Vec<&Variable> = pairs.iter().flat_map(|(a, b, _)| [a, b]).collect();
         let complete = run.cases(&all);
         let seed = c.criteria.seed.unwrap_or_else(time_seed);

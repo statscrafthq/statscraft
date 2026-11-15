@@ -436,6 +436,10 @@ fn errors_and_warnings() {
         fails("BAYES RELATED /PAIR VARIABLES=before after VARIANCE=1 /PRIOR MEANDIST=NORMAL(0).")
             .contains("both the mean and the variance")
     );
+    let (_, warnings) = run(
+        "BAYES ONESAMPLE /INFERENCE DISTRIBUTION=NORMAL VARIABLES=growth /PRIOR MEANDIST=NORMAL(5 2).",
+    );
+    assert!(warnings[0].contains("flat mean prior"), "{warnings:?}");
     // a factor-only run says nothing about the posterior it does not compute
     let (_, warnings) = run(
         "BAYES INDEPENDENT /INFERENCE VARIABLES=growth GROUP=light\n\
