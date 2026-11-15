@@ -41,6 +41,7 @@ mod graph;
 mod input_program;
 mod lexer;
 mod logistic;
+mod loglinear;
 mod loops;
 mod macros;
 mod matrix;
@@ -97,6 +98,8 @@ mod tests_glm;
 mod tests_graph;
 #[cfg(test)]
 mod tests_input_program;
+#[cfg(test)]
+mod tests_loglinear;
 #[cfg(test)]
 mod tests_loops;
 #[cfg(test)]
@@ -182,6 +185,10 @@ pub use lexer::{Punct, Token, TokenKind};
 pub use logistic::{
     Logistic, LogisticCasewise, LogisticCriteria, LogisticMethod, LogisticMethodKind,
     LogisticPrint, LogisticTemp, Removal,
+};
+pub use loglinear::{
+    CellWeights, Genlog, GenlogCriteria, GenlogPart, GenlogPlot, GenlogPrint, GenlogResiduals,
+    GenlogSaveKind, HiloCriteria, HiloDesign, HiloPrint, HiloRange, Hiloglinear,
 };
 pub use loops::{RepeatItem, command_text, substitute};
 pub use matrix::{

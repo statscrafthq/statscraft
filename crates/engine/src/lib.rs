@@ -29,10 +29,12 @@ mod factor;
 mod format;
 mod frequencies;
 mod genlin;
+mod genlog;
 mod get_data;
 mod get_translate;
 mod glm;
 mod graph;
+mod hiloglinear;
 mod html;
 mod input;
 mod km;
@@ -735,6 +737,8 @@ impl Engine {
             | Command::Coxreg(_)
             | Command::Nomreg(_)
             | Command::Mva(_)
+            | Command::Hiloglinear(_)
+            | Command::Genlog(_)
             | Command::Plum(_)
             | Command::Correspondence(_)
             | Command::Genlin(_)
@@ -997,6 +1001,8 @@ impl Engine {
             Command::Coxreg(command) => self.coxreg(command),
             Command::Nomreg(command) => self.nomreg(command),
             Command::Mva(command) => self.mva(command),
+            Command::Hiloglinear(command) => self.hiloglinear(command),
+            Command::Genlog(command) => self.genlog(command),
             Command::MultipleImputation(command) => self.multiple_imputation(command),
             Command::Plum(command) => self.plum(command),
             Command::Correspondence(command) => self.correspondence(command),

@@ -24,6 +24,7 @@ use crate::graph;
 use crate::input_program;
 use crate::lexer::{Punct, Token, TokenKind};
 use crate::logistic;
+use crate::loglinear;
 use crate::loops;
 use crate::matrix;
 use crate::matrix_data;
@@ -1845,6 +1846,86 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         syntax: MULTIPLE_IMPUTATION_SYNTAX,
         example: "MULTIPLE IMPUTATION rent hhsize tenure commute /IMPUTE METHOD=FCS NIMPUTATIONS=10 /CONSTRAINTS hhsize (MIN=1 RND=1) /OUTFILE IMPUTATIONS='filled.sav'.",
         parse: multiple_imputation::multiple_imputation,
+    },
+    CommandSpec {
+        name: "HILOGLINEAR",
+        summary: "Hierarchical loglinear models of a multiway table of counts, with backward elimination.",
+        syntax: "HILOGLINEAR varlist (min,max) [varlist (min,max) ...]\n\
+                 \x20  [/METHOD[=BACKWARD]] [/MAXORDER=k]\n\
+                 \x20  [/CRITERIA=[CONVERGE(n)] [ITERATE(20)] [P(0.05)] [DELTA(0.5)] [MAXSTEPS(10)] [DEFAULT]]\n\
+                 \x20  [/CWEIGHT=variable | (w w n*w ...)]\n\
+                 \x20  [/PRINT=[FREQ] [RESID] [ESTIM] [ASSOCIATION] | DEFAULT | ALL | NONE]\n\
+                 \x20  [/PLOT=[RESID] [NORMPROB] | DEFAULT | ALL | NONE] [/MISSING=EXCLUDE | INCLUDE]\n\
+                 \x20  [/DESIGN=term [term ...]] [/DESIGN ...].\n\
+                 terms: a variable or variables joined by * (or BY). At least two and at most ten numeric\n\
+                 variables, each group followed by its whole-number range; every integer of the range is a\n\
+                 category, values are cut to integers, and a case with a value outside a range is counted as\n\
+                 out of range and left out. A case missing on a variable is left out unless INCLUDE makes\n\
+                 user-missing values valid; case weights are used as they are.\n\
+                 A DESIGN lists the generating class: the highest terms, each of which brings in all the terms\n\
+                 made of part of its variables. Every DESIGN fits its own model with the CRITERIA, PRINT,\n\
+                 PLOT, MAXORDER and CWEIGHT given earlier in the command (they carry over); METHOD applies to\n\
+                 the next DESIGN only. A DESIGN with no terms, or the one added (with a warning) when the\n\
+                 command does not end with DESIGN, is the saturated model; MAXORDER k cuts every term down to\n\
+                 its k-variable parts. The model is fitted by iterative proportional fitting until no cell\n\
+                 moves by CONVERGE (by default the larger of 0.25 and a thousandth of the largest weighted\n\
+                 count) or ITERATE cycles have run. CWEIGHT gives a weight per cell, from a variable (its mean\n\
+                 in the cell, 1 for an empty cell) or as a list in cell order with the last variable changing\n\
+                 fastest; a weight of 0 makes a structural zero and weights are cut to the range 0 to 1.\n\
+                 Tables: Data Information, Convergence Information, Cell Counts and Residuals (FREQ: observed\n\
+                 and expected counts; RESID: raw and standardized residuals) and the likelihood-ratio and\n\
+                 Pearson Goodness-of-Fit Tests, whose df leaves out the cells fitted as 0. A saturated model\n\
+                 is fitted to the counts plus DELTA and adds the tests that all effects of order k, or of\n\
+                 order k and higher, are zero; ESTIM gives its effect-coded parameters with standard errors\n\
+                 (when no cell is 0) and ASSOCIATION the partial chi-square of each lower-order term. By\n\
+                 default an unsaturated model shows FREQ and RESID, a saturated one all four. METHOD=BACKWARD\n\
+                 removes, one per step and at most MAXSTEPS times, the term of the generating class whose\n\
+                 removal has the largest likelihood-ratio p, while that p is above P, and lists the steps.\n\
+                 PLOT (unsaturated models only) draws the standardized residuals against the observed and\n\
+                 expected counts (RESID) and a normal Q-Q plot of the adjusted residuals (NORMPROB, also\n\
+                 NORMPLOT); PLOT alone means both.",
+        example: "HILOGLINEAR route(1,3) season(1,4) delay(0,1) /METHOD=BACKWARD /CRITERIA=P(0.01) /DESIGN.",
+        parse: loglinear::hiloglinear,
+    },
+    CommandSpec {
+        name: "GENLOG",
+        summary: "General loglinear and logit models of a table of counts, with cell weights, covariates and contrasts.",
+        syntax: "GENLOG factors [BY factors] [WITH covariates]\n\
+                 \x20  [/CSTRUCTURE=variable] [/GRESID=varlist] [/GLOR=varlist] [/MODEL=POISSON | MULTINOMIAL]\n\
+                 \x20  [/CRITERIA=[CONVERGE(0.001)] [ITERATE(20)] [DELTA(0.5)] [CIN(95)] [EPS(1E-8)] [DEFAULT]]\n\
+                 \x20  [/PRINT=[FREQ] [RESID] [ZRESID] [ADJRESID] [DEV] [ITERATION] [COV] [DESIGN] [ESTIM] [CORR]\n\
+                 \x20         [ALL] [DEFAULT] [NONE]]\n\
+                 \x20  [/PLOT=DEFAULT | RESID[(ADJRESID DEV)] | NORMPROB[(ADJRESID DEV)] | NONE]\n\
+                 \x20  [/SAVE=[RESID [(name)]] [ZRESID [(name)]] [ADJRESID [(name)]] [DEV [(name)]] [PRED [(name)]]]\n\
+                 \x20  [/MISSING=EXCLUDE | INCLUDE] [/DESIGN=term [term ...]].\n\
+                 terms: a factor, a(n) for category n of a factor alone, a covariate, or parts joined by * or\n\
+                 BY. Factors are numeric and their categories are the values that occur; the table has a cell\n\
+                 for every combination, at most ten factors. The factors after BY make a logit model, which\n\
+                 needs MULTINOMIAL. A cell's count sums the case weights; its covariates, cell weight\n\
+                 (CSTRUCTURE) and GRESID and GLOR coefficients are weighted means over its cases. A cell weight\n\
+                 of 0 or less makes a structural zero, which is left out of the fit; other cell weights act as\n\
+                 multipliers of the expected count. Without DESIGN the model is saturated, which is not\n\
+                 allowed with covariates. Dummy coding with a constant: a factor has a column for each\n\
+                 category, and columns that repeat earlier ones (by EPS) are redundant and 0. Under MULTINOMIAL\n\
+                 the constant, and in a logit model the terms of the BY factors alone, only fix the totals.\n\
+                 Newton-Raphson starts from the counts plus DELTA (a saturated model keeps DELTA in the\n\
+                 counts) and stops when the fitted values move by less than CONVERGE and the score is below\n\
+                 it, or after ITERATE steps. Tables: Data Information, Model Information, Convergence\n\
+                 Information (ITERATION adds every step), likelihood-ratio and Pearson Goodness-of-Fit Tests,\n\
+                 Cell Counts and Residuals with the columns FREQ, RESID, ZRESID, ADJRESID and DEV ask for\n\
+                 (FREQ, RESID, ADJRESID and DEV by default; NONE leaves the table out), the Design Matrix,\n\
+                 Parameter Estimates with Wald z and the CIN interval (ESTIM), and their covariances (COV) and\n\
+                 correlations (CORR). GRESID gives, for each coefficient variable, the observed and expected\n\
+                 sums and their simple, standardized and adjusted residuals; GLOR tests each contrast of log\n\
+                 expected counts (coefficients summing to 0, per BY combination in a logit model) with a Wald\n\
+                 chi-square and the CIN interval. A logit model adds the analysis of dispersion with the\n\
+                 entropy and concentration measures of association. PLOT draws adjusted (or deviance)\n\
+                 residuals against the observed and expected counts and in normal and detrended normal\n\
+                 plots; by default the adjusted ones in both. SAVE gives each case the value of its cell:\n\
+                 residual (RES_n), standardized (ZRE_n), adjusted (ADJ_n), deviance (DEV_n) residual or\n\
+                 expected count (PRE_n), or the name given.",
+        example: "GENLOG outcome BY clinic shift /MODEL=MULTINOMIAL /PRINT=FREQ ADJRESID ESTIM /DESIGN=outcome outcome*clinic outcome*shift.",
+        parse: loglinear::genlog,
     },
     CommandSpec {
         name: "PLUM",

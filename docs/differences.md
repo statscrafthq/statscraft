@@ -547,6 +547,33 @@ Where the documentation is silent:
 - SAVE gives predictions to every case with valid factors, covariates and offset whose factor levels were fitted; residuals, leverage and Cook's distance only to the cases of the fit. For events/trials, MEANPRED and the intervals are numbers of events. A default name already in use gets a suffix _1, _2 and so on; a name given that exists is an error.
 - Not supported yet: OUTFILE, DISTRIBUTION=TWEEDIE, INITIAL, CITYPE=PROFILE, PRINT GEF, HISTORY, LAGRANGE and LMATRIX, and with REPEATED the multinomial distribution and generalized score tests (ANALYSISTYPE with LR). WORKINGCORR without REPEATED is accepted and ignored, as there is no working correlation then.
 
+### HILOGLINEAR
+
+Choices where the documentation says nothing:
+
+- A case with a weight of 0 or less is not counted anywhere. Data Information counts unweighted cases: valid, out of range and missing (a case that is both missing and out of range counts as missing).
+- A CWEIGHT variable gives each cell the case-weighted mean of its valid values in that cell; a cell without cases gets 1. Cases in a cell whose weight is 0 are dropped from the margins, with a warning, so a structural zero never holds data.
+- The goodness-of-fit tests use the adjusted df (cells fitted as 0 left out); a caption gives the unadjusted df when the two differ. The tests of k-way effects and partial associations use the unadjusted df, and their models are fitted to the counts without DELTA.
+- Partial associations are given for every term below the highest order; the highest-order term's test is the last row of the k-way table.
+- Backward elimination: a term whose removal leaves the chi-square unchanged has p = 1. The Step Summary lists the generating class of each step with its likelihood-ratio chi-square, then every candidate term with the change in chi-square, its df, p and iterations. The procedure stops after MAXSTEPS removals.
+- The convergence table gives the largest gap between the observed and fitted margins of the generating class.
+- RESID plots the standardized residuals against the observed and against the expected counts. NORMPROB plots the adjusted residuals, from the leverages of the dummy-coded model of every term in the generating class, against normal quantiles of i / (n + 1).
+- With several DESIGN subcommands each design's tables carry "Design n" in their caption.
+
+### GENLOG
+
+Choices where the documentation says nothing:
+
+- A logit model's cells run with the dependent factors first and the BY factors after them, the last factor changing fastest. Percentages in the cell table are of the whole table, also in a logit model.
+- A model is saturated when it has as many non-redundant columns as cells outside the structural zeros; it is then fitted to the counts plus DELTA throughout, and the tables show those counts, as for HILOGLINEAR.
+- The convergence test needs both parts of the manual's rule: the fitted values change by less than CONVERGE (absolutely or relative to their size) and the root mean square of the score of the parameters other than the constant and the totals is below CONVERGE.
+- Under MULTINOMIAL the constant and the BY combinations are not listed among the estimates, the covariance and correlation matrices or the design matrix.
+- The analysis of dispersion takes as model df the non-redundant parameters of terms that involve a BY factor or a covariate, and as total df (N - 1)(r - 1), with N the weighted count and r the number of combinations of the dependent factors; the residual df is the difference.
+- GLOR coefficients that do not sum to 0 (within each BY combination of a logit model) are reported in a warning and not tested.
+- The deviance residual of an empty cell is minus the root of 2m. Residual plots and normal plots use the cells outside the structural zeros; normal quantiles are of i / (n + 1).
+- SAVE gives cases in a structural zero, and cases missing on a variable of the command, the system-missing value. Saved variables have format F8.2.
+- A design of more than 3000 columns is refused, since the fit works with dense matrices of that size.
+
 ### UNIANOVA and GLM
 
 - A frequency weight is rounded to a whole number, as documented (GNU PSPP uses fractional weights as they are).
@@ -1060,6 +1087,7 @@ Where the documentation is silent:
   - LOGISTIC REGRESSION has no SELECT or OUTFILE.
   - COXREG has no OUTFILE.
   - NOMREG has no TEST, OUTFILE, or PRINT CELLPROB, HISTORY and ASSOCIATION.
+  - LOGLINEAR, the older loglinear command with contrasts, is not supported; GENLOG and HILOGLINEAR cover its models.
   - GENLIN has no OUTFILE, TWEEDIE, INITIAL, CITYPE=PROFILE or PRINT GEF, HISTORY, LAGRANGE and LMATRIX, and with REPEATED no multinomial distribution and no generalized score tests.
   - CSPLAN has no SAMPLE designs; CSDESCRIPTIVES, CSTABULATE, CSGLM and CSLOGISTIC have no JOINTPROB and no UNEQUAL_WOR estimator; CSGLM and CSLOGISTIC have no OUTFILE or PRINT GEF.
   - UNIANOVA and GLM have no RANDOM, TEST, ROBUST, OUTFILE, MEASURE, POSTHOC VS, CONTRAST SPECIAL, PRINT GEF and TEST(LMATRIX) or the heteroskedasticity tests, and no multivariate tests in EMMEANS COMPARE of the multivariate model. With WSFACTOR they have no EMMEANS, POSTHOC, CONTRAST, LMATRIX, MMATRIX, SAVE, PLOT, or PRINT PARAMETER, HOMOGENEITY, LOF, RSSCP and TEST(SSCP).
