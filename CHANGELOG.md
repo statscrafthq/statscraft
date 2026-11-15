@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Window: Edit > Settings > Grids and output chooses the output for multiply imputed data (original data, each imputation, pooled, diagnostics), runs SET MIOUTPUT and keeps the choice for the next start. See [the window](docs/window.md).
 - Pooling over multiple imputations: on data split by Imputation_, MEANS, T-TEST, CORRELATIONS, REGRESSION, LOGISTIC REGRESSION, PLUM and NOMREG now add pooled tables by Rubin's rules (means, mean differences, correlations through Fisher's z, coefficients) with the diagnostics SET MIOUTPUT asks for, and REGRESSION and LOGISTIC REGRESSION a pooled F test that all slopes are 0 (Li, Raghunathan and Rubin). A row that not every imputation gives is left out with a warning. Checked against a general statistics package. See [MULTIPLE IMPUTATION](docs/commands/multiple-imputation.md).
 - Window: the Help menu no longer has Connect an AI agent; AI apps are connected only in Edit > Settings > AI agents.
 - Window: Analyze > Multiple Imputation > Analyze Patterns and Impute Missing Data Values write MULTIPLE IMPUTATION: the variables, the number of imputations and where the completed data go, the method and its settings, limits, rounding and roles per variable, the analysis weight, the missing value summaries, the model and descriptive tables, and the iteration history. See [the window](docs/window.md#analyze).

@@ -3726,6 +3726,7 @@ impl App {
         let labels = settings_window::TableLabels {
             variables: self.session.setting("TVARS"),
             values: self.session.setting("TNUMBERS"),
+            mioutput: self.session.setting("MIOUTPUT"),
         };
         let set = settings_window::show(
             ctx,

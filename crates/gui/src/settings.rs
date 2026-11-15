@@ -1,7 +1,8 @@
 //! What the window remembers between starts: its size and position, the folder of the last
 //! file dialog, the recent files and the settings of Edit > Settings. Kept in the user's config
-//! folder as lines of text. How tables show variables and values (SET TVARS and TNUMBERS) is
-//! kept here too, and a new session of the window starts by running that SET.
+//! folder as lines of text. How tables show variables and values (SET TVARS and TNUMBERS) and
+//! the parts of multiply imputed output (SET MIOUTPUT) are kept here too, and a new session of
+//! the window starts by running that SET.
 
 use std::path::{Path, PathBuf};
 
@@ -11,6 +12,8 @@ const RECENT: usize = 10;
 /// The values of SET TVARS and TNUMBERS that the window keeps.
 const TVARS: [&str; 3] = ["NAMES", "LABELS", "BOTH"];
 const TNUMBERS: [&str; 3] = ["VALUES", "LABELS", "BOTH"];
+/// The parts SET MIOUTPUT can show for multiply imputed data.
+pub const MIOUTPUT: [&str; 4] = ["OBSERVED", "IMPUTED", "POOLED", "DIAGNOSTICS"];
 
 #[derive(Default, Debug, PartialEq)]
 pub struct Settings {
@@ -43,6 +46,8 @@ pub struct Settings {
     /// SET TVARS and TNUMBERS chosen in Edit > Settings, in upper case; `None` until chosen.
     pub tvars: Option<String>,
     pub tnumbers: Option<String>,
+    /// SET MIOUTPUT chosen in Edit > Settings: its keywords in upper case, space separated.
+    pub mioutput: Option<String>,
 }
 
 impl Settings {
@@ -99,7 +104,8 @@ impl Settings {
     /// `recent PATH`,
     /// `updates on|off`, `update-checked SECONDS`, `paper system`, `theme NAME`, `wrap off`,
     /// `log hidden`, `variable_widths W ...`, `tvars names|labels|both` and
-    /// `tnumbers values|labels|both`; anything else is skipped.
+    /// `tnumbers values|labels|both` and `mioutput` with MIOUTPUT keywords; anything else is
+    /// skipped.
     pub fn parse(text: &str) -> Self {
         let mut settings = Self::default();
         let pair = |rest: &str| {
@@ -134,6 +140,7 @@ impl Settings {
                 "update-checked" => settings.update_checked = rest.parse().ok(),
                 "tvars" => settings.tvars = keyword(&TVARS, rest),
                 "tnumbers" => settings.tnumbers = keyword(&TNUMBERS, rest),
+                "mioutput" => settings.mioutput = mi_parts(rest),
                 _ => {}
             }
         }
@@ -187,6 +194,9 @@ impl Settings {
                 text.push_str(&format!("{key} {}\n", value.to_lowercase()));
             }
         }
+        if let Some(parts) = &self.mioutput {
+            text.push_str(&format!("mioutput {}\n", parts.to_lowercase()));
+        }
         text
     }
 
@@ -199,13 +209,19 @@ impl Settings {
         }
     }
 
-    /// The SET command a new session of the window starts with, when TVARS or TNUMBERS was
-    /// chosen; the session then holds them like any SET.
+    /// Keeps a choice of SET MIOUTPUT from Edit > Settings; a list SET would refuse is not kept.
+    pub fn keep_mioutput(&mut self, parts: &str) {
+        self.mioutput = mi_parts(parts);
+    }
+
+    /// The SET command a new session of the window starts with, when TVARS, TNUMBERS or
+    /// MIOUTPUT was chosen; the session then holds them like any SET.
     pub fn startup_syntax(&self) -> Option<String> {
-        let set: Vec<String> = [("TVARS", &self.tvars), ("TNUMBERS", &self.tnumbers)]
+        let mut set: Vec<String> = [("TVARS", &self.tvars), ("TNUMBERS", &self.tnumbers)]
             .into_iter()
             .filter_map(|(name, value)| Some(format!("{name}={}", value.as_ref()?)))
             .collect();
+        set.extend(self.mioutput.as_ref().map(|p| format!("MIOUTPUT=[{p}]")));
         (!set.is_empty()).then(|| format!("SET {}.", set.join(" ")))
     }
 
@@ -227,6 +243,17 @@ impl Settings {
 }
 
 /// `word` in upper case when it is one of `allowed`.
+/// MIOUTPUT keywords in upper case and in their usual order; None when none or an unknown one.
+fn mi_parts(text: &str) -> Option<String> {
+    let words: Vec<String> = text.split_whitespace().map(str::to_uppercase).collect();
+    let known = words.iter().all(|w| MIOUTPUT.contains(&w.as_str()));
+    let parts: Vec<&str> = MIOUTPUT
+        .into_iter()
+        .filter(|k| words.iter().any(|w| w == k))
+        .collect();
+    (known && !parts.is_empty()).then(|| parts.join(" "))
+}
+
 fn keyword(allowed: &[&str], word: &str) -> Option<String> {
     let word = word.trim().to_uppercase();
     allowed.contains(&word.as_str()).then_some(word)
@@ -256,6 +283,7 @@ mod tests {
             log_hidden: true,
             tvars: Some("NAMES".into()),
             tnumbers: Some("BOTH".into()),
+            mioutput: Some("IMPUTED POOLED".into()),
         };
         for i in 0..12 {
             settings.add_recent(Path::new(&format!("/data/f{i}.sav")));
@@ -307,5 +335,28 @@ mod tests {
         assert_eq!(session.setting("TVARS"), "NAMES");
         assert_eq!(session.setting("TNUMBERS"), "BOTH");
         assert!(session.settings_syntax().contains("TVARS='NAMES'"));
+    }
+
+    #[test]
+    fn imputation_output_is_kept_and_set_when_a_session_starts() {
+        let mut settings = Settings::default();
+        settings.keep_mioutput("pooled observed");
+        assert_eq!(settings.mioutput.as_deref(), Some("OBSERVED POOLED"));
+        let text = settings.text();
+        assert_eq!(text, "mioutput observed pooled\n");
+        assert_eq!(Settings::parse(&text), settings);
+        // none, or a word SET would refuse, is not kept
+        assert_eq!(
+            Settings::parse("mioutput\nmioutput pooled extra\n"),
+            Settings::default()
+        );
+        settings.keep_mioutput("");
+        assert_eq!(settings.mioutput, None);
+        settings.keep_mioutput("IMPUTED DIAGNOSTICS");
+        let syntax = settings.startup_syntax().unwrap();
+        assert_eq!(syntax, "SET MIOUTPUT=[IMPUTED DIAGNOSTICS].");
+        let mut session = statscraft_engine::session::Session::default();
+        session.run(&syntax, None).unwrap();
+        assert_eq!(session.setting("MIOUTPUT"), "[IMPUTED DIAGNOSTICS]");
     }
 }
