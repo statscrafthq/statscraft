@@ -242,7 +242,6 @@ impl Settings {
     }
 }
 
-/// `word` in upper case when it is one of `allowed`.
 /// MIOUTPUT keywords in upper case and in their usual order; None when none or an unknown one.
 fn mi_parts(text: &str) -> Option<String> {
     let words: Vec<String> = text.split_whitespace().map(str::to_uppercase).collect();
@@ -254,6 +253,7 @@ fn mi_parts(text: &str) -> Option<String> {
     (known && !parts.is_empty()).then(|| parts.join(" "))
 }
 
+/// `word` in upper case when it is one of `allowed`.
 fn keyword(allowed: &[&str], word: &str) -> Option<String> {
     let word = word.trim().to_uppercase();
     allowed.contains(&word.as_str()).then_some(word)
