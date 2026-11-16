@@ -965,6 +965,10 @@ pub enum CrosstabsMeasure {
     Uc,
     /// The McNemar (2 x 2) or McNemar-Bowker test of symmetry.
     Mcnemar,
+    /// Somers' d.
+    D,
+    /// Eta, for numeric data.
+    Eta,
 }
 
 /// How CROSSTABS turns case weights into counts.

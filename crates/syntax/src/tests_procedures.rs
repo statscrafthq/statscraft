@@ -146,8 +146,15 @@ fn crosstabs() {
         panic!()
     };
     assert_eq!(c.measures, [M::Uc, M::Mcnemar]);
-    let e = err("CROSSTABS a BY b /STATISTICS=CHISQ D.");
-    assert_eq!(e.message, "D in CROSSTABS /STATISTICS is not supported yet");
+    let Command::Crosstabs(c) = one("CROSSTABS a BY b /STATISTICS=ETA D.") else {
+        panic!()
+    };
+    assert_eq!(c.measures, [M::D, M::Eta]);
+    let e = err("CROSSTABS a BY b /STATISTICS=CHISQ CMH.");
+    assert_eq!(
+        e.message,
+        "CMH in CROSSTABS /STATISTICS is not supported yet"
+    );
     assert_eq!(e.expected[0], "CHISQ");
     assert!(
         err("CROSSTABS a BY b /MISSING=REPORT.")

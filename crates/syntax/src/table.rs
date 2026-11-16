@@ -1144,7 +1144,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "Contingency tables with percentages, residuals and chi-square tests.",
         syntax: "CROSSTABS [/]TABLES=rowvars BY colvars [BY layervars ...] [/TABLES=...]\n\
                  \x20         [/CELLS=COUNT ROW COLUMN TOTAL EXPECTED RESID SRESID ASRESID ALL NONE]\n\
-                 \x20         [/STATISTICS=CHISQ PHI CC LAMBDA UC BTAU CTAU GAMMA CORR KAPPA RISK MCNEMAR NONE] [/MISSING=TABLE | INCLUDE]\n\
+                 \x20         [/STATISTICS=CHISQ PHI CC LAMBDA UC BTAU CTAU GAMMA D ETA CORR KAPPA RISK MCNEMAR NONE] [/MISSING=TABLE | INCLUDE]\n\
                  \x20         [/FORMAT=AVALUE | DVALUE TABLES | NOTABLES]\n\
                  \x20         [/COUNT=[ASIS | CASE | CELL] [ROUND | TRUNCATE]] [/BARCHART].\n\
                  First a Case Processing Summary: per table the valid, missing and total cases (weighted).\n\
@@ -1159,8 +1159,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  table Fisher's exact test and the continuity correction.\n\
                  PHI (phi and Cramer's V), CC (contingency coefficient), BTAU, CTAU (Kendall's tau-b, tau-c),\n\
                  GAMMA and CORR (Spearman and Pearson, numeric variables only) go in a Symmetric Measures table;\n\
-                 LAMBDA (lambda and Goodman and Kruskal's tau) and UC (uncertainty coefficient) in a Directional\n\
-                 Measures table. MCNEMAR adds to the chi-square table the exact McNemar test (2 x 2) or the\n\
+                 LAMBDA (lambda and Goodman and Kruskal's tau), UC (uncertainty coefficient), D (Somers' d) and\n\
+                 ETA (numeric variables) in a Directional Measures table. MCNEMAR adds to the chi-square table the exact McNemar test (2 x 2) or the\n\
                  McNemar-Bowker test (larger), for rows and columns with the same values. KAPPA works on\n\
                  the square table over the values of both variables (same type), unseen pairs counted 0. RISK\n\
                  gives a Risk Estimate table for 2 x 2 tables: the odds ratio and the risk for each column\n\

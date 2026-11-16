@@ -31,7 +31,11 @@
 //! - McNemar: on the square table, for 2 x 2 the exact binomial test of the two off-diagonal
 //!   counts; for larger tables the sum over pairs i < j with counts of (f_ij - f_ji)^2 /
 //!   (f_ij + f_ji), chi-square with n (n - 1) / 2 degrees of freedom.
-//! - The approximate T of lambda, the uncertainty coefficient, tau-b, tau-c and gamma is the estimate over its standard
+//! - Somers' d for the column variable: (P - Q) over W^2 less the sum of squared row totals;
+//!   for the row variable the same with the column totals; symmetric, over the mean of both.
+//! - Eta (numeric data) for the column variable: the root of 1 less the sum of squares of the
+//!   column values within the rows over their total sum of squares.
+//! - The approximate T of lambda, the uncertainty coefficient, Somers' d, tau-b, tau-c and gamma is the estimate over its standard
 //!   error under independence, its significance two-sided normal. The standard error shown is
 //!   the one without that assumption.
 
@@ -245,7 +249,50 @@ impl Counts<'_> {
                 });
             }
         }
+        if asked.contains(&M::D) {
+            let rows = self.row_totals();
+            let columns = self.column_totals();
+            let w: f64 = rows.iter().sum();
+            let pairs = self.pairs(&rows, &columns, w);
+            let group = "Ordinal by Ordinal";
+            for (dependent, value) in [
+                (0, pairs.somers_symmetric()),
+                (1, pairs.somers(false)),
+                (2, pairs.somers(true)),
+            ] {
+                out.push(normal_line(group, "Somers' d", dependent, value));
+            }
+        }
+        if let (true, Some((x, y))) = (asked.contains(&M::Eta), &self.values) {
+            let group = "Nominal by Interval";
+            out.push(line(group, "Eta", 1, self.eta(x, true)));
+            out.push(line(group, "Eta", 2, self.eta(y, false)));
+        }
         out
+    }
+
+    /// Eta with the row variable (values `scores`, `rows` true) or the column variable as the
+    /// dependent one: the root of 1 - (the sum of squares within the categories of the other
+    /// variable) / (the total sum of squares).
+    fn eta(&self, scores: &[f64], rows: bool) -> f64 {
+        let f: Vec<Vec<f64>> = if rows {
+            self.transposed()
+        } else {
+            self.f.to_vec()
+        };
+        let mut total = (0.0, 0.0, 0.0);
+        let mut within = 0.0;
+        for line in &f {
+            let n: f64 = line.iter().sum();
+            let s: f64 = line.iter().zip(scores).map(|(c, y)| c * y).sum();
+            let s2: f64 = line.iter().zip(scores).map(|(c, y)| c * y * y).sum();
+            total = (total.0 + n, total.1 + s, total.2 + s2);
+            if n > 0.0 {
+                within += s2 - s * s / n;
+            }
+        }
+        let spread = total.2 - total.1 * total.1 / total.0;
+        (1.0 - within / spread).sqrt()
     }
 
     /// The entropies of the rows, the columns and the cells, and the sum P of the manual.
@@ -666,6 +713,38 @@ impl Pairs {
         let ase1 = (s - self.w.powi(3) * tau * tau * (dr + dc).powi(2)).sqrt() / (dr * dc);
         let ase0 = 2.0 * (self.spread() / (dr * dc)).sqrt();
         (tau, ase1, ase0)
+    }
+
+    /// Somers' d with the column variable (`columns` true) or the row variable dependent.
+    fn somers(&self, columns: bool) -> (f64, f64, f64) {
+        let totals = if columns { &self.rows } else { &self.columns };
+        let dt = self.w * self.w - totals.iter().map(|x| x * x).sum::<f64>();
+        let d = (self.p - self.q) / dt;
+        let s: f64 = self
+            .cells()
+            .map(|(f, c, dis, i, j)| {
+                let other = if columns {
+                    self.rows[i]
+                } else {
+                    self.columns[j]
+                };
+                f * (dt * (c - dis) - (self.p - self.q) * (self.w - other)).powi(2)
+            })
+            .sum();
+        let ase1 = 2.0 / (dt * dt) * s.sqrt();
+        let ase0 = 2.0 / dt * self.spread().sqrt();
+        (d, ase1, ase0)
+    }
+
+    fn somers_symmetric(&self) -> (f64, f64, f64) {
+        let dr = self.w * self.w - self.rows.iter().map(|x| x * x).sum::<f64>();
+        let dc = self.w * self.w - self.columns.iter().map(|x| x * x).sum::<f64>();
+        let d = (self.p - self.q) / ((dr + dc) / 2.0);
+        // d is tau-b scaled by 2 root(Dr Dc) / (Dr + Dc); so is its standard error
+        let (_, tau_ase, _) = self.tau_b();
+        let ase1 = 2.0 * tau_ase * (dr * dc).sqrt() / (dr + dc);
+        let ase0 = 4.0 / (dc + dr) * self.spread().sqrt();
+        (d, ase1, ase0)
     }
 
     fn tau_c(&self) -> (f64, f64, f64) {

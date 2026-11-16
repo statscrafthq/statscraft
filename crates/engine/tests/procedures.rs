@@ -880,6 +880,55 @@ fn crosstabs_mcnemar_and_uncertainty() {
     assert!(tables[0].caption.as_deref().unwrap().contains("square"));
 }
 
+/// Somers' d and eta of the 2 x 2 table [[3, 12], [9, 4]]: with doubled pair counts P - Q =
+/// 24 - 216, d is -192 / 390 with b dependent (390 = 28^2 - 15^2 - 13^2), -192 / 384 with a
+/// dependent and -192 / 387 symmetric; eta of two binary variables is |phi| both ways. The
+/// directional standard errors and T agree with GNU PSPP; the symmetric one scales tau-b's.
+#[test]
+fn crosstabs_somers_d_and_eta() {
+    let data = "DATA LIST FREE /a b n.\nBEGIN DATA\n1 1 3\n1 2 12\n2 1 9\n2 2 4\nEND DATA.\nWEIGHT BY n.\n";
+    let mut engine = Engine::default();
+    let tables = crosstabs(
+        &mut engine,
+        &format!("{data}CROSSTABS a BY b /CELLS=NONE /STATISTICS=ETA D."),
+    );
+    let [directional] = &tables[..] else {
+        panic!("{tables:?}")
+    };
+    let phi = 96.0 / (15.0_f64 * 13.0 * 12.0 * 16.0).sqrt();
+    let expected = [
+        (
+            "Ordinal by Ordinal",
+            "Somers' d",
+            "Symmetric",
+            -192.0 / 387.0,
+            Some(0.1644977745),
+        ),
+        ("", "", "a Dependent", -0.5, Some(0.1653594569)),
+        ("", "", "b Dependent", -192.0 / 390.0, Some(0.1644768906)),
+        ("Nominal by Interval", "Eta", "a Dependent", phi, None),
+        ("", "", "b Dependent", phi, None),
+    ];
+    assert_eq!(directional.rows.len(), expected.len());
+    for (row, (group, name, which, value, ase)) in directional.rows.iter().zip(expected) {
+        assert_eq!(texts(row)[..3], [group, name, which]);
+        assert!((number(&row[3]) - value).abs() < 1e-12, "{which}");
+        match ase {
+            Some(ase) => {
+                assert!((number(&row[4]) - ase).abs() < 1e-9, "{which}");
+                assert!((number(&row[5]) + 2.9833977696).abs() < 1e-9, "{which}");
+            }
+            None => assert_eq!(row[4..], [Cell::Empty, Cell::Empty, Cell::Empty]),
+        }
+    }
+    // eta needs numbers
+    let strings = crosstabs(
+        &mut engine,
+        "STRING s (A1).\nCOMPUTE s = 'x'.\nIF a = 2 s = 'y'.\nCROSSTABS s BY b /CELLS=NONE /STATISTICS=ETA.",
+    );
+    assert!(strings.is_empty() || strings[0].rows.is_empty());
+}
+
 #[test]
 fn crosstabs_missing_values() {
     let mut engine = survey();
