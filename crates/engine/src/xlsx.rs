@@ -33,17 +33,28 @@ pub fn write_xlsx_parts<'a>(
 ) -> Result<(), XlsxError> {
     let mut workbook = Workbook::new();
     if one_sheet {
-        // no frozen panes here: every table has its own header
+        // no frozen header rows here: every table has its own header
         let sheet = workbook.add_worksheet().set_name("Tables")?;
         let (mut top, mut widths, mut all_plain) = (0, Vec::new(), true);
+        let mut freeze = Some(u16::MAX);
         for (item, notes) in items {
             all_plain &= matches!(item, Item::Table(t) if t.style.plain);
+            // an item that freezes nothing (a chart, a table without the setting) keeps none
+            let n = match item {
+                Item::Table(t) => t.style.freeze_columns,
+                Item::Chart(_) => None,
+            };
+            freeze = freeze.zip(n).map(|(a, b)| a.min(b));
             top = put_item(sheet, item, (top, 0), notes, &mut widths)? + 1;
         }
         set_widths(sheet, &widths)?;
         // plain tables have only the plugin's lines: the sheet's grid would draw the rest
         if all_plain && top > 0 {
             sheet.set_screen_gridlines(false);
+        }
+        // the tables share their columns: the fewest any table asks for stay in view
+        if let Some(n) = freeze.filter(|&n| n > 0 && n < u16::MAX) {
+            sheet.set_freeze_panes(0, n)?;
         }
     } else {
         let mut names = Vec::new();
@@ -402,7 +413,11 @@ pub(crate) fn put_table(
         widths[at + c] = widths[at + c].max(width);
     }
     if let Some(caption) = table.caption.as_ref().filter(|_| notes) {
-        sheet.write_string_with_format(row, left, caption, &font(Format::new().set_italic()))?;
+        let format = match &table.style.caption {
+            Some(look) => paint(font(Format::new()), look),
+            None => font(Format::new().set_italic()),
+        };
+        sheet.write_string_with_format(row, left, caption, &format)?;
         row += 1;
     }
     Ok(row)

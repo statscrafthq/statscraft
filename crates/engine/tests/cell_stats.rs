@@ -171,6 +171,12 @@ fn statistics_and_decorations_survive_the_output_file() {
         header_heights: vec![20.0],
         // at most 10
         rows_above: Some(12),
+        caption: Some(Decoration {
+            row: 5,
+            italic: true,
+            comment: Some("no comment on a caption".into()),
+            ..Decoration::default()
+        }),
     };
     table.set_decorations(cells, style);
     assert_eq!(table.decorations.len(), 2);
@@ -187,6 +193,11 @@ fn statistics_and_decorations_survive_the_output_file() {
     let widths = [(0, 255.0), (h, 3.0)].map(|(col, width)| ColumnWidth { col, width });
     assert_eq!(table.style.column_widths, widths);
     assert_eq!(table.style.freeze_columns, Some(2));
+    let caption = table.style.caption.as_ref().unwrap();
+    assert_eq!(
+        (caption.row, caption.italic, &caption.comment),
+        (0, true, &None)
+    );
     // a font name that could break out of a style, and a size beyond Excel's, are dropped
     let mut odd = table.clone();
     let quoted = TableStyle {
