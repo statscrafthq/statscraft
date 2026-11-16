@@ -799,6 +799,7 @@ impl App {
                         self.plugins.waiting.push(crate::plugins::Done {
                             window: id,
                             document: o.document.clone(),
+                            generation: self.plugins.generation,
                             result: Ok(cleared),
                         });
                     }
@@ -3992,9 +3993,9 @@ impl App {
         if (self.settings.plugin.clone(), self.settings.plugin_off) != chosen {
             self.plugins.changed();
         }
-        if let Some(syntax) = self.plugins.dialog_ui(ctx, &self.settings) {
+        if let Some(syntax) = self.plugins.dialog_ui(ctx) {
             self.run(&syntax, None, After::Show);
-            self.plugins.redo = true;
+            self.plugins.again();
         }
         if self.settings.log_hidden != log_hidden {
             self.show_log = !self.settings.log_hidden;

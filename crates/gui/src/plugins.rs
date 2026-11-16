@@ -18,6 +18,8 @@ use std::sync::mpsc;
 pub struct Done {
     pub window: WindowId,
     pub document: String,
+    /// The settings generation the answer was asked under; an older one is dropped.
+    pub generation: u64,
     pub result: Result<Vec<(u64, Vec<Decoration>)>, String>,
 }
 
@@ -30,7 +32,11 @@ pub struct Plugins {
     pub waiting: Vec<Done>,
     /// The settings changed: every table is decorated again once no run goes on.
     pub redo: bool,
-    pub dialog: Option<Vec<(plugin::Setting, String)>>,
+    /// Counts the changes of the plugin or its settings, so a slow answer asked before a change
+    /// cannot overwrite a newer one.
+    pub generation: u64,
+    /// The open settings dialog: the description it was opened with and the values typed.
+    pub dialog: Option<(Description, Vec<(plugin::Setting, String)>)>,
 }
 
 impl Default for Plugins {
@@ -42,6 +48,7 @@ impl Default for Plugins {
             receiver,
             waiting: Vec::new(),
             redo: false,
+            generation: 0,
             dialog: None,
         }
     }
@@ -73,7 +80,14 @@ impl Plugins {
     /// decorated again.
     pub fn changed(&mut self) {
         self.described = None;
+        self.again();
+    }
+
+    /// The plugin's settings changed: every table is decorated again, and answers asked before
+    /// are dropped.
+    pub fn again(&mut self) {
         self.redo = true;
+        self.generation += 1;
     }
 
     /// What Edit > Settings shows about the plugin.
@@ -110,6 +124,7 @@ impl Plugins {
         let attributes = data.map(|d| d.attributes().to_vec()).unwrap_or_default();
         let sender = self.sender.clone();
         let document = document.to_string();
+        let generation = self.generation;
         std::thread::spawn(move || {
             let refs: Vec<(u64, &Table)> = tables.iter().map(|(id, t)| (*id, t)).collect();
             let result = plugin::describe(&program).and_then(|description| {
@@ -119,6 +134,7 @@ impl Plugins {
             let _ = sender.send(Done {
                 window,
                 document,
+                generation,
                 result,
             });
             wake();
@@ -127,7 +143,12 @@ impl Plugins {
 
     /// Takes the answers that came in.
     pub fn receive(&mut self) {
-        self.waiting.extend(self.receiver.try_iter());
+        let generation = self.generation;
+        let current = self
+            .receiver
+            .try_iter()
+            .filter(|d| d.generation == generation);
+        self.waiting.extend(current);
     }
 
     /// Opens Edit > Plugin Settings with the values of the active dataset; an error when no
@@ -152,14 +173,14 @@ impl Plugins {
             };
             (s.clone(), text)
         });
-        self.dialog = Some(fields.collect());
+        self.dialog = Some((description.clone(), fields.collect()));
         Ok(())
     }
 
     /// Edit > Plugin Settings while it is open; returns the syntax that keeps the values as
     /// data file attributes when OK is pressed.
-    pub fn dialog_ui(&mut self, ctx: &egui::Context, settings: &Settings) -> Option<String> {
-        let fields = self.dialog.as_mut()?;
+    pub fn dialog_ui(&mut self, ctx: &egui::Context) -> Option<String> {
+        let (_, fields) = self.dialog.as_mut()?;
         let (mut open, mut ok, mut cancel) = (true, false, false);
         egui::Window::new("Plugin Settings")
             .open(&mut open)
@@ -193,11 +214,9 @@ impl Plugins {
         if !(ok || cancel || !open) {
             return None;
         }
-        let fields = self.dialog.take()?;
-        let Some(Ok(description)) = self.description(settings) else {
-            return None;
-        };
-        ok.then(|| attribute_syntax(description, &fields))
+        // the description the dialog was opened with: the program may have changed since
+        let (description, fields) = self.dialog.take()?;
+        ok.then(|| attribute_syntax(&description, &fields))
     }
 }
 
@@ -241,6 +260,25 @@ fn attribute_syntax(description: &Description, fields: &[(plugin::Setting, Strin
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// An answer asked before the settings changed is dropped; one asked after is kept.
+    #[test]
+    fn an_answer_from_before_a_change_is_dropped() {
+        let mut plugins = Plugins::default();
+        let done = |generation| Done {
+            window: 1,
+            document: "doc".into(),
+            generation,
+            result: Ok(Vec::new()),
+        };
+        plugins.sender.send(done(0)).unwrap();
+        plugins.again();
+        plugins.receive();
+        assert!(plugins.waiting.is_empty());
+        plugins.sender.send(done(1)).unwrap();
+        plugins.receive();
+        assert_eq!(plugins.waiting.len(), 1);
+    }
 
     #[test]
     fn plugin_settings_are_kept_as_data_file_attributes() {
