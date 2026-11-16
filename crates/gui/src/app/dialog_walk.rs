@@ -11,6 +11,7 @@ use crate::analyze_dialogs::{
     Correlations, Explore, ExploreMissing, Means, MrGroup, MultResponse, Oneway, TTest, TTestKind,
     Tree,
 };
+use crate::catpca_dialog::{Catpca, CatpcaVariable};
 use crate::correspondence_dialog::{Correspondence, Role, TableVariable};
 use crate::cox_dialog::Cox;
 use crate::cs_model_dialog::{Held, OddsRatio, SampleModel};
@@ -257,6 +258,10 @@ fn minimal(out: &Path) -> Vec<Dialog> {
             ..Default::default()
         })),
         Dialog::Advanced(Advanced::Mca(Box::new(Mca {
+            variables: v(&["gender", "region"]),
+            ..Default::default()
+        }))),
+        Dialog::Advanced(Advanced::Catpca(Box::new(Catpca {
             variables: v(&["gender", "region"]),
             ..Default::default()
         }))),
@@ -3426,6 +3431,234 @@ fn the_multiple_correspondence_dialog_writes_syntax_that_runs() {
         session.run(&program, None).unwrap();
         let data = session.dataset().unwrap().clone();
         let syntax = Dialog::Advanced(Advanced::Mca(Box::new(dialog)))
+            .syntax(&data)
+            .unwrap();
+        assert_eq!(syntax, expected);
+        let (_, errors) = statscraft_syntax::parse(&syntax);
+        assert!(errors.is_empty(), "{syntax}\n{errors:?}");
+        let result = session.run(&syntax, None).unwrap();
+        assert!(
+            result.commands.iter().any(|c| !c.tables.is_empty()),
+            "{syntax}"
+        );
+        let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
+        assert!(warnings.is_empty(), "{syntax}\n{warnings:?}");
+    }
+    assert!(Path::new(&recoded).exists());
+    std::fs::remove_dir_all(out).unwrap();
+}
+
+/// The Categorical Principal Components dialog on the invented garden members: the syntax is
+/// as expected, parses and runs without a warning.
+#[test]
+fn the_categorical_principal_components_dialog_writes_syntax_that_runs() {
+    let out = folder("walk-catpca");
+    let recoded = out.join("recoded.sav").to_string_lossy().into_owned();
+    let scores = out.join("scores.sav").to_string_lossy().into_owned();
+    let base = Catpca {
+        variables: v(&["site", "crop", "water", "hours", "shift"]),
+        ..Default::default()
+    };
+    let setting = |name: &str, change: &dyn Fn(&mut CatpcaVariable)| {
+        let mut s = CatpcaVariable::new(name);
+        change(&mut s);
+        s
+    };
+    let mixed = vec![
+        setting("site", &|x| {
+            x.weight = s("2");
+            x.level.degree = s("3");
+            x.level.knots = s("1");
+        }),
+        setting("crop", &|x| {
+            x.weight = s("2");
+            x.level.level = 3;
+            x.missing = 2;
+        }),
+        setting("water", &|x| {
+            x.level.level = 4;
+            x.missing = 1;
+        }),
+        setting("hours", &|x| {
+            x.level.level = 5;
+            x.discretize = 1;
+            x.groups = s("4");
+            x.uniform = true;
+        }),
+        setting("shift", &|x| {
+            x.level.level = 1;
+            x.discretize = 3;
+        }),
+    ];
+    let cases: Vec<(Catpca, String)> = vec![
+        (
+            base.clone(),
+            "CATPCA VARIABLES=site crop water hours shift\n  \
+             /ANALYSIS=site crop water hours shift."
+                .into(),
+        ),
+        // every scaling level, weights, recoding and missing values per variable
+        (
+            Catpca {
+                settings: mixed.clone(),
+                ..base.clone()
+            },
+            "CATPCA VARIABLES=site crop water hours shift\n  \
+             /ANALYSIS=site(WEIGHT=2 LEVEL=SPORD DEGREE=3 INKNOT=1) crop(WEIGHT=2 LEVEL=NOMI) \
+             water(LEVEL=MNOM) hours(LEVEL=NUME) shift(LEVEL=SPNOM)\n  \
+             /DISCRETIZATION=hours(GROUPING NCAT=4 DISTR=UNIFORM) shift(RANKING)\n  \
+             /MISSING=crop(ACTIVE MODEIMPU) water(PASSIVE EXTRACAT)."
+                .into(),
+        ),
+        // supplementary cases and a variable, the model and its criteria
+        (
+            Catpca {
+                settings: vec![setting("water", &|x| x.supplementary = true)],
+                objects: s("2, 5-7"),
+                dimensions: s("3"),
+                normalization: 2,
+                max_iterations: s("50"),
+                convergence: s("0.0001"),
+                ..base.clone()
+            },
+            "CATPCA VARIABLES=site crop water hours shift\n  \
+             /ANALYSIS=site crop water hours shift\n  \
+             /SUPPLEMENTARY=OBJECT(2 5 TO 7) VARIABLE(water)\n  /DIMENSION=3\n  \
+             /NORMALIZATION=SYMMETRICAL\n  /MAXITER=50\n  /CRITITER=0.0001."
+                .into(),
+        ),
+        // an orthogonal and an oblique rotation
+        (
+            Catpca {
+                rotation: 1,
+                kaiser: false,
+                ..base.clone()
+            },
+            "CATPCA VARIABLES=site crop water hours shift\n  \
+             /ANALYSIS=site crop water hours shift\n  /ROTATION=VARIMAX NOKAISER."
+                .into(),
+        ),
+        (
+            Catpca {
+                dimensions: s("3"),
+                rotation: 4,
+                kappa: s("3"),
+                ..base.clone()
+            },
+            "CATPCA VARIABLES=site crop water hours shift\n  \
+             /ANALYSIS=site crop water hours shift\n  /DIMENSION=3\n  /ROTATION=PROMAX(3)."
+                .into(),
+        ),
+        // every table and plot, with lists
+        (
+            Catpca {
+                settings: mixed.clone(),
+                labels: v(&["member"]),
+                dimensions: s("3"),
+                // three dimensions of these levels settle slowly
+                max_iterations: s("1000"),
+                print: [true; 8],
+                sort_loadings: true,
+                descrip: v(&["member", "site"]),
+                quant: v(&["crop", "water"]),
+                object_label: s("member"),
+                object_shown: v(&["site"]),
+                plots: [true; 10],
+                plot_variables: [
+                    v(&["shift"]),
+                    v(&["site", "hours"]),
+                    v(&["crop"]),
+                    v(&["site", "water"]),
+                    v(&["water", "hours"]),
+                    v(&["water"]),
+                    v(&["site", "crop"]),
+                    v(&["crop", "water"]),
+                    v(&["site", "hours"]),
+                    Vec::new(),
+                ],
+                loading_centroids: true,
+                centroids: v(&["water"]),
+                biplot_labels: v(&["member"]),
+                triplot_labels: v(&["shift"]),
+                projected: s("water"),
+                plot_dimensions: s("2"),
+                label_length: s("10"),
+                ndim: true,
+                ndim_first: s("1"),
+                ndim_last: s("3"),
+                ..base.clone()
+            },
+            "CATPCA VARIABLES=site crop water hours shift member\n  \
+             /ANALYSIS=site(WEIGHT=2 LEVEL=SPORD DEGREE=3 INKNOT=1) crop(WEIGHT=2 LEVEL=NOMI) \
+             water(LEVEL=MNOM) hours(LEVEL=NUME) shift(LEVEL=SPNOM)\n  \
+             /DISCRETIZATION=hours(GROUPING NCAT=4 DISTR=UNIFORM) shift(RANKING)\n  \
+             /MISSING=crop(ACTIVE MODEIMPU) water(PASSIVE EXTRACAT)\n  /DIMENSION=3\n  \
+             /MAXITER=1000\n  /PRINT=CORR DESCRIP(site member) HISTORY LOADING(SORT) OBJECT((member) site) OCORR \
+             QUANT(crop water) VAF\n  \
+             /PLOT=OBJECT(shift)(10) LOADING(site hours (CENTR(water)))(10) CATEGORY(crop)(10) \
+             JOINTCAT(site water)(10) TRANS(water(2) hours)(10) RESID(water(2))(10) \
+             BIPLOT(LOADING(site crop))(member)(10) TRIPLOT(crop water(shift))(10) \
+             PROJCENTR(water, site hours)(10) VAF NDIM(1,3)."
+                .into(),
+        ),
+        (
+            Catpca {
+                print: [false; 8],
+                plots: [false; 10],
+                ..base.clone()
+            },
+            "CATPCA VARIABLES=site crop water hours shift\n  \
+             /ANALYSIS=site crop water hours shift\n  /PRINT=NONE\n  /PLOT=NONE."
+                .into(),
+        ),
+        // saved variables with roots, and the four outputs to files and new datasets
+        (
+            Catpca {
+                save: [true; 3],
+                save_roots: [s("gq"), s(""), s("ap")],
+                outfile: [1, 2, 1, 2],
+                outfile_files: [recoded.clone(), s(""), scores.clone(), s("")],
+                outfile_datasets: [s(""), s("quantified"), s(""), s("approximated")],
+                ..base.clone()
+            },
+            format!(
+                "DATASET DECLARE quantified.\nDATASET DECLARE approximated.\n\
+                 CATPCA VARIABLES=site crop water hours shift\n  \
+                 /ANALYSIS=site crop water hours shift\n  /SAVE=TRDATA(gq) OBJECT APPROX(ap)\n  \
+                 /OUTFILE=DISCRDATA('{recoded}') TRDATA(quantified) OBJECT('{scores}') \
+                 APPROX(approximated)."
+            ),
+        ),
+        // the scores the case before wrote, as a start and fixed
+        (
+            Catpca {
+                configuration: 1,
+                configuration_file: scores.clone(),
+                ..base.clone()
+            },
+            format!(
+                "CATPCA VARIABLES=site crop water hours shift\n  \
+                 /ANALYSIS=site crop water hours shift\n  /CONFIGURATION=INITIAL('{scores}')."
+            ),
+        ),
+        (
+            Catpca {
+                configuration: 2,
+                configuration_file: scores.clone(),
+                ..base.clone()
+            },
+            format!(
+                "CATPCA VARIABLES=site crop water hours shift\n  \
+                 /ANALYSIS=site crop water hours shift\n  /CONFIGURATION=FIXED('{scores}')."
+            ),
+        ),
+    ];
+    let program = garden_members();
+    for (dialog, expected) in cases {
+        let mut session = statscraft_engine::session::Session::default();
+        session.run(&program, None).unwrap();
+        let data = session.dataset().unwrap().clone();
+        let syntax = Dialog::Advanced(Advanced::Catpca(Box::new(dialog)))
             .syntax(&data)
             .unwrap();
         assert_eq!(syntax, expected);

@@ -1722,6 +1722,11 @@ impl App {
                         if ui.button("Multiple Correspondence...").clicked() {
                             self.open_dialog(Dialog::Advanced(Advanced::Mca(Default::default())));
                         }
+                        if ui.button("Categorical Principal Components...").clicked() {
+                            self.open_dialog(Dialog::Advanced(
+                                Advanced::Catpca(Default::default()),
+                            ));
+                        }
                     });
                     ui.menu_button("Scale", |ui| {
                         if ui.button("Reliability Analysis...").clicked() {
