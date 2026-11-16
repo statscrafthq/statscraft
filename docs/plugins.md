@@ -21,7 +21,7 @@ their row, and put a confidence interval in each cell's comment.
 After every run that makes custom tables, the plugin runs on the new tables in the background,
 and the output window shows their colours when it answers. Hovering over a cell with a small
 red corner shows its comment. When the plugin or its settings change, all tables are decorated
-again. A plugin that fails, gives a broken answer or takes longer than two minutes leaves the
+again; turning the plugin off or removing it takes its colours and comments away. A plugin that fails, gives a broken answer or takes longer than two minutes leaves the
 tables as they were, and the status bar says why.
 
 The colours and comments are saved with the output document (.scout), so the document shows

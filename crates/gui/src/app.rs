@@ -788,8 +788,22 @@ impl App {
     /// a copy of the documents.
     fn apply_plugin(&mut self) {
         if std::mem::take(&mut self.plugins.redo) {
+            // a plugin turned off or taken away takes its colours and comments with it
+            let off = self.settings.plugin_off || self.settings.plugin.is_none();
             for id in self.windows.ids() {
-                self.start_plugin(id, false);
+                match self.windows.output(id) {
+                    Some(o) if off => {
+                        let all = output::tables(&o.view.runs);
+                        let decorated = all.filter(|t| !t.table.decorations.is_empty());
+                        let cleared = decorated.map(|t| (t.id, Vec::new())).collect();
+                        self.plugins.waiting.push(crate::plugins::Done {
+                            window: id,
+                            document: o.document.clone(),
+                            result: Ok(cleared),
+                        });
+                    }
+                    _ => self.start_plugin(id, false),
+                }
             }
         }
         for done in std::mem::take(&mut self.plugins.waiting) {

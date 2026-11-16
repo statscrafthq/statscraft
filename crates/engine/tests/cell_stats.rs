@@ -3,7 +3,7 @@
 
 use statscraft_engine::output_file::{self, Item};
 use statscraft_engine::session::Session;
-use statscraft_engine::{CellStat, Decoration, Table};
+use statscraft_engine::{Cell, CellStat, Decoration, Table};
 
 /// Made-up answers: answer (1 yes, 2 no), group (1, 2), weight w and a score.
 const DATA: &str = "DATA LIST LIST /answer group w score (4F4).
@@ -93,6 +93,19 @@ fn a_crosstab_carries_estimates_bases_and_totals() {
     );
     let frequencies = tables(&mut session, "FREQUENCIES group.");
     assert!(frequencies.iter().all(|t| t.cell_stats.is_none()));
+
+    // letters merged into the table move the columns, and the statistics move with them
+    let merged = "CTABLES /TABLE answer [C] [COLPCT] BY group [C]
+  /COMPARETEST TYPE=PROP MERGE=YES STYLE=SIMPLE.";
+    let table = tables(&mut session, merged).remove(0);
+    let stats = table.cell_stats.as_ref().unwrap();
+    assert_eq!(stats.cells.len(), 4);
+    for s in &stats.cells {
+        let Cell::Number(shown) = table.rows[s.row][s.col] else {
+            panic!("{s:?} is not on a number");
+        };
+        assert!(close(shown / 100.0, s.estimate), "{s:?} on {shown}");
+    }
 }
 
 #[test]
