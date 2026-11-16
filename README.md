@@ -47,7 +47,7 @@ The [command pages](docs/commands/README.md) list every supported command. In sh
   - TEMPORARY makes the changes after it last until the next procedure.
   - N OF CASES keeps the first cases, and SAMPLE a random sample.
   - Split and filter stay with the session's dataset.
-- **Procedures.** FREQUENCIES, DESCRIPTIVES, CROSSTABS, MEANS, T-TEST, ONEWAY, CORRELATIONS, NONPAR CORR, PARTIAL CORR, NPAR TESTS, EXAMINE, REPORT, SUMMARIZE and CODEBOOK, and:
+- **Procedures.** FREQUENCIES, DESCRIPTIVES, CROSSTABS, MEANS, T-TEST, ONEWAY, CORRELATIONS, NONPAR CORR, PARTIAL CORR, NPAR TESTS, EXAMINE, REPORT, SUMMARIZE and CODEBOOK, data checks (VALIDATEDATA, COMPARE DATASETS), and:
   - linear regression (REGRESSION, with stepwise selection, residuals and diagnostics);
   - scale reliability (RELIABILITY: alpha, split-half and other models, intraclass correlations);
   - agreement between raters (WEIGHTED KAPPA, FLEISS MULTIRATER KAPPA) and statistics of a ratio (RATIO STATISTICS);

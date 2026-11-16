@@ -307,6 +307,15 @@ This page lists, by topic and command:
 - UPDATE has no FIRST or LAST, as its syntax chart shows.
 - The result has the documents of every file, each file once.
 
+### COMPARE DATASETS
+
+- Even without /SAVE the flag variable CasesCompare is added, since FLAGMISMATCHES=YES is the default; FLAGMISMATCHES=NO leaves it out. A numeric variable of that name from an earlier run is overwritten; a string variable of that name is an error.
+- A variable is compared only when the other file has it with the same type. Numbers compare exactly, and system-missing equals only system-missing; strings compare without trailing blanks, so a wider string with the same text counts as the same. The CASEID variables and the flag variable are not compared.
+- A key held by several cases pairs in file order, the first with the first; the cases left over count as having no match (-1).
+- The case table lists one row per differing value and a row for each active case without a match. Cases that only the other file has are counted in the summary, not listed.
+- VARPROPERTIES lists only the properties that differ. A display property the file does not state counts as its default (8 columns; strings left and numbers right; the input role). WIDTH is the format width of a number and the byte width of a string; ATTRIBUTES leaves out attribute names starting with $ or @.
+- MATCHNAME and MISMATCHNAME without quotes must name a dataset declared before (DATASET DECLARE or DATASET NAME). A MATCHPASS or MISMATCHPASS password for a file is refused, since Statscraft writes no encrypted files; ENCRYPTEDPW and PASSWORD are read and ignored.
+
 ### STAR JOIN
 
 - A system-missing key matches nothing, as NULL in SQL. User-missing values match as values.
@@ -412,6 +421,17 @@ This page lists, by topic and command:
 - Within a VARORDER group file order holds; ALPHA sorts a set's name without its "$" and ATTRIBUTE compares values without regard to case.
 - NAME and LOCATION come from the GET FILE or SAVE that last read or wrote the active dataset; a session continued in a later `statscraft run` no longer knows them.
 - CODEBOOK always reads the data, also with STATISTICS NONE, so it ends TEMPORARY.
+
+### VALIDATEDATA
+
+- The procedure does not evaluate a rule's Type, Domain, range or list: as documented, each rule's outcome variable (1 for a broken rule) decides. Exactly 1 counts as a violation; 0, other values and missing do not.
+- A rule is skipped with a warning when its Label is empty or repeats an earlier rule's label (ignoring case and outer blanks), when a single-variable rule's Type is not Numeric, String or Date, and when a cross-variable rule has no Expression or OutcomeVar. A link is skipped when its rule is missing or skipped, when a String rule meets a numeric variable or the other way round, or when its outcome variable is not numeric. The outcome variable need not be marked with $VD.RuleOutcomeVar; the mark only keeps it out of the variable lists.
+- A blank string counts as a valid value, a category of its own, in the variable checks; it counts as missing for incomplete IDs and empty cases, where the manual says "blank or missing".
+- PCTMISSING is a percentage of all cases; PCTEQUAL and PCTUNEQUAL of the valid values. The standard deviation divides by n - 1, and the scale checks need at least two valid values.
+- STATUS takes ON or OFF, and also YES or NO.
+- Duplicate ID groups are numbered in the order of their first case; under SPLIT FILE the numbering starts again in each group. The listings show every case found.
+- SAVE INCOMPLETEID and DUPLICATEID without ID variables, and RULEVIOLATIONS without rules, are skipped with a warning. With SCOPE=ALLVARS, variables saved by an earlier run (such as EmptyCase) take part, so delete them first or name the analysis variables.
+- The check tables are shown even when they find nothing, with a caption that says so.
 
 ### CORRELATIONS
 

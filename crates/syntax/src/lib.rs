@@ -29,6 +29,7 @@ mod coxreg;
 mod ctables;
 mod data_commands;
 mod data_list;
+mod datacheck;
 mod dictionary;
 mod discriminant;
 mod encoding;
@@ -200,6 +201,10 @@ pub use ctables::{
     SummaryFunction, VlabelsDisplay,
 };
 pub use data_list::numbered_names;
+pub use datacheck::{
+    CompareDatasets, CompareOutput, CompareProperty, EmptyScope, RuleItem, ValidateSave,
+    Validatedata, VarChecks,
+};
 pub use discriminant::{
     ClassifyCases, Discriminant, DiscriminantAnalysis, DiscriminantMethod, DiscriminantPlots,
     DiscriminantSave, DiscriminantStatistics, Priors,
