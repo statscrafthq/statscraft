@@ -1,6 +1,7 @@
 //! The Bayesian Statistics dialogs: one sample of a normal, binomial or Poisson variable, related
-//! samples, independent samples and Pearson correlation (BAYES ONESAMPLE, RELATED, INDEPENDENT and
-//! CORRELATION). One struct serves every kind; a new BAYES command is a new kind with its fields.
+//! samples, independent samples, Pearson correlation, one-way ANOVA, linear regression and
+//! repeated measures (BAYES ONESAMPLE, RELATED, INDEPENDENT, CORRELATION, ANOVA, REGRESSION and
+//! REPEATED). One struct serves every kind; a new BAYES command is a new kind with its fields.
 //! The test settings of a one-sample or related dialog apply to every variable or pair. Options
 //! left as they are add nothing to the syntax, so the command runs with its own defaults, and the
 //! settings of a part the analysis does not use (the prior without a posterior, the Bayes factor
@@ -10,9 +11,10 @@ use crate::advanced_dialogs::ci_level;
 use crate::dialogs::whole;
 use crate::loglinear_dialog::optional;
 use crate::stats_dialogs::numeric;
-use crate::survival_dialog::{numbers, values};
-use crate::syntax_text::{names, number, value};
+use crate::survival_dialog::{numbers, saved, values};
+use crate::syntax_text::{names, number, quote, value};
 use statscraft_data::Dataset;
+use std::collections::BTreeMap;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum BayesKind {
@@ -22,16 +24,22 @@ pub enum BayesKind {
     Related,
     Independent,
     Correlation,
+    Anova,
+    Regression,
+    Repeated,
 }
 
 /// The items of Analyze > Bayesian Statistics.
-pub const BAYES_MENU: [(&str, BayesKind); 6] = [
+pub const BAYES_MENU: [(&str, BayesKind); 9] = [
     ("One Sample Normal...", BayesKind::Normal),
     ("One Sample Binomial...", BayesKind::Binomial),
     ("One Sample Poisson...", BayesKind::Poisson),
     ("Related Samples Normal...", BayesKind::Related),
     ("Independent Samples Normal...", BayesKind::Independent),
     ("Pearson Correlation...", BayesKind::Correlation),
+    ("One-way ANOVA...", BayesKind::Anova),
+    ("Linear Regression...", BayesKind::Regression),
+    ("Repeated Measures...", BayesKind::Repeated),
 ];
 
 /// ANALYSIS, the default first.
@@ -101,6 +109,50 @@ pub const BAYES_GROUP_PRIORS: [(&str, &str); 3] = [
 
 pub const GROUP_INVCHISQ: usize = 2;
 
+/// The prior on g behind the Bayes factor of a one-way ANOVA or a regression (COMPUTATION).
+pub const BAYES_G_PRIORS: [(&str, &str); 4] = [
+    ("JZS", "JZS: g mixed over an inverse gamma"),
+    ("ZELLNER", "Zellner: a fixed g"),
+    ("HYPER", "Hyper-g"),
+    ("ROUDER", "Rouder: inverse gamma with a scale"),
+];
+
+pub const G_ZELLNER: usize = 1;
+pub const G_HYPER: usize = 2;
+pub const G_ROUDER: usize = 3;
+
+/// The prior of the parameters and error variance of a linear model (TYPE).
+pub const BAYES_LINEAR_PRIORS: [(&str, &str); 2] = [
+    ("REFERENCE", "Reference: flat"),
+    ("CONJUGATE", "Conjugate: normal and inverse gamma"),
+];
+
+/// The Bayes factor of repeated measures (COMPUTATION), the default first.
+pub const BAYES_REPEATED_FACTORS: [(&str, &str); 2] = [
+    ("BIC", "BIC approximation"),
+    ("ROUDER", "Rouder: mixed model by Monte Carlo draws"),
+];
+
+pub const REPEATED_ROUDER: usize = 1;
+
+/// What a regression saves of the predictive distribution of every case (SAVE).
+pub const BAYES_SAVE: [(&str, &str); 5] = [
+    ("MEANPRED", "Predicted mean"),
+    ("VARIANCE", "Predictive variance"),
+    ("MODE", "Predictive mode"),
+    ("CIMEANPREDL", "Lower credible bound"),
+    ("CIMEANPREDU", "Upper credible bound"),
+];
+
+/// One F test of a regression: its parameters equal the test values (0 when empty).
+#[derive(Clone, PartialEq, Debug, Default)]
+pub struct FTestRow {
+    pub label: String,
+    pub variables: Vec<String>,
+    pub intercept: bool,
+    pub values: String,
+}
+
 /// Every BAYES command: the fields of every kind; each kind uses its own.
 #[derive(Clone, PartialEq, Debug)]
 pub struct Bayesian {
@@ -120,11 +172,13 @@ pub struct Bayesian {
     pub seed: String,
     pub mc_samples: String,
     pub listwise: bool,
-    /// NULLVALUE, the known VARIANCE and ALTERGVALUE (empty: g integrated out) of a mean.
+    /// NULLVALUE, the known VARIANCE and ALTERGVALUE (empty: g integrated out) of a mean; `g`
+    /// is also the fixed g of a Zellner prior.
     pub null: String,
     pub known_variance: String,
     pub g: String,
-    /// Index into `BAYES_VARIANCE_PRIORS` or `BAYES_GROUP_PRIORS`, with its numbers.
+    /// Index into `BAYES_VARIANCE_PRIORS`, `BAYES_GROUP_PRIORS` or `BAYES_LINEAR_PRIORS`, with
+    /// its numbers.
     pub variance_prior: usize,
     pub prior_a: String,
     pub prior_b: String,
@@ -149,7 +203,8 @@ pub struct Bayesian {
     pub known_variances: bool,
     pub variance1: String,
     pub variance2: String,
-    /// Index into `BAYES_FACTORS`: the Rouder scale, the Gonen mean and variance, the hyper a.
+    /// Index into `BAYES_FACTORS`, `BAYES_G_PRIORS` or `BAYES_REPEATED_FACTORS`: the Rouder
+    /// scale, the Gonen mean and variance, the hyper a.
     pub factor: usize,
     pub rouder: String,
     pub gonen_mean: String,
@@ -164,6 +219,32 @@ pub struct Bayesian {
     pub fraction: bool,
     pub fraction_value: String,
     pub fraction_null: String,
+    /// The dependent of a one-way ANOVA (whose factor is `group`) or a regression.
+    pub dependent: String,
+    pub factors: Vec<String>,
+    pub covariates: Vec<String>,
+    /// REGWGT; empty for none.
+    pub weight: String,
+    /// COMPARE=FULL of a regression.
+    pub compare_full: bool,
+    /// VMATRIX: the rows of the lower triangle separated by `;`, empty for the identity. The
+    /// conjugate prior of a linear model (`variance_prior` 1) takes its shape, scale and means
+    /// from `prior_a`, `prior_b` and `prior_mean`.
+    pub vmatrix: String,
+    /// PLOT MEANS of a one-way ANOVA: values of the factor.
+    pub plot_values: String,
+    /// The plotted variables: model variables of a regression, or repeated variables.
+    pub plotted: Vec<String>,
+    pub plot_error: bool,
+    pub plot_intercept: bool,
+    pub plot_prediction: bool,
+    pub max_category: String,
+    /// PREDICT REGRESSORS: the value typed for each factor and covariate.
+    pub predict: BTreeMap<String, String>,
+    /// One flag and one optional new name per entry of `BAYES_SAVE`.
+    pub save: [bool; 5],
+    pub save_names: [String; 5],
+    pub ftests: Vec<FTestRow>,
 }
 
 /// A required number.
@@ -224,7 +305,18 @@ impl Bayesian {
             max_iterations: "2000".into(),
             monte_carlo: false,
             seed: String::new(),
-            mc_samples: "10000".into(),
+            mc_samples: match kind {
+                BayesKind::Repeated => "30000",
+                BayesKind::Normal
+                | BayesKind::Binomial
+                | BayesKind::Poisson
+                | BayesKind::Related
+                | BayesKind::Independent
+                | BayesKind::Correlation
+                | BayesKind::Anova
+                | BayesKind::Regression => "10000",
+            }
+            .into(),
             listwise: false,
             null: "0".into(),
             known_variance: String::new(),
@@ -257,13 +349,39 @@ impl Bayesian {
             rouder: "1".into(),
             gonen_mean: "0".into(),
             gonen_variance: String::new(),
-            hyper: "-0.75".into(),
+            hyper: match kind {
+                BayesKind::Anova | BayesKind::Regression => "3",
+                BayesKind::Normal
+                | BayesKind::Binomial
+                | BayesKind::Poisson
+                | BayesKind::Related
+                | BayesKind::Independent
+                | BayesKind::Correlation
+                | BayesKind::Repeated => "-0.75",
+            }
+            .into(),
             equal_variances: false,
             group_means: Default::default(),
             cvalue: "0".into(),
             fraction: false,
             fraction_value: "0.5".into(),
             fraction_null: "0".into(),
+            dependent: String::new(),
+            factors: Vec::new(),
+            covariates: Vec::new(),
+            weight: String::new(),
+            compare_full: false,
+            vmatrix: String::new(),
+            plot_values: String::new(),
+            plotted: Vec::new(),
+            plot_error: false,
+            plot_intercept: false,
+            plot_prediction: false,
+            max_category: "2".into(),
+            predict: BTreeMap::new(),
+            save: [false; 5],
+            save_names: Default::default(),
+            ftests: Vec::new(),
         }
     }
 
@@ -275,6 +393,9 @@ impl Bayesian {
             BayesKind::Related => "Bayesian Related Samples",
             BayesKind::Independent => "Bayesian Independent Samples",
             BayesKind::Correlation => "Bayesian Pearson Correlation",
+            BayesKind::Anova => "Bayesian One-way ANOVA",
+            BayesKind::Regression => "Bayesian Linear Regression",
+            BayesKind::Repeated => "Bayesian Repeated Measures",
         }
     }
 
@@ -309,6 +430,77 @@ impl Bayesian {
         self.normal() && self.factor()
     }
 
+    /// The criteria take the tolerance and iterations of the numerical integration.
+    pub fn numerical_offered(&self) -> bool {
+        match self.kind {
+            BayesKind::Binomial | BayesKind::Poisson | BayesKind::Repeated => false,
+            BayesKind::Normal
+            | BayesKind::Related
+            | BayesKind::Independent
+            | BayesKind::Correlation
+            | BayesKind::Anova
+            | BayesKind::Regression => true,
+        }
+    }
+
+    /// MISSING SCOPE=LISTWISE exists; the models always leave out incomplete cases.
+    pub fn missing_offered(&self) -> bool {
+        match self.kind {
+            BayesKind::Anova | BayesKind::Regression | BayesKind::Repeated => false,
+            BayesKind::Normal
+            | BayesKind::Binomial
+            | BayesKind::Poisson
+            | BayesKind::Related
+            | BayesKind::Independent
+            | BayesKind::Correlation => true,
+        }
+    }
+
+    /// Monte Carlo draws are made: by choice for a normal mean, with Rouder's method for
+    /// repeated measures.
+    pub fn draws_used(&self) -> bool {
+        match self.kind {
+            BayesKind::Repeated => self.factor() && self.factor == REPEATED_ROUDER,
+            BayesKind::Normal
+            | BayesKind::Binomial
+            | BayesKind::Poisson
+            | BayesKind::Related
+            | BayesKind::Independent
+            | BayesKind::Correlation
+            | BayesKind::Anova
+            | BayesKind::Regression => self.monte_carlo_offered() && self.monte_carlo,
+        }
+    }
+
+    /// The prior of a linear model is used: by a one-way ANOVA for the posterior or its plots,
+    /// always by a regression, whose posterior also feeds the predictions, F tests and plots.
+    pub fn linear_prior_used(&self) -> bool {
+        match self.kind {
+            BayesKind::Anova => {
+                self.posterior() || !self.plot_values.trim().is_empty() || self.plot_error
+            }
+            BayesKind::Regression => true,
+            BayesKind::Normal
+            | BayesKind::Binomial
+            | BayesKind::Poisson
+            | BayesKind::Related
+            | BayesKind::Independent
+            | BayesKind::Correlation
+            | BayesKind::Repeated => false,
+        }
+    }
+
+    /// The factors and then the covariates of a regression.
+    pub fn model(&self) -> impl Iterator<Item = &String> {
+        self.factors.iter().chain(&self.covariates)
+    }
+
+    /// A prediction value is typed for some variable of the regression model.
+    pub fn predicting(&self) -> bool {
+        self.model()
+            .any(|n| self.predict.get(n).is_some_and(|v| !v.trim().is_empty()))
+    }
+
     pub fn syntax(&self, data: &Dataset) -> Result<String, String> {
         let analysis =
             (self.analysis != 0).then(|| format!(" ANALYSIS={}", BAYES_ANALYSES[self.analysis].0));
@@ -320,9 +512,12 @@ impl Bayesian {
             BayesKind::Related => self.related(data, &analysis)?,
             BayesKind::Independent => self.independent(data, &analysis)?,
             BayesKind::Correlation => self.correlation(data, &analysis)?,
+            BayesKind::Anova => self.anova(data, &analysis)?,
+            BayesKind::Regression => self.regression(data, &analysis)?,
+            BayesKind::Repeated => self.repeated(data, &analysis)?,
         };
         text.push_str(&self.criteria()?);
-        if self.listwise {
+        if self.missing_offered() && self.listwise {
             text.push_str("\n  /MISSING SCOPE=LISTWISE");
         }
         text.push('.');
@@ -677,6 +872,282 @@ impl Bayesian {
         Ok(text)
     }
 
+    fn anova(&self, data: &Dataset, analysis: &str) -> Result<String, String> {
+        let (dependent, factor) = (self.dependent.trim(), self.group.trim());
+        if dependent.is_empty() {
+            return Err("choose the dependent variable".into());
+        }
+        if factor.is_empty() {
+            return Err("choose the factor".into());
+        }
+        if dependent == factor {
+            return Err(format!(
+                "{factor} cannot both be the dependent and form the groups"
+            ));
+        }
+        numeric(data, [&self.dependent])?;
+        let string = match data.variable(factor) {
+            Ok(v) => v.is_string(),
+            Err(_) => return Err(format!("{factor} is no longer a variable")),
+        };
+        let mut text = format!("BAYES ANOVA {dependent} BY {factor}");
+        self.linear_model(data, analysis, &mut text)?;
+        if self.linear_prior_used() {
+            text.push_str(&self.linear_prior()?);
+        }
+        let mut plot = Vec::new();
+        if !self.plot_values.trim().is_empty() {
+            plot.push(format!("MEANS={}", values(&self.plot_values, string)?));
+        }
+        if self.plot_error {
+            plot.push("ERRORVAR=TRUE".into());
+        }
+        if !plot.is_empty() {
+            text.push_str(&format!("\n  /PLOT {}", plot.join(" ")));
+        }
+        Ok(text)
+    }
+
+    fn regression(&self, data: &Dataset, analysis: &str) -> Result<String, String> {
+        let dependent = self.dependent.trim();
+        if dependent.is_empty() {
+            return Err("choose the dependent variable".into());
+        }
+        if self.factors.is_empty() && self.covariates.is_empty() {
+            return Err("add at least one factor or covariate".into());
+        }
+        if self.model().any(|n| n == dependent) {
+            return Err(format!(
+                "{dependent} cannot both be the dependent and in the model"
+            ));
+        }
+        if let Some(n) = self.factors.iter().find(|n| self.covariates.contains(n)) {
+            return Err(format!("{n} cannot be both a factor and a covariate"));
+        }
+        numeric(
+            data,
+            std::iter::once(&self.dependent).chain(&self.covariates),
+        )?;
+        let mut text = format!("BAYES REGRESSION {dependent}");
+        if !self.factors.is_empty() {
+            text.push_str(&format!(" BY {}", self.factors.join(" ")));
+        }
+        if !self.covariates.is_empty() {
+            text.push_str(&format!(" WITH {}", self.covariates.join(" ")));
+        }
+        self.linear_model(data, analysis, &mut text)?;
+        text.push_str(&self.linear_prior()?);
+        if self.predicting() {
+            let mut regressors = Vec::new();
+            for n in self.model() {
+                let typed = self.predict.get(n).map_or("", |v| v.trim());
+                if typed.is_empty() {
+                    return Err(format!("give a prediction value for {n}, or for none"));
+                }
+                // a factor takes one of its categories, a covariate a number
+                let string =
+                    self.factors.contains(n) && data.variable(n).is_ok_and(|v| v.is_string());
+                regressors.push(value(typed, string)?);
+            }
+            text.push_str(&format!("\n  /PREDICT REGRESSORS={}", regressors.join(" ")));
+        }
+        let save = saved(data, &BAYES_SAVE, &self.save, &self.save_names)?;
+        if !save.is_empty() {
+            text.push_str(&format!("\n  /SAVE {}", save.join(" ")));
+        }
+        if let Some(n) = self.plotted.iter().find(|n| !self.model().any(|m| m == *n)) {
+            return Err(format!("{n} is not in the model; remove it from the plots"));
+        }
+        let pick = |list: &[String]| -> Vec<String> {
+            let chosen = self.plotted.iter().filter(|n| list.contains(n));
+            chosen.cloned().collect()
+        };
+        let (covariates, factors) = (pick(&self.covariates), pick(&self.factors));
+        let mut plot = Vec::new();
+        if !covariates.is_empty() {
+            plot.push(format!("COVARIATES={}", covariates.join(" ")));
+        }
+        if !factors.is_empty() {
+            plot.push(format!("FACTORS={}", factors.join(" ")));
+            if let Some(n) = whole(&self.max_category, 1, "the categories plotted")?
+                && n != 2
+            {
+                plot.push(format!("MAX_CATEGORY={n}"));
+            }
+        }
+        for (on, keyword) in [
+            (self.plot_intercept, "INTERCEPT"),
+            (self.plot_error, "ERRORVAR"),
+            (self.plot_prediction && self.predicting(), "BAYESPRED"),
+        ] {
+            if on {
+                plot.push(format!("{keyword}=TRUE"));
+            }
+        }
+        if !plot.is_empty() {
+            text.push_str(&format!("\n  /PLOT {}", plot.join(" ")));
+        }
+        for (i, test) in self.ftests.iter().enumerate() {
+            let what = format!("F test {}", i + 1);
+            if test.variables.is_empty() && !test.intercept {
+                return Err(format!("{what} needs variables or the intercept"));
+            }
+            if let Some(n) = test
+                .variables
+                .iter()
+                .find(|n| !self.model().any(|m| m == *n))
+            {
+                return Err(format!("{what} names {n}, which is not in the model"));
+            }
+            let mut words = Vec::new();
+            if !test.label.trim().is_empty() {
+                words.push(format!("LABEL={}", quote(test.label.trim())));
+            }
+            if !test.variables.is_empty() {
+                words.push(format!("VARIABLES={}", test.variables.join(" ")));
+            }
+            if test.intercept {
+                words.push("INTERCEPT=TRUE".into());
+            }
+            let tested = numbers(&test.values, &format!("each test value of {what}"))?;
+            if !tested.is_empty() {
+                let tested: Vec<String> = tested.into_iter().map(number).collect();
+                words.push(format!("TESTVALUES={}", tested.join(" ")));
+            }
+            text.push_str(&format!("\n  /FTEST {}", words.join(" ")));
+        }
+        Ok(text)
+    }
+
+    fn repeated(&self, data: &Dataset, analysis: &str) -> Result<String, String> {
+        if self.variables.len() < 2 {
+            return Err("add at least two repeated variables".into());
+        }
+        numeric(data, &self.variables)?;
+        let mut text = format!("BAYES REPEATED {}", self.variables.join(" "));
+        self.weight_and_analysis(data, analysis, &mut text)?;
+        if self.draws_used() {
+            text.push_str("\n  /ESTBF COMPUTATION=ROUDER");
+        }
+        if let Some(n) = self.plotted.iter().find(|n| !self.variables.contains(n)) {
+            return Err(format!(
+                "{n} is not a repeated variable; remove it from the plots"
+            ));
+        }
+        if !self.plotted.is_empty() {
+            text.push_str(&format!("\n  /PLOT MEANS={}", self.plotted.join(" ")));
+        }
+        Ok(text)
+    }
+
+    /// /DESIGN REGWGT and /INFERENCE ANALYSIS of the linear models and repeated measures.
+    fn weight_and_analysis(
+        &self,
+        data: &Dataset,
+        analysis: &str,
+        text: &mut String,
+    ) -> Result<(), String> {
+        let weight = self.weight.trim();
+        if !weight.is_empty() {
+            numeric(data, [&self.weight])?;
+            text.push_str(&format!("\n  /DESIGN REGWGT={weight}"));
+        }
+        if !analysis.is_empty() {
+            text.push_str(&format!("\n  /INFERENCE{analysis}"));
+        }
+        Ok(())
+    }
+
+    /// The weight, the analysis and the Bayes factor of a one-way ANOVA or a regression.
+    fn linear_model(
+        &self,
+        data: &Dataset,
+        analysis: &str,
+        text: &mut String,
+    ) -> Result<(), String> {
+        self.weight_and_analysis(data, analysis, text)?;
+        if !self.factor() {
+            return Ok(());
+        }
+        let computation = match self.factor {
+            G_ZELLNER => Some(format!(
+                "ZELLNER({})",
+                number(positive(&self.g, "g of the Zellner prior")?)
+            )),
+            G_HYPER => Some(
+                match setting(&self.hyper, "the hyper-g value", "above 2", 3.0, |v| {
+                    v > 2.0
+                })? {
+                    Some(a) => format!("HYPER({})", number(a)),
+                    None => "HYPER".into(),
+                },
+            ),
+            G_ROUDER => Some(
+                match setting(&self.rouder, "the Rouder scale", "above 0", 1.0, |v| {
+                    v > 0.0
+                })? {
+                    Some(s) => format!("ROUDER({})", number(s)),
+                    None => "ROUDER".into(),
+                },
+            ),
+            _ => None,
+        };
+        let mut words: Vec<String> = computation
+            .into_iter()
+            .map(|c| format!("COMPUTATION={c}"))
+            .collect();
+        if self.kind == BayesKind::Regression && self.compare_full {
+            words.push("COMPARE=FULL".into());
+        }
+        if !words.is_empty() {
+            text.push_str(&format!("\n  /ESTBF {}", words.join(" ")));
+        }
+        Ok(())
+    }
+
+    /// /PRIOR of a linear model; empty for the reference prior.
+    fn linear_prior(&self) -> Result<String, String> {
+        if self.variance_prior == 0 {
+            return Ok(String::new());
+        }
+        let shape = positive(&self.prior_a, "the shape of the variance prior")?;
+        let scale = positive(&self.prior_b, "the scale of the variance prior")?;
+        let means = numbers(&self.prior_mean, "each prior mean")?;
+        if means.is_empty() {
+            return Err("give the prior means".into());
+        }
+        let means: Vec<String> = means.into_iter().map(number).collect();
+        let mut text = format!(
+            "\n  /PRIOR TYPE=CONJUGATE SHAPEPARAM={} SCALEPARAM={} MEANVECTOR={}",
+            number(shape),
+            number(scale),
+            means.join(" ")
+        );
+        let rows: Vec<&str> = self
+            .vmatrix
+            .split(';')
+            .map(str::trim)
+            .filter(|r| !r.is_empty())
+            .collect();
+        if !rows.is_empty() {
+            if rows.len() != means.len() {
+                return Err("the prior matrix needs one row per prior mean".into());
+            }
+            let mut matrix = Vec::new();
+            for (i, row) in rows.iter().enumerate() {
+                let what = format!("row {} of the prior matrix", i + 1);
+                let row = numbers(row, &format!("each value of {what}"))?;
+                if row.len() != i + 1 || row[i] <= 0.0 {
+                    return Err(format!("{what} needs {} values, the last above 0", i + 1));
+                }
+                let row: Vec<String> = row.into_iter().map(number).collect();
+                matrix.push(format!("{};", row.join(" ")));
+            }
+            text.push_str(&format!(" VMATRIX={}", matrix.join(" ")));
+        }
+        Ok(text)
+    }
+
     /// /CRITERIA with the settings that differ from the defaults.
     fn criteria(&self) -> Result<String, String> {
         let mut words = Vec::new();
@@ -684,7 +1155,7 @@ impl Bayesian {
         if level != 95.0 {
             words.push(format!("CILEVEL={}", number(level)));
         }
-        if self.kind != BayesKind::Binomial && self.kind != BayesKind::Poisson {
+        if self.numerical_offered() {
             let default = match self.kind {
                 BayesKind::Correlation => 0.0001,
                 _ => 0.000001,
@@ -705,8 +1176,11 @@ impl Bayesian {
                 words.push(format!("MAXITER={n}"));
             }
         }
-        if self.monte_carlo_offered() && self.monte_carlo {
-            words.push("METHOD=MCA".into());
+        if self.draws_used() {
+            // Rouder's method of repeated measures always draws
+            if self.kind != BayesKind::Repeated {
+                words.push("METHOD=MCA".into());
+            }
             if let Some(seed) = whole(&self.seed, 1, "the seed")? {
                 if seed > 2_147_483_647 {
                     return Err("the seed must be at most 2147483647".into());
@@ -714,11 +1188,22 @@ impl Bayesian {
                 words.push(format!("SEED={seed}"));
             }
             let samples = whole(&self.mc_samples, 1000, "the Monte Carlo draws")?;
+            let default = match self.kind {
+                BayesKind::Repeated => 30_000,
+                BayesKind::Normal
+                | BayesKind::Binomial
+                | BayesKind::Poisson
+                | BayesKind::Related
+                | BayesKind::Independent
+                | BayesKind::Correlation
+                | BayesKind::Anova
+                | BayesKind::Regression => 10_000,
+            };
             match samples {
                 Some(n) if n > 1_000_000 => {
                     return Err("the Monte Carlo draws must be at most 1000000".into());
                 }
-                Some(n) if n != 10_000 => words.push(format!("MCSAMPLES={n}")),
+                Some(n) if n != default => words.push(format!("MCSAMPLES={n}")),
                 _ => {}
             }
         }
@@ -808,5 +1293,80 @@ mod tests {
             ..Bayesian::new(BayesKind::Correlation)
         };
         assert_eq!(error(correlation), "add at least two variables");
+    }
+
+    #[test]
+    fn bayes_models_check_what_the_command_would_reject() {
+        let data = Dataset::new(0);
+        let error = |d: Bayesian| d.syntax(&data).unwrap_err();
+        let anova = Bayesian {
+            dependent: s("y"),
+            group: s("y"),
+            ..Bayesian::new(BayesKind::Anova)
+        };
+        assert!(error(anova).contains("cannot both be the dependent"));
+        let regression = Bayesian {
+            dependent: s("y"),
+            covariates: vec![s("x")],
+            ..Bayesian::new(BayesKind::Regression)
+        };
+        assert_eq!(
+            error(Bayesian::new(BayesKind::Regression)),
+            "choose the dependent variable"
+        );
+        // a conjugate prior needs its parameters, and the matrix one row per mean
+        let conjugate = Bayesian {
+            variance_prior: 1,
+            prior_a: s("2"),
+            prior_b: s("3"),
+            prior_mean: s("0 1"),
+            vmatrix: s("1"),
+            ..regression.clone()
+        };
+        assert_eq!(
+            error(conjugate.clone()),
+            "the prior matrix needs one row per prior mean"
+        );
+        let triangle = Bayesian {
+            vmatrix: s("1; 2 0"),
+            ..conjugate
+        };
+        assert_eq!(
+            error(triangle),
+            "row 2 of the prior matrix needs 2 values, the last above 0"
+        );
+        let zellner = Bayesian {
+            analysis: 1,
+            factor: G_ZELLNER,
+            ..regression.clone()
+        };
+        assert_eq!(error(zellner.clone()), "give g of the Zellner prior");
+        // the Bayes factor settings are idle without a Bayes factor
+        let idle = Bayesian {
+            analysis: 0,
+            ..zellner
+        };
+        assert_eq!(idle.syntax(&data).unwrap(), "BAYES REGRESSION y WITH x.");
+        let partial = Bayesian {
+            factors: vec![s("g")],
+            predict: [(s("x"), s("4"))].into_iter().collect(),
+            ..regression.clone()
+        };
+        assert_eq!(error(partial), "give a prediction value for g, or for none");
+        let test = Bayesian {
+            ftests: vec![FTestRow::default()],
+            ..regression.clone()
+        };
+        assert_eq!(error(test), "F test 1 needs variables or the intercept");
+        let plot = Bayesian {
+            plotted: vec![s("z")],
+            ..regression
+        };
+        assert!(error(plot).contains("not in the model"));
+        let repeated = Bayesian {
+            variables: vec![s("a")],
+            ..Bayesian::new(BayesKind::Repeated)
+        };
+        assert_eq!(error(repeated), "add at least two repeated variables");
     }
 }

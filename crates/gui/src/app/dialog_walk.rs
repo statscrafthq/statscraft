@@ -3882,6 +3882,135 @@ fn the_bayes_dialogs_write_syntax_that_runs() {
     }
 }
 
+/// The Bayesian one-way ANOVA, linear regression and repeated measures dialogs on the tutoring
+/// records: the least each needs, then changed analyses, priors, plots, a prediction with saved
+/// values and two F tests. The syntax is as expected, parses and runs without a warning.
+#[test]
+fn the_bayes_model_dialogs_write_syntax_that_runs() {
+    use crate::bayes_dialog::{BayesKind::*, Bayesian, FTestRow};
+    let anova = Bayesian {
+        dependent: s("minutes"),
+        group: s("club"),
+        ..Bayesian::new(Anova)
+    };
+    let regression = Bayesian {
+        dependent: s("after"),
+        covariates: v(&["before"]),
+        ..Bayesian::new(Regression)
+    };
+    let cases: Vec<(Bayesian, &str)> = vec![
+        (anova.clone(), "BAYES ANOVA minutes BY club."),
+        (
+            Bayesian {
+                dependent: s("after"),
+                group: s("team"),
+                weight: s("quiz1"),
+                analysis: 2,
+                factor: 3,
+                rouder: s("0.5"),
+                variance_prior: 1,
+                prior_a: s("2"),
+                prior_b: s("40"),
+                prior_mean: s("60 65"),
+                vmatrix: s("2; 0.5 3"),
+                plot_values: s("red"),
+                plot_error: true,
+                ci_level: s("90"),
+                ..anova.clone()
+            },
+            "BAYES ANOVA after BY team\n  /DESIGN REGWGT=quiz1\n  /INFERENCE ANALYSIS=BOTH\n  \
+             /ESTBF COMPUTATION=ROUDER(0.5)\n  /PRIOR TYPE=CONJUGATE SHAPEPARAM=2 SCALEPARAM=40 \
+             MEANVECTOR=60 65 VMATRIX=2; 0.5 3;\n  /PLOT MEANS='red' ERRORVAR=TRUE\n  \
+             /CRITERIA CILEVEL=90.",
+        ),
+        (regression.clone(), "BAYES REGRESSION after WITH before."),
+        (
+            Bayesian {
+                factors: v(&["team"]),
+                covariates: v(&["before", "minutes"]),
+                analysis: 2,
+                factor: 2,
+                hyper: s("4"),
+                compare_full: true,
+                predict: [("team", "blue"), ("before", "62"), ("minutes", "45")]
+                    .into_iter()
+                    .map(|(a, b)| (s(a), s(b)))
+                    .collect(),
+                save: [true, false, false, true, true],
+                save_names: [s(""), s(""), s(""), s("low_after"), s("")],
+                plotted: v(&["team", "before"]),
+                plot_intercept: true,
+                plot_error: true,
+                plot_prediction: true,
+                ftests: vec![
+                    FTestRow {
+                        label: s("team effect"),
+                        variables: v(&["team"]),
+                        ..FTestRow::default()
+                    },
+                    FTestRow {
+                        variables: v(&["before", "minutes"]),
+                        intercept: true,
+                        values: s("5 1 0"),
+                        ..FTestRow::default()
+                    },
+                ],
+                max_iterations: s("800"),
+                ..regression.clone()
+            },
+            "BAYES REGRESSION after BY team WITH before minutes\n  /INFERENCE ANALYSIS=BOTH\n  \
+             /ESTBF COMPUTATION=HYPER(4) COMPARE=FULL\n  \
+             /PREDICT REGRESSORS='blue' 62 45\n  /SAVE MEANPRED CIMEANPREDL(low_after) CIMEANPREDU\n  \
+             /PLOT COVARIATES=before FACTORS=team INTERCEPT=TRUE ERRORVAR=TRUE BAYESPRED=TRUE\n  \
+             /FTEST LABEL='team effect' VARIABLES=team\n  \
+             /FTEST VARIABLES=before minutes INTERCEPT=TRUE TESTVALUES=5 1 0\n  \
+             /CRITERIA MAXITER=800.",
+        ),
+        (
+            Bayesian {
+                variables: v(&["quiz1", "quiz2"]),
+                ..Bayesian::new(Repeated)
+            },
+            "BAYES REPEATED quiz1 quiz2.",
+        ),
+        (
+            Bayesian {
+                variables: v(&["quiz1", "quiz2", "before"]),
+                weight: s("minutes"),
+                analysis: 2,
+                factor: 1,
+                seed: s("4242"),
+                mc_samples: s("5000"),
+                plotted: v(&["quiz2", "quiz1"]),
+                ci_level: s("99"),
+                ..Bayesian::new(Repeated)
+            },
+            "BAYES REPEATED quiz1 quiz2 before\n  /DESIGN REGWGT=minutes\n  \
+             /INFERENCE ANALYSIS=BOTH\n  /ESTBF COMPUTATION=ROUDER\n  \
+             /PLOT MEANS=quiz2 quiz1\n  /CRITERIA CILEVEL=99 SEED=4242 MCSAMPLES=5000.",
+        ),
+    ];
+    let program = tutoring_students();
+    for (dialog, expected) in cases {
+        let mut session = statscraft_engine::session::Session::default();
+        session.run(&program, None).unwrap();
+        let data = session.dataset().unwrap().clone();
+        let syntax = Dialog::Advanced(Advanced::Bayes(Box::new(dialog)))
+            .syntax(&data)
+            .unwrap();
+        assert_eq!(syntax, expected);
+        let (_, errors) = statscraft_syntax::parse(&syntax);
+        assert!(errors.is_empty(), "{syntax}\n{errors:?}");
+        let result = session.run(&syntax, None).unwrap();
+        assert!(
+            result.commands.iter().any(|c| !c.tables.is_empty()),
+            "{syntax}"
+        );
+        let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
+        assert!(warnings.is_empty(), "{syntax}\n{warnings:?}");
+    }
+}
+
 /// Invented records of forty members of a community garden: their site, main crop, watering
 /// habit, weekly hours, shift and member number, with a few answers missing.
 fn garden_members() -> String {

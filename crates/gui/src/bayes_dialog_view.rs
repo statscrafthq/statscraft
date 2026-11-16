@@ -2,12 +2,14 @@
 
 use crate::app::{choice, field, target_list, target_one};
 use crate::bayes_dialog::{
-    BAYES_ANALYSES, BAYES_FACTORS, BAYES_GROUP_PRIORS, BAYES_SELECTS, BAYES_SUCCESSES,
-    BAYES_VARIANCE_PRIORS, BayesKind, Bayesian, GONEN, GROUP_INVCHISQ, HYPER, SELECT_CUTPOINT,
-    SUCCESS_CUTPOINT, SUCCESS_LEVEL, variance_parameters,
+    BAYES_ANALYSES, BAYES_FACTORS, BAYES_G_PRIORS, BAYES_GROUP_PRIORS, BAYES_LINEAR_PRIORS,
+    BAYES_REPEATED_FACTORS, BAYES_SAVE, BAYES_SELECTS, BAYES_SUCCESSES, BAYES_VARIANCE_PRIORS,
+    BayesKind, Bayesian, FTestRow, G_HYPER, G_ROUDER, G_ZELLNER, GONEN, GROUP_INVCHISQ, HYPER,
+    SELECT_CUTPOINT, SUCCESS_CUTPOINT, SUCCESS_LEVEL, variance_parameters,
 };
 use crate::stats_dialogs_view::small_field;
-use eframe::egui::{self, Checkbox, Ui};
+use crate::survival_dialog_view::save_fields;
+use eframe::egui::{self, Checkbox, TextEdit, Ui};
 
 pub fn bayes(ui: &mut Ui, d: &mut Bayesian, picked: &mut Vec<String>) {
     match d.kind {
@@ -16,10 +18,31 @@ pub fn bayes(ui: &mut Ui, d: &mut Bayesian, picked: &mut Vec<String>) {
             target_list(ui, "Variables", &mut d.variables, picked);
             ui.weak("Every variable is paired with each one after it");
         }
-        _ => target_list(ui, "Test variables", &mut d.variables, picked),
+        BayesKind::Normal | BayesKind::Binomial | BayesKind::Poisson | BayesKind::Independent => {
+            target_list(ui, "Test variables", &mut d.variables, picked)
+        }
+        BayesKind::Anova => {
+            target_one(ui, "Dependent variable", &mut d.dependent, picked);
+            target_one(ui, "Factor", &mut d.group, picked);
+        }
+        BayesKind::Regression => {
+            target_one(ui, "Dependent variable", &mut d.dependent, picked);
+            target_list(ui, "Factors", &mut d.factors, picked);
+            target_list(ui, "Covariates", &mut d.covariates, picked);
+        }
+        BayesKind::Repeated => {
+            target_list(ui, "Repeated variables", &mut d.variables, picked);
+            ui.weak("Each variable holds one condition, measured on every case");
+        }
     }
     if d.kind == BayesKind::Independent {
         groups(ui, d, picked);
+    }
+    if matches!(
+        d.kind,
+        BayesKind::Anova | BayesKind::Regression | BayesKind::Repeated
+    ) {
+        target_one(ui, "Regression weight", &mut d.weight, picked);
     }
     ui.add_space(6.0);
     choice(ui, "Analysis", &BAYES_ANALYSES, &mut d.analysis);
@@ -28,10 +51,12 @@ pub fn bayes(ui: &mut Ui, d: &mut Bayesian, picked: &mut Vec<String>) {
         BayesKind::Binomial | BayesKind::Poisson => counts(ui, d),
         BayesKind::Independent => independent(ui, d),
         BayesKind::Correlation => correlation(ui, d),
+        BayesKind::Anova | BayesKind::Regression => linear(ui, d, picked),
+        BayesKind::Repeated => repeated(ui, d, picked),
     }
     egui::CollapsingHeader::new("Criteria").show(ui, |ui| {
         field(ui, "Credible interval %", &mut d.ci_level, 50.0);
-        if !matches!(d.kind, BayesKind::Binomial | BayesKind::Poisson) {
+        if d.numerical_offered() {
             field(ui, "Tolerance", &mut d.tolerance, 80.0);
             field(ui, "Most iterations", &mut d.max_iterations, 60.0);
         }
@@ -50,7 +75,153 @@ pub fn bayes(ui: &mut Ui, d: &mut Bayesian, picked: &mut Vec<String>) {
             }
             _ => "Leave out a case missing on any variable (else test by test)",
         };
-        ui.checkbox(&mut d.listwise, label);
+        if d.missing_offered() {
+            ui.checkbox(&mut d.listwise, label);
+        }
+    });
+}
+
+/// A text field that can be switched off, with a label in front.
+fn wide_field(ui: &mut Ui, on: bool, label: &str, text: &mut String) {
+    ui.horizontal(|ui| {
+        ui.label(label);
+        ui.add_enabled(on, TextEdit::singleline(text).desired_width(160.0));
+    });
+}
+
+/// The Bayes factor, prior and plots of a one-way ANOVA or a regression, and the predictions,
+/// saved values and F tests of a regression.
+fn linear(ui: &mut Ui, d: &mut Bayesian, picked: &mut Vec<String>) {
+    let regression = d.kind == BayesKind::Regression;
+    egui::CollapsingHeader::new("Bayes factor").show(ui, |ui| {
+        ui.add_enabled_ui(d.factor(), |ui| {
+            choice(ui, "Prior on g", &BAYES_G_PRIORS, &mut d.factor);
+            ui.horizontal(|ui| match d.factor {
+                G_ZELLNER => {
+                    ui.label("g");
+                    small_field(ui, true, &mut d.g);
+                }
+                G_HYPER => {
+                    ui.label("a (above 2)");
+                    small_field(ui, true, &mut d.hyper);
+                }
+                G_ROUDER => {
+                    ui.label("Scale");
+                    small_field(ui, true, &mut d.rouder);
+                }
+                _ => {}
+            });
+            if regression {
+                ui.checkbox(
+                    &mut d.compare_full,
+                    "Also weigh each model without one variable against the full model",
+                );
+            }
+        });
+    });
+    egui::CollapsingHeader::new("Prior").show(ui, |ui| {
+        ui.add_enabled_ui(d.linear_prior_used(), |ui| {
+            choice(ui, "Prior", &BAYES_LINEAR_PRIORS, &mut d.variance_prior);
+            let on = d.variance_prior == 1;
+            ui.horizontal(|ui| {
+                ui.label("Error variance: shape");
+                small_field(ui, on, &mut d.prior_a);
+                ui.label("scale");
+                small_field(ui, on, &mut d.prior_b);
+            });
+            wide_field(ui, on, "Means", &mut d.prior_mean);
+            wide_field(ui, on, "Matrix (empty: identity)", &mut d.vmatrix);
+            ui.weak(match regression {
+                true => {
+                    "One mean per parameter: the intercept, each category of every factor, \
+                         then the covariates"
+                }
+                false => "One mean per group, in ascending order of the factor",
+            });
+            ui.weak("The matrix is the lower triangle, row by row, rows separated by ;");
+        });
+    });
+    egui::CollapsingHeader::new("Plots").show(ui, |ui| {
+        if regression {
+            target_list(ui, "Parameters of", &mut d.plotted, picked);
+            let factor_plotted = d.plotted.iter().any(|n| d.factors.contains(n));
+            ui.horizontal(|ui| {
+                ui.label("Categories per factor");
+                small_field(ui, factor_plotted, &mut d.max_category);
+            });
+            ui.checkbox(&mut d.plot_intercept, "Intercept");
+        } else {
+            wide_field(ui, true, "Group means of", &mut d.plot_values);
+            ui.weak("Values of the factor; those of a string factor separated by commas");
+        }
+        ui.checkbox(&mut d.plot_error, "Error variance");
+        if regression {
+            let predicting = d.predicting();
+            ui.add_enabled(
+                predicting,
+                Checkbox::new(&mut d.plot_prediction, "Predictive distribution"),
+            );
+        }
+    });
+    if !regression {
+        return;
+    }
+    egui::CollapsingHeader::new("Prediction").show(ui, |ui| {
+        let model: Vec<String> = d.model().cloned().collect();
+        for name in model {
+            let typed = d.predict.entry(name.clone()).or_default();
+            field(ui, &name, typed, 80.0);
+        }
+        ui.weak("A category of each factor and a number for each covariate; empty: none");
+    });
+    egui::CollapsingHeader::new("Save").show(ui, |ui| {
+        save_fields(ui, &BAYES_SAVE, &mut d.save, &mut d.save_names);
+    });
+    egui::CollapsingHeader::new("F tests").show(ui, |ui| ftests(ui, &mut d.ftests, picked));
+}
+
+/// The F tests of a regression, each with its own variables.
+fn ftests(ui: &mut Ui, tests: &mut Vec<FTestRow>, picked: &mut Vec<String>) {
+    let mut remove = None;
+    for (i, test) in tests.iter_mut().enumerate() {
+        ui.push_id(i, |ui| {
+            ui.horizontal(|ui| {
+                ui.strong(format!("Test {}", i + 1));
+                if ui.small_button("\u{d7}").on_hover_text("Remove").clicked() {
+                    remove = Some(i);
+                }
+            });
+            field(ui, "Label", &mut test.label, 120.0);
+            target_list(ui, "Variables", &mut test.variables, picked);
+            ui.checkbox(&mut test.intercept, "With the intercept");
+            field(ui, "Test values (empty: all 0)", &mut test.values, 120.0);
+        });
+    }
+    if let Some(i) = remove {
+        tests.remove(i);
+    }
+    if ui.button("Add test").clicked() {
+        tests.push(FTestRow::default());
+    }
+    ui.weak("Test values: the intercept first, then one per parameter of each variable");
+}
+
+/// The Bayes factor and plots of repeated measures.
+fn repeated(ui: &mut Ui, d: &mut Bayesian, picked: &mut Vec<String>) {
+    egui::CollapsingHeader::new("Bayes factor").show(ui, |ui| {
+        ui.add_enabled_ui(d.factor(), |ui| {
+            choice(ui, "Method", &BAYES_REPEATED_FACTORS, &mut d.factor);
+            let on = d.draws_used();
+            ui.horizontal(|ui| {
+                ui.label("Draws");
+                small_field(ui, on, &mut d.mc_samples);
+                ui.label("Seed (empty: random)");
+                small_field(ui, on, &mut d.seed);
+            });
+        });
+    });
+    egui::CollapsingHeader::new("Plots").show(ui, |ui| {
+        target_list(ui, "Posterior means of", &mut d.plotted, picked);
     });
 }
 
