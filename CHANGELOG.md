@@ -1,7 +1,9 @@
 # Changelog
 
-## Unreleased
+## 0.16.0 (2026-11-16)
 
+- Plugins: a setting can be a style (font, size, bold, italic, text colour, fill, alignment) edited in a Define Style window; settings can be grouped, shown in sections and in two columns when the window is wide; tables can give Excel header row heights (`header_heights`), blank rows above the table (`rows_above`), and a font and size per cell. See docs/plugins.md.
+- Plugins: a plugin's answer can make cells bold or italic, give them coloured borders, style the column header cells and set a font and size for the table's exports; per table it can ask for a plain look (no default borders, header fill or bold header), stacked row labels, Excel column widths and per cell alignment. Number and text settings can have presets, a list of saved values in Edit > Plugin Settings. Web page exports and copied tables from the window now use the same table layout as the other exports.
 - Plugins: `freeze_columns` keeps the first columns of an exported Excel table in view when scrolling right, and a plain table's sheet hides the Excel grid.
 - `statscraft run --xlsx FILE --plugin PROGRAM`: the plugin colours, comments and lays out the custom tables of the workbook, with its settings from the active data's attributes.
 - Plugins: the settings chosen in Edit > Plugin Settings are also remembered for the data file's path, so a syntax that reads the same file again (GET FILE) before it was saved keeps them.
