@@ -39,6 +39,9 @@ use crate::proximities_dialog::Distances;
 use crate::reports_dialog::{Codebook, Summarize};
 use crate::stats_dialogs::{Block, NparKind, NparTests, PartialCorr, Regression, Reliability};
 use crate::survival_dialog::{KaplanMeier, LifeTables};
+use crate::timeseries_dialog::{
+    Correlogram, CreateRow, CreateSeries, Dates, IFFT, Season, SeriesOptions, TimeSeries,
+};
 use std::path::Path;
 
 fn s(text: &str) -> String {
@@ -2904,6 +2907,189 @@ fn the_nonparametric_tests_dialogs_write_syntax_that_runs() {
                 .all(|w| skips && (w.contains("does not test") || w.contains("needs two"))),
             "{syntax}\n{warnings:?}"
         );
+    }
+}
+
+/// Four invented years of a village bakery by month: loaves sold, with a summer peak and slow
+/// growth, and the rainfall in millimetres.
+fn bakery_months() -> String {
+    let peak = [3, 5, 9, 14, 22, 30, 34, 31, 20, 11, 6, 2];
+    let wet = [61, 48, 52, 40, 35, 28, 22, 30, 45, 66, 72, 69];
+    let mut program = String::from("DATA LIST LIST /loaves rainfall.\nBEGIN DATA\n");
+    for t in 0..48usize {
+        let loaves = 180 + 2 * t + peak[t % 12] * 3 + (t * 7) % 5;
+        let rainfall = wet[t % 12] + (t * t) % 7;
+        program.push_str(&format!("{loaves} {rainfall}\n"));
+    }
+    program.push_str("END DATA.\n");
+    program
+}
+
+/// The time series dialogs on the invented bakery months: the syntax is as expected, parses
+/// and runs without a warning.
+#[test]
+fn the_time_series_dialogs_write_syntax_that_runs() {
+    let both = v(&["loaves", "rainfall"]);
+    let series = |d: TimeSeries| Advanced::TimeSeries(Box::new(d));
+    let acf = |d: Correlogram| series(TimeSeries::Correlogram(d));
+    let row = |function: usize, sources: &[&str], first: &str, second: &str| CreateRow {
+        first: s(first),
+        second: s(second),
+        ..CreateRow::new(function, v(sources))
+    };
+    let cases: Vec<(Advanced, &str)> = vec![
+        (
+            acf(Correlogram {
+                variables: v(&["loaves"]),
+                ..Default::default()
+            }),
+            "ACF VARIABLES=loaves.",
+        ),
+        (
+            acf(Correlogram {
+                variables: both.clone(),
+                ln: true,
+                diff: true,
+                sdiff: true,
+                period: s("12"),
+                max_lag: s("10"),
+                display: 2,
+                ma_errors: true,
+                ..Default::default()
+            }),
+            "ACF VARIABLES=loaves rainfall\n  /LN\n  /DIFF=1\n  /SDIFF=1\n  /PERIOD=12\n  \
+             /MXAUTO=10\n  /SERROR=MA\n  /PACF.",
+        ),
+        (
+            acf(Correlogram {
+                variables: v(&["loaves"]),
+                diff: true,
+                diff_order: s("2"),
+                display: 1,
+                ..Default::default()
+            }),
+            "PACF VARIABLES=loaves\n  /DIFF=2.",
+        ),
+        (
+            acf(Correlogram {
+                variables: both.clone(),
+                ..Correlogram::new(true)
+            }),
+            "CCF VARIABLES=loaves rainfall.",
+        ),
+        (
+            acf(Correlogram {
+                variables: both.clone(),
+                ln: true,
+                diff: true,
+                sdiff: true,
+                period: s("12"),
+                max_lag: s("5"),
+                ..Correlogram::new(true)
+            }),
+            "CCF VARIABLES=loaves rainfall\n  /LN\n  /DIFF=1\n  /SDIFF=1\n  /PERIOD=12\n  \
+             /MXCROSS=5.",
+        ),
+        (
+            series(TimeSeries::Season(Season {
+                variables: v(&["loaves"]),
+                period: s("12"),
+                ..Default::default()
+            })),
+            "SEASON VARIABLES=loaves\n  /PERIOD=12.",
+        ),
+        (
+            series(TimeSeries::Season(Season {
+                variables: both.clone(),
+                additive: true,
+                equal: true,
+                period: s("12"),
+            })),
+            "SEASON VARIABLES=loaves rainfall\n  /MODEL=ADDITIVE\n  /MA=EQUAL\n  /PERIOD=12.",
+        ),
+        (
+            series(TimeSeries::Create(CreateSeries {
+                rows: vec![
+                    row(0, &["loaves"], "", ""),
+                    row(1, &["loaves"], "1", ""),
+                    row(2, &["loaves"], "1", "12"),
+                    CreateRow {
+                        names: s("rain_l1 rain_l2"),
+                        ..row(3, &["rainfall"], "1", "2")
+                    },
+                    row(4, &["rainfall"], "1", ""),
+                    row(5, &["loaves"], "5", "3"),
+                    row(6, &["loaves"], "3", ""),
+                    row(7, &["loaves"], "4", ""),
+                    row(8, &["loaves"], "", ""),
+                    row(9, &["rainfall"], "", ""),
+                    // the transform back of the parts the row before made
+                    row(IFFT, &["rainfall_re", "rainfall_im"], "", ""),
+                ],
+                function: 0,
+            })),
+            "CREATE loaves_csum = CSUM(loaves)\n  /loaves_diff = DIFF(loaves, 1)\n  \
+             /loaves_sdiff = SDIFF(loaves, 1, 12)\n  /rain_l1 rain_l2 = LAG(rainfall, 1, 2)\n  \
+             /rainfall_lead = LEAD(rainfall, 1)\n  /loaves_ma = MA(loaves, 5, 3)\n  \
+             /loaves_rmed = RMED(loaves, 3)\n  /loaves_pma = PMA(loaves, 4)\n  \
+             /loaves_t4253h = T4253H(loaves)\n  /rainfall_re rainfall_im = FFT(rainfall)\n  \
+             /rainfall_re_ifft = IFFT(rainfall_re, rainfall_im).",
+        ),
+        (
+            series(TimeSeries::Options(SeriesOptions {
+                reset: true,
+                newvar: 1,
+                mxnewvars: s("30"),
+                mxauto: s("20"),
+                mxcross: s("9"),
+                period: s("12"),
+                cin: s("90"),
+                include: true,
+                acfse_ma: true,
+                print: 1,
+            })),
+            "TSET DEFAULT NEWVAR=NONE MXNEWVARS=30 MXAUTO=20 MXCROSS=9 PERIOD=12 CIN=90 \
+             MISSING=INCLUDE ACFSE=MA PRINT=BRIEF.",
+        ),
+        (
+            series(TimeSeries::Dates(Dates {
+                case: 2,
+                starts: [s("2021"), s("3"), s("")],
+                ..Default::default()
+            })),
+            "DATE YEAR 2021 MONTH 3.",
+        ),
+        (
+            series(TimeSeries::Dates(Dates {
+                case: 19,
+                starts: [s(""), s("2"), s("")],
+                period: s("6"),
+            })),
+            "DATE CYCLE OBS 2 6.",
+        ),
+    ];
+    let program = bakery_months();
+    for (dialog, expected) in cases {
+        let mut session = statscraft_engine::session::Session::default();
+        session.run(&program, None).unwrap();
+        let data = session.dataset().unwrap().clone();
+        let syntax = Dialog::Advanced(dialog).syntax(&data).unwrap();
+        assert_eq!(syntax, expected);
+        let (_, errors) = statscraft_syntax::parse(&syntax);
+        assert!(errors.is_empty(), "{syntax}\n{errors:?}");
+        let mut result = session.run(&syntax, None).unwrap();
+        // TSET makes no table: the procedures after it take its period
+        if syntax.starts_with("TSET") {
+            result = session
+                .run("ACF loaves /SDIFF.\nSEASON loaves.", None)
+                .unwrap();
+        }
+        assert!(
+            result.commands.iter().any(|c| !c.tables.is_empty()),
+            "{syntax}"
+        );
+        let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
+        assert!(warnings.is_empty(), "{syntax}\n{warnings:?}");
     }
 }
 

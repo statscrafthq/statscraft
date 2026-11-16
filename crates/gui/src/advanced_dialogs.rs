@@ -34,6 +34,7 @@ use crate::reports_dialog::{Codebook, Summarize};
 use crate::stats_dialogs::{numeric, parse, percent};
 use crate::survival_dialog::{KaplanMeier, LifeTables};
 use crate::syntax_text::{names, number, quote, value};
+use crate::timeseries_dialog::TimeSeries;
 use statscraft_data::Dataset;
 
 /// The dialogs of this module, one variant of the window's dialogs.
@@ -85,6 +86,8 @@ pub enum Advanced {
     // boxed: a large dialog
     Nptests(Box<Nptests>),
     Bayes(Box<Bayesian>),
+    // boxed: the time series dialogs (in `timeseries_dialog`)
+    TimeSeries(Box<TimeSeries>),
 }
 
 impl Advanced {
@@ -126,6 +129,7 @@ impl Advanced {
             Advanced::Power(d) => d.title(),
             Advanced::Nptests(d) => d.title(),
             Advanced::Bayes(d) => d.title(),
+            Advanced::TimeSeries(d) => d.title(),
         }
     }
 
@@ -169,6 +173,7 @@ impl Advanced {
             Advanced::Power(d) => Advanced::Power(Box::new(PowerAnalysis::new(d.kind))),
             Advanced::Nptests(d) => Advanced::Nptests(Box::new(Nptests::new(d.kind))),
             Advanced::Bayes(d) => Advanced::Bayes(Box::new(Bayesian::new(d.kind))),
+            Advanced::TimeSeries(d) => Advanced::TimeSeries(Box::new(d.reset())),
         }
     }
 
@@ -219,6 +224,7 @@ impl Advanced {
             Advanced::Power(d) => d.syntax(),
             Advanced::Nptests(d) => d.syntax(data),
             Advanced::Bayes(d) => d.syntax(data),
+            Advanced::TimeSeries(d) => d.syntax(data),
         }
     }
 }

@@ -63,6 +63,7 @@ pub fn body(
         Advanced::Power(d) => crate::power_dialog_view::power(ui, d),
         Advanced::Nptests(d) => crate::nptests_dialog_view::nptests(ui, d, picked),
         Advanced::Bayes(d) => crate::bayes_dialog_view::bayes(ui, d, picked),
+        Advanced::TimeSeries(d) => crate::timeseries_dialog_view::body(ui, d, picked),
     }
 }
 

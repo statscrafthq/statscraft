@@ -71,6 +71,8 @@ mod survival_dialog_view;
 mod syntax_text;
 mod syntax_window;
 mod themes;
+mod timeseries_dialog;
+mod timeseries_dialog_view;
 mod updates;
 mod windows;
 

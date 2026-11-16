@@ -42,6 +42,7 @@ use crate::stats_dialogs::{NparKind, NparTests, PartialCorr, Regression, Reliabi
 use crate::stats_dialogs_view;
 use crate::syntax_text::{number, quote};
 use crate::syntax_window;
+use crate::timeseries_dialog::{TimeSeries, forecasting_menu};
 use crate::updates::Updates;
 use crate::windows::{Closing, Kind, Registry, WindowId, same};
 use crate::{editor, grid, grid_menu, highlight, themes};
@@ -1523,6 +1524,12 @@ impl App {
                         Dialog::WeightCases(WeightCases::current(weight.as_deref())),
                     ),
                     ("Aggregate...", Dialog::Aggregate(Default::default(), 0)),
+                    (
+                        "Define Dates...",
+                        Dialog::Advanced(Advanced::TimeSeries(Box::new(TimeSeries::Dates(
+                            Default::default(),
+                        )))),
+                    ),
                 ] {
                     if ui.add_enabled(has_data, egui::Button::new(label)).clicked() {
                         self.open_dialog(dialog);
@@ -1796,6 +1803,15 @@ impl App {
                             }
                         }
                     });
+                    ui.menu_button("Forecasting", |ui| {
+                        for (label, dialog) in forecasting_menu() {
+                            if ui.button(label).clicked() {
+                                self.open_dialog(Dialog::Advanced(Advanced::TimeSeries(Box::new(
+                                    dialog,
+                                ))));
+                            }
+                        }
+                    });
                     ui.menu_button("Multiple Response", |ui| {
                         for (label, crosstabs) in
                             [("Frequencies...", false), ("Crosstabs...", true)]
@@ -1901,6 +1917,12 @@ impl App {
                     (
                         "Automatic Recode...",
                         Dialog::Autorecode(Default::default()),
+                    ),
+                    (
+                        "Create Time Series...",
+                        Dialog::Advanced(Advanced::TimeSeries(Box::new(TimeSeries::Create(
+                            Default::default(),
+                        )))),
                     ),
                 ] {
                     if ui.add_enabled(has_data, egui::Button::new(label)).clicked() {

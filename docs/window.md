@@ -285,6 +285,7 @@ See [The Window menu](#the-window-menu).
   - all cases again, with `FILTER OFF.` and `USE ALL.`.
 - **Weight Cases**.
 - **Aggregate**: into every case, into a new dataset of one case per group, or into a file.
+- **Define Dates** (`DATE`): what one case stands for (years, quarters, months, weeks, work days, hours, minutes, seconds, or cycles of a period you choose) and the date of the first case. The dialog checks that each first value fits its period.
 - **Merge Files > Add Cases** and **Merge Files > Add Variables**: with keys, or with a lookup table.
 
 ### Analyze
@@ -563,6 +564,14 @@ The first three write `NPTESTS`. Each starts by letting the data choose the test
   - Confidence intervals for exp(B), the correlation of estimates, the baseline function, every step or only the last of each block, the stepwise entry and removal probabilities, the maximum iterations and user-missing values as valid.
   - A time-dependent covariate: an expression in T_ that becomes `T_COV_` through `TIME PROGRAM` and joins the first block. With it, DfBeta is the only variable to save, and there are no plots, pattern or baseline table.
 
+**Forecasting**
+
+- **Autocorrelations** (`ACF`, or `PACF` for partial autocorrelations alone): series, the natural log, differencing and seasonal differencing with a period, the most lags, and white-noise or Bartlett standard errors.
+- **Cross-Correlations** (`CCF`): two or more series, each paired with every later one, with the same transforms and the most lags either way.
+- **Seasonal Decomposition** (`SEASON`): a multiplicative or additive model, the moving average for an even period and the period.
+- **Options** (`TSET`): what the procedures save, the most new variables and lags, the period, the confidence level, user-missing values, the standard errors of autocorrelations and the amount of output. The window cannot read the session's current values, so the dialog starts from the starting ones and writes only what you change; a checkbox puts every setting back first.
+- An empty period or number of lags leaves the choice to the `TSET` settings and the date variables.
+
 **Multiple Response** (`MULT RESPONSE`): **Frequencies** and **Crosstabs**.
 
 - Groups defined in the dialog, as dichotomies with a counted value or as categories with a range. They are kept from one of the two dialogs to the other while the window is open.
@@ -614,6 +623,7 @@ The first three write `NPTESTS`. Each starts by letting the data choose the test
 - **Compute Variable**, **Recode** and **Count Values within Cases**.
 - **Rank Cases**: every RANK function, with new names or the default ones; ranks within groups; from the smallest or the largest value; ties; the proportion formula; user-missing values.
 - **Automatic Recode** (`AUTORECODE`): into new variables, from the largest value, one scheme for all, blank strings as missing, and a table of the values.
+- **Create Time Series** (`CREATE`): rows of new series from the picked ones, each with its function (running total, differences, seasonal differences, lags and leads with a range of orders, centered, running-median and prior moving averages, T4253H smoothing, the Fourier transform and its inverse) and its order, span or period. Each row takes as many new names as it makes series; names that are taken or given twice are refused.
 
 ### Help
 
