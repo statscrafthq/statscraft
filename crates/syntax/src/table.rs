@@ -15,6 +15,7 @@ use crate::coxreg;
 use crate::ctables;
 use crate::data_commands;
 use crate::data_list;
+use crate::datacheck;
 use crate::dictionary;
 use crate::discriminant;
 use crate::examine;
@@ -3633,6 +3634,37 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: files::update,
     },
     CommandSpec {
+        name: "COMPARE DATASETS",
+        summary: "Compare the values and dictionary of the active dataset with another dataset or .sav file.",
+        syntax: "COMPARE DATASETS /COMPDATASET 'file.sav' [PASSWORD='text'] | dataset\n\
+                 \x20 /VARIABLES varlist | ALL [/CASEID varlist]\n\
+                 \x20 [/SAVE [FLAGMISMATCHES=YES | NO] [VARNAME=name]\n\
+                 \x20        [MATCHDATASET=NO | YES] [MATCHNAME=dataset | 'file' [MATCHPASS='text' | NONE]]\n\
+                 \x20        [MISMATCHDATASET=NO | YES] [MISMATCHNAME=dataset | 'file' [MISMATCHPASS=...]]\n\
+                 \x20        [ENCRYPTEDPW=NO | YES]]\n\
+                 \x20 [/OUTPUT [VARPROPERTIES=NONE | ALL | MEASURE LABEL VALUELABELS COLUMNS MISSING ALIGN ROLE\n\
+                 \x20                         ATTRIBUTES WIDTH] [CASETABLE=YES | NO [TABLELIMIT=100 | n | NONE]]].\n\
+                 Every subcommand and keyword is written in full. Without CASEID the first case of each file is\n\
+                 paired with the first of the other, and so on; with CASEID cases pair by their key values and\n\
+                 both files must be sorted by the keys in ascending order (a key held twice pairs in file order).\n\
+                 Each listed variable that the other file also has, with the same type, is compared value by\n\
+                 value: numbers exactly, system-missing equal only to system-missing, strings without trailing\n\
+                 blanks. A variable the other file lacks or holds with the other type is listed, not compared.\n\
+                 The tables: a summary of cases and variables, the variables not compared, the number of cases\n\
+                 that differ per variable, and the case table (one row per differing value, the first 100\n\
+                 cases by default). The flag variable, CasesCompare unless VARNAME names another, is added to\n\
+                 the active dataset unless FLAGMISMATCHES=NO: 0 the paired case has the same values, 1 it\n\
+                 differs, -1 the other file has no such case; an existing numeric variable of that name is\n\
+                 overwritten. MATCHDATASET and MISMATCHDATASET write the active cases flagged 0, or flagged 1\n\
+                 or -1, to a dataset declared before or a .sav file; encrypted files cannot be written.\n\
+                 VARPROPERTIES lists every requested property that differs between the files. SPLIT FILE and\n\
+                 FILTER are ignored.",
+        example: "COMPARE DATASETS /COMPDATASET 'wave1_checked.sav' /VARIABLES q1 TO q12 /CASEID respid\n\
+                  \x20 /SAVE VARNAME=changed MISMATCHDATASET=YES MISMATCHNAME=review\n\
+                  \x20 /OUTPUT VARPROPERTIES=LABEL VALUELABELS TABLELIMIT=50.",
+        parse: datacheck::compare_datasets,
+    },
+    CommandSpec {
         name: "DEFINE",
         summary: "Define a macro: a name that stands for syntax, with arguments.",
         syntax: "DEFINE name ([argument [/ argument ...]])\n\
@@ -4105,6 +4137,48 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         example: "CODEBOOK region income [O] $media /VARINFO=LABEL MEASURE VALUELABELS\n\
                   \x20 /STATISTICS=COUNT MEAN /OPTIONS MAXCATS=12 VARORDER=ALPHA.",
         parse: codebook::codebook,
+    },
+    CommandSpec {
+        name: "VALIDATEDATA",
+        summary: "Find suspicious variables, incomplete or duplicate IDs, empty cases and rule violations.",
+        syntax: "VALIDATEDATA [VARIABLES=varlist] [ID=varlist] [CROSSVARRULES=$VD.CRule[n] ... | n ... | ALL]\n\
+                 \x20 [/VARCHECKS [STATUS=ON | OFF] [PCTMISSING=70] [PCTEQUAL=95] [PCTUNEQUAL=90] [CV=0.001]\n\
+                 \x20             [STDDEV=0]]\n\
+                 \x20 [/IDCHECKS [INCOMPLETE] [DUPLICATE] | NONE]\n\
+                 \x20 [/CASECHECKS [REPORTEMPTY=YES | NO] [SCOPE=ANALYSISVARS | ALLVARS]]\n\
+                 \x20 [/RULESUMMARIES [BYVARIABLE] [BYRULE] | NONE]\n\
+                 \x20 [/CASEREPORT [DISPLAY=YES | NO] [MINVIOLATIONS=1] [CASELIMIT=FIRSTN(500) | NONE]]\n\
+                 \x20 [/SAVE [EMPTYCASE[(name)]] [INCOMPLETEID[(name)]] [DUPLICATEID[(name)]]\n\
+                 \x20        [RULEVIOLATIONS[(name)]]].\n\
+                 Give at least one of VARIABLES (analysis variables), ID (the variables that together identify\n\
+                 a case) and CROSSVARRULES. Keywords are written in full; a subcommand may come once and may not\n\
+                 be empty. VARCHECKS lists analysis variables with more missing values than PCTMISSING percent\n\
+                 of the cases; nominal and ordinal ones (strings too) whose largest category holds more than\n\
+                 PCTEQUAL percent of the valid values, or whose categories have one case each in more than\n\
+                 PCTUNEQUAL percent of them; scale ones whose absolute coefficient of variation is below CV (0\n\
+                 turns it off; skipped when the mean is 0) or whose standard deviation is below STDDEV. A\n\
+                 variable of unknown level gets one from its values. IDCHECKS lists the cases whose ID has a\n\
+                 missing or blank part and the groups of cases that share a complete ID. CASECHECKS lists empty\n\
+                 cases: every analysis variable (SCOPE=ALLVARS: every variable but the ID, split and rule\n\
+                 outcome variables) missing or blank.\n\
+                 Rules live in the dictionary. A single-variable rule is the data file attribute $VD.SRule[n],\n\
+                 a text of Name='value' properties separated by commas, among them Label and Type (Numeric,\n\
+                 String or Date); an analysis variable links to it with the variable attribute $VD.SRuleRef[n]\n\
+                 holding Rule='$VD.SRule[n]' and OutcomeVar='name'. A cross-variable rule is $VD.CRule[n] with\n\
+                 Label, Expression and OutcomeVar. The outcome variable, made beforehand with COMPUTE, is 1 for\n\
+                 a case that breaks the rule; mark it with the variable attribute $VD.RuleOutcomeVar('Yes') so\n\
+                 the variable lists skip it. Broken or unknown rules and links are skipped with a warning; one\n\
+                 outcome variable used by two rules is an error. RULESUMMARIES counts single-variable\n\
+                 violations by variable (default) or by rule; cross-variable rules are always counted per\n\
+                 rule. CASEREPORT lists the cases with at least MINVIOLATIONS violations, the first 500 by\n\
+                 default. SAVE adds EmptyCase, IncompleteID (1 or 0), DuplicateIDGroup (the same number for\n\
+                 cases sharing an ID, else 0) and ValidationRuleViolations (the count per case); a default name\n\
+                 in use gets _1, _2 and so on, a given name in use is an error. Missing means user- or\n\
+                 system-missing. Works within SPLIT FILE groups and on the cases FILTER keeps; the weight is\n\
+                 ignored with a warning.",
+        example: "VALIDATEDATA VARIABLES=age income visits ID=household member\n\
+                  \x20 /VARCHECKS PCTMISSING=40 CV=0.01 /SAVE DUPLICATEID(dupgroup) EMPTYCASE.",
+        parse: datacheck::validatedata,
     },
     CommandSpec {
         name: "LIST",

@@ -27,13 +27,13 @@ use std::cmp::Ordering;
 
 /// One value of the BY variables.
 #[derive(PartialEq)]
-enum Key<'a> {
+pub(crate) enum Key<'a> {
     Number(Option<f64>),
     Text(&'a str),
 }
 
 /// System-missing is lower than every number, as in SORT CASES.
-fn compare(a: &[Key], b: &[Key]) -> Ordering {
+pub(crate) fn compare(a: &[Key], b: &[Key]) -> Ordering {
     for (x, y) in a.iter().zip(b) {
         let ordering = match (x, y) {
             (Key::Number(x), Key::Number(y)) => x.partial_cmp(y).unwrap_or(Ordering::Equal),
