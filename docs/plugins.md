@@ -15,8 +15,10 @@ their row, and put a confidence interval in each cell's comment.
   comments as Excel comments** decides whether Excel exports carry the comments as cell notes.
 - **Edit > Plugin Settings...** shows the settings the plugin declares, with their values for
   the active data. OK runs `DATAFILE ATTRIBUTE` to keep them with the data; save the data file
-  to keep them for the next time it is opened. A setting without a value takes the plugin's
-  default.
+  to take them along to other computers. The window also remembers them for the data file's
+  path, so reading the same file again (GET FILE in a syntax, or opening it) before it was
+  saved keeps them; attributes the data carries win over the remembered values. A setting
+  without a value takes the plugin's default.
 - **Presets**: a setting the plugin marks with `"presets": true` has a list of saved values
   beside its field, each shown as `name: value`. Choosing one fills the field; **Remove** takes
   the chosen one off the list; a name and **Save as preset** add the value in the field (a

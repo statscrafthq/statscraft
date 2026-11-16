@@ -74,8 +74,23 @@ impl Default for Plugins {
 }
 
 /// The first value of a data file attribute, by name in any case.
+#[cfg(test)]
 fn attribute(data: Option<&Dataset>, name: &str) -> Option<String> {
     first_value(data?.attributes(), name)
+}
+
+/// The attributes the plugin's settings are read from: the active data's own, then the values
+/// remembered for its file that the data does not carry (a file read again before it was saved).
+fn attributes(settings: &Settings, data: Option<&Dataset>) -> Vec<(String, Vec<String>)> {
+    let mut all = data.map(|d| d.attributes().to_vec()).unwrap_or_default();
+    if let Some(file) = data.and_then(Dataset::file) {
+        for (name, value) in settings.values_for(file) {
+            if !all.iter().any(|(n, _)| n.eq_ignore_ascii_case(&name)) {
+                all.push((name, value));
+            }
+        }
+    }
+    all
 }
 
 fn first_value(attributes: &[(String, Vec<String>)], name: &str) -> Option<String> {
@@ -142,7 +157,7 @@ impl Plugins {
         let Some(program) = settings.plugin.clone() else {
             return;
         };
-        let attributes = data.map(|d| d.attributes().to_vec()).unwrap_or_default();
+        let attributes = attributes(settings, data);
         let sender = self.sender.clone();
         let document = document.to_string();
         let generation = self.generation;
@@ -186,13 +201,14 @@ impl Plugins {
             Some(Err(e)) => return Err(format!("plugin: {e}")),
             None => return Err("choose a plugin in Edit > Settings > Plugins first".into()),
         };
-        let values = description.values(|name| attribute(data, name));
+        let known = attributes(settings, data);
+        let values = description.values(|name| first_value(&known, name));
         let fields = description.settings.iter().map(|s| {
             let text = match &values[&s.key] {
                 plugin::Value::String(text) => text.clone(),
                 other => other.to_string(),
             };
-            let preset = attribute(data, &description.preset_attribute(&s.key))
+            let preset = first_value(&known, &description.preset_attribute(&s.key))
                 .filter(|name| s.presets && !name.is_empty())
                 .map(|name| (name, text.trim().to_string()));
             Field {
@@ -206,9 +222,14 @@ impl Plugins {
         Ok(())
     }
 
-    /// Edit > Plugin Settings while it is open; returns the syntax that keeps the values as
-    /// data file attributes when OK is pressed. Presets saved or removed change `presets`.
-    pub fn dialog_ui(&mut self, ctx: &egui::Context, presets: &mut Vec<Preset>) -> Option<String> {
+    /// Edit > Plugin Settings while it is open; returns, when OK is pressed, the syntax that
+    /// keeps the values as data file attributes and the same values as (attribute, value)
+    /// pairs. Presets saved or removed change `presets`.
+    pub fn dialog_ui(
+        &mut self,
+        ctx: &egui::Context,
+        presets: &mut Vec<Preset>,
+    ) -> Option<(String, Vec<(String, String)>)> {
         let (description, fields) = self.dialog.as_mut()?;
         let (mut open, mut ok, mut cancel) = (true, false, false);
         egui::Window::new("Plugin Settings")
@@ -216,7 +237,10 @@ impl Plugins {
             .collapsible(false)
             .resizable(false)
             .show(ctx, |ui| {
-                ui.weak("Kept with the active data: save the data file to keep them.");
+                ui.weak(
+                    "Kept with the active data (save the data file to take them along) and \
+                     remembered on this computer for its file.",
+                );
                 ui.add_space(6.0);
                 egui::Grid::new("plugin settings").show(ui, |ui| {
                     for f in fields.iter_mut() {
@@ -250,7 +274,10 @@ impl Plugins {
         }
         // the description the dialog was opened with: the program may have changed since
         let (description, fields) = self.dialog.take()?;
-        ok.then(|| attribute_syntax(&description, &fields))
+        ok.then(|| {
+            let pairs = attribute_values(&description, &fields);
+            (attribute_syntax(&pairs), pairs)
+        })
     }
 }
 
@@ -326,23 +353,78 @@ fn valid(kind: Kind, text: &str) -> bool {
 
 /// DATAFILE ATTRIBUTE that keeps every value under its attribute name, and for a setting with
 /// presets the name of the preset its value came from (empty when none).
-fn attribute_syntax(description: &Description, fields: &[Field]) -> String {
-    let mut values = Vec::new();
+fn attribute_syntax(pairs: &[(String, String)]) -> String {
+    let values: Vec<String> = pairs
+        .iter()
+        .map(|(name, value)| format!("{name}({})", quote(value)))
+        .collect();
+    format!("DATAFILE ATTRIBUTE ATTRIBUTE={}.", values.join(" "))
+}
+
+/// Every value under its attribute name, with the preset name of a setting that has presets.
+fn attribute_values(description: &Description, fields: &[Field]) -> Vec<(String, String)> {
+    let mut pairs = Vec::new();
     for f in fields {
         let key = &f.setting.key;
-        let text = quote(f.text.trim());
-        values.push(format!("{}({text})", description.attribute(key)));
+        pairs.push((description.attribute(key), f.text.trim().to_string()));
         if f.setting.presets {
-            let preset = quote(f.preset().unwrap_or(""));
-            values.push(format!("{}({preset})", description.preset_attribute(key)));
+            let preset = f.preset().unwrap_or("").to_string();
+            pairs.push((description.preset_attribute(key), preset));
         }
     }
-    format!("DATAFILE ATTRIBUTE ATTRIBUTE={}.", values.join(" "))
+    pairs
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Values chosen for a data file come back when the file is read again without its new
+    /// attributes; the data's own attributes win over them.
+    #[test]
+    fn values_remembered_for_a_file_hold_after_it_is_read_again() {
+        let dir =
+            std::env::temp_dir().join(format!("statscraft-plugin-values-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("survey.sav");
+        let mut session = statscraft_engine::session::Session::default();
+        let make = "DATA LIST FREE / a.\nBEGIN DATA\n1 2\nEND DATA.\n";
+        session
+            .run(&format!("{make}SAVE OUTFILE='{}'.", file.display()), None)
+            .unwrap();
+        let mut settings = Settings::default();
+        let file = std::path::absolute(&file).unwrap();
+        let pairs = vec![(
+            "plugin_margins_population".to_string(),
+            "1024000".to_string(),
+        )];
+        settings.remember_values(&file, &pairs);
+        // reading the file again: no attribute in the data, the remembered value holds
+        session
+            .run(&format!("GET FILE='{}'.", file.display()), None)
+            .unwrap();
+        let all = attributes(&settings, session.dataset());
+        assert_eq!(
+            first_value(&all, "plugin_margins_population").as_deref(),
+            Some("1024000")
+        );
+        // an attribute of the data wins
+        session
+            .run(
+                "DATAFILE ATTRIBUTE ATTRIBUTE=plugin_margins_population('500').",
+                None,
+            )
+            .unwrap();
+        let all = attributes(&settings, session.dataset());
+        assert_eq!(
+            first_value(&all, "plugin_margins_population").as_deref(),
+            Some("500")
+        );
+        // the settings file keeps them
+        let read = Settings::parse(&settings.text());
+        assert_eq!(read.file_values, settings.file_values);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     /// An answer asked before the settings changed is dropped; one asked after is kept.
     #[test]
@@ -394,7 +476,7 @@ mod tests {
                 new_name: String::new(),
             })
             .collect();
-        let syntax = attribute_syntax(&description, &fields);
+        let syntax = attribute_syntax(&attribute_values(&description, &fields));
         assert_eq!(
             syntax,
             "DATAFILE ATTRIBUTE ATTRIBUTE=plugin_example_threshold('0.1') plugin_example_note('it''s')."
@@ -437,7 +519,10 @@ mod tests {
             preset: Some(("Adults".into(), "1043000".into())),
             new_name: String::new(),
         };
-        let syntax = attribute_syntax(&description, std::slice::from_ref(&field));
+        let syntax = attribute_syntax(&attribute_values(
+            &description,
+            std::slice::from_ref(&field),
+        ));
         assert_eq!(
             syntax,
             "DATAFILE ATTRIBUTE ATTRIBUTE=plugin_house_universe('1043000') \
@@ -452,7 +537,7 @@ mod tests {
         assert_eq!(stored.as_deref(), Some("Adults"));
         field.text = "990000".into();
         assert_eq!(field.preset(), None);
-        let syntax = attribute_syntax(&description, &[field]);
+        let syntax = attribute_syntax(&attribute_values(&description, &[field]));
         assert!(
             syntax.ends_with("plugin_house_universe_preset('')."),
             "{syntax}"

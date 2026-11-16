@@ -58,6 +58,17 @@ pub struct Settings {
     pub excel_comments_off: bool,
     /// Saved values of plugin settings, for every data file.
     pub presets: Vec<Preset>,
+    /// The plugin settings last chosen for each data file, by its path: they hold when the
+    /// file is read again (GET FILE in a syntax) before its new data file attributes were saved.
+    pub file_values: Vec<FileValue>,
+}
+
+/// A plugin setting's value chosen for one data file.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FileValue {
+    pub file: PathBuf,
+    pub attribute: String,
+    pub value: String,
 }
 
 /// A saved value of a plugin setting, named, under the setting's data file attribute.
@@ -189,6 +200,18 @@ impl Settings {
                         settings.presets.push(Preset::new(attribute, name, value));
                     }
                 }
+                "plugin-value" => {
+                    if let [attribute, value, file] = rest.split('\t').collect::<Vec<_>>()[..]
+                        && !attribute.is_empty()
+                        && !file.is_empty()
+                    {
+                        settings.file_values.push(FileValue {
+                            file: PathBuf::from(file),
+                            attribute: attribute.to_string(),
+                            value: value.to_string(),
+                        });
+                    }
+                }
                 _ => {}
             }
         }
@@ -270,7 +293,37 @@ impl Settings {
                 p.attribute, p.name, p.value
             ));
         }
+        for v in &self.file_values {
+            text.push_str(&format!(
+                "plugin-value {}\t{}\t{}\n",
+                v.attribute,
+                v.value,
+                v.file.display()
+            ));
+        }
         text
+    }
+
+    /// Keeps the plugin settings chosen for a data file, replacing earlier ones of the same
+    /// attributes; tabs and line breaks become spaces so each fits its line.
+    pub fn remember_values(&mut self, file: &Path, values: &[(String, String)]) {
+        let clean = |s: &str| s.replace(['\t', '\n', '\r'], " ");
+        for (attribute, value) in values {
+            self.file_values
+                .retain(|v| !(v.file == file && v.attribute.eq_ignore_ascii_case(attribute)));
+            self.file_values.push(FileValue {
+                file: file.to_path_buf(),
+                attribute: clean(attribute),
+                value: clean(value),
+            });
+        }
+    }
+
+    /// The plugin settings remembered for a data file, as data file attributes.
+    pub fn values_for(&self, file: &Path) -> Vec<(String, Vec<String>)> {
+        let mine = self.file_values.iter().filter(|v| v.file == file);
+        mine.map(|v| (v.attribute.clone(), vec![v.value.clone()]))
+            .collect()
     }
 
     /// Keeps a choice of SET TVARS or TNUMBERS from Edit > Settings.
@@ -369,6 +422,11 @@ mod tests {
                 Preset::new("plugin_house_universe", "All: ages\t0+", "1331000"),
                 Preset::new("plugin_house_note", "Short", "Base: all asked"),
             ],
+            file_values: vec![FileValue {
+                file: PathBuf::from("/data/my surveys/wave 2.sav"),
+                attribute: "plugin_house_universe".into(),
+                value: "1043000".into(),
+            }],
         };
         assert_eq!(settings.presets[1].name, "All: ages 0+");
         for i in 0..12 {

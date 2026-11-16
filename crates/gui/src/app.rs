@@ -4009,7 +4009,17 @@ impl App {
             // the window works on without them
             let _ = self.settings.save();
         }
-        if let Some(syntax) = set {
+        if let Some((syntax, values)) = set {
+            // also kept for the data file, so reading it again before saving keeps them
+            let file = self
+                .session
+                .dataset()
+                .and_then(|d| d.file())
+                .map(Path::to_path_buf);
+            if let Some(file) = file {
+                self.settings.remember_values(&file, &values);
+                let _ = self.settings.save();
+            }
             self.run(&syntax, None, After::Show);
             self.plugins.again();
         }
