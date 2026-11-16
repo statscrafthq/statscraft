@@ -402,9 +402,8 @@ fn mean_posterior(
         VariancePrior::Jeffreys2 => return flat(w - 1.0),
         VariancePrior::Jeffreys4 => return flat(w + 1.0),
         VariancePrior::InvChiSquare(df, scale) => (df / 2.0, df * scale / 2.0),
-        VariancePrior::InvGamma(shape, scale) | VariancePrior::Gamma(shape, scale) => {
-            (shape, scale)
-        }
+        // the second value of both enters the posterior as the rate of the precision
+        VariancePrior::InvGamma(shape, b) | VariancePrior::Gamma(shape, b) => (shape, b),
         VariancePrior::ChiSquare(df) => (df / 2.0, 0.5),
     };
     let Some((m0, _)) = prior.mean else {
