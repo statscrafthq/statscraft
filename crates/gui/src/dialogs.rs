@@ -217,16 +217,26 @@ pub const CROSSTABS_CELLS: [(&str, &str); 8] = [
     ("ASRESID", "Adjusted standardized residual"),
 ];
 
-pub const CROSSTABS_STATISTICS: [(&str, &str); 8] = [
+pub const CROSSTABS_STATISTICS: [(&str, &str); 15] = [
     ("CHISQ", "Chi-square tests"),
+    ("CORR", "Correlations"),
     ("PHI", "Phi and Cramer's V"),
     ("CC", "Contingency coefficient"),
     ("LAMBDA", "Lambda"),
+    ("UC", "Uncertainty coefficient"),
     ("GAMMA", "Gamma"),
+    ("D", "Somers' d"),
     ("BTAU", "Kendall's tau-b"),
     ("CTAU", "Kendall's tau-c"),
-    ("CORR", "Correlations"),
+    ("ETA", "Eta"),
+    ("KAPPA", "Kappa"),
+    ("RISK", "Risk"),
+    ("MCNEMAR", "McNemar"),
+    ("CMH", "Cochran's and Mantel-Haenszel statistics"),
 ];
+
+/// The place of CMH in `CROSSTABS_STATISTICS`.
+pub const CROSSTABS_CMH: usize = 14;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Crosstabs {
@@ -236,7 +246,9 @@ pub struct Crosstabs {
     /// One flag per entry of `CROSSTABS_CELLS`.
     pub cells: [bool; 8],
     /// One flag per entry of `CROSSTABS_STATISTICS`.
-    pub statistics: [bool; 8],
+    pub statistics: [bool; 15],
+    /// The common odds ratio CMH tests against.
+    pub cmh_odds: String,
 }
 
 impl Default for Crosstabs {
@@ -246,7 +258,8 @@ impl Default for Crosstabs {
             columns: Vec::new(),
             layers: Vec::new(),
             cells: [true, false, false, false, false, false, false, false],
-            statistics: [false; 8],
+            statistics: [false; 15],
+            cmh_odds: "1".into(),
         }
     }
 }
@@ -272,11 +285,19 @@ impl Crosstabs {
             cells.join(" ")
         };
         text.push_str(&format!("\n  /CELLS={cells}"));
-        let statistics: Vec<&str> = CROSSTABS_STATISTICS
+        let mut statistics: Vec<String> = CROSSTABS_STATISTICS
             .iter()
             .zip(self.statistics)
-            .filter_map(|((keyword, _), on)| on.then_some(*keyword))
+            .filter_map(|((keyword, _), on)| on.then(|| keyword.to_string()))
             .collect();
+        if self.statistics[CROSSTABS_CMH] {
+            let odds = self.cmh_odds.trim().parse::<f64>().ok();
+            match odds.filter(|n| n.is_finite() && *n > 0.0) {
+                Some(1.0) => {}
+                Some(n) => *statistics.last_mut().unwrap() = format!("CMH({})", number(n)),
+                None => return Err("the common odds ratio must be a number above 0".into()),
+            }
+        }
         if !statistics.is_empty() {
             text.push_str(&format!("\n  /STATISTICS={}", statistics.join(" ")));
         }
@@ -1380,16 +1401,25 @@ mod tests {
         );
         d.layers = v(&["plan"]);
         d.cells = [true, true, true, false, true, false, false, true];
-        d.statistics = [true, false, false, false, false, false, false, false];
+        d.statistics[0] = true;
         let syntax = d.syntax().unwrap();
         assert_eq!(
             syntax,
             "CROSSTABS /TABLES=region BY gender BY plan\n  /CELLS=COUNT ROW COLUMN EXPECTED ASRESID\n  /STATISTICS=CHISQ."
         );
         assert!(runs(&syntax) >= 2);
-        d.statistics = [true; 8];
+        assert_eq!(CROSSTABS_STATISTICS[CROSSTABS_CMH].0, "CMH");
+        d.statistics = [true; 15];
+        d.cmh_odds = "0".into();
+        assert_eq!(
+            d.syntax().unwrap_err(),
+            "the common odds ratio must be a number above 0"
+        );
+        d.cmh_odds = "2.5".into();
         let syntax = d.syntax().unwrap();
-        assert!(syntax.ends_with("/STATISTICS=CHISQ PHI CC LAMBDA GAMMA BTAU CTAU CORR."));
+        assert!(syntax.ends_with(
+            "/STATISTICS=CHISQ CORR PHI CC LAMBDA UC GAMMA D BTAU CTAU ETA KAPPA RISK MCNEMAR CMH(2.5)."
+        ));
         assert!(runs(&syntax) >= 2);
         d.cells = [false; 8];
         assert!(d.syntax().unwrap().contains("/CELLS=NONE"));

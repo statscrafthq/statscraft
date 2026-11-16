@@ -18,8 +18,8 @@ use crate::data_dialogs::{
     TEXT_DELIMITERS, WeightCases, is_workbook,
 };
 use crate::dialogs::{
-    Adjust, Autorecode, CROSSTABS_CELLS, CROSSTABS_STATISTICS, Categories, Compute, Count,
-    Crosstabs, CustomTables, DESCRIPTIVES_STATISTICS, Descriptives, FREQUENCIES_ORDERS,
+    Adjust, Autorecode, CROSSTABS_CELLS, CROSSTABS_CMH, CROSSTABS_STATISTICS, Categories, Compute,
+    Count, Crosstabs, CustomTables, DESCRIPTIVES_STATISTICS, Descriptives, FREQUENCIES_ORDERS,
     FREQUENCIES_STATISTICS, Frequencies, Letters, NewValue, OldValue, RANK_FRACTIONS,
     RANK_FUNCTIONS, RANK_TIES, Rank, Recode, RecodeRule, Subtotal, is_set, label_command,
 };
@@ -5452,6 +5452,12 @@ fn dialog_body(
             ui.add_space(6.0);
             ui.strong("Statistics");
             checkboxes(ui, &CROSSTABS_STATISTICS, &mut d.statistics);
+            ui.horizontal(|ui| {
+                ui.add_enabled_ui(d.statistics[CROSSTABS_CMH], |ui| {
+                    ui.label("Test common odds ratio equals");
+                    ui.add(TextEdit::singleline(&mut d.cmh_odds).desired_width(50.0));
+                });
+            });
         }
         Dialog::CustomTables(d, draft) => {
             target_list(ui, "Rows (categories or sets)", &mut d.rows, picked);
