@@ -103,10 +103,11 @@ pub struct Curvefit {
     pub independent: Option<String>,
     /// Sorted, without repeats.
     pub models: Vec<CurveModel>,
-    /// The level of the saved prediction intervals, in percent.
-    pub cin: f64,
+    /// The level of the saved prediction intervals, in percent; None: TSET CIN.
+    pub cin: Option<f64>,
     pub upper_bound: Option<f64>,
-    pub constant: bool,
+    /// None: TSET CONSTANT or NOCONSTANT.
+    pub constant: Option<bool>,
     pub plot: bool,
     pub id: Option<String>,
     pub anova: bool,
@@ -124,8 +125,10 @@ pub struct Wls {
     /// The powers of every DELTA subcommand in order; empty when none was given.
     pub deltas: Vec<f64>,
     pub weight: Option<String>,
-    pub constant: bool,
-    pub print_all: bool,
+    /// None: TSET CONSTANT or NOCONSTANT.
+    pub constant: Option<bool>,
+    /// None: TSET PRINT (DETAILED shows every power).
+    pub print_all: Option<bool>,
     pub save_weight: bool,
 }
 
@@ -376,9 +379,9 @@ pub(crate) fn curvefit(p: &mut Parser) -> PResult<Command> {
         dependents: Vec::new(),
         independent: None,
         models: vec![CurveModel::Linear],
-        cin: 95.0,
+        cin: None,
         upper_bound: None,
-        constant: true,
+        constant: None,
         plot: true,
         id: None,
         anova: false,
@@ -443,7 +446,7 @@ pub(crate) fn curvefit(p: &mut Parser) -> PResult<Command> {
         } else if p.eat_keyword("CIN") {
             p.eat(Punct::Eq);
             match p.number() {
-                Some(v) if v > 0.0 && v < 100.0 => command.cin = v,
+                Some(v) if v > 0.0 && v < 100.0 => command.cin = Some(v),
                 Some(_) => return Err(error(p, start, "CIN is above 0 and below 100")),
                 None => return Err(p.unexpected(&["a percentage"])),
             }
@@ -459,9 +462,9 @@ pub(crate) fn curvefit(p: &mut Parser) -> PResult<Command> {
                 }
             };
         } else if p.eat_keyword("CONSTANT") {
-            command.constant = true;
+            command.constant = Some(true);
         } else if p.eat_keyword("NOCONSTANT") {
-            command.constant = false;
+            command.constant = Some(false);
         } else if p.eat_keyword("PLOT") {
             p.eat(Punct::Eq);
             command.plot = if p.eat_word("FIT") {
@@ -580,8 +583,8 @@ pub(crate) fn wls(p: &mut Parser) -> PResult<Command> {
         source: None,
         deltas: Vec::new(),
         weight: None,
-        constant: true,
-        print_all: false,
+        constant: None,
+        print_all: None,
         save_weight: false,
     };
     // a leading slash is allowed when another subcommand comes before VARIABLES
@@ -617,15 +620,15 @@ pub(crate) fn wls(p: &mut Parser) -> PResult<Command> {
             p.eat(Punct::Eq);
             command.weight = Some(p.name("the weight variable")?);
         } else if p.eat_keyword("CONSTANT") {
-            command.constant = true;
+            command.constant = Some(true);
         } else if p.eat_keyword("NOCONSTANT") {
-            command.constant = false;
+            command.constant = Some(false);
         } else if p.eat_keyword("PRINT") {
             p.eat(Punct::Eq);
             command.print_all = if p.eat_keyword("BEST") {
-                false
+                Some(false)
             } else if p.eat_word("ALL") {
-                true
+                Some(true)
             } else {
                 return Err(p.unexpected(&["BEST", "ALL"]));
             };

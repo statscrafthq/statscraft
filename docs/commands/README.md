@@ -118,6 +118,7 @@ One page per supported command, generated from the same table that the parser an
 | [NONPAR CORR](nonpar-corr.md) | Spearman's rho and Kendall's tau-b rank correlations with significance. |
 | [PARTIAL CORR](partial-corr.md) | Partial correlations of variables controlling for others, with significance. |
 | [NPAR TESTS](npar-tests.md) | Nonparametric tests: one-sample, two and k related samples, two and k independent samples. |
+| [NPTESTS](nptests.md) | Nonparametric tests picked by measurement level: one sample, independent samples, related samples. |
 | [EXAMINE](examine.md) | Descriptives, percentiles, M-estimators, extreme values and normality tests, by factor cells. |
 | [REGRESSION](regression.md) | Linear regression with forced entry or removal and stepwise selection, residuals and diagnostics. |
 | [RELIABILITY](reliability.md) | Reliability of a scale: Cronbach's alpha, split-half and other models, item statistics and ICC. |
@@ -177,6 +178,18 @@ One page per supported command, generated from the same table that the parser an
 | [SURVIVAL](survival.md) | Actuarial life tables over fixed time intervals, with the Wilcoxon (Gehan) comparison of groups. |
 | [REPORT](report.md) | Case listings and summary statistics by break groups, laid out as a report. |
 | [MATRIX](matrix.md) | Run a program in the matrix language, up to END MATRIX. |
+
+## Time series
+
+| Command | What it does |
+|---|---|
+| [TSET](tset.md) | Settings shared by the time series procedures. |
+| [TSHOW](tshow.md) | List the time series settings. |
+| [CREATE](create.md) | New series from functions of existing series: lags, differences, smoothers, FFT. |
+| [ACF](acf.md) | Autocorrelations of time series, with standard errors, Box-Ljung tests and charts. |
+| [PACF](pacf.md) | Partial autocorrelations of time series, with standard errors and charts. |
+| [CCF](ccf.md) | Cross-correlations of pairs of time series, with standard errors and charts. |
+| [SEASON](season.md) | Seasonal decomposition by ratios (or differences) to a moving average. |
 
 ## Custom tables
 

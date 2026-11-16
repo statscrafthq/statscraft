@@ -58,6 +58,7 @@ mod multiple_imputation;
 mod mva;
 mod nomreg;
 mod npar;
+mod nptests;
 mod optimal_scaling;
 mod output;
 mod output_docs;
@@ -133,6 +134,8 @@ mod tests_nomreg;
 #[cfg(test)]
 mod tests_npar;
 #[cfg(test)]
+mod tests_nptests;
+#[cfg(test)]
 mod tests_output;
 #[cfg(test)]
 mod tests_power;
@@ -152,6 +155,9 @@ mod tests_restructure;
 mod tests_session;
 #[cfg(test)]
 mod tests_survival;
+#[cfg(test)]
+mod tests_timeseries;
+mod timeseries;
 mod tree;
 
 pub use agreement::{FleissKappa, KappaTabulation, WeightedKappa};
@@ -243,6 +249,10 @@ pub use npar::{
     BinomialSplit, GroupTest, KsDistribution, NparTest, NparTests, PairedTest, PartialCorr,
     PartialFormat, PartialList, RelatedTest, RunsCut,
 };
+pub use nptests::{
+    NpBinomial, NpCompare, NpCut, NpIndependent, NpKs, NpOneSample, NpParameters, NpRelated,
+    NpRuns, Nptests,
+};
 pub use optimal_scaling::{Discretize, Impute, McaMissing, McaNormalization, ScalingCommon};
 pub use output::{
     DateSpec, DateUnit, FormatItem, Placement, Print, PrintItem, PrintKind, PrintSpace, Xsave,
@@ -289,6 +299,10 @@ pub use survival::{
 };
 pub use table::{
     CommandSpec, command_name, command_names, command_specs, help, unsupported_commands,
+};
+pub use timeseries::{
+    Correlogram, CorrelogramKind, CreateEquation, NewVar, Season, SeriesFunction, TimeSettings,
+    TsetItem, TsetPrint,
 };
 
 use parser::Parser;

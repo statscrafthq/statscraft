@@ -119,6 +119,7 @@ const AREAS: &[(&str, &[&str])] = &[
             "NONPAR CORR",
             "PARTIAL CORR",
             "NPAR TESTS",
+            "NPTESTS",
             "EXAMINE",
             "REGRESSION",
             "RELIABILITY",
@@ -179,6 +180,10 @@ const AREAS: &[(&str, &[&str])] = &[
             "REPORT",
             "MATRIX",
         ],
+    ),
+    (
+        "Time series",
+        &["TSET", "TSHOW", "CREATE", "ACF", "PACF", "CCF", "SEASON"],
     ),
     ("Custom tables", &["CTABLES", "MRSETS"]),
     (

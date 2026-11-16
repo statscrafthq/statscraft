@@ -941,6 +941,83 @@ fn runs(run: &mut Run, variables: &[Variable], cut: RunsCut) -> Vec<Table> {
     vec![t]
 }
 
+/// The cdf of the hypothesized distribution at `x`: normal (mean, sd), uniform (min, max),
+/// exponential (mean) or Poisson (mean; the normal approximation from a mean of 100000).
+pub(crate) fn ks_cdf(distribution: KsDistribution, params: &[f64], x: f64) -> f64 {
+    match distribution {
+        KsDistribution::Normal => normal_cdf((x - params[0]) / params[1]),
+        KsDistribution::Uniform => (x - params[0]) / (params[1] - params[0]),
+        KsDistribution::Exponential => 1.0 - (-x / params[0]).exp(),
+        KsDistribution::Poisson if params[0] >= 100_000.0 => {
+            normal_cdf((x - params[0]) / params[0].sqrt())
+        }
+        KsDistribution::Poisson if x < 0.0 => 0.0,
+        KsDistribution::Poisson => gamma_q(x + 1.0, params[0]),
+    }
+}
+
+/// Why the distinct `values` cannot be tested against the distribution with `params`.
+pub(crate) fn ks_problem(
+    distribution: KsDistribution,
+    params: &[f64],
+    values: &[(f64, f64)],
+) -> Option<&'static str> {
+    match distribution {
+        KsDistribution::Normal if params[1].is_nan() || params[1] <= 0.0 => Some("has no spread"),
+        KsDistribution::Uniform
+            if values.first().is_some_and(|f| f.0 < params[0])
+                || values.last().is_some_and(|l| l.0 > params[1]) =>
+        {
+            Some("has values outside the uniform range")
+        }
+        KsDistribution::Uniform if params[1].is_nan() || params[1] <= params[0] => {
+            Some("has no spread")
+        }
+        KsDistribution::Poisson if values.iter().any(|(x, _)| *x < 0.0 || x.fract() != 0.0) => {
+            Some("has values that are not whole numbers of at least 0")
+        }
+        KsDistribution::Exponential if values.iter().any(|(x, _)| *x < 0.0) => {
+            Some("has negative values")
+        }
+        KsDistribution::Poisson | KsDistribution::Exponential
+            if params[0].is_nan() || params[0] <= 0.0 =>
+        {
+            Some("has a mean of 0")
+        }
+        _ => None,
+    }
+}
+
+/// The most extreme differences (absolute, positive, negative) between the empirical cdf of
+/// the distinct `values` (weights summing to `n`) and `cdf`. Each value is compared from the
+/// left and at the value; `discrete` compares the left side with the cdf one below.
+pub(crate) fn ks_extremes(
+    values: &[(f64, f64)],
+    n: f64,
+    cdf: impl Fn(f64) -> f64,
+    discrete: bool,
+) -> [f64; 3] {
+    let (mut positive, mut negative) = (f64::NEG_INFINITY, f64::INFINITY);
+    let mut before = 0.0;
+    for &(x, w) in values {
+        let after = before + w;
+        let d1 = if discrete {
+            if x > 0.0 {
+                before / n - cdf(x - 1.0)
+            } else {
+                0.0
+            }
+        } else {
+            before / n - cdf(x)
+        };
+        let d2 = after / n - cdf(x);
+        positive = positive.max(d1).max(d2);
+        negative = negative.min(d1).min(d2);
+        before = after;
+    }
+    [positive.abs().max(negative.abs()), positive, negative]
+}
+
 fn one_sample_ks(
     run: &mut Run,
     variables: &[Variable],
@@ -999,34 +1076,7 @@ fn one_sample_ks(
         let problem = if n < 1.0 {
             Some("has no valid cases")
         } else {
-            match distribution {
-                KsDistribution::Normal if params[1].is_nan() || params[1] <= 0.0 => {
-                    Some("has no spread")
-                }
-                KsDistribution::Uniform
-                    if values.first().is_some_and(|f| f.0 < params[0])
-                        || values.last().is_some_and(|l| l.0 > params[1]) =>
-                {
-                    Some("has values outside the uniform range")
-                }
-                KsDistribution::Uniform if params[1].is_nan() || params[1] <= params[0] => {
-                    Some("has no spread")
-                }
-                KsDistribution::Poisson
-                    if values.iter().any(|(x, _)| *x < 0.0 || x.fract() != 0.0) =>
-                {
-                    Some("has values that are not whole numbers of at least 0")
-                }
-                KsDistribution::Exponential if values.iter().any(|(x, _)| *x < 0.0) => {
-                    Some("has negative values")
-                }
-                KsDistribution::Poisson | KsDistribution::Exponential
-                    if params[0].is_nan() || params[0] <= 0.0 =>
-                {
-                    Some("has a mean of 0")
-                }
-                _ => None,
-            }
+            ks_problem(distribution, &params, &values)
         };
         let mut column: Vec<Cell> = vec![Cell::Number(n)];
         column.extend(params.iter().map(|p| number(Some(*p))));
@@ -1035,37 +1085,9 @@ fn one_sample_ks(
                 .push(format!("K-S: {} {problem}; the test is not done", v.name()));
             column.resize(row_labels.len(), Cell::Empty);
         } else {
-            let cdf = |x: f64| -> f64 {
-                match distribution {
-                    KsDistribution::Normal => normal_cdf((x - params[0]) / params[1]),
-                    KsDistribution::Uniform => (x - params[0]) / (params[1] - params[0]),
-                    KsDistribution::Exponential => 1.0 - (-x / params[0]).exp(),
-                    KsDistribution::Poisson if params[0] >= 100_000.0 => {
-                        normal_cdf((x - params[0]) / params[0].sqrt())
-                    }
-                    KsDistribution::Poisson if x < 0.0 => 0.0,
-                    KsDistribution::Poisson => gamma_q(x + 1.0, params[0]),
-                }
-            };
-            let (mut positive, mut negative) = (f64::NEG_INFINITY, f64::INFINITY);
-            let mut before = 0.0;
-            for &(x, w) in &values {
-                let after = before + w;
-                let d1 = if distribution == KsDistribution::Poisson {
-                    if x > 0.0 {
-                        before / n - cdf(x - 1.0)
-                    } else {
-                        0.0
-                    }
-                } else {
-                    before / n - cdf(x)
-                };
-                let d2 = after / n - cdf(x);
-                positive = positive.max(d1).max(d2);
-                negative = negative.min(d1).min(d2);
-                before = after;
-            }
-            let absolute = positive.abs().max(negative.abs());
+            let cdf = |x: f64| ks_cdf(distribution, &params, x);
+            let [absolute, positive, negative] =
+                ks_extremes(&values, n, cdf, distribution == KsDistribution::Poisson);
             let z = n.sqrt() * absolute;
             let sig = if lilliefors_used {
                 lilliefors(absolute, n)
@@ -1190,6 +1212,57 @@ pub(crate) fn exact_tails(p: &[f64], observed: usize, mean: f64) -> [f64; 3] {
     ]
 }
 
+/// The signed-rank sums of weighted differences: zeros are left out, the absolute values of
+/// the others get average ranks.
+pub(crate) struct SignedRanks {
+    /// Sum of the ranks of the positive and of the negative differences.
+    pub sp: f64,
+    pub sn: f64,
+    /// Weight of the positive, negative and zero differences.
+    pub np: f64,
+    pub nn: f64,
+    pub ties: f64,
+    /// Sum of t^3 - t over the groups of tied absolute values.
+    pub t: f64,
+    pub nonzero: Vec<(f64, f64)>,
+    pub ranks: Vec<f64>,
+}
+
+impl SignedRanks {
+    pub fn new(differences: &[(f64, f64)]) -> Self {
+        let nonzero: Vec<(f64, f64)> = differences.iter().copied().filter(|d| d.0 != 0.0).collect();
+        let ties: f64 = differences.iter().filter(|d| d.0 == 0.0).map(|d| d.1).sum();
+        let absolute: Vec<(f64, f64)> = nonzero.iter().map(|(d, w)| (d.abs(), *w)).collect();
+        let (ranks, t) = tied_ranks(&absolute);
+        let (mut sp, mut sn, mut np, mut nn) = (0.0, 0.0, 0.0, 0.0);
+        for ((d, w), r) in nonzero.iter().zip(&ranks) {
+            if *d > 0.0 {
+                sp += w * r;
+                np += w;
+            } else {
+                sn += w * r;
+                nn += w;
+            }
+        }
+        SignedRanks {
+            sp,
+            sn,
+            np,
+            nn,
+            ties,
+            t,
+            nonzero,
+            ranks,
+        }
+    }
+
+    /// The variance of either sum under the null hypothesis, corrected for ties.
+    pub fn variance(&self) -> f64 {
+        let n = self.np + self.nn;
+        n * (n + 1.0) * (2.0 * n + 1.0) / 24.0 - self.t / 48.0
+    }
+}
+
 fn wilcoxon(run: &mut Run, pairs: &[(Variable, Variable)]) -> Vec<Table> {
     let names = pair_names(run, pairs, " - ");
     let columns = ["", "", "N", "Mean Rank", "Sum of Ranks"]
@@ -1210,20 +1283,16 @@ fn wilcoxon(run: &mut Run, pairs: &[(Variable, Variable)]) -> Vec<Table> {
     for ((x, y), name) in pairs.iter().zip(&names) {
         let cases = paired_values(run, x, y);
         let differences: Vec<(f64, f64)> = cases.iter().map(|(a, b, w)| (a - b, *w)).collect();
-        let nonzero: Vec<(f64, f64)> = differences.iter().copied().filter(|d| d.0 != 0.0).collect();
-        let ties: f64 = differences.iter().filter(|d| d.0 == 0.0).map(|d| d.1).sum();
-        let absolute: Vec<(f64, f64)> = nonzero.iter().map(|(d, w)| (d.abs(), *w)).collect();
-        let (ranks, t) = tied_ranks(&absolute);
-        let (mut sp, mut sn, mut np, mut nn) = (0.0, 0.0, 0.0, 0.0);
-        for ((d, w), r) in nonzero.iter().zip(&ranks) {
-            if *d > 0.0 {
-                sp += w * r;
-                np += w;
-            } else {
-                sn += w * r;
-                nn += w;
-            }
-        }
+        let signed = SignedRanks::new(&differences);
+        let SignedRanks {
+            sp,
+            sn,
+            np,
+            nn,
+            ties,
+            ..
+        } = signed;
+        let (nonzero, ranks) = (&signed.nonzero, &signed.ranks);
         let n = np + nn;
         let mean_rank = |s: f64, k: f64| {
             if k > 0.0 {
@@ -1260,13 +1329,13 @@ fn wilcoxon(run: &mut Run, pairs: &[(Variable, Variable)]) -> Vec<Table> {
             Cell::Empty,
             Cell::Empty,
         ]);
-        let variance = n * (n + 1.0) * (2.0 * n + 1.0) / 24.0 - t / 48.0;
+        let variance = signed.variance();
         let z = (variance > 0.0).then(|| (sp.min(sn) - n * (n + 1.0) / 4.0) / variance.sqrt());
         bases.push(if sp < sn { "positive" } else { "negative" });
         let exact = if run.exact && n > 0.0 {
             let doubled: Vec<u64> = nonzero
                 .iter()
-                .zip(&ranks)
+                .zip(ranks)
                 .flat_map(|((_, w), r)| std::iter::repeat_n((2.0 * r).round() as u64, *w as usize))
                 .collect();
             let dist = rank_sum_distribution(&doubled, None);
@@ -1452,6 +1521,22 @@ fn mcnemar(run: &mut Run, pairs: &[(Variable, Variable)]) -> Vec<Table> {
     out
 }
 
+/// The marginal homogeneity statistic of (first, second, weight) cases with the values as
+/// scores: the observed sum of first scores off the diagonal, its mean and standard deviation,
+/// and the weight off the diagonal.
+pub(crate) fn marginal_statistic(cases: &[(f64, f64, f64)]) -> [f64; 4] {
+    let (mut observed, mut mean, mut variance, mut off) = (0.0, 0.0, 0.0, 0.0);
+    for (u, v, w) in cases {
+        if u != v {
+            observed += w * u;
+            mean += w * (u + v) / 2.0;
+            variance += w * ((u - v) / 2.0).powi(2);
+            off += w;
+        }
+    }
+    [observed, mean, variance.sqrt(), off]
+}
+
 fn marginal_homogeneity(run: &mut Run, pairs: &[(Variable, Variable)]) -> Vec<Table> {
     run.no_exact("marginal homogeneity test");
     let mut names = Vec::new();
@@ -1480,16 +1565,7 @@ fn marginal_homogeneity(run: &mut Run, pairs: &[(Variable, Variable)]) -> Vec<Ta
             two_valued.push((*x, *y));
             continue;
         }
-        let (mut observed, mut mean, mut variance, mut off) = (0.0, 0.0, 0.0, 0.0);
-        for (u, v, w) in &cases {
-            if u != v {
-                observed += w * u;
-                mean += w * (u + v) / 2.0;
-                variance += w * ((u - v) / 2.0).powi(2);
-                off += w;
-            }
-        }
-        let sd = variance.sqrt();
+        let [observed, mean, sd, off] = marginal_statistic(&cases);
         let z = (sd > 0.0).then(|| (observed - mean) / sd);
         let values = [
             Some(distinct as f64),
@@ -1517,6 +1593,53 @@ fn marginal_homogeneity(run: &mut Run, pairs: &[(Variable, Variable)]) -> Vec<Ta
         out.extend(mcnemar(run, &two_valued));
     }
     out
+}
+
+/// Cochran's Q of weighted rows of successes: the weighted successes of every column and Q,
+/// None when every row is all successes or all failures.
+pub(crate) fn cochran(rows: &[(Vec<bool>, f64)]) -> (Vec<f64>, Option<f64>) {
+    let k = rows.first().map_or(0, |r| r.0.len());
+    let mut counts = vec![0.0; k];
+    let mut sum_r2 = 0.0;
+    for (hits, w) in rows {
+        let mut r = 0.0;
+        for (count, hit) in counts.iter_mut().zip(hits) {
+            if *hit {
+                *count += w;
+                r += 1.0;
+            }
+        }
+        sum_r2 += w * r * r;
+    }
+    let kf = k as f64;
+    let sum_c: f64 = counts.iter().sum();
+    let sum_c2: f64 = counts.iter().map(|c| c * c).sum();
+    let denominator = kf * sum_c - sum_r2;
+    let q = (denominator > 0.0).then(|| (kf - 1.0) * (kf * sum_c2 - sum_c * sum_c) / denominator);
+    (counts, q)
+}
+
+/// Friedman's test of weighted rows of values: the weighted rank sums of every column (ranks
+/// within each row) and the chi-square corrected for ties, None without spread.
+pub(crate) fn friedman(rows: &[(Vec<f64>, f64)]) -> (Vec<f64>, Option<f64>) {
+    let k = rows.first().map_or(0, |r| r.0.len());
+    let kf = k as f64;
+    let mut sums = vec![0.0; k];
+    let (mut ties, mut n) = (0.0, 0.0);
+    for (row, w) in rows {
+        let pairs: Vec<(f64, f64)> = row.iter().map(|x| (*x, 1.0)).collect();
+        let (ranks, t) = tied_ranks(&pairs);
+        for (sum, r) in sums.iter_mut().zip(ranks) {
+            *sum += w * r;
+        }
+        ties += w * t;
+        n += w;
+    }
+    let squares: f64 = sums.iter().map(|s| s * s).sum();
+    let numerator = 12.0 / (n * kf * (kf + 1.0)) * squares - 3.0 * n * (kf + 1.0);
+    let denominator = 1.0 - ties / (n * kf * (kf * kf - 1.0));
+    let chi = (n > 0.0 && denominator > 1e-12).then(|| numerator / denominator);
+    (sums, chi)
 }
 
 fn related(run: &mut Run, variables: &[Variable], test: RelatedTest) -> Vec<Table> {
@@ -1550,34 +1673,28 @@ fn related(run: &mut Run, variables: &[Variable], test: RelatedTest) -> Vec<Tabl
             return Vec::new();
         }
         let success = values[1];
-        let mut frequency_rows = Vec::new();
-        let (mut sum_c, mut sum_c2) = (0.0, 0.0);
-        for v in variables {
-            let c: f64 = cases
-                .iter()
-                .filter(|&&i| Run::value(v, i) == success)
-                .map(|&i| run.weights[i])
-                .sum();
-            sum_c += c;
-            sum_c2 += c * c;
-            frequency_rows.push(vec![
-                text(run.shown.variable(v)),
-                Cell::Number(n - c),
-                Cell::Number(c),
-            ]);
-        }
-        let sum_r2: f64 = cases
+        let rows: Vec<(Vec<bool>, f64)> = cases
             .iter()
             .map(|&i| {
-                let r = variables
+                let hits = variables
                     .iter()
-                    .filter(|v| Run::value(v, i) == success)
-                    .count() as f64;
-                run.weights[i] * r * r
+                    .map(|v| Run::value(v, i) == success)
+                    .collect();
+                (hits, run.weights[i])
             })
-            .sum();
-        let denominator = k * sum_c - sum_r2;
-        let q = (denominator > 0.0).then(|| (k - 1.0) * (k * sum_c2 - sum_c * sum_c) / denominator);
+            .collect();
+        let (counts, q) = cochran(&rows);
+        let frequency_rows = variables
+            .iter()
+            .zip(&counts)
+            .map(|(v, c)| {
+                vec![
+                    text(run.shown.variable(v)),
+                    Cell::Number(n - c),
+                    Cell::Number(*c),
+                ]
+            })
+            .collect();
         let mut columns = vec![String::new()];
         columns.extend(values.iter().map(|&x| run.label(&variables[0], x)));
         let frequencies = Table {
@@ -1602,20 +1719,14 @@ fn related(run: &mut Run, variables: &[Variable], test: RelatedTest) -> Vec<Tabl
     } else {
         "Kendall's W test"
     });
-    let mut sums = vec![0.0; variables.len()];
-    let mut ties = 0.0;
-    for &c in &cases {
-        let row: Vec<(f64, f64)> = variables.iter().map(|v| (Run::value(v, c), 1.0)).collect();
-        let (ranks, t) = tied_ranks(&row);
-        for (sum, r) in sums.iter_mut().zip(ranks) {
-            *sum += run.weights[c] * r;
-        }
-        ties += run.weights[c] * t;
-    }
-    let squares: f64 = sums.iter().map(|s| s * s).sum();
-    let numerator = 12.0 / (n * k * (k + 1.0)) * squares - 3.0 * n * (k + 1.0);
-    let denominator = 1.0 - ties / (n * k * (k * k - 1.0));
-    let chi = (n > 0.0 && denominator > 1e-12).then(|| numerator / denominator);
+    let rows: Vec<(Vec<f64>, f64)> = cases
+        .iter()
+        .map(|&c| {
+            let row = variables.iter().map(|v| Run::value(v, c)).collect();
+            (row, run.weights[c])
+        })
+        .collect();
+    let (sums, chi) = friedman(&rows);
     let ranks = Table {
         title: "Ranks".into(),
         row_headers: 1,

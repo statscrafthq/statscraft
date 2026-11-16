@@ -295,3 +295,21 @@ impl Engine {
         }])
     }
 }
+
+/// The period, in cases, that the DATE variables of `data` give: the period of the lowest
+/// date variable, divided by its BY step, read from its label. None when that variable has no
+/// period or there is none.
+pub(crate) fn date_period(data: &statscraft_data::Dataset) -> Option<usize> {
+    let mut units = DateUnit::ALL;
+    units.sort();
+    let lowest = units.iter().rev().find_map(|unit| {
+        let name = format!("{}_", unit.name());
+        data.variable(&name).ok()
+    })?;
+    let label = lowest.label()?;
+    let rest = label.split(", period ").nth(1)?;
+    let mut words = rest.split(" by ");
+    let period: usize = words.next()?.trim().parse().ok()?;
+    let step: usize = words.next().map_or(Some(1), |s| s.trim().parse().ok())?;
+    (step > 0 && period.is_multiple_of(step) && period / step > 0).then_some(period / step)
+}

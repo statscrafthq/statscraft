@@ -29,9 +29,6 @@ use statscraft_syntax::{CurveModel, Curvefit};
 /// A case's fit, residual and lower and upper prediction limits.
 type Saved = [Option<f64>; 4];
 
-/// The smallest tolerance QUADRATIC and CUBIC accept.
-const TOLERANCE: f64 = 1e-4;
-
 fn label(model: CurveModel) -> &'static str {
     match model {
         CurveModel::Linear => "Linear",
@@ -146,15 +143,43 @@ impl Engine {
     pub(crate) fn curvefit(&mut self, command: &Curvefit) -> Result<Vec<Table>, Error> {
         let data = self.active()?;
         let shown = self.shown();
+        let tset = &self.tset;
+        // the smallest tolerance QUADRATIC and CUBIC accept
+        let tolerance = tset.toler;
+        let include = tset.include;
+        let constant = command.constant.unwrap_or(tset.constant);
+        let level = command.cin.unwrap_or(tset.cin);
+        let saving = command.save_pred || command.save_resid || command.save_cin;
+        // without SAVE, TSET NEWVAR decides: all four variables, numbered from 1 (CURRENT) or
+        // from the first free number (ALL), or none
+        let (wanted, from_one) = match (saving, tset.newvar) {
+            (true, _) => (
+                [
+                    command.save_pred,
+                    command.save_resid,
+                    command.save_cin,
+                    command.save_cin,
+                ],
+                false,
+            ),
+            (false, statscraft_syntax::NewVar::None) => ([false; 4], false),
+            (false, newvar) => ([true; 4], newvar == statscraft_syntax::NewVar::Current),
+        };
+        let mxnewvars = tset.mxnewvars as usize;
+        // TSET ID labels the points when the command names none and the variable exists
+        let id_name = command
+            .id
+            .clone()
+            .or_else(|| tset.id.clone().filter(|id| data.variable(id).is_ok()));
         let dependents = self.expand(&command.dependents)?;
         let ys: Vec<Vec<f64>> = dependents
             .iter()
-            .map(|n| numeric_column(data, n, false, "CURVEFIT"))
+            .map(|n| numeric_column(data, n, include, "CURVEFIT"))
             .collect::<Result<_, _>>()?;
         let cases = data.case_count();
         let (x, x_text) = match &command.independent {
             Some(name) => (
-                numeric_column(data, name, false, "CURVEFIT")?,
+                numeric_column(data, name, include, "CURVEFIT")?,
                 shown.named(data, name),
             ),
             None => ((1..=cases).map(|k| k as f64).collect(), "Sequence".into()),
@@ -164,7 +189,7 @@ impl Engine {
             Some(_) => case_weights(data)?,
             None => None,
         };
-        let id: Option<Vec<String>> = match &command.id {
+        let id: Option<Vec<String>> = match &id_name {
             Some(name) => {
                 let v = data.variable(name)?;
                 Some(
@@ -214,8 +239,8 @@ impl Engine {
             Some("A case missing on any variable of the command is left out of every fit.".into()),
         )];
         let mut charts = Vec::new();
-        let mut saves: Vec<(String, CurveModel, Vec<Saved>)> = Vec::new();
-        let level = command.cin;
+        // per dependent and model fitted: its number among all, and the saved values
+        let mut saves: Vec<(String, CurveModel, usize, Vec<Saved>)> = Vec::new();
         let c: Vec<f64> = used.iter().map(|&k| weight(k)).collect();
         for (d, dependent) in dependents.iter().enumerate() {
             let y = &ys[d];
@@ -235,12 +260,11 @@ impl Engine {
                 };
                 let (xs, yl): (Vec<Vec<f64>>, Vec<f64>) = rows.into_iter().unzip();
                 let g = vec![1.0; xs.len()];
-                let ls = least_squares(&xs, &yl, &c, &g, command.constant)
-                    .filter(|ls| ls.df_res() > 0.0);
+                let ls = least_squares(&xs, &yl, &c, &g, constant).filter(|ls| ls.df_res() > 0.0);
                 match ls {
-                    Some(ls) if ls.tolerance >= TOLERANCE => fitted.push(Fitted { model, ls }),
+                    Some(ls) if ls.tolerance >= tolerance => fitted.push(Fitted { model, ls }),
                     Some(_) => warnings.push(format!(
-                        "the {} model of {dependent} is not fitted: a term's tolerance is below {TOLERANCE}",
+                        "the {} model of {dependent} is not fitted: a term's tolerance is below {tolerance}",
                         label(model)
                     )),
                     None => warnings.push(format!(
@@ -307,8 +331,10 @@ impl Engine {
                     },
                 ));
             }
-            if command.save_pred || command.save_resid || command.save_cin {
+            if wanted.contains(&true) {
                 for f in &fitted {
+                    let position = models.iter().position(|m| *m == f.model).expect("listed");
+                    let number = d * models.len() + position + 1;
                     let t_crit = t_quantile((1.0 - level / 100.0) / 2.0, f.ls.df_res());
                     let values = (0..cases)
                         .map(|k| {
@@ -322,7 +348,7 @@ impl Engine {
                             [finite(fit), finite(y[k] - fit), finite(low), finite(high)]
                         })
                         .collect();
-                    saves.push((dependent.clone(), f.model, values));
+                    saves.push((dependent.clone(), f.model, number, values));
                 }
             }
         }
@@ -330,26 +356,28 @@ impl Engine {
             self.warn(warning);
         }
         self.charts.extend(charts);
-        if !saves.is_empty() {
-            let wanted = [
-                command.save_pred,
-                command.save_resid,
-                command.save_cin,
-                command.save_cin,
-            ];
+        let count = saves.len() * wanted.iter().filter(|w| **w).count();
+        if count > mxnewvars && !saves.is_empty() {
+            self.warn(format!(
+                "CURVEFIT would make {count} new variables, more than TSET MXNEWVARS={mxnewvars}; none are saved"
+            ));
+        } else if !saves.is_empty() {
             self.all_or_nothing(|engine| {
                 let data = engine.active_mut()?;
-                for (dependent, model, values) in &saves {
+                for (dependent, model, number, values) in &saves {
                     let roots = ["FIT", "ERR", "LCL", "UCL"];
                     let names = |n: usize| roots.map(|root| format!("{root}_{n}"));
-                    let n = (1..)
-                        .find(|&n| {
-                            names(n)
-                                .iter()
-                                .zip(wanted)
-                                .all(|(name, w)| !w || data.variable_index(name).is_none())
-                        })
-                        .expect("a free number");
+                    let n = match from_one {
+                        true => *number,
+                        false => (1..)
+                            .find(|&n| {
+                                names(n)
+                                    .iter()
+                                    .zip(wanted)
+                                    .all(|(name, w)| !w || data.variable_index(name).is_none())
+                            })
+                            .expect("a free number"),
+                    };
                     let model = label(*model);
                     let labels = [
                         format!("Fit of {dependent}, {model} model"),
