@@ -312,6 +312,16 @@ These take typed numbers and no variables, so they open with no data too. Each f
 - **Crosstabs**.
 - **Ratio** (`RATIO STATISTICS`): a numerator and a denominator, both numeric and different, and an optional group variable with its order (ascending, descending or as the groups first appear). The statistics of the ratio, confidence intervals at any level, the percent of ratios inside intervals you type (`0.9 1.1; 0.8 1.2`) and the percent within given percents of the median (`10 20`). The statistics show in a table, go to a data file or a new dataset, or both. OK stays off until at least one statistic is chosen.
 
+**Bayesian Statistics**
+
+Each dialog asks for the posterior distribution, the Bayes factor or both, and offers only the settings of the parts it computes. The test settings of a one-sample or related dialog apply to every variable or pair; per-variable settings stay available in syntax. Common to all: the credible interval level, the tolerance and iterations of the numerical integration (not for binomial and Poisson), and leaving out cases missing on any variable.
+
+- **One Sample Normal** (`BAYES ONESAMPLE DISTRIBUTION=NORMAL`): an optional known variance, the test value and g of the Bayes factor (empty g integrates it out, by quadrature or by Monte Carlo draws with a seed), and the prior: diffuse, inverse chi-square, inverse gamma, either Jeffreys prior, or a gamma or chi-square prior on the precision, with a normal prior on the mean when the variance is known or its prior is conjugate.
+- **One Sample Binomial** and **One Sample Poisson** (`DISTRIBUTION=BINOMIAL`, `POISSON`): which values count as a success (the highest or lowest value, from the middle of the range or a cut point up, or listed values, the only choices besides the first two for a string variable), the beta or gamma priors under the null and the alternative for the Bayes factor, and the conjugate prior of the posterior.
+- **Related Samples Normal** (`BAYES RELATED`): pairs of variables, first minus second, with the settings of One Sample Normal.
+- **Independent Samples Normal** (`BAYES INDEPENDENT`): test variables, a grouping variable split by two values, the middle of its range or a cut point; known group variances with normal priors on the two means, or equal variances with a diffuse, Jeffreys or inverse chi-square prior; the Bayes factor by Rouder's, Gonen's or the hyper-prior method.
+- **Pearson Correlation** (`BAYES CORRELATION`): two or more variables, each paired with every later one, the power c of the prior, and a JZS or fractional Bayes factor with its fraction and null correlation.
+
 **Custom Tables**
 
 - Rows, columns and layers of variables and multiple response sets.

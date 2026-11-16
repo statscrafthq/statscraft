@@ -7,6 +7,8 @@ mod agreement_dialog;
 mod agreement_dialog_view;
 mod analyze_dialogs;
 mod app;
+mod bayes_dialog;
+mod bayes_dialog_view;
 mod brand;
 mod catpca_dialog;
 mod catpca_dialog_view;

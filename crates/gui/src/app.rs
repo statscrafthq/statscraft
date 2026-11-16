@@ -8,6 +8,7 @@ use crate::analyze_dialogs::{
     MultResponse, ONEWAY_STATISTICS, Oneway, STANDARDIZERS, TREE_LEVELS, TREE_SAVE, TTest,
     TTestKind, Tree,
 };
+use crate::bayes_dialog::{BAYES_MENU, Bayesian};
 use crate::connect_window::Connect;
 use crate::cs_model_dialog::SampleModel;
 use crate::data_dialogs::{
@@ -1584,6 +1585,14 @@ impl App {
                         ] {
                             if ui.button(label).clicked() {
                                 self.open_dialog(dialog);
+                            }
+                        }
+                    });
+                    ui.menu_button("Bayesian Statistics", |ui| {
+                        for (label, kind) in BAYES_MENU {
+                            if ui.button(label).clicked() {
+                                let d = Box::new(Bayesian::new(kind));
+                                self.open_dialog(Dialog::Advanced(Advanced::Bayes(d)));
                             }
                         }
                     });
