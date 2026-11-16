@@ -919,6 +919,17 @@ impl Engine {
                  valid, as the differencing starts from them"
             )));
         }
+        if let Some(name) = regressors
+            .iter()
+            .zip(&x)
+            .find(|(_, c)| (start..start + reach).any(|t| c[t].is_none()))
+            .map(|(name, _)| name)
+        {
+            return Err(Error(format!(
+                "ARIMA: the regressor {name} must be valid at the first {reach} values of \
+                 {dependent}, as the differencing starts from them"
+            )));
+        }
         let k = st.count();
         let given = Estimates {
             ar: spec.ar.clone().unwrap_or_default(),

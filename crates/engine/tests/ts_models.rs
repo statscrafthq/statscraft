@@ -274,6 +274,11 @@ fn arima_errors() {
         error(&format!("{tank}ARIMA level /MODEL=(0,0,0)(0,1,1).\n")).contains("needs a period")
     );
     assert!(error(&format!("{tank}ARIMA level /P=1 /AR=0.5 0.2.\n")).contains("AR gives 2"));
+    let bakery = data("sales sun", BAKERY).replacen("4.7", ".", 1);
+    assert!(
+        error(&format!("{bakery}ARIMA sales WITH sun /MODEL=(0,1,0).\n"))
+            .contains("regressor sun must be valid")
+    );
     assert!(
         error(&format!("{tank}ARIMA level /P=1 /AR=1.5 /MXITER=0.\n")).contains("nonstationary")
     );
@@ -557,8 +562,8 @@ fn exsmooth_seasonal_forecasts_from_early_in_the_series() {
     // from case 1: the level after it plus the start factor of each later month
     let factor = |k: usize| num(&start.rows[1 + k][1]);
     let level_gap = fit[1].unwrap() - factor(1);
-    for k in 2..12 {
-        assert!(close(fit[k].unwrap() - factor(k), level_gap, 1e-9), "{k}");
+    for (k, f) in fit.iter().enumerate().take(12).skip(2) {
+        assert!(close(f.unwrap() - factor(k), level_gap, 1e-9), "{k}");
     }
     assert_eq!(fit[14], None);
 }
