@@ -42,8 +42,8 @@
 //!   REGRESSORS gives one value per regressor. SAVE MEANPRED, VARIANCE, MODE, CIMEANPREDL and
 //!   CIMEANPREDU, each with an optional (name). OUTFILE PARAMETER='file'. PLOT COVARIATES,
 //!   FACTORS, MAX_CATEGORY (above 0, 2), INTERCEPT, ERRORVAR, BAYESPRED (FALSE|TRUE; BAYESPRED
-//!   needs PREDICT). FTEST, repeatable: LABEL, VARIABLES, INTERCEPT (TRUE when VARIABLES is
-//!   left out), TESTVALUES.
+//!   needs PREDICT). FTEST, repeatable: LABEL, VARIABLES, INTERCEPT (FALSE; it must be TRUE
+//!   when VARIABLES is left out), TESTVALUES.
 //! - REPEATED: a list of two or more variables, CRITERIA CILEVEL, SEED, MCSAMPLES (30000), DESIGN
 //!   REGWGT, ESTBF COMPUTATION=BIC|ROUDER, PLOT MEANS=sublist.
 //! - A keyword with an underscore may be written as two words (MAX CATEGORY).

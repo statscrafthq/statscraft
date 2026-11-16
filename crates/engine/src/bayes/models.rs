@@ -274,14 +274,14 @@ fn inverse_gamma_posterior(a: f64, b: f64, alpha: f64) -> Posterior {
     }
 }
 
+/// The conjugate prior: mean, matrix and the inverse gamma shape and scale; None for the
+/// reference prior.
+type Prior = Option<(Vec<f64>, Matrix, f64, f64)>;
+
 /// The prior of the coefficients on all `size` columns: mean, matrix and the inverse gamma
 /// parameters. None for the reference prior. A VMATRIX of the wrong size or not positive
 /// definite gives the identity with a warning.
-fn prior_of(
-    run: &mut Run,
-    prior: &LinearPrior,
-    size: usize,
-) -> Result<Option<(Vec<f64>, Matrix, f64, f64)>, Error> {
+fn prior_of(run: &mut Run, prior: &LinearPrior, size: usize) -> Result<Prior, Error> {
     if !prior.conjugate {
         return Ok(None);
     }
@@ -318,7 +318,7 @@ fn prior_of(
 }
 
 /// The posterior on the kept columns, from the reference or the conjugate prior.
-fn posterior_of(fit: &Fit, prior: &Option<(Vec<f64>, Matrix, f64, f64)>) -> Option<Linear> {
+fn posterior_of(fit: &Fit, prior: &Prior) -> Option<Linear> {
     match prior {
         None => Some(Linear::reference(fit)),
         Some((m0, v0, a0, b0)) => {
@@ -407,7 +407,7 @@ fn density_chart(
         .fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), (x, y)| {
             (a.min(x), b.max(y))
         });
-    if !(low < high) {
+    if low >= high {
         return None;
     }
     let groups = curves
@@ -454,7 +454,7 @@ fn coefficient_chart(
     column: usize,
     reference: &Linear,
     posterior: &Linear,
-    prior: &Option<(Vec<f64>, Matrix, f64, f64)>,
+    prior: &Prior,
 ) -> Option<Chart> {
     let prior_curve = prior.as_ref().and_then(|(m0, v0, a0, b0)| {
         t_curve(
@@ -479,11 +479,7 @@ fn coefficient_chart(
     )
 }
 
-fn error_chart(
-    reference: &Linear,
-    posterior: &Linear,
-    prior: &Option<(Vec<f64>, Matrix, f64, f64)>,
-) -> Option<Chart> {
+fn error_chart(reference: &Linear, posterior: &Linear, prior: &Prior) -> Option<Chart> {
     density_chart(
         "Error variance".into(),
         "Variance",
@@ -563,7 +559,7 @@ fn model_factor(run: &mut Run, prior: GPrior, fit: &Fit, p: f64) -> f64 {
         ));
         return f64::NAN;
     }
-    if !(fit.sse > 1e-12 * fit.sst) {
+    if fit.sse.partial_cmp(&(1e-12 * fit.sst)) != Some(Ordering::Greater) {
         run.warnings
             .push("no Bayes factor: the model fits the data perfectly or the dependent variable does not vary".into());
         return f64::NAN;
@@ -921,6 +917,12 @@ impl Engine {
         let post = posterior_of(&fit, &prior)
             .ok_or_else(|| Error("BAYES REGRESSION: the posterior matrix is singular".into()))?;
         let reference = Linear::reference(&fit);
+        if !c.prior.conjugate && fit.n <= fit.kept.len() as f64 {
+            run.warnings.push(format!(
+                "no posterior under the reference prior: it needs more than {} cases",
+                fit.kept.len()
+            ));
+        }
         let kept_at = |column: usize| fit.kept.iter().position(|&k| k == column);
         if c.analysis.posterior() {
             let mut rows_out = Vec::new();
