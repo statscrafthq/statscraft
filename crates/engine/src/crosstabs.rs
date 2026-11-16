@@ -4,13 +4,13 @@
 use crate::chart::{
     self, Axis, Category, Chart, ChartKind, Grouping, Orientation, Series, Statistic, Tier,
 };
-use crate::crosstabs_measures::Counts;
+use crate::crosstabs_measures::{Counts, risk};
 use crate::descriptives::{case_weights, number};
 use crate::dist::chi_square_p;
 use crate::shown::Shown;
 use crate::{Cell, Engine, Error, Table};
 use statscraft_data::{Dataset, Values, Variable};
-use statscraft_syntax::{Crosstabs, CrosstabsCell as C, WeightCount};
+use statscraft_syntax::{Crosstabs, CrosstabsCell as C, CrosstabsMeasure, WeightCount};
 use std::cmp::Ordering;
 
 /// A category: the value of a case.
@@ -562,6 +562,29 @@ fn tables(
     Ok((out, chart, summary))
 }
 
+/// The square table of counts over the categories of both variables, in ascending order, for
+/// kappa; None when one variable holds numbers and the other strings.
+fn square(block: &Block, variables: &[Variable]) -> Option<Vec<Vec<f64>>> {
+    if variables[0].is_string() != variables[1].is_string() {
+        return None;
+    }
+    let mut keys: Vec<&Key> = block.rows.iter().chain(&block.columns).collect();
+    keys.sort_by(|a, b| a.compare(b));
+    keys.dedup_by(|a, b| a.compare(b).is_eq());
+    let at = |k: &Key| {
+        keys.iter()
+            .position(|x| x.compare(k).is_eq())
+            .expect("listed")
+    };
+    let mut f = vec![vec![0.0; keys.len()]; keys.len()];
+    for (i, r) in block.rows.iter().enumerate() {
+        for (j, c) in block.columns.iter().enumerate() {
+            f[at(r)][at(c)] += block.counts[i][j];
+        }
+    }
+    Some(f)
+}
+
 /// The Symmetric Measures and Directional Measures tables, a block of lines per layer. A layer
 /// with one row or column has only its case count.
 fn measure_tables(
@@ -579,6 +602,9 @@ fn measure_tables(
     };
     let mut symmetric = Vec::new();
     let mut directional = Vec::new();
+    let mut risks = Vec::new();
+    let mut notes: Vec<&str> = Vec::new();
+    let mut notes_risk = false;
     for block in blocks {
         let layer: Vec<Cell> = (2..variables.len())
             .zip(&block.layer)
@@ -601,11 +627,25 @@ fn measure_tables(
             _ => Cell::Empty,
         };
         let mut group_shown = "";
-        let lines = if usable {
+        let mut lines = if usable {
             counts.symmetric(&command.measures)
         } else {
             Vec::new()
         };
+        if usable && command.measures.contains(&CrosstabsMeasure::Kappa) {
+            match square(block, variables) {
+                Some(f) => lines.push(
+                    Counts {
+                        f: &f,
+                        values: None,
+                    }
+                    .kappa(),
+                ),
+                None => {
+                    notes.push("Kappa needs two variables of the same type, numbers or strings.")
+                }
+            }
+        }
         for l in lines {
             let mut row = layer.clone();
             row.push(Cell::Text(if l.group == group_shown {
@@ -627,6 +667,43 @@ fn measure_tables(
             Cell::Empty,
         ]);
         symmetric.push(row);
+        if command.measures.contains(&CrosstabsMeasure::Risk) {
+            if (block.rows.len(), block.columns.len()) == (2, 2) {
+                let (first, second) = match command.descending {
+                    true => (&block.rows[1], &block.rows[0]),
+                    false => (&block.rows[0], &block.rows[1]),
+                };
+                let (row_name, column_name) =
+                    (shown.variable(&variables[0]), shown.variable(&variables[1]));
+                let labels = [
+                    format!(
+                        "Odds Ratio for {row_name} ({} / {})",
+                        shown.value(&variables[0], first),
+                        shown.value(&variables[0], second)
+                    ),
+                    format!(
+                        "For cohort {column_name} = {}",
+                        shown.value(&variables[1], &block.columns[0])
+                    ),
+                    format!(
+                        "For cohort {column_name} = {}",
+                        shown.value(&variables[1], &block.columns[1])
+                    ),
+                ];
+                for (label, (value, low, high)) in labels.into_iter().zip(risk(&f)) {
+                    let mut row = layer.clone();
+                    row.push(Cell::Text(label));
+                    row.extend([value, low, high].map(|v| number(Some(v))));
+                    risks.push(row);
+                }
+            } else {
+                notes_risk = true;
+            }
+            let mut row = layer.clone();
+            row.push(Cell::Text("N of Valid Cases".into()));
+            row.extend([Cell::Number(block.total), Cell::Empty, Cell::Empty]);
+            risks.push(row);
+        }
         if usable {
             let (mut group_shown, mut name_shown) = ("", "");
             for l in counts.directional(&command.measures) {
@@ -675,9 +752,42 @@ fn measure_tables(
             ..Table::default()
         }
     };
-    let mut out = vec![table("Symmetric Measures", 2, symmetric)];
+    use CrosstabsMeasure as M;
+    let symmetric_asked = command.measures.iter().any(|m| {
+        matches!(
+            m,
+            M::Phi | M::Cc | M::Btau | M::Ctau | M::Gamma | M::Corr | M::Kappa
+        )
+    });
+    let mut out = Vec::new();
+    if symmetric_asked {
+        let mut t = table("Symmetric Measures", 2, symmetric);
+        notes.dedup();
+        t.caption = (!notes.is_empty()).then(|| notes.join(" "));
+        out.push(t);
+    }
     if !directional.is_empty() {
         out.push(table("Directional Measures", 3, directional));
+    }
+    if !risks.is_empty() {
+        let mut columns = layer_names.clone();
+        columns.push(String::new());
+        let headers = columns.len();
+        columns.extend(["Value", "Lower", "Upper"].map(String::from));
+        let mut column_groups = vec![Vec::new(); columns.len()];
+        for group in &mut column_groups[headers + 1..] {
+            group.push("95% Confidence Interval".to_string());
+        }
+        out.push(Table {
+            title: format!("Risk Estimate: {title}"),
+            row_headers: headers,
+            columns,
+            column_groups,
+            rows: risks,
+            caption: notes_risk
+                .then(|| "Risk estimates are computed only for 2 x 2 tables.".into()),
+            ..Table::default()
+        });
     }
     out
 }

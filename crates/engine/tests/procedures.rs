@@ -740,6 +740,74 @@ fn crosstabs_measures_of_association() {
     assert_eq!(strings[1].rows.len(), 1);
 }
 
+/// Kappa and the risk estimates of the 2 x 2 table [[3, 12], [9, 4]]. By hand: kappa =
+/// (28 7 - 388) / (28^2 - 388) with 388 = 15 12 + 13 16; odds ratio 3 4 / (12 9) = 1/9; the
+/// cohort risks 3 13 / (9 15) and 12 13 / (4 15), their 95% limits exp(+-z v) with v as the
+/// manual gives it. The standard error of kappa is that of the delta method (GNU PSPP prints
+/// another one).
+#[test]
+fn crosstabs_kappa_and_risk() {
+    let data = "DATA LIST FREE /a b n.\nBEGIN DATA\n1 1 3\n1 2 12\n2 1 9\n2 2 4\nEND DATA.\nWEIGHT BY n.\n";
+    let mut engine = Engine::default();
+    let tables = crosstabs(
+        &mut engine,
+        &format!("{data}CROSSTABS a BY b /CELLS=NONE /STATISTICS=KAPPA RISK."),
+    );
+    let [symmetric, risk] = &tables[..] else {
+        panic!("{tables:?}")
+    };
+    assert_eq!(
+        texts(&symmetric.rows[0])[..2],
+        ["Measure of Agreement", "Kappa"]
+    );
+    let kappa = -192.0 / 396.0;
+    assert_row(
+        &symmetric.rows[0],
+        2,
+        &[
+            Some(kappa),
+            Some(0.1654694117345023),
+            Some(-2.6253204932555745),
+            Some(0.008656744127246058),
+        ],
+    );
+    let z = 1.959963984540054;
+    let limits = |value: f64, v: f64| {
+        [
+            Some(value),
+            Some(value * (-z * v).exp()),
+            Some(value * (z * v).exp()),
+        ]
+    };
+    let v_odds = (1.0 / 3.0 + 1.0 / 12.0 + 1.0 / 9.0 + 1.0 / 4.0_f64).sqrt();
+    let v_first = (12.0 / (3.0 * 15.0) + 4.0 / (9.0 * 13.0_f64)).sqrt();
+    let v_second = (3.0 / (12.0 * 15.0) + 9.0 / (4.0 * 13.0_f64)).sqrt();
+    assert_eq!(texts(&risk.rows[0])[0], "Odds Ratio for a (1 / 2)");
+    assert_row(&risk.rows[0], 1, &limits(1.0 / 9.0, v_odds));
+    assert_eq!(texts(&risk.rows[1])[0], "For cohort b = 1");
+    assert_row(&risk.rows[1], 1, &limits(39.0 / 135.0, v_first));
+    assert_row(&risk.rows[2], 1, &limits(2.6, v_second));
+    assert_eq!(texts(&risk.rows[3])[0], "N of Valid Cases");
+    assert_eq!(risk.column_groups[2], ["95% Confidence Interval"]);
+
+    // RISK alone makes no Symmetric Measures table; a larger table has only its count
+    let more = crosstabs(
+        &mut engine,
+        "COMPUTE c = a + b.\nCROSSTABS a BY c /CELLS=NONE /STATISTICS=RISK.",
+    );
+    assert_eq!(more.len(), 1);
+    assert_eq!(more[0].rows.len(), 1);
+    assert!(more[0].caption.as_deref().unwrap().contains("2 x 2"));
+    // kappa over a string and a number is not computed, and the table says why
+    let mixed = crosstabs(
+        &mut engine,
+        "STRING s (A1).\nCOMPUTE s = 'x'.\nIF a = 2 s = 'y'.\n\
+         CROSSTABS s BY b /CELLS=NONE /STATISTICS=KAPPA.",
+    );
+    assert_eq!(mixed[0].rows.len(), 1);
+    assert!(mixed[0].caption.as_deref().unwrap().contains("same type"));
+}
+
 #[test]
 fn crosstabs_missing_values() {
     let mut engine = survey();

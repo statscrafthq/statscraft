@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- CROSSTABS /STATISTICS=KAPPA (Cohen's kappa in the Symmetric Measures table) and RISK (odds ratio and cohort risks of a 2 x 2 table with 95% intervals, in a Risk Estimate table).
 - CROSSTABS /STATISTICS: PHI (phi and Cramer's V), CC, LAMBDA (with Goodman and Kruskal's tau), BTAU, CTAU, GAMMA and CORR (Spearman and Pearson), in Symmetric Measures and Directional Measures tables with standard errors, approximate T and significance. Checked by hand and against GNU PSPP.
 - CROSSTABS starts with a Case Processing Summary: per table the valid, missing and total cases (weighted) with percentages, as the reference program does.
 - Counts and sums over no cases (an empty group, a split group or filter without cases) show as 0, no longer as -0, in every output.

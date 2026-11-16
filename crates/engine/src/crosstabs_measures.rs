@@ -19,6 +19,12 @@
 //!   is (P - Q) / (P + Q).
 //! - Pearson's r uses the category values, Spearman's correlation the mid ranks of the
 //!   categories, both for numeric variables only; their t is r root(W - 2) / root(1 - r^2) with W - 2 degrees of freedom.
+//! - Kappa, on the square table over the categories of both variables (a pair of values never
+//!   seen counts 0): (W sum f_ii - sum r_i c_i) / (W^2 - sum r_i c_i), with the manual's
+//!   variance for the standard error and the one under independence for T.
+//! - The risk estimate of a 2 x 2 table: the odds ratio f11 f22 / (f12 f21) and, for each
+//!   column, the ratio of the two rows' shares in it, each with a 95% interval exp(+-1.96 v) on
+//!   the log scale.
 //! - The approximate T of lambda, tau-b, tau-c and gamma is the estimate over its standard
 //!   error under independence, its significance two-sided normal. The standard error shown is
 //!   the one without that assumption.
@@ -402,6 +408,64 @@ impl Counts<'_> {
             ..line(group, name, 0, rho)
         }
     }
+}
+
+impl Counts<'_> {
+    /// Cohen's kappa of a square table: value, standard error, T and significance.
+    pub(crate) fn kappa(&self) -> Line {
+        let (n, _) = self.dims();
+        let rows = self.row_totals();
+        let columns = self.column_totals();
+        let w: f64 = rows.iter().sum();
+        let diagonal: f64 = (0..n).map(|i| self.f[i][i]).sum();
+        let chance: f64 = (0..n).map(|i| rows[i] * columns[i]).sum();
+        let both: f64 = (0..n).map(|i| self.f[i][i] * (rows[i] + columns[i])).sum();
+        let spread = w * w - chance;
+        let kappa = (w * diagonal - chance) / spread;
+        let mut cross = 0.0;
+        for i in 0..n {
+            for j in 0..n {
+                cross += self.f[i][j] * (rows[j] + columns[i]).powi(2);
+            }
+        }
+        let miss = w - diagonal;
+        let var1 = w
+            * (diagonal * miss / spread.powi(2)
+                + 2.0 * miss * (2.0 * diagonal * chance - w * both) / spread.powi(3)
+                + miss * miss * (w * cross - 4.0 * chance * chance) / spread.powi(4));
+        let by_chance: f64 = (0..n)
+            .map(|i| rows[i] * columns[i] * (rows[i] + columns[i]))
+            .sum();
+        let var0 = (w * w * chance + chance * chance - w * by_chance) / (w * spread * spread);
+        let t = kappa / var0.sqrt();
+        Line {
+            ase: Some(var1.sqrt()),
+            t: t.is_finite().then_some(t),
+            sig: t.is_finite().then(|| normal_p(t)),
+            ..line("Measure of Agreement", "Kappa", 0, kappa)
+        }
+    }
+}
+
+/// The risk estimates of a 2 x 2 table: the odds ratio and the risk ratios for the first and
+/// the second column, each as value, lower and upper 95% limit.
+pub(crate) fn risk(f: &[Vec<f64>]) -> [(f64, f64, f64); 3] {
+    let z = crate::dist::normal_quantile(0.975);
+    let interval = |value: f64, v: f64| (value, value * (-z * v).exp(), value * (z * v).exp());
+    let (a, b, c, d) = (f[0][0], f[0][1], f[1][0], f[1][1]);
+    let odds = interval(
+        a * d / (b * c),
+        (1.0 / a + 1.0 / b + 1.0 / c + 1.0 / d).sqrt(),
+    );
+    let first = interval(
+        a * (c + d) / (c * (a + b)),
+        (b / (a * (a + b)) + d / (c * (c + d))).sqrt(),
+    );
+    let second = interval(
+        b * (c + d) / (d * (a + b)),
+        (a / (b * (a + b)) + c / (d * (c + d))).sqrt(),
+    );
+    [odds, first, second]
 }
 
 /// The pair counts behind tau-b, tau-c and gamma.

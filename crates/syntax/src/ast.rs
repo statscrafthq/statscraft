@@ -957,6 +957,10 @@ pub enum CrosstabsMeasure {
     Gamma,
     /// Pearson's r and Spearman's correlation.
     Corr,
+    /// Cohen's kappa.
+    Kappa,
+    /// The odds ratio and the cohort risk ratios of a 2 x 2 table.
+    Risk,
 }
 
 /// How CROSSTABS turns case weights into counts.

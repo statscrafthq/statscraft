@@ -138,10 +138,14 @@ fn crosstabs() {
             M::Corr
         ]
     );
-    let e = err("CROSSTABS a BY b /STATISTICS=CHISQ KAPPA.");
+    let Command::Crosstabs(c) = one("CROSSTABS a BY b /STATISTICS=RISK KAPPA.") else {
+        panic!()
+    };
+    assert_eq!(c.measures, [M::Kappa, M::Risk]);
+    let e = err("CROSSTABS a BY b /STATISTICS=CHISQ UC.");
     assert_eq!(
         e.message,
-        "KAPPA in CROSSTABS /STATISTICS is not supported yet"
+        "UC in CROSSTABS /STATISTICS is not supported yet"
     );
     assert_eq!(e.expected[0], "CHISQ");
     assert!(
