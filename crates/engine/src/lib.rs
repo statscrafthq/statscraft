@@ -431,7 +431,13 @@ impl Table {
                 widths.dedup_by_key(|w| w.col);
                 widths
             },
-            freeze_columns: style.freeze_columns.filter(|&n| usize::from(n) <= columns),
+            // counted on the sheet: a stacked layout shows one column fewer
+            freeze_columns: {
+                let stacked =
+                    style.row_labels.as_deref() == Some("stacked") && self.row_headers >= 2;
+                let shown = columns - usize::from(stacked);
+                style.freeze_columns.filter(|&n| usize::from(n) <= shown)
+            },
         };
     }
 
