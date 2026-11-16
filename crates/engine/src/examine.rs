@@ -901,6 +901,8 @@ impl Tables<'_> {
             caption: Some(format!("Weighting constants: {}.", constants.join("; "))),
             outline: None,
             hidden: false,
+            cell_stats: None,
+            decorations: Vec::new(),
         }
     }
 

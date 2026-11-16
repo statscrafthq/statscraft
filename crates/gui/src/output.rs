@@ -326,10 +326,12 @@ pub fn table_html(table: &Table) -> String {
                     1 => html.push_str(&format!("<th>{text}</th>")),
                     n => html.push_str(&format!("<th rowspan=\"{n}\">{text}</th>")),
                 }
-            } else if right_aligned(table, r, c) {
-                html.push_str(&format!("<td>{text}</td>"));
             } else {
-                html.push_str(&format!("<td class=\"text\">{text}</td>"));
+                let more = statscraft_engine::cell_attributes(table, r, c);
+                match right_aligned(table, r, c) {
+                    true => html.push_str(&format!("<td{more}>{text}</td>")),
+                    false => html.push_str(&format!("<td class=\"text\"{more}>{text}</td>")),
+                }
             }
         }
         html.push_str("</tr>\n");
@@ -459,6 +461,8 @@ mod tests {
             caption: Some(s("Chi-square p = 0.512")),
             outline: None,
             hidden: false,
+            cell_stats: None,
+            decorations: Vec::new(),
         }
     }
 

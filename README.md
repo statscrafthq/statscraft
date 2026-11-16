@@ -81,6 +81,7 @@ The documentation is online at [docs.statscraft.org](https://docs.statscraft.org
 - [The MCP server](docs/mcp.md): `statscraft mcp`, the tools an agent app gets, sessions and safety.
 - [Connect your AI agent](docs/connect.md): `statscraft connect` adds the Statscraft MCP server to the agents on your computer; the bundle for Claude Desktop, the plugin for Claude Code and the agent skill.
 - [Commands](docs/commands/README.md): one page per supported command, generated from the help table.
+- [Plugins](docs/plugins.md): programs of your own that colour and comment the cells of custom tables, and the JSON protocol they speak.
 - [Differences and limits](docs/differences.md): deliberate differences from other implementations, and what is not supported yet.
 
 ## Getting a build

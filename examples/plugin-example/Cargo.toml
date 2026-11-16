@@ -1,0 +1,13 @@
+[package]
+name = "statscraft-plugin-example"
+description = "A small Statscraft plugin: colours cells that differ from their row's total"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+
+# not a member of the Statscraft workspace: it builds on its own
+[workspace]
+
+[dependencies]
+serde_json = "1"

@@ -11,7 +11,7 @@ use eframe::egui::{
 };
 use statscraft_engine::office::is_office_chart;
 use statscraft_engine::output_modify::ModifiedItem;
-use statscraft_engine::{Chart, Table};
+use statscraft_engine::{Chart, Decoration, Table, parse_colour};
 use statscraft_export::picture::{self, Paper, Scene};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -265,6 +265,38 @@ impl OutputView {
         self.layouts.retain(|id, _| !gone.contains(id));
         self.scenes.retain(|id, _| !gone.contains(id));
         self.as_data.retain(|id| !gone.contains(id));
+    }
+
+    /// The tables with cell statistics, with their ids, for the plugin: with `last` only the
+    /// new ones of the last run that have no decorations yet.
+    pub fn plugin_tables(&self, last: bool) -> Vec<(u64, Table)> {
+        let runs = match last {
+            true => &self.runs[self.runs.len().saturating_sub(1)..],
+            false => &self.runs[..],
+        };
+        let wanted = |t: &&OutputTable| {
+            t.table.cell_stats.is_some() && !(last && !t.table.decorations.is_empty())
+        };
+        let found = output::tables(runs).filter(wanted);
+        found.map(|t| (t.id, t.table.clone())).collect()
+    }
+
+    /// Puts a plugin's decorations on the tables of the given ids and returns them by the
+    /// places of their tables, as the document counts them (see `selected_positions`).
+    pub fn decorate(
+        &mut self,
+        answer: Vec<(u64, Vec<Decoration>)>,
+    ) -> Vec<(usize, Vec<Decoration>)> {
+        let mut by_id: HashMap<u64, Vec<Decoration>> = answer.into_iter().collect();
+        let mut placed = Vec::new();
+        let all = self.runs.iter_mut().flat_map(|run| &mut run.items);
+        for (place, t) in all.flat_map(|item| &mut item.tables).enumerate() {
+            if let Some(decorations) = by_id.remove(&t.id) {
+                t.table.set_decorations(decorations);
+                placed.push((place, t.table.decorations.clone()));
+            }
+        }
+        placed
     }
 
     pub fn delete_selected(&mut self) {
@@ -799,6 +831,14 @@ impl OutputView {
                         ui.make_persistent_id(("output table", t.id)),
                         Sense::click(),
                     );
+                    // a plugin's comment on the cell under the pointer
+                    let comment = response.hover_pos().filter(|_| scene.is_none());
+                    let comment = comment
+                        .and_then(|pos| comment_at(&t.table, &layouts[&t.id], rect, title, pos));
+                    let response = match comment {
+                        Some(comment) => response.on_hover_text_at_pointer(comment),
+                        None => response,
+                    };
                     if response.clicked() {
                         clicked = Some(t.id);
                     }
@@ -1011,6 +1051,30 @@ fn measure(ui: &Ui, table: &Table, font: &FontId) -> Layout {
     }
 }
 
+/// The plugin's comment on the body cell of a table drawn in `rect` at `pos`, if any.
+fn comment_at(
+    table: &Table,
+    layout: &Layout,
+    rect: Rect,
+    title: bool,
+    pos: Pos2,
+) -> Option<String> {
+    let above = if title {
+        layout.title_height + 6.0
+    } else {
+        0.0
+    };
+    let y = pos.y - rect.top() - above - layout.header_height();
+    let r = layout
+        .row_tops
+        .partition_point(|t| *t <= y)
+        .checked_sub(1)?;
+    let x = f64::from(pos.x - rect.left());
+    let offsets = crate::grid::offsets(&layout.widths);
+    let c = offsets.partition_point(|o| *o <= x).checked_sub(1)?;
+    table.decoration(r, c)?.comment.clone()
+}
+
 /// A text laid out at `pos`: left, centred on or right of it as `align` says, wrapped at `wrap`.
 fn text(
     painter: &Painter,
@@ -1147,6 +1211,27 @@ fn paint_block(
                 }
                 continue;
             }
+            // a plugin's fill, text colour and a corner mark for its comment
+            let mut colour = normal;
+            if let Some(d) = table.decoration(r, c) {
+                let cell = Rect::from_min_max(pos2(x(c), y0), pos2(x(c + 1), y1));
+                let rgb = |c: &Option<String>| {
+                    let [r, g, b] = c.as_deref().and_then(parse_colour)?;
+                    Some(Color32::from_rgb(r, g, b))
+                };
+                if let Some(fill) = rgb(&d.fill) {
+                    painter.rect_filled(cell, 0.0, fill);
+                    // the fills plugins give are light, whatever the paper
+                    colour = Color32::from_gray(20);
+                }
+                colour = rgb(&d.text).unwrap_or(colour);
+                if d.comment.is_some() {
+                    let corner = cell.right_top();
+                    let mark = vec![corner - vec2(6.0, 0.0), corner, corner + vec2(0.0, 6.0)];
+                    let red = Color32::from_rgb(200, 40, 40);
+                    painter.add(egui::Shape::convex_polygon(mark, red, Stroke::NONE));
+                }
+            }
             let shown = output::cell_text(table, r, c);
             if shown.is_empty() {
                 continue;
@@ -1156,7 +1241,7 @@ fn paint_block(
             } else {
                 (pos2(x(c) + PAD_X, y0 + PAD_Y), Align::LEFT)
             };
-            text(&painter, pos, align, shown, font, normal, f32::INFINITY);
+            text(&painter, pos, align, shown, font, colour, f32::INFINITY);
         }
     }
     let bottom = header_bottom + tops.last().copied().unwrap_or(0.0);

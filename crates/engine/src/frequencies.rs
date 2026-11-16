@@ -870,7 +870,7 @@ impl Engine {
                         "Several values share the highest frequency ({}); the mode shown is the smallest.",
                         tied.join(", ")
                     )
-                }), outline: None, hidden: false,
+                }), outline: None, hidden: false, cell_stats: None, decorations: Vec::new(),
             }
         };
         self.charts.extend(charts);

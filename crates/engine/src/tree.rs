@@ -1297,6 +1297,8 @@ impl Engine {
                 )),
                 outline: None,
                 hidden: false,
+                cell_stats: None,
+                decorations: Vec::new(),
             }
         };
         if command.display {
@@ -1378,6 +1380,8 @@ impl Engine {
                 )),
                 outline: None,
                 hidden: false,
+                cell_stats: None,
+                decorations: Vec::new(),
             });
         }
         if command.print.classification {
@@ -1417,6 +1421,8 @@ impl Engine {
                 caption: None,
                 outline: None,
                 hidden: false,
+                cell_stats: None,
+                decorations: Vec::new(),
             });
         }
 
@@ -1517,6 +1523,8 @@ impl Engine {
                     )),
                     outline: None,
                     hidden: false,
+                    cell_stats: None,
+                    decorations: Vec::new(),
                 });
             }
         }

@@ -57,6 +57,28 @@ pub(crate) fn escape(text: &str) -> String {
         .replace('"', "&quot;")
 }
 
+/// The attributes a plugin's decoration gives a body cell: its colours as a style, its comment
+/// as a title that shows on hover. Empty without one.
+pub fn cell_attributes(table: &Table, row: usize, column: usize) -> String {
+    let Some(d) = table.decoration(row, column) else {
+        return String::new();
+    };
+    let mut style = String::new();
+    for (property, colour) in [("background", &d.fill), ("color", &d.text)] {
+        if let Some(colour) = colour {
+            style.push_str(&format!("{property}:{colour};"));
+        }
+    }
+    let mut attributes = String::new();
+    if !style.is_empty() {
+        attributes.push_str(&format!(" style=\"{style}\""));
+    }
+    if let Some(comment) = &d.comment {
+        attributes.push_str(&format!(" title=\"{}\"", escape(comment)));
+    }
+    attributes
+}
+
 const STYLE: &str = "body{font-family:system-ui,sans-serif;color:#1d2433;margin:2rem;line-height:1.4}\
 h2{font-size:1rem;color:#4a5468;font-weight:600;margin:2rem 0 .5rem}\
 table{border-collapse:collapse;margin:.5rem 0 1.5rem;font-variant-numeric:tabular-nums}\
@@ -94,10 +116,12 @@ pub(crate) fn table_html(table: &Table, notes: bool) -> String {
                     1 => html.push_str(&format!("<th>{text}</th>")),
                     n => html.push_str(&format!("<th rowspan=\"{n}\">{text}</th>")),
                 }
-            } else if right_aligned(table, r, c) {
-                html.push_str(&format!("<td>{text}</td>"));
             } else {
-                html.push_str(&format!("<td class=\"text\">{text}</td>"));
+                let more = cell_attributes(table, r, c);
+                match right_aligned(table, r, c) {
+                    true => html.push_str(&format!("<td{more}>{text}</td>")),
+                    false => html.push_str(&format!("<td class=\"text\"{more}>{text}</td>")),
+                }
             }
         }
         html.push_str("</tr>\n");

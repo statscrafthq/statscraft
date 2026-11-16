@@ -36,6 +36,10 @@
 //!   written back unchanged; the window shows it as one line naming the kind.
 //! - What OUTPUT MODIFY changes is kept in optional fields: `label` on a command (its new
 //!   heading), `outline` and `hidden` on a table or a chart.
+//! - A CTABLES table keeps the statistics behind its cells in `cell_stats`, and the colours and
+//!   comments a plugin gave in `decorations` (docs/plugins.md), so a saved document shows them
+//!   without the plugin. Decorations off the table or with a colour that is not #rrggbb are
+//!   dropped as the file is read.
 //! - The writer puts keys in a fixed order, an array of plain values on one line (so a table
 //!   row is one line), whole numbers without a fraction and no date, so files diff well.
 //! - A table cell holding a number that is not finite is written as its text; a chart number
@@ -139,6 +143,16 @@ pub fn leaves(items: &[Item]) -> Vec<(&str, &Item)> {
     let mut out = Vec::new();
     walk(items, "", &mut out);
     out
+}
+
+/// Calls `f` on every leaf, in the order of `leaves`.
+pub(crate) fn for_each_leaf(items: &mut [Item], f: &mut impl FnMut(&mut Item)) {
+    for item in items {
+        match item {
+            Item::Command(c) => for_each_leaf(&mut c.items, f),
+            leaf => f(leaf),
+        }
+    }
 }
 
 /// One command as an output window shows it: its heading, its syntax and its leaves.
@@ -371,7 +385,11 @@ const MOST_CELLS: usize = 10_000_000;
 /// A table of a file whose parts fit together, as every view of a table expects.
 fn checked_table(value: Value) -> Result<Table, String> {
     crate::chart_input::sizes(&value, &crate::chart_input::SAVED, &mut 0)?;
-    let table: Table = serde_json::from_value(value).map_err(|e| e.to_string())?;
+    let mut table: Table = serde_json::from_value(value).map_err(|e| e.to_string())?;
+    // decorations off the table or with a colour that is not #rrggbb are dropped, and the
+    // rest sorted, as the window and the exports expect
+    let decorations = std::mem::take(&mut table.decorations);
+    table.set_decorations(decorations);
     let (rows, columns) = (table.rows.len(), table.columns.len());
     if rows > MOST_ROWS || columns > MOST_COLUMNS || rows * columns > MOST_CELLS {
         return Err(format!(

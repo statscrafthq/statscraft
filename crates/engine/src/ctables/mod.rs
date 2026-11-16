@@ -26,7 +26,7 @@ mod sigtest;
 
 use crate::format::{Stat, format_value, statistic_format};
 use crate::shown::{Show, Shown};
-use crate::{Cell, Engine, Error, Table};
+use crate::{Cell, CellStat, CellStats, Engine, Error, Table};
 use statscraft_data::{Dataset, Measure, Value as DataValue, Values, Variable};
 use statscraft_syntax::{
     AxisExpr, AxisVariable, Bound, Categories, CategoryItem, CategoryOrder, Ctables, CtablesTable,
@@ -1731,10 +1731,30 @@ impl Engine {
             };
             moved.into_iter().map(move |k| (layer, k))
         });
+        // the lines of totals and subtotals, for plugins; shortcut: a category moved by
+        // /CLABELS does not count, which only matters when that category is a total
+        let entry_total = |axis: Axis, entry: &Entry| {
+            let vars = layout.terms(axis)[entry.term].iter().filter(|v| !v.scale);
+            vars.zip(&entry.combo).any(|(var, &k)| {
+                let category = &list_of(var).categories[k];
+                category.key.is_none() && category.computed.is_none()
+            })
+        };
+        let totals = |lines: &[Line], axis: Axis, entries: &[Entry], first: usize| {
+            let total = |line: &Line| {
+                let mut shown = line.entries.iter().flatten().peekable();
+                shown.peek().is_some() && shown.all(|&e| entry_total(axis, &entries[e]))
+            };
+            let found = lines.iter().enumerate().filter(|(_, line)| total(line));
+            found.map(|(i, _)| first + i).collect::<Vec<usize>>()
+        };
+        let total_rows = totals(&row_lines, Axis::Rows, &row_entries, 0);
+        let total_columns = totals(&column_lines, Axis::Columns, &column_entries, row_headers);
         for (layer, moved) in layers {
             let mut out_rows = Vec::new();
             let mut formats = Vec::new();
-            for row_line in &row_lines {
+            let mut stats = Vec::new();
+            for (ri, row_line) in row_lines.iter().enumerate() {
                 let mut cells: Vec<Cell> = (0..row_headers)
                     .map(|i| match row_line.path.get(i) {
                         Some(text) => Cell::Text(text.clone()),
@@ -1742,7 +1762,7 @@ impl Engine {
                     })
                     .collect();
                 let mut cell_formats = vec![String::new(); row_headers];
-                for column_line in &column_lines {
+                for (ci, column_line) in column_lines.iter().enumerate() {
                     let (r, c) = (row_line.entry(column_line), column_line.entry(row_line));
                     let picked = match (table.labels_moved, moved) {
                         (LabelsMoved::RowsToLayers, Some(k)) => row_line.entries[k].zip(c),
@@ -1759,6 +1779,15 @@ impl Engine {
                     let slot = row.slot.or(column.slot).or(layer.slot).unwrap_or(0);
                     let key = [&row.combo[..], &column.combo, &layer.combo].concat();
                     let (cell, format) = section.cell(&key, slot, command);
+                    // a hidden small count shows as text, and stays hidden from plugins too
+                    let stat = match cell {
+                        Cell::Number(value) => section.stat(&key, slot, value),
+                        _ => None,
+                    };
+                    if let Some(stat) = stat {
+                        let (row, col) = (ri, row_headers + ci);
+                        stats.push(CellStat { row, col, ..stat });
+                    }
                     cells.push(cell);
                     cell_formats.push(format);
                 }
@@ -1790,6 +1819,14 @@ impl Engine {
                 caption: caption.clone(),
                 outline: None,
                 hidden: false,
+                cell_stats: (!stats.is_empty()).then(|| {
+                    Box::new(CellStats {
+                        total_rows: total_rows.clone(),
+                        total_columns: total_columns.clone(),
+                        cells: stats,
+                    })
+                }),
+                decorations: Vec::new(),
             };
             // the tests do not depend on the summary of a layer, so they run once per category
             let tests = if tested_layers.contains(&(layer.term, &layer.combo[..])) {
@@ -2390,6 +2427,69 @@ impl Section {
             (None, None, _) => Cell::Empty,
         };
         (cell, format.clone())
+    }
+
+    /// The statistic behind the cell at `key` in `slot` that shows `value`, for plugins: none
+    /// for a computed category, a confidence limit or a standard error.
+    fn stat(&self, key: &[usize], slot: usize, value: f64) -> Option<CellStat> {
+        let list = match &self.total_summaries {
+            Some((totals, i, marks)) if key.get(*i).is_some_and(|&k| k != MARGIN && marks[k]) => {
+                totals
+            }
+            _ => &self.summaries,
+        };
+        let (_, summary, _) = list.iter().find(|(s, ..)| *s == slot)?;
+        if self.computed_at(key).is_some() || summary.function.estimate != Estimate::Value {
+            return None;
+        }
+        let empty = Tally::default();
+        let tally = self.tally(key, summary, &empty)?;
+        // (base, weighted base, effective base) of a tally's count, valid or total cases
+        let bases = |t: &Tally, of: PercentOf| match of {
+            PercentOf::Validn => (
+                t.valid_cases,
+                t.valid,
+                effective_base(t.valid, t.valid_squares),
+            ),
+            PercentOf::Totaln => (
+                t.cases + t.total_only_cases,
+                t.count + t.total_only,
+                effective_base(t.count + t.total_only, t.squares + t.total_only_squares),
+            ),
+            _ => (t.cases, t.count, effective_base(t.count, t.squares)),
+        };
+        let (estimate, (base, weighted, effective), sd) = match summary.function.statistic {
+            Statistic::Percent(area, of) => {
+                let (_, denominator) = mrsets::parts(of);
+                let whole = self.area_tally(key, area)?;
+                (value / 100.0, bases(whole, denominator), None)
+            }
+            Statistic::Count | Statistic::Totaln | Statistic::Responses | Statistic::Missing => {
+                (value, bases(tally, PercentOf::Count), None)
+            }
+            Statistic::Mean => {
+                let mut sd = summary.clone();
+                sd.function.statistic = Statistic::Stddev;
+                let sd = statistic(&sd, tally, self.effective);
+                (value, bases(tally, PercentOf::Validn), sd)
+            }
+            _ => (value, bases(tally, PercentOf::Validn), None),
+        };
+        // every case counts once in the U functions
+        let (weighted, effective) = match summary.function.unweighted {
+            true => (base, base),
+            false => (weighted, effective),
+        };
+        Some(CellStat {
+            row: 0,
+            col: 0,
+            kind: summary.function.name(),
+            estimate,
+            base,
+            weighted_base: weighted,
+            effective_base: effective,
+            sd,
+        })
     }
 
     /// The tally of the percentage area of a cell; a total of a deciding variable is the area of

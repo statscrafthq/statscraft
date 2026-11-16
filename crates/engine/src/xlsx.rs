@@ -3,8 +3,11 @@
 
 use crate::excel::excel_number;
 use crate::office::{Item, put_chart};
-use crate::{Cell, Table, cell_text, header_rows};
-use rust_xlsxwriter::{Color, Format, FormatAlign, FormatBorder, Workbook, Worksheet, XlsxError};
+use crate::{Cell, Table, cell_text, header_rows, parse_colour};
+use rust_xlsxwriter::{
+    Color, Format, FormatAlign, FormatBorder, Note, Workbook, Worksheet, XlsxError,
+};
+use std::borrow::Cow;
 use std::path::Path;
 
 /// Columns never grow wider than this many characters; longer labels wrap.
@@ -160,24 +163,58 @@ pub(crate) fn put_table(
         let format = table.formats.get(r).and_then(|f| f.get(c));
         format.map_or("", String::as_str)
     };
+    // one note reused for every plugin comment, its text replaced
+    let mut note = Note::new("").add_author_prefix(false).set_width(260);
     for (r, cells) in table.rows.iter().enumerate() {
         for (c, cell) in cells.iter().enumerate() {
             let column = left + c as u16;
             let shown = cell_text(table, r, c);
             fit(widths, c, &shown);
-            match cell {
+            if c < table.row_headers {
                 // row labels are written below, merged over the rows that repeat them
-                _ if c < table.row_headers => continue,
+                continue;
+            }
+            let decoration = table.decoration(r, c);
+            // a plugin's colours over the cell's own format
+            let paint = |format: Format| match decoration {
+                Some(d) => {
+                    let colour = |c: &Option<String>| {
+                        let [r, g, b] = c.as_deref().and_then(parse_colour)?;
+                        Some(Color::RGB(u32::from_be_bytes([0, r, g, b])))
+                    };
+                    let format = match colour(&d.fill) {
+                        Some(fill) => format.set_background_color(fill),
+                        None => format,
+                    };
+                    match colour(&d.text) {
+                        Some(text) => format.set_font_color(text),
+                        None => format,
+                    }
+                }
+                None => format,
+            };
+            // the text format as it is, unless a plugin painted the cell
+            let as_text = || match decoration {
+                Some(_) => Cow::Owned(paint(text.clone())),
+                None => Cow::Borrowed(&text),
+            };
+            match cell {
                 Cell::Number(n) if n.is_finite() => match excel_number(format(r, c), *n, &shown) {
                     Some((value, num_format)) => {
-                        let number = border.clone().set_num_format(num_format);
+                        let number = paint(border.clone().set_num_format(num_format));
                         sheet.write_number_with_format(row, column, value, &number)?
                     }
-                    None => sheet.write_string_with_format(row, column, &shown, &text)?,
+                    None => sheet.write_string_with_format(row, column, &shown, &as_text())?,
                 },
-                Cell::Empty => sheet.write_blank(row, column, &text)?,
-                _ => sheet.write_string_with_format(row, column, &shown, &text)?,
+                Cell::Empty => sheet.write_blank(row, column, &as_text())?,
+                _ => sheet.write_string_with_format(row, column, &shown, &as_text())?,
             };
+            if let Some(comment) = decoration.and_then(|d| d.comment.as_deref()) {
+                let lines = comment.lines().count().max(1) as u32;
+                note.reset_text(comment);
+                let sized = note.clone().set_height(16 * lines + 12);
+                sheet.insert_note(row, column, &sized)?;
+            }
         }
         row += 1;
     }

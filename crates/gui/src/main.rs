@@ -52,6 +52,7 @@ mod office;
 mod open_files;
 mod output;
 mod output_view;
+mod plugins;
 mod power_dialog;
 mod power_dialog_view;
 mod proximities_dialog;

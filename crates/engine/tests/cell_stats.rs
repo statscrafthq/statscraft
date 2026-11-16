@@ -1,0 +1,152 @@
+//! The cell statistics CTABLES gives plugins: estimates, bases and the totals, weighted and not,
+//! and their way through a saved output document.
+
+use statscraft_engine::output_file::{self, Item};
+use statscraft_engine::session::Session;
+use statscraft_engine::{CellStat, Decoration, Table};
+
+/// Made-up answers: answer (1 yes, 2 no), group (1, 2), weight w and a score.
+const DATA: &str = "DATA LIST LIST /answer group w score (4F4).
+BEGIN DATA
+1 1 2 1
+1 1 1 2
+2 1 1 3
+1 2 1 4
+2 2 1 5
+2 2 1 6
+2 2 3 7
+END DATA.
+";
+
+fn tables(session: &mut Session, source: &str) -> Vec<Table> {
+    let before = session.output_items("Document1").map_or(0, <[Item]>::len);
+    session.run(source, None).expect("runs");
+    let items = &session.output_items("Document1").unwrap()[before..];
+    let leaves = output_file::leaves(items).into_iter();
+    leaves.map(|(_, item)| item.shown().0).collect()
+}
+
+fn stat(table: &Table, row: usize, col: usize) -> &CellStat {
+    let stats = table.cell_stats.as_ref().expect("cell statistics");
+    let found = stats.cells.iter().find(|s| (s.row, s.col) == (row, col));
+    found.unwrap_or_else(|| panic!("no statistic at {row}, {col}"))
+}
+
+fn close(a: f64, b: f64) -> bool {
+    (a - b).abs() < 1e-9
+}
+
+const TABLE: &str = "CTABLES /TABLE answer [C] [COLPCT] BY group [C]
+  /CATEGORIES VARIABLES=group TOTAL=YES POSITION=BEFORE
+  /CATEGORIES VARIABLES=answer TOTAL=YES.";
+
+#[test]
+fn a_crosstab_carries_estimates_bases_and_totals() {
+    let mut session = Session::default();
+    session.run(DATA, None).unwrap();
+    // unweighted: (estimate, base) by column, total first, for the answer "yes"
+    let table = tables(&mut session, TABLE).remove(0);
+    let h = table.row_headers;
+    let stats = table.cell_stats.as_ref().unwrap();
+    assert_eq!(stats.total_columns, [h]);
+    assert_eq!(stats.total_rows, [2]);
+    for (col, estimate, base) in [
+        (h, 3.0 / 7.0, 7.0),
+        (h + 1, 2.0 / 3.0, 3.0),
+        (h + 2, 0.25, 4.0),
+    ] {
+        let s = stat(&table, 0, col);
+        assert_eq!(s.kind, "COLPCT.COUNT");
+        assert!(close(s.estimate, estimate), "{s:?}");
+        assert_eq!(
+            (s.base, s.weighted_base, s.effective_base),
+            (base, base, base)
+        );
+    }
+    // the total row is 100% of its column
+    assert!(close(stat(&table, 2, h + 1).estimate, 1.0));
+
+    // weighted: the base stays the cases, the effective base is (sum w)^2 / sum w^2
+    let table = tables(&mut session, &format!("WEIGHT BY w.\n{TABLE}")).remove(0);
+    for (col, estimate, base, weighted, effective) in [
+        (h, 0.4, 7.0, 10.0, 100.0 / 18.0),
+        (h + 1, 0.75, 3.0, 4.0, 16.0 / 6.0),
+        (h + 2, 1.0 / 6.0, 4.0, 6.0, 3.0),
+    ] {
+        let s = stat(&table, 0, col);
+        assert!(close(s.estimate, estimate), "{s:?}");
+        assert_eq!((s.base, s.weighted_base), (base, weighted));
+        assert!(close(s.effective_base, effective), "{s:?}");
+    }
+
+    // a mean carries its standard deviation, and other procedures carry nothing
+    session.run("WEIGHT OFF.", None).unwrap();
+    let table = tables(
+        &mut session,
+        "CTABLES /TABLE score [S] [MEAN] BY group [C].",
+    )
+    .remove(0);
+    let s = stat(&table, 0, table.row_headers);
+    assert_eq!(
+        (s.kind.as_str(), s.estimate, s.base, s.sd),
+        ("MEAN", 2.0, 3.0, Some(1.0))
+    );
+    let frequencies = tables(&mut session, "FREQUENCIES group.");
+    assert!(frequencies.iter().all(|t| t.cell_stats.is_none()));
+}
+
+#[test]
+fn statistics_and_decorations_survive_the_output_file() {
+    let mut session = Session::default();
+    session.run(DATA, None).unwrap();
+    session.run(TABLE, None).unwrap();
+    let items = session.output_items("Document1").unwrap().to_vec();
+    let mut table = items_table(&items);
+    let h = table.row_headers;
+    table.set_decorations(vec![
+        Decoration {
+            row: 0,
+            col: h + 1,
+            fill: Some("#a9ecf5".into()),
+            text: Some("#094e56".into()),
+            comment: Some("66.7% (13.3% to 100%)".into()),
+        },
+        // off the table, or with a colour that is not #rrggbb: dropped or cleaned
+        Decoration {
+            row: 99,
+            col: 0,
+            ..Decoration::default()
+        },
+        Decoration {
+            row: 1,
+            col: h,
+            fill: Some("red\" onclick=\"x".into()),
+            comment: Some("total".into()),
+            ..Decoration::default()
+        },
+    ]);
+    assert_eq!(table.decorations.len(), 2);
+    assert_eq!(table.decoration(1, h).unwrap().fill, None);
+    let text = output_file::write(&[Item::Table(std::sync::Arc::new(table.clone()))]);
+    let read = items_table(&output_file::read(&text).unwrap());
+    assert_eq!(read.cell_stats, table.cell_stats);
+    assert_eq!(read.decorations, table.decorations);
+    // and in the JSON of a run
+    let json = serde_json::to_value(&table).unwrap();
+    assert_eq!(json["cell_stats"]["total_columns"][0], h);
+    assert_eq!(json["decorations"][0]["fill"], "#a9ecf5");
+    let html = statscraft_engine::cell_attributes(&table, 0, h + 1);
+    assert_eq!(
+        html,
+        " style=\"background:#a9ecf5;color:#094e56;\" title=\"66.7% (13.3% to 100%)\""
+    );
+}
+
+fn items_table(items: &[Item]) -> Table {
+    let leaves = output_file::leaves(items);
+    leaves
+        .into_iter()
+        .map(|(_, item)| item.shown().0)
+        .next()
+        .unwrap()
+}

@@ -376,6 +376,31 @@ impl Engine {
         Ok(titles)
     }
 
+    /// Puts a plugin's decorations on tables of the document `name`, each table by its place
+    /// among the leaves (`output_file::leaves`).
+    pub(crate) fn decorate_output(
+        &mut self,
+        name: &str,
+        decorations: Vec<(usize, Vec<crate::Decoration>)>,
+    ) -> Result<(), Error> {
+        let d = &mut self.documents;
+        let at = d
+            .find(name)
+            .ok_or_else(|| Error(format!("no open output document is named {name}")))?;
+        let document = &mut d.open[at];
+        let mut by_place: HashMap<usize, Vec<crate::Decoration>> =
+            decorations.into_iter().collect();
+        let mut place = 0;
+        output_file::for_each_leaf(&mut document.items, &mut |item| {
+            if let (output_file::Item::Table(table), Some(d)) = (item, by_place.remove(&place)) {
+                Arc::make_mut(table).set_decorations(d);
+                document.changed = true;
+            }
+            place += 1;
+        });
+        Ok(())
+    }
+
     /// What the last OUTPUT MODIFY changed, taken.
     pub(crate) fn take_modified(&mut self) -> Vec<crate::output_modify::Modified> {
         std::mem::take(&mut self.documents.modified)

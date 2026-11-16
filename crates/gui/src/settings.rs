@@ -51,6 +51,11 @@ pub struct Settings {
     pub mioutput: Option<String>,
     /// The kinds of element the output shows, and whether exports take hidden items.
     pub output: Show,
+    /// The plugin program that decorates tables (docs/plugins.md), and whether it is off.
+    pub plugin: Option<PathBuf>,
+    pub plugin_off: bool,
+    /// Excel exports leave out the plugin's comments.
+    pub excel_comments_off: bool,
 }
 
 impl Settings {
@@ -109,7 +114,8 @@ impl Settings {
     /// `log hidden`, `variable_widths W ...`, `tvars names|labels|both` and
     /// `tnumbers values|labels|both`, `mioutput` with MIOUTPUT keywords, `output-shows` with
     /// the kinds of element the output shows (`headings titles tables notes charts`) and
-    /// `export hidden`; anything else is skipped.
+    /// `export hidden`, `plugin PATH`, `plugin-off` and `excel-comments off`; anything else is
+    /// skipped.
     pub fn parse(text: &str) -> Self {
         let mut settings = Self::default();
         let pair = |rest: &str| {
@@ -150,6 +156,9 @@ impl Settings {
                     settings.output.kinds = Part::ALL.map(|p| words.contains(&p.word()));
                 }
                 "export" => settings.output.export_hidden = rest == "hidden",
+                "plugin" if !rest.is_empty() => settings.plugin = Some(PathBuf::from(rest)),
+                "plugin-off" => settings.plugin_off = true,
+                "excel-comments" => settings.excel_comments_off = rest == "off",
                 _ => {}
             }
         }
@@ -215,6 +224,15 @@ impl Settings {
         }
         if self.output.export_hidden {
             text.push_str("export hidden\n");
+        }
+        if let Some(plugin) = &self.plugin {
+            text.push_str(&format!("plugin {}\n", plugin.display()));
+        }
+        if self.plugin_off {
+            text.push_str("plugin-off\n");
+        }
+        if self.excel_comments_off {
+            text.push_str("excel-comments off\n");
         }
         text
     }
@@ -307,6 +325,9 @@ mod tests {
                 kinds: [true, false, true, false, true],
                 export_hidden: true,
             },
+            plugin: Some(PathBuf::from("/opt/plugins/sig colours")),
+            plugin_off: true,
+            excel_comments_off: true,
         };
         for i in 0..12 {
             settings.add_recent(Path::new(&format!("/data/f{i}.sav")));

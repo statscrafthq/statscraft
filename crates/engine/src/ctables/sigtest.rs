@@ -713,6 +713,8 @@ fn chi_square_table(
         caption: Some(caption),
         outline: None,
         hidden: false,
+        cell_stats: None,
+        decorations: Vec::new(),
     })
 }
 
@@ -997,6 +999,8 @@ fn comparison_table(
         caption: Some(comparison_caption(spec, found, None)),
         outline: None,
         hidden: false,
+        cell_stats: None,
+        decorations: Vec::new(),
     }
 }
 
@@ -1109,6 +1113,18 @@ pub(super) fn merge(
         if let (true, Some(&k)) = (last, positions.get(&(entry.term, &entry.combo[..]))) {
             order.push(Err(k));
         }
+    }
+    // the cell statistics follow their columns
+    if let Some(stats) = main.cell_stats.as_mut() {
+        let mut new_place: HashMap<usize, usize> = HashMap::new();
+        for (to, source) in order.iter().enumerate() {
+            if let Ok(c) = *source {
+                new_place.insert(c, to);
+            }
+        }
+        let moved = |c: &mut usize| *c = new_place.get(c).copied().unwrap_or(*c);
+        stats.cells.iter_mut().for_each(|s| moved(&mut s.col));
+        stats.total_columns.iter_mut().for_each(moved);
     }
     let old_path = |c: usize| {
         let mut path = main.column_groups.get(c).cloned().unwrap_or_default();

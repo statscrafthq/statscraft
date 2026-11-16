@@ -2,7 +2,8 @@
 //! once and is saved. How tables show variables and values are settings of the session: a
 //! choice there runs SET TVARS or SET TNUMBERS like any other command, the session keeps it, and
 //! the window saves it to run the same SET when it starts again. AI agents connects Statscraft
-//! to the AI apps on this computer (connect_window.rs).
+//! to the AI apps on this computer (connect_window.rs). Plugins picks the program that colours
+//! and comments tables (docs/plugins.md).
 
 use crate::connect_window::Connect;
 use crate::output::Part;
@@ -17,14 +18,16 @@ pub enum Section {
     GridsAndOutput,
     Updates,
     AiAgents,
+    Plugins,
 }
 
 impl Section {
-    const ALL: [Section; 4] = [
+    const ALL: [Section; 5] = [
         Section::Editor,
         Section::GridsAndOutput,
         Section::Updates,
         Section::AiAgents,
+        Section::Plugins,
     ];
 
     fn title(self) -> &'static str {
@@ -33,6 +36,7 @@ impl Section {
             Section::GridsAndOutput => "Grids and output",
             Section::Updates => "Updates",
             Section::AiAgents => "AI agents",
+            Section::Plugins => "Plugins",
         }
     }
 }
@@ -63,13 +67,14 @@ const VALUE_CHOICES: (&str, [(&str, &str); 3]) = (
 );
 
 /// The dialog while `section` is set; closing it clears `section`. Returns the SET command a
-/// choice of the session asks for, to run.
+/// choice of the session asks for, to run. `plugin` says what the plugin program is.
 pub fn show(
     ctx: &egui::Context,
     section: &mut Option<Section>,
     settings: &mut Settings,
     labels: &TableLabels,
     connect: &mut Connect,
+    plugin: &str,
 ) -> Option<String> {
     let current = section.as_mut()?;
     let mut open = true;
@@ -102,6 +107,9 @@ pub fn show(
                         connect.ui(ui);
                     }
                     changed = body(ui, *current, settings);
+                    if *current == Section::Plugins {
+                        changed |= plugins(ui, settings, plugin);
+                    }
                     if *current == Section::GridsAndOutput {
                         ui.add_space(8.0);
                         if let Some((subcommand, keyword)) = table_labels(ui, labels) {
@@ -129,6 +137,48 @@ pub fn show(
         *section = None;
     }
     run
+}
+
+/// The plugin program, whether it runs, and whether Excel exports take its comments; true
+/// when one of them changed.
+fn plugins(ui: &mut Ui, settings: &mut Settings, plugin: &str) -> bool {
+    let mut changed = false;
+    ui.label("Plugin program");
+    ui.horizontal(|ui| {
+        let path = settings.plugin.as_ref();
+        ui.label(path.map_or("none".to_string(), |p| p.display().to_string()));
+        if ui.button("Browse...").clicked()
+            && let Some(file) = crate::app::file_dialog(&None).pick_file()
+        {
+            settings.plugin = Some(file);
+            changed = true;
+        }
+        if settings.plugin.is_some() && ui.button("Remove").clicked() {
+            settings.plugin = None;
+            changed = true;
+        }
+    });
+    ui.weak(plugin);
+    ui.add_space(8.0);
+    let mut on = !settings.plugin_off;
+    if ui
+        .checkbox(&mut on, "Colour and comment tables with the plugin")
+        .changed()
+    {
+        settings.plugin_off = !on;
+        changed = true;
+    }
+    let mut comments = !settings.excel_comments_off;
+    if ui
+        .checkbox(&mut comments, "Write plugin comments as Excel comments")
+        .changed()
+    {
+        settings.excel_comments_off = !comments;
+        changed = true;
+    }
+    ui.add_space(8.0);
+    ui.weak("Edit > Plugin Settings sets the plugin's values for the active data.");
+    changed
 }
 
 /// How tables show variables and values; a new choice gives its SET subcommand and keyword.
@@ -261,7 +311,7 @@ fn body(ui: &mut Ui, section: Section, settings: &mut Settings) -> bool {
                 changed = true;
             }
         }
-        Section::AiAgents => {}
+        Section::AiAgents | Section::Plugins => {}
     }
     changed
 }

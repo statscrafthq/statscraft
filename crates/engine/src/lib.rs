@@ -83,6 +83,7 @@ mod pass;
 pub mod pdf;
 pub mod picture;
 pub mod plot;
+pub mod plugin;
 mod plum;
 mod pooling;
 mod portable;
@@ -131,6 +132,7 @@ pub use chart::Chart;
 pub use expr::functions;
 pub use format::{Currencies, currency_parts, format_value, is_date_time_or_currency};
 pub use get_data::delimited;
+pub use html::cell_attributes;
 pub use output_docs::OutputDocument;
 pub use random::RandomState;
 use serde::{Deserialize, Serialize};
@@ -180,9 +182,89 @@ pub struct Table {
     /// pages and of OUTPUT EXPORT with CONTENTS EXPORT=VISIBLE.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hidden: bool,
+    /// What a plugin needs to judge the cells: their estimates and bases, and which rows and
+    /// columns are totals. Only CTABLES fills it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cell_stats: Option<Box<CellStats>>,
+    /// Cell colours and comments a plugin gave (docs/plugins.md), sorted by row and column.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub decorations: Vec<Decoration>,
+}
+
+/// The statistics behind the cells of a table, for plugins. Rows and columns count as in
+/// `Table::rows`, the row label columns included.
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CellStats {
+    /// The rows and the columns that hold a total or a subtotal.
+    pub total_rows: Vec<usize>,
+    pub total_columns: Vec<usize>,
+    /// The cells with a statistic, row by row.
+    pub cells: Vec<CellStat>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CellStat {
+    pub row: usize,
+    pub col: usize,
+    /// The summary function as written in syntax, such as COLPCT.COUNT, COUNT or MEAN.
+    pub kind: String,
+    /// A percentage as a proportion from 0 to 1, any other statistic as shown.
+    pub estimate: f64,
+    /// The cases the estimate rests on, unweighted: the percentage's base for a percentage,
+    /// the cell's valid cases otherwise.
+    pub base: f64,
+    /// The same base, weighted.
+    pub weighted_base: f64,
+    /// The same base as (sum of weights)^2 / (sum of squared weights); `base` without weights.
+    pub effective_base: f64,
+    /// The standard deviation, for a mean.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sd: Option<f64>,
+}
+
+/// How a plugin marks one cell: colours as #rrggbb and a comment.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct Decoration {
+    pub row: usize,
+    pub col: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+}
+
+/// A colour written #rrggbb, as red, green and blue.
+pub fn parse_colour(text: &str) -> Option<[u8; 3]> {
+    let hex = text.strip_prefix('#').filter(|h| h.len() == 6)?;
+    let n = u32::from_str_radix(hex, 16).ok()?;
+    Some([(n >> 16) as u8, (n >> 8) as u8, n as u8])
 }
 
 impl Table {
+    /// The decoration of a cell, if a plugin gave one.
+    pub fn decoration(&self, row: usize, col: usize) -> Option<&Decoration> {
+        let found = self
+            .decorations
+            .binary_search_by(|d| (d.row, d.col).cmp(&(row, col)));
+        found.ok().map(|i| &self.decorations[i])
+    }
+
+    /// Puts a plugin's decorations on the table: those outside its cells, and colours that are
+    /// not #rrggbb, are left out.
+    pub fn set_decorations(&mut self, mut decorations: Vec<Decoration>) {
+        let columns = self.columns.len();
+        decorations.retain(|d| d.row < self.rows.len() && d.col < columns);
+        for d in &mut decorations {
+            d.fill = d.fill.take().filter(|c| parse_colour(c).is_some());
+            d.text = d.text.take().filter(|c| parse_colour(c).is_some());
+        }
+        decorations.sort_by_key(|d| (d.row, d.col));
+        decorations.dedup_by_key(|d| (d.row, d.col));
+        self.decorations = decorations;
+    }
+
     /// The full header of every column, levels joined with " / ".
     pub fn column_titles(&self) -> Vec<String> {
         self.columns

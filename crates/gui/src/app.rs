@@ -600,6 +600,8 @@ pub struct App {
     ctx: egui::Context,
     /// The listener for `--session gui`; dropping it removes the endpoint file.
     server: Option<live::Server>,
+    /// The plugin that colours and comments tables, and Edit > Plugin Settings.
+    plugins: crate::plugins::Plugins,
 }
 
 impl App {
@@ -672,6 +674,7 @@ impl App {
             opens: Default::default(),
             ctx: app_ctx,
             server: server.ok(),
+            plugins: Default::default(),
         };
         app.here = app.windows.root();
         app.popups = app.here;
@@ -757,6 +760,55 @@ impl App {
             && let Ok(remote) = self.requests.try_recv()
         {
             self.answer(remote);
+        }
+        self.plugins.receive();
+        if self.runs.is_idle() {
+            self.apply_plugin();
+        }
+    }
+
+    /// Starts the plugin on the tables of an output window with cell statistics: with `last`
+    /// the new ones of its last run only.
+    fn start_plugin(&mut self, id: WindowId, last: bool) {
+        let Some(o) = self.windows.output(id) else {
+            return;
+        };
+        let tables = o.view.plugin_tables(last);
+        let document = o.document.clone();
+        let ctx = self.ctx.clone();
+        let data = self.session.dataset();
+        let window = (id, document.as_str());
+        let wake = move || ctx.request_repaint();
+        self.plugins
+            .start(&self.settings, data, window, tables, wake);
+    }
+
+    /// Puts the plugin's answers on the tables of their windows and documents, and decorates
+    /// everything again after its settings changed. Only while no run goes on: a run works on
+    /// a copy of the documents.
+    fn apply_plugin(&mut self) {
+        if std::mem::take(&mut self.plugins.redo) {
+            for id in self.windows.ids() {
+                self.start_plugin(id, false);
+            }
+        }
+        for done in std::mem::take(&mut self.plugins.waiting) {
+            let answer = match done.result {
+                Ok(answer) => answer,
+                Err(e) => {
+                    self.status = Err(format!("plugin: {e}"));
+                    continue;
+                }
+            };
+            // a window closed or showing another document since takes nothing
+            if let Some(o) = self.windows.output_mut(done.window)
+                && o.document == done.document
+            {
+                let placed = o.view.decorate(answer);
+                if let Err(e) = self.session.decorate_output(&done.document, placed) {
+                    self.status = Err(format!("plugin: {e}"));
+                }
+            }
         }
     }
 
@@ -1002,6 +1054,7 @@ impl App {
         match result.map(|r| r.commands) {
             Ok(outputs) => {
                 let mut shown = None;
+                let mut added = Vec::new();
                 follow_modified(&mut self.windows, &outputs);
                 for (document, label, commands) in output_groups(outputs, &self.source, from_editor)
                 {
@@ -1011,7 +1064,11 @@ impl App {
                         && o.view.add_run(label, commands)
                     {
                         shown = Some(id);
+                        added.push(id);
                     }
+                }
+                for id in added {
+                    self.start_plugin(id, true);
                 }
                 if let Some(id) = shown {
                     self.front(id);
@@ -1499,6 +1556,13 @@ impl App {
                 ui.separator();
                 if ui.button("Settings...").clicked() {
                     self.settings_section = Some(Section::default());
+                    self.popups = self.here;
+                }
+                if ui.button("Plugin Settings...").clicked() {
+                    let data = self.session.dataset();
+                    if let Err(e) = self.plugins.open_dialog(&self.settings, data) {
+                        self.status = Err(e);
+                    }
                     self.popups = self.here;
                 }
             });
@@ -2462,7 +2526,12 @@ impl App {
             };
             let chosen = &view.selected;
             let keep = |id| !selected || chosen.contains(&id);
-            let exported = view.exported().exported(&view.runs, keep);
+            let mut exported = view.exported().exported(&view.runs, keep);
+            if self.settings.excel_comments_off {
+                let tables = exported.iter_mut().flat_map(|(_, tables)| tables);
+                let decorations = tables.flat_map(|(table, ..)| &mut table.decorations);
+                decorations.for_each(|d| d.comment = None);
+            }
             let items = exported.iter().flat_map(|(_, tables)| tables);
             let items = items.map(|(table, chart, notes)| match chart {
                 Some(chart) => (statscraft_export::Item::Chart(chart), *notes),
@@ -3884,15 +3953,29 @@ impl App {
             values: self.session.setting("TNUMBERS"),
             mioutput: self.session.setting("MIOUTPUT"),
         };
+        // the plugin is asked to describe itself only while the dialog shows it
+        let plugin = match self.settings_section {
+            Some(_) => self.plugins.line(&self.settings),
+            None => String::new(),
+        };
+        let chosen = (self.settings.plugin.clone(), self.settings.plugin_off);
         let set = settings_window::show(
             ctx,
             &mut self.settings_section,
             &mut self.settings,
             &labels,
             &mut self.connect,
+            &plugin,
         );
         if let Some(syntax) = set {
             self.run(&syntax, None, After::Show);
+        }
+        if (self.settings.plugin.clone(), self.settings.plugin_off) != chosen {
+            self.plugins.changed();
+        }
+        if let Some(syntax) = self.plugins.dialog_ui(ctx, &self.settings) {
+            self.run(&syntax, None, After::Show);
+            self.plugins.redo = true;
         }
         if self.settings.log_hidden != log_hidden {
             self.show_log = !self.settings.log_hidden;
