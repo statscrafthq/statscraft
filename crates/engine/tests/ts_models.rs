@@ -545,3 +545,20 @@ fn a_failed_arima_keeps_the_model_apply_reuses() {
     let second = column(&engine, "FIT_2");
     assert_eq!(first, second);
 }
+
+#[test]
+fn exsmooth_seasonal_forecasts_from_early_in_the_series() {
+    let r = run(&format!(
+        "{}PREDICT 2 THRU 14.\nEXSMOOTH bookings /MODEL=NA /PERIOD=12 /ALPHA=0.2 /DELTA=0.1.\n",
+        data("bookings", RENTALS)
+    ));
+    let fit = column(&r.engine, "FIT_1");
+    let start = find(&r.tables, "Initial Values");
+    // from case 1: the level after it plus the start factor of each later month
+    let factor = |k: usize| num(&start.rows[1 + k][1]);
+    let level_gap = fit[1].unwrap() - factor(1);
+    for k in 2..12 {
+        assert!(close(fit[k].unwrap() - factor(k), level_gap, 1e-9), "{k}");
+    }
+    assert_eq!(fit[14], None);
+}

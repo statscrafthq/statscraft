@@ -265,14 +265,14 @@ fn forecast(m: &Model, q: &Params, fit: &Fit, origin: usize, h: usize) -> f64 {
     if !m.seasonal() {
         return value;
     }
-    let p = m.p;
-    // the latest factor of the season of case origin + h: I_j with j <= origin
-    let mut j = origin + h;
-    while j > origin {
+    // the latest factor of the season of case origin + h: I_j with 1 - p <= j <= origin
+    let p = m.p as isize;
+    let mut j = (origin + h) as isize;
+    while j > origin as isize {
         j -= p;
     }
-    // I_j sits at j + p - 1; j >= 1 - p
-    with_season(m, value, fit.factors[j + p - 1])
+    // I_j sits at j + p - 1
+    with_season(m, value, fit.factors[(j + p - 1) as usize])
 }
 
 /// The values of a GRID or a single value.

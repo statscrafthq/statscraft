@@ -171,7 +171,7 @@ fn use_takes_all_or_a_range_of_case_numbers() {
         }))
     );
     assert!(err("USE 3 THRU Y 2020.").contains("either by case numbers or by dates"));
-    assert!(err("USE 9 THRU 2.").contains("comes before its end"));
+    assert!(err("USE 9 THRU 2.").contains("the end of the range comes before its start"));
 }
 
 #[test]

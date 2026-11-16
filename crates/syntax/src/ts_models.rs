@@ -91,7 +91,7 @@ fn range(p: &mut Parser) -> PResult<(UseRange, bool)> {
     {
         return Err(SyntaxError::new(
             p.span_from(start),
-            "the start of the range comes before its end",
+            "the end of the range comes before its start",
         ));
     }
     let range = UseRange {

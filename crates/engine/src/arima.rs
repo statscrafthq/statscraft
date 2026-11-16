@@ -1353,6 +1353,11 @@ impl Engine {
         for w in warnings {
             self.warn(w);
         }
+        self.save_series(
+            "ARIMA",
+            &["FIT", "ERR", "LCL", "UCL", "SEP"],
+            vec![(item_labels, columns)],
+        )?;
         // a model APPLY can reuse, kept only when the run succeeds
         let [ar, ma, sar, sma, reg, con] = st.split(&theta);
         self.ts_models.arima = Some(Previous {
@@ -1366,11 +1371,6 @@ impl Engine {
                 con: con.first().copied(),
             }),
         });
-        self.save_series(
-            "ARIMA",
-            &["FIT", "ERR", "LCL", "UCL", "SEP"],
-            vec![(item_labels, columns)],
-        )?;
         Ok(tables)
     }
 }
