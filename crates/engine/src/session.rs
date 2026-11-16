@@ -91,12 +91,21 @@ fn with_command(command: &str, message: &str) -> String {
     format!("{command}: {message}")
 }
 
-/// Whether the message opens with the command as its subject ("TWOSTEP CLUSTER has ...").
+/// Whether the message opens with the command as its subject, perhaps with a subcommand or
+/// keyword after it ("TWOSTEP CLUSTER has ...", "DETECTANOMALY /SAVE names ...").
 fn subject(command: &str, message: &str) -> bool {
-    message
+    let Some(rest) = message
         .strip_prefix(command)
-        .and_then(|rest| rest.strip_prefix(' '))
-        .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_lowercase()))
+        .and_then(|r| r.strip_prefix(' '))
+    else {
+        return false;
+    };
+    rest.split(' ')
+        .find(|w| {
+            !w.chars()
+                .all(|c| c.is_ascii_uppercase() || "/=_-".contains(c))
+        })
+        .is_some_and(|w| w.starts_with(|c: char| c.is_ascii_lowercase()))
 }
 
 /// The command's name and the rest when the message starts with it, alone or with keywords
@@ -1157,6 +1166,13 @@ mod tests {
         assert_eq!(
             with_command("RANK", "RANKING x failed"),
             "RANK: RANKING x failed"
+        );
+        assert_eq!(
+            with_command(
+                "DETECTANOMALY",
+                "DETECTANOMALY /SAVE names a, taken: rename"
+            ),
+            "DETECTANOMALY /SAVE names a, taken: rename"
         );
         assert_eq!(
             with_command("FACTOR", "FACTOR /SAVE: 5 scores"),
