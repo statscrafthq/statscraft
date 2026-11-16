@@ -71,8 +71,6 @@ const CELLS: [(&str, &[CrosstabsCell]); 10] = [
 
 const UNSUPPORTED_CELLS: [&str; 3] = ["BPROP", "PROP", "SUMMARY"];
 
-const UNSUPPORTED_STATISTICS: [&str; 0] = [];
-
 const UNSUPPORTED_FORMATS: [&str; 6] = ["PIVOT", "NOPIVOT", "BOX", "NOBOX", "INDEX", "NOINDEX"];
 
 /// Error at a keyword of a subcommand: "not supported yet" for one of `unsupported`, otherwise
@@ -336,12 +334,7 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
                 let unknown = |p: &Parser| {
                     let mut expected = names(&CHOICES);
                     expected.push("CMH");
-                    keyword_error(
-                        p,
-                        "CROSSTABS /STATISTICS",
-                        &UNSUPPORTED_STATISTICS,
-                        &expected,
-                    )
+                    keyword_error(p, "CROSSTABS /STATISTICS", &[], &expected)
                 };
                 let mut chosen: Vec<Option<M>> = Vec::new();
                 let mut any = false;
