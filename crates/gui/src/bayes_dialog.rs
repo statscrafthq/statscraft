@@ -1176,8 +1176,8 @@ impl Bayesian {
             {
                 words.push(format!("SCALEPARAM={}", number(b)));
             }
-            let lambdas = numbers(&self.lambdas, "each Dirichlet parameter")?;
-            if model == COUNT_NONPARAMETRIC && !lambdas.is_empty() {
+            if model == COUNT_NONPARAMETRIC && !self.lambdas.trim().is_empty() {
+                let lambdas = numbers(&self.lambdas, "each Dirichlet parameter")?;
                 if lambdas.iter().any(|&v| v <= 0.0) {
                     return Err("each Dirichlet parameter must be above 0".into());
                 }
@@ -1591,6 +1591,18 @@ mod tests {
             shapes: s("0"),
             ..table
         };
+        assert_eq!(
+            Bayesian {
+                analysis: 1,
+                count_model: COUNT_POISSON,
+                shapes: s(""),
+                lambdas: s("x"),
+                ..idle.clone()
+            }
+            .syntax(&data)
+            .unwrap(),
+            "BAYES LOGLINEAR /TABLE a BY b\n  /INFERENCE ANALYSIS=BAYESFACTOR\n  /ESTBF MODEL=POISSON."
+        );
         assert_eq!(
             idle.syntax(&data).unwrap(),
             "BAYES LOGLINEAR /TABLE a BY b."
