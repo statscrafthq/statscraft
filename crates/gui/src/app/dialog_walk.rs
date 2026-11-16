@@ -3882,9 +3882,10 @@ fn the_bayes_dialogs_write_syntax_that_runs() {
     }
 }
 
-/// The Bayesian one-way ANOVA, linear regression and repeated measures dialogs on the tutoring
-/// records: the least each needs, then changed analyses, priors, plots, a prediction with saved
-/// values and two F tests. The syntax is as expected, parses and runs without a warning.
+/// The Bayesian one-way ANOVA, linear regression, repeated measures and log-linear dialogs on the
+/// tutoring records: the least each needs, then changed analyses, priors, plots, a prediction with
+/// saved values, two F tests and each model of a table. The syntax is as expected, parses and runs
+/// without a warning.
 #[test]
 fn the_bayes_model_dialogs_write_syntax_that_runs() {
     use crate::bayes_dialog::{BayesKind::*, Bayesian, FTestRow};
@@ -3897,6 +3898,11 @@ fn the_bayes_model_dialogs_write_syntax_that_runs() {
         dependent: s("after"),
         covariates: v(&["before"]),
         ..Bayesian::new(Regression)
+    };
+    let table = Bayesian {
+        row: s("club"),
+        column: s("team"),
+        ..Bayesian::new(Loglinear)
     };
     let cases: Vec<(Bayesian, &str)> = vec![
         (anova.clone(), "BAYES ANOVA minutes BY club."),
@@ -3988,6 +3994,56 @@ fn the_bayes_model_dialogs_write_syntax_that_runs() {
             "BAYES REPEATED quiz1 quiz2 before\n  /DESIGN REGWGT=minutes\n  \
              /INFERENCE ANALYSIS=BOTH\n  /ESTBF COMPUTATION=ROUDER\n  \
              /PLOT MEANS=quiz2 quiz1\n  /CRITERIA CILEVEL=99 SEED=4242 MCSAMPLES=5000.",
+        ),
+        (table.clone(), "BAYES LOGLINEAR /TABLE club BY team."),
+        (
+            Bayesian {
+                analysis: 2,
+                count_model: 1,
+                shapes: s("1 2; 2 1;"),
+                scale: s("0.5"),
+                cells: [true, true, true, false, false],
+                lrt: true,
+                ci_level: s("90"),
+                seed: s("99"),
+                mc_samples: s("2000"),
+                descending: true,
+                ..table.clone()
+            },
+            "BAYES LOGLINEAR /TABLE club BY team\n  /INFERENCE ANALYSIS=BOTH\n  \
+             /ESTBF MODEL=POISSON SHAPEPARAMS=1 2; 2 1 SCALEPARAM=0.5\n  \
+             /PRINT CELLS=OBSERVED EXPECTED ROW STATISTICS=CHISQ LRT\n  \
+             /CRITERIA CILEVEL=90 SEED=99 POSTSAMPLES=2000 ORDER=DESCENDING.",
+        ),
+        (
+            Bayesian {
+                row: s("passed"),
+                column: s("visits"),
+                analysis: 1,
+                margin: 1,
+                factor: 1,
+                suppress_table: true,
+                chisq: false,
+                lrt: true,
+                tolerance: s("0.00001"),
+                ..table.clone()
+            },
+            "BAYES LOGLINEAR /TABLE passed BY visits\n  /INFERENCE ANALYSIS=BAYESFACTOR\n  \
+             /ESTBF FIX_MARGIN=ROW PRIOR_TYPE=MIXTURE_DIRICHLET\n  \
+             /PRINT SUPPRESS_TABLE=TRUE STATISTICS=LRT\n  /CRITERIA TOL=0.00001.",
+        ),
+        (
+            Bayesian {
+                row: s("team"),
+                column: s("club"),
+                analysis: 1,
+                count_model: 2,
+                margin: 2,
+                lambdas: s("2"),
+                ..table.clone()
+            },
+            "BAYES LOGLINEAR /TABLE team BY club\n  /INFERENCE ANALYSIS=BAYESFACTOR\n  \
+             /ESTBF MODEL=NONPARAMETRIC FIX_MARGIN=COLUMN LAMBDAS=2.",
         ),
     ];
     let program = tutoring_students();

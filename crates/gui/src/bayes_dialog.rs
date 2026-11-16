@@ -1,7 +1,8 @@
 //! The Bayesian Statistics dialogs: one sample of a normal, binomial or Poisson variable, related
-//! samples, independent samples, Pearson correlation, one-way ANOVA, linear regression and
-//! repeated measures (BAYES ONESAMPLE, RELATED, INDEPENDENT, CORRELATION, ANOVA, REGRESSION and
-//! REPEATED). One struct serves every kind; a new BAYES command is a new kind with its fields.
+//! samples, independent samples, Pearson correlation, one-way ANOVA, linear regression, repeated
+//! measures and the independence of a two-way table (BAYES ONESAMPLE, RELATED, INDEPENDENT,
+//! CORRELATION, ANOVA, REGRESSION, REPEATED and LOGLINEAR). One struct serves every kind; a new
+//! BAYES command is a new kind with its fields.
 //! The test settings of a one-sample or related dialog apply to every variable or pair. Options
 //! left as they are add nothing to the syntax, so the command runs with its own defaults, and the
 //! settings of a part the analysis does not use (the prior without a posterior, the Bayes factor
@@ -27,10 +28,11 @@ pub enum BayesKind {
     Anova,
     Regression,
     Repeated,
+    Loglinear,
 }
 
 /// The items of Analyze > Bayesian Statistics.
-pub const BAYES_MENU: [(&str, BayesKind); 9] = [
+pub const BAYES_MENU: [(&str, BayesKind); 10] = [
     ("One Sample Normal...", BayesKind::Normal),
     ("One Sample Binomial...", BayesKind::Binomial),
     ("One Sample Poisson...", BayesKind::Poisson),
@@ -40,6 +42,7 @@ pub const BAYES_MENU: [(&str, BayesKind); 9] = [
     ("One-way ANOVA...", BayesKind::Anova),
     ("Linear Regression...", BayesKind::Regression),
     ("Repeated Measures...", BayesKind::Repeated),
+    ("Log-Linear Regression Models...", BayesKind::Loglinear),
 ];
 
 /// ANALYSIS, the default first.
@@ -144,6 +147,40 @@ pub const BAYES_SAVE: [(&str, &str); 5] = [
     ("CIMEANPREDU", "Upper credible bound"),
 ];
 
+/// How the counts of a two-way table arose (MODEL), the default first.
+pub const BAYES_COUNT_MODELS: [(&str, &str); 3] = [
+    ("MULTINOMIAL", "Multinomial"),
+    ("POISSON", "Poisson"),
+    ("NONPARAMETRIC", "Nonparametric"),
+];
+
+pub const COUNT_MULTINOMIAL: usize = 0;
+pub const COUNT_POISSON: usize = 1;
+pub const COUNT_NONPARAMETRIC: usize = 2;
+
+/// The totals of a two-way table fixed by the design (FIX_MARGIN), the default first.
+pub const BAYES_MARGINS: [(&str, &str); 3] = [
+    ("TOTAL", "The grand total"),
+    ("ROW", "The row totals"),
+    ("COLUMN", "The column totals"),
+];
+
+/// The prior of the Bayes factor of a multinomial table (PRIOR_TYPE), the default first.
+pub const BAYES_TABLE_PRIORS: [(&str, &str); 3] = [
+    ("CONJUGATE", "Conjugate"),
+    ("MIXTURE_DIRICHLET", "Mixture of Dirichlet priors"),
+    ("INTRINSIC", "Intrinsic (2 x 2 tables)"),
+];
+
+/// The contents of the crosstab of a two-way table (PRINT CELLS).
+pub const BAYES_CELLS: [(&str, &str); 5] = [
+    ("OBSERVED", "Observed counts"),
+    ("EXPECTED", "Expected counts"),
+    ("ROW", "Row percentages"),
+    ("COLUMN", "Column percentages"),
+    ("TOTAL", "Total percentages"),
+];
+
 /// One F test of a regression: its parameters equal the test values (0 when empty).
 #[derive(Clone, PartialEq, Debug, Default)]
 pub struct FTestRow {
@@ -245,6 +282,25 @@ pub struct Bayesian {
     pub save: [bool; 5],
     pub save_names: [String; 5],
     pub ftests: Vec<FTestRow>,
+    /// The two variables of a log-linear table; the prior of its Bayes factor is `factor`, an
+    /// index into `BAYES_TABLE_PRIORS`, and `mc_samples` its posterior draws (POSTSAMPLES).
+    pub row: String,
+    pub column: String,
+    /// Indexes into `BAYES_COUNT_MODELS` and `BAYES_MARGINS`.
+    pub count_model: usize,
+    pub margin: usize,
+    /// SHAPEPARAMS (one value, or rows separated by `;`), SCALEPARAM (empty: from the data) and
+    /// LAMBDAS.
+    pub shapes: String,
+    pub scale: String,
+    pub lambdas: String,
+    /// ORDER=DESCENDING.
+    pub descending: bool,
+    pub suppress_table: bool,
+    /// One flag per entry of `BAYES_CELLS`.
+    pub cells: [bool; 5],
+    pub chisq: bool,
+    pub lrt: bool,
 }
 
 /// A required number.
@@ -314,7 +370,8 @@ impl Bayesian {
                 | BayesKind::Independent
                 | BayesKind::Correlation
                 | BayesKind::Anova
-                | BayesKind::Regression => "10000",
+                | BayesKind::Regression
+                | BayesKind::Loglinear => "10000",
             }
             .into(),
             listwise: false,
@@ -357,7 +414,8 @@ impl Bayesian {
                 | BayesKind::Related
                 | BayesKind::Independent
                 | BayesKind::Correlation
-                | BayesKind::Repeated => "-0.75",
+                | BayesKind::Repeated
+                | BayesKind::Loglinear => "-0.75",
             }
             .into(),
             equal_variances: false,
@@ -382,6 +440,18 @@ impl Bayesian {
             save: [false; 5],
             save_names: Default::default(),
             ftests: Vec::new(),
+            row: String::new(),
+            column: String::new(),
+            count_model: 0,
+            margin: 0,
+            shapes: String::new(),
+            scale: String::new(),
+            lambdas: String::new(),
+            descending: false,
+            suppress_table: false,
+            cells: [true, false, false, false, false],
+            chisq: true,
+            lrt: false,
         }
     }
 
@@ -396,6 +466,7 @@ impl Bayesian {
             BayesKind::Anova => "Bayesian One-way ANOVA",
             BayesKind::Regression => "Bayesian Linear Regression",
             BayesKind::Repeated => "Bayesian Repeated Measures",
+            BayesKind::Loglinear => "Bayesian Log-Linear Models",
         }
     }
 
@@ -439,14 +510,18 @@ impl Bayesian {
             | BayesKind::Independent
             | BayesKind::Correlation
             | BayesKind::Anova
-            | BayesKind::Regression => true,
+            | BayesKind::Regression
+            | BayesKind::Loglinear => true,
         }
     }
 
     /// MISSING SCOPE=LISTWISE exists; the models always leave out incomplete cases.
     pub fn missing_offered(&self) -> bool {
         match self.kind {
-            BayesKind::Anova | BayesKind::Regression | BayesKind::Repeated => false,
+            BayesKind::Anova
+            | BayesKind::Regression
+            | BayesKind::Repeated
+            | BayesKind::Loglinear => false,
             BayesKind::Normal
             | BayesKind::Binomial
             | BayesKind::Poisson
@@ -457,10 +532,11 @@ impl Bayesian {
     }
 
     /// Monte Carlo draws are made: by choice for a normal mean, with Rouder's method for
-    /// repeated measures.
+    /// repeated measures, for the posterior of a log-linear table.
     pub fn draws_used(&self) -> bool {
         match self.kind {
             BayesKind::Repeated => self.factor() && self.factor == REPEATED_ROUDER,
+            BayesKind::Loglinear => self.posterior(),
             BayesKind::Normal
             | BayesKind::Binomial
             | BayesKind::Poisson
@@ -486,7 +562,8 @@ impl Bayesian {
             | BayesKind::Related
             | BayesKind::Independent
             | BayesKind::Correlation
-            | BayesKind::Repeated => false,
+            | BayesKind::Repeated
+            | BayesKind::Loglinear => false,
         }
     }
 
@@ -515,6 +592,7 @@ impl Bayesian {
             BayesKind::Anova => self.anova(data, &analysis)?,
             BayesKind::Regression => self.regression(data, &analysis)?,
             BayesKind::Repeated => self.repeated(data, &analysis)?,
+            BayesKind::Loglinear => self.loglinear(&analysis)?,
         };
         text.push_str(&self.criteria()?);
         if self.missing_offered() && self.listwise {
@@ -1040,6 +1118,105 @@ impl Bayesian {
         Ok(text)
     }
 
+    /// The gamma shapes of the cells are used: by a Poisson model or a conjugate multinomial one.
+    pub fn shapes_used(&self) -> bool {
+        self.count_model == COUNT_POISSON
+            || (self.count_model == COUNT_MULTINOMIAL && self.factor == 0)
+    }
+
+    fn loglinear(&self, analysis: &str) -> Result<String, String> {
+        let (row, column) = (self.row.trim(), self.column.trim());
+        if row.is_empty() || column.is_empty() {
+            return Err("choose the row and the column variable".into());
+        }
+        if row.eq_ignore_ascii_case(column) {
+            return Err("the rows and the columns need two different variables".into());
+        }
+        let mut text = format!("BAYES LOGLINEAR /TABLE {row} BY {column}");
+        if !analysis.is_empty() {
+            text.push_str(&format!("\n  /INFERENCE{analysis}"));
+        }
+        let mut words = Vec::new();
+        if self.factor() {
+            let model = self.count_model;
+            if model != COUNT_MULTINOMIAL {
+                words.push(format!("MODEL={}", BAYES_COUNT_MODELS[model].0));
+            }
+            // a Poisson model fixes no total
+            if model == COUNT_NONPARAMETRIC && self.margin == 0 {
+                return Err("the nonparametric model needs fixed row or column totals".into());
+            }
+            if model != COUNT_POISSON && self.margin != 0 {
+                words.push(format!("FIX_MARGIN={}", BAYES_MARGINS[self.margin].0));
+            }
+            if model == COUNT_MULTINOMIAL && self.factor != 0 {
+                words.push(format!("PRIOR_TYPE={}", BAYES_TABLE_PRIORS[self.factor].0));
+            }
+            // the gamma shapes belong to the conjugate priors only
+            if self.shapes_used() && !self.shapes.trim().is_empty() {
+                let mut rows = Vec::new();
+                let given = self
+                    .shapes
+                    .split(';')
+                    .map(str::trim)
+                    .filter(|r| !r.is_empty());
+                for (i, row) in given.enumerate() {
+                    let what = format!("each shape of row {}", i + 1);
+                    let row = numbers(row, &what)?;
+                    if row.is_empty() || row.iter().any(|&v| v <= 0.0) {
+                        return Err(format!("{what} must be above 0"));
+                    }
+                    rows.push(row.into_iter().map(number).collect::<Vec<_>>().join(" "));
+                }
+                words.push(format!("SHAPEPARAMS={}", rows.join("; ")));
+            }
+            if model == COUNT_POISSON
+                && let Some(b) =
+                    setting(&self.scale, "the scale", "above 0", f64::NAN, |v| v > 0.0)?
+            {
+                words.push(format!("SCALEPARAM={}", number(b)));
+            }
+            let lambdas = numbers(&self.lambdas, "each Dirichlet parameter")?;
+            if model == COUNT_NONPARAMETRIC && !lambdas.is_empty() {
+                if lambdas.iter().any(|&v| v <= 0.0) {
+                    return Err("each Dirichlet parameter must be above 0".into());
+                }
+                let lambdas: Vec<String> = lambdas.into_iter().map(number).collect();
+                words.push(format!("LAMBDAS={}", lambdas.join(" ")));
+            }
+        }
+        if !words.is_empty() {
+            text.push_str(&format!("\n  /ESTBF {}", words.join(" ")));
+        }
+        let mut print = Vec::new();
+        if self.suppress_table {
+            print.push("SUPPRESS_TABLE=TRUE".to_string());
+        } else if self.cells != [true, false, false, false, false] {
+            let cells: Vec<&str> = BAYES_CELLS
+                .iter()
+                .zip(self.cells)
+                .filter(|(_, on)| *on)
+                .map(|((keyword, _), _)| *keyword)
+                .collect();
+            if cells.is_empty() {
+                return Err("choose what the crosstab shows, or hide it".into());
+            }
+            print.push(format!("CELLS={}", cells.join(" ")));
+        }
+        match (self.chisq, self.lrt) {
+            (true, false) => {}
+            (true, true) => print.push("STATISTICS=CHISQ LRT".into()),
+            (false, true) => print.push("STATISTICS=LRT".into()),
+            (false, false) => {
+                return Err("choose the chi-square, the likelihood ratio or both".into());
+            }
+        }
+        if !print.is_empty() {
+            text.push_str(&format!("\n  /PRINT {}", print.join(" ")));
+        }
+        Ok(text)
+    }
+
     /// /DESIGN REGWGT and /INFERENCE ANALYSIS of the linear models and repeated measures.
     fn weight_and_analysis(
         &self,
@@ -1177,8 +1354,8 @@ impl Bayesian {
             }
         }
         if self.draws_used() {
-            // Rouder's method of repeated measures always draws
-            if self.kind != BayesKind::Repeated {
+            // only a normal mean chooses its method; the others draw when they need to
+            if self.monte_carlo_offered() {
                 words.push("METHOD=MCA".into());
             }
             if let Some(seed) = whole(&self.seed, 1, "the seed")? {
@@ -1197,15 +1374,31 @@ impl Bayesian {
                 | BayesKind::Independent
                 | BayesKind::Correlation
                 | BayesKind::Anova
-                | BayesKind::Regression => 10_000,
+                | BayesKind::Regression
+                | BayesKind::Loglinear => 10_000,
+            };
+            let keyword = match self.kind {
+                BayesKind::Loglinear => "POSTSAMPLES",
+                BayesKind::Normal
+                | BayesKind::Binomial
+                | BayesKind::Poisson
+                | BayesKind::Related
+                | BayesKind::Independent
+                | BayesKind::Correlation
+                | BayesKind::Anova
+                | BayesKind::Regression
+                | BayesKind::Repeated => "MCSAMPLES",
             };
             match samples {
                 Some(n) if n > 1_000_000 => {
                     return Err("the Monte Carlo draws must be at most 1000000".into());
                 }
-                Some(n) if n != default => words.push(format!("MCSAMPLES={n}")),
+                Some(n) if n != default => words.push(format!("{keyword}={n}")),
                 _ => {}
             }
+        }
+        if self.kind == BayesKind::Loglinear && self.descending {
+            words.push("ORDER=DESCENDING".into());
         }
         Ok(match words.is_empty() {
             true => String::new(),
@@ -1368,5 +1561,39 @@ mod tests {
             ..Bayesian::new(BayesKind::Repeated)
         };
         assert_eq!(error(repeated), "add at least two repeated variables");
+        let table = Bayesian {
+            row: s("a"),
+            column: s("b"),
+            analysis: 1,
+            count_model: COUNT_NONPARAMETRIC,
+            ..Bayesian::new(BayesKind::Loglinear)
+        };
+        assert_eq!(
+            error(table.clone()),
+            "the nonparametric model needs fixed row or column totals"
+        );
+        let bare = Bayesian {
+            chisq: false,
+            cells: [false; 5],
+            ..Bayesian::new(BayesKind::Loglinear)
+        };
+        assert_eq!(
+            error(Bayesian {
+                row: s("a"),
+                column: s("b"),
+                ..bare.clone()
+            }),
+            "choose what the crosstab shows, or hide it"
+        );
+        // without a Bayes factor the model is idle; the shapes apply to conjugate priors only
+        let idle = Bayesian {
+            analysis: 0,
+            shapes: s("0"),
+            ..table
+        };
+        assert_eq!(
+            idle.syntax(&data).unwrap(),
+            "BAYES LOGLINEAR /TABLE a BY b."
+        );
     }
 }

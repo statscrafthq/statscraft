@@ -1,11 +1,13 @@
 //! Drawing of the Bayesian Statistics dialogs.
 
-use crate::app::{choice, field, target_list, target_one};
+use crate::app::{checkboxes, choice, field, target_list, target_one};
 use crate::bayes_dialog::{
-    BAYES_ANALYSES, BAYES_FACTORS, BAYES_G_PRIORS, BAYES_GROUP_PRIORS, BAYES_LINEAR_PRIORS,
-    BAYES_REPEATED_FACTORS, BAYES_SAVE, BAYES_SELECTS, BAYES_SUCCESSES, BAYES_VARIANCE_PRIORS,
-    BayesKind, Bayesian, FTestRow, G_HYPER, G_ROUDER, G_ZELLNER, GONEN, GROUP_INVCHISQ, HYPER,
-    SELECT_CUTPOINT, SUCCESS_CUTPOINT, SUCCESS_LEVEL, variance_parameters,
+    BAYES_ANALYSES, BAYES_CELLS, BAYES_COUNT_MODELS, BAYES_FACTORS, BAYES_G_PRIORS,
+    BAYES_GROUP_PRIORS, BAYES_LINEAR_PRIORS, BAYES_MARGINS, BAYES_REPEATED_FACTORS, BAYES_SAVE,
+    BAYES_SELECTS, BAYES_SUCCESSES, BAYES_TABLE_PRIORS, BAYES_VARIANCE_PRIORS, BayesKind, Bayesian,
+    COUNT_MULTINOMIAL, COUNT_NONPARAMETRIC, COUNT_POISSON, FTestRow, G_HYPER, G_ROUDER, G_ZELLNER,
+    GONEN, GROUP_INVCHISQ, HYPER, SELECT_CUTPOINT, SUCCESS_CUTPOINT, SUCCESS_LEVEL,
+    variance_parameters,
 };
 use crate::stats_dialogs_view::small_field;
 use crate::survival_dialog_view::save_fields;
@@ -34,6 +36,10 @@ pub fn bayes(ui: &mut Ui, d: &mut Bayesian, picked: &mut Vec<String>) {
             target_list(ui, "Repeated variables", &mut d.variables, picked);
             ui.weak("Each variable holds one condition, measured on every case");
         }
+        BayesKind::Loglinear => {
+            target_one(ui, "Rows", &mut d.row, picked);
+            target_one(ui, "Columns", &mut d.column, picked);
+        }
     }
     if d.kind == BayesKind::Independent {
         groups(ui, d, picked);
@@ -53,6 +59,7 @@ pub fn bayes(ui: &mut Ui, d: &mut Bayesian, picked: &mut Vec<String>) {
         BayesKind::Correlation => correlation(ui, d),
         BayesKind::Anova | BayesKind::Regression => linear(ui, d, picked),
         BayesKind::Repeated => repeated(ui, d, picked),
+        BayesKind::Loglinear => loglinear(ui, d),
     }
     egui::CollapsingHeader::new("Criteria").show(ui, |ui| {
         field(ui, "Credible interval %", &mut d.ci_level, 50.0);
@@ -439,5 +446,50 @@ fn correlation(ui: &mut Ui, d: &mut Bayesian) {
                 small_field(ui, d.fraction, &mut d.fraction_null);
             });
         });
+    });
+}
+
+/// The Bayes factor, posterior draws and crosstab of a two-way table.
+fn loglinear(ui: &mut Ui, d: &mut Bayesian) {
+    egui::CollapsingHeader::new("Bayes factor").show(ui, |ui| {
+        ui.add_enabled_ui(d.factor(), |ui| {
+            choice(ui, "Model", &BAYES_COUNT_MODELS, &mut d.count_model);
+            ui.add_enabled_ui(d.count_model != COUNT_POISSON, |ui| {
+                choice(ui, "Fixed by the design", &BAYES_MARGINS, &mut d.margin);
+            });
+            ui.add_enabled_ui(d.count_model == COUNT_MULTINOMIAL, |ui| {
+                choice(ui, "Prior", &BAYES_TABLE_PRIORS, &mut d.factor);
+            });
+            let shapes = d.shapes_used();
+            wide_field(ui, shapes, "Gamma shapes (empty: 1)", &mut d.shapes);
+            ui.horizontal(|ui| {
+                ui.label("Gamma scale (empty: from the data)");
+                small_field(ui, d.count_model == COUNT_POISSON, &mut d.scale);
+            });
+            let nonparametric = d.count_model == COUNT_NONPARAMETRIC;
+            wide_field(ui, nonparametric, "Dirichlet parameters", &mut d.lambdas);
+            ui.weak(
+                "Shapes: one value for every cell, or one row per table row separated by ;. \
+                 The nonparametric model needs fixed row or column totals",
+            );
+        });
+    });
+    egui::CollapsingHeader::new("Posterior").show(ui, |ui| {
+        let on = d.draws_used();
+        ui.horizontal(|ui| {
+            ui.label("Draws");
+            small_field(ui, on, &mut d.mc_samples);
+            ui.label("Seed (empty: random)");
+            small_field(ui, on, &mut d.seed);
+        });
+    });
+    egui::CollapsingHeader::new("Table").show(ui, |ui| {
+        ui.checkbox(&mut d.suppress_table, "Hide the crosstab");
+        ui.add_enabled_ui(!d.suppress_table, |ui| {
+            checkboxes(ui, &BAYES_CELLS, &mut d.cells);
+        });
+        ui.checkbox(&mut d.chisq, "Chi-square tests");
+        ui.checkbox(&mut d.lrt, "Likelihood ratio test");
+        ui.checkbox(&mut d.descending, "Categories from the highest value");
     });
 }
