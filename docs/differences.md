@@ -927,7 +927,7 @@ All eleven POWER commands are supported: MEANS ONESAMPLE, INDEPENDENT and RELATE
 - The missing proportion is the share (0 to 1) of the analysis variables missing in the case. It is left out, with a warning, when it is the same in every case. A variable that is constant or empty over the analyzed cases is left out with a warning, a categorical variable with a single valid category too.
 - Ties: the anomaly list keeps file order, reasons keep variable order (scale variables, the missing proportion, then categorical ones), and the mode is the first category in sort order. A missing category shows as Missing.
 - Saved values go to the analyzed cases; other cases get missing values. ReasonValue and ReasonNorm are numbers unless a categorical variable is a string, then text. A name given on SAVE that already exists is an error; a default name in use gets the first free suffix _1, _2 and so on. Reason variables with NUMREASONS=0 are skipped with a warning.
-- OUTFILE writes no model file yet (warning).
+- **The OUTFILE file** is a small JSON file of Statscraft's own (`"format": "statscraft-anomaly-model"`), not the XML the documentation describes: MLWEIGHT, whether HANDLEMISSING APPLY was on, each variable with its kind (scale, categorical or the missing proportion), a scale one with the mean that stands in for its missing values and its variance, a categorical one with its categories and whether missing values form a category of their own, and each peer group with its number, its mean group deviation and its summary (count, means, sums of squared deviations, category counts).
 
 ### PROXIMITIES
 

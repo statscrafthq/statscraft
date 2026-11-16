@@ -626,7 +626,7 @@ pub(crate) fn number_by_first(assigned: &[Option<usize>]) -> (Vec<Option<usize>>
 }
 
 /// A category value as JSON: a number or the text without trailing blanks.
-fn key_json(key: &Key) -> serde_json::Value {
+pub(crate) fn key_json(key: &Key) -> serde_json::Value {
     match key {
         Key::Number(x) => json!(x),
         Key::Text(t) => json!(t.trim_end()),
@@ -634,18 +634,24 @@ fn key_json(key: &Key) -> serde_json::Value {
 }
 
 /// A summary in the units the clustering used (standardized where it standardizes).
-fn cf_json(cf: &Cf) -> serde_json::Value {
+pub(crate) fn cf_json(cf: &Cf) -> serde_json::Value {
     json!({"n": cf.n, "mean": cf.mean, "ss": cf.ss, "counts": cf.counts})
 }
 
 impl Engine {
-    /// Writes a TWOSTEP CLUSTER file as pretty JSON.
-    fn write_json(&self, file: &str, what: &str, value: &serde_json::Value) -> Result<(), Error> {
+    /// Writes a model file of the command `who` as pretty JSON.
+    pub(crate) fn write_json(
+        &self,
+        who: &str,
+        file: &str,
+        what: &str,
+        value: &serde_json::Value,
+    ) -> Result<(), Error> {
         let path = self.path(file);
         let text = serde_json::to_string_pretty(value).expect("a model serializes");
         std::fs::write(&path, text + "\n").map_err(|e| {
             Error(format!(
-                "TWOSTEP CLUSTER cannot write the {what} file {}: {e}",
+                "{who} cannot write the {what} file {}: {e}",
                 path.display()
             ))
         })
@@ -1154,7 +1160,7 @@ impl Engine {
                     "noise_limit": noise_limit,
                     "clusters": found,
                 });
-                self.write_json(file, "model", &model)?;
+                self.write_json("TWOSTEP CLUSTER", file, "model", &model)?;
             }
             if let Some(file) = &command.state_file {
                 let subclusters: Vec<_> = subs.iter().map(cf_json).collect();
@@ -1168,7 +1174,7 @@ impl Engine {
                     "max_level": command.levels,
                     "subclusters": subclusters,
                 });
-                self.write_json(file, "state", &state)?;
+                self.write_json("TWOSTEP CLUSTER", file, "state", &state)?;
             }
         }
         for warning in warnings {

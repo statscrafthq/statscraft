@@ -588,6 +588,58 @@ fn anomaly_count_and_peer_percent() {
     }
 }
 
+/// OUTFILE MODEL writes the inputs (with the mean that stands in for a missing value and the
+/// categories) and the peer groups with their mean group deviation.
+#[test]
+fn detectanomaly_outfile_writes_the_model() {
+    let dir = std::env::temp_dir().join(format!("statscraft-anomaly-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    run(
+        &mut Engine::default(),
+        &format!(
+            "CD '{}'.\nDETECTANOMALY /VARIABLES SCALE=spend CATEGORICAL=region ID=id \
+             /HANDLEMISSING APPLY=YES /OUTFILE MODEL='a.json'.",
+            dir.display()
+        ),
+    );
+    let text = std::fs::read_to_string(dir.join("a.json")).unwrap();
+    let model: serde_json::Value = serde_json::from_str(&text).unwrap();
+    assert_eq!(model["format"], "statscraft-anomaly-model");
+    assert_eq!(model["missing_applied"], true);
+    let spend: Vec<f64> = DATA
+        .lines()
+        .skip(2)
+        .filter_map(|l| l.split(' ').nth(1)?.parse().ok())
+        .collect();
+    assert_eq!(spend.len(), 30);
+    let variables = model["variables"].as_array().unwrap();
+    assert_eq!(
+        (variables[0]["name"].as_str(), variables[0]["kind"].as_str()),
+        (Some("spend"), Some("scale"))
+    );
+    assert!(close(
+        variables[0]["mean"].as_f64().unwrap(),
+        spend.iter().sum::<f64>() / 30.0
+    ));
+    assert_eq!(
+        variables[1]["categories"],
+        serde_json::json!([1.0, 2.0, 3.0])
+    );
+    assert_eq!(variables[1]["missing_category"], false);
+    let peers = model["peer_groups"].as_array().unwrap();
+    let n: f64 = peers
+        .iter()
+        .map(|p| p["summary"]["n"].as_f64().unwrap())
+        .sum();
+    assert_eq!(n, 31.0);
+    assert!(
+        peers
+            .iter()
+            .all(|p| p["mean_deviation"].as_f64().unwrap() >= 0.0)
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 fn detectanomaly_errors_and_split_file() {
     assert!(fails("DETECTANOMALY /VARIABLES SCALE=spend CATEGORICAL=spend.").contains("both"));
@@ -596,6 +648,10 @@ fn detectanomaly_errors_and_split_file() {
     assert!(
         fails("DETECTANOMALY /VARIABLES SCALE=spend /SAVE ANOMALY(visits).")
             .contains("already exists")
+    );
+    assert!(
+        fails("DETECTANOMALY /VARIABLES SCALE=spend visits /SAVE REASONVAR(r) REASONMEASURE(r).")
+            .contains("name r_1 to two saved variables")
     );
     // EXCEPT applies before the overlap check
     let mut engine = Engine::default();
