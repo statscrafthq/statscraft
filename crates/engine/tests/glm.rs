@@ -1040,6 +1040,24 @@ fn post_hoc_tests_equal_oneway_for_one_factor() {
     );
 }
 
+/// A dependent without variance has no R squared: the caption shows a period, not NaN.
+#[test]
+fn constant_dependent_has_no_r_squared() {
+    let tables = run(
+        &mut Engine::default(),
+        &format!("{DATA}\nCOMPUTE k = 3.\nUNIANOVA k BY a."),
+    );
+    let caption = tables
+        .iter()
+        .find(|t| t.title == "Tests of Between-Subjects Effects")
+        .and_then(|t| t.caption.clone())
+        .unwrap();
+    assert!(
+        caption.contains("R Squared = . (Adjusted R Squared = .)"),
+        "{caption}"
+    );
+}
+
 #[test]
 fn errors_name_the_problem() {
     assert_eq!(

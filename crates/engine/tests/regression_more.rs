@@ -282,6 +282,18 @@ fn probit_two_strains_both_links() {
     assert!(r.warnings.is_empty(), "{:?}", r.warnings);
 }
 
+/// With no response at all, or every subject responding, there is no curve to fit.
+#[test]
+fn probit_without_variation_in_the_responses() {
+    let none = error(
+        SPRAY,
+        "COMPUTE zero = 0.\nPROBIT zero OF exposed WITH dose.",
+    );
+    assert!(none.contains("none of the subjects responded"), "{none}");
+    let all = error(SPRAY, "PROBIT exposed OF exposed WITH dose.");
+    assert!(all.contains("all of the subjects responded"), "{all}");
+}
+
 #[test]
 fn probit_heterogeneity_factor_and_print_none() {
     let r = run(

@@ -1591,8 +1591,12 @@ fn roman(t: u8) -> &'static str {
     ["I", "II", "III", "IV"][usize::from(t.clamp(1, 4)) - 1]
 }
 
+/// Three decimals, or a period (as for system-missing) when the value cannot be computed.
 fn round3(v: f64) -> String {
-    format!("{:.3}", v)
+    match v.is_finite() {
+        true => format!("{:.3}", v),
+        false => ".".into(),
+    }
 }
 
 fn contrast_name(kind: &Contrast) -> &'static str {

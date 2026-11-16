@@ -408,6 +408,15 @@ impl Engine {
                 units.len()
             )));
         }
+        let (responses, subjects) = units
+            .iter()
+            .fold((0.0, 0.0), |(r, n), u| (r + u.r, n + u.n));
+        if responses == 0.0 || responses == subjects {
+            return Err(Error(format!(
+                "PROBIT: {} of the subjects responded, so the response curve cannot be estimated",
+                if responses == 0.0 { "none" } else { "all" }
+            )));
+        }
         let mut warnings = Vec::new();
         let c_start = match command.natres {
             NaturalResponse::Estimate if control_n > 0.0 => Some(control_r / control_n),
