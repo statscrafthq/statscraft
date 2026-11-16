@@ -35,6 +35,15 @@
 //!   for the row variable the same with the column totals; symmetric, over the mean of both.
 //! - Eta (numeric data) for the column variable: the root of 1 less the sum of squares of the
 //!   column values within the rows over their total sum of squares.
+//! - CMH, over the strata (layers) of 2 x 2 tables: Cochran's statistic sums f11 - E11 over
+//!   the strata with both rows filled and divides by the root of sum r1 r2 / n p (1 - p), p the
+//!   first column's share; Mantel-Haenszel's takes |sum| - 0.5 and n - 1 in place of n, over
+//!   strata of more than one case; both squared, chi-square with 1 degree of freedom. The
+//!   common odds ratio is sum f11 f22 / n over sum f12 f21 / n, its log's variance that of
+//!   Robins, Breslow and Greenland; Breslow-Day sums (f11 - F)^2 / V over the strata, F the
+//!   first cell that gives the stratum the common odds ratio with its margins and V the
+//!   inverse of the sum of the inverse fitted cells; Tarone subtracts (sum (f11 - F))^2 / sum V;
+//!   both chi-square with one less degree of freedom than strata.
 //! - The approximate T of lambda, the uncertainty coefficient, Somers' d, tau-b, tau-c and gamma is the estimate over its standard
 //!   error under independence, its significance two-sided normal. The standard error shown is
 //!   the one without that assumption.
@@ -645,6 +654,112 @@ pub(crate) fn mcnemar(
         "McNemar-Bowker Test",
         [Some(x), Some(df), Some(chi_square_p(x, df)), None],
     )
+}
+
+/// The tests and the estimate of CMH over strata of 2 x 2 tables [f11, f12, f21, f22].
+pub(crate) struct Cmh {
+    /// Breslow-Day's and Tarone's chi-squares with their degrees of freedom.
+    pub(crate) homogeneity: Option<(f64, f64, f64)>,
+    /// Cochran's and Mantel-Haenszel's chi-squares (1 degree of freedom).
+    pub(crate) independence: (Option<f64>, Option<f64>),
+    /// The common odds ratio, the standard error of its log and the significance against the
+    /// null value.
+    pub(crate) odds: Option<(f64, f64, f64)>,
+}
+
+pub(crate) fn cmh(strata: &[[f64; 4]], null_odds: f64) -> Cmh {
+    let strata: Vec<&[f64; 4]> = strata
+        .iter()
+        .filter(|s| s.iter().sum::<f64>() > 0.0)
+        .collect();
+    let margins = |s: &[f64; 4]| {
+        let [a, b, c, d] = *s;
+        (a + b + c + d, a + b, c + d, a + c, b + d)
+    };
+    // Cochran: strata with both rows filled; Mantel-Haenszel: more than one case
+    let (mut gap, mut cochran_var) = (0.0, 0.0);
+    let (mut mh_gap, mut mh_var) = (0.0, 0.0);
+    let mut cochran_any = false;
+    let mut mh_any = false;
+    for s in &strata {
+        let (n, r1, r2, c1, c2) = margins(s);
+        let p = c1 / n;
+        if r1 > 0.0 && r2 > 0.0 {
+            gap += s[0] - r1 * c1 / n;
+            cochran_var += r1 * r2 / n * p * (1.0 - p);
+            cochran_any |= c1 > 0.0 && c2 > 0.0;
+        }
+        if n > 1.0 {
+            mh_gap += s[0] - r1 * c1 / n;
+            mh_var += r1 * r2 / (n - 1.0) * p * (1.0 - p);
+            mh_any |= r1 > 0.0 && r2 > 0.0 && c1 > 0.0 && c2 > 0.0;
+        }
+    }
+    let cochran = cochran_any.then(|| gap * gap / cochran_var);
+    let mantel = mh_any.then(|| (mh_gap.abs() - 0.5).powi(2) / mh_var);
+
+    // the Mantel-Haenszel common odds ratio and the variance of its log (Robins and others)
+    let (mut r, mut s_, mut pr, mut ps_qr, mut qs) = (0.0, 0.0, 0.0, 0.0, 0.0);
+    for s in &strata {
+        let [a, b, c, d] = **s;
+        let n = a + b + c + d;
+        r += a * d / n;
+        s_ += b * c / n;
+        pr += (a + d) * a * d / (n * n);
+        ps_qr += ((a + d) * b * c + (b + c) * a * d) / (n * n);
+        qs += (b + c) * b * c / (n * n);
+    }
+    let theta = r / s_;
+    let odds = (theta.is_finite() && theta > 0.0).then(|| {
+        let var = pr / (2.0 * r * r) + ps_qr / (2.0 * r * s_) + qs / (2.0 * s_ * s_);
+        let se = var.sqrt();
+        let z = (theta.ln() - null_odds.ln()) / se;
+        (theta, se, normal_p(z))
+    });
+
+    // Breslow-Day and Tarone, from the expected first cells at the common odds ratio
+    let homogeneity = odds.and_then(|(theta, _, _)| {
+        let (mut b, mut sum_gap, mut sum_v) = (0.0, 0.0, 0.0);
+        let mut used = false;
+        for s in &strata {
+            let (n, r1, _, c1, _) = margins(s);
+            if r1 == 0.0 || c1 == 0.0 {
+                continue;
+            }
+            let (low, high) = ((r1 + c1 - n).max(0.0), r1.min(c1));
+            // f (n - r1 - c1 + f) = theta (r1 - f) (c1 - f), a quadratic in f
+            let qa = 1.0 - theta;
+            let qb = n - r1 - c1 + theta * (r1 + c1);
+            let qc = -theta * r1 * c1;
+            let f = if qa.abs() < 1e-12 {
+                -qc / qb
+            } else {
+                let root = (qb * qb - 4.0 * qa * qc).max(0.0).sqrt();
+                let first = (-qb + root) / (2.0 * qa);
+                let second = (-qb - root) / (2.0 * qa);
+                if (low - 1e-9..=high + 1e-9).contains(&first) {
+                    first
+                } else {
+                    second
+                }
+            };
+            if f <= 0.0 {
+                continue;
+            }
+            let v = 1.0 / (1.0 / f + 1.0 / (r1 - f) + 1.0 / (c1 - f) + 1.0 / (n - r1 - c1 + f));
+            b += (s[0] - f).powi(2) / v;
+            sum_gap += s[0] - f;
+            sum_v += v;
+            used = true;
+        }
+        let df = strata.len() as f64 - 1.0;
+        used.then(|| (b, b - sum_gap * sum_gap / sum_v, df))
+    });
+    Cmh {
+        homogeneity,
+        independence: (cochran, mantel),
+        odds,
+    }
 }
 
 /// The risk estimates of a 2 x 2 table: the odds ratio and the risk ratios for the first and

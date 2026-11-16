@@ -929,6 +929,8 @@ pub struct Crosstabs {
     pub chisq: bool,
     /// The measures of association `/STATISTICS` asks for, in syntax order, without duplicates.
     pub measures: Vec<CrosstabsMeasure>,
+    /// `CMH(value)`: the common odds ratio under the null hypothesis, 1 by default.
+    pub cmh_odds: f64,
     /// `/MISSING=INCLUDE`: user-missing values form categories of their own.
     pub include: bool,
     /// `/FORMAT=DVALUE`: row categories in descending order.
@@ -969,6 +971,9 @@ pub enum CrosstabsMeasure {
     D,
     /// Eta, for numeric data.
     Eta,
+    /// Cochran's and Mantel-Haenszel's tests, Breslow-Day's and Tarone's, and the common odds
+    /// ratio over the layers of 2 x 2 tables.
+    Cmh,
 }
 
 /// How CROSSTABS turns case weights into counts.

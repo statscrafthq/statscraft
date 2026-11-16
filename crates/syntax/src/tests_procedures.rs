@@ -88,6 +88,7 @@ fn crosstabs() {
             cells: vec![C::Count],
             chisq: false,
             measures: Vec::new(),
+            cmh_odds: 1.0,
             include: false,
             descending: false,
             count: WeightCount::Asis,
@@ -107,6 +108,7 @@ fn crosstabs() {
             cells: vec![C::Count, C::Row, C::Sresid],
             chisq: true,
             measures: Vec::new(),
+            cmh_odds: 1.0,
             include: true,
             descending: true,
             count: WeightCount::Asis,
@@ -150,10 +152,26 @@ fn crosstabs() {
         panic!()
     };
     assert_eq!(c.measures, [M::D, M::Eta]);
-    let e = err("CROSSTABS a BY b /STATISTICS=CHISQ CMH.");
+    let Command::Crosstabs(c) = one("CROSSTABS a BY b BY c /STATISTICS=CMH(2.5) CHISQ.") else {
+        panic!()
+    };
+    assert_eq!(
+        (c.measures.as_slice(), c.cmh_odds, c.chisq),
+        ([M::Cmh].as_slice(), 2.5, true)
+    );
+    let Command::Crosstabs(c) = one("CROSSTABS a BY b /STATISTICS=CMH.") else {
+        panic!()
+    };
+    assert_eq!(c.cmh_odds, 1.0);
+    assert!(
+        err("CROSSTABS a BY b /STATISTICS=CMH(0).")
+            .message
+            .contains("above 0")
+    );
+    let e = err("CROSSTABS a BY b /STATISTICS=CHISQ ALL.");
     assert_eq!(
         e.message,
-        "CMH in CROSSTABS /STATISTICS is not supported yet"
+        "ALL in CROSSTABS /STATISTICS is not supported yet"
     );
     assert_eq!(e.expected[0], "CHISQ");
     assert!(

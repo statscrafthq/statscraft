@@ -1144,7 +1144,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         summary: "Contingency tables with percentages, residuals and chi-square tests.",
         syntax: "CROSSTABS [/]TABLES=rowvars BY colvars [BY layervars ...] [/TABLES=...]\n\
                  \x20         [/CELLS=COUNT ROW COLUMN TOTAL EXPECTED RESID SRESID ASRESID ALL NONE]\n\
-                 \x20         [/STATISTICS=CHISQ PHI CC LAMBDA UC BTAU CTAU GAMMA D ETA CORR KAPPA RISK MCNEMAR NONE] [/MISSING=TABLE | INCLUDE]\n\
+                 \x20         [/STATISTICS=CHISQ PHI CC LAMBDA UC BTAU CTAU GAMMA D ETA CORR KAPPA RISK MCNEMAR CMH[(1)] NONE] [/MISSING=TABLE | INCLUDE]\n\
                  \x20         [/FORMAT=AVALUE | DVALUE TABLES | NOTABLES]\n\
                  \x20         [/COUNT=[ASIS | CASE | CELL] [ROUND | TRUNCATE]] [/BARCHART].\n\
                  First a Case Processing Summary: per table the valid, missing and total cases (weighted).\n\
@@ -1164,7 +1164,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  McNemar-Bowker test (larger), for rows and columns with the same values. KAPPA works on\n\
                  the square table over the values of both variables (same type), unseen pairs counted 0. RISK\n\
                  gives a Risk Estimate table for 2 x 2 tables: the odds ratio and the risk for each column\n\
-                 category, with 95% intervals. Each measure gives its\n\
+                 category, with 95% intervals. CMH treats the layers as strata of 2 x 2 tables: Breslow-Day\n\
+                 and Tarone (homogeneity), Cochran and Mantel-Haenszel (conditional independence), and the\n\
+                 common odds ratio with its 95% interval, tested against the value in brackets. Each measure\n\
+                 gives its\n\
                  value, asymptotic standard error, approximate T and significance; a table with one row or\n\
                  column gets none.\n\
                  MISSING=TABLE leaves out a case missing on any variable of the table; INCLUDE keeps\n\

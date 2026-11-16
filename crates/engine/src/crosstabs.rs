@@ -4,7 +4,7 @@
 use crate::chart::{
     self, Axis, Category, Chart, ChartKind, Grouping, Orientation, Series, Statistic, Tier,
 };
-use crate::crosstabs_measures::{Counts, mcnemar as mcnemar_test, risk};
+use crate::crosstabs_measures::{Counts, cmh, mcnemar as mcnemar_test, risk};
 use crate::descriptives::{case_weights, number};
 use crate::dist::chi_square_p;
 use crate::shown::Shown;
@@ -586,9 +586,134 @@ fn tables(
             layer_names(),
         ));
     }
+    if command.measures.contains(&CrosstabsMeasure::Cmh) {
+        out.extend(cmh_tables(&blocks, command.cmh_odds, &title));
+    }
     let chart = (command.barchart && !blocks.is_empty())
         .then(|| bar_chart(&blocks, &variables, shown, (title, command.descending)));
     Ok((out, chart, summary))
+}
+
+/// The CMH tables: the layers are the strata, each a 2 x 2 table over the two values the row
+/// and the column variable take in all of them.
+fn cmh_tables(blocks: &[Block], null_odds: f64, title: &str) -> Vec<Table> {
+    let mut rows: Vec<&Key> = blocks.iter().flat_map(|b| &b.rows).collect();
+    let mut columns: Vec<&Key> = blocks.iter().flat_map(|b| &b.columns).collect();
+    for keys in [&mut rows, &mut columns] {
+        keys.sort_by(|a, b| a.compare(b));
+        keys.dedup_by(|a, b| a.compare(b).is_eq());
+    }
+    let plain =
+        |name: &str, columns: Vec<String>, rows: Vec<Vec<Cell>>, caption: Option<String>| Table {
+            title: format!("{name}: {title}"),
+            row_headers: 1,
+            column_groups: vec![Vec::new(); columns.len()],
+            columns,
+            rows,
+            caption,
+            ..Table::default()
+        };
+    let tests = || {
+        ["", "Chi-Squared", "df", "Asymptotic Significance (2-sided)"]
+            .map(String::from)
+            .to_vec()
+    };
+    if rows.len() != 2 || columns.len() != 2 {
+        let note = "The CMH tests need a row and a column variable with two values each.";
+        return vec![plain(
+            "Tests of Conditional Independence",
+            tests(),
+            Vec::new(),
+            Some(note.into()),
+        )];
+    }
+    let at = |keys: &[&Key], k: &Key| {
+        keys.iter()
+            .position(|x| x.compare(k).is_eq())
+            .expect("listed")
+    };
+    let strata: Vec<[f64; 4]> = blocks
+        .iter()
+        .map(|b| {
+            let mut f = [0.0; 4];
+            for (i, r) in b.rows.iter().enumerate() {
+                for (j, c) in b.columns.iter().enumerate() {
+                    f[2 * at(&rows, r) + at(&columns, c)] += b.counts[i][j];
+                }
+            }
+            f
+        })
+        .collect();
+    let result = cmh(&strata, null_odds);
+    let number = |v: Option<f64>| match v {
+        Some(v) if v.is_finite() => Cell::Number(v),
+        _ => Cell::Empty,
+    };
+    let chi_row = |name: &str, x: Option<f64>, df: f64| {
+        vec![
+            Cell::Text(name.into()),
+            number(x),
+            number(x.map(|_| df)),
+            number(x.map(|x| chi_square_p(x, df))),
+        ]
+    };
+    let (breslow, tarone, df) = match result.homogeneity {
+        Some((b, t, df)) => (Some(b), Some(t), df),
+        None => (None, None, 0.0),
+    };
+    let homogeneity = vec![
+        chi_row("Breslow-Day", breslow, df),
+        chi_row("Tarone's", tarone, df),
+    ];
+    let (cochran, mantel) = result.independence;
+    let independence = vec![
+        chi_row("Cochran's", cochran, 1.0),
+        chi_row("Mantel-Haenszel", mantel, 1.0),
+    ];
+    let z = crate::dist::normal_quantile(0.975);
+    let lines: Vec<(&str, Option<f64>)> = match result.odds {
+        Some((theta, se, p)) => {
+            let ln = theta.ln();
+            vec![
+                ("Estimate", Some(theta)),
+                ("ln(Estimate)", Some(ln)),
+                ("Standard Error of ln(Estimate)", Some(se)),
+                ("Asymptotic Significance (2-sided)", Some(p)),
+                ("Common Odds Ratio Lower Bound", Some((ln - z * se).exp())),
+                ("Common Odds Ratio Upper Bound", Some((ln + z * se).exp())),
+                ("ln(Common Odds Ratio) Lower Bound", Some(ln - z * se)),
+                ("ln(Common Odds Ratio) Upper Bound", Some(ln + z * se)),
+            ]
+        }
+        None => vec![("Estimate", None)],
+    };
+    let estimate = lines
+        .into_iter()
+        .map(|(name, v)| vec![Cell::Text(name.into()), number(v)])
+        .collect();
+    let caption = format!(
+        "The confidence bounds are asymptotic 95% bounds. The significance tests the common odds ratio against {null_odds}."
+    );
+    vec![
+        plain(
+            "Tests of Homogeneity of the Odds Ratio",
+            tests(),
+            homogeneity,
+            None,
+        ),
+        plain(
+            "Tests of Conditional Independence",
+            tests(),
+            independence,
+            None,
+        ),
+        plain(
+            "Mantel-Haenszel Common Odds Ratio Estimate",
+            vec![String::new(), "Value".into()],
+            estimate,
+            Some(caption),
+        ),
+    ]
 }
 
 /// The square table of counts over the categories of both variables, in ascending order, for

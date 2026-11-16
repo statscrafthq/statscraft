@@ -929,6 +929,71 @@ fn crosstabs_somers_d_and_eta() {
     assert!(strings.is_empty() || strings[0].rows.is_empty());
 }
 
+/// CMH over three 2 x 2 strata. The common odds ratio by hand: (12 15/40 + 7 13/33 +
+/// 20 9/46) / (8 5/40 + 9 4/33 + 6 11/46). Mantel-Haenszel's chi-square, the odds ratio and
+/// its interval agree with R's mantelhaen.test (with continuity correction), run as a black
+/// box; Cochran's, Breslow-Day's and Tarone's with an independent computation.
+#[test]
+fn crosstabs_cmh() {
+    let data = "DATA LIST FREE /a b g n.\nBEGIN DATA\n1 1 1 12\n1 2 1 8\n2 1 1 5\n2 2 1 15\n\
+                1 1 2 7\n1 2 2 9\n2 1 2 4\n2 2 2 13\n1 1 3 20\n1 2 3 6\n2 1 3 11\n2 2 3 9\n\
+                END DATA.\nWEIGHT BY n.\n";
+    let mut engine = Engine::default();
+    let tables = crosstabs(
+        &mut engine,
+        &format!("{data}CROSSTABS a BY b BY g /CELLS=NONE /STATISTICS=CMH(1)."),
+    );
+    let [homogeneity, independence, estimate] = &tables[..] else {
+        panic!("{tables:?}")
+    };
+    assert_eq!(
+        homogeneity.title,
+        "Tests of Homogeneity of the Odds Ratio: a by b by g"
+    );
+    assert_row(
+        &homogeneity.rows[0],
+        1,
+        &[Some(0.4015963279279383), Some(2.0), Some(0.8180775324)],
+    );
+    assert_row(
+        &homogeneity.rows[1],
+        1,
+        &[Some(0.40148793985485526), Some(2.0), Some(0.8181218685)],
+    );
+    assert_row(
+        &independence.rows[0],
+        1,
+        &[Some(8.64623709221765), Some(1.0), Some(0.0032773753)],
+    );
+    assert_row(
+        &independence.rows[1],
+        1,
+        &[Some(7.36154768693), Some(1.0), Some(0.0066633412)],
+    );
+    let theta = (12.0 * 15.0 / 40.0 + 7.0 * 13.0 / 33.0 + 20.0 * 9.0 / 46.0)
+        / (8.0 * 5.0 / 40.0 + 9.0 * 4.0 / 33.0 + 6.0 * 11.0 / 46.0);
+    let values: Vec<f64> = estimate.rows.iter().map(|r| number(&r[1])).collect();
+    assert!((values[0] - theta).abs() < 1e-12);
+    assert!((values[1] - theta.ln()).abs() < 1e-12);
+    for (got, want) in values[4..6].iter().zip([1.44801696867, 6.93253673613]) {
+        assert!((got - want).abs() < 1e-9, "{values:?}");
+    }
+    // another null value moves only the significance
+    let other = crosstabs(
+        &mut engine,
+        "CROSSTABS a BY b BY g /CELLS=NONE /STATISTICS=CMH(3.168348281).",
+    );
+    assert!(number(&other[2].rows[3][1]) > 0.99);
+    assert!(other[2].caption.as_deref().unwrap().contains("3.168348281"));
+    // a variable with three values: no tests, and the table says why
+    let three = crosstabs(
+        &mut engine,
+        "COMPUTE c = b + (g = 3).\nCROSSTABS a BY c BY g /CELLS=NONE /STATISTICS=CMH.",
+    );
+    assert_eq!(three.len(), 1);
+    assert!(three[0].caption.as_deref().unwrap().contains("two values"));
+}
+
 #[test]
 fn crosstabs_missing_values() {
     let mut engine = survey();

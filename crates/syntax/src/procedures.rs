@@ -71,7 +71,7 @@ const CELLS: [(&str, &[CrosstabsCell]); 10] = [
 
 const UNSUPPORTED_CELLS: [&str; 3] = ["BPROP", "PROP", "SUMMARY"];
 
-const UNSUPPORTED_STATISTICS: [&str; 2] = ["CMH", "ALL"];
+const UNSUPPORTED_STATISTICS: [&str; 1] = ["ALL"];
 
 const UNSUPPORTED_FORMATS: [&str; 6] = ["PIVOT", "NOPIVOT", "BOX", "NOBOX", "INDEX", "NOINDEX"];
 
@@ -254,6 +254,7 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
         cells: Vec::new(),
         chisq: false,
         measures: Vec::new(),
+        cmh_odds: 1.0,
         include: false,
         descending: false,
         count: WeightCount::Asis,
@@ -311,14 +312,52 @@ pub(crate) fn crosstabs(p: &mut Parser) -> PResult<Command> {
             if !p.eat(Punct::Eq) && at_end(p) {
                 command.chisq = true;
             } else {
-                let chosen = keywords(p, &CHOICES, |p| {
+                let unknown = |p: &Parser| {
+                    let mut expected = names(&CHOICES);
+                    expected.push("CMH");
                     keyword_error(
                         p,
                         "CROSSTABS /STATISTICS",
                         &UNSUPPORTED_STATISTICS,
-                        &names(&CHOICES),
+                        &expected,
                     )
-                })?;
+                };
+                let mut chosen: Vec<Option<M>> = Vec::new();
+                let mut any = false;
+                while !at_end(p) {
+                    any = true;
+                    if p.eat_keyword("CMH") {
+                        // CMH(value): the common odds ratio of the null hypothesis
+                        if p.eat(Punct::LParen) {
+                            let start = p.pos;
+                            let Some(n) = p.number() else {
+                                return Err(p.unexpected(&["a number"]));
+                            };
+                            if n <= 0.0 {
+                                return Err(SyntaxError::new(
+                                    p.span_from(start),
+                                    format!(
+                                        "the common odds ratio of CMH must be above 0, got {n}"
+                                    ),
+                                ));
+                            }
+                            p.expect(Punct::RParen)?;
+                            command.cmh_odds = n;
+                        }
+                        chosen.push(Some(M::Cmh));
+                    } else {
+                        let found = CHOICES.iter().find(|(name, _)| p.at_keyword(name));
+                        let Some((_, values)) = found else {
+                            return Err(unknown(p));
+                        };
+                        p.pos += 1;
+                        chosen.extend_from_slice(values);
+                    }
+                    p.eat(Punct::Comma);
+                }
+                if !any {
+                    return Err(unknown(p));
+                }
                 command.chisq = chosen.contains(&None);
                 let mut measures: Vec<M> = chosen.into_iter().flatten().collect();
                 measures.sort_unstable();
