@@ -326,8 +326,9 @@ fn stacked_plain_tables_have_the_house_layout() {
         "{}",
         xf(&parts, "A4")
     );
+    // stacked category labels do not wrap either: they may run on over empty cells
     assert!(
-        xf(&parts, "A5").contains("wrapText"),
+        !xf(&parts, "A5").contains("wrapText"),
         "{}",
         xf(&parts, "A5")
     );

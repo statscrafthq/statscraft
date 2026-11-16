@@ -604,7 +604,8 @@ fn run_result(
     result.session = args.session.clone();
     // a run is all or nothing: a failure above returned before anything was saved
     let changed = std::mem::take(&mut result.saved);
-    if let Some(program) = &xlsx.plugin {
+    // only when a workbook is written: the plugin's look is for the workbook
+    if let (false, Some(program), Some(_)) = (check_only, &xlsx.plugin, &xlsx.xlsx) {
         decorate(&mut result, program, &session)?;
     }
     // before the session is saved, so a workbook that cannot be written leaves the session as it was
@@ -657,7 +658,6 @@ fn keep_trail(data: &std::path::Path, syntax: &str) -> Result<PathBuf, String> {
     Ok(file)
 }
 
-/// Writes every table and chart of the run to the workbook `--xlsx` names, if any.
 /// Runs the plugin on the run's custom tables, with its settings from the active data's
 /// attributes, and puts its answer on them.
 fn decorate(
@@ -699,6 +699,7 @@ fn decorate(
     Ok(())
 }
 
+/// Writes every table and chart of the run to the workbook `--xlsx` names, if any.
 fn write_workbook(result: &RunResult, xlsx: &XlsxArgs) -> Result<(), Vec<Failure>> {
     let Some(path) = &xlsx.xlsx else {
         return Ok(());
