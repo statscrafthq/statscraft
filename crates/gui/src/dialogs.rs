@@ -235,8 +235,8 @@ pub const CROSSTABS_STATISTICS: [(&str, &str); 15] = [
     ("CMH", "Cochran's and Mantel-Haenszel statistics"),
 ];
 
-/// The place of CMH in `CROSSTABS_STATISTICS`.
-pub const CROSSTABS_CMH: usize = 14;
+/// The place of CMH in `CROSSTABS_STATISTICS`: the last, which `syntax` relies on.
+pub const CROSSTABS_CMH: usize = CROSSTABS_STATISTICS.len() - 1;
 
 #[derive(Clone, PartialEq, Debug)]
 pub struct Crosstabs {
@@ -288,7 +288,8 @@ impl Crosstabs {
         let mut statistics: Vec<String> = CROSSTABS_STATISTICS
             .iter()
             .zip(self.statistics)
-            .filter_map(|((keyword, _), on)| on.then(|| keyword.to_string()))
+            .filter(|(_, on)| *on)
+            .map(|((keyword, _), _)| keyword.to_string())
             .collect();
         if self.statistics[CROSSTABS_CMH] {
             let odds = self.cmh_odds.trim().parse::<f64>().ok();
