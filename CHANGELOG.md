@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.15.0 (2026-11-16)
 
 - COMPARE DATASETS and VALIDATEDATA, for checking survey data. COMPARE DATASETS compares the active dataset with an open dataset or a .sav file, case by case in file order or by key variables: a summary, the variables it cannot compare, differences per variable, a case table of differing values, the dictionary properties that differ, a flag variable (0 same, 1 different, -1 no matching case), and the matching or differing cases written to a dataset or file. VALIDATEDATA finds variables with many missing values or near-constant values, incomplete and duplicate case IDs and empty cases, summarizes single-variable and cross-variable validation rules kept in the dictionary ($VD.SRule, $VD.SRuleRef and $VD.CRule attributes with their outcome variables), lists the cases that break them, and saves indicator variables. DETECTANOMALY is not supported yet. See [COMPARE DATASETS](docs/commands/compare-datasets.md) and [VALIDATEDATA](docs/commands/validatedata.md).
 - Window: Analyze > Forecasting gains Exponential Smoothing (EXSMOOTH: the twelve models, period, seasonal factors, each parameter as a value or a grid, start values, APPLY), ARIMA (regressors, seasonal orders and period, constant, log, subset lags, criteria, forecast method, APPLY), Sequence Charts (TSPLOT) and Forecast Period (PREDICT); Graphs > Case Plots writes CASEPLOT and Data > Select Cases by Time Range writes USE, by case numbers or dates. See [the window](docs/window.md#analyze).
