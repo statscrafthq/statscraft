@@ -4,4 +4,4 @@
 
 pub use statscraft_engine::office::Item;
 pub use statscraft_engine::picture;
-pub use statscraft_engine::xlsx::write_xlsx;
+pub use statscraft_engine::xlsx::{write_xlsx, write_xlsx_parts};

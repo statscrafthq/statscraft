@@ -1,6 +1,6 @@
 //! Portable files: what is written comes back, within what the format holds.
 
-mod common;
+use crate::common;
 
 use common::{cases, fixture_files, scratch};
 use statscraft_data::{Dataset, MissingValues, Value, portable_names};

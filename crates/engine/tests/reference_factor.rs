@@ -2,7 +2,7 @@
 //! data and the same syntax. Ignored by default because they need PSPP:
 //!
 //! ```text
-//! STATSCRAFT_PSPP=/path/to/pspp cargo test -p statscraft-engine --test reference_factor -- --ignored
+//! STATSCRAFT_PSPP=/path/to/pspp cargo test -p statscraft-engine --test reference -- --ignored reference_factor::
 //! ```
 //!
 //! PSPP's FACTOR knows PC and PAF, VARIMAX, EQUAMAX, QUARTIMAX and PROMAX (its default power is

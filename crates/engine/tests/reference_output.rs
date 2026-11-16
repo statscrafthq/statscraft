@@ -3,7 +3,7 @@
 //! program:
 //!
 //! ```text
-//! STATSCRAFT_PSPP=/path/to/pspp cargo test -p statscraft-engine --test reference_output -- --ignored
+//! STATSCRAFT_PSPP=/path/to/pspp cargo test -p statscraft-engine --test reference -- --ignored reference_output::
 //! ```
 
 use statscraft_data::{Dataset, Values};

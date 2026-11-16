@@ -131,6 +131,10 @@ struct XlsxArgs {
     /// With --xlsx, put all tables on one sheet, one below the other
     #[arg(long, requires = "xlsx")]
     xlsx_one_sheet: bool,
+    /// With --xlsx, let this plugin program colour, comment and lay out the custom tables, with
+    /// its settings from the active data's attributes (see docs/plugins.md)
+    #[arg(long, value_name = "PROGRAM", requires = "xlsx")]
+    plugin: Option<PathBuf>,
 }
 
 #[derive(Args)]
@@ -600,6 +604,10 @@ fn run_result(
     result.session = args.session.clone();
     // a run is all or nothing: a failure above returned before anything was saved
     let changed = std::mem::take(&mut result.saved);
+    // only when a workbook is written: the plugin's look is for the workbook
+    if let (false, Some(program), Some(_)) = (check_only, &xlsx.plugin, &xlsx.xlsx) {
+        decorate(&mut result, program, &session)?;
+    }
     // before the session is saved, so a workbook that cannot be written leaves the session as it was
     write_workbook(&result, xlsx)?;
     if let (false, Some(name)) = (check_only, &args.session) {
@@ -648,6 +656,47 @@ fn keep_trail(data: &std::path::Path, syntax: &str) -> Result<PathBuf, String> {
         .and_then(|mut f| f.write_all(block.as_bytes()))
         .map_err(|e| format!("{}: {e}", file.display()))?;
     Ok(file)
+}
+
+/// Runs the plugin on the run's custom tables, with its settings from the active data's
+/// attributes, and puts its answer on them.
+fn decorate(
+    result: &mut RunResult,
+    program: &std::path::Path,
+    session: &Session,
+) -> Result<(), Vec<Failure>> {
+    use statscraft_engine::plugin;
+    let failed = |e: String| vec![Failure::plain("plugin", e)];
+    let description = plugin::describe(program).map_err(failed)?;
+    let attributes = session
+        .dataset()
+        .map(|d| d.attributes())
+        .unwrap_or_default();
+    let values = description.values(|name| {
+        let mut found = attributes
+            .iter()
+            .filter(|(n, _)| n.eq_ignore_ascii_case(name));
+        found.next()?.1.first().cloned()
+    });
+    let tables: Vec<(u64, &statscraft_engine::Table)> = result
+        .commands
+        .iter()
+        .flat_map(|c| &c.tables)
+        .enumerate()
+        .map(|(i, t)| (i as u64, t))
+        .collect();
+    let answers = plugin::decorate(program, &values, &tables).map_err(failed)?;
+    let mut all: Vec<&mut statscraft_engine::Table> = result
+        .commands
+        .iter_mut()
+        .flat_map(|c| &mut c.tables)
+        .collect();
+    for (id, (decorations, style)) in answers {
+        if let Some(table) = all.get_mut(id as usize) {
+            table.set_decorations(decorations, style);
+        }
+    }
+    Ok(())
 }
 
 /// Writes every table and chart of the run to the workbook `--xlsx` names, if any.

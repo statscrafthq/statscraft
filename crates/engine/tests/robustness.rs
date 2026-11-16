@@ -5,7 +5,7 @@
 //! result or an error within the time limit, never in a panic.
 //!
 //! The default tests run a small fixed set in a few seconds. The full set is ignored (Unix only):
-//! `cargo test -p statscraft-engine --test robustness -- --ignored --nocapture`, with
+//! `cargo test -p statscraft-engine --test engine -- --ignored --nocapture robustness::`, with
 //! FUZZ_VARIANTS (mutants per seed, default 12), FUZZ_SHARD=i/n, FUZZ_LIMIT (seconds per run,
 //! default 60), FUZZ_MEMORY_MIB (default 1500), FUZZ_TRACE=file (the input that runs now) and
 //! FUZZ_PRINT=label (prints that input in full and runs nothing).
@@ -989,7 +989,8 @@ fn spawn_child(from: usize, memory_kib: usize) -> (mpsc::Receiver<String>, std::
             "--ignored",
             "--exact",
             "--nocapture",
-            "mutated_syntax_never_crashes",
+            // the test's name in the one engine test binary (tests/main.rs)
+            "robustness::mutated_syntax_never_crashes",
         ])
         .env("FUZZ_CHILD", from.to_string())
         .stdout(std::process::Stdio::piped())

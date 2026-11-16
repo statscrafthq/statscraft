@@ -431,6 +431,9 @@ impl Chart {
             caption: Some(caption),
             outline: None,
             hidden: false,
+            cell_stats: None,
+            decorations: Vec::new(),
+            style: Default::default(),
         }
     }
 }

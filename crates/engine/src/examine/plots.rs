@@ -556,6 +556,9 @@ fn levene_table(rows: Vec<Vec<(f64, f64)>>, r: &CellResult, power: Option<f64>) 
         }),
         outline: None,
         hidden: false,
+        cell_stats: None,
+        decorations: Vec::new(),
+        style: Default::default(),
     }
 }
 

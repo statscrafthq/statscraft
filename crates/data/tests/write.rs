@@ -1,6 +1,6 @@
 //! Writing `.sav` / `.zsav` files: what was read must come back unchanged.
 
-mod common;
+use crate::common;
 
 use common::{assert_survives_write, file_name, fixture, fixture_files, scratch};
 use statscraft_data::{Dataset, Error, Measure, MissingValues, Value, VariableSet};

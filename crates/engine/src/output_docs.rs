@@ -162,7 +162,8 @@ impl Block {
         for (i, (table, chart)) in self.tables.iter().enumerate() {
             let caption = u32::from(self.notes && table.caption.is_some());
             let depth = header_rows(table).len() as u32;
-            let mut height = 1 + depth + table.rows.len() as u32 + caption;
+            let body = table.rows.len() + table.block_starts().len();
+            let mut height = 1 + depth + body as u32 + caption;
             if chart.as_deref().is_some_and(has_beside) {
                 height = height.max(1 + CHART_ROWS);
             }
@@ -170,7 +171,8 @@ impl Block {
         }
         let width = self.tables.iter().map(|(table, chart)| {
             let beside = chart.as_deref().is_some_and(has_beside);
-            table.columns.len() as u16 + u16::from(beside) * (1 + CHART_COLUMNS)
+            let columns = table.columns.len() - usize::from(table.stacked());
+            columns as u16 + u16::from(beside) * (1 + CHART_COLUMNS)
         });
         (row, self.left + width.max().unwrap_or(0))
     }
@@ -374,6 +376,31 @@ impl Engine {
         }
         document.changed |= !positions.is_empty();
         Ok(titles)
+    }
+
+    /// Puts a plugin's decorations on tables of the document `name`, each table by its place
+    /// among the leaves (`output_file::leaves`).
+    pub(crate) fn decorate_output(
+        &mut self,
+        name: &str,
+        decorations: Vec<(usize, crate::plugin::Answer)>,
+    ) -> Result<(), Error> {
+        let d = &mut self.documents;
+        let at = d
+            .find(name)
+            .ok_or_else(|| Error(format!("no open output document is named {name}")))?;
+        let document = &mut d.open[at];
+        let mut by_place: HashMap<usize, crate::plugin::Answer> = decorations.into_iter().collect();
+        let mut place = 0;
+        output_file::for_each_leaf(&mut document.items, &mut |item| {
+            if let (output_file::Item::Table(table), Some((d, s))) = (item, by_place.remove(&place))
+            {
+                Arc::make_mut(table).set_decorations(d, s);
+                document.changed = true;
+            }
+            place += 1;
+        });
+        Ok(())
     }
 
     /// What the last OUTPUT MODIFY changed, taken.

@@ -4762,11 +4762,100 @@ fn every_dialog_with_the_least_it_needs_writes_syntax_that_runs() {
     std::fs::remove_dir_all(out).unwrap();
 }
 
-#[test]
-fn every_dialog_with_every_option_on_writes_syntax_that_runs() {
-    let out = folder("walk-max");
-    walk(maximal(&out));
+/// The family of a dialog in the walk with every option on, which is split into a test per
+/// family so that they run in parallel. A dialog not named here is in the last family.
+fn family(dialog: &Dialog) -> usize {
+    match dialog {
+        Dialog::Frequencies(_)
+        | Dialog::Descriptives(_)
+        | Dialog::Explore(_)
+        | Dialog::Crosstabs(_)
+        | Dialog::CustomTables(..)
+        | Dialog::Means(_)
+        | Dialog::MultResponse(_)
+        | Dialog::TTest(_)
+        | Dialog::Oneway(_)
+        | Dialog::Correlations(_)
+        | Dialog::NparTests(_) => 0,
+        Dialog::Compute(..)
+        | Dialog::Recode(..)
+        | Dialog::Count(..)
+        | Dialog::Rank(_)
+        | Dialog::Autorecode(_)
+        | Dialog::Mrsets(_)
+        | Dialog::SortCases(_)
+        | Dialog::SplitFile(_)
+        | Dialog::SelectCases(_)
+        | Dialog::WeightCases(_)
+        | Dialog::Aggregate(..)
+        | Dialog::MergeFiles(_)
+        | Dialog::Restructure(_)
+        | Dialog::SortVariables(_)
+        | Dialog::ImportData(_)
+        | Dialog::ExportData(_) => 1,
+        Dialog::ChartBuilder(_) | Dialog::ProbabilityPlot(_) | Dialog::RocCurve(_) => 2,
+        Dialog::Regression(_)
+        | Dialog::Reliability(_)
+        | Dialog::PartialCorr(_)
+        | Dialog::FactorAnalysis(_)
+        | Dialog::KMeans(_)
+        | Dialog::Hierarchical(_)
+        | Dialog::Discriminant(_)
+        | Dialog::Logistic(_)
+        | Dialog::Tree(_) => 3,
+        Dialog::Univariate(_)
+        | Dialog::RepeatedMeasures(_)
+        | Dialog::Advanced(
+            Advanced::Ordinal(_)
+            | Advanced::Multinomial(_)
+            | Advanced::Mixed(_)
+            | Advanced::Genlin(_),
+        ) => 4,
+        _ => 5,
+    }
+}
+
+/// Walks the dialogs of one family with every option on.
+fn walk_family(number: usize) {
+    let out = folder(&format!("walk-max-{number}"));
+    walk(
+        maximal(&out)
+            .into_iter()
+            .filter(|d| family(d) == number)
+            .collect(),
+    );
     std::fs::remove_dir_all(out).unwrap();
+}
+
+#[test]
+fn the_descriptive_dialogs_with_every_option_on_write_syntax_that_runs() {
+    walk_family(0);
+}
+
+#[test]
+fn the_data_dialogs_with_every_option_on_write_syntax_that_runs() {
+    walk_family(1);
+}
+
+#[test]
+fn the_chart_dialogs_with_every_option_on_write_syntax_that_runs() {
+    walk_family(2);
+}
+
+#[test]
+fn the_regression_and_classification_dialogs_with_every_option_on_write_syntax_that_runs() {
+    walk_family(3);
+}
+
+#[test]
+fn the_linear_model_dialogs_with_every_option_on_write_syntax_that_runs() {
+    walk_family(4);
+}
+
+/// Survival, complex samples, correspondence, distances and the other advanced dialogs.
+#[test]
+fn the_other_dialogs_with_every_option_on_write_syntax_that_runs() {
+    walk_family(5);
 }
 
 #[test]

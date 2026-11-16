@@ -466,6 +466,18 @@ impl Session {
         Ok(())
     }
 
+    /// Puts a plugin's decorations on tables of an output document, each by its place as
+    /// `delete_output` counts it. Call it only while no run goes on, for the same reason.
+    pub fn decorate_output(
+        &mut self,
+        document: &str,
+        decorations: Vec<(usize, crate::plugin::Answer)>,
+    ) -> Result<(), String> {
+        self.engine
+            .decorate_output(document, decorations)
+            .map_err(|e| e.0)
+    }
+
     /// The macros and macro settings the runs so far defined.
     pub fn macros(&self) -> &statscraft_syntax::MacroState {
         self.engine.macros()

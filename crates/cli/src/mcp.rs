@@ -366,6 +366,7 @@ fn check_or_run(input: SyntaxInput, check_only: bool, xlsx: Option<String>) -> C
     let xlsx = XlsxArgs {
         xlsx: xlsx.map(PathBuf::from),
         xlsx_one_sheet: false,
+        plugin: None,
     };
     match crate::run_result(&args, check_only, &xlsx) {
         Ok(result) => run_reply(&result, check_only, args.vega_lite, xlsx.xlsx.as_deref()),
@@ -426,6 +427,7 @@ fn run_window(input: RunInput, window: String) -> CallToolResult {
     let xlsx = XlsxArgs {
         xlsx: input.xlsx.map(local).map(PathBuf::from),
         xlsx_one_sheet: false,
+        plugin: None,
     };
     // for a relative xlsx, and for the relative names of a window without a file: one with a
     // file starts from its own folder, as its Run does

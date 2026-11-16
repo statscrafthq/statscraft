@@ -4,6 +4,7 @@
 //! the parts of multiply imputed output (SET MIOUTPUT) are kept here too, and a new session of
 //! the window starts by running that SET.
 
+use crate::output::{Part, Show};
 use std::path::{Path, PathBuf};
 
 /// The most recent files kept.
@@ -48,6 +49,47 @@ pub struct Settings {
     pub tnumbers: Option<String>,
     /// SET MIOUTPUT chosen in Edit > Settings: its keywords in upper case, space separated.
     pub mioutput: Option<String>,
+    /// The kinds of element the output shows, and whether exports take hidden items.
+    pub output: Show,
+    /// The plugin program that decorates tables (docs/plugins.md), and whether it is off.
+    pub plugin: Option<PathBuf>,
+    pub plugin_off: bool,
+    /// Excel exports leave out the plugin's comments.
+    pub excel_comments_off: bool,
+    /// Saved values of plugin settings, for every data file.
+    pub presets: Vec<Preset>,
+    /// The plugin settings last chosen for each data file, by its path: they hold when the
+    /// file is read again (GET FILE in a syntax) before its new data file attributes were saved.
+    pub file_values: Vec<FileValue>,
+}
+
+/// A plugin setting's value chosen for one data file.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FileValue {
+    pub file: PathBuf,
+    pub attribute: String,
+    pub value: String,
+}
+
+/// A saved value of a plugin setting, named, under the setting's data file attribute.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Preset {
+    pub attribute: String,
+    pub name: String,
+    pub value: String,
+}
+
+impl Preset {
+    /// A preset from the dialog: tabs and line breaks in the name or value become spaces, so
+    /// it fits its line of the settings file.
+    pub fn new(attribute: &str, name: &str, value: &str) -> Self {
+        let clean = |s: &str| s.trim().replace(['\t', '\n', '\r'], " ");
+        Preset {
+            attribute: attribute.to_string(),
+            name: clean(name),
+            value: clean(value),
+        }
+    }
 }
 
 impl Settings {
@@ -104,8 +146,10 @@ impl Settings {
     /// `recent PATH`,
     /// `updates on|off`, `update-checked SECONDS`, `paper system`, `theme NAME`, `wrap off`,
     /// `log hidden`, `variable_widths W ...`, `tvars names|labels|both` and
-    /// `tnumbers values|labels|both` and `mioutput` with MIOUTPUT keywords; anything else is
-    /// skipped.
+    /// `tnumbers values|labels|both`, `mioutput` with MIOUTPUT keywords, `output-shows` with
+    /// the kinds of element the output shows (`headings titles tables notes charts`) and
+    /// `export hidden`, `plugin PATH`, `plugin-off`, `excel-comments off` and
+    /// `preset ATTRIBUTE<tab>NAME<tab>VALUE`; anything else is skipped.
     pub fn parse(text: &str) -> Self {
         let mut settings = Self::default();
         let pair = |rest: &str| {
@@ -141,6 +185,33 @@ impl Settings {
                 "tvars" => settings.tvars = keyword(&TVARS, rest),
                 "tnumbers" => settings.tnumbers = keyword(&TNUMBERS, rest),
                 "mioutput" => settings.mioutput = mi_parts(rest),
+                "output-shows" => {
+                    let words: Vec<&str> = rest.split_whitespace().collect();
+                    settings.output.kinds = Part::ALL.map(|p| words.contains(&p.word()));
+                }
+                "export" => settings.output.export_hidden = rest == "hidden",
+                "plugin" if !rest.is_empty() => settings.plugin = Some(PathBuf::from(rest)),
+                "plugin-off" => settings.plugin_off = true,
+                "excel-comments" => settings.excel_comments_off = rest == "off",
+                "preset" => {
+                    if let [attribute, name, value] = rest.split('\t').collect::<Vec<_>>()[..]
+                        && !name.is_empty()
+                    {
+                        settings.presets.push(Preset::new(attribute, name, value));
+                    }
+                }
+                "plugin-value" => {
+                    if let [attribute, value, file] = rest.split('\t').collect::<Vec<_>>()[..]
+                        && !attribute.is_empty()
+                        && !file.is_empty()
+                    {
+                        settings.file_values.push(FileValue {
+                            file: PathBuf::from(file),
+                            attribute: attribute.to_string(),
+                            value: value.to_string(),
+                        });
+                    }
+                }
                 _ => {}
             }
         }
@@ -197,7 +268,62 @@ impl Settings {
         if let Some(parts) = &self.mioutput {
             text.push_str(&format!("mioutput {}\n", parts.to_lowercase()));
         }
+        if self.output.kinds != Show::default().kinds {
+            text.push_str("output-shows");
+            for part in Part::ALL.into_iter().filter(|p| self.output.kind(*p)) {
+                text.push_str(&format!(" {}", part.word()));
+            }
+            text.push('\n');
+        }
+        if self.output.export_hidden {
+            text.push_str("export hidden\n");
+        }
+        if let Some(plugin) = &self.plugin {
+            text.push_str(&format!("plugin {}\n", plugin.display()));
+        }
+        if self.plugin_off {
+            text.push_str("plugin-off\n");
+        }
+        if self.excel_comments_off {
+            text.push_str("excel-comments off\n");
+        }
+        for p in &self.presets {
+            text.push_str(&format!(
+                "preset {}\t{}\t{}\n",
+                p.attribute, p.name, p.value
+            ));
+        }
+        for v in &self.file_values {
+            text.push_str(&format!(
+                "plugin-value {}\t{}\t{}\n",
+                v.attribute,
+                v.value,
+                v.file.display()
+            ));
+        }
         text
+    }
+
+    /// Keeps the plugin settings chosen for a data file, replacing earlier ones of the same
+    /// attributes; tabs and line breaks become spaces so each fits its line.
+    pub fn remember_values(&mut self, file: &Path, values: &[(String, String)]) {
+        let clean = |s: &str| s.replace(['\t', '\n', '\r'], " ");
+        for (attribute, value) in values {
+            self.file_values
+                .retain(|v| !(v.file == file && v.attribute.eq_ignore_ascii_case(attribute)));
+            self.file_values.push(FileValue {
+                file: file.to_path_buf(),
+                attribute: clean(attribute),
+                value: clean(value),
+            });
+        }
+    }
+
+    /// The plugin settings remembered for a data file, as data file attributes.
+    pub fn values_for(&self, file: &Path) -> Vec<(String, Vec<String>)> {
+        let mine = self.file_values.iter().filter(|v| v.file == file);
+        mine.map(|v| (v.attribute.clone(), vec![v.value.clone()]))
+            .collect()
     }
 
     /// Keeps a choice of SET TVARS or TNUMBERS from Edit > Settings.
@@ -284,7 +410,25 @@ mod tests {
             tvars: Some("NAMES".into()),
             tnumbers: Some("BOTH".into()),
             mioutput: Some("IMPUTED POOLED".into()),
+            output: Show {
+                kinds: [true, false, true, false, true],
+                export_hidden: true,
+            },
+            plugin: Some(PathBuf::from("/opt/plugins/sig colours")),
+            plugin_off: true,
+            excel_comments_off: true,
+            presets: vec![
+                Preset::new("plugin_house_universe", "Adults 15-74", "1043000"),
+                Preset::new("plugin_house_universe", "All: ages\t0+", "1331000"),
+                Preset::new("plugin_house_note", "Short", "Base: all asked"),
+            ],
+            file_values: vec![FileValue {
+                file: PathBuf::from("/data/my surveys/wave 2.sav"),
+                attribute: "plugin_house_universe".into(),
+                value: "1043000".into(),
+            }],
         };
+        assert_eq!(settings.presets[1].name, "All: ages 0+");
         for i in 0..12 {
             settings.add_recent(Path::new(&format!("/data/f{i}.sav")));
         }
@@ -311,6 +455,26 @@ mod tests {
         // a relative path is kept as the folder it means now
         settings.remember_folder(Path::new("job.sps"));
         assert_eq!(settings.folder, Some(std::env::current_dir().unwrap()));
+    }
+
+    #[test]
+    fn what_the_output_shows_is_kept() {
+        // the defaults write nothing
+        let mut settings = Settings::default();
+        assert_eq!(settings.text(), "");
+        assert!(!settings.output.kind(Part::Heading) && settings.output.kind(Part::Title));
+        settings.output.kinds = [true, false, true, true, true];
+        settings.output.export_hidden = true;
+        let text = settings.text();
+        assert_eq!(
+            text,
+            "output-shows headings tables notes charts\nexport hidden\n"
+        );
+        assert_eq!(Settings::parse(&text), settings);
+        // every kind off is kept too
+        settings.output.kinds = [false; 5];
+        assert_eq!(settings.text(), "output-shows\nexport hidden\n");
+        assert_eq!(Settings::parse(&settings.text()), settings);
     }
 
     #[test]

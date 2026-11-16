@@ -764,6 +764,8 @@ fn transpose(table: &Table) -> Table {
         caption: table.caption.clone(),
         outline: table.outline.clone(),
         hidden: table.hidden,
+        // the cells moved: what plugins gave and need no longer fits
+        ..Table::default()
     }
 }
 

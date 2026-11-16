@@ -190,6 +190,17 @@ Each output document of the session has an output window, named after the docume
 
 Each output window shows its tables beside a navigator that groups them by run and command. A click on a run in the navigator folds it away.
 
+### What the output shows
+
+Everything the output shows is an element in the navigator. Under each command come its heading (the line such as "CTABLES, line 36" above its first table) and its tables and charts, each with its title and, when it has them, its notes.
+
+- Each element has a box beside it in the navigator. Clear the box to hide that one element, check it to show it again. A table hidden by `OUTPUT MODIFY` starts with its box clear.
+- Edit > Settings > Grids and output > **Show in the output** shows or hides whole kinds: command headings (off by default), titles, tables, notes under tables and charts (on by default).
+- An element shows when its kind is on and it is not hidden itself. A table or chart that does not show takes its title and notes with it, and a command whose tables all are hidden has no heading.
+- An element that does not show is greyed and in italics in the navigator. The output closes up around it at once.
+- A chart's notes are its subtitle and footnote.
+- Hiding is a matter of the window: OUTPUT SAVE keeps everything, with the hidden flags `OUTPUT MODIFY` set.
+
 ### How tables look
 
 - Each table has its multi-level header. Its caption and notes follow it.
@@ -214,6 +225,8 @@ The buttons over the tables act on the selected tables. A right click on a table
 - **Delete** removes them from the window and from its output document, so OUTPUT SAVE and OUTPUT EXPORT leave them out too. The log shows the deletion as a comment line. While a run is going, Delete waits: the status bar asks to try again when it ends.
 - **Export selection** saves only them, as a web page or an Excel workbook (one sheet per table, or all tables on one sheet).
 - **Clear output** deletes every table, the same way.
+
+Copies and exports (web page, PDF, Excel, from these buttons and from the File menu) take only what the output shows: no hidden tables, and no headings, titles or notes that do not show. A table whose title does not show has no title row in Excel, and its sheet and PDF bookmark keep its name. With Edit > Settings > Grids and output > **Export hidden items** on, they take everything, as before.
 
 ### Charts
 
@@ -690,12 +703,16 @@ Edit > Settings holds every setting of the window in one dialog, with its sectio
 - **Grids and output**
   - **Paper of the grids and the output**: the Data and Variables grids and the output tables. **Always light** (the default) keeps them dark text on a light sheet, as a spreadsheet or a document page does, while menus, panels and dialogs follow the system's dark or light theme. **Follow the system theme** draws them in the system theme too.
   - **Log under Syntax and Output** (on by default).
+  - **Show in the output**: Command headings (off by default), Titles, Tables, Notes under tables and Charts (on by default), and **Export hidden items** (off by default). See [What the output shows](#what-the-output-shows). Kept in `window.txt` as lines such as `output-shows titles tables charts` and `export hidden`.
   - **Variables in tables** (Labels, Names, or Names and labels) and **Values in tables** (Labels, Values, or Values and labels). These belong to the session, not the window. A choice runs `SET TVARS` or `SET TNUMBERS` like any other command, shows in the log and stays for the later runs. A SET in syntax changes the dialog too. The window also keeps the choice (lines such as `tvars names` and `tnumbers both` in `window.txt`) and runs the same SET when it starts, so you set it once.
   - **Output for multiply imputed data**: Original data, Each imputation, Pooled and Diagnostics, for procedures run on data split by `Imputation_`. A change runs `SET MIOUTPUT=[...]`; at least one part stays checked. Like the table labels it belongs to the session, is kept in `window.txt` (a line such as `mioutput observed pooled`) and is set again when the window starts.
 - **Updates**
   - **Check for updates automatically**: see [Updates](#updates).
 - **AI agents**
   - Adds the Statscraft MCP server to the AI apps on this computer, or takes it out again, with a click per app, and says what to restart. For Claude Desktop, **Install extension** downloads and opens the Statscraft extension of this version. **Check** shows each app's settings files and whether the entry is in them now. See [Connect your AI agent](connect.md#from-the-window-edit--settings--ai-agents).
+
+- **Plugins**
+  - **Plugin program** with **Browse...**: a program that colours and comments the cells of custom tables, with a line naming it and its version. **Colour and comment tables with the plugin** turns it on and off, and **Write plugin comments as Excel comments** (on by default) decides whether Excel exports carry its comments as cell notes. Kept in `window.txt` as `plugin PATH`, `plugin-off` and `excel-comments off`. The plugin's own settings are in **Edit > Plugin Settings...** and are kept with the data file. See [Plugins](plugins.md).
 
 ## What the window remembers
 

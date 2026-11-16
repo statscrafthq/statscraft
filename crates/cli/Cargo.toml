@@ -6,6 +6,13 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+# The integration tests are one binary, which links once instead of once per file. A new file
+# in tests/ needs a `mod` line in tests/main.rs, or it is not built.
+autotests = false
+
+[[test]]
+name = "cli"
+path = "tests/main.rs"
 
 [dependencies]
 statscraft-data = { path = "../data" }

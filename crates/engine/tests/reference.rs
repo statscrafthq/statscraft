@@ -3,7 +3,7 @@
 //! The tests are ignored by default. They run when STATSCRAFT_PSPP names the PSPP executable:
 //!
 //! ```text
-//! STATSCRAFT_PSPP=/path/to/pspp cargo test -p statscraft-engine --test reference -- --ignored
+//! STATSCRAFT_PSPP=/path/to/pspp cargo test -p statscraft-engine --test reference -- --ignored reference::
 //! ```
 //!
 //! `check(fixture, syntax)` loads the fixture in both programs, runs the syntax, saves both

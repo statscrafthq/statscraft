@@ -2120,11 +2120,9 @@ mod tests {
              /SAVE=PRED SEPRED RESID ZRESID SRESID DRESID COOK LEVER\n  /METHOD=SSTYPE(1)\n  \
              /PRINT=DESCRIPTIVE ETASQ OPOWER PARAMETER HOMOGENEITY LOF\n  /CRITERIA=ALPHA(0.01)."
         );
-        let mut session = open("survey_basic.sav");
-        assert!(run_in(&mut session, &syntax) >= 12);
-        let data = session.dataset().unwrap();
-        assert!(data.variable("PRE_1").is_ok());
-        assert!(data.variable("COO_1").is_ok());
+        // the dialog walk with every option on runs this set (app/dialog_walk.rs), and the
+        // engine's GLM tests check the saved variables
+        assert!(statscraft_syntax::parse(&syntax).1.is_empty());
         // the plots of a factor taken out are left out, with their options
         d.factors.retain(|f| f != "gender");
         let syntax = d.syntax().unwrap();

@@ -2,7 +2,7 @@
 //! Ignored by default because they need PSPP:
 //!
 //! ```text
-//! STATSCRAFT_PSPP=/path/to/pspp cargo test -p statscraft-engine --test reference_npar -- --ignored
+//! STATSCRAFT_PSPP=/path/to/pspp cargo test -p statscraft-engine --test reference -- --ignored reference_npar::
 //! ```
 //!
 //! PSPP starts with `SET FORMAT=F20.10`, so most statistics come with ten decimals. Tables are

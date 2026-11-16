@@ -4,7 +4,7 @@
 //! (tests/input_program.rs). Ignored by default because they need the PSPP program:
 //!
 //! ```text
-//! STATSCRAFT_PSPP=/path/to/pspp cargo test -p statscraft-engine --test reference_input -- --ignored
+//! STATSCRAFT_PSPP=/path/to/pspp cargo test -p statscraft-engine --test reference -- --ignored reference_input::
 //! ```
 
 use statscraft_data::{Dataset, Values};

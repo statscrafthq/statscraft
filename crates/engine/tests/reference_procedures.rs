@@ -3,7 +3,7 @@
 //! box on the same files and the same syntax. Ignored by default because they need PSPP:
 //!
 //! ```text
-//! STATSCRAFT_PSPP=/path/to/pspp cargo test -p statscraft-engine --test reference_procedures -- --ignored
+//! STATSCRAFT_PSPP=/path/to/pspp cargo test -p statscraft-engine --test reference -- --ignored reference_procedures::
 //! ```
 //!
 //! Tables: PSPP writes formatted numbers, so its job starts with `SET FORMAT=F20.10`, which

@@ -808,3 +808,13 @@ fn the_system_runner_reads_both_outputs_of_a_real_program() {
         statscraft_connect::system_runner()(Path::new("rustc"), &["--no-such-flag"]).unwrap();
     assert!(!ok);
 }
+
+/// A window started from a desktop menu may lack the user's own program folders on PATH, so
+/// `claude` is also looked for where its installers put it.
+#[cfg(not(windows))]
+#[test]
+fn user_program_folders_are_searched_for_claude() {
+    let places = Places::from_env();
+    assert!(places.path.contains(&places.home.join(".local/bin")));
+    assert!(places.path.contains(&places.home.join(".claude/local")));
+}

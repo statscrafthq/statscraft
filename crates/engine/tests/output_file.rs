@@ -141,6 +141,9 @@ fn every_kind_of_cell_survives_a_write_and_a_read() {
         caption: None,
         outline: None,
         hidden: false,
+        cell_stats: None,
+        decorations: Vec::new(),
+        style: Default::default(),
     };
     let text = output_file::write(&[Item::Table(Arc::new(table))]);
     let items = output_file::read(&text).unwrap();

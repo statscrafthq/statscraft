@@ -56,7 +56,7 @@ The open window (`-s gui`) lists what the window holds, the same way. A file ses
 ## run
 
 ```
-statscraft run [FILE | - | -e TEXT] [-s SESSION] [--lines FIRST-LAST] [--json] [--vega-lite] [--encoding NAME] [--xlsx FILE [--xlsx-one-sheet]] [--charts DIR [--chart-format svg|png]]
+statscraft run [FILE | - | -e TEXT] [-s SESSION] [--lines FIRST-LAST] [--json] [--vega-lite] [--encoding NAME] [--xlsx FILE [--xlsx-one-sheet] [--plugin PROGRAM]] [--charts DIR [--chart-format svg|png]]
 ```
 
 | Flag | Meaning |
@@ -70,6 +70,7 @@ statscraft run [FILE | - | -e TEXT] [-s SESSION] [--lines FIRST-LAST] [--json] [
 | `--encoding NAME` | encoding of the syntax file or standard input, such as `windows-1257` or `1252`; without it a file that is valid UTF-8 (with or without a byte order mark) is read as UTF-8 and any other file in the system's legacy code page |
 | `--xlsx FILE` | also write every table and chart of the run to an Excel workbook, one sheet per table |
 | `--xlsx-one-sheet` | with `--xlsx`, put all tables on one sheet, one below the other |
+| `--plugin PROGRAM` | with `--xlsx`, let a plugin colour, comment and lay out the custom tables (see [plugins](plugins.md)); its settings come from the active data's attributes |
 | `--charts DIR` | also write every chart of the run as a picture into this folder (see [Chart pictures](#chart-pictures)) |
 | `--chart-format svg\|png` | with `--charts`, the picture format; default `svg` |
 

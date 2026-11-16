@@ -600,6 +600,8 @@ pub struct App {
     ctx: egui::Context,
     /// The listener for `--session gui`; dropping it removes the endpoint file.
     server: Option<live::Server>,
+    /// The plugin that colours and comments tables, and Edit > Plugin Settings.
+    plugins: crate::plugins::Plugins,
 }
 
 impl App {
@@ -672,6 +674,7 @@ impl App {
             opens: Default::default(),
             ctx: app_ctx,
             server: server.ok(),
+            plugins: Default::default(),
         };
         app.here = app.windows.root();
         app.popups = app.here;
@@ -757,6 +760,81 @@ impl App {
             && let Ok(remote) = self.requests.try_recv()
         {
             self.answer(remote);
+        }
+        self.plugins.receive();
+        if self.runs.is_idle() {
+            self.apply_plugin();
+        }
+    }
+
+    /// Starts the plugin on the tables of an output window with cell statistics: with `last`
+    /// the new ones of its last run only.
+    fn start_plugin(&mut self, id: WindowId, last: bool) {
+        let Some(o) = self.windows.output(id) else {
+            return;
+        };
+        let tables = o.view.plugin_tables(last);
+        let document = o.document.clone();
+        let ctx = self.ctx.clone();
+        let data = self.session.dataset();
+        let window = (id, document.as_str());
+        let wake = move || ctx.request_repaint();
+        self.plugins
+            .start(&self.settings, data, window, tables, wake);
+    }
+
+    /// Puts the plugin's answers on the tables of their windows and documents, and decorates
+    /// everything again after its settings changed. Only while no run goes on: a run works on
+    /// a copy of the documents.
+    fn apply_plugin(&mut self) {
+        if std::mem::take(&mut self.plugins.redo) {
+            // a plugin turned off or taken away takes its colours and comments with it
+            let off = self.settings.plugin_off || self.settings.plugin.is_none();
+            for id in self.windows.ids() {
+                match self.windows.output(id) {
+                    Some(o) if off => {
+                        let all = output::tables(&o.view.runs);
+                        let decorated = all.filter(|t| {
+                            !t.table.decorations.is_empty() || !t.table.style.is_empty()
+                        });
+                        let cleared = decorated.map(|t| (t.id, Default::default())).collect();
+                        self.plugins.waiting.push(crate::plugins::Done {
+                            window: id,
+                            document: o.document.clone(),
+                            generation: self.plugins.generation,
+                            result: Ok(cleared),
+                        });
+                    }
+                    _ => self.start_plugin(id, false),
+                }
+            }
+        }
+        for done in std::mem::take(&mut self.plugins.waiting) {
+            let answer = match done.result {
+                Ok(answer) => answer,
+                Err(e) => {
+                    self.status = Err(format!("plugin: {e}"));
+                    continue;
+                }
+            };
+            // an answer that comes in after the plugin was turned off is dropped
+            let off = self.settings.plugin_off || self.settings.plugin.is_none();
+            if off
+                && answer
+                    .iter()
+                    .any(|(_, (d, s))| !d.is_empty() || !s.is_empty())
+            {
+                continue;
+            }
+            // a window closed or showing another document since takes nothing
+            if let Some(o) = self.windows.output_mut(done.window)
+                && o.document == done.document
+            {
+                let placed = o.view.decorate(answer);
+                if let Err(e) = self.session.decorate_output(&done.document, placed) {
+                    self.status = Err(format!("plugin: {e}"));
+                }
+            }
         }
     }
 
@@ -1002,6 +1080,7 @@ impl App {
         match result.map(|r| r.commands) {
             Ok(outputs) => {
                 let mut shown = None;
+                let mut added = Vec::new();
                 follow_modified(&mut self.windows, &outputs);
                 for (document, label, commands) in output_groups(outputs, &self.source, from_editor)
                 {
@@ -1011,7 +1090,11 @@ impl App {
                         && o.view.add_run(label, commands)
                     {
                         shown = Some(id);
+                        added.push(id);
                     }
+                }
+                for id in added {
+                    self.start_plugin(id, true);
                 }
                 if let Some(id) = shown {
                     self.front(id);
@@ -1499,6 +1582,13 @@ impl App {
                 ui.separator();
                 if ui.button("Settings...").clicked() {
                     self.settings_section = Some(Section::default());
+                    self.popups = self.here;
+                }
+                if ui.button("Plugin Settings...").clicked() {
+                    let data = self.session.dataset();
+                    if let Err(e) = self.plugins.open_dialog(&self.settings, data) {
+                        self.status = Err(e);
+                    }
                     self.popups = self.here;
                 }
             });
@@ -2388,7 +2478,8 @@ impl App {
                 return;
             };
             let chosen = &view.selected;
-            let page = output::html(&view.runs, |id| !selected || chosen.contains(&id));
+            let keep = |id| !selected || chosen.contains(&id);
+            let page = output::html(&view.runs, keep, &view.exported());
             self.status = match std::fs::write(&path, page) {
                 Ok(()) => Ok(format!("output exported to {}", path.display())),
                 Err(e) => Err(format!("{}: {e}", path.display())),
@@ -2406,7 +2497,7 @@ impl App {
             let Some(view) = self.windows.output(id).map(|o| &o.view) else {
                 return;
             };
-            let bytes = output::pdf(&view.runs, |_| true);
+            let bytes = output::pdf(&view.runs, |_| true, &view.exported());
             self.status = match std::fs::write(&path, bytes) {
                 Ok(()) => Ok(format!("output exported to {}", path.display())),
                 Err(e) => Err(format!("{}: {e}", path.display())),
@@ -2460,13 +2551,19 @@ impl App {
                 return;
             };
             let chosen = &view.selected;
-            let items = output::tables(&view.runs)
-                .filter(|t| !selected || chosen.contains(&t.id))
-                .map(|t| match &t.chart {
-                    Some(chart) => statscraft_export::Item::Chart(chart),
-                    None => statscraft_export::Item::Table(&t.table),
-                });
-            self.status = match statscraft_export::write_xlsx(&path, items, one_sheet) {
+            let keep = |id| !selected || chosen.contains(&id);
+            let mut exported = view.exported().exported(&view.runs, keep);
+            if self.settings.excel_comments_off {
+                let tables = exported.iter_mut().flat_map(|(_, tables)| tables);
+                let decorations = tables.flat_map(|(table, ..)| &mut table.decorations);
+                decorations.for_each(|d| d.comment = None);
+            }
+            let items = exported.iter().flat_map(|(_, tables)| tables);
+            let items = items.map(|(table, chart, notes)| match chart {
+                Some(chart) => (statscraft_export::Item::Chart(chart), *notes),
+                None => (statscraft_export::Item::Table(table), *notes),
+            });
+            self.status = match statscraft_export::write_xlsx_parts(&path, items, one_sheet) {
                 Ok(()) => Ok(format!("output exported to {}", path.display())),
                 Err(e) => Err(format!("{}: {e}", path.display())),
             };
@@ -3807,10 +3904,12 @@ impl App {
     /// The tables of an output window, with its navigator.
     fn output_view(&mut self, ui: &mut Ui, id: WindowId) {
         let light = !self.settings.paper_follows_system;
+        let show = self.settings.output;
         let Some(o) = self.windows.output_mut(id) else {
             return;
         };
         o.view.light_paper = light;
+        o.view.show = show;
         match o.view.ui(ui) {
             Some(output_view::Request::ExportHtml) => self.export_html(id, true),
             Some(output_view::Request::ExportXlsx { one_sheet }) => {
@@ -3880,15 +3979,49 @@ impl App {
             values: self.session.setting("TNUMBERS"),
             mioutput: self.session.setting("MIOUTPUT"),
         };
+        // the plugin is asked to describe itself only while the dialog shows it
+        let plugin = match self.settings_section {
+            Some(_) => self.plugins.line(&self.settings),
+            None => String::new(),
+        };
+        let chosen = (self.settings.plugin.clone(), self.settings.plugin_off);
         let set = settings_window::show(
             ctx,
             &mut self.settings_section,
             &mut self.settings,
             &labels,
             &mut self.connect,
+            &plugin,
         );
         if let Some(syntax) = set {
             self.run(&syntax, None, After::Show);
+        }
+        if (self.settings.plugin.clone(), self.settings.plugin_off) != chosen {
+            self.plugins.changed();
+        }
+        let presets = self
+            .plugins
+            .dialog
+            .is_some()
+            .then(|| self.settings.presets.clone());
+        let set = self.plugins.dialog_ui(ctx, &mut self.settings.presets);
+        if presets.is_some_and(|p| p != self.settings.presets) {
+            // the window works on without them
+            let _ = self.settings.save();
+        }
+        if let Some((syntax, values)) = set {
+            // also kept for the data file, so reading it again before saving keeps them
+            let file = self
+                .session
+                .dataset()
+                .and_then(|d| d.file())
+                .map(Path::to_path_buf);
+            if let Some(file) = file {
+                self.settings.remember_values(&file, &values);
+                let _ = self.settings.save();
+            }
+            self.run(&syntax, None, After::Show);
+            self.plugins.again();
         }
         if self.settings.log_hidden != log_hidden {
             self.show_log = !self.settings.log_hidden;

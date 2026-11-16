@@ -1,16 +1,18 @@
-//! An output window: a navigator of runs, commands and tables beside the tables themselves. Each
-//! table is measured once, and a table out of view only takes its place, so hundreds of tables
-//! scroll smoothly.
+//! An output window: a navigator of runs, commands and every element of the output (headings,
+//! titles, tables, notes and charts, each with its own visibility) beside the output itself.
+//! Each table is measured once, and a table out of view only takes its place, so hundreds of
+//! tables scroll smoothly.
 
 use crate::office::{self, Program};
-use crate::output::{self, OutputItem, OutputRun, OutputTable};
+use crate::output::{self, Exported, OutputItem, OutputRun, OutputTable, Part, Show, Visibility};
 use eframe::egui::{
     self, Align, Color32, FontId, Key, Painter, Pos2, Rect, RichText, ScrollArea, Sense, Stroke,
     StrokeKind, TextStyle, Ui, Vec2, pos2, text::LayoutJob, vec2,
 };
 use statscraft_engine::office::is_office_chart;
 use statscraft_engine::output_modify::ModifiedItem;
-use statscraft_engine::{Chart, Table};
+use statscraft_engine::plugin::Answer;
+use statscraft_engine::{Chart, Decoration, Table, parse_colour};
 use statscraft_export::picture::{self, Paper, Scene};
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -75,6 +77,48 @@ enum Menu {
     },
 }
 
+/// A row of the navigator, by the places of its run, command and table.
+#[derive(Clone, Copy)]
+enum Row {
+    Run(usize),
+    Command(usize, usize),
+    Heading(usize, usize),
+    Table(usize, usize, usize),
+    /// A table's title or notes.
+    Part(usize, usize, usize, Part),
+}
+
+/// An element shown or hidden in the navigator.
+#[derive(Clone, Copy)]
+enum Flip {
+    /// A heading, title or notes, by the id of its command or table.
+    Hidden((u64, Part)),
+    /// A table or chart, by its id.
+    Table(u64),
+}
+
+/// A navigator row of one element: its box, checked unless the element is hidden itself, and
+/// its name, greyed when it does not show. Returns whether the box and the name were clicked.
+fn element(
+    ui: &mut Ui,
+    indent: f32,
+    mut own: bool,
+    shown: bool,
+    label: RichText,
+    selected: bool,
+) -> (bool, bool) {
+    ui.horizontal(|ui| {
+        ui.add_space(indent);
+        let flipped = ui
+            .add(egui::Checkbox::without_text(&mut own))
+            .on_hover_text("Show in the output; Edit > Settings shows or hides whole kinds")
+            .changed();
+        let label = if shown { label } else { label.weak().italics() };
+        (flipped, ui.selectable_label(selected, label).clicked())
+    })
+    .inner
+}
+
 /// Where everything of one table goes, measured once.
 struct Layout {
     widths: Vec<f32>,
@@ -102,9 +146,11 @@ impl Layout {
         self.header_height() + self.row_tops.last().copied().unwrap_or(0.0)
     }
 
-    /// The title, the table and the caption.
-    fn block_height(&self) -> f32 {
-        self.title_height + 6.0 + self.table_height() + 4.0 + self.caption_height
+    /// The title and the caption when they show, and the table.
+    fn block_height(&self, title: bool, notes: bool) -> f32 {
+        let title = if title { self.title_height + 6.0 } else { 0.0 };
+        let notes = if notes { self.caption_height } else { 0.0 };
+        title + self.table_height() + 4.0 + notes
     }
 }
 
@@ -131,10 +177,15 @@ pub struct OutputView {
     syntax_of: Option<u64>,
     /// Every chart laid out as a picture, or None for a kind that has no drawing yet.
     scenes: HashMap<u64, Option<Scene>>,
-    /// The width and paper (dark or not) the scenes were laid out for.
-    scenes_at: (f32, bool),
+    /// The width, paper (dark or not) and kinds shown the scenes were laid out for.
+    scenes_at: (f32, bool, Show),
     /// Charts shown as their data table instead of a picture.
     as_data: HashSet<u64>,
+    /// The kinds of element shown, from the settings.
+    pub show: Show,
+    /// Headings, titles and notes hidden one by one, by the id of their command or table; a
+    /// table's own visibility is `Table::hidden`.
+    hidden: HashSet<(u64, Part)>,
 }
 
 impl OutputView {
@@ -151,6 +202,8 @@ impl OutputView {
             if tables.is_empty() {
                 continue;
             }
+            self.next_id += 1;
+            let id = self.next_id;
             let tables = tables
                 .into_iter()
                 .map(|(table, chart)| {
@@ -163,6 +216,7 @@ impl OutputView {
                 })
                 .collect();
             items.push(OutputItem {
+                id,
                 heading,
                 syntax,
                 tables,
@@ -214,12 +268,59 @@ impl OutputView {
         self.as_data.retain(|id| !gone.contains(id));
     }
 
+    /// The tables with cell statistics, with their ids, for the plugin: with `last` only the
+    /// new ones of the last run that have no decorations yet.
+    pub fn plugin_tables(&self, last: bool) -> Vec<(u64, Table)> {
+        let runs = match last {
+            true => &self.runs[self.runs.len().saturating_sub(1)..],
+            false => &self.runs[..],
+        };
+        let wanted = |t: &&OutputTable| {
+            t.table.cell_stats.is_some() && !(last && !t.table.decorations.is_empty())
+        };
+        let found = output::tables(runs).filter(wanted);
+        found.map(|t| (t.id, t.table.clone())).collect()
+    }
+
+    /// Puts a plugin's decorations on the tables of the given ids and returns them by the
+    /// places of their tables, as the document counts them (see `selected_positions`).
+    pub fn decorate(&mut self, answer: Vec<(u64, Answer)>) -> Vec<(usize, Answer)> {
+        let mut by_id: HashMap<u64, Answer> = answer.into_iter().collect();
+        let mut placed = Vec::new();
+        let all = self.runs.iter_mut().flat_map(|run| &mut run.items);
+        for (place, t) in all.flat_map(|item| &mut item.tables).enumerate() {
+            if let Some((decorations, style)) = by_id.remove(&t.id) {
+                t.table.set_decorations(decorations, style);
+                let set = (t.table.decorations.clone(), t.table.style.clone());
+                placed.push((place, set));
+            }
+        }
+        placed
+    }
+
     pub fn delete_selected(&mut self) {
         let selected = std::mem::take(&mut self.selected);
         output::retain(&mut self.runs, |id| !selected.contains(&id));
         self.layouts.retain(|id, _| !selected.contains(id));
         self.scenes.retain(|id, _| !selected.contains(id));
         self.as_data.retain(|id| !selected.contains(id));
+    }
+
+    /// What the window shows.
+    fn visibility(&self) -> Visibility<'_> {
+        Visibility {
+            show: self.show,
+            hidden: &self.hidden,
+            all: false,
+        }
+    }
+
+    /// What exports and copies take: what shows, or everything with "Export hidden items".
+    pub fn exported(&self) -> Visibility<'_> {
+        Visibility {
+            all: self.show.export_hidden,
+            ..self.visibility()
+        }
     }
 
     /// The paper the charts were drawn on last.
@@ -239,29 +340,24 @@ impl OutputView {
             .collect()
     }
 
-    fn selected_charts(&self) -> Vec<&Chart> {
-        output::tables(&self.runs)
-            .filter(|t| self.selected.contains(&t.id))
-            .filter_map(|t| t.chart.as_ref())
-            .collect()
-    }
-
-    fn selected_tables(&self) -> Vec<&Table> {
-        output::tables(&self.runs)
-            .filter(|t| self.selected.contains(&t.id))
-            .map(|t| &t.table)
-            .collect()
-    }
-
     /// Puts the selected tables on the clipboard: as rich text with plain text beside it, or
     /// as tab-separated text only. One chart alone goes, where the system allows, as an
-    /// editable office chart with its data as text beside it.
+    /// editable office chart with its data as text beside it. What does not show stays out,
+    /// as in exports.
     fn copy(&mut self, ui: &Ui, rich: bool) -> Result<String, String> {
-        let tables = self.selected_tables();
+        let shown = self.exported();
+        let copied: Vec<Exported> = output::tables(&self.runs)
+            .filter(|t| self.selected.contains(&t.id) && shown.table(t))
+            .map(|t| shown.shown(t))
+            .collect();
+        if copied.is_empty() {
+            return Err("the selected tables are hidden: nothing copied".into());
+        }
+        let tables: Vec<&Table> = copied.iter().map(|(t, ..)| t).collect();
         let text: Vec<String> = tables.iter().map(|t| output::tsv(t)).collect();
         let text = text.join("\n");
-        let chart = match self.selected_charts()[..] {
-            [chart] if tables.len() == 1 => Some(chart),
+        let chart = match &copied[..] {
+            [(_, Some(chart), _)] => Some(chart),
             _ => None,
         };
         if let Some(chart) = chart.filter(|_| rich) {
@@ -459,69 +555,109 @@ impl OutputView {
         request
     }
 
-    /// One row per run, command and table, of which only the rows in view are drawn.
+    /// One row per run, command and element (heading, table or chart, title, notes), of which
+    /// only the rows in view are drawn. Each element has a box that shows or hides it.
     fn navigator(&mut self, ui: &mut Ui, ctrl: bool) {
         // long titles are cut short here; the tables show them whole
         ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Truncate);
-        let mut rows: Vec<(usize, Option<usize>, Option<usize>)> = Vec::new();
+        let mut rows: Vec<Row> = Vec::new();
         for (r, run) in self.runs.iter().enumerate() {
-            rows.push((r, None, None));
+            rows.push(Row::Run(r));
             if self.collapsed.contains(&run.label) {
                 continue;
             }
             for (i, item) in run.items.iter().enumerate() {
-                rows.push((r, Some(i), None));
-                rows.extend((0..item.tables.len()).map(|t| (r, Some(i), Some(t))));
+                rows.extend([Row::Command(r, i), Row::Heading(r, i)]);
+                for (t, table) in item.tables.iter().enumerate() {
+                    rows.extend([Row::Table(r, i, t), Row::Part(r, i, t, Part::Title)]);
+                    if table.table.caption.is_some() {
+                        rows.push(Row::Part(r, i, t, Part::Notes));
+                    }
+                }
             }
         }
         let mut picked: Option<Vec<u64>> = None;
         let mut toggle = None;
+        let mut flip = None;
+        let shown = self.visibility();
         let height = ui.spacing().interact_size.y;
         ScrollArea::vertical()
             .auto_shrink(false)
             .show_rows(ui, height, rows.len(), |ui, range| {
-                for &(r, item, table) in &rows[range] {
-                    let run = &self.runs[r];
-                    match (item, table) {
-                        (None, _) => {
+                for &row in &rows[range] {
+                    let (r, i) = match row {
+                        Row::Run(r) => {
+                            let run = &self.runs[r];
                             let open = !self.collapsed.contains(&run.label);
                             let mark = if open { "\u{25be}" } else { "\u{25b8}" };
                             let text = RichText::new(format!("{mark} {}", run.label)).weak();
                             if ui.selectable_label(false, text).clicked() {
                                 toggle = Some(run.label.clone());
                             }
+                            continue;
                         }
-                        (Some(i), None) => {
-                            let ids: Vec<u64> = run.items[i].tables.iter().map(|t| t.id).collect();
-                            let all = ids.iter().all(|id| self.selected.contains(id));
+                        Row::Command(r, i) | Row::Heading(r, i) => (r, i),
+                        Row::Table(r, i, _) | Row::Part(r, i, ..) => (r, i),
+                    };
+                    let item = &self.runs[r].items[i];
+                    let ids = || item.tables.iter().map(|t| t.id).collect::<Vec<u64>>();
+                    let all = item.tables.iter().all(|t| self.selected.contains(&t.id));
+                    match row {
+                        Row::Run(_) => {}
+                        Row::Command(..) => {
                             ui.horizontal(|ui| {
                                 ui.add_space(10.0);
-                                let heading = RichText::new(&run.items[i].heading).strong();
+                                let heading = RichText::new(&item.heading).strong();
                                 let row = ui.selectable_label(all, heading);
-                                let syntax = &run.items[i].syntax;
                                 let row = row.on_hover_ui(|ui| {
-                                    ui.label(RichText::new(syntax).monospace());
+                                    ui.label(RichText::new(&item.syntax).monospace());
                                 });
                                 if row.clicked() {
-                                    picked = Some(ids);
+                                    picked = Some(ids());
                                 }
                             });
                         }
-                        (Some(i), Some(t)) => {
-                            let t = &run.items[i].tables[t];
-                            ui.horizontal(|ui| {
-                                ui.add_space(22.0);
-                                let on = self.selected.contains(&t.id);
-                                // the outline label OUTPUT MODIFY gave; a hidden item is greyed
-                                let label = t.table.outline.as_deref().unwrap_or(&t.table.title);
-                                let mut label = RichText::new(label);
-                                if t.table.hidden {
-                                    label = label.weak().italics();
-                                }
-                                if ui.selectable_label(on, label).clicked() {
-                                    picked = Some(vec![t.id]);
-                                }
-                            });
+                        Row::Heading(..) => {
+                            let key = (item.id, Part::Heading);
+                            let own = !self.hidden.contains(&key);
+                            let label = RichText::new("Heading");
+                            let (flipped, clicked) =
+                                element(ui, 22.0, own, shown.heading(item), label, all);
+                            flip = flip.or(flipped.then_some(Flip::Hidden(key)));
+                            if clicked {
+                                picked = Some(ids());
+                            }
+                        }
+                        Row::Table(.., t) => {
+                            let t = &item.tables[t];
+                            let on = self.selected.contains(&t.id);
+                            // the outline label OUTPUT MODIFY gave
+                            let label = t.table.outline.as_deref().unwrap_or(&t.table.title);
+                            let own = !t.table.hidden;
+                            let label = RichText::new(label);
+                            let (flipped, clicked) =
+                                element(ui, 22.0, own, shown.table(t), label, on);
+                            flip = flip.or(flipped.then_some(Flip::Table(t.id)));
+                            if clicked {
+                                picked = Some(vec![t.id]);
+                            }
+                        }
+                        Row::Part(.., t, part) => {
+                            let t = &item.tables[t];
+                            let on = self.selected.contains(&t.id);
+                            let key = (t.id, part);
+                            let own = !self.hidden.contains(&key);
+                            let label = match part {
+                                Part::Title => "Title",
+                                _ => "Notes",
+                            };
+                            let label = RichText::new(label);
+                            let (flipped, clicked) =
+                                element(ui, 46.0, own, shown.part(t, part), label, on);
+                            flip = flip.or(flipped.then_some(Flip::Hidden(key)));
+                            if clicked {
+                                picked = Some(vec![t.id]);
+                            }
                         }
                     }
                 }
@@ -531,6 +667,21 @@ impl OutputView {
         {
             self.collapsed.insert(label);
         }
+        match flip {
+            Some(Flip::Hidden(key)) => {
+                if !self.hidden.remove(&key) {
+                    self.hidden.insert(key);
+                }
+                // a chart's picture holds its title and notes
+                self.scenes.remove(&key.0);
+            }
+            Some(Flip::Table(id)) => {
+                let all = self.runs.iter_mut().flat_map(|run| &mut run.items);
+                let t = all.flat_map(|item| &mut item.tables).find(|t| t.id == id);
+                t.into_iter().for_each(|t| t.table.hidden = !t.table.hidden);
+            }
+            None => {}
+        }
         if let Some(ids) = picked {
             self.scroll_to = ids.first().map(|&id| (id, 2));
             self.pick(&ids, ctrl);
@@ -538,7 +689,7 @@ impl OutputView {
     }
 
     /// The tables one below the other, each under its command's heading when it is the first of
-    /// the command; only the tables in view are drawn.
+    /// the command; only the elements shown, and of those only the ones in view, are drawn.
     fn tables(&mut self, ui: &mut Ui, ctrl: bool) -> Option<Request> {
         let font = TextStyle::Body.resolve(ui.style());
         let scale = (font.size, ui.ctx().pixels_per_point());
@@ -551,29 +702,46 @@ impl OutputView {
             .clamp(CHART_WIDTH.0, CHART_WIDTH.1)
             .round();
         let dark = ui.visuals().dark_mode;
-        if self.scenes_at != (chart_width, dark) {
+        if self.scenes_at != (chart_width, dark, self.show) {
             self.scenes.clear();
-            self.scenes_at = (chart_width, dark);
+            self.scenes_at = (chart_width, dark, self.show);
         }
         let paper = self.paper();
+        let shown = Visibility {
+            show: self.show,
+            hidden: &self.hidden,
+            all: false,
+        };
         for t in output::tables(&self.runs) {
-            if let Some(chart) = &t.chart {
-                let scene = || picture::scene(chart, chart_width, paper);
-                self.scenes.entry(t.id).or_insert_with(scene);
+            if t.chart.is_some() && !self.scenes.contains_key(&t.id) {
+                // the picture holds the chart's title and notes only when they show
+                let scene = shown
+                    .shown(t)
+                    .1
+                    .and_then(|c| picture::scene(&c, chart_width, paper));
+                self.scenes.insert(t.id, scene);
             }
         }
-        // where every table goes: (top, heading of its command if it is the first, table, and
-        // the picture of its chart when it shows as one)
-        let mut blocks: Vec<(f32, Option<&str>, &OutputTable, Option<&Scene>)> = Vec::new();
+        // where every table goes: (top, heading of its command if it shows above it, table, the
+        // picture of its chart when it shows as one, and whether its title and notes show)
+        type Block<'a> = (
+            f32,
+            Option<&'a str>,
+            &'a OutputTable,
+            Option<&'a Scene>,
+            (bool, bool),
+        );
+        let mut blocks: Vec<Block> = Vec::new();
         let (mut bottom, mut width) = (0.0f32, 0.0f32);
         for item in self.runs.iter().flat_map(|run| &run.items) {
             // hidden tables stay in the navigator only; the heading goes above the first shown
-            let shown = item.tables.iter().filter(|t| !t.table.hidden);
-            for (i, t) in shown.enumerate() {
+            let heading = shown.heading(item).then_some(item.heading.as_str());
+            for (i, t) in item.tables.iter().filter(|t| shown.table(t)).enumerate() {
                 let scene = match self.as_data.contains(&t.id) {
                     true => None,
                     false => self.scenes.get(&t.id).and_then(Option::as_ref),
                 };
+                let parts = (shown.part(t, Part::Title), shown.part(t, Part::Notes));
                 let size = match scene {
                     Some(scene) => vec2(scene.width, scene.height),
                     None => {
@@ -581,11 +749,11 @@ impl OutputView {
                             .layouts
                             .entry(t.id)
                             .or_insert_with(|| measure(ui, &t.table, &font));
-                        vec2(layout.block_width, layout.block_height())
+                        vec2(layout.block_width, layout.block_height(parts.0, parts.1))
                     }
                 };
-                let heading = (i == 0).then_some(item.heading.as_str());
-                blocks.push((bottom, heading, t, scene));
+                let heading = heading.filter(|_| i == 0);
+                blocks.push((bottom, heading, t, scene, parts));
                 let above = if heading.is_some() { HEADING } else { 0.0 };
                 bottom += above + size.y + GAP;
                 width = width.max(size.x + 8.0);
@@ -615,7 +783,7 @@ impl OutputView {
                 let first = blocks
                     .partition_point(|(top, ..)| *top <= viewport.min.y)
                     .saturating_sub(1);
-                for &(top, heading, t, scene) in &blocks[first..] {
+                for &(top, heading, t, scene, (title, notes)) in &blocks[first..] {
                     if top > viewport.max.y {
                         break;
                     }
@@ -645,9 +813,9 @@ impl OutputView {
                             let layout = &layouts[&t.id];
                             let rect = Rect::from_min_size(
                                 pos2(area.left(), y),
-                                vec2(layout.block_width, layout.block_height()),
+                                vec2(layout.block_width, layout.block_height(title, notes)),
                             );
-                            paint_block(ui, &t.table, layout, rect, &font);
+                            paint_block(ui, &t.table, layout, rect, &font, (title, notes));
                             rect
                         }
                     };
@@ -662,6 +830,14 @@ impl OutputView {
                         ui.make_persistent_id(("output table", t.id)),
                         Sense::click(),
                     );
+                    // a plugin's comment on the cell under the pointer
+                    let comment = response.hover_pos().filter(|_| scene.is_none());
+                    let comment = comment
+                        .and_then(|pos| comment_at(&t.table, &layouts[&t.id], rect, title, pos));
+                    let response = match comment {
+                        Some(comment) => response.on_hover_text_at_pointer(comment),
+                        None => response,
+                    };
                     if response.clicked() {
                         clicked = Some(t.id);
                     }
@@ -711,7 +887,7 @@ impl OutputView {
                     });
                 }
                 if let Some((id, frames)) = *scroll_to
-                    && let Some(&(top, ..)) = blocks.iter().find(|(_, _, t, _)| t.id == id)
+                    && let Some(&(top, ..)) = blocks.iter().find(|(_, _, t, ..)| t.id == id)
                 {
                     let at = area.top() + top;
                     let room = Rect::from_min_size(pos2(area.left(), at), vec2(1.0, 40.0));
@@ -874,6 +1050,30 @@ fn measure(ui: &Ui, table: &Table, font: &FontId) -> Layout {
     }
 }
 
+/// The plugin's comment on the body cell of a table drawn in `rect` at `pos`, if any.
+fn comment_at(
+    table: &Table,
+    layout: &Layout,
+    rect: Rect,
+    title: bool,
+    pos: Pos2,
+) -> Option<String> {
+    let above = if title {
+        layout.title_height + 6.0
+    } else {
+        0.0
+    };
+    let y = pos.y - rect.top() - above - layout.header_height();
+    let r = layout
+        .row_tops
+        .partition_point(|t| *t <= y)
+        .checked_sub(1)?;
+    let x = f64::from(pos.x - rect.left());
+    let offsets = crate::grid::offsets(&layout.widths);
+    let c = offsets.partition_point(|o| *o <= x).checked_sub(1)?;
+    table.decoration(r, c)?.comment.clone()
+}
+
 /// A text laid out at `pos`: left, centred on or right of it as `align` says, wrapped at `wrap`.
 fn text(
     painter: &Painter,
@@ -884,14 +1084,83 @@ fn text(
     color: Color32,
     wrap: f32,
 ) {
+    styled_text(painter, pos, align, text, font, color, wrap, None);
+}
+
+/// `text` in the bold and italic a plugin gave the cell. Bold is the text drawn twice, a
+/// little apart, as the window's fonts have no bold face.
+#[allow(clippy::too_many_arguments)]
+fn styled_text(
+    painter: &Painter,
+    pos: Pos2,
+    align: Align,
+    text: String,
+    font: &FontId,
+    color: Color32,
+    wrap: f32,
+    look: Option<&Decoration>,
+) {
     let mut job = LayoutJob::simple(text, font.clone(), color, wrap);
     job.halign = align;
+    let (bold, italic) = look.map_or((false, false), |d| (d.bold, d.italic));
+    job.sections
+        .iter_mut()
+        .for_each(|s| s.format.italics = italic);
     let galley: Arc<_> = painter.ctx().fonts_mut(|f| f.layout_job(job));
+    if bold {
+        painter.galley(pos + vec2(0.6, 0.0), galley.clone(), color);
+    }
     painter.galley(pos, galley, color);
 }
 
-/// Title, table and caption of one table in `rect`, painting only the rows in view.
-fn paint_block(ui: &Ui, table: &Table, layout: &Layout, rect: Rect, font: &FontId) {
+/// A plugin's colour #rrggbb as a window colour.
+fn rgb(colour: &Option<String>) -> Option<Color32> {
+    let [r, g, b] = colour.as_deref().and_then(parse_colour)?;
+    Some(Color32::from_rgb(r, g, b))
+}
+
+/// Paints a plugin's fill on `cell` and returns the colour of its text: its own, else dark on
+/// a fill (the fills plugins give are light, whatever the paper), else `normal`.
+fn fill_cell(painter: &Painter, cell: Rect, look: Option<&Decoration>, normal: Color32) -> Color32 {
+    let Some(d) = look else {
+        return normal;
+    };
+    let mut colour = normal;
+    if let Some(fill) = rgb(&d.fill) {
+        painter.rect_filled(cell, 0.0, fill);
+        colour = Color32::from_gray(20);
+    }
+    rgb(&d.text).unwrap_or(colour)
+}
+
+/// A plugin's borders of one cell, drawn after the fills so no fill covers them.
+fn cell_borders(lines: &mut Vec<(Pos2, Pos2, Color32)>, cell: Rect, look: Option<&Decoration>) {
+    let Some(b) = look.and_then(|d| d.border.as_ref()) else {
+        return;
+    };
+    let sides = [
+        (&b.top, cell.left_top(), cell.right_top()),
+        (&b.bottom, cell.left_bottom(), cell.right_bottom()),
+        (&b.left, cell.left_top(), cell.left_bottom()),
+        (&b.right, cell.right_top(), cell.right_bottom()),
+    ];
+    for (colour, from, to) in sides {
+        if let Some(colour) = rgb(colour) {
+            lines.push((from, to, colour));
+        }
+    }
+}
+
+/// Title, table and caption of one table in `rect`, painting only the rows in view, and the
+/// title and caption only when they show.
+fn paint_block(
+    ui: &Ui,
+    table: &Table,
+    layout: &Layout,
+    rect: Rect,
+    font: &FontId,
+    (title, notes): (bool, bool),
+) {
     let visuals = ui.visuals();
     let clip = ui.clip_rect();
     let painter = ui
@@ -901,16 +1170,19 @@ fn paint_block(ui: &Ui, table: &Table, layout: &Layout, rect: Rect, font: &FontI
     let normal = visuals.text_color();
     let width = layout.width();
     let wide = width.max(CAPTION_MIN);
-    text(
-        &painter,
-        rect.min,
-        Align::LEFT,
-        table.title.clone(),
-        &FontId::proportional(TITLE_SIZE),
-        strong,
-        wide,
-    );
-    let top = rect.top() + layout.title_height + 6.0;
+    let mut top = rect.top();
+    if title {
+        text(
+            &painter,
+            rect.min,
+            Align::LEFT,
+            table.title.clone(),
+            &FontId::proportional(TITLE_SIZE),
+            strong,
+            wide,
+        );
+        top += layout.title_height + 6.0;
+    }
     let offsets = crate::grid::offsets(&layout.widths);
     let x = |c: usize| rect.left() + offsets[c] as f32;
     let line = Stroke::new(1.0, visuals.widgets.noninteractive.bg_stroke.color);
@@ -925,23 +1197,33 @@ fn paint_block(ui: &Ui, table: &Table, layout: &Layout, rect: Rect, font: &FontI
         visuals.widgets.noninteractive.weak_bg_fill,
     );
     let mut y = top;
-    for (level, h) in output::header_rows(table)
+    // the plugin's borders, drawn last
+    let mut borders = Vec::new();
+    for (number, (level, h)) in output::header_rows(table)
         .iter()
         .zip(&layout.header_heights)
+        .enumerate()
     {
         for cell in level {
             let span = Rect::from_min_max(
                 pos2(x(cell.first), y),
                 pos2(x(cell.first + cell.span), y + h),
             );
-            text(
+            let look = table.header_decoration(number, cell.first);
+            let colour = fill_cell(&painter, span, look, strong);
+            for c in cell.first..cell.first + cell.span {
+                let place = Rect::from_min_max(pos2(x(c), y), pos2(x(c + 1), y + h));
+                cell_borders(&mut borders, place, table.header_decoration(number, c));
+            }
+            styled_text(
                 &painter,
                 pos2(span.center().x, y + PAD_Y),
                 Align::Center,
                 cell.label.clone(),
                 font,
-                strong,
+                colour,
                 span.width() - 2.0 * PAD_X,
+                look,
             );
             if cell.first >= table.row_headers && !cell.label.is_empty() {
                 painter.hline(span.shrink2(vec2(4.0, 0.0)).x_range(), span.bottom(), line);
@@ -973,6 +1255,8 @@ fn paint_block(ui: &Ui, table: &Table, layout: &Layout, rect: Rect, font: &FontI
         }
         painter.hline(x(table.row_headers)..=right, y1, line);
         for c in 0..table.rows[r].len().min(layout.widths.len()) {
+            let place = Rect::from_min_max(pos2(x(c), y0), pos2(x(c + 1), y1));
+            cell_borders(&mut borders, place, table.decoration(r, c));
             if c < table.row_headers {
                 // the first row in view paints a label merged from above it
                 let start = if layout.spans[r][c] == 0 && r == first {
@@ -981,15 +1265,20 @@ fn paint_block(ui: &Ui, table: &Table, layout: &Layout, rect: Rect, font: &FontI
                     r
                 };
                 if layout.spans[start][c] > 0 {
+                    let end = row_y(start + layout.spans[start][c]);
+                    let merged = Rect::from_min_max(pos2(x(c), row_y(start)), pos2(x(c + 1), end));
+                    let look = table.decoration(start, c);
+                    let colour = fill_cell(&painter, merged, look, normal);
                     let label = output::cell_text(table, start, c);
-                    text(
+                    styled_text(
                         &painter,
                         pos2(x(c) + PAD_X, row_y(start) + PAD_Y),
                         Align::LEFT,
                         label,
                         font,
-                        normal,
+                        colour,
                         layout.widths[c] - 2.0 * PAD_X,
+                        look,
                     );
                 }
                 // a line under a label ends where its span ends
@@ -999,24 +1288,47 @@ fn paint_block(ui: &Ui, table: &Table, layout: &Layout, rect: Rect, font: &FontI
                 }
                 continue;
             }
+            // a plugin's fill, text colour and a corner mark for its comment
+            let look = table.decoration(r, c);
+            let colour = fill_cell(&painter, place, look, normal);
+            if look.is_some_and(|d| d.comment.is_some()) {
+                let corner = place.right_top();
+                let mark = vec![corner - vec2(6.0, 0.0), corner, corner + vec2(0.0, 6.0)];
+                let red = Color32::from_rgb(200, 40, 40);
+                painter.add(egui::Shape::convex_polygon(mark, red, Stroke::NONE));
+            }
             let shown = output::cell_text(table, r, c);
             if shown.is_empty() {
                 continue;
             }
-            let (pos, align) = if output::right_aligned(table, r, c) {
-                (pos2(x(c + 1) - PAD_X, y0 + PAD_Y), Align::RIGHT)
-            } else {
-                (pos2(x(c) + PAD_X, y0 + PAD_Y), Align::LEFT)
+            let right = output::right_aligned(table, r, c);
+            let (pos, align) = match look.and_then(|d| d.align.as_deref()) {
+                Some("center") => (pos2(place.center().x, y0 + PAD_Y), Align::Center),
+                Some("right") => (pos2(x(c + 1) - PAD_X, y0 + PAD_Y), Align::RIGHT),
+                None if right => (pos2(x(c + 1) - PAD_X, y0 + PAD_Y), Align::RIGHT),
+                _ => (pos2(x(c) + PAD_X, y0 + PAD_Y), Align::LEFT),
             };
-            text(&painter, pos, align, shown, font, normal, f32::INFINITY);
+            styled_text(
+                &painter,
+                pos,
+                align,
+                shown,
+                font,
+                colour,
+                f32::INFINITY,
+                look,
+            );
         }
+    }
+    for (from, to, colour) in borders {
+        painter.line_segment([from, to], Stroke::new(1.0, colour));
     }
     let bottom = header_bottom + tops.last().copied().unwrap_or(0.0);
     if table.row_headers > 0 {
         painter.vline(x(table.row_headers), header_bottom..=bottom, line);
     }
     painter.hline(rect.left()..=right, bottom, rule);
-    if let Some(caption) = &table.caption {
+    if let Some(caption) = table.caption.as_ref().filter(|_| notes) {
         text(
             &painter,
             pos2(rect.left(), bottom + 4.0),

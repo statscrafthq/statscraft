@@ -1,6 +1,6 @@
 //! Read access and every mutation the engine uses, with their error cases.
 
-mod common;
+use crate::common;
 
 use common::fixture;
 use statscraft_data::{Dataset, Error, Measure, MissingValues, MultipleResponseSet, Value, Values};
@@ -618,7 +618,7 @@ fn keep_variables() {
     assert_eq!(data.multiple_response_sets().len(), 1);
     assert_eq!(data.multiple_response_sets()[0].variables, ["q5_1", "q5_2"]);
     assert_eq!(data.weight_variable(), None);
-    common::assert_survives_write(&data, "kept.sav");
+    common::assert_survives_write(&data, "edit_kept.sav");
 
     assert_error!(
         data.keep_variables(&["plan", "nope"]),

@@ -19,7 +19,7 @@
 use crate::chart::{Chart, ChartKind, Grouping, Orientation, Tier};
 use crate::html::{escape, right_aligned};
 use crate::picture::{FILE_WIDTH, Paper};
-use crate::xlsx::{put_table, set_widths, sheet_name};
+use crate::xlsx::{put_table, set_widths, sheet_name, title_rows};
 use crate::{Error, Table, cell_text, header_rows};
 use rust_xlsxwriter::{
     Chart as Drawn, ChartAxis, ChartAxisTickType, ChartErrorBars, ChartErrorBarsType, ChartFormat,
@@ -171,7 +171,7 @@ fn drawn(
     let mut drawn = Drawn::new(chart_type(chart)?);
     // the line on the second axis, the last series, is a line chart combined with the bars
     let mut second = Drawn::new(ChartType::Line);
-    let first = top + 1 + header_rows(table).len() as u32;
+    let first = top + title_rows(table) + header_rows(table).len() as u32;
     let last = first + chart.categories.len() as u32 - 1;
     // the data table holds the half lengths of the error bars after the values, a column for
     // each series that has bars
@@ -237,7 +237,7 @@ fn drawn(
             y2.set_min(0.0).set_max(maximum);
         }
     }
-    if titled {
+    if titled && !chart.title.is_empty() {
         drawn.title().set_name(&chart.title);
     } else {
         drawn.title().set_hidden();
@@ -283,7 +283,7 @@ pub(crate) fn put_chart(
     chart: &Chart,
     (top, left): (u32, u16),
     notes: bool,
-    widths: &mut Vec<usize>,
+    widths: &mut Vec<f64>,
     titled: bool,
 ) -> Result<u32, XlsxError> {
     let end = put_table(sheet, table, (top, left), notes, widths)?;

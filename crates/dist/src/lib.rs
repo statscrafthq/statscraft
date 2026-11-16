@@ -2,12 +2,12 @@
 //! t, chi-square and F distributions, the studentized range and the noncentral t.
 
 /// The significance of a chi-square value: the probability of a larger one.
-pub(crate) fn chi_square_p(value: f64, df: f64) -> f64 {
+pub fn chi_square_p(value: f64, df: f64) -> f64 {
     gamma_q(df / 2.0, value / 2.0)
 }
 
 /// ln Γ(x) for x > 0 (Lanczos, g = 7, nine terms; relative error near 1e-15).
-pub(crate) fn ln_gamma(x: f64) -> f64 {
+pub fn ln_gamma(x: f64) -> f64 {
     const G: [f64; 9] = [
         0.999_999_999_999_809_9,
         676.520_368_121_885_1,
@@ -34,7 +34,7 @@ pub(crate) fn ln_gamma(x: f64) -> f64 {
 
 /// The regularized upper incomplete gamma function Q(a, x) = Γ(a, x) / Γ(a): a power series
 /// below x = a + 1, a continued fraction above.
-pub(crate) fn gamma_q(a: f64, x: f64) -> f64 {
+pub fn gamma_q(a: f64, x: f64) -> f64 {
     const EPSILON: f64 = 1e-16;
     const TINY: f64 = 1e-300;
     if x.is_nan() || a <= 0.0 {
@@ -83,25 +83,25 @@ pub(crate) fn gamma_q(a: f64, x: f64) -> f64 {
 }
 
 /// The complementary error function: erfc(x) = Q(1/2, x^2) for x >= 0.
-pub(crate) fn erfc(x: f64) -> f64 {
+pub fn erfc(x: f64) -> f64 {
     let q = gamma_q(0.5, x * x);
     if x < 0.0 { 2.0 - q } else { q }
 }
 
 /// Two-sided significance of a standard normal z.
-pub(crate) fn normal_p(z: f64) -> f64 {
+pub fn normal_p(z: f64) -> f64 {
     erfc(z.abs() / std::f64::consts::SQRT_2)
 }
 
 /// Two-sided significance of Student's t with `df` degrees of freedom: I_x(df/2, 1/2) at
 /// x = df / (df + t^2).
-pub(crate) fn t_p(t: f64, df: f64) -> f64 {
+pub fn t_p(t: f64, df: f64) -> f64 {
     beta_i(df / 2.0, 0.5, df / (df + t * t))
 }
 
 /// The regularized incomplete beta function I_x(a, b), by its continued fraction on the side of
 /// x where it converges fast.
-pub(crate) fn beta_i(a: f64, b: f64, x: f64) -> f64 {
+pub fn beta_i(a: f64, b: f64, x: f64) -> f64 {
     if x.is_nan() {
         return f64::NAN;
     }
@@ -149,7 +149,7 @@ fn beta_fraction(a: f64, b: f64, x: f64) -> f64 {
 /// The standard normal distribution function by Hart's rational approximation (as given by
 /// West, 2005), accurate to about 1e-15 and much faster than `erfc`; the studentized range
 /// needs it many thousand times.
-pub(crate) fn normal_cdf(x: f64) -> f64 {
+pub fn normal_cdf(x: f64) -> f64 {
     let z = x.abs();
     let tail = if z > 37.0 {
         0.0
@@ -186,7 +186,7 @@ pub(crate) fn normal_cdf(x: f64) -> f64 {
 
 /// The root of a monotone `f` that changes sign between `low` and `high`, by the Illinois
 /// variant of regula falsi, to a few units in the last place.
-pub(crate) fn solve(f: impl Fn(f64) -> f64, mut low: f64, mut high: f64) -> f64 {
+pub fn solve(f: impl Fn(f64) -> f64, mut low: f64, mut high: f64) -> f64 {
     let (mut f_low, mut f_high) = (f(low), f(high));
     // a function that cannot be evaluated has no root to find
     if f_low.is_nan() || f_high.is_nan() {
@@ -255,7 +255,7 @@ fn bracket(f: &impl Fn(f64) -> f64, start: f64) -> f64 {
 /// by `erfc`, which keeps its relative precision far in the tail (1 - p is exact above one
 /// half), in a narrow bracket around the rational start of Abramowitz and Stegun 26.2.23 (error
 /// below 4.5e-4), comparing logarithms so the equation stays well scaled.
-pub(crate) fn normal_quantile(p: f64) -> f64 {
+pub fn normal_quantile(p: f64) -> f64 {
     if p > 0.5 {
         return -normal_quantile(1.0 - p);
     }
@@ -275,13 +275,13 @@ pub(crate) fn normal_quantile(p: f64) -> f64 {
 
 /// The value of Student's t with `df` degrees of freedom exceeded with probability `upper`
 /// (at most 1/2).
-pub(crate) fn t_quantile(upper: f64, df: f64) -> f64 {
+pub fn t_quantile(upper: f64, df: f64) -> f64 {
     let f = |t: f64| upper - t_p(t, df) / 2.0;
     solve(f, 0.0, bracket(&f, 4.0))
 }
 
 /// The probability of an F with `d1` and `d2` degrees of freedom above `f`.
-pub(crate) fn f_p(f: f64, d1: f64, d2: f64) -> f64 {
+pub fn f_p(f: f64, d1: f64, d2: f64) -> f64 {
     if f.is_nan() {
         return f64::NAN;
     }
@@ -292,7 +292,7 @@ pub(crate) fn f_p(f: f64, d1: f64, d2: f64) -> f64 {
 }
 
 /// The value of F with `d1` and `d2` degrees of freedom exceeded with probability `upper`.
-pub(crate) fn f_quantile(upper: f64, d1: f64, d2: f64) -> f64 {
+pub fn f_quantile(upper: f64, d1: f64, d2: f64) -> f64 {
     let f = |x: f64| upper - f_p(x, d1, d2);
     solve(f, 0.0, bracket(&f, 4.0))
 }
@@ -355,7 +355,7 @@ fn normal_range_cdf(w: f64, k: f64) -> f64 {
 /// The distribution function of the studentized range of `k` means with `df` degrees of
 /// freedom: P(Q < q), where Q is the range of k standard normals over an independent
 /// chi / sqrt(df).
-pub(crate) fn studentized_range_cdf(q: f64, k: f64, df: f64) -> f64 {
+pub fn studentized_range_cdf(q: f64, k: f64, df: f64) -> f64 {
     if q <= 0.0 {
         return 0.0;
     }
@@ -398,14 +398,14 @@ fn over_scale(df: f64, f: impl Fn(f64) -> f64) -> f64 {
 
 /// The value of the studentized range of `k` means with `df` degrees of freedom exceeded with
 /// probability `upper`.
-pub(crate) fn studentized_range_quantile(upper: f64, k: f64, df: f64) -> f64 {
+pub fn studentized_range_quantile(upper: f64, k: f64, df: f64) -> f64 {
     let f = |q: f64| studentized_range_cdf(q, k, df) - (1.0 - upper);
     solve(f, 0.0, bracket(&f, 4.0))
 }
 
 /// The distribution function of the studentized maximum modulus of `r` independent standard
 /// normals with `df` degrees of freedom: P(max |z_i| / s < m).
-pub(crate) fn maximum_modulus_cdf(m: f64, r: f64, df: f64) -> f64 {
+pub fn maximum_modulus_cdf(m: f64, r: f64, df: f64) -> f64 {
     if m <= 0.0 {
         return 0.0;
     }
@@ -414,7 +414,7 @@ pub(crate) fn maximum_modulus_cdf(m: f64, r: f64, df: f64) -> f64 {
 
 /// The value of the studentized maximum modulus of `r` normals with `df` degrees of freedom
 /// exceeded with probability `upper`.
-pub(crate) fn maximum_modulus_quantile(upper: f64, r: f64, df: f64) -> f64 {
+pub fn maximum_modulus_quantile(upper: f64, r: f64, df: f64) -> f64 {
     let f = |m: f64| maximum_modulus_cdf(m, r, df) - (1.0 - upper);
     solve(f, 0.0, bracket(&f, 4.0))
 }
@@ -423,7 +423,7 @@ pub(crate) fn maximum_modulus_quantile(upper: f64, r: f64, df: f64) -> f64 {
 /// for t statistics with `df` degrees of freedom whose normal parts have the product
 /// correlations lambda_i lambda_j. Each z_i = lambda_i z0 + sqrt(1 - lambda_i^2) e_i with
 /// independent standard normals, so the probability is a double integral over z0 and the scale.
-pub(crate) fn dunnett_cdf(d: f64, lambdas: &[f64], df: f64, two_sided: bool) -> f64 {
+pub fn dunnett_cdf(d: f64, lambdas: &[f64], df: f64, two_sided: bool) -> f64 {
     if two_sided && d <= 0.0 {
         return 0.0;
     }
@@ -451,7 +451,7 @@ pub(crate) fn dunnett_cdf(d: f64, lambdas: &[f64], df: f64, two_sided: bool) -> 
 }
 
 /// The value of Dunnett's statistic (see `dunnett_cdf`) exceeded with probability `upper`.
-pub(crate) fn dunnett_quantile(upper: f64, lambdas: &[f64], df: f64, two_sided: bool) -> f64 {
+pub fn dunnett_quantile(upper: f64, lambdas: &[f64], df: f64, two_sided: bool) -> f64 {
     let f = |d: f64| dunnett_cdf(d, lambdas, df, two_sided) - (1.0 - upper);
     solve(f, 0.0, bracket(&f, 4.0))
 }
@@ -459,7 +459,7 @@ pub(crate) fn dunnett_quantile(upper: f64, lambdas: &[f64], df: f64, two_sided: 
 /// The distribution function of the noncentral t with `df` degrees of freedom and
 /// noncentrality `delta`: P(T < t), a sum of Poisson-weighted incomplete beta functions taken
 /// from the largest term outwards.
-pub(crate) fn noncentral_t_cdf(t: f64, df: f64, delta: f64) -> f64 {
+pub fn noncentral_t_cdf(t: f64, df: f64, delta: f64) -> f64 {
     if t < 0.0 {
         return 1.0 - noncentral_t_cdf(-t, df, -delta);
     }
@@ -505,7 +505,7 @@ pub(crate) fn noncentral_t_cdf(t: f64, df: f64, delta: f64) -> f64 {
 
 /// The noncentrality at which a noncentral t with `df` degrees of freedom lies below `t` with
 /// probability `p`.
-pub(crate) fn noncentral_t_parameter(t: f64, df: f64, p: f64) -> f64 {
+pub fn noncentral_t_parameter(t: f64, df: f64, p: f64) -> f64 {
     // the probability falls as the noncentrality grows
     let f = |delta: f64| noncentral_t_cdf(t, df, delta) - p;
     let mut width = 2.0 + t.abs();
@@ -518,7 +518,7 @@ pub(crate) fn noncentral_t_parameter(t: f64, df: f64, p: f64) -> f64 {
 /// The distribution function of the noncentral F with `d1` and `d2` degrees of freedom and
 /// noncentrality `lambda`: P(F < f), a Poisson-weighted sum of incomplete beta functions taken
 /// from the largest term outwards.
-pub(crate) fn noncentral_f_cdf(f: f64, d1: f64, d2: f64, lambda: f64) -> f64 {
+pub fn noncentral_f_cdf(f: f64, d1: f64, d2: f64, lambda: f64) -> f64 {
     if f <= 0.0 {
         return 0.0;
     }
@@ -557,7 +557,7 @@ pub(crate) fn noncentral_f_cdf(f: f64, d1: f64, d2: f64, lambda: f64) -> f64 {
 }
 
 /// Hedges' correction factor J(k) = Γ(k/2) / (sqrt(k/2) Γ((k-1)/2)).
-pub(crate) fn hedges_j(k: f64) -> f64 {
+pub fn hedges_j(k: f64) -> f64 {
     (ln_gamma(k / 2.0) - 0.5 * (k / 2.0).ln() - ln_gamma((k - 1.0) / 2.0)).exp()
 }
 

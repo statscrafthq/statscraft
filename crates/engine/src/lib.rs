@@ -28,7 +28,8 @@ mod descriptives;
 mod detectanomaly;
 mod dictionary;
 mod discriminant;
-mod dist;
+// its own crate so that dev builds can optimize it (see the workspace Cargo.toml)
+use statscraft_dist as dist;
 mod distributions;
 mod examine;
 pub mod excel;
@@ -84,6 +85,7 @@ mod pass;
 pub mod pdf;
 pub mod picture;
 pub mod plot;
+pub mod plugin;
 mod plum;
 mod pooling;
 mod portable;
@@ -133,6 +135,10 @@ pub use chart::Chart;
 pub use expr::functions;
 pub use format::{Currencies, currency_parts, format_value, is_date_time_or_currency};
 pub use get_data::delimited;
+pub use html::{
+    STYLE as HTML_STYLE, cell_attributes, header_attributes, label_attributes, table_attributes,
+    table_html,
+};
 pub use output_docs::OutputDocument;
 pub use random::RandomState;
 use serde::{Deserialize, Serialize};
@@ -182,9 +188,294 @@ pub struct Table {
     /// pages and of OUTPUT EXPORT with CONTENTS EXPORT=VISIBLE.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hidden: bool,
+    /// What a plugin needs to judge the cells: their estimates and bases, and which rows and
+    /// columns are totals. Only CTABLES fills it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cell_stats: Option<Box<CellStats>>,
+    /// Cell colours and comments a plugin gave (docs/plugins.md), sorted by row and column.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub decorations: Vec<Decoration>,
+    /// The font and the header cell styles a plugin gave.
+    #[serde(default, skip_serializing_if = "TableStyle::is_empty")]
+    pub style: TableStyle,
+}
+
+/// The statistics behind the cells of a table, for plugins. Rows and columns count as in
+/// `Table::rows`, the row label columns included.
+#[derive(Debug, Default, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CellStats {
+    /// The rows and the columns that hold a total or a subtotal.
+    pub total_rows: Vec<usize>,
+    pub total_columns: Vec<usize>,
+    /// The cells with a statistic, row by row.
+    pub cells: Vec<CellStat>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CellStat {
+    pub row: usize,
+    pub col: usize,
+    /// The summary function as written in syntax, such as COLPCT.COUNT, COUNT or MEAN.
+    pub kind: String,
+    /// A percentage as a proportion from 0 to 1, any other statistic as shown.
+    pub estimate: f64,
+    /// The cases the estimate rests on, unweighted: the percentage's base for a percentage,
+    /// the cell's valid cases otherwise.
+    pub base: f64,
+    /// The same base, weighted.
+    pub weighted_base: f64,
+    /// The same base as (sum of weights)^2 / (sum of squared weights); `base` without weights.
+    pub effective_base: f64,
+    /// The standard deviation, for a mean.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sd: Option<f64>,
+}
+
+/// How a plugin marks one cell: colours as #rrggbb, bold or italic text, coloured borders,
+/// the horizontal alignment of its text, its own font and size, and a comment.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct Decoration {
+    pub row: usize,
+    pub col: usize,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fill: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub bold: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub italic: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub border: Option<Border>,
+    /// "left", "center" or "right"; the exports' own alignment without it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub align: Option<String>,
+    /// The cell's font in the exports, over the table's font.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font: Option<String>,
+    /// The cell's font size in points in the exports, over the table's size.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub size: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub comment: Option<String>,
+}
+
+/// Thin lines on the sides of a cell, each in its colour #rrggbb.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct Border {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bottom: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub right: Option<String>,
+}
+
+/// The look of a cell without its place and comment: cells that look alike share it.
+pub type CellLook<'a> = (
+    Option<&'a str>,
+    Option<&'a str>,
+    bool,
+    bool,
+    Option<&'a Border>,
+    Option<&'a str>,
+    Option<&'a str>,
+    // the size's bits: a float cannot be hashed
+    Option<u64>,
+);
+
+impl Decoration {
+    pub fn look(&self) -> CellLook<'_> {
+        let (fill, text) = (self.fill.as_deref(), self.text.as_deref());
+        let align = self.align.as_deref();
+        (
+            fill,
+            text,
+            self.bold,
+            self.italic,
+            self.border.as_ref(),
+            align,
+            self.font.as_deref(),
+            self.size.map(f64::to_bits),
+        )
+    }
+
+    /// Colours that are not #rrggbb left out, a border without a side, an unknown alignment, a
+    /// font name that is not plain and a size outside 1 to 409 points.
+    fn clean(&mut self) {
+        let keep = |c: &mut Option<String>| *c = c.take().filter(|c| parse_colour(c).is_some());
+        keep(&mut self.fill);
+        keep(&mut self.text);
+        if let Some(b) = &mut self.border {
+            [&mut b.top, &mut b.bottom, &mut b.left, &mut b.right]
+                .into_iter()
+                .for_each(keep);
+        }
+        self.border = self.border.take().filter(|b| *b != Border::default());
+        let known = |a: &String| ["left", "center", "right"].contains(&a.as_str());
+        self.align = self.align.take().filter(known);
+        self.font = self.font.take().filter(|f| plain_font(f));
+        self.size = self.size.filter(font_size);
+    }
+}
+
+/// A plain font name (letters, digits, spaces and hyphens, at most 31 characters), so it cannot
+/// break out of the CSS or the workbook's XML.
+fn plain_font(font: &str) -> bool {
+    let ok = |c: char| c.is_alphanumeric() || c == ' ' || c == '-';
+    (1..=31).contains(&font.chars().count()) && font.chars().all(ok)
+}
+
+/// A font size Excel takes, in points.
+fn font_size(size: &f64) -> bool {
+    (1.0..=409.0).contains(size)
+}
+
+/// What a plugin gave a table as a whole: the font of its exports, the styles of its header
+/// cells (`row` counting the lines of `header_rows` from the top) and the layout of its exports.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct TableStyle {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font: Option<String>,
+    /// In points.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_size: Option<f64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub header_cells: Vec<Decoration>,
+    /// The exports leave out their own borders, header fill and bold header: only the
+    /// plugin's styles show.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub plain: bool,
+    /// "stacked": the exports show each block's outer row label on a row of its own above the
+    /// block, see `Table::stacked`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub row_labels: Option<String>,
+    /// Excel column widths, by column as in `rows`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub column_widths: Vec<ColumnWidth>,
+    /// Excel: the sheet columns kept in view when scrolling right, counted from the left of
+    /// the exported table (after a stacked layout dropped its outer column).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub freeze_columns: Option<u16>,
+    /// Excel row heights in points of the header lines, by line of `header_rows`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub header_heights: Vec<f64>,
+    /// Excel: blank sheet rows above the table and its title, 1 to 10.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rows_above: Option<u32>,
+}
+
+/// The width of a column in Excel, in characters.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+pub struct ColumnWidth {
+    pub col: usize,
+    pub width: f64,
+}
+
+impl TableStyle {
+    pub fn is_empty(&self) -> bool {
+        *self == TableStyle::default()
+    }
+}
+
+/// A colour written #rrggbb, as red, green and blue.
+pub fn parse_colour(text: &str) -> Option<[u8; 3]> {
+    let hex = text.strip_prefix('#').filter(|h| h.len() == 6)?;
+    let n = u32::from_str_radix(hex, 16).ok()?;
+    Some([(n >> 16) as u8, (n >> 8) as u8, n as u8])
 }
 
 impl Table {
+    /// The decoration of a cell, if a plugin gave one.
+    pub fn decoration(&self, row: usize, col: usize) -> Option<&Decoration> {
+        let found = self
+            .decorations
+            .binary_search_by(|d| (d.row, d.col).cmp(&(row, col)));
+        found.ok().map(|i| &self.decorations[i])
+    }
+
+    /// The style a plugin gave a header cell, `line` counting the lines of `header_rows`.
+    pub fn header_decoration(&self, line: usize, col: usize) -> Option<&Decoration> {
+        let cells = &self.style.header_cells;
+        let found = cells.binary_search_by(|d| (d.row, d.col).cmp(&(line, col)));
+        found.ok().map(|i| &cells[i])
+    }
+
+    /// Whether the exports show the table's row labels stacked: the outer row label column
+    /// (column 0) leaves the table, and each run of rows that share its label gets a row of its
+    /// own above it holding that label in the first column. Only with two row label columns
+    /// or more.
+    pub fn stacked(&self) -> bool {
+        self.row_headers >= 2 && self.style.row_labels.as_deref() == Some("stacked")
+    }
+
+    /// With stacked row labels, the rows that start a block and get a label row above them:
+    /// each row whose outer label is not empty and differs from the label of the row above.
+    /// Empty when the labels are not stacked.
+    pub fn block_starts(&self) -> Vec<usize> {
+        if !self.stacked() {
+            return Vec::new();
+        }
+        let label = |r: usize| cell_text(self, r, 0);
+        let starts = (0..self.rows.len()).filter(|&r| {
+            let text = label(r);
+            !text.is_empty() && (r == 0 || label(r - 1) != text)
+        });
+        starts.collect()
+    }
+
+    /// Puts a plugin's decorations and table style on the table: cells outside the body or the
+    /// header, colours that are not #rrggbb, a font name that is not plain (letters, digits,
+    /// spaces and hyphens, at most 31 characters), a size outside 1 to 409 points, row labels
+    /// other than "stacked", widths of columns off the table and heights of header lines the
+    /// table does not have are left out; a width is kept within 1 to 255 characters, a header
+    /// height within 1 to 409 points and the rows above within 10.
+    pub fn set_decorations(&mut self, decorations: Vec<Decoration>, style: TableStyle) {
+        let columns = self.columns.len();
+        // a stacked layout shows one column fewer on the sheet
+        let stacked = style.row_labels.as_deref() == Some("stacked") && self.row_headers >= 2;
+        let tidy = |mut cells: Vec<Decoration>, rows: usize| {
+            cells.retain(|d| d.row < rows && d.col < columns);
+            cells.iter_mut().for_each(Decoration::clean);
+            cells.sort_by_key(|d| (d.row, d.col));
+            cells.dedup_by_key(|d| (d.row, d.col));
+            cells
+        };
+        self.decorations = tidy(decorations, self.rows.len());
+        let lines = header_rows(self).len();
+        let mut header_cells = tidy(style.header_cells, lines);
+        header_cells.iter_mut().for_each(|d| d.comment = None);
+        let mut header_heights = style.header_heights;
+        header_heights.truncate(lines);
+        header_heights
+            .iter_mut()
+            .for_each(|h| *h = h.clamp(1.0, 409.0));
+        self.style = TableStyle {
+            font: style.font.filter(|f| plain_font(f)),
+            font_size: style.font_size.filter(font_size),
+            header_cells,
+            plain: style.plain,
+            row_labels: style.row_labels.filter(|r| r == "stacked"),
+            column_widths: {
+                let mut widths = style.column_widths;
+                widths.retain(|w| w.col < columns && w.width.is_finite());
+                widths
+                    .iter_mut()
+                    .for_each(|w| w.width = w.width.clamp(1.0, 255.0));
+                widths.sort_by_key(|w| w.col);
+                widths.dedup_by_key(|w| w.col);
+                widths
+            },
+            freeze_columns: style
+                .freeze_columns
+                .filter(|&n| usize::from(n) <= columns - usize::from(stacked)),
+            header_heights,
+            rows_above: style.rows_above.map(|n| n.min(10)).filter(|&n| n > 0),
+        };
+    }
+
     /// The full header of every column, levels joined with " / ".
     pub fn column_titles(&self) -> Vec<String> {
         self.columns

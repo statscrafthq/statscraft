@@ -2,7 +2,7 @@
 //! fixture and the same syntax. Ignored by default because they need the PSPP program:
 //!
 //! ```text
-//! STATSCRAFT_PSPP=/path/to/pspp cargo test -p statscraft-engine --test reference_data -- --ignored
+//! STATSCRAFT_PSPP=/path/to/pspp cargo test -p statscraft-engine --test reference -- --ignored reference_data::
 //! ```
 
 use statscraft_data::{Dataset, Values};

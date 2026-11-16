@@ -1,0 +1,10 @@
+[package]
+name = "statscraft-dist"
+description = "Statscraft distribution functions, a crate of their own so that dev builds optimize them"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]

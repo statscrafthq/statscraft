@@ -3,6 +3,7 @@
 
 use statscraft_engine::{Cell, Chart, Table};
 pub use statscraft_engine::{cell_text, header_rows};
+use std::collections::HashSet;
 
 /// A table in the output, with an id that stays the same while other tables are deleted. A
 /// chart shows as its data table and keeps the chart beside it.
@@ -12,8 +13,9 @@ pub struct OutputTable {
     pub chart: Option<Chart>,
 }
 
-/// The tables of one command.
+/// The tables of one command, with an id of its own for its heading.
 pub struct OutputItem {
+    pub id: u64,
     pub heading: String,
     /// The syntax that made the tables, as it was written.
     pub syntax: String,
@@ -24,6 +26,156 @@ pub struct OutputItem {
 pub struct OutputRun {
     pub label: String,
     pub items: Vec<OutputItem>,
+}
+
+/// The kinds of element the output shows: a command's heading, and a table's title, the table
+/// itself and its notes. A chart takes the place of the table.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Part {
+    Heading,
+    Title,
+    Table,
+    Notes,
+    Chart,
+}
+
+impl Part {
+    pub const ALL: [Part; 5] = [
+        Part::Heading,
+        Part::Title,
+        Part::Table,
+        Part::Notes,
+        Part::Chart,
+    ];
+
+    /// Its word in the settings file.
+    pub fn word(self) -> &'static str {
+        match self {
+            Part::Heading => "headings",
+            Part::Title => "titles",
+            Part::Table => "tables",
+            Part::Notes => "notes",
+            Part::Chart => "charts",
+        }
+    }
+
+    /// Its name in Edit > Settings.
+    pub fn label(self) -> &'static str {
+        match self {
+            Part::Heading => "Command headings",
+            Part::Title => "Titles",
+            Part::Table => "Tables",
+            Part::Notes => "Notes under tables",
+            Part::Chart => "Charts",
+        }
+    }
+}
+
+/// Which kinds of element the output shows, and whether exports take hidden ones too.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Show {
+    /// By `Part::ALL`.
+    pub kinds: [bool; 5],
+    pub export_hidden: bool,
+}
+
+impl Default for Show {
+    /// Everything but the command headings.
+    fn default() -> Self {
+        Show {
+            kinds: [false, true, true, true, true],
+            export_hidden: false,
+        }
+    }
+}
+
+impl Show {
+    pub fn kind(&self, part: Part) -> bool {
+        self.kinds[part as usize]
+    }
+}
+
+/// A table, or a chart, as shown: without its title or notes when they do not show, and
+/// whether its notes show.
+pub type Exported = (Table, Option<Chart>, bool);
+
+/// What of the output is shown: an element shows when its kind is on and it is not hidden
+/// itself. A table's own visibility is `Table::hidden`; headings, titles and notes are hidden
+/// one by one in `hidden`, by the id of their command or table. A table or chart not shown
+/// takes its title and notes with it. With `all`, everything shows, as exports with hidden
+/// items take it.
+pub struct Visibility<'a> {
+    pub show: Show,
+    pub hidden: &'a HashSet<(u64, Part)>,
+    pub all: bool,
+}
+
+impl Visibility<'_> {
+    /// The kind of the table itself: a chart or a table.
+    pub fn body(t: &OutputTable) -> Part {
+        match t.chart {
+            Some(_) => Part::Chart,
+            None => Part::Table,
+        }
+    }
+
+    /// The table or chart itself.
+    pub fn table(&self, t: &OutputTable) -> bool {
+        self.all || !t.table.hidden && self.show.kind(Self::body(t))
+    }
+
+    /// The title or the notes of a table: shown only with the table, and notes only when
+    /// there are some.
+    pub fn part(&self, t: &OutputTable, part: Part) -> bool {
+        let own = self.all || self.show.kind(part) && !self.hidden.contains(&(t.id, part));
+        own && self.table(t) && (part != Part::Notes || t.table.caption.is_some())
+    }
+
+    /// The command's heading, above its first table shown.
+    pub fn heading(&self, item: &OutputItem) -> bool {
+        let hidden = self.hidden.contains(&(item.id, Part::Heading));
+        let own = self.all || self.show.kind(Part::Heading) && !hidden;
+        own && item.tables.iter().any(|t| self.table(t))
+    }
+
+    /// The table and chart without the title, and without the notes (with a chart, its
+    /// subtitle and footnote), when those do not show.
+    pub fn shown(&self, t: &OutputTable) -> Exported {
+        let (title, notes) = (self.part(t, Part::Title), self.part(t, Part::Notes));
+        let mut table = t.table.clone();
+        let mut chart = t.chart.clone();
+        if !title {
+            // still the name of its bookmark or sheet
+            let title = std::mem::take(&mut table.title);
+            table.outline.get_or_insert(title);
+            chart.iter_mut().for_each(|c| c.title.clear());
+        }
+        if !notes {
+            table.caption = None;
+            chart
+                .iter_mut()
+                .for_each(|c| (c.subtitle, c.footnote) = (None, None));
+        }
+        (table, chart, notes)
+    }
+
+    /// Each command with tables that `keep` takes and that show: its heading when that shows,
+    /// and those tables as shown. What an export holds.
+    pub fn exported(
+        &self,
+        runs: &[OutputRun],
+        keep: impl Fn(u64) -> bool,
+    ) -> Vec<(Option<String>, Vec<Exported>)> {
+        let mut out = Vec::new();
+        for item in runs.iter().flat_map(|run| &run.items) {
+            let tables = item.tables.iter().filter(|t| keep(t.id) && self.table(t));
+            let tables: Vec<Exported> = tables.map(|t| self.shown(t)).collect();
+            if !tables.is_empty() {
+                out.push((self.heading(item).then(|| item.heading.clone()), tables));
+            }
+        }
+        out
+    }
 }
 
 /// Every table of the output, in order.
@@ -106,7 +258,11 @@ pub fn right_aligned(table: &Table, row: usize, column: usize) -> bool {
 /// and caption, with a spanning label in its first column.
 pub fn tsv(table: &Table) -> String {
     let clean = |s: &str| s.replace(['\t', '\n', '\r'], " ");
-    let mut lines = vec![clean(&table.title)];
+    // no title line for a hidden title
+    let mut lines: Vec<String> = Some(clean(&table.title))
+        .filter(|t| !t.is_empty())
+        .into_iter()
+        .collect();
     for cells in header_rows(table) {
         let mut row = vec![String::new(); table.columns.len()];
         for cell in cells {
@@ -133,89 +289,40 @@ fn escape(text: &str) -> String {
         .replace('"', "&quot;")
 }
 
-const STYLE: &str = "body{font-family:system-ui,sans-serif;color:#1d2433;margin:2rem;line-height:1.4}\
-h2{font-size:1rem;color:#4a5468;font-weight:600;margin:2rem 0 .5rem}\
-table{border-collapse:collapse;margin:.5rem 0 1.5rem;font-variant-numeric:tabular-nums}\
-caption{text-align:left;font-weight:600;padding:.25rem 0}\
-th,td{padding:.25rem .6rem;border-bottom:1px solid #dde2ea}\
-thead th{background:#f3f5f8;text-align:center}\
-tbody th{text-align:left;font-weight:normal;vertical-align:top}td{text-align:right}\
-td.text{text-align:left}p.note{font-size:.85rem;color:#4a5468}";
-
-/// One table as HTML: a repeated row label spans its rows, and the caption follows as a note.
+/// One table as HTML, as the engine's web page exports write it, the caption as a note.
 pub fn table_html(table: &Table) -> String {
-    let mut html = format!(
-        "<table>\n<caption>{}</caption>\n<thead>\n",
-        escape(&table.title)
-    );
-    for cells in header_rows(table) {
-        html.push_str("<tr>");
-        for cell in cells {
-            let span = match cell.span {
-                1 => String::new(),
-                n => format!(" colspan=\"{n}\""),
-            };
-            html.push_str(&format!("<th{span}>{}</th>", escape(&cell.label)));
-        }
-        html.push_str("</tr>\n");
-    }
-    html.push_str("</thead>\n<tbody>\n");
-    for (r, spans) in row_spans(table).iter().enumerate() {
-        html.push_str("<tr>");
-        for c in 0..table.rows[r].len() {
-            let text = escape(&cell_text(table, r, c));
-            if c < table.row_headers {
-                match spans.get(c).copied().unwrap_or(1) {
-                    0 => {}
-                    1 => html.push_str(&format!("<th>{text}</th>")),
-                    n => html.push_str(&format!("<th rowspan=\"{n}\">{text}</th>")),
-                }
-            } else if right_aligned(table, r, c) {
-                html.push_str(&format!("<td>{text}</td>"));
-            } else {
-                html.push_str(&format!("<td class=\"text\">{text}</td>"));
-            }
-        }
-        html.push_str("</tr>\n");
-    }
-    html.push_str("</tbody>\n</table>\n");
-    if let Some(caption) = &table.caption {
-        html.push_str(&format!("<p class=\"note\">{}</p>\n", escape(caption)));
-    }
-    html
+    statscraft_engine::table_html(table, true)
 }
 
 fn page(body: &str) -> String {
+    let style = statscraft_engine::HTML_STYLE;
     format!(
         "<!doctype html>\n<html lang=\"en\">\n<head>\n<meta charset=\"utf-8\">\n\
-         <title>Statscraft output</title>\n<style>{STYLE}</style>\n</head>\n<body>\n{body}</body>\n</html>\n"
+         <title>Statscraft output</title>\n<style>{style}</style>\n</head>\n<body>\n{body}</body>\n</html>\n"
     )
 }
 
 /// The tables `keep` takes as one HTML page, under the heading of their command; a drawn chart
-/// as its PNG picture inside the page, on light paper.
-pub fn html(runs: &[OutputRun], keep: impl Fn(u64) -> bool) -> String {
+/// as its PNG picture inside the page, on light paper. Only what `shown` shows goes in.
+pub fn html(runs: &[OutputRun], keep: impl Fn(u64) -> bool, shown: &Visibility) -> String {
     use statscraft_engine::picture::{FILE_WIDTH, Paper, chart_png, figure};
     let mut body = String::new();
-    for item in runs.iter().flat_map(|run| &run.items) {
-        let tables: Vec<&OutputTable> = item.tables.iter().filter(|t| keep(t.id)).collect();
-        if tables.is_empty() {
-            continue;
+    for (heading, tables) in shown.exported(runs, keep) {
+        if let Some(heading) = heading {
+            body.push_str(&format!("<h2>{}</h2>\n", escape(&heading)));
         }
-        body.push_str(&format!("<h2>{}</h2>\n", escape(&item.heading)));
-        for t in tables {
-            let png = t
-                .chart
+        for (table, chart, _) in tables {
+            let png = chart
                 .as_ref()
                 .and_then(|c| chart_png(c, Paper::Light)?.ok());
-            match (png, &t.chart) {
+            match (png, &chart) {
                 (Some(png), Some(chart)) => body.push_str(&figure(
                     &png,
                     "image/png",
                     f64::from(FILE_WIDTH),
                     &chart.title,
                 )),
-                _ => body.push_str(&table_html(&t.table)),
+                _ => body.push_str(&table_html(&table)),
             }
         }
     }
@@ -223,16 +330,18 @@ pub fn html(runs: &[OutputRun], keep: impl Fn(u64) -> bool) -> String {
 }
 
 /// The output as a PDF file, as OUTPUT EXPORT /PDF writes it: bookmarks and the font embedded.
-pub fn pdf(runs: &[OutputRun], keep: impl Fn(u64) -> bool) -> Vec<u8> {
+/// Only what `shown` shows goes in.
+pub fn pdf(runs: &[OutputRun], keep: impl Fn(u64) -> bool, shown: &Visibility) -> Vec<u8> {
     use statscraft_engine::office::Item;
-    let items: Vec<(&str, Item)> = runs
+    let exported = shown.exported(runs, keep);
+    // shortcut: a chart with no drawing goes in as its own data table, notes and all
+    let items: Vec<(&str, Item)> = exported
         .iter()
-        .flat_map(|run| &run.items)
-        .flat_map(|item| {
-            let tables = item.tables.iter().filter(|t| keep(t.id));
-            tables.map(|t| match &t.chart {
-                Some(chart) => (item.heading.as_str(), Item::Chart(chart)),
-                None => (item.heading.as_str(), Item::Table(&t.table)),
+        .flat_map(|(heading, tables)| {
+            let heading = heading.as_deref().unwrap_or("");
+            tables.iter().map(move |(table, chart, _)| match chart {
+                Some(chart) => (heading, Item::Chart(chart)),
+                None => (heading, Item::Table(table)),
             })
         })
         .collect();
@@ -304,6 +413,9 @@ mod tests {
             caption: Some(s("Chi-square p = 0.512")),
             outline: None,
             hidden: false,
+            cell_stats: None,
+            decorations: Vec::new(),
+            style: Default::default(),
         }
     }
 
@@ -442,6 +554,7 @@ mod tests {
             OutputRun {
                 label: s("Run 1"),
                 items: vec![OutputItem {
+                    id: 11,
                     heading: s("CTABLES & more"),
                     syntax: s("CTABLES /TABLE a BY b."),
                     tables: vec![t(1), t(2)],
@@ -451,11 +564,13 @@ mod tests {
                 label: s("Run 2"),
                 items: vec![
                     OutputItem {
+                        id: 12,
                         heading: s("FREQUENCIES"),
                         syntax: s("FREQUENCIES x."),
                         tables: vec![t(3)],
                     },
                     OutputItem {
+                        id: 13,
                         heading: s("CROSSTABS"),
                         syntax: s("CROSSTABS a BY b."),
                         tables: vec![t(4)],
@@ -465,16 +580,27 @@ mod tests {
         ]
     }
 
+    /// Everything shown, as with "Export hidden items".
+    fn all() -> Visibility<'static> {
+        static NONE: std::sync::LazyLock<HashSet<(u64, Part)>> =
+            std::sync::LazyLock::new(HashSet::new);
+        Visibility {
+            show: Show::default(),
+            hidden: &NONE,
+            all: true,
+        }
+    }
+
     #[test]
     fn html_escapes_spans_and_keeps_only_the_selection() {
-        let page = html(&runs(), |_| true);
+        let page = html(&runs(), |_| true, &all());
         assert!(page.contains("<h2>CTABLES &amp; more</h2>"));
         assert!(page.contains("<th colspan=\"4\">Gender</th>"));
         assert!(page.contains("<th>North &lt;1&gt;</th><td>12</td><td>54.5%</td>"));
         assert!(page.contains("<p class=\"note\">Chi-square p = 0.512</p>"));
         assert!(page.ends_with("</html>\n"));
         assert_eq!(page.matches("<table>").count(), 4);
-        let page = html(&runs(), |id| id == 4);
+        let page = html(&runs(), |id| id == 4, &all());
         assert_eq!(page.matches("<table>").count(), 1);
         assert!(page.contains("<h2>CROSSTABS</h2>") && !page.contains("FREQUENCIES"));
         assert!(clipboard_html(&[&table()]).starts_with("<!doctype html>"));
@@ -482,11 +608,98 @@ mod tests {
 
     #[test]
     fn pdf_holds_the_output_with_its_outline() {
-        let all = pdf(&runs(), |_| true);
-        assert!(all.starts_with(b"%PDF-1.") && all.ends_with(b"%%EOF"));
-        let outline = all.windows(9).any(|w| w == b"/Outlines");
+        let everything = pdf(&runs(), |_| true, &all());
+        assert!(everything.starts_with(b"%PDF-1.") && everything.ends_with(b"%%EOF"));
+        let outline = everything.windows(9).any(|w| w == b"/Outlines");
         assert!(outline);
-        assert!(pdf(&runs(), |id| id == 4).len() < all.len());
+        assert!(pdf(&runs(), |id| id == 4, &all()).len() < everything.len());
+    }
+
+    #[test]
+    fn an_element_shows_when_its_kind_is_on_and_it_is_not_hidden() {
+        let mut output = runs();
+        let mut hidden = HashSet::from([(2, Part::Title), (12, Part::Heading)]);
+        let shown = |output: &[OutputRun], hidden: &HashSet<(u64, Part)>, show: Show| {
+            let v = Visibility {
+                show,
+                hidden,
+                all: false,
+            };
+            let items: Vec<&OutputItem> = output.iter().flat_map(|r| &r.items).collect();
+            let tables: Vec<&OutputTable> = tables(output).collect();
+            let parts = |part| tables.iter().map(|t| v.part(t, part)).collect::<Vec<_>>();
+            (
+                items.iter().map(|i| v.heading(i)).collect::<Vec<_>>(),
+                tables.iter().map(|t| v.table(t)).collect::<Vec<_>>(),
+                parts(Part::Title),
+                parts(Part::Notes),
+            )
+        };
+        // headings are off by default; one title is hidden itself
+        let (headings, bodies, titles, notes) = shown(&output, &hidden, Show::default());
+        assert_eq!(headings, [false, false, false]);
+        assert_eq!(bodies, [true; 4]);
+        assert_eq!(titles, [true, false, true, true]);
+        assert_eq!(notes, [true; 4]);
+        // headings on: the one hidden itself stays away
+        let mut show = Show::default();
+        show.kinds[Part::Heading as usize] = true;
+        assert_eq!(shown(&output, &hidden, show).0, [true, false, true]);
+        // notes off, and a table hidden itself takes its title and notes with it
+        show.kinds[Part::Notes as usize] = false;
+        output[1].items[1].tables[0].table.hidden = true;
+        hidden.clear();
+        let (headings, bodies, titles, notes) = shown(&output, &hidden, show);
+        // the command whose only table is hidden loses its heading too
+        assert_eq!(headings, [true, true, false]);
+        assert_eq!(bodies, [true, true, true, false]);
+        assert_eq!(titles, [true, true, true, false]);
+        assert_eq!(notes, [false; 4]);
+        // tables off leaves nothing of a table
+        show.kinds[Part::Table as usize] = false;
+        let (headings, bodies, ..) = shown(&output, &hidden, show);
+        assert_eq!((headings, bodies), (vec![false; 3], vec![false; 4]));
+    }
+
+    #[test]
+    fn exports_leave_out_what_does_not_show_unless_asked() {
+        let mut output = runs();
+        output[1].items[0].tables[0].table.hidden = true;
+        output[0].items[0].tables[1].table.title = s("Second");
+        let hidden = HashSet::from([(1, Part::Title)]);
+        let shown = Visibility {
+            show: Show::default(),
+            hidden: &hidden,
+            all: false,
+        };
+        let page = html(&output, |_| true, &shown);
+        // no headings, the hidden table and the hidden title left out
+        assert!(!page.contains("<h2>"));
+        assert_eq!(page.matches("<table>").count(), 3);
+        assert_eq!(page.matches("<caption>").count(), 2);
+        assert!(page.contains("<caption>Second</caption>"));
+        // the same with "Export hidden items": everything
+        let page = html(&output, |_| true, &all());
+        assert_eq!(page.matches("<h2>").count(), 3);
+        assert_eq!(
+            page.matches("<caption>Region by gender</caption>").count(),
+            3
+        );
+        // what a workbook and a copy get: no hidden table, no title where it is hidden (its
+        // bookmark and sheet keep the name); the workbook writer leaves out an empty title
+        let exported = shown.exported(&output, |_| true);
+        let tables: Vec<&Exported> = exported.iter().flat_map(|(_, t)| t).collect();
+        assert_eq!(tables.len(), 3);
+        assert!(exported.iter().all(|(heading, _)| heading.is_none()));
+        assert_eq!(tables[0].0.title, "");
+        assert_eq!(tables[0].0.outline.as_deref(), Some("Region by gender"));
+        assert!(tsv(&tables[0].0).starts_with("\t\tGender"));
+        // notes off: none in the copy, and the workbook is told to leave them out
+        let mut show = Show::default();
+        show.kinds[Part::Notes as usize] = false;
+        let shown = Visibility { show, ..shown };
+        let (table, _, notes) = shown.shown(&output[0].items[0].tables[1]);
+        assert!(table.caption.is_none() && !notes && table.title == "Second");
     }
 
     #[test]

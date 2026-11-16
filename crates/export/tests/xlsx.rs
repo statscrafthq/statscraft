@@ -468,6 +468,43 @@ fn ctables_formats_become_excel_formats() {
 }
 
 #[test]
+fn a_table_without_title_or_notes_starts_at_its_header() {
+    let table = Table {
+        title: String::new(),
+        outline: Some("Ages".into()),
+        caption: Some("A note".into()),
+        row_headers: 1,
+        columns: vec![String::new(), "Count".into()],
+        rows: vec![vec![Cell::Text("Young".into()), Cell::Number(3.0)]],
+        ..Table::default()
+    };
+    let dir = std::env::temp_dir().join(format!("statscraft-xlsx-parts-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("out.xlsx");
+    let titled = Table {
+        title: "Ages".into(),
+        ..table.clone()
+    };
+    let items = [(Item::Table(&table), false), (Item::Table(&titled), true)];
+    statscraft_export::write_xlsx_parts(&path, items, false).unwrap();
+    let sheets = read_xlsx(&path);
+    std::fs::remove_dir_all(&dir).unwrap();
+    // named by its outline label; the header in the first row, the panes below it, no note
+    let bare = &sheets[0];
+    assert_eq!(bare.name, "Ages");
+    assert_eq!(bare.value("B1"), Value::Text("Count".into()));
+    assert_eq!(bare.value("B2"), Value::Number(3.0));
+    assert_eq!(bare.pane.as_deref(), Some("B2"));
+    assert_eq!(bare.value("A3"), Value::Blank);
+    // with its title and notes as before
+    let full = &sheets[1];
+    assert_eq!(full.name, "Ages (2)");
+    assert_eq!(full.value("A1"), Value::Text("Ages".into()));
+    assert_eq!(full.pane.as_deref(), Some("B3"));
+    assert_eq!(full.value("A4"), Value::Text("A note".into()));
+}
+
+#[test]
 fn one_sheet_puts_the_tables_one_below_the_other() {
     let tables = tables(
         "FREQUENCIES gender.\n\
