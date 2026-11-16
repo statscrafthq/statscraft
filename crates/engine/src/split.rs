@@ -267,8 +267,11 @@ impl Engine {
     }
 
     fn in_view(&mut self, command: &Command, use_split: bool) -> Result<Vec<Table>, Error> {
-        // EXSMOOTH and ARIMA apply USE themselves, as they also forecast after it
-        let use_range = !matches!(command, Command::Exsmooth(_) | Command::Arima(_));
+        // EXSMOOTH, ARIMA and AREG apply USE themselves, as they also forecast after it
+        let use_range = !matches!(
+            command,
+            Command::Exsmooth(_) | Command::Arima(_) | Command::Areg(_)
+        );
         let Some(groups) = self.groups(use_split, use_range)? else {
             return self.run_procedure(command);
         };

@@ -4,6 +4,7 @@ mod aggregate;
 mod agreement;
 mod alscal;
 mod anova;
+mod areg;
 mod arima;
 mod autorecode;
 mod bayes;
@@ -106,6 +107,7 @@ pub mod session;
 mod session_commands;
 mod shown;
 mod sort;
+mod spectra;
 mod split;
 mod star_join;
 mod stata;
@@ -116,6 +118,7 @@ mod tree;
 mod ts_plot;
 mod ts_range;
 mod ttest;
+mod two_stage;
 mod variables;
 pub mod vega_lite;
 mod wls;
@@ -773,6 +776,18 @@ impl Engine {
                 let spec = Command::Arima(Box::new(self.arima_spec(spec)?));
                 return self.with_current_names(&spec);
             }
+            Command::Areg(spec) => {
+                let spec = Command::Areg(Box::new(self.areg_spec(spec)?));
+                return self.with_current_names(&spec);
+            }
+            Command::TwoStage(spec) => {
+                let spec = Command::TwoStage(Box::new(self.two_stage_spec(spec)?));
+                return self.with_current_names(&spec);
+            }
+            Command::Spectra(spec) => {
+                let spec = self.spectra_spec(spec)?;
+                return self.procedure(&Command::Spectra(Box::new(spec)));
+            }
             Command::Predict(range) => self.ts_predict = Some(range.clone()),
             Command::SeriesPlot(spec) => {
                 let spec = self.series_plot_spec(spec)?;
@@ -1092,6 +1107,9 @@ impl Engine {
             Command::Season(command) => self.season(command),
             Command::Exsmooth(command) => self.exsmooth(command),
             Command::Arima(command) => self.arima(command),
+            Command::Areg(command) => self.areg(command),
+            Command::TwoStage(command) => self.two_stage(command),
+            Command::Spectra(command) => self.spectra(command),
             Command::SeriesPlot(command) => self.series_plot(command),
             Command::MultipleImputation(command) => self.multiple_imputation(command),
             Command::Plum(command) => self.plum(command),

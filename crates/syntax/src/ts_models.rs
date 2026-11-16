@@ -208,16 +208,16 @@ pub struct Exsmooth {
     pub initial: Option<Option<(f64, f64)>>,
 }
 
-fn error(p: &Parser, start: usize, message: impl Into<String>) -> SyntaxError {
+pub(crate) fn error(p: &Parser, start: usize, message: impl Into<String>) -> SyntaxError {
     SyntaxError::new(p.span_from(start), message.into())
 }
 
-fn number(p: &mut Parser, what: &str) -> PResult<f64> {
+pub(crate) fn number(p: &mut Parser, what: &str) -> PResult<f64> {
     p.number().ok_or_else(|| p.unexpected(&[what]))
 }
 
 /// A whole number of at least `low`.
-fn whole(p: &mut Parser, low: u32, what: &str) -> PResult<u32> {
+pub(crate) fn whole(p: &mut Parser, low: u32, what: &str) -> PResult<u32> {
     let start = p.pos;
     match p.number() {
         Some(n) if n >= f64::from(low) && n.fract() == 0.0 && n <= f64::from(u32::MAX) => {
@@ -233,7 +233,7 @@ fn whole(p: &mut Parser, low: u32, what: &str) -> PResult<u32> {
 }
 
 /// Numbers separated by commas or blanks, in parentheses when `parens` (else optional).
-fn numbers(p: &mut Parser, parens: bool, what: &str) -> PResult<Vec<f64>> {
+pub(crate) fn numbers(p: &mut Parser, parens: bool, what: &str) -> PResult<Vec<f64>> {
     let open = p.eat(Punct::LParen);
     if parens && !open {
         return Err(p.unexpected(&["'('"]));
@@ -315,7 +315,7 @@ fn smoothing(p: &mut Parser, name: &str, open: bool) -> PResult<Smoothing> {
     Ok(Smoothing::Value(v))
 }
 
-fn apply_name(p: &mut Parser) -> PResult<Option<String>> {
+pub(crate) fn apply_name(p: &mut Parser) -> PResult<Option<String>> {
     p.eat(Punct::Eq);
     Ok(match p.peek() {
         Some(TokenKind::Str(_)) => Some(p.string("a model name")?),
@@ -332,7 +332,7 @@ fn at_variables(p: &Parser) -> bool {
 }
 
 /// Runs `sub` for every subcommand; the leading variable list goes to `variables`.
-fn subcommands(
+pub(crate) fn subcommands(
     p: &mut Parser,
     mut variables: impl FnMut(&mut Parser) -> PResult<()>,
     mut sub: impl FnMut(&mut Parser) -> PResult<bool>,

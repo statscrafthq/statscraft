@@ -100,8 +100,11 @@ fn start(line: &str) -> Option<Start> {
         return Some(Start::Comment);
     }
     let mut tokens = Vec::new();
+    // a command name may start with a digit (2SLS)
+    lexer.glued_words = true;
     while let (true, Ok(Some(token))) = (tokens.len() < NAME_TOKENS, lexer.next_token()) {
         tokens.push(token);
+        lexer.glued_words = false;
     }
     // COMMENT needs four letters, so that COM stays an abbreviation of COMPUTE
     if let Some(Token {
@@ -151,6 +154,8 @@ fn build(lines: &[(u32, &str)], end: Span) -> Option<Result<RawCommand, SyntaxEr
     let mut tokens = Vec::new();
     let mut lex_error = None;
     while tokens.len() < NAME_TOKENS && lex_error.is_none() {
+        // a command name may start with a digit (2SLS)
+        lexer.glued_words = tokens.is_empty();
         match lexer.next_token() {
             Ok(Some(token)) => tokens.push(token),
             Ok(None) => break,

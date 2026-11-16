@@ -1,4 +1,5 @@
-//! Parser tests of TSET, TSHOW, CREATE, ACF, PACF, CCF, SEASON, PREDICT, EXSMOOTH and ARIMA.
+//! Parser tests of TSET, TSHOW, CREATE, ACF, PACF, CCF, SEASON, PREDICT, EXSMOOTH, ARIMA,
+//! SPECTRA, AREG and 2SLS.
 
 use super::*;
 
@@ -243,4 +244,93 @@ fn series_plot_subcommands() {
     let e = err("TSPLOT y /FORMAT=LEFT.");
     assert!(e.contains("unexpected word LEFT"), "{e}");
     assert!(err("CASEPLOT y /SPLIT=WIDE.").contains("WIDE"));
+}
+
+#[test]
+fn spectra_subcommands() {
+    let Command::Spectra(s) = command(
+        "SPECTRA VARIABLES=flow rain /CENTER /CROSS /WINDOW=PARZEN(7) TUKEY \
+         /PLOT=P S K BY PER /SAVE=FREQ(fq) S(dens) K(coh).",
+    ) else {
+        panic!()
+    };
+    assert_eq!(s.variables.len(), 2);
+    assert_eq!((s.center, s.cross), (Some(true), Some(true)));
+    // of several windows the first counts
+    assert_eq!(
+        s.window,
+        Some(SpectraSmoothing::Named(SpectraWindow::Parzen, Some(7)))
+    );
+    let plot = s.plot.unwrap();
+    assert_eq!(
+        plot.items,
+        vec![SpectraItem::P, SpectraItem::S, SpectraItem::K]
+    );
+    assert_eq!(plot.by, Some(SpectraBy::Period));
+    assert_eq!(s.save.len(), 3);
+    assert_eq!(s.save[1], (SpectraItem::S, "dens".to_string()));
+    let Command::Spectra(s) = command("SPECTRA flow /WINDOW=0.2, 0.6, 0.2 /CENTER NO /PLOT=NONE.")
+    else {
+        panic!()
+    };
+    assert_eq!(
+        s.window,
+        Some(SpectraSmoothing::Weights(vec![0.2, 0.6, 0.2]))
+    );
+    assert_eq!(s.center, Some(false));
+    assert!(s.plot.unwrap().items.is_empty());
+    let Command::Spectra(s) = command("SPECTRA APPLY /WINDOW=DANIELL /PLOT=ALL.") else {
+        panic!()
+    };
+    assert_eq!(s.apply, Some(None));
+    assert!(s.plot.unwrap().all);
+    assert!(err("SPECTRA flow /WINDOW=HANN(5).").contains("expected"));
+    let message = err("SPECTRA flow /SAVE=P.");
+    assert!(message.contains("expected"), "{message}");
+}
+
+#[test]
+fn areg_subcommands() {
+    let Command::Areg(a) =
+        command("AREG load WITH temp hour /METH=CO /NOCONSTANT /RHO=-0.25 /MXITER=5.")
+    else {
+        panic!()
+    };
+    assert_eq!((a.dependent.len(), a.regressors.len()), (1, 2));
+    assert_eq!(a.method, Some(AregMethod::Co));
+    assert_eq!(
+        (a.constant, a.rho, a.mxiter),
+        (Some(false), Some(-0.25), Some(5))
+    );
+    let Command::Areg(a) = command("AREG load WITH other /APPLY INITIAL.") else {
+        panic!()
+    };
+    assert_eq!(a.apply, Some((None, ArimaApply::Initial)));
+    assert!(err("AREG load.").contains("regressor"));
+    assert!(err("AREG load WITH temp /RHO=1.").contains("below 1"));
+    assert!(err("AREG a b WITH c.").contains("one dependent"));
+}
+
+#[test]
+fn two_stage_subcommands() {
+    let Command::TwoStage(t) = command(
+        "2SLS demand WITH price income /EQUATION=price WITH demand cost \
+         /INSTRUMENTS=income /INSTRUMENTS cost lagprice /ENDOGENOUS=price demand \
+         /NOCONSTANT /PRINT=COV /SAVE=PRED RESID.",
+    ) else {
+        panic!()
+    };
+    assert_eq!(t.equations.len(), 2);
+    assert_eq!(t.equations[1].dependent, "price");
+    assert_eq!(t.instruments.as_ref().map(Vec::len), Some(3));
+    assert_eq!(t.endogenous.len(), 2);
+    assert!(t.print_cov && t.save_pred && t.save_resid);
+    assert_eq!(t.constant, Some(false));
+    // the name starts with a digit; lower case works too
+    let Command::TwoStage(t) = command("2sls y WITH x /INSTRUMENTS z.") else {
+        panic!()
+    };
+    assert_eq!(t.equations[0].dependent, "y");
+    assert!(err("2SLS y WITH x.").contains("INSTRUMENTS"));
+    assert!(err("2SLS y x /INSTRUMENTS=z.").contains("WITH"));
 }

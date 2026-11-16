@@ -160,6 +160,7 @@ mod tests_timeseries;
 mod timeseries;
 mod tree;
 mod ts_models;
+mod ts_more;
 
 pub use agreement::{FleissKappa, KappaTabulation, WeightedKappa};
 pub use alscal::{Alscal, AlscalLevel};
@@ -310,6 +311,10 @@ pub use timeseries::{
 pub use ts_models::{
     Arima, ArimaApply, ArimaForecast, ArimaLog, Exsmooth, PlotJoin, PlotMark, PlotReference,
     SeasonalFactors, Seasonality, SeriesPlot, Smoothing, Trend, smoothing_model_name,
+};
+pub use ts_more::{
+    Areg, AregMethod, Equation, Spectra, SpectraBy, SpectraItem, SpectraPlot, SpectraSmoothing,
+    SpectraWindow, TwoStage,
 };
 
 use parser::Parser;
