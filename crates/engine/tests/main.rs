@@ -91,6 +91,7 @@ mod transform;
 mod tree;
 mod ts_models;
 mod ts_more;
+mod twostep;
 mod vega_lite;
 mod workbook;
 
