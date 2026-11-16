@@ -914,7 +914,8 @@ All eleven POWER commands are supported: MEANS ONESAMPLE, INDEPENDENT and RELATE
 - A continuous variable with one value in every case is left out with a warning. The weight variable is not used, with a warning; SPLIT FILE gives one analysis per group.
 - With only a variable list the Model Summary table is shown (algorithm, number of inputs, number of clusters); with VIEWMODEL DISPLAY=NO and no PRINT or SAVE the command stops with an error. The interactive model view, its charts and the silhouette measure are not produced.
 - SUMMARY: the Centroids table gives the mean and standard deviation (n - 1) of the original values; a categorical variable's table gives each category's count and percent of the cluster's cases.
-- MEMALLOCATE is accepted and not needed. EVALUATIONFIELDS is accepted with a warning. OUTFILE writes no file yet (warning) and INFILE is not supported yet.
+- MEMALLOCATE is accepted and not needed. EVALUATIONFIELDS is accepted with a warning. INFILE is not supported yet.
+- **The OUTFILE files** are small JSON files of Statscraft's own, not the XML the documentation describes. MODEL (`"format": "statscraft-twostep-model"`) holds the distance, each continuous variable with its mean and standard deviation (null when NOSTANDARDIZE names it) and the variance term of the distance, each categorical variable with its categories, the noise count and critical distance, and per cluster its number, its cases and its summary (count, means and sums of squared deviations in the clustered units, category counts). STATE (`"format": "statscraft-twostep-state"`) holds the same variables, the final threshold, MXBRANCH, MXLEVEL and the summaries of the tree's subclusters. OUTFILE with SPLIT FILE stops with an error.
 
 ### DETECTANOMALY
 
@@ -926,7 +927,7 @@ All eleven POWER commands are supported: MEANS ONESAMPLE, INDEPENDENT and RELATE
 - The missing proportion is the share (0 to 1) of the analysis variables missing in the case. It is left out, with a warning, when it is the same in every case. A variable that is constant or empty over the analyzed cases is left out with a warning, a categorical variable with a single valid category too.
 - Ties: the anomaly list keeps file order, reasons keep variable order (scale variables, the missing proportion, then categorical ones), and the mode is the first category in sort order. A missing category shows as Missing.
 - Saved values go to the analyzed cases; other cases get missing values. ReasonValue and ReasonNorm are numbers unless a categorical variable is a string, then text. A name given on SAVE that already exists is an error; a default name in use gets the first free suffix _1, _2 and so on. Reason variables with NUMREASONS=0 are skipped with a warning.
-- OUTFILE writes no model file yet (warning).
+- **The OUTFILE file** is a small JSON file of Statscraft's own (`"format": "statscraft-anomaly-model"`), not the XML the documentation describes: MLWEIGHT, whether HANDLEMISSING APPLY was on, each variable with its kind (scale, categorical or the missing proportion), a scale one with the mean that stands in for its missing values and its variance, a categorical one with its categories and whether missing values form a category of their own, and each peer group with its number, its mean group deviation and its summary (count, means, sums of squared deviations, category counts).
 
 ### PROXIMITIES
 

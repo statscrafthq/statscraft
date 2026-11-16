@@ -38,6 +38,7 @@ use crate::crosstabs::{Key, categories};
 use crate::descriptives::{case_weights, number};
 use crate::npar_tests::text;
 use crate::{Cell, Engine, Error, Table};
+use serde_json::json;
 use statscraft_data::{Measure, Values, Variable};
 use statscraft_syntax::{ClusterCount, Twostep};
 
@@ -376,6 +377,8 @@ pub(crate) struct Preclusters {
     pub(crate) subclusters: Vec<Cf>,
     /// Whether the tree ever filled.
     pub(crate) filled: bool,
+    /// The threshold of the final tree.
+    pub(crate) threshold: f64,
 }
 
 /// Reads the records in order into the tree.
@@ -412,6 +415,7 @@ pub(crate) fn precluster(model: &Model, records: Vec<Cf>, settings: &Settings) -
     Preclusters {
         subclusters: tree.leaf_entries(),
         filled,
+        threshold: tree.threshold,
     }
 }
 
@@ -621,6 +625,39 @@ pub(crate) fn number_by_first(assigned: &[Option<usize>]) -> (Vec<Option<usize>>
     (numbers, order)
 }
 
+/// A category value as JSON: a number or the text without trailing blanks.
+pub(crate) fn key_json(key: &Key) -> serde_json::Value {
+    match key {
+        Key::Number(x) => json!(x),
+        Key::Text(t) => json!(t.trim_end()),
+    }
+}
+
+/// A summary in the units the clustering used (standardized where it standardizes).
+pub(crate) fn cf_json(cf: &Cf) -> serde_json::Value {
+    json!({"n": cf.n, "mean": cf.mean, "ss": cf.ss, "counts": cf.counts})
+}
+
+impl Engine {
+    /// Writes a model file of the command `who` as pretty JSON.
+    pub(crate) fn write_json(
+        &self,
+        who: &str,
+        file: &str,
+        what: &str,
+        value: &serde_json::Value,
+    ) -> Result<(), Error> {
+        let path = self.path(file);
+        let text = serde_json::to_string_pretty(value).expect("a model serializes");
+        std::fs::write(&path, text + "\n").map_err(|e| {
+            Error(format!(
+                "{who} cannot write the {what} file {}: {e}",
+                path.display()
+            ))
+        })
+    }
+}
+
 /// A table without column groups.
 pub(crate) fn plain_table(
     title: &str,
@@ -705,6 +742,13 @@ impl Engine {
                 "TWOSTEP CLUSTER /INFILE (updating a saved tree) is not supported yet".into(),
             ));
         }
+        let outfile = command.model_file.is_some() || command.state_file.is_some();
+        if outfile && self.split_group.is_some() {
+            return Err(Error(
+                "TWOSTEP CLUSTER /OUTFILE is not available with SPLIT FILE; turn SPLIT FILE off"
+                    .into(),
+            ));
+        }
         let data = self.active()?;
         let unique = |mut names: Vec<String>| {
             let mut seen: Vec<String> = Vec::new();
@@ -752,9 +796,6 @@ impl Engine {
         if case_weights(data)?.is_some() {
             warnings.push("TWOSTEP CLUSTER does not use the weight variable".to_string());
         }
-        if command.model_file.is_some() || command.state_file.is_some() {
-            warnings.push("TWOSTEP CLUSTER /OUTFILE: no model file is written yet".to_string());
-        }
         if !command.evaluation.is_empty() {
             warnings.push(
                 "TWOSTEP CLUSTER: evaluation fields belong to the interactive model view and are not used"
@@ -776,9 +817,10 @@ impl Engine {
             && !command.print_summary
             && !print_ic
             && command.save.is_none()
+            && !outfile
         {
             return Err(Error(
-                "TWOSTEP CLUSTER has nothing to show or save: give PRINT, SAVE or VIEWMODEL DISPLAY=YES"
+                "TWOSTEP CLUSTER has nothing to show or save: give PRINT, SAVE, OUTFILE or VIEWMODEL DISPLAY=YES"
                     .into(),
             ));
         }
@@ -830,19 +872,24 @@ impl Engine {
                 "TWOSTEP CLUSTER has no variable left to cluster".into(),
             ));
         }
-        let transformed: Vec<Vec<f64>> = continuous
+        // the mean and standard deviation of each standardized variable
+        let scales: Vec<Option<(f64, f64)>> = continuous
             .iter()
             .zip(&raw)
             .map(|(v, values)| {
                 let keep = unstandardized
                     .iter()
                     .any(|n| n.eq_ignore_ascii_case(v.name()));
-                if keep {
-                    return values.clone();
-                }
                 let (mean, sd) = mean_sd(values);
-                let (mean, sd) = (mean.expect("cases"), sd.expect("two cases"));
-                values.iter().map(|x| (x - mean) / sd).collect()
+                (!keep).then(|| (mean.expect("cases"), sd.expect("two cases")))
+            })
+            .collect();
+        let transformed: Vec<Vec<f64>> = raw
+            .iter()
+            .zip(&scales)
+            .map(|(values, scale)| match scale {
+                Some((mean, sd)) => values.iter().map(|x| (x - mean) / sd).collect(),
+                None => values.clone(),
             })
             .collect();
         let coded: Vec<(Vec<Key>, Vec<Option<usize>>)> = keys
@@ -1065,6 +1112,68 @@ impl Engine {
                     rows,
                     ..Table::default()
                 });
+            }
+        }
+        if outfile {
+            let continuous: Vec<_> = continuous
+                .iter()
+                .zip(&scales)
+                .zip(&model.adjust)
+                .map(|((v, scale), adjust)| {
+                    json!({
+                        "name": v.name(),
+                        "mean": scale.map(|s| s.0),
+                        "sd": scale.map(|s| s.1),
+                        "variance": adjust,
+                    })
+                })
+                .collect();
+            let categorical: Vec<_> = categorical
+                .iter()
+                .zip(&coded)
+                .map(|(v, (cats, _))| {
+                    let cats: Vec<_> = cats.iter().map(key_json).collect();
+                    json!({"name": v.name(), "categories": cats})
+                })
+                .collect();
+            let distance = if command.euclidean {
+                "euclidean"
+            } else {
+                "likelihood"
+            };
+            if let Some(file) = &command.model_file {
+                let found: Vec<_> = order
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &j)| {
+                        let cases = numbers.iter().filter(|n| **n == Some(i + 1)).count();
+                        json!({"number": i + 1, "cases": cases, "summary": cf_json(&clusters[j])})
+                    })
+                    .collect();
+                let model = json!({
+                    "format": "statscraft-twostep-model",
+                    "distance": distance,
+                    "continuous": continuous,
+                    "categorical": categorical,
+                    "noise_cases": noise_count,
+                    "noise_limit": noise_limit,
+                    "clusters": found,
+                });
+                self.write_json("TWOSTEP CLUSTER", file, "model", &model)?;
+            }
+            if let Some(file) = &command.state_file {
+                let subclusters: Vec<_> = subs.iter().map(cf_json).collect();
+                let state = json!({
+                    "format": "statscraft-twostep-state",
+                    "distance": distance,
+                    "continuous": continuous,
+                    "categorical": categorical,
+                    "threshold": pre.threshold,
+                    "max_branch": command.branch,
+                    "max_level": command.levels,
+                    "subclusters": subclusters,
+                });
+                self.write_json("TWOSTEP CLUSTER", file, "state", &state)?;
             }
         }
         for warning in warnings {
