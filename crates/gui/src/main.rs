@@ -43,6 +43,8 @@ mod model_dialogs;
 mod model_dialogs_view;
 mod mva_dialog;
 mod mva_dialog_view;
+mod nptests_dialog;
+mod nptests_dialog_view;
 mod office;
 #[cfg(target_os = "macos")]
 mod open_files;

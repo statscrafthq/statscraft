@@ -31,6 +31,7 @@ use crate::model_dialogs::{
     Discriminant, FactorAnalysis, Hierarchical, KMeans, Logistic, RepeatedMeasures, Univariate,
 };
 use crate::model_dialogs_view;
+use crate::nptests_dialog::{NpKind, Nptests};
 use crate::output;
 use crate::output_view;
 use crate::power_dialog::{POWER_MENU, PowerAnalysis};
@@ -1756,11 +1757,24 @@ impl App {
                         }
                     });
                     ui.menu_button("Nonparametric Tests", |ui| {
-                        for kind in NparKind::ALL {
-                            if ui.button(kind.menu()).clicked() {
-                                self.open_dialog(Dialog::NparTests(NparTests::new(kind)));
+                        for (label, kind) in [
+                            ("One Sample...", NpKind::OneSample),
+                            ("Independent Samples...", NpKind::Independent),
+                            ("Related Samples...", NpKind::Related),
+                        ] {
+                            if ui.button(label).clicked() {
+                                self.open_dialog(Dialog::Advanced(Advanced::Nptests(Box::new(
+                                    Nptests::new(kind),
+                                ))));
                             }
                         }
+                        ui.menu_button("Legacy Dialogs", |ui| {
+                            for kind in NparKind::ALL {
+                                if ui.button(kind.menu()).clicked() {
+                                    self.open_dialog(Dialog::NparTests(NparTests::new(kind)));
+                                }
+                            }
+                        });
                     });
                     ui.menu_button("Survival", |ui| {
                         for (label, dialog) in [
