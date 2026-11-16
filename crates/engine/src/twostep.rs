@@ -1017,7 +1017,8 @@ impl Engine {
             ];
             let mut table = plain_table("Auto-Clustering", 1, &columns, rows);
             table.caption = Some(format!(
-                "Change is the {name} less that of one cluster fewer; Ratio of Changes divides it by the change at 2 clusters. Ratio of Distance Measures is the distance of the join to one cluster fewer over that of the join to this number. Chosen: {count} clusters."
+                "Change is the {name} less that of one cluster fewer; Ratio of Changes divides it by the change at 2 clusters. Ratio of Distance Measures is the distance of the join to one cluster fewer over that of the join to this number. Chosen: {count} {}.",
+                if count == 1 { "cluster" } else { "clusters" }
             ));
             tables.push(table);
         }

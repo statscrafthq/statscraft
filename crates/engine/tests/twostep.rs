@@ -331,6 +331,19 @@ fn outfile_writes_model_and_state() {
     std::fs::remove_dir_all(&dir).unwrap();
 }
 
+/// Cases that are all alike make one cluster, and the caption says so in the singular.
+#[test]
+fn identical_cases_make_one_cluster() {
+    let data = "DATA LIST FREE /c (A1).\nBEGIN DATA.\na a a a\nEND DATA.\n";
+    let tables = run_on(
+        &mut Engine::default(),
+        &format!("{data}TWOSTEP CLUSTER /CATEGORICAL VARIABLES=c /PRINT IC COUNT."),
+    );
+    let caption = find(&tables, "Auto-Clustering").caption.clone().unwrap();
+    assert!(caption.ends_with("Chosen: 1 cluster."), "{caption}");
+    assert_eq!(column(find(&tables, "Cluster Distribution"), 2)[0], 4.0);
+}
+
 #[test]
 fn euclidean_fixed_count() {
     let mut engine = Engine::default();
