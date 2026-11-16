@@ -77,15 +77,35 @@ impl Failure {
 /// messages already ("FACTOR: ...", "SET LOCALE: ..."), also after the name of a split group
 /// ("g = 1: FACTOR: ...", shown as "FACTOR: g = 1: ...").
 fn with_command(command: &str, message: &str) -> String {
-    if command.is_empty() || own_name(command, message).is_some() {
+    if command.is_empty() || own_name(command, message).is_some() || subject(command, message) {
         return message.to_string();
     }
     for (at, _) in message.match_indices(": ") {
         if let Some((name, rest)) = own_name(command, &message[at + 2..]) {
             return format!("{name}: {}: {rest}", &message[..at]);
         }
+        if subject(command, &message[at + 2..]) {
+            return message.to_string();
+        }
     }
     format!("{command}: {message}")
+}
+
+/// Whether the message opens with the command as its subject, perhaps with a subcommand or
+/// keyword after it ("TWOSTEP CLUSTER has ...", "DETECTANOMALY /SAVE names ...").
+fn subject(command: &str, message: &str) -> bool {
+    let Some(rest) = message
+        .strip_prefix(command)
+        .and_then(|r| r.strip_prefix(' '))
+    else {
+        return false;
+    };
+    rest.split(' ')
+        .find(|w| {
+            !w.chars()
+                .all(|c| c.is_ascii_uppercase() || "/=_-".contains(c))
+        })
+        .is_some_and(|w| w.starts_with(|c: char| c.is_ascii_lowercase()))
 }
 
 /// The command's name and the rest when the message starts with it, alone or with keywords
@@ -1136,6 +1156,25 @@ mod tests {
         );
         assert_eq!(with_command("SET", "SETTINGS: kept"), "SET: SETTINGS: kept");
         assert_eq!(
+            with_command("TWOSTEP CLUSTER", "TWOSTEP CLUSTER has no variable left"),
+            "TWOSTEP CLUSTER has no variable left"
+        );
+        assert_eq!(
+            with_command("RANK", "g = 1: RANK leaves out x: constant"),
+            "g = 1: RANK leaves out x: constant"
+        );
+        assert_eq!(
+            with_command("RANK", "RANKING x failed"),
+            "RANK: RANKING x failed"
+        );
+        assert_eq!(
+            with_command(
+                "DETECTANOMALY",
+                "DETECTANOMALY /SAVE names a, taken: rename"
+            ),
+            "DETECTANOMALY /SAVE names a, taken: rename"
+        );
+        assert_eq!(
             with_command("FACTOR", "FACTOR /SAVE: 5 scores"),
             "FACTOR /SAVE: 5 scores"
         );
@@ -1161,9 +1200,11 @@ mod tests {
             with_command("RANK", "RANK = 1: ties in x"),
             "RANK: RANK = 1: ties in x"
         );
+        // read as the command's own name: many messages open with it ("WEIGHT has ..."); a
+        // variable named like the command then loses the prefix, which still reads right
         assert_eq!(
             with_command("WEIGHT", "WEIGHT has negative values"),
-            "WEIGHT: WEIGHT has negative values"
+            "WEIGHT has negative values"
         );
         assert_eq!(
             with_command("SET", "g = 1: SET LOCALE: no mark"),

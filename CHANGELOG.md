@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Messages that open with their command's name ("TWOSTEP CLUSTER has no variable left to cluster") no longer show the name twice.
 - DETECTANOMALY /OUTFILE MODEL writes its file: the variables with their means and categories and the peer groups, as Statscraft's own JSON.
 - TWOSTEP CLUSTER /OUTFILE writes its files: MODEL the variables, their standardization and the final clusters, STATE the subclusters of the tree, both as Statscraft's own JSON. With SPLIT FILE it stops with an error. See [differences](docs/differences.md).
 - TWOSTEP CLUSTER (and its other name DMCLUSTER): clusters of cases from continuous and categorical variables by a pre-clustering tree and agglomerative joining, with the log-likelihood or Euclidean distance, the number of clusters fixed or chosen by BIC or AIC, noise handling, cluster distribution, centroid and frequency tables and the saved cluster number. DETECTANOMALY: peer groups from the same clustering, the anomaly index of every case with the variables that drive it, the anomaly, peer and reason lists, norms, summaries and saved indicator variables. Checked against an independent implementation of the published formulas. See [TWOSTEP CLUSTER](docs/commands/twostep-cluster.md) and [DETECTANOMALY](docs/commands/detectanomaly.md).
