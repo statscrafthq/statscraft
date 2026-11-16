@@ -298,7 +298,7 @@ fn values(given: Option<Smoothing>, default_grid: (f64, f64, f64)) -> Vec<f64> {
 }
 
 impl Engine {
-    /// The command over the previous EXSMOOTH for APPLY; keeps the result.
+    /// The command over the previous successful EXSMOOTH for APPLY.
     pub(crate) fn exsmooth_spec(&mut self, command: &Exsmooth) -> Result<Exsmooth, Error> {
         let mut given = match &command.apply {
             None => command.clone(),
@@ -336,7 +336,6 @@ impl Engine {
         if given.initial == Some(None) {
             given.initial = None;
         }
-        self.ts_models.exsmooth = Some(Box::new(given.clone()));
         Ok(given)
     }
 
@@ -637,6 +636,7 @@ impl Engine {
             self.warn(w);
         }
         self.save_series("EXSMOOTH", &["FIT", "ERR"], saved)?;
+        self.ts_models.exsmooth = Some(Box::new(spec.clone()));
         Ok(tables)
     }
 }

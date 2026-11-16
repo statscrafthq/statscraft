@@ -20,7 +20,7 @@ LEFT fills the area between the axis and the line of a single series. Everything
 ## Example
 
 ```text
-CASEPLOT VARIABLES=hourly_load /LN /DIFF /FORMAT=REFERENCE.
+CASEPLOT VARIABLES=hourly_load /ID=shift /FORMAT=LEFT.
 ```
 
 `statscraft help CASEPLOT` prints the same text in the terminal. [All commands](README.md)

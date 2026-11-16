@@ -30,7 +30,7 @@ fn difference(x: &[Option<f64>], lag: usize) -> Values {
 }
 
 impl Engine {
-    /// The command over the previous one of its kind for APPLY; keeps it.
+    /// The command over the previous successful one of its kind for APPLY.
     pub(crate) fn series_plot_spec(&mut self, command: &SeriesPlot) -> Result<SeriesPlot, Error> {
         let name = if command.casewise {
             "CASEPLOT"
@@ -79,7 +79,6 @@ impl Engine {
             }
         };
         given.apply = None;
-        self.ts_models.plots[slot] = Some(Box::new(given.clone()));
         Ok(given)
     }
 
@@ -299,6 +298,7 @@ impl Engine {
             self.warn(w);
         }
         self.charts.push(chart);
+        self.ts_models.plots[usize::from(spec.casewise)] = Some(Box::new(spec.clone()));
         Ok(Vec::new())
     }
 }

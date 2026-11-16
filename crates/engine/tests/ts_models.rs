@@ -525,3 +525,23 @@ fn arima_forecasts_inside_the_series_stop_at_the_predict_end() {
     let expected = mu + ar * ar * (50.3 - mu);
     assert!(close(fit[51].unwrap(), expected, 1e-9));
 }
+
+#[test]
+fn a_failed_arima_keeps_the_model_apply_reuses() {
+    let source = format!(
+        "{}ARIMA level /MODEL=(1,0,0).\nARIMA level /MODEL=(0,0,0)(0,1,1).\nTSET NEWVAR=ALL.\nARIMA APPLY FIT.\n",
+        data("level", TANK)
+    );
+    let (commands, errors) = parse(&source);
+    assert!(errors.is_empty(), "{errors:?}");
+    let mut engine = Engine::default();
+    let results: Vec<bool> = commands
+        .iter()
+        .map(|c| engine.execute(&c.command).is_ok())
+        .collect();
+    // the seasonal model fails for want of a period; APPLY FIT uses the AR(1) estimates
+    assert_eq!(results[results.len() - 3..], [false, true, true]);
+    let first = column(&engine, "FIT_1");
+    let second = column(&engine, "FIT_2");
+    assert_eq!(first, second);
+}

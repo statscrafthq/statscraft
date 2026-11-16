@@ -2522,7 +2522,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  FIT_n (the one-step forecast) and ERR_n per series; with PREDICT, FIT_n holds the\n\
                  forecasts. APPLY without a name repeats the previous EXSMOOTH with the subcommands\n\
                  given now replacing its own; SEASFACT is not carried over.",
-        example: "EXSMOOTH VARIABLES=room_nights /MODEL=LA /PERIOD=4 /ALPHA=GRID /DELTA=0.3.",
+        example: "EXSMOOTH VARIABLES=room_nights /MODEL=DA /PERIOD=7 /PHI=GRID /DELTA=0.25.",
         parse: ts_models::exsmooth,
     },
     CommandSpec {
@@ -2552,7 +2552,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  NEWVAR saves FIT_n, ERR_n, LCL_n, UCL_n and SEP_n: one-step fitted values (EXACT: from\n\
                  the Kalman filter; CLS: past errors 0 and missing past values at the mean of the\n\
                  differenced series; AUTOINIT: the first values of the series as their own fits), the\n\
-                 residuals in the logged metric, the prediction limits and standard errors. Fits, limits\n\
+                 residuals on the log scale, the prediction limits and standard errors. Fits, limits\n\
                  and standard errors are taken back from logs. With PREDICT the fit continues as\n\
                  forecasts; with regressors only where they are valid, and the file is not extended.\n\
                  APPLY without a name repeats the previous ARIMA with the subcommands given now replacing\n\
@@ -2592,7 +2592,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  TSPLOT turned on its side: the cases run down the vertical axis and the values across.\n\
                  LEFT fills the area between the axis and the line of a single series. Everything else\n\
                  is as for TSPLOT.",
-        example: "CASEPLOT VARIABLES=hourly_load /LN /DIFF /FORMAT=REFERENCE.",
+        example: "CASEPLOT VARIABLES=hourly_load /ID=shift /FORMAT=LEFT.",
         parse: ts_models::caseplot,
     },
     CommandSpec {

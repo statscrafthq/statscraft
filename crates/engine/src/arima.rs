@@ -772,7 +772,7 @@ struct Prediction {
 }
 
 impl Engine {
-    /// The command over the previous ARIMA for APPLY; keeps it.
+    /// The command over the previous successful ARIMA for APPLY.
     pub(crate) fn arima_spec(&mut self, command: &Arima) -> Result<Arima, Error> {
         let given = match &command.apply {
             None => command.clone(),
@@ -834,10 +834,6 @@ impl Engine {
         };
         let mut given = given;
         given.apply = None;
-        self.ts_models.arima = Some(Previous {
-            spec: given.clone(),
-            estimates: None,
-        });
         Ok(given)
     }
 
@@ -1357,17 +1353,19 @@ impl Engine {
         for w in warnings {
             self.warn(w);
         }
+        // a model APPLY can reuse, kept only when the run succeeds
         let [ar, ma, sar, sma, reg, con] = st.split(&theta);
-        if let Some(previous) = self.ts_models.arima.as_mut() {
-            previous.estimates = Some(Estimates {
+        self.ts_models.arima = Some(Previous {
+            spec: spec.clone(),
+            estimates: Some(Estimates {
                 ar: ar.to_vec(),
                 ma: ma.to_vec(),
                 sar: sar.to_vec(),
                 sma: sma.to_vec(),
                 reg: reg.to_vec(),
                 con: con.first().copied(),
-            });
-        }
+            }),
+        });
         self.save_series(
             "ARIMA",
             &["FIT", "ERR", "LCL", "UCL", "SEP"],
@@ -1542,9 +1540,9 @@ mod tests {
         for i in 0..r {
             for j in 0..r {
                 let mut v = rv[i] * rv[j];
-                for k in 0..r {
-                    for l in 0..r {
-                        v += t(i, k) * p[k][l] * t(j, l);
+                for (k, row) in p.iter().enumerate() {
+                    for (l, pkl) in row.iter().enumerate() {
+                        v += t(i, k) * pkl * t(j, l);
                     }
                 }
                 assert!((v - p[i][j]).abs() < 1e-10, "{i} {j}: {v} {}", p[i][j]);

@@ -18,7 +18,7 @@ The first letter of the model is the trend (N none, L linear, E exponential, D d
 ## Example
 
 ```text
-EXSMOOTH VARIABLES=room_nights /MODEL=LA /PERIOD=4 /ALPHA=GRID /DELTA=0.3.
+EXSMOOTH VARIABLES=room_nights /MODEL=DA /PERIOD=7 /PHI=GRID /DELTA=0.25.
 ```
 
 `statscraft help EXSMOOTH` prints the same text in the terminal. [All commands](README.md)
