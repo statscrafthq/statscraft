@@ -399,6 +399,9 @@ fn bar_chart(
     }
 }
 
+/// The tables of one crosstabulation, its chart, and its row of the Case Processing Summary.
+type Crosstab = (Vec<Table>, Option<Chart>, Vec<Cell>);
+
 /// The tables of one combination of variables (rows, columns, then layers), its chart, and its
 /// row of the Case Processing Summary.
 fn tables(
@@ -406,7 +409,7 @@ fn tables(
     names: &[String],
     command: &Crosstabs,
     (shown, outline): (&Shown, &Shown),
-) -> Result<(Vec<Table>, Option<Chart>, Vec<Cell>), Error> {
+) -> Result<Crosstab, Error> {
     let variables: Vec<Variable> = names
         .iter()
         .map(|name| data.variable(name))
