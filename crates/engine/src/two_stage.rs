@@ -268,8 +268,17 @@ impl Engine {
             Some("Variables not named as instruments are endogenous.".into()),
         )];
         let mut saves = Vec::new();
+        let mut skipped = Vec::new();
         for (index, (dependent, predictors)) in equations.iter().enumerate() {
             let y = filled(dependent);
+            // as in REGRESSION: a dependent without variance gets no equation
+            if !used.is_empty() && used.iter().all(|&c| y[c] == y[used[0]]) {
+                skipped.push(format!(
+                    "2SLS: {dependent} has no variance in the cases of the analysis; equation {} is left out",
+                    index + 1
+                ));
+                continue;
+            }
             let mut z: Vec<Vec<f64>> = predictors.iter().map(|n| filled(n)).collect();
             if constant {
                 z.push(vec![1.0; cases]);
@@ -478,6 +487,9 @@ impl Engine {
                 fits,
                 errors,
             ));
+        }
+        for warning in skipped {
+            self.warn(warning);
         }
         // SAVE overrides TSET NEWVAR and takes free numbers
         let (roots, newvar): (Vec<&str>, NewVar) = match (spec.save_pred, spec.save_resid) {

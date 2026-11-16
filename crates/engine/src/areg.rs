@@ -312,6 +312,12 @@ impl Engine {
             )));
         }
         let y: Vec<f64> = (lo..=hi).map(|t| y_all[t].expect("valid")).collect();
+        if y.iter().all(|&v| v == y[0]) {
+            return Err(Error(format!(
+                "AREG: {dependent} has the same value in every case of the series, so there is \
+                 nothing to fit"
+            )));
+        }
         let x: Vec<Vec<f64>> = x_all
             .iter()
             .map(|c| (lo..=hi).map(|t| c[t].expect("valid")).collect())

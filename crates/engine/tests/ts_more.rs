@@ -325,6 +325,18 @@ fn areg_prais_winsten() {
     }
 }
 
+/// A constant series has no residuals to measure rho from.
+#[test]
+fn areg_constant_series_is_an_error() {
+    for method in ["PW", "CO"] {
+        let message = error(&format!(
+            "{}COMPUTE flat = 2.\nAREG flat WITH temp /METHOD={method}.\n",
+            heater()
+        ));
+        assert!(message.contains("same value in every case"), "{message}");
+    }
+}
+
 #[test]
 fn areg_cochrane_orcutt_from_a_given_rho() {
     let r = run(&format!(
@@ -486,5 +498,19 @@ fn two_stage_equations_apply_and_errors() {
             plots()
         ))
         .contains("fewer than")
+    );
+    // a dependent without variance gets no equation, as in REGRESSION
+    let r = run(&format!(
+        "{}COMPUTE flat = 4.\n2SLS flat WITH fert /yield WITH fert /INSTRUMENTS=subsidy ph.\n",
+        plots()
+    ));
+    let coefficients = r.tables.iter().filter(|t| t.title == "Coefficients");
+    assert_eq!(coefficients.count(), 1);
+    assert!(
+        r.warnings
+            .iter()
+            .any(|w| w.contains("flat has no variance") && w.contains("equation 1")),
+        "{:?}",
+        r.warnings
     );
 }

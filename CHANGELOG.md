@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- AREG (METHOD=PW or CO) stops with an error on a dependent series with one value throughout, and 2SLS leaves out an equation whose dependent has no variance, with a warning, instead of showing meaningless statistics.
 - Messages that open with their command's name ("TWOSTEP CLUSTER has no variable left to cluster") no longer show the name twice.
 - DETECTANOMALY /OUTFILE MODEL writes its file: the variables with their means and categories and the peer groups, as Statscraft's own JSON.
 - TWOSTEP CLUSTER /OUTFILE writes its files: MODEL the variables, their standardization and the final clusters, STATE the subclusters of the tree, both as Statscraft's own JSON. With SPLIT FILE it stops with an error. See [differences](docs/differences.md).
