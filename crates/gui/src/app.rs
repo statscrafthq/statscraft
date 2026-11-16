@@ -8,6 +8,7 @@ use crate::analyze_dialogs::{
     MultResponse, ONEWAY_STATISTICS, Oneway, STANDARDIZERS, TREE_LEVELS, TREE_SAVE, TTest,
     TTestKind, Tree,
 };
+use crate::bayes_dialog::{BAYES_MENU, Bayesian};
 use crate::connect_window::Connect;
 use crate::cs_model_dialog::SampleModel;
 use crate::data_dialogs::{
@@ -31,6 +32,7 @@ use crate::model_dialogs::{
     Discriminant, FactorAnalysis, Hierarchical, KMeans, Logistic, RepeatedMeasures, Univariate,
 };
 use crate::model_dialogs_view;
+use crate::nptests_dialog::{NpKind, Nptests};
 use crate::output;
 use crate::output_view;
 use crate::power_dialog::{POWER_MENU, PowerAnalysis};
@@ -40,6 +42,7 @@ use crate::stats_dialogs::{NparKind, NparTests, PartialCorr, Regression, Reliabi
 use crate::stats_dialogs_view;
 use crate::syntax_text::{number, quote};
 use crate::syntax_window;
+use crate::timeseries_dialog::{TimeSeries, forecasting_menu};
 use crate::updates::Updates;
 use crate::windows::{Closing, Kind, Registry, WindowId, same};
 use crate::{editor, grid, grid_menu, highlight, themes};
@@ -1521,6 +1524,12 @@ impl App {
                         Dialog::WeightCases(WeightCases::current(weight.as_deref())),
                     ),
                     ("Aggregate...", Dialog::Aggregate(Default::default(), 0)),
+                    (
+                        "Define Dates...",
+                        Dialog::Advanced(Advanced::TimeSeries(Box::new(TimeSeries::Dates(
+                            Default::default(),
+                        )))),
+                    ),
                 ] {
                     if ui.add_enabled(has_data, egui::Button::new(label)).clicked() {
                         self.open_dialog(dialog);
@@ -1583,6 +1592,14 @@ impl App {
                         ] {
                             if ui.button(label).clicked() {
                                 self.open_dialog(dialog);
+                            }
+                        }
+                    });
+                    ui.menu_button("Bayesian Statistics", |ui| {
+                        for (label, kind) in BAYES_MENU {
+                            if ui.button(label).clicked() {
+                                let d = Box::new(Bayesian::new(kind));
+                                self.open_dialog(Dialog::Advanced(Advanced::Bayes(d)));
                             }
                         }
                     });
@@ -1756,11 +1773,24 @@ impl App {
                         }
                     });
                     ui.menu_button("Nonparametric Tests", |ui| {
-                        for kind in NparKind::ALL {
-                            if ui.button(kind.menu()).clicked() {
-                                self.open_dialog(Dialog::NparTests(NparTests::new(kind)));
+                        for (label, kind) in [
+                            ("One Sample...", NpKind::OneSample),
+                            ("Independent Samples...", NpKind::Independent),
+                            ("Related Samples...", NpKind::Related),
+                        ] {
+                            if ui.button(label).clicked() {
+                                self.open_dialog(Dialog::Advanced(Advanced::Nptests(Box::new(
+                                    Nptests::new(kind),
+                                ))));
                             }
                         }
+                        ui.menu_button("Legacy Dialogs", |ui| {
+                            for kind in NparKind::ALL {
+                                if ui.button(kind.menu()).clicked() {
+                                    self.open_dialog(Dialog::NparTests(NparTests::new(kind)));
+                                }
+                            }
+                        });
                     });
                     ui.menu_button("Survival", |ui| {
                         for (label, dialog) in [
@@ -1770,6 +1800,15 @@ impl App {
                         ] {
                             if ui.button(label).clicked() {
                                 self.open_dialog(Dialog::Advanced(dialog));
+                            }
+                        }
+                    });
+                    ui.menu_button("Forecasting", |ui| {
+                        for (label, dialog) in forecasting_menu() {
+                            if ui.button(label).clicked() {
+                                self.open_dialog(Dialog::Advanced(Advanced::TimeSeries(Box::new(
+                                    dialog,
+                                ))));
                             }
                         }
                     });
@@ -1878,6 +1917,12 @@ impl App {
                     (
                         "Automatic Recode...",
                         Dialog::Autorecode(Default::default()),
+                    ),
+                    (
+                        "Create Time Series...",
+                        Dialog::Advanced(Advanced::TimeSeries(Box::new(TimeSeries::Create(
+                            Default::default(),
+                        )))),
                     ),
                 ] {
                     if ui.add_enabled(has_data, egui::Button::new(label)).clicked() {

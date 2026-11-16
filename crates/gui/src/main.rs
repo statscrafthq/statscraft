@@ -7,6 +7,8 @@ mod agreement_dialog;
 mod agreement_dialog_view;
 mod analyze_dialogs;
 mod app;
+mod bayes_dialog;
+mod bayes_dialog_view;
 mod brand;
 mod catpca_dialog;
 mod catpca_dialog_view;
@@ -43,6 +45,8 @@ mod model_dialogs;
 mod model_dialogs_view;
 mod mva_dialog;
 mod mva_dialog_view;
+mod nptests_dialog;
+mod nptests_dialog_view;
 mod office;
 #[cfg(target_os = "macos")]
 mod open_files;
@@ -67,6 +71,8 @@ mod survival_dialog_view;
 mod syntax_text;
 mod syntax_window;
 mod themes;
+mod timeseries_dialog;
+mod timeseries_dialog_view;
 mod updates;
 mod windows;
 

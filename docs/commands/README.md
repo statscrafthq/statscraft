@@ -125,6 +125,10 @@ One page per supported command, generated from the same table that the parser an
 | [WEIGHTED KAPPA](weighted-kappa.md) | Cohen's weighted kappa: how well two raters agree on an ordered scale. |
 | [FLEISS MULTIRATER KAPPA](fleiss-multirater-kappa.md) | Fleiss' kappa: how well several raters agree when they sort subjects into categories. |
 | [RATIO STATISTICS](ratio-statistics.md) | Statistics of the ratio of two positive variables, overall and within groups. |
+| [BAYES ONESAMPLE](bayes-onesample.md) | Bayesian inference on one mean, proportion or Poisson rate: Bayes factors and posteriors. |
+| [BAYES RELATED](bayes-related.md) | Bayesian inference on the mean difference of paired measurements. |
+| [BAYES INDEPENDENT](bayes-independent.md) | Bayesian comparison of the means of two independent groups. |
+| [BAYES CORRELATION](bayes-correlation.md) | Bayesian inference on the Pearson correlation of every pair of variables. |
 | [POWER MEANS ONESAMPLE](power-means-onesample.md) | Power or sample size of a one-sample t-test of a mean. |
 | [POWER MEANS INDEPENDENT](power-means-independent.md) | Power or group sizes of a t-test comparing the means of two independent groups. |
 | [POWER MEANS RELATED](power-means-related.md) | Power or number of pairs of a paired t-test. |

@@ -285,6 +285,7 @@ See [The Window menu](#the-window-menu).
   - all cases again, with `FILTER OFF.` and `USE ALL.`.
 - **Weight Cases**.
 - **Aggregate**: into every case, into a new dataset of one case per group, or into a file.
+- **Define Dates** (`DATE`): what one case stands for (years, quarters, months, weeks, work days, hours, minutes, seconds, or cycles of a period you choose) and the date of the first case. The dialog checks that each first value fits its period.
 - **Merge Files > Add Cases** and **Merge Files > Add Variables**: with keys, or with a lookup table.
 
 ### Analyze
@@ -311,6 +312,16 @@ These take typed numbers and no variables, so they open with no data too. Each f
 - **Explore**: descriptives, M-estimators, extreme values, percentiles and tests of normality, by factor.
 - **Crosstabs**.
 - **Ratio** (`RATIO STATISTICS`): a numerator and a denominator, both numeric and different, and an optional group variable with its order (ascending, descending or as the groups first appear). The statistics of the ratio, confidence intervals at any level, the percent of ratios inside intervals you type (`0.9 1.1; 0.8 1.2`) and the percent within given percents of the median (`10 20`). The statistics show in a table, go to a data file or a new dataset, or both. OK stays off until at least one statistic is chosen.
+
+**Bayesian Statistics**
+
+Each dialog asks for the posterior distribution, the Bayes factor or both, and offers only the settings of the parts it computes. The test settings of a one-sample or related dialog apply to every variable or pair; per-variable settings stay available in syntax. Common to all: the credible interval level, the tolerance and iterations of the numerical integration (not for binomial and Poisson), and leaving out cases missing on any variable.
+
+- **One Sample Normal** (`BAYES ONESAMPLE DISTRIBUTION=NORMAL`): an optional known variance, the test value and g of the Bayes factor (empty g integrates it out, by quadrature or by Monte Carlo draws with a seed), and the prior: diffuse, inverse chi-square, inverse gamma, either Jeffreys prior, or a gamma or chi-square prior on the precision, with a normal prior on the mean when the variance is known or its prior is conjugate.
+- **One Sample Binomial** and **One Sample Poisson** (`DISTRIBUTION=BINOMIAL`, `POISSON`): which values count as a success (the highest or lowest value, from the middle of the range or a cut point up, or listed values, the only choices besides the first two for a string variable), the beta or gamma priors under the null and the alternative for the Bayes factor, and the conjugate prior of the posterior.
+- **Related Samples Normal** (`BAYES RELATED`): pairs of variables, first minus second, with the settings of One Sample Normal.
+- **Independent Samples Normal** (`BAYES INDEPENDENT`): test variables, a grouping variable split by two values, the middle of its range or a cut point; known group variances with normal priors on the two means, or equal variances with a diffuse, Jeffreys or inverse chi-square prior; the Bayes factor by Rouder's, Gonen's or the hyper-prior method.
+- **Pearson Correlation** (`BAYES CORRELATION`): two or more variables, each paired with every later one, the power c of the prior, and a JZS or fractional Bayes factor with its fraction and null correlation.
 
 **Custom Tables**
 
@@ -516,16 +527,22 @@ These take typed numbers and no variables, so they open with no data too. Each f
 - **Weighted Kappa** (`WEIGHTED KAPPA`): every pair of the raters, or each row rater with each column rater. Linear or quadratic agreement weights, the confidence level, user-missing values as categories, and a table of counts for each pair with its categories ascending or descending.
 - **Fleiss Multirater Kappa** (`FLEISS MULTIRATER KAPPA`): two or more raters, all numeric or all string. The agreement on each category, the confidence level and user-missing values as categories.
 
-**Nonparametric Tests** (`NPAR TESTS`), with the dialogs analysts know. Each has descriptives, quartiles, and cases left out test by test or listwise.
+**Nonparametric Tests**
 
-- **Chi-square**: the categories from the data or a range, and equal or given expected values.
-- **Binomial**: a test proportion, and the two values of the data or a cut point.
-- **Runs**: at the median, mode, mean or a custom cut point.
-- **1-Sample K-S**: against the normal, uniform, Poisson or exponential distribution.
-- **2 Independent Samples**: Mann-Whitney, Kolmogorov-Smirnov, Moses and Wald-Wolfowitz.
-- **K Independent Samples**: Kruskal-Wallis, the median test and Jonckheere-Terpstra.
-- **2 Related Samples**: Wilcoxon, sign, McNemar and marginal homogeneity, on pairs.
-- **K Related Samples**: Friedman, Kendall's W and Cochran's Q.
+The first three write `NPTESTS`. Each starts by letting the data choose the tests from the measurement level of every field; Customize tests picks them by hand. All three take a significance level, a confidence level, cases left out test by test or listwise, and user-missing values of categorical fields counted as valid.
+
+- **One Sample** (`/ONESAMPLE`): binomial (test proportion, success values, a cut point for continuous fields, three kinds of interval), chi-square (equal frequencies or frequencies for typed categories), Kolmogorov-Smirnov (normal, uniform, exponential and Poisson, each with typed or estimated parameters, and the Monte Carlo samples and level), runs (a group of typed values, a cut at the median, the mean or a value) and Wilcoxon against a typed median.
+- **Independent Samples** (`/INDEPENDENT`): fields and a grouping variable, which cannot be a scale variable. Mann-Whitney, Wald-Wolfowitz, Kolmogorov-Smirnov, the Hodges-Lehmann estimate and Moses with the cases to trim for two groups; Kruskal-Wallis, the median test (pooled or typed median) and Jonckheere-Terpstra (ascending or descending) for two or more, each with pairwise, step-down or no comparisons.
+- **Related Samples** (`/RELATED`): two fields or more. McNemar, Wilcoxon, sign, marginal homogeneity and the Hodges-Lehmann estimate need exactly two; Cochran's Q, Friedman and Kendall's W take more, each with its comparisons. McNemar and Cochran count typed success values or the first value found.
+- **Legacy Dialogs** (`NPAR TESTS`), with the dialogs analysts know. Each has descriptives, quartiles, and cases left out test by test or listwise.
+  - **Chi-square**: the categories from the data or a range, and equal or given expected values.
+  - **Binomial**: a test proportion, and the two values of the data or a cut point.
+  - **Runs**: at the median, mode, mean or a custom cut point.
+  - **1-Sample K-S**: against the normal, uniform, Poisson or exponential distribution.
+  - **2 Independent Samples**: Mann-Whitney, Kolmogorov-Smirnov, Moses and Wald-Wolfowitz.
+  - **K Independent Samples**: Kruskal-Wallis, the median test and Jonckheere-Terpstra.
+  - **2 Related Samples**: Wilcoxon, sign, McNemar and marginal homogeneity, on pairs.
+  - **K Related Samples**: Friedman, Kendall's W and Cochran's Q.
 
 **Survival**
 
@@ -546,6 +563,14 @@ These take typed numbers and no variables, so they open with no data too. Each f
   - Saving survival, its standard error, the cumulative hazard, log minus log, partial residuals, DfBeta and X*Beta, each under a name of your own or a made-up one.
   - Confidence intervals for exp(B), the correlation of estimates, the baseline function, every step or only the last of each block, the stepwise entry and removal probabilities, the maximum iterations and user-missing values as valid.
   - A time-dependent covariate: an expression in T_ that becomes `T_COV_` through `TIME PROGRAM` and joins the first block. With it, DfBeta is the only variable to save, and there are no plots, pattern or baseline table.
+
+**Forecasting**
+
+- **Autocorrelations** (`ACF`, or `PACF` for partial autocorrelations alone): series, the natural log, differencing and seasonal differencing with a period, the most lags, and white-noise or Bartlett standard errors.
+- **Cross-Correlations** (`CCF`): two or more series, each paired with every later one, with the same transforms and the most lags either way.
+- **Seasonal Decomposition** (`SEASON`): a multiplicative or additive model, the moving average for an even period and the period.
+- **Options** (`TSET`): what the procedures save, the most new variables and lags, the period, the confidence level, user-missing values, the standard errors of autocorrelations and the amount of output. The window cannot read the session's current values, so the dialog starts from the starting ones and writes only what you change; a checkbox puts every setting back first.
+- An empty period or number of lags leaves the choice to the `TSET` settings and the date variables.
 
 **Multiple Response** (`MULT RESPONSE`): **Frequencies** and **Crosstabs**.
 
@@ -598,6 +623,7 @@ These take typed numbers and no variables, so they open with no data too. Each f
 - **Compute Variable**, **Recode** and **Count Values within Cases**.
 - **Rank Cases**: every RANK function, with new names or the default ones; ranks within groups; from the smallest or the largest value; ties; the proportion formula; user-missing values.
 - **Automatic Recode** (`AUTORECODE`): into new variables, from the largest value, one scheme for all, blank strings as missing, and a table of the values.
+- **Create Time Series** (`CREATE`): rows of new series from the picked ones, each with its function (running total, differences, seasonal differences, lags and leads with a range of orders, centered, running-median and prior moving averages, T4253H smoothing, the Fourier transform and its inverse) and its order, span or period. Each row takes as many new names as it makes series; names that are taken or given twice are refused.
 
 ### Help
 

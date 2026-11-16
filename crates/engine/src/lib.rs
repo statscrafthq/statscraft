@@ -6,6 +6,7 @@ mod alscal;
 mod anova;
 mod arima;
 mod autorecode;
+mod bayes;
 mod catpca;
 pub mod chart;
 mod chart_input;
@@ -797,6 +798,7 @@ impl Engine {
             | Command::WeightedKappa(_)
             | Command::FleissKappa(_)
             | Command::RatioStatistics(_)
+            | Command::Bayes(_)
             | Command::Factor(_)
             | Command::QuickCluster(_)
             | Command::Logistic(_)
@@ -1074,6 +1076,7 @@ impl Engine {
             Command::WeightedKappa(command) => self.weighted_kappa(command),
             Command::FleissKappa(command) => self.fleiss_kappa(command),
             Command::RatioStatistics(command) => self.ratio_statistics(command),
+            Command::Bayes(command) => self.bayes(command),
             Command::Factor(command) => self.factor(command),
             Command::QuickCluster(command) => self.quick_cluster(command),
             Command::Logistic(command) => self.logistic(command),
