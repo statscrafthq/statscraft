@@ -841,6 +841,19 @@ fn is_transformation(command: &Command) -> bool {
 
 impl Engine {
     pub fn execute(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
+        let mut tables = self.execute_inner(command)?;
+        // a sum over no cases is -0.0 in floating point; it shows as 0
+        for cell in tables.iter_mut().flat_map(|t| t.rows.iter_mut().flatten()) {
+            if let Cell::Number(n) = cell
+                && *n == 0.0
+            {
+                *n = 0.0;
+            }
+        }
+        Ok(tables)
+    }
+
+    fn execute_inner(&mut self, command: &Command) -> Result<Vec<Table>, Error> {
         self.warnings.clear();
         self.charts.clear();
         self.error_at = None;

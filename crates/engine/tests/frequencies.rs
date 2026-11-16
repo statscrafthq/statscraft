@@ -107,6 +107,25 @@ fn weighted_statistics_follow_the_algorithms() {
     assert!(tables[0].caption.as_ref().unwrap().contains("(x)"));
 }
 
+/// Counts over no cases are 0, never -0 (a floating-point sum of nothing).
+#[test]
+fn counts_over_no_cases_are_plain_zeros() {
+    let (tables, _) = run(
+        "DATA LIST FREE /x.\nBEGIN DATA.\n1 2 3\nEND DATA.\nSELECT IF x > 9.\n\
+         FREQUENCIES x /FORMAT=NOTABLE.\nDESCRIPTIVES x.",
+    );
+    let zeros: Vec<f64> = tables
+        .iter()
+        .flat_map(|t| t.rows.iter().flatten())
+        .filter_map(|c| match c {
+            Cell::Number(n) if *n == 0.0 => Some(*n),
+            _ => None,
+        })
+        .collect();
+    assert!(!zeros.is_empty());
+    assert!(zeros.iter().all(|z| z.is_sign_positive()), "{zeros:?}");
+}
+
 #[test]
 fn percentiles_use_w_plus_one() {
     // unweighted: tc = 8 p; weighted: tc = 11 p
