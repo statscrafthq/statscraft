@@ -110,6 +110,8 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Report(_)
         | Command::Summarize(_)
         | Command::Codebook(_)
+        | Command::CompareDatasets(_)
+        | Command::Validatedata(_)
         | Command::BeginData(_)
         | Command::AddFiles(_)
         | Command::MatchFiles(_)

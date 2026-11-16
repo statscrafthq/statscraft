@@ -191,6 +191,8 @@ pub enum Command {
     Report(Box<crate::report::Report>),
     Summarize(Box<crate::summarize::Summarize>),
     Codebook(Box<crate::codebook::Codebook>),
+    CompareDatasets(Box<crate::datacheck::CompareDatasets>),
+    Validatedata(Box<crate::datacheck::Validatedata>),
     WeightedKappa(Box<crate::agreement::WeightedKappa>),
     FleissKappa(Box<crate::agreement::FleissKappa>),
     RatioStatistics(Box<crate::ratio_statistics::RatioStatistics>),

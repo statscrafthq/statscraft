@@ -13,6 +13,7 @@ pub mod chart;
 mod chart_input;
 mod cluster;
 mod codebook;
+mod compare_datasets;
 mod complex_samples;
 mod contrast;
 mod correlations;
@@ -119,6 +120,7 @@ mod ts_plot;
 mod ts_range;
 mod ttest;
 mod two_stage;
+mod validatedata;
 mod variables;
 pub mod vega_lite;
 mod wls;
@@ -846,9 +848,17 @@ impl Engine {
             | Command::Graph(_)
             | Command::Report(_)
             | Command::Summarize(_)
+            | Command::Validatedata(_)
             | Command::Rank(_)
             | Command::Aggregate(_) => return self.procedure(command),
             Command::Codebook(command) => return self.codebook(command),
+            Command::CompareDatasets(command) => {
+                self.begin_pass()?;
+                let before = self.dataset.clone();
+                let tables = self.compare_datasets(command);
+                self.end_pass(before.as_ref());
+                return tables;
+            }
             Command::Power(command) => return self.power(command),
             Command::TimeProgram => {
                 self.time_program = Some(coxreg::TimeProgram {
@@ -1136,6 +1146,7 @@ impl Engine {
             Command::Graph(command) => self.graph(command),
             Command::Report(command) => self.report(command),
             Command::Summarize(command) => self.summarize(command),
+            Command::Validatedata(command) => self.validatedata(command),
             Command::Rank(command) => self.rank(command),
             Command::Aggregate(command) => self.aggregate(command).map(|()| Vec::new()),
             Command::List(list) => self.list(list),

@@ -23,6 +23,7 @@ One page per supported command, generated from the same table that the parser an
 | [MATCH FILES](match-files.md) | Combine the variables of several data files case by case or by key. |
 | [STAR JOIN](star-join.md) | Add the fields of lookup files to every case of a data file, by keys, as an SQL left join. |
 | [UPDATE](update.md) | Replace values of a primary file with the values of transaction files, by key. |
+| [COMPARE DATASETS](compare-datasets.md) | Compare the values and dictionary of the active dataset with another dataset or .sav file. |
 | [VARIABLE LABELS](variable-labels.md) | Set the labels of variables. |
 | [VALUE LABELS](value-labels.md) | Replace the value labels of variables. |
 | [MISSING VALUES](missing-values.md) | Declare user-missing values. |
@@ -112,6 +113,7 @@ One page per supported command, generated from the same table that the parser an
 | [MEANS](means.md) | Statistics of dependent variables within groups of control variables. |
 | [SUMMARIZE](summarize.md) | Statistics of dependents within groups of control variables, optionally listing the cases. |
 | [CODEBOOK](codebook.md) | Dictionary entries and summary statistics of variables and multiple response sets. |
+| [VALIDATEDATA](validatedata.md) | Find suspicious variables, incomplete or duplicate IDs, empty cases and rule violations. |
 | [T-TEST](t-test.md) | One-sample, independent-samples and paired-samples t tests with effect sizes. |
 | [ONEWAY](oneway.md) | One-way analysis of variance with contrasts and post hoc comparisons. |
 | [CORRELATIONS](correlations.md) | Pearson correlations with significance and case counts. |
