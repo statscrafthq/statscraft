@@ -16,3 +16,17 @@ debug = "line-tables-only"
 
 [profile.dev.package."*"]
 debug = false
+
+# The PNG and deflate code that writes pictures and PDF files runs about five times slower
+# unoptimized, which made the output tests the slowest of all.
+[profile.dev.package.zlib-rs]
+opt-level = 3
+
+[profile.dev.package.png]
+opt-level = 3
+
+[profile.dev.package.tiny-skia]
+opt-level = 3
+
+[profile.dev.package.flate2]
+opt-level = 3
