@@ -167,9 +167,10 @@ pub use anova::{Anova, AnovaList, AnovaMethod, CovariateOrder};
 pub use ast::*;
 pub use bayes::{
     Bayes, BayesAnalysis, BayesAnova, BayesCorrelation, BayesCriteria, BayesData,
-    BayesDistribution, BayesIndependent, BayesOneSample, BayesPair, BayesRegression, BayesRelated,
-    BayesRepeated, FTest, GPrior, GroupSelect, GroupVariancePrior, IndependentFactor, LinearPrior,
-    MeanTest, NormalPrior, PredictStat, RegressionPlot, Success, VariancePrior,
+    BayesDistribution, BayesIndependent, BayesLoglinear, BayesOneSample, BayesPair,
+    BayesRegression, BayesRelated, BayesRepeated, CountModel, FTest, FixedMargin, GPrior,
+    GroupSelect, GroupVariancePrior, IndependentFactor, LinearPrior, MeanTest, NormalPrior,
+    PredictStat, RegressionPlot, Success, TablePrior, VariancePrior,
 };
 pub use catpca::{
     Catpca, CatpcaBootstrap, CatpcaPlot, CatpcaPlots, CatpcaPrint, CatpcaVariable, ScalingLevel,

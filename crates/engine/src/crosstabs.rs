@@ -48,11 +48,11 @@ pub(crate) fn categories(variable: &Variable, include: bool) -> Vec<Option<Key>>
 }
 
 /// One layer of a table: the categories that occur in it and the weighted counts.
-struct Block {
+pub(crate) struct Block {
     layer: Vec<Key>,
-    rows: Vec<Key>,
-    columns: Vec<Key>,
-    counts: Vec<Vec<f64>>,
+    pub(crate) rows: Vec<Key>,
+    pub(crate) columns: Vec<Key>,
+    pub(crate) counts: Vec<Vec<f64>>,
     row_totals: Vec<f64>,
     column_totals: Vec<f64>,
     total: f64,
@@ -70,6 +70,24 @@ fn whole(value: f64, truncate: bool) -> f64 {
 }
 
 impl Block {
+    /// A table without layers from its categories and whole counts.
+    pub(crate) fn two_way(rows: Vec<Key>, columns: Vec<Key>, counts: Vec<Vec<f64>>) -> Block {
+        let row_totals: Vec<f64> = counts.iter().map(|row| row.iter().sum()).collect();
+        let column_totals = (0..columns.len())
+            .map(|j| counts.iter().map(|row| row[j]).sum())
+            .collect();
+        Block {
+            layer: Vec::new(),
+            total: row_totals.iter().sum(),
+            rows,
+            columns,
+            counts,
+            row_totals,
+            column_totals,
+            truncate: false,
+        }
+    }
+
     /// The count of a cell; None stands for the Total row or column.
     fn count(&self, row: Option<usize>, column: Option<usize>) -> f64 {
         match (row, column) {
@@ -80,11 +98,11 @@ impl Block {
         }
     }
 
-    fn expected(&self, i: usize, j: usize) -> f64 {
+    pub(crate) fn expected(&self, i: usize, j: usize) -> f64 {
         self.row_totals[i] * self.column_totals[j] / self.total
     }
 
-    fn cell(&self, statistic: C, row: Option<usize>, column: Option<usize>) -> Cell {
+    pub(crate) fn cell(&self, statistic: C, row: Option<usize>, column: Option<usize>) -> Cell {
         let n = self.count(row, column);
         let row_total = row.map_or(self.total, |i| self.row_totals[i]);
         let column_total = column.map_or(self.total, |j| self.column_totals[j]);
@@ -113,7 +131,7 @@ impl Block {
 
     /// Rows of the chi-square table: name, value, df, asymptotic, exact two- and one-sided
     /// significance. Nothing but the case count when the table has one row or column.
-    fn tests(&self, numeric: bool) -> Vec<(&'static str, [Option<f64>; 5])> {
+    pub(crate) fn tests(&self, numeric: bool) -> Vec<(&'static str, [Option<f64>; 5])> {
         let (r, c) = (self.rows.len(), self.columns.len());
         let n_row = (
             "N of Valid Cases",
@@ -268,25 +286,16 @@ fn blocks(
                     .flatten()
                     .for_each(|n| *n = whole(*n, truncate));
             }
-            let row_totals: Vec<f64> = counts.iter().map(|row| row.iter().sum()).collect();
-            let column_totals: Vec<f64> = (0..columns.len())
-                .map(|j| counts.iter().map(|row| row[j]).sum())
-                .collect();
             Block {
                 layer: layer.into_iter().cloned().collect(),
-                total: row_totals.iter().sum(),
-                rows,
-                columns,
-                counts,
-                row_totals,
-                column_totals,
                 truncate,
+                ..Block::two_way(rows, columns, counts)
             }
         })
         .collect()
 }
 
-fn cell_name(statistic: C) -> &'static str {
+pub(crate) fn cell_name(statistic: C) -> &'static str {
     match statistic {
         C::Count => "Count",
         C::Row => "Row %",

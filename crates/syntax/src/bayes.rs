@@ -1,5 +1,5 @@
 //! Parsers of the Bayesian commands BAYES ONESAMPLE, BAYES RELATED, BAYES INDEPENDENT,
-//! BAYES CORRELATION, BAYES ANOVA, BAYES REGRESSION and BAYES REPEATED.
+//! BAYES CORRELATION, BAYES ANOVA, BAYES REGRESSION, BAYES REPEATED and BAYES LOGLINEAR.
 //!
 //! Rules from the Command Syntax Reference, in our words:
 //! - Subcommands come in any order. Inside them every setting is `KEYWORD = value`; keywords
@@ -46,14 +46,22 @@
 //!   when VARIABLES is left out), TESTVALUES.
 //! - REPEATED: a list of two or more variables, CRITERIA CILEVEL, SEED, MCSAMPLES (30000), DESIGN
 //!   REGWGT, ESTBF COMPUTATION=BIC|ROUDER, PLOT MEANS=sublist.
-//! - A keyword with an underscore may be written as two words (MAX CATEGORY).
+//! - LOGLINEAR: TABLE row BY column (two different variables, required); CRITERIA CILEVEL,
+//!   SEED, TOL, MAXITER, POSTSAMPLES and ORDER=ASCENDING|DESCENDING; ESTBF MODEL=MULTINOMIAL,
+//!   POISSON or NONPARAMETRIC, FIX_MARGIN=TOTAL (also when bare), ROW or COLUMN (NONPARAMETRIC
+//!   needs ROW or COLUMN), PRIOR_TYPE=CONJUGATE, MIXTURE_DIRICHLET or INTRINSIC, SHAPEPARAMS
+//!   (above 0, rows split by `;`), SCALEPARAM=DATA or a value above 0, LAMBDAS (above 0); PRINT
+//!   SUPPRESS_TABLE=FALSE|TRUE, CELLS (OBSERVED, ROW, COLUMN, EXPECTED, TOTAL, ALL) and
+//!   STATISTICS (CHISQ, LRT; CHISQ when empty).
+//! - A keyword with an underscore may be written as two words (MAX CATEGORY) or without the
+//!   underscore, and a final S does not matter (FIXMARGINS).
 //!
 //! Choices where the manual is silent: PRIOR may be left out (its defaults apply); a variable
 //! on two DATA subcommands is an error; DISTRIBUTION=NORMAL is accepted on RELATED and
 //! INDEPENDENT; LEVEL values may be numbers, quoted strings or bare words; MAXITER of BAYES
 //! ANOVA defaults to 2000, as its text says (its diagram shows 500).
 
-use crate::ast::{Command, Value, VarItem};
+use crate::ast::{Command, CrosstabsCell, Value, VarItem};
 use crate::error::SyntaxError;
 use crate::glm::list_until;
 use crate::lexer::{Punct, TokenKind};
@@ -92,6 +100,8 @@ pub struct BayesCriteria {
     pub maxiter: usize,
     pub mcsamples: usize,
     pub postsamples: usize,
+    /// ORDER=DESCENDING: categories from the highest value.
+    pub descending: bool,
 }
 
 /// The prior of the variance (VARDIST) or of the precision (PRECDIST).
@@ -349,6 +359,50 @@ pub struct BayesRepeated {
     pub plot_means: Vec<VarItem>,
 }
 
+/// ESTBF MODEL of BAYES LOGLINEAR: how the counts were sampled.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum CountModel {
+    Multinomial,
+    Poisson,
+    Nonparametric,
+}
+
+/// ESTBF FIX_MARGIN: the totals fixed by the design.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FixedMargin {
+    Total,
+    Row,
+    Column,
+}
+
+/// ESTBF PRIOR_TYPE of BAYES LOGLINEAR.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TablePrior {
+    Conjugate,
+    MixtureDirichlet,
+    Intrinsic,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BayesLoglinear {
+    pub row: String,
+    pub column: String,
+    pub criteria: BayesCriteria,
+    pub analysis: BayesAnalysis,
+    pub model: CountModel,
+    pub margin: FixedMargin,
+    pub prior: TablePrior,
+    /// SHAPEPARAMS: one value for every cell, or one row of values per table row.
+    pub shapes: Vec<Vec<f64>>,
+    /// SCALEPARAM; None for DATA.
+    pub scale: Option<f64>,
+    pub lambdas: Vec<f64>,
+    pub suppress_table: bool,
+    pub cells: Vec<CrosstabsCell>,
+    pub chisq: bool,
+    pub lrt: bool,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Bayes {
     OneSample(BayesOneSample),
@@ -358,6 +412,7 @@ pub enum Bayes {
     Anova(BayesAnova),
     Regression(BayesRegression),
     Repeated(BayesRepeated),
+    Loglinear(BayesLoglinear),
 }
 
 impl Bayes {
@@ -370,6 +425,7 @@ impl Bayes {
             Bayes::Anova(_) => "BAYES ANOVA",
             Bayes::Regression(_) => "BAYES REGRESSION",
             Bayes::Repeated(_) => "BAYES REPEATED",
+            Bayes::Loglinear(_) => "BAYES LOGLINEAR",
         }
     }
 }
@@ -383,7 +439,8 @@ fn which(p: &mut Parser, options: &[&str]) -> PResult<Option<usize>> {
     let Some(TokenKind::Word(word)) = p.peek() else {
         return Ok(None);
     };
-    if let Some(i) = options.iter().position(|o| word.eq_ignore_ascii_case(o)) {
+    // underscores and one final S do not matter: FIXMARGINS is FIX_MARGIN
+    if let Some(i) = options.iter().position(|o| squash(word) == squash(o)) {
         p.pos += 1;
         return Ok(Some(i));
     }
@@ -405,6 +462,15 @@ fn which(p: &mut Parser, options: &[&str]) -> PResult<Option<usize>> {
             );
             Err(SyntaxError::new(p.span(), message))
         }
+    }
+}
+
+/// A keyword without underscores and without one final S, in capitals.
+fn squash(word: &str) -> String {
+    let word = word.replace('_', "").to_uppercase();
+    match word.strip_suffix('S') {
+        Some(stem) if stem.len() >= 3 => stem.to_string(),
+        _ => word,
     }
 }
 
@@ -551,8 +617,11 @@ fn settings(
             return Err(p.unexpected(keywords));
         };
         // a keyword with an underscore may be written as two words, such as MAX CATEGORY
-        if let Some((_, rest)) = keywords[i].split_once('_') {
-            p.eat_keyword(rest);
+        if let Some((_, rest)) = keywords[i].split_once('_')
+            && let Some(TokenKind::Word(word)) = p.peek()
+            && (squash(word) == squash(rest) || matches_keyword(word, rest))
+        {
+            p.pos += 1;
         }
         p.expect(Punct::Eq)?;
         read(p, i)?;
@@ -578,6 +647,7 @@ fn default_criteria(tol: f64) -> BayesCriteria {
         maxiter: 2000,
         mcsamples: 10_000,
         postsamples: 10_000,
+        descending: false,
     }
 }
 
@@ -604,6 +674,10 @@ fn criteria(p: &mut Parser, c: &mut BayesCriteria, allowed: &[&str]) -> PResult<
             }
             "MAXITER" => c.maxiter = whole(p, "MAXITER", 1.0, 1e9)?,
             "MCSAMPLES" => c.mcsamples = whole(p, "MCSAMPLES", 1e3, 1e6)?,
+            // TRUE and FALSE as the keyword's description words it
+            "ORDER" => {
+                c.descending = choice(p, &["ASCENDING", "DESCENDING", "TRUE", "FALSE"])? % 2 == 1
+            }
             _ => c.postsamples = whole(p, "POSTSAMPLES", 1e3, 1e6)?,
         }
         Ok(())
@@ -1608,4 +1682,181 @@ pub(crate) fn repeated(p: &mut Parser) -> PResult<Command> {
         }),
     })?;
     Ok(Command::Bayes(Box::new(Bayes::Repeated(c))))
+}
+
+/// Positive numbers up to the next keyword, rows ending with `;`.
+fn positive_rows(p: &mut Parser, what: &str) -> PResult<Vec<Vec<f64>>> {
+    let at = p.pos;
+    let mut rows = Vec::new();
+    loop {
+        let row = number_list(p);
+        if row.is_empty() {
+            break;
+        }
+        rows.push(row);
+        if !p.eat(Punct::Semicolon) {
+            break;
+        }
+    }
+    if rows.is_empty() {
+        return Err(p.unexpected(&["a number"]));
+    }
+    if rows.iter().flatten().any(|&v| v <= 0.0) {
+        return error(p, at, format!("the values of {what} must be above 0"));
+    }
+    Ok(rows)
+}
+
+/// The keywords of `options` at the cursor, up to the first word that is none of them.
+fn keyword_list(p: &mut Parser, options: &[&str]) -> PResult<Vec<usize>> {
+    let mut found = Vec::new();
+    while let Some(i) = which(p, options)? {
+        found.push(i);
+        p.eat(Punct::Comma);
+    }
+    Ok(found)
+}
+
+pub(crate) fn loglinear(p: &mut Parser) -> PResult<Command> {
+    let start = p.pos;
+    let mut c = BayesLoglinear {
+        row: String::new(),
+        column: String::new(),
+        criteria: default_criteria(1e-6),
+        analysis: BayesAnalysis::Posterior,
+        model: CountModel::Multinomial,
+        margin: FixedMargin::Total,
+        prior: TablePrior::Conjugate,
+        shapes: Vec::new(),
+        scale: None,
+        lambdas: Vec::new(),
+        suppress_table: false,
+        cells: vec![CrosstabsCell::Count],
+        chisq: true,
+        lrt: false,
+    };
+    let mut margin = None;
+    let names = ["CRITERIA", "INFERENCE", "TABLE", "ESTBF", "PRINT"];
+    subcommands(p, "BAYES LOGLINEAR", &names, |p, i| match i {
+        0 => {
+            let allowed = ["CILEVEL", "SEED", "TOL", "MAXITER", "POSTSAMPLES", "ORDER"];
+            criteria(p, &mut c.criteria, &allowed)
+        }
+        1 => settings(p, &["ANALYSIS"], |p, _| {
+            c.analysis = analysis(p)?;
+            Ok(())
+        }),
+        2 => {
+            let at = p.pos;
+            c.row = p.name("the row variable")?;
+            if !p.eat_word("BY") {
+                return Err(p.unexpected(&["BY"]));
+            }
+            c.column = p.name("the column variable")?;
+            if c.row.eq_ignore_ascii_case(&c.column) {
+                return error(p, at, "TABLE needs two different variables");
+            }
+            Ok(())
+        }
+        3 => {
+            let keywords = [
+                "MODEL",
+                "FIX_MARGIN",
+                "PRIOR_TYPE",
+                "SHAPEPARAMS",
+                "SCALEPARAM",
+                "LAMBDAS",
+            ];
+            settings(p, &keywords, |p, k| {
+                match k {
+                    0 => {
+                        c.model = match choice(p, &["MULTINOMIAL", "POISSON", "NONPARAMETRIC"])? {
+                            0 => CountModel::Multinomial,
+                            1 => CountModel::Poisson,
+                            _ => CountModel::Nonparametric,
+                        }
+                    }
+                    1 => {
+                        // a bare FIX_MARGIN= means the grand total
+                        margin = Some(match which(p, &["TOTAL", "ROW", "COLUMN"])? {
+                            None | Some(0) => FixedMargin::Total,
+                            Some(1) => FixedMargin::Row,
+                            Some(_) => FixedMargin::Column,
+                        })
+                    }
+                    2 => {
+                        let options = ["CONJUGATE", "MIXTURE_DIRICHLET", "INTRINSIC"];
+                        c.prior = match choice(p, &options)? {
+                            0 => TablePrior::Conjugate,
+                            1 => {
+                                p.eat_keyword("DIRICHLET");
+                                TablePrior::MixtureDirichlet
+                            }
+                            _ => TablePrior::Intrinsic,
+                        }
+                    }
+                    3 => c.shapes = positive_rows(p, "SHAPEPARAMS")?,
+                    4 => {
+                        c.scale = if p.eat_keyword("DATA") {
+                            None
+                        } else {
+                            Some(checked(p, "SCALEPARAM", "above 0", |v| v > 0.0)?)
+                        }
+                    }
+                    _ => {
+                        let at = p.pos;
+                        let rows = positive_rows(p, "LAMBDAS")?;
+                        if rows.len() > 1 {
+                            return error(p, at, "LAMBDAS takes one list of values, without ';'");
+                        }
+                        c.lambdas = rows.concat();
+                    }
+                }
+                Ok(())
+            })
+        }
+        _ => settings(p, &["SUPPRESS_TABLE", "CELLS", "STATISTICS"], |p, k| {
+            match k {
+                0 => c.suppress_table = boolean(p)?,
+                1 => {
+                    let options = ["OBSERVED", "ROW", "COLUMN", "EXPECTED", "TOTAL", "ALL"];
+                    let found = keyword_list(p, &options)?;
+                    c.cells = [
+                        (0, CrosstabsCell::Count),
+                        (3, CrosstabsCell::Expected),
+                        (1, CrosstabsCell::Row),
+                        (2, CrosstabsCell::Column),
+                        (4, CrosstabsCell::Total),
+                    ]
+                    .into_iter()
+                    .filter(|(i, _)| found.contains(i) || found.contains(&5))
+                    .map(|(_, cell)| cell)
+                    .collect();
+                    if c.cells.is_empty() {
+                        c.cells.push(CrosstabsCell::Count);
+                    }
+                }
+                _ => {
+                    let found = keyword_list(p, &["CHISQ", "LRT"])?;
+                    c.chisq = found.is_empty() || found.contains(&0);
+                    c.lrt = found.contains(&1);
+                }
+            }
+            Ok(())
+        }),
+    })?;
+    if c.row.is_empty() {
+        return error(p, start, "BAYES LOGLINEAR needs /TABLE row BY column");
+    }
+    c.margin = match (c.model, margin) {
+        (CountModel::Nonparametric, None | Some(FixedMargin::Total)) => {
+            return error(
+                p,
+                start,
+                "MODEL=NONPARAMETRIC needs FIX_MARGIN=ROW or COLUMN",
+            );
+        }
+        (_, margin) => margin.unwrap_or(FixedMargin::Total),
+    };
+    Ok(Command::Bayes(Box::new(Bayes::Loglinear(c))))
 }

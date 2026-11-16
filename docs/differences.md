@@ -782,7 +782,7 @@ Choices where the documentation says nothing, and where it is not followed:
 
 ### BAYES
 
-BAYES ONESAMPLE (normal, binomial and Poisson), BAYES RELATED, BAYES INDEPENDENT, BAYES CORRELATION, BAYES ANOVA, BAYES REGRESSION and BAYES REPEATED are supported. BAYES LOGLINEAR is not yet.
+BAYES ONESAMPLE (normal, binomial and Poisson), BAYES RELATED, BAYES INDEPENDENT, BAYES CORRELATION, BAYES ANOVA, BAYES REGRESSION, BAYES REPEATED and BAYES LOGLINEAR are supported.
 
 Choices where the documentation says nothing, and where it is not followed:
 
@@ -805,7 +805,11 @@ Choices where the documentation says nothing, and where it is not followed:
 - SUCCESS=LAST and FIRST take the highest and lowest value present (strings in byte order). A Poisson variable with values that are not whole numbers 0 or above is left out with a warning. The binomial mode is empty when both posterior shapes are below 1 (two modes at 0 and 1) or both are 1 (a flat posterior).
 - Integrals use adaptive Gauss-Kronrod quadrature (the manual names Gauss-Lobatto) with TOL as the relative error and MAXITER as the largest number of subintervals. METHOD=MCA averages the t likelihood over MCSAMPLES draws of g from its prior, with the congruential generator started at SEED (the time of day for RANDOM).
 - BAYES CORRELATION: the mean, variance and highest-density interval of rho come from quadrature of its posterior density instead of from POSTSAMPLES simulated draws, so they need no seed and hold for every CVALUE. The fractional Bayes factor needs the fraction times N above 1. A pair with fewer than two cases or no spread gets empty cells with a warning.
-- **Beyond the documentation**: DISTRIBUTION=NORMAL is accepted on BAYES RELATED and BAYES INDEPENDENT; LEVEL values may be written as bare words.
+- BAYES LOGLINEAR: the table holds only categories that occur among cases valid on both variables, counted with rounded case weights; user-missing values are left out. ORDER sorts both rows and columns, and SHAPEPARAMS rows follow that order. The Bayes factor table names the model and the prior used; a factor that cannot be computed is empty with a warning.
+- BAYES LOGLINEAR priors: PRIOR_TYPE matters only for MODEL=MULTINOMIAL; SHAPEPARAMS only for conjugate priors, SCALEPARAM only for POISSON and LAMBDAS only for NONPARAMETRIC, each with a warning when given elsewhere. MIXTURE_DIRICHLET with fixed totals uses the scaled weight of the algorithms chapter literally. INTRINSIC on a larger table falls back to the mixture with a warning, as the chapter says. NONPARAMETRIC needs FIX_MARGIN=ROW or COLUMN (left out is an error); when the fixed side does not have exactly two categories the factor is empty with a warning. The training sizes of the intrinsic prior are the smaller of the observed total and 500 (fixed grand total) or of each row total and 5000 (fixed rows).
+- BAYES LOGLINEAR posterior: the draws come from the Dirichlet posterior of a uniform prior on the cell probabilities. Each interaction term is the log odds ratio of a cell against the last row and the last column as shown. The table gives the mean, median and variance of the draws and the simultaneous region (Besag's order statistics) at CILEVEL. TOL and MAXITER steer the quadrature of the mixture prior; SEED and POSTSAMPLES the draws.
+- BAYES LOGLINEAR PRINT: without a PRINT subcommand the crosstab of observed counts and the CHISQ tests are shown. The tests table always ends with the number of valid cases. Fisher's exact test appears only for a 2 x 2 table with an expected count below 5.
+- **Beyond the documentation**: DISTRIBUTION=NORMAL is accepted on BAYES RELATED and BAYES INDEPENDENT; LEVEL values may be written as bare words. A keyword with an underscore may be written without it, as two words, or with a final S (FIX_MARGIN, FIXMARGINS, FIX MARGIN); ORDER also takes TRUE (ascending) and FALSE.
 
 ### POWER
 

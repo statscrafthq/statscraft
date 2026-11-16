@@ -1,6 +1,7 @@
 //! BAYES ONESAMPLE, BAYES RELATED, BAYES INDEPENDENT and BAYES CORRELATION: Bayes factors and
 //! posterior distributions of a mean, a proportion, a Poisson rate, a mean difference and a
-//! correlation. The linear models (BAYES ANOVA, REGRESSION, REPEATED) are in `models`.
+//! correlation. The linear models (BAYES ANOVA, REGRESSION, REPEATED) are in `models`, the
+//! two-way tables of BAYES LOGLINEAR in `loglinear`.
 //!
 //! Rules from the Command Syntax Reference and the Algorithms manual, in our words:
 //! - Case weights are frequencies rounded to whole numbers; a weight below 0.5 (or missing)
@@ -53,6 +54,7 @@ use statscraft_syntax::{
 use std::collections::HashMap;
 use std::f64::consts::PI;
 
+mod loglinear;
 mod models;
 
 // ---------------------------------------------------------------------------------------------
@@ -245,8 +247,7 @@ fn bf_jzs(t: f64, df: f64, n: f64, r: f64, q: Quadrature, draws: Option<(usize, 
     let null = t_factor(t, df, n, 0.0);
     let alternative = match draws {
         Some((count, seed)) => {
-            let mut random = Random::default();
-            random.seed = seed;
+            let mut random = Random::seeded(seed);
             let mut sum = 0.0;
             for _ in 0..count {
                 let z = random.normal();
@@ -683,6 +684,7 @@ impl Engine {
                 output
             }
             Bayes::Repeated(c) => self.bayes_repeated(c)?,
+            Bayes::Loglinear(c) => self.bayes_loglinear(c)?,
         };
         for warning in warnings {
             self.warn(warning);
