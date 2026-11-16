@@ -256,6 +256,81 @@ fn hand_worked_example() {
     );
 }
 
+/// OUTFILE writes the final clusters (MODEL) and the tree's subclusters (STATE) as JSON, in the
+/// standardized units the clustering used, with the mean and standard deviation to get there.
+#[test]
+fn outfile_writes_model_and_state() {
+    let dir = std::env::temp_dir().join(format!("statscraft-twostep-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let data = format!(
+        "DATA LIST FREE /x (F2) c (A1).\nBEGIN DATA.\n0 a 1 a 5 b 6 b\nEND DATA.\nCD '{}'.\n",
+        dir.display()
+    );
+    run_on(
+        &mut Engine::default(),
+        &format!(
+            "{data}TWOSTEP CLUSTER /CONTINUOUS VARIABLES=x /CATEGORICAL VARIABLES=c \
+             /NUMCLUSTERS FIXED=2 /VIEWMODEL DISPLAY=NO /OUTFILE MODEL='m.json' STATE='s.json'."
+        ),
+    );
+    let read = |name: &str| -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(dir.join(name)).unwrap()).unwrap()
+    };
+    let (model, state) = (read("m.json"), read("s.json"));
+    let sd = (26.0f64 / 3.0).sqrt();
+    assert_eq!(model["format"], "statscraft-twostep-model");
+    assert_eq!(model["distance"], "likelihood");
+    let x = &model["continuous"][0];
+    assert_eq!(
+        (x["name"].as_str(), x["mean"].as_f64()),
+        (Some("x"), Some(3.0))
+    );
+    assert!(close(x["sd"].as_f64().unwrap(), sd));
+    assert!(close(x["variance"].as_f64().unwrap(), 1.0));
+    assert_eq!(
+        model["categorical"][0]["categories"],
+        serde_json::json!(["a", "b"])
+    );
+    let clusters = model["clusters"].as_array().unwrap();
+    assert_eq!(clusters.len(), 2);
+    for (cluster, centre, counts) in [
+        (&clusters[0], 0.5, [2.0, 0.0]),
+        (&clusters[1], 5.5, [0.0, 2.0]),
+    ] {
+        assert_eq!(cluster["cases"], 2);
+        let summary = &cluster["summary"];
+        assert_eq!(summary["n"].as_f64(), Some(2.0));
+        assert!(close(
+            summary["mean"][0].as_f64().unwrap(),
+            (centre - 3.0) / sd
+        ));
+        assert!(close(summary["ss"][0].as_f64().unwrap(), 0.5 / (sd * sd)));
+        assert_eq!(summary["counts"][0], serde_json::json!(counts));
+    }
+    assert_eq!(state["format"], "statscraft-twostep-state");
+    assert_eq!(
+        (state["max_branch"].as_u64(), state["max_level"].as_u64()),
+        (Some(8), Some(3))
+    );
+    let subs = state["subclusters"].as_array().unwrap();
+    let n: f64 = subs.iter().map(|s| s["n"].as_f64().unwrap()).sum();
+    assert_eq!(n, 4.0);
+
+    let missing = dir.join("no-such-folder").join("m.json");
+    assert!(
+        fails(&format!(
+            "TWOSTEP CLUSTER /CONTINUOUS VARIABLES=spend /OUTFILE MODEL='{}'.",
+            missing.display()
+        ))
+        .contains("cannot write the model file")
+    );
+    assert!(
+        fails("SPLIT FILE BY plan.\nTWOSTEP CLUSTER /CONTINUOUS VARIABLES=spend /OUTFILE STATE='s.json'.")
+            .contains("SPLIT FILE")
+    );
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 #[test]
 fn euclidean_fixed_count() {
     let mut engine = Engine::default();

@@ -914,7 +914,8 @@ All eleven POWER commands are supported: MEANS ONESAMPLE, INDEPENDENT and RELATE
 - A continuous variable with one value in every case is left out with a warning. The weight variable is not used, with a warning; SPLIT FILE gives one analysis per group.
 - With only a variable list the Model Summary table is shown (algorithm, number of inputs, number of clusters); with VIEWMODEL DISPLAY=NO and no PRINT or SAVE the command stops with an error. The interactive model view, its charts and the silhouette measure are not produced.
 - SUMMARY: the Centroids table gives the mean and standard deviation (n - 1) of the original values; a categorical variable's table gives each category's count and percent of the cluster's cases.
-- MEMALLOCATE is accepted and not needed. EVALUATIONFIELDS is accepted with a warning. OUTFILE writes no file yet (warning) and INFILE is not supported yet.
+- MEMALLOCATE is accepted and not needed. EVALUATIONFIELDS is accepted with a warning. INFILE is not supported yet.
+- **The OUTFILE files** are small JSON files of Statscraft's own, not the XML the documentation describes. MODEL (`"format": "statscraft-twostep-model"`) holds the distance, each continuous variable with its mean and standard deviation (null when NOSTANDARDIZE names it) and the variance term of the distance, each categorical variable with its categories, the noise count and critical distance, and per cluster its number, its cases and its summary (count, means and sums of squared deviations in the clustered units, category counts). STATE (`"format": "statscraft-twostep-state"`) holds the same variables, the final threshold, MXBRANCH, MXLEVEL and the summaries of the tree's subclusters. OUTFILE with SPLIT FILE stops with an error.
 
 ### DETECTANOMALY
 

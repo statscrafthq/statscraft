@@ -2102,8 +2102,10 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  Tables: Model Summary (unless DISPLAY=NO), Auto-Clustering (IC), Cluster Distribution (COUNT),\n\
                  Centroids and one frequency table per categorical variable (SUMMARY). Cases missing on any\n\
                  variable are left out; the weight variable is not used. SAVE adds the cluster numbers, named\n\
-                 TSC_1, TSC_2 and so on unless given. The result depends on the order of the cases. DMCLUSTER\n\
-                 is another name for the command. Not supported yet: INFILE; OUTFILE writes no file.",
+                 TSC_1, TSC_2 and so on unless given. OUTFILE writes Statscraft's own JSON: MODEL the variables,\n\
+                 their standardization and the final clusters, STATE the subclusters and settings of the tree\n\
+                 (not with SPLIT FILE). The result depends on the order of the cases. DMCLUSTER is another\n\
+                 name for the command. Not supported yet: INFILE.",
         example: "TWOSTEP CLUSTER /CONTINUOUS VARIABLES=spend visits /CATEGORICAL VARIABLES=region plan\n\
                   \x20 /NUMCLUSTERS=AUTO 8 BIC /PRINT=COUNT SUMMARY IC /SAVE CLUSTER VARIABLE=segment.",
         parse: twostep::twostep,
