@@ -13,7 +13,7 @@ use statscraft_data::Dataset;
 use std::path::{Path, PathBuf};
 
 /// A data file path with Browse: one to write (`save`) or one to read.
-fn data_path(
+pub(crate) fn data_path(
     ui: &mut Ui,
     label: &str,
     path: &mut String,

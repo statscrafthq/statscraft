@@ -1,6 +1,6 @@
 //! The Ordinal Regression, Multinomial Logistic Regression, Linear Mixed Models, Generalized
 //! Linear Models (in `genlin_dialog`), Correspondence Analysis (in `correspondence_dialog`),
-//! Multiple Correspondence (in `mca_dialog`),
+//! Multiple Correspondence (in `mca_dialog`), Categorical Principal Components (in `catpca_dialog`),
 //! Life Tables and Kaplan-Meier (in `survival_dialog`), Cox Regression (in `cox_dialog`), Missing
 //! Value Analysis (in `mva_dialog`), Multiple Imputation (in `imputation_dialog`), Case
 //! Summaries and Codebook (in `reports_dialog`), the Loglinear dialogs (in `loglinear_dialog`), the
@@ -12,6 +12,7 @@
 
 use crate::agreement_dialog::{FleissKappa, Ratio, WeightedKappa};
 use crate::analyze_dialogs::keywords;
+use crate::catpca_dialog::Catpca;
 use crate::correspondence_dialog::Correspondence;
 use crate::cox_dialog::Cox;
 use crate::cs_model_dialog::SampleModel;
@@ -48,6 +49,8 @@ pub enum Advanced {
     Correspondence(Correspondence),
     // boxed: a large dialog
     Mca(Box<Mca>),
+    // boxed: a large dialog
+    Catpca(Box<Catpca>),
     Km(KaplanMeier),
     LifeTables(LifeTables),
     Distances(Distances),
@@ -93,6 +96,7 @@ impl Advanced {
             Advanced::Model(_) => "Complex Samples General Linear Model",
             Advanced::Correspondence(_) => "Correspondence Analysis",
             Advanced::Mca(_) => "Multiple Correspondence Analysis",
+            Advanced::Catpca(_) => "Categorical Principal Components",
             Advanced::Km(_) => "Kaplan-Meier",
             Advanced::LifeTables(_) => "Life Tables",
             Advanced::Distances(_) => "Distances",
@@ -133,6 +137,7 @@ impl Advanced {
             Advanced::Model(d) => Advanced::Model(Box::new(SampleModel::new(d.logistic))),
             Advanced::Correspondence(_) => Advanced::Correspondence(Default::default()),
             Advanced::Mca(_) => Advanced::Mca(Default::default()),
+            Advanced::Catpca(_) => Advanced::Catpca(Default::default()),
             Advanced::Km(_) => Advanced::Km(Default::default()),
             Advanced::LifeTables(_) => Advanced::LifeTables(Default::default()),
             Advanced::Distances(_) => Advanced::Distances(Default::default()),
@@ -182,6 +187,7 @@ impl Advanced {
             Advanced::Model(d) => d.syntax(data),
             Advanced::Correspondence(d) => d.syntax(data),
             Advanced::Mca(d) => d.syntax(data),
+            Advanced::Catpca(d) => d.syntax(data),
             Advanced::Km(d) => d.syntax(data),
             Advanced::LifeTables(d) => d.syntax(data),
             Advanced::Distances(d) => d.syntax(data),
