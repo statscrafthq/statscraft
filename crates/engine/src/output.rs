@@ -81,6 +81,8 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::Wls(_)
         | Command::Correlogram(_)
         | Command::Season(_)
+        | Command::Exsmooth(_)
+        | Command::Arima(_)
         | Command::Create(_)
         | Command::MultipleImputation(_)
         | Command::Km(_)
@@ -141,6 +143,7 @@ pub(crate) fn stage(command: &Command) -> Stage {
         | Command::TimeProgram
         | Command::ClearTimeProgram
         | Command::Tset(_)
+        | Command::Predict(_)
         | Command::Tshow => Stage::Neutral,
         _ => Stage::Change,
     }
@@ -367,7 +370,13 @@ impl Engine {
                     }
                 }
             }
-            Command::Date(spec) => return self.date(spec),
+            Command::Date(spec) => {
+                let tables = self.date(spec)?;
+                // DATE ends USE and PREDICT
+                self.date_spec = Some(spec.clone());
+                (self.ts_use, self.ts_predict) = (None, None);
+                return Ok(tables);
+            }
             Command::Print(_) | Command::PrintSpace(_) | Command::Xsave(_) => {
                 return self.case_output(command);
             }

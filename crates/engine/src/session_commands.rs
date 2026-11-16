@@ -17,7 +17,7 @@ use crate::format::{Currencies, Currency};
 use crate::{Cell, Engine, Error, Table, format_value};
 use statscraft_data::{Dataset, MissingValues, Value, Values};
 use statscraft_syntax::{
-    Command, DatasetCommand, Display, List, MacroState, SETTINGS, SettingEffect, UseRange,
+    Command, DatasetCommand, Display, List, MacroState, SETTINGS, SettingEffect,
 };
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -1018,33 +1018,6 @@ impl Engine {
             }
         }
         Ok(Vec::new())
-    }
-
-    fn use_cases(&mut self, range: Option<&UseRange>) -> Result<(), Error> {
-        let Some(range) = range else {
-            // USE and FILTER exclude each other: USE ALL turns the filter off
-            if let Some(data) = self
-                .dataset
-                .as_mut()
-                .filter(|d| d.filter_variable().is_some())
-            {
-                data.set_filter_variable(None)?;
-            }
-            return Ok(());
-        };
-        if !range.permanent {
-            return Err(Error(
-                "USE with a range of cases is supported only with /PERMANENT for now".into(),
-            ));
-        }
-        self.begin_pass()?;
-        let data = self.active_mut()?;
-        let n = data.case_count();
-        let first = range.first.unwrap_or(1) as usize;
-        let last = range.last.map_or(n, |l| (l as usize).min(n));
-        let keep: Vec<bool> = (1..=n).map(|c| c >= first && c <= last).collect();
-        data.select_cases(&keep)?;
-        Ok(())
     }
 
     pub(crate) fn display_command(&mut self, display: &Display) -> Result<Vec<Table>, Error> {

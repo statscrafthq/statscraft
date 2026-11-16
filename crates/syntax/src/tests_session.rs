@@ -146,8 +146,8 @@ fn use_takes_all_or_a_range_of_case_numbers() {
     assert_eq!(
         one("USE 3 THRU 10 /PERMANENT."),
         Command::Use(Some(UseRange {
-            first: Some(3),
-            last: Some(10),
+            first: Some(CasePoint::Case(3)),
+            last: Some(CasePoint::Case(10)),
             permanent: true
         }))
     );
@@ -155,11 +155,23 @@ fn use_takes_all_or_a_range_of_case_numbers() {
         one("USE FIRST THRU 5."),
         Command::Use(Some(UseRange {
             first: None,
-            last: Some(5),
+            last: Some(CasePoint::Case(5)),
             permanent: false
         }))
     );
-    assert!(err("USE Y 1960.").contains("USE with dates is not supported yet"));
+    assert_eq!(
+        one("USE Y 2019 M 4 THRU YEAR 2020."),
+        Command::Use(Some(UseRange {
+            first: Some(CasePoint::Date(vec![
+                (DateUnit::Year, 2019.0),
+                (DateUnit::Month, 4.0)
+            ])),
+            last: Some(CasePoint::Date(vec![(DateUnit::Year, 2020.0)])),
+            permanent: false
+        }))
+    );
+    assert!(err("USE 3 THRU Y 2020.").contains("either by case numbers or by dates"));
+    assert!(err("USE 9 THRU 2.").contains("comes before its end"));
 }
 
 #[test]

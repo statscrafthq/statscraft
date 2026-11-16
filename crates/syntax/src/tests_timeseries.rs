@@ -1,4 +1,4 @@
-//! Parser tests of TSET, TSHOW, CREATE, ACF, PACF, CCF and SEASON.
+//! Parser tests of TSET, TSHOW, CREATE, ACF, PACF, CCF, SEASON, PREDICT, EXSMOOTH and ARIMA.
 
 use super::*;
 
@@ -120,4 +120,92 @@ fn season_subcommands() {
         panic!()
     };
     assert_eq!(s.additive, Some(false));
+}
+
+#[test]
+fn predict_ranges() {
+    assert_eq!(
+        command("PREDICT 61 THRU 72."),
+        Command::Predict(UseRange {
+            first: Some(CasePoint::Case(61)),
+            last: Some(CasePoint::Case(72)),
+            permanent: false
+        })
+    );
+    assert_eq!(
+        command("PREDICT THRU END."),
+        Command::Predict(UseRange {
+            first: None,
+            last: None,
+            permanent: false
+        })
+    );
+    assert!(err("PREDICT.").contains("expected"));
+}
+
+#[test]
+fn exsmooth_subcommands() {
+    let Command::Exsmooth(e) = command(
+        "EXSMOOTH VARIABLES=rooms beds /MOD=WINTERS NN /PER=4 /SEASFACT=(0.9 1.1 1.2 0.8) \
+         /ALPHA=GRID /GAMMA=GRID(0.1, 0.5, 0.2) /DELTA=0.3 /PHI=0.5 /INITIAL=(100, 2).",
+    ) else {
+        panic!()
+    };
+    assert_eq!(e.variables.len(), 2);
+    assert_eq!(e.model, Some((Trend::Linear, Seasonality::Multiplicative)));
+    assert_eq!(e.period, Some(4));
+    assert_eq!(
+        e.seasfact,
+        Some(SeasonalFactors::Values(vec![0.9, 1.1, 1.2, 0.8]))
+    );
+    assert_eq!(e.alpha, Some(Smoothing::Grid(None)));
+    assert_eq!(e.gamma, Some(Smoothing::Grid(Some((0.1, 0.5, 0.2)))));
+    assert_eq!(e.delta, Some(Smoothing::Value(0.3)));
+    assert_eq!(e.initial, Some(Some((100.0, 2.0))));
+    let Command::Exsmooth(e) = command("EXSMOOTH APPLY /SEASFACT=SAF_1 /INITIAL=CALCULATE.") else {
+        panic!()
+    };
+    assert_eq!(e.apply, Some(None));
+    assert_eq!(e.seasfact, Some(SeasonalFactors::Variable("SAF_1".into())));
+    assert_eq!(e.initial, Some(None));
+    assert!(err("EXSMOOTH y /PHI=1.").contains("PHI is above 0 and below 1"));
+    assert!(err("EXSMOOTH y /ALPHA=GRID(0.5 0.1 0.1).").contains("ends at or above its start"));
+    assert!(err("EXSMOOTH y /INITIAL=(1).").contains("two values"));
+    assert!(err("EXSMOOTH y /MODEL=XX.").contains("expected"));
+}
+
+#[test]
+fn arima_subcommands() {
+    let Command::Arima(a) = command(
+        "ARIMA calls WITH promo price /MODEL=(1,1,1)(0,1,1) 7 NOCONSTANT LN /P=(2) /SQ=2 \
+         /MA=0.3 /SMA=0.4 0.1 /CON=2 /MXITER=20 /PAREPS=0.0001 /CINPCT=90 /FORECAST=CLS.",
+    ) else {
+        panic!()
+    };
+    assert_eq!(a.dependent.len(), 1);
+    assert_eq!(a.regressors.len(), 2);
+    assert_eq!(a.orders, Some([1, 1, 1]));
+    assert_eq!(a.seasonal_orders, Some([0, 1, 1]));
+    assert_eq!(a.period, Some(7));
+    assert_eq!(a.constant, Some(false));
+    assert_eq!(a.log, Some(ArimaLog::Ln));
+    assert_eq!(a.p, Some(vec![2]));
+    assert_eq!(a.sq, Some(vec![1, 2]));
+    assert_eq!(a.sma, Some(vec![0.4, 0.1]));
+    assert_eq!(a.con, Some(2.0));
+    assert_eq!(a.forecast, Some(ArimaForecast::Cls));
+    let Command::Arima(a) = command("ARIMA other /APPLY INITIAL.") else {
+        panic!()
+    };
+    assert_eq!(a.apply, Some((None, ArimaApply::Initial)));
+    let Command::Arima(a) = command("ARIMA APPLY FIT /MODEL=LOG.") else {
+        panic!()
+    };
+    assert_eq!(
+        (a.apply, a.log),
+        (Some((None, ArimaApply::Fit)), Some(ArimaLog::Log10))
+    );
+    assert!(err("ARIMA a b /MODEL=(1,0,0).").contains("one dependent"));
+    assert!(err("ARIMA a /MODEL=(1,0,0) 12.").contains("after the seasonal orders"));
+    assert!(err("ARIMA a /CINPCT=100.").contains("below 100"));
 }

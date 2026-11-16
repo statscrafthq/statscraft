@@ -174,22 +174,30 @@ impl Engine {
     /// The cases of every split group the filter keeps, in order; one group of all cases when
     /// nothing splits or filters.
     pub(crate) fn case_groups(&self) -> Result<Vec<Vec<usize>>, Error> {
-        Ok(match self.groups(true)? {
+        // CREATE ignores USE
+        Ok(match self.groups(true, false)? {
             Some(groups) => groups.into_iter().map(|g| g.cases).collect(),
             None => vec![(0..self.active()?.case_count()).collect()],
         })
     }
 
     /// The split groups of the cases the filter keeps; None when every case is used as it is.
-    fn groups(&self, use_split: bool) -> Result<Option<Vec<Group>>, Error> {
+    fn groups(&self, use_split: bool, use_range: bool) -> Result<Option<Vec<Group>>, Error> {
         let data = self.active()?;
         let (shown, outline) = (self.shown(), self.outline());
         let split = data.split_file().filter(|_| use_split);
         let filter = data.filter_variable();
-        if split.is_none() && filter.is_none() {
+        let range = match use_range {
+            true => self.use_bounds(data, None)?,
+            false => None,
+        };
+        if split.is_none() && filter.is_none() && range.is_none() {
             return Ok(None);
         }
         let mut kept: Vec<usize> = (0..data.case_count()).collect();
+        if let Some((first, last)) = range {
+            kept.retain(|&case| case >= first && case <= last);
+        }
         if let Some(filter) = filter {
             let variable = data.variable(filter)?;
             variable.numeric()?;
@@ -259,7 +267,9 @@ impl Engine {
     }
 
     fn in_view(&mut self, command: &Command, use_split: bool) -> Result<Vec<Table>, Error> {
-        let Some(groups) = self.groups(use_split)? else {
+        // EXSMOOTH and ARIMA apply USE themselves, as they also forecast after it
+        let use_range = !matches!(command, Command::Exsmooth(_) | Command::Arima(_));
+        let Some(groups) = self.groups(use_split, use_range)? else {
             return self.run_procedure(command);
         };
         let full = self.dataset.take().expect("checked by groups");

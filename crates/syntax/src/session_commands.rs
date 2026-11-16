@@ -1,7 +1,7 @@
 //! Parsers of the commands about the session rather than the data: macros, inserted files,
 //! settings, datasets and listings.
 
-use crate::ast::{Command, DatasetCommand, Display, List, UseRange};
+use crate::ast::{Command, DatasetCommand, Display, List};
 use crate::error::SyntaxError;
 use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
@@ -412,52 +412,6 @@ pub(crate) fn dataset_close(p: &mut Parser) -> PResult<Command> {
 pub(crate) fn dataset_display(p: &mut Parser) -> PResult<Command> {
     p.finish(&[])?;
     Ok(Command::Dataset(DatasetCommand::Display))
-}
-
-/// `USE ALL`, `USE THRU`, `USE [first] [THRU [last]] [/PERMANENT]` with case numbers.
-pub(crate) fn use_command(p: &mut Parser) -> PResult<Command> {
-    if p.eat_word("ALL") {
-        p.finish(&[])?;
-        return Ok(Command::Use(None));
-    }
-    let case = |p: &mut Parser| -> PResult<Option<u64>> {
-        if p.eat_keyword("FIRST") || p.eat_keyword("LAST") {
-            return Ok(None);
-        }
-        match p.number() {
-            Some(n) if n >= 1.0 && n.fract() == 0.0 => Ok(Some(n as u64)),
-            Some(_) => Err(p.unexpected(&["a case number from 1"])),
-            None => Ok(None),
-        }
-    };
-    if matches!(p.peek(), Some(TokenKind::Word(w)) if !w.eq_ignore_ascii_case("THRU") && !w.eq_ignore_ascii_case("FIRST"))
-    {
-        return Err(SyntaxError::new(
-            p.span(),
-            "USE with dates is not supported yet; give case numbers or ALL",
-        ));
-    }
-    let first = case(p)?;
-    let last = if p.eat_keyword("THRU") {
-        case(p)?
-    } else {
-        None
-    };
-    let permanent = p.eat(Punct::Slash) && {
-        if !p.eat_keyword("PERMANENT") {
-            return Err(p.unexpected(&["PERMANENT"]));
-        }
-        true
-    };
-    p.finish(&["THRU", "/PERMANENT"])?;
-    if first.is_none() && last.is_none() && !permanent {
-        return Ok(Command::Use(None));
-    }
-    Ok(Command::Use(Some(UseRange {
-        first,
-        last,
-        permanent,
-    })))
 }
 
 const DISPLAY_KEYWORDS: [&str; 11] = [

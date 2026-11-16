@@ -279,7 +279,7 @@ pub(crate) fn host(p: &mut Parser) -> PResult<Command> {
 }
 
 /// The DATE keyword `word` stands for: any start of the keyword, MINUTE from two letters.
-fn date_unit(word: &str) -> Option<DateUnit> {
+pub(crate) fn date_unit(word: &str) -> Option<DateUnit> {
     let upper = word.to_uppercase();
     DateUnit::ALL.into_iter().find(|unit| {
         let name = unit.name();

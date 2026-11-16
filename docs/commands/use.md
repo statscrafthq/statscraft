@@ -2,22 +2,21 @@
 
 # USE
 
-Use all cases, or a range of cases, in the commands that follow.
+Set the historical period of the time series procedures, or use all cases.
 
 ## Syntax
 
 ```text
 USE ALL.
-USE [first] [THRU [last]] [/PERMANENT].
-USE ALL (or THRU alone) turns FILTER off. A range of case numbers is supported with
+USE [start] [THRU [end]] [/PERMANENT].
 ```
 
-/PERMANENT, which deletes the cases outside it; dates are not supported yet.
+A start or end is a case number or a date written with DATE keywords and values (YEAR 2019 MONTH 3; the highest date variable must be among them); FIRST and LAST mean the ends of the file. The two kinds do not mix. The range acts as a filter for the procedures that follow, while CREATE ignores it and EXSMOOTH and ARIMA estimate on it and forecast after it (see PREDICT). A date start is the first case of that date, a date end the last. ALL or THRU alone uses every case again. USE turns FILTER off; FILTER, SORT CASES and DATE turn USE off. /PERMANENT deletes the cases outside the range.
 
 ## Example
 
 ```text
-USE ALL.
+USE YEAR 2016 THRU YEAR 2021.
 ```
 
 `statscraft help USE` prints the same text in the terminal. [All commands](README.md)
