@@ -467,6 +467,24 @@ Where the documentation is silent:
 - A weight below 0.5 drops the case.
 - A CHISQUARE range holds at most 100 000 whole numbers.
 
+### NPTESTS
+
+Where the documentation is silent:
+
+- A field of unknown measurement level gets one from its values, the same rule a data pass uses. String fields are nominal, so only the categorical tests take them.
+- Without test keywords, related fields of each level are tested apart: two or more continuous fields get Wilcoxon or Friedman, and the nominal fields and the ordinal fields get McNemar or Cochran when their values together are two. Ordinal fields count as categorical in that choice, as in the one-sample choice.
+- FIRST and SAMPLE take the first value met in the data, case by case and field by field, and need exactly two values among the test's fields together.
+- The two-group tests take the lower group value as the first group. The independent-samples tests skip nominal test fields with a warning, and so do the other tests that need a continuous or ordinal field.
+- The Monte Carlo significance of K-S restarts its generator at SEED for every test, so one test does not change another's draws. It draws from the fitted family with the parameters estimated again in every sample; uniform and exponential fields with parameters from the data always use it, the normal unless SIMULATION=FALSE. Past 200 million draws in one test it gives the Lilliefors table (normal) or Smirnov's significance, with a warning.
+- Moses decides on the trimmed span when at least one record is trimmed, at p <= ALPHA.
+- Jonckheere-Terpstra decides on the one-sided significance in the direction ORDER gives; the detail table also shows the two-sided one. Its homogeneous subsets show the mean joint ranks.
+- Wald-Wolfowitz decides on the most runs ties allow. Below 50 cases its standardized statistic moves half a run up, toward the side the one-sided test looks at.
+- The related Hodges-Lehmann limits take the signed-rank mean and standard deviation of all differences, zeros included, without a tie correction; the independent ones take the Mann-Whitney values with the tie correction, as documented. Either estimate builds at most 5 million pairwise differences or averages of distinct values; past that it gives a warning instead.
+- The pairwise median test of two samples uses their own median, Fisher's test up to 30 cases, and shows the chi-square only when it gives the significance. Multiple comparisons need a rejected test of three or more samples.
+- Stepwise subsets test each candidate subset with the omnibus test at ALPHA and show its statistic and significance; there is no adjusted significance for subsets.
+- The hypothesis summary marks each significance as exact, asymptotic, Monte Carlo or Lilliefors. Charts are not drawn; the detail tables carry their numbers.
+- A SPLIT FILE variable may be named as a test field; it is constant within each group, so its tests come out empty.
+
 ### REGRESSION
 
 - METHOD takes variable lists and STEPWISE, FORWARD, BACKWARD and REMOVE (GNU PSPP differs).

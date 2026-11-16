@@ -485,6 +485,14 @@ These take typed numbers and no variables, so they open with no data too. Each f
   - Plots: object points (labeled by any variable), category points, joint category points, discrimination measures, a biplot of objects and centroids (not with independent normalization), transformation and residual plots for a number of dimensions, a longest label and a range of dimensions. A plot with no variable checked takes every analysis variable.
   - Saving the quantified variables and the object scores with an optional root, and writing the recoded data, quantified variables or object scores into a data file or a new dataset of their own.
   - A starting or fixed configuration from a file (`CONFIGURATION`) is in the syntax.
+- **Categorical Principal Components** (`CATPCA`): two or more analysis variables, numeric or string, and optional labeling variables that are not analyzed. The variables, recoding, missing values, supplementary cases, model and criteria work as in Multiple Correspondence.
+  - Each analysis variable also has a scaling level: spline ordinal (the default) or spline nominal with a degree from 1 to 100 and a number of interior knots from 0, ordinal, nominal, multiple nominal or numeric.
+  - The object scores may start from, or be fixed to, the first numeric variables of a data file. A fixed configuration takes no supplementary cases or variables and keeps variable principal normalization.
+  - Rotation by varimax, equamax, quartimax, promax with its kappa (1 to below 10000) or direct oblimin with its delta (at most 0.8), with or without Kaiser normalization. It needs two dimensions and two active variables that are not multiple nominal.
+  - Statistics: correlations of the quantified and of the original variables, descriptives, the iteration history, component loadings (sorted by size if you like), object scores labeled and listed as in Multiple Correspondence, category quantifications and the variance accounted for.
+  - Plots: object points, component loadings (with the centroids of multiple nominal variables if you like), category points, joint category points, transformation and residual plots, a biplot with loadings or centroids and a triplot (neither with independent normalization), the centroids of one variable projected onto the vectors of others, and the variance accounted for; a longest label and a range of dimensions. Only multiple nominal variables plot more than one dimension in the transformation and residual plots.
+  - Saving the quantified variables, the object scores and the approximations with an optional root, and writing the recoded data, quantified variables, object scores or approximations into a data file or a new dataset of their own.
+  - Bootstrap confidence regions (`RESAMPLE`) are not supported yet.
 
 **Scale**
 

@@ -2,44 +2,15 @@
 //! its weight, recoding, missing value handling and role. Options left as they are add nothing to
 //! the syntax, so the command runs with its own defaults.
 
-use crate::analyze_dialogs::keywords;
-use crate::dialogs::whole;
-use crate::loglinear_dialog::optional;
-use crate::proximities_dialog::output_target;
-use crate::stats_dialogs::parse;
-use crate::syntax_text::number;
-use statscraft_data::{Dataset, is_valid_name};
+use crate::scaling_dialog::{
+    INDEPENDENT, PrintLists, ScalingVariable, all_variables, analysis_list, analysis_settings,
+    data_subcommands, label_length, model_subcommands, ndim, outfile_syntax, paren, per_variable,
+    print_syntax, save_syntax, still,
+};
+use statscraft_data::Dataset;
 
-/// How a variable is recoded before the analysis; the first leaves the command's own coding.
-pub const MCA_DISCRETIZE: [(&str, &str); 5] = [
-    ("", "As coded"),
-    ("GROUPING", "Groups"),
-    ("EQINTV", "Equal intervals"),
-    ("RANKING", "Ranks"),
-    ("MULTIPLYING", "Scaled z-scores"),
-];
-
-/// How the missing values of a variable are handled; the first is the default.
-pub const MCA_MISSING: [(&str, &str); 6] = [
-    ("PASSIVE MODEIMPU", "Passive"),
-    ("PASSIVE EXTRACAT", "Passive, own category in correlations"),
-    ("ACTIVE MODEIMPU", "Fill in the mode"),
-    ("ACTIVE EXTRACAT", "Fill in an extra category"),
-    ("ACTIVE RANDIMPU", "Fill in a random category"),
-    ("LISTWISE", "Leave the case out"),
-];
-
-const LISTWISE: usize = 5;
-
-pub const MCA_NORMALIZATIONS: [(&str, &str); 5] = [
-    ("VPRINCIPAL", "Variable principal"),
-    ("OPRINCIPAL", "Object principal"),
-    ("SYMMETRICAL", "Symmetrical"),
-    ("INDEPENDENT", "Independent"),
-    ("", "Custom value"),
-];
-
-const INDEPENDENT: usize = 3;
+#[cfg(test)]
+use crate::scaling_dialog::{LISTWISE, case_numbers};
 
 /// The tables of /PRINT; DESCRIP, OBJECT and QUANT take variable lists.
 pub const MCA_PRINT: [(&str, &str); 7] = [
@@ -82,64 +53,7 @@ pub const MCA_OUTFILE: [(&str, &str); 3] = [
 ];
 
 /// The settings of one analysis variable.
-#[derive(Clone, PartialEq, Debug)]
-pub struct McaVariable {
-    pub name: String,
-    pub weight: String,
-    /// Index into `MCA_DISCRETIZE`.
-    pub discretize: usize,
-    /// The number of groups.
-    pub groups: String,
-    /// Groups of about equal counts instead of the shape of a normal curve.
-    pub uniform: bool,
-    /// The width of an equal interval.
-    pub width: String,
-    /// Index into `MCA_MISSING`.
-    pub missing: usize,
-    pub supplementary: bool,
-}
-
-impl McaVariable {
-    pub fn new(name: &str) -> Self {
-        Self {
-            name: name.to_string(),
-            weight: "1".into(),
-            discretize: 0,
-            groups: "7".into(),
-            uniform: false,
-            width: String::new(),
-            missing: 0,
-            supplementary: false,
-        }
-    }
-
-    /// The recoding in parentheses; None for the command's own coding.
-    fn discretization(&self) -> Result<Option<String>, String> {
-        let name = &self.name;
-        Ok(match self.discretize {
-            0 => None,
-            1 => {
-                let n = whole(&self.groups, 1, &format!("the number of groups of {name}"))?
-                    .ok_or_else(|| format!("give the number of groups of {name}"))?;
-                if n >= 1_000_000_000 {
-                    return Err(format!("the number of groups of {name} is too large"));
-                }
-                Some(match self.uniform {
-                    true => format!("GROUPING NCAT={n} DISTR=UNIFORM"),
-                    false => format!("GROUPING NCAT={n}"),
-                })
-            }
-            2 => {
-                let width = parse(&self.width, &format!("the interval width of {name}"))?;
-                if width <= 0.0 {
-                    return Err(format!("the interval width of {name} must be above 0"));
-                }
-                Some(format!("GROUPING EQINTV={}", number(width)))
-            }
-            i => Some(MCA_DISCRETIZE[i].0.to_string()),
-        })
-    }
-}
+pub type McaVariable = ScalingVariable;
 
 /// MULTIPLE CORRESPONDENCE: homogeneity analysis of nominal variables.
 #[derive(Clone, PartialEq, Debug)]
@@ -153,7 +67,7 @@ pub struct Mca {
     /// The supplementary cases by number, with ranges such as 4-9.
     pub objects: String,
     pub dimensions: String,
-    /// Index into `MCA_NORMALIZATIONS`.
+    /// Index into `SCALING_NORMALIZATIONS`.
     pub normalization: usize,
     /// The custom normalization value.
     pub q: String,
@@ -225,73 +139,10 @@ impl Default for Mca {
     }
 }
 
-/// The names of `chosen` still among `offered`, in the order offered.
-fn still(offered: &[String], chosen: &[String]) -> Vec<String> {
-    offered
-        .iter()
-        .filter(|n| chosen.contains(n))
-        .cloned()
-        .collect()
-}
-
-/// Case numbers and ranges such as `3 8 10-12`, as the syntax writes them, checked against the
-/// number of cases; also the number of cases they name.
-fn case_numbers(text: &str, cases: usize) -> Result<(String, usize), String> {
-    let wrong = || "give supplementary cases as whole numbers from 1, ranges as 4-9".to_string();
-    let spaced = text.replace(',', " ").replace('-', " - ");
-    let mut tokens = spaced.split_whitespace().peekable();
-    let mut named = vec![false; cases];
-    let mut out = Vec::new();
-    let case = |t: Option<&str>| -> Result<usize, String> {
-        t.and_then(|t| t.parse::<usize>().ok())
-            .filter(|n| *n >= 1)
-            .ok_or_else(wrong)
-    };
-    while let Some(t) = tokens.next() {
-        let first = case(Some(t))?;
-        let last = match tokens.next_if(|t| *t == "-" || t.eq_ignore_ascii_case("TO")) {
-            Some(_) => case(tokens.next())?,
-            None => first,
-        };
-        if last < first {
-            return Err(format!(
-                "the supplementary range {first}-{last} runs backward"
-            ));
-        }
-        if last > cases {
-            return Err(format!(
-                "supplementary case {last} is past the last case ({cases})"
-            ));
-        }
-        named[first - 1..last].iter_mut().for_each(|n| *n = true);
-        out.push(match first == last {
-            true => first.to_string(),
-            false => format!("{first} TO {last}"),
-        });
-    }
-    let count = named.iter().filter(|n| **n).count();
-    Ok((out.join(" "), count))
-}
-
 impl Mca {
-    /// The settings of an analysis variable, the defaults when it has none yet.
-    pub fn setting(&self, name: &str) -> McaVariable {
-        self.settings
-            .iter()
-            .find(|s| s.name == name)
-            .cloned()
-            .unwrap_or_else(|| McaVariable::new(name))
-    }
-
     /// Every variable on VARIABLES: the analysis ones, then the labelling ones not among them.
     pub fn all_variables(&self) -> Vec<String> {
-        let mut all = self.variables.clone();
-        for name in &self.labels {
-            if !all.iter().any(|a| a.eq_ignore_ascii_case(name)) {
-                all.push(name.clone());
-            }
-        }
-        all
+        all_variables(&self.variables, &self.labels)
     }
 
     /// The biplot is not drawn with independent normalization, so the dialog offers it only
@@ -301,191 +152,50 @@ impl Mca {
     }
 
     pub fn syntax(&self, data: &Dataset) -> Result<String, String> {
-        if self.variables.len() < 2 {
-            return Err("add at least two analysis variables".into());
-        }
-        let settings: Vec<McaVariable> = self.variables.iter().map(|n| self.setting(n)).collect();
-        if settings.iter().all(|s| s.supplementary) {
-            return Err("at least one analysis variable must not be supplementary".into());
-        }
+        let settings = analysis_settings(&self.variables, &self.settings)?;
         let all = self.all_variables();
+        let mut entries = Vec::new();
+        for s in &settings {
+            entries.push((s.name.as_str(), s.weight_spec()?.unwrap_or_default()));
+        }
         let mut text = format!(
             "MULTIPLE CORRESPONDENCE VARIABLES={}\n  /ANALYSIS={}",
             all.join(" "),
-            analysis_list(&settings)?
+            analysis_list(&entries)
         );
-        let mut discretization = Vec::new();
-        let mut missing = Vec::new();
-        for s in &settings {
-            if let Some(how) = s.discretization()? {
-                discretization.push(format!("{}({how})", s.name));
-            }
-            if s.supplementary && s.missing == LISTWISE {
-                return Err(format!(
-                    "supplementary variable {} cannot leave cases out for missing values",
-                    s.name
-                ));
-            }
-            if s.missing > 0 {
-                missing.push(format!("{}({})", s.name, MCA_MISSING[s.missing].0));
-            }
-        }
-        if !discretization.is_empty() {
-            text.push_str(&format!("\n  /DISCRETIZATION={}", discretization.join(" ")));
-        }
-        if !missing.is_empty() {
-            text.push_str(&format!("\n  /MISSING={}", missing.join(" ")));
-        }
-        let mut supplementary = Vec::new();
-        if !self.objects.trim().is_empty() {
-            let cases = data.case_count();
-            let (list, count) = case_numbers(&self.objects, cases)?;
-            // the command needs three active cases
-            if cases.saturating_sub(count) < 3 {
-                return Err("at least three cases must stay out of the supplementary ones".into());
-            }
-            supplementary.push(format!("OBJECT({list})"));
-        }
-        let sup_vars: Vec<&str> = settings
-            .iter()
-            .filter(|s| s.supplementary)
-            .map(|s| s.name.as_str())
-            .collect();
-        if !sup_vars.is_empty() {
-            supplementary.push(format!("VARIABLE({})", sup_vars.join(" ")));
-        }
-        if !supplementary.is_empty() {
-            text.push_str(&format!("\n  /SUPPLEMENTARY={}", supplementary.join(" ")));
-        }
-        // the command lowers more dimensions than the data allow, with a warning
-        let dims = bounded(&self.dimensions, 1, "the number of dimensions")?.unwrap_or(2);
-        if dims != 2 {
-            text.push_str(&format!("\n  /DIMENSION={dims}"));
-        }
-        match self.normalization {
-            0 => {}
-            4 => {
-                let q = parse(&self.q, "the normalization value")?;
-                if !(-1.0..=1.0).contains(&q) {
-                    return Err("the normalization value lies from -1 to 1".into());
-                }
-                if q != -1.0 {
-                    text.push_str(&format!("\n  /NORMALIZATION={}", number(q)));
-                }
-            }
-            i => text.push_str(&format!("\n  /NORMALIZATION={}", MCA_NORMALIZATIONS[i].0)),
-        }
-        let iterations = bounded(&self.max_iterations, 1, "the most iterations")?.unwrap_or(100);
-        if iterations != 100 {
-            text.push_str(&format!("\n  /MAXITER={iterations}"));
-        }
-        if let Some(c) = optional(&self.convergence, "the convergence criterion")? {
-            if c <= 0.0 {
-                return Err("the convergence criterion must be above 0".into());
-            }
-            if c != 0.00001 {
-                text.push_str(&format!("\n  /CRITITER={}", number(c)));
-            }
-        }
-        text.push_str(&self.print_syntax(&all));
+        text.push_str(&data_subcommands(&settings, &self.objects, data)?);
+        let (model, dims) = model_subcommands(
+            &self.dimensions,
+            self.normalization,
+            &self.q,
+            &self.max_iterations,
+            &self.convergence,
+        )?;
+        text.push_str(&model);
+        text.push_str(&print_syntax(
+            &MCA_PRINT,
+            &self.print,
+            &MCA_DEFAULT_PRINT,
+            (&all, &self.variables),
+            PrintLists {
+                descrip: &self.descrip,
+                quant: &self.quant,
+                shown: &self.object_shown,
+                label: &self.object_label,
+            },
+            None,
+        ));
         text.push_str(&self.plot_syntax(&all, dims)?);
-        let mut saves = Vec::new();
-        for (i, (keyword, label, longest)) in MCA_SAVE.iter().enumerate() {
-            if !self.save[i] {
-                continue;
-            }
-            match self.save_roots[i].trim() {
-                "" => saves.push(keyword.to_string()),
-                root if !is_valid_name(root) || root.starts_with('#') => {
-                    return Err(format!("{root} cannot start variable names"));
-                }
-                root if root.chars().count() > *longest => {
-                    return Err(format!(
-                        "the root of the {} has at most {longest} characters",
-                        label.to_lowercase()
-                    ));
-                }
-                root => saves.push(format!("{keyword}({root})")),
-            }
-        }
-        if !saves.is_empty() {
-            text.push_str(&format!("\n  /SAVE={}", saves.join(" ")));
-        }
-        let mut outfiles = Vec::new();
-        let mut places: Vec<String> = Vec::new();
-        let mut declare = String::new();
-        for (i, (keyword, label)) in MCA_OUTFILE.iter().enumerate() {
-            let what = label.to_lowercase();
-            let Some(target) = output_target(
-                self.outfile[i],
-                &self.outfile_files[i],
-                &self.outfile_datasets[i],
-                &what,
-            )?
-            else {
-                continue;
-            };
-            // the command compares the places without case, a file and a dataset alike
-            let place = match self.outfile[i] {
-                1 => self.outfile_files[i].trim().to_lowercase(),
-                _ => self.outfile_datasets[i].trim().to_lowercase(),
-            };
-            if places.contains(&place) {
-                return Err(format!("the {what} need a place of their own"));
-            }
-            places.push(place);
-            // the command writes into a dataset only when one of that name exists
-            if self.outfile[i] == 2 {
-                declare.push_str(&format!("DATASET DECLARE {target}.\n"));
-            }
-            outfiles.push(format!("{keyword}({target})"));
-        }
-        if !outfiles.is_empty() {
-            text.push_str(&format!("\n  /OUTFILE={}", outfiles.join(" ")));
-        }
+        text.push_str(&save_syntax(&MCA_SAVE, &self.save, &self.save_roots)?);
+        let (declare, outfile) = outfile_syntax(
+            &MCA_OUTFILE,
+            &self.outfile,
+            &self.outfile_files,
+            &self.outfile_datasets,
+        )?;
+        text.push_str(&outfile);
         text.push('.');
         Ok(declare + &text)
-    }
-
-    /// /PRINT when the tables or their lists differ from the default.
-    fn print_syntax(&self, all: &[String]) -> String {
-        let descrip = still(all, &self.descrip);
-        let quant = still(&self.variables, &self.quant);
-        let shown = still(all, &self.object_shown);
-        let label = all
-            .iter()
-            .find(|n| **n == self.object_label)
-            .filter(|_| self.print[4]);
-        // a list counts only while its table is checked
-        let lists = [(1, &descrip), (6, &quant), (4, &shown)]
-            .iter()
-            .any(|(i, l)| self.print[*i] && !l.is_empty());
-        if self.print == MCA_DEFAULT_PRINT && !lists && label.is_none() {
-            return String::new();
-        }
-        let list = |l: &[String]| match l.is_empty() {
-            true => String::new(),
-            false => format!("({})", l.join(" ")),
-        };
-        let words: Vec<String> = keywords(&MCA_PRINT, &self.print)
-            .into_iter()
-            .map(|k| match k {
-                "DESCRIP" => format!("DESCRIP{}", list(&descrip)),
-                "QUANT" => format!("QUANT{}", list(&quant)),
-                "OBJECT" => match label {
-                    Some(l) => format!(
-                        "OBJECT(({l}){})",
-                        shown.iter().map(|n| format!(" {n}")).collect::<String>()
-                    ),
-                    None => format!("OBJECT{}", list(&shown)),
-                },
-                k => k.to_string(),
-            })
-            .collect();
-        match words.is_empty() {
-            true => "\n  /PRINT=NONE".into(),
-            false => format!("\n  /PRINT={}", words.join(" ")),
-        }
     }
 
     /// /PLOT when the charts, their lists or their labels differ from the default.
@@ -505,29 +215,8 @@ impl Mca {
         }
         // every plot but the transformations takes the label length
         let labeled = plots.iter().enumerate().any(|(i, on)| *on && i != 5);
-        let length = match labeled {
-            true => whole(&self.label_length, 0, "the longest label")?,
-            false => None,
-        };
-        // the command lowers a longer length to its own limit
-        let length = length.map_or(String::new(), |n| format!("({})", n.min(255)));
-        let per_variable = match plots[5] || plots[6] {
-            true => bounded(&self.plot_dimensions, 1, "the plotted dimensions")?,
-            false => None,
-        };
-        let per_variable = match per_variable {
-            Some(n) if n > dims => {
-                return Err(format!(
-                    "the plotted dimensions per variable must be at most {dims}"
-                ));
-            }
-            Some(n) if n > 1 => format!("({n})"),
-            _ => String::new(),
-        };
-        let paren = |l: &[String]| match l.is_empty() {
-            true => String::new(),
-            false => format!("({})", l.join(" ")),
-        };
+        let length = label_length(&self.label_length, labeled)?;
+        let per_variable = per_variable(&self.plot_dimensions, plots[5] || plots[6], dims)?;
         let mut words = Vec::new();
         for (i, (keyword, _)) in MCA_PLOTS.iter().enumerate() {
             if !plots[i] {
@@ -562,22 +251,7 @@ impl Mca {
             });
         }
         if self.ndim {
-            if dims < 2 {
-                return Err("plotting a range of dimensions needs at least two".into());
-            }
-            let first = whole(&self.ndim_first, 1, "the first plotted dimension")?.unwrap_or(1);
-            if first >= dims {
-                return Err(format!(
-                    "the first plotted dimension must be below the number of dimensions ({dims})"
-                ));
-            }
-            let last = whole(&self.ndim_last, 1, "the last plotted dimension")?.unwrap_or(dims);
-            if last <= first || last > dims {
-                return Err(format!(
-                    "the last plotted dimension must be above the first and at most {dims}"
-                ));
-            }
-            words.push(format!("NDIM({first},{last})"));
+            words.push(ndim(&self.ndim_first, &self.ndim_last, dims)?);
         } else if plots == MCA_DEFAULT_PLOTS
             && length.is_empty()
             && plots.iter().zip(&chosen).all(|(on, l)| !on || l.is_empty())
@@ -586,48 +260,6 @@ impl Mca {
         }
         Ok(format!("\n  /PLOT={}", words.join(" ")))
     }
-}
-
-/// A whole number of at least `least` and below the syntax's limit, or None for an empty field.
-fn bounded(text: &str, least: u32, what: &str) -> Result<Option<u32>, String> {
-    match whole(text, least, what)? {
-        Some(n) if n >= 1_000_000_000 => Err(format!("{what} must be below 1000000000")),
-        n => Ok(n),
-    }
-}
-
-/// The ANALYSIS list: runs of variables with the same weight, each run but a last one of weight
-/// 1 closed by its weight, since a weight covers every variable since the previous one.
-fn analysis_list(settings: &[McaVariable]) -> Result<String, String> {
-    let mut runs: Vec<(Vec<&str>, f64)> = Vec::new();
-    for s in settings {
-        // the command ignores the weight of a supplementary variable
-        let weight = match s.supplementary {
-            true => 1.0,
-            false => {
-                let what = format!("the weight of {}", s.name);
-                match optional(&s.weight, &what)? {
-                    None => 1.0,
-                    Some(w) if w > 0.0 => w,
-                    Some(_) => return Err(format!("{what} must be above 0")),
-                }
-            }
-        };
-        match runs.last_mut() {
-            Some((names, w)) if *w == weight => names.push(&s.name),
-            _ => runs.push((vec![s.name.as_str()], weight)),
-        }
-    }
-    let last = runs.len() - 1;
-    let parts: Vec<String> = runs
-        .iter()
-        .enumerate()
-        .map(|(i, (names, w))| match i == last && *w == 1.0 {
-            true => names.join(" "),
-            false => format!("{}(WEIGHT={})", names.join(" "), number(*w)),
-        })
-        .collect();
-    Ok(parts.join(" "))
 }
 
 #[cfg(test)]
