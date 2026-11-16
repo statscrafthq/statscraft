@@ -165,6 +165,8 @@ pub(crate) fn smooth(values: &[f64], weights: Option<&[f64]>, n: usize) -> Vec<f
                     break;
                 }
             } else if k > q {
+                // as the Algorithms manual prints it (l_K = l_(n + 1 - K)), not the n - K of
+                // the periodogram's own symmetry
                 k = n as i64 + 1 - k;
             } else {
                 break;

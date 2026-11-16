@@ -65,9 +65,8 @@ struct Fit {
     beta: Vec<f64>,
     /// (X*'X*)^-1.
     inverse: Vec<Vec<f64>>,
-    /// Sum of squares of the transformed residuals, and the total about the mean (with a
+    /// The total sum of squares of the transformed dependent about its mean (with a
     /// constant) or about 0.
-    sse: f64,
     sst: f64,
     rows: usize,
 }
@@ -120,11 +119,6 @@ fn least_squares(ys: &[f64], xs: &[Vec<f64>], constant: bool) -> Option<Fit> {
     let beta: Vec<f64> = (0..k)
         .map(|i| (0..k).map(|j| inv[i][j] * xty[j]).sum())
         .collect();
-    let sse = xs
-        .iter()
-        .zip(ys)
-        .map(|(r, yv)| (yv - r.iter().zip(&beta).map(|(a, b)| a * b).sum::<f64>()).powi(2))
-        .sum();
     let mean = if constant {
         ys.iter().sum::<f64>() / ys.len() as f64
     } else {
@@ -134,7 +128,6 @@ fn least_squares(ys: &[f64], xs: &[Vec<f64>], constant: bool) -> Option<Fit> {
     Some(Fit {
         beta,
         inverse: inv,
-        sse,
         sst,
         rows: ys.len(),
     })
@@ -457,9 +450,17 @@ impl Engine {
                 Some(format!("Estimation stopped because {reason}.")),
             ));
             // the fit at the start and at the end
+            // the transformed sum of squares of coefficients that APPLY FIT may have fixed
+            let sse_of = |rho: f64, beta: &[f64]| -> f64 {
+                let (ys, xs) = transformed(&y, &x, rho, prais, constant);
+                ys.iter()
+                    .zip(&xs)
+                    .map(|(v, r)| (v - r.iter().zip(beta).map(|(a, b)| a * b).sum::<f64>()).powi(2))
+                    .sum()
+            };
             let summary = |fit: &Fit, rho: f64, beta: &[f64]| -> Vec<f64> {
                 let s = statistics(&residuals(&y, &x, beta, constant), rho, pstar, prais);
-                let r2 = 1.0 - fit.sse / fit.sst;
+                let r2 = 1.0 - sse_of(rho, beta) / fit.sst;
                 let m = fit.rows as f64 - f64::from(u8::from(constant));
                 let adjusted = 1.0 - (1.0 - r2) * m / (fit.rows - pstar) as f64;
                 vec![r2.max(0.0).sqrt(), r2, adjusted, s.mse.sqrt(), s.dw]
@@ -500,7 +501,7 @@ impl Engine {
                     "Series: {label}. R square is that of the transformed regression."
                 )),
             ));
-            let ssr = final_fit.sst - final_fit.sse;
+            let ssr = final_fit.sst - sse_of(rho, &beta);
             let df_reg = regressors.len() as f64;
             let sse = stats.mse * df_mse;
             let f = (ssr / df_reg) / stats.mse;

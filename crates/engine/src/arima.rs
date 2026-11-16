@@ -1080,10 +1080,9 @@ impl Engine {
             }
         };
         if covariance.is_none() {
-            warnings.push(
+            warnings.push(format!(
                 "{what}: the estimates' covariance is singular, so no standard errors are given"
-                    .to_string(),
-            );
+            ));
         }
 
         // names of the parameters

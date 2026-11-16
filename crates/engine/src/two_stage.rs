@@ -140,7 +140,6 @@ impl Engine {
             }
         };
         given.apply = None;
-        self.ts_models.two_stage = Some(Box::new(given.clone()));
         Ok(given)
     }
 
@@ -505,6 +504,8 @@ impl Engine {
             })
             .collect();
         self.save_series_as("2SLS", &roots, items, newvar)?;
+        // a model APPLY can reuse, kept only when the run succeeds
+        self.ts_models.two_stage = Some(Box::new(spec.clone()));
         Ok(tables)
     }
 }
