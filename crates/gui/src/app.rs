@@ -814,6 +814,11 @@ impl App {
                     continue;
                 }
             };
+            // an answer that comes in after the plugin was turned off is dropped
+            let off = self.settings.plugin_off || self.settings.plugin.is_none();
+            if off && answer.iter().any(|(_, d)| !d.is_empty()) {
+                continue;
+            }
             // a window closed or showing another document since takes nothing
             if let Some(o) = self.windows.output_mut(done.window)
                 && o.document == done.document
