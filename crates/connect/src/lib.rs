@@ -109,6 +109,22 @@ impl Places {
         };
         if places.os == Os::Windows {
             places.wsl = places.which("wsl");
+        } else {
+            // a window started from the desktop menu often lacks the folders a login shell adds,
+            // where the usual installers put `claude`
+            let home = &places.home;
+            let extra = [
+                home.join(".local/bin"),
+                home.join(".claude/local"),
+                home.join("bin"),
+                PathBuf::from("/usr/local/bin"),
+                PathBuf::from("/opt/homebrew/bin"),
+            ];
+            for folder in extra {
+                if !places.path.contains(&folder) {
+                    places.path.push(folder);
+                }
+            }
         }
         places
     }

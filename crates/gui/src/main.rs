@@ -103,6 +103,10 @@ fn main() -> ExitCode {
         options,
         Box::new(move |cc| {
             cc.egui_ctx.set_fonts(fonts);
+            #[cfg(target_os = "linux")]
+            if let Some(theme) = gnome_theme() {
+                cc.egui_ctx.set_theme(theme);
+            }
             #[cfg(target_os = "macos")]
             open_files::set_context(&cc.egui_ctx);
             Ok(Box::new(app::App::new(&args, &cc.egui_ctx, settings)))
@@ -128,5 +132,43 @@ mod tests {
     #[test]
     fn icon_decodes() {
         assert_eq!(super::icon().width, 256);
+    }
+}
+
+/// The light or dark choice of a GNOME desktop. The window system does not report it under X11
+/// (a remote desktop session, for one), and egui then falls back to dark on a light desktop.
+// shortcut: read once at start, so a later change of the desktop theme needs a restart; other
+// desktops keep egui's own detection
+#[cfg(target_os = "linux")]
+fn gnome_theme() -> Option<egui::Theme> {
+    let out = std::process::Command::new("gsettings")
+        .args(["get", "org.gnome.desktop.interface", "color-scheme"])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    color_scheme(&String::from_utf8_lossy(&out.stdout))
+}
+
+/// GNOME's color-scheme value as gsettings prints it, such as `'prefer-dark'`.
+#[cfg(target_os = "linux")]
+fn color_scheme(value: &str) -> Option<egui::Theme> {
+    match value.trim().trim_matches('\'') {
+        "prefer-dark" => Some(egui::Theme::Dark),
+        "default" | "prefer-light" => Some(egui::Theme::Light),
+        _ => None,
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod theme_tests {
+    #[test]
+    fn gnome_color_scheme_picks_the_theme() {
+        use super::{color_scheme, egui};
+        assert_eq!(color_scheme("'prefer-dark'\n"), Some(egui::Theme::Dark));
+        assert_eq!(color_scheme("'default'\n"), Some(egui::Theme::Light));
+        assert_eq!(color_scheme("'prefer-light'"), Some(egui::Theme::Light));
+        assert_eq!(color_scheme("nonsense"), None);
     }
 }
