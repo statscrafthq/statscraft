@@ -236,11 +236,13 @@ impl Engine {
         }
         let ids = self.expand(&command.case_id)?;
         let is = |a: &str, b: &str| a.eq_ignore_ascii_case(b);
-        let mut listed = self.expand(&command.variables)?;
-        listed.retain(|name| {
-            !ids.iter().any(|id| is(id, name)) && !flag.is_some_and(|f| is(f, name))
-        });
-        listed.dedup_by(|a, b| is(a, b));
+        let mut listed: Vec<String> = Vec::new();
+        for name in self.expand(&command.variables)? {
+            let left_out = ids.iter().chain(&listed).any(|n| is(n, &name));
+            if !left_out && !flag.is_some_and(|f| is(f, &name)) {
+                listed.push(name);
+            }
+        }
 
         // the variables to compare, and those that cannot be
         let mut compared = Vec::new();

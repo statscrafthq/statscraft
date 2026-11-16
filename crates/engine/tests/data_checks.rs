@@ -281,10 +281,13 @@ DATASET COPY b.
 #[test]
 fn compare_can_leave_out_the_flag_and_the_case_table() {
     let (tables, _) = run(&format!(
-        "{GYM}COMPARE DATASETS /COMPDATASET earlier /VARIABLES visits /SAVE FLAGMISMATCHES=NO
-  /OUTPUT CASETABLE=NO VARPROPERTIES=ALL.\nLIST."
+        "{GYM}COMPARE DATASETS /COMPDATASET earlier /VARIABLES visits fee visits
+  /SAVE FLAGMISMATCHES=NO /OUTPUT CASETABLE=NO VARPROPERTIES=ALL.\nLIST."
     ));
     assert!(!tables.iter().any(|t| t.title == "Case Comparison"));
+    // a variable named twice is compared once
+    let summary = titled(&tables, "Dataset Comparison");
+    assert_eq!(cell(&summary.rows[1][1]), "2");
     let list = titled(&tables, "List");
     assert!(!list.columns.iter().any(|c| c == "CasesCompare"));
     let properties = titled(&tables, "Dictionary Differences");
