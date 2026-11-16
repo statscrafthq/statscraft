@@ -283,6 +283,7 @@ See [The Window menu](#the-window-menu).
   - a filter that leaves the other cases out of analyses: `COMPUTE filter_$ = (condition).` and `FILTER BY filter_$.`;
   - SELECT IF, which deletes them;
   - all cases again, with `FILTER OFF.` and `USE ALL.`.
+- **Select Cases by Time Range** (`USE`): the historical period of the time series procedures, from a start case through an end case, or by the values of the date variables (the highest one is required). An empty start or end means the first or last case, both empty every case again; the cases outside the range can be deleted.
 - **Weight Cases**.
 - **Aggregate**: into every case, into a new dataset of one case per group, or into a file.
 - **Define Dates** (`DATE`): what one case stands for (years, quarters, months, weeks, work days, hours, minutes, seconds, or cycles of a period you choose) and the date of the first case. The dialog checks that each first value fits its period.
@@ -573,6 +574,11 @@ The first three write `NPTESTS`. Each starts by letting the data choose the test
 - **Autocorrelations** (`ACF`, or `PACF` for partial autocorrelations alone): series, the natural log, differencing and seasonal differencing with a period, the most lags, and white-noise or Bartlett standard errors.
 - **Cross-Correlations** (`CCF`): two or more series, each paired with every later one, with the same transforms and the most lags either way.
 - **Seasonal Decomposition** (`SEASON`): a multiplicative or additive model, the moving average for an even period and the period.
+- **Exponential Smoothing** (`EXSMOOTH`): series and one of the twelve models (no, linear, exponential or damped trend, each with no, an additive or a multiplicative season; simple, Holt and Winters among them). Seasonal models take the period and the starting seasonal factors, typed or from a variable. Each parameter the model uses (level, trend, season, damping) is a value or a grid to search; also the start level and trend, and applying the previous model.
+- **ARIMA**: a dependent series with regressors, the nonseasonal and seasonal orders with the period, the constant, a base-10 or natural log, the lags to fit, the iteration and convergence criteria, the confidence level, how fitted values are computed, and applying the previous model (its specifications, its estimates as starting values or as they are).
+- **Sequence Charts** (`TSPLOT`): series over the cases, with the log and differencing of Autocorrelations, case labels and a mark where a variable changes. One series can fill the area under its line and get a reference line at the mean or a value; several can be joined case by case or shown as highest and lowest (two or three series). The previous chart can be applied.
+- **Forecast Period** (`PREDICT`): the cases Exponential Smoothing and ARIMA forecast, by case numbers or dates. When they save variables, cases are added past the end of the file to hold the forecasts.
+- A seasonal model with an empty period takes it from `TSET` or the date variables. The window cannot see `TSET`, so without date variables the period has to be typed.
 - **Options** (`TSET`): what the procedures save, the most new variables and lags, the period, the confidence level, user-missing values, the standard errors of autocorrelations and the amount of output. The window cannot read the session's current values, so the dialog starts from the starting ones and writes only what you change; a checkbox puts every setting back first.
 - An empty period or number of lags leaves the choice to the `TSET` settings and the date variables.
 
@@ -620,6 +626,7 @@ The first three write `NPTESTS`. Each starts by letting the data choose the test
   - A title, subtitle and footnote; panel variables, which draw a chart for each combination of their categories; and how missing values are left out, whether they get categories of their own, and whether user-missing values count as valid.
   - There is no preview: OK draws the chart in the output.
 - **P-P Plots** and **Q-Q Plots** (`PPLOT`): variables against a test distribution (normal, exponential, Weibull, Pareto, lognormal, beta, gamma, logistic, Laplace, uniform, half-normal, chi-square or Student t), its parameters estimated from the data or given (chi-square and Student t always need their degrees of freedom). The proportion formula (Blom, Rankit, Tukey, Van der Waerden), the rank of tied values, the plot, the detrended plot or both, and the natural log, standardizing, differencing and seasonal differencing with its period.
+- **Case Plots** (`CASEPLOT`): Sequence Charts on their side, with the cases down the page; one series can fill the area left of its line.
 - **ROC Curve** (`ROC`): test variables against the value of a state variable that marks the positive state. The curve with or without the diagonal reference line, the standard error and confidence interval of the area with the chart of the model quality, and a table of the cutoffs with their sensitivity and specificity. Whether larger or smaller test values point to a positive test, whether a value at the cutoff counts as positive, the confidence level, a nonparametric or bi-negative exponential standard error, and user-missing values as valid.
 
 ### Transform
