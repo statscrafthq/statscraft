@@ -1,6 +1,6 @@
 //! `describe` and the case values must agree with the ground truth stored next to every fixture.
 
-mod common;
+use crate::common;
 
 use common::{file_name, fixture, fixture_files, fixtures, sidecar};
 use serde_json::Value as Json;

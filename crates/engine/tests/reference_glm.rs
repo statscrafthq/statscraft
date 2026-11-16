@@ -2,7 +2,7 @@
 //! the same syntax. Ignored by default because they need PSPP:
 //!
 //! ```text
-//! STATSCRAFT_PSPP=/path/to/pspp cargo test -p statscraft-engine --test reference_glm -- --ignored
+//! STATSCRAFT_PSPP=/path/to/pspp cargo test -p statscraft-engine --test reference -- --ignored reference_glm::
 //! ```
 //!
 //! PSPP's LOGISTIC REGRESSION knows VARIABLES with WITH, CATEGORICAL (indicator coding),

@@ -6,6 +6,18 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
+# The integration tests are two binaries instead of one per file, which linked for minutes after
+# every engine edit. A new file in tests/ needs a `mod` line in tests/main.rs (or in
+# tests/reference_main.rs for a comparison with the reference program), or it is not built.
+autotests = false
+
+[[test]]
+name = "engine"
+path = "tests/main.rs"
+
+[[test]]
+name = "reference"
+path = "tests/reference_main.rs"
 
 [dependencies]
 statscraft-data = { path = "../data" }

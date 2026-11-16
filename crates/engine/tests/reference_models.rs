@@ -2,7 +2,7 @@
 //! the same syntax. Ignored by default because they need PSPP:
 //!
 //! ```text
-//! STATSCRAFT_PSPP=/path/to/pspp cargo test -p statscraft-engine --test reference_models -- --ignored
+//! STATSCRAFT_PSPP=/path/to/pspp cargo test -p statscraft-engine --test reference -- --ignored reference_models::
 //! ```
 //!
 //! PSPP's REGRESSION knows VARIABLES, DEPENDENT, METHOD=ENTER without a list, STATISTICS (R,

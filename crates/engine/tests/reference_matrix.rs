@@ -4,7 +4,7 @@
 //! the PSPP program:
 //!
 //! ```text
-//! STATSCRAFT_PSPP=/path/to/pspp cargo test -p statscraft-engine --test reference_matrix -- --ignored
+//! STATSCRAFT_PSPP=/path/to/pspp cargo test -p statscraft-engine --test reference -- --ignored reference_matrix::
 //! ```
 //!
 //! Left out where the two differ on purpose (see docs/differences.md): RND of halves, the

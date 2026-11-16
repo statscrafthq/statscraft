@@ -1,7 +1,7 @@
 //! The mutations that ADD FILES and MATCH FILES build on: taking cases, copying a variable from
 //! another dataset and changing a string width.
 
-mod common;
+use crate::common;
 
 use common::fixture;
 use statscraft_data::{Dataset, Values};
