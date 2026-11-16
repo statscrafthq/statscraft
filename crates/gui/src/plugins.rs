@@ -88,6 +88,8 @@ impl Plugins {
     pub fn again(&mut self) {
         self.redo = true;
         self.generation += 1;
+        let generation = self.generation;
+        self.waiting.retain(|d| d.generation == generation);
     }
 
     /// What Edit > Settings shows about the plugin.
@@ -272,6 +274,7 @@ mod tests {
             result: Ok(Vec::new()),
         };
         plugins.sender.send(done(0)).unwrap();
+        plugins.waiting.push(done(0));
         plugins.again();
         plugins.receive();
         assert!(plugins.waiting.is_empty());
