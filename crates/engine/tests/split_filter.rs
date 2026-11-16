@@ -96,7 +96,7 @@ fn separate_split_groups_get_tables_of_their_own() {
 fn a_crosstab_of_split_groups_keeps_the_columns_of_every_group() {
     let mut session = session();
     let result = run(&mut session, "SPLIT FILE BY g.\nCROSSTABS x BY f.");
-    let table = tables(&result)[0];
+    let table = tables(&result)[1];
     assert_eq!(&table.columns[3..], ["0", "1", "Total"]);
     assert_eq!(row(table, 1), "|20|Count|1|0|1");
     // the second group has no case with f = 0

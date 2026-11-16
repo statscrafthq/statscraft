@@ -401,6 +401,7 @@ fn crosstabs_with_chi_square() {
     assert_eq!(
         names,
         [
+            "Case Processing Summary",
             "Gender by Region of residence",
             "Chi-Square Tests Gender by Regi"
         ]
@@ -408,7 +409,7 @@ fn crosstabs_with_chi_square() {
     for (sheet, table) in sheets.iter().zip(&tables) {
         check_table(sheet, table, 0);
     }
-    let counts = &sheets[0];
+    let counts = &sheets[1];
     assert!(
         counts.merges.contains(&"C2:G2".to_string()),
         "region over its 5 columns"
@@ -420,7 +421,7 @@ fn crosstabs_with_chi_square() {
     assert_eq!(counts.value("H3"), Value::Text("Total".into()));
     assert_eq!(counts.value("C4"), Value::Number(23.0));
     assert_eq!(counts.value("H7"), Value::Number(200.0));
-    let tests = &sheets[1];
+    let tests = &sheets[2];
     assert_eq!(tests.value("A3"), Value::Text("Pearson Chi-Square".into()));
     let XCell { value, format, .. } = tests.at(2, 1);
     assert!(
@@ -513,7 +514,7 @@ fn one_sheet_puts_the_tables_one_below_the_other() {
          BY q5_1 /COMPARETEST TYPE=PROP ALPHA=0.3 ADJUST=NONE MERGE=YES.\n\
          DESCRIPTIVES age monthly_spend.",
     );
-    assert_eq!(tables.len(), 6);
+    assert_eq!(tables.len(), 7);
     let sheets = round_trip("one-sheet", &tables, true);
     assert_eq!(sheets.len(), 1);
     let sheet = &sheets[0];

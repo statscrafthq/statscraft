@@ -1147,6 +1147,7 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  \x20         [/STATISTICS=CHISQ] [/MISSING=TABLE | INCLUDE]\n\
                  \x20         [/FORMAT=AVALUE | DVALUE TABLES | NOTABLES]\n\
                  \x20         [/COUNT=[ASIS | CASE | CELL] [ROUND | TRUNCATE]] [/BARCHART].\n\
+                 First a Case Processing Summary: per table the valid, missing and total cases (weighted).\n\
                  One table per pair of row and column variable; layer variables split it into blocks.\n\
                  NOTABLES leaves out the tables, as CELLS=NONE does, keeping the statistics.\n\
                  COUNT makes weighted counts whole: CASE every case's weight, CELL every cell's count, before\n\

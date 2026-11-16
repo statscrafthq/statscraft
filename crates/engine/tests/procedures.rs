@@ -10,6 +10,14 @@ fn fixture(name: &str) -> String {
     format!("{}/../../tests/fixtures/{name}", env!("CARGO_MANIFEST_DIR"))
 }
 
+/// The tables of a CROSSTABS run after its Case Processing Summary, which comes first.
+fn crosstabs(engine: &mut Engine, source: &str) -> Vec<Table> {
+    let mut tables = run(engine, source);
+    assert_eq!(tables[0].title, "Case Processing Summary");
+    tables.remove(0);
+    tables
+}
+
 fn run(engine: &mut Engine, source: &str) -> Vec<Table> {
     let (commands, errors) = parse(source);
     assert!(errors.is_empty(), "{errors:?}");
@@ -334,7 +342,7 @@ fn descriptives_errors() {
 
 #[test]
 fn crosstabs_cells_and_chi_square() {
-    let tables = run(
+    let tables = crosstabs(
         &mut survey(),
         // names, as the expectations below give them
         "SET TVARS=NAMES OVARS=NAMES.\n\
@@ -404,7 +412,7 @@ fn crosstabs_cells_and_chi_square() {
 
 #[test]
 fn crosstabs_two_by_two_weighted() {
-    let tables = run(
+    let tables = crosstabs(
         &mut weighted(),
         "CROSSTABS q5_2 BY q5_1 /CELLS=COUNT EXPECTED /STATISTICS=CHISQ.",
     );
@@ -459,7 +467,7 @@ fn crosstabs_two_by_two_weighted() {
 #[test]
 fn crosstabs_layers_and_several_tables() {
     let mut engine = survey();
-    let tables = run(
+    let tables = crosstabs(
         &mut engine,
         "SET TVARS=NAMES OVARS=NAMES.\nSELECT IF resp_id <= 1012.\n\
          CROSSTABS q5_1 BY gender BY q5_2 /STATISTICS=CHISQ.",
@@ -499,12 +507,12 @@ fn crosstabs_layers_and_several_tables() {
         1
     );
 
-    let tables = run(
+    let tables = crosstabs(
         &mut engine,
         "CROSSTABS /TABLES=gender q5_1 BY region q5_2 /TABLES=plan BY q5_3 /CELLS=NONE.",
     );
     assert!(tables.is_empty());
-    let tables = run(
+    let tables = crosstabs(
         &mut engine,
         "CROSSTABS /TABLES=gender q5_1 BY region q5_2 /FORMAT=DVALUE.",
     );
@@ -526,7 +534,7 @@ fn crosstabs_layers_and_several_tables() {
     assert_eq!(tables[1].columns[2..4], ["Not selected", "Selected"]);
 
     // CELLS alone shows the count and the three percentages, STATISTICS alone the chi-square
-    let tables = run(&mut engine, "CROSSTABS gender BY q5_1 /CELLS /STATISTICS.");
+    let tables = crosstabs(&mut engine, "CROSSTABS gender BY q5_1 /CELLS /STATISTICS.");
     let statistics: Vec<String> = tables[0].rows[..4]
         .iter()
         .map(|r| texts(r)[1].clone())
@@ -535,10 +543,51 @@ fn crosstabs_layers_and_several_tables() {
     assert_eq!(tables[1].title, "Chi-Square Tests: gender by q5_1");
 }
 
+/// The Case Processing Summary comes first, one row per table: weighted counts of the cases
+/// valid on every variable and of those missing on one, cases without a positive weight left
+/// out. By hand: valid 2 + 1 = 3, missing 1 + 3 = 4, total 7.
+#[test]
+fn crosstabs_case_processing_summary() {
+    let mut engine = Engine::default();
+    let tables = run(
+        &mut engine,
+        "DATA LIST FREE /r c w.\nBEGIN DATA\n1 1 2\n1 2 1\n2 . 1\n. 1 3\n2 2 0\n1 1 -1\n\
+         END DATA.\nWEIGHT BY w.\nCROSSTABS /TABLES=r BY c /TABLES=c BY r BY w.",
+    );
+    let summary = &tables[0];
+    assert_eq!(summary.title, "Case Processing Summary");
+    assert_eq!(
+        summary.columns,
+        ["", "N", "Percent", "N", "Percent", "N", "Percent"]
+    );
+    assert_eq!(summary.column_groups[1], ["Cases", "Valid"]);
+    let labels: Vec<String> = summary.rows.iter().map(|r| texts(r)[0].clone()).collect();
+    assert_eq!(labels, ["r * c", "c * r * w"]);
+    for row in &summary.rows {
+        assert_row(
+            row,
+            1,
+            &[
+                Some(3.0),
+                Some(300.0 / 7.0),
+                Some(4.0),
+                Some(400.0 / 7.0),
+                Some(7.0),
+                Some(100.0),
+            ],
+        );
+    }
+    // one summary for the command, before every crosstabulation
+    assert_eq!(
+        tables.iter().filter(|t| t.title == summary.title).count(),
+        1
+    );
+}
+
 #[test]
 fn crosstabs_missing_values() {
     let mut engine = survey();
-    let table = |engine: &mut Engine, syntax: &str| run(engine, syntax).remove(0);
+    let table = |engine: &mut Engine, syntax: &str| crosstabs(engine, syntax).remove(0);
     let excluded = table(&mut engine, "CROSSTABS q1_satisfaction BY q6_mention2.");
     let total = excluded.rows.last().unwrap();
     assert_eq!(number(total.last().unwrap()), 97.0);
@@ -780,7 +829,7 @@ fn crosstabs_count_rounds_or_truncates_case_weights_or_cell_counts() {
                 END DATA.\nWEIGHT BY w.\n";
     let counts = |count: &str| {
         let mut engine = Engine::default();
-        let tables = run(&mut engine, &format!("{data}CROSSTABS r BY c {count}."));
+        let tables = crosstabs(&mut engine, &format!("{data}CROSSTABS r BY c {count}."));
         let rows = &tables[0].rows;
         (0..rows.len())
             .map(|i| rows[i][2..].iter().map(number).collect::<Vec<f64>>())

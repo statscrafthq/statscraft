@@ -348,7 +348,9 @@ fn compare_tables(case: &str, fixture: &str, syntax: &str) {
     let syntax = format!("GET FILE='{{dir}}data.sav'.\n{syntax}\n");
     let output = pspp(case, &program, &dir, &syntax);
     let theirs = pspp_tables(&output);
-    let mine = ours(case, &dir, &syntax);
+    // PSPP's summary ("Summary") is left out above; ours goes the same way
+    let mut mine = ours(case, &dir, &syntax);
+    mine.retain(|t| !t.title.starts_with("Case Processing Summary"));
     assert_eq!(
         theirs.len(),
         mine.len(),

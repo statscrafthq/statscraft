@@ -14,6 +14,8 @@ CROSSTABS [/]TABLES=rowvars BY colvars [BY layervars ...] [/TABLES=...]
           [/COUNT=[ASIS | CASE | CELL] [ROUND | TRUNCATE]] [/BARCHART].
 ```
 
+First a Case Processing Summary: per table the valid, missing and total cases (weighted).
+
 One table per pair of row and column variable; layer variables split it into blocks.
 
 NOTABLES leaves out the tables, as CELLS=NONE does, keeping the statistics.

@@ -92,7 +92,7 @@ fn crosstabs_headers_and_categories() {
             "1 Yes|Count|2|2|4",
         ),
     ] {
-        let t = &tables(settings, "CROSSTABS q1 BY sex.")[0];
+        let t = &tables(settings, "CROSSTABS q1 BY sex.")[1];
         assert_eq!(t.title, title, "{settings}");
         assert_eq!(t.columns, columns, "{settings}");
         assert_eq!(t.column_groups[2], [group], "{settings}");
@@ -253,6 +253,6 @@ fn set_checks_the_values_and_the_session_keeps_them() {
     let mut next = Session::default();
     next.restore_settings(&kept).unwrap();
     next.run(DATA, None).unwrap();
-    let t = &next.run("CROSSTABS q1 BY sex.", None).unwrap().commands[0].tables[0];
+    let t = &next.run("CROSSTABS q1 BY sex.", None).unwrap().commands[0].tables[1];
     assert_eq!(t.columns[..3], ["q1 Satisfied", "Statistic", "1"]);
 }

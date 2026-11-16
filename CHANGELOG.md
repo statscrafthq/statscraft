@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- CROSSTABS starts with a Case Processing Summary: per table the valid, missing and total cases (weighted) with percentages, as the reference program does.
 - Counts and sums over no cases (an empty group, a split group or filter without cases) show as 0, no longer as -0, in every output.
 - REGRESSION: a split group (or a run) where too few cases have valid values is told so, instead of being reported as a dependent without variance.
 - UNIANOVA and GLM show R squared as a period, not NaN, when the dependent does not vary; PROBIT stops with an error when none or all of the subjects responded instead of showing infinite limits.

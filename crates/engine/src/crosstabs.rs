@@ -4,7 +4,7 @@
 use crate::chart::{
     self, Axis, Category, Chart, ChartKind, Grouping, Orientation, Series, Statistic, Tier,
 };
-use crate::descriptives::case_weights;
+use crate::descriptives::{case_weights, number};
 use crate::dist::chi_square_p;
 use crate::shown::Shown;
 use crate::{Cell, Engine, Error, Table};
@@ -400,12 +400,13 @@ fn bar_chart(
 }
 
 /// The tables of one combination of variables: rows, columns, then layers; and its chart.
+/// The tables of one crosstabulation, its chart, and its row of the Case Processing Summary.
 fn tables(
     data: &Dataset,
     names: &[String],
     command: &Crosstabs,
     (shown, outline): (&Shown, &Shown),
-) -> Result<(Vec<Table>, Option<Chart>), Error> {
+) -> Result<(Vec<Table>, Option<Chart>, Vec<Cell>), Error> {
     let variables: Vec<Variable> = names
         .iter()
         .map(|name| data.variable(name))
@@ -422,6 +423,29 @@ fn tables(
         }
     }
     let count = (command.count, command.truncate);
+    // cases with a positive weight, valid on every variable or not
+    let (mut valid, mut missing) = (0.0, 0.0);
+    for case in 0..data.case_count() {
+        let w = weights.as_ref().map_or(1.0, |w| w[case]);
+        if w > 0.0 {
+            match keys.iter().all(|k| k[case].is_some()) {
+                true => valid += w,
+                false => missing += w,
+            }
+        }
+    }
+    let total = valid + missing;
+    let mut summary = vec![Cell::Text(
+        variables
+            .iter()
+            .map(|v| shown.variable(v))
+            .collect::<Vec<_>>()
+            .join(" * "),
+    )];
+    for n in [valid, missing, total] {
+        summary.push(Cell::Number(n));
+        summary.push(number((total > 0.0).then(|| 100.0 * n / total)));
+    }
     let blocks = blocks(&keys, weights.as_deref(), command.descending, count);
     let layer_variables = &variables[2..];
     let layer_cells = |block: &Block| -> Vec<Cell> {
@@ -522,7 +546,7 @@ fn tables(
     }
     let chart = (command.barchart && !blocks.is_empty())
         .then(|| bar_chart(&blocks, &variables, shown, (title, command.descending)));
-    Ok((out, chart))
+    Ok((out, chart, summary))
 }
 
 impl Engine {
@@ -531,6 +555,7 @@ impl Engine {
         let (shown, outline) = (self.shown(), self.outline());
         let mut out = Vec::new();
         let mut charts = Vec::new();
+        let mut summary = Vec::new();
         for dimensions in &command.tables {
             let lists: Vec<Vec<String>> = dimensions
                 .iter()
@@ -551,12 +576,32 @@ impl Engine {
                     .collect();
             }
             for names in combinations {
-                let (tables, chart) = tables(data, &names, command, (&shown, &outline))?;
+                let (tables, chart, row) = tables(data, &names, command, (&shown, &outline))?;
                 out.extend(tables);
                 charts.extend(chart);
+                summary.push(row);
             }
         }
         self.charts.extend(charts);
+        let mut columns = vec![String::new()];
+        let mut column_groups = vec![Vec::new()];
+        for group in ["Valid", "Missing", "Total"] {
+            for leaf in ["N", "Percent"] {
+                columns.push(leaf.into());
+                column_groups.push(vec!["Cases".to_string(), group.to_string()]);
+            }
+        }
+        out.insert(
+            0,
+            Table {
+                title: "Case Processing Summary".into(),
+                row_headers: 1,
+                columns,
+                column_groups,
+                rows: summary,
+                ..Table::default()
+            },
+        );
         Ok(out)
     }
 }

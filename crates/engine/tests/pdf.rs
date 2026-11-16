@@ -49,14 +49,22 @@ fn shown(content: &[u8]) -> Vec<Vec<u8>> {
         match content[i] {
             b'(' => {
                 let mut bytes = Vec::new();
+                // a string may hold balanced parentheses without escapes
+                let mut depth = 0;
                 i += 1;
-                while content[i] != b')' {
+                while content[i] != b')' || depth > 0 {
+                    match content[i] {
+                        b'(' => depth += 1,
+                        b')' => depth -= 1,
+                        _ => {}
+                    }
                     if content[i] == b'\\' {
                         i += 1;
                         match content[i] {
                             b'0'..=b'7' => {
                                 let digits = content[i..].iter().take(3);
-                                let octal = digits.take_while(|d| d.is_ascii_digit()).count();
+                                let octal =
+                                    digits.take_while(|d| (b'0'..=b'7').contains(d)).count();
                                 let text = std::str::from_utf8(&content[i..i + octal]).unwrap();
                                 bytes.push(u8::from_str_radix(text, 8).unwrap());
                                 i += octal - 1;

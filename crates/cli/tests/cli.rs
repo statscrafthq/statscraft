@@ -425,6 +425,7 @@ fn run_writes_every_table_to_a_workbook() {
         sheet_names(&dir.0.join("out.xlsx")),
         [
             "Gender",
+            "Case Processing Summary",
             "Gender by Region of residence",
             "Chi-Square Tests Gender by Regi"
         ]
