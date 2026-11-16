@@ -219,7 +219,12 @@ pub(crate) fn put_table(
         true => header,
         false => header.set_bold().set_background_color(Color::RGB(0xF2F2F2)),
     };
-    let row_header = border.clone().set_align(FormatAlign::Top).set_text_wrap();
+    // stacked labels run on over empty cells (a label aligned right runs to the left), so
+    // they do not wrap
+    let row_header = match table.stacked() {
+        true => border.clone().set_align(FormatAlign::Top),
+        false => border.clone().set_align(FormatAlign::Top).set_text_wrap(),
+    };
     let text = border.clone().set_align(FormatAlign::Right);
     let mut formats = Formats {
         bases: [header, row_header, text, border],
@@ -411,7 +416,9 @@ fn put_row_labels<'a>(
                 .unwrap_or(first);
             // a run shares its outer label, so no block label row comes between its rows
             let (from, to, column) = (rows[first], rows[last], column_of(c));
-            if last > first && !labels[first][c].is_empty() {
+            // a label of spaces only is written as an empty cell, so a neighbour's text can run
+            // over it
+            if last > first && !labels[first][c].trim().is_empty() {
                 let format = formats.get(ROW_LABEL, String::new(), table.decoration(first, c));
                 sheet.merge_range(from, column, to, column, &labels[first][c], format)?;
                 // each row keeps its own borders under the merged cell
@@ -424,7 +431,12 @@ fn put_row_labels<'a>(
             } else {
                 for (r, row) in labels.iter().enumerate().take(last + 1).skip(first) {
                     let format = formats.get(ROW_LABEL, String::new(), table.decoration(r, c));
-                    sheet.write_string_with_format(rows[r], column, &row[c], format)?;
+                    match row[c].trim().is_empty() {
+                        true => sheet.write_blank(rows[r], column, format)?,
+                        false => {
+                            sheet.write_string_with_format(rows[r], column, &row[c], format)?
+                        }
+                    };
                 }
             }
             first = last + 1;

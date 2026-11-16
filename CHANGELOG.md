@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- `statscraft run --xlsx FILE --plugin PROGRAM`: the plugin colours, comments and lays out the custom tables of the workbook, with its settings from the active data's attributes.
 - Plugins: the settings chosen in Edit > Plugin Settings are also remembered for the data file's path, so a syntax that reads the same file again (GET FILE) before it was saved keeps them.
 - Window on Linux: follows the GNOME light or dark setting where the window system does not report it (as in a remote desktop session), instead of always turning dark. Edit > Settings > AI agents finds Claude Code in the usual user program folders (such as ~/.local/bin) when the window was started from the desktop menu without them on its PATH.
 - Plugins: a program of your own colours the cells of custom tables and adds comments to them, through a small JSON protocol (docs/plugins.md). CTABLES tables now carry the statistics behind their cells (estimate, unweighted, weighted and effective base, standard deviation of a mean) and their total rows and columns, in the output file and in `--json`. The window runs the plugin in the background after every run (Edit > Settings > Plugins), keeps its settings as data file attributes (Edit > Plugin Settings), shows the colours and the comments on hover, saves them in the .scout file, and exports them to Excel (fills, text colours and cell notes), web pages and the clipboard. `examples/plugin-example` is a small plugin to start from.

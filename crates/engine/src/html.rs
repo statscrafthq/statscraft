@@ -166,7 +166,19 @@ pub fn table_html(table: &Table, notes: bool) -> String {
     let shift = usize::from(table.stacked());
     for (line, cells) in header_rows(table).into_iter().enumerate() {
         html.push_str("<tr>");
-        for cell in cells.into_iter().filter(|cell| cell.first >= shift) {
+        // the stacked layout drops column 0; a cell that spans it keeps its other columns
+        let kept = cells.into_iter().filter_map(|mut cell| {
+            if cell.first < shift {
+                let cut = shift - cell.first;
+                if cell.span <= cut {
+                    return None;
+                }
+                cell.span -= cut;
+                cell.first = shift;
+            }
+            Some(cell)
+        });
+        for cell in kept {
             let span = match cell.span {
                 1 => String::new(),
                 n => format!(" colspan=\"{n}\""),
