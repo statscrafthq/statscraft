@@ -582,6 +582,10 @@ fn detectanomaly_errors_and_split_file() {
         fails("DETECTANOMALY /VARIABLES SCALE=spend /SAVE ANOMALY(visits).")
             .contains("already exists")
     );
+    assert!(
+        fails("DETECTANOMALY /VARIABLES SCALE=spend visits /SAVE REASONVAR(r) REASONMEASURE(r).")
+            .contains("name r_1 to two saved variables")
+    );
     // EXCEPT applies before the overlap check
     let mut engine = Engine::default();
     run(

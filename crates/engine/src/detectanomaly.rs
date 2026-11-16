@@ -802,9 +802,14 @@ impl Engine {
                 let taken =
                     |n: &str| data.variable_index(n).is_some() || names.iter().any(|m| same(m, n));
                 let name = match given {
-                    Some(_) if taken(&want) => {
+                    Some(_) if data.variable_index(&want).is_some() => {
                         return Err(Error(format!(
                             "DETECTANOMALY /SAVE names {want}, a variable that already exists; choose another name"
+                        )));
+                    }
+                    Some(_) if taken(&want) => {
+                        return Err(Error(format!(
+                            "DETECTANOMALY /SAVE gives the name {want} to two saved variables; choose another name"
                         )));
                     }
                     Some(_) => want,
