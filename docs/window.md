@@ -516,16 +516,22 @@ These take typed numbers and no variables, so they open with no data too. Each f
 - **Weighted Kappa** (`WEIGHTED KAPPA`): every pair of the raters, or each row rater with each column rater. Linear or quadratic agreement weights, the confidence level, user-missing values as categories, and a table of counts for each pair with its categories ascending or descending.
 - **Fleiss Multirater Kappa** (`FLEISS MULTIRATER KAPPA`): two or more raters, all numeric or all string. The agreement on each category, the confidence level and user-missing values as categories.
 
-**Nonparametric Tests** (`NPAR TESTS`), with the dialogs analysts know. Each has descriptives, quartiles, and cases left out test by test or listwise.
+**Nonparametric Tests**
 
-- **Chi-square**: the categories from the data or a range, and equal or given expected values.
-- **Binomial**: a test proportion, and the two values of the data or a cut point.
-- **Runs**: at the median, mode, mean or a custom cut point.
-- **1-Sample K-S**: against the normal, uniform, Poisson or exponential distribution.
-- **2 Independent Samples**: Mann-Whitney, Kolmogorov-Smirnov, Moses and Wald-Wolfowitz.
-- **K Independent Samples**: Kruskal-Wallis, the median test and Jonckheere-Terpstra.
-- **2 Related Samples**: Wilcoxon, sign, McNemar and marginal homogeneity, on pairs.
-- **K Related Samples**: Friedman, Kendall's W and Cochran's Q.
+The first three write `NPTESTS`. Each starts by letting the data choose the tests from the measurement level of every field; Customize tests picks them by hand. All three take a significance level, a confidence level, cases left out test by test or listwise, and user-missing values of categorical fields counted as valid.
+
+- **One Sample** (`/ONESAMPLE`): binomial (test proportion, success values, a cut point for continuous fields, three kinds of interval), chi-square (equal frequencies or frequencies for typed categories), Kolmogorov-Smirnov (normal, uniform, exponential and Poisson, each with typed or estimated parameters, and the Monte Carlo samples and level), runs (a group of typed values, a cut at the median, the mean or a value) and Wilcoxon against a typed median.
+- **Independent Samples** (`/INDEPENDENT`): fields and a grouping variable, which cannot be a scale variable. Mann-Whitney, Wald-Wolfowitz, Kolmogorov-Smirnov, the Hodges-Lehmann estimate and Moses with the cases to trim for two groups; Kruskal-Wallis, the median test (pooled or typed median) and Jonckheere-Terpstra (ascending or descending) for two or more, each with pairwise, step-down or no comparisons.
+- **Related Samples** (`/RELATED`): two fields or more. McNemar, Wilcoxon, sign, marginal homogeneity and the Hodges-Lehmann estimate need exactly two; Cochran's Q, Friedman and Kendall's W take more, each with its comparisons. McNemar and Cochran count typed success values or the first value found.
+- **Legacy Dialogs** (`NPAR TESTS`), with the dialogs analysts know. Each has descriptives, quartiles, and cases left out test by test or listwise.
+  - **Chi-square**: the categories from the data or a range, and equal or given expected values.
+  - **Binomial**: a test proportion, and the two values of the data or a cut point.
+  - **Runs**: at the median, mode, mean or a custom cut point.
+  - **1-Sample K-S**: against the normal, uniform, Poisson or exponential distribution.
+  - **2 Independent Samples**: Mann-Whitney, Kolmogorov-Smirnov, Moses and Wald-Wolfowitz.
+  - **K Independent Samples**: Kruskal-Wallis, the median test and Jonckheere-Terpstra.
+  - **2 Related Samples**: Wilcoxon, sign, McNemar and marginal homogeneity, on pairs.
+  - **K Related Samples**: Friedman, Kendall's W and Cochran's Q.
 
 **Survival**
 

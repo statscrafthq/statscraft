@@ -105,14 +105,14 @@ impl Default for KaplanMeier {
 }
 
 /// The parts of a typed list: separated by commas, and for numbers by spaces too.
-fn items(text: &str, string: bool) -> impl Iterator<Item = &str> {
+pub(crate) fn items(text: &str, string: bool) -> impl Iterator<Item = &str> {
     text.split(move |c: char| c == ',' || (!string && c.is_whitespace()))
         .map(str::trim)
         .filter(|t| !t.is_empty())
 }
 
 /// A typed list of values as literals for a status of the given type.
-fn values(text: &str, string: bool) -> Result<String, String> {
+pub(crate) fn values(text: &str, string: bool) -> Result<String, String> {
     let list: Vec<String> = items(text, string)
         .map(|t| value(t, string))
         .collect::<Result<_, _>>()?;
