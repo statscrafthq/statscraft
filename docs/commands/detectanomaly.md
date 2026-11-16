@@ -22,7 +22,7 @@ Missing values leave the case out unless APPLY=YES, which puts the mean in for a
 
 SAVE adds AnomalyIndex, PeerId, PeerSize, PeerPctSize and per reason k ReasonVar\_k, ReasonMeasure\_k, ReasonValue\_k and ReasonNorm\_k, a free suffix added to a default name in use.
 
-WEIGHT and SPLIT FILE are not used. OUTFILE writes no file yet.
+WEIGHT and SPLIT FILE are not used. OUTFILE MODEL writes Statscraft's own JSON: the variables with their means and categories, and the peer groups.
 
 ## Example
 

@@ -2144,7 +2144,8 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  default), Scale and Categorical Variable Norms (NORMS), Anomaly Index Summary, Reason Summary.\n\
                  SAVE adds AnomalyIndex, PeerId, PeerSize, PeerPctSize and per reason k ReasonVar_k,\n\
                  ReasonMeasure_k, ReasonValue_k and ReasonNorm_k, a free suffix added to a default name in use.\n\
-                 WEIGHT and SPLIT FILE are not used. OUTFILE writes no file yet.",
+                 WEIGHT and SPLIT FILE are not used. OUTFILE MODEL writes Statscraft's own JSON: the variables\n\
+                 with their means and categories, and the peer groups.",
         example: "DETECTANOMALY /VARIABLES SCALE=amount days CATEGORICAL=channel ID=order_no\n\
                   \x20 /CRITERIA NUMREASONS=2 PCTANOMALOUSCASES=2 /SAVE ANOMALY PEERID REASONVAR /PRINT CPS ANOMALYLIST NORMS.",
         parse: twostep::detectanomaly,

@@ -31,10 +31,12 @@ use crate::descriptives::{case_weights, number};
 use crate::npar_tests::text;
 use crate::pass::default_measure;
 use crate::twostep::{
-    Cf, Model, Settings, agglomerate, auto_count, category_codes, clusters_at, distribution,
-    free_name, mean_sd, number_by_first, numeric_value, plain_table, precluster, variance,
+    Cf, Model, Settings, agglomerate, auto_count, category_codes, cf_json, clusters_at,
+    distribution, free_name, key_json, mean_sd, number_by_first, numeric_value, plain_table,
+    precluster, variance,
 };
 use crate::{Cell, Engine, Error, Table};
+use serde_json::json;
 use statscraft_data::{Measure, Values, Variable};
 use statscraft_syntax::{AnomalySave, Detectanomaly, VarItem};
 
@@ -82,9 +84,6 @@ impl Engine {
         let mut warnings: Vec<String> = Vec::new();
         if case_weights(data)?.is_some() {
             warnings.push("DETECTANOMALY does not use the weight variable".into());
-        }
-        if command.outfile.is_some() {
-            warnings.push("DETECTANOMALY /OUTFILE: no model file is written yet".into());
         }
         let same = |a: &str, b: &str| a.eq_ignore_ascii_case(b);
         let id = command.id.as_ref().map(|n| data.variable(n)).transpose()?;
@@ -240,11 +239,14 @@ impl Engine {
         let n = training.len();
         let mut continuous: Vec<Vec<f64>> = Vec::new();
         let mut coded: Vec<(Vec<Key>, Vec<usize>, usize)> = Vec::new();
+        // the mean of each continuous input, which stands in for its missing values
+        let mut means: Vec<f64> = Vec::new();
         for input in &inputs {
             match input {
                 Input::Scale { values, .. } | Input::MissingShare(values) => {
                     let valid: Vec<f64> = training.iter().filter_map(|&c| values[c]).collect();
                     let mean = valid.iter().sum::<f64>() / valid.len() as f64;
+                    means.push(mean);
                     continuous.push(
                         training
                             .iter()
@@ -673,6 +675,53 @@ impl Engine {
                 none_caption(&mut table);
                 tables.push(table);
             }
+        }
+
+        if let Some(file) = &command.outfile {
+            let (mut at_scale, mut at_category) = (0, 0);
+            let variables: Vec<_> = inputs
+                .iter()
+                .map(|input| match input {
+                    Input::Categorical { .. } => {
+                        let (levels, _, count) = &coded[at_category];
+                        at_category += 1;
+                        let levels: Vec<_> = levels.iter().map(key_json).collect();
+                        json!({
+                            "name": input.name(),
+                            "kind": "categorical",
+                            "categories": levels,
+                            "missing_category": *count > levels.len(),
+                        })
+                    }
+                    _ => {
+                        let k = at_scale;
+                        at_scale += 1;
+                        json!({
+                            "name": input.name(),
+                            "kind": if matches!(input, Input::Scale { .. }) { "scale" } else { "missing proportion" },
+                            "mean": means[k],
+                            "variance": variances[k],
+                        })
+                    }
+                })
+                .collect();
+            let peers: Vec<_> = (0..h)
+                .map(|g| {
+                    json!({
+                        "number": g + 1,
+                        "mean_deviation": mean_gdi[g],
+                        "summary": cf_json(&groups[g]),
+                    })
+                })
+                .collect();
+            let model = json!({
+                "format": "statscraft-anomaly-model",
+                "ml_weight": command.ml_weight,
+                "missing_applied": command.apply,
+                "variables": variables,
+                "peer_groups": peers,
+            });
+            self.write_json("DETECTANOMALY", file, "model", &model)?;
         }
 
         // saved variables
