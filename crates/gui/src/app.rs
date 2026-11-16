@@ -42,7 +42,7 @@ use crate::stats_dialogs::{NparKind, NparTests, PartialCorr, Regression, Reliabi
 use crate::stats_dialogs_view;
 use crate::syntax_text::{number, quote};
 use crate::syntax_window;
-use crate::timeseries_dialog::{TimeSeries, forecasting_menu};
+use crate::timeseries_dialog::{SeriesChart, TimeRange, TimeSeries, forecasting_menu};
 use crate::updates::Updates;
 use crate::windows::{Closing, Kind, Registry, WindowId, same};
 use crate::{editor, grid, grid_menu, highlight, themes};
@@ -1520,6 +1520,12 @@ impl App {
                     ("Split File...", Dialog::SplitFile(split)),
                     ("Select Cases...", Dialog::SelectCases(Default::default())),
                     (
+                        "Select Cases by Time Range...",
+                        Dialog::Advanced(Advanced::TimeSeries(Box::new(TimeSeries::Range(
+                            TimeRange::new(false),
+                        )))),
+                    ),
+                    (
                         "Weight Cases...",
                         Dialog::WeightCases(WeightCases::current(weight.as_deref())),
                     ),
@@ -1882,6 +1888,12 @@ impl App {
                         Dialog::ProbabilityPlot(ProbabilityPlot::new(false)),
                     ),
                     ("ROC Curve...", Dialog::RocCurve(Default::default())),
+                    (
+                        "Case Plots...",
+                        Dialog::Advanced(Advanced::TimeSeries(Box::new(TimeSeries::Chart(
+                            SeriesChart::new(true),
+                        )))),
+                    ),
                 ] {
                     if ui.add_enabled(has_data, egui::Button::new(label)).clicked() {
                         self.open_dialog(dialog);

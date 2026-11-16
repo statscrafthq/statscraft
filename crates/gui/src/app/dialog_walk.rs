@@ -40,7 +40,8 @@ use crate::reports_dialog::{Codebook, Summarize};
 use crate::stats_dialogs::{Block, NparKind, NparTests, PartialCorr, Regression, Reliability};
 use crate::survival_dialog::{KaplanMeier, LifeTables};
 use crate::timeseries_dialog::{
-    Correlogram, CreateRow, CreateSeries, Dates, IFFT, Season, SeriesOptions, TimeSeries,
+    ArimaModel, Correlogram, CreateRow, CreateSeries, Dates, ExpSmoothing, IFFT, Parameter, Season,
+    SeriesChart, SeriesOptions, TimeRange, TimeSeries,
 };
 use std::path::Path;
 
@@ -3086,6 +3087,249 @@ fn the_time_series_dialogs_write_syntax_that_runs() {
         }
         assert!(
             result.commands.iter().any(|c| !c.tables.is_empty()),
+            "{syntax}"
+        );
+        let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
+        assert!(warnings.is_empty(), "{syntax}\n{warnings:?}");
+    }
+}
+
+/// The forecasting and chart dialogs on the invented bakery months. Each case runs a program
+/// first (dates, a model to APPLY, a variable to mark), then the dialog's syntax and a command
+/// that shows what USE and PREDICT did; the syntax is as expected, parses and runs without a
+/// warning.
+#[test]
+fn the_forecasting_dialogs_write_syntax_that_runs() {
+    let series = |d: TimeSeries| Advanced::TimeSeries(Box::new(d));
+    let smooth = |d: ExpSmoothing| series(TimeSeries::Smoothing(d));
+    let arima = |d: ArimaModel| series(TimeSeries::Arima(d));
+    let range = |d: TimeRange| series(TimeSeries::Range(d));
+    let chart = |d: SeriesChart| series(TimeSeries::Chart(d));
+    let value = |v: &str| Parameter {
+        value: s(v),
+        ..Default::default()
+    };
+    let grid = |from: &str, to: &str, step: &str| Parameter {
+        grid: true,
+        from: s(from),
+        to: s(to),
+        step: s(step),
+        ..Default::default()
+    };
+    let dated = "DATE YEAR 2019 MONTH 1.";
+    let cases: Vec<(&str, Advanced, &str, &str)> = vec![
+        (
+            "",
+            smooth(ExpSmoothing {
+                variables: v(&["loaves"]),
+                ..Default::default()
+            }),
+            "EXSMOOTH VARIABLES=loaves.",
+            "",
+        ),
+        (
+            "EXSMOOTH VARIABLES=rainfall /MODEL=HOLT.",
+            smooth(ExpSmoothing {
+                variables: v(&["loaves"]),
+                model: 5,
+                period: s("12"),
+                parameters: [
+                    grid("", "", ""),
+                    grid("0.1", "0.5", "0.2"),
+                    value("0.3"),
+                    value("0.5"),
+                ],
+                apply: true,
+                ..Default::default()
+            }),
+            "EXSMOOTH VARIABLES=loaves\n  /MODEL=LM\n  /PERIOD=12\n  /ALPHA=GRID\n  \
+             /GAMMA=GRID(0.1 0.5 0.2)\n  /DELTA=0.3\n  /APPLY.",
+            "",
+        ),
+        (
+            dated,
+            smooth(ExpSmoothing {
+                variables: v(&["loaves", "rainfall"]),
+                model: 10,
+                factors: s("-30 -24 -12 3 27 51 63 54 21 -6 -21 -36"),
+                parameters: [
+                    value("0.2"),
+                    value(""),
+                    value(""),
+                    grid("0.2", "0.8", "0.3"),
+                ],
+                initial: true,
+                start: s("190"),
+                trend: s("2"),
+                ..Default::default()
+            }),
+            "EXSMOOTH VARIABLES=loaves rainfall\n  /MODEL=DA\n  \
+             /SEASFACT=(-30 -24 -12 3 27 51 63 54 21 -6 -21 -36)\n  /ALPHA=0.2\n  \
+             /PHI=GRID(0.2 0.8 0.3)\n  /INITIAL=(190, 2).",
+            "",
+        ),
+        (
+            "",
+            arima(ArimaModel {
+                dependent: s("loaves"),
+                ..Default::default()
+            }),
+            "ARIMA VARIABLES=loaves.",
+            "",
+        ),
+        (
+            "",
+            arima(ArimaModel {
+                dependent: s("loaves"),
+                regressors: v(&["rainfall"]),
+                orders: [s("1"), s("0"), s("0")],
+                seasonal: [s("0"), s("1"), s("1")],
+                period: s("12"),
+                constant: 2,
+                log: 2,
+                lags: [s("1 2"), s(""), s(""), s("")],
+                mxiter: s("20"),
+                ssqpct: s("0.01"),
+                pareps: s("0.0001"),
+                cinpct: s("90"),
+                forecast: 1,
+                ..Default::default()
+            }),
+            "ARIMA VARIABLES=loaves WITH rainfall\n  /MODEL=(1,0,0) (0,1,1) 12 NOCONSTANT LN\n  \
+             /P=(1, 2)\n  /MXITER=20\n  /SSQPCT=0.01\n  /PAREPS=0.0001\n  /CINPCT=90\n  \
+             /FORECAST=CLS.",
+            "",
+        ),
+        (
+            "ARIMA VARIABLES=loaves /MODEL=(1,0,0).",
+            arima(ArimaModel {
+                dependent: s("rainfall"),
+                mxlamb: s("100000"),
+                forecast: 2,
+                apply: 2,
+                ..Default::default()
+            }),
+            "ARIMA VARIABLES=rainfall\n  /MXLAMB=100000\n  /FORECAST=AUTOINIT\n  \
+             /APPLY INITIAL.",
+            "",
+        ),
+        (
+            "",
+            range(TimeRange {
+                start: s("13"),
+                end: s("40"),
+                ..TimeRange::new(false)
+            }),
+            "USE 13 THRU 40.",
+            "ACF VARIABLES=loaves.",
+        ),
+        (
+            dated,
+            range(TimeRange {
+                by_date: true,
+                start_date: [s("2020"), s(""), s(""), s("")],
+                end_date: [s("2022"), s("6"), s(""), s("")],
+                permanent: true,
+                ..TimeRange::new(false)
+            }),
+            "USE YEAR 2020 THRU YEAR 2022 MONTH 6\n  /PERMANENT.",
+            "ACF VARIABLES=loaves.",
+        ),
+        (
+            "USE FIRST THRU 40.",
+            range(TimeRange {
+                start: s("41"),
+                end: s("54"),
+                ..TimeRange::new(true)
+            }),
+            "PREDICT 41 THRU 54.",
+            "EXSMOOTH VARIABLES=loaves /MODEL=HOLT.",
+        ),
+        (
+            dated,
+            range(TimeRange {
+                by_date: true,
+                end_date: [s("2023"), s("6"), s(""), s("")],
+                ..TimeRange::new(true)
+            }),
+            "PREDICT THRU YEAR 2023 MONTH 6.",
+            "ARIMA VARIABLES=loaves /MODEL=(1,0,0).",
+        ),
+        (
+            "",
+            chart(SeriesChart {
+                variables: v(&["loaves"]),
+                ..SeriesChart::new(false)
+            }),
+            "TSPLOT VARIABLES=loaves.",
+            "",
+        ),
+        (
+            "COMPUTE late = $CASENUM > 24.",
+            chart(SeriesChart {
+                variables: v(&["loaves"]),
+                ln: true,
+                diff: true,
+                sdiff: true,
+                period: s("12"),
+                mark: s("late"),
+                reference: 2,
+                reference_value: s("0"),
+                ..SeriesChart::new(false)
+            }),
+            "TSPLOT VARIABLES=loaves\n  /LN\n  /DIFF=1\n  /SDIFF=1\n  /PERIOD=12\n  \
+             /MARK=late\n  /FORMAT=REFERENCE(0).",
+            "",
+        ),
+        (
+            "",
+            chart(SeriesChart {
+                variables: v(&["rainfall"]),
+                ..SeriesChart::new(true)
+            }),
+            "CASEPLOT VARIABLES=rainfall.",
+            "",
+        ),
+        (
+            dated,
+            chart(SeriesChart {
+                variables: v(&["loaves", "rainfall"]),
+                id: s("DATE_"),
+                diff: true,
+                join: 2,
+                ..SeriesChart::new(true)
+            }),
+            "CASEPLOT VARIABLES=loaves rainfall\n  /DIFF=1\n  /ID=DATE_\n  /FORMAT=HILO.",
+            "",
+        ),
+        (
+            "CASEPLOT VARIABLES=rainfall /LN.",
+            chart(SeriesChart {
+                variables: v(&["rainfall"]),
+                fill: true,
+                reference: 1,
+                apply: true,
+                ..SeriesChart::new(true)
+            }),
+            "CASEPLOT VARIABLES=rainfall\n  /FORMAT=LEFT REFERENCE\n  /APPLY.",
+            "",
+        ),
+    ];
+    let program = bakery_months();
+    for (before, dialog, expected, after) in cases {
+        let mut session = statscraft_engine::session::Session::default();
+        session.run(&format!("{program}{before}"), None).unwrap();
+        let data = session.dataset().unwrap().clone();
+        let syntax = Dialog::Advanced(dialog).syntax(&data).unwrap();
+        assert_eq!(syntax, expected);
+        let (_, errors) = statscraft_syntax::parse(&syntax);
+        assert!(errors.is_empty(), "{syntax}\n{errors:?}");
+        let result = session.run(&format!("{syntax}\n{after}"), None).unwrap();
+        assert!(
+            result
+                .commands
+                .iter()
+                .any(|c| !c.tables.is_empty() || !c.charts.is_empty()),
             "{syntax}"
         );
         let warnings: Vec<&String> = result.commands.iter().flat_map(|c| &c.warnings).collect();
