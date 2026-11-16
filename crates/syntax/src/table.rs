@@ -1658,11 +1658,90 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
                  exceed 1). A correlation of 1 or -1 gets no Bayes factor. The posterior of rho is\n\
                  proportional to (1 - rho^2)^CVALUE times the approximate likelihood; its mode, mean,\n\
                  variance and highest-density interval are computed by quadrature, so SEED and\n\
-                 POSTSAMPLES do not change them. MAXPLOTS, MCSAMPLES and SEED are accepted; no charts are\n\
-                 drawn yet. Weights as on BAYES ONESAMPLE.",
+                 POSTSAMPLES do not change them. Unless ANALYSIS=BAYESFACTOR, the first MAXPLOTS pairs get\n\
+                 a chart of the prior, likelihood and posterior densities of rho as chart data. MCSAMPLES is\n\
+                 accepted and not used. Weights as on BAYES ONESAMPLE.",
         example: "BAYES CORRELATION /INFERENCE VARIABLES=sleep_hours focus_score mood ANALYSIS=BOTH\n\
                   \x20 /ESTBF TYPE=FRACTION(0.4).",
         parse: bayes::correlation,
+    },
+    CommandSpec {
+        name: "BAYES ANOVA",
+        summary: "Bayesian one-way analysis of variance: a Bayes factor for the groups and posteriors of their means.",
+        syntax: "BAYES ANOVA dependent BY factor\n\
+                 \x20  [/INFERENCE ANALYSIS=POSTERIOR | BAYESFACTOR | BOTH]\n\
+                 \x20  [/ESTBF COMPUTATION=JZS | ZELLNER(g) | HYPER[(3)] | ROUDER[(1)]]\n\
+                 \x20  [/PRIOR [TYPE=REFERENCE | CONJUGATE] [SHAPEPARAM=a0] [SCALEPARAM=b0]\n\
+                 \x20          [MEANVECTOR=values] [VMATRIX=IDENTITY | row1; row2; ...]]\n\
+                 \x20  [/PLOT [MEANS=values] [ERRORVAR=FALSE | TRUE]] [/DESIGN REGWGT=var]\n\
+                 \x20  [/CRITERIA [CILEVEL=95] [TOL=0.000001] [MAXITER=2000]].\n\
+                 Each value of the factor forms a group. BF10 compares the model with one mean per group\n\
+                 against one common mean; it depends on N, the number of groups and R square. ZELLNER\n\
+                 fixes g of the g-prior; JZS mixes g over an inverse gamma (1/2, N/2); ROUDER(s) uses the\n\
+                 scale s in that mixture; HYPER(a), a above 2, uses the hyper-g prior. The posterior\n\
+                 table gives each group mean and the error variance. REFERENCE is the flat prior\n\
+                 1/variance. CONJUGATE needs SHAPEPARAM and SCALEPARAM of an inverse gamma on the error\n\
+                 variance and MEANVECTOR, one prior mean per group in ascending order of the factor;\n\
+                 VMATRIX is the lower triangle of the prior matrix of the means (times the variance),\n\
+                 rows ending in ';'; one that is not positive definite becomes the identity with a\n\
+                 warning. PLOT draws the prior, the likelihood and the posterior of the listed group means\n\
+                 and of the error variance as chart data. REGWGT multiplies the case weights in the sums\n\
+                 of squares; cases with a regression weight of 0 or below are left out.",
+        example: "BAYES ANOVA reaction_ms BY font_size\n\
+                  \x20 /INFERENCE ANALYSIS=BOTH /ESTBF COMPUTATION=ROUDER(0.7) /PLOT MEANS=10 14.",
+        parse: bayes::anova,
+    },
+    CommandSpec {
+        name: "BAYES REGRESSION",
+        summary: "Bayesian linear regression: a Bayes factor for the model, posteriors, predictions and F tests.",
+        syntax: "BAYES REGRESSION dependent [BY factors] [WITH covariates]\n\
+                 \x20  [/DESIGN [FACTORS=sublist] [COVARIATES=sublist] [REGWGT=var]]\n\
+                 \x20  [/INFERENCE ANALYSIS=POSTERIOR | BAYESFACTOR | BOTH]\n\
+                 \x20  [/ESTBF [COMPUTATION=JZS | ZELLNER(g) | HYPER[(3)] | ROUDER[(1)]] [COMPARE=NULL | FULL]]\n\
+                 \x20  [/PRIOR ...as on BAYES ANOVA] [/PREDICT REGRESSORS=values]\n\
+                 \x20  [/SAVE [MEANPRED[(name)]] [VARIANCE[(name)]] [MODE[(name)]] [CIMEANPREDL[(name)]]\n\
+                 \x20         [CIMEANPREDU[(name)]]] [/OUTFILE PARAMETER='file']\n\
+                 \x20  [/PLOT [COVARIATES=sublist] [FACTORS=sublist] [MAX_CATEGORY=2] [INTERCEPT=FALSE | TRUE]\n\
+                 \x20         [ERRORVAR=FALSE | TRUE] [BAYESPRED=FALSE | TRUE]]\n\
+                 \x20  [/FTEST [LABEL='text'] [VARIABLES=sublist] [INTERCEPT=FALSE | TRUE] [TESTVALUES=values]] ...\n\
+                 \x20  [/CRITERIA [CILEVEL=95] [TOL=0.000001] [MAXITER=2000]].\n\
+                 The model holds an intercept, one indicator per category of each factor (ascending; the\n\
+                 last is redundant and set to 0) and the covariates; DESIGN lists narrow it. BF10 weighs\n\
+                 the model against the intercept alone with the g-priors of BAYES ANOVA. COMPARE=FULL adds\n\
+                 a table that weighs each model without one factor or covariate, and the intercept alone,\n\
+                 against the full model. The posterior table gives every parameter and the error variance;\n\
+                 PRIOR works as on BAYES ANOVA, with MEANVECTOR holding one value per parameter, intercept\n\
+                 first, redundant ones included. PREDICT takes one value per factor (a category) and per\n\
+                 covariate, factors first, and gives the predictive distribution; SAVE writes its mean,\n\
+                 variance, mode and credible bounds for every case with valid regressors (default names\n\
+                 such as MEANPRED_1). Each FTEST tests whether the parameters of its variables (and the\n\
+                 intercept) equal TESTVALUES, 0 by default. PLOT draws prior, likelihood and posterior as\n\
+                 chart data: of covariates, of the first MAX_CATEGORY categories of factors, of the\n\
+                 intercept, of the error variance, and the predictive density. OUTFILE is accepted, but no\n\
+                 model file is written yet. Cases missing on any variable of the model are left out.",
+        example: "BAYES REGRESSION bill_total BY table_zone WITH party_size\n\
+                  \x20 /INFERENCE ANALYSIS=BOTH /ESTBF COMPARE=FULL\n\
+                  \x20 /PREDICT REGRESSORS=2 4 /FTEST LABEL='zone' VARIABLES=table_zone.",
+        parse: bayes::regression,
+    },
+    CommandSpec {
+        name: "BAYES REPEATED",
+        summary: "Bayesian one-way repeated measures analysis: a Bayes factor and posteriors of the condition means.",
+        syntax: "BAYES REPEATED varlist\n\
+                 \x20  [/INFERENCE ANALYSIS=POSTERIOR | BAYESFACTOR | BOTH] [/ESTBF COMPUTATION=BIC | ROUDER]\n\
+                 \x20  [/DESIGN REGWGT=var] [/PLOT MEANS=sublist]\n\
+                 \x20  [/CRITERIA [CILEVEL=95] [SEED=RANDOM | n] [MCSAMPLES=30000]].\n\
+                 Each case is a subject measured once under each of the two or more variables; a case\n\
+                 missing on any of them is left out. BF10 weighs different condition means against equal\n\
+                 ones with the subjects as a random effect. BIC uses a closed-form approximation from the\n\
+                 sums of squares of conditions, subjects and the total. ROUDER averages the factor of a\n\
+                 mixed model over MCSAMPLES draws of the two scale parameters, from SEED; it uses the\n\
+                 regression weights only. The posterior of each condition mean is the normal large-sample\n\
+                 approximation, which needs no prior. PLOT draws the posterior densities of the listed\n\
+                 means as chart data.",
+        example: "BAYES REPEATED trial1 trial2 trial3 trial4\n\
+                  \x20 /INFERENCE ANALYSIS=BOTH /ESTBF COMPUTATION=ROUDER /CRITERIA SEED=731.",
+        parse: bayes::repeated,
     },
     CommandSpec {
         name: "POWER MEANS ONESAMPLE",

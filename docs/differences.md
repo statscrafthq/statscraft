@@ -782,12 +782,20 @@ Choices where the documentation says nothing, and where it is not followed:
 
 ### BAYES
 
-BAYES ONESAMPLE (normal, binomial and Poisson), BAYES RELATED, BAYES INDEPENDENT and BAYES CORRELATION are supported. BAYES ANOVA, BAYES LOGLINEAR, BAYES REGRESSION and BAYES REPEATED are not yet.
+BAYES ONESAMPLE (normal, binomial and Poisson), BAYES RELATED, BAYES INDEPENDENT, BAYES CORRELATION, BAYES ANOVA, BAYES REGRESSION and BAYES REPEATED are supported. BAYES LOGLINEAR is not yet.
 
 Choices where the documentation says nothing, and where it is not followed:
 
 - Tables: a Bayes factor table and a posterior table per command, as ANALYSIS asks; BAYES INDEPENDENT adds group statistics. Every Bayes factor is BF01 (null over alternative) except COMPUTATION=HYPER, which gives BF10 as the formula does; a caption says which. BAYES CORRELATION shows one row per pair of variables instead of a matrix.
-- No charts are drawn yet; MAXPLOTS is checked and has no effect.
+- Charts are chart data (line charts of densities): prior, likelihood and posterior. The likelihood is scaled to a density, which for the linear models is the posterior under the flat reference prior; a reference prior has no curve of its own. BAYES CORRELATION draws them for the first MAXPLOTS pairs, in the order of the pairs, unless ANALYSIS=BAYESFACTOR.
+- BAYES ANOVA and BAYES REGRESSION show BF10 (the model against the intercept alone), as their formulas do, in an ANOVA table with the sums of squares, F and its significance. ROUDER(s) mixes g over an inverse gamma (1/2, N s^2/2); the ANOVA chapter writes s instead of s^2 inside the root, the regression chapter s^2, and the latter makes the density proper. MAXITER of BAYES ANOVA defaults to 2000 as in its text (the diagram shows 500).
+- REGWGT multiplies the rounded case weight in every sum of squares and cross products; N stays the sum of the case weights. Cases with a regression weight of 0 or below are left out.
+- BAYES REGRESSION: a factor gets one indicator per category, in ascending order, so its last category is redundant beside the intercept and its parameter shows as 0 with empty variance and interval. MEANVECTOR and VMATRIX count every parameter, redundant ones included. A DESIGN list that is left out keeps all the factors (or covariates) of the command.
+- COMPARE=FULL: the formulas of the algorithms chapter for a full-model base do not converge for JZS. A table instead weighs each model without one factor or covariate, and the intercept alone, against the full model, as the ratio of their Bayes factors against the intercept alone with the same prior on g.
+- PREDICT takes the factors first, then the covariates, each in the order of the command. SAVE fills every case with valid regressors, even one missing on the dependent; default names are the keyword with _1, _2 and so on. TESTVALUES of FTEST give one value per tested parameter (the intercept first, then the parameters of the variables, redundant ones included), and redundant parameters are then left out of the test.
+- OUTFILE is accepted with a warning; no model file is written yet.
+- A VMATRIX that is not positive definite or of the wrong size gives the identity with a warning, as the algorithms chapter says; a MEANVECTOR of the wrong length is an error.
+- BAYES REPEATED: cases missing on any variable are left out. ROUDER computes the determinant and quadratic form of the mixed model in closed form (conditions and centered subject effects are orthogonal), so each of the MCSAMPLES draws costs little; with unequal regression weights it uses the eigenvalues of the weighted subject block. It ignores case weights with a warning, as the chapter says. The ANOVA-style table shows the condition and subject sums of squares with the usual repeated measures F.
 - PRIOR may be left out on BAYES ONESAMPLE and BAYES RELATED: the defaults (flat priors) apply to normal variables. For binomial and Poisson variables a posterior needs TYPE=CONJUGATE and a Bayes factor needs ALTERPRIORPARAM; without them the command stops with an error.
 - A normal variable without a DATA subcommand gets NULLVALUE=0 and no known variance. A variable on two DATA subcommands, or on DATA but not on INFERENCE, is an error.
 - MEANDIST=NORMAL with an unknown variance and VARDIST=DIFFUSE, JEFFREYS2 or JEFFREYS4 is not used, as the manual says, but a warning tells so.

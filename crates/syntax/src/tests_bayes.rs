@@ -231,3 +231,110 @@ fn correlation_settings() {
         err("BAYES CORRELATION /INFERENCE VARIABLES=a b MAXPLOTS=51.").contains("from 0 to 50")
     );
 }
+
+#[test]
+fn anova_settings_and_abbreviations() {
+    let Bayes::Anova(c) = bayes(
+        "BAYES ANOVA yield BY plot /CRI CIL=90 TOL=0.0001 MAXITER=300 /DES REG=area\n\
+         /INF ANA=BOTH /EST COMP=HYPER(4) /PRI TYPE=CONJ SHA=2 SCA=1.5 MEANV=3 4 5\n\
+         VMAT=2; 0.5 3; 0 0 1 /PLOT MEANS=1 'b' c ERR=TRUE.",
+    ) else {
+        panic!()
+    };
+    assert_eq!((c.dependent.as_str(), c.factor.as_str()), ("yield", "plot"));
+    assert_eq!(c.regwgt.as_deref(), Some("area"));
+    assert_eq!(c.analysis, BayesAnalysis::Both);
+    assert_eq!(c.g, GPrior::Hyper(4.0));
+    assert!(c.prior.conjugate);
+    assert_eq!((c.prior.shape, c.prior.scale), (Some(2.0), Some(1.5)));
+    assert_eq!(c.prior.means, [3.0, 4.0, 5.0]);
+    assert_eq!(
+        c.prior.vmatrix,
+        vec![vec![2.0], vec![0.5, 3.0], vec![0.0, 0.0, 1.0]]
+    );
+    assert_eq!(c.plot_means.len(), 3);
+    assert!(c.plot_error);
+    assert_eq!(c.criteria.maxiter, 300);
+    let Bayes::Anova(c) = bayes("BAYES ANOVA yield BY plot.") else {
+        panic!()
+    };
+    assert_eq!((c.g, c.criteria.maxiter), (GPrior::Jzs, 2000));
+}
+
+#[test]
+fn anova_errors() {
+    assert!(err("BAYES ANOVA yield plot.").contains("BY"));
+    assert!(err("BAYES ANOVA yield BY plot /ESTBF COMPUTATION=ZELLNER.").contains("value of g"));
+    assert!(err("BAYES ANOVA yield BY plot /ESTBF COMPUTATION=HYPER(2).").contains("above 2"));
+    assert!(
+        err("BAYES ANOVA yield BY plot /PRIOR TYPE=CONJUGATE SHAPEPARAM=1.").contains("MEANVECTOR")
+    );
+    assert!(err("BAYES ANOVA yield BY plot /PRIOR VMATRIX=1 2; 3.").contains("row 1"));
+    assert!(err("BAYES ANOVA yield BY plot /PRIOR VMATRIX=1; 2 0.").contains("row 2"));
+}
+
+#[test]
+fn regression_subcommands() {
+    let Bayes::Regression(c) = bayes(
+        "BAYES REGRESSION price BY region type WITH size age\n\
+         /DESIGN FACTORS=region COVARIATES=size /ESTBF COMPUTATION=ZELLNER(3) COMPARE=FULL\n\
+         /PREDICT REGRESSORS=north 120 /SAVE MEANPRED(pm) CIMEANPREDL MODE\n\
+         /OUTFILE PARAMETER='coef.xml' /PLOT FACTORS=region MAX CATEGORY=3 BAYESPRED=TRUE\n\
+         /FTEST LABEL='size only' VARIABLES=size TESTVALUES=0.5 /FTEST INTERCEPT=TRUE.",
+    ) else {
+        panic!()
+    };
+    assert_eq!((c.factors.len(), c.covariates.len()), (2, 2));
+    assert_eq!(c.design_factors.as_ref().map(Vec::len), Some(1));
+    assert_eq!(c.g, GPrior::Zellner(3.0));
+    assert!(c.compare_full);
+    assert_eq!(c.predict.len(), 2);
+    assert_eq!(
+        c.save,
+        vec![
+            (PredictStat::Mean, Some("pm".into())),
+            (PredictStat::Lower, None),
+            (PredictStat::Mode, None)
+        ]
+    );
+    assert_eq!(c.outfile.as_deref(), Some("coef.xml"));
+    assert_eq!(c.plot.max_category, 3);
+    assert!(c.plot.predictive);
+    assert_eq!(c.ftests.len(), 2);
+    assert_eq!(c.ftests[0].label.as_deref(), Some("size only"));
+    assert_eq!(c.ftests[0].values, [0.5]);
+    assert!(c.ftests[1].intercept && c.ftests[1].variables.is_empty());
+    let Bayes::Regression(c) = bayes("BAYES REGRESSION price WITH size /PLOT MAX_CATEGORY=4.")
+    else {
+        panic!()
+    };
+    assert!(c.factors.is_empty() && c.plot.max_category == 4);
+}
+
+#[test]
+fn regression_errors() {
+    assert!(err("BAYES REGRESSION price.").contains("BY"));
+    assert!(err("BAYES REGRESSION price WITH size /FTEST VARIABLES=").contains("variable"));
+    assert!(err("BAYES REGRESSION price WITH size /FTEST LABEL='x'.").contains("INTERCEPT=TRUE"));
+    assert!(err("BAYES REGRESSION price WITH size /PLOT BAYESPRED=TRUE.").contains("PREDICT"));
+    assert!(err("BAYES REGRESSION price WITH size /SAVE MEDIAN.").contains("MEANPRED"));
+}
+
+#[test]
+fn repeated_settings() {
+    let Bayes::Repeated(c) = bayes(
+        "BAYES REPEATED w1 TO w4 /CRITERIA SEED=12 MCS=5000 /ESTBF COMPUTATION=ROUDER\n\
+         /DESIGN REGWGT=trust /PLOT MEANS=w1 w2 /INFERENCE ANALYSIS=BAYESFACTOR.",
+    ) else {
+        panic!()
+    };
+    assert_eq!(c.variables.len(), 1);
+    assert!(c.rouder);
+    assert_eq!((c.criteria.seed, c.criteria.mcsamples), (Some(12), 5000));
+    assert_eq!(c.plot_means.len(), 2);
+    let Bayes::Repeated(c) = bayes("BAYES REPEATED a b.") else {
+        panic!()
+    };
+    assert!(!c.rouder && c.criteria.mcsamples == 30_000);
+    assert!(err("BAYES REPEATED a b /CRITERIA TOL=0.001.").contains("SEED"));
+}

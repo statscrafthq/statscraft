@@ -166,9 +166,10 @@ pub use alscal::{Alscal, AlscalLevel};
 pub use anova::{Anova, AnovaList, AnovaMethod, CovariateOrder};
 pub use ast::*;
 pub use bayes::{
-    Bayes, BayesAnalysis, BayesCorrelation, BayesCriteria, BayesData, BayesDistribution,
-    BayesIndependent, BayesOneSample, BayesPair, BayesRelated, GroupSelect, GroupVariancePrior,
-    IndependentFactor, MeanTest, NormalPrior, Success, VariancePrior,
+    Bayes, BayesAnalysis, BayesAnova, BayesCorrelation, BayesCriteria, BayesData,
+    BayesDistribution, BayesIndependent, BayesOneSample, BayesPair, BayesRegression, BayesRelated,
+    BayesRepeated, FTest, GPrior, GroupSelect, GroupVariancePrior, IndependentFactor, LinearPrior,
+    MeanTest, NormalPrior, PredictStat, RegressionPlot, Success, VariancePrior,
 };
 pub use catpca::{
     Catpca, CatpcaBootstrap, CatpcaPlot, CatpcaPlots, CatpcaPrint, CatpcaVariable, ScalingLevel,

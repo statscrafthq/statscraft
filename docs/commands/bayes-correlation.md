@@ -14,7 +14,7 @@ BAYES CORRELATION /INFERENCE VARIABLES=varlist [ANALYSIS=POSTERIOR | BAYESFACTOR
               [POSTSAMPLES=10000]] [/MISSING SCOPE=PAIRWISE | LISTWISE].
 ```
 
-Every variable is paired with every later one. JZS gives BF01 of a zero correlation against the default prior of the linear model; FRACTION(b) the fractional Bayes factor BF01 of NULLVALUE, with the fraction b of the data training the prior (b times N must exceed 1). A correlation of 1 or -1 gets no Bayes factor. The posterior of rho is proportional to (1 - rho^2)^CVALUE times the approximate likelihood; its mode, mean, variance and highest-density interval are computed by quadrature, so SEED and POSTSAMPLES do not change them. MAXPLOTS, MCSAMPLES and SEED are accepted; no charts are drawn yet. Weights as on BAYES ONESAMPLE.
+Every variable is paired with every later one. JZS gives BF01 of a zero correlation against the default prior of the linear model; FRACTION(b) the fractional Bayes factor BF01 of NULLVALUE, with the fraction b of the data training the prior (b times N must exceed 1). A correlation of 1 or -1 gets no Bayes factor. The posterior of rho is proportional to (1 - rho^2)^CVALUE times the approximate likelihood; its mode, mean, variance and highest-density interval are computed by quadrature, so SEED and POSTSAMPLES do not change them. Unless ANALYSIS=BAYESFACTOR, the first MAXPLOTS pairs get a chart of the prior, likelihood and posterior densities of rho as chart data. MCSAMPLES is accepted and not used. Weights as on BAYES ONESAMPLE.
 
 ## Example
 
