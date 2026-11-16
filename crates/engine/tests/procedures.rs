@@ -985,6 +985,15 @@ fn crosstabs_cmh() {
     );
     assert!(number(&other[2].rows[3][1]) > 0.99);
     assert!(other[2].caption.as_deref().unwrap().contains("3.168348281"));
+    // a stratum with an empty second row adds nothing to Breslow-Day, and leaves it a number
+    let empty_row = crosstabs(
+        &mut engine,
+        &format!(
+            "{data}IF g = 3 & a = 2 n = 0.
+CROSSTABS a BY b BY g /CELLS=NONE /STATISTICS=CMH."
+        ),
+    );
+    assert!(number(&empty_row[0].rows[0][1]).is_finite());
     // a variable with three values: no tests, and the table says why
     let three = crosstabs(
         &mut engine,

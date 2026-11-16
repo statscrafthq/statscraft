@@ -747,6 +747,10 @@ pub(crate) fn cmh(strata: &[[f64; 4]], null_odds: f64) -> Cmh {
                 continue;
             }
             let v = 1.0 / (1.0 / f + 1.0 / (r1 - f) + 1.0 / (c1 - f) + 1.0 / (n - r1 - c1 + f));
+            // an empty second row or column leaves a fitted cell 0: no information
+            if !(v > 0.0 && v.is_finite()) {
+                continue;
+            }
             b += (s[0] - f).powi(2) / v;
             sum_gap += s[0] - f;
             sum_v += v;
