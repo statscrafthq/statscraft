@@ -18,10 +18,10 @@ use crate::data_dialogs::{
     TEXT_DELIMITERS, WeightCases, is_workbook,
 };
 use crate::dialogs::{
-    Adjust, Autorecode, CROSSTABS_CELLS, Categories, Compute, Count, Crosstabs, CustomTables,
-    DESCRIPTIVES_STATISTICS, Descriptives, FREQUENCIES_ORDERS, FREQUENCIES_STATISTICS, Frequencies,
-    Letters, NewValue, OldValue, RANK_FRACTIONS, RANK_FUNCTIONS, RANK_TIES, Rank, Recode,
-    RecodeRule, Subtotal, is_set, label_command,
+    Adjust, Autorecode, CROSSTABS_CELLS, CROSSTABS_STATISTICS, Categories, Compute, Count,
+    Crosstabs, CustomTables, DESCRIPTIVES_STATISTICS, Descriptives, FREQUENCIES_ORDERS,
+    FREQUENCIES_STATISTICS, Frequencies, Letters, NewValue, OldValue, RANK_FRACTIONS,
+    RANK_FUNCTIONS, RANK_TIES, Rank, Recode, RecodeRule, Subtotal, is_set, label_command,
 };
 use crate::edits::{self, Field};
 use crate::graph_dialogs::{ChartBuilder, ProbabilityPlot, RocCurve};
@@ -5449,7 +5449,9 @@ fn dialog_body(
             ui.add_space(6.0);
             ui.strong("Cells");
             checkboxes(ui, &CROSSTABS_CELLS, &mut d.cells);
-            ui.checkbox(&mut d.chi_square, "Chi-square tests");
+            ui.add_space(6.0);
+            ui.strong("Statistics");
+            checkboxes(ui, &CROSSTABS_STATISTICS, &mut d.statistics);
         }
         Dialog::CustomTables(d, draft) => {
             target_list(ui, "Rows (categories or sets)", &mut d.rows, picked);

@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- The Crosstabs dialog offers the new statistics as checkboxes: phi and Cramer's V, the contingency coefficient, lambda, gamma, Kendall's tau-b and tau-c, and the correlations, next to the chi-square tests.
 - CROSSTABS /STATISTICS: PHI (phi and Cramer's V), CC, LAMBDA (with Goodman and Kruskal's tau), BTAU, CTAU, GAMMA and CORR (Spearman and Pearson), in Symmetric Measures and Directional Measures tables with standard errors, approximate T and significance. Checked by hand and against GNU PSPP.
 - CROSSTABS starts with a Case Processing Summary: per table the valid, missing and total cases (weighted) with percentages, as the reference program does.
 - Counts and sums over no cases (an empty group, a split group or filter without cases) show as 0, no longer as -0, in every output.

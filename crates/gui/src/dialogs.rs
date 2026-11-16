@@ -217,6 +217,17 @@ pub const CROSSTABS_CELLS: [(&str, &str); 8] = [
     ("ASRESID", "Adjusted standardized residual"),
 ];
 
+pub const CROSSTABS_STATISTICS: [(&str, &str); 8] = [
+    ("CHISQ", "Chi-square tests"),
+    ("PHI", "Phi and Cramer's V"),
+    ("CC", "Contingency coefficient"),
+    ("LAMBDA", "Lambda"),
+    ("GAMMA", "Gamma"),
+    ("BTAU", "Kendall's tau-b"),
+    ("CTAU", "Kendall's tau-c"),
+    ("CORR", "Correlations"),
+];
+
 #[derive(Clone, PartialEq, Debug)]
 pub struct Crosstabs {
     pub rows: Vec<String>,
@@ -224,7 +235,8 @@ pub struct Crosstabs {
     pub layers: Vec<String>,
     /// One flag per entry of `CROSSTABS_CELLS`.
     pub cells: [bool; 8],
-    pub chi_square: bool,
+    /// One flag per entry of `CROSSTABS_STATISTICS`.
+    pub statistics: [bool; 8],
 }
 
 impl Default for Crosstabs {
@@ -234,7 +246,7 @@ impl Default for Crosstabs {
             columns: Vec::new(),
             layers: Vec::new(),
             cells: [true, false, false, false, false, false, false, false],
-            chi_square: false,
+            statistics: [false; 8],
         }
     }
 }
@@ -260,8 +272,13 @@ impl Crosstabs {
             cells.join(" ")
         };
         text.push_str(&format!("\n  /CELLS={cells}"));
-        if self.chi_square {
-            text.push_str("\n  /STATISTICS=CHISQ");
+        let statistics: Vec<&str> = CROSSTABS_STATISTICS
+            .iter()
+            .zip(self.statistics)
+            .filter_map(|((keyword, _), on)| on.then_some(*keyword))
+            .collect();
+        if !statistics.is_empty() {
+            text.push_str(&format!("\n  /STATISTICS={}", statistics.join(" ")));
         }
         text.push('.');
         Ok(text)
@@ -1363,12 +1380,16 @@ mod tests {
         );
         d.layers = v(&["plan"]);
         d.cells = [true, true, true, false, true, false, false, true];
-        d.chi_square = true;
+        d.statistics = [true, false, false, false, false, false, false, false];
         let syntax = d.syntax().unwrap();
         assert_eq!(
             syntax,
             "CROSSTABS /TABLES=region BY gender BY plan\n  /CELLS=COUNT ROW COLUMN EXPECTED ASRESID\n  /STATISTICS=CHISQ."
         );
+        assert!(runs(&syntax) >= 2);
+        d.statistics = [true; 8];
+        let syntax = d.syntax().unwrap();
+        assert!(syntax.ends_with("/STATISTICS=CHISQ PHI CC LAMBDA GAMMA BTAU CTAU CORR."));
         assert!(runs(&syntax) >= 2);
         d.cells = [false; 8];
         assert!(d.syntax().unwrap().contains("/CELLS=NONE"));

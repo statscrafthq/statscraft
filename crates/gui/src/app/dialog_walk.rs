@@ -501,7 +501,7 @@ fn maximal(out: &Path) -> Vec<Dialog> {
             columns: v(&["region"]),
             layers: v(&["q5_1"]),
             cells: [true; 8],
-            chi_square: true,
+            statistics: [true; 8],
         }),
         Dialog::CustomTables(
             CustomTables {
