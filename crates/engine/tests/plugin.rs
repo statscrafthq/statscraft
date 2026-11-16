@@ -60,7 +60,8 @@ fn the_example_plugin_colours_cells_against_their_row_total() {
     assert_eq!(answer.len(), 1);
     assert_eq!(answer[0].0, 7);
     let mut decorated = table.clone();
-    decorated.set_decorations(answer[0].1.clone());
+    let (cells, style) = answer[0].1.clone();
+    decorated.set_decorations(cells, style);
     let fill = |r: usize, c: usize| decorated.decoration(r, c).and_then(|d| d.fill.clone());
     let (higher, lower) = (Some("#c6efce".to_string()), Some("#ffc7ce".to_string()));
     // yes: 66.7% and 25% against 42.9%; no: 33.3% and 75% against 57.1%
@@ -69,6 +70,7 @@ fn the_example_plugin_colours_cells_against_their_row_total() {
         [higher.clone(), lower.clone()]
     );
     assert_eq!([fill(1, h + 1), fill(1, h + 2)], [lower, higher]);
+    assert!(decorated.decoration(1, h + 2).unwrap().bold);
     // the total column itself is not compared
     assert!(decorated.decoration(0, h).is_none());
     let comment = decorated.decoration(0, h + 1).unwrap().comment.as_deref();
@@ -78,5 +80,5 @@ fn the_example_plugin_colours_cells_against_their_row_total() {
     let values =
         description.values(|name| (name == "plugin_example_threshold").then(|| "0.3".into()));
     let answer = plugin::decorate(&program, &values, &[(7, &table)]).unwrap();
-    assert!(answer[0].1.iter().all(|d| d.fill.is_none()));
+    assert!(answer[0].1.0.iter().all(|d| d.fill.is_none()));
 }

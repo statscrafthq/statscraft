@@ -11,6 +11,7 @@ use eframe::egui::{
 };
 use statscraft_engine::office::is_office_chart;
 use statscraft_engine::output_modify::ModifiedItem;
+use statscraft_engine::plugin::Answer;
 use statscraft_engine::{Chart, Decoration, Table, parse_colour};
 use statscraft_export::picture::{self, Paper, Scene};
 use std::collections::{HashMap, HashSet};
@@ -283,17 +284,15 @@ impl OutputView {
 
     /// Puts a plugin's decorations on the tables of the given ids and returns them by the
     /// places of their tables, as the document counts them (see `selected_positions`).
-    pub fn decorate(
-        &mut self,
-        answer: Vec<(u64, Vec<Decoration>)>,
-    ) -> Vec<(usize, Vec<Decoration>)> {
-        let mut by_id: HashMap<u64, Vec<Decoration>> = answer.into_iter().collect();
+    pub fn decorate(&mut self, answer: Vec<(u64, Answer)>) -> Vec<(usize, Answer)> {
+        let mut by_id: HashMap<u64, Answer> = answer.into_iter().collect();
         let mut placed = Vec::new();
         let all = self.runs.iter_mut().flat_map(|run| &mut run.items);
         for (place, t) in all.flat_map(|item| &mut item.tables).enumerate() {
-            if let Some(decorations) = by_id.remove(&t.id) {
-                t.table.set_decorations(decorations);
-                placed.push((place, t.table.decorations.clone()));
+            if let Some((decorations, style)) = by_id.remove(&t.id) {
+                t.table.set_decorations(decorations, style);
+                let set = (t.table.decorations.clone(), t.table.style.clone());
+                placed.push((place, set));
             }
         }
         placed
@@ -1085,10 +1084,71 @@ fn text(
     color: Color32,
     wrap: f32,
 ) {
+    styled_text(painter, pos, align, text, font, color, wrap, None);
+}
+
+/// `text` in the bold and italic a plugin gave the cell. Bold is the text drawn twice, a
+/// little apart, as the window's fonts have no bold face.
+#[allow(clippy::too_many_arguments)]
+fn styled_text(
+    painter: &Painter,
+    pos: Pos2,
+    align: Align,
+    text: String,
+    font: &FontId,
+    color: Color32,
+    wrap: f32,
+    look: Option<&Decoration>,
+) {
     let mut job = LayoutJob::simple(text, font.clone(), color, wrap);
     job.halign = align;
+    let (bold, italic) = look.map_or((false, false), |d| (d.bold, d.italic));
+    job.sections
+        .iter_mut()
+        .for_each(|s| s.format.italics = italic);
     let galley: Arc<_> = painter.ctx().fonts_mut(|f| f.layout_job(job));
+    if bold {
+        painter.galley(pos + vec2(0.6, 0.0), galley.clone(), color);
+    }
     painter.galley(pos, galley, color);
+}
+
+/// A plugin's colour #rrggbb as a window colour.
+fn rgb(colour: &Option<String>) -> Option<Color32> {
+    let [r, g, b] = colour.as_deref().and_then(parse_colour)?;
+    Some(Color32::from_rgb(r, g, b))
+}
+
+/// Paints a plugin's fill on `cell` and returns the colour of its text: its own, else dark on
+/// a fill (the fills plugins give are light, whatever the paper), else `normal`.
+fn fill_cell(painter: &Painter, cell: Rect, look: Option<&Decoration>, normal: Color32) -> Color32 {
+    let Some(d) = look else {
+        return normal;
+    };
+    let mut colour = normal;
+    if let Some(fill) = rgb(&d.fill) {
+        painter.rect_filled(cell, 0.0, fill);
+        colour = Color32::from_gray(20);
+    }
+    rgb(&d.text).unwrap_or(colour)
+}
+
+/// A plugin's borders of one cell, drawn after the fills so no fill covers them.
+fn cell_borders(lines: &mut Vec<(Pos2, Pos2, Color32)>, cell: Rect, look: Option<&Decoration>) {
+    let Some(b) = look.and_then(|d| d.border.as_ref()) else {
+        return;
+    };
+    let sides = [
+        (&b.top, cell.left_top(), cell.right_top()),
+        (&b.bottom, cell.left_bottom(), cell.right_bottom()),
+        (&b.left, cell.left_top(), cell.left_bottom()),
+        (&b.right, cell.right_top(), cell.right_bottom()),
+    ];
+    for (colour, from, to) in sides {
+        if let Some(colour) = rgb(colour) {
+            lines.push((from, to, colour));
+        }
+    }
 }
 
 /// Title, table and caption of one table in `rect`, painting only the rows in view, and the
@@ -1137,23 +1197,33 @@ fn paint_block(
         visuals.widgets.noninteractive.weak_bg_fill,
     );
     let mut y = top;
-    for (level, h) in output::header_rows(table)
+    // the plugin's borders, drawn last
+    let mut borders = Vec::new();
+    for (number, (level, h)) in output::header_rows(table)
         .iter()
         .zip(&layout.header_heights)
+        .enumerate()
     {
         for cell in level {
             let span = Rect::from_min_max(
                 pos2(x(cell.first), y),
                 pos2(x(cell.first + cell.span), y + h),
             );
-            text(
+            let look = table.header_decoration(number, cell.first);
+            let colour = fill_cell(&painter, span, look, strong);
+            for c in cell.first..cell.first + cell.span {
+                let place = Rect::from_min_max(pos2(x(c), y), pos2(x(c + 1), y + h));
+                cell_borders(&mut borders, place, table.header_decoration(number, c));
+            }
+            styled_text(
                 &painter,
                 pos2(span.center().x, y + PAD_Y),
                 Align::Center,
                 cell.label.clone(),
                 font,
-                strong,
+                colour,
                 span.width() - 2.0 * PAD_X,
+                look,
             );
             if cell.first >= table.row_headers && !cell.label.is_empty() {
                 painter.hline(span.shrink2(vec2(4.0, 0.0)).x_range(), span.bottom(), line);
@@ -1185,6 +1255,8 @@ fn paint_block(
         }
         painter.hline(x(table.row_headers)..=right, y1, line);
         for c in 0..table.rows[r].len().min(layout.widths.len()) {
+            let place = Rect::from_min_max(pos2(x(c), y0), pos2(x(c + 1), y1));
+            cell_borders(&mut borders, place, table.decoration(r, c));
             if c < table.row_headers {
                 // the first row in view paints a label merged from above it
                 let start = if layout.spans[r][c] == 0 && r == first {
@@ -1193,15 +1265,20 @@ fn paint_block(
                     r
                 };
                 if layout.spans[start][c] > 0 {
+                    let end = row_y(start + layout.spans[start][c]);
+                    let merged = Rect::from_min_max(pos2(x(c), row_y(start)), pos2(x(c + 1), end));
+                    let look = table.decoration(start, c);
+                    let colour = fill_cell(&painter, merged, look, normal);
                     let label = output::cell_text(table, start, c);
-                    text(
+                    styled_text(
                         &painter,
                         pos2(x(c) + PAD_X, row_y(start) + PAD_Y),
                         Align::LEFT,
                         label,
                         font,
-                        normal,
+                        colour,
                         layout.widths[c] - 2.0 * PAD_X,
+                        look,
                     );
                 }
                 // a line under a label ends where its span ends
@@ -1212,25 +1289,13 @@ fn paint_block(
                 continue;
             }
             // a plugin's fill, text colour and a corner mark for its comment
-            let mut colour = normal;
-            if let Some(d) = table.decoration(r, c) {
-                let cell = Rect::from_min_max(pos2(x(c), y0), pos2(x(c + 1), y1));
-                let rgb = |c: &Option<String>| {
-                    let [r, g, b] = c.as_deref().and_then(parse_colour)?;
-                    Some(Color32::from_rgb(r, g, b))
-                };
-                if let Some(fill) = rgb(&d.fill) {
-                    painter.rect_filled(cell, 0.0, fill);
-                    // the fills plugins give are light, whatever the paper
-                    colour = Color32::from_gray(20);
-                }
-                colour = rgb(&d.text).unwrap_or(colour);
-                if d.comment.is_some() {
-                    let corner = cell.right_top();
-                    let mark = vec![corner - vec2(6.0, 0.0), corner, corner + vec2(0.0, 6.0)];
-                    let red = Color32::from_rgb(200, 40, 40);
-                    painter.add(egui::Shape::convex_polygon(mark, red, Stroke::NONE));
-                }
+            let look = table.decoration(r, c);
+            let colour = fill_cell(&painter, place, look, normal);
+            if look.is_some_and(|d| d.comment.is_some()) {
+                let corner = place.right_top();
+                let mark = vec![corner - vec2(6.0, 0.0), corner, corner + vec2(0.0, 6.0)];
+                let red = Color32::from_rgb(200, 40, 40);
+                painter.add(egui::Shape::convex_polygon(mark, red, Stroke::NONE));
             }
             let shown = output::cell_text(table, r, c);
             if shown.is_empty() {
@@ -1241,8 +1306,20 @@ fn paint_block(
             } else {
                 (pos2(x(c) + PAD_X, y0 + PAD_Y), Align::LEFT)
             };
-            text(&painter, pos, align, shown, font, colour, f32::INFINITY);
+            styled_text(
+                &painter,
+                pos,
+                align,
+                shown,
+                font,
+                colour,
+                f32::INFINITY,
+                look,
+            );
         }
+    }
+    for (from, to, colour) in borders {
+        painter.line_segment([from, to], Stroke::new(1.0, colour));
     }
     let bottom = header_bottom + tops.last().copied().unwrap_or(0.0);
     if table.row_headers > 0 {

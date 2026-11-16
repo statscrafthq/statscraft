@@ -3,11 +3,11 @@
 
 use crate::excel::excel_number;
 use crate::office::{Item, put_chart};
-use crate::{Cell, Table, cell_text, header_rows, parse_colour};
+use crate::{Cell, CellLook, Decoration, Table, cell_text, header_rows, parse_colour};
 use rust_xlsxwriter::{
     Color, Format, FormatAlign, FormatBorder, Note, Workbook, Worksheet, XlsxError,
 };
-use std::borrow::Cow;
+use std::collections::HashMap;
 use std::path::Path;
 
 /// Columns never grow wider than this many characters; longer labels wrap.
@@ -88,6 +88,82 @@ pub(crate) fn title_rows(table: &Table) -> u32 {
     u32::from(!table.title.is_empty())
 }
 
+/// The base formats of a table's cells, by their place in `Formats::bases`.
+const HEADER: usize = 0;
+const ROW_LABEL: usize = 1;
+const TEXT: usize = 2;
+const NUMBER: usize = 3;
+
+/// The formats of a table's cells: each base with a number format and a plugin's look is made
+/// once, so thousands of cells that look alike share one format.
+struct Formats<'a> {
+    bases: [Format; 4],
+    made: HashMap<(usize, String, Option<CellLook<'a>>), Format>,
+}
+
+impl<'a> Formats<'a> {
+    fn get(&mut self, base: usize, num_format: String, look: Option<&'a Decoration>) -> &Format {
+        let bases = &self.bases;
+        let key = (base, num_format, look.map(Decoration::look));
+        self.made
+            .entry(key)
+            .or_insert_with_key(|(_, num_format, _)| {
+                let mut format = bases[base].clone();
+                if !num_format.is_empty() {
+                    format = format.set_num_format(num_format);
+                }
+                match look {
+                    Some(d) => paint(format, d),
+                    None => format,
+                }
+            })
+    }
+}
+
+/// A plugin's look over a cell's own format: fill, text colour, bold, italic and borders.
+fn paint(format: Format, d: &Decoration) -> Format {
+    let colour = |c: &Option<String>| {
+        let [r, g, b] = c.as_deref().and_then(parse_colour)?;
+        Some(Color::RGB(u32::from_be_bytes([0, r, g, b])))
+    };
+    let mut format = format;
+    if let Some(fill) = colour(&d.fill) {
+        format = format.set_background_color(fill);
+    }
+    if let Some(text) = colour(&d.text) {
+        format = format.set_font_color(text);
+    }
+    if d.bold {
+        format = format.set_bold();
+    }
+    if d.italic {
+        format = format.set_italic();
+    }
+    if let Some(b) = &d.border {
+        if let Some(c) = colour(&b.top) {
+            format = format
+                .set_border_top(FormatBorder::Thin)
+                .set_border_top_color(c);
+        }
+        if let Some(c) = colour(&b.bottom) {
+            format = format
+                .set_border_bottom(FormatBorder::Thin)
+                .set_border_bottom_color(c);
+        }
+        if let Some(c) = colour(&b.left) {
+            format = format
+                .set_border_left(FormatBorder::Thin)
+                .set_border_left_color(c);
+        }
+        if let Some(c) = colour(&b.right) {
+            format = format
+                .set_border_right(FormatBorder::Thin)
+                .set_border_right_color(c);
+        }
+    }
+    format
+}
+
 /// Writes the title, header, body and, with `notes`, the caption of `table` from the cell
 /// `(top, left)` and returns the row after the last one written. `widths` grows to the
 /// characters each column of the sheet needs.
@@ -98,8 +174,19 @@ pub(crate) fn put_table(
     notes: bool,
     widths: &mut Vec<usize>,
 ) -> Result<u32, XlsxError> {
+    // the plugin's font, if any, for every cell of the table
+    let font = |format: Format| {
+        let format = match &table.style.font {
+            Some(name) => format.set_font_name(name),
+            None => format,
+        };
+        match table.style.font_size {
+            Some(size) => format.set_font_size(size),
+            None => format,
+        }
+    };
     let grey = Color::RGB(0xA6A6A6);
-    let border = Format::new()
+    let border = font(Format::new())
         .set_border(FormatBorder::Thin)
         .set_border_color(grey);
     let header = border
@@ -111,6 +198,10 @@ pub(crate) fn put_table(
         .set_text_wrap();
     let row_header = border.clone().set_align(FormatAlign::Top).set_text_wrap();
     let text = border.clone().set_align(FormatAlign::Right);
+    let mut formats = Formats {
+        bases: [header, row_header, text, border],
+        made: HashMap::new(),
+    };
     let at = usize::from(left);
     if widths.len() < at + table.columns.len() {
         widths.resize(at + table.columns.len(), 0);
@@ -121,11 +212,12 @@ pub(crate) fn put_table(
     };
 
     if !table.title.is_empty() {
-        sheet.write_string_with_format(top, left, &table.title, &Format::new().set_bold())?;
+        sheet.write_string_with_format(top, left, &table.title, &font(Format::new().set_bold()))?;
     }
     let mut row = top + title_rows(table);
     let mut spans = Vec::new();
     let headers = header_rows(table);
+    let style = |line: usize, c: usize| table.header_decoration(line, c);
     // above each row label column the header levels form one cell holding its label, if any
     let depth = headers.len() as u32;
     for c in 0..table.row_headers {
@@ -137,22 +229,37 @@ pub(crate) fn put_table(
             .collect();
         let label = label.join(" ");
         let column = left + c as u16;
+        let format = formats.get(HEADER, String::new(), style(0, c));
         if depth > 1 {
-            sheet.merge_range(row, column, row + depth - 1, column, &label, &header)?;
+            sheet.merge_range(row, column, row + depth - 1, column, &label, format)?;
+            // each line keeps its own borders under the merged cell
+            for line in 1..headers.len() {
+                if let Some(d) = style(line, c) {
+                    let format = formats.get(HEADER, String::new(), Some(d));
+                    sheet.write_blank(row + line as u32, column, format)?;
+                }
+            }
         } else {
-            sheet.write_string_with_format(row, column, &label, &header)?;
+            sheet.write_string_with_format(row, column, &label, format)?;
         }
         fit(widths, c, &label);
     }
-    for cells in &headers {
+    for (line, cells) in headers.iter().enumerate() {
         for cell in cells.iter().filter(|cell| cell.first >= table.row_headers) {
             let column = left + cell.first as u16;
+            let format = formats.get(HEADER, String::new(), style(line, cell.first));
             if cell.span > 1 {
                 let last = column + cell.span as u16 - 1;
-                sheet.merge_range(row, column, row, last, &cell.label, &header)?;
+                sheet.merge_range(row, column, row, last, &cell.label, format)?;
+                for c in cell.first + 1..cell.first + cell.span {
+                    if let Some(d) = style(line, c) {
+                        let format = formats.get(HEADER, String::new(), Some(d));
+                        sheet.write_blank(row, left + c as u16, format)?;
+                    }
+                }
                 spans.push(cell.clone());
             } else {
-                sheet.write_string_with_format(row, column, &cell.label, &header)?;
+                sheet.write_string_with_format(row, column, &cell.label, format)?;
                 fit(widths, cell.first, &cell.label);
             }
         }
@@ -170,55 +277,40 @@ pub(crate) fn put_table(
             let column = left + c as u16;
             let shown = cell_text(table, r, c);
             fit(widths, c, &shown);
-            if c < table.row_headers {
-                // row labels are written below, merged over the rows that repeat them
-                continue;
-            }
             let decoration = table.decoration(r, c);
-            // a plugin's colours over the cell's own format
-            let paint = |format: Format| match decoration {
-                Some(d) => {
-                    let colour = |c: &Option<String>| {
-                        let [r, g, b] = c.as_deref().and_then(parse_colour)?;
-                        Some(Color::RGB(u32::from_be_bytes([0, r, g, b])))
-                    };
-                    let format = match colour(&d.fill) {
-                        Some(fill) => format.set_background_color(fill),
-                        None => format,
-                    };
-                    match colour(&d.text) {
-                        Some(text) => format.set_font_color(text),
-                        None => format,
-                    }
-                }
-                None => format,
-            };
-            // the text format as it is, unless a plugin painted the cell
-            let as_text = || match decoration {
-                Some(_) => Cow::Owned(paint(text.clone())),
-                None => Cow::Borrowed(&text),
-            };
-            match cell {
-                Cell::Number(n) if n.is_finite() => match excel_number(format(r, c), *n, &shown) {
-                    Some((value, num_format)) => {
-                        let number = paint(border.clone().set_num_format(num_format));
-                        sheet.write_number_with_format(row, column, value, &number)?
-                    }
-                    None => sheet.write_string_with_format(row, column, &shown, &as_text())?,
-                },
-                Cell::Empty => sheet.write_blank(row, column, &as_text())?,
-                _ => sheet.write_string_with_format(row, column, &shown, &as_text())?,
-            };
             if let Some(comment) = decoration.and_then(|d| d.comment.as_deref()) {
                 let lines = comment.lines().count().max(1) as u32;
                 note.reset_text(comment);
                 let sized = note.clone().set_height(16 * lines + 12);
                 sheet.insert_note(row, column, &sized)?;
             }
+            if c < table.row_headers {
+                // row labels are written below, merged over the rows that repeat them
+                continue;
+            }
+            match cell {
+                Cell::Number(n) if n.is_finite() => match excel_number(format(r, c), *n, &shown) {
+                    Some((value, num_format)) => {
+                        let number = formats.get(NUMBER, num_format, decoration);
+                        sheet.write_number_with_format(row, column, value, number)?
+                    }
+                    None => {
+                        let text = formats.get(TEXT, String::new(), decoration);
+                        sheet.write_string_with_format(row, column, &shown, text)?
+                    }
+                },
+                Cell::Empty => {
+                    sheet.write_blank(row, column, formats.get(TEXT, String::new(), decoration))?
+                }
+                _ => {
+                    let text = formats.get(TEXT, String::new(), decoration);
+                    sheet.write_string_with_format(row, column, &shown, text)?
+                }
+            };
         }
         row += 1;
     }
-    put_row_labels(sheet, table, (body_top, left), &row_header)?;
+    put_row_labels(sheet, table, (body_top, left), &mut formats)?;
     // a merged label longer than its columns widens each of them by an equal share
     for cell in spans {
         let columns = at + cell.first..at + cell.first + cell.span;
@@ -228,7 +320,7 @@ pub(crate) fn put_table(
         widths[columns].iter_mut().for_each(|w| *w += share);
     }
     if let Some(caption) = table.caption.as_ref().filter(|_| notes) {
-        sheet.write_string_with_format(row, left, caption, &Format::new().set_italic())?;
+        sheet.write_string_with_format(row, left, caption, &font(Format::new().set_italic()))?;
         row += 1;
     }
     Ok(row)
@@ -236,11 +328,11 @@ pub(crate) fn put_table(
 
 /// Writes the row label columns, merging a label down over the rows that repeat it under the
 /// same outer labels, so a nested variable's label appears once beside its categories.
-fn put_row_labels(
+fn put_row_labels<'a>(
     sheet: &mut Worksheet,
-    table: &Table,
+    table: &'a Table,
     (top, left): (u32, u16),
-    format: &Format,
+    formats: &mut Formats<'a>,
 ) -> Result<(), XlsxError> {
     let labels: Vec<Vec<String>> = (0..table.rows.len())
         .map(|r| {
@@ -259,9 +351,18 @@ fn put_row_labels(
                 .unwrap_or(first);
             let (from, to, column) = (top + first as u32, top + last as u32, left + c as u16);
             if last > first && !labels[first][c].is_empty() {
+                let format = formats.get(ROW_LABEL, String::new(), table.decoration(first, c));
                 sheet.merge_range(from, column, to, column, &labels[first][c], format)?;
+                // each row keeps its own borders under the merged cell
+                for r in first + 1..=last {
+                    if let Some(d) = table.decoration(r, c) {
+                        let format = formats.get(ROW_LABEL, String::new(), Some(d));
+                        sheet.write_blank(top + r as u32, column, format)?;
+                    }
+                }
             } else {
                 for (r, row) in labels.iter().enumerate().take(last + 1).skip(first) {
+                    let format = formats.get(ROW_LABEL, String::new(), table.decoration(r, c));
                     sheet.write_string_with_format(top + r as u32, column, &row[c], format)?;
                 }
             }

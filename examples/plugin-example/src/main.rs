@@ -1,7 +1,7 @@
 //! A small Statscraft plugin (see docs/plugins.md). In every row it compares each cell with the
 //! row's total of the same statistic: a cell above the total by more than the threshold turns
-//! one colour, a cell below it by more than the threshold another, and every compared cell
-//! gets a comment with the difference.
+//! one colour, a cell below it by more than the threshold another, both in bold, and every
+//! compared cell gets a comment with the difference.
 
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
@@ -74,6 +74,9 @@ fn decorate(table: &Value, settings: &Map<String, Value>) -> Vec<Value> {
             cell["fill"] = json!(higher);
         } else if difference < -threshold {
             cell["fill"] = json!(lower);
+        }
+        if difference.abs() > threshold {
+            cell["bold"] = json!(true);
         }
         if comments {
             let text = match kind.contains("PCT") {

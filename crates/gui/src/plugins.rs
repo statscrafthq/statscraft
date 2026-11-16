@@ -4,13 +4,13 @@
 //! the window's document, so a saved document keeps them. Its settings are data file
 //! attributes of the active dataset, which Edit > Plugin Settings writes through syntax.
 
-use crate::settings::Settings;
+use crate::settings::{Preset, Settings};
 use crate::syntax_text::quote;
 use crate::windows::WindowId;
 use eframe::egui::{self, Ui};
 use statscraft_data::Dataset;
 use statscraft_engine::plugin::{self, Description, Kind};
-use statscraft_engine::{Decoration, Table, parse_colour};
+use statscraft_engine::{Table, parse_colour};
 use std::path::PathBuf;
 use std::sync::mpsc;
 
@@ -20,7 +20,7 @@ pub struct Done {
     pub document: String,
     /// The settings generation the answer was asked under; an older one is dropped.
     pub generation: u64,
-    pub result: Result<Vec<(u64, Vec<Decoration>)>, String>,
+    pub result: Result<Vec<(u64, plugin::Answer)>, String>,
 }
 
 pub struct Plugins {
@@ -36,7 +36,26 @@ pub struct Plugins {
     /// cannot overwrite a newer one.
     pub generation: u64,
     /// The open settings dialog: the description it was opened with and the values typed.
-    pub dialog: Option<(Description, Vec<(plugin::Setting, String)>)>,
+    pub dialog: Option<(Description, Vec<Field>)>,
+}
+
+/// One setting in Edit > Plugin Settings.
+pub struct Field {
+    setting: plugin::Setting,
+    text: String,
+    /// The preset the value came from, with the preset's value: OK keeps its name with the
+    /// data while the text still equals that value.
+    preset: Option<(String, String)>,
+    /// The name typed for a new preset.
+    new_name: String,
+}
+
+impl Field {
+    /// The name of the preset the text holds the value of, if any.
+    fn preset(&self) -> Option<&str> {
+        let (name, value) = self.preset.as_ref()?;
+        (value == self.text.trim()).then_some(name.as_str())
+    }
 }
 
 impl Default for Plugins {
@@ -173,16 +192,24 @@ impl Plugins {
                 plugin::Value::String(text) => text.clone(),
                 other => other.to_string(),
             };
-            (s.clone(), text)
+            let preset = attribute(data, &description.preset_attribute(&s.key))
+                .filter(|name| s.presets && !name.is_empty())
+                .map(|name| (name, text.trim().to_string()));
+            Field {
+                setting: s.clone(),
+                text,
+                preset,
+                new_name: String::new(),
+            }
         });
         self.dialog = Some((description.clone(), fields.collect()));
         Ok(())
     }
 
     /// Edit > Plugin Settings while it is open; returns the syntax that keeps the values as
-    /// data file attributes when OK is pressed.
-    pub fn dialog_ui(&mut self, ctx: &egui::Context) -> Option<String> {
-        let (_, fields) = self.dialog.as_mut()?;
+    /// data file attributes when OK is pressed. Presets saved or removed change `presets`.
+    pub fn dialog_ui(&mut self, ctx: &egui::Context, presets: &mut Vec<Preset>) -> Option<String> {
+        let (description, fields) = self.dialog.as_mut()?;
         let (mut open, mut ok, mut cancel) = (true, false, false);
         egui::Window::new("Plugin Settings")
             .open(&mut open)
@@ -192,17 +219,22 @@ impl Plugins {
                 ui.weak("Kept with the active data: save the data file to keep them.");
                 ui.add_space(6.0);
                 egui::Grid::new("plugin settings").show(ui, |ui| {
-                    for (setting, text) in fields.iter_mut() {
-                        ui.label(&setting.label);
-                        field(ui, setting.kind, text);
+                    for f in fields.iter_mut() {
+                        ui.label(&f.setting.label);
+                        field(ui, f.setting.kind, &mut f.text);
+                        if f.setting.presets && matches!(f.setting.kind, Kind::Number | Kind::Text)
+                        {
+                            let attribute = description.attribute(&f.setting.key);
+                            ui.horizontal(|ui| preset_ui(ui, f, presets, &attribute));
+                        }
                         ui.end_row();
                     }
                 });
-                let bad = fields.iter().find(|(s, t)| !valid(s.kind, t));
-                if let Some((setting, _)) = bad {
+                let bad = fields.iter().find(|f| !valid(f.setting.kind, &f.text));
+                if let Some(f) = bad {
                     ui.colored_label(
                         ui.visuals().error_fg_color,
-                        format!("{}: not a number", setting.label),
+                        format!("{}: not a number", f.setting.label),
                     );
                 }
                 ui.separator();
@@ -219,6 +251,48 @@ impl Plugins {
         // the description the dialog was opened with: the program may have changed since
         let (description, fields) = self.dialog.take()?;
         ok.then(|| attribute_syntax(&description, &fields))
+    }
+}
+
+/// The presets of a setting: a list to choose one from, which fills the field, Remove for the
+/// chosen one, and a name field with Save as preset for the value typed.
+fn preset_ui(ui: &mut Ui, field: &mut Field, presets: &mut Vec<Preset>, attribute: &str) {
+    let chosen = field.preset().map(str::to_string);
+    egui::ComboBox::from_id_salt(("plugin preset", attribute))
+        .selected_text(chosen.as_deref().unwrap_or("Presets"))
+        .show_ui(ui, |ui| {
+            for p in presets.iter().filter(|p| p.attribute == attribute) {
+                let shown = format!("{}: {}", p.name, p.value);
+                if ui
+                    .selectable_label(chosen.as_ref() == Some(&p.name), shown)
+                    .clicked()
+                {
+                    field.text = p.value.clone();
+                    field.preset = Some((p.name.clone(), p.value.clone()));
+                }
+            }
+        });
+    if ui
+        .add_enabled(chosen.is_some(), egui::Button::new("Remove"))
+        .clicked()
+    {
+        presets.retain(|p| !(p.attribute == attribute && Some(&p.name) == chosen.as_ref()));
+        field.preset = None;
+    }
+    let name = egui::TextEdit::singleline(&mut field.new_name)
+        .hint_text("Preset name")
+        .desired_width(110.0);
+    ui.add(name);
+    let can = !field.new_name.trim().is_empty() && valid(field.setting.kind, &field.text);
+    if ui
+        .add_enabled(can, egui::Button::new("Save as preset"))
+        .clicked()
+    {
+        let preset = Preset::new(attribute, &field.new_name, &field.text);
+        presets.retain(|p| !(p.attribute == attribute && p.name == preset.name));
+        field.preset = Some((preset.name.clone(), preset.value.clone()));
+        presets.push(preset);
+        field.new_name.clear();
     }
 }
 
@@ -250,12 +324,19 @@ fn valid(kind: Kind, text: &str) -> bool {
     kind != Kind::Number || text.trim().parse::<f64>().is_ok()
 }
 
-/// DATAFILE ATTRIBUTE that keeps every value under its attribute name.
-fn attribute_syntax(description: &Description, fields: &[(plugin::Setting, String)]) -> String {
-    let values: Vec<String> = fields
-        .iter()
-        .map(|(s, text)| format!("{}({})", description.attribute(&s.key), quote(text.trim())))
-        .collect();
+/// DATAFILE ATTRIBUTE that keeps every value under its attribute name, and for a setting with
+/// presets the name of the preset its value came from (empty when none).
+fn attribute_syntax(description: &Description, fields: &[Field]) -> String {
+    let mut values = Vec::new();
+    for f in fields {
+        let key = &f.setting.key;
+        let text = quote(f.text.trim());
+        values.push(format!("{}({text})", description.attribute(key)));
+        if f.setting.presets {
+            let preset = quote(f.preset().unwrap_or(""));
+            values.push(format!("{}({preset})", description.preset_attribute(key)));
+        }
+    }
     format!("DATAFILE ATTRIBUTE ATTRIBUTE={}.", values.join(" "))
 }
 
@@ -290,6 +371,7 @@ mod tests {
             label: key.into(),
             kind,
             default: default.into(),
+            presets: false,
         };
         let description = Description {
             name: "Example".into(),
@@ -300,11 +382,17 @@ mod tests {
                 setting("note", Kind::Text, 0.0),
             ],
         };
-        let fields: Vec<(plugin::Setting, String)> = description
+        let fields: Vec<Field> = description
             .settings
             .iter()
             .cloned()
             .zip(["0.1".to_string(), "it's".to_string()])
+            .map(|(setting, text)| Field {
+                setting,
+                text,
+                preset: None,
+                new_name: String::new(),
+            })
             .collect();
         let syntax = attribute_syntax(&description, &fields);
         assert_eq!(
@@ -321,5 +409,53 @@ mod tests {
         assert_eq!(values["threshold"], 0.1);
         assert_eq!(values["note"], "it's");
         assert!(valid(Kind::Number, " 2.5 ") && !valid(Kind::Number, "x"));
+    }
+
+    /// A value chosen from a preset keeps the preset's name with the data; once the value is
+    /// typed over, the name is cleared.
+    #[test]
+    fn a_preset_name_is_kept_beside_its_value() {
+        let description = Description {
+            name: "House".into(),
+            version: "1".into(),
+            protocol: 1,
+            settings: vec![plugin::Setting {
+                key: "universe".into(),
+                label: "Population".into(),
+                kind: Kind::Number,
+                default: 0.into(),
+                presets: true,
+            }],
+        };
+        assert_eq!(
+            description.preset_attribute("universe"),
+            "plugin_house_universe_preset"
+        );
+        let mut field = Field {
+            setting: description.settings[0].clone(),
+            text: "1043000".into(),
+            preset: Some(("Adults".into(), "1043000".into())),
+            new_name: String::new(),
+        };
+        let syntax = attribute_syntax(&description, std::slice::from_ref(&field));
+        assert_eq!(
+            syntax,
+            "DATAFILE ATTRIBUTE ATTRIBUTE=plugin_house_universe('1043000') \
+             plugin_house_universe_preset('Adults')."
+        );
+        let mut session = statscraft_engine::session::Session::default();
+        session
+            .run("DATA LIST LIST /x (F1).\nBEGIN DATA\n1\nEND DATA.", None)
+            .unwrap();
+        session.run(&syntax, None).unwrap();
+        let stored = attribute(session.dataset(), "plugin_house_universe_preset");
+        assert_eq!(stored.as_deref(), Some("Adults"));
+        field.text = "990000".into();
+        assert_eq!(field.preset(), None);
+        let syntax = attribute_syntax(&description, &[field]);
+        assert!(
+            syntax.ends_with("plugin_house_universe_preset('')."),
+            "{syntax}"
+        );
     }
 }

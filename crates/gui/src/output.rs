@@ -300,18 +300,23 @@ td.text{text-align:left}p.note{font-size:.85rem;color:#4a5468}";
 
 /// One table as HTML: a repeated row label spans its rows, and the caption follows as a note.
 pub fn table_html(table: &Table) -> String {
+    let font = statscraft_engine::table_attributes(table);
     let mut html = match table.title.as_str() {
-        "" => "<table>\n<thead>\n".to_string(),
-        title => format!("<table>\n<caption>{}</caption>\n<thead>\n", escape(title)),
+        "" => format!("<table{font}>\n<thead>\n"),
+        title => format!(
+            "<table{font}>\n<caption>{}</caption>\n<thead>\n",
+            escape(title)
+        ),
     };
-    for cells in header_rows(table) {
+    for (line, cells) in header_rows(table).into_iter().enumerate() {
         html.push_str("<tr>");
         for cell in cells {
             let span = match cell.span {
                 1 => String::new(),
                 n => format!(" colspan=\"{n}\""),
             };
-            html.push_str(&format!("<th{span}>{}</th>", escape(&cell.label)));
+            let more = statscraft_engine::header_attributes(table, line, cell.first, cell.span);
+            html.push_str(&format!("<th{span}{more}>{}</th>", escape(&cell.label)));
         }
         html.push_str("</tr>\n");
     }
@@ -321,10 +326,11 @@ pub fn table_html(table: &Table) -> String {
         for c in 0..table.rows[r].len() {
             let text = escape(&cell_text(table, r, c));
             if c < table.row_headers {
+                let more = |n| statscraft_engine::label_attributes(table, r, c, n);
                 match spans.get(c).copied().unwrap_or(1) {
                     0 => {}
-                    1 => html.push_str(&format!("<th>{text}</th>")),
-                    n => html.push_str(&format!("<th rowspan=\"{n}\">{text}</th>")),
+                    1 => html.push_str(&format!("<th{}>{text}</th>", more(1))),
+                    n => html.push_str(&format!("<th rowspan=\"{n}\"{}>{text}</th>", more(n))),
                 }
             } else {
                 let more = statscraft_engine::cell_attributes(table, r, c);
@@ -463,6 +469,7 @@ mod tests {
             hidden: false,
             cell_stats: None,
             decorations: Vec::new(),
+            style: Default::default(),
         }
     }
 

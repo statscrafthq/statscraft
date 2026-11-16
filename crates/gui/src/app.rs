@@ -794,8 +794,10 @@ impl App {
                 match self.windows.output(id) {
                     Some(o) if off => {
                         let all = output::tables(&o.view.runs);
-                        let decorated = all.filter(|t| !t.table.decorations.is_empty());
-                        let cleared = decorated.map(|t| (t.id, Vec::new())).collect();
+                        let decorated = all.filter(|t| {
+                            !t.table.decorations.is_empty() || !t.table.style.is_empty()
+                        });
+                        let cleared = decorated.map(|t| (t.id, Default::default())).collect();
                         self.plugins.waiting.push(crate::plugins::Done {
                             window: id,
                             document: o.document.clone(),
@@ -817,7 +819,11 @@ impl App {
             };
             // an answer that comes in after the plugin was turned off is dropped
             let off = self.settings.plugin_off || self.settings.plugin.is_none();
-            if off && answer.iter().any(|(_, d)| !d.is_empty()) {
+            if off
+                && answer
+                    .iter()
+                    .any(|(_, (d, s))| !d.is_empty() || !s.is_empty())
+            {
                 continue;
             }
             // a window closed or showing another document since takes nothing
@@ -3993,7 +3999,17 @@ impl App {
         if (self.settings.plugin.clone(), self.settings.plugin_off) != chosen {
             self.plugins.changed();
         }
-        if let Some(syntax) = self.plugins.dialog_ui(ctx) {
+        let presets = self
+            .plugins
+            .dialog
+            .is_some()
+            .then(|| self.settings.presets.clone());
+        let set = self.plugins.dialog_ui(ctx, &mut self.settings.presets);
+        if presets.is_some_and(|p| p != self.settings.presets) {
+            // the window works on without them
+            let _ = self.settings.save();
+        }
+        if let Some(syntax) = set {
             self.run(&syntax, None, After::Show);
             self.plugins.again();
         }

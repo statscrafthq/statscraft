@@ -133,7 +133,7 @@ pub use chart::Chart;
 pub use expr::functions;
 pub use format::{Currencies, currency_parts, format_value, is_date_time_or_currency};
 pub use get_data::delimited;
-pub use html::cell_attributes;
+pub use html::{cell_attributes, header_attributes, label_attributes, table_attributes};
 pub use output_docs::OutputDocument;
 pub use random::RandomState;
 use serde::{Deserialize, Serialize};
@@ -190,6 +190,9 @@ pub struct Table {
     /// Cell colours and comments a plugin gave (docs/plugins.md), sorted by row and column.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub decorations: Vec<Decoration>,
+    /// The font and the header cell styles a plugin gave.
+    #[serde(default, skip_serializing_if = "TableStyle::is_empty")]
+    pub style: TableStyle,
 }
 
 /// The statistics behind the cells of a table, for plugins. Rows and columns count as in
@@ -223,7 +226,8 @@ pub struct CellStat {
     pub sd: Option<f64>,
 }
 
-/// How a plugin marks one cell: colours as #rrggbb and a comment.
+/// How a plugin marks one cell: colours as #rrggbb, bold or italic text, coloured borders
+/// and a comment.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
 pub struct Decoration {
     pub row: usize,
@@ -232,8 +236,75 @@ pub struct Decoration {
     pub fill: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub text: Option<String>,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub bold: bool,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub italic: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub border: Option<Border>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub comment: Option<String>,
+}
+
+/// Thin lines on the sides of a cell, each in its colour #rrggbb.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct Border {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub top: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub bottom: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub left: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub right: Option<String>,
+}
+
+/// The look of a cell without its place and comment: cells that look alike share it.
+pub type CellLook<'a> = (
+    Option<&'a str>,
+    Option<&'a str>,
+    bool,
+    bool,
+    Option<&'a Border>,
+);
+
+impl Decoration {
+    pub fn look(&self) -> CellLook<'_> {
+        let (fill, text) = (self.fill.as_deref(), self.text.as_deref());
+        (fill, text, self.bold, self.italic, self.border.as_ref())
+    }
+
+    /// Colours that are not #rrggbb left out, and a border without a side.
+    fn clean(&mut self) {
+        let keep = |c: &mut Option<String>| *c = c.take().filter(|c| parse_colour(c).is_some());
+        keep(&mut self.fill);
+        keep(&mut self.text);
+        if let Some(b) = &mut self.border {
+            [&mut b.top, &mut b.bottom, &mut b.left, &mut b.right]
+                .into_iter()
+                .for_each(keep);
+        }
+        self.border = self.border.take().filter(|b| *b != Border::default());
+    }
+}
+
+/// What a plugin gave a table as a whole: the font of its exports and the styles of its
+/// header cells, `row` counting the lines of `header_rows` from the top.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+pub struct TableStyle {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font: Option<String>,
+    /// In points.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub font_size: Option<f64>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub header_cells: Vec<Decoration>,
+}
+
+impl TableStyle {
+    pub fn is_empty(&self) -> bool {
+        *self == TableStyle::default()
+    }
 }
 
 /// A colour written #rrggbb, as red, green and blue.
@@ -252,18 +323,39 @@ impl Table {
         found.ok().map(|i| &self.decorations[i])
     }
 
-    /// Puts a plugin's decorations on the table: those outside its cells, and colours that are
-    /// not #rrggbb, are left out.
-    pub fn set_decorations(&mut self, mut decorations: Vec<Decoration>) {
+    /// The style a plugin gave a header cell, `line` counting the lines of `header_rows`.
+    pub fn header_decoration(&self, line: usize, col: usize) -> Option<&Decoration> {
+        let cells = &self.style.header_cells;
+        let found = cells.binary_search_by(|d| (d.row, d.col).cmp(&(line, col)));
+        found.ok().map(|i| &cells[i])
+    }
+
+    /// Puts a plugin's decorations and table style on the table: cells outside the body or the
+    /// header, colours that are not #rrggbb, a font name that is not plain (letters, digits,
+    /// spaces and hyphens, at most 31 characters) and a size outside 1 to 409 points are left
+    /// out.
+    pub fn set_decorations(&mut self, decorations: Vec<Decoration>, style: TableStyle) {
         let columns = self.columns.len();
-        decorations.retain(|d| d.row < self.rows.len() && d.col < columns);
-        for d in &mut decorations {
-            d.fill = d.fill.take().filter(|c| parse_colour(c).is_some());
-            d.text = d.text.take().filter(|c| parse_colour(c).is_some());
-        }
-        decorations.sort_by_key(|d| (d.row, d.col));
-        decorations.dedup_by_key(|d| (d.row, d.col));
-        self.decorations = decorations;
+        let tidy = |mut cells: Vec<Decoration>, rows: usize| {
+            cells.retain(|d| d.row < rows && d.col < columns);
+            cells.iter_mut().for_each(Decoration::clean);
+            cells.sort_by_key(|d| (d.row, d.col));
+            cells.dedup_by_key(|d| (d.row, d.col));
+            cells
+        };
+        self.decorations = tidy(decorations, self.rows.len());
+        let mut header_cells = tidy(style.header_cells, header_rows(self).len());
+        header_cells.iter_mut().for_each(|d| d.comment = None);
+        // a plain name, so it cannot break out of the CSS or the workbook's XML
+        let plain = |f: &String| {
+            let ok = |c: char| c.is_alphanumeric() || c == ' ' || c == '-';
+            (1..=31).contains(&f.chars().count()) && f.chars().all(ok)
+        };
+        self.style = TableStyle {
+            font: style.font.filter(plain),
+            font_size: style.font_size.filter(|s| (1.0..=409.0).contains(s)),
+            header_cells,
+        };
     }
 
     /// The full header of every column, levels joined with " / ".

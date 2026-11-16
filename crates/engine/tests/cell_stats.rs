@@ -3,7 +3,7 @@
 
 use statscraft_engine::output_file::{self, Item};
 use statscraft_engine::session::Session;
-use statscraft_engine::{Cell, CellStat, Decoration, Table};
+use statscraft_engine::{Border, Cell, CellStat, Decoration, Table, TableStyle};
 
 /// Made-up answers: answer (1 yes, 2 no), group (1, 2), weight w and a score.
 const DATA: &str = "DATA LIST LIST /answer group w score (4F4).
@@ -116,13 +116,20 @@ fn statistics_and_decorations_survive_the_output_file() {
     let items = session.output_items("Document1").unwrap().to_vec();
     let mut table = items_table(&items);
     let h = table.row_headers;
-    table.set_decorations(vec![
+    let cells = vec![
         Decoration {
             row: 0,
             col: h + 1,
             fill: Some("#a9ecf5".into()),
             text: Some("#094e56".into()),
+            bold: true,
+            border: Some(Border {
+                bottom: Some("#4bacc6".into()),
+                left: Some("blue".into()),
+                ..Border::default()
+            }),
             comment: Some("66.7% (13.3% to 100%)".into()),
+            ..Decoration::default()
         },
         // off the table, or with a colour that is not #rrggbb: dropped or cleaned
         Decoration {
@@ -137,21 +144,63 @@ fn statistics_and_decorations_survive_the_output_file() {
             comment: Some("total".into()),
             ..Decoration::default()
         },
-    ]);
+    ];
+    let header = |row, col| Decoration {
+        row,
+        col,
+        italic: true,
+        comment: Some("no comments in the header".into()),
+        ..Decoration::default()
+    };
+    let style = TableStyle {
+        font: Some("Cambria".into()),
+        font_size: Some(8.0),
+        // the second is below the header lines
+        header_cells: vec![header(0, h), header(9, h)],
+    };
+    table.set_decorations(cells, style);
     assert_eq!(table.decorations.len(), 2);
     assert_eq!(table.decoration(1, h).unwrap().fill, None);
+    let border = table.decoration(0, h + 1).unwrap().border.clone().unwrap();
+    assert_eq!(
+        (border.bottom.as_deref(), border.left),
+        (Some("#4bacc6"), None)
+    );
+    assert_eq!(table.style.header_cells.len(), 1);
+    assert_eq!(table.header_decoration(0, h).unwrap().comment, None);
+    // a font name that could break out of a style, and a size beyond Excel's, are dropped
+    let mut odd = table.clone();
+    let quoted = TableStyle {
+        font: Some("x';background:red".into()),
+        font_size: Some(1000.0),
+        ..TableStyle::default()
+    };
+    odd.set_decorations(Vec::new(), quoted);
+    assert!(odd.style.is_empty());
     let text = output_file::write(&[Item::Table(std::sync::Arc::new(table.clone()))]);
     let read = items_table(&output_file::read(&text).unwrap());
     assert_eq!(read.cell_stats, table.cell_stats);
     assert_eq!(read.decorations, table.decorations);
+    assert_eq!(read.style, table.style);
     // and in the JSON of a run
     let json = serde_json::to_value(&table).unwrap();
     assert_eq!(json["cell_stats"]["total_columns"][0], h);
     assert_eq!(json["decorations"][0]["fill"], "#a9ecf5");
+    assert_eq!(json["decorations"][0]["bold"], true);
+    assert_eq!(json["style"]["font"], "Cambria");
     let html = statscraft_engine::cell_attributes(&table, 0, h + 1);
     assert_eq!(
         html,
-        " style=\"background:#a9ecf5;color:#094e56;\" title=\"66.7% (13.3% to 100%)\""
+        " style=\"background:#a9ecf5;color:#094e56;font-weight:bold;\
+         border-bottom:1px solid #4bacc6;\" title=\"66.7% (13.3% to 100%)\""
+    );
+    assert_eq!(
+        statscraft_engine::table_attributes(&table),
+        " style=\"font-family:'Cambria';font-size:8pt;\""
+    );
+    assert_eq!(
+        statscraft_engine::header_attributes(&table, 0, h, 1),
+        " style=\"font-style:italic;\""
     );
 }
 

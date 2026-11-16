@@ -56,6 +56,29 @@ pub struct Settings {
     pub plugin_off: bool,
     /// Excel exports leave out the plugin's comments.
     pub excel_comments_off: bool,
+    /// Saved values of plugin settings, for every data file.
+    pub presets: Vec<Preset>,
+}
+
+/// A saved value of a plugin setting, named, under the setting's data file attribute.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Preset {
+    pub attribute: String,
+    pub name: String,
+    pub value: String,
+}
+
+impl Preset {
+    /// A preset from the dialog: tabs and line breaks in the name or value become spaces, so
+    /// it fits its line of the settings file.
+    pub fn new(attribute: &str, name: &str, value: &str) -> Self {
+        let clean = |s: &str| s.trim().replace(['\t', '\n', '\r'], " ");
+        Preset {
+            attribute: attribute.to_string(),
+            name: clean(name),
+            value: clean(value),
+        }
+    }
 }
 
 impl Settings {
@@ -114,8 +137,8 @@ impl Settings {
     /// `log hidden`, `variable_widths W ...`, `tvars names|labels|both` and
     /// `tnumbers values|labels|both`, `mioutput` with MIOUTPUT keywords, `output-shows` with
     /// the kinds of element the output shows (`headings titles tables notes charts`) and
-    /// `export hidden`, `plugin PATH`, `plugin-off` and `excel-comments off`; anything else is
-    /// skipped.
+    /// `export hidden`, `plugin PATH`, `plugin-off`, `excel-comments off` and
+    /// `preset ATTRIBUTE<tab>NAME<tab>VALUE`; anything else is skipped.
     pub fn parse(text: &str) -> Self {
         let mut settings = Self::default();
         let pair = |rest: &str| {
@@ -159,6 +182,13 @@ impl Settings {
                 "plugin" if !rest.is_empty() => settings.plugin = Some(PathBuf::from(rest)),
                 "plugin-off" => settings.plugin_off = true,
                 "excel-comments" => settings.excel_comments_off = rest == "off",
+                "preset" => {
+                    if let [attribute, name, value] = rest.split('\t').collect::<Vec<_>>()[..]
+                        && !name.is_empty()
+                    {
+                        settings.presets.push(Preset::new(attribute, name, value));
+                    }
+                }
                 _ => {}
             }
         }
@@ -233,6 +263,12 @@ impl Settings {
         }
         if self.excel_comments_off {
             text.push_str("excel-comments off\n");
+        }
+        for p in &self.presets {
+            text.push_str(&format!(
+                "preset {}\t{}\t{}\n",
+                p.attribute, p.name, p.value
+            ));
         }
         text
     }
@@ -328,7 +364,13 @@ mod tests {
             plugin: Some(PathBuf::from("/opt/plugins/sig colours")),
             plugin_off: true,
             excel_comments_off: true,
+            presets: vec![
+                Preset::new("plugin_house_universe", "Adults 15-74", "1043000"),
+                Preset::new("plugin_house_universe", "All: ages\t0+", "1331000"),
+                Preset::new("plugin_house_note", "Short", "Base: all asked"),
+            ],
         };
+        assert_eq!(settings.presets[1].name, "All: ages 0+");
         for i in 0..12 {
             settings.add_recent(Path::new(&format!("/data/f{i}.sav")));
         }

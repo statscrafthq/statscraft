@@ -715,6 +715,7 @@ fn chi_square_table(
         hidden: false,
         cell_stats: None,
         decorations: Vec::new(),
+        style: Default::default(),
     })
 }
 
@@ -1001,6 +1002,7 @@ fn comparison_table(
         hidden: false,
         cell_stats: None,
         decorations: Vec::new(),
+        style: Default::default(),
     }
 }
 

@@ -1,7 +1,7 @@
 //! Result tables as a web page, for OUTPUT EXPORT /HTML: the same layout as the window's
 //! export (crates/gui/src/output.rs).
 
-use crate::{Cell, Table, cell_text, header_rows};
+use crate::{Cell, Decoration, Table, cell_text, header_rows};
 
 /// For every body row, the number of rows each row label spans: a label repeated under the same
 /// outer labels is shown once, over all its rows, and the rows below it get 0.
@@ -57,23 +57,78 @@ pub(crate) fn escape(text: &str) -> String {
         .replace('"', "&quot;")
 }
 
-/// The attributes a plugin's decoration gives a body cell: its colours as a style, its comment
-/// as a title that shows on hover. Empty without one.
+/// The attributes a plugin's decoration gives a body cell: its colours, bold, italic and
+/// borders as a style, its comment as a title that shows on hover. Empty without one.
 pub fn cell_attributes(table: &Table, row: usize, column: usize) -> String {
-    let Some(d) = table.decoration(row, column) else {
-        return String::new();
-    };
+    let d = table.decoration(row, column);
+    attributes(d, d)
+}
+
+/// `cell_attributes` of a row label spanning `rows` rows: its bottom border is the last row's.
+pub fn label_attributes(table: &Table, row: usize, column: usize, rows: usize) -> String {
+    let last = table.decoration(row + rows.max(1) - 1, column);
+    attributes(table.decoration(row, column), last)
+}
+
+/// The attributes of a header cell on `line` of `header_rows` spanning `span` columns from
+/// `first`: its right border is the last column's.
+pub fn header_attributes(table: &Table, line: usize, first: usize, span: usize) -> String {
+    let last = table.header_decoration(line, first + span.max(1) - 1);
+    attributes(table.header_decoration(line, first), last)
+}
+
+/// The font a plugin gave the table, as a style of the whole table. Empty without one.
+pub fn table_attributes(table: &Table) -> String {
     let mut style = String::new();
-    for (property, colour) in [("background", &d.fill), ("color", &d.text)] {
+    if let Some(font) = &table.style.font {
+        // set_decorations lets only letters, digits, spaces and hyphens through
+        style.push_str(&format!("font-family:'{font}';"));
+    }
+    if let Some(size) = table.style.font_size {
+        style.push_str(&format!("font-size:{size}pt;"));
+    }
+    match style.is_empty() {
+        true => style,
+        false => format!(" style=\"{style}\""),
+    }
+}
+
+/// The style of a cell merged from `first` to `last` (its top left and bottom right places):
+/// colours, bold, italic, the top and left border and the comment from the first, the bottom
+/// and right border from the last.
+fn attributes(first: Option<&Decoration>, last: Option<&Decoration>) -> String {
+    let mut style = String::new();
+    if let Some(d) = first {
+        for (property, colour) in [("background", &d.fill), ("color", &d.text)] {
+            if let Some(colour) = colour {
+                style.push_str(&format!("{property}:{colour};"));
+            }
+        }
+        if d.bold {
+            style.push_str("font-weight:bold;");
+        }
+        if d.italic {
+            style.push_str("font-style:italic;");
+        }
+    }
+    let border = |d: Option<&Decoration>| d.and_then(|d| d.border.clone()).unwrap_or_default();
+    let (top, bottom) = (border(first), border(last));
+    let sides = [
+        ("top", top.top),
+        ("bottom", bottom.bottom),
+        ("left", top.left),
+        ("right", bottom.right),
+    ];
+    for (side, colour) in sides {
         if let Some(colour) = colour {
-            style.push_str(&format!("{property}:{colour};"));
+            style.push_str(&format!("border-{side}:1px solid {colour};"));
         }
     }
     let mut attributes = String::new();
     if !style.is_empty() {
         attributes.push_str(&format!(" style=\"{style}\""));
     }
-    if let Some(comment) = &d.comment {
+    if let Some(comment) = first.and_then(|d| d.comment.as_ref()) {
         attributes.push_str(&format!(" title=\"{}\"", escape(comment)));
     }
     attributes
@@ -91,17 +146,19 @@ td.text{text-align:left}p.note{font-size:.85rem;color:#4a5468}";
 /// One table: a repeated row label spans its rows; with `notes` the caption follows.
 pub(crate) fn table_html(table: &Table, notes: bool) -> String {
     let mut html = format!(
-        "<table>\n<caption>{}</caption>\n<thead>\n",
+        "<table{}>\n<caption>{}</caption>\n<thead>\n",
+        table_attributes(table),
         escape(&table.title)
     );
-    for cells in header_rows(table) {
+    for (line, cells) in header_rows(table).into_iter().enumerate() {
         html.push_str("<tr>");
         for cell in cells {
             let span = match cell.span {
                 1 => String::new(),
                 n => format!(" colspan=\"{n}\""),
             };
-            html.push_str(&format!("<th{span}>{}</th>", escape(&cell.label)));
+            let more = header_attributes(table, line, cell.first, cell.span);
+            html.push_str(&format!("<th{span}{more}>{}</th>", escape(&cell.label)));
         }
         html.push_str("</tr>\n");
     }
@@ -111,10 +168,11 @@ pub(crate) fn table_html(table: &Table, notes: bool) -> String {
         for c in 0..table.rows[r].len() {
             let text = escape(&cell_text(table, r, c));
             if c < table.row_headers {
+                let more = |n| label_attributes(table, r, c, n);
                 match spans.get(c).copied().unwrap_or(1) {
                     0 => {}
-                    1 => html.push_str(&format!("<th>{text}</th>")),
-                    n => html.push_str(&format!("<th rowspan=\"{n}\">{text}</th>")),
+                    1 => html.push_str(&format!("<th{}>{text}</th>", more(1))),
+                    n => html.push_str(&format!("<th rowspan=\"{n}\"{}>{text}</th>", more(n))),
                 }
             } else {
                 let more = cell_attributes(table, r, c);

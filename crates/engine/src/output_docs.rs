@@ -381,19 +381,19 @@ impl Engine {
     pub(crate) fn decorate_output(
         &mut self,
         name: &str,
-        decorations: Vec<(usize, Vec<crate::Decoration>)>,
+        decorations: Vec<(usize, crate::plugin::Answer)>,
     ) -> Result<(), Error> {
         let d = &mut self.documents;
         let at = d
             .find(name)
             .ok_or_else(|| Error(format!("no open output document is named {name}")))?;
         let document = &mut d.open[at];
-        let mut by_place: HashMap<usize, Vec<crate::Decoration>> =
-            decorations.into_iter().collect();
+        let mut by_place: HashMap<usize, crate::plugin::Answer> = decorations.into_iter().collect();
         let mut place = 0;
         output_file::for_each_leaf(&mut document.items, &mut |item| {
-            if let (output_file::Item::Table(table), Some(d)) = (item, by_place.remove(&place)) {
-                Arc::make_mut(table).set_decorations(d);
+            if let (output_file::Item::Table(table), Some((d, s))) = (item, by_place.remove(&place))
+            {
+                Arc::make_mut(table).set_decorations(d, s);
                 document.changed = true;
             }
             place += 1;

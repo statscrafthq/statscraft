@@ -871,6 +871,7 @@ impl Engine {
                         tied.join(", ")
                     )
                 }), outline: None, hidden: false, cell_stats: None, decorations: Vec::new(),
+                style: Default::default(),
             }
         };
         self.charts.extend(charts);

@@ -389,7 +389,8 @@ fn checked_table(value: Value) -> Result<Table, String> {
     // decorations off the table or with a colour that is not #rrggbb are dropped, and the
     // rest sorted, as the window and the exports expect
     let decorations = std::mem::take(&mut table.decorations);
-    table.set_decorations(decorations);
+    let style = std::mem::take(&mut table.style);
+    table.set_decorations(decorations, style);
     let (rows, columns) = (table.rows.len(), table.columns.len());
     if rows > MOST_ROWS || columns > MOST_COLUMNS || rows * columns > MOST_CELLS {
         return Err(format!(

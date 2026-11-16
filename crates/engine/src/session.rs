@@ -471,7 +471,7 @@ impl Session {
     pub fn decorate_output(
         &mut self,
         document: &str,
-        decorations: Vec<(usize, Vec<crate::Decoration>)>,
+        decorations: Vec<(usize, crate::plugin::Answer)>,
     ) -> Result<(), String> {
         self.engine
             .decorate_output(document, decorations)

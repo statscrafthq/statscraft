@@ -4,7 +4,7 @@
 //! standard input, one out on its standard output. A plugin that fails, answers badly or takes
 //! too long gives an error and no decorations; the tables stay as they are.
 
-use crate::{CellStats, Decoration, Table, cell_text};
+use crate::{CellStats, Decoration, Table, TableStyle, cell_text, header_rows};
 use serde::{Deserialize, Serialize};
 pub use serde_json::{Map, Value};
 use std::io::{Read, Write};
@@ -35,6 +35,9 @@ pub struct Setting {
     pub kind: Kind,
     #[serde(default)]
     pub default: Value,
+    /// The window offers saved values of the setting (a number or text) to choose from.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub presets: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
@@ -61,6 +64,14 @@ impl Description {
         let mut name = format!("plugin_{}_{}", clean(&self.name), clean(key));
         name.truncate(64);
         name
+    }
+
+    /// The data file attribute that keeps the name of the preset a setting's value came from:
+    /// the setting's attribute, cut to leave room, with `_preset` after it.
+    pub fn preset_attribute(&self, key: &str) -> String {
+        let mut name = self.attribute(key);
+        name.truncate(64 - "_preset".len());
+        name + "_preset"
     }
 
     /// The value of every setting: from the data file attribute `stored` finds, else the
@@ -99,6 +110,7 @@ struct RequestTable<'a> {
     id: u64,
     title: &'a str,
     row_headers: usize,
+    header_rows: usize,
     columns: &'a [String],
     column_groups: &'a [Vec<String>],
     rows: Vec<Vec<String>>,
@@ -116,6 +128,10 @@ struct ResponseTable {
     id: u64,
     #[serde(default)]
     cells: Vec<Decoration>,
+    #[serde(default)]
+    header_cells: Vec<Decoration>,
+    font: Option<String>,
+    font_size: Option<f64>,
 }
 
 /// Runs `program --describe`.
@@ -132,13 +148,16 @@ pub fn describe(program: &Path) -> Result<Description, String> {
     Ok(description)
 }
 
+/// The decorations of a table's cells, and the font and header styles of the table.
+pub type Answer = (Vec<Decoration>, TableStyle);
+
 /// Runs the plugin once on the tables that have cell statistics, each with its id, and
 /// returns the decorations of each table it answered for.
 pub fn decorate(
     program: &Path,
     settings: &Map<String, Value>,
     tables: &[(u64, &Table)],
-) -> Result<Vec<(u64, Vec<Decoration>)>, String> {
+) -> Result<Vec<(u64, Answer)>, String> {
     let tables: Vec<RequestTable> = tables
         .iter()
         .filter_map(|&(id, table)| {
@@ -153,6 +172,7 @@ pub fn decorate(
                 id,
                 title: &table.title,
                 row_headers: table.row_headers,
+                header_rows: header_rows(table).len(),
                 columns: &table.columns,
                 column_groups: &table.column_groups,
                 rows,
@@ -170,12 +190,24 @@ pub fn decorate(
     };
     let input = serde_json::to_vec(&request).map_err(|e| e.to_string())?;
     let out = run(program, &[], Some(input), DECORATE_TIME)?;
-    let response: Response = serde_json::from_slice(&out)
+    answers(&out)
+}
+
+/// The tables of a plugin's answer.
+fn answers(out: &[u8]) -> Result<Vec<(u64, Answer)>, String> {
+    let response: Response = serde_json::from_slice(out)
         .map_err(|e| format!("the plugin's answer is not valid: {e}"))?;
     Ok(response
         .tables
         .into_iter()
-        .map(|t| (t.id, t.cells))
+        .map(|t| {
+            let style = TableStyle {
+                font: t.font,
+                font_size: t.font_size,
+                header_cells: t.header_cells,
+            };
+            (t.id, (t.cells, style))
+        })
         .collect())
 }
 
@@ -276,5 +308,65 @@ mod tests {
         assert!(error.contains("cannot start"), "{error}");
         // no table with cell statistics: the plugin is not run at all
         assert_eq!(decorate(missing, &Map::new(), &[]), Ok(Vec::new()));
+    }
+
+    /// The style fields of an answer reach the table; bad colours, cells off the body or the
+    /// header, a font name that is not plain and a size out of range are dropped.
+    #[test]
+    fn styles_in_an_answer_reach_the_table() {
+        let answer = br##"{"tables": [{"id": 3, "font": "Cambria", "font_size": 8,
+            "cells": [
+              {"row": 0, "col": 1, "bold": true, "italic": true, "text": "#1f4e5a",
+               "border": {"bottom": "#4bacc6", "top": "teal"}},
+              {"row": 0, "col": 0, "fill": "#eeeeee"},
+              {"row": 5, "col": 1, "bold": true}],
+            "header_cells": [
+              {"row": 1, "col": 2, "bold": true, "border": {"left": "#7f7f7f"}, "comment": "x"},
+              {"row": 2, "col": 1, "bold": true}]},
+            {"id": 4, "font": "Bad'; name", "font_size": 0}]}"##;
+        let answers = answers(answer).unwrap();
+        let mut table = Table {
+            row_headers: 1,
+            columns: vec!["".into(), "a".into(), "b".into()],
+            column_groups: vec![vec![], vec!["g".into()], vec!["g".into()]],
+            rows: vec![vec![
+                crate::Cell::Text("r".into()),
+                crate::Cell::Number(1.0),
+                crate::Cell::Number(2.0),
+            ]],
+            ..Table::default()
+        };
+        assert_eq!(header_rows(&table).len(), 2);
+        let mut bad = table.clone();
+        let (cells, style) = answers[0].1.clone();
+        table.set_decorations(cells, style);
+        assert_eq!(table.style.font.as_deref(), Some("Cambria"));
+        assert_eq!(table.style.font_size, Some(8.0));
+        let d = table.decoration(0, 1).unwrap();
+        assert!(d.bold && d.italic);
+        let border = d.border.as_ref().unwrap();
+        assert_eq!(
+            (border.bottom.as_deref(), &border.top),
+            (Some("#4bacc6"), &None)
+        );
+        assert_eq!(
+            table.decoration(0, 0).unwrap().fill.as_deref(),
+            Some("#eeeeee")
+        );
+        assert_eq!(table.decorations.len(), 2);
+        // header line 2 does not exist; a header cell has no comment
+        assert_eq!(table.style.header_cells.len(), 1);
+        let h = table.header_decoration(1, 2).unwrap();
+        assert!(h.bold && h.comment.is_none());
+        let (cells, style) = answers[1].1.clone();
+        bad.set_decorations(cells, style);
+        assert!(bad.style.is_empty());
+        // and they survive the JSON of a saved document
+        let json = serde_json::to_string(&table).unwrap();
+        let read: Table = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            (read.decorations, read.style),
+            (table.decorations, table.style)
+        );
     }
 }

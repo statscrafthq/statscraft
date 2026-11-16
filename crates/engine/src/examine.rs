@@ -903,6 +903,7 @@ impl Tables<'_> {
             hidden: false,
             cell_stats: None,
             decorations: Vec::new(),
+            style: Default::default(),
         }
     }
 
