@@ -212,6 +212,9 @@ The plugin writes one answer to its standard output and exits with status 0:
 - `font` and `font_size` (in points, 1 to 409): the font of every cell of the table in the
   exports, header and title included. A font name may have letters, digits, spaces and hyphens,
   at most 31 characters; another is dropped.
+- `caption`: the look of the caption under the table in the exports (such as the filter
+  note), with the style keys of a cell and no `row`, `col` or `comment`, as in
+  `"caption": {"text": "#094e56", "italic": true}`. Without it the caption is plain italic.
 - `plain`, `row_labels`, `column_widths`, `freeze_columns`, `header_heights` and
   `rows_above`: the layout of the exports, see below.
 
@@ -275,7 +278,8 @@ out. The output window ignores them.
 - `freeze_columns`: the number of columns, from the left of the exported table (after a
   stacked layout dropped its outer column), that Excel keeps in view when scrolling right, as
   with `"freeze_columns": 3` for the labels, the statistic column and the total. More columns
-  than the table has are dropped. Only with a sheet per table.
+  than the table has are dropped. With all tables on one sheet only columns are kept in view,
+  the fewest that any table there asks for.
 - `header_heights`: Excel row heights in points of the header lines, one number per line from
   line 0, as in `"header_heights": [30, 15]`. Each is kept within 1 to 409; lines without a
   number keep Excel's height, and numbers beyond the last header line are dropped.

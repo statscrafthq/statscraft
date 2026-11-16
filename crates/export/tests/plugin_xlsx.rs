@@ -132,6 +132,44 @@ fn rows_above_and_header_heights_are_written() {
     assert_eq!(value(&parts, "A14").as_deref(), Some("row 0"));
 }
 
+/// On one sheet the fewest frozen columns any table asks for stay in view, with no frozen
+/// rows; a caption takes the plugin's caption look instead of the plain italic.
+#[test]
+fn one_sheet_freezes_columns_and_captions_take_their_look() {
+    let mut table = decorated(2, 2);
+    table.caption = Some("Filter: all".into());
+    let caption = Decoration {
+        text: Some("#094e56".into()),
+        bold: true,
+        comment: Some("dropped".into()),
+        ..Decoration::default()
+    };
+    let style = |n| TableStyle {
+        freeze_columns: Some(n),
+        caption: Some(caption.clone()),
+        ..TableStyle::default()
+    };
+    let mut other = table.clone();
+    table.set_decorations(table.decorations.clone(), style(3));
+    other.set_decorations(other.decorations.clone(), style(2));
+    assert_eq!(table.style.caption.as_ref().unwrap().comment, None);
+    let parts = written_all("caption-one", &[&table, &other], true);
+    let sheet = &parts["xl/worksheets/sheet1.xml"];
+    assert!(
+        sheet.contains("xSplit=\"2\"") && !sheet.contains("ySplit"),
+        "{sheet}"
+    );
+    // title, header, two body rows, then the caption
+    assert_eq!(value(&parts, "A5").as_deref(), Some("Filter: all"));
+    let a5 = xf(&parts, "A5");
+    let id = a5.split("fontId=\"").nth(1).unwrap();
+    let id: usize = id[..id.find('"').unwrap()].parse().unwrap();
+    let font = parts["xl/styles.xml"].split("<font>").nth(id + 1).unwrap();
+    let font = &font[..font.find("</font>").unwrap()];
+    assert!(font.contains("<b/>") && !font.contains("<i/>"), "{font}");
+    assert!(font.contains("FF094E56"), "{font}");
+}
+
 /// 100 000 comments: about 2.5 s in a release build (some 20 s in a debug one), most of it the
 /// notes' drawing; run with --ignored --release.
 #[test]

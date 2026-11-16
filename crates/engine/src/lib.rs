@@ -363,6 +363,9 @@ pub struct TableStyle {
     /// Excel: blank sheet rows above the table and its title, 1 to 10.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub rows_above: Option<u32>,
+    /// The look of the caption below the table in the exports; its place and comment unused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub caption: Option<Decoration>,
 }
 
 /// The width of a column in Excel, in characters.
@@ -471,6 +474,11 @@ impl Table {
                 .filter(|&n| usize::from(n) <= columns - usize::from(stacked)),
             header_heights,
             rows_above: style.rows_above.map(|n| n.min(10)).filter(|&n| n > 0),
+            caption: style.caption.map(|mut d| {
+                d.clean();
+                (d.row, d.col, d.comment) = (0, 0, None);
+                d
+            }),
         };
     }
 

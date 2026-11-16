@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Plugins: a table's `caption` gives the look of the caption under it in the exports, and with all tables on one Excel sheet `freeze_columns` keeps the first columns in view too.
+
 ## 0.16.0 (2026-11-16)
 
 - Plugins: a setting can be a style (font, size, bold, italic, text colour, fill, alignment) edited in a Define Style window; settings can be grouped, shown in sections and in two columns when the window is wide; tables can give Excel header row heights (`header_heights`), blank rows above the table (`rows_above`), and a font and size per cell. See docs/plugins.md.
