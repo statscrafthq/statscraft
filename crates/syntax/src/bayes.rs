@@ -1,5 +1,5 @@
-//! Parsers of the Bayesian commands BAYES ONESAMPLE, BAYES RELATED, BAYES INDEPENDENT and
-//! BAYES CORRELATION.
+//! Parsers of the Bayesian commands BAYES ONESAMPLE, BAYES RELATED, BAYES INDEPENDENT,
+//! BAYES CORRELATION, BAYES ANOVA, BAYES REGRESSION and BAYES REPEATED.
 //!
 //! Rules from the Command Syntax Reference, in our words:
 //! - Subcommands come in any order. Inside them every setting is `KEYWORD = value`; keywords
@@ -31,13 +31,31 @@
 //! - CORRELATION: INFERENCE VARIABLES (two or more), CVALUE (any number, 0), MAXPLOTS (0 to 50,
 //!   10); ESTBF TYPE=JZS or FRACTION(b, strictly between 0 and 1, 0.5) and NULLVALUE strictly
 //!   between -1 and 1.
+//! - ANOVA: `dependent BY factor` before the subcommands. DESIGN REGWGT names one regression
+//!   weight. ESTBF COMPUTATION=JZS (default), ZELLNER(g above 0, required), HYPER(a above 2, 3)
+//!   or ROUDER(scale above 0, 1). PRIOR TYPE=REFERENCE (default) or CONJUGATE with SHAPEPARAM
+//!   and SCALEPARAM (above 0), MEANVECTOR (numbers) and VMATRIX=IDENTITY or the lower triangle,
+//!   rows ending with `;`, row r holding r values with a positive last one. PLOT MEANS names
+//!   factor values, ERRORVAR=FALSE|TRUE.
+//! - REGRESSION: `dependent [BY factors] [WITH covariates]`, at least one of them. DESIGN
+//!   FACTORS and COVARIATES pick sublists for the model. ESTBF adds COMPARE=NULL|FULL. PREDICT
+//!   REGRESSORS gives one value per regressor. SAVE MEANPRED, VARIANCE, MODE, CIMEANPREDL and
+//!   CIMEANPREDU, each with an optional (name). OUTFILE PARAMETER='file'. PLOT COVARIATES,
+//!   FACTORS, MAX_CATEGORY (above 0, 2), INTERCEPT, ERRORVAR, BAYESPRED (FALSE|TRUE; BAYESPRED
+//!   needs PREDICT). FTEST, repeatable: LABEL, VARIABLES, INTERCEPT (TRUE when VARIABLES is
+//!   left out), TESTVALUES.
+//! - REPEATED: a list of two or more variables, CRITERIA CILEVEL, SEED, MCSAMPLES (30000), DESIGN
+//!   REGWGT, ESTBF COMPUTATION=BIC|ROUDER, PLOT MEANS=sublist.
+//! - A keyword with an underscore may be written as two words (MAX CATEGORY).
 //!
 //! Choices where the manual is silent: PRIOR may be left out (its defaults apply); a variable
 //! on two DATA subcommands is an error; DISTRIBUTION=NORMAL is accepted on RELATED and
-//! INDEPENDENT; LEVEL values may be numbers, quoted strings or bare words.
+//! INDEPENDENT; LEVEL values may be numbers, quoted strings or bare words; MAXITER of BAYES
+//! ANOVA defaults to 2000, as its text says (its diagram shows 500).
 
 use crate::ast::{Command, Value, VarItem};
 use crate::error::SyntaxError;
+use crate::glm::list_until;
 use crate::lexer::{Punct, TokenKind};
 use crate::parser::{PResult, Parser};
 use crate::procedures::at_end;
@@ -226,12 +244,120 @@ pub struct BayesCorrelation {
     pub null: f64,
 }
 
+/// ESTBF COMPUTATION of BAYES ANOVA and BAYES REGRESSION: the prior on g of the g-prior.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum GPrior {
+    /// Zellner and Siow: g is inverse gamma (1/2, N/2).
+    Jzs,
+    /// A fixed g.
+    Zellner(f64),
+    /// The hyper-g prior with parameter a.
+    Hyper(f64),
+    /// g is inverse gamma (1/2, N s^2 / 2) with the scale s.
+    Rouder(f64),
+}
+
+/// PRIOR of BAYES ANOVA and BAYES REGRESSION.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LinearPrior {
+    /// TYPE=CONJUGATE; false for REFERENCE.
+    pub conjugate: bool,
+    pub shape: Option<f64>,
+    pub scale: Option<f64>,
+    pub means: Vec<f64>,
+    /// The rows of the lower triangle of VMATRIX; empty for IDENTITY.
+    pub vmatrix: Vec<Vec<f64>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BayesAnova {
+    pub dependent: String,
+    pub factor: String,
+    pub criteria: BayesCriteria,
+    pub regwgt: Option<String>,
+    pub analysis: BayesAnalysis,
+    pub g: GPrior,
+    pub prior: LinearPrior,
+    /// PLOT MEANS: the factor values whose group means are drawn.
+    pub plot_means: Vec<Value>,
+    pub plot_error: bool,
+}
+
+/// A statistic of the predictive distribution that SAVE writes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PredictStat {
+    Mean,
+    Variance,
+    Mode,
+    Lower,
+    Upper,
+}
+
+impl PredictStat {
+    pub const KEYWORDS: [&str; 5] = ["MEANPRED", "VARIANCE", "MODE", "CIMEANPREDL", "CIMEANPREDU"];
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct RegressionPlot {
+    pub covariates: Vec<VarItem>,
+    pub factors: Vec<VarItem>,
+    pub max_category: usize,
+    pub intercept: bool,
+    pub error: bool,
+    pub predictive: bool,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FTest {
+    pub label: Option<String>,
+    pub variables: Vec<VarItem>,
+    pub intercept: bool,
+    pub values: Vec<f64>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BayesRegression {
+    pub dependent: String,
+    pub factors: Vec<VarItem>,
+    pub covariates: Vec<VarItem>,
+    pub criteria: BayesCriteria,
+    pub regwgt: Option<String>,
+    /// DESIGN FACTORS and COVARIATES; None keeps the whole list.
+    pub design_factors: Option<Vec<VarItem>>,
+    pub design_covariates: Option<Vec<VarItem>>,
+    pub analysis: BayesAnalysis,
+    pub g: GPrior,
+    /// COMPARE=FULL: Bayes factors against the full model.
+    pub compare_full: bool,
+    pub prior: LinearPrior,
+    /// PREDICT REGRESSORS.
+    pub predict: Vec<Value>,
+    pub save: Vec<(PredictStat, Option<String>)>,
+    pub outfile: Option<String>,
+    pub plot: RegressionPlot,
+    pub ftests: Vec<FTest>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct BayesRepeated {
+    pub variables: Vec<VarItem>,
+    pub criteria: BayesCriteria,
+    pub analysis: BayesAnalysis,
+    pub regwgt: Option<String>,
+    /// ESTBF COMPUTATION=ROUDER; false for BIC.
+    pub rouder: bool,
+    pub plot_means: Vec<VarItem>,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum Bayes {
     OneSample(BayesOneSample),
     Related(BayesRelated),
     Independent(BayesIndependent),
     Correlation(BayesCorrelation),
+    Anova(BayesAnova),
+    Regression(BayesRegression),
+    Repeated(BayesRepeated),
 }
 
 impl Bayes {
@@ -241,6 +367,9 @@ impl Bayes {
             Bayes::Related(_) => "BAYES RELATED",
             Bayes::Independent(_) => "BAYES INDEPENDENT",
             Bayes::Correlation(_) => "BAYES CORRELATION",
+            Bayes::Anova(_) => "BAYES ANOVA",
+            Bayes::Regression(_) => "BAYES REGRESSION",
+            Bayes::Repeated(_) => "BAYES REPEATED",
         }
     }
 }
@@ -373,11 +502,23 @@ fn levels(p: &mut Parser) -> PResult<Vec<Value>> {
     Ok(values)
 }
 
+/// Keywords that may be written as two words.
+const TWO_WORDS: [&str; 1] = ["MAX_CATEGORY"];
+
 /// A variable list that ends before the next `KEYWORD =`.
 fn variables(p: &mut Parser) -> PResult<Vec<VarItem>> {
     let mut items = Vec::new();
-    while let Some(TokenKind::Word(_)) = p.peek() {
+    while let Some(TokenKind::Word(word)) = p.peek() {
         if p.peek_at(1) == Some(&TokenKind::Punct(Punct::Eq)) {
+            break;
+        }
+        // the first word of a keyword written as two words, such as MAX CATEGORY =
+        if let (Some(TokenKind::Word(next)), Some(TokenKind::Punct(Punct::Eq))) =
+            (p.peek_at(1), p.peek_at(2))
+            && TWO_WORDS
+                .iter()
+                .any(|k| k.split_once('_') == Some((&word.to_uppercase(), &next.to_uppercase())))
+        {
             break;
         }
         if p.eat_word("ALL") {
@@ -409,6 +550,10 @@ fn settings(
         let Some(i) = which(p, keywords)? else {
             return Err(p.unexpected(keywords));
         };
+        // a keyword with an underscore may be written as two words, such as MAX CATEGORY
+        if let Some((_, rest)) = keywords[i].split_once('_') {
+            p.eat_keyword(rest);
+        }
         p.expect(Punct::Eq)?;
         read(p, i)?;
         p.eat(Punct::Comma);
@@ -1091,4 +1236,376 @@ pub(crate) fn correlation(p: &mut Parser) -> PResult<Command> {
         );
     }
     Ok(Command::Bayes(Box::new(Bayes::Correlation(c))))
+}
+
+fn boolean(p: &mut Parser) -> PResult<bool> {
+    Ok(choice(p, &["FALSE", "TRUE"])? == 1)
+}
+
+/// Numbers up to the next keyword or slash.
+fn number_list(p: &mut Parser) -> Vec<f64> {
+    let mut values = Vec::new();
+    while let Some(v) = p.number() {
+        values.push(v);
+        p.eat(Punct::Comma);
+    }
+    values
+}
+
+/// Values (numbers, quoted strings or bare words) up to the next `KEYWORD =` or slash.
+fn value_list(p: &mut Parser) -> PResult<Vec<Value>> {
+    let mut values = Vec::new();
+    while !at_end(p) {
+        if matches!(p.peek(), Some(TokenKind::Word(_)))
+            && p.peek_at(1) == Some(&TokenKind::Punct(Punct::Eq))
+        {
+            break;
+        }
+        let Some(v) = level_value(p) else {
+            return Err(p.unexpected(&["a value"]));
+        };
+        values.push(v);
+        p.eat(Punct::Comma);
+    }
+    if values.is_empty() {
+        return Err(p.unexpected(&["a value"]));
+    }
+    Ok(values)
+}
+
+fn g_prior(p: &mut Parser) -> PResult<GPrior> {
+    let at = p.pos;
+    let kind = choice(p, &["JZS", "ZELLNER", "HYPER", "ROUDER"])?;
+    if kind == 0 {
+        return Ok(GPrior::Jzs);
+    }
+    let name = ["JZS", "ZELLNER", "HYPER", "ROUDER"][kind];
+    let v = numbers_in_parens(p, name, 1, 1)?;
+    Ok(match (kind, v.first().copied()) {
+        (1, None) => return error(p, at, "ZELLNER needs a value of g in parentheses"),
+        (1, Some(g)) if g > 0.0 => GPrior::Zellner(g),
+        (2, a) if a.unwrap_or(3.0) > 2.0 => GPrior::Hyper(a.unwrap_or(3.0)),
+        (3, s) if s.unwrap_or(1.0) > 0.0 => GPrior::Rouder(s.unwrap_or(1.0)),
+        _ => {
+            let rule = if kind == 2 { "above 2" } else { "above 0" };
+            return error(p, at, format!("the value of {name} must be {rule}"));
+        }
+    })
+}
+
+fn linear_prior() -> LinearPrior {
+    LinearPrior {
+        conjugate: false,
+        shape: None,
+        scale: None,
+        means: Vec::new(),
+        vmatrix: Vec::new(),
+    }
+}
+
+/// PRIOR of ANOVA and REGRESSION.
+fn linear_prior_settings(p: &mut Parser, prior: &mut LinearPrior) -> PResult<()> {
+    let keywords = ["TYPE", "SHAPEPARAM", "SCALEPARAM", "MEANVECTOR", "VMATRIX"];
+    settings(p, &keywords, |p, k| {
+        match k {
+            0 => prior.conjugate = choice(p, &["REFERENCE", "CONJUGATE"])? == 1,
+            1 => prior.shape = Some(checked(p, "SHAPEPARAM", "above 0", |v| v > 0.0)?),
+            2 => prior.scale = Some(checked(p, "SCALEPARAM", "above 0", |v| v > 0.0)?),
+            3 => {
+                prior.means = number_list(p);
+                if prior.means.is_empty() {
+                    return Err(p.unexpected(&["a number"]));
+                }
+            }
+            _ => {
+                prior.vmatrix = Vec::new();
+                if p.eat_keyword("IDENTITY") {
+                    return Ok(());
+                }
+                let at = p.pos;
+                loop {
+                    let row = number_list(p);
+                    if row.is_empty() {
+                        break;
+                    }
+                    let r = prior.vmatrix.len() + 1;
+                    if row.len() != r || row[r - 1] <= 0.0 {
+                        return error(
+                            p,
+                            at,
+                            format!(
+                                "row {r} of VMATRIX must hold {r} values, the last above 0, and end with ';'"
+                            ),
+                        );
+                    }
+                    prior.vmatrix.push(row);
+                    if !p.eat(Punct::Semicolon) {
+                        break;
+                    }
+                }
+                if prior.vmatrix.is_empty() {
+                    return Err(p.unexpected(&["IDENTITY", "a number"]));
+                }
+            }
+        }
+        Ok(())
+    })
+}
+
+/// The settings TYPE=CONJUGATE needs.
+fn check_conjugate(p: &Parser, start: usize, prior: &LinearPrior) -> PResult<()> {
+    if prior.conjugate && (prior.shape.is_none() || prior.scale.is_none() || prior.means.is_empty())
+    {
+        return error(
+            p,
+            start,
+            "PRIOR TYPE=CONJUGATE needs SHAPEPARAM, SCALEPARAM and MEANVECTOR",
+        );
+    }
+    Ok(())
+}
+
+fn regwgt(p: &mut Parser, target: &mut Option<String>) -> PResult<()> {
+    *target = Some(p.name("a regression weight variable")?);
+    Ok(())
+}
+
+fn linear_criteria() -> BayesCriteria {
+    default_criteria(1e-6)
+}
+
+pub(crate) fn anova(p: &mut Parser) -> PResult<Command> {
+    let start = p.pos;
+    let dependent = p.name("the dependent variable")?;
+    if !p.eat_word("BY") {
+        return Err(p.unexpected(&["BY"]));
+    }
+    let factor = p.name("the factor")?;
+    let mut c = BayesAnova {
+        dependent,
+        factor,
+        criteria: linear_criteria(),
+        regwgt: None,
+        analysis: BayesAnalysis::Posterior,
+        g: GPrior::Jzs,
+        prior: linear_prior(),
+        plot_means: Vec::new(),
+        plot_error: false,
+    };
+    let names = ["CRITERIA", "DESIGN", "INFERENCE", "ESTBF", "PRIOR", "PLOT"];
+    subcommands(p, "BAYES ANOVA", &names, |p, i| match i {
+        0 => criteria(p, &mut c.criteria, &["CILEVEL", "TOL", "MAXITER"]),
+        1 => settings(p, &["REGWGT"], |p, _| regwgt(p, &mut c.regwgt)),
+        2 => settings(p, &["ANALYSIS"], |p, _| {
+            c.analysis = analysis(p)?;
+            Ok(())
+        }),
+        3 => settings(p, &["COMPUTATION"], |p, _| {
+            c.g = g_prior(p)?;
+            Ok(())
+        }),
+        4 => linear_prior_settings(p, &mut c.prior),
+        _ => settings(p, &["MEANS", "ERRORVAR"], |p, k| {
+            if k == 0 {
+                c.plot_means = value_list(p)?;
+            } else {
+                c.plot_error = boolean(p)?;
+            }
+            Ok(())
+        }),
+    })?;
+    check_conjugate(p, start, &c.prior)?;
+    Ok(Command::Bayes(Box::new(Bayes::Anova(c))))
+}
+
+pub(crate) fn regression(p: &mut Parser) -> PResult<Command> {
+    let start = p.pos;
+    let dependent = p.name("the dependent variable")?;
+    let factors = if p.eat_word("BY") {
+        list_until(p, &["WITH"])?
+    } else {
+        Vec::new()
+    };
+    let covariates = if p.eat_word("WITH") {
+        p.var_list()?
+    } else {
+        Vec::new()
+    };
+    if factors.is_empty() && covariates.is_empty() {
+        return Err(p.unexpected(&["BY", "WITH"]));
+    }
+    let mut c = BayesRegression {
+        dependent,
+        factors,
+        covariates,
+        criteria: linear_criteria(),
+        regwgt: None,
+        design_factors: None,
+        design_covariates: None,
+        analysis: BayesAnalysis::Posterior,
+        g: GPrior::Jzs,
+        compare_full: false,
+        prior: linear_prior(),
+        predict: Vec::new(),
+        save: Vec::new(),
+        outfile: None,
+        plot: RegressionPlot {
+            covariates: Vec::new(),
+            factors: Vec::new(),
+            max_category: 2,
+            intercept: false,
+            error: false,
+            predictive: false,
+        },
+        ftests: Vec::new(),
+    };
+    let names = [
+        "CRITERIA",
+        "DESIGN",
+        "INFERENCE",
+        "ESTBF",
+        "PRIOR",
+        "PREDICT",
+        "SAVE",
+        "OUTFILE",
+        "PLOT",
+        "FTEST",
+    ];
+    subcommands(p, "BAYES REGRESSION", &names, |p, i| match i {
+        0 => criteria(p, &mut c.criteria, &["CILEVEL", "TOL", "MAXITER"]),
+        1 => settings(p, &["REGWGT", "FACTORS", "COVARIATES"], |p, k| {
+            match k {
+                0 => regwgt(p, &mut c.regwgt)?,
+                1 => c.design_factors = Some(variables(p)?),
+                _ => c.design_covariates = Some(variables(p)?),
+            }
+            Ok(())
+        }),
+        2 => settings(p, &["ANALYSIS"], |p, _| {
+            c.analysis = analysis(p)?;
+            Ok(())
+        }),
+        3 => settings(p, &["COMPUTATION", "COMPARE"], |p, k| {
+            if k == 0 {
+                c.g = g_prior(p)?;
+            } else {
+                c.compare_full = choice(p, &["NULL", "FULL"])? == 1;
+            }
+            Ok(())
+        }),
+        4 => linear_prior_settings(p, &mut c.prior),
+        5 => settings(p, &["REGRESSORS"], |p, _| {
+            c.predict = value_list(p)?;
+            Ok(())
+        }),
+        6 => {
+            while !at_end(p) {
+                let stat = match choice(p, &PredictStat::KEYWORDS)? {
+                    0 => PredictStat::Mean,
+                    1 => PredictStat::Variance,
+                    2 => PredictStat::Mode,
+                    3 => PredictStat::Lower,
+                    _ => PredictStat::Upper,
+                };
+                let name = if p.eat(Punct::LParen) {
+                    let name = p.name("a variable name")?;
+                    p.expect(Punct::RParen)?;
+                    Some(name)
+                } else {
+                    None
+                };
+                c.save.push((stat, name));
+                p.eat(Punct::Comma);
+            }
+            Ok(())
+        }
+        7 => settings(p, &["PARAMETER"], |p, _| {
+            c.outfile = Some(p.file("a file name")?);
+            Ok(())
+        }),
+        8 => {
+            let keywords = [
+                "COVARIATES",
+                "FACTORS",
+                "MAX_CATEGORY",
+                "INTERCEPT",
+                "ERRORVAR",
+                "BAYESPRED",
+            ];
+            let plot = &mut c.plot;
+            settings(p, &keywords, |p, k| {
+                match k {
+                    0 => plot.covariates = variables(p)?,
+                    1 => plot.factors = variables(p)?,
+                    2 => plot.max_category = whole(p, "MAX_CATEGORY", 1.0, 1e9)?,
+                    3 => plot.intercept = boolean(p)?,
+                    4 => plot.error = boolean(p)?,
+                    _ => plot.predictive = boolean(p)?,
+                }
+                Ok(())
+            })
+        }
+        _ => {
+            let at = p.pos;
+            let mut test = FTest {
+                label: None,
+                variables: Vec::new(),
+                intercept: false,
+                values: Vec::new(),
+            };
+            let keywords = ["LABEL", "VARIABLES", "INTERCEPT", "TESTVALUES"];
+            settings(p, &keywords, |p, k| {
+                match k {
+                    0 => test.label = Some(p.string("a label in quotes")?),
+                    1 => test.variables = variables(p)?,
+                    2 => test.intercept = boolean(p)?,
+                    _ => test.values = number_list(p),
+                }
+                Ok(())
+            })?;
+            if test.variables.is_empty() && !test.intercept {
+                return error(p, at, "FTEST without VARIABLES needs INTERCEPT=TRUE");
+            }
+            c.ftests.push(test);
+            Ok(())
+        }
+    })?;
+    check_conjugate(p, start, &c.prior)?;
+    if c.plot.predictive && c.predict.is_empty() {
+        return error(p, start, "PLOT BAYESPRED=TRUE needs PREDICT REGRESSORS");
+    }
+    Ok(Command::Bayes(Box::new(Bayes::Regression(c))))
+}
+
+pub(crate) fn repeated(p: &mut Parser) -> PResult<Command> {
+    let list = p.var_list()?;
+    let mut c = BayesRepeated {
+        variables: list,
+        criteria: BayesCriteria {
+            mcsamples: 30_000,
+            ..default_criteria(1e-6)
+        },
+        analysis: BayesAnalysis::Posterior,
+        regwgt: None,
+        rouder: false,
+        plot_means: Vec::new(),
+    };
+    let names = ["CRITERIA", "INFERENCE", "DESIGN", "ESTBF", "PLOT"];
+    subcommands(p, "BAYES REPEATED", &names, |p, i| match i {
+        0 => criteria(p, &mut c.criteria, &["CILEVEL", "SEED", "MCSAMPLES"]),
+        1 => settings(p, &["ANALYSIS"], |p, _| {
+            c.analysis = analysis(p)?;
+            Ok(())
+        }),
+        2 => settings(p, &["REGWGT"], |p, _| regwgt(p, &mut c.regwgt)),
+        3 => settings(p, &["COMPUTATION"], |p, _| {
+            c.rouder = choice(p, &["BIC", "ROUDER"])? == 1;
+            Ok(())
+        }),
+        _ => settings(p, &["MEANS"], |p, _| {
+            c.plot_means = variables(p)?;
+            Ok(())
+        }),
+    })?;
+    Ok(Command::Bayes(Box::new(Bayes::Repeated(c))))
 }

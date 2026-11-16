@@ -129,6 +129,9 @@ One page per supported command, generated from the same table that the parser an
 | [BAYES RELATED](bayes-related.md) | Bayesian inference on the mean difference of paired measurements. |
 | [BAYES INDEPENDENT](bayes-independent.md) | Bayesian comparison of the means of two independent groups. |
 | [BAYES CORRELATION](bayes-correlation.md) | Bayesian inference on the Pearson correlation of every pair of variables. |
+| [BAYES ANOVA](bayes-anova.md) | Bayesian one-way analysis of variance: a Bayes factor for the groups and posteriors of their means. |
+| [BAYES REGRESSION](bayes-regression.md) | Bayesian linear regression: a Bayes factor for the model, posteriors, predictions and F tests. |
+| [BAYES REPEATED](bayes-repeated.md) | Bayesian one-way repeated measures analysis: a Bayes factor and posteriors of the condition means. |
 | [POWER MEANS ONESAMPLE](power-means-onesample.md) | Power or sample size of a one-sample t-test of a mean. |
 | [POWER MEANS INDEPENDENT](power-means-independent.md) | Power or group sizes of a t-test comparing the means of two independent groups. |
 | [POWER MEANS RELATED](power-means-related.md) | Power or number of pairs of a paired t-test. |

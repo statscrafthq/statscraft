@@ -1,6 +1,6 @@
 //! BAYES ONESAMPLE, BAYES RELATED, BAYES INDEPENDENT and BAYES CORRELATION: Bayes factors and
 //! posterior distributions of a mean, a proportion, a Poisson rate, a mean difference and a
-//! correlation.
+//! correlation. The linear models (BAYES ANOVA, REGRESSION, REPEATED) are in `models`.
 //!
 //! Rules from the Command Syntax Reference and the Algorithms manual, in our words:
 //! - Case weights are frequencies rounded to whole numbers; a weight below 0.5 (or missing)
@@ -52,6 +52,8 @@ use statscraft_syntax::{
 };
 use std::collections::HashMap;
 use std::f64::consts::PI;
+
+mod models;
 
 // ---------------------------------------------------------------------------------------------
 // Quadrature
@@ -542,6 +544,7 @@ struct Run<'d> {
     weights: Option<Vec<f64>>,
     shown: Shown,
     warnings: Vec<String>,
+    charts: Vec<crate::chart::Chart>,
     alpha: f64,
     ci: String,
     quadrature: Quadrature,
@@ -564,6 +567,7 @@ impl Run<'_> {
             weights: case_weights(data)?,
             shown: engine.shown(),
             warnings: Vec::new(),
+            charts: Vec::new(),
             alpha: 1.0 - criteria.ci,
             ci: format!("{shown}% Credible Interval"),
             quadrature: Quadrature {
@@ -667,15 +671,23 @@ const BF01: &str =
 
 impl Engine {
     pub(crate) fn bayes(&mut self, command: &Bayes) -> Result<Vec<Table>, Error> {
-        let (tables, warnings) = match command {
+        let (tables, warnings, charts) = match command {
             Bayes::OneSample(c) => self.bayes_onesample(c)?,
             Bayes::Related(c) => self.bayes_related(c)?,
             Bayes::Independent(c) => self.bayes_independent(c)?,
             Bayes::Correlation(c) => self.bayes_correlation(c)?,
+            Bayes::Anova(c) => self.bayes_anova(c)?,
+            Bayes::Regression(c) => {
+                let (output, saved) = self.bayes_regression(c)?;
+                self.save_predictions(saved)?;
+                output
+            }
+            Bayes::Repeated(c) => self.bayes_repeated(c)?,
         };
         for warning in warnings {
             self.warn(warning);
         }
+        self.charts.extend(charts);
         Ok(tables)
     }
 
@@ -711,7 +723,7 @@ impl Engine {
         names.iter().map(|n| Ok(data.variable(n)?)).collect()
     }
 
-    fn bayes_onesample(&self, c: &BayesOneSample) -> Result<(Vec<Table>, Vec<String>), Error> {
+    fn bayes_onesample(&self, c: &BayesOneSample) -> Result<models::Output, Error> {
         let data = self.active()?;
         let mut run = Run::new(self, data, &c.criteria)?;
         let names = self.expand(&c.variables)?;
@@ -923,10 +935,10 @@ impl Engine {
                 posteriors,
             ));
         }
-        Ok((out, run.warnings))
+        Ok((out, run.warnings, run.charts))
     }
 
-    fn bayes_related(&self, c: &BayesRelated) -> Result<(Vec<Table>, Vec<String>), Error> {
+    fn bayes_related(&self, c: &BayesRelated) -> Result<models::Output, Error> {
         let data = self.active()?;
         let mut run = Run::new(self, data, &c.criteria)?;
         let mut pairs = Vec::new();
@@ -996,10 +1008,10 @@ impl Engine {
             let title = "Posterior Distribution of the Mean Difference";
             out.push(posterior_table(&run, title, &["", "N"], posteriors));
         }
-        Ok((out, run.warnings))
+        Ok((out, run.warnings, run.charts))
     }
 
-    fn bayes_independent(&self, c: &BayesIndependent) -> Result<(Vec<Table>, Vec<String>), Error> {
+    fn bayes_independent(&self, c: &BayesIndependent) -> Result<models::Output, Error> {
         let data = self.active()?;
         let mut run = Run::new(self, data, &c.criteria)?;
         let names = self.expand(&c.variables)?;
@@ -1175,10 +1187,10 @@ impl Engine {
             t.caption = Some("The difference is group 2 minus group 1.".into());
             out.push(t);
         }
-        Ok((out, run.warnings))
+        Ok((out, run.warnings, run.charts))
     }
 
-    fn bayes_correlation(&self, c: &BayesCorrelation) -> Result<(Vec<Table>, Vec<String>), Error> {
+    fn bayes_correlation(&self, c: &BayesCorrelation) -> Result<models::Output, Error> {
         let data = self.active()?;
         let mut run = Run::new(self, data, &c.criteria)?;
         let names = self.expand(&c.variables)?;
@@ -1198,6 +1210,7 @@ impl Engine {
         let complete = run.cases(&all);
         let q = run.quadrature;
         let (mut factors, mut posteriors) = (Vec::new(), Vec::new());
+        let mut plotted = 0;
         for (i, x) in variables.iter().enumerate() {
             for y in &variables[i + 1..] {
                 let cases = if c.listwise {
@@ -1260,6 +1273,18 @@ impl Engine {
                 } else {
                     NONE
                 };
+                // MAXPLOTS sets of prior, likelihood and posterior; not with Bayes factors only
+                if usable && !perfect && c.analysis.posterior() && plotted < c.maxplots {
+                    let title = format!(
+                        "Correlation of {} and {}",
+                        run.shown.variable(x),
+                        run.shown.variable(y)
+                    );
+                    if let Some(chart) = models::correlation_chart(title, r, w, c.c, q) {
+                        run.charts.push(chart);
+                        plotted += 1;
+                    }
+                }
                 let mut row = labels.to_vec();
                 row.push(Cell::Number(w));
                 row.extend(posterior_cells(&p));
@@ -1288,7 +1313,7 @@ impl Engine {
             ));
             out.push(t);
         }
-        Ok((out, run.warnings))
+        Ok((out, run.warnings, run.charts))
     }
 }
 
