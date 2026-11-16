@@ -555,23 +555,24 @@ impl OutputView {
             .show_rows(ui, height, rows.len(), |ui, range| {
                 for &row in &rows[range] {
                     let (r, i) = match row {
-                        Row::Run(r) => (r, 0),
-                        Row::Command(r, i) | Row::Heading(r, i) => (r, i),
-                        Row::Table(r, i, _) | Row::Part(r, i, ..) => (r, i),
-                    };
-                    let run = &self.runs[r];
-                    let item = &run.items[i];
-                    let ids = || item.tables.iter().map(|t| t.id).collect::<Vec<u64>>();
-                    let all = item.tables.iter().all(|t| self.selected.contains(&t.id));
-                    match row {
-                        Row::Run(_) => {
+                        Row::Run(r) => {
+                            let run = &self.runs[r];
                             let open = !self.collapsed.contains(&run.label);
                             let mark = if open { "\u{25be}" } else { "\u{25b8}" };
                             let text = RichText::new(format!("{mark} {}", run.label)).weak();
                             if ui.selectable_label(false, text).clicked() {
                                 toggle = Some(run.label.clone());
                             }
+                            continue;
                         }
+                        Row::Command(r, i) | Row::Heading(r, i) => (r, i),
+                        Row::Table(r, i, _) | Row::Part(r, i, ..) => (r, i),
+                    };
+                    let item = &self.runs[r].items[i];
+                    let ids = || item.tables.iter().map(|t| t.id).collect::<Vec<u64>>();
+                    let all = item.tables.iter().all(|t| self.selected.contains(&t.id));
+                    match row {
+                        Row::Run(_) => {}
                         Row::Command(..) => {
                             ui.horizontal(|ui| {
                                 ui.add_space(10.0);
