@@ -1,7 +1,7 @@
-//! A small Statscraft plugin (see docs/plugins.md). In every row it compares each cell with the
-//! row's total of the same statistic: a cell above the total by more than the threshold turns
-//! one colour, a cell below it by more than the threshold another, both in the marked style
-//! (bold unless changed), and every compared cell gets a comment with the difference.
+//! A small Statscraft plugin (see docs/plugins.md): a heat map. Each cell of a custom table is
+//! shaded from one colour to another by its value among the cells of the same statistic in the
+//! table, totals left out; the largest value of each row takes the style "Largest value of a
+//! row" (bold unless changed); and every shaded cell gets a comment with its base.
 
 use serde_json::{Map, Value, json};
 use std::collections::HashMap;
@@ -13,27 +13,46 @@ fn describe() -> Value {
         "version": env!("CARGO_PKG_VERSION"),
         "protocol": 1,
         "settings": [
-            {"key": "threshold", "label": "Smallest difference marked", "kind": "number", "default": 0.05},
-            {"key": "comments", "label": "Write comments", "kind": "bool", "default": true},
-            {"key": "higher", "label": "Colour of a higher cell", "kind": "colour", "default": "#c6efce", "group": "Look"},
-            {"key": "lower", "label": "Colour of a lower cell", "kind": "colour", "default": "#ffc7ce", "group": "Look"},
-            {"key": "marked", "label": "Marked cell", "kind": "style", "default": {"bold": true}, "group": "Look"}
+            {"key": "comments", "label": "Show each cell's base in a comment", "kind": "bool", "default": true},
+            {"key": "low", "label": "Colour of the smallest value", "kind": "colour", "default": "#ffffff", "group": "Look"},
+            {"key": "high", "label": "Colour of the largest value", "kind": "colour", "default": "#5b9bd5", "group": "Look"},
+            {"key": "largest", "label": "Largest value of a row", "kind": "style", "default": {"bold": true}, "group": "Look"}
         ]
     })
 }
 
+/// `#rrggbb` as its three channels.
+fn channels(colour: &str) -> Option<[f64; 3]> {
+    let hex = colour.strip_prefix('#').filter(|h| h.len() == 6)?;
+    let channel = |i: usize| u8::from_str_radix(hex.get(i..i + 2)?, 16).ok();
+    Some([channel(0)?, channel(2)?, channel(4)?].map(f64::from))
+}
+
+/// The colour a share `t` (0 to 1) of the way from `low` to `high`.
+fn blend(low: [f64; 3], high: [f64; 3], t: f64) -> String {
+    let [r, g, b] = [0, 1, 2].map(|i| (low[i] + (high[i] - low[i]) * t).round() as u8);
+    format!("#{r:02x}{g:02x}{b:02x}")
+}
+
+/// A statistic of one cell.
+struct Stat<'a> {
+    row: u64,
+    col: u64,
+    kind: &'a str,
+    estimate: f64,
+    base: f64,
+}
+
 /// The decorations of one table.
 fn decorate(table: &Value, settings: &Map<String, Value>) -> Vec<Value> {
-    let threshold = settings
-        .get("threshold")
-        .and_then(Value::as_f64)
-        .unwrap_or(0.05);
     let colour = |key: &str, default: &str| {
         let value = settings.get(key).and_then(Value::as_str);
-        value.unwrap_or(default).to_string()
+        channels(value.unwrap_or(default)).or_else(|| channels(default))
     };
-    let (higher, lower) = (colour("higher", "#c6efce"), colour("lower", "#ffc7ce"));
-    let marked = settings.get("marked").and_then(Value::as_object);
+    let (Some(low), Some(high)) = (colour("low", "#ffffff"), colour("high", "#5b9bd5")) else {
+        return Vec::new();
+    };
+    let largest = settings.get("largest").and_then(Value::as_object);
     let comments = settings
         .get("comments")
         .and_then(Value::as_bool)
@@ -43,56 +62,50 @@ fn decorate(table: &Value, settings: &Map<String, Value>) -> Vec<Value> {
         let list = meta[key].as_array().into_iter().flatten();
         list.filter_map(Value::as_u64).collect()
     };
-    let total_columns = numbers("total_columns");
-    // every statistic by its cell
-    let mut cells: HashMap<(u64, u64), (&str, f64)> = HashMap::new();
-    for cell in meta["cells"].as_array().into_iter().flatten() {
-        let (Some(row), Some(col), Some(kind), Some(estimate)) = (
-            cell["row"].as_u64(),
-            cell["col"].as_u64(),
-            cell["kind"].as_str(),
-            cell["estimate"].as_f64(),
-        ) else {
-            continue;
-        };
-        cells.insert((row, col), (kind, estimate));
+    let (total_rows, total_columns) = (numbers("total_rows"), numbers("total_columns"));
+    // the cells to shade: every statistic outside the total rows and columns
+    let stats: Vec<Stat> = meta["cells"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|cell| {
+            Some(Stat {
+                row: cell["row"].as_u64()?,
+                col: cell["col"].as_u64()?,
+                kind: cell["kind"].as_str()?,
+                estimate: cell["estimate"].as_f64()?,
+                base: cell["base"].as_f64().unwrap_or(0.0),
+            })
+        })
+        .filter(|s| !total_rows.contains(&s.row) && !total_columns.contains(&s.col))
+        .collect();
+    // the range of each statistic, and the largest value of each row by statistic
+    let mut range: HashMap<&str, (f64, f64)> = HashMap::new();
+    let mut top: HashMap<(u64, &str), f64> = HashMap::new();
+    for s in &stats {
+        let (min, max) = range.entry(s.kind).or_insert((s.estimate, s.estimate));
+        (*min, *max) = (min.min(s.estimate), max.max(s.estimate));
+        let best = top.entry((s.row, s.kind)).or_insert(s.estimate);
+        *best = best.max(s.estimate);
     }
     let mut out = Vec::new();
-    for (&(row, col), &(kind, estimate)) in &cells {
-        if total_columns.contains(&col) {
-            continue;
-        }
-        // the row's first total column with the same statistic
-        let total = total_columns.iter().find_map(|&t| {
-            let (k, e) = cells.get(&(row, t))?;
-            (*k == kind).then_some(*e)
-        });
-        let Some(total) = total else {
-            continue;
+    for s in &stats {
+        let (min, max) = range[s.kind];
+        let t = if max > min {
+            (s.estimate - min) / (max - min)
+        } else {
+            0.0
         };
-        let difference = estimate - total;
-        let mut cell = json!({"row": row, "col": col});
-        if difference > threshold {
-            cell["fill"] = json!(higher);
-        } else if difference < -threshold {
-            cell["fill"] = json!(lower);
-        }
-        if difference.abs() > threshold {
-            // the style's keys are those of a cell; the fill stays the higher or lower colour
-            for (key, value) in marked
-                .into_iter()
-                .flatten()
-                .filter(|(key, _)| *key != "fill")
-            {
+        let mut cell = json!({"row": s.row, "col": s.col, "fill": blend(low, high, t)});
+        if s.estimate == top[&(s.row, s.kind)] {
+            // the style's keys are those of a cell; the fill stays the shade
+            let keys = largest.into_iter().flatten();
+            for (key, value) in keys.filter(|(key, _)| *key != "fill") {
                 cell[key.as_str()] = value.clone();
             }
         }
         if comments {
-            let text = match kind.contains("PCT") {
-                true => format!("{:+.1} points from the total", 100.0 * difference),
-                false => format!("{difference:+.3} from the total"),
-            };
-            cell["comment"] = json!(text);
+            cell["comment"] = json!(format!("n = {}", s.base));
         }
         out.push(cell);
     }

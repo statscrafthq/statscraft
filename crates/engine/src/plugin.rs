@@ -307,16 +307,16 @@ mod tests {
     #[test]
     fn settings_come_from_attributes_or_defaults() {
         let description: Description = serde_json::from_str(
-            r##"{"name": "Sig Colours", "version": "1.0", "protocol": 1, "settings": [
-                {"key": "level", "label": "Confidence level", "kind": "number", "default": 95},
+            r##"{"name": "Heat Map", "version": "1.0", "protocol": 1, "settings": [
+                {"key": "level", "label": "Colour steps", "kind": "number", "default": 95},
                 {"key": "up", "label": "Higher", "kind": "colour", "default": "#c6efce"},
                 {"key": "notes", "label": "Comments", "kind": "bool", "default": true}]}"##,
         )
         .unwrap();
-        assert_eq!(description.attribute("level"), "plugin_sig_colours_level");
+        assert_eq!(description.attribute("level"), "plugin_heat_map_level");
         let values = description.values(|name| match name {
-            "plugin_sig_colours_level" => Some("99".into()),
-            "plugin_sig_colours_notes" => Some("maybe".into()),
+            "plugin_heat_map_level" => Some("99".into()),
+            "plugin_heat_map_notes" => Some("maybe".into()),
             _ => None,
         });
         assert_eq!(values["level"], 99.0);

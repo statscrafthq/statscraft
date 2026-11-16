@@ -694,10 +694,7 @@ mod tests {
             .unwrap();
         let mut settings = Settings::default();
         let file = std::path::absolute(&file).unwrap();
-        let pairs = vec![(
-            "plugin_margins_population".to_string(),
-            "1024000".to_string(),
-        )];
+        let pairs = vec![("plugin_example_limit".to_string(), "1024000".to_string())];
         settings.remember_values(&file, &pairs);
         // reading the file again: no attribute in the data, the remembered value holds
         session
@@ -705,19 +702,19 @@ mod tests {
             .unwrap();
         let all = attributes(&settings, session.dataset());
         assert_eq!(
-            first_value(&all, "plugin_margins_population").as_deref(),
+            first_value(&all, "plugin_example_limit").as_deref(),
             Some("1024000")
         );
         // an attribute of the data wins
         session
             .run(
-                "DATAFILE ATTRIBUTE ATTRIBUTE=plugin_margins_population('500').",
+                "DATAFILE ATTRIBUTE ATTRIBUTE=plugin_example_limit('500').",
                 None,
             )
             .unwrap();
         let all = attributes(&settings, session.dataset());
         assert_eq!(
-            first_value(&all, "plugin_margins_population").as_deref(),
+            first_value(&all, "plugin_example_limit").as_deref(),
             Some("500")
         );
         // the settings file keeps them
@@ -804,8 +801,8 @@ mod tests {
             version: "1".into(),
             protocol: 1,
             settings: vec![plugin::Setting {
-                key: "universe".into(),
-                label: "Population".into(),
+                key: "limit".into(),
+                label: "Upper limit".into(),
                 kind: Kind::Number,
                 default: 0.into(),
                 presets: true,
@@ -813,13 +810,13 @@ mod tests {
             }],
         };
         assert_eq!(
-            description.preset_attribute("universe"),
-            "plugin_house_universe_preset"
+            description.preset_attribute("limit"),
+            "plugin_house_limit_preset"
         );
         let mut field = Field {
             setting: description.settings[0].clone(),
             text: "1043000".into(),
-            preset: Some(("Adults".into(), "1043000".into())),
+            preset: Some(("Strict".into(), "1043000".into())),
             new_name: String::new(),
             style: None,
         };
@@ -829,21 +826,21 @@ mod tests {
         ));
         assert_eq!(
             syntax,
-            "DATAFILE ATTRIBUTE ATTRIBUTE=plugin_house_universe('1043000') \
-             plugin_house_universe_preset('Adults')."
+            "DATAFILE ATTRIBUTE ATTRIBUTE=plugin_house_limit('1043000') \
+             plugin_house_limit_preset('Strict')."
         );
         let mut session = statscraft_engine::session::Session::default();
         session
             .run("DATA LIST LIST /x (F1).\nBEGIN DATA\n1\nEND DATA.", None)
             .unwrap();
         session.run(&syntax, None).unwrap();
-        let stored = attribute(session.dataset(), "plugin_house_universe_preset");
-        assert_eq!(stored.as_deref(), Some("Adults"));
+        let stored = attribute(session.dataset(), "plugin_house_limit_preset");
+        assert_eq!(stored.as_deref(), Some("Strict"));
         field.text = "990000".into();
         assert_eq!(field.preset(), None);
         let syntax = attribute_syntax(&attribute_values(&description, &[field]));
         assert!(
-            syntax.ends_with("plugin_house_universe_preset('')."),
+            syntax.ends_with("plugin_house_limit_preset('')."),
             "{syntax}"
         );
     }

@@ -4,8 +4,9 @@ A plugin colours the cells of custom tables and adds comments to them. It is a p
 own, written in any language, that Statscraft starts and talks to in JSON. It is never built
 into Statscraft: you choose its executable file in the window.
 
-Typical use: mark the subgroup cells of a crosstab that are clearly above or below the total of
-their row, and put a confidence interval in each cell's comment.
+A plugin gets each table with the statistics behind its cells and answers with styles,
+comments and layout: shading cells as a heat map, flagging cells with a small base, adding a
+note to a cell, or giving the exports a look of your own.
 
 ## Using a plugin in the window
 
@@ -60,13 +61,13 @@ plugin's name and `<key>` the setting's key, both in lower case with every chara
 a letter or digit written as `_`, cut to 64 characters. For the example plugin:
 
 ```
-DATAFILE ATTRIBUTE ATTRIBUTE=plugin_example_threshold('0.1') plugin_example_higher('#a9ecf5').
+DATAFILE ATTRIBUTE ATTRIBUTE=plugin_example_comments('No') plugin_example_high('#ed7d31').
 ```
 
 A style is kept as its JSON text on one line:
 
 ```
-DATAFILE ATTRIBUTE ATTRIBUTE=plugin_example_marked('{"bold":true,"text":"#1f4e79"}').
+DATAFILE ATTRIBUTE ATTRIBUTE=plugin_example_largest('{"bold":true,"text":"#1f4e79"}').
 ```
 
 A setting with presets also keeps the name of the preset its value came from, in the attribute
@@ -87,12 +88,12 @@ example plugin's, shortened):
   "version": "0.1.0",
   "protocol": 1,
   "settings": [
-    {"key": "threshold", "label": "Smallest difference marked", "kind": "number", "default": 0.05},
-    {"key": "comments", "label": "Write comments", "kind": "bool", "default": true},
-    {"key": "higher", "label": "Colour of a higher cell", "kind": "colour", "default": "#c6efce",
+    {"key": "comments", "label": "Show each cell's base in a comment", "kind": "bool",
+     "default": true},
+    {"key": "high", "label": "Colour of the largest value", "kind": "colour", "default": "#5b9bd5",
      "group": "Look"},
-    {"key": "marked", "label": "Marked cell", "kind": "style", "default": {"bold": true},
-     "group": "Look"}
+    {"key": "largest", "label": "Largest value of a row", "kind": "style",
+     "default": {"bold": true}, "group": "Look"}
   ]
 }
 ```
@@ -124,8 +125,8 @@ POSITION=BEFORE` on seven made-up cases:
 ```json
 {
   "protocol": 1,
-  "settings": {"threshold": 0.05, "higher": "#c6efce", "lower": "#ffc7ce", "comments": true,
-               "marked": {"bold": true}},
+  "settings": {"comments": true, "low": "#ffffff", "high": "#5b9bd5",
+               "largest": {"bold": true}},
   "tables": [
     {
       "id": 12,
@@ -187,9 +188,9 @@ The plugin writes one answer to its standard output and exits with status 0:
       "font": "Cambria",
       "font_size": 9,
       "cells": [
-        {"row": 0, "col": 3, "fill": "#c6efce", "comment": "+23.8 points from the total"},
+        {"row": 0, "col": 3, "fill": "#76acdc", "comment": "n = 3"},
         {"row": 0, "col": 4, "text": "#9c0006", "bold": true},
-        {"row": 0, "col": 2, "comment": "42.9% (13.3% to 72.4%)"},
+        {"row": 0, "col": 2, "comment": "n = 7"},
         {"row": 1, "col": 0, "italic": true, "border": {"bottom": "#2e75b6"}}
       ],
       "header_cells": [
@@ -298,12 +299,12 @@ wide in the second column of the sheet.
 
 ## The example plugin
 
-`examples/plugin-example` is a small plugin in Rust that uses only `serde_json`. In every row it
-compares each cell with the cell of the same statistic in the first total column: a cell above
-the total by more than the threshold gets one fill, a cell below it by more than the threshold
-another, both in the style of the setting Marked cell (bold unless changed; its fill is left to
-the two colours), and every compared cell gets a comment with the difference. Build it
-with:
+`examples/plugin-example` is a small plugin in Rust that uses only `serde_json`: a heat map.
+It shades every cell of a custom table from the colour of the smallest value to the colour of
+the largest, comparing the cells of the same statistic in the table and leaving the totals out.
+The largest value of each row takes the style of the setting Largest value of a row (bold
+unless changed; its fill stays the shade), and every shaded cell gets a comment with its base.
+Build it with:
 
 ```
 cargo build --release --manifest-path examples/plugin-example/Cargo.toml

@@ -45,14 +45,14 @@ CTABLES /TABLE answer [C] [COLPCT] BY group [C]
 }
 
 #[test]
-fn the_example_plugin_colours_cells_against_their_row_total() {
+fn the_example_plugin_shades_cells_by_their_value() {
     let program = example_plugin();
     let description: Description = plugin::describe(&program).unwrap();
     assert_eq!(
         (description.name.as_str(), description.protocol),
         ("Example", 1)
     );
-    assert_eq!(description.settings.len(), 5);
+    assert_eq!(description.settings.len(), 4);
     let table = crosstab();
     let h = table.row_headers;
     let defaults = description.values(|_| None);
@@ -63,31 +63,39 @@ fn the_example_plugin_colours_cells_against_their_row_total() {
     let (cells, style) = answer[0].1.clone();
     decorated.set_decorations(cells, style);
     let fill = |r: usize, c: usize| decorated.decoration(r, c).and_then(|d| d.fill.clone());
-    let (higher, lower) = (Some("#c6efce".to_string()), Some("#ffc7ce".to_string()));
-    // yes: 66.7% and 25% against 42.9%; no: 33.3% and 75% against 57.1%
+    let shade = |c: &str| Some(c.to_string());
+    // the groups: yes 66.7% and 25%, no 33.3% and 75%; from 25% white to 75% blue
     assert_eq!(
-        [fill(0, h + 1), fill(0, h + 2)],
-        [higher.clone(), lower.clone()]
+        [fill(0, h + 1), fill(0, h + 2), fill(1, h + 2)],
+        [shade("#76acdc"), shade("#ffffff"), shade("#5b9bd5")]
     );
-    assert_eq!([fill(1, h + 1), fill(1, h + 2)], [lower, higher]);
-    assert!(decorated.decoration(1, h + 2).unwrap().bold);
-    // the total column itself is not compared
+    // the largest of each row in its style
+    let bold = |r: usize, c: usize| decorated.decoration(r, c).unwrap().bold;
+    assert!(bold(0, h + 1) && !bold(0, h + 2) && bold(1, h + 2));
+    // the total column is left as it is
     assert!(decorated.decoration(0, h).is_none());
     let comment = decorated.decoration(0, h + 1).unwrap().comment.as_deref();
-    assert_eq!(comment, Some("+23.8 points from the total"));
+    assert_eq!(comment, Some("n = 3"));
 
-    // a larger threshold from the data file attribute marks nothing
+    // another colour from the data file attribute
     let values =
-        description.values(|name| (name == "plugin_example_threshold").then(|| "0.3".into()));
+        description.values(|name| (name == "plugin_example_high").then(|| "#ff0000".into()));
     let answer = plugin::decorate(&program, &values, &[(7, &table)]).unwrap();
-    assert!(answer[0].1.0.iter().all(|d| d.fill.is_none()));
+    assert!(
+        answer[0]
+            .1
+            .0
+            .iter()
+            .any(|d| d.fill.as_deref() == Some("#ff0000"))
+    );
 
-    // the marked style from its attribute: italic and a font instead of bold
+    // the largest value's style from its attribute: italic and a font instead of bold
     let style = r#"{"italic":true,"font":"Verdana","size":7}"#;
-    let values = description.values(|name| (name == "plugin_example_marked").then(|| style.into()));
+    let values =
+        description.values(|name| (name == "plugin_example_largest").then(|| style.into()));
     let answer = plugin::decorate(&program, &values, &[(7, &table)]).unwrap();
-    let marked = answer[0].1.0.iter().find(|d| d.fill.is_some()).unwrap();
-    assert!(marked.italic && !marked.bold);
+    let marked = answer[0].1.0.iter().find(|d| d.italic).unwrap();
+    assert!(!marked.bold);
     assert_eq!(
         (marked.font.as_deref(), marked.size),
         (Some("Verdana"), Some(7.0))

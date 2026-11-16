@@ -414,21 +414,21 @@ mod tests {
                 kinds: [true, false, true, false, true],
                 export_hidden: true,
             },
-            plugin: Some(PathBuf::from("/opt/plugins/sig colours")),
+            plugin: Some(PathBuf::from("/opt/plugins/heat map")),
             plugin_off: true,
             excel_comments_off: true,
             presets: vec![
-                Preset::new("plugin_house_universe", "Adults 15-74", "1043000"),
-                Preset::new("plugin_house_universe", "All: ages\t0+", "1331000"),
+                Preset::new("plugin_house_limit", "Strict 1-10", "1043000"),
+                Preset::new("plugin_house_limit", "All: steps\t0+", "1331000"),
                 Preset::new("plugin_house_note", "Short", "Base: all asked"),
             ],
             file_values: vec![FileValue {
                 file: PathBuf::from("/data/my surveys/wave 2.sav"),
-                attribute: "plugin_house_universe".into(),
+                attribute: "plugin_house_limit".into(),
                 value: "1043000".into(),
             }],
         };
-        assert_eq!(settings.presets[1].name, "All: ages 0+");
+        assert_eq!(settings.presets[1].name, "All: steps 0+");
         for i in 0..12 {
             settings.add_recent(Path::new(&format!("/data/f{i}.sav")));
         }
