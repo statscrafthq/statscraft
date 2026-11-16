@@ -267,6 +267,12 @@ pub enum Command {
     /// ACF, PACF and CCF.
     Correlogram(Box<crate::timeseries::Correlogram>),
     Season(Box<crate::timeseries::Season>),
+    /// PREDICT: the forecast period (the permanent flag is unused).
+    Predict(UseRange),
+    Exsmooth(Box<crate::ts_models::Exsmooth>),
+    Arima(Box<crate::ts_models::Arima>),
+    /// TSPLOT and CASEPLOT.
+    SeriesPlot(Box<crate::ts_models::SeriesPlot>),
     /// PRINT, PRINT EJECT or WRITE.
     Print(Box<crate::output::Print>),
     PrintSpace(crate::output::PrintSpace),
@@ -517,9 +523,18 @@ pub enum DatasetCommand {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct UseRange {
-    pub first: Option<u64>,
-    pub last: Option<u64>,
+    /// None: the first case (FIRST, or nothing given).
+    pub first: Option<CasePoint>,
+    /// None: the last case (LAST, END, or nothing given).
+    pub last: Option<CasePoint>,
     pub permanent: bool,
+}
+
+/// One end of a USE or PREDICT range: a case number, or DATE keywords with their values.
+#[derive(Debug, Clone, PartialEq)]
+pub enum CasePoint {
+    Case(u64),
+    Date(Vec<(crate::output::DateUnit, f64)>),
 }
 
 #[derive(Debug, Clone, PartialEq)]

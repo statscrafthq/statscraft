@@ -160,6 +160,7 @@ mod tests_survival;
 mod tests_timeseries;
 mod timeseries;
 mod tree;
+mod ts_models;
 
 pub use agreement::{FleissKappa, KappaTabulation, WeightedKappa};
 pub use alscal::{Alscal, AlscalLevel};
@@ -310,6 +311,10 @@ pub use table::{
 pub use timeseries::{
     Correlogram, CorrelogramKind, CreateEquation, NewVar, Season, SeriesFunction, TimeSettings,
     TsetItem, TsetPrint,
+};
+pub use ts_models::{
+    Arima, ArimaApply, ArimaForecast, ArimaLog, Exsmooth, PlotJoin, PlotMark, PlotReference,
+    SeasonalFactors, Seasonality, SeriesPlot, Smoothing, Trend, smoothing_model_name,
 };
 
 use parser::Parser;

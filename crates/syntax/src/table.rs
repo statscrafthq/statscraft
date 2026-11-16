@@ -68,6 +68,7 @@ use crate::summarize;
 use crate::survival;
 use crate::timeseries;
 use crate::tree;
+use crate::ts_models;
 
 /// One supported command: its name, its help text and its parser.
 pub struct CommandSpec {
@@ -2691,6 +2692,120 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
         parse: timeseries::season,
     },
     CommandSpec {
+        name: "PREDICT",
+        summary: "Set the forecast period of EXSMOOTH and ARIMA.",
+        syntax: "PREDICT [start] [THRU [end]].\n\
+                 Start and end are case numbers, or dates written with DATE keywords and values; END\n\
+                 means the last case. Without a start the period begins right after the USE range (or the\n\
+                 file); a start later than that is moved back to it. Without an end it runs to the last\n\
+                 case of the file, or covers just its start when that lies past the file. EXSMOOTH and\n\
+                 ARIMA estimate on the USE range, give one-step fitted values up to the case before the\n\
+                 start and forecasts from there on, adding cases when the period runs past the end of the\n\
+                 file (at most TSET MXPREDICT, default 60). Added cases are missing on every variable\n\
+                 except the new ones and the DATE variables. Residuals are missing in the forecast\n\
+                 period. DATE turns PREDICT off; it stays in force until the next PREDICT.",
+        example: "PREDICT THRU YEAR 2026 MONTH 12.",
+        parse: ts_models::predict,
+    },
+    CommandSpec {
+        name: "EXSMOOTH",
+        summary: "Exponential smoothing with or without trend and season, with fitted values and forecasts.",
+        syntax: "EXSMOOTH [VARIABLES=] series [/MODEL=NN | NA | NM | LN | LA | LM | EN | EA | EM | DN | DA | DM]\n\
+                 \x20        [/PERIOD=n] [/SEASFACT=(factors) | variable]\n\
+                 \x20        [/ALPHA=value | GRID[(start end step)]] [/GAMMA=...] [/DELTA=...] [/PHI=...]\n\
+                 \x20        [/INITIAL=CALCULATE | (start trend)] [/APPLY].\n\
+                 The first letter of the model is the trend (N none, L linear, E exponential, D damped),\n\
+                 the second the season (N none, A additive, M multiplicative); SINGLE means NN, HOLT LN\n\
+                 and WINTERS LM. ALPHA smooths the level, GAMMA the trend (not in NN, NA, NM, DA, DM),\n\
+                 DELTA the season and PHI damps the trend; each defaults to 0.1, a parameter the model\n\
+                 does not use is ignored. ALPHA, GAMMA and DELTA lie from 0 to 1, PHI above 0 and below\n\
+                 1. GRID tries every value from start to end by step (defaults 0 to 1 by 0.1 for ALPHA,\n\
+                 by 0.2 for GAMMA and DELTA, 0.1 to 0.9 by 0.2 for PHI); every combination is fitted and\n\
+                 the one with the smallest sum of squared one-step errors is kept. The output lists the\n\
+                 ten smallest (all of them under TSET PRINT=DETAILED). Start values come from the\n\
+                 published formulas: means of the first and last complete periods, initial seasonal\n\
+                 factors from SEASON's method unless SEASFACT gives them (a list as long as the period,\n\
+                 or a variable such as a saved SAF_n whose first values are read). INITIAL gives the\n\
+                 start level and trend instead. A seasonal model needs a period (PERIOD, TSET PERIOD or\n\
+                 DATE) and four full periods; the multiplicative and exponential models need values\n\
+                 above 0. The series may not have missing values inside the USE range. TSET NEWVAR saves\n\
+                 FIT_n (the one-step forecast) and ERR_n per series; with PREDICT, FIT_n holds the\n\
+                 forecasts. APPLY without a name repeats the previous EXSMOOTH with the subcommands\n\
+                 given now replacing its own; SEASFACT is not carried over.",
+        example: "EXSMOOTH VARIABLES=room_nights /MODEL=DA /PERIOD=7 /PHI=GRID /DELTA=0.25.",
+        parse: ts_models::exsmooth,
+    },
+    CommandSpec {
+        name: "ARIMA",
+        summary: "Seasonal ARIMA models with regressors by exact maximum likelihood, with forecasts.",
+        syntax: "ARIMA [VARIABLES=] series [WITH regressors]\n\
+                 \x20     [/MODEL=[(p,d,q)[(sp,sd,sq)[period]]] [CONSTANT | NOCONSTANT] [NOLOG | LG10 | LN]]\n\
+                 \x20     [/P=n | (lags)] [/D=n] [/Q=n | (lags)] [/SP=...] [/SD=n] [/SQ=...]\n\
+                 \x20     [/AR=values] [/MA=values] [/SAR=values] [/SMA=values] [/REG=values] [/CON=value]\n\
+                 \x20     [/MXITER=10] [/MXLAMB=1E9] [/SSQPCT=0.001] [/PAREPS=0.001] [/CINPCT=95]\n\
+                 \x20     [/FORECAST=EXACT | CLS | AUTOINIT] [/APPLY [SPECIFICATIONS | INITIAL | FIT]].\n\
+                 The model is phi(B) PHI(B^s) (w_t - mu) = theta(B) THETA(B^s) a_t, w_t the series less the\n\
+                 regressors times their coefficients, differenced d times and over the period sd times;\n\
+                 the polynomials are 1 - c_1 B - ..., so a positive MA coefficient means a negative\n\
+                 weight on the past error. P, Q, SP and SQ name the lags to fit (n for 1 to n, a list in\n\
+                 parentheses for those lags only) and win over MODEL. LOG is LG10; logs need values above\n\
+                 0. CONSTANT and the confidence level default to TSET. The estimates maximize the exact\n\
+                 Gaussian likelihood (a Kalman filter that also takes missing values inside the series)\n\
+                 by Levenberg-Marquardt steps on numerical derivatives. It stops after MXITER steps, when\n\
+                 no estimate changes by PAREPS (default TSET CNVERGE), when the adjusted sum of squares\n\
+                 changes by less than SSQPCT percent, or when the Marquardt constant passes MXLAMB.\n\
+                 MXITER=0 takes the initial values as final. AR, MA, SAR, SMA, REG and CON give initial\n\
+                 values in the order of the lags. Output: the iteration history (TSET PRINT=BRIEF leaves\n\
+                 it out, DETAILED adds the estimates of each step), the estimates with standard errors,\n\
+                 t and approximate significance, the residual variance and standard error, the\n\
+                 log-likelihood, AIC and SBC, and the covariance and correlation of the estimates. TSET\n\
+                 NEWVAR saves FIT_n, ERR_n, LCL_n, UCL_n and SEP_n: one-step fitted values (EXACT: from\n\
+                 the Kalman filter; CLS: past errors 0 and missing past values at the mean of the\n\
+                 differenced series; AUTOINIT: the first values of the series as their own fits), the\n\
+                 residuals on the log scale, the prediction limits and standard errors. Fits, limits\n\
+                 and standard errors are taken back from logs. With PREDICT the fit continues as\n\
+                 forecasts; with regressors only where they are valid, and the file is not extended.\n\
+                 APPLY without a name repeats the previous ARIMA with the subcommands given now replacing\n\
+                 its own; INITIAL starts from its estimates, FIT uses them without estimation.",
+        example: "ARIMA daily_calls WITH promo /MODEL=(1,0,1)(0,1,1) 7 NOCONSTANT /FORECAST=EXACT.",
+        parse: ts_models::arima,
+    },
+    CommandSpec {
+        name: "TSPLOT",
+        summary: "Chart of time series over the cases, as chart data.",
+        syntax: "TSPLOT [VARIABLES=] series [/DIFF[=n]] [/SDIFF[=n]] [/PERIOD=n] [/LN | /NOLOG]\n\
+                 \x20      [/ID=variable] [/MARK=variable | date] [/SPLIT=UNIFORM | SCALE]\n\
+                 \x20      [/FORMAT=[NOFILL | BOTTOM] [NOREFERENCE | REFERENCE[(value)]] | NOJOIN | JOIN | HILO]\n\
+                 \x20      [/APPLY].\n\
+                 The cases run along the horizontal axis, labeled by ID (else TSET ID, else DATE_, else\n\
+                 the case number). Each series may be logged first (LN; values not above 0 become\n\
+                 missing), then differenced DIFF times and over the period SDIFF times (DIFF or SDIFF\n\
+                 alone: once); the period is PERIOD, TSET PERIOD or that of the DATE variables, and\n\
+                 without one SDIFF is skipped with a warning. With one series, BOTTOM fills the area under\n\
+                 the line (only when no value is missing or negative) and REFERENCE adds a flat line at\n\
+                 the value or at the series mean. With several, JOIN links the values of each case and\n\
+                 HILO shows only the highest and lowest of each case (up to three series). MARK names\n\
+                 the cases where a variable changes, or a date given with DATE keywords, in the footnote,\n\
+                 which also lists the transformations. Under SPLIT FILE each group gets a chart; the\n\
+                 reference mean is the group's. USE limits the cases. APPLY without a name repeats the\n\
+                 previous TSPLOT with the subcommands given now replacing its own.",
+        example: "TSPLOT VARIABLES=river_level rainfall /FORMAT=JOIN /MARK=dam_open.",
+        parse: ts_models::tsplot,
+    },
+    CommandSpec {
+        name: "CASEPLOT",
+        summary: "Chart of time series with the cases down the vertical axis, as chart data.",
+        syntax: "CASEPLOT [VARIABLES=] series [/DIFF[=n]] [/SDIFF[=n]] [/PERIOD=n] [/LN | /NOLOG]\n\
+                 \x20        [/ID=variable] [/MARK=variable | date] [/SPLIT=UNIFORM | SCALE]\n\
+                 \x20        [/FORMAT=[NOFILL | LEFT] [NOREFERENCE | REFERENCE[(value)]] | NOJOIN | JOIN | HILO]\n\
+                 \x20        [/APPLY].\n\
+                 TSPLOT turned on its side: the cases run down the vertical axis and the values across.\n\
+                 LEFT fills the area between the axis and the line of a single series. Everything else\n\
+                 is as for TSPLOT.",
+        example: "CASEPLOT VARIABLES=hourly_load /ID=shift /FORMAT=LEFT.",
+        parse: ts_models::caseplot,
+    },
+    CommandSpec {
         name: "PLUM",
         summary: "Ordinal regression: a cumulative link model of an ordered dependent variable.",
         syntax: "PLUM dependent [BY factors] [WITH covariates]\n\
@@ -4088,13 +4203,18 @@ pub(crate) static COMMANDS: &[CommandSpec] = &[
     },
     CommandSpec {
         name: "USE",
-        summary: "Use all cases, or a range of cases, in the commands that follow.",
+        summary: "Set the historical period of the time series procedures, or use all cases.",
         syntax: "USE ALL.\n\
-                 USE [first] [THRU [last]] [/PERMANENT].\n\
-                 USE ALL (or THRU alone) turns FILTER off. A range of case numbers is supported with\n\
-                 /PERMANENT, which deletes the cases outside it; dates are not supported yet.",
-        example: "USE ALL.",
-        parse: session_commands::use_command,
+                 USE [start] [THRU [end]] [/PERMANENT].\n\
+                 A start or end is a case number or a date written with DATE keywords and values\n\
+                 (YEAR 2019 MONTH 3; the highest date variable must be among them); FIRST and LAST mean\n\
+                 the ends of the file. The two kinds do not mix. The range acts as a filter for the\n\
+                 procedures that follow, while CREATE ignores it and EXSMOOTH and ARIMA estimate on it\n\
+                 and forecast after it (see PREDICT). A date start is the first case of that date, a date\n\
+                 end the last. ALL or THRU alone uses every case again. USE turns FILTER off; FILTER,\n\
+                 SORT CASES and DATE turn USE off. /PERMANENT deletes the cases outside the range.",
+        example: "USE YEAR 2016 THRU YEAR 2021.",
+        parse: ts_models::use_command,
     },
     CommandSpec {
         name: "DISPLAY",

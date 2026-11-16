@@ -4,6 +4,7 @@ mod aggregate;
 mod agreement;
 mod alscal;
 mod anova;
+mod arima;
 mod autorecode;
 mod bayes;
 mod catpca;
@@ -31,6 +32,7 @@ mod examine;
 pub mod excel;
 mod expr;
 mod expr_functions;
+mod exsmooth;
 mod factor;
 mod format;
 mod frequencies;
@@ -112,6 +114,8 @@ mod summarize;
 mod timeseries;
 mod transform;
 mod tree;
+mod ts_plot;
+mod ts_range;
 mod ttest;
 mod validatedata;
 mod variables;
@@ -401,8 +405,17 @@ pub struct Engine {
     pplot_model: Option<Box<statscraft_syntax::Pplot>>,
     /// TSET: the settings of the time series procedures.
     tset: statscraft_syntax::TimeSettings,
-    /// The last ACF, PACF, CCF and SEASON, for APPLY.
+    /// The last ACF, PACF, CCF, SEASON, EXSMOOTH and ARIMA, for APPLY.
     ts_models: timeseries::Models,
+    /// USE: the historical period of the time series procedures.
+    ts_use: Option<statscraft_syntax::UseRange>,
+    /// PREDICT: the forecast period.
+    ts_predict: Option<statscraft_syntax::UseRange>,
+    /// The last DATE, to date the cases PREDICT adds.
+    date_spec: Option<statscraft_syntax::DateSpec>,
+    /// While EXSMOOTH or ARIMA runs: the cases PREDICT added at the end of the file, which
+    /// are not part of the series.
+    ts_added: usize,
 }
 
 impl Engine {
@@ -754,6 +767,19 @@ impl Engine {
                 let spec = Command::Season(Box::new(self.season_spec(spec)?));
                 return self.with_current_names(&spec);
             }
+            Command::Exsmooth(spec) => {
+                let spec = Command::Exsmooth(Box::new(self.exsmooth_spec(spec)?));
+                return self.with_current_names(&spec);
+            }
+            Command::Arima(spec) => {
+                let spec = Command::Arima(Box::new(self.arima_spec(spec)?));
+                return self.with_current_names(&spec);
+            }
+            Command::Predict(range) => self.ts_predict = Some(range.clone()),
+            Command::SeriesPlot(spec) => {
+                let spec = self.series_plot_spec(spec)?;
+                return self.procedure(&Command::SeriesPlot(Box::new(spec)));
+            }
             Command::Curvefit(_) | Command::Wls(_) => return self.with_current_names(command),
             Command::Frequencies(_)
             | Command::Descriptives(_)
@@ -862,6 +888,7 @@ impl Engine {
                 self.not_temporary("SORT CASES")?;
                 self.begin_pass()?;
                 self.sort_cases(keys)?;
+                self.ts_use = None;
                 if self.active()?.split_file().is_some() {
                     self.active_mut()?.set_split_file(None)?;
                     self.warn("SORT CASES turns SPLIT FILE off; give SPLIT FILE again to split");
@@ -1001,6 +1028,8 @@ impl Engine {
                 no_scratch(variable, "FILTER")?;
                 self.active_mut()?
                     .set_filter_variable(variable.as_deref())?;
+                // FILTER and USE exclude each other
+                self.ts_use = None;
             }
             Command::Temporary => {
                 self.drop_scratch()?;
@@ -1071,6 +1100,9 @@ impl Engine {
             Command::Wls(command) => self.wls(command),
             Command::Correlogram(command) => self.correlogram(command),
             Command::Season(command) => self.season(command),
+            Command::Exsmooth(command) => self.exsmooth(command),
+            Command::Arima(command) => self.arima(command),
+            Command::SeriesPlot(command) => self.series_plot(command),
             Command::MultipleImputation(command) => self.multiple_imputation(command),
             Command::Plum(command) => self.plum(command),
             Command::Correspondence(command) => self.correspondence(command),
@@ -1116,7 +1148,10 @@ impl Engine {
         let before = self.dataset.clone();
         let temporary = self.in_temporary();
         self.replace_current(&names)?;
-        let result = self.procedure(command);
+        let result = self
+            .extend_for_predict(command)
+            .and_then(|()| self.procedure(command));
+        self.ts_added = 0;
         // after TEMPORARY the procedure already went back to the dataset before it
         if result.is_err() && !temporary {
             self.dataset = before;

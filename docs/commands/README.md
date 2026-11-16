@@ -196,6 +196,11 @@ One page per supported command, generated from the same table that the parser an
 | [PACF](pacf.md) | Partial autocorrelations of time series, with standard errors and charts. |
 | [CCF](ccf.md) | Cross-correlations of pairs of time series, with standard errors and charts. |
 | [SEASON](season.md) | Seasonal decomposition by ratios (or differences) to a moving average. |
+| [PREDICT](predict.md) | Set the forecast period of EXSMOOTH and ARIMA. |
+| [EXSMOOTH](exsmooth.md) | Exponential smoothing with or without trend and season, with fitted values and forecasts. |
+| [ARIMA](arima.md) | Seasonal ARIMA models with regressors by exact maximum likelihood, with forecasts. |
+| [TSPLOT](tsplot.md) | Chart of time series over the cases, as chart data. |
+| [CASEPLOT](caseplot.md) | Chart of time series with the cases down the vertical axis, as chart data. |
 
 ## Custom tables
 
@@ -235,7 +240,7 @@ One page per supported command, generated from the same table that the parser an
 | [DATASET DECLARE](dataset-declare.md) | Reserve a dataset name for a dataset that a later command creates. |
 | [DATASET CLOSE](dataset-close.md) | Close a named dataset, or take the name off the active one. |
 | [DATASET DISPLAY](dataset-display.md) | List the open datasets. |
-| [USE](use.md) | Use all cases, or a range of cases, in the commands that follow. |
+| [USE](use.md) | Set the historical period of the time series procedures, or use all cases. |
 | [DISPLAY](display.md) | Show dictionary information of the active dataset. |
 | [LIST](list.md) | List the values of cases. |
 | [TITLE](title.md) | Put a title in the output, above the output that follows. |

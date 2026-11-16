@@ -49,10 +49,14 @@ use statscraft_syntax::{
 pub(crate) struct Models {
     correlograms: [Option<Box<Correlogram>>; 3],
     season: Option<Box<Season>>,
+    pub(crate) exsmooth: Option<Box<statscraft_syntax::Exsmooth>>,
+    pub(crate) arima: Option<crate::arima::Previous>,
+    /// The last TSPLOT and CASEPLOT.
+    pub(crate) plots: [Option<Box<statscraft_syntax::SeriesPlot>>; 2],
 }
 
 /// A series in case order; None where missing.
-type Values = Vec<Option<f64>>;
+pub(crate) type Values = Vec<Option<f64>>;
 
 fn kind_index(kind: CorrelogramKind) -> usize {
     match kind {
@@ -71,7 +75,7 @@ fn difference(x: &[Option<f64>], lag: usize) -> Values {
 
 /// The values of a numeric variable; None where system-missing, or user-missing unless
 /// `include`. Also the counts of user- and system-missing values.
-fn read_series(
+pub(crate) fn read_series(
     data: &Dataset,
     name: &str,
     include: bool,
@@ -390,6 +394,64 @@ pub(crate) fn ifft(re: &[f64], im: &[f64]) -> Vec<f64> {
         .collect()
 }
 
+/// SEASON's ratio-to-moving-average method on a complete series: the moving average, the
+/// seasonal-irregular values and the factor of each position of the period (multiplicative in
+/// percent).
+pub(crate) fn seasonal_factors(
+    x: &[f64],
+    p: usize,
+    additive: bool,
+    centered: bool,
+) -> (Values, Values, Vec<f64>) {
+    let n = x.len();
+    let pf = p as f64;
+    // moving average (0-based t)
+    let half = p / 2;
+    let ma: Vec<Option<f64>> = (0..n)
+        .map(|t| {
+            if p % 2 == 1 {
+                (t >= half && t + half < n).then(|| mean(&x[t - half..=t + half]))
+            } else if centered {
+                (t >= half && t + half < n).then(|| {
+                    (x[t - half] + x[t + half]) / (2.0 * pf)
+                        + x[t + 1 - half..t + half].iter().sum::<f64>() / pf
+                })
+            } else {
+                (t >= half && t + half <= n).then(|| mean(&x[t - half..t + half]))
+            }
+        })
+        .collect();
+    let si: Vec<Option<f64>> = (0..n)
+        .map(|t| {
+            let z = ma[t]?;
+            Some(if additive { x[t] - z } else { x[t] / z * 100.0 })
+        })
+        .collect();
+    let raw: Vec<f64> = (0..p)
+        .map(|s| {
+            let mut v: Vec<f64> = (s..n).step_by(p).filter_map(|t| si[t]).collect();
+            v.sort_by(f64::total_cmp);
+            if v.len() > 2 {
+                mean(&v[1..v.len() - 1])
+            } else {
+                mean(&v)
+            }
+        })
+        .collect();
+    let average = mean(&raw);
+    let factors: Vec<f64> = raw
+        .iter()
+        .map(|f| {
+            if additive {
+                f - average
+            } else {
+                f * 100.0 / average
+            }
+        })
+        .collect();
+    (ma, si, factors)
+}
+
 /// The valid stretch of a series as numbers, and where it starts; an error for a gap inside.
 fn without_gaps(x: &[Option<f64>], what: &str) -> Result<(usize, Vec<f64>), Error> {
     let start = x.iter().position(Option::is_some).unwrap_or(0);
@@ -467,6 +529,19 @@ impl Engine {
             vec![
                 text("Period of the DATE variables"),
                 date.map_or_else(none, |p| Cell::Number(p as f64)),
+            ],
+            vec![
+                text("USE"),
+                self.ts_use.as_ref().map_or_else(
+                    || text("All cases"),
+                    |r| text(crate::ts_range::range_text(r)),
+                ),
+            ],
+            vec![
+                text("PREDICT"),
+                self.ts_predict
+                    .as_ref()
+                    .map_or_else(none, |r| text(crate::ts_range::range_text(r))),
             ],
             vec![
                 text("Period in use"),
@@ -1283,6 +1358,48 @@ impl Engine {
         Ok(given)
     }
 
+    /// Saves the new series of a time series procedure as TSET NEWVAR says: per item, one
+    /// variable per root (FIT, ERR, ...) with its label and values. CURRENT numbers the items
+    /// from 1, ALL takes the first number free for every root; NONE saves nothing.
+    pub(crate) fn save_series(
+        &mut self,
+        command: &str,
+        roots: &[&str],
+        items: Vec<(Vec<String>, Vec<Values>)>,
+    ) -> Result<(), Error> {
+        let newvar = self.tset.newvar;
+        if newvar == NewVar::None || items.is_empty() {
+            return Ok(());
+        }
+        let count = roots.len() * items.len();
+        let most = self.tset.mxnewvars as usize;
+        if count > most {
+            self.warn(format!(
+                "{command} would make {count} new variables, more than TSET MXNEWVARS={most}; none are saved"
+            ));
+            return Ok(());
+        }
+        self.all_or_nothing(|engine| {
+            let data = engine.active_mut()?;
+            for (i, (labels, columns)) in items.into_iter().enumerate() {
+                let names = |n: usize| roots.iter().map(move |r| format!("{r}_{n}"));
+                let n = match newvar {
+                    NewVar::Current => i + 1,
+                    _ => (1..)
+                        .find(|&n| names(n).all(|v| data.variable_index(&v).is_none()))
+                        .expect("a free number"),
+                };
+                for ((name, label), values) in names(n).zip(labels).zip(columns) {
+                    data.set_numeric_values(&name, values)?;
+                    data.set_variable_label(&name, Some(&label))?;
+                    data.set_format(&name, "F11.5")?;
+                    data.set_measure(&name, Measure::Scale)?;
+                }
+            }
+            Ok(())
+        })
+    }
+
     /// Under TSET NEWVAR=CURRENT, drops the variables of these names before a procedure
     /// saves its own under them.
     pub(crate) fn replace_current(&mut self, names: &[String]) -> Result<(), Error> {
@@ -1325,6 +1442,8 @@ impl Engine {
                 self.expand(&c.dependents)?.len() * c.models.len(),
             ),
             Command::Wls(w) if !w.save_weight && w.weight.is_none() => numbered(&["WGT"], 1),
+            Command::Exsmooth(e) => numbered(&["FIT", "ERR"], self.expand(&e.variables)?.len()),
+            Command::Arima(_) => numbered(&["FIT", "ERR", "LCL", "UCL", "SEP"], 1),
             _ => Vec::new(),
         })
     }
@@ -1402,51 +1521,7 @@ impl Engine {
                      MODEL=ADDITIVE"
                 )));
             }
-            let pf = p as f64;
-            // moving average (0-based t)
-            let half = p / 2;
-            let ma: Vec<Option<f64>> = (0..n)
-                .map(|t| {
-                    if p % 2 == 1 {
-                        (t >= half && t + half < n).then(|| mean(&x[t - half..=t + half]))
-                    } else if centered {
-                        (t >= half && t + half < n).then(|| {
-                            (x[t - half] + x[t + half]) / (2.0 * pf)
-                                + x[t + 1 - half..t + half].iter().sum::<f64>() / pf
-                        })
-                    } else {
-                        (t >= half && t + half <= n).then(|| mean(&x[t - half..t + half]))
-                    }
-                })
-                .collect();
-            let si: Vec<Option<f64>> = (0..n)
-                .map(|t| {
-                    let z = ma[t]?;
-                    Some(if additive { x[t] - z } else { x[t] / z * 100.0 })
-                })
-                .collect();
-            let raw: Vec<f64> = (0..p)
-                .map(|s| {
-                    let mut v: Vec<f64> = (s..n).step_by(p).filter_map(|t| si[t]).collect();
-                    v.sort_by(f64::total_cmp);
-                    if v.len() > 2 {
-                        mean(&v[1..v.len() - 1])
-                    } else {
-                        mean(&v)
-                    }
-                })
-                .collect();
-            let average = mean(&raw);
-            let factors: Vec<f64> = raw
-                .iter()
-                .map(|f| {
-                    if additive {
-                        f - average
-                    } else {
-                        f * 100.0 / average
-                    }
-                })
-                .collect();
+            let (ma, si, factors) = seasonal_factors(&x, p, additive, centered);
             let saf: Vec<f64> = (0..n).map(|t| factors[t % p]).collect();
             let sas: Vec<f64> = (0..n)
                 .map(|t| {
