@@ -400,6 +400,8 @@ impl Table {
     /// within 1 to 255 characters.
     pub fn set_decorations(&mut self, decorations: Vec<Decoration>, style: TableStyle) {
         let columns = self.columns.len();
+        // a stacked layout shows one column fewer on the sheet
+        let stacked = style.row_labels.as_deref() == Some("stacked") && self.row_headers >= 2;
         let tidy = |mut cells: Vec<Decoration>, rows: usize| {
             cells.retain(|d| d.row < rows && d.col < columns);
             cells.iter_mut().for_each(Decoration::clean);
@@ -431,13 +433,9 @@ impl Table {
                 widths.dedup_by_key(|w| w.col);
                 widths
             },
-            // counted on the sheet: a stacked layout shows one column fewer
-            freeze_columns: {
-                let stacked =
-                    style.row_labels.as_deref() == Some("stacked") && self.row_headers >= 2;
-                let shown = columns - usize::from(stacked);
-                style.freeze_columns.filter(|&n| usize::from(n) <= shown)
-            },
+            freeze_columns: style
+                .freeze_columns
+                .filter(|&n| usize::from(n) <= columns - usize::from(stacked)),
         };
     }
 
