@@ -100,7 +100,7 @@ fn loop_errors() {
     let mut session = session("1 2 3");
     assert_eq!(
         error(&mut session, "END LOOP."),
-        "line 1: END LOOP: END LOOP without LOOP"
+        "line 1: END LOOP without LOOP"
     );
     assert_eq!(
         error(&mut session, "LOOP #i = 1 TO 2.\nCOMPUTE x = 1."),
@@ -108,7 +108,7 @@ fn loop_errors() {
     );
     assert_eq!(
         error(&mut session, "BREAK."),
-        "line 1: BREAK: BREAK is only allowed inside LOOP"
+        "line 1: BREAK is only allowed inside LOOP"
     );
     let message = error(&mut session, "LOOP #i = 1 TO 2.\nFREQUENCIES x.\nEND LOOP.");
     assert!(
