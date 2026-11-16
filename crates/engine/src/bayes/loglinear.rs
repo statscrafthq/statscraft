@@ -605,7 +605,7 @@ fn tests(block: &Block, chisq: bool, lrt: bool, title: &str) -> Table {
             "Pearson Chi-Square" | "Continuity Correction" => chisq,
             "Fisher's Exact Test" => chisq && small,
             "Likelihood Ratio" => lrt,
-            _ => true,
+            name => name == "N of Valid Cases",
         })
         .collect();
     let exact = kept.iter().any(|(name, _)| *name == "Fisher's Exact Test");
