@@ -23,6 +23,9 @@
 //!   error under independence, its significance two-sided normal. The standard error shown is
 //!   the one without that assumption.
 
+// the formulas index cells by row i and column j, as the manual writes them
+#![allow(clippy::needless_range_loop)]
+
 use crate::dist::{chi_square_p, normal_p, t_p};
 use statscraft_syntax::CrosstabsMeasure as M;
 
